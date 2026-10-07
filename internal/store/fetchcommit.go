@@ -578,7 +578,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		if err := writeHits(ctx, tx, hits, now); err != nil {
 			return err
 		}
-		if err := addFeedDailyNew(ctx, tx, feedID, st.day, len(st.unreadNew)-counted); err != nil {
+		if err := addFeedDailyNew(ctx, tx, feedID, st.day, st.unreadNew[counted:]); err != nil {
 			return err
 		}
 	}
@@ -784,21 +784,26 @@ func (d *DB) FeedSnapshotsByID(ctx context.Context, set FetchSettings, ids []int
 	return out, nil
 }
 
-// addFeedDailyNew adds n to the feed's count of new, unread items for day (the read-rate denominator,
-// migration 0017). Each chunk adds the items it inserted unread and not muted, in its own transaction,
-// so the count commits or rolls back with them. The first successful fetch at a URL adds nothing
-// (url_succeeded 0: a new subscription, or a URL edit): that document is a backlog, not arrivals.
-func addFeedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, day string, n int) error {
-	if n == 0 {
+// addFeedDailyNew adds ids, in allocation order, to the feed's count of new, unread items for day (the
+// read-rate denominator, migrations 0017 and 0018) and widens the day's span of counted ids to them (the
+// read rate counts a read only inside such a span). Each chunk adds the items it inserted unread and
+// not muted, in its own transaction, so the count commits or rolls back with them. The first successful
+// fetch at a URL adds nothing (url_succeeded 0: a new subscription, or a URL edit): that document is a
+// backlog, not arrivals.
+func addFeedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, day string, ids []int64) error {
+	if len(ids) == 0 {
 		return nil
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO feed_daily_new (feed_id, local_date, new_items) VALUES (?,?,?)
-		ON CONFLICT(feed_id, local_date) DO UPDATE SET new_items = new_items + excluded.new_items`, feedID, day, n)
+	_, err := tx.ExecContext(ctx, `INSERT INTO feed_daily_new (local_date, feed_id, new_items, first_item, last_item) VALUES (?,?,?,?,?)
+		ON CONFLICT(local_date, feed_id) DO UPDATE SET new_items = new_items + excluded.new_items,
+			first_item = min(first_item, excluded.first_item), last_item = max(last_item, excluded.last_item)`,
+		day, feedID, len(ids), ids[0], ids[len(ids)-1])
 	return err
 }
 
 // dropTrimmedDailyNew takes back, in the last chunk after the trim, the counted items the same commit
-// trimmed: they were never shown. A row that would reach 0 is deleted (new_items > 0).
+// trimmed: they were never shown. A row that would reach 0 is deleted (new_items > 0). The span of
+// counted ids is left as it is: a trimmed item was never opened, so it adds no read inside it.
 func dropTrimmedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, st *commitState) error {
 	if len(st.unreadNew) == 0 || st.trimmed == 0 {
 		return nil

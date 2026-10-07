@@ -215,7 +215,8 @@ Decided in a design discussion. #37 keeps the roadmap label; #36 is closed (belo
   summary strip, plus per-feed deltas in the drill-down to show feeds started or abandoned.
 - **Read rate per feed: built for pruning.** The share of a feed's new items that were opened. Retention trims the items
   table, so the published count per feed per day has to be recorded at fetch time, in a table that survives trims
-  (`feed_daily_new`, migration 0017). The rate covers only days with complete reads and counted arrivals.
+  (`feed_daily_new`, migration 0017). The rate covers only complete days (today is left out) with complete reads and counted
+  arrivals, and counts only reads of the items that arrived in them.
 - **Screen: design A.** One Stats screen. Adds comparison, a Months range with bars covering every month on record
   (not capped at 12), and a source row that opens a per-feed drill-down sheet. Design B (a separate Feeds page) is the
   fallback if the sheet outgrows the screen; promote the sheet then.

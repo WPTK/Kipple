@@ -328,8 +328,8 @@ export interface StatsSource {
 }
 
 /**
- * Items read over new items, over the summary's `read_rate_from`..`range.to`. `rate` is null (shown as a dash,
- * never 0%) when nothing new arrived or there is no window, and at most 1 (older items can be read too).
+ * Of the items that arrived new in the summary's `read_rate_from`..`read_rate_to`, how many were read. `rate` is null
+ * (shown as a dash, never 0%) when nothing new arrived or there is no window, and at most 1.
  */
 export interface ReadRate {
   items_read: number;
@@ -347,8 +347,9 @@ export interface StatsSummary {
   covered_from?: string | null;
   /** The same for active time, which also waits for the first timed event; null when nothing was ever timed. */
   timed_from?: string | null;
-  /** The first day of the read rates' window (reads complete and arrivals counted); null when there is none. */
+  /** The read rates' window of complete days (reads complete and arrivals counted); null when there is none. */
   read_rate_from?: string | null;
+  read_rate_to?: string | null;
   /** All feeds, or the one feed of a `feed=` summary. */
   read_rate?: ReadRate;
   /** `legacy_opens`: opens from before reading time was recorded, counted as reads with nothing measured. */

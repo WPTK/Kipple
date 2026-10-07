@@ -33,6 +33,7 @@ const alpha: StatsSummary = {
   timed_from: "2026-01-01",
   totals: { items_read: 30, opens: 40, active_seconds: 1800, days_active: 9 },
   read_rate_from: "2026-09-01",
+  read_rate_to: "2026-09-24",
   read_rate: { items_read: 10, new_items: 40, rate: 0.25 },
   sources: [richStats.sources![0]!],
   never_opened: [],
@@ -135,16 +136,17 @@ describe("Feed drill-down", () => {
     expect(within(sources).getAllByText("Read rate -")).toHaveLength(2); // the feeds with no rate show a dash
     await user.click(within(sources).getByRole("button", { name: /Alpha Blog/ }));
     const sheet = await screen.findByRole("dialog", { name: "Alpha Blog" });
-    const rate = await within(sheet).findByRole("button", { name: "25%" });
+    const rate = await within(sheet).findByRole("button", { name: "Read rate 25%" });
     expect(rate).toHaveAttribute("aria-expanded", "false");
     await user.click(rate);
     expect(rate).toHaveAttribute("aria-expanded", "true");
-    expect(within(rate).getByText(`10 of 40 new since ${shortDate("2026-09-01")}`)).toBeInTheDocument();
+    expect(within(sheet).getByText(`10 of 40 new, ${shortDate("2026-09-01")} to ${shortDate("2026-09-24")}`)).toBeInTheDocument();
+    expect(rate).toHaveAccessibleName("Read rate 25%"); // the counts do not change its name
   });
 
   it.each([
-    ["no window", { read_rate_from: null, read_rate: { items_read: 0, new_items: 0, rate: null } }, "Not enough history"],
-    ["nothing new", { read_rate: { items_read: 3, new_items: 0, rate: null } }, `Nothing new arrived since ${shortDate("2026-09-01")}`],
+    ["no window", { read_rate_from: null, read_rate_to: null, read_rate: { items_read: 0, new_items: 0, rate: null } }, "Not enough history"],
+    ["nothing new", { read_rate: { items_read: 3, new_items: 0, rate: null } }, `Nothing new arrived, ${shortDate("2026-09-01")} to ${shortDate("2026-09-24")}`],
   ])("a feed with %s shows a dash, never 0%%", async (_, over, note) => {
     mockFetch({
       "GET /api/bootstrap": () => json({ ...bootstrap, settings: {} }),
@@ -158,7 +160,7 @@ describe("Feed drill-down", () => {
     const sheet = await screen.findByRole("dialog", { name: "Alpha Blog" });
     const engagement = await within(sheet).findByRole("region", { name: "Engagement" });
     expect(within(engagement).queryByText("0%")).toBeNull();
-    await user.click(within(engagement).getByRole("button", { name: "-" }));
+    await user.click(within(engagement).getByRole("button", { name: "Read rate unknown" }));
     expect(within(engagement).getByText(note)).toBeInTheDocument();
   });
 

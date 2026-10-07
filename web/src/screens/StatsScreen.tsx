@@ -532,7 +532,7 @@ export function Sources({ data, onOpen }: { data: StatsSummary; onOpen?: (r: Sou
                 Opened original
               </th>
               {by === "feeds" ? (
-                <th scope="col" className="w-16 px-2 py-2 text-right font-medium">
+                <th scope="col" className="w-20 whitespace-nowrap px-2 py-2 text-right font-medium">
                   Read rate
                 </th>
               ) : null}
@@ -639,22 +639,27 @@ export function FeedSheet({ feed, range, onClose }: { feed: SourceRow | null; ra
 /** The feed's read rate as a percentage (a dash with no data); a tap shows the counts behind it. */
 function ReadRateTerm({ data }: { data: StatsSummary }) {
   const [shown, setShown] = useState(false);
+  const noteId = useId();
   const r = data.read_rate;
+  const pct = pctLabel(r?.rate);
   return (
     <div className="relative rounded-xl bg-surface px-3 py-2">
       <dt className="text-xs text-fg2">Read rate</dt>
       <dd>
+        {/* The name stays "Read rate 25%" whether or not the counts are showing; they are the button's controlled region. */}
         <button
           type="button"
+          aria-label={`Read rate ${pct === "-" ? "unknown" : pct}`}
           aria-expanded={shown}
+          aria-controls={noteId}
           onClick={() => setShown((s) => !s)}
-          className="block text-left after:absolute after:inset-0 after:rounded-xl"
+          className="block text-left text-base font-bold tabular-nums after:absolute after:inset-0 after:rounded-xl"
         >
-          <span className="block text-base font-bold tabular-nums">{pctLabel(r?.rate)}</span>
-          {shown ? (
-            <span className="mt-1 block text-xs font-medium tabular-nums">{readRateNote(r, data.read_rate_from, data.range?.from)}</span>
-          ) : null}
+          {pct}
         </button>
+        <span id={noteId} hidden={!shown} className="mt-1 block text-xs font-medium tabular-nums">
+          {shown ? readRateNote(r, data.read_rate_from, data.read_rate_to) : null}
+        </span>
       </dd>
     </div>
   );

@@ -129,12 +129,12 @@ type (
 		Subscribed       bool          `json:"subscribed"`
 		ReadRate         StatsReadRate `json:"read_rate"`
 	}
-	// StatsReadRate is the share of new items that were read, over the summary's ReadRateFrom..To:
-	// ItemsRead distinct items with a read open in those days, over NewItems, the feed_daily_new
-	// arrivals of those days. Rate is nil (no data, shown as a dash, never 0%) when there are no such
-	// days or nothing new arrived. Reads of items that arrived earlier (before the window, or in a
-	// feed's first document, which is not counted) are in ItemsRead, since an item's arrival day is
-	// not kept, so Rate is capped at 1; the two counts are exact.
+	// StatsReadRate is the share of the new items of the summary's window (ReadRateFrom..ReadRateTo)
+	// that were read: NewItems is the window's feed_daily_new arrivals, and ItemsRead the distinct
+	// items with a read open in the range whose id lies in a counted span of their feed inside the
+	// window (statsArrivals). Rate is nil (no data, shown as a dash, never 0%) when there is no window
+	// or nothing new arrived. A span can also hold ids the day did not count (an item that arrived read
+	// or muted between counted ones), so Rate is held to at most 1.
 	StatsReadRate struct {
 		ItemsRead int      `json:"items_read"`
 		NewItems  int      `json:"new_items"`
@@ -160,11 +160,10 @@ type (
 		// TimedFrom is the same for active time: also after the first read time or scroll was recorded,
 		// as earlier opens have no time. Never before CoveredFrom; nil when nothing was ever timed.
 		TimedFrom *string `json:"timed_from"`
-		// ReadRateFrom is the first day of the read rates' window, which ends at range.to: the latest
-		// of range.from, CoveredFrom (reads are complete) and the day after the first feed_daily_new
-		// row (arrivals are counted; that day may be the partial day the table was added). Nil, with
-		// every rate nil, when the window is empty.
+		// ReadRateFrom..ReadRateTo is the read rates' window of complete days (statsRateWindow); both
+		// nil, with every rate nil, when it is empty.
 		ReadRateFrom *string `json:"read_rate_from"`
+		ReadRateTo   *string `json:"read_rate_to"`
 		// ReadRate is that of all feeds, or of the one feed with FeedID.
 		ReadRate StatsReadRate `json:"read_rate"`
 		Totals   StatsTotals   `json:"totals"`
@@ -263,11 +262,10 @@ const (
 	sqlNameByReadTime = `SELECT feed_title, folder_id, folder_name FROM stats_events INDEXED BY idx_stats_feed
 		WHERE feed_id = ?1 AND kind = 'read_time' AND ts BETWEEN ?2 AND ?3 AND local_date BETWEEN ?4 AND ?5 AND id <= ?6
 		ORDER BY ts DESC, id DESC LIMIT 1`
-	// sqlDailyNewFirst is the first day any arrival was counted (migration 0017); sqlDailyNew sums
-	// each feed's counted arrivals over a window. Both read idx_feed_daily_date.
-	sqlDailyNewFirst = `SELECT COALESCE(MIN(local_date), '') FROM feed_daily_new INDEXED BY idx_feed_daily_date`
-	sqlDailyNew      = `SELECT feed_id, SUM(new_items) FROM feed_daily_new INDEXED BY idx_feed_daily_date
-		WHERE local_date BETWEEN ?1 AND ?2 GROUP BY feed_id`
+	// sqlDailyNewFirst is the first day any arrival was counted, one seek; sqlDailyNew reads a window's
+	// rows, one range of the key (local_date, feed_id) that holds every column read (migration 0018).
+	sqlDailyNewFirst = `SELECT COALESCE(MIN(local_date), '') FROM feed_daily_new`
+	sqlDailyNew      = `SELECT feed_id, new_items, first_item, last_item FROM feed_daily_new WHERE local_date BETWEEN ?1 AND ?2`
 )
 
 // sqlFeedFirstDate is the local date of one feed's oldest row (its start when the feed row is gone):
@@ -316,8 +314,6 @@ func statsHinted() []statsHint {
 		{"streaks sessions", sqlStreaks, "idx_stats_session", 3, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds}},
 		{"name by read time", sqlNameByReadTime, "idx_stats_feed", 1, []any{1, 0, 1 << 40, lo, hi, max}},
 		{"feed first date", sqlFeedFirstDate, "idx_stats_feed", 7, []any{1, max}},
-		{"daily new first", sqlDailyNewFirst, "idx_feed_daily_date", 1, nil},
-		{"daily new", sqlDailyNew, "idx_feed_daily_date", 1, []any{lo, hi}},
 	}
 }
 
@@ -461,31 +457,91 @@ func statsFeedStart(ctx context.Context, q Querier, loc *time.Location, feed, ma
 	return start, nil
 }
 
-// statsRateFrom is the first day of the read rates' window from..to (StatsSummary.ReadRateFrom), or
-// "" when it is empty: reads must be complete (covered, the summary's covered_from) and arrivals
-// counted, which starts the day after the first feed_daily_new row, as that day can hold arrivals
-// from before the table existed.
-func statsRateFrom(ctx context.Context, q Querier, from, to string, covered *string) (string, error) {
+// statsRateWindow is the read rates' window inside from..to (StatsSummary.ReadRateFrom/To), or ""
+// and "" when it is empty. Only complete days count, as in a comparison: it ends before today (its
+// arrivals are counted as they come, its reads mostly not yet). It starts where reads are complete
+// (covered, the summary's covered_from) and arrivals counted: the day after the first feed_daily_new
+// row, as that day can hold arrivals from before migration 0018.
+func statsRateWindow(ctx context.Context, q Querier, from, to, today string, covered *string) (string, string, error) {
 	if covered == nil {
-		return "", nil
+		return "", "", nil
 	}
 	var first string
 	if err := q.QueryRowContext(ctx, sqlDailyNewFirst).Scan(&first); err != nil || first == "" {
-		return "", err
+		return "", "", err
 	}
 	start := max(from, *covered, parseLocalDate(first).AddDate(0, 0, 1).Format(dateLayout))
-	if start > to {
-		return "", nil
+	end := min(to, parseLocalDate(today).AddDate(0, 0, -1).Format(dateLayout))
+	if start > end {
+		return "", "", nil
 	}
-	return start, nil
+	return start, end, nil
 }
 
-// statsDailyNew sums each feed's counted arrivals (feed_daily_new) over from..to.
-func statsDailyNew(ctx context.Context, q Querier, from, to string) (map[int64]int, error) {
-	return statsCountByFeed(ctx, q, sqlDailyNew, from, to)
+// arrivals is one feed's counted arrivals in the read rates' window: their number and the spans of
+// their ids, one per day, sorted by first id.
+type arrivals struct {
+	n     int
+	spans [][2]int64
 }
 
-// readRate is read over arrived, nil when nothing arrived; see StatsReadRate for the cap.
+// counts reports whether item lies in one of the spans. Item ids only increase (IDAlloc), so an item
+// of this feed inside a span arrived on that day, and one outside every span arrived before the window,
+// in a document that was not counted (a feed's first one), or after the window.
+func (a *arrivals) counts(item int64) bool {
+	i := sort.Search(len(a.spans), func(i int) bool { return a.spans[i][1] >= item })
+	return i < len(a.spans) && a.spans[i][0] <= item
+}
+
+func arrivedN(a *arrivals) int {
+	if a == nil {
+		return 0
+	}
+	return a.n
+}
+
+// statsArrivals reads each feed's counted arrivals (feed_daily_new) over from..to.
+func statsArrivals(ctx context.Context, q Querier, from, to string) (map[int64]*arrivals, error) {
+	rows, err := q.QueryContext(ctx, sqlDailyNew, from, to)
+	if err != nil {
+		return nil, err
+	}
+	m := map[int64]*arrivals{}
+	if err := eachRow(rows, func() error {
+		var f, first, last int64
+		var n int
+		if err := rows.Scan(&f, &n, &first, &last); err != nil {
+			return err
+		}
+		a := m[f]
+		if a == nil {
+			a = &arrivals{}
+			m[f] = a
+		}
+		a.n += n
+		a.spans = append(a.spans, [2]int64{first, last})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	for _, a := range m {
+		// Days come in date order, and so do their ids, unless a time zone change moved the dates: sort,
+		// and merge spans that overlap, so counts can search them.
+		sort.Slice(a.spans, func(i, j int) bool { return a.spans[i][0] < a.spans[j][0] })
+		merged := a.spans[:1]
+		for _, s := range a.spans[1:] {
+			if last := &merged[len(merged)-1]; s[0] <= last[1] {
+				last[1] = max(last[1], s[1])
+			} else {
+				merged = append(merged, s)
+			}
+		}
+		a.spans = merged
+	}
+	return m, nil
+}
+
+// readRate is read over arrived, nil when nothing arrived; see StatsReadRate for the bound.
 func readRate(read, arrived int) StatsReadRate {
 	r := StatsReadRate{ItemsRead: read, NewItems: arrived}
 	if arrived > 0 {
@@ -735,12 +791,12 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		}
 	}
 
-	rateFrom, err := statsRateFrom(ctx, q, from, to, out.CoveredFrom)
+	rateFrom, rateTo, err := statsRateWindow(ctx, q, from, to, today, out.CoveredFrom)
 	if err != nil {
 		return nil, err
 	}
 	if rateFrom != "" {
-		out.ReadRateFrom = &rateFrom
+		out.ReadRateFrom, out.ReadRateTo = &rateFrom, &rateTo
 	}
 
 	// Opens in the range, from the covering index (migration 0009); no table rows are read.
@@ -760,7 +816,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		streaks    *StatsStreaks
 		stars      map[int64]starAgg
 		origs      map[int64]int
-		arrived    = map[int64]int{}
+		arrived    = map[int64]*arrivals{}
 	)
 	// The heaviest scans start first; at most three run at once (see statsGroup).
 	g := newStatsGroup(ctx, maxConcurrentStatsQueries)
@@ -802,7 +858,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	})
 	if rateFrom != "" {
 		g.Go(func(c context.Context) (e error) {
-			arrived, e = statsDailyNew(c, q, rateFrom, to)
+			arrived, e = statsArrivals(c, q, rateFrom, rateTo)
 			return
 		})
 	}
@@ -828,7 +884,11 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		if stars[f].n == 0 {
 			delete(stars, f)
 		}
-		arrived = map[int64]int{f: arrived[f]}
+		if a := arrived[f]; a != nil {
+			arrived = map[int64]*arrivals{f: a}
+		} else {
+			arrived = map[int64]*arrivals{}
+		}
 	}
 	for i := range opens {
 		o := &opens[i]
@@ -839,7 +899,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	// ---- aggregate ----
 	type feedAgg struct {
 		readItems, openItems map[int64]struct{}
-		rateRead             map[int64]struct{} // read items opened from rateFrom on
+		rateRead             map[int64]struct{} // read items that arrived counted in the window
 		opens, bounces       int
 		nonLegacy            int
 		secs                 int64
@@ -890,7 +950,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		if o.read {
 			a.readItems[o.item] = struct{}{}
 			allRead[o.item] = struct{}{}
-			if rateFrom != "" && o.date >= rateFrom {
+			if ar := arrived[o.feed]; ar != nil && ar.counts(o.item) {
 				a.rateRead[o.item] = struct{}{}
 				allRateRead[o.item] = struct{}{}
 			}
@@ -922,8 +982,8 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 
 	out.Totals = StatsTotals{ItemsRead: len(allRead), Opens: len(opens), ActiveSeconds: active, DaysActive: len(readDays), LegacyOpens: legacyOpens}
 	allArrived := 0
-	for _, n := range arrived {
-		allArrived += n
+	for _, a := range arrived {
+		allArrived += a.n
 	}
 	out.ReadRate = readRate(len(allRateRead), allArrived)
 
@@ -1036,7 +1096,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	for id, a := range feeds {
 		s := StatsSource{FeedID: strconv.FormatInt(id, 10), ItemsRead: len(a.readItems), Opens: a.opens, ActiveSeconds: a.secs, Stars: stars[id].n,
 			TrackedOpens: a.nonLegacy, Bounces: a.bounces, ItemsOpened: len(a.openItems), ItemsOriginal: origs[id],
-			TimedSeconds: a.readSecs, TimedItems: a.readWithTime, ReadRate: readRate(len(a.rateRead), arrived[id])}
+			TimedSeconds: a.readSecs, TimedItems: a.readWithTime, ReadRate: readRate(len(a.rateRead), arrivedN(arrived[id]))}
 		if a.readWithTime > 0 {
 			v := float64(a.readSecs) / float64(a.readWithTime)
 			s.AvgReadSeconds = &v
