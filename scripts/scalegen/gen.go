@@ -242,7 +242,7 @@ func generate(ctx context.Context, o genOpts) error {
 	}
 	if err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		for _, p := range plans {
-			if _, err := tx.ExecContext(ctx, `UPDATE feeds SET title = ?, site_url = ?, last_fetch_at = ?, last_success_at = ?,
+			if _, err := tx.ExecContext(ctx, `UPDATE feeds SET title = ?, site_url = ?, last_fetch_at = ?, last_success_at = ?, url_succeeded = 1,
 				last_new_items_at = ?, last_status = 200 WHERE id = ?`,
 				p.title, "https://example.com/site/"+fmt.Sprint(p.id), now-3600, now-3600, now-7200, p.id); err != nil {
 				return err
@@ -474,10 +474,11 @@ func boolI(b bool) int {
 }
 
 // rewind turns a finished database into one the migrations from schema v up produce the latest
-// shape from. Every version first flattens the folder tree to the shape before migration 0012: each
-// folder becomes a top-level folder named by its full path, so 0012 has a table to rebuild. 11 does
-// only that; 10 also restores the settings rows 0011 deletes; 6 also drops what 0007 to 0009 added,
-// so those migrations do their real work (a full items UPDATE and three stats indexes).
+// shape from. Every version first undoes 0017 (it runs once) and flattens
+// the folder tree to the shape before migration 0012: each folder becomes a top-level folder named by
+// its full path, so 0012 has a table to rebuild. 11 does only that; 10 also restores the settings rows
+// 0011 deletes; 6 also drops what 0007 to 0009 added, so those migrations do their real work (a full
+// items UPDATE and three stats indexes).
 func rewind(path string, v int) error {
 	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=foreign_keys(OFF)")
 	if err != nil {
@@ -486,6 +487,7 @@ func rewind(path string, v int) error {
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 	stmts := []string{
+		`DROP TABLE feed_daily_new`, `ALTER TABLE feeds DROP COLUMN url_succeeded`,
 		`CREATE TABLE folders_old (
 		   id INTEGER PRIMARY KEY AUTOINCREMENT,
 		   name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(trim(name)) > 0),

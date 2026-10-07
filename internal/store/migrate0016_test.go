@@ -16,6 +16,7 @@ import (
 func schema15WithDevices(t *testing.T, rows, devices map[string]string) string {
 	t.Helper()
 	e := newEnv(t)
+	e.exec(undo0017)
 	e.exec("PRAGMA user_version = 15")
 	for k, v := range rows {
 		e.exec("INSERT INTO settings (key, value) VALUES (?, ?)", k, v)

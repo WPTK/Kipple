@@ -205,6 +205,33 @@ Decisions are recorded in full in the private history repository. Summary of wha
   (unique index) for dedup, offline events queued, losses accepted.
 - **Delivery:** alpha.4 sender and settings, alpha.5 screen, alpha.6 export and data controls, alpha.7 Wrapped.
 
+### Stats follow-up (2026-10-06, issues #37 and #36)
+
+Decided in a design discussion. #37 keeps the roadmap label; #36 is closed (below).
+
+- **Reading pace: dropped.** Words per minute would need a word count per item that trimming removes. Average read
+  length per source already covers "how long articles take".
+- **Period comparison: both levels.** Items, minutes and active days against the previous equal period, as deltas on the
+  summary strip, plus per-feed deltas in the drill-down to show feeds started or abandoned.
+- **Read rate per feed: built for pruning.** The share of a feed's new items that were opened. Retention trims the items
+  table, so the published count per feed per day has to be recorded at fetch time, in a table that survives trims
+  (`feed_daily_new`, migration 0017, built first; the rate itself is a later PR).
+- **Screen: design A.** One Stats screen. Adds comparison, a Months range with bars covering every month on record
+  (not capped at 12), and a source row that opens a per-feed drill-down sheet. Design B (a separate Feeds page) is the
+  fallback if the sheet outgrows the screen; promote the sheet then.
+- **Comparison has no toggle.** Tiles show plain numbers by default. Tapping a tile shows that stat's previous-period
+  value and change (for example "+18% from 120") and says which period it was compared with; tapping again hides it.
+  A settings-style on/off control inside content was rejected as non-standard (issue #286 holds the wider UI audit).
+- **Read rate shows as a percentage.** The counts ("31 of 50 new") appear on tap. A feed with no recorded days shows a
+  dash, never 0%. Per-feed deltas appear only in the drill-down sheet, not in the Sources list.
+- **Build order.** The published-counts table (migration 0017, `feed_daily_new`) goes first, because its history cannot
+  be recovered later. Comparison, Months, the drill-down and read rate follow in separate PRs.
+- **Reader API reads (#36): closed as not planned.** Kipple measures reading time only in its own web app. A sync client
+  sends no read time or scroll, so its reads can never meet the read definition (10 s active, or 25% scroll with 3 s),
+  and no request log can change that. The Stats screen and the docs say: "Statistics count reading in the Kipple web app.
+  Reading in other apps isn't measured." (a `changes/` entry rides with the stats build). Reopen only if a client starts
+  sending read time. No read-state write gets the Recorder, and `TestMarkReadNeverTouchesRecorder` stays as is.
+
 ## Phase 5 planning meeting (2026-09-27)
 
 Not a UI meeting — recorded here per the owner's instruction that all planning decisions land in this file plus

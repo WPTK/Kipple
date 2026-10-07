@@ -130,7 +130,7 @@ func SubscribedURLs(ctx context.Context, q Querier, urls []string) (map[string]b
 const snapshotCols = `id, url, host, enabled, etag, last_modified, body_hash, user_agent, http_auth,
 	ignore_http_cache, disable_http2, allow_insecure_tls, allow_private_net, dedup_mode, rekey_pending,
 	interval_minutes, retention, fulltext, redirect_to, redirect_kind, redirect_count,
-	consecutive_failures, initial_read_before, last_success_at, ua_fallback, url_original IS NOT NULL`
+	consecutive_failures, initial_read_before, last_success_at, ua_fallback, url_original IS NOT NULL, url_succeeded`
 
 // FeedSnapshots runs a snapshot query (`where` is appended after FROM feeds,
 // e.g. "WHERE id = ?") on the reader pool and resolves the settings-dependent
@@ -146,11 +146,11 @@ func (d *DB) feedSnapshots(ctx context.Context, set FetchSettings, where string,
 		var s fetch.Snapshot
 		var etag, lm, bh, ua, auth, rto, rkind sql.NullString
 		var interval, retention, irb, lsa sql.NullInt64
-		var enabled, ignore, h2, insecure, private, rekey, ft, uaFallback, changed int
+		var enabled, ignore, h2, insecure, private, rekey, ft, uaFallback, changed, urlOK int
 		if err := rows.Scan(&s.ID, &s.URL, &s.Host, &enabled, &etag, &lm, &bh, &ua, &auth,
 			&ignore, &h2, &insecure, &private, &s.DedupMode, &rekey,
 			&interval, &retention, &ft, &rto, &rkind, &s.Redirect.Count,
-			&s.ConsecutiveFailures, &irb, &lsa, &uaFallback, &changed); err != nil {
+			&s.ConsecutiveFailures, &irb, &lsa, &uaFallback, &changed, &urlOK); err != nil {
 			return nil, err
 		}
 		s.Enabled = enabled == 1
@@ -163,7 +163,7 @@ func (d *DB) feedSnapshots(ctx context.Context, set FetchSettings, where string,
 		if retention.Valid {
 			s.Retention = int(retention.Int64)
 		}
-		s.InitialReadBefore, s.LastSuccessAt, s.URLChanged = irb.Int64, lsa.Int64, changed == 1
+		s.InitialReadBefore, s.LastSuccessAt, s.URLChanged, s.URLSucceeded = irb.Int64, lsa.Int64, changed == 1, urlOK == 1
 		iv := set.IntervalMinutes
 		if s.IntervalMinutes > 0 {
 			iv = s.IntervalMinutes
