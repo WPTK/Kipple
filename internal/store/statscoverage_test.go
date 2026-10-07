@@ -67,22 +67,38 @@ func TestStatsDeleteGapIsTheNewestRemovedDay(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, marker("2026-09-10"))
 
-	// A row dated after today is covered too, and a marker after today reads as today.
+	// Rows dated after today (another zone) are removed too, but a gap never reaches past today.
 	e.putStat("open", "2026-09-28", 4, 1, "d", nil, "F")
 	_, err = StatsDelete(e.ctx, e.db, "2026-09-25", "2026-12-31", nil)
 	require.NoError(t, err)
-	require.Equal(t, 1, marker("2026-09-28"))
-	e.putStat("open", "2026-09-20", 5, 1, "e", nil, "F")
-	require.Equal(t, "2026-09-25", *e.summary("2026-09-01", "2026-09-24").CoveredFrom, "the marker reads as today")
+	require.Equal(t, 1, marker("2026-09-24"))
 }
 
-// A backup that already holds a marker after today (a clock or zone ahead, or a hand-edited upload) is
-// read as today, never as the far future, and is not moved back.
-func TestStatsCoverageClampsALaterMarker(t *testing.T) {
+// The marker is never after today: a marker from the future (a backup made under a fast clock, or an
+// edited file) is replaced by the next gap, whichever path records it.
+func TestStatsGapReplacesAMarkerAfterToday(t *testing.T) {
 	e := newEnv(t) // today is 2026-09-24
 	e.putStat("open", "2026-09-02", 1, 1, "a", nil, "F")
-	for _, m := range []string{"2026-09-28", "9999-12-31"} {
+	put := func(m string) {
 		e.exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('sys.stats_gap_end', ?)`, `"`+m+`"`)
-		require.Equal(t, "2026-09-25", *e.summary("2026-09-01", "2026-09-24").CoveredFrom, m)
 	}
+	marker := func() string {
+		var v string
+		require.NoError(t, e.db.Reader().QueryRow(`SELECT value FROM settings WHERE key = 'sys.stats_gap_end'`).Scan(&v))
+		return v
+	}
+	for _, m := range []string{"2026-09-28", "9999-12-31"} {
+		// Turning statistics off and on.
+		put(m)
+		require.NoError(t, e.db.SetSettings(e.ctx, map[string]any{"stats.enabled": false}))
+		require.NoError(t, e.db.SetSettings(e.ctx, map[string]any{"stats.enabled": true}))
+		require.Equal(t, `"2026-09-24"`, marker(), m)
+		// A delete that removes rows.
+		put(m)
+		e.putStat("open", "2026-09-03", 2, 1, "b", nil, "F")
+		_, err := StatsDelete(e.ctx, e.db, "2026-09-03", "2026-09-03", nil)
+		require.NoError(t, err)
+		require.Equal(t, `"2026-09-03"`, marker(), m)
+	}
+	require.Equal(t, "2026-09-04", *e.summary("2026-09-01", "2026-09-24").CoveredFrom)
 }

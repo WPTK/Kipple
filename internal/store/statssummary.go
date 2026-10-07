@@ -339,45 +339,36 @@ func EnsureStatsTimedSince(ctx context.Context, q Querier, now int64) error {
 }
 
 // SettingStatsGapEnd is the hidden setting holding the last local date (a JSON string) that may be
-// missing recorded activity: the day statistics were turned back on, or the end of a deleted range.
-// Only the latest gap is kept, which is all a comparison needs: a span is complete when it starts
+// missing recorded activity: the day statistics were turned back on, a restore replaced the days since
+// its backup, or the newest day a delete removed. Only the latest gap is kept, which is all a comparison needs: a span is complete when it starts
 // after every gap. Not user-visible.
 const SettingStatsGapEnd = "sys.stats_gap_end"
 
-// RecordStatsGap moves SettingStatsGapEnd forward to through (never back). It runs inside the
-// caller's write transaction.
-func RecordStatsGap(ctx context.Context, q Querier, through string, now int64) error {
-	cur, err := settingStringErr(ctx, q, SettingStatsGapEnd, "")
-	if err != nil || cur >= through {
-		return err
-	}
-	b, _ := json.Marshal(through)
-	_, err = q.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at) VALUES(?1, ?2, ?3)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, SettingStatsGapEnd, string(b), now)
-	return err
-}
-
-// RecordStatsGapToday sets the gap marker to today in the stored time zone (statistics turned back
-// on, or a restore replacing the days since the backup). A marker from the future (a backup made
-// under a fast clock, or edited) is pulled back to today. Inside the caller's write transaction.
-func RecordStatsGapToday(ctx context.Context, q Querier, now time.Time) error {
+// RecordStatsGap records a gap through the given local date, the one place the marker is written. A
+// gap never reaches past today in the stored time zone (through "" means today), so the marker is
+// never after today; it moves forward only, except that a marker after today (a backup made under a
+// fast clock, or an edited file) is replaced. Inside the caller's write transaction.
+func RecordStatsGap(ctx context.Context, q Querier, through string, now time.Time) error {
 	_, loc, _, _, err := StatsSettings(ctx, q)
 	if err != nil {
 		return err
 	}
 	today := now.In(loc).Format(dateLayout)
+	if through == "" || through > today {
+		through = today
+	}
 	cur, err := settingStringErr(ctx, q, SettingStatsGapEnd, "")
-	if err != nil || cur == today {
+	if err != nil || (cur >= through && cur <= today) {
 		return err
 	}
-	b, _ := json.Marshal(today)
+	b, _ := json.Marshal(through)
 	_, err = q.ExecContext(ctx, `INSERT INTO settings(key, value, updated_at) VALUES(?1, ?2, ?3)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, SettingStatsGapEnd, string(b), now.Unix())
 	return err
 }
 
 // statsCoverage reports the dates from which opens, and active time, were recorded without a gap.
-func statsCoverage(ctx context.Context, q Querier, loc *time.Location, first, today string, cut int64) (covered, timed *string, err error) {
+func statsCoverage(ctx context.Context, q Querier, loc *time.Location, first string, cut int64) (covered, timed *string, err error) {
 	if first == "" {
 		return nil, nil, nil
 	}
@@ -385,9 +376,6 @@ func statsCoverage(ctx context.Context, q Querier, loc *time.Location, first, to
 	gap, err := settingStringErr(ctx, q, SettingStatsGapEnd, "")
 	if err != nil {
 		return nil, nil, err
-	}
-	if gap > today {
-		gap = today // a marker from a backup made under a later clock or zone is no later than today
 	}
 	if gap != "" {
 		if after := parseLocalDate(gap).AddDate(0, 0, 1).Format(dateLayout); after > c {
@@ -631,7 +619,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	if err != nil {
 		return nil, err
 	}
-	if out.CoveredFrom, out.TimedFrom, err = statsCoverage(ctx, q, loc, first, today, cut); err != nil {
+	if out.CoveredFrom, out.TimedFrom, err = statsCoverage(ctx, q, loc, first, cut); err != nil {
 		return nil, err
 	}
 

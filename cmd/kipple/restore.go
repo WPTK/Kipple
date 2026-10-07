@@ -229,6 +229,9 @@ func restore(ctx context.Context, o restoreOptions) error {
 	if backup.DiscardStaged(o.DataDir) {
 		fmt.Fprintln(out, "A restore or reset that was waiting to be applied at the next start was dropped; this restore replaces it.")
 	}
+	if err := backup.RecordRestoreGap(ctx, tmp, o.Now()); err != nil {
+		fmt.Fprintf(out, "Note: could not record the statistics gap since the backup (%v); comparisons may read those days as quiet.\n", err)
+	}
 	pre, err := backup.Swap(o.DataDir, tmp, o.Now())
 	if err != nil {
 		return err
@@ -239,9 +242,6 @@ func restore(ctx context.Context, o restoreOptions) error {
 		owned = append(owned, pre)
 	}
 	backup.PrunePreRestore(backupDir, o.Now(), localZone())
-	if err := backup.RecordRestoreGap(ctx, o.DataDir, o.Now()); err != nil {
-		fmt.Fprintf(out, "Note: could not record the statistics gap since the backup (%v); comparisons may read those days as quiet.\n", err)
-	}
 	if moved {
 		fmt.Fprintf(out, "The previous database was moved to %s\n", pre)
 	} else {

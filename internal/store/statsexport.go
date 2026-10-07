@@ -179,7 +179,7 @@ func StatsDelete(ctx context.Context, d *DB, from, to string, progress func()) (
 			if err != nil || n == 0 || !newest.Valid {
 				return err
 			}
-			return RecordStatsGap(ctx, tx, newest.String, d.Clock().Now().Unix())
+			return RecordStatsGap(ctx, tx, newest.String, d.Clock().Now())
 		})
 		if err != nil {
 			return total, err

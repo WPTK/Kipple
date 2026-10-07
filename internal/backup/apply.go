@@ -256,13 +256,14 @@ func prepareStaged(ctx context.Context, path, passwordHash string, live *sql.DB)
 	return db.Close()
 }
 
-// RecordRestoreGap marks the days up to today as a statistics gap in the installed database (one
-// path for the setup restore and `kipple restore`): the reading since the backup was made is in the
-// database that was replaced, and a comparison must not read those days as quiet. It also pulls a
-// marker the backup carried from the future back to today. Statistics only: a failure is for the
-// caller to log, never a reason to stop a restore or a start.
-func RecordRestoreGap(ctx context.Context, dataDir string, now time.Time) error {
-	db, err := openUntrusted(filepath.Join(dataDir, "kipple.db"))
+// RecordRestoreGap marks the days up to today as a statistics gap in the database about to be
+// installed (the staged copy, or the temporary copy of `kipple restore`; one path for both): the
+// reading since the backup was made is in the database being replaced, and a comparison must not
+// read those days as quiet. It runs just before the rename, so the gap lands atomically with the
+// restore and a re-run is idempotent. It also replaces a marker from the future. Statistics only: a
+// failure is for the caller to log, never a reason to stop a restore or a start.
+func RecordRestoreGap(ctx context.Context, path string, now time.Time) error {
+	db, err := openUntrusted(path)
 	if err != nil {
 		return err
 	}
@@ -272,7 +273,7 @@ func RecordRestoreGap(ctx context.Context, dataDir string, now time.Time) error 
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := store.RecordStatsGapToday(ctx, tx, now); err != nil {
+	if err := store.RecordStatsGap(ctx, tx, "", now); err != nil {
 		return fmt.Errorf("record the statistics gap since the backup: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -385,6 +386,9 @@ type Applied struct {
 	Stale      bool
 	MarkerTime time.Time
 	StaleErr   error
+	// GapErr: the statistics gap could not be written into the database before it was installed
+	// (the restore went ahead; the caller logs it).
+	GapErr error
 	// Pre is the directory the replaced database went to ("" when there was none).
 	Pre string
 	// KippleVersion, CreatedAt and Username describe the backup, from the marker.
@@ -435,6 +439,7 @@ func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, 
 	}
 	staged := filepath.Join(dataDir, StagedFile)
 	if _, err := os.Stat(staged); err == nil {
+		out.GapErr = RecordRestoreGap(context.Background(), staged, now)
 		pre, err := Swap(dataDir, staged, now)
 		if err != nil {
 			return Applied{}, fmt.Errorf("restore: %w (it is tried again at the next start)", err)
