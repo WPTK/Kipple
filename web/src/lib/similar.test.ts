@@ -72,6 +72,7 @@ describe("stop words", () => {
   it("is a long, lower-case list without repeats", () => {
     expect(STOP_WORD_LIST.length).toBeGreaterThan(400);
     expect(STOP_WORD_LIST.every((w) => w === w.toLowerCase() && w === w.trim() && w !== "")).toBe(true);
+    expect(STOP_WORD_LIST.every((w) => /^[a-z']+$/.test(w))).toBe(true);
     expect(new Set(STOP_WORD_LIST).size).toBe(STOP_WORD_LIST.length);
     expect(STOP_WORDS.size).toBe(STOP_WORD_LIST.length);
   });
