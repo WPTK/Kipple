@@ -145,7 +145,7 @@ describe("ImageCachePanel", () => {
     await act(async () => void (await new Promise((r) => setTimeout(r, 1100))));
     expect(calls.filter((c) => c.url.pathname === "/api/imgcache")).toHaveLength(1);
     rerender(wrap("512|all"));
-    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/imgcache")).toHaveLength(2), { timeout: 3000 });
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/imgcache")).toHaveLength(2));
   });
 });
 

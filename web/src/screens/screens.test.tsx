@@ -304,7 +304,7 @@ describe("Feeds and Search", () => {
     expect(await screen.findByText("Search your articles")).toBeInTheDocument();
     const user = userEvent.setup();
     await user.type(screen.getByRole("searchbox", { name: "Search articles" }), "a");
-    expect(await screen.findByText("Keep typing", undefined, { timeout: 2000 })).toBeInTheDocument();
+    expect(await screen.findByText("Keep typing")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });
 });

@@ -236,7 +236,7 @@ describe("filter editor", () => {
 
     // The preview runs 600 ms after the last edit and shows count, warning and sample.
     const panel = within(await w.findByRole("region", { name: "Preview" }));
-    const status = await panel.findByText("25 articles would be muted", {}, { timeout: 3000 });
+    const status = await panel.findByText("25 articles would be muted");
     expect(status.closest("[role=status]")).toHaveAttribute("aria-live", "polite");
     expect(w.getByText(/Articles without stored categories are skipped/)).toBeInTheDocument();
     const sample = w.getByRole("list", { name: "Sample of matching articles" });
@@ -253,7 +253,7 @@ describe("filter editor", () => {
 
     // Including read articles asks again with include_read.
     await user.click(w.getByRole("switch", { name: /Include already-read articles/ }));
-    await waitFor(() => expect(body(calls.filter((c) => c.url.pathname === "/api/filters/preview").at(-1) as never).include_read).toBe(true), { timeout: 3000 });
+    await waitFor(() => expect(body(calls.filter((c) => c.url.pathname === "/api/filters/preview").at(-1) as never).include_read).toBe(true));
 
     await user.click(w.getByRole("button", { name: "Save filter" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/filters")).toBe(true));
@@ -348,7 +348,7 @@ describe("filter editor", () => {
     const { user, dialog } = await openNew();
     const w = within(dialog);
     await user.type(w.getByLabelText("Words or phrases"), "giveaway{Enter}");
-    await within(w.getByRole("region", { name: "Preview" })).findByText("3 articles would be muted", {}, { timeout: 3000 });
+    await within(w.getByRole("region", { name: "Preview" })).findByText("3 articles would be muted");
     await user.click(w.getByRole("checkbox", { name: /Apply to existing articles/ }));
     await user.click(w.getByRole("button", { name: "Save filter" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/filters")).toBe(true));
@@ -488,7 +488,7 @@ describe("background runs in the app shell (review findings 8 and 12)", () => {
   it("does not fetch the filters until a filter apply runs, and shows auto-read quietly", async () => {
     const { calls } = routes({ "GET /api/filters": () => json({ filters: [filter(5)] }) });
     go("/");
-    await screen.findByRole("main", {}, { timeout: 3000 }).catch(() => undefined);
+    await screen.findByRole("main").catch(() => undefined);
     await new Promise((r) => setTimeout(r, 200));
     expect(calls.some((c) => c.url.pathname === "/api/filters")).toBe(false);
     act(() => handleServerEvent(qc, { type: "run.start", data: { run_id: "40", kind: "auto_read", total: 10 } }));
@@ -562,11 +562,11 @@ describe("review findings 5, 6 and 9", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Edit Editable" }));
     const w = within(await screen.findByRole("dialog", { name: "Edit filter" }));
-    await within(w.getByRole("region", { name: "Preview" })).findByText("3 articles would be muted", {}, { timeout: 3000 });
+    await within(w.getByRole("region", { name: "Preview" })).findByText("3 articles would be muted");
     expect(w.getByRole("checkbox", { name: /Apply to existing articles/ })).not.toBeDisabled();
     await user.type(w.getByLabelText("Words or phrases"), "extra{Enter}");
     expect(w.getByRole("checkbox", { name: /Apply to existing articles/ })).toBeDisabled(); // the count on screen is for the old rule
-    await waitFor(() => expect(w.getByRole("checkbox", { name: /Apply to existing articles/ })).not.toBeDisabled(), { timeout: 3000 });
+    await waitFor(() => expect(w.getByRole("checkbox", { name: /Apply to existing articles/ })).not.toBeDisabled());
     await user.click(w.getByRole("checkbox", { name: /Apply to existing articles/ }));
     await user.click(w.getByRole("button", { name: "Save filter" }));
     expect(await w.findByText(/Saved\. Another apply is running/)).toBeInTheDocument();

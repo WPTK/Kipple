@@ -44,7 +44,7 @@ describe("sign-out", () => {
     window.history.replaceState({ idx: 0 }, "", "/settings/account");
     render(<App client={makeQueryClient({ retry: false })} />);
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Sign out" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Sign out" }));
     await new Promise((r) => setTimeout(r, 20));
     expect(authStore.get()).toBe("in"); // still wiping
     release();

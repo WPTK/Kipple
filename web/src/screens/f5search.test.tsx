@@ -103,7 +103,7 @@ describe("Search: what is sent", () => {
     const user = userEvent.setup();
     const box = await screen.findByRole("searchbox", { name: "Search articles" });
     await user.type(box, "big re ");
-    await waitFor(() => expect(itemCalls(calls).length).toBeGreaterThan(0), { timeout: 3000 });
+    await waitFor(() => expect(itemCalls(calls).length).toBeGreaterThan(0));
     const typing = itemCalls(calls).at(-1)?.url.searchParams;
     expect(typing?.get("q")).toBe("big re "); // untrimmed: the trailing space says the word is finished
     expect(typing?.get("typing")).toBe("1");
@@ -111,7 +111,7 @@ describe("Search: what is sent", () => {
     expect(typing?.get("view")).toBe("all");
 
     await user.type(box, "{Enter}");
-    await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.has("typing")).toBe(false), { timeout: 3000 });
+    await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.has("typing")).toBe(false));
     expect(itemCalls(calls).at(-1)?.url.searchParams.get("q")).toBe("big re ");
   });
 
@@ -121,14 +121,14 @@ describe("Search: what is sent", () => {
     const user = userEvent.setup();
     const box = await screen.findByRole("searchbox", { name: "Search articles" });
     await user.type(box, "cat{Enter}");
-    await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.has("typing")).toBe(false), { timeout: 3000 });
+    await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.has("typing")).toBe(false));
     const markAll = screen.getByRole("button", { name: "Mark all results as read" });
     await waitFor(() => expect(markAll).toBeEnabled());
     await user.type(box, "s");
-    await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.get("typing")).toBe("1"), { timeout: 3000 });
+    await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.get("typing")).toBe("1"));
     expect(markAll).toBeDisabled();
     await user.keyboard("{Backspace}");
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("q")).toBe("cat"), { timeout: 3000 });
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("q")).toBe("cat"));
     // Back at the submitted text: the exact search again, so Mark all is allowed.
     expect(screen.getByRole("button", { name: "Mark all results as read" })).toBeEnabled();
   });
@@ -235,7 +235,7 @@ describe("Search: what comes back", () => {
       "GET /api/saved-searches": () => json({ saved_searches: [] }),
     });
     go("/search?q=cat");
-    await waitFor(() => expect(itemCalls(calls).map((c) => c.url.searchParams.get("cursor"))).toEqual([null, "r|old", null]), { timeout: 4000 });
+    await waitFor(() => expect(itemCalls(calls).map((c) => c.url.searchParams.get("cursor"))).toEqual([null, "r|old", null]));
     expect(await screen.findByText("Cats")).toBeInTheDocument();
     expect(screen.queryByText("Couldn't load more.")).toBeNull();
   });
@@ -250,7 +250,7 @@ describe("Search: other 400s", () => {
     });
     go("/search?q=cat");
     await screen.findByText("Cats");
-    await waitFor(() => expect(itemCalls(calls).length).toBeGreaterThanOrEqual(2), { timeout: 3000 });
+    await waitFor(() => expect(itemCalls(calls).length).toBeGreaterThanOrEqual(2));
     await new Promise((r) => setTimeout(r, 300));
     expect(itemCalls(calls).map((c) => c.url.searchParams.get("cursor"))).toEqual([null, "r|x"]);
   });
@@ -268,12 +268,12 @@ describe("Search: marking results read", () => {
     const user = userEvent.setup();
     const box = await screen.findByRole("searchbox", { name: "Search articles" });
     await user.type(box, "big red");
-    const markAll = await screen.findByRole("button", { name: "Mark all results as read" }, { timeout: 3000 });
+    const markAll = await screen.findByRole("button", { name: "Mark all results as read" });
     await screen.findByText("No exact matches: showing partial matches");
     // Still typing: what is shown is a wider set than the exact one the server would mark.
     expect(markAll).toBeDisabled();
     await user.type(box, "{Enter}");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Mark all results as read" })).toBeEnabled(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Mark all results as read" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Mark all results as read" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read")).toBe(true));
     const post = calls.find((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read");
