@@ -8,6 +8,42 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.8.0-beta.5] - 2026-10-07
+
+This beta adds a Gazette layout that lays a list out as a newspaper, a read rate and a per-feed sheet on the Stats screen, tile comparisons with the previous period and a Months range, and spreads each feed's refresh across the interval. It records how many new items each feed brings in per day, which needs a one-time database migration to schema 18; the first start writes a snapshot you can restore to go back. It also hardens restoring a backup from the setup wizard and keeps more safety copies of a replaced library.
+
+### Added
+
+- Stats: tapping a feed under Sources opens a sheet with that feed's numbers over the same range: items read, active time and days with reading (each compared with the earlier period on a tap), its daily or monthly chart, opens, average read, quick bounce, opened original, stars and reading habits. `GET /api/stats/summary` takes `feed=<id>` for one feed's summary. (#37)
+- Stats: each feed under Sources shows its read rate, the share of the new items that arrived on complete days that you read, and the feed's sheet shows it too, with the counts behind it on a tap ("31 of 50 new"). A feed's first batch of articles does not count. A feed with nothing new, or a stretch with no complete record, shows a dash instead of 0%. `GET /api/stats/summary` returns `read_rate`, `read_rate_from` and `read_rate_to`, and each source has its own `read_rate`. (#37)
+- A Gazette layout lays a list out as a newspaper: a front page led by the newest picture from your Favorites, then section pages by folder or feed, ending with "That's the Gazette." It is always newest first, whatever order the list is set to; a story you read fades in place instead of leaving the page; in the list, `j` and `k` follow the page's reading order. Mark above and below are off there, because the pages are not in date order. Pick it from the layout menu or as the device default, and rename the paper under Settings, Lists and reading. (#39)
+- Statistics: the database now keeps which new unread items each feed brings in per day, which the read rate is built on. A feed's first fetch is its backlog and is not counted. It adds schema 18 (a small table). Going back to an earlier version means restoring the pre-migration snapshot the first start writes, as with every migration. (#37)
+- Stats: tap a summary tile to see how that number compares with the previous period (for example "+18% from 120") and which period it was compared with; tap again to hide it. A new Months range shows one bar for every month on record. (#37)
+
+### Changed
+
+- Feeds that were fetched together, for example after a restore, after the server was down, after an import or after refreshing everything, now spread over the refresh interval after one fetch instead of staying bunched together. Each feed gets its own fixed time within the interval, different on every server; one fetch after such a burst may come sooner than the full interval while a feed moves to its time. After a fetch, the next one waits out any cache time the feed asked for that is longer than the interval; lowering the refresh interval can still bring a feed in once before its last cache time ran out. (#289)
+- The Settings and setup screens tell you to add a Google Reader compatible account, naming no particular app. (#292)
+- Safety copies of a replaced library (`backup/pre-restore-*`) from the last 30 days are kept, up to ten, along with the newest three of any age, so a few resets or restores in a row can no longer delete a recent one.
+- Reset Kipple and start over: the confirmation dialog, the page that waits for the restart and the docs now say plainly that, until setup is finished, anyone who can reach Kipple can claim it, so setup should be finished right away.
+
+### Removed
+
+- `GET /api/reset` no longer reports `public_address_set`: the reset dialog always warns that setup stays open until the new account is created.
+
+### Fixed
+
+- A feed's RSS ttl now still counts after the server answers "not modified" or sends the same document again, instead of only after a changed document. A feed last fetched by an earlier version may wait up to its last cache time (at most a day) between fetches until its content next changes. (#289)
+- Marking articles read or unread while offline, by opening, swiping, key, scrolling or a bulk mark, now moves the unread counts in the sidebar and badges at once. (#253)
+- Closing and reopening the app while offline, with changes still waiting to be sent, keeps the unread counts those changes moved, instead of going back to the counts from before them. (#253)
+- A restore whose database redefines a table or index under its real name (other columns, a virtual table, generated columns, or a dropped UNIQUE, a changed CHECK, DEFAULT or foreign key) is refused when it is checked, instead of being accepted and then stopping Kipple at every start.
+- Setup wizard restore: an upload that sends nothing for two minutes, averages under 32 KB/s after the first two, or runs longer than two hours or than its size at 128 KB/s (whichever is longer, but never over four hours) is stopped, so it cannot hold the one restore slot for long; the page then says why. A refused upload expires after an hour, like one never confirmed.
+- Statistics: comparing a tile with an earlier period no longer reads days when statistics were off, that you deleted, or that a restore replaced, as zero reading ("up from 0"); it says "Not enough history" instead, and Active time waits for the day reading time was first recorded. The comparison also counts complete days only, so today is left out of both periods.
+
+### Security
+
+- Setup wizard restore: an uploaded backup belongs to the page that uploaded it, from its first byte, through a random key the page sends with every restore call. Another browser that can reach setup no longer sees its summary or feed list, cannot confirm it with a password of its own, and cannot cancel it, and a cookie set by another site on the same domain cannot make the owner's page show or confirm an upload it did not start.
+
 ## [0.8.0-beta.4] - 2026-10-06
 
 ### Added
@@ -878,7 +914,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.4...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.5...HEAD
+[0.8.0-beta.5]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.4...v0.8.0-beta.5
 [0.8.0-beta.4]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.3...v0.8.0-beta.4
 [0.8.0-beta.3]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.2...v0.8.0-beta.3
 [0.8.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.1...v0.8.0-beta.2

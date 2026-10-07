@@ -1,1 +1,0 @@
-Statistics: the database now keeps which new unread items each feed brings in per day, which the read rate is built on. A feed's first fetch is its backlog and is not counted. It adds schema 18 (a small table). Going back to an earlier version means restoring the pre-migration snapshot the first start writes, as with every migration. (#37)
