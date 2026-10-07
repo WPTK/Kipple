@@ -127,7 +127,7 @@ describe("Settings renderer", () => {
     base();
     const { container } = go("/settings/appearance");
     // Settings is a lazy chunk: under a busy full run its first import can take longer than findBy's default.
-    await screen.findByRole("heading", { level: 1, name: "Appearance & Reading" }, { timeout: 5000 });
+    await screen.findByRole("heading", { level: 1, name: "Appearance & Reading" });
     for (const h of ["Appearance", "Accessibility", "Lists and reading", "Keyboard"]) expect(screen.getByRole("heading", { level: 2, name: h })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { level: 2, name: "Reading" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: /Remove tracking from links/ })).toBeChecked();
@@ -137,7 +137,7 @@ describe("Settings renderer", () => {
   it("does not list a device-scoped key a second time: this device's own control already shows it", async () => {
     base();
     go("/settings/appearance");
-    await screen.findByRole("heading", { level: 1, name: "Appearance & Reading" }, { timeout: 5000 });
+    await screen.findByRole("heading", { level: 1, name: "Appearance & Reading" });
     expect(await screen.findByRole("switch", { name: /Remove tracking from links/ })).toBeInTheDocument(); // the server rows have loaded
     // A generic row would show the metadata description (the fixtures describe each key as "About <key>").
     for (const key of ["ui.theme_day", "ui.theme_night", "ui.list_density"]) expect(screen.queryByText("About " + key), key).toBeNull();
@@ -147,7 +147,7 @@ describe("Settings renderer", () => {
   it("draws every kind from the metadata, in the group each server group belongs to", async () => {
     base();
     const { container } = go("/settings/sync");
-    await screen.findByRole("heading", { level: 2, name: "Sync" }, { timeout: 5000 });
+    await screen.findByRole("heading", { level: 2, name: "Sync" });
     expect(screen.getByRole("heading", { level: 2, name: "Library" })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: "How often to check feeds" })).toHaveValue(30);
     expect(screen.getByRole("radio", { name: "Always identify as Kipple" })).toBeInTheDocument(); // enum with 3 options: segmented
@@ -194,7 +194,7 @@ describe("Settings renderer", () => {
     await user.click(screen.getByRole("button", { name: "Back to Settings" }));
     await user.click(await screen.findByRole("link", { name: /^Sync & Feeds/ }));
     await user.click(await screen.findByRole("button", { name: "Increase How often to check feeds" }));
-    const alert = await screen.findByText("must be an integer from 5 to 1440", {}, { timeout: 3000 });
+    const alert = await screen.findByText("must be an integer from 5 to 1440");
     expect(alert).toHaveAttribute("role", "alert");
     expect(interval).toBe(30);
   });

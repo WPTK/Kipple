@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { availableParallelism } from "node:os";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vitest/config";
@@ -157,6 +158,10 @@ export default defineConfig(({ command }) => {
       setupFiles: ["./src/test/setup.ts"],
       css: false,
       restoreMocks: true,
+      // The tests are CPU-bound jsdom renders. Past six workers the suite gets no faster (measured on a 20-thread
+      // machine: 6, 10 and 19 workers all take 90-150 s) while each test gets slower, and at 19 the first lazy screen
+      // of a file took over 5 s and missed the findBy budget in setup.ts. Six or one fewer than the CPUs, whichever is less.
+      maxWorkers: Math.max(1, Math.min(6, availableParallelism() - 1)),
       // The screens are lazy chunks and jsdom renders large trees; on a busy machine the default 5 s is too tight.
       testTimeout: 20_000,
       // Visibility only (SQA plan): reported in CI logs, not a gate. No thresholds are enforced.
