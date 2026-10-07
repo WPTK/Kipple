@@ -282,8 +282,10 @@ describe("mark as read while scrolling in the Gazette", () => {
       const all = [...document.querySelectorAll("article[data-item-id]")];
       const i = all.indexOf(this);
       const scroll = document.querySelector<HTMLElement>('[data-testid="list-scroll"]')?.scrollTop ?? 0;
-      const top = i < 0 ? 0 : i * story - scroll;
-      const bottom = i < 0 ? 800 : top + story;
+      // The pages' box is as tall as its stories.
+      const pages = this instanceof HTMLElement && this.hasAttribute("data-page-box");
+      const top = i < 0 ? (pages ? -scroll : 0) : i * story - scroll;
+      const bottom = i < 0 ? (pages ? top + all.length * story : 800) : top + story;
       return { x: 0, y: top, top, bottom, left: 0, right: 375, width: 375, height: bottom - top, toJSON() {} } as DOMRect;
     });
     // A ResizeObserver the test can fire again, as a browser does whenever an observed box changes size.
@@ -454,6 +456,41 @@ describe("mark as read while scrolling in the Gazette", () => {
     await frame();
     await settle();
     expect(new Set(marked(calls).flatMap((m) => m.ids))).toEqual(new Set(order.slice(0, 4)));
+  });
+
+  it("a reflow during a fling, looked at before the ResizeObserver reports, marks nothing it moved", async () => {
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    resized();
+    scrollTo(50); // stories 0 to 8 seen, none above the top
+    await frame();
+    // The page reflows between two frames of the fling (the stories halve), and the browser runs the next scroll and
+    // its animation frame before it delivers the resize. The settle comes first here too: a re-plan that keeps the
+    // page's size is never reported at all.
+    story = 50;
+    scrollTo(60);
+    await frame();
+    await settle();
+    expect(marked(calls)).toHaveLength(0);
+    resized();
+    expect(marked(calls)).toHaveLength(0);
+  });
+
+  it("turning the setting off with a settle pending, then on again, marks nothing from before", async () => {
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    resized();
+    scrollTo(150); // the first story is scrolled past, its settle pending
+    await frame();
+    act(() => updatePrefs({ markReadOnScroll: false }));
+    await settle();
+    act(() => updatePrefs({ markReadOnScroll: true }));
+    scrollTo(151); // any later scroll
+    await frame();
+    await settle();
+    expect(marked(calls)).toHaveLength(0);
   });
 });
 

@@ -399,14 +399,44 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const markOnScrollPage = prefs.markReadOnScroll && scope.view !== "starred" && !!Page; // never a search: no Page there
   const markOnScrollPageRef = useRef(markOnScrollPage);
   markOnScrollPageRef.current = markOnScrollPage;
+  /** The page box's geometry (pageGeometry) when pageSeen was last rebuilt; null before the first rebuild. */
+  const pageGeometry = useRef<string | null>(null);
+  const pageBox = useRef<HTMLDivElement | null>(null);
+  /** Start again from what is on screen: seen is what is in view now, and nothing is passed. */
+  const rebuildSeen = useCallback((el: HTMLElement) => {
+    pageSeen.current = storiesInView(el);
+    pagePassed.current.clear();
+    pageGeometry.current = geometryOf(el, pageBox.current);
+  }, []);
+  /**
+   * Look at the stories after a scroll. When the page's geometry changed since the last rebuild (a new plan, more pages,
+   * another width or text size; whichever of the scroll and the ResizeObserver report comes first in the frame), the
+   * stories moved under the reader, so the seen set is rebuilt instead of judged.
+   */
+  const lookAtStories = useCallback(
+    (el: HTMLElement) => {
+      if (geometryOf(el, pageBox.current) !== pageGeometry.current) rebuildSeen(el);
+      else observeStories(el, pageSeen.current, pagePassed.current);
+    },
+    [rebuildSeen],
+  );
   useLayoutEffect(() => {
     const el = parentRef.current;
     if (!Page || pageRestored.current || !el || el.scrollHeight - el.clientHeight < (saved?.offset ?? 0)) return;
     pageRestored.current = true;
     el.scrollTop = saved?.offset ?? 0;
     restoreTarget.current = el.scrollTop;
-    if (markOnScrollPageRef.current) pageSeen.current = storiesInView(el);
+    if (markOnScrollPageRef.current) rebuildSeen(el);
   });
+  // Turning the setting on or off (here, or from another device) starts again too: nothing found while it was off,
+  // or before it was turned off with a settle still pending, is marked later.
+  useLayoutEffect(() => {
+    pageSeen.current = new Set();
+    pagePassed.current.clear();
+    pageGeometry.current = null;
+    const el = parentRef.current;
+    if (markOnScrollPage && el && pageRestored.current) rebuildSeen(el);
+  }, [markOnScrollPage, rebuildSeen]);
   useEffect(() => {
     const el = parentRef.current;
     if (!Page || !el) return;
@@ -421,7 +451,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       if (!markOnScrollPageRef.current || frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        observeStories(el, pageSeen.current, pagePassed.current);
+        lookAtStories(el);
       });
     };
     el.addEventListener("scroll", onScroll, { passive: true });
@@ -429,23 +459,26 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       if (frame) cancelAnimationFrame(frame);
       el.removeEventListener("scroll", onScroll);
     };
-  }, [Page]);
-  // Any change in the size of the pages (a new plan, more pages, another width, a text size change, the page taking
-  // the place of rows) moves the stories under an unchanged scroll position: start again from what is on screen. A
-  // ResizeObserver reports it after layout and before the next frame's scroll events, so a scroll that the reflow
-  // itself causes is judged against the new boxes. Not while a restore is pending: the stories at the top are only
-  // passing through.
+  }, [Page, lookAtStories]);
+  // A change in the size of the pages with no scroll after it (a new plan, more pages, another width, a text size
+  // change, the page taking the place of rows) also starts again from what is on screen. A scroll in the same frame
+  // may be looked at before this reports; lookAtStories catches that case by the geometry itself. Not while a restore
+  // is pending: the stories at the top are only passing through.
   const pageBoxObserver = useRef<ResizeObserver | null>(null);
-  const pageBoxRef = useCallback((box: HTMLDivElement | null) => {
-    pageBoxObserver.current?.disconnect();
-    pageBoxObserver.current = null;
-    if (!box) return;
-    pageBoxObserver.current = new ResizeObserver(() => {
-      const el = parentRef.current;
-      if (el && markOnScrollPageRef.current && pageRestored.current) pageSeen.current = storiesInView(el);
-    });
-    pageBoxObserver.current.observe(box);
-  }, []);
+  const pageBoxRef = useCallback(
+    (box: HTMLDivElement | null) => {
+      pageBoxObserver.current?.disconnect();
+      pageBoxObserver.current = null;
+      pageBox.current = box;
+      if (!box) return;
+      pageBoxObserver.current = new ResizeObserver(() => {
+        const el = parentRef.current;
+        if (el && markOnScrollPageRef.current && pageRestored.current && geometryOf(el, box) !== pageGeometry.current) rebuildSeen(el);
+      });
+      pageBoxObserver.current.observe(box);
+    },
+    [rebuildSeen],
+  );
 
   // Restore focus to the anchor row when returning to the list.
   const restoredFocus = useRef(false);
@@ -539,7 +572,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     // passed is marked: the boxes may be gone or belong to another layout.
     const flush = (settled: boolean) => {
       if (pagedScroll) {
-        if (settled && pageRestored.current && el.isConnected) observeStories(el, pageSeen.current, pagePassed.current);
+        if (settled && pageRestored.current && el.isConnected) lookAtStories(el);
         const byId = new Map(pageItemsRef.current.map((i) => [i.id, i]));
         const passed = [...pagePassed.current].flatMap((id) => byId.get(id) ?? []);
         pagePassed.current.clear();
@@ -572,7 +605,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       }
       el.removeEventListener("scroll", onScroll);
     };
-  }, [markOnScroll, qc, virtualizer, pagedScroll]);
+  }, [markOnScroll, qc, virtualizer, pagedScroll, lookAtStories]);
 
   const move = useCallback(
     (delta: 1 | -1) => {
@@ -1047,7 +1080,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     if (Page) {
       return (
         <>
-          <div ref={pageBoxRef}>
+          <div ref={pageBoxRef} data-page-box="">
             <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} checked={checked} onOpen={openItem} />
           </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
@@ -1297,6 +1330,16 @@ function pageOrder(container: HTMLElement | null, items: readonly Card[]): Card[
 }
 
 /** A page layout's stories whose box is at least partly inside the list's box. */
+/**
+ * What the page's stories are laid out over: the page box's size and the stories in DOM order. Any reflow that can move
+ * a story under an unchanged scroll position changes one of them.
+ */
+function geometryOf(container: HTMLElement, box: HTMLElement | null): string {
+  const r = (box ?? container).getBoundingClientRect();
+  const ids = [...container.querySelectorAll<HTMLElement>("article[data-item-id]")].map((a) => a.dataset.itemId).join(",");
+  return `${Math.round(r.width)}x${Math.round(r.height)}|${ids}`;
+}
+
 function storiesInView(container: HTMLElement): Set<string> {
   const seen = new Set<string>();
   observeStories(container, seen, new Set());
