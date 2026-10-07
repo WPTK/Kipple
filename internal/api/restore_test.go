@@ -3,7 +3,9 @@ package api
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,46 +31,34 @@ type restoreHarness struct {
 	*setupHarness
 	dir      string
 	restarts *atomic.Int32
-	owner    *http.Cookie // the restore cookie start set, sent with every request
+	key      string // the wizard page's owner key, sent with every request
 }
 
-// req is setupHarness.req from the wizard's browser: before its first upload
-// it asks for an owner key as the page does, it sends the restore cookie with
-// every request and the key with every upload, and it keeps the cookie an
-// answer sets. A mod runs last, so stranger or anotherBrowser replaces them,
-// and the cookie of an answer to a request with a mod is not kept.
+// req is setupHarness.req from the wizard's page: it sends the page's owner
+// key with every request. A mod runs last, so stranger or anotherBrowser
+// replaces it.
 func (h *restoreHarness) req(method, path, body string, mod ...func(*http.Request)) *httptest.ResponseRecorder {
 	h.t.Helper()
-	if path == "/api/setup/restore/upload" && h.owner == nil {
-		h.req("POST", "/api/setup/restore/start", "")
-	}
-	var own []func(*http.Request)
-	if h.owner != nil {
-		own = append(own, withCookies(h.owner))
-		if path == "/api/setup/restore/upload" {
-			own = append(own, hdr(restoreKeyHeader, h.owner.Value))
-		}
-	}
-	rec := h.setupHarness.req(method, path, body, append(own, mod...)...)
-	if c := cookieNamed(rec, restoreCookie); c != nil && len(mod) == 0 {
-		h.owner = c
-	}
-	return rec
+	return h.setupHarness.req(method, path, body, append([]func(*http.Request){hdr(restoreKeyHeader, h.key)}, mod...)...)
 }
 
-// anotherBrowser is a browser that got its own owner key from start.
+// testKey is an owner key as a page makes one: 32 random bytes, unpadded
+// base64url.
+func testKey(t *testing.T) string {
+	t.Helper()
+	b := make([]byte, 32)
+	_, err := rand.Read(b)
+	require.NoError(t, err)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// anotherBrowser is a page with its own owner key.
 func anotherBrowser(key string) func(*http.Request) {
-	return func(r *http.Request) {
-		r.Header.Del("Cookie")
-		r.AddCookie(&http.Cookie{Name: restoreCookie, Value: key})
-		if r.Header.Get(restoreKeyHeader) != "" {
-			r.Header.Set(restoreKeyHeader, key)
-		}
-	}
+	return func(r *http.Request) { r.Header.Set(restoreKeyHeader, key) }
 }
 
-// stranger is another browser that has a key of its own.
-var stranger = anotherBrowser(strings.Repeat("S", 43)) // not a key start made: fine for every route but the upload
+// stranger is a request with no owner key at all.
+func stranger(r *http.Request) { r.Header.Del(restoreKeyHeader) }
 
 func newRestoreHarness(t *testing.T, tune ...func(*backup.RestorerOptions)) *restoreHarness {
 	t.Helper()
@@ -83,7 +73,7 @@ func newRestoreHarness(t *testing.T, tune ...func(*backup.RestorerOptions)) *res
 		o.Restore = backup.NewRestorer(ro)
 		o.Restart = func() { restarts.Add(1) }
 	})
-	return &restoreHarness{setupHarness: h, dir: dir, restarts: restarts}
+	return &restoreHarness{setupHarness: h, dir: dir, restarts: restarts, key: testKey(t)}
 }
 
 // backupZip exports a real backup of a library whose account has the given
@@ -418,149 +408,84 @@ func TestAccountClaimCancelsTheCheck(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(h.dir, backup.UploadFile))
 }
 
-// A checked backup belongs to the browser that uploaded it. Anyone else who
-// can reach setup sees no restore (GET /api/instance and GET
-// /api/setup/restore), cannot confirm it with a password of their own, cannot
-// take its feed list and cannot cancel it; the uploader still can.
+// A checked backup belongs to the page that uploaded it. Anyone else who can
+// reach setup sees no restore (GET /api/instance and GET /api/setup/restore),
+// cannot confirm it with a password of their own, cannot take its feed list
+// and cannot cancel it; the uploader still can.
 func TestRestoreBelongsToTheUploadingBrowser(t *testing.T) {
 	h := newRestoreHarness(t)
 	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"])
-	c := h.owner
-	require.NotNil(t, c, "start set the owner cookie")
-	require.True(t, c.HttpOnly)
-	require.Equal(t, http.SameSiteStrictMode, c.SameSite)
-	require.Equal(t, "/api/", c.Path)
-	require.Len(t, c.Value, 43, "32 bytes")
 
 	elsewhere := func(rec *httptest.ResponseRecorder) {
 		t.Helper()
 		require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
 		require.Equal(t, "restore_elsewhere", decode(t, rec)["error"])
 	}
-	guess := func(r *http.Request) { stranger(r); r.AddCookie(&http.Cookie{Name: restoreCookie, Value: "guess"}) }
-	for _, mod := range []func(*http.Request){stranger, guess, anotherBrowser(h.mintKey())} {
+	for _, mod := range []func(*http.Request){stranger, anotherBrowser("guess"), anotherBrowser(testKey(t))} {
 		require.Equal(t, "none", decode(t, h.req("GET", "/api/instance", "", mod))["restore"])
 		require.Equal(t, map[string]any{"state": "none", "summary": nil, "error": nil, "estimate_seconds": float64(0)}, h.status(mod))
 		elsewhere(h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod))
 		elsewhere(h.req("GET", "/api/setup/restore/feeds", "", mod))
 		elsewhere(h.req("DELETE", "/api/setup/restore", "", mod))
 	}
-	elsewhere(h.req("POST", "/api/setup/restore/upload", string(backupZip(t, "h", store.AuthStandard)), anotherBrowser(h.mintKey())))
+	elsewhere(h.req("POST", "/api/setup/restore/upload", string(backupZip(t, "h", store.AuthStandard)), anotherBrowser(testKey(t))))
 	require.Zero(t, h.restarts.Load())
 	require.NoFileExists(t, filepath.Join(h.dir, backup.MarkerFile))
 
 	require.Equal(t, "ready", h.restoreState(), "the uploader still sees it")
-	// The owner cannot start another upload over its own (it cancels first);
-	// another browser gets a new key.
-	rec := h.req("POST", "/api/setup/restore/start", "")
-	require.Equal(t, http.StatusConflict, rec.Code)
-	require.Equal(t, "restore_busy", decode(t, rec)["error"])
-	require.Nil(t, cookieNamed(rec, restoreCookie), "no key with a refusal")
-	other := decode(t, h.req("POST", "/api/setup/restore/start", "", stranger))["key"].(string)
-	require.True(t, h.srv.madeRestoreKey(other))
-	require.NotEqual(t, c.Value, other)
-	// A cookie of the same name planted ahead of the owner's (by a sibling
-	// subdomain, with a longer path) does not hide the owner's.
-	planted := func(r *http.Request) { r.Header.Set("Cookie", restoreCookie+"=planted; "+r.Header.Get("Cookie")) }
-	require.Equal(t, "ready", decode(t, h.req("GET", "/api/instance", "", planted))["restore"])
-	require.Equal(t, "ready", h.status(planted)["state"])
-
-	rec = h.req("POST", "/api/setup/restore/confirm", `{}`)
+	rec := h.req("POST", "/api/setup/restore/confirm", `{}`)
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
 	require.Equal(t, "confirmed", decode(t, h.req("GET", "/api/instance", "", stranger))["restore"], "everyone waits for the restart")
 	require.Nil(t, h.status(stranger)["summary"], "but only the uploader sees whose account it is")
 }
 
-// mintKey is a key from start, as another browser would get one.
-func (h *restoreHarness) mintKey() string {
-	h.t.Helper()
-	k, err := h.srv.newRestoreKey()
-	require.NoError(h.t, err)
-	return k
-}
-
-// The planted-cookie attack: someone who can set cookies for the owner's
-// browser (a sibling subdomain) plants a key of their own, from start, and
-// uploads under it. Start never hands that key back to the owner's page, so
-// the owner's upload is bound to a new key the attacker does not know: the
-// attacker cannot see or confirm it. While the attacker's upload is ready,
-// the owner's page is told to cancel it first, and can.
-func TestAPlantedCookieNeverBecomesTheOwnersKey(t *testing.T) {
+// A cookie grants nothing. Someone who can set cookies for the owner's
+// browser (a sibling subdomain can) uploads a backup of their own, which is
+// ready under their key K, and plants K in the owner's browser under any name.
+// The owner's page, which sends its own key in the header, sees no restore
+// and cannot confirm or take the attacker's upload; only the header counts.
+func TestACookieGrantsNothing(t *testing.T) {
 	h := newRestoreHarness(t)
-	zipped := string(backupZip(t, "h", store.AuthStandard))
-	k := h.mintKey()
-	attacker := anotherBrowser(k)
-	plantedK := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: restoreCookie, Value: k}) }
-
-	// The attacker's own upload is refused by the check: failed, under K.
-	rec := h.setupHarness.req("POST", "/api/setup/restore/upload", zipped[:len(zipped)/2], attacker, hdr(restoreKeyHeader, k))
-	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
-	require.Eventually(t, func() bool { return h.Restore().State() == backup.RestoreFailed }, 30*time.Second, 5*time.Millisecond)
-
-	// The owner's browser carries K. Start gives it a new key, never K.
-	rec = h.setupHarness.req("POST", "/api/setup/restore/start", "", plantedK)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	mine := decode(t, rec)["key"].(string)
-	require.NotEqual(t, k, mine)
-	owner := func(r *http.Request) { plantedK(r); r.AddCookie(&http.Cookie{Name: restoreCookie, Value: mine}) }
-	rec = h.setupHarness.req("POST", "/api/setup/restore/upload", zipped, owner, hdr(restoreKeyHeader, mine))
+	k := testKey(t)
+	rec := h.req("POST", "/api/setup/restore/upload", string(backupZip(t, "h", store.AuthStandard)), anotherBrowser(k))
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
 	require.Eventually(t, func() bool { return h.Restore().State() == backup.RestoreReady }, 30*time.Second, 5*time.Millisecond)
 
-	require.Equal(t, "none", h.status(attacker)["state"], "the attacker sees nothing")
-	rec = h.setupHarness.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, attacker)
-	require.Equal(t, http.StatusConflict, rec.Code)
-	require.Equal(t, "restore_elsewhere", decode(t, rec)["error"])
-	require.Equal(t, "ready", h.status(owner)["state"])
-
-	// The other way round: the attacker's upload is ready, under K.
-	h = newRestoreHarness(t)
-	k = h.mintKey()
-	attacker = anotherBrowser(k)
-	rec = h.setupHarness.req("POST", "/api/setup/restore/upload", zipped, attacker, hdr(restoreKeyHeader, k))
-	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
-	require.Eventually(t, func() bool { return h.Restore().State() == backup.RestoreReady }, 30*time.Second, 5*time.Millisecond)
-	rec = h.setupHarness.req("POST", "/api/setup/restore/start", "", plantedK)
-	require.Equal(t, http.StatusConflict, rec.Code, "start never echoes K")
-	require.Equal(t, "restore_busy", decode(t, rec)["error"])
-	require.Nil(t, cookieNamed(rec, restoreCookie))
-	require.Equal(t, http.StatusNoContent, h.setupHarness.req("DELETE", "/api/setup/restore", "", plantedK).Code, "the owner's page can cancel it")
+	planted := func(r *http.Request) {
+		for _, name := range []string{"kipple_restore", "__Host-kipple_restore", "X-Kipple-Restore-Key"} {
+			r.AddCookie(&http.Cookie{Name: name, Value: k})
+		}
+	}
+	for _, mod := range [][]func(*http.Request){{planted}, {stranger, planted}} {
+		require.Equal(t, "none", decode(t, h.req("GET", "/api/instance", "", mod...))["restore"])
+		require.Equal(t, "none", h.status(mod...)["state"])
+		rec = h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod...)
+		require.Equal(t, http.StatusConflict, rec.Code)
+		require.Equal(t, "restore_elsewhere", decode(t, rec)["error"])
+		require.Equal(t, http.StatusConflict, h.req("GET", "/api/setup/restore/feeds", "", mod...).Code)
+	}
+	require.Zero(t, h.restarts.Load())
+	require.Equal(t, "ready", h.status(anotherBrowser(k))["state"], "it is still the attacker's, under the header")
 }
 
-// The upload refuses, before it reads the file, a key that start did not
-// make (forged, even with a matching cookie) and a browser that did not keep
-// the cookie start set; GET /api/setup/restore/cookie gives the page the same
-// answer before it sends anything.
-func TestUploadNeedsTheKeyAndTheCookie(t *testing.T) {
+// The upload refuses, before it reads the file, a request without an owner key
+// of the right form, and closes the connection after the answer. The key must
+// decode strictly: of the four spellings of one key that differ only in their
+// last character's unused bits, only one is accepted.
+func TestUploadNeedsAKey(t *testing.T) {
 	h := newRestoreHarness(t)
 	b := string(backupZip(t, "h", store.AuthStandard))
-	refused := func(rec *httptest.ResponseRecorder, code string) {
-		t.Helper()
+	k := testKey(t)
+	last := strings.IndexByte("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", k[42])
+	alias := k[:42] + string("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"[last|1])
+	require.NotEqual(t, k, alias)
+	for _, mod := range []func(*http.Request){stranger, anotherBrowser("short"), anotherBrowser(k + "A"), anotherBrowser(alias)} {
+		rec := h.req("POST", "/api/setup/restore/upload", b, mod)
 		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-		require.Equal(t, code, decode(t, rec)["error"])
+		require.Equal(t, "restore_key_required", decode(t, rec)["error"])
+		require.Equal(t, "close", rec.Header().Get("Connection"), "refused before the body: the connection closes")
 	}
-	key := h.mintKey()
-	forged := strings.Repeat("K", 43)
-	withKey := func(k string) func(*http.Request) { return hdr(restoreKeyHeader, k) }
-	cookie := func(v string) func(*http.Request) { return withCookies(&http.Cookie{Name: restoreCookie, Value: v}) }
-	for _, path := range []string{"/api/setup/restore/upload", "/api/setup/restore/cookie"} {
-		method, body := "POST", b
-		if path == "/api/setup/restore/cookie" {
-			method, body = "GET", ""
-		}
-		refused(h.setupHarness.req(method, path, body), "restore_key_required")
-		refused(h.setupHarness.req(method, path, body, withKey(forged), cookie(forged)), "restore_key_required")
-		refused(h.setupHarness.req(method, path, body, withKey(key)), "cookies_required")
-		refused(h.setupHarness.req(method, path, body, withKey(key), cookie(h.mintKey())), "cookies_required")
-	}
-	rec := h.setupHarness.req("POST", "/api/setup/restore/upload", b, withKey(key))
-	require.Equal(t, "close", rec.Header().Get("Connection"), "refused before the body: the connection closes")
-	require.Equal(t, http.StatusNoContent, h.setupHarness.req("GET", "/api/setup/restore/cookie", "", withKey(key), cookie(key)).Code)
 	require.Equal(t, "none", h.restoreState())
-	rec = h.setupHarness.req("POST", "/api/setup/restore/start", "", hdr("Sec-Fetch-Site", "cross-site"))
-	require.Equal(t, http.StatusForbidden, rec.Code, "start has the setup guards")
-	rec = h.setupHarness.req("GET", "/api/setup/restore/cookie", "", hdr("Sec-Fetch-Site", "cross-site"))
-	require.Equal(t, http.StatusForbidden, rec.Code)
 }
 
 // rawUpload starts an upload with key on its own connection and sends the
@@ -573,15 +498,15 @@ func rawUpload(t *testing.T, srv *httptest.Server, key string, b []byte, sent in
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	_, err = fmt.Fprintf(conn, "POST /api/setup/restore/upload HTTP/1.1\r\nHost: %s\r\nSec-Fetch-Site: same-origin\r\nX-Kipple-Client: web\r\n"+
-		"%s: %s\r\nCookie: %s=%s\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n",
-		addr, restoreKeyHeader, key, restoreCookie, key, len(b))
+		"%s: %s\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n",
+		addr, restoreKeyHeader, key, len(b))
 	require.NoError(t, err)
 	_, err = conn.Write(b[:sent])
 	require.NoError(t, err)
 	return conn
 }
 
-// call sends a request to srv from the browser that holds key ("": none).
+// call sends a request to srv from the page that holds key ("": none).
 func call(t *testing.T, srv *httptest.Server, key, method, path string) (int, map[string]any) {
 	t.Helper()
 	req, err := http.NewRequest(method, srv.URL+path, nil)
@@ -589,7 +514,7 @@ func call(t *testing.T, srv *httptest.Server, key, method, path string) (int, ma
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	req.Header.Set("X-Kipple-Client", "web")
 	if key != "" {
-		req.AddCookie(&http.Cookie{Name: restoreCookie, Value: key})
+		req.Header.Set(restoreKeyHeader, key)
 	}
 	resp, err := srv.Client().Do(req)
 	require.NoError(t, err)
@@ -597,14 +522,6 @@ func call(t *testing.T, srv *httptest.Server, key, method, path string) (int, ma
 	var out map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&out)
 	return resp.StatusCode, out
-}
-
-// startKey asks srv for an owner key, as the page does before an upload.
-func startKey(t *testing.T, srv *httptest.Server) string {
-	t.Helper()
-	code, out := call(t, srv, "", "POST", "/api/setup/restore/start")
-	require.Equal(t, http.StatusOK, code)
-	return out["key"].(string)
 }
 
 // readAnswer reads the upload's answer from conn.
@@ -629,7 +546,7 @@ func TestTheUploaderCancelsAnUploadStillArriving(t *testing.T) {
 	srv := httptest.NewServer(h.root)
 	defer srv.Close()
 	b := backupZip(t, "h", store.AuthStandard)
-	key := startKey(t, srv)
+	key := testKey(t)
 	conn := rawUpload(t, srv, key, b, len(b)-1)
 
 	require.Eventually(t, func() bool {
@@ -640,7 +557,7 @@ func TestTheUploaderCancelsAnUploadStillArriving(t *testing.T) {
 	require.Equal(t, "uploading", inst["restore"])
 	_, st := call(t, srv, "", "GET", "/api/setup/restore")
 	require.Equal(t, "none", st["state"], "another browser sees nothing")
-	code, out := call(t, srv, startKey(t, srv), "DELETE", "/api/setup/restore")
+	code, out := call(t, srv, testKey(t), "DELETE", "/api/setup/restore")
 	require.Equal(t, http.StatusConflict, code)
 	require.Equal(t, "restore_elsewhere", out["error"])
 
@@ -660,7 +577,7 @@ func TestAClaimUnblocksAStalledUpload(t *testing.T) {
 	h := newRestoreHarness(t)
 	srv := httptest.NewServer(h.root)
 	defer srv.Close()
-	conn := rawUpload(t, srv, startKey(t, srv), backupZip(t, "h", store.AuthStandard), 100) // then nothing more
+	conn := rawUpload(t, srv, testKey(t), backupZip(t, "h", store.AuthStandard), 100) // then nothing more
 	require.Eventually(t, func() bool { return h.Restore().State() == backup.RestoreUploading }, 5*time.Second, 5*time.Millisecond)
 
 	began := time.Now()
@@ -690,7 +607,7 @@ func TestASlowUploadIsStopped(t *testing.T) {
 		h := newRestoreHarness(t)
 		srv := httptest.NewServer(h.root)
 		defer srv.Close()
-		key := startKey(t, srv)
+		key := testKey(t)
 		conn := rawUpload(t, srv, key, b, 100)
 		if trickle { // a byte at a time, never stalling for the idle limit
 			go func() {
@@ -722,4 +639,18 @@ func TestASlowUploadIsStopped(t *testing.T) {
 		tune(t, time.Hour, 1<<20, 200*time.Millisecond)
 		check(t, true)
 	})
+	t.Run("past the whole upload's deadline", func(t *testing.T) {
+		tune(t, time.Hour, 0, time.Hour)
+		oldFloor, oldRate := restoreMaxFloor, restoreMaxRate
+		restoreMaxFloor, restoreMaxRate = 400*time.Millisecond, 1<<40
+		t.Cleanup(func() { restoreMaxFloor, restoreMaxRate = oldFloor, oldRate })
+		check(t, true) // sending all along, but not done in time
+	})
+}
+
+// One upload holds the slot at most max(2 h, its size at 128 KB/s).
+func TestRestoreDeadline(t *testing.T) {
+	require.Equal(t, 2*time.Hour, restoreDeadline(100<<20))
+	require.Equal(t, 8192*time.Second, restoreDeadline(1<<30))
+	require.Equal(t, 32768*time.Second, restoreDeadline(4<<30))
 }

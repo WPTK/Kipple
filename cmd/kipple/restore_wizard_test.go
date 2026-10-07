@@ -3,12 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/cookiejar"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,10 +75,9 @@ func TestRunServeAppliesARestoreConfirmedInTheWizard(t *testing.T) {
 	defer stop()
 	tr := &http.Transport{Proxy: nil}
 	t.Cleanup(tr.CloseIdleConnections)
-	jar, err := cookiejar.New(nil) // the upload's owner cookie, as a browser keeps it
-	require.NoError(t, err)
-	cl := &http.Client{Transport: tr, Jar: jar}
-	var key string // the owner key from start, sent with the upload as the page does
+	cl := &http.Client{Transport: tr}
+	// The page's owner key, sent with every call as the page does.
+	key := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 	call := func(method, path, ctype string, body []byte) (int, map[string]any) {
 		req, err := http.NewRequest(method, base+path, bytes.NewReader(body))
 		require.NoError(t, err)
@@ -87,9 +86,7 @@ func TestRunServeAppliesARestoreConfirmedInTheWizard(t *testing.T) {
 		}
 		req.Header.Set("Sec-Fetch-Site", "same-origin")
 		req.Header.Set("X-Kipple-Client", "web")
-		if key != "" {
-			req.Header.Set("X-Kipple-Restore-Key", key)
-		}
+		req.Header.Set("X-Kipple-Restore-Key", key)
 		resp, err := cl.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
@@ -105,9 +102,6 @@ func TestRunServeAppliesARestoreConfirmedInTheWizard(t *testing.T) {
 	require.Equal(t, true, inst["setup"])
 	require.Equal(t, "none", inst["restore"])
 
-	code, started := call("POST", "/api/setup/restore/start", "", nil)
-	require.Equal(t, http.StatusOK, code, started)
-	key = started["key"].(string)
 	code, up := call("POST", "/api/setup/restore/upload", "application/octet-stream", zipped)
 	require.Equal(t, http.StatusAccepted, code, up)
 	require.Equal(t, "checking", up["state"])

@@ -224,29 +224,27 @@ func (r *Restorer) State() string {
 	return r.state
 }
 
-// Owner returns the one of keys that owns the upload there is, or "" when none
-// does (or there is no upload). A browser can send several cookies of one name.
-func (r *Restorer) Owner(keys []string) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, k := range keys {
-		if r.mine(k) {
-			return k
-		}
-	}
-	return ""
-}
-
 // mine reports whether owner is the key of the current upload. Under mu.
 func (r *Restorer) mine(owner string) bool {
 	return r.owner != "" && subtle.ConstantTimeCompare([]byte(r.owner), []byte(owner)) == 1
 }
 
 // othersLocked reports whether there is an upload that owner may not see or
-// touch: one arriving, checked or refused that another browser sent. A
-// confirmed restore is everyone's to wait for. Under mu.
+// touch: one arriving, being checked or ready that another browser sent. A
+// confirmed restore is everyone's to wait for, and another browser's refused
+// upload is nothing to anyone else: it reads as none and a new upload
+// replaces it. Under mu.
 func (r *Restorer) othersLocked(owner string) bool {
-	return r.state != RestoreNone && r.state != RestoreConfirmed && !r.mine(owner)
+	switch r.state {
+	case RestoreUploading, RestoreChecking, RestoreReady:
+		return !r.mine(owner)
+	}
+	return false
+}
+
+// othersFailedLocked reports a refused upload that is not owner's. Under mu.
+func (r *Restorer) othersFailedLocked(owner string) bool {
+	return r.state == RestoreFailed && !r.mine(owner)
 }
 
 // Status is the state with what goes with it, as the browser with this owner
@@ -255,7 +253,7 @@ func (r *Restorer) othersLocked(owner string) bool {
 func (r *Restorer) Status(owner string) Status {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.othersLocked(owner) {
+	if r.othersLocked(owner) || r.othersFailedLocked(owner) {
 		return Status{State: RestoreNone}
 	}
 	st := Status{State: r.state, EstimateSeconds: r.estimate}
@@ -344,7 +342,7 @@ func (r *Restorer) Upload(reqCtx context.Context, owner string, body io.Reader, 
 	removeStaged(r.o.DataDir)
 	r.mu.Lock()
 	if errors.Is(err, ErrUploadTooSlow) && r.gen == g {
-		r.state, r.failErr = RestoreFailed, err
+		r.failLocked(g, err)
 	} else {
 		r.state, r.owner = RestoreNone, "" // the job held the slot until now: nothing else can have started
 	}
@@ -437,18 +435,11 @@ func (r *Restorer) check(ctx context.Context, j *job, g int) {
 		r.state, r.owner = RestoreNone, ""
 	case err != nil:
 		removeStaged(r.o.DataDir)
-		r.state, r.failErr = RestoreFailed, err
+		r.failLocked(g, err)
 		r.log.Info("restore: the uploaded backup was refused", "err", err)
 	default:
 		r.state, r.cur, r.feeds, r.estimate = RestoreReady, &up, feeds, up.EstimateSeconds
-		r.timer = time.AfterFunc(r.o.TTL, func() {
-			r.mu.Lock()
-			defer r.mu.Unlock()
-			if r.gen == g && r.state == RestoreReady {
-				r.log.Info("restore: an unconfirmed upload expired and was deleted")
-				r.discardLocked()
-			}
-		})
+		r.expireLocked(g)
 		r.log.Info("restore: backup uploaded and checked", "kipple_version", up.Manifest.KippleVersion,
 			"created_at", up.Manifest.CreatedAt, "feeds", up.Info.Feeds, "items", up.Info.Items, "db_bytes", up.Manifest.DBBytes)
 	}
@@ -580,6 +571,9 @@ func (r *Restorer) drop(owner *string) (*job, error) {
 	if owner != nil && r.othersLocked(*owner) {
 		return nil, ErrRestoreElsewhere
 	}
+	if owner != nil && r.othersFailedLocked(*owner) {
+		return nil, nil // nothing of theirs to cancel
+	}
 	j := r.job
 	if j != nil {
 		// The job removes its own files and reports none once it has stopped:
@@ -608,6 +602,31 @@ func (r *Restorer) Close() {
 		j.end()
 		<-j.done
 	}
+}
+
+// failLocked records the refusal of upload g as its owner's failed state,
+// which expires like a ready upload. Under mu.
+func (r *Restorer) failLocked(g int, err error) {
+	r.state, r.failErr = RestoreFailed, err
+	r.expireLocked(g)
+}
+
+// expireLocked discards upload g, ready or failed, TTL after now unless it
+// has moved on (a confirm, a cancel, a new upload). It is set once per
+// upload, when it becomes ready or failed: nothing a caller does renews it.
+// Under mu.
+func (r *Restorer) expireLocked(g int) {
+	if r.timer != nil {
+		r.timer.Stop()
+	}
+	r.timer = time.AfterFunc(r.o.TTL, func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.gen == g && (r.state == RestoreReady || r.state == RestoreFailed) {
+			r.log.Info("restore: an unconfirmed or refused upload expired and was deleted")
+			r.discardLocked()
+		}
+	})
 }
 
 // discardLocked forgets the upload and removes its files. Only with no job

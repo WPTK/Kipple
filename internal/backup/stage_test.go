@@ -71,12 +71,19 @@ func TestUploadBelongsToItsOwner(t *testing.T) {
 	require.Nil(t, st.Summary)
 	require.NotNil(t, r.Status(me).Summary)
 
-	// A refusal is the owner's to read.
+	// A refusal is the owner's to read. To anyone else it is nothing, the same
+	// on every call: none, no upload, and nothing of theirs to cancel.
 	r, _ = newRestorer(t)
 	_, err = upload(r, b[:len(b)/2])
 	require.Error(t, err)
 	require.Equal(t, RestoreFailed, r.Status(me).State)
 	require.Equal(t, Status{State: RestoreNone}, r.Status(other))
+	_, _, err = r.Uploaded(other)
+	require.ErrorIs(t, err, ErrNoUpload)
+	_, err = r.Feeds(other)
+	require.ErrorIs(t, err, ErrNoUpload)
+	require.NoError(t, r.Cancel(other))
+	require.Equal(t, RestoreFailed, r.Status(me).State, "another key's cancel leaves the owner's refusal")
 	_, err = r.Upload(context.Background(), "", bytes.NewReader(b), int64(len(b)), nil)
 	require.Error(t, err, "an upload needs a key")
 }
@@ -644,6 +651,27 @@ func TestUnconfirmedUploadExpires(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return r.State() == RestoreNone }, 5*time.Second, 10*time.Millisecond)
 	require.NoFileExists(t, filepath.Join(dir, StagedFile))
+}
+
+// A refused upload expires like an unconfirmed one, and reading the state does
+// not renew either: the TTL runs from when the upload became ready or failed.
+func TestRefusedUploadExpiresAndNothingRenewsTheTTL(t *testing.T) {
+	r, _ := newRestorer(t, func(o *RestorerOptions) { o.TTL = 300 * time.Millisecond })
+	_, err := upload(r, hostBackup(t)[:100])
+	require.Error(t, err)
+	require.Equal(t, RestoreFailed, r.Status(me).State)
+	require.Eventually(t, func() bool { return r.Status(me).State == RestoreNone }, 5*time.Second, 10*time.Millisecond)
+
+	_, err = upload(r, hostBackup(t))
+	require.NoError(t, err)
+	ready := time.Now()
+	for r.State() == RestoreReady {
+		_ = r.Status(me) // a page polling, and every other read
+		_, _, _ = r.Uploaded(me)
+		require.Less(t, time.Since(ready), 5*time.Second, "the TTL was renewed")
+		time.Sleep(10 * time.Millisecond)
+	}
+	require.Equal(t, RestoreNone, r.State())
 }
 
 func TestFeedsOnlyTakesTheZipsOPML(t *testing.T) {

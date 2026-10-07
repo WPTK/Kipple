@@ -161,7 +161,7 @@ func TestWizardRestoreKeepsTheLiveAddress(t *testing.T) {
 	})
 	require.NoError(t, sh.db.SetSettings(t.Context(), map[string]any{
 		store.SettingPublicURL: "https://rss.example.test", store.SettingAllowedHosts: []string{"rss.example.test"}}))
-	h := &restoreHarness{setupHarness: sh, dir: dir, restarts: restarts}
+	h := &restoreHarness{setupHarness: sh, dir: dir, restarts: restarts, key: testKey(t)}
 	out := h.upload(backupZip(t, "h", store.AuthStandard))
 	require.EqualValues(t, http.StatusOK, out["status"], out)
 	require.Equal(t, http.StatusAccepted, h.req("POST", "/api/setup/restore/confirm", `{}`).Code)

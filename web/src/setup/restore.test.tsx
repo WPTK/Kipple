@@ -24,8 +24,6 @@ let reply: { status: number; body: unknown; network?: boolean; hold?: boolean } 
 let sent: File | null = null;
 /** The headers of the last upload. */
 let sentHeaders: Record<string, string> = {};
-/** The owner key POST /api/setup/restore/start hands out. */
-const KEY = "k".repeat(43);
 /** An upload has been sent in this test: before that, a server with no restore under way answers "none". */
 let uploaded = false;
 
@@ -86,8 +84,6 @@ const bodyOf = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body)) a
 
 function server(w: World, extra: Parameters<typeof mockFetch>[0] = {}) {
   return mockFetch({
-    "POST /api/setup/restore/start": () => json({ key: KEY }),
-    "GET /api/setup/restore/cookie": () => new Response(null, { status: 204 }),
     "GET /api/instance": () => json(w.setup ? { setup: true, auth: null, access: { enabled: false, verified: false }, open: { reason: null }, restore: w.restore } : { setup: false, auth: "password" }),
     "POST /api/setup/restore/confirm": () => {
       w.restore = "confirmed";
@@ -127,6 +123,7 @@ beforeEach(() => {
   openRefusedStore.set(null);
   forgetWizardMemory();
   sessionStorage.clear();
+  localStorage.removeItem("kipple.restoreKey");
   resetOpenSignInGuard();
   resetDeviceSync();
   liveStore.set(initialLive);
@@ -369,14 +366,18 @@ describe("restore in the setup wizard", () => {
     expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
   });
 
-  it("asks for the owner key first and sends it with the upload", async () => {
+  it("sends this browser's owner key with the upload and every restore call, the same key each time", async () => {
     const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() });
     go();
     const user = userEvent.setup();
     await chooseFile(user);
     expect(await screen.findByTestId("backup-summary")).toBeInTheDocument();
-    expect(calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/setup/restore/start")).toHaveLength(1);
-    expect(sentHeaders["X-Kipple-Restore-Key"]).toBe(KEY);
+    const key = sentHeaders["X-Kipple-Restore-Key"];
+    expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(localStorage.getItem("kipple.restoreKey")).toBe(key);
+    const restoreCalls = calls.filter((c) => c.url.pathname.startsWith("/api/setup/restore") || c.url.pathname === "/api/instance");
+    expect(restoreCalls.length).toBeGreaterThan(1);
+    for (const c of restoreCalls) expect((c.init?.headers as Record<string, string>)["X-Kipple-Restore-Key"]).toBe(key);
   });
 
   it("cancels its own upload on the server while the file is still being sent", async () => {
@@ -390,16 +391,6 @@ describe("restore in the setup wizard", () => {
     await waitFor(() => expect(calls.filter((c) => c.method === "DELETE" && c.url.pathname === "/api/setup/restore")).toHaveLength(1));
     expect(await screen.findByLabelText("Backup or OPML file")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("says cookies are needed, before sending the file, when the browser did not keep the owner cookie", async () => {
-    const msg = "Kipple needs cookies to restore a backup: it keeps the upload for the browser that sent it. Allow cookies for this site, then try again.";
-    server({ restore: "none", setup: true, signedIn: false }, { "GET /api/setup/restore/cookie": () => json({ error: "cookies_required", message: msg }, 400) });
-    go();
-    const user = userEvent.setup();
-    await chooseFile(user);
-    expect(await screen.findByRole("alert")).toHaveTextContent(msg);
-    expect(sent).toBeNull();
   });
 
   it("shows why the server stopped an upload whose connection it cut", async () => {

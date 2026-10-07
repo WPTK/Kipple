@@ -161,8 +161,6 @@ type Server struct {
 
 	backups *backup.Manager
 	restore *backup.Restorer // the setup wizard's restore; nil outside setup mode
-	// restoreSecret signs the restore owner keys this process makes (newRestoreKey).
-	restoreSecret []byte
 
 	imgMu       sync.Mutex // guards imgSecret and imgH
 	imgSecret   []byte
@@ -248,8 +246,6 @@ func New(opt Options) *Server {
 	if s.backups == nil {
 		s.backups = backup.New(backup.Options{DB: s.db, Logger: s.log, Version: opt.Version})
 	}
-	s.restoreSecret = make([]byte, 32)
-	_, _ = rand.Read(s.restoreSecret) // never returns an error (it crashes the process instead)
 	s.restore = opt.Restore
 	if s.restore == nil && opt.Setup.Pending() && opt.DataDir != "" {
 		ro := backup.RestorerOptions{DataDir: opt.DataDir, Logger: s.log}

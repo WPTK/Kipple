@@ -60,6 +60,8 @@ export interface RequestOptions {
   anon?: boolean;
   /** With `anon`: a success is a sign-in (setup account creation, open-mode sign-in), so it does turn the app to signed in. */
   signsIn?: boolean;
+  /** Extra request headers. */
+  headers?: Record<string, string>;
   /** Filled in with what the answer was: `cached` when the service worker served its stored copy (X-Kipple-Cache). */
   meta?: { cached?: boolean };
 }
@@ -116,7 +118,7 @@ export async function api<T = void>(path: string, opts: RequestOptions = {}): Pr
 
 async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
   const method = opts.method ?? "GET";
-  const headers: Record<string, string> = { Accept: "application/json", "X-Kipple-Client": clientKind() };
+  const headers: Record<string, string> = { ...opts.headers, Accept: "application/json", "X-Kipple-Client": clientKind() };
   let body: string | FormData | undefined;
   if (opts.body instanceof FormData) {
     body = opts.body;

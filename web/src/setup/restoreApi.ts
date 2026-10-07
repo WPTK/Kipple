@@ -1,5 +1,7 @@
-// The restore calls of the setup wizard (before there is an account). Nothing here knows about React.
+// The restore calls of the setup wizard (before there is an account). Nothing here knows about React. Every call
+// carries this browser's owner key (restoreKey.ts): the server shows and acts on an upload only for the key that sent it.
 import { ApiError, api, clientKind } from "@/api/client";
+import { restoreKey, restoreKeyHeaders } from "./restoreKey";
 
 export type PasswordState = "password" | "none_access" | "open";
 
@@ -40,42 +42,16 @@ export interface RestoreStatus {
   estimate_seconds?: number;
 }
 
-export const fetchRestoreStatus = () => api<RestoreStatus>("/api/setup/restore", { anon: true, quiet: true });
-
-/** Asks for this browser's owner key: the server sets it as a cookie too, and an upload must carry both. */
-const startRestore = () => api<{ key: string }>("/api/setup/restore/start", { method: "POST", anon: true });
+export const fetchRestoreStatus = () => api<RestoreStatus>("/api/setup/restore", { anon: true, quiet: true, headers: restoreKeyHeaders() });
 
 /**
- * Checks that the cookie start set came back, before any file is sent: a browser that blocks cookies gets the
- * server's cookies_required answer here, which it could miss on the upload itself while still sending.
+ * Sends the file as the raw request body, with the owner key that makes the upload this browser's from its first
+ * byte (so "Cancel upload" can stop it on the server too). fetch cannot report upload progress, so this uses
+ * XMLHttpRequest. Answers with what the server found, or throws an ApiError (status 0 when the network failed or the
+ * upload was cancelled).
  */
-async function checkRestoreCookie(key: string): Promise<void> {
-  let res: Response;
-  try {
-    res = await fetch("/api/setup/restore/cookie", { headers: { "X-Kipple-Client": clientKind(), "X-Kipple-Restore-Key": key }, credentials: "same-origin" });
-  } catch {
-    throw new ApiError(0, "network");
-  }
-  if (res.ok) return;
-  let body: Record<string, unknown> | null = null;
-  try {
-    body = (await res.json()) as Record<string, unknown>;
-  } catch {
-    /* not JSON */
-  }
-  throw new ApiError(res.status, typeof body?.error === "string" ? body.error : "http_" + res.status, body);
-}
-
-/**
- * Sends the file as the raw request body, after asking for the owner key that makes the upload this browser's from
- * its first byte (so "Cancel upload" can stop it on the server too) and checking that its cookie came back. fetch
- * cannot report upload progress, so this uses XMLHttpRequest. Answers with what the server found, or throws an
- * ApiError (status 0 when the network failed or the upload was cancelled).
- */
-export async function uploadRestoreFile(file: File, onProgress: (sent: number, total: number) => void, signal?: AbortSignal): Promise<UploadResult> {
-  const { key } = await startRestore();
-  await checkRestoreCookie(key);
-  if (signal?.aborted) throw new ApiError(0, "aborted");
+export function uploadRestoreFile(file: File, onProgress: (sent: number, total: number) => void, signal?: AbortSignal): Promise<UploadResult> {
+  const key = restoreKey();
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/setup/restore/upload");
@@ -83,7 +59,6 @@ export async function uploadRestoreFile(file: File, onProgress: (sent: number, t
     xhr.setRequestHeader("X-Kipple-Client", clientKind());
     xhr.setRequestHeader("X-Kipple-Restore-Key", key);
     xhr.setRequestHeader("Accept", "application/json");
-    xhr.withCredentials = true;
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded, e.total);
     };
@@ -115,16 +90,17 @@ export const confirmRestore = (newPassword?: string) =>
     method: "POST",
     body: newPassword ? { new_password: newPassword } : {},
     anon: true,
+    headers: restoreKeyHeaders(),
   });
 
 /** Cancels an upload that was not confirmed, and removes it from the server. */
-export const cancelRestore = () => api("/api/setup/restore", { method: "DELETE", anon: true });
+export const cancelRestore = () => api("/api/setup/restore", { method: "DELETE", anon: true, headers: restoreKeyHeaders() });
 
 /** The feeds file of the uploaded backup, as a file the import step can send. The server forgets the upload after this. */
 export async function fetchBackupFeeds(): Promise<File> {
   let res: Response;
   try {
-    res = await fetch("/api/setup/restore/feeds", { headers: { "X-Kipple-Client": clientKind() }, credentials: "same-origin", redirect: "manual" });
+    res = await fetch("/api/setup/restore/feeds", { headers: { "X-Kipple-Client": clientKind(), ...restoreKeyHeaders() }, credentials: "same-origin", redirect: "manual" });
   } catch {
     throw new ApiError(0, "network");
   }
