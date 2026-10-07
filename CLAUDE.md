@@ -1,6 +1,6 @@
 # Kipple
 
-Self-hosted RSS reader for the owner. Replaces yarr on the owner's Kipple server. Single user. The global
+Self-hosted RSS reader for the owner. Replaces the reader the owner used before, on the owner's Kipple server. Single user. The global
 CLAUDE.md of the dev machine (where the owner and Claude work) also loads here and its rules apply (never Haiku,
 docker via PowerShell, 127.0.0.1 not localhost, name compose services explicitly).
 
@@ -27,7 +27,7 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 
 - **Stack:** Go backend, React + TypeScript + Vite + Tailwind + shadcn frontend, SQLite in WAL mode. The frontend build
   is embedded in the Go binary. One image, one container, one port.
-- **Sync API:** Google Reader API (FreshRSS/Miniflux flavor) only. **No Fever.** The web app is the preferred client
+- **Sync API:** Google Reader API (as the two most widely used open source servers implement it, called the reference servers) only. **No Fever.** The web app is the preferred client
   (reading stats are web-only); any client that speaks the Google Reader API works. Test against the protocol, not named apps; build nothing special for any one app (issues #256, #260).
 - **Refresh:** background poll every 30 min (global + per-feed override), ETag/Last-Modified, exponential backoff on
   failing feeds, manual refresh fetches all now. API clients never trigger fetches of existing feeds; a feed added from
@@ -44,7 +44,7 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 - **Themes:** 20 color schemes (`web/src/theme/schemes.json` is the source of truth) plus follow-system with separate
   day and night picks (default Paper and Midnight). The original seven names are aliases (white=Paper, off-white=Linen,
   sepia=Parchment, soft green=Directory, brown=Cocoa Kraft, dark=Graphite, OLED=Midnight).
-- **Look:** Feedly is the reference (magazine/cards, images up front). Not NewsBlur, FreshRSS or Miniflux.
+- **Look:** The reference is a hosted commercial reader with magazine and cards, images up front (named in the history repo's UI decisions). Not the dense text-list readers.
 - **Non-goals:** no AI features, no notifications, no social (an opt-in share of the reader's own yearly summary,
   Wrapped, is allowed), no monitoring, no multi-user. Per-device appearance profiles are not multi-user. No podcasts or media players, no
   read-later or webhook integrations, no tags. Kipple is not trying to match what other readers have.
@@ -71,7 +71,7 @@ exact commands, backup, verification and GHCR steps are in `docs/RELEASING.md`; 
   context). Never a bare `up`/`down`. From 0.6.0-rc.1 the server pulls the signed image by digest instead.
 - Public URL `https://rss.example.com` via the owner's cloudflared tunnel. The Access bypass covers exactly the `/api/greader.php`
   prefix; root `/accounts/ClientLogin` and `/reader/api/0/*` answer but stay behind Access; the UI stays behind email
-  OTP. yarr stays paused, not removed, until the owner says so.
+  OTP. The previous reader stays paused, not removed, until the owner says so.
 - SemVer with `-alpha.N`/`-beta.N`/`-rc.N`. Annotated tag `vX.Y.Z[-pre.N]` on the exact deployed commit, made at deploy
   time; never move or reuse a pushed tag. One writer on the Kipple server at a time.
 - `CHANGELOG.md` is Keep a Changelog 1.1.0: every behavior change adds a one-file entry under `changes/`

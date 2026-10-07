@@ -27,7 +27,7 @@ triage scheme since it's a reasonable, well-known scale), each with steps to rep
 - CI green on the commit under test; the pending `changes/` fragments (`node scripts/changelog.mjs preview`) reflect everything in scope.
 - A representative test environment: either the Host-A deployment on a pre-release build, or the local dev stack
   (`npm run seed` / `KIPPLE_ADDR`+`KIPPLE_DATA` per CLAUDE.md) seeded with a realistic OPML set (the existing
-  138-feed NewsBlur export works, or a smaller fixture for faster runs).
+  138-feed OPML export works, or a smaller fixture for faster runs).
 - A Reader API client available on the owner's devices, already configured against the test instance.
 
 ## Exit criteria
@@ -222,7 +222,7 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
   again" instead of hanging (also just fixed — re-verify).
 
 **Reader API clients**
-- TC-A1: a Reader API client (FreshRSS type) connects, syncs reading-list/unread/starred; mark read/unread/star in
+- TC-A1: a Reader API client (Google Reader compatible account) connects, syncs reading-list/unread/starred; mark read/unread/star in
   the client and confirm it appears in the web app within 60s, and vice versa.
 - TC-A2: a second Reader API client connects the same way; add a feed from it, confirm it appears after the next
   scheduler tick; `subscription/quickadd` re-list shows it immediately (ETag behavior).
@@ -257,7 +257,7 @@ Kipple defect. Defects found: three fixed in PR #45, two copy questions filed as
 
 - TC-F1 **pass.** Adding `https://blog.rust-lang.org/` (a site, not a feed) discovered the feed and showed 10
   items within about 3 s.
-- TC-F2 **pass, with a substitute fixture.** The 138-feed NewsBlur export was not available to the agent; a
+- TC-F2 **pass, with a substitute fixture.** The 138-feed OPML export was not available to the agent; a
   6-feed OPML with two folders, a top-level feed and one duplicate was used instead. Result: 5 added, 2 folders
   created, 1 already present and left in its original folder, top-level feed placed in Uncategorized. The
   summary's "1 feed was already in Kipple and left as they are" mixed singular and plural (fixed, PR #45).

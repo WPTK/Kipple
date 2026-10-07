@@ -288,7 +288,7 @@ func TestRoundTripFixedPoint(t *testing.T) {
 	roundTrip(t, src, 138, 15)
 }
 
-// TestRoundTripRealFile runs the same gate against the live NewsBlur export when
+// TestRoundTripRealFile runs the same gate against a real exported OPML file when
 // KIPPLE_REAL_OPML points at it. The file is personal and is never committed.
 func TestRoundTripRealFile(t *testing.T) {
 	p := os.Getenv("KIPPLE_REAL_OPML")
@@ -362,7 +362,7 @@ func TestParseURLsNotDoubleUnescaped(t *testing.T) {
 	</body></opml>`)
 	require.Equal(t, "http://a.test/rss?a=1&section=x&region=us", d.Feeds[0].URL)
 	require.Equal(t, "http://a.test/?x=1&copy=2&reg=3", d.Feeds[0].SiteURL)
-	require.Equal(t, "B & C", d.Feeds[1].Title, "NewsBlur double-escaped title still decodes")
+	require.Equal(t, "B & C", d.Feeds[1].Title, "double-escaped title still decodes")
 	require.Equal(t, "Fish &chips", d.Feeds[2].Title, "legacy no-semicolon entities are not decoded")
 }
 

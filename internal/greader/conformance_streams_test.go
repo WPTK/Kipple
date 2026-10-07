@@ -28,10 +28,10 @@ func TestConformanceStreamItemIDs(t *testing.T) {
 	}
 	s := func(id string) string { return q1("s", id) }
 
-	// [GR][FR][MF] itemRefs[].id is the decimal id as a string, newest first.
+	// [GR][RS] itemRefs[].id is the decimal id as a string, newest first.
 	require.Equal(t, l.decs(confAllDesc...), ids(s(stateReadingList)))
 
-	// Stream grammar [GR][FR]: states, labels, feed/<id>, feed/<url>, user/<id>/… forms.
+	// Stream grammar [GR][RS]: states, labels, feed/<id>, feed/<url>, user/<id>/… forms.
 	cases := map[string][]string{
 		s(stateStarred):                          {"news-unread-starred", "news-old-starred"},
 		s(stateRead):                             {"news-old-starred", "tech-old-read"},
@@ -58,7 +58,7 @@ func TestConformanceStreamItemIDs(t *testing.T) {
 		require.Equal(t, l.decs(want...), got, q)
 	}
 
-	// xt excludes, it includes; both repeatable and ANDed [GR][FR][MF].
+	// xt excludes, it includes; both repeatable and ANDed [GR][RS].
 	xtRead := q1("xt", stateRead)
 	require.Equal(t, l.decs("tech-new", "news-unread", "news-unread-starred", "tech-unread", "loose-old"), ids(s(stateReadingList)+"&"+xtRead))
 	require.Equal(t, l.decs("tech-new", "tech-unread"), ids(s("user/-/label/Tech")+"&"+xtRead))
@@ -67,23 +67,23 @@ func TestConformanceStreamItemIDs(t *testing.T) {
 	require.Equal(t, l.decs("news-unread-starred"), ids(s(stateReadingList)+"&"+q1("it", stateStarred)+"&"+xtRead))
 	require.Equal(t, l.decs("news-old-starred", "tech-old-read"), ids(s(stateReadingList)+"&"+q1("xt", "user/-/state/com.google/unread")))
 
-	// r=o: oldest first [GR][FR][MF].
+	// r=o: oldest first [GR][RS].
 	asc := l.decs(confAllDesc...)
 	slices.Reverse(asc)
 	require.Equal(t, asc, ids(s(stateReadingList)+"&r=o"))
 
-	// ot (seconds): only items crawled at or after it, with Kipple's 120 s slack [GR][FR][K §3].
+	// ot (seconds): only items crawled at or after it, with Kipple's 120 s slack [GR][RS][K §3].
 	ot := (l.ids["news-unread"] / 1_000_000) + 121
 	require.Equal(t, l.decs("tech-new"), ids(s(stateReadingList)+"&ot="+strconv.FormatInt(ot, 10)))
-	// nt (seconds): only items crawled before it [GR][FR][MF].
+	// nt (seconds): only items crawled before it [GR][RS].
 	nt := l.ids["loose-old"]/1_000_000 - 1
 	require.Equal(t, l.decs("news-old-starred", "tech-old-read"), ids(s(stateReadingList)+"&nt="+strconv.FormatInt(nt, 10)))
 
 	// includeAllDirectStreamIds and output are accepted and do not change the ids [GR].
 	require.Equal(t, l.decs(confAllDesc...), ids(s(stateReadingList)+"&includeAllDirectStreamIds=true&output=json"))
 
-	// n defaults to 20 [GR][FR]; a smaller n pages with a string continuation, followed with c= until
-	// it is absent, with no item repeated or skipped, in either order [GR][FR][MF].
+	// n defaults to 20 [GR][RS]; a smaller n pages with a string continuation, followed with c= until
+	// it is absent, with no item repeated or skipped, in either order [GR][RS].
 	for _, order := range []string{"", "&r=o"} {
 		var all []string
 		cont := ""
@@ -121,7 +121,7 @@ func TestConformanceStreamContents(t *testing.T) {
 		return decodeStream(t, c.call(http.MethodGet, rd+path, "", nil))
 	}
 
-	// The stream may be in the path or in s= [GR][FR]; no stream is the reading list.
+	// The stream may be in the path or in s= [GR][RS]; no stream is the reading list.
 	forms := map[string][]string{
 		"stream/contents/user/-/state/com.google/reading-list?n=50": confAllDesc,
 		"stream/contents?n=50&" + q1("s", stateReadingList):         confAllDesc,
@@ -138,7 +138,7 @@ func TestConformanceStreamContents(t *testing.T) {
 		require.Equal(t, l.decs(want...), streamDecimals(t, get(path)), path)
 	}
 
-	// Envelope [GR][FR][MF]: id is the stream, updated a number of seconds, items an array.
+	// Envelope [GR][RS]: id is the stream, updated a number of seconds, items an array.
 	st := get("stream/contents/" + feedID(l.tech))
 	require.Equal(t, feedID(l.tech), st.ID)
 	require.Equal(t, h.clk.Now().Unix(), st.Updated)
@@ -147,7 +147,7 @@ func TestConformanceStreamContents(t *testing.T) {
 
 	// A feed URL with a query string and a "//" after the scheme cannot travel in the path (the "?"
 	// starts the query, and every "//" in a path is collapsed), but always resolves as an encoded s=
-	// value, on every endpoint that takes a stream [GR][FR][MF].
+	// value, on every endpoint that takes a stream [GR][RS].
 	odd := "https://odd.example/a//b/feed?format=rss&x=1"
 	oddFeed := h.addFeed(odd, "Odd", "")
 	oddItem := h.addItem(oddFeed, itemSeed{ID: baseID - 5*confHour, Title: "odd"})
@@ -159,7 +159,7 @@ func TestConformanceStreamContents(t *testing.T) {
 	c.write("mark-all-as-read", q1("s", "feed/"+odd))
 	require.True(t, isRead(h, oddItem))
 
-	// Item shape [GR][FR][MF].
+	// Item shape [GR][RS].
 	st = get("stream/contents/" + feedID(l.news) + "?n=50")
 	require.Len(t, st.Items, 3)
 	it := st.Items[1] // news-unread-starred
@@ -175,8 +175,8 @@ func TestConformanceStreamContents(t *testing.T) {
 	require.Equal(t, "https://example.org/news-unread-starred", it.Alternate[0].Href)
 	require.Equal(t, "text/html", it.Alternate[0].Type)
 	require.Contains(t, it.Summary.Content, "body of news-unread-starred")
-	// [GR] a client reads content.content or summary.content, whichever is present; [MF] sends
-	// content, [FR] summary. Kipple sends both, the same article.
+	// [GR] a client reads content.content or summary.content, whichever is present; [RS] sends
+	// content, [RS] summary. Kipple sends both, the same article.
 	require.Equal(t, it.Summary.Content, it.Content.Content)
 	require.Equal(t, feedID(l.news), it.Origin.StreamID)
 	require.Equal(t, "World News", it.Origin.Title)
@@ -187,7 +187,7 @@ func TestConformanceStreamContents(t *testing.T) {
 	require.NotContains(t, it.Categories, stateRead, "unread: no read category")
 	require.Contains(t, st.Items[2].Categories, stateRead, "news-old-starred is read")
 
-	// n, r=o, xt, ot and c work here as on stream/items/ids [GR][FR].
+	// n, r=o, xt, ot and c work here as on stream/items/ids [GR][RS].
 	st = get("stream/contents/user/-/state/com.google/reading-list?n=2&" + q1("xt", stateRead))
 	require.Equal(t, l.decs("tech-new", "news-unread"), streamDecimals(t, st))
 	require.NotEmpty(t, st.Continuation)
@@ -213,10 +213,10 @@ func TestConformanceStreamItemsContents(t *testing.T) {
 	hex16 := FormatHex16(id)
 	short := strings.TrimLeft(hex16, "0")
 	forms := map[string]string{
-		"long":           longID(l.dec("tech-unread")),       // [GR][FR][MF]
-		"long unpadded":  longIDPrefix + short,               // [MF] short prefixed hex
-		"bare 16 hex":    hex16,                              // [MF]
-		"decimal":        l.dec("tech-unread"),               // [GR][FR][MF] itemRefs form
+		"long":           longID(l.dec("tech-unread")),       // [GR][RS]
+		"long unpadded":  longIDPrefix + short,               // [RS] short prefixed hex
+		"bare 16 hex":    hex16,                              // [RS]
+		"decimal":        l.dec("tech-unread"),               // [GR][RS] itemRefs form
 		"0x hex":         "0x" + short,                       // [K §3]
 		"spaces trimmed": "  " + l.dec("tech-unread") + "  ", // [K §3]
 	}
@@ -224,10 +224,10 @@ func TestConformanceStreamItemsContents(t *testing.T) {
 		// POST (the documented method) with i= in the body.
 		st := decodeStream(t, c.call(http.MethodPost, rd+"stream/items/contents", q1("i", v)+"&T="+url.QueryEscape(c.token), nil))
 		require.Equal(t, []string{l.dec("tech-unread")}, streamDecimals(t, st), name)
-		require.Equal(t, stateReadingList, st.ID, "[FR][MF] the envelope id is the reading list")
+		require.Equal(t, stateReadingList, st.ID, "[RS] the envelope id is the reading list")
 	}
 
-	// Several i=, any mix of forms, unknown ids absent; newest first, or oldest first with r=o [FR][MF].
+	// Several i=, any mix of forms, unknown ids absent; newest first, or oldest first with r=o [RS].
 	body := strings.Join([]string{
 		q1("i", longID(l.dec("tech-old-read"))),
 		q1("i", l.dec("news-unread")),
