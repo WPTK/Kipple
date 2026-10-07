@@ -128,7 +128,6 @@ export function RestoreWaiting({
             ? "Resetting Kipple. It is working, you can leave this page open."
             : `Restoring your library. This usually takes about ${minutes} ${minutes === 1 ? "minute" : "minutes"} for a backup this size. It is working, you can leave this page open.`}
         </p>
-        {kind === "reset" ? <Notice tone="warn">{UNCLAIMED_NOTICE}</Notice> : null}
         <p className="text-sm text-fg2" data-testid="elapsed">
           Elapsed {clock(elapsed)}
         </p>
