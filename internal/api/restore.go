@@ -66,14 +66,18 @@ var (
 	restoreMinRate   = 32 << 10
 	restoreRateGrace = 2 * time.Minute
 	// An upload must also end within restoreMaxFloor, or within its size at
-	// restoreMaxRate when that is longer (restoreDeadline).
+	// restoreMaxRate when that is longer, but never past restoreMaxHold
+	// (restoreDeadline).
 	restoreMaxFloor = 2 * time.Hour
 	restoreMaxRate  = 128 << 10
+	restoreMaxHold  = 4 * time.Hour
 )
 
-// restoreDeadline is how long an upload of size bytes may take at most.
+// restoreDeadline is how long an upload of size bytes may take at most. The
+// size is only what the client declares, so it can stretch the allowance up to
+// restoreMaxHold and no further.
 func restoreDeadline(size int64) time.Duration {
-	return max(restoreMaxFloor, time.Duration(size/int64(restoreMaxRate))*time.Second)
+	return min(restoreMaxHold, max(restoreMaxFloor, time.Duration(size/int64(restoreMaxRate))*time.Second))
 }
 
 // restoreAnswerWait bounds writing the answer once the checks are done.

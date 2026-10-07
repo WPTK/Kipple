@@ -358,10 +358,7 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 	src := &ctxReader{ctx, body}
 	head := make([]byte, min(size, sniffBytes))
 	if _, err := io.ReadFull(src, head); err != nil {
-		if ctx.Err() != nil {
-			return Upload{}, ctx.Err()
-		}
-		return Upload{}, cut(err)
+		return Upload{}, ended(ctx, err)
 	}
 	switch {
 	case bytes.HasPrefix(head, []byte("PK\x03\x04")):
@@ -372,10 +369,7 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 		b := make([]byte, size)
 		copy(b, head)
 		if _, err := io.ReadFull(src, b[len(head):]); err != nil {
-			if ctx.Err() != nil {
-				return Upload{}, ctx.Err()
-			}
-			return Upload{}, cut(err)
+			return Upload{}, ended(ctx, err)
 		}
 		doc, err := opml.Parse(bytes.NewReader(b))
 		if err != nil {
@@ -405,20 +399,23 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
-	if ctx.Err() != nil {
-		return Upload{}, ctx.Err()
-	}
-	if err != nil || n != size {
-		return Upload{}, cut(err)
+	if err != nil || n != size || ctx.Err() != nil {
+		return Upload{}, ended(ctx, err)
 	}
 	return Upload{Kind: KindBackup}, nil
 }
 
-// cut is the refusal for a body that ended early: ErrUploadTooSlow when the
-// reader stopped it for that, else ErrUploadCut.
-func cut(err error) error {
-	if errors.Is(err, ErrUploadTooSlow) {
+// ended is the refusal for a body that stopped early. ErrUploadTooSlow comes
+// first: when the connection's read deadline expires, net/http cancels the
+// request, and with it ctx, before the reader's error gets here, and the
+// reason must survive that. Else ctx's own error (the upload was cancelled),
+// else ErrUploadCut.
+func ended(ctx context.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrUploadTooSlow):
 		return ErrUploadTooSlow
+	case ctx.Err() != nil:
+		return ctx.Err()
 	}
 	return ErrUploadCut
 }

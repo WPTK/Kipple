@@ -602,16 +602,21 @@ func TestASlowUploadIsStopped(t *testing.T) {
 		restoreReadIdle, restoreMinRate, restoreRateGrace = idle, rate, grace
 		t.Cleanup(func() { restoreReadIdle, restoreMinRate, restoreRateGrace = oldIdle, oldRate, oldGrace })
 	}
-	b := backupZip(t, "h", store.AuthStandard)
+	// A body that looks like a zip and is longer than the 64 KB the server reads
+	// first. Each case sends past that head, so the stop always lands in the
+	// body: where it lands decides whether the server sees the reader's reason
+	// or a cancelled request (the connection's read deadline cancels it).
+	b := append([]byte("PK\x03\x04"), make([]byte, 200<<10)...)
+	const sent = 64<<10 + 1000
 	check := func(t *testing.T, trickle bool) {
 		h := newRestoreHarness(t)
 		srv := httptest.NewServer(h.root)
 		defer srv.Close()
 		key := testKey(t)
-		conn := rawUpload(t, srv, key, b, 100)
+		conn := rawUpload(t, srv, key, b, sent)
 		if trickle { // a byte at a time, never stalling for the idle limit
 			go func() {
-				for i := 100; i < len(b)-1; i++ {
+				for i := sent; i < len(b)-1; i++ {
 					if _, err := conn.Write(b[i : i+1]); err != nil {
 						return
 					}
@@ -648,9 +653,10 @@ func TestASlowUploadIsStopped(t *testing.T) {
 	})
 }
 
-// One upload holds the slot at most max(2 h, its size at 128 KB/s).
+// One upload holds the slot at most max(2 h, its size at 128 KB/s), and never
+// more than 4 h, whatever size it declares.
 func TestRestoreDeadline(t *testing.T) {
 	require.Equal(t, 2*time.Hour, restoreDeadline(100<<20))
 	require.Equal(t, 8192*time.Second, restoreDeadline(1<<30))
-	require.Equal(t, 32768*time.Second, restoreDeadline(4<<30))
+	require.Equal(t, 4*time.Hour, restoreDeadline(4<<30))
 }

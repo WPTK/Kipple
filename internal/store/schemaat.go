@@ -91,8 +91,10 @@ func ReadSchema(ctx context.Context, q Querier) ([]SchemaObject, error) {
 // primary key place and hidden or generated flag; a virtual table adds its
 // definition (module and arguments). For an index, UNIQUE, partial, and each
 // key column's name (or expression), order and collation. "" for the rest.
-// The text of a table can differ between databases of the same schema (a
-// migration's comments were edited after it shipped); its shape cannot.
+// A table also carries its text with comments dropped and whitespace folded
+// (normalizeSQL), the one place UNIQUE and PRIMARY KEY constraints (their
+// autoindexes), CHECK, DEFAULT and foreign keys are written. A migration's
+// comments may be edited after it ships; nothing else in it may be.
 // Reading it runs SQLite's own code on the object (a virtual table is
 // connected), so a restore reads shapes only of objects whose names, and for a
 // virtual table whose definition, it has already matched.
@@ -105,10 +107,7 @@ func Shape(ctx context.Context, q Querier, o SchemaObject) (string, error) {
 		if err := q.QueryRowContext(ctx, `SELECT type, wr, strict FROM pragma_table_list(?) WHERE schema = 'main'`, o.Name).Scan(&kind, &wr, &strict); err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&b, "%s wr=%d strict=%d", kind, wr, strict)
-		if kind == "virtual" {
-			b.WriteString(" " + strings.Join(strings.Fields(o.SQL), " "))
-		}
+		fmt.Fprintf(&b, "%s wr=%d strict=%d %s", kind, wr, strict, normalizeSQL(o.SQL))
 		rows, err := q.QueryContext(ctx, `SELECT name, upper(type), "notnull", pk, hidden FROM pragma_table_xinfo(?) ORDER BY cid`, o.Name)
 		if err != nil {
 			return "", err
@@ -145,4 +144,64 @@ func Shape(ctx context.Context, q Querier, o SchemaObject) (string, error) {
 		return b.String(), rows.Err()
 	}
 	return "", nil
+}
+
+// normalizeSQL is the text of a statement with its comments dropped and each
+// run of whitespace outside quotes folded to one space, so two spellings of one
+// definition compare equal and any other difference does not.
+func normalizeSQL(s string) string {
+	var b strings.Builder
+	space := false
+	for i := 0; i < len(s); {
+		c := s[i]
+		switch {
+		case strings.HasPrefix(s[i:], "--"):
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+			space = true
+		case strings.HasPrefix(s[i:], "/*"):
+			if end := strings.Index(s[i+2:], "*/"); end >= 0 {
+				i += end + 4
+			} else {
+				i = len(s)
+			}
+			space = true
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			i++
+			space = true
+		default:
+			if space && b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			space = false
+			closing := byte(0) // the closing quote, when c opens one
+			switch c {
+			case '\'', '"', '`':
+				closing = c
+			case '[':
+				closing = ']'
+			}
+			if closing == 0 {
+				b.WriteByte(c)
+				i++
+				break
+			}
+			j := i + 1
+			for j < len(s) {
+				if s[j] == closing {
+					if closing != ']' && j+1 < len(s) && s[j+1] == closing { // a doubled quote is a literal one
+						j += 2
+						continue
+					}
+					break
+				}
+				j++
+			}
+			j = min(j+1, len(s))
+			b.WriteString(s[i:j])
+			i = j
+		}
+	}
+	return b.String()
 }

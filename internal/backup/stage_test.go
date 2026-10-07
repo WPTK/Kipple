@@ -408,6 +408,11 @@ func TestUploadRefusesAnExtraOrChangedSchemaObject(t *testing.T) {
 		"generated column": "ALTER TABLE sessions ADD COLUMN g INTEGER GENERATED ALWAYS AS (1) VIRTUAL",
 		"virtual table":    "DROP TABLE sessions; CREATE VIRTUAL TABLE sessions USING fts5(id, expires_at)",
 		"changed index":    "DROP INDEX idx_sessions_expires; CREATE UNIQUE INDEX idx_sessions_expires ON sessions(expires_at DESC)",
+		// Constraints live in a table's text only: no column or index of its own
+		// shows a dropped UNIQUE, a CHECK that always fails or a changed DEFAULT.
+		"table without a unique":   "DROP TABLE trimmed_items; CREATE TABLE trimmed_items (id INTEGER PRIMARY KEY, feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE, uid TEXT NOT NULL, read INTEGER NOT NULL CHECK (read IN (0,1)), trimmed_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL) STRICT; CREATE INDEX idx_trimmed_seen ON trimmed_items(last_seen_at); CREATE INDEX idx_trimmed_trimmed ON trimmed_items(trimmed_at); CREATE INDEX idx_trimmed_unread ON trimmed_items(id) WHERE read = 0",
+		"table with a bad check":   "PRAGMA writable_schema = ON; UPDATE sqlite_master SET sql = replace(sql, 'json_valid(value)', '0') WHERE name = 'settings'; PRAGMA writable_schema = OFF",
+		"table with a new default": "PRAGMA writable_schema = ON; UPDATE sqlite_master SET sql = replace(sql, 'updated_at INTEGER NOT NULL DEFAULT (unixepoch())', 'updated_at INTEGER NOT NULL DEFAULT 0') WHERE name = 'settings'; PRAGMA writable_schema = OFF",
 		// Virtual tables whose module does not exist: reading their shape would
 		// fail with "no such module". The refusals name the object instead,
 		// which shows nothing was read from them before the names and texts
@@ -435,6 +440,10 @@ func TestUploadRefusesAnExtraOrChangedSchemaObject(t *testing.T) {
 			want = `the table "evil", which Kipple never creates`
 		case "changed table", "generated column", "virtual table", "swapped virtual table":
 			want = `a changed table "sessions"`
+		case "table without a unique":
+			want = `a changed table "trimmed_items"`
+		case "table with a bad check", "table with a new default":
+			want = `a changed table "settings"`
 		case "changed index":
 			want = `a changed index "idx_sessions_expires"`
 		}
