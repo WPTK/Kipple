@@ -631,6 +631,25 @@ func TestPatchFeedResetsLearnedUAFallback(t *testing.T) {
 	require.Equal(t, 0, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "changed URL resets it")
 }
 
+// The document's RSS ttl is stored by a commit and read back into the snapshot,
+// which is how a later 304 still honors it.
+func TestDocumentTTLRoundTrips(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.test/f")
+	snap, ok, err := e.db.FeedSnapshot(e.ctx, e.db.FetchSettings(e.ctx), id)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Zero(t, snap.DocTTLS)
+	snap.Trigger = fetch.TriggerScheduled
+	res := e.okResult(snap, []byte(`<rss version="2.0"><channel><title>T</title><ttl>90</ttl><item><guid>g</guid><title>x</title></item></channel></rss>`))
+	res.DocTTLS, res.TTLHintS = 5400, 7200 // the header part of the hint is not stored
+	e.commit(res)
+	require.Equal(t, 5400, e.count("SELECT ttl_hint_s FROM feeds WHERE id = ?", id))
+	snap, _, err = e.db.FeedSnapshot(e.ctx, e.db.FetchSettings(e.ctx), id)
+	require.NoError(t, err)
+	require.EqualValues(t, 5400, snap.DocTTLS)
+}
+
 func TestPullInScheduleRespectsPublisherTTL(t *testing.T) {
 	e := newEnv(t)
 	mk := func(url string, ttl any) int64 {
