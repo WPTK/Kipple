@@ -100,23 +100,20 @@ export const READ_RULE =
 type Tile = "items" | "time" | "days";
 
 export function SummaryStrip({ data, compare = false }: { data: StatsSummary; compare?: boolean }) {
-  const legacy = data.totals?.legacy_opens ?? 0;
   return (
     <Section title="Summary">
       <SummaryTiles data={data} compare={compare} />
-      <p className="mt-2 text-xs text-fg2">
-        {READ_RULE}
-        {legacy > 0
-          ? ` ${plural(legacy, "open")} in this range predate reading time. ${legacy === 1 ? "It counts" : "They count"} as read, with no time.`
-          : ""}
-      </p>
     </Section>
   );
 }
 
-/** The three summary tiles of `data`, each comparable on a tap. With `feed`, the earlier period is that feed's too. */
+/**
+ * The three summary tiles of `data`, each comparable on a tap, and what counts as a read. With `feed`, the earlier
+ * period is that feed's too.
+ */
 export function SummaryTiles({ data, compare = false, feed }: { data: StatsSummary; compare?: boolean; feed?: string }) {
   const t = data.totals;
+  const legacy = t?.legacy_opens ?? 0;
   const noteId = useId();
   // Tiles show plain numbers. Tapping one shows its previous-period value; the earlier period is fetched on the first tap.
   const [open, setOpen] = useState<ReadonlySet<Tile>>(new Set());
@@ -176,6 +173,12 @@ export function SummaryTiles({ data, compare = false, feed }: { data: StatsSumma
           <Button onClick={retry}>Try again</Button>
         </div>
       ) : null}
+      <p className="mt-2 text-xs text-fg2">
+        {READ_RULE}
+        {legacy > 0
+          ? ` ${plural(legacy, "open")} in this range predate reading time. ${legacy === 1 ? "It counts" : "They count"} as read, with no time.`
+          : ""}
+      </p>
     </>
   );
 }
@@ -457,10 +460,10 @@ function SourceHead({ r, by, amount, onOpen }: { r: SourceRow; by: "feeds" | "fo
       type="button"
       aria-haspopup="dialog"
       onClick={() => onOpen(r)}
-      className="flex min-h-6 w-full min-w-0 items-baseline gap-2 rounded text-left hover:text-link"
+      className="flex min-h-11 w-full min-w-0 items-center gap-2 rounded text-left hover:text-link"
     >
       {inner}
-      <ChevronRight aria-hidden="true" className="size-4 shrink-0 self-center text-fg2" />
+      <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-fg2" />
     </button>
   );
 }

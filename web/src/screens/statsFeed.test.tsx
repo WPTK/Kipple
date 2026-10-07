@@ -67,6 +67,7 @@ describe("Feed drill-down", () => {
     await user.click(within(sources).getByRole("button", { name: /Alpha Blog/ }));
     const sheet = await screen.findByRole("dialog", { name: "Alpha Blog" });
     expect(within(sheet).getByText("The last 30 days.")).toBeInTheDocument();
+    expect(await within(sheet).findByText(/^An article counts as read after 10 seconds/)).toBeInTheDocument();
     expect(await within(sheet).findByRole("heading", { name: "Daily activity" })).toBeInTheDocument();
     const call = feedCalls(m)[0]!.url.searchParams;
     expect([call.get("feed"), call.get("range")]).toEqual(["1", "month"]);
@@ -106,6 +107,20 @@ describe("Feed drill-down", () => {
     const sheet = await screen.findByRole("dialog", { name: "Alpha Blog" });
     await user.click(await within(sheet).findByRole("button", { name: /Items read/ }));
     expect(await within(sheet).findByText("Not enough history")).toBeInTheDocument();
+  });
+
+  it("a feed with no name still gives its row and sheet one", async () => {
+    const nameless = { ...richStats, sources: [{ ...richStats.sources![0]!, feed_title: "" }] };
+    mockFetch({
+      "GET /api/bootstrap": () => json({ ...bootstrap, settings: {} }),
+      "GET /api/stats/summary": () => json(nameless),
+      "GET /api/items": () => json({ items: [], next_cursor: null }),
+    });
+    const user = userEvent.setup();
+    go();
+    const sources = await screen.findByRole("region", { name: "Sources" });
+    await user.click(within(sources).getByRole("button", { name: /Unnamed feed/ }));
+    expect(await screen.findByRole("dialog", { name: "Unnamed feed" })).toBeInTheDocument();
   });
 
   it("folder rows do not open a sheet", async () => {

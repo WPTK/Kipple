@@ -38,9 +38,10 @@ type StatsSummaryParams struct {
 	Key             string // week, month, year, all or custom
 	From, To        string // "" for all: from the first event through today
 	IncludeInferred bool
-	// FeedID, when not 0, scopes every count of the summary to that one feed: totals, daily, streaks,
-	// heatmap, behavior, sources and never_opened. The dates and coverage stay those of all statistics,
-	// since a stretch with statistics off or deleted is a gap for every feed alike.
+	// FeedID, when not 0, scopes every count of the summary to that one feed: totals, daily, heatmap,
+	// behavior, sources and never_opened; streaks are left out (nil). Coverage starts no earlier than
+	// the feed did (statsFeedStart), and no earlier than that of all statistics, since a stretch with
+	// statistics off or deleted is a gap for every feed alike.
 	FeedID int64
 	Now    time.Time
 	// WhenOff computes the summary from the stored rows even while recording is off (the export
@@ -146,13 +147,14 @@ type (
 		CoveredFrom *string `json:"covered_from"`
 		// TimedFrom is the same for active time: also after the first read time or scroll was recorded,
 		// as earlier opens have no time. Never before CoveredFrom; nil when nothing was ever timed.
-		TimedFrom *string       `json:"timed_from"`
-		Totals    StatsTotals   `json:"totals"`
-		Daily     []StatsDaily  `json:"daily"`
-		Streaks   StatsStreaks  `json:"streaks"`
-		Heatmap   []StatsHeat   `json:"heatmap"`
-		Behavior  StatsBehavior `json:"behavior"`
-		Sources   []StatsSource `json:"sources"`
+		TimedFrom *string      `json:"timed_from"`
+		Totals    StatsTotals  `json:"totals"`
+		Daily     []StatsDaily `json:"daily"`
+		// Streaks are all time and all feeds; nil (absent) in the summary of one feed.
+		Streaks  *StatsStreaks `json:"streaks,omitempty"`
+		Heatmap  []StatsHeat   `json:"heatmap"`
+		Behavior StatsBehavior `json:"behavior"`
+		Sources  []StatsSource `json:"sources"`
 		// SourcesTruncated is true when more than statsSourcesMax feeds had activity and the list was cut.
 		SourcesTruncated bool               `json:"sources_truncated"`
 		NeverOpened      []StatsNeverOpened `json:"never_opened"`
@@ -227,13 +229,12 @@ const (
 	// sqlStreaks probes each distinct open date once and stops at its first qualifying open. Both
 	// the date list and the probe read idx_stats_open_cov; the session lookups read idx_stats_session.
 	// The read rule is statsIsRead's: legacy (ts < ?1), or read time >= ?4, or a scroll >= ?3 with
-	// read time >= ?6. ?7 is a feed id to count only that feed's opens, or 0 for all. The scroll
-	// probe (one row per session) runs before the second read-time sum, so that sum is taken again
-	// only for a session that scrolled far enough and has under ?4.
+	// read time >= ?6. The scroll probe (one row per session) runs before the second read-time sum,
+	// so that sum is taken again only for a session that scrolled far enough and has under ?4.
 	sqlStreaks = `SELECT d.local_date FROM (
-		SELECT local_date FROM stats_events INDEXED BY idx_stats_open_cov WHERE kind = 'open' AND inferred <= ?2 AND rowid <= ?5 AND (?7 = 0 OR feed_id = ?7) GROUP BY local_date) d
+		SELECT local_date FROM stats_events INDEXED BY idx_stats_open_cov WHERE kind = 'open' AND inferred <= ?2 AND rowid <= ?5 GROUP BY local_date) d
 		WHERE EXISTS (SELECT 1 FROM stats_events e INDEXED BY idx_stats_open_cov
-		 WHERE e.kind = 'open' AND e.inferred <= ?2 AND e.local_date = d.local_date AND e.rowid <= ?5 AND (?7 = 0 OR e.feed_id = ?7) AND (e.ts < ?1
+		 WHERE e.kind = 'open' AND e.inferred <= ?2 AND e.local_date = d.local_date AND e.rowid <= ?5 AND (e.ts < ?1
 		  OR (SELECT SUM(r.value) FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'read_time' AND r.id <= ?5) >= ?4
 		  OR (EXISTS (SELECT 1 FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'scroll' AND r.value >= ?3 AND r.id <= ?5)
 		   AND (SELECT SUM(r.value) FROM stats_events r WHERE r.session_key = e.session_key AND r.kind = 'read_time' AND r.id <= ?5) >= ?6)))
@@ -243,6 +244,9 @@ const (
 	sqlNameByReadTime = `SELECT feed_title, folder_id, folder_name FROM stats_events INDEXED BY idx_stats_feed
 		WHERE feed_id = ?1 AND kind = 'read_time' AND ts BETWEEN ?2 AND ?3 AND local_date BETWEEN ?4 AND ?5 AND id <= ?6
 		ORDER BY ts DESC, id DESC LIMIT 1`
+	// sqlFeedFirstDate is the first local date with any row of one feed (its start when the feed row
+	// is gone).
+	sqlFeedFirstDate = `SELECT COALESCE(MIN(local_date), '') FROM stats_events INDEXED BY idx_stats_feed WHERE feed_id = ?1 AND id <= ?2`
 )
 
 // statsHinted is every INDEXED BY query of the summary with representative arguments (for the plan
@@ -274,10 +278,10 @@ func statsHinted() []statsHint {
 		{"scroll", sqlScroll, "idx_stats_scroll_cov", 1, []any{lo, hi, max}},
 		{"stars", sqlStars, "idx_stats_kind_ts", 1, []any{0, 0, 1 << 40, lo, hi, max}},
 		{"open_original", sqlOrig, "idx_stats_kind_ts", 1, []any{0, 0, 1 << 40, lo, hi, max}},
-		{"streaks", sqlStreaks, "idx_stats_open_cov", 2, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds, 0}},
-		{"streaks sessions", sqlStreaks, "idx_stats_session", 3, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds, 0}},
-		{"streaks of a feed", sqlStreaks, "idx_stats_open_cov", 2, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds, 7}},
+		{"streaks", sqlStreaks, "idx_stats_open_cov", 2, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds}},
+		{"streaks sessions", sqlStreaks, "idx_stats_session", 3, []any{0, 0, StatsReadScroll, StatsReadSeconds, max, StatsReadScrollSeconds}},
 		{"name by read time", sqlNameByReadTime, "idx_stats_feed", 1, []any{1, 0, 1 << 40, lo, hi, max}},
+		{"feed first date", sqlFeedFirstDate, "idx_stats_feed", 1, []any{1, max}},
 	}
 }
 
@@ -399,6 +403,26 @@ func statsCoverage(ctx context.Context, q Querier, loc *time.Location, first str
 		timed = &d
 	}
 	return covered, timed, nil
+}
+
+// statsFeedStart is the first local date a feed could have statistics: the earlier of the day it
+// was subscribed and its first row (a feed row that is gone leaves only the second; "" when neither).
+func statsFeedStart(ctx context.Context, q Querier, loc *time.Location, feed, maxID int64) (string, error) {
+	var start string
+	if err := q.QueryRowContext(ctx, sqlFeedFirstDate, feed, maxID).Scan(&start); err != nil {
+		return "", err
+	}
+	var created int64
+	err := q.QueryRowContext(ctx, "SELECT created_at FROM feeds WHERE id = ?", feed).Scan(&created)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	if err == nil {
+		if d := time.Unix(created, 0).In(loc).Format(dateLayout); start == "" || d < start {
+			start = d
+		}
+	}
+	return start, nil
 }
 
 // statsLegacyCutoff is the ts of the earliest read_time or scroll event ever recorded (the stored
@@ -628,6 +652,18 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 	if out.CoveredFrom, out.TimedFrom, err = statsCoverage(ctx, q, loc, first, cut); err != nil {
 		return nil, err
 	}
+	if p.FeedID != 0 && out.CoveredFrom != nil {
+		// Before the feed existed its days are not zeros either: coverage starts no earlier than it did.
+		start, err := statsFeedStart(ctx, q, loc, p.FeedID, maxID)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range []*string{out.CoveredFrom, out.TimedFrom} {
+			if d != nil && start > *d {
+				*d = start
+			}
+		}
+	}
 
 	// Opens in the range, from the covering index (migration 0009); no table rows are read.
 	type openRow struct {
@@ -643,7 +679,7 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		rt         map[statsRTKey]int64
 		sessRT     map[string]int64
 		sessScroll map[string]int64
-		streaks    StatsStreaks
+		streaks    *StatsStreaks
 		stars      map[int64]starAgg
 		origs      map[int64]int
 	)
@@ -653,10 +689,14 @@ func StatsSummaryFor(ctx context.Context, q Querier, p StatsSummaryParams) (*Sta
 		rt, sessRT, e = statsReadTime(c, q, from, to, maxID)
 		return
 	})
-	g.Go(func(c context.Context) (e error) {
-		streaks, e = statsStreaks(c, q, cut, inc, today, maxID, p.FeedID)
-		return
-	})
+	if p.FeedID == 0 {
+		g.Go(func(c context.Context) (e error) {
+			var st StatsStreaks
+			st, e = statsStreaks(c, q, cut, inc, today, maxID)
+			streaks = &st
+			return
+		})
+	}
 	g.Go(func(c context.Context) error {
 		rows, err := q.QueryContext(c, sqlOpens, inc, from, to, maxID)
 		if err != nil {
@@ -1060,9 +1100,9 @@ func statsCountByFeed(ctx context.Context, q Querier, query string, args ...any)
 // statsStreaks computes the all-time streaks over local dates with at least one read open (see
 // sqlStreaks). A date later than today (rows written under a different time zone, or a clock that
 // moved back) counts as today, so the current streak cannot drop to 0 because of it.
-func statsStreaks(ctx context.Context, q Querier, cut int64, inc int, today string, maxID, feed int64) (StatsStreaks, error) {
+func statsStreaks(ctx context.Context, q Querier, cut int64, inc int, today string, maxID int64) (StatsStreaks, error) {
 	var st StatsStreaks
-	rows, err := q.QueryContext(ctx, sqlStreaks, cut, inc, StatsReadScroll, StatsReadSeconds, maxID, StatsReadScrollSeconds, feed)
+	rows, err := q.QueryContext(ctx, sqlStreaks, cut, inc, StatsReadScroll, StatsReadSeconds, maxID, StatsReadScrollSeconds)
 	if err != nil {
 		return st, err
 	}

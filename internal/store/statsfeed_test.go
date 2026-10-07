@@ -36,18 +36,46 @@ func TestStatsSummaryOneFeed(t *testing.T) {
 	want := only.summary("2026-09-01", "2026-09-24")
 	require.Equal(t, want.Totals, got.Totals)
 	require.Equal(t, want.Daily, got.Daily)
-	require.Equal(t, want.Streaks, got.Streaks)
+	require.Nil(t, got.Streaks, "streaks are all feeds; one feed's summary leaves them out")
 	require.Equal(t, want.Heatmap, got.Heatmap)
 	require.Equal(t, want.Behavior, got.Behavior)
 	require.Equal(t, want.Sources, got.Sources)
 	require.Len(t, got.Sources, 1)
 	require.Equal(t, 2, got.Totals.ItemsRead, "the legacy open and the 30 s read")
-	require.Equal(t, 1, got.Streaks.Longest, "the other feed's reads on the 22nd and 23rd are not this feed's streak")
-	// Coverage is the same for every feed: a gap in statistics is a gap for all of them.
+	// The feed's rows start with the first row of all, so its coverage is that of all statistics.
 	all := both.summary("2026-09-01", "2026-09-24")
 	require.Equal(t, all.CoveredFrom, got.CoveredFrom)
 	require.Equal(t, all.TimedFrom, got.TimedFrom)
-	require.Equal(t, 2, all.Streaks.Longest, "unscoped, the other feed's days still count")
+	require.NotNil(t, all.Streaks)
+}
+
+// A feed subscribed after statistics began is covered only from its subscription day: the days
+// before it are not zeros, so a comparison reaching back past it has too little history.
+func TestStatsSummaryOneFeedCoverageStartsWithTheFeed(t *testing.T) {
+	e := newEnv(t)
+	e.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('tz', '\"UTC\"')")
+	old := e.addFeed("https://old.example/feed")
+	young := e.addFeed("https://young.example/feed")
+	e.exec("UPDATE feeds SET created_at = ? WHERE id = ?", time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC).Unix(), old)
+	e.exec("UPDATE feeds SET created_at = ? WHERE id = ?", time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC).Unix(), young)
+	e.putStat("open", "2026-08-01", 1, old, "a", nil, "Old")
+	e.putStat("read_time", "2026-08-01", 1, old, "a", 30, "Old")
+	e.putStat("open", "2026-09-20", 2, young, "b", nil, "Young")
+	sum := func(f int64) *StatsSummary {
+		out, err := StatsSummaryFor(e.ctx, e.db.Reader(), StatsSummaryParams{Key: "custom", From: "2026-09-01", To: "2026-09-24", Now: base, FeedID: f})
+		require.NoError(t, err)
+		return out
+	}
+	all := e.summary("2026-09-01", "2026-09-24")
+	require.Equal(t, "2026-08-01", *all.CoveredFrom)
+	require.Equal(t, "2026-08-01", *sum(old).CoveredFrom, "subscribed before the first row: the global start")
+	y := sum(young)
+	require.Equal(t, "2026-09-14", *y.CoveredFrom, "its subscription day")
+	require.Equal(t, "2026-09-14", *y.TimedFrom)
+
+	// A feed whose row is gone starts with its first row.
+	e.exec("DELETE FROM feeds WHERE id = ?", young)
+	require.Equal(t, "2026-09-20", *sum(young).CoveredFrom)
 }
 
 // A feed's never_opened lists only that feed, and only when it had no open in the range.

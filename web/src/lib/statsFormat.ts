@@ -117,7 +117,7 @@ export interface SourceRow {
 export function feedRows(sources: StatsSource[]): SourceRow[] {
   return sources.map((s) => ({
     key: s.feed_id,
-    name: s.feed_title,
+    name: s.feed_title || "Unnamed feed", // a row, its button and its sheet always have a name
     items_read: s.items_read,
     opens: s.opens,
     active_seconds: s.active_seconds,
