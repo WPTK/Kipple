@@ -44,10 +44,10 @@ type Issue = { field: string; message: string };
 const runeCount = (s: string): number => [...s].length;
 const byteCount = (s: string): number => new TextEncoder().encode(s).length;
 
-/** Why a term cannot be added, or null. The server checks again; this saves a round trip. */
 /** A term as the server compares it: lower-case, typographic apostrophes plain. */
 const plain = (t: string): string => t.toLowerCase().replace(/[’ʼ]/g, "'");
 
+/** Why a term cannot be added, or null. The server checks again; this saves a round trip. */
 export function termProblem(term: string, d: Pick<FilterDraft, "kind" | "terms">): string | null {
   if (d.kind === "regex") {
     if (byteCount(term) > LIMITS.regexBytes) return `A pattern can be at most ${LIMITS.regexBytes} bytes.`;
