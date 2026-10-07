@@ -4,8 +4,9 @@ import { onlineManager, QueryClientProvider, useQuery } from "@tanstack/react-qu
 import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import { useRefreshAll } from "@/api/refresh";
+import { applyCounts } from "@/api/events";
 import { ApiError, api, authStore } from "@/api/client";
-import { applyRead, applyStar, flattenItems, keys, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
+import { applyRead, applyStar, flattenItems, keys, useBootstrap, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { OfflineNotice } from "@/shell/OfflineNotice";
 import App, { makeQueryClient } from "@/App";
@@ -15,7 +16,9 @@ import {
   flushQueue,
   initOffline,
   isOffline,
+  countsForAnswer,
   memoryBackendForTests,
+  mirrorCounts,
   SUPERSEDE_WAIT_MS,
   prefetchUnread,
   QueueWriteError,
@@ -723,6 +726,258 @@ describe("the badges while offline", () => {
     mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [] }) });
     await applyRead(c, ["1001"], true, "key");
     expect(counts(c.getQueryData(keys.bootstrap))).toEqual([3, 3, 3]);
+  });
+
+  describe("after the app is closed and opened again before the queue is sent", () => {
+    const stops: Array<() => void> = [];
+    afterEach(() => {
+      onlineManager.setOnline(true);
+      stops.splice(0).forEach((f) => f());
+    });
+    // Two folders, Tech inside News, a feed in each; 5 unread, 1 starred.
+    const stored: Bootstrap = {
+      ...bootstrap,
+      server_time: 1_700_000_000,
+      folders: [
+        { id: "1", name: "News", position: 0, is_default: true, unread: 5 },
+        { id: "2", parent_id: "1", name: "Tech", position: 1, is_default: false, unread: 2 },
+      ],
+      feeds: [
+        { ...bootstrap.feeds[0]!, id: "1", folder_id: "1", unread: 3 },
+        { ...bootstrap.feeds[0]!, id: "2", folder_id: "2", unread: 2 },
+      ],
+      counts: { unread: 5, starred: 1 },
+    };
+    /** total, feed 1, feed 2, News, Tech, starred */
+    const all = (b: Bootstrap | undefined) => [b?.counts.unread, ...(b?.feeds.map((f) => f.unread) ?? []), ...(b?.folders.map((f) => f.unread) ?? []), b?.counts.starred];
+    /** A tab holding the bootstrap and an Unread list; its queue outlives the page (IndexedDB) unless `durable` is false. */
+    function session(over: Partial<Bootstrap> = {}, { durable = true, mirror = true } = {}) {
+      setOfflineBackendForTests({ ...memoryBackendForTests(), durable });
+      const c = new QueryClient();
+      c.setQueryData(keys.bootstrap, { ...stored, ...over });
+      c.setQueryData(keys.items(unread), { pages: [pageOf([card(1), card(2), card(3), card(4, { feed_id: "2" }), card(5, { feed_id: "2" })])], pageParams: [""] });
+      if (mirror) stops.push(mirrorCounts(c));
+      return c;
+    }
+    const wrapper = (c: QueryClient) =>
+      function Wrapper({ children }: { children: ReactNode }) {
+        return <QueryClientProvider client={c}>{children}</QueryClientProvider>;
+      };
+    /** A new launch: the bootstrap the service worker answers with (its stored copy unless `live`). */
+    async function relaunch(answer: Bootstrap, live = false) {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+      onlineManager.setOnline(live);
+      if (!live) {
+        vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+      }
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(answer, 200, live ? {} : { "X-Kipple-Cache": "1" })));
+      const c = makeQueryClient();
+      const { result } = renderHook(() => useBootstrap(), { wrapper: wrapper(c) });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      return result.current.data;
+    }
+
+    it("the badges count the queued marks across feeds, folders and the total", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001", "1002"], true, "swipe");
+      await applyRead(c, ["1004"], true, "key");
+      await applyStar(c, "1003", true);
+      expect(all(await relaunch(stored))).toEqual([2, 1, 1, 2, 1, 1]);
+    });
+
+    it("a mark undone offline leaves them where the stored copy had them", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001", "1004"], true, "swipe");
+      await applyRead(c, ["1001", "1004"], false, "key");
+      expect(all(await relaunch(stored))).toEqual([5, 3, 2, 5, 2, 1]);
+    });
+
+    it("a read made online before going offline is not counted twice", async () => {
+      // The server's counts event after reading 1001 online; the stored copy still counts it.
+      const c = session({
+        counts: { unread: 4, starred: 1 },
+        feeds: [{ ...stored.feeds[0]!, unread: 2 }, stored.feeds[1]!],
+        folders: [{ ...stored.folders[0]!, unread: 4 }, stored.folders[1]!],
+      });
+      c.setQueryData(keys.items(unread), { pages: [pageOf([card(1, { read: true }), card(2), card(4, { feed_id: "2" })])], pageParams: [""] });
+      netFail();
+      await applyRead(c, ["1001", "1002"], true, "bulk");
+      expect(all(await relaunch(stored))).toEqual([3, 1, 2, 3, 2, 1]);
+    });
+
+    it("once the queue is sent the server's counts take over, and nothing counts twice", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      // Sent, but the bootstrap could not be fetched again before the app closed: the stored copy predates the
+      // send, and the held counts (which already include it) still apply, once.
+      mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [] }) });
+      await flushQueue();
+      expect(offlineStore.get().pending).toBe(0);
+      expect(all(await relaunch(stored))).toEqual([4, 2, 2, 4, 2, 1]);
+      // The server's own answer (which counts the read) replaces them, and the copy it leaves is not changed again.
+      const after: Bootstrap = { ...stored, server_time: stored.server_time + 60, counts: { unread: 4, starred: 1 }, feeds: [{ ...stored.feeds[0]!, unread: 2 }, stored.feeds[1]!], folders: [{ ...stored.folders[0]!, unread: 4 }, stored.folders[1]!] };
+      expect(all(await relaunch(after, true))).toEqual([4, 2, 2, 4, 2, 1]);
+      expect(all(await relaunch(after))).toEqual([4, 2, 2, 4, 2, 1]);
+      expect(all(await relaunch(stored))).toEqual([5, 3, 2, 5, 2, 1]);
+    });
+
+    it("count a read still waiting even over a newer stored copy the page never saw (its new articles wait for a live answer)", async () => {
+      const c = session({ fromCache: true } as Partial<Bootstrap>);
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      // The live answer (one new article in feed 2, the queued read not sent yet) landed after 5 s and was stored.
+      const late: Bootstrap = {
+        ...stored,
+        server_time: stored.server_time + 30,
+        counts: { unread: 6, starred: 1 },
+        feeds: [stored.feeds[0]!, { ...stored.feeds[1]!, unread: 3 }],
+        folders: [{ ...stored.folders[0]!, unread: 6 }, { ...stored.folders[1]!, unread: 3 }],
+      };
+      expect(all(await relaunch(late))).toEqual([4, 2, 2, 4, 2, 1]);
+    });
+
+    it("follow an online change that undoes a queued mark, even when no send follows", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      // Back online without the browser saying so: the unmark replaces the queued read, and the server's counts follow.
+      mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [] }) });
+      await applyRead(c, ["1001"], false, "key");
+      expect(offlineStore.get().pending).toBe(0);
+      applyCounts(c, { unread_total: 5, feeds: { "1": 3, "2": 2 } });
+      await flushQueue();
+      expect(all(await relaunch(stored))).toEqual([5, 3, 2, 5, 2, 1]);
+    });
+
+    it("keep the read of an article opened offline, even when the stored copy is fetched again meanwhile", async () => {
+      const c = session();
+      c.setQueryData(keys.item("1001"), detail(1));
+      let fail: (e: Error) => void = () => {};
+      const net = mockFetch({
+        "POST /api/items/1001/open": () => new Promise<Response>((_, reject) => (fail = reject)),
+        "GET /api/bootstrap": () => json(stored, 200, { "X-Kipple-Cache": "1" }),
+      });
+      const { result } = renderHook(() => ({ open: useOpenItem(), boot: useBootstrap() }), { wrapper: wrapper(c) });
+      act(() => result.current.open.mutate({ id: "1001", via: "tap" }));
+      await waitFor(() => expect(all(c.getQueryData(keys.bootstrap))).toEqual([4, 2, 2, 4, 2, 1]));
+      // A refetch answered from the stored copy while the open waits for the network keeps the page's counts.
+      await act(() => c.refetchQueries({ queryKey: keys.bootstrap }));
+      expect(net.calls.filter((r) => r.url.pathname === "/api/bootstrap")).toHaveLength(1);
+      expect(all(c.getQueryData(keys.bootstrap))).toEqual([4, 2, 2, 4, 2, 1]);
+      fail(new TypeError("offline"));
+      await waitFor(() => expect(result.current.open.isSuccess).toBe(true));
+      expect(all(await relaunch(stored))).toEqual([4, 2, 2, 4, 2, 1]);
+    });
+
+    it("a live bootstrap that does not have the queued changes yet does not replace them", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      // A patchy network: the bootstrap gets through, the queued read has not been sent.
+      expect(all(await relaunch(stored, true))).toEqual([4, 2, 2, 4, 2, 1]);
+      expect(all(await relaunch(stored))).toEqual([4, 2, 2, 4, 2, 1]);
+    });
+
+    it("another tab that queued nothing itself does not overwrite them", async () => {
+      const a = session();
+      netFail();
+      await applyRead(a, ["1001"], true, "swipe");
+      // A second tab: its own module state, its own page, which sees the queue grow and refetches its bootstrap.
+      resetOfflineForTests();
+      const b = session();
+      setPending(1);
+      b.setQueryData(keys.bootstrap, { ...stored });
+      expect(all(await relaunch(stored))).toEqual([4, 2, 2, 4, 2, 1]);
+    });
+
+    it("with nothing queued or kept, an answer keeps its own counts; a refused change drops the kept ones", async () => {
+      const shown: Bootstrap = { ...stored, counts: { unread: 1, starred: 1 } };
+      expect((await countsForAnswer(stored, false, { shown })).counts.unread).toBe(5);
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      vi.spyOn(toasts, "toast").mockImplementation(() => 0);
+      mockFetch({ "POST /api/items/mark-read": () => json({ error: "gone" }, 404) });
+      await flushQueue();
+      expect(localStorage.getItem("kipple-offline-counts")).toBeNull();
+      expect((await countsForAnswer(stored, false, { shown: c.getQueryData(keys.bootstrap) })).counts.unread).toBe(5);
+    });
+
+    it("a refused change with others still waiting keeps them, so the waiting ones still count", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      await applyRead(c, ["1004"], true, "key");
+      vi.spyOn(toasts, "toast").mockImplementation(() => 0);
+      // The first change is refused for good, the second gets a 503 and waits.
+      mockFetch({
+        "POST /api/items/mark-read": (_u, init) =>
+          (JSON.parse(String(init?.body)) as { ids: string[] }).ids.includes("1001") ? json({ error: "gone" }, 404) : json({ error: "down" }, 503),
+      });
+      await flushQueue();
+      expect(offlineStore.get().pending).toBe(1);
+      expect(all(await relaunch(stored))).toEqual([3, 2, 1, 3, 1, 1]);
+    });
+
+    it("are not written back after another tab emptied the queue", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      await new Promise((r) => setTimeout(r, 0)); // this tab's own writes for that change have landed
+      expect(localStorage.getItem("kipple-offline-counts")).not.toBeNull();
+      // Another tab sent the queue and got a live bootstrap (or signed out): the shared queue is empty, the counts gone.
+      setOfflineBackendForTests({ ...memoryBackendForTests(), durable: true });
+      localStorage.removeItem("kipple-offline-counts");
+      // This tab still thinks it queued a change; its counts move and its pending count catches up.
+      c.setQueryData(keys.bootstrap, { ...c.getQueryData<Bootstrap>(keys.bootstrap)!, counts: { unread: 3, starred: 1 } });
+      setPending(0);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(localStorage.getItem("kipple-offline-counts")).toBeNull();
+    });
+
+    it("a queue that cannot be read counts as holding changes, so a live answer keeps them", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      setOfflineBackendForTests({ ...memoryBackendForTests(), durable: true, all: () => Promise.reject(new Error("blocked")) });
+      expect(all(await relaunch(stored, true))).toEqual([4, 2, 2, 4, 2, 1]);
+      expect(localStorage.getItem("kipple-offline-counts")).not.toBeNull();
+    });
+
+    it("are not kept when the queue itself would not outlive the page", async () => {
+      const c = session({}, { durable: false });
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      expect(all(c.getQueryData(keys.bootstrap))).toEqual([4, 2, 2, 4, 2, 1]);
+      expect(localStorage.getItem("kipple-offline-counts")).toBeNull();
+    });
+
+    it("the app keeps them from its start (initOffline)", async () => {
+      netFail();
+      const c = session({}, { mirror: false });
+      stops.push(initOffline(c));
+      await applyRead(c, ["1001"], true, "swipe");
+      expect(all(await relaunch(stored))).toEqual([4, 2, 2, 4, 2, 1]);
+    });
+
+    it("go with a sign-out, and a value in another shape is ignored", async () => {
+      const c = session();
+      netFail();
+      await applyRead(c, ["1001"], true, "swipe");
+      await wipeOfflineData();
+      expect(all(await relaunch(stored))).toEqual([5, 3, 2, 5, 2, 1]);
+      // A value in the right shape is used (nothing queued, but counts kept), so the ones below are refused for their shape.
+      localStorage.setItem("kipple-offline-counts", '{"counts":{"unread":4},"feeds":{},"folders":{}}');
+      expect((await relaunch(stored))?.counts.unread).toBe(4);
+      for (const v of ["{", "[1]", '{"counts":{"unread":"4"},"feeds":{},"folders":{}}', '{"counts":{"unread":4},"feeds":null,"folders":{}}', '{"base":1,"counts":{"unread":4}}']) {
+        localStorage.setItem("kipple-offline-counts", v);
+        expect(all(await relaunch(stored))).toEqual([5, 3, 2, 5, 2, 1]);
+      }
+    });
   });
 
   it("a mark that could not be queued leaves them alone", async () => {
