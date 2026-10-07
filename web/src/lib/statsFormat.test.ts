@@ -1,6 +1,39 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { StatsSource } from "@/api/types";
-import { durationLabel, feedRows, folderRows, heatLevel, hourLabel, mostStarred, parseDay, pctLabel, sortRows, weekOrder } from "./statsFormat";
+import {
+  durationLabel,
+  feedRows,
+  folderRows,
+  heatLevel,
+  hourLabel,
+  mostStarred,
+  parseDay,
+  pctLabel,
+  readRateNote,
+  shortDate,
+  sortRows,
+  weekOrder,
+} from "./statsFormat";
+
+describe("readRateNote", () => {
+  const r = (items_read: number, new_items: number) => ({ items_read, new_items, rate: new_items ? Math.min(1, items_read / new_items) : null });
+  it("gives the counts, and the window's first day when it starts after the range", () => {
+    expect(readRateNote(r(31, 50), "2026-09-01", "2026-09-01")).toBe("31 of 50 new");
+    expect(readRateNote(r(31, 50), "2026-09-05", "2026-09-01")).toBe(`31 of 50 new since ${shortDate("2026-09-05")}`);
+    expect(readRateNote(r(12, 10), "2026-09-01", "2026-09-01")).toBe("12 read, 10 new, some arrived earlier");
+  });
+  it("says why there is no rate", () => {
+    expect(readRateNote(r(0, 0), null, "2026-09-01")).toBe("Not enough history");
+    expect(readRateNote(undefined, "2026-09-01", "2026-09-01")).toBe("Not enough history");
+    expect(readRateNote(r(2, 0), "2026-09-01", "2026-09-01")).toBe("Nothing new arrived");
+  });
+  it("a folder has no rate, a feed carries its own", () => {
+    const base = { feed_id: "1", feed_title: "A", folder_id: "9", folder_name: "F", items_read: 1, opens: 1, active_seconds: 0, avg_read_seconds: null, bounce_rate: null, open_original_rate: null, stars: 0, subscribed: true, timed_seconds: 0, timed_items: 0 };
+    const src: StatsSource[] = [{ ...base, read_rate: r(1, 4) }, { ...base, feed_id: "2" }];
+    expect(feedRows(src).map((x) => x.read_rate)).toEqual([0.25, null]);
+    expect(folderRows(src)[0]!.read_rate).toBeNull();
+  });
+});
 
 describe("durationLabel", () => {
   it("rounds minutes and spells hours", () => {

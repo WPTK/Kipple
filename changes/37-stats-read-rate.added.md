@@ -1,0 +1,1 @@
+Stats: each feed under Sources shows its read rate, the share of its new items you read, and the feed's sheet shows it too, with the counts behind it on a tap ("31 of 50 new"). A feed with nothing new, or a stretch with no complete record, shows a dash instead of 0%. `GET /api/stats/summary` returns `read_rate` and `read_rate_from`, and each source has its own `read_rate`. (#37)

@@ -23,6 +23,7 @@ import {
   mostStarred,
   pctLabel,
   plural,
+  readRateNote,
   saveRange,
   shortDate,
   sortRows,
@@ -530,6 +531,11 @@ export function Sources({ data, onOpen }: { data: StatsSummary; onOpen?: (r: Sou
               <th scope="col" className="w-24 px-2 py-2 text-right font-medium">
                 Opened original
               </th>
+              {by === "feeds" ? (
+                <th scope="col" className="w-16 px-2 py-2 text-right font-medium">
+                  Read rate
+                </th>
+              ) : null}
               <th scope="col" className="w-14 py-2 pl-2 text-right font-medium">
                 Stars
               </th>
@@ -547,6 +553,7 @@ export function Sources({ data, onOpen }: { data: StatsSummary; onOpen?: (r: Sou
                 <td className="px-2 py-2 text-right tabular-nums">{durationLabel(r.avg_read_seconds)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{pctLabel(r.bounce_rate)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{pctLabel(r.open_original_rate)}</td>
+                {by === "feeds" ? <td className="px-2 py-2 text-right tabular-nums">{pctLabel(r.read_rate)}</td> : null}
                 <td className="py-2 pl-2 text-right tabular-nums">{r.stars}</td>
               </tr>
             ))}
@@ -565,6 +572,7 @@ export function Sources({ data, onOpen }: { data: StatsSummary; onOpen?: (r: Sou
               <span>Avg read {durationLabel(r.avg_read_seconds)}</span>
               <span>Quick bounce {pctLabel(r.bounce_rate)}</span>
               <span>Opened original {pctLabel(r.open_original_rate)}</span>
+              {by === "feeds" ? <span>Read rate {pctLabel(r.read_rate)}</span> : null}
               <span>Stars {r.stars}</span>
             </p>
           </li>
@@ -628,6 +636,30 @@ export function FeedSheet({ feed, range, onClose }: { feed: SourceRow | null; ra
   );
 }
 
+/** The feed's read rate as a percentage (a dash with no data); a tap shows the counts behind it. */
+function ReadRateTerm({ data }: { data: StatsSummary }) {
+  const [shown, setShown] = useState(false);
+  const r = data.read_rate;
+  return (
+    <div className="relative rounded-xl bg-surface px-3 py-2">
+      <dt className="text-xs text-fg2">Read rate</dt>
+      <dd>
+        <button
+          type="button"
+          aria-expanded={shown}
+          onClick={() => setShown((s) => !s)}
+          className="block text-left after:absolute after:inset-0 after:rounded-xl"
+        >
+          <span className="block text-base font-bold tabular-nums">{pctLabel(r?.rate)}</span>
+          {shown ? (
+            <span className="mt-1 block text-xs font-medium tabular-nums">{readRateNote(r, data.read_rate_from, data.range?.from)}</span>
+          ) : null}
+        </button>
+      </dd>
+    </div>
+  );
+}
+
 function FeedDetail({ feed, range }: { feed: string; range: ScreenRange }) {
   const q = useStatsSummary(apiRange(range), true, feed);
   const data = q.data;
@@ -658,7 +690,7 @@ function FeedDetail({ feed, range }: { feed: string; range: ScreenRange }) {
         </Section>
       )}
       <Section sub title="Engagement">
-        <dl className="grid grid-cols-2 gap-2 min-[560px]:grid-cols-5">
+        <dl className="grid grid-cols-2 gap-2 min-[560px]:grid-cols-3">
           {(
             [
               ["Opens", String(t?.opens ?? 0)],
@@ -673,6 +705,7 @@ function FeedDetail({ feed, range }: { feed: string; range: ScreenRange }) {
               <dd className="text-base font-bold tabular-nums">{v}</dd>
             </div>
           ))}
+          <ReadRateTerm data={data} />
         </dl>
       </Section>
       <Section sub title="Reading habits">
