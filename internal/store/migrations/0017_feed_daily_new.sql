@@ -8,8 +8,9 @@
 -- URL edit: a backlog), items that arrive already read (the initial-read cutoff, a rekey, a filter that
 -- marks read) or muted, and items the same commit trims.
 -- The opens (stats_events) have gaps this table does not: days before the first timed event, days while
--- statistics were off, and ranges the stats delete removed (no record of the range is kept). A read rate
--- must bound its range by sys.stats_timed_since and must not turn such a gap into 0%: no data shows a dash.
+-- statistics were off, and ranges the stats delete removed (no record of the range is kept). The read rate
+-- bounds its range by the summary's covered_from (read_rate_from) and never turns such a gap into 0%: no
+-- data shows a dash.
 -- Days before this migration have no row. Additive and one-way: going back to schema 16 is a restore of
 -- the pre-migration snapshot. Runs once, gated by user_version.
 CREATE TABLE feed_daily_new (

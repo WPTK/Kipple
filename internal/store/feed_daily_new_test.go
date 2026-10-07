@@ -155,13 +155,54 @@ func TestFeedDailyNewTrimCorrectionAcrossChunks(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() { commitChunkTestHook = nil })
-	// 610 new items in three chunks. The trim keeps the newest 100: the 10 first-fetched items (g0..g9
-	// were published 10 to 1 minutes before base, newer than the 620-item document dates them) and 90 new.
+	// 610 new items in three chunks, oldest first (the last inserts 120). The trim keeps the newest 100: the 10
+	// first-fetched items (g0..g9 were published 10 to 1 minutes before base, newer than the 620-item
+	// document dates them) and 90 new, all from the last chunk.
 	info := e.fetchBody(id, rss(numbered(620)...))
 	require.Equal(t, 610, info.New)
 	require.EqualValues(t, 520, info.Trimmed)
-	require.Equal(t, 90, e.newsDaily(id, base), "counted on the first chunk's day, less the 520 trimmed")
+	// The last chunk's 30 trimmed items were never visible: taken back. The first two chunks' 490 were
+	// visible between the chunks and may have been opened: they stay counted, and in the row.
+	require.Equal(t, 580, e.newsDaily(id, base), "counted on the first chunk's day, less the last chunk's 30 trimmed")
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feed_daily_new WHERE feed_id = ?", id))
+	early := e.ids(`SELECT id FROM trimmed_items WHERE feed_id = ? ORDER BY id LIMIT 1`, id)[0]
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feed_daily_new WHERE feed_id = ? AND ? BETWEEN first_item AND last_item", id, early))
+}
+
+// An item of the feed between two counted runs splits them even when a trim has moved it to the ledger
+// before the next run: it may have been read while it was kept.
+func TestFeedDailyNewTrimmedItemBetweenRunsSplitsThem(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.fetchBody(id, rss(numbered(1)...))
+	e.mkFilter(newFilter("mark_read", "readme"))
+	e.fetchBody(id, rss(append(numbered(1), spec{guid: "a", age: -time.Second}, spec{guid: "r", title: "readme", age: -2 * time.Second})...))
+	r := e.ids(`SELECT id FROM items WHERE feed_id = ? AND title = 'readme'`, id)[0]
+	e.exec(`INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at) SELECT id, feed_id, uid, 1, 0, 0 FROM items WHERE id = ?`, r)
+	e.exec(`DELETE FROM items WHERE id = ?`, r)
+	e.fetchBody(id, rss(append(numbered(1), spec{guid: "b", age: -3 * time.Second})...))
+	require.Equal(t, 2, e.newsDaily(id, base))
+	require.Equal(t, 2, e.count("SELECT count(*) FROM feed_daily_new WHERE feed_id = ?", id), "a, then b after the trimmed item")
+	require.Zero(t, e.count("SELECT count(*) FROM feed_daily_new WHERE feed_id = ? AND ? BETWEEN first_item AND last_item", id, r))
+}
+
+// A trim that takes counted items from one of two rows of a day corrects that row only.
+func TestFeedDailyNewTrimCorrectionTwoRows(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
+	e.fetchBody(id, rss(numbered(48)...)) // 48 to 1 minutes old
+	e.mkFilter(newFilter("mark_read", "readme"))
+	// Inserted oldest first: a1 (3 h old), a2, then the read-marked r, then b1, b2. Keeping the newest 50
+	// of 53 trims a1 and the two oldest backlog items.
+	e.fetchBody(id, rss(append(numbered(48),
+		spec{guid: "a1", age: 3 * time.Hour}, spec{guid: "a2", age: 30 * time.Second},
+		spec{guid: "r", title: "readme", age: -1 * time.Second},
+		spec{guid: "b1", age: -2 * time.Second}, spec{guid: "b2", age: -3 * time.Second})...))
+	require.Equal(t, 50, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+	require.Zero(t, e.count("SELECT count(*) FROM items WHERE feed_id = ? AND title = 'title a1'", id))
+	rows := e.ids(`SELECT new_items FROM feed_daily_new WHERE feed_id = ? ORDER BY first_item`, id)
+	require.Equal(t, []int64{1, 2}, rows, "a1 is taken back from the first row; the second keeps b1 and b2")
 }
 
 // A trim that removes every counted item of the day deletes the row rather than leave a 0.

@@ -196,8 +196,8 @@ Decisions are recorded in full in the private history repository. Summary of wha
 - **Reading:** every open is recorded; views count an item as read at 10 s active time, or 25% scroll with at least 3 s active time (a scroll alone stopped counting with issue #120). List-preview
   opens count. Reading stats (open, read time, scroll, open original, share) are web-only; Reader API clients are not tracked for reading, though their stars are recorded.
 - **Screen:** one Stats nav entry, phone first. Range Week/Month/Year/Months/All (default Month); tapping a summary tile shows its previous-period value (none for Months and All, and none when the earlier period starts before recording did). Items/Minutes toggle with
-  folder rollup; average read length, quick-bounce rate, open-original rate, most-starred feeds; never opened.
-  Deferred: per-feed drill-down, read rate per feed.
+  folder rollup; average read length, quick-bounce rate, open-original rate, read rate per feed, most-starred feeds;
+  never opened. A feed's row opens its drill-down sheet.
 - **Settings:** first day of week (Sunday or Monday, default Sunday); stats on/off (off stops recording and hides the
   screen, keeps data); Wrapped on/off; delete a range; delete all (typed confirmation).
 - **Export:** raw events as CSV, JSON or JSON Lines; the summary is JSON only (a summary is several tables, so a CSV or JSON Lines summary was not built). Range, a toggle to leave out article titles and links (feed and folder names, times and the time zone stay), and a data dictionary. Export and delete stay available with statistics off.
@@ -215,7 +215,8 @@ Decided in a design discussion. #37 keeps the roadmap label; #36 is closed (belo
   summary strip, plus per-feed deltas in the drill-down to show feeds started or abandoned.
 - **Read rate per feed: built for pruning.** The share of a feed's new items that were opened. Retention trims the items
   table, so the published count per feed per day has to be recorded at fetch time, in a table that survives trims
-  (`feed_daily_new`, migration 0017, built first; the rate itself is a later PR).
+  (`feed_daily_new`, migration 0017). The rate covers only complete days (today is left out) with complete reads and counted
+  arrivals, and counts only reads of the items that arrived in them.
 - **Screen: design A.** One Stats screen. Adds comparison, a Months range with bars covering every month on record
   (not capped at 12), and a source row that opens a per-feed drill-down sheet. Design B (a separate Feeds page) is the
   fallback if the sheet outgrows the screen; promote the sheet then.
@@ -223,7 +224,8 @@ Decided in a design discussion. #37 keeps the roadmap label; #36 is closed (belo
   value and change (for example "+18% from 120") and says which period it was compared with; tapping again hides it.
   A settings-style on/off control inside content was rejected as non-standard (issue #286 holds the wider UI audit).
 - **Read rate shows as a percentage.** The counts ("31 of 50 new") appear on tap. A feed with no recorded days shows a
-  dash, never 0%. Per-feed deltas appear only in the drill-down sheet, not in the Sources list.
+  dash, never 0%. Per-feed deltas appear only in the drill-down sheet, not in the Sources list. Folder rows show no
+  rate: Sources lists only feeds with activity, so a folder's quiet feeds would be missing from its new items.
 - **Build order.** The published-counts table (migration 0017, `feed_daily_new`) goes first, because its history cannot
   be recovered later. Comparison, Months, the drill-down and read rate follow in separate PRs.
 - **Reader API reads (#36): closed as not planned.** Kipple measures reading time only in its own web app. A sync client

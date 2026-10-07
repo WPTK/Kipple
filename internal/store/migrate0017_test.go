@@ -47,7 +47,7 @@ func TestMigration0017OnAPopulatedSchema16(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	v, err := db.Version(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, 17, v)
+	require.Equal(t, LatestVersion(), v)
 	requireCleanIntegrity(t, db.Reader())
 	require.Equal(t, 5, scalar[int](t, db.Reader(), "SELECT count(*) FROM items WHERE feed_id = ?", id))
 	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT count(*) FROM items WHERE feed_id = ? AND title = 'title g1' AND read = 1 AND starred = 1", id))

@@ -33,7 +33,7 @@ export const richStats: StatsSummary = {
     longest_read: { item_id: "77", title: "A very long essay", feed_title: "Long Reads", seconds: 1320, date: "2026-09-03" },
   },
   sources: [
-    { feed_id: "1", feed_title: "Alpha Blog", folder_id: "10", folder_name: "Tech", items_read: 30, opens: 40, active_seconds: 1800, timed_seconds: 1800, timed_items: 30, avg_read_seconds: 60, bounce_rate: 0.5, open_original_rate: 0.1, tracked_opens: 40, bounces: 20, items_opened: 30, items_original: 3, stars: 2, subscribed: true },
+    { feed_id: "1", feed_title: "Alpha Blog", folder_id: "10", folder_name: "Tech", items_read: 30, opens: 40, active_seconds: 1800, timed_seconds: 1800, timed_items: 30, avg_read_seconds: 60, bounce_rate: 0.5, open_original_rate: 0.1, tracked_opens: 40, bounces: 20, items_opened: 30, items_original: 3, stars: 2, subscribed: true, read_rate: { items_read: 10, new_items: 40, rate: 0.25 } },
     { feed_id: "2", feed_title: "Beta News", folder_id: "10", folder_name: "Tech", items_read: 10, opens: 60, active_seconds: 3000, timed_seconds: 3000, timed_items: 10, avg_read_seconds: 300, bounce_rate: 0.1, open_original_rate: 0.3, tracked_opens: 60, bounces: 6, items_opened: 10, items_original: 3, stars: 1, subscribed: true },
     { feed_id: "3", feed_title: "Gamma Daily", folder_id: "11", folder_name: "News", items_read: 44, opens: 20, active_seconds: 0, timed_seconds: 0, timed_items: 0, avg_read_seconds: null, bounce_rate: null, open_original_rate: null, tracked_opens: 0, bounces: 0, items_opened: 20, items_original: 0, stars: 5, subscribed: true },
   ],

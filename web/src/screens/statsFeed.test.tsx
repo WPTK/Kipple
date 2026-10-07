@@ -5,6 +5,7 @@ import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
 import type { StatsSummary } from "@/api/types";
+import { shortDate } from "@/lib/statsFormat";
 import { bootstrap, json, mockFetch } from "@/test/mockApi";
 import { richStats } from "./stats.fixtures";
 
@@ -31,6 +32,9 @@ const alpha: StatsSummary = {
   covered_from: "2026-01-01",
   timed_from: "2026-01-01",
   totals: { items_read: 30, opens: 40, active_seconds: 1800, days_active: 9 },
+  read_rate_from: "2026-09-01",
+  read_rate_to: "2026-09-24",
+  read_rate: { items_read: 10, new_items: 40, rate: 0.25 },
   sources: [richStats.sources![0]!],
   never_opened: [],
 };
@@ -123,6 +127,43 @@ describe("Feed drill-down", () => {
     expect(await screen.findByRole("dialog", { name: "Unnamed feed" })).toBeInTheDocument();
   });
 
+  it("the read rate is a percentage, with the counts on a tap", async () => {
+    setup();
+    const user = userEvent.setup();
+    go();
+    const sources = await screen.findByRole("region", { name: "Sources" });
+    expect(within(sources).getByText("Read rate 25%")).toBeInTheDocument();
+    expect(within(sources).getAllByText("Read rate -")).toHaveLength(2); // the feeds with no rate show a dash
+    await user.click(within(sources).getByRole("button", { name: /Alpha Blog/ }));
+    const sheet = await screen.findByRole("dialog", { name: "Alpha Blog" });
+    const rate = await within(sheet).findByRole("button", { name: "Read rate 25%" });
+    expect(rate).toHaveAttribute("aria-expanded", "false");
+    await user.click(rate);
+    expect(rate).toHaveAttribute("aria-expanded", "true");
+    expect(within(sheet).getByText(`10 of 40 new from ${shortDate("2026-09-01")} to ${shortDate("2026-09-24")}`)).toBeInTheDocument();
+    expect(rate).toHaveAccessibleName("Read rate 25%"); // the counts do not change its name
+  });
+
+  it.each([
+    ["no window", { read_rate_from: null, read_rate_to: null, read_rate: { items_read: 0, new_items: 0, rate: null } }, "Not enough history"],
+    ["nothing new", { read_rate: { items_read: 0, new_items: 0, rate: null } }, `No new items from ${shortDate("2026-09-01")} to ${shortDate("2026-09-24")}`],
+  ])("a feed with %s shows a dash, never 0%%", async (_, over, note) => {
+    mockFetch({
+      "GET /api/bootstrap": () => json({ ...bootstrap, settings: {} }),
+      "GET /api/stats/summary": (u) => json(u.searchParams.get("feed") ? { ...alpha, ...over } : richStats),
+      "GET /api/items": () => json({ items: [], next_cursor: null }),
+    });
+    const user = userEvent.setup();
+    go();
+    const sources = await screen.findByRole("region", { name: "Sources" });
+    await user.click(within(sources).getByRole("button", { name: /Alpha Blog/ }));
+    const sheet = await screen.findByRole("dialog", { name: "Alpha Blog" });
+    const engagement = await within(sheet).findByRole("region", { name: "Engagement" });
+    expect(within(engagement).queryByText("0%")).toBeNull();
+    await user.click(within(engagement).getByRole("button", { name: "Read rate unknown" }));
+    expect(within(engagement).getByText(note)).toBeInTheDocument();
+  });
+
   it("folder rows do not open a sheet", async () => {
     setup();
     const user = userEvent.setup();
@@ -130,5 +171,6 @@ describe("Feed drill-down", () => {
     const sources = await screen.findByRole("region", { name: "Sources" });
     await user.click(within(sources).getByRole("radio", { name: "Folders" }));
     expect(within(sources).queryByRole("button", { name: /Tech/ })).toBeNull();
+    expect(within(sources).queryByText(/Read rate/)).toBeNull(); // a folder's quiet feeds are not listed
   });
 });
