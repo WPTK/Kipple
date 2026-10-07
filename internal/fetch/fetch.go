@@ -149,7 +149,7 @@ func (r *Result) Schedule(now time.Time, rnd Rand) {
 			r.RetryAfter, r.Snap.HostUntil, rnd)
 		return
 	}
-	r.NextFetchAt, r.CurrentDelayS = NextOnSuccess(now, r.Snap.IntervalS, r.TTLHintS, rnd)
+	r.NextFetchAt, r.CurrentDelayS = NextOnSuccess(now, r.Snap.ID, r.Snap.IntervalS, r.TTLHintS)
 }
 
 func (r *Result) fail(class, msg string) *Result {

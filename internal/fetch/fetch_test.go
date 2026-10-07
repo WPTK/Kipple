@@ -69,7 +69,9 @@ func TestStatus200ParsedAndHeaders(t *testing.T) {
 	require.Equal(t, RedirectClear, res.Redirect.Action)
 
 	res.Schedule(t0, func() float64 { return 0.5 })
-	require.Equal(t, t0.Add(90*60*time.Second), res.NextFetchAt)
+	want, _ := NextOnSuccess(t0, 1, 1800, 90*60)
+	require.Equal(t, want, res.NextFetchAt)
+	require.EqualValues(t, 90*60, steadyDelay(1, 1800, res.TTLHintS), "the RSS ttl sets the period")
 }
 
 func TestConditionalRequests(t *testing.T) {

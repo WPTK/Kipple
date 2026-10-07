@@ -40,11 +40,6 @@ func TestJitterBounds(t *testing.T) {
 	require.EqualValues(t, 2070, d) // 1.15 x 1800
 	_, d = NextOnFailure(now, 1800, 7, 0, time.Time{}, lo)
 	require.EqualValues(t, 73440, d) // 0.85 x 86400
-
-	_, d = NextOnSuccess(now, 1800, 0, lo)
-	require.EqualValues(t, 1710, d) // 0.95
-	_, d = NextOnSuccess(now, 1800, 0, hi)
-	require.EqualValues(t, 1890, d) // 1.05
 }
 
 func TestHostUntilAndRetryAfterDominate(t *testing.T) {
@@ -63,18 +58,59 @@ func TestHostUntilAndRetryAfterDominate(t *testing.T) {
 	require.Equal(t, t0.Add(86400*time.Second), next)
 }
 
+// steadyDelay is the gap between fetches made on the feed's slots.
+func steadyDelay(feedID, intervalS, hintS int64) int64 {
+	slot, _ := NextOnSuccess(t0, feedID, intervalS, hintS)
+	_, d := NextOnSuccess(slot, feedID, intervalS, hintS)
+	return d
+}
+
 func TestSuccessScheduleHints(t *testing.T) {
-	half := func() float64 { return 0.5 }
 	// hint below the interval loses; above wins; capped at 24 h.
-	_, d := NextOnSuccess(t0, 1800, 600, half)
-	require.EqualValues(t, 1800, d)
-	_, d = NextOnSuccess(t0, 1800, 7200, half)
-	require.EqualValues(t, 7200, d)
-	_, d = NextOnSuccess(t0, 1800, 10*86400, half)
-	require.EqualValues(t, 86400, d)
+	require.EqualValues(t, 1800, steadyDelay(7, 1800, 600))
+	require.EqualValues(t, 7200, steadyDelay(7, 1800, 7200))
+	require.EqualValues(t, 86400, steadyDelay(7, 1800, 10*86400))
 	// a 7-day interval is never shortened by a hint
-	_, d = NextOnSuccess(t0, 7*86400, 3600, half)
-	require.EqualValues(t, 7*86400, d)
+	require.EqualValues(t, 7*86400, steadyDelay(7, 7*86400, 3600))
+}
+
+func TestSuccessSlotBounds(t *testing.T) {
+	for id := int64(1); id <= 200; id++ {
+		for off := int64(0); off < 1800; off += 97 {
+			now := t0.Add(time.Duration(off) * time.Second)
+			next, d := NextOnSuccess(now, id, 1800, 0)
+			require.Greater(t, d, int64(900), "id %d: never sooner than half the interval", id)
+			require.LessOrEqual(t, d, int64(2700), "id %d: never later than one and a half intervals", id)
+			require.Equal(t, now.Add(time.Duration(d)*time.Second), next)
+			// The next fetch, made on the slot or up to just under half an
+			// interval late (queueing, a slow publisher), keeps the slot.
+			for _, late := range []int64{0, 1, 300, 899} {
+				_, d2 := NextOnSuccess(next.Add(time.Duration(late)*time.Second), id, 1800, 0)
+				require.EqualValues(t, 1800-late, d2, "id %d late %d", id, late)
+			}
+		}
+	}
+}
+
+// A restored library of 500 feeds is fetched in one burst of a few minutes.
+// One fetch later the feeds are spread over the whole interval, and they stay
+// there. The old schedule (now + interval x 0.95-1.05) kept them inside about
+// eight minutes for good.
+func TestSuccessSpreadsABurst(t *testing.T) {
+	const n, interval = 500, 1800
+	perMinute := map[int64]int{}
+	for id := int64(1); id <= n; id++ {
+		done := t0.Add(time.Duration(id) * 400 * time.Millisecond) // 500 fetches in 200 s
+		next, _ := NextOnSuccess(done, id, interval, 0)
+		again, d := NextOnSuccess(next, id, interval, 0)
+		require.EqualValues(t, interval, d, "id %d stays on its slot", id)
+		require.Equal(t, next.Add(interval*time.Second), again)
+		perMinute[next.Unix()/60%(interval/60)]++
+	}
+	require.Len(t, perMinute, interval/60, "every minute of the interval has fetches")
+	for m, c := range perMinute {
+		require.LessOrEqual(t, c, 2*n/(interval/60), "minute %d is not a hot spot", m)
+	}
 }
 
 func TestPublisherHint(t *testing.T) {

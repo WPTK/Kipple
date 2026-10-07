@@ -1031,9 +1031,15 @@ hint_s        = fetch.honor_publisher_ttl ? max(RSS <ttl>×60, Cache-Control s-m
               (Date is the response's own Date header, so a publisher clock that is off cancels out;
                without a valid Date it is now. An unparseable Expires contributes nothing)
               (a response with Cache-Control no-cache, no-store or private contributes only the RSS <ttl>)
-d             = round(max(interval_s, min(hint_s, 86400)) × U(0.95, 1.05))
-next_fetch_at = now + d;  ttl_hint_s = hint_s;  current_delay_s = d
+period_s      = max(interval_s, min(hint_s, 86400))
+phase_s       = floor(frac(feed_id × 0.6180339887…) × period_s)    (Fibonacci hashing of the id)
+next_fetch_at = the slot phase_s + k × period_s (unix seconds) nearest to now + period_s
+ttl_hint_s = hint_s;  current_delay_s = d = next_fetch_at − now
 ```
+
+- Each feed has fixed slots, `period_s` apart, at its own phase, so the delay `d` is in (period_s/2, 3 × period_s/2]. A feed fetched on its slot, or up to half a period late (queueing, a slow publisher), gets its next slot, exactly `period_s` later.
+- Why slots and not `now + period` with jitter: a schedule anchored on when the last fetch finished keeps feeds that were fetched together (a restore, the first start after downtime, an OPML import, a manual refresh of everything) bunched for good, and a few percent of jitter spreads them by only a minute or two. With slots, one success puts each feed on its own phase, and Fibonacci hashing spreads any set of ids evenly over the period (consecutive ids land far apart). The burst itself is one pass, held to the worker and per-host caps (§4.1, §4.2), the same as a manual refresh. The cost is a single gap as short as half the period while a feed moves onto its slot.
+- Failures keep the jittered backoff above; the next success puts the feed back on its slot.
 
 Changing `refresh.interval_minutes` runs `store.PullInSchedule`, followed by a scheduler `Wake`:
 

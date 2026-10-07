@@ -236,6 +236,19 @@ func (r *rig) sql(q string, args ...any) {
 }
 
 func (r *rig) next(id int64) int64 { return r.num("SELECT next_fetch_at FROM feeds WHERE id = ?", id) }
+
+// slot is when a feed that succeeded now is due again (its own slot, §4.6).
+func (r *rig) slot(id int64, intervalMinutes int) int64 {
+	next, _ := fetch.NextOnSuccess(r.clk.Now(), id, int64(intervalMinutes)*60, 0)
+	return next.Unix()
+}
+
+// advanceTo moves the fake clock to the unix second at and wakes the scheduler,
+// so a feed due then is dispatched without waiting for a tick.
+func (r *rig) advanceTo(at int64) {
+	r.clk.Advance(time.Unix(at, 0).Sub(r.clk.Now()))
+	r.s.Wake()
+}
 func (r *rig) failures(id int64) int64 {
 	return r.num("SELECT consecutive_failures FROM feeds WHERE id = ?", id)
 }
@@ -251,25 +264,27 @@ func TestIntervalAndPerFeedOverride(t *testing.T) {
 
 	r.s.Wake()
 	r.waitEvents("fetch.done", 2)
-	require.EqualValues(t, base.Add(30*time.Minute).Unix(), r.next(a), "global interval, jitter factor 1.0")
-	require.EqualValues(t, base.Add(120*time.Minute).Unix(), r.next(b), "per-feed override")
+	na, nb := r.slot(a, 30), r.slot(b, 120)
+	require.EqualValues(t, na, r.next(a), "global interval")
+	require.EqualValues(t, nb, r.next(b), "per-feed override")
+	require.Greater(t, nb, na)
 	require.Equal(t, 1, srv.count("/a"))
 	require.Equal(t, 1, srv.count("/b"))
 
-	r.clk.Advance(29 * time.Minute)
+	r.advanceTo(na - 1)
 	r.barrier()
-	require.Zero(t, r.flights(), "nothing is due at 29 min")
+	require.Zero(t, r.flights(), "nothing is due a second before the slot")
 	require.Equal(t, 1, srv.count("/a"))
 
-	r.clk.Advance(2 * time.Minute) // 31 min
+	r.advanceTo(na)
 	r.waitEvents("fetch.done", 3)
 	require.Equal(t, 2, srv.count("/a"))
 	require.Equal(t, 1, srv.count("/b"), "the 120 min feed is not due yet")
 	require.Equal(t, "unchanged", r.events("fetch.done")[2]["outcome"], "identical body short-circuits on the body hash")
+	require.EqualValues(t, na+30*60, r.next(a), "on its slot, the next fetch is one interval later")
 
-	r.clk.Advance(90 * time.Minute) // 121 min
+	r.advanceTo(nb)
 	waitFor(t, "b refetched", func() bool { return srv.count("/b") == 2 })
-	r.waitEvents("fetch.done", 5)
 }
 
 func TestInFlightFeedIsNotDispatchedTwice(t *testing.T) {
@@ -339,13 +354,13 @@ func TestBackoffGrowthJitterAndReset(t *testing.T) {
 	r.clk.Advance(delay)
 	r.waitEvents("fetch.done", 9)
 	require.Zero(t, r.failures(id))
-	require.EqualValues(t, r.clk.Now().Add(30*time.Minute).Unix(), r.next(id))
+	require.EqualValues(t, r.slot(id, 30), r.next(id))
 	require.EqualValues(t, 1, r.num("SELECT count(*) FROM feeds WHERE id=? AND last_error = 'HTTP 500'", id))
 
-	// jitter bounds at the scheduler: factor 0.85 .. 1.15 on failure, 0.95 .. 1.05 on success
+	// jitter bounds at the scheduler: factor 0.85 .. 1.15 on failure
 	r.setJitter(0)
 	fail.Store(true)
-	r.clk.Advance(31 * time.Minute)
+	r.advanceTo(r.next(id))
 	r.waitEvents("fetch.done", 10)
 	require.EqualValues(t, r.clk.Now().Add(1530*time.Second).Unix(), r.next(id), "0.85 x 30 min")
 	r.setJitter(0.9999999)
@@ -392,7 +407,7 @@ func TestManualRefreshBypassesBackoffAndJoins(t *testing.T) {
 	once.Do(func() { close(release) })
 	r.waitEvents("run.done", 1)
 	require.Zero(t, r.failures(a), "manual success resets the backoff")
-	require.EqualValues(t, r.clk.Now().Add(30*time.Minute).Unix(), r.next(a))
+	require.EqualValues(t, r.slot(a, 30), r.next(a))
 	require.EqualValues(t, 1, r.num("SELECT count(*) FROM fetch_log WHERE feed_id = ? AND trigger = 'manual'", a))
 	require.Equal(t, 1, srv.count("/a"))
 	require.Equal(t, 0, srv.count("/off"))

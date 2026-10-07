@@ -65,15 +65,39 @@ func NextOnFailure(now time.Time, intervalS int64, n int, retryAfter time.Durati
 	return next, d
 }
 
-// NextOnSuccess implements design §4.6: max(interval, min(hint, 24 h)) with
-// +-5 % jitter. hintS is the publisher hint in seconds (0 when none).
-func NextOnSuccess(now time.Time, intervalS, hintS int64, rnd Rand) (time.Time, int64) {
-	base := intervalS
-	if h := min(hintS, maxBackoffS); h > base {
-		base = h
+// NextOnSuccess implements design §4.6: the period is max(interval, min(hint,
+// 24 h)) and the next fetch is the feed's own slot nearest to now + period. A
+// feed's slots are fixed in time, period apart, at a phase taken from its id,
+// so feeds that were fetched together (a restore, downtime, a refresh of
+// everything) spread over the period within one fetch and stay spread. The
+// delay is in (period/2, 3 period/2]; a feed already on its slot gets exactly
+// the period. hintS is the publisher hint in seconds (0 when none).
+func NextOnSuccess(now time.Time, feedID, intervalS, hintS int64) (time.Time, int64) {
+	period := max(intervalS, min(hintS, maxBackoffS), 1)
+	target := now.Unix() + period
+	// The slot at or before target, then the one after it when that is nearer.
+	t := target - posMod(target-slotPhase(feedID, period), period)
+	if 2*(target-t) >= period {
+		t += period
 	}
-	d := jitter(float64(base), 0.95, 1.05, rnd)
+	d := t - now.Unix()
 	return now.Add(time.Duration(d) * time.Second), d
+}
+
+// slotPhase is the feed's offset in [0, period): Fibonacci hashing of the id,
+// so consecutive ids land far apart and any set of feeds covers the period
+// evenly.
+func slotPhase(feedID, period int64) int64 {
+	frac := float64((uint64(feedID)*0x9E3779B97F4A7C15)>>11) / (1 << 53)
+	return int64(frac * float64(period))
+}
+
+func posMod(a, m int64) int64 {
+	r := a % m
+	if r < 0 {
+		r += m
+	}
+	return r
 }
 
 // PublisherHintSeconds is max(RSS ttl x 60, Cache-Control max-age - Age,
