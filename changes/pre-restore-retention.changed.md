@@ -1,1 +1,1 @@
-Safety copies of a replaced library (`backup/pre-restore-*`) from the last 30 days are always kept, along with the newest three of any age, so a run of resets or restores can no longer delete a recent one.
+Safety copies of a replaced library (`backup/pre-restore-*`) from the last 30 days are kept, up to ten, along with the newest three of any age, so a few resets or restores in a row can no longer delete a recent one.

@@ -22,6 +22,7 @@ func (s *Server) registerSetup(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("POST /api/setup/account", s.setupAccount)
 	if s.restore != nil {
+		mux.HandleFunc("POST /api/setup/restore/start", s.restoreStart)
 		mux.HandleFunc("POST /api/setup/restore/upload", s.restoreUpload)
 		mux.HandleFunc("POST /api/setup/restore/confirm", s.restoreConfirm)
 		mux.HandleFunc("GET /api/setup/restore/feeds", s.restoreFeeds)
@@ -50,7 +51,7 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 	if s.opt.Setup.Pending() {
 		restore := backup.RestoreNone
 		if s.restore != nil {
-			restore = s.restore.Status(restoreOwner(r)).State
+			restore = s.restore.Status(s.restoreOwner(r)).State
 		}
 		snap := s.snapshot(r.Context())
 		orNull := func(reason string) any {

@@ -311,7 +311,7 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
         {view === "waiting" ? (
           <div className="flex flex-1 flex-col gap-3">
             <p className="font-semibold" role="status">
-              {serverState === "uploading" ? "A backup is being uploaded to this Kipple." : "Checking your backup..."}
+              {serverState === "uploading" ? "A backup is being uploaded from this browser." : "Checking your backup..."}
             </p>
             <p className="text-sm text-fg2">{serverState === "uploading" ? "Wait for it to finish, or cancel it and start again." : "This can take a minute for a large backup. Keep this page open."}</p>
             <StepActions>

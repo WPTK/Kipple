@@ -374,6 +374,12 @@ func TestUploadRefusesAnExtraOrChangedSchemaObject(t *testing.T) {
 		"generated column": "ALTER TABLE sessions ADD COLUMN g INTEGER GENERATED ALWAYS AS (1) VIRTUAL",
 		"virtual table":    "DROP TABLE sessions; CREATE VIRTUAL TABLE sessions USING fts5(id, expires_at)",
 		"changed index":    "DROP INDEX idx_sessions_expires; CREATE UNIQUE INDEX idx_sessions_expires ON sessions(expires_at DESC)",
+		// Virtual tables whose module does not exist: reading their shape would
+		// fail with "no such module". The refusals name the object instead,
+		// which shows nothing was read from them before the names and texts
+		// were checked.
+		"unknown virtual table": "PRAGMA writable_schema = ON; INSERT INTO sqlite_master (type, name, tbl_name, rootpage, sql) VALUES ('table', 'evil', 'evil', 0, 'CREATE VIRTUAL TABLE evil USING nosuchmodule()'); PRAGMA writable_schema = OFF",
+		"swapped virtual table": "PRAGMA writable_schema = ON; UPDATE sqlite_master SET sql = 'CREATE VIRTUAL TABLE sessions USING nosuchmodule()', rootpage = 0 WHERE name = 'sessions'; DELETE FROM sqlite_master WHERE name = 'idx_sessions_expires'; PRAGMA writable_schema = OFF",
 	} {
 		r, dir := newRestorer(t)
 		_, err := upload(r, rebuilt(t, b, change))
@@ -391,7 +397,9 @@ func TestUploadRefusesAnExtraOrChangedSchemaObject(t *testing.T) {
 			want = `lacks the index "idx_sessions_expires"`
 		case "missing trigger":
 			want = `lacks the trigger "items_fts_au"`
-		case "changed table", "generated column", "virtual table":
+		case "unknown virtual table":
+			want = `the table "evil", which Kipple never creates`
+		case "changed table", "generated column", "virtual table", "swapped virtual table":
 			want = `a changed table "sessions"`
 		case "changed index":
 			want = `a changed index "idx_sessions_expires"`
@@ -425,10 +433,11 @@ func TestCheckSchemaMatchesAFreshDatabase(t *testing.T) {
 // A database made by any older version and upgraded by this one has exactly
 // the objects of a fresh one, both ways, so the two-way check refuses no real
 // backup; and a database left at any older version matches that version.
-// Some migration files were edited after they shipped, so this was also run
-// once against databases made by the code of every release tag (v0.1.0 to
-// v0.8.0-beta.3), as made, upgraded by this binary, and upgraded through every
-// later tag in turn: none was refused (docs/design.md §2.6).
+// Some migration files were edited after they shipped, so the check, with its
+// shape comparison, was also run once against databases made by the code of
+// every release tag (v0.1.0 to v0.8.0-beta.4), as made, upgraded by this
+// binary, and upgraded through every later tag in turn: none was refused
+// (docs/design.md §2.6).
 func TestCheckSchemaAcceptsEveryUpgradePath(t *testing.T) {
 	ctx := context.Background()
 	for v := 1; v <= store.LatestVersion(); v++ {

@@ -73,7 +73,7 @@ Everything is on the `kipple_data` volume, mounted at `/data`. Compose prefixes 
 | `/data/kipple.lock` | Held by `serve` (an OS lock: it vanishes with the process, no stale lock) | live |
 | `/data/backup/kipple-snapshot.db` | Nightly snapshot at 04:10 (`tz` setting), consistent, safe to copy | 1 |
 | `/data/backup/pre-migration-<from>-<to>-<ns>.db` | Written before a schema migration (`0600`) | newest 3, one per `<from>` and `<to>` |
-| `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>Z/` (UTC) | The database that `kipple restore`, a restore in the setup wizard or a [reset](#reset-kipple-and-start-over) replaced; one that is provably empty (no account, feed or item) is deleted, not kept | newest 3, and all from the last 30 days |
+| `/data/backup/pre-restore-<YYYYMMDD-HHMMSS>Z/` (UTC) | The database that `kipple restore`, a restore in the setup wizard or a [reset](#reset-kipple-and-start-over) replaced; one that is provably empty (no account, feed or item) is deleted, not kept | newest 3, and all from the last 30 days, at most 10 |
 | `/data/restore-pending.json`, `/data/restore-staged.db` | A restore or reset that was confirmed and waits for the next start ([details](#a-restore-or-reset-that-is-waiting)) | until applied |
 | `/data/backup/export/` | Temporary files of an export in progress. Emptied at startup | transient |
 | `/data/imgcache/` | Image cache (`imgproxy.cache_mb`, default 1024 MiB, least recently used evicted; never in backups or snapshots) | capped |
@@ -650,8 +650,8 @@ empty database: the dialog says what is erased (all feeds, folders, history, set
 password (an account without one needs the sign-in it uses for changing its password instead) and for you to type
 `reset kipple`. Kipple then answers, stops cleanly and your restart policy starts it again; that start moves your library
 to `/data/backup/pre-restore-<timestamp>/` (the same folder, naming and retention as a restore) and begins empty.
-Kipple keeps every safety copy from the last 30 days, and the newest three of any age, so a run of resets or restores
-cannot push out a recent one; export a backup first if you want one you can keep elsewhere. (A database that is provably empty, with no account, feed or item, is
+Kipple keeps every safety copy from the last 30 days (at most ten, since each is a whole library), and the newest
+three of any age, so a few resets or restores in a row cannot push out a recent one; export a backup first if you want one you can keep elsewhere. (A database that is provably empty, with no account, feed or item, is
 never kept as a safety copy.) The page waits and offers setup when Kipple is back. Without a restart policy, start the container
 again yourself: the reset finishes on that start. `kipple restore` brings the kept library back.
 
@@ -864,4 +864,4 @@ Space to keep free on the volume:
 | Steady state | The nightly snapshot lives on the same volume: plan for about 2 times the database in total. |
 | Export | About 2.2 times the database, temporarily (the snapshot copy plus the zip). Over 4 GiB an export is refused: copy the nightly snapshot instead. |
 | Upgrade that migrates the schema | The database size plus 64 MB (twice the size plus 64 MB when a migration rebuilds a table), plus 1.1 times the database for the pre-migration snapshot. The newest three pre-migration snapshots are kept, each about one more copy of the database. |
-| Restore | The new database, plus the previous one kept under `backup/pre-restore-*` (the newest three and every one from the last 30 days are kept; an empty one is not kept). |
+| Restore | The new database, plus the previous one kept under `backup/pre-restore-*` (the newest three and every one from the last 30 days are kept, at most ten; an empty one is not kept). |

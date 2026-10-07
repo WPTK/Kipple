@@ -62,6 +62,27 @@ func TestPruneKeepsRecentPreRestoreCopies(t *testing.T) {
 	}
 }
 
+// Each copy is a whole library, so recent copies are capped too: past
+// KeepPreRestoreMax the oldest goes, however young.
+func TestPruneCapsRecentPreRestoreCopies(t *testing.T) {
+	backupDir := filepath.Join(t.TempDir(), "backup")
+	day0 := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	var all []string
+	for i := range KeepPreRestoreMax + 2 {
+		d, err := newPreRestoreDir(backupDir, day0.Add(time.Duration(i)*time.Minute))
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(d, "kipple.db"), []byte("x"), 0o600))
+		all = append(all, d)
+	}
+	PrunePreRestore(backupDir, day0.Add(time.Hour), time.Local)
+	for _, d := range all[:2] {
+		require.NoDirExists(t, d, "the oldest go past the cap")
+	}
+	for _, d := range all[2:] {
+		require.DirExists(t, d)
+	}
+}
+
 func TestPruneIgnoresEmptyPreRestoreDirs(t *testing.T) {
 	backupDir := filepath.Join(t.TempDir(), "backup")
 	full := func(name string) string {

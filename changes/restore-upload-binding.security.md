@@ -1,1 +1,1 @@
-Setup wizard restore: an uploaded backup belongs to the browser that uploaded it. Another browser that can reach setup no longer sees its summary or feed list, cannot confirm it with a password of its own, and cannot cancel it.
+Setup wizard restore: an uploaded backup belongs to the browser that uploaded it, from its first byte. Another browser that can reach setup no longer sees its summary or feed list, cannot confirm it with a password of its own, and cannot cancel it. A browser that blocks cookies is told that a restore needs them before the file is sent.

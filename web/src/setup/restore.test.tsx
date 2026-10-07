@@ -20,8 +20,12 @@ class NoES {
 }
 
 /** What the next upload answers. */
-let reply: { status: number; body: unknown; network?: boolean } = { status: 200, body: {} };
+let reply: { status: number; body: unknown; network?: boolean; hold?: boolean } = { status: 200, body: {} };
 let sent: File | null = null;
+/** The headers of the last upload. */
+let sentHeaders: Record<string, string> = {};
+/** The owner key POST /api/setup/restore/start hands out. */
+const KEY = "k".repeat(43);
 /** An upload has been sent in this test: before that, a server with no restore under way answers "none". */
 let uploaded = false;
 
@@ -35,13 +39,16 @@ class FakeXHR {
   onabort: (() => void) | null = null;
   withCredentials = false;
   open() {}
-  setRequestHeader() {}
+  setRequestHeader(k: string, v: string) {
+    sentHeaders[k] = v;
+  }
   abort() {
     this.onabort?.();
   }
   send(f: File) {
     sent = f;
     uploaded = true;
+    if (reply.hold) return; // still sending until aborted
     setTimeout(() => {
       if (reply.network) return this.onerror?.();
       this.upload.onprogress?.({ lengthComputable: true, loaded: f.size, total: f.size });
@@ -79,6 +86,7 @@ const bodyOf = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body)) a
 
 function server(w: World, extra: Parameters<typeof mockFetch>[0] = {}) {
   return mockFetch({
+    "POST /api/setup/restore/start": () => json({ key: KEY }),
     "GET /api/instance": () => json(w.setup ? { setup: true, auth: null, access: { enabled: false, verified: false }, open: { reason: null }, restore: w.restore } : { setup: false, auth: "password" }),
     "POST /api/setup/restore/confirm": () => {
       w.restore = "confirmed";
@@ -127,6 +135,7 @@ beforeEach(() => {
   vi.stubGlobal("XMLHttpRequest", FakeXHR);
   reply = { status: 202, body: { state: "checking" } };
   sent = null;
+  sentHeaders = {};
   uploaded = false;
 });
 afterEach(() => {
@@ -348,7 +357,7 @@ describe("restore in the setup wizard", () => {
   });
 
   it("says another browser's upload is in the way without offering to cancel it", async () => {
-    const msg = "Another browser is restoring a backup. Kipple deletes it if it is not confirmed within an hour, and when Kipple restarts.";
+    const msg = "Another browser is uploading or restoring a backup. Kipple stops an upload that stalls or crawls, deletes a backup nobody confirms within an hour, and clears both when it restarts.";
     reply = { status: 409, body: { error: "restore_elsewhere", message: msg } };
     const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() });
     go();
@@ -357,6 +366,39 @@ describe("restore in the setup wizard", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(msg);
     expect(screen.queryByRole("button", { name: "Cancel the other upload" })).toBeNull();
     expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
+  });
+
+  it("asks for the owner key first and sends it with the upload", async () => {
+    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() });
+    go();
+    const user = userEvent.setup();
+    await chooseFile(user);
+    expect(await screen.findByTestId("backup-summary")).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/setup/restore/start")).toHaveLength(1);
+    expect(sentHeaders["X-Kipple-Restore-Key"]).toBe(KEY);
+  });
+
+  it("cancels its own upload on the server while the file is still being sent", async () => {
+    reply = { status: 202, body: { state: "checking" }, hold: true };
+    const { calls } = server({ restore: "none", setup: true, signedIn: false });
+    go();
+    const user = userEvent.setup();
+    await chooseFile(user);
+    await user.click(await screen.findByRole("button", { name: "Cancel upload" }));
+    // The upload is this browser's from its first byte, so the DELETE is honoured however late the abort arrives.
+    await waitFor(() => expect(calls.filter((c) => c.method === "DELETE" && c.url.pathname === "/api/setup/restore")).toHaveLength(1));
+    expect(await screen.findByLabelText("Backup or OPML file")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("says cookies are needed when the browser did not keep the owner cookie", async () => {
+    const msg = "Kipple needs cookies to restore a backup: it keeps the upload for the browser that sent it. Allow cookies for this site, then try again.";
+    reply = { status: 400, body: { error: "cookies_required", message: msg } };
+    server({ restore: "none", setup: true, signedIn: false });
+    go();
+    const user = userEvent.setup();
+    await chooseFile(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent(msg);
   });
 
   it("after a reload while a restore is being applied, waits and then asks to sign in", async () => {

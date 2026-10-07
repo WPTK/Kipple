@@ -42,16 +42,24 @@ export interface RestoreStatus {
 
 export const fetchRestoreStatus = () => api<RestoreStatus>("/api/setup/restore", { anon: true, quiet: true });
 
+/** Asks for this browser's owner key: the server sets it as a cookie too, and an upload must carry both. */
+const startRestore = () => api<{ key: string }>("/api/setup/restore/start", { method: "POST", anon: true });
+
 /**
- * Sends the file as the raw request body. fetch cannot report upload progress, so this uses XMLHttpRequest. Answers
- * with what the server found, or throws an ApiError (status 0 when the network failed or the upload was cancelled).
+ * Sends the file as the raw request body, after asking for the owner key that makes the upload this browser's from
+ * its first byte (so "Cancel upload" can stop it on the server too). fetch cannot report upload progress, so this
+ * uses XMLHttpRequest. Answers with what the server found, or throws an ApiError (status 0 when the network failed
+ * or the upload was cancelled).
  */
-export function uploadRestoreFile(file: File, onProgress: (sent: number, total: number) => void, signal?: AbortSignal): Promise<UploadResult> {
+export async function uploadRestoreFile(file: File, onProgress: (sent: number, total: number) => void, signal?: AbortSignal): Promise<UploadResult> {
+  const { key } = await startRestore();
+  if (signal?.aborted) throw new ApiError(0, "aborted");
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/setup/restore/upload");
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.setRequestHeader("X-Kipple-Client", clientKind());
+    xhr.setRequestHeader("X-Kipple-Restore-Key", key);
     xhr.setRequestHeader("Accept", "application/json");
     xhr.withCredentials = true;
     xhr.upload.onprogress = (e) => {

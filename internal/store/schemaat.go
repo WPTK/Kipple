@@ -18,7 +18,8 @@ type SchemaObject struct {
 
 // SchemaAt builds a fresh database at schema version (1 to LatestVersion) in
 // memory and returns its schema objects: what a Kipple database at that version
-// holds and nothing else. A restore compares an uploaded database against it.
+// holds and nothing else, each table and index with its Shape. A restore
+// compares an uploaded database against it.
 func SchemaAt(ctx context.Context, version int) ([]SchemaObject, error) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -29,7 +30,16 @@ func SchemaAt(ctx context.Context, version int) ([]SchemaObject, error) {
 	if err := BuildSchema(ctx, db, version); err != nil {
 		return nil, err
 	}
-	return ReadSchema(ctx, db)
+	out, err := ReadSchema(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if out[i].Shape, err = Shape(ctx, db, out[i]); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // BuildSchema applies the migrations up to version to the empty database db
@@ -52,8 +62,8 @@ func BuildSchema(ctx context.Context, db *sql.DB, version int) error {
 	return err
 }
 
-// ReadSchema lists the schema objects of the main database of q, each table
-// and index with its Shape.
+// ReadSchema lists the schema objects of the main database of q, from
+// sqlite_master alone: nothing in the database runs. Shape is left empty.
 func ReadSchema(ctx context.Context, q Querier) ([]SchemaObject, error) {
 	rows, err := q.QueryContext(ctx, "SELECT type, name, tbl_name, ifnull(sql, '') FROM main.sqlite_master ORDER BY type, name")
 	if err != nil {
@@ -68,19 +78,14 @@ func ReadSchema(ctx context.Context, q Querier) ([]SchemaObject, error) {
 		}
 		out = append(out, o)
 	}
-	rows.Close() // before the next queries: SchemaAt's database has one connection
+	rows.Close() // before any next query: SchemaAt's database has one connection
 	if err := rows.Err(); err != nil {
 		return nil, err
-	}
-	for i := range out {
-		if out[i].Shape, err = shape(ctx, q, out[i]); err != nil {
-			return nil, fmt.Errorf("store: read the %s %q: %w", out[i].Type, out[i].Name, err)
-		}
 	}
 	return out, nil
 }
 
-// shape describes what a table or index is, from SQLite's own reading of it
+// Shape describes what a table or index is, from SQLite's own reading of it
 // rather than its text: for a table its kind (ordinary, virtual or shadow),
 // WITHOUT ROWID and STRICT, and each column's name, declared type, NOT NULL,
 // primary key place and hidden or generated flag; a virtual table adds its
@@ -88,13 +93,16 @@ func ReadSchema(ctx context.Context, q Querier) ([]SchemaObject, error) {
 // key column's name (or expression), order and collation. "" for the rest.
 // The text of a table can differ between databases of the same schema (a
 // migration's comments were edited after it shipped); its shape cannot.
-func shape(ctx context.Context, q Querier, o SchemaObject) (string, error) {
+// Reading it runs SQLite's own code on the object (a virtual table is
+// connected), so a restore reads shapes only of objects whose names, and for a
+// virtual table whose definition, it has already matched.
+func Shape(ctx context.Context, q Querier, o SchemaObject) (string, error) {
 	var b strings.Builder
 	switch o.Type {
 	case "table":
 		var kind string
 		var wr, strict int
-		if err := q.QueryRowContext(ctx, `SELECT type, wr, strict FROM pragma_table_list WHERE schema = 'main' AND name = ?`, o.Name).Scan(&kind, &wr, &strict); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT type, wr, strict FROM pragma_table_list(?) WHERE schema = 'main'`, o.Name).Scan(&kind, &wr, &strict); err != nil {
 			return "", err
 		}
 		fmt.Fprintf(&b, "%s wr=%d strict=%d", kind, wr, strict)

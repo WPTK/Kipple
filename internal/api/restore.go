@@ -20,28 +20,89 @@ import (
 // same-origin and X-Kipple-Client. A confirmed restore is applied by the next
 // start, so a confirm answers 202 and shuts the process down (Options.Restart).
 //
-// An uploaded backup belongs to the browser that sent it (backup.Restorer): the
-// upload makes a fresh random owner key and sets it as an HttpOnly cookie in
-// its own answer, and every later route passes the caller's cookie on. Anyone
-// else who can reach setup sees no restore and cannot read, confirm or cancel
-// the upload. The key is made by the server for each upload, so a cookie set
-// in the browser beforehand by someone else cannot become the owner's.
+// An uploaded backup belongs to the browser that sent it (backup.Restorer).
+// Before the file, POST /api/setup/restore/start gives the browser an owner
+// key: a random value made by the server, set as an HttpOnly cookie and also
+// returned to the page. The upload sends the key in a header, and it must
+// match one of the request's cookies; from its first byte the upload is that
+// key's, so the uploader can cancel it while it arrives, and every later route
+// reads the caller's cookies. Anyone else who can reach setup sees no restore
+// and cannot read, confirm or cancel the upload.
+//
+// The header is what makes a cookie planted in the browser by someone else (a
+// sibling subdomain can set one) useless: only the page's own script, which
+// read the key from the start answer, can send it. Requiring the cookie too
+// refuses a browser that does not keep cookies before it sends the file, with
+// a message, instead of losing its upload after the file has arrived.
 
-// restoreCookie carries the owner key of a wizard upload.
-const restoreCookie = "kipple_restore"
+const (
+	// restoreCookie carries the owner key of a wizard upload.
+	restoreCookie = "kipple_restore"
+	// restoreKeyHeader carries the same key on the upload itself.
+	restoreKeyHeader = "X-Kipple-Restore-Key"
+)
 
-// restoreOwner is the caller's owner key, "" without one.
-func restoreOwner(r *http.Request) string {
-	c, err := r.Cookie(restoreCookie)
-	if err != nil {
-		return ""
+// restoreOwner is the caller's owner key: the one of its restore cookies that
+// owns the upload there is, "" when none does.
+func (s *Server) restoreOwner(r *http.Request) string {
+	var keys []string
+	for _, c := range r.CookiesNamed(restoreCookie) {
+		keys = append(keys, c.Value)
 	}
-	return c.Value
+	return s.restore.Owner(keys)
 }
 
-// setRestoreCookie hands the owner key to the uploading browser. It lives
-// longer than any upload (the Restorer forgets an unconfirmed one after its
-// TTL), and only the setup routes and GET /api/instance read it.
+// hasRestoreCookie reports whether one of the request's restore cookies is key.
+func hasRestoreCookie(r *http.Request, key string) bool {
+	for _, c := range r.CookiesNamed(restoreCookie) {
+		if c.Value == key {
+			return true
+		}
+	}
+	return false
+}
+
+// validRestoreKey reports whether k has the form newCookieValue makes: 32
+// bytes in unpadded base64url.
+func validRestoreKey(k string) bool {
+	if len(k) != 43 {
+		return false
+	}
+	for _, c := range k {
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// restoreStart is POST /api/setup/restore/start: the owner key for the next
+// upload, as the cookie and as {"key"}. A browser whose key owns the upload
+// there is keeps it, so starting again never cuts it off from its own upload;
+// otherwise the key is new.
+func (s *Server) restoreStart(w http.ResponseWriter, r *http.Request) {
+	if s.setupGone(w) {
+		return
+	}
+	if !s.sameOrigin(r) {
+		writeError(w, http.StatusForbidden, "origin")
+		return
+	}
+	key := s.restoreOwner(r)
+	if key == "" {
+		var err error
+		if key, err = newCookieValue(); err != nil {
+			s.serverError(w, "restore start: owner key", err)
+			return
+		}
+	}
+	s.setRestoreCookie(w, r, key)
+	writeJSON(w, http.StatusOK, map[string]string{"key": key})
+}
+
+// setRestoreCookie hands the owner key to the browser. It lives longer than
+// any upload (the Restorer forgets an unconfirmed one after its TTL), and only
+// the setup routes and GET /api/instance read it.
 func (s *Server) setRestoreCookie(w http.ResponseWriter, r *http.Request, key string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: restoreCookie, Value: key, Path: "/api/", MaxAge: int((24 * time.Hour) / time.Second),
@@ -49,30 +110,48 @@ func (s *Server) setRestoreCookie(w http.ResponseWriter, r *http.Request, key st
 	})
 }
 
-const (
-	// restoreReadIdle is how long an upload may send nothing before it is cut
-	// off. It replaces the server-wide ReadTimeout, which bounds the whole
-	// request and would stop any large file.
+// An upload holds the one restore slot while it arrives, so it must not be
+// able to hold it for ever by sending slowly. These replace the server-wide
+// ReadTimeout, which bounds the whole request and would stop any large file.
+// Variables so tests can shorten them.
+var (
+	// restoreReadIdle is how long an upload may send nothing.
 	restoreReadIdle = 2 * time.Minute
-	// restoreAnswerWait bounds writing the answer once the checks are done.
-	restoreAnswerWait = 30 * time.Second
+	// restoreUploadMax is how long a whole upload may take.
+	restoreUploadMax = 6 * time.Hour
+	// restoreMinRate is the slowest average an upload may keep (bytes per
+	// second), judged from restoreRateGrace on.
+	restoreMinRate   = 32 << 10
+	restoreRateGrace = 2 * time.Minute
 )
 
-// deadlineReader moves the connection's read deadline forward before each read
-// of an upload, and removes it once the whole body has arrived: from then on
-// an expired deadline would cancel the request. stop (a cancel from another
-// tab, an account claim, shutdown) sets the deadline to now, so a read waiting
-// on a stalled client returns at once, and refuses every later read.
+// restoreAnswerWait bounds writing the answer once the checks are done.
+const restoreAnswerWait = 30 * time.Second
+
+// deadlineReader bounds the reads of an upload: before each read it sets the
+// connection's read deadline to the idle limit or the end of the whole
+// upload, whichever is first, and it refuses to go on once the average rate
+// has fallen below the minimum. It removes the deadline once the whole body
+// has arrived: from then on an expired deadline would cancel the request.
+// stop (a cancel by the uploader, an account claim, shutdown) sets the
+// deadline to now, so a read waiting on a stalled client returns at once, and
+// refuses every later read.
 type deadlineReader struct {
-	r  io.Reader
-	rc *http.ResponseController
+	r     io.Reader
+	rc    *http.ResponseController
+	start time.Time
 
 	mu      sync.Mutex // orders stop against the deadline each read sets
 	stopped bool
+	slow    bool // stopped for taking too long or sending too slowly
 	left    int64
+	got     int64
 }
 
-var errUploadStopped = errors.New("restore: upload stopped")
+var (
+	errUploadStopped = errors.New("restore: upload stopped")
+	errUploadSlow    = errors.New("restore: upload too slow")
+)
 
 func (d *deadlineReader) Read(p []byte) (int, error) {
 	d.mu.Lock()
@@ -80,16 +159,39 @@ func (d *deadlineReader) Read(p []byte) (int, error) {
 		d.mu.Unlock()
 		return 0, errUploadStopped
 	}
-	_ = d.rc.SetReadDeadline(time.Now().Add(restoreReadIdle))
+	now := time.Now()
+	end := d.start.Add(restoreUploadMax)
+	if el := now.Sub(d.start); !now.Before(end) || (el > restoreRateGrace && float64(d.got) < float64(restoreMinRate)*el.Seconds()) {
+		d.slow, d.stopped = true, true // and the deadline stays in the past, so nothing more is read
+		_ = d.rc.SetReadDeadline(now)
+		d.mu.Unlock()
+		return 0, errUploadSlow
+	}
+	dl := now.Add(restoreReadIdle)
+	if end.Before(dl) {
+		dl = end
+	}
+	_ = d.rc.SetReadDeadline(dl)
 	d.mu.Unlock()
 	n, err := d.r.Read(p)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.left -= int64(n)
+	d.got += int64(n)
+	if err != nil && !d.stopped && !time.Now().Before(end) {
+		d.slow, d.stopped = true, true // the deadline was the end of the whole upload; it stays
+	}
 	if (d.left <= 0 || err != nil) && !d.stopped {
 		_ = d.rc.SetReadDeadline(time.Time{})
 	}
 	return n, err
+}
+
+// tooSlow reports whether the upload was stopped for its time or rate.
+func (d *deadlineReader) tooSlow() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.slow
 }
 
 func (d *deadlineReader) stop() {
@@ -120,14 +222,19 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusLengthRequired, "length_required", "Send the file with its length (Content-Length).")
 		return
 	}
-	key, err := newCookieValue()
-	if err != nil {
-		s.serverError(w, "restore upload: owner key", err)
+	key := r.Header.Get(restoreKeyHeader)
+	if !validRestoreKey(key) {
+		writeErrorMsg(w, http.StatusBadRequest, "restore_key_required", "Start the upload again from the setup page.")
+		return
+	}
+	if !hasRestoreCookie(r, key) {
+		writeErrorMsg(w, http.StatusBadRequest, "cookies_required",
+			"Kipple needs cookies to restore a backup: it keeps the upload for the browser that sent it. Allow cookies for this site, then try again.")
 		return
 	}
 	rc := http.NewResponseController(w)
 	_ = rc.SetWriteDeadline(time.Time{}) // the server-wide one started with the request
-	body := &deadlineReader{r: r.Body, rc: rc, left: r.ContentLength}
+	body := &deadlineReader{r: r.Body, rc: rc, left: r.ContentLength, start: time.Now()}
 	up, err := s.restore.Upload(r.Context(), key, body, r.ContentLength, body.stop)
 	_ = rc.SetWriteDeadline(time.Now().Add(restoreAnswerWait))
 	if err != nil {
@@ -140,15 +247,14 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 			// keeps sending.
 			w.Header().Set("Connection", "close")
 		}
-		if !s.opt.Setup.Pending() {
+		switch {
+		case !s.opt.Setup.Pending():
 			// An account was created while the file arrived, which cancelled it.
 			writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
-		} else {
-			if errors.Is(err, backup.ErrRestoreElsewhere) && s.restore.Status(restoreOwner(r)).State != backup.RestoreNone {
-				// The upload in the way is this browser's own (the new key is
-				// never the old one): it can cancel it and try again.
-				err = backup.ErrRestoreBusy
-			}
+		case body.tooSlow():
+			writeErrorMsg(w, http.StatusRequestTimeout, "upload_too_slow",
+				"The upload was too slow and was stopped. Try again on a faster connection, or restore on the server with kipple restore.")
+		default:
 			s.writeRestoreError(w, "restore upload", err)
 		}
 		_ = rc.Flush()
@@ -166,7 +272,6 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	// A zip: it is checked in the background; GET /api/setup/restore follows it,
 	// for this browser only.
-	s.setRestoreCookie(w, r, key)
 	writeJSON(w, http.StatusAccepted, map[string]string{"state": backup.RestoreChecking})
 }
 
@@ -180,7 +285,7 @@ func (s *Server) restoreStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "origin")
 		return
 	}
-	st := s.restore.Status(restoreOwner(r))
+	st := s.restore.Status(s.restoreOwner(r))
 	out := map[string]any{"state": st.State, "summary": nil, "error": nil, "estimate_seconds": st.EstimateSeconds}
 	if st.Summary != nil { // ready and confirmed
 		out["summary"] = s.restoreSummary(r, *st.Summary)
@@ -278,7 +383,7 @@ func (s *Server) restoreConfirm(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
 		return
 	}
-	up, ticket, err := s.restore.Uploaded(restoreOwner(r)) // only this browser's checked backup
+	up, ticket, err := s.restore.Uploaded(s.restoreOwner(r)) // only this browser's checked backup
 	if err != nil {
 		s.writeRestoreError(w, "restore confirm", err)
 		return
@@ -322,7 +427,7 @@ func (s *Server) restoreFeeds(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "origin")
 		return
 	}
-	b, err := s.restore.Feeds(restoreOwner(r))
+	b, err := s.restore.Feeds(s.restoreOwner(r))
 	if err != nil {
 		s.writeRestoreError(w, "restore feeds", err)
 		return
@@ -343,7 +448,7 @@ func (s *Server) restoreCancel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "origin")
 		return
 	}
-	if err := s.restore.Cancel(restoreOwner(r)); err != nil {
+	if err := s.restore.Cancel(s.restoreOwner(r)); err != nil {
 		s.writeRestoreError(w, "restore cancel", err)
 		return
 	}

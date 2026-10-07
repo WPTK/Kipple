@@ -77,7 +77,7 @@ var (
 	ErrRestoreBusy = &Refusal{"Another restore upload is in progress. Cancel it first, then try again."}
 	// ErrRestoreElsewhere: the upload belongs to another browser (see
 	// Restorer), which alone can see, confirm or cancel it.
-	ErrRestoreElsewhere = &Refusal{"Another browser is restoring a backup. Kipple deletes it if it is not confirmed within an hour, and when Kipple restarts."}
+	ErrRestoreElsewhere = &Refusal{"Another browser is uploading or restoring a backup. Kipple stops an upload that stalls or crawls, deletes a backup nobody confirms within an hour, and clears both when it restarts."}
 	ErrRestorePending   = &Refusal{"A restore is waiting to be applied: Kipple is restarting to finish it."}
 	ErrNoUpload         = &Refusal{"No checked backup is waiting, or it expired. Upload it again."}
 	ErrNotBackup        = &Refusal{"This is not a Kipple backup zip or an OPML file."}
@@ -157,8 +157,8 @@ type RestorerOptions struct {
 // and Close end.
 //
 // An upload belongs to the browser that sent it: Upload takes an owner key (a
-// random value the caller makes for that request and hands back only to that
-// client), and every later call brings the caller's key. Only the owner sees
+// random value the server gave that browser before it sent the file), and
+// every later call brings the caller's key. Only the owner sees
 // the summary, takes the feeds, confirms or cancels; to anyone else an upload
 // reads as none, and acting on it is ErrRestoreElsewhere.
 type Restorer struct {
@@ -217,6 +217,19 @@ func (r *Restorer) State() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.state
+}
+
+// Owner returns the one of keys that owns the upload there is, or "" when none
+// does (or there is no upload). A browser can send several cookies of one name.
+func (r *Restorer) Owner(keys []string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, k := range keys {
+		if r.mine(k) {
+			return k
+		}
+	}
+	return ""
 }
 
 // mine reports whether owner is the key of the current upload. Under mu.
