@@ -172,3 +172,15 @@ func WordCount(text string) int {
 	}
 	return n
 }
+
+// PolicyVersion names the feed policy and pipeline above. Stored article HTML is cleaned again, once,
+// when a database was last cleaned under a different version (a restored backup, or this number raised
+// after the policy changed), so old rows never keep a weaker policy than new ones.
+const PolicyVersion = 1
+
+// Resanitize cleans stored article HTML again with the current policy. HTML the pipeline already
+// produced comes back unchanged.
+func Resanitize(stored string) string {
+	out, _ := Content(stored)
+	return out
+}
