@@ -97,29 +97,77 @@ func manyItems(n int) []byte {
 	return []byte(b.String())
 }
 
-// A feed with more entries than any retention setting keeps is cut to its first entries, in document order, before
-// any entry is converted or sanitized.
-func TestParseKeepsFirstItemsUpToLimit(t *testing.T) {
-	const limit = MaxItemsPerFetch
-	var sanitized atomic.Int64
-	f, err := ParseFeed(manyItems(limit+500), ParseOptions{
-		FeedURL: "https://example.com/feed",
-		Content: func(raw string, _ ...string) (string, string) {
-			sanitized.Add(1)
-			return raw, raw
-		},
-	})
+// datedItems is a feed of n entries; entry i is dated i days after a fixed day, so a larger i is newer. Entries are
+// listed oldest first when asc is set, newest first otherwise.
+func datedItems(n int, asc bool) []byte {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>`)
+	for k := range n {
+		i := k
+		if !asc {
+			i = n - 1 - k
+		}
+		d := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, i)
+		fmt.Fprintf(&b, `<item><guid>g%d</guid><title>item %d</title><pubDate>%s</pubDate><description>body %d</description></item>`,
+			i, i, d.Format(time.RFC1123Z), i)
+	}
+	b.WriteString(`</channel></rss>`)
+	return []byte(b.String())
+}
+
+// A feed with more entries than any retention setting keeps is cut to its newest entries (the order retention trims
+// by), whatever order it lists them in, before any entry is converted or sanitized. The kept entries stay in
+// document order.
+func TestParseKeepsNewestItemsUpToLimit(t *testing.T) {
+	const limit, extra = MaxItemsPerFetch, 500
+	for _, asc := range []bool{false, true} {
+		var sanitized atomic.Int64
+		f, err := ParseFeed(datedItems(limit+extra, asc), ParseOptions{
+			FeedURL: "https://example.com/feed",
+			Content: func(raw string, _ ...string) (string, string) {
+				sanitized.Add(1)
+				return raw, raw
+			},
+		})
+		require.NoError(t, err)
+		require.Equal(t, limit, len(f.Items), asc)
+		first, last := fmt.Sprintf("item %d", limit+extra-1), fmt.Sprintf("item %d", extra)
+		if asc {
+			first, last = last, first
+		}
+		require.Equal(t, first, f.Items[0].Title, asc)
+		require.Equal(t, last, f.Items[limit-1].Title, asc)
+		require.LessOrEqual(t, sanitized.Load(), int64(limit), asc)
+		require.Contains(t, f.Notes, fmt.Sprintf("items_over_limit: kept %d of %d", limit, limit+extra), asc)
+	}
+
+	// Undated entries count as new (retention stamps them with the fetch time), and among equal dates the later
+	// entry in the document wins.
+	f, err := ParseFeed(manyItems(limit+500), ParseOptions{})
 	require.NoError(t, err)
 	require.Equal(t, limit, len(f.Items))
-	require.Equal(t, "item 0", f.Items[0].Title)
-	require.Equal(t, fmt.Sprintf("item %d", limit-1), f.Items[limit-1].Title)
-	require.LessOrEqual(t, sanitized.Load(), int64(limit))
-	require.Contains(t, f.Notes, fmt.Sprintf("items_over_limit: kept %d of %d", limit, limit+500))
+	require.Equal(t, "item 500", f.Items[0].Title)
+	require.Equal(t, fmt.Sprintf("item %d", limit+499), f.Items[limit-1].Title)
 
 	f, err = ParseFeed(manyItems(limit), ParseOptions{})
 	require.NoError(t, err)
 	require.Equal(t, limit, len(f.Items))
 	require.Empty(t, f.Notes)
+}
+
+// Unclosed inline tags in raw (neither escaped nor CDATA) markup are common in the wild. The parser closes them at
+// the next end tag, so they add no nesting.
+func TestParseAcceptsUnclosedInlineTags(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>`)
+	for i := range 60 {
+		fmt.Fprintf(&b, `<item><guid>g%d</guid><title>item %d</title><description><p>a%s</p></description></item>`,
+			i, i, strings.Repeat("<br>b", 10))
+	}
+	b.WriteString(`</channel></rss>`)
+	f, err := ParseFeed([]byte(b.String()), ParseOptions{FeedURL: "https://example.com/feed"})
+	require.NoError(t, err)
+	require.Equal(t, 60, len(f.Items))
 }
 
 // Entity declarations in a feed are inert: nothing is expanded, nothing outside the document is read or fetched,

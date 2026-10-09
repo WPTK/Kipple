@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -136,13 +137,18 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 	}
 
 	entries, overLimit := gf.Items, ""
+	keep := make([]int, len(entries)) // positions in the document, in document order
+	for i := range keep {
+		keep[i] = i
+	}
 	if len(entries) > MaxItemsPerFetch {
 		overLimit = fmt.Sprintf("items_over_limit: kept %d of %d", MaxItemsPerFetch, len(entries))
-		entries = entries[:MaxItemsPerFetch]
+		keep = newestEntries(entries, MaxItemsPerFetch, time.Now())
 	}
-	items := make([]Item, 0, len(entries))
+	items := make([]Item, 0, len(keep))
 	skipped := 0
-	for i, gi := range entries {
+	for _, i := range keep {
+		gi := entries[i]
 		it, ok := convertItem(i, gi, out.SiteURL, out.Title, opt, content, jsonItems)
 		if !ok {
 			skipped++
@@ -165,7 +171,7 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 	out.Items = items
 	out.Notes = notes
 	if skipped > 0 {
-		out.Notes = append(out.Notes, fmt.Sprintf("skipped_malformed_items: %d/%d", skipped, len(entries)))
+		out.Notes = append(out.Notes, fmt.Sprintf("skipped_malformed_items: %d/%d", skipped, len(keep)))
 	}
 	if overLimit != "" {
 		out.Notes = append(out.Notes, overLimit)
@@ -173,10 +179,40 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 	return out, nil
 }
 
-// MaxItemsPerFetch is the most entries one fetch keeps, the first ones in document order (feeds list newest first).
-// It is twice the largest retention setting, so it never cuts what retention would keep; with unlimited retention a
-// feed still adds at most this many entries per fetch. The cut comes before any entry is converted or sanitized.
+// MaxItemsPerFetch is the most entries one fetch keeps: the newest ones, by the order retention trims by (see
+// newestEntries), whatever order the feed lists them in. It is twice the largest retention setting, so it never cuts
+// what retention would keep; with unlimited retention a feed still adds at most this many entries per fetch. The cut
+// comes before any entry is converted or sanitized.
 const MaxItemsPerFetch = 2000
+
+// newestEntries returns the positions of the n newest entries, in document order. Newest is retention's order
+// (sort_at, then id, both descending): sort_at is the published date (else the updated date), capped one day past
+// now, and an undated entry takes the time of the fetch, so it counts as new; ids follow document order, so among
+// equal dates the entry later in the document wins. It reads only the dates gofeed parsed.
+func newestEntries(entries []*gofeed.Item, n int, now time.Time) []int {
+	sortAt := make([]int64, len(entries))
+	for i, gi := range entries {
+		sortAt[i] = now.Unix()
+		if gi != nil {
+			if t := firstTime(gi.PublishedParsed, gi.UpdatedParsed); t != nil {
+				sortAt[i] = min(t.Unix(), now.Unix()+86400)
+			}
+		}
+	}
+	order := make([]int, len(entries))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		if sortAt[order[a]] != sortAt[order[b]] {
+			return sortAt[order[a]] > sortAt[order[b]]
+		}
+		return order[a] > order[b]
+	})
+	keep := order[:n]
+	sort.Ints(keep)
+	return keep
+}
 
 // MaxNesting is the deepest element nesting a feed document may have. Feeds nest fewer than 20 levels, inline XHTML
 // a few more. gofeed walks extension elements recursively, so the depth is checked before it runs.
@@ -184,8 +220,9 @@ const MaxNesting = 512
 
 // checkNesting reads the tokens of a body gofeed would parse as RSS or Atom once, building nothing, and refuses one
 // nested deeper than MaxNesting. It reads the bytes gofeed's XML parsers read (C0 control bytes dropped, see
-// xmlFilter) with the same non-strict decoder, and counts raw start and end tags, which never undercounts the depth
-// the parser sees (a mismatched end tag may close an element early, never late). A token error refuses the body: the
+// xmlFilter) with the same non-strict decoder and counts start and end tokens as the parser's reader yields them, so
+// the depth counted is the depth the parser walks: Token closes an unclosed element (a raw <br>) at the next
+// mismatched end tag, as RawToken never does. A token error refuses the body: the
 // parser's decoder would stop there too, so only the message differs. The scan ends where the parser does, when the
 // root element closes.
 func checkNesting(body []byte) error {
@@ -198,7 +235,7 @@ func checkNesting(body []byte) error {
 	d.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
 	depth := 0
 	for {
-		tok, err := d.RawToken()
+		tok, err := d.Token()
 		if err == io.EOF {
 			return nil
 		}
