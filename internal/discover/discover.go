@@ -21,8 +21,7 @@ import (
 )
 
 const (
-	maxBody      = 10 << 20 // the fetcher's own response limit
-	maxRedirects = 5
+	maxBody = 10 << 20 // the fetcher's own response limit
 )
 
 // Candidate is one feed a page advertises.
@@ -68,12 +67,7 @@ func (e *StatusError) Error() string {
 func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw string, allowPrivate bool) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, findTimeout)
 	defer cancel()
-	hc := &http.Client{Transport: rt, CheckRedirect: func(_ *http.Request, via []*http.Request) error {
-		if len(via) > maxRedirects {
-			return errors.New("too many redirects")
-		}
-		return nil
-	}}
+	hc := &http.Client{Transport: rt, CheckRedirect: fetch.CheckRedirect}
 	get := func(ua string) (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 		if err != nil {

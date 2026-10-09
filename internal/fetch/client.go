@@ -148,8 +148,8 @@ func (c *Client) httpClient(v variant, hops *[]Hop, feed *url.URL) *http.Client 
 		Transport: tr,
 		Timeout:   c.opt.ClientTimeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) > maxHops {
-				return errTooManyHops
+			if err := CheckRedirect(req, via); err != nil {
+				return err
 			}
 			if !authAllowed(feed, req.URL) {
 				req.Header.Del("Authorization")

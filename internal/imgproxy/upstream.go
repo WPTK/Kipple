@@ -203,14 +203,8 @@ func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p
 	}
 	client := &http.Client{
 		Transport: tr,
-		// No cookie jar. Go adds a Referer on redirects; strip it.
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) > maxHops {
-				return errors.New("imgproxy: too many redirects")
-			}
-			req.Header.Del("Referer")
-			return nil
-		},
+		// No cookie jar.
+		CheckRedirect: fetch.CheckRedirect,
 	}
 	// begin is when the ladder started: Timeout is one deadline for all of its
 	// attempts and the body, not one per attempt.
