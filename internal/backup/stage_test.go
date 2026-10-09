@@ -966,27 +966,46 @@ func TestLargeFeedsOPMLDoesNotBlockARestore(t *testing.T) {
 func TestStateAndBusyAgreeAfterCancel(t *testing.T) {
 	b := hostBackup(t)
 	r, _ := newRestorer(t)
-	pr, pw := io.Pipe()
+	body := &parkedBody{head: b[:100], parked: make(chan struct{}), unblock: make(chan struct{})}
 	release := make(chan struct{})
 	first := make(chan error, 1)
 	go func() {
 		// A read that the stop hook does not unblock at once.
-		_, err := r.Upload(context.Background(), me, pr, int64(len(b)), func() {
-			go func() { <-release; _ = pr.CloseWithError(errors.New("late")) }()
+		_, err := r.Upload(context.Background(), me, body, int64(len(b)), func() {
+			go func() { <-release; close(body.unblock) }()
 		})
 		first <- err
 	}()
-	_, err := pw.Write(b[:100])
-	require.NoError(t, err)
+	// Only once the job waits inside the body's read is it sure to hold the
+	// slot after Drop: between two reads it would see the cancel and stop.
+	<-body.parked
 	r.Drop() // returns without waiting
 	require.Equal(t, RestoreUploading, r.State(), "the job still holds the slot")
-	_, err = upload(r, b)
+	_, err := upload(r, b)
 	require.ErrorIs(t, err, ErrRestoreBusy)
 	close(release)
 	require.ErrorIs(t, <-first, context.Canceled)
 	require.Equal(t, RestoreNone, r.State())
 	_, err = upload(r, b)
 	require.NoError(t, err)
+}
+
+// parkedBody hands out head, then closes parked and blocks in its next read
+// until unblock is closed.
+type parkedBody struct {
+	head            []byte
+	parked, unblock chan struct{}
+}
+
+func (p *parkedBody) Read(b []byte) (int, error) {
+	if len(p.head) > 0 {
+		n := copy(b, p.head)
+		p.head = p.head[n:]
+		return n, nil
+	}
+	close(p.parked)
+	<-p.unblock
+	return 0, errors.New("late")
 }
 
 // manyEntries is a zip with n empty stored entries (zip64 records from 65535 on).
