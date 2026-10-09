@@ -405,13 +405,13 @@ func TestRewriter(t *testing.T) {
 	require.Len(t, parts[2], 22)
 
 	require.Equal(t, https1, only.Rewrite(https1), "http_only leaves https alone")
-	require.Equal(t, "data:image/png;base64,AAAA", only.Rewrite("data:image/png;base64,AAAA"))
+	require.Equal(t, "", only.Rewrite("data:image/png;base64,AAAA"), "a URL that cannot be proxied is dropped, never passed on")
 	require.Equal(t, "", only.Rewrite(""))
 
 	all := Rewriter{Secret: secret, All: true}
 	require.True(t, strings.HasPrefix(all.Rewrite(https1), "/img/"))
-	require.Equal(t, "/relative.png", all.Rewrite("/relative.png"))
+	require.Equal(t, "", all.Rewrite("/relative.png"))
 	require.Equal(t, "0", strings.Split(all.Rewrite(https1), "/")[3])
 	long := "http://x.example/" + strings.Repeat("a", 5000)
-	require.Equal(t, long, all.Rewrite(long))
+	require.Equal(t, "", all.Rewrite(long))
 }

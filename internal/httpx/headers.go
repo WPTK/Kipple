@@ -159,6 +159,11 @@ func (s *secureWriter) decorate(code int) {
 		// weaker policy here would replace the page policy in the browser cache.
 		return
 	}
+	// A response that names no cache policy is not for a shared cache or a stored copy: every route
+	// that wants caching (assets, icons, images) says so itself.
+	if h.Get("Cache-Control") == "" {
+		h.Set("Cache-Control", "private, no-store")
+	}
 	ct := strings.ToLower(h.Get("Content-Type"))
 	if strings.HasPrefix(ct, "text/html") {
 		mode := "all"
