@@ -265,7 +265,9 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		res.SetValidators = true
 		res.ETag = snap.ETag // a 304's ETag is ignored; keep ours
 		res.LastModified = snap.LastModified
-		if lm := resp.Header.Get("Last-Modified"); lm != "" {
+		// A 304's date replaces ours only when usable; an unusable one must not
+		// erase the good stored date.
+		if _, lm := CleanValidators("", resp.Header.Get("Last-Modified")); lm != "" {
 			res.LastModified = lm
 		}
 		return res
