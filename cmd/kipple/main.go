@@ -310,16 +310,7 @@ func runServe() error {
 		startWork()
 	}
 
-	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, reachLive.Trusted, openGate.TailscaleServeRequest, logger, uiAPI.HostGate),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
-		// WriteTimeout would kill /api/events; the SSE handler replaces it with a
-		// per-write deadline through http.ResponseController (internal/api/sse.go).
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  120 * time.Second,
-	}
+	srv := newServer(cfg.Addr, rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, reachLive.Trusted, openGate.TailscaleServeRequest, logger, uiAPI.HostGate))
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -462,4 +453,23 @@ func runVersion(args []string, out io.Writer) error {
 		return err
 	}
 	return errors.New("usage: kipple version [-v]")
+}
+
+// maxHeaderBytes bounds the request line and headers of one request. Browsers and proxies send a few
+// KiB; 64 KiB leaves room for large cookies and tokens.
+const maxHeaderBytes = 64 << 10
+
+// newServer is the HTTP server with Kipple's limits around h.
+func newServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		MaxHeaderBytes:    maxHeaderBytes,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second, // request only; SSE is a response stream
+		// WriteTimeout would kill /api/events; the SSE handler replaces it with a
+		// per-write deadline through http.ResponseController (internal/api/sse.go).
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
 }

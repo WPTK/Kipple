@@ -706,3 +706,18 @@ func TestOPMLImportPublishesFolderChangedOnlyWhenFoldersAreCreated(t *testing.T)
 	require.Equal(t, http.StatusOK, h.do("POST", "/api/opml", doc, withCookie(c)).Code)
 	require.Empty(t, folderChanged(t, sub), "nothing created the second time")
 }
+
+func TestEventStreamRefusedWhenTheHubIsFull(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	subs := make([]*events.Sub, 0, events.MaxSubscribers)
+	for i := 0; i < events.MaxSubscribers; i++ {
+		subs = append(subs, h.hub.Subscribe(h.hub.LastID()))
+	}
+	rec := h.do("GET", "/api/events", "", withCookie(c))
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.NotEmpty(t, rec.Header().Get("Retry-After"))
+	for _, s := range subs {
+		s.Close()
+	}
+}
