@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mmcdole/gofeed"
 	"github.com/stretchr/testify/require"
 )
 
@@ -153,6 +154,17 @@ func TestParseKeepsNewestItemsUpToLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, limit, len(f.Items))
 	require.Empty(t, f.Notes)
+}
+
+// Ties on the capped date go as the store's ids would: the later uncapped date first, an undated entry (inserted
+// last) before a dated one, then the entry earlier in the document.
+func TestNewestEntriesBreaksTiesAsRetention(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) *gofeed.Item { t := now.Add(d); return &gofeed.Item{PublishedParsed: &t} }
+	require.Equal(t, []int{1}, newestEntries([]*gofeed.Item{at(240 * time.Hour), at(480 * time.Hour), at(-time.Hour)}, 1, now))
+	require.Equal(t, []int{1}, newestEntries([]*gofeed.Item{at(0), {}}, 1, now))
+	require.Equal(t, []int{0}, newestEntries([]*gofeed.Item{{}, {}}, 1, now))
+	require.Equal(t, []int{0}, newestEntries([]*gofeed.Item{at(0), at(0)}, 1, now))
 }
 
 // Unclosed inline tags in raw (neither escaped nor CDATA) markup are common in the wild. The parser closes them at

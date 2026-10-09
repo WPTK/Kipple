@@ -6,6 +6,7 @@ import (
 	"fmt"
 	stdhtml "html"
 	"io"
+	"math"
 	"net/url"
 	"path"
 	"regexp"
@@ -188,16 +189,18 @@ const MaxItemsPerFetch = 2000
 
 // newestEntries returns the positions of the n newest entries, in document order. Newest is retention's order
 // (sort_at, then id, both descending): sort_at is the published date (else the updated date), capped one day past
-// now, and an undated entry takes the time of the fetch, so it counts as new; ids follow document order, so among
-// equal dates the entry earlier in the document wins (store.oldestFirst gives the later one the smaller id; keep the
-// two in step). It reads only the dates gofeed parsed.
+// now, and an undated entry takes the time of the fetch, so it counts as new. Ids follow store.oldestFirst (date
+// ascending, undated last, ties in reverse document order), so among equal sort_at the later uncapped date wins, then the entry
+// earlier in the document; keep the two in step. It reads only the dates gofeed parsed.
 func newestEntries(entries []*gofeed.Item, n int, now time.Time) []int {
 	sortAt := make([]int64, len(entries))
+	date := make([]int64, len(entries))
 	for i, gi := range entries {
-		sortAt[i] = now.Unix()
+		date[i], sortAt[i] = math.MaxInt64, now.Unix() // undated: oldestFirst puts it last
 		if gi != nil {
 			if t := firstTime(gi.PublishedParsed, gi.UpdatedParsed); t != nil {
-				sortAt[i] = min(t.Unix(), now.Unix()+86400)
+				date[i] = t.Unix()
+				sortAt[i] = min(date[i], now.Unix()+86400)
 			}
 		}
 	}
@@ -208,6 +211,9 @@ func newestEntries(entries []*gofeed.Item, n int, now time.Time) []int {
 	sort.SliceStable(order, func(a, b int) bool {
 		if sortAt[order[a]] != sortAt[order[b]] {
 			return sortAt[order[a]] > sortAt[order[b]]
+		}
+		if date[order[a]] != date[order[b]] {
+			return date[order[a]] > date[order[b]]
 		}
 		return order[a] < order[b]
 	})
