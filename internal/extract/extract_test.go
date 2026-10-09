@@ -1,6 +1,7 @@
 package extract
 
 import (
+	"compress/gzip"
 	"context"
 	"io"
 	"net"
@@ -260,4 +261,34 @@ func TestExtractRetriesOnceWithRetryUserAgent(t *testing.T) {
 	res, err = newExtractor().Extract(context.Background(), tgt)
 	require.NoError(t, err)
 	require.Len(t, uas, 1)
+}
+
+// Only gzip is asked for (and decoded by the transport). A page that claims any
+// other content coding is refused instead of being read as if it were text.
+func TestExtractRefusesACodingItDidNotAskFor(t *testing.T) {
+	for _, coding := range []string{"br", "deflate", "zstd", "compress", "gzip, br"} {
+		srv := page(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			w.Header().Set("Content-Encoding", coding)
+			_, _ = w.Write([]byte(article(longBody())))
+		})
+		_, err := newExtractor().Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, FeedHost: "127.0.0.1"})
+		var ee *Error
+		require.ErrorAs(t, err, &ee, coding)
+		require.Contains(t, ee.Msg, "compress", coding)
+		require.False(t, ee.Transient, coding)
+	}
+}
+
+func TestExtractDecodesGzipPages(t *testing.T) {
+	srv := page(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Encoding", "gzip")
+		zw := gzip.NewWriter(w)
+		_, _ = zw.Write([]byte(article(longBody())))
+		_ = zw.Close()
+	})
+	res, err := newExtractor().Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, FeedHost: "127.0.0.1"})
+	require.NoError(t, err)
+	require.NotEmpty(t, res.Text)
 }

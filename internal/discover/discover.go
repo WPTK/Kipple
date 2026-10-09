@@ -14,6 +14,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/store"
@@ -36,6 +37,10 @@ type Result struct {
 	IsFeed     bool
 	Candidates []Candidate
 }
+
+// findTimeout bounds one Find, headers and body together, when its caller sets
+// no sooner deadline. A variable so tests can shorten it.
+var findTimeout = 20 * time.Second
 
 // ErrNoFeed means the address is a web page that links no feed.
 var ErrNoFeed = errors.New("that address is a web page, and the page does not link to a feed; look on the site for its feed address (often /feed or /rss.xml)")
@@ -60,6 +65,8 @@ func (e *StatusError) Error() string {
 // allowPrivate keeps candidates on private addresses (the caller's rt must then
 // allow them too).
 func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw string, allowPrivate bool) (Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, findTimeout)
+	defer cancel()
 	hc := &http.Client{Transport: rt, CheckRedirect: fetch.CheckRedirect}
 	get := func(ua string) (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
