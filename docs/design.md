@@ -954,7 +954,8 @@ doneCh <- workerExit
   2. Else the XML declaration's encoding, else the HTTP charset, else UTF-8. A UTF-16 or UTF-32 label without a BOM is ignored (the declaration itself would be unreadable), as is an unknown label.
   3. If UTF-8 was chosen but the bytes are not valid UTF-8, retry with the HTTP charset, then `windows-1252`. Conversely, a single-byte label (`windows-125x`, `ISO-8859-x`, `koi8-`, and so on) on a body that is valid multi-byte UTF-8 is decoded as UTF-8: the "declares latin1, sends UTF-8" case.
   4. Look the label up with `charset.Lookup` and decode with `transform.Bytes`, rewrite the `encoding=` attribute to `utf-8`, and compute `sha256` of the decoded bytes: this is `body_hash`.
-  5. `gofeed.Parser.Parse`.
+  5. A document nested more than `fetch.MaxNesting` (512) elements deep is refused as `parse` before gofeed sees it (one `RawToken` pass); then `gofeed.Parser.Parse`.
+  6. Only the first `fetch.MaxItemsPerFetch` (2,000) entries in document order are converted and sanitized, whatever the retention (unlimited included); the fetch notes say `items_over_limit` when more were left out.
 - **Content pipeline per item** (`internal/sanitize`):
   1. Resolve the item link against the final feed URL.
   2. Parse the content HTML with `x/net/html` and resolve every URL attribute (`a[href]`, `img[src]`, `img[srcset]` and `source[srcset]` candidate by candidate, `video[poster]`, `video[src]`, `audio[src]`, `source[src]`) against the base chain `xml:base` → item link → `site_url` → final feed URL.

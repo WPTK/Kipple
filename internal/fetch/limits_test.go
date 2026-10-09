@@ -88,7 +88,7 @@ func manyItems(n int) []byte {
 // A feed with more entries than any retention setting keeps is cut to its first entries, in document order, before
 // any entry is converted or sanitized.
 func TestParseKeepsFirstItemsUpToLimit(t *testing.T) {
-	const limit = 2000
+	const limit = MaxItemsPerFetch
 	var sanitized atomic.Int64
 	f, err := ParseFeed(manyItems(limit+500), ParseOptions{
 		FeedURL: "https://example.com/feed",

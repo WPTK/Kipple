@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/WPTK/kipple/internal/fetch"
 )
 
 // The settings metadata, the retention.default validator and the per-feed PATCH
@@ -21,4 +23,9 @@ func TestRetentionTiersAreDefinedOnce(t *testing.T) {
 		require.False(t, isRetentionChoice(n), n)
 	}
 	require.Equal(t, "50, 100, 250, 500 or 1000", retentionChoicesText())
+}
+
+// A fetch keeps at most fetch.MaxItemsPerFetch entries; that cut must never reach what a retention setting keeps.
+func TestItemCapIsAboveEveryRetentionTier(t *testing.T) {
+	require.Greater(t, fetch.MaxItemsPerFetch, retentionLimits[len(retentionLimits)-1])
 }

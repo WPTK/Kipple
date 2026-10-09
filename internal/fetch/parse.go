@@ -2,8 +2,10 @@ package fetch
 
 import (
 	"bytes"
+	"encoding/xml"
 	"fmt"
 	stdhtml "html"
+	"io"
 	"net/url"
 	"path"
 	"regexp"
@@ -79,8 +81,8 @@ type ParseOptions struct {
 }
 
 // ParseFeed decodes body to UTF-8, parses it with gofeed and returns the
-// normalized feed. gofeed is pinned at v1.4.2 in go.mod. Like DecodeBody it may
-// modify body (only the encoding value of its XML declaration).
+// normalized feed. Like DecodeBody it may modify body (only the encoding value
+// of its XML declaration).
 func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 	return ParseDecoded(decodeBody(body, opt.HTTPCharset), opt)
 }
@@ -92,6 +94,9 @@ var decodeBody = DecodeBody
 // fetcher decodes once for the body-hash check and parses the same bytes
 // (opt.HTTPCharset is not used).
 func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
+	if err := checkNesting(dec.Body); err != nil {
+		return nil, err
+	}
 	fp := gofeed.NewParser()
 	fp.KeepOriginalFeed = true
 	// The default RSS translator runs a full HTML parse per item to find an
@@ -130,9 +135,14 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 		jsonItems = jf.Items
 	}
 
-	items := make([]Item, 0, len(gf.Items))
+	entries, overLimit := gf.Items, ""
+	if len(entries) > MaxItemsPerFetch {
+		overLimit = fmt.Sprintf("items_over_limit: kept %d of %d", MaxItemsPerFetch, len(entries))
+		entries = entries[:MaxItemsPerFetch]
+	}
+	items := make([]Item, 0, len(entries))
 	skipped := 0
-	for i, gi := range gf.Items {
+	for i, gi := range entries {
 		it, ok := convertItem(i, gi, out.SiteURL, out.Title, opt, content, jsonItems)
 		if !ok {
 			skipped++
@@ -155,9 +165,52 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 	out.Items = items
 	out.Notes = notes
 	if skipped > 0 {
-		out.Notes = append(out.Notes, fmt.Sprintf("skipped_malformed_items: %d/%d", skipped, len(gf.Items)))
+		out.Notes = append(out.Notes, fmt.Sprintf("skipped_malformed_items: %d/%d", skipped, len(entries)))
+	}
+	if overLimit != "" {
+		out.Notes = append(out.Notes, overLimit)
 	}
 	return out, nil
+}
+
+// MaxItemsPerFetch is the most entries one fetch keeps, the first ones in document order (feeds list newest first).
+// It is twice the largest retention setting, so it never cuts what retention would keep; with unlimited retention a
+// feed still adds at most this many entries per fetch. The cut comes before any entry is converted or sanitized.
+const MaxItemsPerFetch = 2000
+
+// MaxNesting is the deepest element nesting a feed document may have. Feeds nest fewer than 20 levels, inline XHTML
+// a few more. gofeed walks extension elements recursively, so the depth is checked before it runs.
+const MaxNesting = 512
+
+// checkNesting reads an XML body's tokens once, building nothing, and refuses one nested deeper than MaxNesting. It
+// counts raw start and end tags, which never undercounts the depth the parser sees (gofeed's non-strict decoder may
+// close an element early on a mismatched end tag, never late). A body that is not XML is left to the parser, and so
+// is one that is not well formed: the parser's decoder stops at the same error or sooner.
+func checkNesting(body []byte) error {
+	if t := bytes.TrimLeft(body, " \t\r\n\ufeff"); len(t) == 0 || t[0] != '<' {
+		return nil
+	}
+	d := xml.NewDecoder(bytes.NewReader(body))
+	d.Strict = false
+	// The body is UTF-8 already (DecodeBody); whatever the declaration says, read it as it is.
+	d.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
+	depth := 0
+	for {
+		tok, err := d.RawToken()
+		if err != nil {
+			return nil
+		}
+		switch tok.(type) {
+		case xml.StartElement:
+			if depth++; depth > MaxNesting {
+				return fmt.Errorf("document nests elements deeper than %d levels", MaxNesting)
+			}
+		case xml.EndElement:
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
 }
 
 // convertItem turns one gofeed item into an Item. ok is false for an entry that
