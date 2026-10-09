@@ -28,9 +28,6 @@ const (
 	ClassGone         = "gone"
 )
 
-// errTooManyHops is returned by CheckRedirect after more than 5 redirects.
-var errTooManyHops = errors.New("stopped after 5 redirects")
-
 // Classify maps a transport-level error to an error class and message
 // (design §4.5).
 func Classify(err error) (class, msg string) {
@@ -48,8 +45,10 @@ func Classify(err error) (class, msg string) {
 	switch {
 	case errors.As(err, &blocked):
 		return ClassSSRF, blocked.Error()
-	case errors.Is(err, errTooManyHops):
-		return ClassRedirectLoop, errTooManyHops.Error()
+	case errors.Is(err, ErrTooManyHops):
+		return ClassRedirectLoop, ErrTooManyHops.Error()
+	case errors.Is(err, ErrRedirectRefused):
+		return ClassRedirectLoop, err.Error()
 	case errors.As(err, &maxBytes):
 		return ClassTooLarge, tooLargeMessage(maxBytes.Limit)
 	case errors.Is(err, context.DeadlineExceeded), isTimeout(err):
