@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 )
@@ -128,22 +127,16 @@ func (c *Client) CloseIdle() {
 // httpClient returns a client for one attempt; hops collects the redirects.
 // feed is the feed's own URL: the Authorization header (feeds.http_auth) is
 // dropped from every hop authAllowed refuses. net/http strips it only on a move
-// to an unrelated host; it keeps it for a subdomain (so does authAllowed) and
-// for an https -> http downgrade, which would send the password in clear text
-// (authAllowed does not).
+// to an unrelated host; it keeps it for a subdomain (so does authAllowed).
 func (c *Client) httpClient(v variant, hops *[]Hop, feed *url.URL) *http.Client {
-	var tr http.RoundTripper = c.transport(v)
-	if v.allowPrivate || v.insecureTLS {
-		// The feed's network exceptions cover its own site only (the hosts a
-		// permanent redirect may migrate it to with its settings kept): a hop to
-		// any other host goes through the guarded transport.
-		guarded := c.transport(variant{noHTTP2: v.noHTTP2})
-		if feed == nil {
-			tr = guarded
-		} else {
-			tr = &siteScoped{host: feed.Hostname(), granted: tr, guarded: guarded}
-		}
+	// The feed's network exceptions cover its own site only (the hosts a
+	// permanent redirect may migrate it to with its settings kept): a hop to
+	// any other host goes through the guarded transport.
+	host := ""
+	if feed != nil {
+		host = feed.Hostname()
 	}
+	tr := ScopedTransport(c.Transport, host, v.allowPrivate, v.insecureTLS, v.noHTTP2)
 	return &http.Client{
 		Transport: tr,
 		Timeout:   c.opt.ClientTimeout,
@@ -165,31 +158,12 @@ func (c *Client) httpClient(v variant, hops *[]Hop, feed *url.URL) *http.Client 
 	}
 }
 
-// siteScoped sends a request for a host on the feed's own site (SameSite, or a
-// FeedHostVariant) through granted and every other request through guarded.
-// http.Client calls RoundTrip once per hop, redirects included.
-type siteScoped struct {
-	host             string
-	granted, guarded http.RoundTripper
-}
-
-func (s *siteScoped) RoundTrip(req *http.Request) (*http.Response, error) {
-	h := req.URL.Hostname()
-	if SameSite(s.host, h) || FeedHostVariant(s.host, h) {
-		return s.granted.RoundTrip(req)
-	}
-	return s.guarded.RoundTrip(req)
-}
-
 // authAllowed reports whether a request to target may carry the feed's HTTP
 // credentials: only to the feed's own host or a subdomain of it (the net/http
-// rule, so example.com -> www.example.com keeps working), and only over https
-// unless the feed URL itself is plain http (the user chose clear text).
+// rule, so example.com -> www.example.com keeps working). A move from https to
+// http never gets this far (CheckRedirect refuses it).
 func authAllowed(feed, target *url.URL) bool {
-	if feed == nil || target == nil || !SameOrSubdomain(feed.Hostname(), target.Hostname()) {
-		return false
-	}
-	return strings.EqualFold(target.Scheme, "https") || strings.EqualFold(feed.Scheme, "http")
+	return feed != nil && target != nil && SameOrSubdomain(feed.Hostname(), target.Hostname())
 }
 
 // Transport returns the cached guarded transport for a variant, for callers

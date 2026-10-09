@@ -49,7 +49,7 @@ type Options struct {
 	DB *store.DB
 	// Guard returns the feed fetcher's guarded transport for a feed's flags
 	// (fetch.Client.Transport), so the SSRF check applies. The flags are used
-	// only for the feed's own host (ScopedTransport).
+	// only for the feed's own host (ContentScopedTransport).
 	Guard     func(allowPrivate, insecureTLS, noHTTP2 bool) http.RoundTripper
 	UserAgent func() string // the client default (read per lookup), used when the feed resolves to ""; nil sends none
 	Clock     clock.Clock
@@ -206,7 +206,7 @@ type siteVisit struct {
 }
 
 // scopeOf is the network scope a job's lookup runs under: "" for the guarded
-// default, else the feed host and its exceptions (ScopedTransport). Two jobs
+// default, else the feed host and its exceptions (ContentScopedTransport). Two jobs
 // with the same scope would make exactly the same requests for the same site.
 func scopeOf(j store.IconJob) string {
 	if (!j.AllowPrivateNet && !j.AllowInsecureTLS) || j.FeedHost == "" {
@@ -262,7 +262,7 @@ func (f *Finder) runOnce(ctx context.Context, beforeFetch func() error) (did, fe
 		lctx, cancel := context.WithTimeout(ctx, jobTimeout)
 		icon, lerr = Lookup(lctx, Request{
 			SiteURL: job.SiteURL, FeedURL: job.FeedURL,
-			Transport: fetch.ScopedTransport(f.opt.Guard, job.FeedHost, job.AllowPrivateNet, job.AllowInsecureTLS, job.DisableHTTP2),
+			Transport: fetch.ContentScopedTransport(f.opt.Guard, job.FeedHost, job.AllowPrivateNet, job.AllowInsecureTLS, job.DisableHTTP2),
 			UserAgent: ua, RetryUA: job.RetryUserAgent,
 		})
 		cancel()

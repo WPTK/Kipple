@@ -1,1 +1,1 @@
-Proxied images and adding a feed now stop at one time limit each: the image proxy's retries with other request headers share the single 15 second limit instead of getting 15 seconds apiece, and a site that never finishes answering no longer holds an add-feed check open.
+Proxied images: the image proxy's retries with other request headers now share the single 15 second limit instead of getting 15 seconds apiece.

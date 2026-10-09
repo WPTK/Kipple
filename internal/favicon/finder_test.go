@@ -112,7 +112,7 @@ func TestFinderFailureBacksOffAndLeavesFeedHealthAlone(t *testing.T) {
 	var hits atomic.Int32
 	srv := iconSite(t, &hits)
 	// The feed lives on the site's own host (another port): its exception, once
-	// on, covers the site (ScopedTransport).
+	// on, covers the site (ContentScopedTransport).
 	id := e.fetchedFeed("http://127.0.0.1:1/rss", srv.URL+"/", false)
 
 	did, err := e.f.RunOnce(e.ctx)

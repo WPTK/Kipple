@@ -70,7 +70,12 @@ func TestSiteScopedBareNamePrefixDoesNotInheritGrant(t *testing.T) {
 		{"news", "http://evil.news/", "guarded"}, // a subdomain of a LAN name that is a public TLD
 	} {
 		var used string
-		s := &siteScoped{host: c.feed, granted: recordRT{"granted", &used}, guarded: recordRT{"guarded", &used}}
+		s := ScopedTransport(func(private, _, _ bool) http.RoundTripper {
+			if private {
+				return recordRT{"granted", &used}
+			}
+			return recordRT{"guarded", &used}
+		}, c.feed, true, false, false)
 		req, err := http.NewRequest(http.MethodGet, c.hop, nil)
 		require.NoError(t, err)
 		resp, err := s.RoundTrip(req)
