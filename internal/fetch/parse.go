@@ -21,6 +21,7 @@ import (
 	ext "github.com/mmcdole/gofeed/extensions"
 	gjson "github.com/mmcdole/gofeed/json"
 	grss "github.com/mmcdole/gofeed/rss"
+	xhtml "golang.org/x/net/html"
 	"golang.org/x/net/html/charset"
 
 	"github.com/WPTK/kipple/internal/sanitize"
@@ -301,7 +302,7 @@ func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOpt
 	it = Item{
 		GUID:    gi.GUID,
 		RawLink: strings.TrimSpace(gi.Link),
-		Title:   strings.TrimSpace(gi.Title),
+		Title:   itemTitle(gi.Title),
 		Author:  itemAuthor(gi),
 	}
 	var bases []string
@@ -667,4 +668,28 @@ func itemCategories(in []string) []string {
 		}
 	}
 	return out
+}
+
+// tagLike matches the start of markup in a title: a tag, a closing tag, a comment or a declaration.
+var tagLike = regexp.MustCompile(`<[A-Za-z/!?]`)
+
+// itemTitle is an item's title as plain text. Feeds put markup in titles (a CDATA title with <b>, an
+// Atom html title), and a title is shown and exported as text everywhere, so the tags go and the text
+// between them stays, with its character references decoded. A title with no markup is only trimmed,
+// so "5 < 6" and an unchanged title keep their stored form (and content hash).
+func itemTitle(raw string) string {
+	t := strings.TrimSpace(raw)
+	if !tagLike.MatchString(t) {
+		return t
+	}
+	var b strings.Builder
+	z := xhtml.NewTokenizer(strings.NewReader(t))
+	for {
+		switch z.Next() {
+		case xhtml.ErrorToken:
+			return strings.Join(strings.Fields(b.String()), " ")
+		case xhtml.TextToken:
+			b.Write(z.Text())
+		}
+	}
 }

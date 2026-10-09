@@ -1,0 +1,1 @@
+Article titles are stored as plain text: markup a feed puts in a title is removed and the text between the tags is kept, so a title shows and exports the same way in the web app and in every client of the Google Reader API. An article whose title had markup is updated once on its next fetch.
