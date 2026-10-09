@@ -724,20 +724,22 @@ func TestSetFeedUAFallbackIsBoundToTheFetchedURL(t *testing.T) {
 }
 
 // A cache validator is stored only when it can be sent back unchanged: a short
-// entity tag without control characters, and a date in the HTTP format.
+// entity tag without control characters, and a short printable Last-Modified
+// kept exactly as the server sent it.
 func TestCommitStoresOnlyUsableValidators(t *testing.T) {
 	for name, tc := range map[string]struct{ etag, lm, wantETag, wantLM string }{
 		"strong tag":          {`"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT", `"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT"},
 		"weak tag":            {`W/"abc"`, "", `W/"abc"`, ""},
 		"unquoted tag":        {`abc123`, "", `abc123`, ""},
-		"older date format":   {"", "Wednesday, 01-Jan-25 10:00:00 GMT", "", "Wed, 01 Jan 2025 10:00:00 GMT"},
+		"older date format":   {"", "Wednesday, 01-Jan-25 10:00:00 GMT", "", "Wednesday, 01-Jan-25 10:00:00 GMT"},
+		"numeric zone date":   {"", "Wed, 1 Jan 2025 10:00:00 +0000", "", "Wed, 1 Jan 2025 10:00:00 +0000"},
 		"line break in tag":   {"\"a\r\nX-Evil: 1\"", "", "", ""},
 		"control byte in tag": {"\"a\x00b\"", "", "", ""},
 		"space in tag":        {`"a b"`, "", "", ""},
 		"tag of 1 KiB":        {`"` + strings.Repeat("a", 1022) + `"`, "", `"` + strings.Repeat("a", 1022) + `"`, ""},
 		"tag over 1 KiB":      {`"` + strings.Repeat("a", 1023) + `"`, "", "", ""},
 		"huge tag":            {`"` + strings.Repeat("a", 60<<10) + `"`, "", "", ""},
-		"not a date":          {"", "lm1", "", ""},
+		"opaque value":        {"", "lm1", "", "lm1"},
 		"date with a suffix":  {"", "Wed, 01 Jan 2025 10:00:00 GMT\r\nX: y", "", ""},
 		"huge date":           {"", strings.Repeat("x", 60<<10), "", ""},
 	} {
@@ -746,6 +748,32 @@ func TestCommitStoresOnlyUsableValidators(t *testing.T) {
 			id := e.addFeed("http://a.example/feed")
 			res := e.okResult(e.snap(id), rss(spec{guid: "g1", age: time.Hour}))
 			res.ETag, res.LastModified = tc.etag, tc.lm
+			e.commit(res)
+			require.Equal(t, tc.wantETag, scalar[string](t, e.db.Reader(), "SELECT coalesce(etag,'') FROM feeds WHERE id=?", id))
+			require.Equal(t, tc.wantLM, scalar[string](t, e.db.Reader(), "SELECT coalesce(last_modified,'') FROM feeds WHERE id=?", id))
+		})
+	}
+}
+
+// A feed stored by an earlier release may hold a validator that would not be
+// stored today. The next 304 commit drops it and keeps a good one.
+func TestCommitCleansStoredValidatorsOnNotModified(t *testing.T) {
+	for name, tc := range map[string]struct{ etag, lm, wantETag, wantLM string }{
+		"bad tag dropped, good date kept": {`"a b"`, "Wed, 01 Jan 2025 10:00:00 GMT", "", "Wed, 01 Jan 2025 10:00:00 GMT"},
+		"bad date dropped, good tag kept": {`"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT" + strings.Repeat(" ", 40), `"abc"`, ""},
+		"good pair kept":                  {`"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT", `"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			id := e.addFeed("http://a.example/feed")
+			e.fetchBody(id, rss(spec{guid: "g1", age: time.Hour}))
+			e.exec("UPDATE feeds SET etag = ?, last_modified = ? WHERE id = ?", tc.etag, tc.lm, id)
+			snap := e.snap(id)
+			res := &fetch.Result{
+				Snap: snap, StartedAt: e.clk.Now(), Outcome: fetch.OutcomeNotModified, Status: 304,
+				SetValidators: true, ETag: snap.ETag, LastModified: snap.LastModified, FinalURL: "http://a.example/feed",
+				Redirect: fetch.RedirectDecision{Action: fetch.RedirectClear}, NextFetchAt: e.clk.Now().Add(time.Hour), CurrentDelayS: 3600,
+			}
 			e.commit(res)
 			require.Equal(t, tc.wantETag, scalar[string](t, e.db.Reader(), "SELECT coalesce(etag,'') FROM feeds WHERE id=?", id))
 			require.Equal(t, tc.wantLM, scalar[string](t, e.db.Reader(), "SELECT coalesce(last_modified,'') FROM feeds WHERE id=?", id))

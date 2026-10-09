@@ -546,3 +546,31 @@ func TestUserAgentRetryKeepsSSRFGuard(t *testing.T) {
 	require.Equal(t, OutcomeError, res.Outcome)
 	require.False(t, res.UAFallbackWorked)
 }
+
+// A 304's Last-Modified replaces the stored one only when it is safe to send
+// back; an unusable one never erases a good stored date.
+func TestNotModifiedLastModified(t *testing.T) {
+	const stored = "Wed, 01 Jan 2026 00:00:00 GMT"
+	for name, tc := range map[string]struct{ header, want string }{
+		"usable replaces":          {"Thu, 02 Jan 2026 00:00:00 GMT", "Thu, 02 Jan 2026 00:00:00 GMT"},
+		"other zone spelling kept": {"Thu, 2 Jan 2026 00:00:00 UTC", "Thu, 2 Jan 2026 00:00:00 UTC"},
+		"unusable keeps stored":    {"caf\xe9", stored},
+		"too long keeps stored":    {strings.Repeat("x", 200), stored},
+		"absent keeps stored":      {"", stored},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv, c := feedServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if tc.header != "" {
+					w.Header()["Last-Modified"] = []string{tc.header}
+				}
+				w.WriteHeader(http.StatusNotModified)
+			})
+			s := snapFor(srv.URL)
+			s.ETag, s.LastModified = `"abc"`, stored
+			res := doFetch(t, c, s)
+			require.Equal(t, OutcomeNotModified, res.Outcome)
+			require.Equal(t, tc.want, res.LastModified)
+			require.Equal(t, `"abc"`, res.ETag)
+		})
+	}
+}
