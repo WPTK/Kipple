@@ -1,1 +1,0 @@
-Images: an image address Kipple cannot route through its image proxy (not an http or https address, or too long) is now dropped instead of being passed to the browser as it came from the feed, and so is every image when the proxy has no signing secret.

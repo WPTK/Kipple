@@ -1,1 +1,0 @@
-Cloudflare Access: the signing keys are now fetched the way Kipple fetches feeds (never through an environment proxy, never from a private address, and a redirect is not followed), and the team domain must be a host name, not an IP address.

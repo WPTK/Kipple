@@ -143,7 +143,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | github.com/remyoudompheng/bigfft | v0.0.0-20230129092748-24d4a6f8daec | BSD-3-Clause |
 | golang.org/x/crypto | v0.57.0 | BSD-3-Clause |
 | golang.org/x/image | v0.46.0 | BSD-3-Clause |
-| golang.org/x/net | v0.59.0 | BSD-3-Clause |
+| golang.org/x/net | v0.60.0 | BSD-3-Clause |
 | golang.org/x/sys | v0.48.0 | BSD-3-Clause |
 | golang.org/x/term | v0.46.0 | BSD-3-Clause |
 | golang.org/x/text | v0.42.0 | BSD-3-Clause |
@@ -264,7 +264,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 - **github.com/remyoudompheng/bigfft** v0.0.0-20230129092748-24d4a6f8daec: Copyright (c) 2012 The Go Authors. All rights reserved.
 - **golang.org/x/crypto** v0.57.0: Copyright 2009 The Go Authors.
 - **golang.org/x/image** v0.46.0: Copyright 2009 The Go Authors.
-- **golang.org/x/net** v0.59.0: Copyright 2009 The Go Authors.
+- **golang.org/x/net** v0.60.0: Copyright 2009 The Go Authors.
 - **golang.org/x/sys** v0.48.0: Copyright 2009 The Go Authors.
 - **golang.org/x/term** v0.46.0: Copyright 2009 The Go Authors.
 - **golang.org/x/text** v0.42.0: Copyright 2009 The Go Authors.
