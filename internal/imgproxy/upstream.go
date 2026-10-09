@@ -203,14 +203,8 @@ func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p
 	}
 	client := &http.Client{
 		Transport: tr,
-		// No cookie jar. Go adds a Referer on redirects; strip it.
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) > maxHops {
-				return errors.New("imgproxy: too many redirects")
-			}
-			req.Header.Del("Referer")
-			return nil
-		},
+		// No cookie jar.
+		CheckRedirect: fetch.CheckRedirect,
 	}
 	limit := h.opt.Timeout
 	if headerBudget > 0 {

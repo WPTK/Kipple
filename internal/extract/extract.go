@@ -28,12 +28,9 @@ import (
 const (
 	defaultTimeout = 15 * time.Second
 	defaultMaxBody = 10 << 20
-	maxHops        = 5
 	maxElems       = 60000 // readability's own guard against pathological DOMs
 	maxErrLen      = 300
 )
-
-var errTooManyRedirects = errors.New("too many redirects")
 
 // Options configures New.
 type Options struct {
@@ -190,14 +187,9 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 		ua = e.opt.UserAgent()
 	}
 	client := &http.Client{
-		Transport: e.transport(t),
-		Timeout:   e.opt.Timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) > maxHops {
-				return errTooManyRedirects
-			}
-			return nil
-		},
+		Transport:     e.transport(t),
+		Timeout:       e.opt.Timeout,
+		CheckRedirect: fetch.CheckRedirect,
 	}
 	resp, err := e.get(ctx, client, u.String(), ua)
 	if err == nil && t.RetryUserAgent != "" && t.RetryUserAgent != ua && fetch.UARefused(resp) {
@@ -263,9 +255,6 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 // time, so they are permanent; timeouts, resets, refused connections and DNS
 // failures other than not-found are transient.
 func transientTransport(err error) bool {
-	if errors.Is(err, errTooManyRedirects) {
-		return false
-	}
 	switch class, _ := fetch.Classify(err); class {
 	case fetch.ClassSSRF, fetch.ClassTLS, fetch.ClassRedirectLoop:
 		return false
