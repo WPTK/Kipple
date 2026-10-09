@@ -16,9 +16,14 @@ ARG SOURCE_DATE_EPOCH
 RUN npm run build
 
 # --- go build -------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine@sha256:85dc1069ac644ea3c527b177303a406eb3358192816cd7f9e5848eb658851673 AS build
 WORKDIR /app
 COPY go.mod go.sum ./
+# go.mod's toolchain line names the Go release the binary is built with. The image sets GOTOOLCHAIN=local, so a builder
+# that differs would quietly build with its own standard library: refuse it, so a base-image bump and a toolchain bump
+# always land together.
+RUN want="$(sed -n 's/^toolchain //p' go.mod)" && have="$(go env GOVERSION)" && \
+    [ -n "$want" ] && [ "$want" = "$have" ] || { echo "builder is $have but go.mod names ${want:-no toolchain}" >&2; exit 1; }
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 COPY cmd/ ./cmd/

@@ -14,10 +14,11 @@ const first = (text, re, what) => {
   return m[1];
 };
 
-test('Go: Dockerfile builder image and go.mod name the same minor', () => {
-  const dockerfile = read('Dockerfile');
-  const image = first(dockerfile, /^FROM\b[^\n]*\bgolang:(\d+\.\d+)(?:\.\d+)?-alpine/m, 'Dockerfile golang image');
-  const mod = first(read('go.mod'), /^go (\d+\.\d+)(?:\.\d+)?$/m, 'go.mod go line');
+// The image build checks the builder's real version against go.mod as well (Dockerfile); this catches a tag-only bump
+// without building an image.
+test('Go: Dockerfile builder image and the go.mod toolchain line name the same release', () => {
+  const image = first(read('Dockerfile'), /^FROM\b[^\n]*\bgolang:(\d+\.\d+\.\d+)-alpine@/m, 'Dockerfile golang image');
+  const mod = first(read('go.mod'), /^toolchain go(\d+\.\d+\.\d+)$/m, 'go.mod toolchain line');
   assert.equal(image, mod);
 });
 
