@@ -194,13 +194,15 @@ func (s *Server) proxyCards(ctx context.Context, cards []store.Card) {
 		}
 	}
 	rw := s.imageRewriters(ctx, ids, true) // list cards use the 800 px thumbnail
-	if rw == nil {
-		return
-	}
 	for i := range cards {
-		if cards[i].Image != nil {
-			img := rw(cards[i].FeedID)(*cards[i].Image)
-			cards[i].Image = &img
+		if cards[i].Image == nil {
+			continue
+		}
+		// Without a signing secret an image is dropped, never passed on from its source.
+		if rw == nil {
+			cards[i].Image = nil
+		} else {
+			cards[i].Image = imageOrNil(rw(cards[i].FeedID)(*cards[i].Image))
 		}
 	}
 }
@@ -220,6 +222,11 @@ func (s *Server) serveOptions(ctx context.Context, feedID int64) sanitize.ServeO
 			opt.Thumb = scopePrivateNet(imgproxy.Rewriter{Secret: secret, Flags: flags[feedID], All: true}, host)
 		}
 	}
+	// No secret, or no flags to sign with: images are dropped rather than left pointing at their source.
+	if opt.Image == nil {
+		opt.Image = func(string) string { return "" }
+		opt.Thumb = opt.Image
+	}
 	return opt
 }
 
@@ -232,8 +239,7 @@ func (s *Server) proxyDetail(ctx context.Context, det *store.ItemDetail) {
 // applyServeOptions is proxyDetail with the options already looked up.
 func applyServeOptions(det *store.ItemDetail, opt sanitize.ServeOptions) {
 	if det.Image != nil && opt.Image != nil {
-		img := opt.Image(*det.Image)
-		det.Image = &img
+		det.Image = imageOrNil(opt.Image(*det.Image))
 	}
 	if opt.StripTracking {
 		det.URL = sanitize.StripTracking(det.URL)
@@ -271,4 +277,13 @@ func (s *Server) refreshImgMode(ctx context.Context) string {
 	}
 	s.imgMode.Store(&m)
 	return m
+}
+
+// imageOrNil is a rewritten image URL as the optional field the API serves: "" (the proxy
+// refused it) is no image.
+func imageOrNil(u string) *string {
+	if u == "" {
+		return nil
+	}
+	return &u
 }
