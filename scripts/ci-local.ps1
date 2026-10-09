@@ -16,10 +16,7 @@ $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-# Keep these in step with the env block in .github/workflows/ci.yml.
-$GovulncheckVersion = 'v1.8.0'
-$StaticcheckVersion = 'v0.8.1'
-$GosecVersion       = 'v2.29.0'
+# Keep this in step with the env block in .github/workflows/ci.yml. The Go linters are pinned in tools/go.mod.
 $GitleaksVersion    = '8.30.1'
 # Images are pinned by tag and digest. Trivy matches the default of the workflow's trivy-action (v0.36.0 -> Trivy v0.70.0).
 $GitleaksImage      = "zricethezav/gitleaks:v$GitleaksVersion@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
@@ -56,9 +53,9 @@ Step 'go' 'go vet' { go vet ./... }
 Step 'go' 'go test (shuffled, no -race)' { go test -shuffle=on -timeout 15m -cover ./... }
 
 # ---- security ----
-Step 'security' 'govulncheck' { go run "golang.org/x/vuln/cmd/govulncheck@$GovulncheckVersion" ./... }
-Step 'security' 'staticcheck' { go run "honnef.co/go/tools/cmd/staticcheck@$StaticcheckVersion" ./... }
-Step 'security' 'gosec (gate: high severity, high confidence)' { go run "github.com/securego/gosec/v2/cmd/gosec@$GosecVersion" -quiet -severity high -confidence high ./... }
+Step 'security' 'govulncheck' { go tool '-modfile=tools/go.mod' govulncheck ./... }
+Step 'security' 'staticcheck' { go tool '-modfile=tools/go.mod' staticcheck ./... }
+Step 'security' 'gosec (gate: high severity, high confidence)' { go tool '-modfile=tools/go.mod' gosec -quiet -severity high -confidence high ./... }
 Step 'security' 'gitleaks (git history)' {
   # The workflow runs the release binary on a checkout. Here the official image scans a fresh local clone of the
   # whole history (a git worktree's .git is a pointer file the container cannot follow, which scans nothing).
