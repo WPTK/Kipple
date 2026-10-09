@@ -1,6 +1,6 @@
 # Accessibility checklist (web)
 
-Source: `docs/maintainers/ui-decisions.md` and the phase 2 and 3 accessibility research (not in this repository).
+Source: `docs/maintainers/ui-decisions.md`.
 Status is what the code does today. Anything not verified on a real device is listed at the end.
 
 ## Structure and focus

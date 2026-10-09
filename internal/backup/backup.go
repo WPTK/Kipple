@@ -1,5 +1,5 @@
 // Package backup builds the downloadable backup export and reads it back for
-// `kipple restore` (docs/research/backend-additions-round2.md §6).
+// `kipple restore` (docs/design.md §5).
 //
 // An export is a zip of a consistent SQLite snapshot (VACUUM INTO on the
 // snapshot pool: it holds only a read snapshot, so fetch commits and API writes

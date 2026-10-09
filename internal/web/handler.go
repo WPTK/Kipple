@@ -1,7 +1,7 @@
 // Package web serves the embedded single-page app: hashed files under
 // /assets/ with a long-lived immutable cache header, and index.html for
 // every other path with an ETag and Cache-Control: no-cache so the browser
-// always revalidates it (per docs/research/go-libraries.md §12).
+// always revalidates it.
 package web
 
 import (

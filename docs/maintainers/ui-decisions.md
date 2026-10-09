@@ -1,8 +1,7 @@
 # UI design meeting: decision log
 
-Round 1, 2026-09-25 (the owner and Claude). Inputs: `docs/research/ui-principles-and-accessibility.md`,
-`ui-color-schemes.md` (+ `.json`), `ui-gestures-and-layouts.md`, `design-audit-2026-09-25.md`.
-This file records what the owner decided. It is the authority where the research files differ. Round-1 TODOs
+Round 1, 2026-09-25 (the owner and Claude). The inputs were research notes that are not kept in this repository.
+This file records what the owner decided and is the authority. Round-1 TODOs
 were resolved in round 2 and what shipped; each is annotated below.
 
 ## Accessibility

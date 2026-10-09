@@ -1,6 +1,6 @@
 // Pure gesture math and state machines, no DOM. The components feed them
 // pointer or touch samples, and the tests feed them synthetic ones.
-// Numbers come from docs/research/ui-layouts-keymap-density-round2.md section 3.
+// The numbers follow the gesture decisions in docs/maintainers/ui-decisions.md ("Gestures and keys").
 
 export const EDGE_DEAD_LEFT_PX = 24; // iOS owns the left edge (back gesture)
 export const EDGE_DEAD_RIGHT_PX = 8;

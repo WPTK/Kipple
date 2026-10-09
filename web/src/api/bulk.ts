@@ -3,7 +3,7 @@ import type { BulkMarkResponse, Card, Scope } from "./types";
 import { READING_LENGTH_MINUTES } from "@/lib/readingLength";
 
 // Bulk read marking. Both calls go to POST /api/items/mark-read with a `scope` (the
-// backend's shape, docs/research/backend-additions-round2.md section 3). Keeping them
+// backend's shape is in docs/design.md §7.1). Keeping them
 // in this file means a change of endpoint or body is a one-place edit.
 
 export interface ScopeBody {

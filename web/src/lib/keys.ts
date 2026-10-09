@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-// Keymap per docs/research/ui-layouts-keymap-density-round2.md section 4.
+// Keymap per docs/maintainers/ui-decisions.md ("Gestures and keys").
 // Rules: never bind Ctrl/Cmd/Alt; single keys are off while typing, during IME
 // composition and behind the global "Single-key shortcuts" setting; `g` starts
 // a two-key chord that expires after 1.2 s. Bind by event.key (layout-aware), not code, but read the
