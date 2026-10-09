@@ -12,6 +12,11 @@ var ErrTooManyHops = errors.New("stopped after 5 redirects")
 // ErrRedirectRefused wraps the reason CheckRedirect will not follow a redirect.
 var ErrRedirectRefused = errors.New("redirect refused")
 
+var (
+	errRedirectDowngrade = fmt.Errorf("%w: from https to http", ErrRedirectRefused)
+	errRedirectScheme    = fmt.Errorf("%w: to something other than a web address", ErrRedirectRefused)
+)
+
 // CheckRedirect is the redirect policy of every outbound HTTP client (feeds,
 // discovery, full-text extraction, icons, the image proxy): at most 5 hops,
 // http and https only, never from https down to http, and nothing the last hop
@@ -23,10 +28,10 @@ func CheckRedirect(req *http.Request, via []*http.Request) error {
 		return ErrTooManyHops
 	}
 	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-		return fmt.Errorf("%w: to a %q address", ErrRedirectRefused, req.URL.Scheme)
+		return errRedirectScheme
 	}
 	if prev := via[len(via)-1]; prev.URL.Scheme == "https" && req.URL.Scheme == "http" {
-		return fmt.Errorf("%w: from https to http", ErrRedirectRefused)
+		return errRedirectDowngrade
 	}
 	// http.Client turns a Location's userinfo into an Authorization header when
 	// it sends the hop, which happens after this check.

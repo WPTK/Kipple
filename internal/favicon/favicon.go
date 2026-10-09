@@ -3,7 +3,7 @@
 // "shortcut icon" and "apple-touch-icon" candidates, falls back to
 // /favicon.ico, and keeps the first raster image (PNG, JPEG, GIF, WebP or ICO,
 // sniffed from the bytes) within the size limit. Every request goes through
-// the caller's guarded transport (ScopedTransport: the feed's network
+// the caller's guarded transport (ContentScopedTransport: the feed's network
 // exceptions cover its own host only), so the feed fetcher's dial-time SSRF
 // check applies to each hop. User names and passwords in any URL (site, link,
 // redirect) are dropped: never sent as credentials, never stored. Finder runs lookups one at a time in the background,
@@ -48,7 +48,7 @@ var ErrTooLarge = fmt.Errorf("the icon is larger than %d KiB", maxIconBytes>>10)
 type Request struct {
 	SiteURL   string            // the feed's site_url; "" to use FeedURL's origin
 	FeedURL   string            // the feed's own URL, for its origin
-	Transport http.RoundTripper // guarded (ScopedTransport); never a bare transport in production
+	Transport http.RoundTripper // guarded (ContentScopedTransport); never a bare transport in production
 	UserAgent string
 	RetryUA   string // tried once after a 403/406, as the feed fetcher does
 }
