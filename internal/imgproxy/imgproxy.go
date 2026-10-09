@@ -82,19 +82,23 @@ type Rewriter struct {
 	Thumb bool
 }
 
-// Rewrite returns the proxy path for u, or u unchanged when the mode leaves it
-// alone (https in http_only mode) or it is not an absolute http(s) URL.
+// Rewrite returns the proxy path for u. It returns u unchanged only when the mode
+// leaves it alone (https in http_only mode); a URL it cannot proxy (not an absolute
+// http(s) URL, or too long) comes back empty, so the image is dropped and the
+// source never reaches the browser.
 func (r Rewriter) Rewrite(u string) string {
 	u = strings.TrimSpace(u)
 	l := strings.ToLower(u)
 	switch {
 	case strings.HasPrefix(l, "http://"):
 	case strings.HasPrefix(l, "https://") && r.All:
-	default:
+	case strings.HasPrefix(l, "https://"):
 		return u
+	default:
+		return ""
 	}
 	if len(u) > maxURLLen {
-		return u
+		return ""
 	}
 	flags := r.Flags
 	if r.Thumb {
