@@ -214,6 +214,11 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 		}
 		return Result{}, fail("the page answered HTTP %d", resp.StatusCode)
 	}
+	// The transport asks for gzip and decodes it (removing the header). Anything
+	// still named here is a coding nobody asked for, and its bytes are not text.
+	if ce := resp.Header.Get("Content-Encoding"); ce != "" && !strings.EqualFold(ce, "identity") {
+		return Result{}, fail("the page is compressed in a way Kipple did not ask for")
+	}
 	ct := resp.Header.Get("Content-Type")
 	if mt, _, perr := mime.ParseMediaType(ct); ct != "" && perr == nil && mt != "text/html" && mt != "application/xhtml+xml" {
 		return Result{}, fail("the page is %s, not HTML", mt)
