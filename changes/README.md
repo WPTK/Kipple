@@ -2,7 +2,7 @@
 
 Every behavior change (a feature, a fix, a security change, a removal) adds **one small file here** instead of editing
 `CHANGELOG.md`. Two branches then never conflict on the changelog. At release the fragments are folded into
-`CHANGELOG.md` under the new version heading and deleted (`docs/RELEASING.md`, step 4).
+`CHANGELOG.md` under the new version heading and deleted (`docs/maintainers/RELEASING.md`, step 4).
 
 ## Adding one
 

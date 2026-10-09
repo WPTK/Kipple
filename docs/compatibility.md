@@ -181,7 +181,7 @@ might not expect:
   address stored as given (a bare `example.com`, `feed://…` and surrounding spaces are read as the URL they mean). The
   feed is fetched within the next scheduler tick (about 30 seconds). When the address is a web page, that first fetch
   takes the first feed the page links and makes it the subscription's `url`; when that feed is already subscribed, the
-  new subscription is removed instead of becoming a duplicate (the next `subscription/list` no longer has it).
+  new subscription is removed instead of becoming a duplicate (the next `subscription/list` does not list it).
 - **Unsubscribing** a feed that has starred items keeps those items in a hidden archive feed; its items still appear
   in the reading list and starred streams with an `origin.streamId` that is not in `subscription/list`.
 - **New items of a feed with full-text extraction on** are held back from every listing for up to 60 seconds after
@@ -289,6 +289,6 @@ contacts any server to check for updates.
 - **Downgrade means restoring the pre-migration snapshot.** There are no down migrations, and an older Kipple refuses a
   database that a newer one has migrated. See [deploy.md](deploy.md#roll-back-an-upgrade-that-migrated-the-schema).
 
-<!-- TODO(owner): state which earlier versions may upgrade directly to 1.x. The code applies every migration in order
-     from any schema and enforces no minimum, but no test or recorded run proves a direct upgrade from versions older
-     than 0.7. If confirmed, say: "from 0.7.0 and later; an older install upgrades through 0.7.x first". -->
+<!-- TODO(owner): state the oldest release that may upgrade directly to 1.x. The code applies every migration in order
+     from any schema and enforces no minimum, but no test or recorded run proves a direct upgrade from the earliest
+     releases. If confirmed, say which release an older install must upgrade through first. -->

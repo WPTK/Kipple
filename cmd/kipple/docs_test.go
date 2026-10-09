@@ -51,8 +51,9 @@ func TestDocsDescribeTheZoneAndPortAsTheyWork(t *testing.T) {
 }
 
 // userDocs are what a self-hoster or a new contributor reads to run Kipple.
-var userDocs = []string{"README.md", "docs/deploy.md", ".env.example", "docker-compose.example.yml",
-	"docker-compose.pull.example.yml", "web/README.md"}
+var userDocs = []string{"README.md", "CONTRIBUTING.md", "SECURITY.md", "docs/deploy.md", "docs/troubleshooting.md",
+	"docs/reverse-proxy.md", "docs/compatibility.md", "docs/performance.md", "docs/threat-model.md", ".env.example",
+	"docker-compose.example.yml", "docker-compose.pull.example.yml", "web/README.md", "web/ACCESSIBILITY.md"}
 
 // Terms with no current use in the user docs: each only ever told the story of an earlier version.
 var historyTerms = []string{"7080", "no longer", "any more", "anymore", "used to ", "setup code", "setup-token",
@@ -82,7 +83,9 @@ func TestUserDocsCarryNoVersionHistory(t *testing.T) {
 		text := readRepoFile(t, name)
 		lower := strings.ToLower(text)
 		for _, term := range historyTerms {
-			require.NotContains(t, lower, term, name)
+			if strings.Contains(lower, term) {
+				t.Errorf("%s: names the history term %q; describe Kipple as it is", name, term)
+			}
 		}
 		for _, loc := range versionRef.FindAllStringSubmatchIndex(text, -1) {
 			if notAVersion.MatchString(text[loc[1]:]) {
@@ -92,6 +95,18 @@ func TestUserDocsCarryNoVersionHistory(t *testing.T) {
 				continue
 			}
 			t.Errorf("%s: %q names an earlier version; describe Kipple as it is (history goes in CHANGELOG.md)", name, text[loc[0]:loc[1]])
+		}
+	}
+}
+
+// Host labels, home directories and backup paths are one operator's setup; the docs say "your server".
+var ownerSetup = regexp.MustCompile(`(?i)host-[a-z]|ssh host-|/home/user|<backup-dir>`)
+
+func TestPublicDocsNameNoOperatorSetup(t *testing.T) {
+	for _, name := range append([]string{"docs/design.md"}, userDocs...) {
+		text := readRepoFile(t, name)
+		if loc := ownerSetup.FindStringIndex(text); loc != nil {
+			t.Errorf("%s: %q is one operator's setup; write \"your server\" or a placeholder", name, text[loc[0]:loc[1]])
 		}
 	}
 }
