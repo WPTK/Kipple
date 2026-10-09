@@ -9,8 +9,7 @@ type Guard func(allowPrivate, insecureTLS, noHTTP2 bool) http.RoundTripper
 // ScopedTransport is the transport of one feed's request chain outside the
 // fetcher (discovery, icons). The feed's "allow private network" and "allow
 // insecure TLS" exceptions cover only requests to feedHost itself or a variant
-// of it (a subdomain, or the bare/www. twin: FeedHostVariant), the rule
-// full-text extraction and the image proxy use; every other host (a site_url
+// of it (the fetcher's rule: SameSite or FeedHostVariant); every other host (a site_url
 // elsewhere, a CDN icon link, a redirect hop) goes through the guarded default
 // transport. http.Client calls RoundTrip once per hop, so each redirect is
 // scoped on its own. With no exception set, or no feed host, it is the guarded
@@ -29,7 +28,7 @@ type hostScoped struct {
 }
 
 func (h *hostScoped) RoundTrip(req *http.Request) (*http.Response, error) {
-	if FeedHostVariant(h.host, req.URL.Hostname()) {
+	if host := req.URL.Hostname(); SameSite(h.host, host) || FeedHostVariant(h.host, host) {
 		return h.feed.RoundTrip(req)
 	}
 	return h.other.RoundTrip(req)

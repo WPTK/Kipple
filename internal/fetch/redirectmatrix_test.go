@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -70,7 +71,7 @@ func matrixClients() []matrixClient {
 		{"discover", func(t *testing.T, start string) {
 			c, cancel := ctx()
 			defer cancel()
-			_, _ = discover.Find(c, guard.Transport(true, true, false), "ua", "", start, true)
+			_, _ = discover.Find(c, fetch.ScopedTransport(guard.Transport, "127.0.0.1", true, true, false), "ua", "", start, true)
 		}},
 		{"extract", func(t *testing.T, start string) {
 			c, cancel := ctx()
@@ -104,11 +105,14 @@ func TestClientsRefuseARedirectFromHTTPSToHTTP(t *testing.T) {
 			plain := &redirectSink{}
 			ps := httptest.NewServer(http.HandlerFunc(plain.handler))
 			defer ps.Close()
+			var hitsTLS atomic.Int64
 			ss := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hitsTLS.Add(1)
 				http.Redirect(w, r, ps.URL+"/next", http.StatusFound)
 			}))
 			defer ss.Close()
 			mc.run(t, ss.URL+"/start")
+			require.NotZero(t, hitsTLS.Load(), "the https server was reached")
 			require.Empty(t, plain.got(), "the plain-http server must not be asked")
 		})
 	}

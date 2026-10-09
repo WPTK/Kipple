@@ -28,7 +28,6 @@ import (
 const (
 	defaultTimeout = 15 * time.Second
 	defaultMaxBody = 10 << 20
-	maxHops        = 5
 	maxElems       = 60000 // readability's own guard against pathological DOMs
 	maxErrLen      = 300
 )

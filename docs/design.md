@@ -1004,7 +1004,7 @@ Every attempt appends a fetch_log row and applies the fetch_log cap (§4.8), exc
 | Other `*net.OpError`, `io.ErrUnexpectedEOF`, `*url.Error` | `connect`, backoff |
 | x509 unknown authority, hostname error, `tls.RecordHeaderError` | `tls`, backoff. The health view offers `allow_insecure_tls` |
 | Guard rejection | `ssrf`. The message includes the resolved IP. The health view offers `allow_private_net` |
-| More than 5 hops | `redirect_loop`, backoff |
+| More than 5 hops, or a redirect the policy refuses (not http(s), https to http) | `redirect_loop`, backoff |
 | Host deadline active | A scheduled job is left due (or dropped from `pending`). A manual, import or plain per-feed refresh writes fetch_log `skipped` (note `skipped: host retry-after until <RFC3339 UTC>`), and the schedule is untouched. A job that becomes held while it waits in `pending` is dropped silently when it is a plain scheduled fetch with nobody waiting, else it becomes a skip. A `full=1` refresh and the subscribe fetch ignore the deadline |
 | Fetch cancelled by shutdown before completion | Nothing is written. The feed is due again at the next start |
 

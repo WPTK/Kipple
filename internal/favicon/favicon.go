@@ -28,7 +28,6 @@ import (
 const (
 	maxPageBytes = 512 << 10 // of the home page; the head is near the top, the rest is ignored
 	maxIconBytes = 256 << 10
-	maxRedirects = 5
 	maxTries     = 4 // icon fetches per lookup, /favicon.ico included
 
 	requestTimeout = 10 * time.Second // per request, body included
