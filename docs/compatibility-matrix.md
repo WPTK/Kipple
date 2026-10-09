@@ -1,7 +1,7 @@
 # Browser and client compatibility
 
 What Kipple has been checked against, how, and what is left to a person. The test runs are described in
-[uat-plan.md](uat-plan.md) (Suite 1); the promise about what stays stable across releases is in
+[uat-plan.md](maintainers/uat-plan.md) (Suite 1); the promise about what stays stable across releases is in
 [compatibility.md](compatibility.md).
 
 ## Web app

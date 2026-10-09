@@ -127,7 +127,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
 23. **Web auth: a local argon2id password plus an HttpOnly, persistent `kipple_session` cookie**, and a same-origin check on every state-changing request.
     - Every state-changing cookie request must carry `Sec-Fetch-Site: same-origin`, or, if that header is absent, an `Origin` that matches the request host.
     - It must also carry `X-Kipple-Client`, which forces a CORS preflight. The `sendBeacon` stats path is exempt from the header only.
-    - `SameSite=Lax` alone is not enough, because every other service on Host-A, and every other `*.example.com` host, is same-site.
+    - `SameSite=Lax` alone is not enough, because every other service on the same host, and every other `*.example.com` host, is same-site.
     - Accepting the Access JWT is optional and off by default. *Rejected:* relying on Access alone.
 
 24. **Unsubscribe deletes the feed but not its starred items.**
@@ -741,7 +741,7 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
      - On Sundays, the FTS `integrity-check` against the tmp file, through a throwaway connection.
      - `fsync`, then an atomic rename to `kipple-snapshot.db`.
      - Record `sys.last_snapshot_at` (on success `sys.last_snapshot_error` is cleared), or `sys.last_snapshot_error` on failure; a cancelled run records nothing and removes the tmp file with its `-wal`, `-shm` and `-journal`. The health view shows the age of the last good snapshot and turns it red after 48 h.
-  6. Off-box copies use only `kipple-snapshot.db`, never the live db/wal pair. As built, nothing on Host-A copies it: Host-B's backup job pulls it with `ssh host-a docker cp kipple:/data/backup/kipple-snapshot.db …` (`docker cp` needs no shell in the image). The in-app backup export below complements the pull.
+  6. Off-box copies use only `kipple-snapshot.db`, never the live db/wal pair. Kipple does not copy it off the host itself: a backup job elsewhere pulls it with `ssh <kipple-server> docker cp kipple:/data/backup/kipple-snapshot.db …` (`docker cp` needs no shell in the image). The in-app backup export below complements the pull.
 - **One snapshot at a time.** The nightly snapshot and the backup export share one slot in `store` (`TrySnapshot`). The nightly job waits for an export in progress (it is short); an export that finds the slot taken answers `409 busy` and never queues. Both use `VACUUM INTO` on the snapshot pool, which holds only a read snapshot, so neither blocks the writer or the commit gate.
 - **Backup export** (`internal/backup`, `POST /api/backup`, §7.1). Steps: take the slot; refuse a database over 4 GiB or a volume with less than 2.2x the database (plus 16 MB) free; discard any unclaimed earlier export; `VACUUM INTO backup/export/export-<ns>.db`; open that copy (journal mode `DELETE`, so it leaves no `-wal`), run `PRAGMA quick_check`, count feeds, items and starred, and read the OPML (`opml.ExportFrom`) and the non-`sys.` settings from the copy, so all files describe the same instant; close it; write the zip (Deflate) with `kipple.db`, `feeds.opml`, `settings.json`, `RESTORE.txt` and last `manifest.json` (`format, app, kipple_version, schema_version, application_id, created_at, db_sha256, db_bytes, feeds, items, starred, files:[{name, bytes, sha256}]`; the manifest lists every file but itself); rename it into place and delete the copy. The build is bounded to 10 minutes and runs as a background job (§7.1), so its context ends with the timeout or the shutdown, not the request. The `export/` directory is created 0700 and the snapshot copy 0600 before it is filled. The result is held under a random 128-bit token for 5 minutes; a new export replaces an unclaimed one; the download spends the token and deletes the file; an expiry timer deletes it otherwise; a failed or cancelled build removes its files; `backup.New` empties `backup/export/` at startup. What the DB holds that is sensitive (and the export dialog says, as the `warning` field): the web and Reader API password hashes, `account.secret` (keys Reader tokens and image links), hashed session ids, and feeds' `http_auth` in plain text. There is no redaction option: a restore needs the secret.
 - **Data lock.** `serve` holds an exclusive OS lock (`flock`, or `LockFileEx` on Windows dev) on `<data>/kipple.lock` for its whole life, taken before the database opens; a second `serve` on the same directory refuses to start. The lock belongs to the process, so a crash leaves no stale lock. `import`, `api-password` and `password` do not take it (they are safe next to a running server); `restore` takes it and so refuses while `serve` runs.
@@ -1383,7 +1383,7 @@ DELETE FROM trimmed_items WHERE id IN (SELECT value FROM json_each(:rids)) AND i
 - **Unsubscribe.** FK cascade (the ledger and stubs of the deleted feed go with it; starred items were moved to the archive first, §6.9).
 - **Nightly purge.** Stubs after `restore_days` (measured from `trimmed_at`). Ledger rows (and, by cascade, any stub) `max(180, restore_days + 7)` days after their uid was last seen in the feed document.
 
-**Size.** About 60 bytes per ledger row. A stub is about the article size. At roughly 500 trims a day × ~6 KB × 90 days, stubs take about 270 MB, which is acceptable on Host-A. `restore_days` can be lowered.
+**Size.** About 60 bytes per ledger row. A stub is about the article size. At roughly 500 trims a day × ~6 KB × 90 days, stubs take about 270 MB, which is acceptable on a small server. `restore_days` can be lowered.
 
 **Reader API treatment of trimmed ids.**
 
@@ -1448,7 +1448,7 @@ Reader routes never call `r.ParseForm`.
   - `Email` and `Passwd` come from the body or the query. `Email` must match `account.username` case-insensitively. A NULL `api_password_hash` means the API is disabled and every attempt fails. An empty `Passwd` fails at once without hashing.
   - **Verification** (`internal/auth.Verifier`, shared with the web login):
     1. If `hmac.Equal(HMAC(secret, "login|"+kind+"|"+hash+"|"+Passwd), memo[kind])` (`kind` is `api` or `web`, `hash` the stored PHC string), succeed without hashing.
-    2. Otherwise acquire the global semaphore of 1, waiting at most 5 s (else 401). Run argon2id (m=19 MiB, t=2, p=1; about 50 ms and 19 MiB on Host-A), then release. On success, set the memo for that kind.
+    2. Otherwise acquire the global semaphore of 1, waiting at most 5 s (else 401). Run argon2id (m=19 MiB, t=2, p=1; about 50 ms and 19 MiB on a small server), then release. On success, set the memo for that kind.
     3. The stored hash is part of the MAC, so a changed password never matches an old memo and nothing is cleared. A changed account secret (`SetSecret`) drops every memo.
     4. A **busy** verifier (the 5 s wait expired, or the request context was cancelled) answers 401 but records no failure and adds no delay: it says nothing about the password.
   - **Per-client attempt budget** (`auth.FailureTracker`). The client IP is decided once, by `auth.ClientIP`: `RemoteAddr` unless it is in the trusted proxies (`security.trusted_proxies`, addresses or CIDR ranges, §7.1f), when it is the rightmost `X-Forwarded-For` hop not itself listed, else `CF-Connecting-IP`; the budget (the Reader API's own tracker; the web login builds its own) keys an IPv6 client by its /64, so rotating addresses inside one subscriber prefix buys nothing.
@@ -2184,7 +2184,7 @@ item ids never see it; it is idempotent (its output passes through unchanged). U
 
 ### 7.10 The Gazette layout (web only, `web/src/layouts/gazette*.ts*`)
 
-The design is in docs/ui-decisions.md ("The Gazette"); this is how the web app runs it. No server change beyond the profile keys of §7.1c (`gazette` as a layout id, `client.paper_name`).
+The design is in docs/maintainers/ui-decisions.md ("The Gazette"); this is how the web app runs it. No server change beyond the profile keys of §7.1c (`gazette` as a layout id, `client.paper_name`).
 
 - **Order.** A Gazette list is always fetched newest first: `resolveOrder` (`src/lib/devicePrefs.ts`) ignores the device's and the list's order in this layout, and the list header hides the order button. The planner keeps a page it has shown unchanged only while the loaded articles are the start of the newest-first list.
 - **Pages, not rows.** A layout can supply `Page` (`ListLayout` in `src/layouts/types.ts`); the list screen then gives it every loaded article instead of virtualizing rows. A marker after the last page loads more, and keeps loading until the planner has a front page (100 articles, or the end of the list). A search shows Editorial rows: relevance is not an order a paper can be planned from.
@@ -2412,7 +2412,7 @@ internal/httpx          headers.go: Secure (security headers, CSP via PageCSP). 
 
 **Dockerfile.** Three stages: `node:22-alpine` (`npm ci && npm run build`) → `golang:1.27-alpine` (`CGO_ENABLED=0 go build -trimpath -ldflags="-s -w"`, with cache mounts) → `gcr.io/distroless/static-debian12:nonroot`.
 
-**Compose** (`host-a` project, service `kipple`): named volume `/data`, `stop_grace_period: 30s`, `GOMEMLIMIT=64MiB`, `mem_limit: 256m`, json-file logging 10m × 3, port 1919 (7080 only where `KIPPLE_ADDR=:7080` is set). `http.Server` has `ReadHeaderTimeout` 10 s, `ReadTimeout` 30 s, `WriteTimeout` 60 s (SSE, the backup download, the stats export and the stats delete extend it per write or batch with `http.ResponseController.SetWriteDeadline`), and `IdleTimeout` 120 s.
+**Compose** (service `kipple`): named volume `/data`, `stop_grace_period: 30s`, `GOMEMLIMIT=64MiB`, `mem_limit: 256m`, json-file logging 10m × 3, port 1919 (7080 only where `KIPPLE_ADDR=:7080` is set). `http.Server` has `ReadHeaderTimeout` 10 s, `ReadTimeout` 30 s, `WriteTimeout` 60 s (SSE, the backup download, the stats export and the stats delete extend it per write or batch with `http.ResponseController.SetWriteDeadline`), and `IdleTimeout` 120 s.
 
 **Long-lived goroutines:**
 
@@ -2675,7 +2675,7 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
 - **Server lifecycle:** `cmd/kipple/shutdown_test.go`, `healthcheck_test.go`, `datadir_test.go`.
 - **Web (Vitest):** the suite under `web/` (`npm test`; includes the stats sender, Stats screen, export and data controls, Wrapped, passwordless sign-in and theme schedule suites).
 
-**Release checklist** (manual, on Host-A, before each deploy, after `/code-review high`):
+**Release checklist** (manual, on the Kipple server, before each deploy, after `/code-review high`):
 
 - The image is under 50 MB (`docker image inspect`).
 - Idle RSS stays under 100 MB after 30 minutes with the real OPML (`docker stats`).
@@ -2713,7 +2713,7 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
 | **FTS over a view** relies on FTS5 reading external content through a join | Validated on 3.50.4 (MATCH, snippet, integrity-check); re-validated on the pinned driver in the migration test. `'rebuild'` repairs from the view |
 | **Write-lock latency** during a manual run or a huge first fetch | The commit gate plus 250-item chunking, and narrow rows for state writes. The fairness test asserts p99 ≤ 250 ms |
 | **A writer-pool deadlock or leaked Rows** would silently stop ingestion (there is no monitoring, by design) | `WithWrite` is the only door, with a 10 s deadline and holder logging; store writes take `Querier`; the pool-free test helper is planned but not written (§10) |
-| **The allocator can be seeded ahead of the clock** (bad RTC, manual error). Every id minted until real time catches up is "in the future": a client's `ot` matches those items on every refresh, and a client's `mark-all-as-read ts=<now>` never covers them, so they come back unread | Startup ERROR plus a health banner above 1 h ahead; NTP on Host-A. Kipple does not rewrite ids |
+| **The allocator can be seeded ahead of the clock** (bad RTC, manual error). Every id minted until real time catches up is "in the future": a client's `ot` matches those items on every refresh, and a client's `mark-all-as-read ts=<now>` never covers them, so they come back unread | Startup ERROR plus a health banner above 1 h ahead; NTP on the server. Kipple does not rewrite ids |
 | **Unpadded bare-hex ids made only of digits** would be parsed as decimal | No target client sends them. A test documents the limitation |
 | **SSE through cloudflared and Access** is unverified on this named tunnel | Pings every 15 s, `no-transform`, the `/api/status` polling fallback, and `curl -N` on the release checklist |
 | **Access path precedence** for the `/api/greader.php` Bypass app has community reports of inconsistency | The external `curl` checks are mandatory. The root Reader routes never get a bypass |

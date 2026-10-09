@@ -12,10 +12,10 @@ ok() { # ok NAME EXPECTED ACTUAL
 }
 cls() { printf '%s' "$1" | bash "$cc" --classify; }
 
-ok docs-only false "$(cls $'docs/RELEASING.md\nchanges/x.md\nCONTRIBUTING.md')"
+ok docs-only false "$(cls $'docs/maintainers/RELEASING.md\nchanges/x.md\nCONTRIBUTING.md')"
 ok nested-docs-md false "$(cls 'docs/a/b.md')"
 ok issue-template false "$(cls '.github/ISSUE_TEMPLATE/bug_report.yml')"
-ok mixed true "$(cls $'docs/RELEASING.md\ninternal/api/api.go')"
+ok mixed true "$(cls $'docs/maintainers/RELEASING.md\ninternal/api/api.go')"
 ok workflow true "$(cls '.github/workflows/ci.yml')"
 ok scripts true "$(cls 'scripts/ci-prose.txt')"
 ok test-read-doc-design true "$(cls 'docs/design.md')"
@@ -93,7 +93,7 @@ ok scripts-file true "$(scl 'scripts/release-gates.ps1')"
 ok scripts-lib true "$(scl 'scripts/lib/Kipple.Tools.ps1')"
 ok scripts-workflow true "$(scl '.github/workflows/ci.yml')"
 ok scripts-other-workflow false "$(scl '.github/workflows/release.yml')"
-ok scripts-docs-only false "$(scl 'docs/RELEASING.md')"
+ok scripts-docs-only false "$(scl 'docs/maintainers/RELEASING.md')"
 ok scripts-go-code false "$(scl 'internal/api/api.go')"
 ok scripts-mixed true "$(scl $'internal/api/api.go\nscripts/x.ps1')"
 ok scripts-gitignore true "$(scl '.gitignore')"

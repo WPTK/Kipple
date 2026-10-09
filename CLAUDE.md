@@ -7,7 +7,7 @@ docker via PowerShell, 127.0.0.1 not localhost, name compose services explicitly
 The dev machine and the Kipple server are two different machines, and neither is how other people will run Kipple: they
 pull the published image and run it on their own. Write code, docs and examples for a stranger ("your server"), and say
 "the dev machine" and "the Kipple server" in conversation, never the owner's host labels. The owner's own deploy steps
-live in one place, `docs/RELEASING.md`.
+live in one place, `docs/maintainers/RELEASING.md`.
 
 ## Design rules (no band-aids)
 
@@ -23,7 +23,7 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 - Write for a stranger. User-facing text (UI, docs, errors, release notes' top paragraph) describes the product as it
   is, with no earlier versions, old ports or past decisions; history lives in CHANGELOG.md and the decision records.
 
-## Decisions (do not relitigate; detail is in docs/design.md and docs/ui-decisions.md)
+## Decisions (do not relitigate; detail is in docs/design.md and docs/maintainers/ui-decisions.md)
 
 - **Stack:** Go backend, React + TypeScript + Vite + Tailwind + shadcn frontend, SQLite in WAL mode. The frontend build
   is embedded in the Go binary. One image, one container, one port.
@@ -64,7 +64,7 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 ## Deploy and releases
 
 GitHub (`WPTK/Kipple`) is the source of truth; the pushed tag is what deploys, never `main` or an unpushed tree. The
-exact commands, backup, verification and GHCR steps are in `docs/RELEASING.md`; do not copy them here.
+exact commands, backup, verification and GHCR steps are in `docs/maintainers/RELEASING.md`; do not copy them here.
 
 - Kipple server: service `kipple` in its compose project, named volume for `/data`, 10m x 3 log rotation. Build from the
   tag with the three build args (`KIPPLE_VERSION`, `KIPPLE_VCS_REF`, `KIPPLE_BUILD_DATE`; `.git` is not in the build
@@ -84,7 +84,7 @@ exact commands, backup, verification and GHCR steps are in `docs/RELEASING.md`; 
 ## Process
 
 - Phases and the plan to 1.0 live in the history repo plan `plans/0.8-1.0-plan.md`. Release steps follow
-  `docs/RELEASING.md` (gates scale with what changed); the 1.0 sign-off is `docs/release-checklist.md`.
+  `docs/maintainers/RELEASING.md` (gates scale with what changed); the 1.0 sign-off is `docs/maintainers/release-checklist.md`.
 - Verify iOS layout in the browser pane at the mobile preset before calling a UI change done.
 - Save decisions and gotchas to memory. Update the history repo (`WPTK/kipple-history`, `C:\kipple-history`) at least
   daily and after every release, meeting or incident: fetch first, never force-push, and apply the scrub rules (no

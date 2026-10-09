@@ -444,7 +444,7 @@ func superviseServe(ctx context.Context, serveErr <-chan error, stopAll func() e
 	}
 }
 
-// runVersion prints the version alone (its output is read by docs/RELEASING.md step 10, so it never
+// runVersion prints the version alone (its output is read by docs/maintainers/RELEASING.md step 10, so it never
 // changes), or with -v the full build info.
 func runVersion(args []string, out io.Writer) error {
 	switch {

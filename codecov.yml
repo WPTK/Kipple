@@ -1,4 +1,4 @@
-# Coverage is visibility only (docs/sqa-plan.md): never a gate.
+# Coverage is visibility only (docs/maintainers/sqa-plan.md): never a gate.
 coverage:
   status:
     project:

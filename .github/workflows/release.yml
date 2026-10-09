@@ -1,7 +1,7 @@
 name: Release
 
 # A pushed tag vX.Y.Z[-alpha|beta|rc.N] builds, scans, smoke-tests, tags and signs a multi-arch image on GHCR.
-# workflow_dispatch with repoint_latest is the rollback path (docs/RELEASING.md, "Rolling back latest").
+# workflow_dispatch with repoint_latest is the rollback path (docs/maintainers/RELEASING.md, "Rolling back latest").
 on:
   push:
     tags: ["v*"]
@@ -426,7 +426,7 @@ jobs:
               gh release edit "$TAG" --notes-file release-body.md
             fi
           else
-            echo "No GitHub Release for $TAG yet; create it with the image-notes artifact appended and the SBOM file and its .sigstore.json bundle attached (docs/RELEASING.md, step 11)."
+            echo "No GitHub Release for $TAG yet; create it with the image-notes artifact appended and the SBOM file and its .sigstore.json bundle attached (docs/maintainers/RELEASING.md, step 11)."
           fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -444,7 +444,7 @@ jobs:
   # 9. Floating tags: latest, X.Y and X move only onto the highest stable tag they could point at, so an older patch or
   # a re-run never moves them backwards. Decided here, after the lock is taken, from the tags as they are now. The lock
   # is shared with repoint. GitHub keeps one pending run per group and cancels an older pending one: if a run shows
-  # as cancelled here, re-run it (docs/RELEASING.md).
+  # as cancelled here, re-run it (docs/maintainers/RELEASING.md).
   float:
     needs: [gate, build, publish]
     if: needs.gate.outputs.prerelease == 'false'

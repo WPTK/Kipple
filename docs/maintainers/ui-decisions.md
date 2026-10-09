@@ -94,7 +94,7 @@ All four steps are done (historical list).
 ## Round 2 answers (2026-09-25, later)
 
 Authoritative over the round-1 and round-2 research files where they differ. the owner: "Go ahead and begin
-implementing anything. Commit and PR as needed without asking." (Host-A deploys still need his go-ahead.)
+implementing anything. Commit and PR as needed without asking." (the Kipple server deploys still need his go-ahead.)
 
 ### Colors
 - Green theme is **Directory** (Fern retired). Gray is **Newsprint**. Keep **both Cocoas** (Kraft and Mid).
@@ -157,12 +157,12 @@ implementing anything. Commit and PR as needed without asking." (Host-A deploys 
   searches, auto-read after N days, reading-time filter, per-feed view/order). (Shipped in phase 2: mute,
   mark read, star, highlight, saved searches and auto-read. The rest, only-show-matching, the reading-time
   filter UI and per-feed view and order, shipped with #38; see "Filters follow-ups" below.) Quiet hours rejected.
-- Image cache default cap **1 GiB** (check Host-A free disk before deploy). Default mode: **all images**
+- Image cache default cap **1 GiB** (check the Kipple server free disk before deploy). Default mode: **all images**
   (inline too) through Kipple, matching common RSS-reader practice; enables the strict CSP.
 - Backup export, `kipple restore`, `kipple password`; ship them (and take an off-box export) before the
   0004/0005 migrations reach the live DB. Implementation order: `backend-additions-round2.md` §11.
 
-### Filters follow-ups (#38, 0.8.0-beta.3)
+### Filters follow-ups (#38)
 Choices made where the decisions above were silent; the owner may overrule any of them.
 - **Only show matching** is a choice under "What it does", stored as an inverted Mute (no new action, no schema
   change). For Mute the "Act when it does NOT match" option is that choice, so the checkbox is offered for Mark as
@@ -255,10 +255,10 @@ with a recommendation each, same format as the phase 4 pre-meeting.
    JWT/passwordless work happen on separate branches at the same time, accepting the risk that the audit could
    flag something in the auth path and cause rework, rather than sequencing them.
 3. **Stale owner checklist (from the phase 3 handoff).** GitHub private vulnerability reporting toggle, approving
-   a proposed CLAUDE.md edit list (kept in the private history repository), and turning off Host-A debug logging
+   a proposed CLAUDE.md edit list (kept in the private history repository), and turning off the Kipple server debug logging
    (`KIPPLE_LOG_LEVEL`, `KIPPLE_LOG_GREADER_FORMS`) were never marked closed. The owner will flip debug logging
-   off himself (ssh to Host-A, edit `.env`, restart `kipple`). A Host-A-side off-site backup job for Kipple's own
-   data (separate from Host-B's own off-site backup job) is **not** being built in phase 5 — local `docker cp`
+   off himself (ssh to the Kipple server, edit `.env`, restart `kipple`). A Kipple-server-side off-site backup job for Kipple's own
+   data (separate from the dev machine's own off-site backup job) is **not** being built in phase 5 — local `docker cp`
    snapshots stay the only backup path for now. (Private vulnerability reporting has since been turned on.)
 4. **Parking-lot scope boundary.** The owner's rule for phase 5: **only work directly related to Kipple and its
    Docker image.** In: auto-night theme (small, self-contained, ships in phase 5). Out: the 1.5.0/2.0.0
@@ -288,18 +288,18 @@ and dependency-light.
 
 The owner also asked to study general UAT methodology (testmonitor.com's UAT guide) and produce a Kipple-specific
 UAT plan, and to add these release-process gaps as phase 5 line items:
-- A Kipple-specific UAT plan, `docs/uat-plan.md` (roles, entry/exit criteria, scripted/agent-driven/owner-only
+- A Kipple-specific UAT plan, `docs/maintainers/uat-plan.md` (roles, entry/exit criteria, scripted/agent-driven/owner-only
   test suites, defect severity scale, sign-off feeding the go/no-go meeting).
 - Reader API regression replay (Reader API client recorded sequences) against the actual deployed
   build, not just CI's unit-level contract tests.
-- Migration rehearsal against a copy of the live Host-A DB, made a standing checklist item rather than ad hoc.
+- Migration rehearsal against a copy of the live the Kipple server DB, made a standing checklist item rather than ad hoc.
 - An actual end-to-end `kipple restore` drill (not just documentation) — first real run this cycle.
 - The first-time Docker setup walkthrough treated as literal UAT (follow it verbatim on a clean machine, log
   every stuck point) rather than a documentation paraphrase exercise.
 
 **Phase 5 outline, updated:** (A) code audit + changelog review (DONE, PR #26); (B) Cloudflare Access JWT +
 passwordless, in parallel with A (DONE, PR #40); (C) auto-night theme (DONE, PR #41); (D) documentation run
-(DONE, #42; a further pass for the 0.5 setup wizard is PR D of the setup wizard work) + Docker walkthrough (now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/uat-plan.md`
+(DONE, #42; a further pass covered the setup wizard) + Docker walkthrough (now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/maintainers/uat-plan.md`
 Suites 1-4, migration rehearsal, restore drill, Reader API regression replay); (E) final go/no-go meeting, fed by
 D and F's sign-off.
 

@@ -1,4 +1,4 @@
-// UAT Suite 1 (docs/uat-plan.md): a scripted pass over every screen of a running Kipple.
+// UAT Suite 1 (docs/maintainers/uat-plan.md): a scripted pass over every screen of a running Kipple.
 //
 //   npm run build && npm run seed      in one terminal (the seed serves the embedded build on 127.0.0.1:1919)
 //   npm run uat                        in another, once the feeds have fetched
@@ -42,7 +42,7 @@
 //   --allow-remote      allow a non-loopback --url or credentials other than the seed's
 //   --help              this text
 //
-// First time on a machine: `npx playwright install chromium` (and firefox webkit for --browsers). See docs/uat-plan.md, Suite 1.
+// First time on a machine: `npx playwright install chromium` (and firefox webkit for --browsers). See docs/maintainers/uat-plan.md, Suite 1.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";

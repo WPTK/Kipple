@@ -36,7 +36,7 @@ list is `Get-GatePlan`.
 
     pwsh scripts/release-publish.ps1 -Tag vX.Y.Z[-beta.N] (-Prerelease | -Full) [-Repo owner/name] [-WhatIf]
 
-Run after the tag is pushed (docs/RELEASING.md, step 11). It waits for the tag's Release workflow run, downloads the
+Run after the tag is pushed (docs/maintainers/RELEASING.md, step 11). It waits for the tag's Release workflow run, downloads the
 `image-notes` artifact, runs `cosign verify` and `cosign verify-blob` with the exact identity of that tag's run, builds
 the notes (`changelog.mjs notes` plus `image-notes.md`) and runs `gh release create` with the SBOM and its bundle
 attached. A failed verification stops it before anything is created (exit 1). Exactly one of `-Prerelease` and `-Full`
@@ -78,7 +78,7 @@ and `gh pr merge --match-head-commit`. The decision logic is `Get-PrVerdict`.
 
 `changelog.mjs`, `audit-report.mjs`, `check-links.mjs` and `uat-labels.mjs` each have a `*.test.mjs` beside them
 (`node --test scripts/<name>.test.mjs`). `uat-labels.mjs [<git range>]` is read-only: it fails (exit 1) when an
-`aria-label` removed or changed in `web/src` is still used by `web/uat/*.mjs` (see docs/uat-plan.md). If it breaks: it
+`aria-label` removed or changed in `web/src` is still used by `web/uat/*.mjs` (see docs/maintainers/uat-plan.md). If it breaks: it
 reads `git diff -U0 <range> -- web/src` and only sees labels written on the same line as the attribute
 (`extractFragments`).
 

@@ -2,7 +2,7 @@
 
 One page, for the person who runs Kipple and for anyone who wants to test it. Kipple is a single-user, self-hosted
 reader: one account, one container, one SQLite database. Design detail is in `docs/design.md`; accepted risks in
-`docs/risk-register.md`; how to report a problem in `SECURITY.md`.
+`docs/maintainers/risk-register.md`; how to report a problem in `SECURITY.md`.
 
 ## Assets
 
@@ -46,7 +46,7 @@ the owner's password or a shell on the host; denial of service by someone who ca
 | Image proxy abuse (bombs, huge files) | Signed URLs, size and time caps, strict JPEG walk and decode-cost budget before transcoding | `internal/imgproxy` |
 | Hostile OPML or backup archive | Go's XML decoder has no external entities; imported feeds never get the private-network or insecure-TLS exceptions; archive entry names are flat and bounded | `internal/opml`, `internal/backup/archive.go` |
 | Container compromise | Non-root, read-only root, no capabilities, no-new-privileges, memory and process limits | `docker-compose.example.yml`, `docs/deploy.md` |
-| Tampered image or dependency | Signed image, build provenance, SBOM, SHA-pinned actions and base image, Trivy, govulncheck, gitleaks | `.github/workflows/`, `docs/RELEASING.md` |
+| Tampered image or dependency | Signed image, build provenance, SBOM, SHA-pinned actions and base image, Trivy, govulncheck, gitleaks | `.github/workflows/`, `docs/maintainers/RELEASING.md` |
 
 ## Residual risks (accepted)
 

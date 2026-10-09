@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// `kipple version` prints the version and nothing else: docs/RELEASING.md step 10 compares against it.
+// `kipple version` prints the version and nothing else: docs/maintainers/RELEASING.md step 10 compares against it.
 func TestVersionIsJustTheVersion(t *testing.T) {
 	old := version
 	version = "v9.9.9-test.1"

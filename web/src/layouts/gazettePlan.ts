@@ -2,7 +2,7 @@ import type { Card, Feed, Folder } from "@/api/types";
 import type { Favorite } from "@/lib/devicePrefs";
 import { chainOf, folderTree, subtreeOf } from "@/lib/folderTree";
 
-// The Gazette planner (docs/ui-decisions.md, "The Gazette"). A pure function: the same articles, feeds, folders,
+// The Gazette planner (docs/maintainers/ui-decisions.md, "The Gazette"). A pure function: the same articles, feeds, folders,
 // favorites, scope and screen class always give the same pages, whatever order the input arrives in. It knows nothing
 // about React, read state or the network; a renderer draws what it returns, in the order it returns it.
 //

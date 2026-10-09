@@ -11,7 +11,7 @@ import { magazine } from "./magazine";
 import { CheckBadge, PublishedTime, rowLabel } from "./parts";
 import type { ListLayout, PageProps } from "./types";
 
-// The Gazette's pages (docs/ui-decisions.md, "The Gazette"). It draws what planGazette returns, in that order: a page
+// The Gazette's pages (docs/maintainers/ui-decisions.md, "The Gazette"). It draws what planGazette returns, in that order: a page
 // is a stack of blocks, a block is a grid of columns, and each column lists its slots top to bottom, so the DOM order
 // is the reading order. Colors are theme tokens only (rules and section marks use the theme's accent). A read story
 // keeps its weight and size: its picture fades and its text turns to the secondary color (which meets 4.5:1 on the

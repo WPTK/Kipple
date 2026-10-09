@@ -4,7 +4,7 @@
   Runs the release test gates, one at a time, on a detached worktree of an exact commit.
 .DESCRIPTION
   Run it by hand on the commit you are about to tag, for a release in the second or third tier of
-  docs/RELEASING.md ("Gates scale with what changed"). Docs-only and release-commit tiers need only CI.
+  docs/maintainers/RELEASING.md ("Gates scale with what changed"). Docs-only and release-commit tiers need only CI.
 
   Steps, in this order and never in parallel (timing tests flake under load):
     go (twice)   go test -shuffle=<seed> ./... , two runs, each with its own random seed

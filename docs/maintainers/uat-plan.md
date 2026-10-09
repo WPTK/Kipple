@@ -4,7 +4,7 @@ Adapted from standard UAT methodology (entry/exit criteria, traceable test cases
 formal sign-off) to a single-owner, single-user project with no separate QA team. Functional testing (`go test`,
 Vitest, `/code-review`) already answers "does it work?" This plan answers "does it work for the owner, on his
 actual devices, doing his actual reading?" It is a phase 5 release-readiness step, feeding the final sign-off
-(`docs/release-checklist.md`). Status: planned, not yet executed.
+(`docs/maintainers/release-checklist.md`). Status: planned, not yet executed.
 
 ## Roles (mapped from the standard 5-role model)
 
@@ -12,9 +12,9 @@ actual devices, doing his actual reading?" It is a phase 5 release-readiness ste
 |---|---|
 | QA professional (orchestrates) | Claude: writes test cases, executes what can be automated or agent-driven, tracks and triages defects |
 | End user | The owner (the only user), on desktop Chrome and an installed iPhone PWA, plus a Reader API client |
-| Business analyst / product owner | The owner (same person) — decisions already recorded in `docs/ui-decisions.md` and `kipple-history` are the "requirements" test cases trace to |
+| Business analyst / product owner | The owner (same person) — decisions already recorded in `docs/maintainers/ui-decisions.md` and `kipple-history` are the "requirements" test cases trace to |
 | Development team | Claude, via fix PRs against defects found |
-| Sign-off authority | The owner, against `docs/release-checklist.md` |
+| Sign-off authority | The owner, against `docs/maintainers/release-checklist.md` |
 
 No separate defect-tracking tool: findings go in `kipple-history/audits/uat-findings-<date>.md` (same format as
 the code-audit reports), severity P0-P3 (blocker / high / medium / low, borrowed from the webapp-uat skill's
@@ -25,7 +25,7 @@ triage scheme since it's a reasonable, well-known scale), each with steps to rep
 - Phase 5 code audit (#26), Access JWT/passwordless (#40) and the scheduled auto-night theme (#41) merged (all
   three are, as of 2026-09-27), and deployed to the test environment below.
 - CI green on the commit under test; the pending `changes/` fragments (`node scripts/changelog.mjs preview`) reflect everything in scope.
-- A representative test environment: either the Host-A deployment on a pre-release build, or the local dev stack
+- A representative test environment: either the Kipple server deployment on a pre-release build, or the local dev stack
   (`npm run seed` / `KIPPLE_ADDR`+`KIPPLE_DATA` per CLAUDE.md) seeded with a realistic OPML set (the existing
   138-feed OPML export works, or a smaller fixture for faster runs).
 - A Reader API client available on the owner's devices, already configured against the test instance.
@@ -73,7 +73,7 @@ screen (feed list in each of the 5 layouts, article view, search, settings (the 
 | S6 | Theme contrast | Reuses the existing CI contrast check across all 20 schemes, not just the 2 spot-checked above |
 | S7 | Font choice reachable | The Aa menu above every list screen (each layout, Unread, Starred, Search) and the article, and Settings > Appearance & Reading, each have one visible "Reading font" select with every font (at least 12: Default and the 11 bundled). Not waivable |
 
-A manual, pre-release tool (step 2 of `docs/RELEASING.md`): not part of CI or `scripts/ci-local.ps1`.
+A manual, pre-release tool (step 2 of `docs/maintainers/RELEASING.md`): not part of CI or `scripts/ci-local.ps1`.
 `@playwright/test` is a dev dependency so its version is pinned in the lockfile and audited with the rest; it has no
 install scripts and downloads no browser on `npm ci`, so the image build and CI only unpack its JavaScript (about
 13 MB) and never ship it. To run it:
@@ -194,7 +194,7 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
 - TC-R2: Switch density (Dense/Snug/Standard/Relaxed/Airy) → list and reading text both change, live preview
   matches the applied result.
 - TC-R3: Every keyboard shortcut (j/k/s/o/r/m/c/z/Shift+A/`/`, and the rest of the `?` overlay,
-  `web/src/lib/keys.ts`) does what the overlay and `docs/ui-decisions.md` specify,
+  `web/src/lib/keys.ts`) does what the overlay and `docs/maintainers/ui-decisions.md` specify,
   including the Unread-view dim-then-remove behavior and the 15s undo toast.
 - TC-R4: Theme picker — default short list plus "More themes"; each of the 20 schemes is legible (spot-check
   Signal's danger color and the Carbon/Fountain distinction called out in the UI decisions).
@@ -247,7 +247,7 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
   (`update()` on `visibilitychange`).
 
 **Executed 2026-09-27.** Driven by Claude in the desktop app's built-in browser pane against a throwaway local
-instance (`npm run seed` on 127.0.0.1:7092, its own temp data dir, build of `main` at `ffb48cb`), plus a local
+instance (`npm run seed` on 127.0.0.1:7092, its own temp data dir, a build of `main`), plus a local
 test feed served from the same temp dir so arrivals and filter matches could be controlled. The pane stayed
 hidden behind other windows for the whole run, which has side effects worth knowing before re-running this: the
 page reports `document.visibilityState` "hidden" and never has focus, CSS transitions, `ResizeObserver` and
@@ -327,14 +327,13 @@ Kipple defect. Defects found: three fixed in PR #45, two copy questions filed as
   built `sw.js` precaches the page's hashed `index-*.js`/`.css` and the lazy chunks, and `update()` runs on
   `visibilitychange`. The live check belongs on a real browser in Suite 3.
 
-**Re-executed 2026-09-29 on v0.3.0-beta.2** (the rc.1 re-verification, `docs/RELEASING.md`). Build of `main` at
-`c4124c0`, whose product code is identical to the `v0.3.0-beta.2` tag (`0fa8450`; the one later commit only adds
-the website screenshot tool), with `web/dist` rebuilt first. Throwaway instance from `npm run seed` on port 7092 with
+**Re-executed 2026-09-29** (the rc.1 re-verification, `docs/maintainers/RELEASING.md`). Build of `main` whose product code
+is identical to the beta tag, with `web/dist` rebuilt first. Throwaway instance from `npm run seed` on port 7092 with
 its own temp data dir, plus a local test feed server in the same temp dir for controlled arrivals, lead-image and
 filter cases (added through OPML with `allow_private_net` turned on for those two feeds). Driven by Claude with
 headless Chromium through Playwright scripts rather than the desktop pane, so unlike 2026-09-27 the page was visible
 and focused (active reading time was recorded) and service workers could register. Screenshots were read for
-everything visual. Everything, scripts and data dir included, was deleted afterwards; nothing touched Host-A or the
+everything visual. Everything, scripts and data dir included, was deleted afterwards; nothing touched the Kipple server or the
 live instance. Result: 21 of the 26 cases pass, 1 fails (TC-C3, a P2 display bug), 4 skipped or blocked (TC-A1..A3,
 TC-P2 live update). Of the 11 checks for what changed since 2026-09-27, 8 pass and 3 fail (all P2). No P0 or P1.
 Defects are numbered B2-1 to B2-9 below for the findings doc.
@@ -497,7 +496,7 @@ and #100 (B2-8, the owner's call). None is P0 or P1, so the soak clock is not af
 
 ## Suite 3 — Owner-only (real device required)
 
-**Not a promotion gate (decided 2026-09-27, see `docs/RELEASING.md`).** These stay open-ended: the owner checks
+**Not a promotion gate (decided 2026-09-27, see `docs/maintainers/RELEASING.md`).** These stay open-ended: the owner checks
 them informally on his own devices as he uses each build, rather than closing them off as a one-time checklist
 before cutting a beta or rc. A real finding here becomes its own tracked fix on its own timeline; it doesn't
 hold up an otherwise-ready release.
@@ -509,7 +508,7 @@ hold up an otherwise-ready release.
 - TC-D4: Confirm whether `document.hasFocus()` reports true while the installed PWA is foregrounded but the
   phone is locked/backgrounded — resolves the open reading-time-on-iOS question from the phase 4 audit.
 
-**Passed 2026-09-27** (0.3.0-beta.1 feedback, item 10). Owner: "all Suite 3 testing seems to indicate 'pass'
+**Passed 2026-09-27** (owner feedback). Owner: "all Suite 3 testing seems to indicate 'pass'
 from my phone." Covers TC-D1 through TC-D4 as exercised in ordinary daily use of the beta build, not a
 one-time scripted pass. TC-D4 closes risk-register R1 (moved to Closed as C4) and issue #30.
 
@@ -518,7 +517,7 @@ one-time scripted pass. TC-D4 closes risk-register R1 (moved to Closed as C4) an
 Standing checklist items (previously done ad hoc for past releases, now made explicit):
 
 - **Migration rehearsal:** before every deploy that changes the schema, run the migration against a *copy* of
-  the live Host-A database (not the live one) and confirm it applies cleanly, timed, with `PRAGMA integrity_check`
+  the live the Kipple server database (not the live one) and confirm it applies cleanly, timed, with `PRAGMA integrity_check`
   passing after.
 - **Restore drill:** actually execute `kipple restore` against a real snapshot at least once per release cycle
   (not just read the steps in `docs/deploy.md`) — this phase 5 cycle is when it gets its first real end-to-end
@@ -526,7 +525,7 @@ Standing checklist items (previously done ad hoc for past releases, now made exp
 
 **Executed 2026-09-27.** Copied the live nightly snapshot (`kipple-snapshot.db`, taken 04:10 that day, schema 8,
 138 feeds, 6594 items) off the running container with `docker cp` (never touching `kipple.db` itself), restored
-it onto a brand-new throwaway volume with the currently-deployed image (`kipple:local`, v0.3.0-alpha.7):
+it onto a brand-new throwaway volume with the currently-deployed image (`kipple:local`):
 `kipple restore` reported the backup passed its integrity checks with no previous database to keep. Starting a
 throwaway container against that volume also exercised a real migration rehearsal for free — the snapshot was
 one migration behind the live schema, so startup applied `0009_stats_summary_indexes.sql` automatically,
@@ -535,7 +534,7 @@ confirmed by the log line, and the container came up `(healthy)` on `/healthz` i
 before and after). All throwaway artifacts (test container, test volume, copied snapshot file) were removed
 afterward. Both TC-C3 and the standing migration-rehearsal checklist item are satisfied by this one drill.
 
-**Re-executed 2026-09-29 on v0.3.0-beta.2** (image built from tag `v0.3.0-beta.2`, commit `0fa8450`). Two restores
+**Re-executed 2026-09-29** (image built from the beta tag). Two restores
 of real snapshots, each onto its own brand-new throwaway volume with the deployed image, each followed by a throwaway
 container on that volume (no published port, 128 MB cap). Nothing touched the live `kipple` container (same container
 id and start time before and after), the `kipple` volume or `kipple:local`; the snapshots were copied to a scratch file
@@ -557,19 +556,19 @@ first (never `kipple.db`), and every throwaway container, volume and file was re
 
 The "first-time Docker setup walkthrough" release step doubles as UAT when it is followed literally rather than
 paraphrased: on a machine with nothing Kipple-related installed, do exactly what `README.md` says, from nothing to a
-claimed, working instance, and note every place a real newcomer would get stuck. Since 0.5 that walkthrough is the
+claimed, working instance, and note every place a real newcomer would get stuck. That walkthrough is the
 **setup wizard**, not a `.env` edit: there is no `.env` and no password in any file. Findings go in the same
 `uat-findings` doc as the other suites.
 
 **Where and with what.**
 
-- **A Linux host with Docker Engine. Not the Windows dev box (Host-B).** Running containers there can take Docker Desktop
+- **A Linux host with Docker Engine. Not the Windows dev box (the dev machine).** Running containers there can take Docker Desktop
   down and with it services other people use; this suite must never run on it. Use a separate Linux machine or VM (a
   spare host, or a fresh cloud VM deleted afterwards). Simulate a **single-host self-hoster**, not the owner's own setup:
-  everything (Docker, the terminal, the browser or a browser on another machine that reaches it) with no `ssh host-a`
+  everything (Docker, the terminal, the browser or a browser on another machine that reaches it) with no `ssh <kipple-server>`
   wrapper anywhere. If `docs/deploy.md`'s two-host framing trips up a one-host reader, that is a real finding, not a
   suite mismatch.
-- **The image under test** is the pushed prerelease image `ghcr.io/wptk/kipple:<version>` (first `0.5.0-beta.1`), pulled
+- **The image under test** is the pushed prerelease image `ghcr.io/wptk/kipple:<version>`, pulled
   anonymously with no registry login, so the run also proves the package is public. Before the first image exists, and for
   run E, use a source build of the tag under test. Say which one each run used.
 - **Isolation.** Use a container name, compose project name (`-p`), volume and port that cannot collide with anything else
@@ -623,8 +622,7 @@ the version reads `dev` unless `KIPPLE_VERSION` was passed, which the README say
 README) works without a `chown`, while a bind mount without one fails with a permissions error that the README's
 `chown 65532:65532` line fixes.
 
-**Status.** Executed 2026-10-03 against the published image `ghcr.io/wptk/kipple:0.7.0-beta.1` (digest
-`sha256:f729ef46...5ff72`, commit `28768e2`) on the owner's Linux server (Docker Engine, amd64), with throwaway
+**Status.** Executed 2026-10-03 against a published prerelease image on the owner's Linux server (Docker Engine, amd64), with throwaway
 containers and volumes on their own ports, the live instance untouched, everything removed afterwards. Driven with `curl`
 against the published API, so the browser-only steps (A3, A8 to A12, B1's wording, B3's reload) were not repeated by hand:
 the wizard script (`npm run uat:wizard`) covers them against a source build.
@@ -636,12 +634,12 @@ the wizard script (`npm run uat:wizard`) covers them against a source build.
   answers 404 afterwards. **A14** restart with an account: normal mode, no `no account yet` line, healthy.
 - **B** (open mode, over the API): no acknowledgement gets 400 `ack_required`; with it the account is created; an unexpected
   `Host` gets 421; a forwarded header gets 403; a request from the Docker bridge is admitted silently (204).
-- **C** `gh attestation verify` on the image succeeds and names this repository's `release.yml` at `v0.7.0-beta.1`; `cosign`
+- **C** `gh attestation verify` on the image succeeds and names this repository's `release.yml` at the release tag; `cosign`
   itself was not installed, so the README's exact `cosign verify` line was not run.
 - **Also:** the container runs read-only as uid 65532 with all capabilities dropped; a bind mount without the `chown`
   fails with `data dir lock ... permission denied`, as the README says.
 - **Not run:** Run D (arm64; no arm64 machine), Run E (the tag was built from source with Docker alone for the deploy, and
-  reports `v0.7.0-beta.1`), the Reader API client connection (A10) and the manual browser steps above.
+  reports the release tag), the Reader API client connection (A10) and the manual browser steps above.
 - **Findings:** none. One note: the `no account yet` line says the container "listens on :1919", which is the in-container
   port, not the published one.
 

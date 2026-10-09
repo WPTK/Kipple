@@ -98,7 +98,7 @@ These are left out on purpose, and requests for them are closed.
 - [Deploy guide](docs/deploy.md): install options, ports, backups, restore, upgrades, Cloudflare Access.
 - [Reverse proxy](docs/reverse-proxy.md): HTTPS with Caddy, nginx or Traefik.
 - [Troubleshooting](docs/troubleshooting.md)
-- [Design](docs/design.md) and [UI decisions](docs/ui-decisions.md): how it works and why.
+- [Design](docs/design.md) and [UI decisions](docs/maintainers/ui-decisions.md): how it works and why.
 - [Performance](docs/performance.md): 500 feeds and 150,000 articles, measured.
 - [All docs](docs/README.md)
 

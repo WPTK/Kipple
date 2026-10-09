@@ -1,7 +1,7 @@
 name: Fuzz
 
 # Weekly mutation fuzzing of every Go fuzz target, so a bug is found between releases instead of only at the manual
-# pre-release run (docs/RELEASING.md, step 2). The seed corpus already runs as ordinary unit tests in ci.yml; this adds
+# pre-release run (docs/maintainers/RELEASING.md, step 2). The seed corpus already runs as ordinary unit tests in ci.yml; this adds
 # the mutation phase. It runs the same script as the manual step (scripts/fuzz.ps1, PowerShell 7 is on the runner),
 # so there is one list of targets and one failure rule. A scheduled run only starts from the default branch.
 on:
