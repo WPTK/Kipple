@@ -10,14 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The feed's Basic credentials must not follow an https -> http downgrade on the
-// same host: net/http keeps Authorization for it (it strips it only for an
-// unrelated host), which would send the password in clear text.
-func TestAuthDroppedOnHTTPSDowngradeRedirect(t *testing.T) {
-	var plainAuth atomic.Value
-	plainAuth.Store("unset")
+// A feed on https is never sent on to plain http, so its credentials cannot be
+// sent in clear text and the plain server is not asked at all.
+func TestHTTPSToHTTPRedirectIsRefusedBeforeAnyCredentialsMove(t *testing.T) {
+	var plainHits atomic.Int64
 	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		plainAuth.Store(r.Header.Get("Authorization"))
+		plainHits.Add(1)
 		serveRSS(w, r)
 	}))
 	defer plain.Close()
@@ -33,9 +31,10 @@ func TestAuthDroppedOnHTTPSDowngradeRedirect(t *testing.T) {
 	s.AllowInsecureTLS = true
 	s.HTTPAuth = "bob:secret"
 	res := doFetch(t, c, s)
-	require.Equal(t, OutcomeOK, res.Outcome, res.ErrMsg)
+	require.Equal(t, OutcomeError, res.Outcome)
+	require.Contains(t, res.ErrMsg, "https to http")
 	require.Equal(t, "Basic Ym9iOnNlY3JldA==", tlsAuth.Load(), "the feed's own https URL gets the credentials")
-	require.Equal(t, "", plainAuth.Load(), "the http hop must not")
+	require.Zero(t, plainHits.Load(), "the http hop is never asked")
 }
 
 // An http feed that moves to https on the same host keeps its credentials.

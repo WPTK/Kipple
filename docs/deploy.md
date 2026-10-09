@@ -807,9 +807,12 @@ versions names the Kipple that wrote the database and what to do:
 matching snapshot is in the backup folder the refusal describes the one to look for. After an upgrade that failed
 partway, the last Kipple on record can be the version you are starting; the refusal then says to run a Kipple whose
 schema is the database's or newer.) A binary that does not record versions prints only
-`database schema version N is newer than this binary (M); refusing to start`. Either way, stop it and find the snapshot (the upgrade's first start also logs `store: wrote pre-migration snapshot
-file=pre-migration-<from>-<to>-<ns>.db`; a log level of `warn` or above hides that line, so a missing line does not mean no
-snapshot was written: the file is in `/data/backup` either way, the newest `pre-migration-*.db`), then:
+`database schema version N is newer than this binary (M); refusing to start`. Either way, stop it and find the snapshot. The upgrade's first start logs it as one JSON line, for example
+`{"time":"...","level":"INFO","msg":"store: wrote pre-migration snapshot","file":"pre-migration-10-11-1759700000000000000.db","from":10,"to":11}`
+(find it with `docker logs kipple 2>&1 | grep pre-migration`). A log level of `warn` or above hides that line, so a
+missing line does not mean no snapshot was written: the files are in `/data/backup` either way. Restore the snapshot named
+in that log line or in the refusal, not simply the newest one: after a partial upgrade the right snapshot can be an
+earlier one (for example 8-11, not 9-11), as described above. Then:
 
     # 1. Stop the service and find the pre-migration snapshot the refusal names.
     docker compose stop kipple

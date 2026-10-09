@@ -310,7 +310,7 @@ func entries() []entry {
 			defer cancel()
 			_, err := favicon.Lookup(c, favicon.Request{
 				SiteURL:   start,
-				Transport: favicon.ScopedTransport(e.fc.Transport, "127.0.0.1", grant, false, false),
+				Transport: fetch.ScopedTransport(e.fc.Transport, "127.0.0.1", grant, false, false),
 				UserAgent: "ua",
 			})
 			return result{err: err, blocked: isBlocked(err)}

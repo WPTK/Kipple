@@ -28,7 +28,6 @@ import (
 const (
 	maxPageBytes = 512 << 10 // of the home page; the head is near the top, the rest is ignored
 	maxIconBytes = 256 << 10
-	maxRedirects = 5
 	maxTries     = 4 // icon fetches per lookup, /favicon.ico included
 
 	requestTimeout = 10 * time.Second // per request, body included
@@ -76,7 +75,7 @@ func Lookup(ctx context.Context, r Request) (Icon, error) {
 	if err != nil {
 		return Icon{}, err
 	}
-	hc := &http.Client{Transport: r.Transport, Timeout: requestTimeout, CheckRedirect: checkRedirect}
+	hc := &http.Client{Transport: r.Transport, Timeout: requestTimeout, CheckRedirect: fetch.CheckRedirect}
 
 	var cands []candidate
 	origin := page
@@ -113,19 +112,6 @@ func Lookup(ctx context.Context, r Request) (Icon, error) {
 		lastErr = fmt.Errorf("%s: %w", c.URL, err)
 	}
 	return Icon{}, lastErr
-}
-
-func checkRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) > maxRedirects {
-		return errors.New("too many redirects")
-	}
-	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-		return errors.New("redirect to a non-http(s) URL")
-	}
-	// http.Client turns a Location's userinfo into an Authorization header when
-	// it sends the hop, which happens after this check: drop it here.
-	req.URL.User = nil
-	return nil
 }
 
 func blocked(err error) bool {
