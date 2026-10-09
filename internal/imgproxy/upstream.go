@@ -119,7 +119,7 @@ func (h *Handler) fetchUpstream(ctx context.Context, u *url.URL, flags int, cd c
 				return nil, nil, errUpstreamTimeout
 			}
 		}
-		resp, done, err := h.attempt(ctx, u, flags, cd, p, budget)
+		resp, done, err := h.attempt(ctx, u, flags, cd, p, begin, budget)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -166,7 +166,7 @@ func (s *hopScoped) RoundTrip(req *http.Request) (*http.Response, error) {
 	return s.guarded.RoundTrip(req)
 }
 
-func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p profile, headerBudget time.Duration) (*http.Response, func(), error) {
+func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p profile, begin time.Time, headerBudget time.Duration) (*http.Response, func(), error) {
 	actx, cancel := context.WithCancel(ctx)
 	// #nosec G704 -- URL is HMAC-signed by us; the transport dial guard blocks private ranges
 	req, err := http.NewRequestWithContext(actx, http.MethodGet, u.String(), nil)
@@ -206,13 +206,18 @@ func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p
 		// No cookie jar.
 		CheckRedirect: fetch.CheckRedirect,
 	}
-	limit := h.opt.Timeout
+	// begin is when the ladder started: Timeout is one deadline for all of its
+	// attempts and the body, not one per attempt.
+	limit := h.opt.Timeout - time.Since(begin)
+	if limit <= 0 {
+		cancel()
+		return nil, nil, errUpstreamTimeout
+	}
 	if headerBudget > 0 {
 		limit = min(limit, headerBudget)
 	}
 	var fired atomic.Bool
 	t := time.AfterFunc(limit, func() { fired.Store(true); cancel() })
-	start := time.Now()
 	// #nosec G704 -- same as above: signed URL, SSRF-guarded transport, capped redirects
 	resp, err := client.Do(req)
 	stopped := t.Stop()
@@ -229,7 +234,7 @@ func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p
 		cancel()
 		return nil, nil, errUpstreamTimeout
 	}
-	resp.Body = newBudgetBody(resp.Body, h.opt.Timeout-time.Since(start), cancel)
+	resp.Body = newBudgetBody(resp.Body, h.opt.Timeout-time.Since(begin), cancel)
 	return resp, cancel, nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -133,4 +134,43 @@ func TestRetriesOnceWithTheRetryUserAgent(t *testing.T) {
 	_, err := Find(context.Background(), http.DefaultTransport, "kipple", "", srv.URL+"/403", false)
 	require.ErrorContains(t, err, "HTTP 403")
 	require.Len(t, uas, 1, "no retry UA, no retry")
+}
+
+// A source that stalls, before the headers or in the middle of the body, ends
+// Find at its own deadline even when the caller set none.
+func TestFindEndsAtItsOwnDeadline(t *testing.T) {
+	old := findTimeout
+	findTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { findTimeout = old })
+	for name, serve := range map[string]http.HandlerFunc{
+		"headers never come": func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(30 * time.Second):
+			}
+		},
+		"body trickles": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			for {
+				if _, err := w.Write([]byte(" ")); err != nil {
+					return
+				}
+				w.(http.Flusher).Flush()
+				select {
+				case <-r.Context().Done():
+					return
+				case <-time.After(20 * time.Millisecond):
+				}
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(serve)
+			defer srv.Close()
+			begin := time.Now()
+			_, err := Find(context.Background(), http.DefaultTransport, "ua", "", srv.URL, false)
+			require.Error(t, err)
+			require.Less(t, time.Since(begin), 5*findTimeout)
+		})
+	}
 }
