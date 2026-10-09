@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mmcdole/gofeed"
 	"github.com/stretchr/testify/require"
 )
 
@@ -97,29 +98,88 @@ func manyItems(n int) []byte {
 	return []byte(b.String())
 }
 
-// A feed with more entries than any retention setting keeps is cut to its first entries, in document order, before
-// any entry is converted or sanitized.
-func TestParseKeepsFirstItemsUpToLimit(t *testing.T) {
-	const limit = MaxItemsPerFetch
-	var sanitized atomic.Int64
-	f, err := ParseFeed(manyItems(limit+500), ParseOptions{
-		FeedURL: "https://example.com/feed",
-		Content: func(raw string, _ ...string) (string, string) {
-			sanitized.Add(1)
-			return raw, raw
-		},
-	})
+// datedItems is a feed of n entries; entry i is dated i days after a fixed day, so a larger i is newer. Entries are
+// listed oldest first when asc is set, newest first otherwise.
+func datedItems(n int, asc bool) []byte {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>`)
+	for k := range n {
+		i := k
+		if !asc {
+			i = n - 1 - k
+		}
+		d := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, i)
+		fmt.Fprintf(&b, `<item><guid>g%d</guid><title>item %d</title><pubDate>%s</pubDate><description>body %d</description></item>`,
+			i, i, d.Format(time.RFC1123Z), i)
+	}
+	b.WriteString(`</channel></rss>`)
+	return []byte(b.String())
+}
+
+// A feed with more entries than any retention setting keeps is cut to its newest entries (the order retention trims
+// by), whatever order it lists them in, before any entry is converted or sanitized. The kept entries stay in
+// document order.
+func TestParseKeepsNewestItemsUpToLimit(t *testing.T) {
+	const limit, extra = MaxItemsPerFetch, 500
+	for _, asc := range []bool{false, true} {
+		var sanitized atomic.Int64
+		f, err := ParseFeed(datedItems(limit+extra, asc), ParseOptions{
+			FeedURL: "https://example.com/feed",
+			Content: func(raw string, _ ...string) (string, string) {
+				sanitized.Add(1)
+				return raw, raw
+			},
+		})
+		require.NoError(t, err)
+		require.Equal(t, limit, len(f.Items), asc)
+		first, last := fmt.Sprintf("item %d", limit+extra-1), fmt.Sprintf("item %d", extra)
+		if asc {
+			first, last = last, first
+		}
+		require.Equal(t, first, f.Items[0].Title, asc)
+		require.Equal(t, last, f.Items[limit-1].Title, asc)
+		require.LessOrEqual(t, sanitized.Load(), int64(limit), asc)
+		require.Contains(t, f.Notes, fmt.Sprintf("items_over_limit: kept %d of %d", limit, limit+extra), asc)
+	}
+
+	// Undated entries count as new (retention stamps them with the fetch time), and among equal dates the earlier
+	// entry in the document wins (the store gives it the larger id).
+	f, err := ParseFeed(manyItems(limit+500), ParseOptions{})
 	require.NoError(t, err)
 	require.Equal(t, limit, len(f.Items))
 	require.Equal(t, "item 0", f.Items[0].Title)
 	require.Equal(t, fmt.Sprintf("item %d", limit-1), f.Items[limit-1].Title)
-	require.LessOrEqual(t, sanitized.Load(), int64(limit))
-	require.Contains(t, f.Notes, fmt.Sprintf("items_over_limit: kept %d of %d", limit, limit+500))
 
 	f, err = ParseFeed(manyItems(limit), ParseOptions{})
 	require.NoError(t, err)
 	require.Equal(t, limit, len(f.Items))
 	require.Empty(t, f.Notes)
+}
+
+// Ties on the capped date go as the store's ids would: the later uncapped date first, an undated entry (inserted
+// last) before a dated one, then the entry earlier in the document.
+func TestNewestEntriesBreaksTiesAsRetention(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) *gofeed.Item { t := now.Add(d); return &gofeed.Item{PublishedParsed: &t} }
+	require.Equal(t, []int{1}, newestEntries([]*gofeed.Item{at(240 * time.Hour), at(480 * time.Hour), at(-time.Hour)}, 1, now))
+	require.Equal(t, []int{1}, newestEntries([]*gofeed.Item{at(0), {}}, 1, now))
+	require.Equal(t, []int{0}, newestEntries([]*gofeed.Item{{}, {}}, 1, now))
+	require.Equal(t, []int{0}, newestEntries([]*gofeed.Item{at(0), at(0)}, 1, now))
+}
+
+// Unclosed inline tags in raw (neither escaped nor CDATA) markup are common in the wild. The parser closes them at
+// the next end tag, so they add no nesting.
+func TestParseAcceptsUnclosedInlineTags(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>`)
+	for i := range 60 {
+		fmt.Fprintf(&b, `<item><guid>g%d</guid><title>item %d</title><description><p>a%s</p></description></item>`,
+			i, i, strings.Repeat("<br>b", 10))
+	}
+	b.WriteString(`</channel></rss>`)
+	f, err := ParseFeed([]byte(b.String()), ParseOptions{FeedURL: "https://example.com/feed"})
+	require.NoError(t, err)
+	require.Equal(t, 60, len(f.Items))
 }
 
 // Entity declarations in a feed are inert: nothing is expanded, nothing outside the document is read or fetched,
@@ -162,4 +222,24 @@ func TestParseLeavesEntitiesUnexpanded(t *testing.T) {
 			require.Zero(t, hits.Load())
 		})
 	}
+}
+
+// A charset declaration inside the document changes how the parser reads the element names that follow it, so the
+// nesting check must read them the same way. In Big5 the bytes A2CE and A4CA both decode to one character, so the two
+// names below differ as raw bytes and are equal as the parser reads them.
+func TestParseNestingCheckReadsDeclaredCharset(t *testing.T) {
+	if os.Getenv("KIPPLE_DEEP_NESTING_CHILD") != "" {
+		return
+	}
+	n1, n2 := "\xe4\xb8\xa4\xca\xa4\x61", "\xe4\xb8\xa2\xce\xa4\x61"
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><rss version="2.0" xmlns:x="urn:x"><channel><title>t</title><item><title>i</title><x:ext>`)
+	b.WriteString(`<?xml version="1.0" encoding="big5"?>`)
+	for range 600 {
+		b.WriteString("<x:" + n2 + "><x:" + n1 + "></x:" + n2 + ">")
+	}
+	b.WriteString("</x:ext></item></channel></rss>")
+	_, err := ParseFeed([]byte(b.String()), ParseOptions{FeedURL: "https://example.com/feed"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nest")
 }
