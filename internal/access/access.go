@@ -29,6 +29,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/WPTK/kipple/internal/fetch"
 )
 
 // Header is the request header Cloudflare Access puts the application token in.
@@ -61,9 +63,21 @@ type Identity struct {
 	Expires time.Time
 }
 
+// defaultClient fetches the key set through the guarded transport the feed
+// fetcher uses (no environment proxy, no private addresses) and takes a redirect
+// as the answer: the team domain is a host name, and the key set lives at a
+// fixed path on it.
+func defaultClient() *http.Client {
+	return &http.Client{
+		Transport:     fetch.NewClient(fetch.ClientOptions{}).Transport(false, false, false),
+		Timeout:       defaultTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
 // Options tunes New. Zero values take the defaults; tests set the endpoints.
 type Options struct {
-	// Client fetches the key set; default a plain client with a 10 s timeout.
+	// Client fetches the key set; default defaultClient (tests pass their own).
 	Client *http.Client
 	// CertsURL overrides https://<team domain>/cdn-cgi/access/certs (tests).
 	CertsURL string
@@ -130,6 +144,12 @@ func NormalizeTeamDomain(v string) (string, error) {
 			}
 		}
 	}
+	// A name never ends in a number, so this refuses every spelling of an IP
+	// address (1.2.3.4, 127.1, 0x7f.0.0.1).
+	labels := strings.Split(h, ".")
+	if last := labels[len(labels)-1]; strings.Trim(last, "0123456789") == "" {
+		return "", fmt.Errorf("%q is an address, not a team domain such as yourteam.cloudflareaccess.com", v)
+	}
 	return h, nil
 }
 
@@ -168,7 +188,7 @@ func New(teamDomain, aud string, opt Options) (*Verifier, error) {
 		v.issuer = opt.Issuer
 	}
 	if v.client == nil {
-		v.client = &http.Client{Timeout: defaultTimeout}
+		v.client = defaultClient()
 	}
 	if v.refresh <= 0 {
 		v.refresh = defaultRefresh
