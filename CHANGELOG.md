@@ -8,6 +8,31 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.8.0-beta.6] - 2026-10-09
+
+### Changed
+
+- Cloudflare Access: the signing keys are now fetched the way Kipple fetches feeds (never through an environment proxy, never from a private address, and a redirect is not followed), and the team domain must be a host name, not an IP address.
+- Responses that name no caching policy (an error page, a redirect, a plain-text answer) are now marked private and not to be stored, so a shared cache in front of Kipple keeps no copy of them.
+- A feed document nested more than 512 elements deep is refused as not a feed, and one fetch keeps at most the newest 2,000 entries of a feed (twice the largest retention setting; unlimited retention included). The feed's Fetch log says when entries were left out.
+- Images: an image address Kipple cannot route through its image proxy (not an http or https address, or too long) is now dropped instead of being passed to the browser as it came from the feed, and so is every image when the proxy has no signing secret.
+- Article titles are stored as plain text: markup a feed puts in a title is removed and the text between the tags is kept, so a title shows and exports the same way in the web app and in every client of the Google Reader API. A less-than sign that is not markup ("x<y") stays in the title. An article whose title had markup is updated once on its next fetch.
+- Every request Kipple makes to another site (feeds, adding a feed, full-text pages, icons, proxied images) now follows one redirect rule: web addresses only, no step from https down to http, and no Referer or embedded credentials passed on. A feed that redirects from https to plain http now fails with a message saying so; if you trust that site, edit the feed to its http address. Adding or editing a feed with the private-network option keeps that option to the feed's own site while following redirects.
+- Proxied images: the image proxy's retries with other request headers now share the single 15 second limit instead of getting 15 seconds apiece.
+- The server refuses a request whose headers pass 64 KiB, and answers an event stream with 503 and a Retry-After when 64 are already open.
+- Article text stored in your library is cleaned again with the current sanitizing rules, once, at the first start after a restore and whenever the rules change, so older rows and rows that came in a backup never keep weaker rules than new ones. This covers an article's extracted text and the copies kept for restoring trimmed articles, and word counts are recounted for rows that change. The pass reads and cleans rows outside the database write lock, so a large library does not pause refreshing while it runs.
+
+### Fixed
+
+- Feed fetches, adding a feed by address, full-text extraction and icon lookup now all refuse a page or feed that comes back compressed in a way Kipple did not ask for (a real compression other than gzip), with a clear message, instead of trying to read the compressed bytes as text.
+- The log now names the pre-migration snapshot an upgrade writes (`pre-migration-<from>-<to>-<ns>.db`), so the file to restore for a rollback can be found in the log. (#318)
+- Mute similar: the filter editor no longer starts with words already chosen from the title; tap the suggested words to add them (tap again to remove), and common words such as best, apps and alternatives are no longer suggested. Filters also treat a typographic apostrophe as a plain one, so a word like Apple’s matches a title written either way (the modifier-letter apostrophe U+02BC now counts as an apostrophe too, so whole-word rules can match around it). (#320)
+- A feed's cache validators (ETag and Last-Modified) are now kept only when they are printable and short, so an odd or oversized value from a site is dropped instead of being stored and sent back on every refresh.
+
+### Security
+
+- Kipple is built with Go 1.27.2 and `golang.org/x/net` v0.60.0, which carry the latest upstream fixes; the image build now refuses a Go release other than the one `go.mod` names.
+
 ## [0.8.0-beta.5] - 2026-10-07
 
 This beta adds a Gazette layout that lays a list out as a newspaper, a read rate and a per-feed sheet on the Stats screen, tile comparisons with the previous period and a Months range, and spreads each feed's refresh across the interval. It records how many new items each feed brings in per day, which needs a one-time database migration to schema 18; the first start writes a snapshot you can restore to go back. It also hardens restoring a backup from the setup wizard and keeps more safety copies of a replaced library.
@@ -914,7 +939,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.5...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.6...HEAD
+[0.8.0-beta.6]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.5...v0.8.0-beta.6
 [0.8.0-beta.5]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.4...v0.8.0-beta.5
 [0.8.0-beta.4]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.3...v0.8.0-beta.4
 [0.8.0-beta.3]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.2...v0.8.0-beta.3

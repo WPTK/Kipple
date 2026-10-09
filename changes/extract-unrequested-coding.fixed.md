@@ -1,1 +1,0 @@
-Feed fetches, adding a feed by address, full-text extraction and icon lookup now all refuse a page or feed that comes back compressed in a way Kipple did not ask for (a real compression other than gzip), with a clear message, instead of trying to read the compressed bytes as text.
