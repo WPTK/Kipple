@@ -19,6 +19,9 @@ const (
 	// MaxStateIDs is the most item ids one items.state event may carry. Publishers
 	// send a `resync` event instead of a larger batch (a client refetches anyway).
 	MaxStateIDs = 500
+	// MaxSubscribers is the most open event streams at once. A person has a handful (tabs, devices);
+	// each stream costs a goroutine, a socket and a buffer.
+	MaxSubscribers = 64
 )
 
 // Event is one SSE message: `event: <Type>`, `id: <ID>`, `data: <Data>`.
@@ -100,10 +103,14 @@ func eventSize(ev Event) int { return len(ev.Data) + len(ev.Type) + 48 }
 // Subscribe registers a subscriber. With lastID > 0 the events after it are
 // replayed from the ring; when the ring no longer reaches back that far, or the
 // replay would overflow the buffer, the subscriber gets a `resync` instead.
+// It returns nil when MaxSubscribers streams are already open.
 func (h *Hub) Subscribe(lastID uint64) *Sub {
 	s := &Sub{C: make(chan Event, subBuffer), hub: h}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if len(h.subs) >= MaxSubscribers {
+		return nil
+	}
 	if h.closed {
 		close(s.C)
 		s.dead = true

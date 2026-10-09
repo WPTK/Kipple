@@ -32,14 +32,18 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(cookieName); err == nil {
 		session = sessionID(c.Value)
 	}
+	sub := s.opt.Hub.Subscribe(last)
+	if sub == nil {
+		w.Header().Set("Retry-After", "10")
+		http.Error(w, "too many event streams", http.StatusServiceUnavailable)
+		return
+	}
+	defer sub.Close()
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache, no-transform")
 	h.Set("X-Accel-Buffering", "no")
 	h.Set("Connection", "keep-alive")
-
-	sub := s.opt.Hub.Subscribe(last)
-	defer sub.Close()
 
 	write := func(format string, args ...any) bool {
 		_ = rc.SetWriteDeadline(time.Now().Add(writeSlack))

@@ -161,3 +161,18 @@ func TestRingBoundedByBytesAsWellAsCount(t *testing.T) {
 	require.Empty(t, h3.ring)
 	require.Zero(t, h3.ringUsed)
 }
+
+func TestSubscribeRefusesBeyondTheLimit(t *testing.T) {
+	h := newHub()
+	subs := make([]*Sub, 0, MaxSubscribers)
+	for i := 0; i < MaxSubscribers; i++ {
+		s := h.Subscribe(0)
+		require.NotNil(t, s)
+		subs = append(subs, s)
+	}
+	require.Nil(t, h.Subscribe(0), "one more than the limit is refused")
+	subs[0].Close()
+	s := h.Subscribe(0)
+	require.NotNil(t, s, "a closed subscriber frees its place")
+	s.Close()
+}
