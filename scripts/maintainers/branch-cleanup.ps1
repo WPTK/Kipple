@@ -26,9 +26,9 @@
 .PARAMETER IncludeRemote
   Also delete the merged branches on origin.
 .EXAMPLE
-  pwsh scripts/branch-cleanup.ps1 -WhatIf
+  pwsh scripts/maintainers/branch-cleanup.ps1 -WhatIf
 .EXAMPLE
-  pwsh scripts/branch-cleanup.ps1 -IncludeRemote -Verbose
+  pwsh scripts/maintainers/branch-cleanup.ps1 -IncludeRemote -Verbose
 .NOTES
   Exit codes: 0 done (or nothing to do, or -WhatIf, or you did not type yes), 1 an action failed,
   2 usage or environment error.
@@ -36,7 +36,7 @@
   `gh repo view --json defaultBranchRef` (Get-DefaultBranch),
   `git status --porcelain --ignored=matching` (Get-WorktreeBlocker),
   `git for-each-ref` and `git worktree list --porcelain` output (Get-WorktreeEntry). The decision logic is
-  Get-CleanupPlan and is covered by scripts/branch-cleanup.Tests.ps1.
+  Get-CleanupPlan and is covered by scripts/maintainers/branch-cleanup.Tests.ps1.
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param([switch]$IncludeRemote)

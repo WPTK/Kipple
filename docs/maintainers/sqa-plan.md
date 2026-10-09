@@ -1,7 +1,7 @@
 # SQA plan
 
 Documents existing practice against the standard IEEE 730 Software Quality Assurance Plan outline, rather than
-inventing new process. UAT (`docs/uat-plan.md`) asks "does it work for the owner"; this asks "is the process
+inventing new process. UAT (`docs/maintainers/uat-plan.md`) asks "does it work for the owner"; this asks "is the process
 that built it trustworthy." Written as a phase 5 release-readiness step; a gaps section at the end lists
 candidate additions for the owner to accept or decline.
 
@@ -16,7 +16,7 @@ followable for a stranger to self-host from a clean machine.
 ## 2. Reference documents
 
 `CLAUDE.md` (fixed decisions), `docs/design.md` (data model, API contract, design rationale), `docs/README.md`
-(the docs index), `docs/uat-plan.md`, `docs/risk-register.md`, `docs/RELEASING.md`, `docs/deploy.md`,
+(the docs index), `docs/maintainers/uat-plan.md`, `docs/maintainers/risk-register.md`, `docs/maintainers/RELEASING.md`, `docs/deploy.md`,
 `CHANGELOG.md`, `SECURITY.md`, `.env.example`; outside this repository, the private `kipple-history` repo (meetings, decisions, diary, audits: the project's
 institutional memory).
 
@@ -24,7 +24,7 @@ institutional memory).
 
 One person directs and signs off (the owner); one agent implements, reviews and tests (Claude), following a
 documented model policy — Sonnet for routine implementation, Opus for review/judging/ambiguous root-causing
-(`CLAUDE.md`, "Process"). Concurrency rule: one writer on the Kipple repo/Host-A
+(`CLAUDE.md`, "Process"). Concurrency rule: one writer on the Kipple repo/the Kipple server
 instance at a time, to avoid half-applied changes. Deploys, Cloudflare changes, and go/no-go decisions are
 reserved to the owner; routine build decisions are not (current phase 5 preference — minimal owner
 involvement).
@@ -59,7 +59,7 @@ round. Standing rule: fix everything a review finds, no silent "not fixing" list
 - **Fuzz:** `scripts/fuzz.ps1`, run by hand before every release, not in CI; a failure keeps its regression
   seed in `testdata/fuzz/`.
 - **Contract tests:** replay recorded Reader API request sequences (unit-level, in CI).
-- **End-to-end UAT:** `docs/uat-plan.md` Suites 1-5 (scripted Playwright+axe, agent-driven scenarios,
+- **End-to-end UAT:** `docs/maintainers/uat-plan.md` Suites 1-5 (scripted Playwright+axe, agent-driven scenarios,
   owner-only device checks, migration rehearsal, restore drill, Reader API regression replay against a real
   deployed build, fresh-machine Docker walkthrough). Planned for phase 5 and not yet executed; the Suite 1
   script is not built yet.
@@ -77,7 +77,7 @@ including a bug fix, gets a changelog fragment under `changes/` (folded into `CH
 
 Go 1.27 toolchain, `modernc.org/sqlite` (CGO-free), Vite/Vitest, and, planned for phase 5 (not built yet),
 Playwright + axe-core (an in-repo script, not a third-party installed skill — see the phase 5 addendum in
-`docs/ui-decisions.md` for why an external UAT package was declined). `scripts/ci-local.ps1` mirrors CI for a fast pre-push check.
+`docs/maintainers/ui-decisions.md` for why an external UAT package was declined). `scripts/ci-local.ps1` mirrors CI for a fast pre-push check.
 
 ## 10. Media/configuration control
 
@@ -88,8 +88,7 @@ automatically; rollback goes through that snapshot, never a hand-copied `kipple.
 
 ## 11. Supplier control (third-party dependencies)
 
-Every dependency choice in the master plan's Go-libraries table (a local planning document) carries a
-documented reason; `docs/design.md` §1 records the ones that shape the design (the SQLite driver, routing). govulncheck runs
+Every dependency choice carries a documented reason; `docs/design.md` §1 records the ones that shape the design (the SQLite driver, routing). govulncheck runs
 on every dependency change; Dependabot is configured; `THIRD_PARTY_NOTICES.md` is regenerated after dependency
 changes. The phase 5 decision not to install the third-party `webapp-uat` npm skill (unverified package scope,
 unnecessary features) is this control working as intended, not a one-off.
@@ -107,8 +106,8 @@ agent working on the repo, and the planned first-time Docker setup walkthrough i
 
 ## 14. Risk management
 
-`docs/risk-register.md` is the living register of open and closed risks, updated at each phase (gap 1 below,
-since closed). It replaced the master plan's per-phase "Risks" sections and ad hoc notes. `docs/design.md` §11
+`docs/maintainers/risk-register.md` is the living register of open and closed risks, updated at each phase (gap 1 below,
+since closed). It replaced per-phase risk notes and ad hoc remarks. `docs/design.md` §11
 keeps the design-level risks and their mitigations.
 
 ## Gaps / candidate additions (all four accepted and built, 2026-09-27)
@@ -127,6 +126,6 @@ keeps the design-level risks and their mitigations.
    maintainer, no SLA") rather than either silence or an over-promise, since external reports are now possible
    for the first time.
 
-Status: all four are built. 1 is `docs/risk-register.md`; 2 is `-cover` in the Go test step and
+Status: all four are built. 1 is `docs/maintainers/risk-register.md`; 2 is `-cover` in the Go test step and
 `npm run test:coverage` in the web job (CI and `scripts/ci-local.ps1`); 3 is `docs/README.md`; 4 is the "Issue
 triage" section of `SECURITY.md`.

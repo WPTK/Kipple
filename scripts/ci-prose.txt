@@ -19,6 +19,14 @@ web/src/theme/README.md
 .github/pull_request_template.md
 .github/ISSUE_TEMPLATE/*.yml
 
-# Read by cmd/kipple/docs_test.go.
+# Read by cmd/kipple/docs_test.go (its userDocs list; add a doc there and its line here).
 !docs/design.md
 !docs/deploy.md
+!docs/troubleshooting.md
+!docs/reverse-proxy.md
+!docs/compatibility.md
+!docs/performance.md
+!docs/threat-model.md
+!CONTRIBUTING.md
+!SECURITY.md
+!web/ACCESSIBILITY.md

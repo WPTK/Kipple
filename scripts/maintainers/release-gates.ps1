@@ -4,7 +4,7 @@
   Runs the release test gates, one at a time, on a detached worktree of an exact commit.
 .DESCRIPTION
   Run it by hand on the commit you are about to tag, for a release in the second or third tier of
-  docs/RELEASING.md ("Gates scale with what changed"). Docs-only and release-commit tiers need only CI.
+  docs/maintainers/RELEASING.md ("Gates scale with what changed"). Docs-only and release-commit tiers need only CI.
 
   Steps, in this order and never in parallel (timing tests flake under load):
     go (twice)   go test -shuffle=<seed> ./... , two runs, each with its own random seed
@@ -31,24 +31,24 @@
 .PARAMETER KeepWorktree
   Leave the worktree and logs in place, to look at a failure.
 .EXAMPLE
-  pwsh scripts/release-gates.ps1
+  pwsh scripts/maintainers/release-gates.ps1
 .EXAMPLE
-  pwsh scripts/release-gates.ps1 -Ref 0123456789abcdef0123456789abcdef01234567 -SkipFuzz -Verbose
+  pwsh scripts/maintainers/release-gates.ps1 -Ref 0123456789abcdef0123456789abcdef01234567 -SkipFuzz -Verbose
 .EXAMPLE
-  pwsh scripts/release-gates.ps1 -WhatIf    # prints the commit and the plan, changes nothing
+  pwsh scripts/maintainers/release-gates.ps1 -WhatIf    # prints the commit and the plan, changes nothing
 .NOTES
   Exit codes: 0 every step passed (FLAKY counts as a pass but is flagged), 1 a step failed,
   2 usage or environment error (bad ref, tool missing).
   If this breaks: it depends on `go test` printing lines that start with "FAIL <package>" and "--- FAIL: <test>"
-  (Get-GoFailure in scripts/lib/Kipple.Tools.ps1), on `npm ci` and `npm test` in web/, on
+  (Get-GoFailure in scripts/maintainers/lib/Kipple.Tools.ps1), on `npm ci` and `npm test` in web/, on
   `node scripts/changelog.mjs check` and on scripts/fuzz.ps1. Change the step list in Get-GatePlan.
-  Tests: Invoke-Pester scripts/release-gates.Tests.ps1
+  Tests: Invoke-Pester scripts/maintainers/release-gates.Tests.ps1
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
   [ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Ref,
   [switch]$SkipFuzz,
-  [ValidateSet('go', 'fuzz', 'web', 'changelog', 'node')][string[]]$Only = @(),
+  [ValidateSet('go', 'fuzz', 'web', 'changelog', 'node', 'starter')][string[]]$Only = @(),
   [switch]$KeepWorktree
 )
 Set-StrictMode -Version Latest
@@ -70,6 +70,7 @@ function Get-GatePlan {
     [pscustomobject]@{ Key = 'web'; Name = 'web: npm ci, npm test'; Run = 0 }
     [pscustomobject]@{ Key = 'changelog'; Name = 'changelog check'; Run = 0 }
     [pscustomobject]@{ Key = 'node'; Name = 'node --test scripts/*.test.mjs'; Run = 0 }
+    [pscustomobject]@{ Key = 'starter'; Name = 'starter feeds are live (scripts/check-starter-feeds.mjs)'; Run = 0 }
   )
   $selected = $all | Where-Object { $Only.Count -eq 0 -or $Only -contains $_.Key }
   if ($SkipFuzz) { $selected = $selected | Where-Object { $_.Key -ne 'fuzz' } }
@@ -232,6 +233,16 @@ function Invoke-NodeGate {
   if ($r.ExitCode -ne 0) { Show-LogTail -Path $log -Lines 25 }
   return Get-StatusRow -ExitCode $r.ExitCode
 }
+function Invoke-StarterGate {
+  [CmdletBinding()]
+  [OutputType([pscustomobject])]
+  param([Parameter(Mandatory)][string]$Work, [Parameter(Mandatory)][string]$Logs)
+  $log = Join-Path $Logs 'starter-feeds.log'
+  $r = Invoke-Native -FilePath node -Arguments 'scripts/check-starter-feeds.mjs' -WorkingDirectory $Work -Step 'starter feeds' -Fix 'replace or drop the feeds listed as FAIL in starter/feeds.json' -AllowFailure -LogPath $log
+  if ($r.ExitCode -ne 0) { Show-LogTail -Path $log -Lines 25 }
+  return Get-StatusRow -ExitCode $r.ExitCode
+}
+
 function Invoke-ReleaseGate {
   <#
   .SYNOPSIS
@@ -271,7 +282,7 @@ function Invoke-ReleaseGate {
     Write-KippleInfo "Worktree: $work   logs: $logs"
     $common = @{ Work = $work; Logs = $logs }
     foreach ($s in $plan) {
-      $gate = @{ go = 'Invoke-GoGate'; fuzz = 'Invoke-FuzzGate'; web = 'Invoke-WebGate'; changelog = 'Invoke-ChangelogGate'; node = 'Invoke-NodeGate' }[$s.Key]
+      $gate = @{ go = 'Invoke-GoGate'; fuzz = 'Invoke-FuzzGate'; web = 'Invoke-WebGate'; changelog = 'Invoke-ChangelogGate'; node = 'Invoke-NodeGate'; starter = 'Invoke-StarterGate' }[$s.Key]
       $gateArgs = $common.Clone()
       if ($s.Key -eq 'go') { $gateArgs.Run = $s.Run }
       if ($s.Key -eq 'web') { $gateArgs.NpmCache = $npmCache }

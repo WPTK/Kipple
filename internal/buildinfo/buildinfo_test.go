@@ -14,7 +14,7 @@ func TestNormalized(t *testing.T) {
 	require.Equal(t, "v1.2.3", got.Version)
 }
 
-// The first line of the verbose report is exactly what plain `kipple version` prints: docs/RELEASING.md
+// The first line of the verbose report is exactly what plain `kipple version` prints: docs/maintainers/RELEASING.md
 // step 10 compares against it.
 func TestReportFirstLineIsTheVersion(t *testing.T) {
 	r := Info{Version: "v0.5.0-beta.1", Commit: "0123456789abcdef", BuildDate: "2026-10-01T00:00:00Z"}.Report(9, "abc123")

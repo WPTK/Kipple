@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "eslint .",
+    "lint": "eslint . && cd .. && node web/node_modules/eslint/bin/eslint.js -c web/eslint.config.js scripts/maintainers",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

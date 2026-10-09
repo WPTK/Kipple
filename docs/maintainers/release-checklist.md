@@ -1,9 +1,9 @@
 # 1.0 readiness checklist
 
-The written replacement for a second soak and a go/no-go meeting (`docs/RELEASING.md`, "Version path to 1.0.0"). It is
+The written replacement for a second soak and a go/no-go meeting (`docs/maintainers/RELEASING.md`, "Version path to 1.0.0"). It is
 filled in against the last release candidate build. Each item is checked only with evidence beside it: a link, a run
 number, a note in the findings doc. Items marked **owner** can only be done by the owner; the rest the agent does and
-records. `docs/uat-plan.md` describes the suites.
+records. `docs/maintainers/uat-plan.md` describes the suites.
 
 | # | Item | Who | Evidence |
 |---|---|---|---|

@@ -1,7 +1,7 @@
 import { createStore } from "./store";
 import { announce } from "@/shell/toasts";
 
-// Undo model (docs/research/ui-layouts-keymap-density-round2.md section 3.1):
+// Undo model (docs/maintainers/ui-decisions.md, "Gestures and keys"):
 // - one toast slot, 15 s, repeated same-kind actions merge into one toast;
 // - a stack of 20 undoable groups, reachable with `z` for 60 s;
 // - bulk batches (mark above/below, Shift+A) coalesce with nothing and stay undoable for 2 minutes.

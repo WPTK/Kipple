@@ -1,6 +1,6 @@
 #requires -Version 7.2
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
-# Tests for scripts/lib/Kipple.Tools.ps1. Run: Invoke-Pester scripts/lib/Kipple.Tools.Tests.ps1
+# Tests for scripts/maintainers/lib/Kipple.Tools.ps1. Run: Invoke-Pester scripts/maintainers/lib/Kipple.Tools.Tests.ps1
 # Each test is Arrange / Act / Assert and names the behavior it protects, so a repair can be checked against it.
 
 BeforeAll {

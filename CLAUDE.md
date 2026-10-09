@@ -7,7 +7,7 @@ docker via PowerShell, 127.0.0.1 not localhost, name compose services explicitly
 The dev machine and the Kipple server are two different machines, and neither is how other people will run Kipple: they
 pull the published image and run it on their own. Write code, docs and examples for a stranger ("your server"), and say
 "the dev machine" and "the Kipple server" in conversation, never the owner's host labels. The owner's own deploy steps
-live in one place, `docs/RELEASING.md`.
+live in one place, `docs/maintainers/RELEASING.md`.
 
 ## Design rules (no band-aids)
 
@@ -23,7 +23,7 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 - Write for a stranger. User-facing text (UI, docs, errors, release notes' top paragraph) describes the product as it
   is, with no earlier versions, old ports or past decisions; history lives in CHANGELOG.md and the decision records.
 
-## Decisions (do not relitigate; detail is in docs/design.md and docs/ui-decisions.md)
+## Decisions (do not relitigate; detail is in docs/design.md and docs/maintainers/ui-decisions.md)
 
 - **Stack:** Go backend, React + TypeScript + Vite + Tailwind + shadcn frontend, SQLite in WAL mode. The frontend build
   is embedded in the Go binary. One image, one container, one port.
@@ -64,27 +64,24 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 ## Deploy and releases
 
 GitHub (`WPTK/Kipple`) is the source of truth; the pushed tag is what deploys, never `main` or an unpushed tree. The
-exact commands, backup, verification and GHCR steps are in `docs/RELEASING.md`; do not copy them here.
+exact commands, backup, verification and GHCR steps are in `docs/maintainers/RELEASING.md`; do not copy them here.
 
-- Kipple server: service `kipple` in its compose project, named volume for `/data`, 10m x 3 log rotation. Build from the
-  tag with the three build args (`KIPPLE_VERSION`, `KIPPLE_VCS_REF`, `KIPPLE_BUILD_DATE`; `.git` is not in the build
-  context). Never a bare `up`/`down`. From 0.6.0-rc.1 the server pulls the signed image by digest instead.
-- Public URL `https://rss.example.com` via the owner's cloudflared tunnel. The Access bypass covers exactly the `/api/greader.php`
-  prefix; root `/accounts/ClientLogin` and `/reader/api/0/*` answer but stay behind Access; the UI stays behind email
-  OTP. The previous reader stays paused, not removed, until the owner says so.
+- Kipple server: service `kipple` in its compose project; it pulls the signed image by digest, with build-from-tag as the
+  fallback (both in the release steps). Never a bare `up`/`down`.
+- Cloudflare Access: the bypass covers exactly the `/api/greader.php` prefix; root `/accounts/ClientLogin` and
+  `/reader/api/0/*` answer but stay behind Access, and the UI stays behind email OTP. The previous reader stays paused,
+  not removed, until the owner says so.
 - SemVer with `-alpha.N`/`-beta.N`/`-rc.N`. Annotated tag `vX.Y.Z[-pre.N]` on the exact deployed commit, made at deploy
   time; never move or reuse a pushed tag. One writer on the Kipple server at a time.
-- `CHANGELOG.md` is Keep a Changelog 1.1.0: every behavior change adds a one-file entry under `changes/`
-  (`changes/README.md`), never an edit to `CHANGELOG.md`; a release folds them in with
-  `node scripts/changelog.mjs release X.Y.Z`.
-- CI: govulncheck, staticcheck, gosec (high/high only), gitleaks, Trivy; the web job runs lint, Vitest, build, theme
-  contrast and `npm audit --omit=dev --audit-level=high`. Any dependency change gets a govulncheck run. Suppress findings
-  only with a written reason.
+- Every behavior change adds a one-file entry under `changes/` (`changes/README.md`), never an edit to `CHANGELOG.md`; a
+  release folds them in with `node scripts/changelog.mjs release X.Y.Z`.
+- The checks are the workflow files in `.github/workflows/`. Any dependency change gets a govulncheck run. Suppress
+  findings only with a written reason.
 
 ## Process
 
 - Phases and the plan to 1.0 live in the history repo plan `plans/0.8-1.0-plan.md`. Release steps follow
-  `docs/RELEASING.md` (gates scale with what changed); the 1.0 sign-off is `docs/release-checklist.md`.
+  `docs/maintainers/RELEASING.md` (gates scale with what changed); the 1.0 sign-off is `docs/maintainers/release-checklist.md`.
 - Verify iOS layout in the browser pane at the mobile preset before calling a UI change done.
 - Save decisions and gotchas to memory. Update the history repo (`WPTK/kipple-history`, `C:\kipple-history`) at least
   daily and after every release, meeting or incident: fetch first, never force-push, and apply the scrub rules (no
@@ -108,7 +105,7 @@ Most of the cost is context re-read on every turn, so keep each context small.
 - **Subagents:** use one only when the work is independent, large, or must not fill this context. Give it the files and
   the question, a model, and a stop condition. Do not spawn a verifier for a fact one command can check. There is no
   limit on how many agents run at once. An author stops at "pushed" and never waits on CI; the main session owns CI
-  waiting with one blocking `gh pr checks <n> --watch --fail-fast` (or `scripts/pr-ready.ps1`) per PR. A reviewer works
+  waiting with one blocking `gh pr checks <n> --watch --fail-fast` (or `scripts/maintainers/pr-ready.ps1`) per PR. A reviewer works
   alone and finishes before it hands back.
 - **Do not re-verify what CI already proved.** A release or docs-only commit needs the CI run on that commit and nothing
   more. Fuzz, UAT suites and a delta review run once, on the commit being tagged, and only if code changed since the

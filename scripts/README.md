@@ -2,9 +2,13 @@
 
 Release and maintenance tooling. PowerShell 7 (`pwsh`) and Node 22 or later. Nothing here is needed to run Kipple.
 
+The four PowerShell tools below, their shared library and `site-shots.mjs` (the release screenshots) are for whoever
+releases Kipple and live in `scripts/maintainers/`. The scripts directly in `scripts/` are the checks CI and
+contributors run (`ci-local.ps1`, `fuzz.ps1`, the changelog and link tools).
+
 ## The PowerShell tools
 
-All of them share `scripts/lib/Kipple.Tools.ps1`: small functions with comment-based help, one place that runs native
+All of them share `scripts/maintainers/lib/Kipple.Tools.ps1`: small functions with comment-based help, one place that runs native
 commands (`Invoke-Native`) so every failure names the step, the exact command and the likely fix, and one place that
 maps the outcome to an exit code (`Invoke-ToolMain`). Add `-Verbose` to any of them to see each step and each command
 line. Messages go to the information stream; result rows are returned as objects.
@@ -21,9 +25,9 @@ bad input). PowerShell itself exits `1` when it rejects a parameter before the s
 
 ### release-gates.ps1
 
-    pwsh scripts/release-gates.ps1 [-Ref <full sha>] [-SkipFuzz] [-Only go,fuzz,web,changelog,node] [-KeepWorktree] [-WhatIf]
+    pwsh scripts/maintainers/release-gates.ps1 [-Ref <full sha>] [-SkipFuzz] [-Only go,fuzz,web,changelog,node,starter] [-KeepWorktree] [-WhatIf]
 
-Prints the full sha it tests, runs `go test` twice, fuzz, the web tests, the changelog check and the Node script tests,
+Prints the full sha it tests, runs `go test` twice, fuzz, the web tests, the changelog check, the Node script tests and the starter-feed liveness check (`check-starter-feeds.mjs`, needs network),
 and prints a pass/fail table. A Go package that fails in the full run but passes alone is shown as FLAKY (both
 results are in the table) and does not fail the run. Every step refuses to start while another heavy step holds the
 lock.
@@ -34,9 +38,9 @@ list is `Get-GatePlan`.
 
 ### release-publish.ps1
 
-    pwsh scripts/release-publish.ps1 -Tag vX.Y.Z[-beta.N] (-Prerelease | -Full) [-Repo owner/name] [-WhatIf]
+    pwsh scripts/maintainers/release-publish.ps1 -Tag vX.Y.Z[-beta.N] (-Prerelease | -Full) [-Repo owner/name] [-WhatIf]
 
-Run after the tag is pushed (docs/RELEASING.md, step 11). It waits for the tag's Release workflow run, downloads the
+Run after the tag is pushed (docs/maintainers/RELEASING.md, step 11). It waits for the tag's Release workflow run, downloads the
 `image-notes` artifact, runs `cosign verify` and `cosign verify-blob` with the exact identity of that tag's run, builds
 the notes (`changelog.mjs notes` plus `image-notes.md`) and runs `gh release create` with the SBOM and its bundle
 attached. A failed verification stops it before anything is created (exit 1). Exactly one of `-Prerelease` and `-Full`
@@ -49,7 +53,7 @@ and `gh run list/download`. Each has one function in the script.
 
 ### branch-cleanup.ps1
 
-    pwsh scripts/branch-cleanup.ps1 [-IncludeRemote] [-WhatIf]
+    pwsh scripts/maintainers/branch-cleanup.ps1 [-IncludeRemote] [-WhatIf]
 
 Asks GitHub (`gh pr list --state merged` and `--state open`) which branches are merged. It touches a branch only when a
 merged PR used it as its head and the branch tip equals that PR's final head commit, no open PR uses it, it is not
@@ -63,7 +67,7 @@ list --porcelain` output. The decision logic is `Get-CleanupPlan`; every reason 
 
 ### pr-ready.ps1
 
-    pwsh scripts/pr-ready.ps1 -Number N [-Merge] [-Repo owner/name] [-WhatIf]
+    pwsh scripts/maintainers/pr-ready.ps1 -Number N [-Merge] [-Repo owner/name] [-WhatIf]
 
 One verdict: `READY` or `BLOCKED because ...` (open, not a draft, no failing or pending checks and at least one
 reported, base branch merged into the head, merge state CLEAN, no review requesting changes). The base-in-head check asks
@@ -78,7 +82,7 @@ and `gh pr merge --match-head-commit`. The decision logic is `Get-PrVerdict`.
 
 `changelog.mjs`, `audit-report.mjs`, `check-links.mjs` and `uat-labels.mjs` each have a `*.test.mjs` beside them
 (`node --test scripts/<name>.test.mjs`). `uat-labels.mjs [<git range>]` is read-only: it fails (exit 1) when an
-`aria-label` removed or changed in `web/src` is still used by `web/uat/*.mjs` (see docs/uat-plan.md). If it breaks: it
+`aria-label` removed or changed in `web/src` is still used by `web/uat/*.mjs` (see docs/maintainers/uat-plan.md). If it breaks: it
 reads `git diff -U0 <range> -- web/src` and only sees labels written on the same line as the attribute
 (`extractFragments`).
 
@@ -93,7 +97,7 @@ Both are separate jobs at the end of `.github/workflows/ci.yml`.
 
 ## Tests for the tools
 
-    pwsh -NoProfile -Command "Invoke-Pester scripts/lib/Kipple.Tools.Tests.ps1, scripts/release-gates.Tests.ps1, scripts/release-publish.Tests.ps1, scripts/branch-cleanup.Tests.ps1, scripts/pr-ready.Tests.ps1"
+    pwsh -NoProfile -Command "Invoke-Pester scripts/maintainers"
 
 Pester 5.5 or later (`Install-PSResource Pester -Scope CurrentUser`). Native commands are mocked: no network, no push.
 Lint: `pwsh scripts/ci-local.ps1 -Lint` (PSScriptAnalyzer with `scripts/PSScriptAnalyzerSettings.psd1`; findings of

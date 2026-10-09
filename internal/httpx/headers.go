@@ -75,7 +75,7 @@ func PageCSP(imgMode string, secure bool) string {
 const APIVersion = "1"
 
 // Secure wraps h so every response carries the security headers of
-// docs/research/backend-additions-round2.md section 5.1. The policy that depends
+// docs/design.md §7.7. The policy that depends
 // on the content is chosen when the response starts, from its Content-Type, so
 // it needs no list of routes: HTML gets the full page policy, other text and
 // JSON get default-src 'none', and assets get frame-ancestors only. A handler

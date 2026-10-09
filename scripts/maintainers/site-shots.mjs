@@ -2,8 +2,9 @@
 // local instance.
 //
 //   KIPPLE_SEED_SET=site npm run seed              (in one terminal; wait a minute for the feeds to fetch)
-//   node scripts/site-shots.mjs --out ../../kipple-website/screenshots [--site ../../kipple-website]
-//   node scripts/site-shots.mjs --readme ../docs/screenshots
+//   node ../scripts/maintainers/site-shots.mjs --out ../../kipple-website/screenshots [--site ../../kipple-website]
+//   node ../scripts/maintainers/site-shots.mjs --readme ../docs/screenshots
+// Run from web/: the output paths are relative to it, and Playwright is the one web/ installs.
 //
 // --readme writes the four WebP files README.md shows, deliberately not the site's: the Inbox layout with an article
 // open on a 1100x700 desktop at 1.5x (1650x1050), and the Cards layout on a 390x844 phone at 1.5x (585x1266), each in Paper and in Midnight so
@@ -15,13 +16,16 @@
 // and phone-midnight-list.webp 585x1266 (390x844 at 1.5x). Light is Paper and dark is Midnight, both from the browser's
 // colour-scheme setting. The list uses the device's default layout (Editorial), as the site's shots always have. With --site <dir> it also renders <dir>/design-system/social-preview.html to <dir>/og.png
 // (1280x640). Only a loopback address is accepted, with the seed's throwaway credentials. Needs Chromium
-// (`npx playwright install chromium`, as for `npm run uat`). Run by hand at each release (docs/RELEASING.md).
+// (`npx playwright install chromium`, as for `npm run uat`). Run by hand at each release (docs/maintainers/RELEASING.md).
 /* global document, createImageBitmap, OffscreenCanvas -- used inside page.evaluate, which runs in the browser */
 import { mkdirSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { chromium } from "@playwright/test";
+
+// Playwright lives in web/node_modules, which a script outside web/ does not see by itself.
+const { chromium } = await import(pathToFileURL(createRequire(new URL("../../web/package.json", import.meta.url)).resolve("@playwright/test")).href);
 
 const { values: opt } = parseArgs({
   options: {
@@ -36,7 +40,7 @@ const { values: opt } = parseArgs({
   },
 });
 if (!opt.out && !opt.readme) {
-  console.error("usage: node scripts/site-shots.mjs [--out <site screenshots dir> [--site <kipple-website dir>]] [--readme <README screenshots dir>] [--feed <feed title>]");
+  console.error("usage: node ../scripts/maintainers/site-shots.mjs [--out <site screenshots dir> [--site <kipple-website dir>]] [--readme <README screenshots dir>] [--feed <feed title>]");
   process.exit(2);
 }
 const origin = new URL(opt.url);

@@ -3,7 +3,7 @@
 .SYNOPSIS
   Creates the GitHub Release for a tag that is already pushed, after verifying the image and SBOM signatures.
 .DESCRIPTION
-  Run it after you pushed the release tag (docs/RELEASING.md, step 11). The tag itself is never created here.
+  Run it after you pushed the release tag (docs/maintainers/RELEASING.md, step 11). The tag itself is never created here.
 
   Steps:
     1. Checks the tag kind matches -Prerelease/-Full, the tag exists in the repository and no GitHub Release exists for it yet.
@@ -29,9 +29,9 @@
 .PARAMETER TimeoutMinutes
   How long to wait for the Release workflow run. Default 60.
 .EXAMPLE
-  pwsh scripts/release-publish.ps1 -Tag v1.2.3-beta.1 -Prerelease -WhatIf
+  pwsh scripts/maintainers/release-publish.ps1 -Tag v1.2.3-beta.1 -Prerelease -WhatIf
 .EXAMPLE
-  pwsh scripts/release-publish.ps1 -Tag v1.2.3 -Full -Verbose
+  pwsh scripts/maintainers/release-publish.ps1 -Tag v1.2.3 -Full -Verbose
 .NOTES
   Exit codes: 0 release created (or -WhatIf finished), 1 a signature check failed or the workflow run failed,
   2 usage or environment error (including neither or both of -Prerelease and -Full). PowerShell exits 1 when it rejects a malformed tag.
@@ -39,7 +39,7 @@
   `image-notes` holding image-notes.md, kipple-<version>.sbom.json and kipple-<version>.sbom.json.sigstore.json
   (all three names are in .github/workflows/release.yml, "Release notes block"), (c) the output format of
   `node scripts/changelog.mjs notes`, (d) cosign 3 or later and its flags, (e) `gh run list/view/download`.
-  Each is wrapped in one function below. Tests: Invoke-Pester scripts/release-publish.Tests.ps1
+  Each is wrapped in one function below. Tests: Invoke-Pester scripts/maintainers/release-publish.Tests.ps1
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -338,7 +338,7 @@ function Invoke-ReleasePublish {
   Assert-ReleaseKind -Tag $Tag -IsFull $IsFull
   Write-KippleInfo "Release $Tag of $Repo ($(if ($IsFull) { 'full release' } else { 'pre-release' }))"
 
-  if (-not (Test-TagPushed -Repo $Repo -Tag $Tag)) { throw "Step 'check the tag is on the repository' failed: $Tag is not in $Repo (or the repository name or your access is wrong). Likely fix: push the tag first (docs/RELEASING.md step 8; this script never creates it), or check -Repo and gh auth status." }
+  if (-not (Test-TagPushed -Repo $Repo -Tag $Tag)) { throw "Step 'check the tag is on the repository' failed: $Tag is not in $Repo (or the repository name or your access is wrong). Likely fix: push the tag first (docs/maintainers/RELEASING.md step 8; this script never creates it), or check -Repo and gh auth status." }
   if (-not (Test-ReleaseAbsent -Repo $Repo -Tag $Tag)) {
     throw "Step 'check for an existing release' failed: a GitHub Release for $Tag exists already (the workflow appends its notes to an existing release itself). Likely fix: nothing to do, or edit it by hand."
   }

@@ -45,14 +45,14 @@ triaged best-effort (see [SECURITY.md](SECURITY.md)).
    and issue-template files) skips the build and test steps; the required checks still report as passed. On every other
    run CI deletes those files before building and testing, so code that reads one fails; take it off the list then.
    The PowerShell tooling checks (`tooling` job) run only when `scripts/`, the CI workflow or a `.gitignore` changed.
-8. The maintainer merges. Releases are tagged by the maintainer only ([docs/RELEASING.md](docs/RELEASING.md)).
+8. The maintainer merges. Releases are tagged by the maintainer only ([docs/maintainers/RELEASING.md](docs/maintainers/RELEASING.md)).
 
 ## Design and quality notes
 
 - [docs/design.md](docs/design.md) is the source of truth for how Kipple works; read the relevant section
   before changing behaviour. Passwords are stored with argon2id and there is no custom cryptography; keep it
   that way.
-- [docs/sqa-plan.md](docs/sqa-plan.md) and [docs/uat-plan.md](docs/uat-plan.md) describe how changes are tested
+- [docs/maintainers/sqa-plan.md](docs/maintainers/sqa-plan.md) and [docs/maintainers/uat-plan.md](docs/maintainers/uat-plan.md) describe how changes are tested
   and accepted.
 - If you rename or remove an `aria-label` in `web/src`, update `web/uat/*.mjs` to match: the UAT screens find
   controls by that name. `node scripts/uat-labels.mjs` checks it in a second (CI runs it on pull requests).

@@ -17,7 +17,7 @@
   is CLOSED, waiting a short while for GitHub to close them.
 
   What it can change: only -Merge changes anything (it merges one PR; it never deletes the branch: use
-  scripts/branch-cleanup.ps1). Without -Merge it is read-only. -WhatIf with -Merge prints the merge command.
+  scripts/maintainers/branch-cleanup.ps1). Without -Merge it is read-only. -WhatIf with -Merge prints the merge command.
 .PARAMETER Number
   The pull request number.
 .PARAMETER Merge
@@ -25,16 +25,16 @@
 .PARAMETER Repo
   owner/name. Default: the repository `gh repo view` reports.
 .EXAMPLE
-  pwsh scripts/pr-ready.ps1 -Number 276
+  pwsh scripts/maintainers/pr-ready.ps1 -Number 276
 .EXAMPLE
-  pwsh scripts/pr-ready.ps1 -Number 280 -Merge -WhatIf
+  pwsh scripts/maintainers/pr-ready.ps1 -Number 280 -Merge -WhatIf
 .NOTES
   Exit codes: 0 READY (and merged and verified, with -Merge), 1 BLOCKED or the post-merge verification failed,
   2 usage or environment error.
   If this breaks: it depends on `gh pr view --json` fields number,state,isDraft,headRefOid,baseRefName,
   mergeStateStatus,reviewDecision,statusCheckRollup,closingIssuesReferences (Get-PullRequestState), on the compare
   API's `status` field (Get-AncestorStatus), and on `gh pr merge --match-head-commit`. The decision logic is
-  Get-PrVerdict. Tests: Invoke-Pester scripts/pr-ready.Tests.ps1
+  Get-PrVerdict. Tests: Invoke-Pester scripts/maintainers/pr-ready.Tests.ps1
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(

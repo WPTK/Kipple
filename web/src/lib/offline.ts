@@ -8,7 +8,7 @@ import { offlineStore, setOnline, setPending, setUpdateReady } from "./offlineSt
 import { wipeStatsQueue } from "./statsSender";
 
 /**
- * Offline support (docs/ui-decisions.md, answer 10): read what is already on the device, keep working, and
+ * Offline support (docs/maintainers/ui-decisions.md, answer 10): read what is already on the device, keep working, and
  * send the changes when the network is back. Two halves: the service worker (web/sw/sw.js) keeps the app and
  * the last good API answers, and this file keeps the changes made in the meantime.
  *
