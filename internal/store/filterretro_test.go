@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/filter"
 )
 
@@ -17,12 +18,18 @@ func (e *env) seedRetro(n int) int64 {
 	e.t.Helper()
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
-	e.fetchBody(id, frss(fnumbered(n, func(i int) string {
+	specs := fnumbered(n, func(i int) string {
 		if i%2 == 0 {
 			return fmt.Sprintf("spam %d", i)
 		}
 		return fmt.Sprintf("ham %d", i)
-	})...))
+	})
+	// One fetch keeps at most fetch.MaxItemsPerFetch entries, so a larger seed takes several.
+	for len(specs) > 0 {
+		k := min(len(specs), fetch.MaxItemsPerFetch)
+		e.fetchBody(id, frss(specs[:k]...))
+		specs = specs[k:]
+	}
 	return id
 }
 

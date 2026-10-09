@@ -1,0 +1,1 @@
+A feed document nested more than 512 elements deep is refused as not a feed, and one fetch keeps at most the first 2,000 entries of a feed (twice the largest retention setting; unlimited retention included). The feed's last-fetch notes say when entries were left out.
