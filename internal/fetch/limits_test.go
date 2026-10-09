@@ -15,14 +15,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// nestingCases are the documents the nesting tests build: a format, optionally with a leading NUL byte or a stray
+// control byte, which the parser drops before it reads the document.
+var nestingCases = []string{"rss", "atom", "rss+nul", "atom+nul", "rss+ctl", "atom+ctl"}
+
 // deepDoc is a feed whose first entry holds n unclosed namespaced elements, one inside the next.
 func deepDoc(format string, n int) []byte {
 	var b strings.Builder
+	format, extra, _ := strings.Cut(format, "+")
+	if extra == "nul" {
+		b.WriteByte(0)
+	}
 	switch format {
 	case "rss":
 		b.WriteString(`<?xml version="1.0"?><rss version="2.0" xmlns:x="urn:x"><channel><title>t</title><item><title>i</title>`)
 	case "atom":
 		b.WriteString(`<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:x="urn:x"><title>t</title><entry><title>e</title>`)
+	}
+	if extra == "ctl" {
+		b.WriteByte(1)
 	}
 	b.WriteString(strings.Repeat("<x:a>", n))
 	return []byte(b.String())
@@ -38,7 +49,7 @@ func TestParseRefusesDeepNesting(t *testing.T) {
 		}
 		return
 	}
-	for _, format := range []string{"rss", "atom"} {
+	for _, format := range nestingCases {
 		t.Run(format, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
@@ -58,12 +69,13 @@ func TestParseRefusesDeepNesting(t *testing.T) {
 
 // closedDoc is deepDoc with every element closed: a well-formed document.
 func closedDoc(format string, n int) []byte {
-	tail := map[string]string{"rss": `</item></channel></rss>`, "atom": `</entry></feed>`}[format]
+	base, _, _ := strings.Cut(format, "+")
+	tail := map[string]string{"rss": `</item></channel></rss>`, "atom": `</entry></feed>`}[base]
 	return []byte(string(deepDoc(format, n)) + strings.Repeat("</x:a>", n) + tail)
 }
 
 func TestParseNestingLimitBoundary(t *testing.T) {
-	for _, format := range []string{"rss", "atom"} {
+	for _, format := range nestingCases {
 		// Ordinary markup nests a handful of levels; the limit leaves wide room for it.
 		f, err := ParseFeed(closedDoc(format, 100), ParseOptions{})
 		require.NoError(t, err, format)

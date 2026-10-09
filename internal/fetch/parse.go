@@ -182,23 +182,28 @@ const MaxItemsPerFetch = 2000
 // a few more. gofeed walks extension elements recursively, so the depth is checked before it runs.
 const MaxNesting = 512
 
-// checkNesting reads an XML body's tokens once, building nothing, and refuses one nested deeper than MaxNesting. It
-// counts raw start and end tags, which never undercounts the depth the parser sees (gofeed's non-strict decoder may
-// close an element early on a mismatched end tag, never late). A body that is not XML is left to the parser, and so
-// is one that is not well formed: the parser's decoder stops at the same error or sooner.
+// checkNesting reads the tokens of a body gofeed would parse as RSS or Atom once, building nothing, and refuses one
+// nested deeper than MaxNesting. It reads the bytes gofeed's XML parsers read (C0 control bytes dropped, see
+// xmlFilter) with the same non-strict decoder, and counts raw start and end tags, which never undercounts the depth
+// the parser sees (a mismatched end tag may close an element early, never late). A token error refuses the body: the
+// parser's decoder would stop there too, so only the message differs. The scan ends where the parser does, when the
+// root element closes.
 func checkNesting(body []byte) error {
-	if t := bytes.TrimLeft(body, " \t\r\n\ufeff"); len(t) == 0 || t[0] != '<' {
-		return nil
+	if t := gofeed.DetectFeedType(bytes.NewReader(body)); t != gofeed.FeedTypeRSS && t != gofeed.FeedTypeAtom {
+		return nil // JSON is decoded iteratively, and an undetected type is never parsed
 	}
-	d := xml.NewDecoder(bytes.NewReader(body))
+	d := xml.NewDecoder(xmlFilter{bytes.NewReader(body)})
 	d.Strict = false
 	// The body is UTF-8 already (DecodeBody); whatever the declaration says, read it as it is.
 	d.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
 	depth := 0
 	for {
 		tok, err := d.RawToken()
-		if err != nil {
+		if err == io.EOF {
 			return nil
+		}
+		if err != nil {
+			return err
 		}
 		switch tok.(type) {
 		case xml.StartElement:
@@ -206,9 +211,29 @@ func checkNesting(body []byte) error {
 				return fmt.Errorf("document nests elements deeper than %d levels", MaxNesting)
 			}
 		case xml.EndElement:
-			if depth > 0 {
-				depth--
+			if depth--; depth <= 0 {
+				return nil
 			}
+		}
+	}
+}
+
+// xmlFilter drops the C0 control bytes XML does not allow (all below 0x20 but tab, LF and CR), as gofeed does before
+// its RSS and Atom parsers read a body.
+type xmlFilter struct{ r io.Reader }
+
+func (f xmlFilter) Read(p []byte) (int, error) {
+	for {
+		n, err := f.r.Read(p)
+		w := 0
+		for _, b := range p[:n] {
+			if b >= 0x20 || b == '\t' || b == '\n' || b == '\r' {
+				p[w] = b
+				w++
+			}
+		}
+		if w > 0 || err != nil {
+			return w, err
 		}
 	}
 }
