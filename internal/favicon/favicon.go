@@ -164,6 +164,9 @@ func getPage(ctx context.Context, hc *http.Client, r Request, page string) ([]by
 		return nil, "", err
 	}
 	defer resp.Body.Close()
+	if fetch.UnaskedCoding(resp.Header) {
+		return nil, "", errors.New("the page is compressed in a way Kipple did not ask for")
+	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPageBytes))
 	if err != nil {
 		return nil, "", err

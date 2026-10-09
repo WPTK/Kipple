@@ -18,7 +18,7 @@ func fuzzSeeds(f *testing.F) {
 		deep += `<outline text="L` + string(rune('a'+i)) + `">`
 	}
 	deep += `<outline xmlUrl="https://deep.test/feed"/>` + strings.Repeat("</outline>", 12)
-	for _, s := range []string{
+	for _, s := range append(hostileOPMLSeeds(), []string{
 		"", `<opml version="2.0"><body><outline text="F"><outline type="rss" xmlUrl="https://a/feed" text="A"/></outline></body></opml>`,
 		`<?xml version="1.0" encoding="ISO-8859-1"?><opml><body><outline text="caf` + "\xe9" + `"><outline xmlUrl="x"/></outline></body></opml>`,
 		`<!DOCTYPE x [<!ENTITY a "b">]><opml><body><outline xmlUrl="&a;"/></body></opml>`,
@@ -32,8 +32,25 @@ func fuzzSeeds(f *testing.F) {
 		`<opml><body><outline text="A"><outline><outline text="B"><outline><outline xmlUrl="https://w.test/f"/></outline></outline></outline></outline></body></opml>`,
 		`<opml><body><outline text="Uncategorized"><outline text="X"><outline xmlUrl="https://u.test/f"/></outline></outline>` +
 			`<outline text="Bad&#127;"><outline text="Kid"><outline xmlUrl="https://b.test/f"/></outline></outline></body></opml>`,
-	} {
+	}...) {
 		f.Add(s)
+	}
+}
+
+// hostileOPMLSeeds are documents written to stress the importer: entity and DTD tricks, nesting far past the
+// folder depth limit, very wide folders, and markup or control bytes in names.
+func hostileOPMLSeeds() []string {
+	return []string{
+		`<?xml version="1.0"?><!DOCTYPE opml [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">` +
+			`<!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">]><opml><body><outline text="&c;"><outline xmlUrl="https://e.test/&c;"/></outline></body></opml>`,
+		`<?xml version="1.0"?><!DOCTYPE opml [<!ENTITY x SYSTEM "file:///etc/passwd">]><opml><body><outline text="&x;" xmlUrl="https://x.test/f"/></body></opml>`,
+		`<?xml version="1.0"?><!DOCTYPE opml [<!ENTITY % p SYSTEM "http://127.0.0.1:1/p.dtd">%p;]><opml><body><outline xmlUrl="https://p.test/f"/></body></opml>`,
+		`<opml><body>` + strings.Repeat(`<outline text="d">`, 9000) + `<outline xmlUrl="https://deep.test/f"/>` + strings.Repeat("</outline>", 9000) + `</body></opml>`,
+		`<opml><body>` + strings.Repeat(`<outline text="d">`, 11000),
+		`<opml><body><outline text="wide">` + strings.Repeat(`<outline type="rss" xmlUrl="https://w.test/f"/>`, 3000) + `</outline></body></opml>`,
+		"\x00<opml><body><outline text=\"a\x01b\" xmlUrl=\"https://c.test/f\"/></body></opml>",
+		`<opml><body><outline text="&lt;script&gt;alert(1)&lt;/script&gt;"><outline text="<b>x</b>" xmlUrl="javascript:alert(1)"/>` +
+			`<outline xmlUrl="data:text/html,x"/><outline xmlUrl="file:///etc/passwd"/></outline></body></opml>`,
 	}
 }
 

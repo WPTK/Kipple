@@ -176,3 +176,15 @@ func TestSubscribeRefusesBeyondTheLimit(t *testing.T) {
 	require.NotNil(t, s, "a closed subscriber frees its place")
 	s.Close()
 }
+
+func TestSubscribeOnAClosedHubReturnsAClosedSubscriberEvenWhenFull(t *testing.T) {
+	h := newHub()
+	for i := 0; i < MaxSubscribers; i++ {
+		require.NotNil(t, h.Subscribe(0))
+	}
+	h.Close()
+	s := h.Subscribe(0)
+	require.NotNil(t, s)
+	_, open := <-s.C
+	require.False(t, open)
+}

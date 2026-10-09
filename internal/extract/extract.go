@@ -90,12 +90,11 @@ type Target struct {
 
 // transport picks the round tripper for a target (see Target.AllowPrivate).
 func (e *Extractor) transport(t Target) http.RoundTripper {
-	guarded := e.opt.Transport(false, false, t.NoHTTP2)
-	if (!t.AllowPrivate && !t.InsecureTLS) || t.FeedHost == "" {
-		return guarded
+	rt := fetch.ContentScopedTransport(e.opt.Transport, t.FeedHost, t.AllowPrivate, t.InsecureTLS, t.NoHTTP2)
+	if !fetch.HasScope(t.FeedHost, t.AllowPrivate, t.InsecureTLS) {
+		return rt
 	}
-	return &explainScope{inner: fetch.ContentScopedTransport(e.opt.Transport, t.FeedHost, t.AllowPrivate, t.InsecureTLS, t.NoHTTP2),
-		host: t.FeedHost, allowPrivate: t.AllowPrivate, insecureTLS: t.InsecureTLS, feedID: t.FeedID, log: e.opt.Logger}
+	return &explainScope{inner: rt, host: t.FeedHost, allowPrivate: t.AllowPrivate, insecureTLS: t.InsecureTLS, feedID: t.FeedID, log: e.opt.Logger}
 }
 
 // explainScope says why a request off the feed's site was refused when the
@@ -200,9 +199,7 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 		}
 		return Result{}, fail("the page answered HTTP %d", resp.StatusCode)
 	}
-	// The transport asks for gzip and decodes it (removing the header). Anything
-	// still named here is a coding nobody asked for, and its bytes are not text.
-	if ce := resp.Header.Get("Content-Encoding"); unaskedCoding(ce) {
+	if fetch.UnaskedCoding(resp.Header) {
 		return Result{}, fail("the page is compressed in a way Kipple did not ask for")
 	}
 	ct := resp.Header.Get("Content-Type")
@@ -286,16 +283,4 @@ func (e *Extractor) get(ctx context.Context, client *http.Client, u, ua string) 
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "text/html, application/xhtml+xml;q=0.9, */*;q=0.1")
 	return client.Do(req)
-}
-
-// unaskedCoding reports whether a Content-Encoding value names a real coding.
-// A junk value ("none", "utf-8") on a plain page is left alone.
-func unaskedCoding(ce string) bool {
-	for _, c := range strings.Split(strings.ToLower(ce), ",") {
-		switch strings.TrimSpace(c) {
-		case "gzip", "x-gzip", "deflate", "br", "zstd", "compress", "x-compress":
-			return true
-		}
-	}
-	return false
 }

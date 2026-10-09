@@ -148,6 +148,32 @@ describe("useServerEvents", () => {
     }
   });
 
+  // The server answers 503 (with Retry-After) while its event-stream slots are full. A browser treats any non-200 answer
+  // as a failed connection: the source is CLOSED and the stream never opened. Recovery must come from our own backoff.
+  it("recovers once a refused stream (503, never opened) gets a free slot", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      mockFetch({
+        "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 4 }),
+        "GET /api/bootstrap": () => json({}),
+      });
+      const { unmount } = setup();
+      for (let i = 0; i < 3; i += 1) {
+        act(() => FakeES.all[i]!.fail());
+        await act(() => vi.advanceTimersByTimeAsync(1_500 * 2 ** i));
+      }
+      expect(FakeES.all).toHaveLength(4);
+      expect(liveStore.get().transport).toBe("fallback");
+      act(() => FakeES.all[3]!.emit("heartbeat", {}));
+      expect(liveStore.get().transport).toBe("open");
+      act(() => FakeES.all[3]!.emit("counts", { unread_total: 9, feeds: {} }));
+      expect(FakeES.all).toHaveLength(4);
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // Issue #29: a poll still awaiting /api/status when the stream recovers and fails again (starting a
   // second loop) must not reschedule itself when it finally answers, or two loops poll at once.
   it("never runs two fallback poll loops at once when a slow poll answers after a new loop started", async () => {

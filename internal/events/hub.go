@@ -105,12 +105,12 @@ func eventSize(ev Event) int { return len(ev.Data) + len(ev.Type) + 48 }
 // replay would overflow the buffer, the subscriber gets a `resync` instead.
 // It returns nil when MaxSubscribers streams are already open.
 func (h *Hub) Subscribe(lastID uint64) *Sub {
-	s := &Sub{C: make(chan Event, subBuffer), hub: h}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.subs) >= MaxSubscribers {
+	if !h.closed && len(h.subs) >= MaxSubscribers {
 		return nil
 	}
+	s := &Sub{C: make(chan Event, subBuffer), hub: h}
 	if h.closed {
 		close(s.C)
 		s.dead = true

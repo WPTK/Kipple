@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"unicode/utf8"
 )
@@ -46,6 +47,9 @@ func FuzzParseFeed(f *testing.F) {
 	}
 	f.Add([]byte(`<rss><channel><item><title>a</title></item><item><title>a</title></item></channel></rss>`))
 	f.Add([]byte(`{"version":"https://jsonfeed.org/version/1.1","items":[{"id":"1","content_html":"<script>x</script>"}]}`))
+	for _, doc := range hostileFeedSeeds() {
+		f.Add(doc)
+	}
 	f.Fuzz(func(t *testing.T, body []byte) {
 		for _, mode := range []string{"", DedupLink, DedupLinkTitle} {
 			fd, err := ParseFeed(bytes.Clone(body), ParseOptions{FeedURL: "https://example.com/feed", DedupMode: mode})
@@ -67,4 +71,37 @@ func FuzzParseFeed(f *testing.F) {
 			}
 		}
 	})
+}
+
+// hostileFeedSeeds are documents written to stress the parser's limits: nesting at and past MaxNesting, more items
+// than one fetch keeps, entity and DTD tricks, control bytes before and inside the markup, and tag-like text where
+// plain text belongs. Each is small enough for the fuzzer to mutate.
+func hostileFeedSeeds() [][]byte {
+	rssItems := func(n int) string {
+		return `<rss version="2.0"><channel><title>t</title>` + strings.Repeat(`<item><title>i</title></item>`, n) + `</channel></rss>`
+	}
+	return [][]byte{
+		deepDoc("rss", MaxNesting+88),
+		deepDoc("atom", MaxNesting+88),
+		deepDoc("rss+nul", MaxNesting+88),
+		deepDoc("atom+ctl", MaxNesting+88),
+		[]byte(string(deepDoc("rss", MaxNesting-8)) + strings.Repeat("</x:a>", MaxNesting-8) + `</item></channel></rss>`),
+		[]byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>t</title><item><title>i</title>` +
+			strings.Repeat("<b>", MaxNesting+88) + `</item></channel></rss>`),
+		[]byte(rssItems(MaxItemsPerFetch + 100)),
+		[]byte(`<?xml version="1.0"?><!DOCTYPE rss [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">` +
+			`<!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">]><rss version="2.0"><channel><title>&c;</title>` +
+			`<item><title>&c;</title><description>&c;</description></item></channel></rss>`),
+		[]byte(`<?xml version="1.0"?><!DOCTYPE rss [<!ENTITY x SYSTEM "file:///etc/passwd">]>` +
+			`<rss version="2.0"><channel><title>&x;</title><item><title>&x;</title></item></channel></rss>`),
+		[]byte(`<?xml version="1.0"?><!DOCTYPE feed [<!ENTITY % p SYSTEM "http://127.0.0.1:1/p.dtd">%p;]>` +
+			`<feed xmlns="http://www.w3.org/2005/Atom"><title>t</title><entry><title>e</title><id>1</id></entry></feed>`),
+		[]byte("\x00" + rssItems(2)),
+		[]byte(`<rss version="2.0"><channel><title>t</title><item><title>` + "\x01\x02<i>a</i>\x7f" + `</title></item></channel></rss>`),
+		[]byte(`<rss version="2.0"><channel><title><![CDATA[<script>alert(1)</script>]]></title>` +
+			`<item><title>&lt;img src=x onerror=alert(1)&gt;</title><author>&lt;b&gt;x&lt;/b&gt;</author>` +
+			`<category><![CDATA[<svg onload=alert(1)>]]></category></item></channel></rss>`),
+		[]byte(`{"version":"https://jsonfeed.org/version/1.1","title":"<script>x</script>","items":[` +
+			`{"id":"1","title":"<img src=x onerror=alert(1)>","authors":[{"name":"<b>x</b>"}],"tags":["<svg onload=1>"]}]}`),
+	}
 }

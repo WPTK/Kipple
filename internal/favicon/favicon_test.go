@@ -362,3 +362,18 @@ func TestParseSizes(t *testing.T) {
 		require.Equal(t, want, parseSizes(in), in)
 	}
 }
+
+func TestAPageInACodingNobodyAskedForIsNotScanned(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Encoding", "br")
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<link rel="icon" href="/i.png">`))
+	}))
+	t.Cleanup(srv.Close)
+	_, err := lookup(t, srv.URL)
+	require.Error(t, err)
+}

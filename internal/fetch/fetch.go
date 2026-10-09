@@ -285,6 +285,9 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		return res.fail(ClassHTTP, fmt.Sprintf("HTTP %d", code))
 	}
 
+	if UnaskedCoding(resp.Header) {
+		return res.fail(ClassParse, "the feed is compressed in a way Kipple did not ask for")
+	}
 	limit := c.opt.MaxResponseBody
 	body, err := io.ReadAll(http.MaxBytesReader(nil, resp.Body, limit))
 	if err != nil {

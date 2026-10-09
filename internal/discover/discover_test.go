@@ -174,3 +174,14 @@ func TestFindEndsAtItsOwnDeadline(t *testing.T) {
 		})
 	}
 }
+
+func TestAPageInACodingNobodyAskedForIsRefused(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Encoding", "br")
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<link rel="alternate" type="application/atom+xml" href="/f">`))
+	}))
+	t.Cleanup(srv.Close)
+	_, err := Find(context.Background(), http.DefaultTransport, "ua", "", srv.URL, false)
+	require.ErrorIs(t, err, ErrUnaskedCoding)
+}
