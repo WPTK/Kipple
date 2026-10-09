@@ -760,7 +760,7 @@ func TestCommitStoresOnlyUsableValidators(t *testing.T) {
 func TestCommitCleansStoredValidatorsOnNotModified(t *testing.T) {
 	for name, tc := range map[string]struct{ etag, lm, wantETag, wantLM string }{
 		"bad tag dropped, good date kept": {`"a b"`, "Wed, 01 Jan 2025 10:00:00 GMT", "", "Wed, 01 Jan 2025 10:00:00 GMT"},
-		"bad date dropped, good tag kept": {`"abc"`, "Wed\x00", `"abc"`, ""},
+		"bad date dropped, good tag kept": {`"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT" + strings.Repeat(" ", 40), `"abc"`, ""},
 		"good pair kept":                  {`"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT", `"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT"},
 	} {
 		t.Run(name, func(t *testing.T) {
