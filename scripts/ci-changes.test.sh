@@ -12,7 +12,7 @@ ok() { # ok NAME EXPECTED ACTUAL
 }
 cls() { printf '%s' "$1" | bash "$cc" --classify; }
 
-ok docs-only false "$(cls $'docs/maintainers/RELEASING.md\nchanges/x.md\nCONTRIBUTING.md')"
+ok docs-only false "$(cls $'docs/maintainers/RELEASING.md\nchanges/x.md\nCLAUDE.md')"
 ok nested-docs-md false "$(cls 'docs/a/b.md')"
 ok issue-template false "$(cls '.github/ISSUE_TEMPLATE/bug_report.yml')"
 ok mixed true "$(cls $'docs/maintainers/RELEASING.md\ninternal/api/api.go')"

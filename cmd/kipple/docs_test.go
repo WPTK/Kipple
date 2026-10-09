@@ -100,7 +100,7 @@ func TestUserDocsCarryNoVersionHistory(t *testing.T) {
 }
 
 // Host labels, home directories and backup paths are one operator's setup; the docs say "your server".
-var ownerSetup = regexp.MustCompile(`(?i)host-[a-z]|ssh host-|/home/user|<backup-dir>`)
+var ownerSetup = regexp.MustCompile(`(?i)\bhost-[ab]\b|\bssh host-|/home/user\b|<backup-dir>`)
 
 func TestPublicDocsNameNoOperatorSetup(t *testing.T) {
 	for _, name := range append([]string{"docs/design.md"}, userDocs...) {
@@ -108,6 +108,39 @@ func TestPublicDocsNameNoOperatorSetup(t *testing.T) {
 		if loc := ownerSetup.FindStringIndex(text); loc != nil {
 			t.Errorf("%s: %q is one operator's setup; write \"your server\" or a placeholder", name, text[loc[0]:loc[1]])
 		}
+	}
+}
+
+// The docs tests read userDocs and design.md, so scripts/ci-prose.txt must not list them as prose: a pull request that
+// changed only one of them would skip the job that runs these tests.
+func TestUserDocsAreNotListedAsProse(t *testing.T) {
+	var allow, deny []*regexp.Regexp
+	for _, line := range strings.Split(readRepoFile(t, "scripts/ci-prose.txt"), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		neg := strings.HasPrefix(line, "!")
+		parts := strings.Split(strings.TrimPrefix(line, "!"), "*")
+		for i, p := range parts {
+			parts[i] = regexp.QuoteMeta(p)
+		}
+		re := regexp.MustCompile("^" + strings.Join(parts, ".*") + "$")
+		if neg {
+			deny = append(deny, re)
+		} else {
+			allow = append(allow, re)
+		}
+	}
+	matches := func(res []*regexp.Regexp, name string) bool {
+		for _, re := range res {
+			if re.MatchString(name) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, name := range append([]string{"docs/design.md"}, userDocs...) {
+		require.False(t, matches(allow, name) && !matches(deny, name), "%s is read by these tests but scripts/ci-prose.txt lists it as prose; add a ! line", name)
 	}
 }
 

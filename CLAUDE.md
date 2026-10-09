@@ -68,11 +68,13 @@ exact commands, backup, verification and GHCR steps are in `docs/maintainers/REL
 
 - Kipple server: service `kipple` in its compose project; it pulls the signed image by digest, with build-from-tag as the
   fallback (both in the release steps). Never a bare `up`/`down`.
-- Cloudflare Access: the bypass covers exactly the `/api/greader.php` prefix; the UI stays behind email OTP. The previous
-  reader stays paused, not removed, until the owner says so.
+- Cloudflare Access: the bypass covers exactly the `/api/greader.php` prefix; root `/accounts/ClientLogin` and
+  `/reader/api/0/*` answer but stay behind Access, and the UI stays behind email OTP. The previous reader stays paused,
+  not removed, until the owner says so.
 - SemVer with `-alpha.N`/`-beta.N`/`-rc.N`. Annotated tag `vX.Y.Z[-pre.N]` on the exact deployed commit, made at deploy
   time; never move or reuse a pushed tag. One writer on the Kipple server at a time.
-- Every behavior change adds a one-file entry under `changes/` (`changes/README.md`), never an edit to `CHANGELOG.md`.
+- Every behavior change adds a one-file entry under `changes/` (`changes/README.md`), never an edit to `CHANGELOG.md`; a
+  release folds them in with `node scripts/changelog.mjs release X.Y.Z`.
 - The checks are the workflow files in `.github/workflows/`. Any dependency change gets a govulncheck run. Suppress
   findings only with a written reason.
 
