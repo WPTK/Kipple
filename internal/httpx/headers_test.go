@@ -189,3 +189,20 @@ func TestAPIVersionMatchesTheWebApp(t *testing.T) {
 	require.NotNil(t, m, "API_VERSION not found in offlineState.ts")
 	require.Equal(t, APIVersion, string(m[1]))
 }
+
+func TestResponsesThatSetNoCacheControlAreNotStored(t *testing.T) {
+	for _, ct := range []string{"application/json", "text/plain; charset=utf-8", "text/html", "image/png", ""} {
+		rec := serve(t, Options{}, typed(ct, "x"))
+		require.Equal(t, "private, no-store", rec.Header().Get("Cache-Control"), ct)
+	}
+	errRec := serve(t, Options{}, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "no", http.StatusBadRequest) })
+	require.Equal(t, "private, no-store", errRec.Header().Get("Cache-Control"))
+
+	own := serve(t, Options{}, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	})
+	require.Equal(t, "public, max-age=31536000, immutable", own.Header().Get("Cache-Control"), "a handler's own policy stands")
+
+	nm := serve(t, Options{}, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotModified) })
+	require.Empty(t, nm.Header().Get("Cache-Control"), "a 304 refreshes the stored headers and must not replace them")
+}
