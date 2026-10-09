@@ -82,7 +82,7 @@ func matrixClients() []matrixClient {
 		{"favicon", func(t *testing.T, start string) {
 			c, cancel := ctx()
 			defer cancel()
-			_, _ = favicon.Lookup(c, favicon.Request{SiteURL: start, Transport: fetch.ScopedTransport(guard.Transport, "127.0.0.1", true, true, false), UserAgent: "ua"})
+			_, _ = favicon.Lookup(c, favicon.Request{SiteURL: start, Transport: fetch.ContentScopedTransport(guard.Transport, "127.0.0.1", true, true, false), UserAgent: "ua"})
 		}},
 		{"imgproxy", func(t *testing.T, start string) {
 			h := imgproxy.New(imgproxy.Options{Secret: redirectSecret, Transport: func(allowPrivate, insecure bool) http.RoundTripper {

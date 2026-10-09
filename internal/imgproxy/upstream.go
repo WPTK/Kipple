@@ -150,22 +150,6 @@ func (h *Handler) noteWinner(host string, p profile, hint imgcache.HostHint, hin
 	}
 }
 
-// hopScoped sends requests for host (its subdomains and bare/www twin) through
-// granted and every other request through guarded. http.Client calls RoundTrip
-// once per hop, redirects included, so each hop dials through the transport
-// chosen for the host it names.
-type hopScoped struct {
-	host             string
-	granted, guarded http.RoundTripper
-}
-
-func (s *hopScoped) RoundTrip(req *http.Request) (*http.Response, error) {
-	if fetch.FeedHostVariant(s.host, req.URL.Hostname()) {
-		return s.granted.RoundTrip(req)
-	}
-	return s.guarded.RoundTrip(req)
-}
-
 func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p profile, begin time.Time, headerBudget time.Duration) (*http.Response, func(), error) {
 	actx, cancel := context.WithCancel(ctx)
 	// #nosec G704 -- URL is HMAC-signed by us; the transport dial guard blocks private ranges
@@ -199,7 +183,8 @@ func (h *Handler) attempt(ctx context.Context, u *url.URL, flags int, cd cond, p
 		// The grants were signed for this image's host only: a redirect hop to any
 		// other host goes through the guarded transport (the rule full-text
 		// extraction and the favicon finder follow).
-		tr = &hopScoped{host: u.Hostname(), granted: tr, guarded: h.opt.Transport(false, false)}
+		tr = fetch.ContentScopedTransport(func(p, i, _ bool) http.RoundTripper { return h.opt.Transport(p, i) },
+			u.Hostname(), flags&FlagPrivateNet != 0, flags&FlagInsecureTLS != 0, false)
 	}
 	client := &http.Client{
 		Transport: tr,

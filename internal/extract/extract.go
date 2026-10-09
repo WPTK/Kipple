@@ -94,32 +94,26 @@ func (e *Extractor) transport(t Target) http.RoundTripper {
 	if (!t.AllowPrivate && !t.InsecureTLS) || t.FeedHost == "" {
 		return guarded
 	}
-	return &hostScoped{host: t.FeedHost, feed: e.opt.Transport(t.AllowPrivate, t.InsecureTLS, t.NoHTTP2), other: guarded,
-		allowPrivate: t.AllowPrivate, insecureTLS: t.InsecureTLS, feedID: t.FeedID, log: e.opt.Logger}
+	return &explainScope{inner: fetch.ContentScopedTransport(e.opt.Transport, t.FeedHost, t.AllowPrivate, t.InsecureTLS, t.NoHTTP2),
+		host: t.FeedHost, allowPrivate: t.AllowPrivate, insecureTLS: t.InsecureTLS, feedID: t.FeedID, log: e.opt.Logger}
 }
 
-// hostScoped sends requests for the feed's host (and its variants) through feed
-// and all others through other. http.Client calls RoundTrip once per hop,
-// redirects included, and neither transport uses a proxy, so each hop dials the
-// host it names through the transport chosen for that host.
-type hostScoped struct {
-	host        string
-	feed, other http.RoundTripper
+// explainScope says why a request off the feed's site was refused when the
+// feed's exception would have let it through: the user enabled it and otherwise
+// sees only a blocked address or a bad certificate for a page on the "same"
+// server (an IP vs a name, say).
+type explainScope struct {
+	inner http.RoundTripper
+	host  string
 
 	allowPrivate, insecureTLS bool
 	feedID                    int64
 	log                       *slog.Logger
 }
 
-func (h *hostScoped) RoundTrip(req *http.Request) (*http.Response, error) {
-	if fetch.FeedHostVariant(h.host, req.URL.Hostname()) {
-		return h.feed.RoundTrip(req)
-	}
-	resp, err := h.other.RoundTrip(req)
-	if err != nil {
-		// Say why when the feed's exception would have let this through: the
-		// user enabled it and otherwise sees only a blocked address or a bad
-		// certificate for a page on the "same" server (an IP vs a name, say).
+func (h *explainScope) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := h.inner.RoundTrip(req)
+	if err != nil && !fetch.FeedHostVariant(h.host, req.URL.Hostname()) {
 		class, _ := fetch.Classify(err)
 		var what string
 		switch {
@@ -208,7 +202,7 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 	}
 	// The transport asks for gzip and decodes it (removing the header). Anything
 	// still named here is a coding nobody asked for, and its bytes are not text.
-	if ce := resp.Header.Get("Content-Encoding"); ce != "" && !strings.EqualFold(ce, "identity") {
+	if ce := resp.Header.Get("Content-Encoding"); unaskedCoding(ce) {
 		return Result{}, fail("the page is compressed in a way Kipple did not ask for")
 	}
 	ct := resp.Header.Get("Content-Type")
@@ -292,4 +286,16 @@ func (e *Extractor) get(ctx context.Context, client *http.Client, u, ua string) 
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "text/html, application/xhtml+xml;q=0.9, */*;q=0.1")
 	return client.Do(req)
+}
+
+// unaskedCoding reports whether a Content-Encoding value names a real coding.
+// A junk value ("none", "utf-8") on a plain page is left alone.
+func unaskedCoding(ce string) bool {
+	for _, c := range strings.Split(strings.ToLower(ce), ",") {
+		switch strings.TrimSpace(c) {
+		case "gzip", "x-gzip", "deflate", "br", "zstd", "compress", "x-compress":
+			return true
+		}
+	}
+	return false
 }

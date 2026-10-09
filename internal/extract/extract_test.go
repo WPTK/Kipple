@@ -292,3 +292,17 @@ func TestExtractDecodesGzipPages(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, res.Text)
 }
+
+// A value that names no real coding ("none", a charset by mistake) leaves a plain page alone.
+func TestExtractIgnoresAJunkContentEncoding(t *testing.T) {
+	for _, junk := range []string{"none", "utf-8", "identity"} {
+		srv := page(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			w.Header().Set("Content-Encoding", junk)
+			_, _ = w.Write([]byte(article(longBody())))
+		})
+		res, err := newExtractor().Extract(context.Background(), Target{URL: srv.URL, AllowPrivate: true, FeedHost: "127.0.0.1"})
+		require.NoError(t, err, junk)
+		require.NotEmpty(t, res.Text, junk)
+	}
+}

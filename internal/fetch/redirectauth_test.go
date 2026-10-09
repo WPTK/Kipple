@@ -32,7 +32,7 @@ func TestHTTPSToHTTPRedirectIsRefusedBeforeAnyCredentialsMove(t *testing.T) {
 	s.HTTPAuth = "bob:secret"
 	res := doFetch(t, c, s)
 	require.Equal(t, OutcomeError, res.Outcome)
-	require.Contains(t, res.ErrMsg, "https to http")
+	require.Contains(t, res.ErrMsg, "https to plain http")
 	require.Equal(t, "Basic Ym9iOnNlY3JldA==", tlsAuth.Load(), "the feed's own https URL gets the credentials")
 	require.Zero(t, plainHits.Load(), "the http hop is never asked")
 }
@@ -69,10 +69,8 @@ func TestAuthAllowed(t *testing.T) {
 		{"https://example.com/f", "https://EXAMPLE.com:8443/g", true},
 		{"http://example.com/f", "http://example.com/g", true},
 		{"http://example.com/f", "https://example.com/g", true},
-		{"https://example.com/f", "http://example.com/g", false},     // downgrade
 		{"https://example.com/f", "https://www.example.com/g", true}, // subdomain: kept, as net/http does
 		{"https://example.com/f", "https://a.b.Example.com./g", true},
-		{"https://example.com/f", "http://www.example.com/g", false},  // subdomain but a downgrade
 		{"https://www.example.com/f", "https://example.com/g", false}, // parent: net/http strips it too
 		{"https://example.com/f", "https://badexample.com/g", false},
 		{"https://example.com/f", "https://example.com.evil.test/g", false},

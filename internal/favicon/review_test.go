@@ -42,7 +42,7 @@ func TestFinderScopesTheGrantToTheFeedHost(t *testing.T) {
 	require.Equal(t, int64(1), e.int("SELECT count(*) FROM feed_icon_checks WHERE feed_id = ? AND last_error LIKE '%not allowed%'", id))
 
 	// The same lookup straight through Lookup reports a BlockedError.
-	_, err = Lookup(e.ctx, Request{SiteURL: srv.URL + "/", Transport: fetch.ScopedTransport(fetch.NewClient(fetch.ClientOptions{}).Transport, "nas.lan", true, false, false), UserAgent: "x"})
+	_, err = Lookup(e.ctx, Request{SiteURL: srv.URL + "/", Transport: fetch.ContentScopedTransport(fetch.NewClient(fetch.ClientOptions{}).Transport, "nas.lan", true, false, false), UserAgent: "x"})
 	var be *fetch.BlockedError
 	require.True(t, errors.As(err, &be), "got %v", err)
 	require.Zero(t, hits.Load())
@@ -71,13 +71,13 @@ func TestLookupScopesEveryHop(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	guard := fetch.NewClient(fetch.ClientOptions{}).Transport
-	_, err := Lookup(context.Background(), Request{SiteURL: srv.URL, Transport: fetch.ScopedTransport(guard, "127.0.0.1", true, false, false), UserAgent: "x"})
+	_, err := Lookup(context.Background(), Request{SiteURL: srv.URL, Transport: fetch.ContentScopedTransport(guard, "127.0.0.1", true, false, false), UserAgent: "x"})
 	require.Error(t, err)
 	require.Zero(t, other.Load(), "neither the link nor the redirect reached the other host")
 
 	// Without a grant, or with no feed host, the default transport is used alone.
-	require.NotNil(t, fetch.ScopedTransport(guard, "", true, false, false))
-	require.Same(t, guard(false, false, false), fetch.ScopedTransport(guard, "127.0.0.1", false, false, false))
+	require.NotNil(t, fetch.ContentScopedTransport(guard, "", true, false, false))
+	require.Same(t, guard(false, false, false), fetch.ContentScopedTransport(guard, "127.0.0.1", false, false, false))
 }
 
 // Userinfo in the site URL, an icon link or a redirect is never sent as

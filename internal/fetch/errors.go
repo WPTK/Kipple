@@ -47,8 +47,10 @@ func Classify(err error) (class, msg string) {
 		return ClassSSRF, blocked.Error()
 	case errors.Is(err, ErrTooManyHops):
 		return ClassRedirectLoop, ErrTooManyHops.Error()
+	case errors.Is(err, errRedirectDowngrade):
+		return ClassRedirectLoop, "the feed redirects from https to plain http, which Kipple does not follow; if you trust that site, edit the feed to its http address"
 	case errors.Is(err, ErrRedirectRefused):
-		return ClassRedirectLoop, err.Error()
+		return ClassRedirectLoop, "the address redirects to something other than a web address, which Kipple does not follow"
 	case errors.As(err, &maxBytes):
 		return ClassTooLarge, tooLargeMessage(maxBytes.Limit)
 	case errors.Is(err, context.DeadlineExceeded), isTimeout(err):
