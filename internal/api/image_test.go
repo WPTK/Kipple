@@ -249,3 +249,19 @@ func TestCloseStopsTheThumbnailPool(t *testing.T) {
 	h.srv.Close()
 	require.True(t, img.Closed())
 }
+
+func TestImagesAreDroppedWhenTheProxyCannotSign(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	id := h.addItem(f, seedItem{Text: "x", Image: "http://a.example/lead.jpg"})
+	h.exec("UPDATE item_content SET content_html = ? WHERE item_id = ?", `<p><img src="http://a.example/1.png"></p>`, id)
+	h.exec("DELETE FROM account")
+	h.clk.Advance(imageSecretTTL + time.Millisecond)
+
+	_, list, _ := h.api(c, "GET", "/api/items?view=all", "")
+	require.Nil(t, list["items"].([]any)[0].(map[string]any)["image"])
+	_, det, _ := h.api(c, "GET", "/api/items/"+sid(id), "")
+	require.Nil(t, det["image"])
+	require.NotContains(t, det["content_html"], "a.example")
+}
