@@ -40,20 +40,20 @@ test('Node: Dockerfile web stage and ci.yml name the same major', () => {
   for (const v of versions) assert.equal(v, image);
 });
 
-test('CI tool pins: ci-local.ps1 matches the env block in ci.yml and the govulncheck action', () => {
-  const ci = read('.github/workflows/ci.yml');
-  const local = read('scripts/ci-local.ps1');
-  const pairs = [
-    ['STATICCHECK_VERSION', 'StaticcheckVersion'],
-    ['GOSEC_VERSION', 'GosecVersion'],
-    ['GITLEAKS_VERSION', 'GitleaksVersion'],
-  ];
-  // govulncheck is pinned once, in the composite action that ci.yml and the weekly audit both call.
-  const govuln = first(read('.github/actions/audit-govulncheck/action.yml'), /^\s*default:\s*(v\S+)/m, 'govulncheck action default');
-  assert.equal(first(local, /^\$GovulncheckVersion\s*=\s*'([^']+)'/m, 'ci-local.ps1 GovulncheckVersion'), govuln);
-  for (const [envName, psName] of pairs) {
-    const a = first(ci, new RegExp(String.raw`^\s*${envName}:\s*(\S+)`, 'm'), `ci.yml ${envName}`);
-    const b = first(local, new RegExp(String.raw`^\$${psName}\s*=\s*'([^']+)'`, 'm'), `ci-local.ps1 ${psName}`);
-    assert.equal(b, a, `${psName} differs from ${envName}`);
+test('CI tool pins: ci-local.ps1 matches the env block in ci.yml', () => {
+  const a = first(read('.github/workflows/ci.yml'), /^\s*GITLEAKS_VERSION:\s*(\S+)/m, 'ci.yml GITLEAKS_VERSION');
+  const b = first(read('scripts/ci-local.ps1'), /^\$GitleaksVersion\s*=\s*'([^']+)'/m, 'ci-local.ps1 GitleaksVersion');
+  assert.equal(b, a);
+});
+
+// A `go run tool@version` builds the tool with its own dependencies, which can be too old to read the export data of
+// the Go release in go.mod; tools/go.mod pins the Go linters and those dependencies together.
+test('Go linters run from tools/go.mod, never by go run with a version', () => {
+  const mod = read('tools/go.mod');
+  for (const tool of ['honnef.co/go/tools/cmd/staticcheck', 'github.com/securego/gosec/v2/cmd/gosec', 'golang.org/x/vuln/cmd/govulncheck']) {
+    assert.match(mod, new RegExp(String.raw`^\s*${tool.replaceAll('.', '\\.')}$`, 'm'), `tools/go.mod: no tool line for ${tool}`);
+  }
+  for (const f of ['.github/workflows/ci.yml', '.github/workflows/audit.yml', '.github/actions/audit-govulncheck/action.yml', 'scripts/ci-local.ps1']) {
+    assert.doesNotMatch(read(f), /\b(staticcheck|gosec|govulncheck)@/, `${f}: runs a Go linter by version instead of from tools/go.mod`);
   }
 });
