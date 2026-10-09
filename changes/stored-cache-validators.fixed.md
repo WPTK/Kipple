@@ -1,1 +1,1 @@
-A feed's cache validators (ETag and Last-Modified) are now kept only when they are printable and short, so an odd or oversized value from a site is dropped instead of being stored and sent back on every refresh; a date is kept exactly as the site sent it, and a not-modified reply with an unusable date no longer erases the stored one.
+A feed's cache validators (ETag and Last-Modified) are now kept only when they are printable and short, so an odd or oversized value from a site is dropped instead of being stored and sent back on every refresh.

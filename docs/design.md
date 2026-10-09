@@ -989,7 +989,7 @@ Every attempt appends a fetch_log row and applies the fetch_log cap (§4.8), exc
 |---|---|
 | 200, parsed | Commit items (§4.8). Store validators from the response: cleaned first (an entity tag of printable ASCII without spaces, a short printable Last-Modified kept as sent, anything else dropped), empty when absent, and both dropped when `Expires` is present but not a valid HTTP date (such as `0`; a parseable date in the past does not drop them). Store `body_hash`. Success bookkeeping. Outcome `ok` |
 | 200, `body_hash` equals the stored hash | No parse. Update validators. Success bookkeeping. Outcome `unchanged` |
-| 304 | Keep the ETag. Replace `last_modified` only if the 304 carries a usable one (printable, short; an unusable value never erases the stored date). Success bookkeeping. Outcome `not_modified` |
+| 304 | Keep the stored ETag, re-checked on commit (one that fails the check is dropped). Replace `last_modified` only if the 304 carries a usable one (printable, short; an unusable value never erases the stored date). Success bookkeeping. Outcome `not_modified` |
 | 301/308 chain | Followed. The final response is handled by its own status. Redirect policy in §4.7 |
 | 302/303/307 in the chain | Followed and never persisted. `redirect_to` is set with `redirect_kind='temporary'` (health notice only) |
 | 200 with an empty or whitespace-only body | `empty`, backoff. Validators are **not** stored |
