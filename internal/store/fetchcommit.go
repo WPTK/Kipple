@@ -358,6 +358,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 		}
 		st.retitled = after != before
 	}
+	etag, lastModified := fetch.CleanValidators(res.ETag, res.LastModified) // the one place they are stored
 	if _, err := tx.ExecContext(ctx, `UPDATE feeds SET
 		etag = CASE WHEN ?2 THEN NULLIF(?3,'') ELSE etag END,
 		last_modified = CASE WHEN ?2 THEN NULLIF(?4,'') ELSE last_modified END,
@@ -369,7 +370,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 		last_new_items_at = CASE WHEN ?11 > 0 THEN ?6 ELSE last_new_items_at END,
 		updated_at = ?6
 		WHERE id = ?1`,
-		feedID, res.SetValidators, res.ETag, res.LastModified, res.BodyHash,
+		feedID, res.SetValidators, etag, lastModified, res.BodyHash,
 		now, res.Status, res.NextFetchAt.Unix(), res.CurrentDelayS, res.DocTTLS, len(st.newIDs)); err != nil {
 		return err
 	}
