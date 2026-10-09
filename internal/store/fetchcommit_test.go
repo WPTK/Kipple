@@ -106,7 +106,7 @@ func (e *env) okResult(snap fetch.Snapshot, body []byte) *fetch.Result {
 	now := e.clk.Now()
 	return &fetch.Result{
 		Snap: snap, StartedAt: now, Outcome: fetch.OutcomeOK, Status: 200, Feed: feed, FinalURL: snap.URL,
-		SetValidators: true, ETag: `"e1"`, LastModified: "lm1", BodyHash: "bh1",
+		SetValidators: true, ETag: `"e1"`, LastModified: "Wed, 01 Jan 2025 10:00:00 GMT", BodyHash: "bh1",
 		Redirect: fetch.RedirectDecision{Action: fetch.RedirectClear}, TTLHintS: 0,
 		NextFetchAt: now.Add(30 * time.Minute), CurrentDelayS: 1800, Notes: feed.Notes,
 	}
@@ -316,13 +316,13 @@ func TestTrimRunsOnNotModified(t *testing.T) {
 
 	res := &fetch.Result{
 		Snap: e.snap(id), StartedAt: e.clk.Now(), Outcome: fetch.OutcomeNotModified, Status: 304,
-		SetValidators: true, ETag: `"e1"`, LastModified: "lm2", FinalURL: "http://a.example/feed",
+		SetValidators: true, ETag: `"e1"`, LastModified: "Thu, 02 Jan 2025 10:00:00 GMT", FinalURL: "http://a.example/feed",
 		Redirect: fetch.RedirectDecision{Action: fetch.RedirectClear}, NextFetchAt: e.clk.Now().Add(time.Hour), CurrentDelayS: 3600,
 	}
 	info := e.commit(res)
 	require.EqualValues(t, 30, info.Trimmed)
 	require.Equal(t, 50, e.count("SELECT count(*) FROM items"))
-	require.Equal(t, "lm2", scalar[string](t, e.db.Reader(), "SELECT last_modified FROM feeds WHERE id=?", id))
+	require.Equal(t, "Thu, 02 Jan 2025 10:00:00 GMT", scalar[string](t, e.db.Reader(), "SELECT last_modified FROM feeds WHERE id=?", id))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM fetch_log WHERE outcome='not_modified' AND trimmed_items=30"))
 	require.Equal(t, 0, e.count("SELECT consecutive_failures FROM feeds WHERE id=?", id))
 }
@@ -721,4 +721,34 @@ func TestSetFeedUAFallbackIsBoundToTheFetchedURL(t *testing.T) {
 	require.Equal(t, 0, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "the new URL was never tried")
 	require.NoError(t, e.db.SetFeedUAFallback(e.ctx, id, "http://example.test/a.xml", "http://example.test/b.xml"))
 	require.Equal(t, 1, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id), "a migration target counts")
+}
+
+// A cache validator is stored only when it can be sent back unchanged: a short
+// entity tag without control characters, and a date in the HTTP format.
+func TestCommitStoresOnlyUsableValidators(t *testing.T) {
+	for name, tc := range map[string]struct{ etag, lm, wantETag, wantLM string }{
+		"strong tag":          {`"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT", `"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT"},
+		"weak tag":            {`W/"abc"`, "", `W/"abc"`, ""},
+		"unquoted tag":        {`abc123`, "", `abc123`, ""},
+		"older date format":   {"", "Wednesday, 01-Jan-25 10:00:00 GMT", "", "Wed, 01 Jan 2025 10:00:00 GMT"},
+		"line break in tag":   {"\"a\r\nX-Evil: 1\"", "", "", ""},
+		"control byte in tag": {"\"a\x00b\"", "", "", ""},
+		"space in tag":        {`"a b"`, "", "", ""},
+		"tag of 1 KiB":        {`"` + strings.Repeat("a", 1022) + `"`, "", `"` + strings.Repeat("a", 1022) + `"`, ""},
+		"tag over 1 KiB":      {`"` + strings.Repeat("a", 1023) + `"`, "", "", ""},
+		"huge tag":            {`"` + strings.Repeat("a", 60<<10) + `"`, "", "", ""},
+		"not a date":          {"", "lm1", "", ""},
+		"date with a suffix":  {"", "Wed, 01 Jan 2025 10:00:00 GMT\r\nX: y", "", ""},
+		"huge date":           {"", strings.Repeat("x", 60<<10), "", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			id := e.addFeed("http://a.example/feed")
+			res := e.okResult(e.snap(id), rss(spec{guid: "g1", age: time.Hour}))
+			res.ETag, res.LastModified = tc.etag, tc.lm
+			e.commit(res)
+			require.Equal(t, tc.wantETag, scalar[string](t, e.db.Reader(), "SELECT coalesce(etag,'') FROM feeds WHERE id=?", id))
+			require.Equal(t, tc.wantLM, scalar[string](t, e.db.Reader(), "SELECT coalesce(last_modified,'') FROM feeds WHERE id=?", id))
+		})
+	}
 }

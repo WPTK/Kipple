@@ -1,0 +1,1 @@
+A feed's cache validators (ETag and Last-Modified) are now kept only when they are well formed and short, so an odd or oversized value from a site is dropped instead of being stored and sent back on every refresh.
