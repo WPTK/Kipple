@@ -987,9 +987,9 @@ Every attempt appends a fetch_log row and applies the fetch_log cap (§4.8), exc
 
 | Outcome | Handling |
 |---|---|
-| 200, parsed | Commit items (§4.8). Store validators from the response: empty when absent, and both dropped when `Expires` is present but not a valid HTTP date (such as `0`; a parseable date in the past does not drop them). Store `body_hash`. Success bookkeeping. Outcome `ok` |
+| 200, parsed | Commit items (§4.8). Store validators from the response: cleaned first (an entity tag of printable ASCII without spaces, a short printable Last-Modified kept as sent, anything else dropped), empty when absent, and both dropped when `Expires` is present but not a valid HTTP date (such as `0`; a parseable date in the past does not drop them). Store `body_hash`. Success bookkeeping. Outcome `ok` |
 | 200, `body_hash` equals the stored hash | No parse. Update validators. Success bookkeeping. Outcome `unchanged` |
-| 304 | Keep the ETag. Overwrite `last_modified` if the 304 carries one. Success bookkeeping. Outcome `not_modified` |
+| 304 | Keep the ETag. Replace `last_modified` only if the 304 carries a usable one (printable, short; an unusable value never erases the stored date). Success bookkeeping. Outcome `not_modified` |
 | 301/308 chain | Followed. The final response is handled by its own status. Redirect policy in §4.7 |
 | 302/303/307 in the chain | Followed and never persisted. `redirect_to` is set with `redirect_kind='temporary'` (health notice only) |
 | 200 with an empty or whitespace-only body | `empty`, backoff. Validators are **not** stored |
@@ -1163,7 +1163,7 @@ UPDATE feeds SET title = CASE WHEN :doc_title != '' THEN :doc_title ELSE title E
        description = :desc,
        custom_title = CASE WHEN last_success_at IS NULL AND custom_title = :doc_title THEN NULL ELSE custom_title END,
        rekey_pending = 0 WHERE id = :f
-UPDATE feeds SET etag = CASE WHEN :set_validators THEN NULLIF(:etag,'') ELSE etag END,  -- every success outcome
+UPDATE feeds SET etag = CASE WHEN :set_validators THEN NULLIF(:etag,'') ELSE etag END,  -- every success outcome; :etag and :lm are cleaned first (printable, bounded, never rewritten), so an unusable value stores NULL
        last_modified = CASE WHEN :set_validators THEN NULLIF(:lm,'') ELSE last_modified END,
        body_hash = CASE WHEN :hash != '' THEN :hash ELSE body_hash END,
        initial_read_before = NULL,
