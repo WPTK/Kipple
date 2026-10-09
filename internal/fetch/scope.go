@@ -30,9 +30,15 @@ func ContentScopedTransport(guard Guard, feedHost string, allowPrivate, insecure
 	})
 }
 
+// HasScope reports whether a feed's exceptions give its site a transport of its own: some exception is on and
+// there is a host to limit it to. Without one every request gets the plain guarded transport.
+func HasScope(feedHost string, allowPrivate, insecureTLS bool) bool {
+	return (allowPrivate || insecureTLS) && feedHost != ""
+}
+
 func scoped(guard Guard, feedHost string, allowPrivate, insecureTLS, noHTTP2 bool, in func(host string) bool) http.RoundTripper {
 	def := guard(false, false, noHTTP2)
-	if (!allowPrivate && !insecureTLS) || feedHost == "" {
+	if !HasScope(feedHost, allowPrivate, insecureTLS) {
 		return def
 	}
 	return &hostScoped{in: in, feed: guard(allowPrivate, insecureTLS, noHTTP2), other: def}

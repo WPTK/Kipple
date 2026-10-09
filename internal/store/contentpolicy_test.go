@@ -61,3 +61,32 @@ func TestStoredHTMLIsCleanedAgainUnderANewPolicyVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 }
+
+func TestStoredHTMLCleaningCoversRestoreStubsAndRecountsWords(t *testing.T) {
+	ctx := context.Background()
+	db, _ := openTest(t)
+	feed := seedFeed(t, db)
+	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, published_at, sort_at, uid, content_hash, text_hash, word_count)
+			VALUES (7, ?, 1, 1, 'u7', 'c', 't', 99)`, feed); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO item_content (item_id, content_html, content_text) VALUES (7, ?, 'old')`, hostileHTML); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at) VALUES (8, ?, 'u8', 0, 1, 1)`, feed); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO trimmed_content (id, published_at, sort_at, word_count, content_hash, text_hash, url, title, author, content_html, content_text)
+			VALUES (8, 1, 1, 99, 'c', 't', 'https://a/8', 't', 'a', ?, 'old')`, hostileHTML)
+		return err
+	}))
+
+	n, err := db.EnsureContentPolicy(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+	require.Equal(t, `<p>hi</p>`, scalar[string](t, db.Reader(), "SELECT content_html FROM trimmed_content WHERE id = 8"))
+	require.Equal(t, "hi", scalar[string](t, db.Reader(), "SELECT content_text FROM trimmed_content WHERE id = 8"))
+	require.EqualValues(t, 1, scalar[int64](t, db.Reader(), "SELECT word_count FROM trimmed_content WHERE id = 8"))
+	require.EqualValues(t, 1, scalar[int64](t, db.Reader(), "SELECT word_count FROM items WHERE id = 7"))
+}

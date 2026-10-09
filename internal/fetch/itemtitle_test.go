@@ -12,6 +12,8 @@ func TestItemTitlesAreStoredAsPlainText(t *testing.T) {
 <item><guid>2</guid><title>&lt;script&gt;alert(1)&lt;/script&gt;Hello</title></item>
 <item><guid>3</guid><title>5 &lt; 6 and 7 &gt; 3, Tom &amp; Jerry</title></item>
 <item><guid>4</guid><title>  Café  ☕ </title></item>
+<item><guid>5</guid><title>Why x&lt;y matters</title></item>
+<item><guid>6</guid><title><![CDATA[<b>Bold</b> if a <b then]]></title></item>
 </channel></rss>`
 	f, err := ParseFeed([]byte(doc), ParseOptions{FeedURL: "https://e.example/feed", Content: func(raw string, _ ...string) (string, string) { return raw, raw }})
 	require.NoError(t, err)
@@ -19,5 +21,5 @@ func TestItemTitlesAreStoredAsPlainText(t *testing.T) {
 	for _, it := range f.Items {
 		got = append(got, it.Title)
 	}
-	require.Equal(t, []string{"Bold & plain", "alert(1)Hello", "5 < 6 and 7 > 3, Tom & Jerry", "Café  ☕"}, got)
+	require.Equal(t, []string{"Bold & plain", "alert(1)Hello", "5 < 6 and 7 > 3, Tom & Jerry", "Café  ☕", "Why x<y matters", "Bold if a <b then"}, got)
 }

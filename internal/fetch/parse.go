@@ -687,6 +687,10 @@ func itemTitle(raw string) string {
 	for {
 		switch z.Next() {
 		case xhtml.ErrorToken:
+			if z.Err() == io.EOF {
+				// A "<" the tokenizer took for a tag that never ends ("x<y matters") is text.
+				b.WriteString(stdhtml.UnescapeString(string(z.Raw())))
+			}
 			return strings.Join(strings.Fields(b.String()), " ")
 		case xhtml.TextToken:
 			b.Write(z.Text())

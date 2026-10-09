@@ -51,6 +51,9 @@ var ErrNotFeed = errors.New("that address does not answer with a feed or a web p
 // ErrTooLarge means the response exceeded the fetcher's size limit.
 var ErrTooLarge = fmt.Errorf("the response is larger than %d MiB", maxBody>>20)
 
+// ErrUnaskedCoding is a response compressed in a way Kipple did not ask for, so its bytes cannot be read.
+var ErrUnaskedCoding = errors.New("the site answered with a compression Kipple did not ask for")
+
 // StatusError is a response with a status other than 2xx.
 type StatusError struct{ Code int }
 
@@ -88,6 +91,9 @@ func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw str
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return Result{}, &StatusError{Code: resp.StatusCode}
+	}
+	if fetch.UnaskedCoding(resp.Header) {
+		return Result{}, ErrUnaskedCoding
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
