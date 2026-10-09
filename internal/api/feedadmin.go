@@ -209,7 +209,7 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 		opts.Title = t
 	}
 	opts.AllowPrivateNet = allowPrivate
-	norm, _, _, err := store.ValidateFeedURL(rawURL, allowPrivate)
+	norm, _, feedHost, err := store.ValidateFeedURL(rawURL, allowPrivate)
 	if err != nil {
 		var bad *store.InvalidURLError
 		if errors.As(err, &bad) && bad.Private {
@@ -235,7 +235,7 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	if ua == "" {
 		ua = s.outgoingUA()
 	}
-	found, err := discover.Find(dctx, s.opt.Guard(allowPrivate, false, false), ua, retryUA, norm, allowPrivate)
+	found, err := discover.Find(dctx, fetch.ScopedTransport(s.opt.Guard, feedHost, allowPrivate, false, false), ua, retryUA, norm, allowPrivate)
 	cancel()
 	if err != nil {
 		code, msg := discoveryError(err)
@@ -308,6 +308,9 @@ func discoveryError(err error) (code, msg string) {
 	case errors.As(err, &se):
 		return "unreachable", "The site answered, but with an error: HTTP " + strconv.Itoa(se.Code) + " " + http.StatusText(se.Code) +
 			". Check the address, or try again later."
+	}
+	if errors.Is(err, fetch.ErrRedirectRefused) {
+		return "unreachable", "That address redirects somewhere Kipple does not follow (a move from https to http, or to something other than a web address)."
 	}
 	switch class, detail := fetch.Classify(err); class {
 	case fetch.ClassSSRF:
@@ -580,7 +583,7 @@ func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPa
 	if ua == "" {
 		ua = s.outgoingUA()
 	}
-	rt := s.opt.Guard(private, insecure, flag("disable_http2", fd.DisableHTTP2))
+	rt := fetch.ScopedTransport(s.opt.Guard, host, private, insecure, flag("disable_http2", fd.DisableHTTP2))
 	found, err := discover.Find(dctx, rt, ua, retryUA, norm, private)
 	switch {
 	case errors.Is(err, discover.ErrNoFeed):

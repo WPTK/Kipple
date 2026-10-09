@@ -1,0 +1,1 @@
+Every request Kipple makes to another site (feeds, adding a feed, full-text pages, icons, proxied images) now follows one redirect rule: web addresses only, no step from https down to http, and no Referer or embedded credentials passed on. Adding or editing a feed with the private-network option keeps that option to the feed's own site while following redirects.
