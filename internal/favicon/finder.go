@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/WPTK/kipple/internal/clock"
+	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -261,7 +262,7 @@ func (f *Finder) runOnce(ctx context.Context, beforeFetch func() error) (did, fe
 		lctx, cancel := context.WithTimeout(ctx, jobTimeout)
 		icon, lerr = Lookup(lctx, Request{
 			SiteURL: job.SiteURL, FeedURL: job.FeedURL,
-			Transport: ScopedTransport(f.opt.Guard, job.FeedHost, job.AllowPrivateNet, job.AllowInsecureTLS, job.DisableHTTP2),
+			Transport: fetch.ScopedTransport(f.opt.Guard, job.FeedHost, job.AllowPrivateNet, job.AllowInsecureTLS, job.DisableHTTP2),
 			UserAgent: ua, RetryUA: job.RetryUserAgent,
 		})
 		cancel()
