@@ -66,20 +66,15 @@ removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no 
 GitHub (`WPTK/Kipple`) is the source of truth; the pushed tag is what deploys, never `main` or an unpushed tree. The
 exact commands, backup, verification and GHCR steps are in `docs/maintainers/RELEASING.md`; do not copy them here.
 
-- Kipple server: service `kipple` in its compose project, named volume for `/data`, 10m x 3 log rotation. Build from the
-  tag with the three build args (`KIPPLE_VERSION`, `KIPPLE_VCS_REF`, `KIPPLE_BUILD_DATE`; `.git` is not in the build
-  context). Never a bare `up`/`down`. From 0.6.0-rc.1 the server pulls the signed image by digest instead.
-- Public URL `https://rss.example.com` via the owner's cloudflared tunnel. The Access bypass covers exactly the `/api/greader.php`
-  prefix; root `/accounts/ClientLogin` and `/reader/api/0/*` answer but stay behind Access; the UI stays behind email
-  OTP. The previous reader stays paused, not removed, until the owner says so.
+- Kipple server: service `kipple` in its compose project; it pulls the signed image by digest, with build-from-tag as the
+  fallback (both in the release steps). Never a bare `up`/`down`.
+- Cloudflare Access: the bypass covers exactly the `/api/greader.php` prefix; the UI stays behind email OTP. The previous
+  reader stays paused, not removed, until the owner says so.
 - SemVer with `-alpha.N`/`-beta.N`/`-rc.N`. Annotated tag `vX.Y.Z[-pre.N]` on the exact deployed commit, made at deploy
   time; never move or reuse a pushed tag. One writer on the Kipple server at a time.
-- `CHANGELOG.md` is Keep a Changelog 1.1.0: every behavior change adds a one-file entry under `changes/`
-  (`changes/README.md`), never an edit to `CHANGELOG.md`; a release folds them in with
-  `node scripts/changelog.mjs release X.Y.Z`.
-- CI: govulncheck, staticcheck, gosec (high/high only), gitleaks, Trivy; the web job runs lint, Vitest, build, theme
-  contrast and `npm audit --omit=dev --audit-level=high`. Any dependency change gets a govulncheck run. Suppress findings
-  only with a written reason.
+- Every behavior change adds a one-file entry under `changes/` (`changes/README.md`), never an edit to `CHANGELOG.md`.
+- The checks are the workflow files in `.github/workflows/`. Any dependency change gets a govulncheck run. Suppress
+  findings only with a written reason.
 
 ## Process
 

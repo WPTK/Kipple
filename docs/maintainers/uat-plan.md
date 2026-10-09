@@ -138,7 +138,7 @@ carry `"browser": "<engine>"` to apply to one engine only. Two things differ by 
 not waived: Firefox has no mobile emulation (the tablet and phone runs are touch devices at the right width, not
 `isMobile`), and it drops an emulated color scheme when the page is sent with Cross-Origin-Opener-Policy (Kipple's is
 `same-origin`), so the Firefox runs set the operating-system preference on the browser itself. The results, the
-engine differences and what stays manual are in `compatibility-matrix.md`. Playwright's WebKit is the WebKit engine,
+engine differences and what stays manual are in `docs/compatibility.md`. Playwright's WebKit is the WebKit engine,
 not Safari: the iPhone check stays Suite 3.
 
 Keyboard and gestures (`npm run uat:keyboard`, `web/uat/keyboard.mjs`, `--browser` as above, against the same seeded
