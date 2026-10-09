@@ -25,9 +25,9 @@ bad input). PowerShell itself exits `1` when it rejects a parameter before the s
 
 ### release-gates.ps1
 
-    pwsh scripts/maintainers/release-gates.ps1 [-Ref <full sha>] [-SkipFuzz] [-Only go,fuzz,web,changelog,node] [-KeepWorktree] [-WhatIf]
+    pwsh scripts/maintainers/release-gates.ps1 [-Ref <full sha>] [-SkipFuzz] [-Only go,fuzz,web,changelog,node,starter] [-KeepWorktree] [-WhatIf]
 
-Prints the full sha it tests, runs `go test` twice, fuzz, the web tests, the changelog check and the Node script tests,
+Prints the full sha it tests, runs `go test` twice, fuzz, the web tests, the changelog check, the Node script tests and the starter-feed liveness check (`check-starter-feeds.mjs`, needs network),
 and prints a pass/fail table. A Go package that fails in the full run but passes alone is shown as FLAKY (both
 results are in the table) and does not fail the run. Every step refuses to start while another heavy step holds the
 lock.

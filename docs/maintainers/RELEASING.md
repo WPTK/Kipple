@@ -62,7 +62,8 @@ fixes only) is the test.
    to what per-PR reviews cannot see (cross-PR interactions, migrations, the release workflow, new tooling); a delta
    review after the fixes covers only the fix commits.
 3. **The expensive gates, once, on the final commit, only for the second tier above** (code that parses, authenticates, migrates
-   or renders UI; skip them for docs, test-only, release-commit, dependency or log-line changes). They are two Go test runs, fuzz,
+   or renders UI; skip them for docs, test-only, release-commit, dependency or log-line changes). They are two Go test runs, fuzz, the starter-feed
+   liveness check (`node scripts/check-starter-feeds.mjs`, needs network; a dead feed in `starter/feeds.json` fails it),
    Suite 1 and, for a schema change, the migration rehearsal (Suite 4). Run them after the review in step 2 and its fixes, never
    before, and re-run them only if code changed after the last run. `scripts/maintainers/release-gates.ps1 [-Ref <sha>]` runs everything except
    Suite 1 and Suite 4, one at a time (timing tests flake under load), on a detached worktree of a printed full sha and prints a

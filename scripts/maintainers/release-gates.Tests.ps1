@@ -23,7 +23,7 @@ Describe 'argument validation' {
 
 Describe 'Get-GatePlan' {
   It 'lists every step in the documented order by default' {
-    (Get-GatePlan).Key | Should -Be @('go', 'go', 'fuzz', 'web', 'changelog', 'node')
+    (Get-GatePlan).Key | Should -Be @('go', 'go', 'fuzz', 'web', 'changelog', 'node', 'starter')
   }
   It 'leaves out fuzz with -SkipFuzz' {
     (Get-GatePlan -SkipFuzz).Key | Should -Not -Contain 'fuzz'

@@ -48,7 +48,7 @@
 param(
   [ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Ref,
   [switch]$SkipFuzz,
-  [ValidateSet('go', 'fuzz', 'web', 'changelog', 'node')][string[]]$Only = @(),
+  [ValidateSet('go', 'fuzz', 'web', 'changelog', 'node', 'starter')][string[]]$Only = @(),
   [switch]$KeepWorktree
 )
 Set-StrictMode -Version Latest
@@ -70,6 +70,7 @@ function Get-GatePlan {
     [pscustomobject]@{ Key = 'web'; Name = 'web: npm ci, npm test'; Run = 0 }
     [pscustomobject]@{ Key = 'changelog'; Name = 'changelog check'; Run = 0 }
     [pscustomobject]@{ Key = 'node'; Name = 'node --test scripts/*.test.mjs'; Run = 0 }
+    [pscustomobject]@{ Key = 'starter'; Name = 'starter feeds are live (scripts/check-starter-feeds.mjs)'; Run = 0 }
   )
   $selected = $all | Where-Object { $Only.Count -eq 0 -or $Only -contains $_.Key }
   if ($SkipFuzz) { $selected = $selected | Where-Object { $_.Key -ne 'fuzz' } }
@@ -232,6 +233,16 @@ function Invoke-NodeGate {
   if ($r.ExitCode -ne 0) { Show-LogTail -Path $log -Lines 25 }
   return Get-StatusRow -ExitCode $r.ExitCode
 }
+function Invoke-StarterGate {
+  [CmdletBinding()]
+  [OutputType([pscustomobject])]
+  param([Parameter(Mandatory)][string]$Work, [Parameter(Mandatory)][string]$Logs)
+  $log = Join-Path $Logs 'starter-feeds.log'
+  $r = Invoke-Native -FilePath node -Arguments 'scripts/check-starter-feeds.mjs' -WorkingDirectory $Work -Step 'starter feeds' -Fix 'replace or drop the feeds listed as FAIL in starter/feeds.json' -AllowFailure -LogPath $log
+  if ($r.ExitCode -ne 0) { Show-LogTail -Path $log -Lines 25 }
+  return Get-StatusRow -ExitCode $r.ExitCode
+}
+
 function Invoke-ReleaseGate {
   <#
   .SYNOPSIS
@@ -271,7 +282,7 @@ function Invoke-ReleaseGate {
     Write-KippleInfo "Worktree: $work   logs: $logs"
     $common = @{ Work = $work; Logs = $logs }
     foreach ($s in $plan) {
-      $gate = @{ go = 'Invoke-GoGate'; fuzz = 'Invoke-FuzzGate'; web = 'Invoke-WebGate'; changelog = 'Invoke-ChangelogGate'; node = 'Invoke-NodeGate' }[$s.Key]
+      $gate = @{ go = 'Invoke-GoGate'; fuzz = 'Invoke-FuzzGate'; web = 'Invoke-WebGate'; changelog = 'Invoke-ChangelogGate'; node = 'Invoke-NodeGate'; starter = 'Invoke-StarterGate' }[$s.Key]
       $gateArgs = $common.Clone()
       if ($s.Key -eq 'go') { $gateArgs.Run = $s.Run }
       if ($s.Key -eq 'web') { $gateArgs.NpmCache = $npmCache }

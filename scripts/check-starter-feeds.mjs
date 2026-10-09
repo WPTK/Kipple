@@ -1,6 +1,6 @@
 // Liveness check for starter/feeds.json: fetches every feed URL and reports the
 // ones that are dead, redirected, or not RSS/Atom with items. Not part of CI
-// (network flakiness must not gate unrelated PRs); run it before a release.
+// (network flakiness must not gate unrelated PRs); `scripts/maintainers/release-gates.ps1` runs it before a release.
 //
 //   node scripts/check-starter-feeds.mjs
 import { readFile } from "node:fs/promises";
