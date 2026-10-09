@@ -11,8 +11,7 @@ permissions:
   contents: read
 
 env:
-  STATICCHECK_VERSION: v0.8.1
-  GOSEC_VERSION: v2.29.0
+  # staticcheck, gosec and govulncheck are pinned in tools/go.mod.
   GITLEAKS_VERSION: 8.30.1
   # SHA-256 of gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz, from the release's
   # gitleaks_<version>_checksums.txt. Update both together when bumping.
@@ -135,17 +134,17 @@ jobs:
 
       - name: staticcheck
         if: needs.changes.outputs.code != 'false'
-        run: go run honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION} ./...
+        run: go tool -modfile=tools/go.mod staticcheck ./...
 
       # Advisory pass: everything stays visible in the log, never fails.
       - name: gosec (all findings, advisory)
         if: needs.changes.outputs.code != 'false'
-        run: go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -quiet ./... || true
+        run: go tool -modfile=tools/go.mod gosec -quiet ./... || true
 
       # Gate: only HIGH severity with HIGH confidence fails the job.
       - name: gosec (gate)
         if: needs.changes.outputs.code != 'false'
-        run: go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -quiet -severity high -confidence high ./...
+        run: go tool -modfile=tools/go.mod gosec -quiet -severity high -confidence high ./...
 
       # Binary, not gitleaks-action: the action needs a paid license key for
       # organization repos.
