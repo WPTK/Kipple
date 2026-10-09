@@ -55,7 +55,6 @@ const (
 	slotHoldGrace     = 30 * time.Second // SlotHold = Timeout + this
 	defaultConc       = 8
 	defaultPerHost    = 4
-	maxHops           = 5
 	cacheControl      = "private, max-age=2592000, immutable"
 )
 
