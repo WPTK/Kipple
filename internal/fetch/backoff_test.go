@@ -253,12 +253,6 @@ func TestDecideRedirect(t *testing.T) {
 	d = DecideRedirect(feed, RedirectState{To: final, Kind: "permanent", Count: 2}, final, []Hop{p(feed, final, 302)})
 	require.Equal(t, RedirectDecision{Action: RedirectSet, To: final, Kind: "temporary", Count: 0}, d)
 
-	// https -> http downgrade is refused (temporary, never migrates)
-	dn := "http://a.example/feed2"
-	d = DecideRedirect(feed, RedirectState{To: dn, Kind: "permanent", Count: 2}, dn, []Hop{p(feed, dn, 301)})
-	require.Equal(t, "temporary", d.Kind)
-	require.Equal(t, RedirectSet, d.Action)
-
 	// mixed 301 + 302 chain counts as temporary
 	d = DecideRedirect(feed, RedirectState{}, final, []Hop{p(feed, "https://m.example/x", 301), p("https://m.example/x", final, 302)})
 	require.Equal(t, "temporary", d.Kind)

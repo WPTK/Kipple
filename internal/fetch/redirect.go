@@ -50,13 +50,7 @@ func DecideRedirect(feedURL string, cur RedirectState, final string, hops []Hop)
 			permanent = false
 		}
 	}
-	downgrade := strings.HasPrefix(nf, "https://") && strings.HasPrefix(fin, "http://")
-	for _, h := range hops {
-		if strings.HasPrefix(strings.ToLower(h.From), "https://") && strings.HasPrefix(strings.ToLower(h.To), "http://") {
-			downgrade = true
-		}
-	}
-	if !permanent || downgrade {
+	if !permanent {
 		return RedirectDecision{Action: RedirectSet, To: fin, Kind: "temporary", Count: 0}
 	}
 

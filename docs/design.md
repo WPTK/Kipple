@@ -1072,11 +1072,11 @@ The scheduler exposes its live host deadlines through `Scheduler.HostHolds()`, a
 `final` is `resp.Request.URL`, normalized: lowercase scheme and host, default port stripped. The parse base URL is always `final`.
 
 - If `final == feeds.url`, clear `redirect_to`.
-- Else, if every hop was 301/308 and the chain is not an https→http downgrade:
+- Else, if every hop was 301/308:
   - If only the scheme changed from http to https on the same host, with identical path and query, **migrate now**.
   - Else, if `redirect_to == final`, increment `redirect_count`. When it reaches 3, migrate.
   - Else set `redirect_to = final`, `redirect_kind = 'permanent'`, `redirect_count = 1`.
-- Else (any temporary hop, or a downgrade): set `redirect_to = final`, `redirect_kind = 'temporary'`, `redirect_count = 0`. The URL is never rewritten.
+- Else (any temporary hop): set `redirect_to = final`, `redirect_kind = 'temporary'`, `redirect_count = 0`. The URL is never rewritten.
 
 To **migrate**, first run `store.FindFeedByURL(tx, final)`. If it finds a different feed, do not migrate: keep `redirect_to` and add the note `redirect_target_owned_by_feed <id>`; the health view suggests a merge. Otherwise:
 
@@ -2487,7 +2487,6 @@ CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off`
   - the same-host http→https immediate migration (`url_key` unchanged, `url_original_key` set);
   - a changing target resets the count;
   - 302 never persists;
-  - an https→http downgrade is refused;
   - a target matched by `FindFeedByURL` is refused with a note;
   - a mixed 301+302 chain counts as temporary.
 - **`dedup`:**
