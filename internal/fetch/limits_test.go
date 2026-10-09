@@ -141,13 +141,13 @@ func TestParseKeepsNewestItemsUpToLimit(t *testing.T) {
 		require.Contains(t, f.Notes, fmt.Sprintf("items_over_limit: kept %d of %d", limit, limit+extra), asc)
 	}
 
-	// Undated entries count as new (retention stamps them with the fetch time), and among equal dates the later
-	// entry in the document wins.
+	// Undated entries count as new (retention stamps them with the fetch time), and among equal dates the earlier
+	// entry in the document wins (the store gives it the larger id).
 	f, err := ParseFeed(manyItems(limit+500), ParseOptions{})
 	require.NoError(t, err)
 	require.Equal(t, limit, len(f.Items))
-	require.Equal(t, "item 500", f.Items[0].Title)
-	require.Equal(t, fmt.Sprintf("item %d", limit+499), f.Items[limit-1].Title)
+	require.Equal(t, "item 0", f.Items[0].Title)
+	require.Equal(t, fmt.Sprintf("item %d", limit-1), f.Items[limit-1].Title)
 
 	f, err = ParseFeed(manyItems(limit), ParseOptions{})
 	require.NoError(t, err)
@@ -210,4 +210,24 @@ func TestParseLeavesEntitiesUnexpanded(t *testing.T) {
 			require.Zero(t, hits.Load())
 		})
 	}
+}
+
+// A charset declaration inside the document changes how the parser reads the element names that follow it, so the
+// nesting check must read them the same way. In Big5 the bytes A2CE and A4CA both decode to one character, so the two
+// names below differ as raw bytes and are equal as the parser reads them.
+func TestParseNestingCheckReadsDeclaredCharset(t *testing.T) {
+	if os.Getenv("KIPPLE_DEEP_NESTING_CHILD") != "" {
+		return
+	}
+	n1, n2 := "\xe4\xb8\xa4\xca\xa4\x61", "\xe4\xb8\xa2\xce\xa4\x61"
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><rss version="2.0" xmlns:x="urn:x"><channel><title>t</title><item><title>i</title><x:ext>`)
+	b.WriteString(`<?xml version="1.0" encoding="big5"?>`)
+	for range 600 {
+		b.WriteString("<x:" + n2 + "><x:" + n1 + "></x:" + n2 + ">")
+	}
+	b.WriteString("</x:ext></item></channel></rss>")
+	_, err := ParseFeed([]byte(b.String()), ParseOptions{FeedURL: "https://example.com/feed"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nest")
 }

@@ -20,6 +20,7 @@ import (
 	ext "github.com/mmcdole/gofeed/extensions"
 	gjson "github.com/mmcdole/gofeed/json"
 	grss "github.com/mmcdole/gofeed/rss"
+	"golang.org/x/net/html/charset"
 
 	"github.com/WPTK/kipple/internal/sanitize"
 )
@@ -188,7 +189,8 @@ const MaxItemsPerFetch = 2000
 // newestEntries returns the positions of the n newest entries, in document order. Newest is retention's order
 // (sort_at, then id, both descending): sort_at is the published date (else the updated date), capped one day past
 // now, and an undated entry takes the time of the fetch, so it counts as new; ids follow document order, so among
-// equal dates the entry later in the document wins. It reads only the dates gofeed parsed.
+// equal dates the entry earlier in the document wins (store.oldestFirst gives the later one the smaller id; keep the
+// two in step). It reads only the dates gofeed parsed.
 func newestEntries(entries []*gofeed.Item, n int, now time.Time) []int {
 	sortAt := make([]int64, len(entries))
 	for i, gi := range entries {
@@ -207,7 +209,7 @@ func newestEntries(entries []*gofeed.Item, n int, now time.Time) []int {
 		if sortAt[order[a]] != sortAt[order[b]] {
 			return sortAt[order[a]] > sortAt[order[b]]
 		}
-		return order[a] > order[b]
+		return order[a] < order[b]
 	})
 	keep := order[:n]
 	sort.Ints(keep)
@@ -220,9 +222,10 @@ const MaxNesting = 512
 
 // checkNesting reads the tokens of a body gofeed would parse as RSS or Atom once, building nothing, and refuses one
 // nested deeper than MaxNesting. It reads the bytes gofeed's XML parsers read (C0 control bytes dropped, see
-// xmlFilter) with the same non-strict decoder and counts start and end tokens as the parser's reader yields them, so
-// the depth counted is the depth the parser walks: Token closes an unclosed element (a raw <br>) at the next
-// mismatched end tag, as RawToken never does. A token error refuses the body: the
+// xmlFilter) with the same non-strict decoder and charset reader, and counts start and end tokens as that decoder
+// yields them: Token closes an unclosed element (a raw <br>) at the next mismatched end tag, as RawToken never does.
+// The depth counted is never less than the depth gofeed walks; it can be more, since gofeed reads some elements
+// (a description) without recursing into them. A token error refuses the body: the
 // parser's decoder would stop there too, so only the message differs. The scan ends where the parser does, when the
 // root element closes.
 func checkNesting(body []byte) error {
@@ -231,8 +234,8 @@ func checkNesting(body []byte) error {
 	}
 	d := xml.NewDecoder(xmlFilter{bytes.NewReader(body)})
 	d.Strict = false
-	// The body is UTF-8 already (DecodeBody); whatever the declaration says, read it as it is.
-	d.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
+	// The parser's own charset reader: a declaration inside the document changes how the names after it are read.
+	d.CharsetReader = charset.NewReaderLabel
 	depth := 0
 	for {
 		tok, err := d.Token()
