@@ -203,6 +203,7 @@ func (m *Maint) run(ctx context.Context, done chan struct{}, tick <-chan time.Ti
 	defer close(done)
 	defer stopTick()
 	var badTZ string
+	m.cleanStored(ctx)
 	// last is the instant of the last nightly run. The job runs when the local
 	// date now is later than the date of that instant IN THE ZONE NOW IN USE and the
 	// time of day has passed, so it runs once per local date, and a zone change
@@ -389,4 +390,21 @@ func (m *Maint) autoRead(ctx context.Context, now time.Time) {
 		m.log.Info("maint: auto-read", "items", res.Items, "ledger", res.Ledger, "feeds", res.Feeds, "since", since.UTC().Format(time.RFC3339))
 	}
 	m.finish(Job{Name: "auto_read", Rows: int64(res.Items + res.Ledger), Batches: res.Batches, Err: err}, began)
+}
+
+// cleanStored cleans the stored article HTML again when it was last cleaned under another sanitize
+// policy version: the first start after a restore, or after the policy changed (store.EnsureContentPolicy).
+// It runs ahead of the nightly loop and ends early when maintenance stops; it is done for the version
+// once it completes, and picks up where it left off otherwise.
+func (m *Maint) cleanStored(ctx context.Context) {
+	began := time.Now()
+	n, err := m.o.DB.EnsureContentPolicy(ctx)
+	switch {
+	case err != nil && ctxErr(err):
+		m.log.Info("maint: cleaning stored article HTML interrupted", "rows", n)
+	case err != nil:
+		m.log.Error("maint: cleaning stored article HTML failed", "rows", n, "err", err)
+	case n > 0:
+		m.log.Info("maint: cleaned stored article HTML", "rows", n, "duration", time.Since(began).String())
+	}
 }

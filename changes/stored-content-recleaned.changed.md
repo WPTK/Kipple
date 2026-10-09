@@ -1,0 +1,1 @@
+Article text stored in your library is cleaned again with the current sanitizing rules, once, at the first start after a restore and whenever the rules change, so older rows and rows that came in a backup never keep weaker rules than new ones.

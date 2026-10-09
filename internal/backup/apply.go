@@ -381,6 +381,9 @@ type Applied struct {
 	// GapErr: the statistics gap could not be written into the database before it was installed
 	// (the restore went ahead; the caller logs it).
 	GapErr error
+	// PolicyErr: the record of the backup's sanitize policy could not be removed (a file that is not a
+	// database never gets that far); the caller logs it.
+	PolicyErr error
 	// Pre is the directory the replaced database went to ("" when there was none).
 	Pre string
 	// KippleVersion, CreatedAt and Username describe the backup, from the marker.
@@ -432,6 +435,7 @@ func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, 
 	staged := filepath.Join(dataDir, StagedFile)
 	if _, err := os.Stat(staged); err == nil {
 		out.GapErr = RecordRestoreGap(context.Background(), staged, now)
+		out.PolicyErr = ForgetContentPolicy(context.Background(), staged)
 		pre, err := Swap(dataDir, staged, now)
 		if err != nil {
 			return Applied{}, fmt.Errorf("restore: %w (it is tried again at the next start)", err)
@@ -457,4 +461,20 @@ func DiscardStaged(dataDir string) bool {
 	err := os.Remove(filepath.Join(dataDir, MarkerFile))
 	removeStaged(dataDir)
 	return err == nil
+}
+
+// ForgetContentPolicy deletes, in the database about to be installed, the record of which sanitize
+// policy its stored article HTML was cleaned under. The record came from the server that made the
+// backup (or from whoever edited the file), so the restored library is cleaned again when Kipple
+// starts, whatever it claimed.
+func ForgetContentPolicy(ctx context.Context, path string) error {
+	db, err := openUntrusted(path)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, "DELETE FROM settings WHERE key = ?", store.SettingContentPolicy); err != nil {
+		return fmt.Errorf("restore: forget the content policy mark: %w", err)
+	}
+	return db.Close()
 }

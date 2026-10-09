@@ -232,6 +232,9 @@ func restore(ctx context.Context, o restoreOptions) error {
 	if err := backup.RecordRestoreGap(ctx, tmp, o.Now()); err != nil {
 		fmt.Fprintf(out, "Note: could not record the statistics gap since the backup (%v); comparisons may read those days as quiet.\n", err)
 	}
+	if err := backup.ForgetContentPolicy(ctx, tmp); err != nil {
+		return err
+	}
 	pre, err := backup.Swap(o.DataDir, tmp, o.Now())
 	if err != nil {
 		return err
