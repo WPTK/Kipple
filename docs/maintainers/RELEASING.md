@@ -64,7 +64,7 @@ fixes only) is the test.
 3. **The expensive gates, once, on the final commit, only for the second tier above** (code that parses, authenticates, migrates
    or renders UI; skip them for docs, test-only, release-commit, dependency or log-line changes). They are two Go test runs, fuzz,
    Suite 1 and, for a schema change, the migration rehearsal (Suite 4). Run them after the review in step 2 and its fixes, never
-   before, and re-run them only if code changed after the last run. `scripts\release-gates.ps1 [-Ref <sha>]` runs everything except
+   before, and re-run them only if code changed after the last run. `scripts/maintainers/release-gates.ps1 [-Ref <sha>]` runs everything except
    Suite 1 and Suite 4, one at a time (timing tests flake under load), on a detached worktree of a printed full sha and prints a
    pass/fail table.
    **Fuzz, by hand:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them). It must finish clean. The weekly
@@ -127,7 +127,7 @@ fixes only) is the test.
     image, the SBOM's sha256 and how to regenerate it, and the `cosign verify-blob` command for the SBOM and its bundle)
     to its job summary and to the `image-notes` artifact, which also holds the SBOM file and its signature
     bundle. The Release is normally created after the run, so download the artifact, append `image-notes.md` to the
-    notes and attach the SBOM file and the bundle, so each version maps to exactly one digest and one SBOM. `scripts\release-publish.ps1 -Tag vX.Y.Z (-Prerelease | -Full) [-WhatIf]` does the steps below in order, with the exact per-tag identity, and stops before creating the release if a check fails; the manual commands follow:
+    notes and attach the SBOM file and the bundle, so each version maps to exactly one digest and one SBOM. `scripts/maintainers/release-publish.ps1 -Tag vX.Y.Z (-Prerelease | -Full) [-WhatIf]` does the steps below in order, with the exact per-tag identity, and stops before creating the release if a check fails; the manual commands follow:
 
         gh run download <run-id> -n image-notes
         cat image-notes.md >> notes.md
@@ -173,13 +173,13 @@ fixes only) is the test.
     - **Screenshots, only when the UI visibly changed** (a release with no visible UI change keeps the old ones; the
       version text is never skipped): in the Kipple repo, `cd web`, then `KIPPLE_SEED_SET=site npm run seed` (foreground; wait about a
       minute for the feeds), and in a second terminal
-      `node scripts/maintainers/site-shots.mjs --out <site>/screenshots --site <site>`. It writes the four WebP files at the sizes the
+      `node ../scripts/maintainers/site-shots.mjs --out <site>/screenshots --site <site>`. It writes the four WebP files at the sizes the
       site's design system names and re-renders `og.png`. Look at all five before committing. Update the capture note
       in the site's `design-system/DESIGN-SYSTEM.md` (section 10, `screenshots/`) with the new commit and the article shown.
     - Open a PR in the site repo and merge it; the merge is what publishes.
     - **README screenshots, same condition** (only when the UI visibly changed): re-seed first
       (`KIPPLE_SEED_SET=site npm run seed`), because the README shots choose a layout and that is saved to the seeded
-      account. Then `node scripts/maintainers/site-shots.mjs --readme ../docs/screenshots` writes `desktop-light`, `desktop-dark`,
+      account. Then `node ../scripts/maintainers/site-shots.mjs --readme ../docs/screenshots` writes `desktop-light`, `desktop-dark`,
       `phone-light` and `phone-dark` (WebP) into the Kipple repo. They show different views than the site's. Look at
       all four, and commit them in the next docs PR.
 

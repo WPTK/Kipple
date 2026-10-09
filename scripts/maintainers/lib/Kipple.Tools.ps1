@@ -15,7 +15,7 @@
     - A script's body runs inside Invoke-ToolMain, which maps the outcome to the exit code:
       0 ok, 1 a gate or check failed, 2 usage or environment error (tool missing, bad input, command failed).
   Run with -Verbose to see every step and every command line.
-  Tests: scripts/lib/Kipple.Tools.Tests.ps1 (see scripts/README.md).
+  Tests: scripts/maintainers/lib/Kipple.Tools.Tests.ps1 (see scripts/README.md).
 #>
 Set-StrictMode -Version Latest
 

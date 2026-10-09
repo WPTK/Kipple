@@ -1,6 +1,6 @@
 #requires -Version 7.2
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
-# Tests for scripts/release-publish.ps1. Run: Invoke-Pester scripts/release-publish.Tests.ps1
+# Tests for scripts/maintainers/release-publish.ps1. Run: Invoke-Pester scripts/maintainers/release-publish.Tests.ps1
 # The script is dot-sourced (it only defines functions then). gh, cosign, node and git are mocked: nothing real runs.
 
 BeforeAll {

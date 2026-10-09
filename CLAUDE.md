@@ -108,7 +108,7 @@ Most of the cost is context re-read on every turn, so keep each context small.
 - **Subagents:** use one only when the work is independent, large, or must not fill this context. Give it the files and
   the question, a model, and a stop condition. Do not spawn a verifier for a fact one command can check. There is no
   limit on how many agents run at once. An author stops at "pushed" and never waits on CI; the main session owns CI
-  waiting with one blocking `gh pr checks <n> --watch --fail-fast` (or `scripts/pr-ready.ps1`) per PR. A reviewer works
+  waiting with one blocking `gh pr checks <n> --watch --fail-fast` (or `scripts/maintainers/pr-ready.ps1`) per PR. A reviewer works
   alone and finishes before it hands back.
 - **Do not re-verify what CI already proved.** A release or docs-only commit needs the CI run on that commit and nothing
   more. Fuzz, UAT suites and a delta review run once, on the commit being tagged, and only if code changed since the

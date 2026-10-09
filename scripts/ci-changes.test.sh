@@ -79,7 +79,7 @@ altcls() { printf '%s\n' "$1" > "$alt/ci-prose.txt"; printf '%s' "$2" | bash "$a
 ok list-cannot-bless-scripts true "$(altcls '*' 'scripts/ci-prose.txt')"
 ok list-cannot-bless-workflows true "$(altcls '*' '.github/workflows/ci.yml')"
 ok list-cannot-bless-actions true "$(altcls '*' '.github/actions/audit-image/action.yml')"
-ok list-cannot-bless-nested-scripts true "$(altcls '*' 'scripts/lib/x.ps1')"
+ok list-cannot-bless-nested-scripts true "$(altcls '*' 'scripts/maintainers/lib/x.ps1')"
 ok list-minus-line-still-wins true "$(altcls $'*
 !docs/keep.md' 'docs/keep.md')"
 ok list-star-matches-others false "$(altcls '*' 'main.go')"
@@ -89,8 +89,8 @@ ok list-bracket-is-literal true "$(altcls 'docs/[ab].md' 'docs/a.md')"
 
 # --scripts: the gate of the `tooling` job.
 scl() { printf '%s' "$1" | bash "$cc" --scripts-classify; }
-ok scripts-file true "$(scl 'scripts/release-gates.ps1')"
-ok scripts-lib true "$(scl 'scripts/lib/Kipple.Tools.ps1')"
+ok scripts-file true "$(scl 'scripts/maintainers/release-gates.ps1')"
+ok scripts-lib true "$(scl 'scripts/maintainers/lib/Kipple.Tools.ps1')"
 ok scripts-workflow true "$(scl '.github/workflows/ci.yml')"
 ok scripts-other-workflow false "$(scl '.github/workflows/release.yml')"
 ok scripts-docs-only false "$(scl 'docs/maintainers/RELEASING.md')"

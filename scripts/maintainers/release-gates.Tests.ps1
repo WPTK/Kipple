@@ -1,6 +1,6 @@
 #requires -Version 7.2
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
-# Tests for scripts/release-gates.ps1. Run: Invoke-Pester scripts/release-gates.Tests.ps1
+# Tests for scripts/maintainers/release-gates.ps1. Run: Invoke-Pester scripts/maintainers/release-gates.Tests.ps1
 # The script is dot-sourced (it only defines functions then) and native commands are mocked: nothing real runs.
 
 BeforeAll {

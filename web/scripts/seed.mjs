@@ -60,7 +60,7 @@ const FEEDS = [
   ["BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml"],
 ];
 
-// KIPPLE_SEED_SET=site seeds the picture-forward set the kipple.cc screenshots are taken from (scripts/site-shots.mjs),
+// KIPPLE_SEED_SET=site seeds the picture-forward set the kipple.cc screenshots are taken from (scripts/maintainers/site-shots.mjs),
 // in a folder called "Less noise", instead of the default developer set.
 const SITE_FEEDS = [
   ["Wikimedia Picture of the Day", "https://commons.wikimedia.org/w/api.php?action=featuredfeed&feed=potd&feedformat=atom"],

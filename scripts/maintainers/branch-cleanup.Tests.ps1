@@ -1,6 +1,6 @@
 #requires -Version 7.2
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
-# Tests for scripts/branch-cleanup.ps1. Run: Invoke-Pester scripts/branch-cleanup.Tests.ps1
+# Tests for scripts/maintainers/branch-cleanup.ps1. Run: Invoke-Pester scripts/maintainers/branch-cleanup.Tests.ps1
 # The script is dot-sourced (it only defines functions then). git and gh are mocked: no branch is ever deleted.
 
 BeforeAll {
@@ -21,7 +21,7 @@ BeforeAll {
     $null = New-Item -ItemType Directory -Path $dir
     $none = Join-Path $TestDrive 'no-global-excludes'
     Set-Content -LiteralPath $none -Value ''
-    $repoRoot = Split-Path -Parent $PSScriptRoot
+    $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Copy-Item -LiteralPath (Join-Path $repoRoot '.gitignore') -Destination (Join-Path $dir '.gitignore')
     $null = New-Item -ItemType Directory -Force -Path (Join-Path $dir 'web')
     Copy-Item -LiteralPath (Join-Path $repoRoot 'web/.gitignore') -Destination (Join-Path $dir 'web/.gitignore')

@@ -31,6 +31,6 @@ Effort: normal. You make a change, check it locally, push it and report. Never H
 Your hand-back is at most 15 lines. Write any detail to a file in the scratchpad directory and return its path.
 
 Push the branch and **stop at "pushed"**. Do not wait for CI, do not poll it, and do not end your turn to wait:
-the main session owns CI and runs one `gh pr checks <n> --watch --fail-fast` (or `scripts/pr-ready.ps1`) per PR.
+the main session owns CI and runs one `gh pr checks <n> --watch --fail-fast` (or `scripts/maintainers/pr-ready.ps1`) per PR.
 Report: the branch, the new commit shas, `git diff --shortstat origin/main...HEAD`, what you ran and its result,
 and anything you could not do.

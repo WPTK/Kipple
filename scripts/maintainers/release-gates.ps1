@@ -31,18 +31,18 @@
 .PARAMETER KeepWorktree
   Leave the worktree and logs in place, to look at a failure.
 .EXAMPLE
-  pwsh scripts/release-gates.ps1
+  pwsh scripts/maintainers/release-gates.ps1
 .EXAMPLE
-  pwsh scripts/release-gates.ps1 -Ref 0123456789abcdef0123456789abcdef01234567 -SkipFuzz -Verbose
+  pwsh scripts/maintainers/release-gates.ps1 -Ref 0123456789abcdef0123456789abcdef01234567 -SkipFuzz -Verbose
 .EXAMPLE
-  pwsh scripts/release-gates.ps1 -WhatIf    # prints the commit and the plan, changes nothing
+  pwsh scripts/maintainers/release-gates.ps1 -WhatIf    # prints the commit and the plan, changes nothing
 .NOTES
   Exit codes: 0 every step passed (FLAKY counts as a pass but is flagged), 1 a step failed,
   2 usage or environment error (bad ref, tool missing).
   If this breaks: it depends on `go test` printing lines that start with "FAIL <package>" and "--- FAIL: <test>"
-  (Get-GoFailure in scripts/lib/Kipple.Tools.ps1), on `npm ci` and `npm test` in web/, on
+  (Get-GoFailure in scripts/maintainers/lib/Kipple.Tools.ps1), on `npm ci` and `npm test` in web/, on
   `node scripts/changelog.mjs check` and on scripts/fuzz.ps1. Change the step list in Get-GatePlan.
-  Tests: Invoke-Pester scripts/release-gates.Tests.ps1
+  Tests: Invoke-Pester scripts/maintainers/release-gates.Tests.ps1
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(

@@ -29,9 +29,9 @@
 .PARAMETER TimeoutMinutes
   How long to wait for the Release workflow run. Default 60.
 .EXAMPLE
-  pwsh scripts/release-publish.ps1 -Tag v1.2.3-beta.1 -Prerelease -WhatIf
+  pwsh scripts/maintainers/release-publish.ps1 -Tag v1.2.3-beta.1 -Prerelease -WhatIf
 .EXAMPLE
-  pwsh scripts/release-publish.ps1 -Tag v1.2.3 -Full -Verbose
+  pwsh scripts/maintainers/release-publish.ps1 -Tag v1.2.3 -Full -Verbose
 .NOTES
   Exit codes: 0 release created (or -WhatIf finished), 1 a signature check failed or the workflow run failed,
   2 usage or environment error (including neither or both of -Prerelease and -Full). PowerShell exits 1 when it rejects a malformed tag.
@@ -39,7 +39,7 @@
   `image-notes` holding image-notes.md, kipple-<version>.sbom.json and kipple-<version>.sbom.json.sigstore.json
   (all three names are in .github/workflows/release.yml, "Release notes block"), (c) the output format of
   `node scripts/changelog.mjs notes`, (d) cosign 3 or later and its flags, (e) `gh run list/view/download`.
-  Each is wrapped in one function below. Tests: Invoke-Pester scripts/release-publish.Tests.ps1
+  Each is wrapped in one function below. Tests: Invoke-Pester scripts/maintainers/release-publish.Tests.ps1
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(

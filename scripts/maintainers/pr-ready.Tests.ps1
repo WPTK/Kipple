@@ -1,6 +1,6 @@
 #requires -Version 7.2
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
-# Tests for scripts/pr-ready.ps1. Run: Invoke-Pester scripts/pr-ready.Tests.ps1
+# Tests for scripts/maintainers/pr-ready.ps1. Run: Invoke-Pester scripts/maintainers/pr-ready.Tests.ps1
 # The script is dot-sourced (it only defines functions then). gh is mocked: nothing is merged.
 
 BeforeAll {
