@@ -4,6 +4,7 @@ import {
   STACK_MAX,
   STACK_TTL_MS,
   TOAST_MS,
+  beginUndo,
   dismissUndoToast,
   holdUndoToast,
   pushUndo,
@@ -159,5 +160,26 @@ describe("undo failures", () => {
     await undoLast();
     expect(undoStore.get().canUndo).toBe(false);
     expect(undo).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("actions still in flight", () => {
+  it("a same-kind action joining the toast's group while in flight is waited for and undone with it", async () => {
+    const undo = vi.fn();
+    read(["1"], undo);
+    const t = beginUndo("read");
+    expect(toast()).toBe("Marked read"); // the settled part is still offered
+    const z = undoLast();
+    expect(toast()).toBe("Undoing…");
+    t.settle({ ids: ["2"], undo: vi.fn() });
+    await z;
+    expect(undo).toHaveBeenCalledWith(["1", "2"]);
+    expect(undoStore.get().canUndo).toBe(false);
+  });
+
+  it("an in-flight action that settles with nothing leaves no group behind", () => {
+    beginUndo("read", { bulk: true }).settle(null);
+    expect(undoStore.get().canUndo).toBe(false);
+    expect(toast()).toBeNull();
   });
 });

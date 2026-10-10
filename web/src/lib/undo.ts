@@ -5,7 +5,10 @@ import { announce } from "@/shell/toasts";
 // - one toast slot, 15 s, repeated same-kind actions merge into one toast;
 // - a stack of 20 undoable groups, reachable with `z` for 60 s;
 // - bulk batches (mark above/below, Shift+A) coalesce with nothing and stay undoable for 2 minutes;
-// - `z` pressed while an action's request is in flight waits for it and undoes that action (`undoable`).
+// - an action takes its place on the stack when the user acts (`beginUndo`), not when the server answers, so the
+//   stack is in the order the user acted. Until its request settles the group is in flight: `z`, the toast and the
+//   menu wait for that one group (at most UNDO_WAIT_MS), and if it comes to nothing they say so instead of undoing
+//   an older one.
 
 export type UndoKind = "read" | "unread" | "star" | "unstar";
 
@@ -13,39 +16,58 @@ export const TOAST_MS = 15_000;
 export const STACK_MAX = 20;
 export const STACK_TTL_MS = 60_000;
 export const BULK_TTL_MS = 120_000;
+/** How long an undo waits for its action's request before giving up (the request itself is not cancelled). */
+export const UNDO_WAIT_MS = 10_000;
 
-export interface UndoRequest {
-  kind: UndoKind;
+type UndoFn = (ids: string[]) => void | boolean | Promise<void | boolean>;
+
+/** What an action changed, once the server has said so. */
+export interface UndoChange {
   ids: string[];
-  /** A bulk batch: its own toast text, never merged, longer window. */
-  bulk?: boolean;
   /** Reverse the change for exactly these ids. Resolve `false` (or throw) when the request failed: the group is kept. */
-  undo: (ids: string[]) => void | boolean | Promise<void | boolean>;
+  undo: UndoFn;
   /** UI-only reversal (for example un-hiding a swiped row). */
   restore?: () => void;
+}
+
+export interface UndoRequest extends UndoChange {
+  kind: UndoKind;
+  /** A bulk batch: its own toast text, never merged, longer window. */
+  bulk?: boolean;
+}
+
+/** An action's place on the stack, taken when the user acts. Settle it exactly once. */
+export interface UndoTicket {
+  /** The server's answer: what changed (and how to reverse it), or null when nothing undoable happened. */
+  settle(change: UndoChange | null): void;
 }
 
 interface Group {
   id: number;
   kind: UndoKind;
+  /** What the settled actions changed. Empty while the first is still in flight. */
   ids: string[];
   bulk: boolean;
   at: number;
-  undo: (ids: string[]) => void | boolean | Promise<void | boolean>;
+  undo: UndoFn | null;
   restores: (() => void)[];
+  /** Actions in this group whose request has not settled. A group with none and no ids is removed. */
+  inflight: number;
+  waiters: (() => void)[];
 }
 
 export interface UndoView {
-  toast: { id: number; text: string } | null;
+  /** `busy`: an undo is waiting for its action's request; the toast says so and offers no button. */
+  toast: { id: number; text: string; busy?: true } | null;
   canUndo: boolean;
 }
 
 export const undoStore = createStore<UndoView>({ toast: null, canUndo: false });
 
 let stack: Group[] = [];
-/** Actions whose request has not settled yet: their group is pushed when it does, so `z` waits for them. */
-const pending = new Set<Promise<unknown>>();
 let toastGroup: Group | null = null;
+/** The group an undo is waiting for; while set, further undo presses are ignored. */
+let waiting: Group | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let held = false;
 let seq = 0;
@@ -75,25 +97,15 @@ function prune(): void {
 function publish(): void {
   prune();
   if (!toastGroup) held = false; // a hovered or focused toast that went away no longer holds the clock
+  const shown = toastGroup && toastGroup.ids.length > 0 ? toastGroup : null;
   undoStore.set({
-    toast: toastGroup ? { id: toastGroup.id, text: undoText(toastGroup.kind, toastGroup.ids.length, toastGroup.bulk) } : null,
-    canUndo: stack.length > 0 || pending.size > 0,
+    toast: waiting
+      ? { id: waiting.id, text: "Undoing…", busy: true }
+      : shown
+        ? { id: shown.id, text: undoText(shown.kind, shown.ids.length, shown.bulk) }
+        : null,
+    canUndo: stack.length > 0,
   });
-}
-
-/**
- * Track an undoable action from the moment it changes the screen until its request settles (and it has pushed its
- * group, or not). `z` in that window undoes this action once it lands, never the older group below it.
- */
-export function undoable<T>(work: Promise<T>): Promise<T> {
-  pending.add(work);
-  publish();
-  const settled = () => {
-    pending.delete(work);
-    publish();
-  };
-  work.then(settled, settled);
-  return work;
 }
 
 function armTimer(): void {
@@ -107,21 +119,58 @@ function armTimer(): void {
   }, TOAST_MS);
 }
 
-/** Record an undoable action and show (or merge into) the toast. */
-export function pushUndo(req: UndoRequest): void {
-  const bulk = req.bulk === true;
-  if (!bulk && toastGroup && !toastGroup.bulk && toastGroup.kind === req.kind && alive(toastGroup) && stack.includes(toastGroup)) {
-    const g = toastGroup;
-    for (const id of req.ids) if (!g.ids.includes(id)) g.ids.push(id);
-    g.at = Date.now();
-    if (req.restore) g.restores.push(req.restore);
-  } else {
-    const g: Group = { id: ++seq, kind: req.kind, ids: [...new Set(req.ids)], bulk, at: Date.now(), undo: req.undo, restores: req.restore ? [req.restore] : [] };
-    stack.push(g);
-    toastGroup = g;
-  }
+function newGroup(kind: UndoKind, bulk: boolean): Group {
+  const g: Group = { id: ++seq, kind, ids: [], bulk, at: Date.now(), undo: null, restores: [], inflight: 0, waiters: [] };
+  stack.push(g);
+  toastGroup = g;
+  return g;
+}
+
+function addChange(g: Group, change: UndoChange): void {
+  for (const id of change.ids) if (!g.ids.includes(id)) g.ids.push(id);
+  // Merged actions share the first closure, so it must act on the ids it is handed.
+  g.undo ??= change.undo;
+  if (change.restore) g.restores.push(change.restore);
+  g.at = Date.now();
+}
+
+/**
+ * Take an action's place on the stack now, as the user acts, and fill it in when the server answers. A same-kind
+ * action while that kind's toast is showing joins its group (one toast, one undo), as `pushUndo` always has.
+ */
+export function beginUndo(kind: UndoKind, opts: { bulk?: boolean } = {}): UndoTicket {
+  const bulk = opts.bulk === true;
+  const t = toastGroup;
+  const g = !bulk && t && !t.bulk && t.kind === kind && alive(t) && stack.includes(t) ? t : newGroup(kind, bulk);
+  g.inflight++;
   armTimer();
   publish();
+  let settled = false;
+  return {
+    settle(change) {
+      if (settled) return;
+      settled = true;
+      g.inflight--;
+      if (change && change.ids.length > 0) {
+        // Undone, expired or pushed off while in flight: what this action changed is still undoable, as its own group.
+        addChange(stack.includes(g) ? g : newGroup(kind, bulk), change);
+      }
+      if (g.inflight === 0) {
+        if (g.ids.length === 0) {
+          stack = stack.filter((x) => x !== g);
+          if (toastGroup === g) toastGroup = null;
+        }
+        for (const w of g.waiters.splice(0)) w();
+      }
+      armTimer();
+      publish();
+    },
+  };
+}
+
+/** Record an action that has already settled, and show (or merge into) the toast. */
+export function pushUndo(req: UndoRequest): void {
+  beginUndo(req.kind, { bulk: req.bulk }).settle(req);
 }
 
 async function run(g: Group): Promise<void> {
@@ -136,7 +185,8 @@ async function run(g: Group): Promise<void> {
   // The UI restore goes first so a hidden row is back at once; if the request then fails the row simply
   // shows its real (read) state and the group stays undoable.
   for (const r of g.restores) r();
-  const ok = await (async () => g.undo([...g.ids]))().then(
+  const undo = g.undo;
+  const ok = await (async () => undo?.([...g.ids]))().then(
     (r) => r !== false,
     () => false,
   );
@@ -152,19 +202,51 @@ async function run(g: Group): Promise<void> {
   announce("Undone");
 }
 
+/** Whether `g`'s in-flight actions settled within UNDO_WAIT_MS. */
+function settledInTime(g: Group): Promise<boolean> {
+  if (g.inflight === 0) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(false), UNDO_WAIT_MS);
+    g.waiters.push(() => {
+      clearTimeout(t);
+      resolve(true);
+    });
+  });
+}
+
+/** Undo `g`, the newest group when the user pressed: at once if it has settled, else once it does. */
+async function attempt(g: Group): Promise<void> {
+  if (waiting) return; // one undo waits at a time; a second press does not queue a second undo
+  if (g.inflight > 0) {
+    waiting = g;
+    publish();
+    const inTime = await settledInTime(g);
+    waiting = null;
+    publish();
+    if (!inTime) {
+      announce("Still saving. Try Undo again in a moment.");
+      return;
+    }
+    if (!stack.includes(g)) {
+      announce("Nothing to undo");
+      return;
+    }
+  }
+  await run(g);
+}
+
 /** `z`, and the Undo item in the list menu: the most recent group still inside its window. */
 export async function undoLast(): Promise<boolean> {
-  while (pending.size > 0) await Promise.allSettled([...pending]);
   prune();
   const g = stack[stack.length - 1];
   if (!g) return false;
-  await run(g);
+  await attempt(g);
   return true;
 }
 
 /** The toast's Undo button: the whole coalesced group it shows. */
 export async function undoToast(): Promise<void> {
-  if (toastGroup) await run(toastGroup);
+  if (toastGroup) await attempt(toastGroup);
 }
 
 export function dismissUndoToast(): void {
@@ -184,6 +266,7 @@ export function resetUndo(): void {
   timer = undefined;
   stack = [];
   toastGroup = null;
+  waiting = null;
   held = false;
   publish();
 }

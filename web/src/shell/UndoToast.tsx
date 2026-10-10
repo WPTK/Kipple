@@ -22,13 +22,15 @@ export function UndoToast() {
           onBlur={() => holdUndoToast(false)}
         >
           <span className="flex-1 font-medium">{toast.text}</span>
-          <button
-            type="button"
-            className="hit inline-flex items-center justify-center rounded-md px-2 font-bold underline underline-offset-2"
-            onClick={() => void undoToast()}
-          >
-            Undo
-          </button>
+          {toast.busy ? null : (
+            <button
+              type="button"
+              className="hit inline-flex items-center justify-center rounded-md px-2 font-bold underline underline-offset-2"
+              onClick={() => void undoToast()}
+            >
+              Undo
+            </button>
+          )}
         </div>
       ) : null}
     </div>

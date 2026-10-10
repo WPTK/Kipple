@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import { arrivedAfter, itemActions } from "./itemActions";
-import { resetUndo, undoLast, undoStore } from "./undo";
+import { UNDO_WAIT_MS, resetUndo, undoLast, undoStore, undoToast } from "./undo";
 import type { InfiniteData } from "@tanstack/react-query";
 import { keys } from "@/api/queries";
 import type { ItemsPage } from "@/api/types";
@@ -154,56 +154,171 @@ describe("bulk marks reconcile the optimistic rows", () => {
   });
 });
 
-describe("z during a mark that has not finished", () => {
+describe("z while an action is still in flight", () => {
   const all = { view: "all" as const };
-  const rows = (qc: QueryClient) => qc.getQueryData<InfiniteData<ItemsPage>>(keys.items(all))!.pages.flatMap((p) => p.items).map((r) => r.read);
-  /** A mark-read endpoint whose scope (bulk) requests wait for `release`; id requests answer at once. */
-  function heldBulk(changed: string[]) {
-    let release!: () => void;
-    const held = new Promise<void>((r) => (release = r));
-    const bodies: { ids?: string[]; read: boolean; scope?: unknown }[] = [];
-    mockFetch({
+  const gate = () => {
+    let open!: () => void;
+    const p = new Promise<void>((r) => (open = r));
+    return { p, open };
+  };
+  const tick = async (n = 20) => {
+    for (let i = 0; i < n; i++) await Promise.resolve();
+  };
+  /** Each write as "<what> <ids or scope> <value>", in the order it was sent. */
+  const asked = (calls: { method: string; url: URL; init?: RequestInit }[]) =>
+    calls
+      .filter((c) => c.method !== "GET")
+      .map((c) => {
+        const b = JSON.parse(String(c.init?.body ?? "{}"));
+        return `${c.url.pathname.replace("/api/items/", "")} ${b.ids?.join(",") ?? "scope"} ${b.read ?? b.starred}`;
+      });
+  function seeded() {
+    const qc = new QueryClient();
+    qc.setQueryData<InfiniteData<ItemsPage>>(keys.items(all), { pages: [pageOf([card(1), card(2), card(3)])], pageParams: [""] });
+    return qc;
+  }
+  const changedBoth = () => json({ changed: ["1002", "1003"], restored: [], count: 2, undoable: true });
+  /** Id marks answer at once; a scope (bulk) mark waits for `bulk`, then answers `bulkReply`; a star of 1001 waits for `star`. */
+  function server(bulkReply: () => Response | Promise<Response> = changedBoth) {
+    const bulk = gate();
+    const star = gate();
+    const { calls } = mockFetch({
       "POST /api/items/mark-read": async (_u, init) => {
-        const body = JSON.parse(String(init?.body));
-        bodies.push(body);
-        if (!body.scope) return json({ changed: body.ids, restored: [], count: body.ids.length });
-        await held;
-        return json({ changed, restored: [], count: changed.length, undoable: true });
+        const b = JSON.parse(String(init?.body));
+        if (!b.scope) return json({ changed: b.ids, restored: [], count: b.ids.length });
+        await bulk.p;
+        return bulkReply();
       },
+      "PUT /api/items/1001/star": async () => {
+        await star.p;
+        return json({});
+      },
+      "GET /api/items": (u) => json(pageOf((u.searchParams.get("ids") ?? "").split(",").map((id) => card(Number(id) - 1000)))),
     });
-    return { release, bodies };
+    return { bulk, star, calls };
   }
 
-  it("undoes that mark once it lands, not an older action", async () => {
-    const { release, bodies } = heldBulk(["1002", "1003"]);
-    const qc = new QueryClient();
-    qc.setQueryData<InfiniteData<ItemsPage>>(keys.items(all), { pages: [pageOf([card(1, { read: true }), card(2), card(3)])], pageParams: [""] });
-    const act = itemActions(qc);
-    // A single mark-unread first, so the stack holds an older group z could wrongly pick.
-    await act.setRead(["1001"], false, "key");
-    expect(rows(qc)).toEqual([false, false, false]);
-
-    // Shift+A: the rows turn read at once, and z is pressed while the request is still in flight.
-    const marking = act.markAll(all, "1003", ["1001", "1002", "1003"]);
-    expect(rows(qc)).toEqual([true, true, true]);
+  it("z during Shift+A undoes the Shift+A once it lands, not the older mark below it", async () => {
+    const { bulk, calls } = server();
+    const act = itemActions(seeded());
+    await act.setRead(["1001"], true, "key");
+    const marking = act.markAll(all, "1003", ["1002", "1003"]);
     const undoing = undoLast();
-    await Promise.resolve();
-    release();
+    await tick();
+    bulk.open();
     await marking;
     await undoing;
-
-    // The bulk mark is what was undone; the older mark-unread of 1001 was left alone (no request for it).
-    expect(bodies.slice(2).map((b) => [b.ids, b.read])).toEqual([[["1002", "1003"], false]]);
-    expect(rows(qc).slice(1)).toEqual([false, false]);
-    expect(undoStore.get().canUndo).toBe(true);
+    expect(asked(calls)).toEqual(["mark-read 1001 true", "mark-read scope true", "mark-read 1002,1003 false"]);
+    expect(undoStore.get().canUndo).toBe(true); // the older mark is still there for the next z
   });
 
-  it("offers Undo while the mark is in flight", async () => {
-    const { release } = heldBulk(["1001"]);
-    const marking = itemActions(new QueryClient()).markAll(all, "1001", ["1001"]);
+  it("Shift+A (slow) then m (fast) then z undoes the m, the newer action, and leaves the Shift+A", async () => {
+    const { bulk, calls } = server();
+    const act = itemActions(seeded());
+    const marking = act.markAll(all, "1003", ["1002", "1003"]);
+    await act.setRead(["1001"], true, "key");
+    await undoLast();
+    bulk.open();
+    await marking;
+    expect(asked(calls)).toEqual(["mark-read scope true", "mark-read 1001 true", "mark-read 1001 false"]);
+    expect(undoStore.get().canUndo).toBe(true); // the Shift+A, now landed
+  });
+
+  it("z waits only for the action that was newest when it was pressed, not one started after", async () => {
+    const { bulk, star, calls } = server();
+    const act = itemActions(seeded());
+    const marking = act.markAll(all, "1003", ["1002", "1003"]);
+    let done = false;
+    const undoing = undoLast().then(() => (done = true));
+    await tick();
+    const starring = act.toggleStar(card(1), true); // started after z, still in flight
+    bulk.open();
+    await marking;
+    await vi.waitFor(() => expect(done).toBe(true));
+    expect(asked(calls)).toEqual(["mark-read scope true", "1001/star scope true", "mark-read 1002,1003 false"]);
+    star.open();
+    await Promise.all([starring, undoing]);
+  });
+
+  it.each([
+    ["fails", () => json({ error: "x" }, 500)],
+    ["marks nothing", () => json({ changed: [], restored: [], count: 0, undoable: true })],
+    ["is over the undo cap", () => json({ changed: [], restored: [], count: 5000, undoable: false })],
+  ])("when the in-flight Shift+A %s, z undoes nothing and says so, never the older mark", async (_name, reply) => {
+    const say = vi.spyOn(toasts, "announce");
+    const { bulk, calls } = server(reply);
+    const act = itemActions(seeded());
+    await act.setRead(["1001"], true, "key");
+    const marking = act.markAll(all, "1003", ["1002", "1003"]);
+    const undoing = undoLast();
+    await tick();
+    bulk.open();
+    await marking;
+    await undoing;
+    expect(asked(calls)).toEqual(["mark-read 1001 true", "mark-read scope true"]);
+    expect(say).toHaveBeenCalledWith("Nothing to undo");
+    expect(undoStore.get().canUndo).toBe(true); // the older mark is still undoable, by a deliberate second z
+  });
+
+  it("a request that never answers: z gives up after UNDO_WAIT_MS and says so; a second z meanwhile is ignored", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const say = vi.spyOn(toasts, "announce");
+      const { calls } = server();
+      const act = itemActions(seeded());
+      await act.setRead(["1001"], true, "key");
+      void act.markAll(all, "1003", ["1002", "1003"]);
+      let first = false;
+      let second = false;
+      const z1 = undoLast().then(() => (first = true));
+      await tick();
+      expect(undoStore.get().toast?.text).toBe("Undoing…");
+      const z2 = undoLast().then(() => (second = true));
+      await tick();
+      expect(second).toBe(true); // ignored at once, not queued behind the first
+      expect(first).toBe(false);
+      await vi.advanceTimersByTimeAsync(UNDO_WAIT_MS);
+      await Promise.all([z1, z2]);
+      expect(first).toBe(true);
+      expect(say).toHaveBeenCalledWith("Still saving. Try Undo again in a moment.");
+      expect(asked(calls)).toEqual(["mark-read 1001 true", "mark-read scope true"]); // nothing undone
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("the toast's Undo during Shift+A undoes the Shift+A, not the older mark whose toast was showing", async () => {
+    const { bulk, calls } = server();
+    const act = itemActions(seeded());
+    await act.setRead(["1001"], true, "key");
+    expect(undoStore.get().toast?.text).toBe("Marked read");
+    const marking = act.markAll(all, "1003", ["1002", "1003"]);
+    expect(undoStore.get().toast).toBeNull(); // the older toast no longer offers an Undo that would skip the new action
+    const undoing = undoToast();
+    await tick();
+    bulk.open();
+    await marking;
+    await undoing;
+    expect(asked(calls)).toEqual(["mark-read 1001 true", "mark-read scope true", "mark-read 1002,1003 false"]);
+  });
+
+  it("a star that cannot be undone does not make Undo available while it is in flight", async () => {
+    const { star } = server();
+    const starring = itemActions(seeded()).toggleStar(card(1));
+    await tick();
+    expect(undoStore.get().canUndo).toBe(false);
+    star.open();
+    await starring;
+    expect(undoStore.get().canUndo).toBe(false);
+  });
+
+  it("Undo is available as soon as an undoable mark starts", async () => {
+    const { bulk } = server();
+    const marking = itemActions(seeded()).markAll(all, "1003", ["1002", "1003"]);
     expect(undoStore.get().canUndo).toBe(true);
-    release();
+    bulk.open();
     await marking;
     expect(undoStore.get().canUndo).toBe(true);
   });
 });
+
