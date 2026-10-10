@@ -37,19 +37,20 @@ await t.eachViewport(async (page, vp) => {
   await page.getByRole("button", { name: "Select", exact: true }).click();
   // The row on the Feeds screen itself (the desktop sidebar lists the same feed as a link, which this must not hit).
   const box = page.getByRole("checkbox", { name: `Select ${real.title}`, exact: true }).first();
-  const pages = page.context().pages().length;
   // A middle-click or a long-press "Open" would open a link in a new tab however the plain click is handled, so the
   // row must not be a link at all while selecting.
   const links = await page.getByRole("main").getByRole("link", { name: new RegExp(`^${real.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`) }).count();
   check(links === 0, `${tag} F1 no link`, "a feed row is not a link while selecting", `${links} link(s) to the feed on screen`);
-  await page.getByRole("main").getByText(real.title, { exact: true }).first().click({ button: "middle" }).catch(() => {});
-  await page.waitForTimeout(500);
-  check(page.context().pages().length === pages, `${tag} F1 no tab`, "a middle-click opens nothing", "a middle-click opened a new tab");
   await page.getByRole("main").getByText(real.title, { exact: true }).first().click();
   check(new URL(page.url()).pathname === "/feeds", `${tag} F1 stays`, "still on /feeds (selecting never opens a feed)", `went to ${page.url()}`);
   check(await box.isChecked({ timeout: 2000 }).catch(() => false), `${tag} F1 tick`, "tapping the title ticks the feed", "the feed is not ticked");
   check(await page.getByText("1 selected").isVisible().catch(() => false), `${tag} F1 count`, "1 selected", "the count does not read 1 selected");
   await t.shot(page, `${tag}-feeds-select`);
+  // After the plain click, whose result it must not disturb: an engine may treat a middle-click on a label as a click.
+  const pages = page.context().pages().length;
+  await page.getByRole("main").getByText(real.title, { exact: true }).first().click({ button: "middle" }).catch(() => {});
+  await page.waitForTimeout(500);
+  check(page.context().pages().length === pages, `${tag} F1 no tab`, "a middle-click opens nothing", "a middle-click opened a new tab");
   await page.getByRole("button", { name: "Done", exact: true }).click();
   check(await page.getByRole("button", { name: "Select", exact: true }).isVisible(), `${tag} F1 done`, "Done leaves select mode", "still selecting");
   });

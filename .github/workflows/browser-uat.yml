@@ -95,7 +95,7 @@ jobs:
         working-directory: web
         run: |
           status=0
-          for flow in folders feeds states keyboard offline; do
+          for flow in offline folders feeds states keyboard; do
             echo "::group::uat:$flow"
             npm run "uat:$flow" || status=1
             echo "::endgroup::"
