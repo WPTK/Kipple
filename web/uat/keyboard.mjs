@@ -450,8 +450,9 @@ async function k3(page) {
     await press(page, ...keys);
     const changed = await until(page, ([ids, want]) => ids.every((id) => document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread === want), expect(before));
     await press(page, "z");
-    const restored = await until(page, (snap) => snap.every(([id, u]) => (document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread ?? u) === u), before.map((r) => [r[0], r[1]]), 20000);
-    check(changed && restored, where(label), "marks read, and z restores it", `marked=${changed} undone=${restored}`);
+    const restored = await until(page, (snap) => snap.every(([id, u]) => (document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread ?? u) === u), before.map((r) => [r[0], r[1]]), 6000);
+    const after = restored ? [] : (await rowState(page)).filter((r) => before.some((b) => b[0] === r[0] && b[1] !== r[1]));
+    check(changed && restored, where(label), "marks read, and z restores it", `marked=${changed} undone=${restored} rows=${before.length} not restored=${after.length} (${after.slice(0, 3).map((r) => r[0] + ":" + r[1]).join(", ")}) toasts=${JSON.stringify(await page.locator("[role=status]").allInnerTexts())}`);
   };
   await load(page, "/l/all");
   await press(page, "j", "j");
