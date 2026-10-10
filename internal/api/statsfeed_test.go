@@ -11,6 +11,7 @@ import (
 
 // feed= scopes the summary to one feed; anything but a positive id is refused.
 func TestStatsSummaryOneFeed(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f1 := h.addFeed("Alpha", 0)
 	f2 := h.addFeed("Beta", 0)

@@ -9,6 +9,7 @@ import (
 )
 
 func TestStatsTimedSinceStoredOnFirstTimedRow(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	insert := func(kind string, ts int64) {
 		require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
@@ -44,6 +45,7 @@ func seedOpens(t testing.TB, e *env, n int, date string) {
 }
 
 func TestStatsDeleteWindowsAndProgress(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	seedOpens(t, e, 25000, "2026-09-20")
 	calls := 0

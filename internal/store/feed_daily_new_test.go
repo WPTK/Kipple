@@ -31,6 +31,7 @@ func newer(n int) []spec {
 // The first successful fetch brings the document's backlog, published before the subscription: not
 // counted. Later fetches add to today's row; the next day starts a new one.
 func TestFeedDailyNewSkipsTheFirstFetchAndSumsPerDay(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(100)...))
@@ -53,6 +54,7 @@ func TestFeedDailyNewSkipsTheFirstFetchAndSumsPerDay(t *testing.T) {
 // An item that arrives already read (the initial-read cutoff, a filter that marks read) or muted was
 // never a choice to open: not counted.
 func TestFeedDailyNewLeavesOutReadAndMutedArrivals(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(1)...))
@@ -70,6 +72,7 @@ func TestFeedDailyNewLeavesOutReadAndMutedArrivals(t *testing.T) {
 
 // A rekey's leftover new items are inserted read: not counted.
 func TestFeedDailyNewLeavesOutRekeyLeftovers(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -83,6 +86,7 @@ func TestFeedDailyNewLeavesOutRekeyLeftovers(t *testing.T) {
 
 // Items the same commit trims (retention keeps the newest N) were never shown: not counted.
 func TestFeedDailyNewLeavesOutItemsTheSameCommitTrims(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
@@ -96,6 +100,7 @@ func TestFeedDailyNewLeavesOutItemsTheSameCommitTrims(t *testing.T) {
 
 // A document over the chunk threshold commits in several transactions; the count covers every chunk.
 func TestFeedDailyNewCountsEveryChunk(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -108,6 +113,7 @@ func TestFeedDailyNewCountsEveryChunk(t *testing.T) {
 // Each chunk counts its own items in its own transaction: a chunk that rolls back takes its count with
 // it, and the chunks that committed before it stay counted (their items are durable and unread).
 func TestFeedDailyNewRolledBackChunkKeepsTheCommittedChunks(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -126,6 +132,7 @@ func TestFeedDailyNewRolledBackChunkKeepsTheCommittedChunks(t *testing.T) {
 
 // A URL edit between chunks stops the commit: the chunks that committed stay counted.
 func TestFeedDailyNewStaleCommitKeepsTheCommittedChunks(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -172,6 +179,7 @@ func TestFeedDailyNewTrimCorrectionAcrossChunks(t *testing.T) {
 // An item of the feed between two counted runs splits them even when a trim has moved it to the ledger
 // before the next run: it may have been read while it was kept.
 func TestFeedDailyNewTrimmedItemBetweenRunsSplitsThem(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(1)...))
@@ -188,6 +196,7 @@ func TestFeedDailyNewTrimmedItemBetweenRunsSplitsThem(t *testing.T) {
 
 // A trim that takes counted items from one of two rows of a day corrects that row only.
 func TestFeedDailyNewTrimCorrectionTwoRows(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
@@ -207,6 +216,7 @@ func TestFeedDailyNewTrimCorrectionTwoRows(t *testing.T) {
 
 // A trim that removes every counted item of the day deletes the row rather than leave a 0.
 func TestFeedDailyNewTrimToZeroDeletesTheRow(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
@@ -226,6 +236,7 @@ func TestFeedDailyNewTrimToZeroDeletesTheRow(t *testing.T) {
 // new subscription's, and is not counted. The edit touches nothing else the first success decides: the
 // feed keeps its last success, and a custom name equal to the new document's title stays.
 func TestFeedDailyNewSkipsTheFirstFetchAfterAURLEdit(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(2)...))
@@ -242,6 +253,7 @@ func TestFeedDailyNewSkipsTheFirstFetchAfterAURLEdit(t *testing.T) {
 }
 
 func TestFeedDailyNewSurvivesUnsubscribe(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(2)...))
@@ -254,6 +266,7 @@ func TestFeedDailyNewSurvivesUnsubscribe(t *testing.T) {
 // A permanent redirect migration moves the same document to a new URL: the feed keeps url_succeeded,
 // so the migrating fetch and the next one count their new items.
 func TestFeedDailyNewRedirectMigrationKeepsCounting(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(2)...))
@@ -271,6 +284,7 @@ func TestFeedDailyNewRedirectMigrationKeepsCounting(t *testing.T) {
 // Discovery turns a page address into the feed it links: the first document of that feed is its backlog
 // and is not counted; the next fetch's new items are.
 func TestFeedDailyNewDiscoveredFeedSkipsItsFirstDocument(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("https://blog.example/")
 	e.commitDiscovered(e.discovered(id, "https://blog.example/feed.xml"))

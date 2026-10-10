@@ -393,6 +393,10 @@ describe("Add feed", () => {
     expect(addError(err("timeout"))).toBe("The site took too long to answer. Try again later.");
     expect(addError(err("unreachable", "the site answered HTTP 404 Not Found"))).toBe("The site answered HTTP 404 Not Found.");
     expect(addError(err("not_feed"))).toMatch(/doesn't answer with a feed/);
+    expect(addError(err("feed_exists", "You already have this feed: My News in the folder Tech. The address you entered redirects to it."))).toBe(
+      "You already have this feed: My News in the folder Tech. The address you entered redirects to it.",
+    );
+    expect(addError(err("feed_exists"))).toBe("You already have this feed. The address you entered redirects to it.");
     expect(addError(err("invalid_url", "that is not a web address; enter a feed or site address such as https://example.com/feed"))).toBe(
       "That is not a web address; enter a feed or site address such as https://example.com/feed.",
     );
@@ -415,7 +419,7 @@ describe("Feed editor", () => {
       "GET /api/feeds/1": () => json(feedDetail()),
       "PATCH /api/feeds/1": (_u, init) => {
         const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
-        return b.url === "https://example.com/dup" ? json({ error: "url_exists", message: "used", feed_id: "9" }, 409) : json(feedDetail({ url: b.url ?? "https://example.com/feed.xml" }));
+        return b.url === "https://example.com/dup" ? json({ error: "url_exists", message: "You already have this feed: Other Feed in the folder News. That address cannot be used for this feed too.", feed_id: "9" }, 409) : json(feedDetail({ url: b.url ?? "https://example.com/feed.xml" }));
       },
     });
     const { container } = go("/feeds");
@@ -428,7 +432,7 @@ describe("Feed editor", () => {
     await user.clear(url);
     await user.type(url, "https://example.com/dup");
     await user.click(within(dlg).getByRole("button", { name: "Save" }));
-    expect(await within(dlg).findByText("Another feed already uses that address.")).toBeInTheDocument();
+    expect(await within(dlg).findByText(/You already have this feed: Other Feed in the folder News/)).toBeInTheDocument();
     await user.clear(url);
     await user.type(url, "https://example.com/new.xml");
     await user.click(within(dlg).getByRole("button", { name: "Save" }));
@@ -726,9 +730,9 @@ describe("Folders and OPML", () => {
 
 const HEALTH: HealthResponse = {
   feeds: [
-    { id: "1", title: "Zed Blog", url: "https://zed.test/feed", url_original: null, status: "ok", redirect_pending: false, notices: [], enabled: true, disabled_reason: null, last_success_at: 1000, last_fetch_at: 1000, last_error_at: null, last_error_class: null, last_error: null, last_status: 200, consecutive_failures: 0, current_delay_s: 1800, next_fetch_at: 5000, redirect_to: null, redirect_kind: null, redirect_count: 0, last_new_items_at: 1000, trimmed_unread_count: 0, trimmed_unread_since: null, host_throttled_until: null },
-    { id: "2", title: "NPR", url: "https://npr.test/feed", url_original: null, status: "failing", redirect_pending: false, notices: [], enabled: true, disabled_reason: null, last_success_at: 500, last_fetch_at: 900, last_error_at: 900, last_error_class: "http", last_error: "HTTP 404", last_status: 404, consecutive_failures: 20, current_delay_s: 86400, next_fetch_at: 90000, redirect_to: null, redirect_kind: null, redirect_count: 0, last_new_items_at: null, trimmed_unread_count: 0, trimmed_unread_since: null, host_throttled_until: null },
-    { id: "3", title: "Moved Site", url: "http://old.test/feed", url_original: null, status: "redirecting", redirect_pending: true, notices: ["moved permanently (301) to https://new.test/feed"], enabled: true, disabled_reason: null, last_success_at: 800, last_fetch_at: 900, last_error_at: null, last_error_class: null, last_error: null, last_status: 301, consecutive_failures: 0, current_delay_s: 1800, next_fetch_at: 4000, redirect_to: "https://new.test/feed", redirect_kind: "permanent", redirect_count: 1, last_new_items_at: 800, trimmed_unread_count: 4, trimmed_unread_since: 100, host_throttled_until: null },
+    { id: "1", title: "Zed Blog", url: "https://zed.test/feed", url_original: null, status: "ok", redirect_pending: false, notices: [], enabled: true, disabled_reason: null, last_success_at: 1000, last_fetch_at: 1000, last_error_at: null, last_error_class: null, last_error: null, last_status: 200, consecutive_failures: 0, current_delay_s: 1800, next_fetch_at: 5000, redirect_to: null, redirect_kind: null, redirect_count: 0, redirect_owner: null, last_new_items_at: 1000, trimmed_unread_count: 0, trimmed_unread_since: null, host_throttled_until: null },
+    { id: "2", title: "NPR", url: "https://npr.test/feed", url_original: null, status: "failing", redirect_pending: false, notices: [], enabled: true, disabled_reason: null, last_success_at: 500, last_fetch_at: 900, last_error_at: 900, last_error_class: "http", last_error: "HTTP 404", last_status: 404, consecutive_failures: 20, current_delay_s: 86400, next_fetch_at: 90000, redirect_to: null, redirect_kind: null, redirect_count: 0, redirect_owner: null, last_new_items_at: null, trimmed_unread_count: 0, trimmed_unread_since: null, host_throttled_until: null },
+    { id: "3", title: "Moved Site", url: "http://old.test/feed", url_original: null, status: "redirecting", redirect_pending: true, notices: ["moved permanently (301) to https://new.test/feed"], enabled: true, disabled_reason: null, last_success_at: 800, last_fetch_at: 900, last_error_at: null, last_error_class: null, last_error: null, last_status: 301, consecutive_failures: 0, current_delay_s: 1800, next_fetch_at: 4000, redirect_to: "https://new.test/feed", redirect_kind: "permanent", redirect_count: 1, redirect_owner: null, last_new_items_at: 800, trimmed_unread_count: 4, trimmed_unread_since: 100, host_throttled_until: null },
   ],
   reader_last_seen_at: null,
   snapshot: { last_at: null, last_error: "disk full" },
@@ -768,6 +772,16 @@ describe("Feed health", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Fetch log" }));
     const dlg = await screen.findByRole("dialog", { name: "Fetch log for NPR" });
     expect(await within(dlg).findByText("HTTP 404", { selector: "p.break-words" })).toBeInTheDocument();
+  });
+
+  it("says which feed a redirecting address already belongs to, with no update button", async () => {
+    base({
+      "GET /api/health/feeds": () => json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => (f.id === "3" ? { ...f, redirect_owner: "Zed Blog" } : f)) }),
+    });
+    go("/health");
+    expect(await screen.findByText(/which you already have\. Remove this one or keep both\./)).toBeInTheDocument();
+    expect(screen.getByText("Zed Blog", { selector: "span.font-semibold" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update to new URL" })).toBeNull();
   });
 
   it("counts the write-ahead log in the database size, and names a fetch's outcome in words", async () => {

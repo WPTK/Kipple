@@ -9,6 +9,7 @@ import (
 // An integer setting that is not an exact in-range integer reads as the
 // default, never as a truncated or overflowed conversion.
 func TestSettingIntRejectsNonIntegralAndOutOfRange(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for _, tc := range []struct {
 		raw  string

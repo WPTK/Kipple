@@ -13,6 +13,7 @@ import (
 // A summary of one feed counts exactly what a database holding only that feed's rows would, by the
 // same rules; the other feed's rows are left out of every count, the streaks included.
 func TestStatsSummaryOneFeed(t *testing.T) {
+	t.Parallel()
 	rows := func(e *env, withOther bool) {
 		e.putStat("open", "2026-09-10", 1, 1, "a", nil, "One") // legacy: before the first read time
 		e.putStat("open", "2026-09-20", 2, 1, "b", nil, "One")
@@ -54,6 +55,7 @@ func TestStatsSummaryOneFeed(t *testing.T) {
 // A feed subscribed after statistics began is covered only from its subscription day: the days
 // before it are not zeros, so a comparison reaching back past it has too little history.
 func TestStatsSummaryOneFeedCoverageStartsWithTheFeed(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('tz', '\"UTC\"')")
 	old := e.addFeed("https://old.example/feed")
@@ -82,6 +84,7 @@ func TestStatsSummaryOneFeedCoverageStartsWithTheFeed(t *testing.T) {
 
 // A feed's never_opened lists only that feed, and only when it had no open in the range.
 func TestStatsSummaryOneFeedNeverOpened(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('tz', '\"UTC\"')")
 	f1 := e.addFeed("https://one.example/feed")
@@ -103,6 +106,7 @@ func TestStatsSummaryOneFeedNeverOpened(t *testing.T) {
 // The feed's start only ever moves coverage forward: a later global gap or a later first read time
 // still wins, and a subscribed feed with no rows starts on its subscription day.
 func TestStatsSummaryOneFeedCoverageEdges(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('tz', '\"UTC\"')")
 	old := e.addFeed("https://old.example/feed")
@@ -142,6 +146,7 @@ func TestStatsSummaryOneFeedCoverageEdges(t *testing.T) {
 // The feed's start date takes seven index seeks, however many rows the feed holds. Run with
 // KIPPLE_PERF=1 to time it, and one feed's summary against all feeds', on a feed of 100,000 rows.
 func TestStatsFeedStartPerf(t *testing.T) {
+	t.Parallel()
 	if testing.Short() || os.Getenv("KIPPLE_PERF") == "" {
 		t.Skip("seeds a million stats rows; set KIPPLE_PERF=1")
 	}

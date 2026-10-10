@@ -39,6 +39,7 @@ func seedFeed(t *testing.T, db *DB) int64 {
 const day = int64(86400)
 
 func TestRestoreHonoursRestoreDaysAndReportsOnlyInserted(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	feed := seedFeed(t, db)
@@ -75,6 +76,7 @@ func TestRestoreHonoursRestoreDaysAndReportsOnlyInserted(t *testing.T) {
 }
 
 func TestPurgeBatchesRespectCutoffs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	feed := seedFeed(t, db)
@@ -107,6 +109,7 @@ func TestPurgeBatchesRespectCutoffs(t *testing.T) {
 }
 
 func TestCheckpointPassiveAndOptimize(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	seedFeed(t, db)
@@ -116,6 +119,7 @@ func TestCheckpointPassiveAndOptimize(t *testing.T) {
 }
 
 func TestWriteSnapshotRecordsAndSurvivesLeftoverTmp(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	seedFeed(t, db)
@@ -140,6 +144,7 @@ func TestWriteSnapshotRecordsAndSurvivesLeftoverTmp(t *testing.T) {
 }
 
 func TestLedgerPurgeHorizonFollowsRestoreDays(t *testing.T) {
+	t.Parallel()
 	require.LessOrEqual(t, MaxRestoreDays, LedgerDays)
 	ctx := context.Background()
 	db, _ := openTest(t)

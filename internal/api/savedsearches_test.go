@@ -31,6 +31,7 @@ func savedList(t *testing.T, h *harness, c *http.Cookie, query string) []map[str
 }
 
 func TestSavedSearchesCRUDCountsAndBootstrap(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	a := h.addFeed("A", 0)
@@ -104,6 +105,7 @@ func TestSavedSearchesCRUDCountsAndBootstrap(t *testing.T) {
 }
 
 func TestSavedSearchValidation(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -138,6 +140,7 @@ func TestSavedSearchValidation(t *testing.T) {
 }
 
 func TestSavedSearchLimitAndSettingsPatch(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	var entries []map[string]any
@@ -218,6 +221,7 @@ func TestSavedSearchOldDuplicatesNeverBlockOtherEdits(t *testing.T) {
 }
 
 func TestSavedSearchConcurrentCreatesLoseNothing(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	var wg sync.WaitGroup
@@ -234,6 +238,7 @@ func TestSavedSearchConcurrentCreatesLoseNothing(t *testing.T) {
 }
 
 func TestSavedSearchScopeIsDroppedWhenItsFeedOrFolderIsDeleted(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -334,6 +339,7 @@ func TestSavedSearchCountThatRunsOutOfBudgetIsNull(t *testing.T) {
 // Replacing or resetting the list through PATCH /api/settings tells other tabs, like every other
 // change to it, and a scope naming a feed or folder that does not exist is a field error.
 func TestSettingsPatchOfSavedSearchesPublishesAndChecksScopes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)

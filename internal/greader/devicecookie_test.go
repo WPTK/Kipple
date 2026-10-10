@@ -10,6 +10,7 @@ import (
 // The kipple_device cookie only selects an appearance profile for the web UI: the Reader API
 // neither accepts it as credentials nor sets it.
 func TestReaderAPIIgnoresDeviceCookie(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	w := h.do(http.MethodGet, base+rd+"token", "", map[string]string{"Authorization": "", "Cookie": "kipple_device=AAAAAAAAAAAAAAAAAAAAAA"})
 	require.Equal(t, 401, w.Result().StatusCode)

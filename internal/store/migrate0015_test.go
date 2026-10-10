@@ -131,6 +131,7 @@ func statsRows() int {
 // every other schema object byte for byte. It is applied on its own, so a later migration cannot
 // change what this test compares.
 func TestMigration0015OneAPIClient(t *testing.T) {
+	t.Parallel()
 	n := statsRows()
 	raw, path := schema14(t)
 	seedStats14(t, raw, n)
@@ -208,6 +209,7 @@ func TestMigration0015OneAPIClient(t *testing.T) {
 // reserves: the database file and its WAL grow by at most migrateRewriteFactor times the database plus
 // the headroom, and everything with the snapshot by at most the whole reservation.
 func TestMigration0015PeakSpaceWithinTheReservation(t *testing.T) {
+	t.Parallel()
 	n := statsRows()
 	raw, path := schema14(t)
 	seedStats14(t, raw, n)
@@ -305,6 +307,7 @@ func TestMigrationSpaceFollowsTheDeclaredRebuild(t *testing.T) {
 
 // An empty schema-14 table whose rows were all deleted keeps its sequence mark through the rebuild.
 func TestMigration0015EmptyStatsKeepsSequence(t *testing.T) {
+	t.Parallel()
 	raw, path := schema14(t)
 	seedStats14(t, raw, 20)
 	_, err := raw.Exec("DELETE FROM stats_events")
@@ -317,6 +320,7 @@ func TestMigration0015EmptyStatsKeepsSequence(t *testing.T) {
 
 // A failing 0015 leaves the schema-14 table, its values and its CHECK untouched, and the retry migrates.
 func TestMigration0015RollsBackOnFailure(t *testing.T) {
+	t.Parallel()
 	raw, _ := schema14(t)
 	seedStats14(t, raw, 100)
 	before := statsDump(t, raw, "client")

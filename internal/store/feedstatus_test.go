@@ -8,6 +8,7 @@ import (
 )
 
 func TestFeedStatusTable(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 	s := func(v string) *string { return &v }
 	fresh := now.Add(-time.Hour).Unix()

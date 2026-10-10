@@ -33,6 +33,7 @@ func schema12WithRows(t *testing.T) string {
 
 // 0013 adds the two partial indexes and changes no row.
 func TestMigration0013AddsTheIndexes(t *testing.T) {
+	t.Parallel()
 	path := schema12WithRows(t)
 	db := reopen(t, path)
 	r := db.Reader()
@@ -53,6 +54,7 @@ func TestMigration0013AddsTheIndexes(t *testing.T) {
 // ledger half of the global mark-all-as-read, in both the Reader API (MarkAllRead) and the web app
 // (MarkScopeRead) forms.
 func TestStarredAndLedgerIndexPlans(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	var feeds []int64
 	for f := 0; f < 3; f++ {

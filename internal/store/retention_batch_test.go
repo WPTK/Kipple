@@ -220,6 +220,7 @@ func TestUnsubscribeBatched(t *testing.T) {
 // that understates a feed over its cap, nothing goes, which shows the count and the trim-set
 // window did not run. With the true total, or none (-1), the feed is trimmed to its cap.
 func TestTrimSkipsAFeedWithinItsCap(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.loadFeed("http://a.example/feed", 110)
 	e.exec("UPDATE feeds SET retention = 100 WHERE id = ?", id)
@@ -248,6 +249,7 @@ func TestTrimSkipsAFeedWithinItsCap(t *testing.T) {
 // A fetch commit passes the count it knows: a fetch that leaves the feed within its cap trims
 // nothing, one that takes it over trims it back to the cap.
 func TestFetchCommitTrimsOnlyOverTheCap(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.loadFeed("http://a.example/feed", 40)
 	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)

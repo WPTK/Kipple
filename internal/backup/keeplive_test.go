@@ -49,6 +49,7 @@ func preDirs(dir string) []string {
 // An empty database (what setup mode creates) is deleted, never kept, so it
 // cannot push a real safety copy out of the newest three.
 func TestEmptyLiveDatabaseTakesNoSafetyCopy(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
 	library(t, dir, true, nil)
@@ -71,6 +72,7 @@ func TestEmptyLiveDatabaseTakesNoSafetyCopy(t *testing.T) {
 // keepLive decides from what it reads: only a database that is provably empty
 // is deleted; everything else is kept, as one file when it could be opened.
 func TestKeepLive(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	liveDB := func(dir string) string { return filepath.Join(dir, "kipple.db") }
 
@@ -219,6 +221,7 @@ func TestKeepLive(t *testing.T) {
 // address settings are dropped and the live instance's are carried into the
 // staged copy (the same helper a reset uses).
 func TestRestoreKeepsTheLiveAddressSettings(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
 	// The instance a reset left: empty, with the kept address.
@@ -254,6 +257,7 @@ func TestRestoreKeepsTheLiveAddressSettings(t *testing.T) {
 // A backup that already holds a statistics gap marker after today (a fast clock, or an edited file)
 // has it replaced by today when the restore is applied, so it cannot hold comparisons off until that date.
 func TestRestoreKeepsALaterStatsMarker(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
 	library(t, dir, false, map[string]any{})
@@ -275,6 +279,7 @@ func TestRestoreKeepsALaterStatsMarker(t *testing.T) {
 // variable), and a restore replaces the backup's Cloudflare Access config with
 // this server's own, which here is none.
 func TestServerSettingsAreOneList(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	ctx := context.Background()
 
@@ -307,6 +312,7 @@ func TestServerSettingsAreOneList(t *testing.T) {
 // A confirmed marker older than a week is discarded, not applied: a rollback to
 // a Kipple that ignores it and a later upgrade must not apply a stale decision.
 func TestApplyStagedDiscardsAStaleMarker(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
 		name  string

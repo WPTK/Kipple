@@ -33,6 +33,7 @@ func schema15WithDevices(t *testing.T, rows, devices map[string]string) string {
 // removes the old key, in device profiles and in the defaults for new devices; other keys and profiles
 // without the old key are left alone.
 func TestMigration0016ListOverrides(t *testing.T) {
+	t.Parallel()
 	const (
 		both  = "0123456789abcdef"
 		feeds = "fedcba9876543210"
@@ -95,6 +96,7 @@ func reopenLogged(t *testing.T, path string) (*DB, string) {
 // budget (MaxListOverridesBytes) and the whole value's 8192 bytes, for a profile and for the defaults
 // for new devices alike.
 func TestMigration0016OverTheLimits(t *testing.T) {
+	t.Parallel()
 	const (
 		budget = "dddddddddddddddd" // the new key passes its 4096-byte budget; the profile would still fit
 		whole  = "eeeeeeeeeeeeeeee" // the whole profile passes 8192 bytes
@@ -151,6 +153,7 @@ func writerTempTables(t *testing.T, db *DB) []string {
 // A migration that fails after creating temp.migration_notice rolls back whole: an error, user_version unchanged
 // and no temp table left on the writer, so the next migration can create the table again and commit.
 func TestMigrationNoticeRollback(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newEnv(t)
 	before, err := e.db.Version(ctx)
@@ -176,6 +179,7 @@ INSERT INTO migration_notice VALUES ('a notice');`}
 // The 8192 cap is bytes, as the API measures ui.device_defaults: defaults whose text is under 8192 characters
 // but over 8192 bytes once converted (non-ASCII voice name) lose their layout overrides.
 func TestMigration0016DefaultsCountBytes(t *testing.T) {
+	t.Parallel()
 	voice := strings.Repeat("é", 3000) // 3000 characters, 6000 bytes
 	old := `{"client.voice":"` + voice + `","client.layout_overrides":` + oldOverrides(70) + `}`
 	converted := len(`{"client.voice":"`+voice+`","client.list_overrides":{"feed":{}}}`) + 70*len(`"1000000":{"layout":"headlines"},`)
@@ -190,12 +194,14 @@ func TestMigration0016DefaultsCountBytes(t *testing.T) {
 
 // A migration without anything to report logs no warning.
 func TestMigration0016NoNotice(t *testing.T) {
+	t.Parallel()
 	_, logged := reopenLogged(t, schema15WithDevices(t, nil, map[string]string{"gggggggggggggggg": `{"client.layout_overrides":` + oldOverrides(2) + `}`}))
 	require.NotContains(t, logged, "level=WARN")
 }
 
 // Without devices or defaults the migration has nothing to do.
 func TestMigration0016Empty(t *testing.T) {
+	t.Parallel()
 	db := reopen(t, schema15WithDevices(t, nil, nil))
 	require.Zero(t, scalar[int](t, db.Reader(), "SELECT count(*) FROM devices"))
 	_, ok := settingRow(t, db, "ui.device_defaults")

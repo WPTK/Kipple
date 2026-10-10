@@ -40,6 +40,7 @@ const me = "owner-key"
 // An upload belongs to the key that sent it: another key sees no restore and
 // can neither read, confirm nor cancel it, and cannot upload over it.
 func TestUploadBelongsToItsOwner(t *testing.T) {
+	t.Parallel()
 	const other = "someone-else"
 	r, dir := newRestorer(t)
 	b := hostBackup(t)
@@ -158,6 +159,7 @@ func rawQuery(t *testing.T, path, q string) string {
 // confirm edits only the staged copy and writes the marker last, the next start
 // swaps it in and keeps the old database.
 func TestUploadConfirmApply(t *testing.T) {
+	t.Parallel()
 	r, dir := newRestorer(t)
 	up, err := upload(r, hostBackup(t))
 	require.NoError(t, err)
@@ -217,6 +219,7 @@ func TestUploadConfirmApply(t *testing.T) {
 }
 
 func TestConfirmWithoutNewPasswordKeepsTheAccount(t *testing.T) {
+	t.Parallel()
 	r, dir := newRestorer(t)
 	_, err := upload(r, hostBackup(t))
 	require.NoError(t, err)
@@ -228,6 +231,7 @@ func TestConfirmWithoutNewPasswordKeepsTheAccount(t *testing.T) {
 // A backup made at schema 16 (before feed_daily_new) passes the check at its own version, and the first
 // start after the restore migrates it to the current schema with its items.
 func TestRestoreASchema16Backup(t *testing.T) {
+	t.Parallel()
 	r, dir := newRestorer(t)
 	up, err := upload(r, rebuilt(t, hostBackup(t), "DROP TABLE feed_daily_new; ALTER TABLE feeds DROP COLUMN url_succeeded; PRAGMA user_version = 16"))
 	require.NoError(t, err)
@@ -253,6 +257,7 @@ func TestRestoreASchema16Backup(t *testing.T) {
 }
 
 func TestUploadKinds(t *testing.T) {
+	t.Parallel()
 	r, dir := newRestorer(t)
 
 	// A bare OPML file: counted, nothing kept, no upload state.
@@ -309,6 +314,7 @@ func TestUploadKinds(t *testing.T) {
 // then for the database the manifest declares before it is extracted; a
 // shortfall is a space error either way, never a damaged backup.
 func TestUploadSpaceCheck(t *testing.T) {
+	t.Parallel()
 	b := hostBackup(t)
 	var asked string
 	r, dir := newRestorer(t, func(o *RestorerOptions) {
@@ -390,6 +396,7 @@ func rebuilt(t *testing.T, b []byte, change string) []byte {
 }
 
 func TestUploadRefusesAnExtraOrChangedSchemaObject(t *testing.T) {
+	t.Parallel()
 	b := hostBackup(t)
 	for name, change := range map[string]string{
 		"trigger":         "CREATE TRIGGER evil AFTER INSERT ON sessions BEGIN DELETE FROM items; END",
@@ -487,6 +494,7 @@ func (s *stalledBody) Read(p []byte) (int, error) {
 // context as well. Whatever order that happens in, an upload that stalls after
 // its head ends as ErrUploadTooSlow, never as the cancellation.
 func TestTooSlowOutranksACancelledContext(t *testing.T) {
+	t.Parallel()
 	size := int64(sniffBytes + 5000)
 	body := append([]byte("PK\x03\x04"), make([]byte, sniffBytes+1000)...)
 	for name, cancelled := range map[string]bool{"context live": false, "context cancelled": true} {
@@ -542,6 +550,7 @@ func TestReceiveKeepsASpoolFailure(t *testing.T) {
 
 // A failure of the spool file keeps its cause; it is not a cut upload.
 func TestEndedKeepsASpoolFailure(t *testing.T) {
+	t.Parallel()
 	disk := errors.New("no space left on device")
 	err := ended(context.Background(), &spoolError{disk})
 	require.ErrorIs(t, err, disk)
@@ -550,6 +559,7 @@ func TestEndedKeepsASpoolFailure(t *testing.T) {
 }
 
 func TestCheckSchemaMatchesAFreshDatabase(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	snap := filepath.Join(t.TempDir(), "s.db")
 	rel, err := db.TrySnapshot()
@@ -574,6 +584,7 @@ func TestCheckSchemaMatchesAFreshDatabase(t *testing.T) {
 // binary, and upgraded through every later tag in turn: none was refused
 // (docs/design.md §2.6).
 func TestCheckSchemaAcceptsEveryUpgradePath(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for v := 1; v <= store.LatestVersion(); v++ {
 		path := filepath.Join(t.TempDir(), "kipple.db")
@@ -594,6 +605,7 @@ func TestCheckSchemaAcceptsEveryUpgradePath(t *testing.T) {
 }
 
 func TestUploadRefusesTooManyEntries(t *testing.T) {
+	t.Parallel()
 	extra := map[string][]byte{}
 	for i := 0; i < MaxEntries; i++ {
 		extra[fmt.Sprintf("f%d.txt", i)] = []byte("x")
@@ -609,6 +621,7 @@ func TestUploadRefusesTooManyEntries(t *testing.T) {
 // The entry count is read from the zip's end record before the directory is
 // parsed: a zip claiming tens of thousands of entries is refused unread.
 func TestExtractCapsEntriesBeforeParsing(t *testing.T) {
+	t.Parallel()
 	z := goodZip([]byte("db"), nil)
 	eocd := bytes.LastIndex(z, []byte("PK\x05\x06"))
 	require.Positive(t, eocd)
@@ -637,6 +650,7 @@ func TestExtractCapsEntriesBeforeParsing(t *testing.T) {
 
 // Extraction stops when its context ends and leaves nothing behind.
 func TestExtractIsCancellable(t *testing.T) {
+	t.Parallel()
 	src := filepath.Join(t.TempDir(), "b.zip")
 	require.NoError(t, os.WriteFile(src, hostBackup(t), 0o600))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -648,6 +662,7 @@ func TestExtractIsCancellable(t *testing.T) {
 }
 
 func TestUploadRefusesANewerKipple(t *testing.T) {
+	t.Parallel()
 	b := hostBackup(t)
 	// The manifest says so: refused before anything is extracted.
 	ents := zipEntries(t, b)
@@ -682,6 +697,7 @@ func TestUploadRefusesANewerKipple(t *testing.T) {
 // One intent at a time: a second upload while one arrives, is checked or waits
 // is busy; a cancel stops the one arriving and frees the slot.
 func TestUploadRaces(t *testing.T) {
+	t.Parallel()
 	b := hostBackup(t)
 	r, dir := newRestorer(t)
 	pr, pw := io.Pipe()
@@ -734,6 +750,7 @@ func TestUploadRaces(t *testing.T) {
 // The check runs after Upload returns; a cancel during it stops it, removes its
 // files and frees the slot; a confirm is refused until it is ready.
 func TestCancelDuringTheCheck(t *testing.T) {
+	t.Parallel()
 	b := hostBackup(t)
 	for i := 0; i < 5; i++ {
 		r, dir := newRestorer(t)
@@ -754,6 +771,7 @@ func TestCancelDuringTheCheck(t *testing.T) {
 
 // A refused check is reported as failed until it is cleared or replaced.
 func TestFailedCheckIsReportedAndCleared(t *testing.T) {
+	t.Parallel()
 	b := hostBackup(t)
 	r, dir := newRestorer(t)
 	_, err := upload(r, rebuilt(t, b, "CREATE TABLE evil (a)"))
@@ -774,6 +792,7 @@ func TestFailedCheckIsReportedAndCleared(t *testing.T) {
 }
 
 func TestUnconfirmedUploadExpires(t *testing.T) {
+	t.Parallel()
 	r, dir := newRestorer(t, func(o *RestorerOptions) { o.TTL = 50 * time.Millisecond })
 	_, err := upload(r, hostBackup(t))
 	require.NoError(t, err)
@@ -783,6 +802,7 @@ func TestUnconfirmedUploadExpires(t *testing.T) {
 
 // A refused upload expires like an unconfirmed one, and reading the state does
 // not renew either: the TTL runs from when the upload became ready or failed.
+// Not parallel: it measures wall time.
 func TestRefusedUploadExpiresAndNothingRenewsTheTTL(t *testing.T) {
 	r, _ := newRestorer(t, func(o *RestorerOptions) { o.TTL = 300 * time.Millisecond })
 	_, err := upload(r, hostBackup(t)[:100])
@@ -803,6 +823,7 @@ func TestRefusedUploadExpiresAndNothingRenewsTheTTL(t *testing.T) {
 }
 
 func TestFeedsOnlyTakesTheZipsOPML(t *testing.T) {
+	t.Parallel()
 	b := hostBackup(t)
 	r, dir := newRestorer(t)
 	_, err := r.Feeds(me)
@@ -819,6 +840,7 @@ func TestFeedsOnlyTakesTheZipsOPML(t *testing.T) {
 
 // Every state a crash can leave is finished or cleaned at the next start.
 func TestApplyStagedIsIdempotent(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	write := func(p, body string) { require.NoError(t, os.WriteFile(p, []byte(body), 0o600)) }
 	read := func(p string) string {
@@ -905,6 +927,7 @@ func TestApplyStagedIsIdempotent(t *testing.T) {
 }
 
 func TestEstimateSeconds(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, 30, EstimateSeconds(0, true))
 	require.Equal(t, 32, EstimateSeconds(2<<30, false))
 	require.Equal(t, 47, EstimateSeconds(2<<30, true))
@@ -912,6 +935,7 @@ func TestEstimateSeconds(t *testing.T) {
 
 // The texts a person restoring reads never mention schema numbers.
 func TestRestoreTextsSayNoSchemaVersion(t *testing.T) {
+	t.Parallel()
 	for _, e := range []error{ErrRestoreBusy, ErrRestorePending, ErrNoUpload, ErrNotBackup, ErrUploadTooLarge, ErrOPMLTooLarge,
 		ErrUploadCut, &NewerError{}, &NewerError{KippleVersion: "1.2"}, &UploadSpaceError{Need: 1, Free: 0}} {
 		require.NotContains(t, strings.ToLower(e.Error()), "schema", e.Error())
@@ -923,6 +947,7 @@ func TestRestoreTextsSayNoSchemaVersion(t *testing.T) {
 // for: a file that is neither a zip nor OPML, and an OPML file too large for
 // an import, are refused at once.
 func TestSniffBeforeSpooling(t *testing.T) {
+	t.Parallel()
 	asked := 0
 	r, dir := newRestorer(t, func(o *RestorerOptions) {
 		o.FreeBytes = func(string) (uint64, error) { asked++; return 1 << 40, nil }
@@ -949,6 +974,7 @@ func TestSniffBeforeSpooling(t *testing.T) {
 // "Everything" does not depend on the OPML import limit: a backup whose
 // feeds.opml is over 8 MB restores, and "feeds only" hands the file out whole.
 func TestLargeFeedsOPMLDoesNotBlockARestore(t *testing.T) {
+	t.Parallel()
 	ents := zipEntries(t, hostBackup(t))
 	big := append([]byte("<opml><body>"), bytes.Repeat([]byte(" "), maxFeedsOPML+1)...)
 	big = append(big, []byte("</body></opml>")...)
@@ -964,6 +990,7 @@ func TestLargeFeedsOPMLDoesNotBlockARestore(t *testing.T) {
 // The state and a busy refusal always agree: while a cancelled job still holds
 // the slot the state is not none, and once it is none an upload is accepted.
 func TestStateAndBusyAgreeAfterCancel(t *testing.T) {
+	t.Parallel()
 	b := hostBackup(t)
 	r, _ := newRestorer(t)
 	body := &parkedBody{head: b[:100], parked: make(chan struct{}), unblock: make(chan struct{})}
@@ -1027,6 +1054,7 @@ func manyEntries(t *testing.T, n int) []byte {
 // can claim 3 entries over a real directory of thousands; the directory must
 // end exactly where the end record (or the zip64 record) begins.
 func TestZipDirectoryCannotBeMisdescribed(t *testing.T) {
+	t.Parallel()
 	extract := func(b []byte) error {
 		src := filepath.Join(t.TempDir(), "x.zip")
 		require.NoError(t, os.WriteFile(src, b, 0o600))
@@ -1078,6 +1106,7 @@ func TestZipDirectoryCannotBeMisdescribed(t *testing.T) {
 // A real backup whose kipple.db needs zip64 fields (as a 4 GiB one does) has
 // a zip64 record in front of an unsaturated end record: it passes.
 func TestZipDirectoryAcceptsAZip64Writer(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	w, err := zw.CreateRaw(&zip.FileHeader{Name: DBFile, Method: zip.Store, CompressedSize64: 1, UncompressedSize64: 1 << 32})

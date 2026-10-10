@@ -31,6 +31,7 @@ func pendingIDs(t *testing.T, d *DB) []int64 {
 // them, before the transaction commits: a Reader client can never list one of
 // them before its hold starts. Muted items are never held.
 func TestCommitMarksHeldItemsPendingInTransaction(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("https://a.example/feed")
 	_, err := e.db.CreateFilter(e.ctx, Filter{Enabled: true, Scope: "global", Kind: "text",
@@ -57,6 +58,7 @@ func TestCommitMarksHeldItemsPendingInTransaction(t *testing.T) {
 
 // A chunk that rolls back takes its marks with it: its items never became visible.
 func TestCommitRollbackClearsHeldMarks(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("https://a.example/feed")
 	e.exec(`CREATE TRIGGER fail_log BEFORE INSERT ON fetch_log BEGIN SELECT RAISE(ABORT, 'injected'); END`)

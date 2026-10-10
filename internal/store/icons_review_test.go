@@ -8,6 +8,7 @@ import (
 )
 
 func TestIconSiteKey(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ site, feed, want string }{
 		{"https://Example.com/a?sid=1", "https://feeds.example.net/rss", "example.com"},
 		{"http://example.com./b#x", "", "example.com"},
@@ -25,6 +26,7 @@ func TestIconSiteKey(t *testing.T) {
 // tracking parameter, http/https flapping) is the same site: it is not due
 // before next_check_at, and its failure count carries over.
 func TestNextIconJobSameSiteKeepsBackoff(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	now := e.clk.Now().Unix()
 	set := e.db.FetchSettings(e.ctx)
@@ -65,6 +67,7 @@ func TestNextIconJobSameSiteKeepsBackoff(t *testing.T) {
 // are scoped to it, so a feed that moves to another host is looked up again at
 // once even when site_url stays. A path change of the feed URL is not a move.
 func TestNextIconJobFeedHostChange(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	now := e.clk.Now().Unix()
 	set := e.db.FetchSettings(e.ctx)
@@ -96,6 +99,7 @@ func TestNextIconJobFeedHostChange(t *testing.T) {
 }
 
 func TestNextIconJobSkip(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	now := e.clk.Now().Unix()
 	a, err := e.db.AddFeed(e.ctx, NewFeed{URL: "https://a.example.com/feed"})
@@ -115,6 +119,7 @@ func TestNextIconJobSkip(t *testing.T) {
 // A recheck that finds the same icon does not rewrite its bytes; fetched_at
 // and source_url still move.
 func TestSaveIconCheckKeepsAnUnchangedIcon(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	now := e.clk.Now().Unix()
 	f, err := e.db.AddFeed(e.ctx, NewFeed{URL: "https://b.example.com/feed"})
@@ -148,6 +153,7 @@ func TestSaveIconCheckKeepsAnUnchangedIcon(t *testing.T) {
 // A populated schema-5 database (feeds with a fetch behind them, one stored
 // icon) migrates to 6, and the finder's queries work on it at once.
 func TestMigration0006OnPopulatedSchema5(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	now := e.clk.Now().Unix()
 	a, err := e.db.AddFeed(e.ctx, NewFeed{URL: "https://a.example.com/feed"})

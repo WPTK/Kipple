@@ -71,6 +71,7 @@ func settingRow(t *testing.T, db *DB, key string) (string, bool) {
 // An existing install (an account before 0010) keeps its row and hashes, and is
 // stamped: onboarding done and its old default zone (and the legacy port 0011 deletes again).
 func TestMigration0010ExistingAccount(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := reopen(t, schema9(t, true, ""))
 	snaps, _ := filepath.Glob(filepath.Join(filepath.Dir(db.path), "backup", "pre-migration-9-*.db"))
@@ -97,6 +98,7 @@ func TestMigration0010ExistingAccount(t *testing.T) {
 
 // A time zone chosen before the upgrade is left exactly as it was.
 func TestMigration0010KeepsAnExistingTZ(t *testing.T) {
+	t.Parallel()
 	db := reopen(t, schema9(t, true, "Europe/Paris"))
 	tz, _ := settingRow(t, db, "tz")
 	require.Equal(t, `"Europe/Paris"`, tz)
@@ -105,6 +107,7 @@ func TestMigration0010KeepsAnExistingTZ(t *testing.T) {
 // A schema-9 database without an account was never usable: it is treated as
 // fresh (no stamps, UTC, the new port, setup pending).
 func TestMigration0010WithoutAccount(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := reopen(t, schema9(t, false, ""))
 	_, ok, err := db.Account(ctx)
@@ -119,6 +122,7 @@ func TestMigration0010WithoutAccount(t *testing.T) {
 
 // The table CHECK keeps open mode passwordless, and the enums closed.
 func TestAccountChecks(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := context.Background()
 	_, err := e.db.CreateAccount(ctx, Account{Username: "owner", PasswordHash: "h", Secret: fixtureKey, AuthMode: AuthOpen})
@@ -148,6 +152,7 @@ func TestAccountChecks(t *testing.T) {
 
 // An env-created account is stamped as set up in the same transaction.
 func TestEnvAccountIsSetUp(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := context.Background()
 	created, err := e.db.CreateAccount(ctx, Account{Username: "owner", PasswordHash: "h", Secret: fixtureKey})
@@ -164,6 +169,7 @@ func TestEnvAccountIsSetUp(t *testing.T) {
 // security.open_lan was removed (open mode is one rule now). A row an older
 // version stored stays in the database and nothing reads it.
 func TestRemovedOpenLANRowIsIgnored(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := context.Background()
 	require.NoError(t, e.db.SetSettings(ctx, map[string]any{"security.open_lan": true, SettingAllowedHosts: []any{"rss.example.com"}}))
@@ -179,6 +185,7 @@ func TestRemovedOpenLANRowIsIgnored(t *testing.T) {
 
 // Onboarding restart clears the stamp and nothing else; complete is idempotent.
 func TestOnboardingStamp(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := context.Background()
 	_, err := e.db.CreateAccount(ctx, Account{Username: "owner", PasswordHash: "h", Secret: fixtureKey})

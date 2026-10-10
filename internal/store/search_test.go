@@ -16,6 +16,7 @@ import (
 func b64(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
 
 func TestBuildFTSQuery(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in, want string
 		ok       bool
@@ -74,6 +75,7 @@ func TestBuildFTSQuery(t *testing.T) {
 // Search-as-you-type: the unfinished last word is a prefix only with typing set, and only when
 // it is long enough and the text does not end in a space.
 func TestBuildFTSQueryTyping(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"hello world":        `"hello" AND "world"*`,
 		"hello world ":       `"hello" AND "world"`,
@@ -92,6 +94,7 @@ func TestBuildFTSQueryTyping(t *testing.T) {
 }
 
 func TestFallbackMatch(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"apple pie ":       `"apple"* OR "pie"*`,
 		`"big dogs" cats `: `"big"* OR "dogs"* OR "cats"*`,
@@ -113,11 +116,13 @@ func TestFallbackMatch(t *testing.T) {
 }
 
 func TestSnippetHTMLEscapes(t *testing.T) {
+	t.Parallel()
 	got := snippetHTML("a <script>alert(1)</script> " + snipOpen + "zebra" + snipClose + " &")
 	require.Equal(t, "a &lt;script&gt;alert(1)&lt;/script&gt; <mark>zebra</mark> &amp;", got)
 }
 
 func TestRankCursorRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := Cursor{ID: 42, Rank: -1.2345678901234567e-6, ByRank: true}
 	back, err := ParseCursor(c.Encode())
 	require.NoError(t, err)
@@ -139,6 +144,7 @@ func TestRankCursorRoundTrip(t *testing.T) {
 
 // A relevance cursor issued before schema 5 (the rank basis changed) is refused, not misread.
 func TestOldRankCursorRejected(t *testing.T) {
+	t.Parallel()
 	for _, raw := range []string{"r-1.2|5", "r0|9", "r1.5|123"} {
 		_, err := ParseCursor(b64(raw))
 		require.Error(t, err, raw)
@@ -217,6 +223,7 @@ func searchIDs(t *testing.T, e *env, q string, opts ...func(*CardQuery)) ([]int6
 }
 
 func TestSearchV2(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ids := seedSearch(t, e,
 		sitem{"Running the marathon", "Ann", "she ran and runs every morning"},
@@ -281,6 +288,7 @@ func TestSearchV2(t *testing.T) {
 }
 
 func TestSearchFallback(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ids := seedSearch(t, e,
 		sitem{"Apple orchards", "Ann", "apples grow in orchards"},
@@ -317,6 +325,7 @@ func TestSearchFallback(t *testing.T) {
 }
 
 func TestSearchFallbackPagesStayInFallback(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	var items []sitem
 	for i := 0; i < 7; i++ {
@@ -346,6 +355,7 @@ func TestSearchFallbackPagesStayInFallback(t *testing.T) {
 }
 
 func TestSearchRankWeightsTitle(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ids := seedSearch(t, e,
 		sitem{"Something else", "Ann", "kiwi kiwi kiwi kiwi in the body of a somewhat longer text"},
@@ -357,6 +367,7 @@ func TestSearchRankWeightsTitle(t *testing.T) {
 
 // scope.q for mark-read chooses its expression exactly as the list does.
 func TestMarkScopeUsesSameFallback(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ids := seedSearch(t, e,
 		sitem{"Apple orchards", "Ann", "apples grow"},
@@ -387,6 +398,7 @@ func TestMarkScopeUsesSameFallback(t *testing.T) {
 // widens into its stem's prefix: "apple" does not find "application" (stem "applic" starts with
 // the stem "appl"), while "apple*" and search-as-you-type do, by design (design §2.4).
 func TestSearchPrefixIsStemPrefix(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ids := seedSearch(t, e,
 		sitem{"Apple pie", "Ann", "an apple a day"},
@@ -416,6 +428,7 @@ func TestSearchPrefixIsStemPrefix(t *testing.T) {
 // A saved search or mark-read scope is never a typing request, so they count the stemmed words
 // only, even when the text does not end in a space.
 func TestMarkScopeIsNeverPrefix(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ids := seedSearch(t, e,
 		sitem{"Apple pie", "Ann", "an apple a day"},
@@ -434,6 +447,7 @@ func TestMarkScopeIsNeverPrefix(t *testing.T) {
 // transaction. When an exact match arrives in between, a client that echoes the list's fallback
 // flag still marks exactly what the list showed; one that does not gets the new decision.
 func TestMarkScopeHonorsListFallback(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ids := seedSearch(t, e,
 		sitem{"Apple orchards", "Ann", "apples grow"},

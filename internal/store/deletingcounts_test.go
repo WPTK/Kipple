@@ -14,6 +14,7 @@ import (
 // the status poll's UnreadTotal), the muted count and the per-feed counts of the
 // counts event all agree with UIFeeds.
 func TestDeletingFeedLeftOutOfCounts(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := e.ctx
 	a, err := e.db.Subscribe(ctx, SubscribeOpts{URL: "https://a.example/feed", Folder: "X"})

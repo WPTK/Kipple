@@ -10,12 +10,14 @@ import (
 const undo0006 = `DROP TABLE feed_icon_checks`
 
 func TestMigration0006FeedIconChecks(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	require.GreaterOrEqual(t, LatestVersion(), 6)
 	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'feed_icon_checks'"))
 }
 
 func TestNextIconJobDueRules(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	now := e.clk.Now().Unix()
 	set := e.db.FetchSettings(e.ctx)
@@ -94,6 +96,7 @@ func TestNextIconJobDueRules(t *testing.T) {
 
 // A lookup that finishes after the feed changed, or was deleted, writes nothing.
 func TestSaveIconCheckSkipsAChangedOrDeletedFeed(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	now := e.clk.Now().Unix()
 	f, err := e.db.AddFeed(e.ctx, NewFeed{URL: "https://b.example.com/feed"})

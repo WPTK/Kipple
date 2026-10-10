@@ -70,6 +70,7 @@ func joinedCards(t *testing.T, e *env, q CardQuery) ([]Card, *Cursor) {
 // The deferred join returns exactly what the joined query did, page by page through the whole
 // list: every view, scope (all, a feed, a folder tree, a subfolder), direction and reading filter.
 func TestCardPagesMatchTheJoinedQuery(t *testing.T) {
+	t.Parallel()
 	e, feeds, folders := shapeLibrary(t)
 	for _, analyze := range []bool{false, true} {
 		if analyze {
@@ -109,6 +110,7 @@ func TestCardPagesMatchTheJoinedQuery(t *testing.T) {
 // UIFeeds' starred count (a grouped join) is each feed's count of starred items, 0 when it has
 // none, as the per-feed subquery it replaced counted it.
 func TestUIFeedsStarredCount(t *testing.T) {
+	t.Parallel()
 	e, _, _ := shapeLibrary(t)
 	e.exec("UPDATE items SET starred = 0 WHERE feed_id = (SELECT id FROM feeds WHERE url = 'https://c.example/feed')")
 	list, err := e.db.UIFeeds(e.ctx, StatusEnv{Now: e.clk.Now()})

@@ -181,6 +181,7 @@ func TestTrimRequeueStopsAtShutdown(t *testing.T) {
 // trimmed is reported and the rest is marked pending (never re-queued, since the
 // dispatcher is stopping).
 func TestTrimJobShutdownIsNotAnError(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	r.s.inDispatcher(func() {
 		r.s.trimFn = func(ctx context.Context, _ int64, _ store.TrimBudget) (int64, bool, error) {

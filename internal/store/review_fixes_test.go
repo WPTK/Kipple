@@ -9,6 +9,7 @@ import (
 )
 
 func TestDiskUsageSumsTheBackupTreeRecursively(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	dir := e.db.backupDir
 	write := func(rel string, n int) {
@@ -24,6 +25,7 @@ func TestDiskUsageSumsTheBackupTreeRecursively(t *testing.T) {
 }
 
 func TestPatchFeedURLToAnotherHostDropsHTTPAuth(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	auth := func() string {
@@ -46,6 +48,7 @@ func TestPatchFeedURLToAnotherHostDropsHTTPAuth(t *testing.T) {
 }
 
 func TestSubscribeIntoAMissingFolderIsFolderNotFound(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	_, err := e.db.Subscribe(e.ctx, SubscribeOpts{URL: "http://a.example/feed", FolderID: 9999})
 	require.ErrorIs(t, err, ErrFolderNotFound)

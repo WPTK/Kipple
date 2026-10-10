@@ -16,6 +16,7 @@ import (
 var testPNG = append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 64)...)
 
 func TestImageRewriteAtServeTimeOnly(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	// A deployment that chose http_only keeps it: a stored row beats the new default.
@@ -73,6 +74,7 @@ func TestImageRewriteAtServeTimeOnly(t *testing.T) {
 // third-party image in the same item, card or extracted page is signed
 // without it, so the guard still blocks it if it points at a private address.
 func TestPrivateNetGrantedOnlyToFeedHost(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("Nas", 0)
@@ -101,6 +103,7 @@ func TestPrivateNetGrantedOnlyToFeedHost(t *testing.T) {
 }
 
 func TestImageRouteNeedsSessionAndSignature(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +143,7 @@ func TestImageRouteNeedsSessionAndSignature(t *testing.T) {
 // The proxy route beats the SPA's catch-all on the shared mux, and only three-segment
 // /img/ paths are claimed.
 func TestImageRouteClaimedBeforeSPA(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	spa := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("SPA")) })
@@ -155,6 +159,7 @@ func TestImageRouteClaimedBeforeSPA(t *testing.T) {
 // `kipple password` rotates account.secret from another process; the running
 // server must stop honoring old signed URLs and sign new ones with the new key.
 func TestImageSecretRotationIsSeenByARunningServer(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -189,6 +194,7 @@ func TestImageSecretRotationIsSeenByARunningServer(t *testing.T) {
 }
 
 func TestCardImagesUseThumbnailsWhenCacheIsOn(t *testing.T) {
+	t.Parallel()
 	h, _ := cacheHarness(t, 64)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -215,6 +221,7 @@ func TestCardImagesUseThumbnailsWhenCacheIsOn(t *testing.T) {
 // one handler instead of building a second (with its own pool and budget)
 // beside the draining old one.
 func TestSecretRotationKeepsOneImageHandler(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	ctx := context.Background()
 	old, ok := h.srv.imageHandler(ctx)
@@ -242,6 +249,7 @@ func TestSecretRotationKeepsOneImageHandler(t *testing.T) {
 // TestCloseStopsTheThumbnailPool: shutting the API down drains the thumbnail
 // workers before the image cache and the store close behind it.
 func TestCloseStopsTheThumbnailPool(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	img, ok := h.srv.imageHandler(context.Background())
 	require.True(t, ok)
@@ -251,6 +259,7 @@ func TestCloseStopsTheThumbnailPool(t *testing.T) {
 }
 
 func TestImagesAreDroppedWhenTheProxyCannotSign(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)

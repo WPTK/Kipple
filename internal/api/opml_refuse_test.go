@@ -10,6 +10,7 @@ import (
 // A well-formed file that is not OPML, and an OPML with nothing in it, are refused with a reason the dialog can
 // show, not answered with an import that added nothing.
 func TestOPMLImportRefusesNonOPMLAndEmpty(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	for _, tc := range []struct{ name, body, code string }{

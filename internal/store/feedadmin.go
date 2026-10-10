@@ -28,6 +28,24 @@ func (e *URLCollisionError) Error() string {
 	return fmt.Sprintf("url is already used by feed %d", e.Other)
 }
 
+// FeedLabel names a feed for a message: its display title and the folder it is filed in, as a path
+// ("News / World"). folder is "" for the default folder (a feed there is not "in a folder" to the
+// reader). A missing feed is ErrFeedNotFound.
+func (d *DB) FeedLabel(ctx context.Context, id int64) (title, folder string, err error) {
+	var fid int64
+	var isDefault bool
+	err = d.reader.QueryRowContext(ctx, "SELECT "+feedTitleSQL("f")+", f.folder_id, fo.is_default FROM feeds f JOIN folders fo ON fo.id = f.folder_id WHERE f.id = ?", id).
+		Scan(&title, &fid, &isDefault)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", ErrFeedNotFound
+	}
+	if err != nil || isDefault {
+		return title, "", err
+	}
+	names, err := FolderNames(ctx, d.reader, fid)
+	return title, strings.Join(names, " / "), err
+}
+
 // FeedDetail is a feed as the web UI's add and edit calls return it: the
 // bootstrap object plus everything the edit dialog shows. The stored HTTP
 // credentials are never returned, only whether they are set.

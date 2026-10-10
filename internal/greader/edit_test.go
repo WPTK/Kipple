@@ -30,6 +30,7 @@ func isStarred(h *harness, id int64) bool {
 }
 
 func TestEditTagReadStarAndReplay(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	ids := seedN(h, f, 3, nil)
@@ -74,6 +75,7 @@ func TestEditTagReadStarAndReplay(t *testing.T) {
 }
 
 func TestEditTagAlwaysOKForUnknownAndBadInput(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	ids := seedN(h, f, 2, nil)
@@ -100,6 +102,7 @@ func TestEditTagAlwaysOKForUnknownAndBadInput(t *testing.T) {
 }
 
 func TestEditTagOnTrimmedIDs(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	ids := seedN(h, f, 6, nil)
@@ -146,6 +149,7 @@ func TestEditTagOnTrimmedIDs(t *testing.T) {
 }
 
 func TestEditTagFourPassesThousandIDs(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	ids := seedN(h, f, 60, nil)
@@ -184,6 +188,7 @@ func TestEditTagFourPassesThousandIDs(t *testing.T) {
 }
 
 func TestMarkAllAsReadTSFormats(t *testing.T) {
+	t.Parallel()
 	// 2026-09-24 12:00:00 UTC; items every 10 s around it.
 	const cutS = int64(1_790_251_200)
 	for name, ts := range map[string]string{
@@ -229,6 +234,7 @@ func TestMarkAllAsReadTSFormats(t *testing.T) {
 }
 
 func TestMarkAllAsReadScopes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fa := h.addFeed("https://a.example/f", "A", "Comics")
 	fb := h.addFeed("https://b.example/f", "B", "Comics")
@@ -267,6 +273,7 @@ func TestMarkAllAsReadScopes(t *testing.T) {
 }
 
 func TestMarkAllAsReadAbsentOrBadTSUsesCommittedMax(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	old := h.addItem(f, itemSeed{})
@@ -284,6 +291,7 @@ func TestMarkAllAsReadAbsentOrBadTSUsesCommittedMax(t *testing.T) {
 }
 
 func TestNormalizeTS(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		in   string
 		want int64
@@ -308,6 +316,7 @@ func TestNormalizeTS(t *testing.T) {
 }
 
 func TestEditTagEventCapsIDsAndFallsBackToResync(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	hub := events.New()
 	h.api.opt.Events = hub
@@ -339,6 +348,7 @@ func TestEditTagEventCapsIDsAndFallsBackToResync(t *testing.T) {
 // A label whose name contains "/state/com.google/..." is a label, never a state
 // stream: user/<x>/ must be one segment followed directly by the state path.
 func TestLabelNamedLikeStateIsNotAState(t *testing.T) {
+	t.Parallel()
 	for _, id := range []string{"user/-/label/x/state/com.google/read", "user/-/label/a/state/com.google/reading-list", "user/1/2/state/com.google/read"} {
 		_, ok := stateName(id)
 		require.False(t, ok, id)

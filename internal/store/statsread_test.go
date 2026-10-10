@@ -11,6 +11,7 @@ import (
 // The read rule (design §8, issue #120): read time >= 10 s, or a scroll >= 25 with read time >= 3 s.
 // A scroll alone is never a read.
 func TestStatsIsRead(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		legacy       bool
 		secs, scroll int64
@@ -79,6 +80,7 @@ func (e *env) streakDates(cut int64) map[string]bool {
 // The summary's classification and the streak query's SQL apply the same rule: every combination
 // of read time and scroll around the thresholds lands on the same side in both.
 func TestStatsReadRuleMatchesStreaks(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.putStat("open", "2026-01-01", 1, 1, "legacy", nil, "F")    // before any timed row: legacy
 	e.putStat("read_time", "2026-01-02", 1, 1, "legacy", 1, "F") // the first timed row: every case below is tracked
@@ -138,6 +140,7 @@ func (e *env) summaryAt(from, to string, now time.Time) *StatsSummary {
 
 // The owner's boundary cases, through the whole summary and the streaks.
 func TestStatsReadBoundaries(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)                                         // today is 2026-09-24 in UTC
 	e.putStat("open", "2026-09-01", 1, 1, "old", nil, "F") // legacy: before the first timed row
 	e.putCase(1, readCase{"2026-09-10", []int{2}, 100})    // 2.9 s (stored as 2) + 100 %: bounce
@@ -186,6 +189,7 @@ func TestStatsReadBoundaries(t *testing.T) {
 // A session split across two local dates (an article left open over midnight): the summary counts
 // only the part inside the range, the streaks count the whole session on the open's date.
 func TestStatsReadSplitSessions(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.putStat("open", "2026-09-01", 1, 1, "old", nil, "F") // legacy, earlier than every timed row below
 	// A: open on the 20th with 2 s, 8 s more after midnight: 10 s in total.
@@ -231,6 +235,7 @@ func mustCut(t *testing.T, e *env) int64 {
 
 // Range edges: an open on the first and on the last day of a range is in it; a day outside is not.
 func TestStatsReadRangeEdges(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.putStat("open", "2026-09-01", 1, 1, "old", nil, "F")
 	e.putCase(1, readCase{"2026-09-09", []int{10}, -1}) // the day before the range
@@ -256,6 +261,7 @@ func TestStatsReadRangeEdges(t *testing.T) {
 
 // The summary queries stay on indexes: no plan step scans stats_events (or its aliases) without one.
 func TestStatsSummaryPlansHaveNoTableScan(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for _, h := range statsHinted() {
 		rows, err := e.db.Reader().Query("EXPLAIN QUERY PLAN "+h.sql, h.args...)
