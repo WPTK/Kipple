@@ -414,4 +414,9 @@ func TestRewriter(t *testing.T) {
 	require.Equal(t, "0", strings.Split(all.Rewrite(https1), "/")[3])
 	long := "http://x.example/" + strings.Repeat("a", 5000)
 	require.Equal(t, "", all.Rewrite(long))
+	for _, svg := range []string{"https://x.example/d.svg", "http://x.example/D.SVG?v=2", "https://x.example/d.svgz#a"} {
+		require.Equal(t, "", all.Rewrite(svg), "SVG is refused by the proxy, so the page never asks for it: "+svg)
+		require.Equal(t, "", only.Rewrite(svg))
+	}
+	require.NotEqual(t, "", all.Rewrite("https://x.example/svg/a.png"))
 }

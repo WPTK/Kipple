@@ -1,0 +1,1 @@
+The article toolbar now fits the narrowest phones and narrow panes without cutting off the Reading appearance button: Share moved into the More menu, and Next and Previous are hidden for an article opened from a shared link, where there is no list to page through.

@@ -106,11 +106,14 @@ func (s *Server) savedSearchViews(ctx context.Context, list []store.SavedSearch,
 
 func (s *Server) savedSearchError(w http.ResponseWriter, what string, err error) {
 	var ve *store.SavedSearchError
+	var dup *store.DuplicateSavedSearchError
 	switch {
 	case errors.As(err, &ve):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad_saved_search", "field": ve.Field, "message": ve.Message})
 	case errors.Is(err, store.ErrSavedSearchNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
+	case errors.As(err, &dup):
+		writeErrorMsg(w, http.StatusConflict, "already_saved", "this search is already saved as "+dup.Name)
 	case errors.Is(err, store.ErrTooManySavedSearches):
 		writeErrorMsg(w, http.StatusConflict, "too_many", "at most 100 saved searches")
 	default:
@@ -171,6 +174,12 @@ func (s *Server) createSavedSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	ss.ID = store.NewSavedSearchID()
 	_, err = s.db.EditSavedSearches(r.Context(), func(list []store.SavedSearch) ([]store.SavedSearch, error) {
+		// The same search twice only adds a second sidebar row: say so instead.
+		for _, have := range list {
+			if have.Same(ss) {
+				return nil, &store.DuplicateSavedSearchError{Name: have.Name}
+			}
+		}
 		if len(list) >= store.MaxSavedSearches {
 			return nil, store.ErrTooManySavedSearches
 		}

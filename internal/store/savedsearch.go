@@ -56,6 +56,30 @@ var ErrSavedSearchNotFound = errors.New("store: no such saved search")
 // ErrTooManySavedSearches is returned when a create would pass MaxSavedSearches.
 var ErrTooManySavedSearches = errors.New("store: too many saved searches")
 
+// DuplicateSavedSearchError is returned when a create repeats a saved search the list already holds: Name is the
+// existing entry's name.
+type DuplicateSavedSearchError struct{ Name string }
+
+func (e *DuplicateSavedSearchError) Error() string { return "store: already saved as " + e.Name }
+
+// Same reports whether two normalized entries run the same search: same text, scope and order (no order is the
+// default, newest first). The name and id do not matter; they do not change what the search finds.
+func (s SavedSearch) Same(o SavedSearch) bool {
+	ord := func(v string) string {
+		if v == "" {
+			return "date"
+		}
+		return v
+	}
+	if s.Q != o.Q || ord(s.Order) != ord(o.Order) {
+		return false
+	}
+	if s.Scope == nil || o.Scope == nil {
+		return s.Scope == nil && o.Scope == nil
+	}
+	return *s.Scope == *o.Scope
+}
+
 // SavedSearchError is a validation failure of one field.
 type SavedSearchError struct{ Field, Message string }
 

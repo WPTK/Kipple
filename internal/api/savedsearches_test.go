@@ -146,7 +146,7 @@ func TestSavedSearchLimitAndSettingsPatch(t *testing.T) {
 	}
 	code, out, _ := h.api(c, "PATCH", "/api/settings", jsonStr(map[string]any{"library.saved_searches": entries}))
 	require.Equal(t, 200, code, out)
-	code, out, _ = h.api(c, "POST", "/api/saved-searches", `{"name":"n","q":"x"}`)
+	code, out, _ = h.api(c, "POST", "/api/saved-searches", `{"name":"n","q":"another"}`)
 	require.Equal(t, 409, code)
 	require.Equal(t, "too_many", out["error"])
 	over := append(entries, map[string]any{"id": "id100", "name": "n", "q": "x"})
@@ -173,6 +173,22 @@ func TestSavedSearchLimitAndSettingsPatch(t *testing.T) {
 	def := settingDefByKey["library.saved_searches"]
 	require.Equal(t, surfaceHidden, def.Surface)
 	require.Equal(t, groupLibrary, def.Group)
+}
+
+func TestSavedSearchSameSearchIsNotAddedTwice(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	feed := h.addFeed("A", 0)
+	h.saved(c, `{"name":"Rust","q":"rust"}`)
+	// Same text, scope and order under another name: refused, naming the entry that already runs it.
+	code, out, _ := h.api(c, "POST", "/api/saved-searches", `{"name":"Again","q":" rust ","order":"date"}`)
+	require.Equal(t, 409, code)
+	require.Equal(t, "already_saved", out["error"])
+	require.Contains(t, out["message"], "Rust")
+	// A different scope or order is a different search.
+	h.saved(c, `{"name":"Rust in A","q":"rust","scope":{"feed_id":"`+sid(feed)+`"}}`)
+	h.saved(c, `{"name":"Rust oldest","q":"rust","order":"oldest"}`)
+	require.Len(t, savedList(t, h, c, "?counts=0"), 3)
 }
 
 func TestSavedSearchConcurrentCreatesLoseNothing(t *testing.T) {

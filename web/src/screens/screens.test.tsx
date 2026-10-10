@@ -173,12 +173,12 @@ describe("Article view", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  it("keeps the toolbar to eight 44 px targets: rarely used actions live in More (review finding 11)", async () => {
+  it("keeps the toolbar to seven 44 px targets: rarely used actions live in More (review finding 11)", async () => {
     routes({ "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }) });
     go("/i/1001?from=unread");
     const bar = await screen.findByRole("toolbar", { name: "Article actions" });
-    // 8 x 44 px = 352 px, which fits a 375 px phone together with the padding.
-    expect(within(bar).getAllByRole("button")).toHaveLength(8);
+    // 7 x 44 px = 308 px, which fits a 320 px phone together with the padding.
+    expect(within(bar).getAllByRole("button")).toHaveLength(7);
     const user = userEvent.setup();
     await user.click(within(bar).getByRole("button", { name: "More actions" }));
     expect(await screen.findByRole("menuitem", { name: "Open original" })).toBeInTheDocument();
@@ -306,5 +306,56 @@ describe("Feeds and Search", () => {
     await user.type(screen.getByRole("searchbox", { name: "Search articles" }), "a");
     expect(await screen.findByText("Keep typing")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("Reader: lists and articles that are not there", () => {
+  it("says a trimmed or deleted article is no longer available, with no Try again", async () => {
+    routes({ "GET /api/items/9999": () => json({ error: "not_found" }, 404) });
+    go("/i/9999");
+    expect(await screen.findByText("This article is no longer available")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Back to the list" })).toBeInTheDocument();
+  });
+
+  it("still offers Try again when the article failed for another reason", async () => {
+    routes({ "GET /api/items/9999": () => json({ error: "boom" }, 500) });
+    go("/i/9999");
+    expect(await screen.findByText("Couldn't open this article")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("says a feed or folder that is gone is gone, never an empty list", async () => {
+    routes();
+    go("/l/unread?feed=999");
+    expect(await screen.findByText("This feed no longer exists")).toBeInTheDocument();
+    expect(screen.queryByText("All caught up")).toBeNull();
+    expect(screen.getByRole("link", { name: "Go to Unread" })).toBeInTheDocument();
+  });
+
+  it("says a malformed folder id is a missing folder, not a connection problem", async () => {
+    routes();
+    go("/l/unread?folder=zz");
+    expect(await screen.findByText("This folder no longer exists")).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't reach the server/i)).toBeNull();
+  });
+
+  it("sends a made-up list name to Unread and fixes the address", async () => {
+    routes();
+    go("/l/bogus");
+    expect(await screen.findByRole("navigation", { name: "Show" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/l/unread");
+  });
+
+  it("a failed list that the server answered is not called unreachable", async () => {
+    routes({ "GET /api/items": () => json({ error: "bad_request" }, 400) });
+    go("/l/unread");
+    expect(await screen.findByText("Couldn't load articles")).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't reach the server/i)).toBeNull();
+  });
+
+  it("an empty library-wide search does not offer to search All", () => {
+    expect(emptyCopy({ view: "all", q: "zzz" }).body).toBe("Try fewer words.");
+    expect(emptyCopy({ view: "all", q: "zzz", feed: "1" }).body).toBe("Try fewer words, or search the whole library.");
   });
 });

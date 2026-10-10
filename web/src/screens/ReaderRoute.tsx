@@ -42,7 +42,7 @@ import { ArticlePane } from "./ArticlePane";
 import { LayoutMenu } from "./LayoutMenu";
 import { LengthMenu } from "./LengthMenu";
 import { ReadingMenu } from "./AppearanceControls";
-import { FINISH_SEARCH, ListPane, type ListControls } from "./ListPane";
+import { FINISH_SEARCH, ListPane, StatusBlock, type ListControls } from "./ListPane";
 
 const VIEWS: { view: View; label: string }[] = [
   { view: "unread", label: "Unread" },
@@ -424,6 +424,23 @@ export function ReaderRoute() {
   const base = useMemo(() => baseScope(view, new URLSearchParams(spKey), isArticle), [view, spKey, isArticle]);
   const order = resolveOrder(dp, useListContext(base), useStore(sessionLayoutStore));
   const scope = useMemo(() => readerScope(base, order), [base, order]);
+  const boot = useBootstrap();
+  const tree = useFolderTree();
+  // A list whose view is not one of ours is not a list: go to Unread (and fix the address) rather than show Unread
+  // under a made-up one.
+  if (view !== undefined && !VIEWS.some((v) => v.view === view) && view !== "muted") return <Navigate to={listTo({ view: "unread" })} replace />;
+  // A feed or folder that is not (or no longer) there is said so, instead of a list that looks merely empty. The
+  // shell shows no route until the bootstrap is in, so its feeds and folders are known here.
+  const gone = !isArticle && boot.data ? (scope.feed && !visibleFeeds(boot.data.feeds).some((f) => f.id === scope.feed) ? "feed" : scope.folder && !tree.byId.has(scope.folder) ? "folder" : null) : null;
+  if (gone) {
+    return (
+      <StatusBlock role="status" title={`This ${gone} no longer exists`} body="It may have been deleted, or the address is out of date.">
+        <Link to={listTo({ view: "unread" })} replace className={buttonVariants({})}>
+          Go to Unread
+        </Link>
+      </StatusBlock>
+    );
+  }
   return <ReaderLayout scope={scope} articleId={item?.params.id} hasFrom={sp.has("from")} />;
 }
 
