@@ -54,6 +54,10 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_opml")
 		return
 	}
+	if len(doc.Feeds) == 0 && len(doc.Folders) == 0 {
+		writeErrorMsg(w, http.StatusBadRequest, "empty_opml", "that OPML file has no feeds or folders in it")
+		return
+	}
 	res, err := opml.Import(r.Context(), s.db, doc, opts)
 	if err != nil {
 		s.serverError(w, "opml import", err)

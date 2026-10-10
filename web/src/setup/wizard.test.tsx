@@ -807,13 +807,13 @@ describe("Step 4: OPML import", () => {
   });
 
   it("says what was wrong with a file the server cannot read", async () => {
-    server(signedIn(), { "POST /api/opml": () => json({ error: "bad_opml", message: "not an OPML document" }, 400) });
+    server(signedIn(), { "POST /api/opml": () => json({ error: "bad_opml" }, 400) });
     go("/welcome/import");
     const user = userEvent.setup();
     await heading();
     await user.upload(screen.getByLabelText("OPML file"), file());
     await user.click(await waitFor(() => { const b = screen.getByRole("button", { name: "Import" }); expect(b).toBeEnabled(); return b; }));
-    expect(await findAlert()).toHaveTextContent("couldn't read that file: not an OPML document");
+    expect(await findAlert()).toHaveTextContent("That is not an OPML file");
   });
 
   it("checks the days number", async () => {
