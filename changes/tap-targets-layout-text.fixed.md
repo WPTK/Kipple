@@ -1,1 +1,0 @@
-Touch targets and text on phones: the source name in an article's header and the Range choices on Stats (on the narrowest phones) are now full-size 44 px touch targets, and each layout's description in the list options menu wraps onto a second line instead of being cut off.
