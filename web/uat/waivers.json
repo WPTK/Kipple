@@ -9,7 +9,7 @@
     "check": "S3",
     "rule": "scrollable-region-focusable",
     "screen": "list-options",
-    "match": "role=\"menu\"",
+    "match": "data-radix-menu-cont",
     "reason": "False positive. The List options menu scrolls when the window is short (max height is the space Radix reports as available), and axe wants a tabbable element inside a scrollable region. A menu is a roving-focus widget: focus is on one item, the arrow keys, Home and End move it and scroll it into view, and Tab closes the menu, so every item is reachable by keyboard. Making the menu or each item tabbable would break that pattern."
   }
 ]

@@ -249,8 +249,11 @@ const waivers = orSetupError("uat/waivers.json", () => {
   return list;
 });
 const used = new Set();
+// The one text a finding is matched and printed by, so a waiver's `match` can be copied from a FINDING line. It is
+// JSON, so a double quote shows as \" : name a quote-free part of the element in `match`.
+const detailText = (detail) => (detail === undefined ? "" : typeof detail === "string" ? detail : JSON.stringify(detail));
 function waived(check, rule, where, message, detail) {
-  const text = `${message}\n${detail === undefined ? "" : JSON.stringify(detail)}`;
+  const text = `${message}\n${detailText(detail)}`;
   const hits = waivers
     .map((w, i) => [w, i])
     .filter(
@@ -933,7 +936,10 @@ function writeReport(results, s6) {
   for (const [i, w] of waivers.entries()) {
     if (used.has(i)) continue;
     const exercised = w.screen ? screens.some((s) => s.id === w.screen) : w.check === "S6" || !only;
-    if (exercised) note("waivers", {}, `unused waiver: ${JSON.stringify(w)}`);
+    if (exercised) {
+      note("waivers", {}, `unused waiver: ${JSON.stringify(w)}`);
+      console.log(`NOTE unused waiver (matched no finding; fine if it only applies on some machines): ${JSON.stringify({ ...w, reason: undefined })}`);
+    }
   }
   const fails = findings.filter((f) => f.severity === "fail");
   const summary = Object.fromEntries(
@@ -996,7 +1002,7 @@ function writeReport(results, s6) {
   console.log(`\n${Object.entries(summary).map(([c, s]) => `${c} ${s.fail}${s.waived ? ` (+${s.waived} waived)` : ""}`).join("  ")}`);
   console.log(`Report: ${join(outDir, "report.md")}`);
   // A run in CI has only its log on screen, so the unwaived findings are printed here too, one line each.
-  for (const f of fails) console.log(`FINDING ${f.check} ${f.screen ?? "-"}/${f.theme ?? "-"}/${f.viewport ?? "-"}: ${f.message}${f.detail ? ` | ${String(typeof f.detail === "string" ? f.detail : JSON.stringify(f.detail)).slice(0, 300)}` : ""}`);
+  for (const f of fails) console.log(`FINDING ${f.check} ${f.screen ?? "-"}/${f.theme ?? "-"}/${f.viewport ?? "-"}: ${f.message}${f.detail ? ` | ${detailText(f.detail).slice(0, 300)}` : ""}`);
   if (summary.run.fail) return 2;
   return fails.length ? 1 : 0;
 }
