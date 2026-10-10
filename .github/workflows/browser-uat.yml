@@ -1,0 +1,139 @@
+name: Browser UAT
+
+# The scripted browser checks (web/uat, docs/maintainers/uat-plan.md Suite 1) against a seeded throwaway instance on
+# loopback, in real browsers: the whole suite plus the Feeds screen, saved search, address and download flows. Unit tests
+# cannot see what a browser sends or what a click really does; this can.
+#
+# Its own workflow, not a job of ci.yml: release.yml calls ci.yml, and a slow or flaky browser run must not hold up a
+# release or the go, web, security and docker checks. It is not a required check yet (do not add it to the branch
+# protection until it has run green for a few weeks); read it on every pull request that touches code.
+#
+# The seed's feeds are real public feeds, so the run needs the runner's network. The prose-only skip is the one ci.yml
+# uses (scripts/ci-changes.sh against the base commit's rules, fail-open): the job still reports, with its steps skipped.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-uat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  uat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # A port of its own, never Kipple's default, so nothing else on the runner can answer for it.
+      KIPPLE_DEV_PORT: "1991"
+      KIPPLE_UAT_URL: http://127.0.0.1:1991
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2 # on a pull request HEAD is the merge commit and HEAD^1 is the base tip
+
+      # Same rule as ci.yml's `changes` job: the classification comes from the base commit, and anything unexpected runs.
+      - id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RULES: ${{ runner.temp }}/base-rules
+        run: |
+          code=true
+          if [ "$EVENT_NAME" = pull_request ]; then
+            if mkdir -p "$RULES" && git show HEAD^1:scripts/ci-changes.sh > "$RULES/ci-changes.sh" && git show HEAD^1:scripts/ci-prose.txt > "$RULES/ci-prose.txt" && out="$(bash "$RULES/ci-changes.sh" "$EVENT_NAME")"; then
+              if [ "$out" = false ]; then code=false; fi
+            else
+              echo "::warning::the base commit has no usable scripts/ci-changes.sh; running the browser checks"
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "code=$code"
+
+      - if: steps.gate.outputs.code != 'false'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - if: steps.gate.outputs.code != 'false'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install the web dependencies and the browsers
+        if: steps.gate.outputs.code != 'false'
+        working-directory: web
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium webkit
+
+      # `npm run seed` builds web/dist when it is missing, builds Kipple, starts it and imports the seed's feeds.
+      - name: Start a seeded instance on loopback
+        if: steps.gate.outputs.code != 'false'
+        working-directory: web
+        run: |
+          nohup npm run seed > "$RUNNER_TEMP/seed.log" 2>&1 &
+          for i in $(seq 1 300); do
+            if curl -fsS "$KIPPLE_UAT_URL/healthz" > /dev/null 2>&1 && grep -q "Kipple is running" "$RUNNER_TEMP/seed.log"; then break; fi
+            sleep 2
+          done
+          node uat/wait-ready.mjs --seconds 240
+
+      - name: Suite 1 (every screen, Chromium)
+        if: steps.gate.outputs.code != 'false'
+        working-directory: web
+        run: npm run uat -- --screenshots
+
+      - name: Flows (Chromium)
+        if: steps.gate.outputs.code != 'false' && !cancelled()
+        working-directory: web
+        run: |
+          status=0
+          for flow in folders feeds states keyboard offline; do
+            echo "::group::uat:$flow"
+            npm run "uat:$flow" || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+      # Added with the downloads flow (web/uat/downloads.mjs); the file may not exist on a branch that predates it.
+      - name: Downloads (Chromium)
+        if: steps.gate.outputs.code != 'false' && !cancelled() && hashFiles('web/uat/downloads.mjs') != ''
+        working-directory: web
+        run: npm run uat:downloads
+
+      # Playwright's WebKit is the WebKit engine, not Safari, but it sends the fetch metadata and download behaviour
+      # that Chromium does not, which is where the saved-error-as-a-file bug could hide.
+      - name: Flows (WebKit)
+        if: steps.gate.outputs.code != 'false' && !cancelled()
+        working-directory: web
+        run: |
+          status=0
+          for flow in feeds states; do
+            echo "::group::uat:$flow (webkit)"
+            npm run "uat:$flow" -- --browser webkit || status=1
+            echo "::endgroup::"
+          done
+          if grep -q -- '--browser' uat/downloads.mjs 2>/dev/null; then
+            echo "::group::uat:downloads (webkit)"
+            npm run uat:downloads -- --browser webkit || status=1
+            echo "::endgroup::"
+          fi
+          exit $status
+
+      - name: Keep the reports and screenshots of a failed run
+        if: steps.gate.outputs.code != 'false' && failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-uat
+          path: |
+            web/uat/results
+            ${{ runner.temp }}/seed.log
+          if-no-files-found: ignore
+          retention-days: 7

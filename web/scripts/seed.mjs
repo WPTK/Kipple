@@ -13,12 +13,15 @@
 //                                (docs/design.md §7.1e): open the address and create the account. Its stderr is also
 //                                written to <data dir>/server-stderr.log. Nothing is imported.
 //
+// The web app is built first when web/dist is missing or older than its sources (otherwise the server would serve
+// only its status page). KIPPLE_SEED_NO_BUILD=1 skips that, for example right after a build.
+//
 // Then, in another terminal, `npm run dev` (Vite proxies /api and /img to
 // 127.0.0.1:1919) and sign in as dev / dev-password-only-for-local-testing.
 // The credentials below are for this throwaway local instance only; nothing
 // here is used in production. Needs Go on PATH and network access for the feeds.
 import { spawn, spawnSync } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -120,6 +123,25 @@ await refuseIfTaken();
 if (!keep) wipeDataDir();
 mkdirSync(join(dataDir, "data"), { recursive: true });
 writeFileSync(join(dataDir, SENTINEL), "Created by web/scripts/seed.mjs; deleted and recreated on each run without --keep.\n");
+
+// The web build is embedded in the binary, so build it first when it is missing or older than its sources.
+function newest(path) {
+  if (!existsSync(path)) return 0;
+  const st = statSync(path);
+  if (!st.isDirectory()) return st.mtimeMs;
+  return readdirSync(path).reduce((m, e) => Math.max(m, newest(join(path, e))), st.mtimeMs);
+}
+function webBuildStale() {
+  const built = newest(join(root, "web", "dist", "index.html"));
+  if (built === 0) return true;
+  const sources = ["src", "public", "sw", "index.html", "package.json", "package-lock.json", "vite.config.ts", "tsconfig.json"];
+  return sources.some((p) => newest(join(root, "web", p)) > built);
+}
+if (process.env.KIPPLE_SEED_NO_BUILD !== "1" && webBuildStale()) {
+  console.log("building the web app (web/dist is missing or older than its sources) ...");
+  const web = spawnSync("npm", ["run", "build"], { cwd: join(root, "web"), stdio: "inherit", shell: process.platform === "win32" });
+  if (web.status !== 0) process.exit(web.status ?? 1);
+}
 
 const bin = join(dataDir, process.platform === "win32" ? "kipple.exe" : "kipple");
 console.log("building Kipple ...");
