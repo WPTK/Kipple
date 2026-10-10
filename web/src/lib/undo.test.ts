@@ -246,15 +246,23 @@ describe("actions still in flight", () => {
     expect(toast()).toBe("Starred");
   });
 
-  it("a joined action that lands after a newer toast timed out shows no toast", async () => {
-    read(["1"]);
-    await vi.advanceTimersByTimeAsync(14_800);
-    const t = beginUndo("read"); // joins; the read toast times out at 15 s
-    pushUndo({ kind: "star", ids: ["9"], undo: vi.fn() });
-    await vi.advanceTimersByTimeAsync(TOAST_MS);
-    expect(toast()).toBeNull(); // the star toast timed out too
-    t.settle({ ids: ["2"], undo: vi.fn() });
-    expect(toast()).toBeNull(); // z would undo the star, so no read toast
+  it("a failed undo goes back in the order the user acted, below a newer group, which keeps its toast", async () => {
+    let fail!: (ok: boolean) => void;
+    const starUndo = vi.fn().mockImplementationOnce(() => new Promise<boolean>((r) => (fail = r))).mockResolvedValue(undefined);
+    const newUndo = vi.fn();
+    const a = beginUndo("read"); // in flight
+    pushUndo({ kind: "star", ids: ["9"], undo: starUndo });
+    const z = undoToast(); // the star's undo is out
+    pushUndo({ kind: "read", ids: ["5"], undo: newUndo }); // N
+    a.settle(null); // A leaves the stack
+    fail(false);
+    await z;
+    expect(toast()).toBe("Marked read"); // N keeps its toast
+    await undoLast();
+    expect(newUndo).toHaveBeenCalledWith(["5"]); // stack is [S, N]: N first
+    expect(starUndo).toHaveBeenCalledTimes(1);
+    await undoLast();
+    expect(starUndo).toHaveBeenCalledTimes(2);
   });
 
   it("a newer group whose undo fails gets its toast back from an older one that landed meanwhile", async () => {

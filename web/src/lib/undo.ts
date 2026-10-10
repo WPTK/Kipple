@@ -199,7 +199,7 @@ export function pushUndo(req: UndoRequest): void {
 
 async function run(g: Group): Promise<void> {
   const wasToast = toastGroup === g;
-  const at = stack.indexOf(g);
+  const wasOnStack = stack.includes(g);
   stack = stack.filter((x) => x !== g);
   if (wasToast) {
     toastGroup = null;
@@ -216,11 +216,13 @@ async function run(g: Group): Promise<void> {
   );
   if (!ok) {
     // The reversal did not happen: keep the group so `z` or the toast can try again, and say so.
-    // Back in its own place; a group already off the stack (pushed off while in flight) stays off it.
-    if (at >= 0 && !stack.includes(g)) {
-      stack.splice(Math.min(at, stack.length), 0, g);
+    // Back in its own place, which is the order the user acted in (ids rise with each action); a group already off
+    // the stack (pushed off while in flight) stays off it.
+    if (wasOnStack && !stack.includes(g)) {
+      const newer = stack.findIndex((x) => x.id > g.id);
+      stack.splice(newer < 0 ? stack.length : newer, 0, g);
       // It gets its toast back, also from an older group that landed and took the slot while this undo was out.
-      if (wasToast && (!toastGroup || stack.indexOf(toastGroup) < stack.indexOf(g))) toastGroup = g;
+      if (wasToast && (!toastGroup || toastGroup.id < g.id)) toastGroup = g;
     }
     armTimer();
     publish();
