@@ -10,7 +10,7 @@
 //     (no setup code), and walks all seven steps with a password. Asserts the time zone step preselects Asia/Tokyo and
 //     that GET /api/settings then reports it, that while unclaimed the other API routes refuse, that a second browser
 //     context creating the account afterwards gets 404, and that after completion /api/setup/* answers 404.
-//   Run B (phone 375x812): the same wizard in open mode (no password), a theme and reading-font preview + Skip that
+//   Run B (the narrowest phone, 320x568): the same wizard in open mode (no password), a theme and reading-font preview + Skip that
 //     must leave no theme or font overrides in the device profile, then a fresh browser context signs in by itself
 //     (POST /api/auth/open), and a request that carries a forwarding header is refused with the plain-English screen.
 //   Run C (phone, time zone Asia/Tokyo): GET /api/instance unreachable (a Try again screen, never a password form), then
@@ -26,6 +26,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium } from "@playwright/test";
+import { installPageHelpers, tapProbe } from "./probes.mjs";
 
 const require = createRequire(import.meta.url);
 const webDir = fileURLToPath(new URL("../", import.meta.url));
@@ -111,7 +112,16 @@ async function onStep(page, tag, heading, n) {
   check(where, await page.getByText(`Step ${n} of 7`).isVisible(), `no "Step ${n} of 7"`);
   await axeRun(page, where);
   await overflowRun(page, where);
+  await tapRun(page, where);
   if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, `${tag}-step${n}.png`), fullPage: true });
+}
+
+/** S8 of run.mjs on a touch-sized page: every control has a 44 x 44 px hit area (tapProbe in probes.mjs). */
+async function tapRun(page, where) {
+  if ((page.viewportSize()?.width ?? 9999) >= 600) return;
+  await page.evaluate(installPageHelpers);
+  const { small } = await page.evaluate(tapProbe, { feed: { body: ".no-feed-html", own: ".no-feed-html" }, min: 44 });
+  for (const t of small) fail(`${where} touch target`, `${t.desc} is ${t.w} x ${t.h} px, under 44 x 44`);
 }
 
 const browser = await chromium.launch({ headless: !opt.headed }).catch((e) => setupError(`could not start Chromium (npx playwright install chromium): ${e.message.split("\n")[0]}`));
@@ -204,7 +214,7 @@ try {
   // ---------------------------------------------------------------------------------------------- Run B
   {
     const { origin } = await startServer("b", 7192);
-    const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, colorScheme: "dark" });
+    const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true, colorScheme: "dark" });
     const page = await ctx.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));

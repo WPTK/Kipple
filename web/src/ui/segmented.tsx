@@ -66,7 +66,8 @@ export function Segmented<T extends string | number>({ legend, hint, value, opti
     <fieldset className="min-w-0">
       <legend className="text-sm font-semibold">{legend}</legend>
       {hint ? <p className="mb-2 text-xs text-fg2">{hint}</p> : <div className="mb-2" />}
-      <div ref={box} className={cn("flex w-full gap-px overflow-hidden rounded-xl border border-line bg-line", wrap && "flex-wrap")}>
+      {/* Each choice keeps its 44 px touch width, so a row that does not fit wraps to a second line, never squeezes them. */}
+      <div ref={box} className="flex w-full flex-wrap gap-px overflow-hidden rounded-xl border border-line bg-line">
         {options.map((o, i) => {
           const on = o.value === value;
           return (
@@ -74,7 +75,7 @@ export function Segmented<T extends string | number>({ legend, hint, value, opti
               key={String(o.value)}
               data-pressed={on}
               className={cn(
-                "relative flex min-h-11 min-w-0 flex-1 cursor-pointer items-center justify-center px-1 text-center text-xs font-medium select-none min-[380px]:text-sm",
+                "relative flex min-h-11 min-w-11 flex-1 cursor-pointer items-center justify-center px-1 text-center text-xs font-medium select-none min-[380px]:text-sm",
                 "has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-accent",
                 wrap && "basis-[30%]",
                 o.disabled && "cursor-not-allowed opacity-50",

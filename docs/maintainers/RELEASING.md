@@ -72,9 +72,23 @@ fixes only) is the test.
    `Fuzz` workflow runs the same script on the default branch, but until it has run green for several weeks the
    manual run stays the gate.
    A failure writes `testdata\fuzz\<Target>\<hash>` in the package: fix the bug, keep that file as a regression seed.
-   **UAT Suite 1, also by hand:** in `web/`, `npm run build`, then `npm run seed` (it stays in the foreground), then
-   in a second terminal, once the feeds have fetched (about a minute), `npm run uat` against that seeded local instance (never the live one; see `uat-plan.md`, Suite 1). It must finish with exit code 0, or every
-   remaining finding must be in `web/uat/waivers.json` with the owner's reason.
+   **UAT Suite 1, also by hand:** in `web/`, `npm run seed` (it builds the web app when `web/dist` is missing or stale, then stays in the
+   foreground), then in a second terminal, once the feeds have fetched (about a minute), `npm run uat` and the single-purpose
+   flows (`npm run uat:folders`, `uat:feeds`, `uat:states`, `uat:keyboard`, `uat:offline`, and `uat:downloads`, or all of them with `npm run uat:all`)
+   against that seeded local instance (never the live one; see `uat-plan.md`, Suite 1). The `Browser UAT` workflow runs the
+   same on every pull request that changes code (Chromium, and WebKit for the flows that support it); read its result, and
+   run it by hand only to reproduce a failure. The run must finish with exit code 0, or every remaining finding must be in
+   `web/uat/waivers.json` with the owner's reason.
+   **Walk every screen in a real browser, by hand, for the second tier.** The scripted flows check what someone thought to
+   script; the walk finds what nobody did. On the seeded instance, at the mobile preset (375 px wide, touch) and on desktop
+   (1280 px), open each screen and use what is on it, not only what changed: Unread, Starred, a feed's list and a folder's
+   list, an article (reader, original, share, star), Search and a saved search, Feeds (select, move, delete, new, rename and
+   delete folder, Edit, Add feed, Import OPML with a file that is not OPML), Health, Stats and Wrapped, every Settings
+   section, and the sign-in and setup screens. Then every download, saving the file and opening it: Export OPML, the
+   statistics export (CSV), the backup (zip) and any export a new screen added. A saved file that is an error message, a
+   control that opens something when it should select it, and a list left behind after a delete are found only this way.
+   Note what was driven, and the browser, in the release notes of the step 6 commit or the PR; anything found is fixed
+   (and gets a flow in `web/uat/`) before the tag.
 4. **CHANGELOG.md:** `node scripts/changelog.mjs preview` shows what is pending; add a one-paragraph
    `changes/_intro.md` if the release needs an intro. `node scripts/changelog.mjs release X.Y.Z` (`--dry-run` first) folds
    the `changes/` fragments into a new `## [X.Y.Z] - date` section, updates the compare links, deletes the

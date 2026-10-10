@@ -1,0 +1,12 @@
+{
+  "comment": "Every web/uat/*.mjs is either a flow below or listed in excluded with the reason. `node uat/all.mjs --check` fails otherwise, so a new flow cannot be silently left out of CI. Order matters: flows that mark articles read (keyboard) come last.",
+  "chromium": ["run.mjs", "offline.mjs", "folders.mjs", "feeds.mjs", "states.mjs", "downloads.mjs", "keyboard.mjs"],
+  "webkit": ["feeds.mjs", "states.mjs", "downloads.mjs"],
+  "excluded": {
+    "all.mjs": "this runner",
+    "common.mjs": "shared set-up of the flows, not a flow",
+    "probes.mjs": "page helpers of run.mjs, not a flow",
+    "wait-ready.mjs": "waits for the seeded instance, not a flow",
+    "wizard.mjs": "needs a fresh instance in setup mode (KIPPLE_SEED_SET=fresh), so it cannot share the seeded one"
+  }
+}

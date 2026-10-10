@@ -68,10 +68,15 @@ screen (feed list in each of the 5 layouts, article view, search, settings (the 
 | S1 | Console errors | Zero uncaught console errors per screen |
 | S2 | Network failures | No unexpected 4xx/5xx from `/api/*` during normal navigation |
 | S3 | Accessibility | axe-core WCAG 2.2 AA scan clean (or only known/waived issues) on every screen, in at least 2 themes (a light and a dark scheme) |
-| S4 | Responsive | No horizontal scroll or clipped content at iPhone width (390px) and at a small-tablet width (768px) |
+| S4 | Responsive | No horizontal scroll or clipped content at iPhone width (390px), at the narrowest supported width (320px) and at a small-tablet width (768px) |
 | S5 | Data integrity | No literal `undefined`, `NaN`, or `[object Object]` rendered anywhere |
 | S6 | Theme contrast | Reuses the existing CI contrast check across all 20 schemes, not just the 2 spot-checked above |
 | S7 | Font choice reachable | The Aa menu above every list screen (each layout, Unread, Starred, Search) and the article, and Settings > Appearance & Reading, each have one visible "Reading font" select with every font (at least 12: Default and the 11 bundled). Not waivable |
+
+S8 (touch targets) is checked at the three touch widths: every control of Kipple's (not the feed's article HTML) has a
+hit area of at least 44 x 44 px. The probe (`tapProbe` in `web/uat/probes.mjs`) hit-tests around each control with
+`elementFromPoint`, so a larger label around a checkbox or a padded pseudo-element (the `.hit-pad` class) counts, and a bare
+icon does not. A finding is waived only in `web/uat/waivers.json`, with the reason written there.
 
 A manual, pre-release tool (step 2 of `docs/maintainers/RELEASING.md`): not part of CI or `scripts/ci-local.ps1`.
 `@playwright/test` is a dev dependency so its version is pinned in the lockfile and audited with the rest; it has no
@@ -91,8 +96,8 @@ one run per engine in turn, with a report directory each and the worst exit code
 the cross-engine run below),
 `--user`/`--password` (default: the seed's throwaway account), `--only <screen ids>`, `--screenshots`, `--headed`,
 `--out`. Every screen is checked in Paper and Midnight (the browser's light and dark preference, which the default
-follow-system theme picks up) at 1280 px, 768 px and 390 px (the last two as touch devices); S4 applies to the two
-narrow widths. Before the run it checks its own probes against a page built to fail them, so a clean report means
+follow-system theme picks up) at 1280 px, 768 px, 390 px and 320 px (the last three as touch devices); S4 and S8 apply to the
+three touch widths. Before the run it checks its own probes against a page built to fail them, so a clean report means
 clean, not broken. A theme that does not come out as Paper and Midnight (an account defaulting to a fixed theme), an
 unknown `--only` id, or no article to open (feeds not fetched yet) stops that part of the run as an error rather than
 passing it.
@@ -159,6 +164,27 @@ opening and starring an article are queued and counted in the notice (O2); a rel
 from the worker's copy with the offline notice (O3) and opens the article from it (O4); O1 again after the reload
 (O5); back online the queue is sent and Stats loads by itself (O6). It refuses non-loopback addresses and other
 credentials like the main run. Exit code 0 clean, 1 findings, 2 setup error.
+
+Feeds screen (`npm run uat:feeds`, `web/uat/feeds.mjs`, same instance, credentials, `--browser` and exit codes), at 1280x800 and
+375x812, on disposable feeds that point at an address that never resolves (a stopped run's leftovers are removed first):
+tapping a feed's title in select mode ticks it and never opens it (F1); deleting selected feeds shows one progress bar
+with a fixed total, keeps a folder that still holds feeds and removes the folders the delete left empty, and touches
+nothing else (F2); New folder and Rename folder save on Enter (F3); Import OPML refuses a file that is not OPML, by its
+look, as an RSS feed and as JSON named `.opml`, in plain words and adds nothing (F4).
+
+Saved search and out-of-date addresses (`npm run uat:states`, `web/uat/states.mjs`, same rules): saving the same search
+twice is refused in the dialog and leaves one (Q1); the list address of a deleted or unknown feed, and of a deleted folder,
+says it no longer exists and offers Go to Unread (U1, U2); an article address that is gone says so (U3); a path nothing
+answers says "Page not found" (U4).
+
+In CI, the `Browser UAT` workflow (`.github/workflows/browser-uat.yml`) seeds a throwaway instance on loopback and runs
+`npm run uat:all` (`web/uat/all.mjs`): every flow listed in `web/uat/flows.json` under Chromium, and the Feeds, saved-search and
+downloads flows under WebKit (WebKit sends fetch metadata that Chromium does not, so a download error saved as the file shows only there).
+A new flow file goes in `flows.json`, as a flow or as excluded with a reason; `node uat/all.mjs --check` fails a file that is neither.
+The workflow needs no outside network: `web/scripts/fixture-feeds.mjs` serves five feeds on loopback and `KIPPLE_SEED_FEEDS_URL`
+makes `npm run seed` add those instead of the public ones. It is not a required check yet, and `scripts/maintainers/pr-ready.ps1`
+prints its result without blocking on it. `web/uat/wait-ready.mjs` holds the start until the seed's feeds have articles.
+`npm run seed` builds `web/dist` first when it is missing or older than its sources; `KIPPLE_SEED_NO_BUILD=1` skips that.
 
 Nested folders (`npm run uat:folders`, `web/uat/folders.mjs`, against the same seeded instance), at 1280x800 and
 375x812, all through the Feeds screen: New folder, then New subfolder twice, makes three levels (N1); Select and Move to

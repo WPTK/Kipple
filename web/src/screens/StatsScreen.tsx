@@ -222,7 +222,7 @@ export function DailyChart({ data, empty }: { data: StatsSummary; empty: boolean
         <span>{shortDate(daily[daily.length - 1]!.date)}</span>
       </div>
       <p className="mt-1 text-xs text-fg2">Most in a day: {busiest.items_read}.</p>
-      <table className="sr-only">
+      <div className="sr-only"><table>
         <caption>Items read and active time per day</caption>
         <thead>
           <tr>
@@ -242,7 +242,7 @@ export function DailyChart({ data, empty }: { data: StatsSummary; empty: boolean
               </tr>
             ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -283,7 +283,7 @@ export function MonthlyChart({ data, empty }: { data: StatsSummary; empty: boole
         <span>{monthName(months[months.length - 1]!.month)}</span>
       </div>
       <p className="mt-1 text-xs text-fg2">Most in a month: {busiest.items_read}, {monthName(busiest.month)}.</p>
-      <table className="sr-only">
+      <div className="sr-only"><table>
         <caption>Items read and active time per month</caption>
         <thead>
           <tr>
@@ -301,7 +301,7 @@ export function MonthlyChart({ data, empty }: { data: StatsSummary; empty: boole
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -828,8 +828,9 @@ export function StatsScreen() {
           Stats
         </h1>
         {on && !(data && !data.enabled) ? (
-          <div className="flex items-end gap-3">
-            <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-end gap-3">
+            {/* Five 44 px choices need 15 rem: on the narrowest phones Export drops to its own line. */}
+            <div className="min-w-0 flex-1 basis-60">
               <Segmented legend="Range" value={range} onChange={pick} options={SCREEN_RANGES} />
             </div>
             <Button onClick={() => setExporting(true)}>Export</Button>

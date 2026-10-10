@@ -13,15 +13,27 @@
 //                                (docs/design.md §7.1e): open the address and create the account. Its stderr is also
 //                                written to <data dir>/server-stderr.log. Nothing is imported.
 //
+// The web app is built first when web/dist is missing or older than its sources (otherwise the server would serve
+// only its status page). KIPPLE_SEED_NO_BUILD=1 (or true, yes) skips that, for example right after a build.
+//
+// KIPPLE_SEED_FEEDS_URL=http://127.0.0.1:1994 imports the five feeds of scripts/fixture-feeds.mjs (start it first)
+// instead of the public ones, so no outside network is needed (CI uses this). A feed on loopback is fetched only when
+// it is allowed to be, so these are added through the API with private-network access on.
+//
+// KIPPLE_SEED_FEEDS_URL=http://127.0.0.1:1994 imports the five feeds of scripts/fixture-feeds.mjs (start it first) instead
+// of the public ones, so no outside network is needed (CI uses this). Kipple only fetches loopback feeds that are
+// allowed to, so each is added through the API with private-network access on.
+//
 // Then, in another terminal, `npm run dev` (Vite proxies /api and /img to
 // 127.0.0.1:1919) and sign in as dev / dev-password-only-for-local-testing.
 // The credentials below are for this throwaway local instance only; nothing
 // here is used in production. Needs Go on PATH and network access for the feeds.
 import { spawn, spawnSync } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FIXTURE_FEEDS } from "./fixture-feeds.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const dataDir = process.env.KIPPLE_DEV_DATA || join(tmpdir(), "kipple-dev");
@@ -70,7 +82,8 @@ const SITE_FEEDS = [
   ["Hacker News", "https://hnrss.org/frontpage"],
 ];
 const site = process.env.KIPPLE_SEED_SET === "site";
-const SEED = site ? { folder: "Less noise", feeds: SITE_FEEDS } : { folder: "Dev seed", feeds: FEEDS };
+const fixtureBase = process.env.KIPPLE_SEED_FEEDS_URL?.replace(/\/+$/, "");
+const SEED = fixtureBase ? { folder: "Dev seed", feeds: FIXTURE_FEEDS.map(([t, n]) => [t, `${fixtureBase}/feed/${n}.xml`]) } : site ? { folder: "Less noise", feeds: SITE_FEEDS } : { folder: "Dev seed", feeds: FEEDS };
 
 // The data dir is wiped on every run without --keep, so only ever delete a directory this script
 // created (it leaves a sentinel file; older runs are recognised by their seed.opml layout) or an
@@ -121,6 +134,26 @@ if (!keep) wipeDataDir();
 mkdirSync(join(dataDir, "data"), { recursive: true });
 writeFileSync(join(dataDir, SENTINEL), "Created by web/scripts/seed.mjs; deleted and recreated on each run without --keep.\n");
 
+// The web build is embedded in the binary, so build it first when it is missing or older than its sources.
+function newest(path) {
+  if (!existsSync(path)) return 0;
+  const st = statSync(path);
+  if (!st.isDirectory()) return st.mtimeMs;
+  return readdirSync(path).reduce((m, e) => Math.max(m, newest(join(path, e))), st.mtimeMs);
+}
+function webBuildStale() {
+  const built = newest(join(root, "web", "dist", "index.html"));
+  if (built === 0) return true;
+  const sources = ["src", "public", "sw", "index.html", "package.json", "package-lock.json", "vite.config.ts", "tsconfig.json"];
+  return sources.some((p) => newest(join(root, "web", p)) > built);
+}
+if (!/^(1|true|yes)$/i.test(process.env.KIPPLE_SEED_NO_BUILD ?? "") && webBuildStale()) {
+  console.log("building the web app (web/dist is missing or older than its sources) ...");
+  const web = spawnSync("npm", ["run", "build"], { cwd: join(root, "web"), stdio: "inherit", shell: process.platform === "win32" });
+  if (web.error) console.error(`could not run npm: ${web.error.message} (is Node's npm on PATH?)`);
+  if (web.status !== 0) process.exit(web.status ?? 1);
+}
+
 const bin = join(dataDir, process.platform === "win32" ? "kipple.exe" : "kipple");
 console.log("building Kipple ...");
 const build = spawnSync("go", ["build", "-o", bin, "./cmd/kipple"], { cwd: root, stdio: "inherit" });
@@ -160,13 +193,33 @@ async function waitReady() {
   throw new Error("server did not become ready");
 }
 
+// The fixture feeds are on loopback, which a feed may fetch only when it is allowed to, so they go in through the API.
+async function addFixtureFeeds() {
+  const origin = `http://${addr}`;
+  const hdr = { "Content-Type": "application/json", "X-Kipple-Client": "web", Origin: origin };
+  const login = await fetch(`${origin}/api/auth/login`, { method: "POST", headers: hdr, body: JSON.stringify({ username: env.KIPPLE_USERNAME, password: env.KIPPLE_PASSWORD }) });
+  const cookie = login.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+  if (!login.ok || !cookie) throw new Error(`seed sign-in failed (${login.status})`);
+  const post = async (path, body) => {
+    const r = await fetch(`${origin}${path}`, { method: "POST", headers: { ...hdr, Cookie: cookie }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text()}`);
+    return r.json();
+  };
+  const folder = await post("/api/folders", { name: SEED.folder, parent_id: null });
+  for (const [title, url] of SEED.feeds) await post("/api/feeds", { url, title, folder_id: folder.id, allow_private_net: true });
+  await post("/api/refresh", {});
+}
+
 await waitReady();
 if (fresh) {
   console.log(`\nKipple is running at http://${addr} in SETUP MODE (no account). Its log is ${join(dataDir, "server-stderr.log")}.`);
   console.log("Open the address and create the account. Ctrl-C stops the server.");
 } else {
-  const imp = spawnSync(bin, ["import", opmlPath], { env, stdio: "inherit" });
-  if (imp.status !== 0) console.error("import failed; feeds were not added");
+  if (fixtureBase) await addFixtureFeeds();
+  else {
+    const imp = spawnSync(bin, ["import", opmlPath], { env, stdio: "inherit" });
+    if (imp.status !== 0) console.error("import failed; feeds were not added");
+  }
   console.log(`\nKipple is running at http://${addr}  (sign in as dev / dev-password-only-for-local-testing)`);
   console.log("Feeds fetch over the next minute. Run `npm run dev` for the hot-reloading UI. Ctrl-C stops the server.");
 }

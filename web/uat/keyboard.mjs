@@ -225,8 +225,8 @@ async function desktop(cookies) {
   page.on("pageerror", (e) => errors.push(String(e).slice(0, 200)));
   await load(page, "/l/all");
   // The layout the shortcuts are exercised in: Editorial, whose rows carry the unread dot and a Star button.
-  const layoutBtn = page.locator('button[aria-label^="Layout: "]').first();
-  if ((await layoutBtn.getAttribute("aria-label")) !== "Layout: Editorial") {
+  const layoutBtn = page.locator('button[aria-label^="List options, "]').first();
+  if ((await layoutBtn.getAttribute("aria-label")) !== "List options, Editorial layout") {
     await layoutBtn.click();
     await page.getByRole("menuitemradio", { name: /^Editorial\b/ }).click();
     await page.waitForTimeout(400);
@@ -335,7 +335,7 @@ async function k1(page, articlePath) {
 // K2: menus and dialogs open from the keyboard and Escape closes them and returns focus.
 async function k2(page) {
   const cases = [
-    ["/l/all", "Layout menu", (p) => p.locator('button[aria-label^="Layout: "]').first(), false],
+    ["/l/all", "Layout menu", (p) => p.locator('button[aria-label^="List options, "]').first(), false],
     ["/l/all", "Reading appearance", (p) => p.getByRole("button", { name: "Reading appearance" }).first(), true],
     ["/l/all", "List actions menu", (p) => p.getByRole("button", { name: "List actions" }).first(), false],
     ["/l/all", "Row More actions menu", (p) => p.getByRole("button", { name: "More actions" }).first(), false],
@@ -451,7 +451,8 @@ async function k3(page) {
     const changed = await until(page, ([ids, want]) => ids.every((id) => document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread === want), expect(before));
     await press(page, "z");
     const restored = await until(page, (snap) => snap.every(([id, u]) => (document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread ?? u) === u), before.map((r) => [r[0], r[1]]), 6000);
-    check(changed && restored, where(label), "marks read, and z restores it", `marked=${changed} undone=${restored}`);
+    const after = restored ? [] : (await rowState(page)).filter((r) => before.some((b) => b[0] === r[0] && b[1] !== r[1]));
+    check(changed && restored, where(label), "marks read, and z restores it", `marked=${changed} undone=${restored} rows=${before.length} not restored=${after.length} (${after.slice(0, 3).map((r) => r[0] + ":" + r[1]).join(", ")}) toasts=${JSON.stringify(await page.locator("[role=status]").allInnerTexts())}`);
   };
   await load(page, "/l/all");
   await press(page, "j", "j");
@@ -481,9 +482,9 @@ async function k3(page) {
   // c toggles Compact
   await load(page, "/l/all");
   await press(page, "c");
-  const compactOn = await until(page, () => /Layout: Compact/.test(document.querySelector('button[aria-label^="Layout: "]')?.getAttribute("aria-label") ?? ""));
+  const compactOn = await until(page, () => /List options, Compact layout/.test(document.querySelector('button[aria-label^="List options, "]')?.getAttribute("aria-label") ?? ""));
   await press(page, "c");
-  const compactOff = await until(page, () => /Layout: Editorial/.test(document.querySelector('button[aria-label^="Layout: "]')?.getAttribute("aria-label") ?? ""));
+  const compactOff = await until(page, () => /List options, Editorial layout/.test(document.querySelector('button[aria-label^="List options, "]')?.getAttribute("aria-label") ?? ""));
   check(compactOn && compactOff, where("c"), "switches to Compact and back", `compact=${compactOn} back=${compactOff}`);
 
   // o and v open the original in a new tab

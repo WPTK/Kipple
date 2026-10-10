@@ -199,6 +199,21 @@ body {
   min-height: 44px;
 }
 
+/* The same for a link or control that sits in a line of text: the text keeps its size and place, and a transparent
+   44 px box centred on it takes the touch. Only on a touch screen, so a mouse's hover and click area stay the text. */
+@media (pointer: coarse) {
+  .hit-pad { position: relative; }
+  .hit-pad::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+}
+
 .sr-only-live {
   position: absolute;
   top: 0;

@@ -314,7 +314,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
               >
                 {a.read ? "Read" : "Unread"}
               </span>
-              <a href={safeHttpUrl(a.feed.site_url)} target={linkTarget === "new" ? "_blank" : undefined} rel="noopener noreferrer" className="hover:underline">
+              <a href={safeHttpUrl(a.feed.site_url)} target={linkTarget === "new" ? "_blank" : undefined} rel="noopener noreferrer" className="hit-pad hover:underline">
                 {a.source || a.feed.title}
               </a>
             </p>
