@@ -68,10 +68,15 @@ screen (feed list in each of the 5 layouts, article view, search, settings (the 
 | S1 | Console errors | Zero uncaught console errors per screen |
 | S2 | Network failures | No unexpected 4xx/5xx from `/api/*` during normal navigation |
 | S3 | Accessibility | axe-core WCAG 2.2 AA scan clean (or only known/waived issues) on every screen, in at least 2 themes (a light and a dark scheme) |
-| S4 | Responsive | No horizontal scroll or clipped content at iPhone width (390px) and at a small-tablet width (768px) |
+| S4 | Responsive | No horizontal scroll or clipped content at iPhone width (390px), at the narrowest supported width (320px) and at a small-tablet width (768px) |
 | S5 | Data integrity | No literal `undefined`, `NaN`, or `[object Object]` rendered anywhere |
 | S6 | Theme contrast | Reuses the existing CI contrast check across all 20 schemes, not just the 2 spot-checked above |
 | S7 | Font choice reachable | The Aa menu above every list screen (each layout, Unread, Starred, Search) and the article, and Settings > Appearance & Reading, each have one visible "Reading font" select with every font (at least 12: Default and the 11 bundled). Not waivable |
+
+S8 (touch targets) is checked at the three touch widths: every control of Kipple's (not the feed's article HTML) has a
+hit area of at least 44 x 44 px. The probe (`tapProbe` in `web/uat/probes.mjs`) hit-tests around each control with
+`elementFromPoint`, so a larger label around a checkbox or a padded pseudo-element (the `.hit-pad` class) counts, and a bare
+icon does not. A finding is waived only in `web/uat/waivers.json`, with the reason written there.
 
 A manual, pre-release tool (step 2 of `docs/maintainers/RELEASING.md`): not part of CI or `scripts/ci-local.ps1`.
 `@playwright/test` is a dev dependency so its version is pinned in the lockfile and audited with the rest; it has no
@@ -91,8 +96,8 @@ one run per engine in turn, with a report directory each and the worst exit code
 the cross-engine run below),
 `--user`/`--password` (default: the seed's throwaway account), `--only <screen ids>`, `--screenshots`, `--headed`,
 `--out`. Every screen is checked in Paper and Midnight (the browser's light and dark preference, which the default
-follow-system theme picks up) at 1280 px, 768 px and 390 px (the last two as touch devices); S4 applies to the two
-narrow widths. Before the run it checks its own probes against a page built to fail them, so a clean report means
+follow-system theme picks up) at 1280 px, 768 px, 390 px and 320 px (the last three as touch devices); S4 and S8 apply to the
+three touch widths. Before the run it checks its own probes against a page built to fail them, so a clean report means
 clean, not broken. A theme that does not come out as Paper and Midnight (an account defaulting to a fixed theme), an
 unknown `--only` id, or no article to open (feeds not fetched yet) stops that part of the run as an error rather than
 passing it.

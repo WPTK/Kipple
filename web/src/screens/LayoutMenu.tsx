@@ -26,7 +26,7 @@ import { cn } from "@/lib/cn";
 import { announce } from "@/shell/toasts";
 
 const item =
-  "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
+  "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-selection";
 const heading = "px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase";
 
 const FIELD_LABELS: { [F in ListField]: Record<string, string> } = { layout: LAYOUT_LABELS, order: ORDER_LABELS, view: LIST_VIEW_LABELS };
@@ -175,8 +175,8 @@ function Radio({ value, label, hint, className }: { value: string; label: string
         <Check className="size-4" aria-hidden="true" />
       </DropdownMenu.ItemIndicator>
       <span className="min-w-0">
-        <span className="block truncate">{label}</span>
-        {hint ? <span className="block truncate text-xs text-fg2">{hint}</span> : null}
+        <span className="block break-words">{label}</span>
+        {hint ? <span className="block text-xs break-words text-fg2">{hint}</span> : null}
       </span>
     </DropdownMenu.RadioItem>
   );
