@@ -286,16 +286,18 @@ func TestCrossOriginRejected(t *testing.T) {
 		// clientOnly marks a failure of the X-Kipple-Client rule alone: GET
 		// downloads are reachable by a plain link, so only the origin rule guards them.
 		clientOnly bool
+		// downloadOK marks a request the download rule accepts (no fetch metadata, no Origin).
+		downloadOK bool
 	}{
-		{"cross-site fetch metadata", []func(*http.Request){func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }}, false},
-		{"same-site fetch metadata", []func(*http.Request){func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "same-site") }}, false},
-		{"no metadata no origin", []func(*http.Request){strip, func(r *http.Request) { r.Header.Set("X-Kipple-Client", "web") }}, false},
+		{"cross-site fetch metadata", []func(*http.Request){func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }}, false, false},
+		{"same-site fetch metadata", []func(*http.Request){func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "same-site") }}, false, false},
+		{"no metadata no origin", []func(*http.Request){strip, func(r *http.Request) { r.Header.Set("X-Kipple-Client", "web") }}, false, true},
 		{"foreign origin", []func(*http.Request){strip, func(r *http.Request) {
 			r.Header.Set("Origin", "https://evil.example")
 			r.Header.Set("X-Kipple-Client", "web")
-		}}, false},
-		{"missing client header", []func(*http.Request){func(r *http.Request) { r.Header.Del("X-Kipple-Client") }}, true},
-		{"bad client header", []func(*http.Request){func(r *http.Request) { r.Header.Set("X-Kipple-Client", "curl") }}, true},
+		}}, false, false},
+		{"missing client header", []func(*http.Request){func(r *http.Request) { r.Header.Del("X-Kipple-Client") }}, true, false},
+		{"bad client header", []func(*http.Request){func(r *http.Request) { r.Header.Set("X-Kipple-Client", "curl") }}, true, false},
 	} {
 		mods := append([]func(*http.Request){withCookie(c)}, tc.mod...)
 		for _, path := range []string{"/api/refresh", "/api/auth/logout"} {
@@ -306,7 +308,8 @@ func TestCrossOriginRejected(t *testing.T) {
 		rec := h.do("POST", "/api/opml", "<opml/>", mods...)
 		require.Equal(t, http.StatusForbidden, rec.Code, tc.name)
 		wantGet := http.StatusForbidden
-		if tc.clientOnly {
+		// A download from a client that sends no fetch metadata and no Origin is allowed.
+		if tc.clientOnly || tc.downloadOK {
 			wantGet = http.StatusOK
 		}
 		require.Equal(t, wantGet, h.do("GET", "/api/opml", "", mods...).Code, "%s GET opml", tc.name)
@@ -652,9 +655,23 @@ func TestDownloadOriginMatrix(t *testing.T) {
 	}
 	require.Equal(t, http.StatusOK, h.do("GET", "/api/opml", "", withCookie(c), plain("same-origin")).Code, "link click")
 	require.Equal(t, http.StatusForbidden, h.do("GET", "/api/opml", "", withCookie(c), plain("cross-site")).Code)
+	require.Equal(t, http.StatusOK, h.do("GET", "/api/opml", "", withCookie(c), plain("none")).Code, "new tab or long-press")
 	require.Equal(t, http.StatusForbidden, h.do("GET", "/api/opml", "", withCookie(c), plain("same-site")).Code)
-	require.Equal(t, http.StatusForbidden, h.do("GET", "/api/opml", "", withCookie(c), plain("")).Code, "no metadata and no Origin")
+	require.Equal(t, http.StatusOK, h.do("GET", "/api/opml", "", withCookie(c), plain("")).Code, "no metadata and no Origin (older browser, download manager)")
+	require.Equal(t, http.StatusForbidden, h.do("GET", "/api/opml", "", withCookie(c), plain(""), func(r *http.Request) { r.Header.Set("Origin", "https://evil.example") }).Code, "foreign Origin")
 	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/opml", "", plain("same-origin")).Code, "auth still first")
+	// Every download route and HEAD get the same rule; the job poll (it returns the
+	// download token) and writes keep the strict one.
+	for _, p := range []string{"/api/stats/export", "/api/backup/not-a-token"} {
+		for _, m := range []string{"GET", "HEAD"} {
+			require.NotEqual(t, http.StatusForbidden, h.do(m, p, "", withCookie(c), plain("none")).Code, m+" "+p+" none")
+			require.NotEqual(t, http.StatusForbidden, h.do(m, p, "", withCookie(c), plain("")).Code, m+" "+p+" bare")
+			require.Equal(t, http.StatusForbidden, h.do(m, p, "", withCookie(c), plain("cross-site")).Code, m+" "+p+" cross-site")
+		}
+	}
+	require.Equal(t, http.StatusForbidden, h.do("GET", "/api/backup/jobs/1", "", withCookie(c), plain("none")).Code, "job poll refuses none")
+	require.Equal(t, http.StatusForbidden, h.do("GET", "/api/backup/jobs/1", "", withCookie(c), plain("")).Code, "job poll refuses bare")
+	require.Equal(t, http.StatusForbidden, h.do("POST", "/api/opml", "<opml/>", withCookie(c), plain("none")).Code, "POST refuses none")
 	// Not a download: a POST to the same path keeps the header rule.
 	require.Equal(t, http.StatusForbidden, h.do("POST", "/api/opml", "<opml/>", withCookie(c), plain("same-origin")).Code)
 }

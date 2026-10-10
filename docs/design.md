@@ -1746,12 +1746,14 @@ Everything under `/api/` except the Reader paths and `POST /api/auth/login` requ
 - It is `Secure` when the effective scheme is https: `X-Forwarded-Proto: https` from a trusted proxy IP, or real TLS.
 - It is persistent, not a session cookie, because WebKit bug 272325 drops session cookies in Home Screen apps.
 
-**Same-origin enforcement** (`internal/api/api.go`: `authed`, `needsOriginCheck`, `sameOrigin`; every cookie-authenticated request whose method is not GET/HEAD, **and `POST /api/auth/login`** (which has no cookie yet; all three rules, so the login form must send `X-Kipple-Client`), plus the GET downloads `GET /api/opml`, `GET /api/stats/export` (the stats export, section 8) and `GET /api/backup/{token}`, which get rules 1 and 2 only; the job poll `GET /api/backup/jobs/{id}` gets all three because it returns the download token):
+**Same-origin enforcement** (`internal/api/api.go`: `authed`, `needsOriginCheck`, `sameOrigin`; every cookie-authenticated request whose method is not GET/HEAD, **and `POST /api/auth/login`** (which has no cookie yet; all three rules, so the login form must send `X-Kipple-Client`), plus the GET downloads `GET /api/opml`, `GET /api/stats/export` (the stats export, section 8) and `GET /api/backup/{token}`, which get the download rule below instead of rules 1 to 3; the job poll `GET /api/backup/jobs/{id}` gets all three because it returns the download token):
 
 1. If `Sec-Fetch-Site` is present, it must be `same-origin`.
 2. Else `Origin` must be present and equal `scheme://host` of the request, using the effective scheme.
-3. The request must also carry `X-Kipple-Client: web|pwa`, except on the GET downloads (a plain link cannot set a header, and rules 1 and 2 already refuse cross-site requests), which makes a cross-origin `fetch` non-simple and forces a CORS preflight that Kipple never answers. `POST /api/stats/events` is exempt from this header only, because `sendBeacon` cannot set headers; it still needs rule 1 or 2.
+3. The request must also carry `X-Kipple-Client: web|pwa`, except on the GET downloads, which makes a cross-origin `fetch` non-simple and forces a CORS preflight that Kipple never answers. `POST /api/stats/events` is exempt from this header only, because `sendBeacon` cannot set headers; it still needs rule 1 or 2.
 4. Any failure returns `403 {"error":"origin"}`.
+
+**Download rule** (the GET downloads above, HEAD included). A download is a read whose response another origin cannot see, and it must work from any browser, a new tab, a long-press or a download manager, none of which can set a header. It is refused only when the request is provably cross-origin: `Sec-Fetch-Site` is `same-origin` or `none` (the user's own navigation), or, without that header, there is no `Origin` or it equals `scheme://host`. `cross-site`, `same-site` and a foreign `Origin` get 403. The cost is that a page elsewhere can make the browser start a download (it cannot read it).
 
 Other conventions:
 

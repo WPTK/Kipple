@@ -432,8 +432,8 @@ func needsOriginCheck(r *http.Request) bool {
 }
 
 // isDownload is the GET downloads reached by a plain link (design §7, §6 of the
-// backend additions): they get the Sec-Fetch-Site/Origin rule alone, because a
-// navigation cannot carry X-Kipple-Client.
+// backend additions): they get the download rule in sameOrigin, because a
+// navigation cannot carry X-Kipple-Client and may carry no fetch metadata.
 func isDownload(r *http.Request) bool {
 	// HEAD is routed to the GET handlers, so it gets the same rule.
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -445,15 +445,23 @@ func isDownload(r *http.Request) bool {
 
 // sameOrigin is design §7's same-origin enforcement.
 func (s *Server) sameOrigin(r *http.Request) bool {
+	if isDownload(r) {
+		// A download is a read the caller cannot see across origins, and it must work from
+		// any browser or download manager: a new tab, a long-press or an older browser sends
+		// "none" or no fetch metadata at all. Only a request a page elsewhere provably
+		// triggered is refused.
+		if sfs := r.Header.Get("Sec-Fetch-Site"); sfs != "" {
+			return sfs == "same-origin" || sfs == "none"
+		}
+		o := r.Header.Get("Origin")
+		return o == "" || o == s.scheme(r)+"://"+r.Host
+	}
 	if sfs := r.Header.Get("Sec-Fetch-Site"); sfs != "" {
 		if sfs != "same-origin" {
 			return false
 		}
 	} else if o := r.Header.Get("Origin"); o == "" || o != s.scheme(r)+"://"+r.Host {
 		return false
-	}
-	if isDownload(r) {
-		return true // a link click cannot set X-Kipple-Client; the origin rule above is the whole guard
 	}
 	if r.Method == http.MethodPost && r.URL.Path == "/api/stats/events" {
 		return true // sendBeacon cannot set headers; rules 1 and 2 still applied (design §7)
