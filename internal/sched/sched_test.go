@@ -263,6 +263,7 @@ func (r *rig) failures(id int64) int64 {
 // ---------------------------------------------------------------------------
 
 func TestIntervalAndPerFeedOverride(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newSrv(t, serveOK)
 	a := r.add(srv.URL+"/a", nil)
@@ -298,6 +299,7 @@ func TestIntervalAndPerFeedOverride(t *testing.T) {
 }
 
 func TestInFlightFeedIsNotDispatchedTwice(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	release := make(chan struct{})
 	var once sync.Once
@@ -322,6 +324,7 @@ func TestInFlightFeedIsNotDispatchedTwice(t *testing.T) {
 }
 
 func TestBackoffGrowthJitterAndReset(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	var fail atomic.Bool
 	fail.Store(true)
@@ -380,6 +383,7 @@ func TestBackoffGrowthJitterAndReset(t *testing.T) {
 }
 
 func TestManualRefreshBypassesBackoffAndJoins(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	release := make(chan struct{})
 	var once sync.Once
@@ -431,6 +435,7 @@ func TestManualRefreshBypassesBackoffAndJoins(t *testing.T) {
 }
 
 func TestManualRunAttachesToInFlightFetches(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	release := make(chan struct{})
 	var once sync.Once
@@ -480,6 +485,7 @@ func TestManualRunAttachesToInFlightFetches(t *testing.T) {
 // screen-reader announcement key off the trigger, and "scheduled" means silently skip both, which is wrong for
 // new items a person explicitly asked to see (issue found in code review of #56).
 func TestManualJoinReportsManualTrigger(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	release := make(chan struct{})
 	var once sync.Once
@@ -508,6 +514,7 @@ func TestManualJoinReportsManualTrigger(t *testing.T) {
 // The single-feed equivalent: a person's own refresh request joining an already-running scheduled fetch for
 // that feed must report feed_manual, not scheduled.
 func TestSingleFeedJoinReportsFeedManualTrigger(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	release := make(chan struct{})
 	var once sync.Once
@@ -536,6 +543,7 @@ func TestSingleFeedJoinReportsFeedManualTrigger(t *testing.T) {
 // fetch already in flight must stay "scheduled", or the new feed's first items would raise the "N new articles" pill
 // (found in an independent review of the fix above).
 func TestImportAndSubscribeJoinsStayScheduled(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		join func(r *rig, id int64) error
@@ -574,6 +582,7 @@ func TestImportAndSubscribeJoinsStayScheduled(t *testing.T) {
 }
 
 func TestRunKindsDoNotJoinAndEmptyRunFinishes(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	// total = 0 finishes immediately
 	info, err := r.s.RefreshAll()
@@ -610,6 +619,7 @@ func TestRunKindsDoNotJoinAndEmptyRunFinishes(t *testing.T) {
 }
 
 func TestPerHostCapAndPendingDrain(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	var cur, peak atomic.Int32
 	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
@@ -635,6 +645,7 @@ func TestPerHostCapAndPendingDrain(t *testing.T) {
 }
 
 func TestRetryAfterFloorHostDeadlineAndSkippedRows(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
 		if p == "/a" {
@@ -680,6 +691,7 @@ func TestRetryAfterFloorHostDeadlineAndSkippedRows(t *testing.T) {
 }
 
 func TestPriorityRepliesSurviveAbandonedHandlers(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newSrv(t, serveOK)
 	a := r.add(srv.URL+"/a", func(f *store.NewFeed) { f.NextFetchAt = base.Add(9 * time.Hour).Unix() })
@@ -722,6 +734,7 @@ func TestPriorityRepliesSurviveAbandonedHandlers(t *testing.T) {
 }
 
 func TestGoneDisablesAndStopsFetching(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newSrv(t, func(_ string, w http.ResponseWriter, _ *http.Request) { w.WriteHeader(410) })
 	id := r.add(srv.URL+"/g", nil)
@@ -738,6 +751,7 @@ func TestGoneDisablesAndStopsFetching(t *testing.T) {
 // A fetch that changes a feed's display name (a new feed's first fetch naming it) announces the feed,
 // so an open web app shows the new name; a fetch that keeps the name does not.
 func TestFetchThatRenamesAFeedAnnouncesIt(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newSrv(t, serveOK)
 	id := r.add(srv.URL+"/f", nil)
@@ -754,6 +768,7 @@ func TestFetchThatRenamesAFeedAnnouncesIt(t *testing.T) {
 }
 
 func TestRetentionJobsAndRun(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newSrv(t, serveOK)
 	inherit := r.add(srv.URL+"/i", nil)
@@ -792,6 +807,7 @@ func TestRetentionJobsAndRun(t *testing.T) {
 	require.Equal(t, 2, info.Total)
 }
 
+// Not parallel: it measures wall time.
 func TestShutdownDuringLargeRun(t *testing.T) {
 	r := newRig(t, Options{PerHost: 8})
 	var completed atomic.Int32
@@ -881,6 +897,7 @@ func TestShutdownDuringLargeRun(t *testing.T) {
 // only the outer bound. Neither is a latency measurement of a healthy write. Once
 // the blocker is released the run commits everything.
 func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{PerHost: 8, CommitTimeout: 5 * time.Minute})
 	srv := newSrv(t, serveOK)
 	for i := 0; i < 138; i++ {
@@ -932,6 +949,7 @@ func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
 }
 
 func TestSlowFetchStillCommits(t *testing.T) {
+	t.Parallel()
 	// the commit deadline must start after the fetch, not before it
 	r := newRig(t, Options{CommitTimeout: 150 * time.Millisecond})
 	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
@@ -947,6 +965,7 @@ func TestSlowFetchStillCommits(t *testing.T) {
 }
 
 func TestOverlappingImportRunsKeepTheNewerRegistered(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	rel := map[string]chan struct{}{"/a": make(chan struct{}), "/b": make(chan struct{})}
 	var onceA, onceB sync.Once
@@ -998,6 +1017,7 @@ func TestOverlappingImportRunsKeepTheNewerRegistered(t *testing.T) {
 }
 
 func TestPriorityOnHeldHost(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
 		if p == "/a" {
@@ -1039,6 +1059,7 @@ func TestPriorityOnHeldHost(t *testing.T) {
 }
 
 func TestCommitFailureBacksOffInMemory(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	var fail atomic.Bool
 	fail.Store(true)
@@ -1079,6 +1100,7 @@ func TestCommitFailureBacksOffInMemory(t *testing.T) {
 }
 
 func TestPartialChunkedCommitStillReportsCommittedItems(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><link>https://ex.com/</link>`)
@@ -1111,6 +1133,7 @@ func TestPartialChunkedCommitStillReportsCommittedItems(t *testing.T) {
 // still report it stopped (the shutdown waits on Stopped), and a Start after
 // the Stop must not bring it back.
 func TestStopWithoutStartReportsStopped(t *testing.T) {
+	t.Parallel()
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	db, err := store.Open(context.Background(), store.Options{Path: t.TempDir() + "/kipple.db", Logger: quiet})
 	require.NoError(t, err)
@@ -1170,6 +1193,7 @@ func TestStatusNeverBlocksShutdown(t *testing.T) {
 // as its own fetch (validators dropped) after the in-flight one, and a trim
 // request must run a trim.
 func TestPriorityIntentSurvivesInFlightFeed(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	release := make(chan struct{})
 	started := make(chan struct{}, 4)
@@ -1224,6 +1248,7 @@ func TestPriorityIntentSurvivesInFlightFeed(t *testing.T) {
 
 // A trim needs no network, so a disabled feed still honors a lowered cap.
 func TestTrimRunsOnDisabledFeed(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newSrv(t, serveOK)
 	id := r.add(srv.URL+"/d", nil)
@@ -1262,6 +1287,7 @@ func uaSrv(t *testing.T) (*feedSrv, func() []string) {
 }
 
 func TestBrowserUARetryIsRememberedPerFeed(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv, uas := uaSrv(t)
 	id := r.add(srv.URL+"/f", nil)
@@ -1280,6 +1306,7 @@ func TestBrowserUARetryIsRememberedPerFeed(t *testing.T) {
 }
 
 func TestUAModeDefaultNeverRetries(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	require.NoError(t, r.db.SetSettings(context.Background(), map[string]any{"fetch.user_agent_mode": "default"}))
 	srv, uas := uaSrv(t)
@@ -1295,6 +1322,7 @@ func TestUAModeDefaultNeverRetries(t *testing.T) {
 // stale: nothing is committed, so the browser UA must not be learned for the
 // new URL either.
 func TestStaleFetchDoesNotLearnBrowserUA(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	var id atomic.Int64
 	var srv *feedSrv
@@ -1322,6 +1350,7 @@ func TestStaleFetchDoesNotLearnBrowserUA(t *testing.T) {
 }
 
 func TestCommitFailureBackoffEscalatesAndCaps(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	r.s.inDispatcher(func() { r.s.failCommit = func(int64) error { return fmt.Errorf("injected commit failure") } })
 	srv := newSrv(t, serveOK)
@@ -1345,6 +1374,7 @@ func TestCommitFailureBackoffEscalatesAndCaps(t *testing.T) {
 }
 
 func TestCommitFetchGetsNoDeadlineAndPerChunkBudget(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{CommitTimeout: 7 * time.Second})
 	type seen struct {
 		deadline bool

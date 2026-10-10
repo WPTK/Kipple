@@ -11,6 +11,7 @@ import (
 // Folder names from the Reader API (subscribe, edit, rename-tag) get the web
 // UI's limits in the store: 100 characters, no control characters.
 func TestFolderNameLimitsInStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 

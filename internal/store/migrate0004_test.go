@@ -43,6 +43,7 @@ func columnNames(t *testing.T, q Querier, table string) map[string]bool {
 }
 
 func TestMigration0004FreshSchema(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	r := db.Reader()
 	require.GreaterOrEqual(t, LatestVersion(), 4)
@@ -58,6 +59,7 @@ func TestMigration0004FreshSchema(t *testing.T) {
 }
 
 func TestMigration0004Constraints(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	fid := e.addFeed("https://ex.com/feed")
 	ok := func(q string, args ...any) { e.exec(q, args...) }
@@ -111,6 +113,7 @@ func downgradeTo3(t *testing.T, e *env) {
 }
 
 func TestMigration0004OnPopulatedSchema3(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	fid := e.addFeed("https://ex.com/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", fid)
@@ -150,6 +153,7 @@ func TestMigration0004OnPopulatedSchema3(t *testing.T) {
 }
 
 func TestMigration0004RollsBackOnFailure(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	downgradeTo3(t, e)
 	ms, err := loadMigrations()
@@ -175,6 +179,7 @@ func TestMigration0004RollsBackOnFailure(t *testing.T) {
 
 // An older binary (three migrations) must refuse a schema-4 database.
 func TestOlderBinaryRefusesSchema4(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	ms, err := loadMigrations()
 	require.NoError(t, err)
@@ -186,6 +191,7 @@ func TestOlderBinaryRefusesSchema4(t *testing.T) {
 
 // Trim writes categories_json into the restore stub and a restore copies it back.
 func TestCategoriesSurviveTrimAndRestore(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	fid := e.addFeed("https://ex.com/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", fid)
@@ -255,6 +261,7 @@ func rawCounts(t *testing.T, path string) map[string]int {
 // pending migration. It skips when the file is absent (CI). Set KIPPLE_REHEARSAL_DB to
 // point at another export.
 func TestRehearsalOnRealDatabase(t *testing.T) {
+	t.Parallel()
 	src := os.Getenv("KIPPLE_REHEARSAL_DB")
 	if src == "" {
 		src = `<backup-dir>\kipple\kipple-phase1-20260925-202922.db`

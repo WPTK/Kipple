@@ -17,6 +17,7 @@ import (
 // Left to SQLite's VACUUM INTO they were 0644 (found in the restore rehearsal:
 // pre-migration-3-5-*.db was -rw-r--r-- on the volume).
 func TestSnapshotsArePrivate(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix permission bits")
 	}
@@ -49,6 +50,7 @@ func TestSnapshotsArePrivate(t *testing.T) {
 // The rollback procedure tells the operator to find the pre-migration snapshot by the name the app logs, so the
 // log line names the file.
 func TestPreMigrationSnapshotIsNamedInTheLog(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	var buf bytes.Buffer

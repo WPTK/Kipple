@@ -123,6 +123,7 @@ func sessionCookie(t *testing.T, rec *httptest.ResponseRecorder) *http.Cookie {
 }
 
 func TestAccessOffMeAndPasswordRequired(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	k, _ := accessKeys(t)
@@ -149,6 +150,7 @@ func TestAccessOffMeAndPasswordRequired(t *testing.T) {
 }
 
 func TestAccessMeReportsVerifiedEmail(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, withAccess(t))
 	c := h.login()
 	k, other := accessKeys(t)
@@ -185,6 +187,7 @@ func TestAccessMeReportsVerifiedEmail(t *testing.T) {
 }
 
 func TestAccessTokenNeverReplacesASetPassword(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, withAccess(t))
 	k, _ := accessKeys(t)
 	tok := h.jwt(k, nil)
@@ -195,6 +198,7 @@ func TestAccessTokenNeverReplacesASetPassword(t *testing.T) {
 }
 
 func TestPasswordlessLoginNeedsAVerifiedToken(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, withAccess(t))
 	h.dropPassword()
 	k, other := accessKeys(t)
@@ -227,6 +231,7 @@ func TestPasswordlessLoginNeedsAVerifiedToken(t *testing.T) {
 }
 
 func TestPasswordlessFailuresArePacedNotLocked(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, withAccess(t))
 	h.dropPassword()
 	k, other := accessKeys(t)
@@ -238,6 +243,7 @@ func TestPasswordlessFailuresArePacedNotLocked(t *testing.T) {
 }
 
 func TestRemoveAndRestorePassword(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, withAccess(t))
 	k, other := accessKeys(t)
 	c := h.login()
@@ -283,6 +289,7 @@ func TestRemoveAndRestorePassword(t *testing.T) {
 }
 
 func TestPasswordlessAPIPasswordNeedsToken(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, withAccess(t))
 	h.dropPassword()
 	k, _ := accessKeys(t)
@@ -297,6 +304,7 @@ func TestPasswordlessAPIPasswordNeedsToken(t *testing.T) {
 }
 
 func TestPasswordlessNothingPresentedIsNotCounted(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, withAccess(t))
 	k, _ := accessKeys(t)
 	// An empty password on an account that has one (a submit before typing):
@@ -316,6 +324,7 @@ func TestPasswordlessNothingPresentedIsNotCounted(t *testing.T) {
 }
 
 func TestRemoveWhenAlreadyPasswordlessChangesNothing(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, withAccess(t))
 	h.dropPassword()
 	k, _ := accessKeys(t)
@@ -331,6 +340,7 @@ func TestRemoveWhenAlreadyPasswordlessChangesNothing(t *testing.T) {
 }
 
 func TestPasswordlessWithAccessOffPointsToTheCLI(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	// The password was removed while Access was on; Access is now off.
@@ -353,6 +363,7 @@ func TestPasswordlessWithAccessOffPointsToTheCLI(t *testing.T) {
 }
 
 func TestPasswordlessPasswordGuessLooksLikeAWrongPassword(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, withAccess(t))
 	h.dropPassword()
 	k, _ := accessKeys(t)
@@ -372,6 +383,7 @@ func TestPasswordlessPasswordGuessLooksLikeAWrongPassword(t *testing.T) {
 }
 
 func TestRemoveCountsRefusedTokens(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, withAccess(t))
 	k, other := accessKeys(t)
 	c := h.login()
@@ -408,6 +420,7 @@ func tamperKid(t *testing.T, tok, kid string) string {
 }
 
 func TestAccessKeysUnavailableIsNotAFailure(t *testing.T) {
+	t.Parallel()
 	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 	}))
@@ -432,6 +445,7 @@ func TestAccessKeysUnavailableIsNotAFailure(t *testing.T) {
 // The decoy must cost what a real check costs: same algorithm and parameters
 // as HashPassword makes today.
 func TestDecoyHashMatchesHashPasswordParameters(t *testing.T) {
+	t.Parallel()
 	fresh, err := auth.HashPassword("anything")
 	require.NoError(t, err)
 	params := func(phc string) string { return strings.Join(strings.Split(phc, "$")[:4], "$") }

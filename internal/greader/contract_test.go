@@ -183,6 +183,7 @@ func strictContents(t *testing.T, body string) []itemJSON {
 }
 
 func TestContractBatchingClientSequence(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := newClient(t, h, base, "BatchingClient/1.0")
 
@@ -482,6 +483,7 @@ func closedClientSequence(t *testing.T, prefix string) {
 }
 
 func TestContractClosedClientSequence(t *testing.T) {
+	t.Parallel()
 	t.Run("api prefix", func(t *testing.T) { closedClientSequence(t, base) })
 	t.Run("root mount", func(t *testing.T) { closedClientSequence(t, "") })
 	t.Run("doubled prefix", func(t *testing.T) { closedClientSequence(t, base+base) })

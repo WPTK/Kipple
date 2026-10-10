@@ -10,6 +10,7 @@ import (
 
 // GET /api/status carries the active filter apply run and the muted count, like bootstrap.
 func TestStatusHasMutedCountAndApplyRun(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -42,6 +43,7 @@ func TestStatusHasMutedCountAndApplyRun(t *testing.T) {
 // Deleting or editing a rule stops its running apply first and waits for it: nothing is written for
 // the old rule afterwards.
 func TestDeleteAndPatchCancelRunningApply(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []string{"delete", "patch"} {
 		t.Run(tc, func(t *testing.T) {
 			h := newHarness(t)
@@ -70,6 +72,7 @@ func TestDeleteAndPatchCancelRunningApply(t *testing.T) {
 
 // A retry of a delete whose row is already gone still restores the orphans.
 func TestDeleteRetryRestoresOrphans(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)

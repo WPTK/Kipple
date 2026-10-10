@@ -14,6 +14,7 @@ import (
 func devID(i int) string { return fmt.Sprintf("device-id-%08d", i) }
 
 func TestDeviceRegisterTouchAndProfile(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	now := int64(1_800_000_000)
 	_, found, _, err := e.db.TouchDevice(e.ctx, devID(1), "ua", "web", now)
@@ -61,6 +62,7 @@ func TestDeviceRegisterTouchAndProfile(t *testing.T) {
 }
 
 func TestDeviceProfileSizeLimit(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	_, err := e.db.RegisterDevice(e.ctx, devID(1), "", "web", 1)
 	require.NoError(t, err)
@@ -90,6 +92,7 @@ func fillDevices(t *testing.T, e *env, now int64, nOld int) {
 }
 
 func TestDeviceEvictionTakesOnlyOldDevicesAndKeepsTheNewcomer(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	now := int64(1_800_000_000)
 	fillDevices(t, e, now, 3)
@@ -112,6 +115,7 @@ func TestDeviceEvictionTakesOnlyOldDevicesAndKeepsTheNewcomer(t *testing.T) {
 
 // With no device unseen for 30 days the cap refuses the newcomer and evicts nobody.
 func TestDeviceRegistrationRefusedWhenEveryDeviceIsRecent(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	now := int64(1_800_000_000)
 	fillDevices(t, e, now, 0)
@@ -138,6 +142,7 @@ func TestDeviceRegistrationRefusedWhenEveryDeviceIsRecent(t *testing.T) {
 
 // Touching a device seen today is a read: it must not need the writer.
 func TestTouchDeviceRecentDeviceDoesNotTakeTheWriter(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	now := int64(1_800_000_000)
 	_, err := e.db.RegisterDevice(e.ctx, devID(1), "ua", "web", now)
@@ -158,6 +163,7 @@ func TestTouchDeviceRecentDeviceDoesNotTakeTheWriter(t *testing.T) {
 }
 
 func TestPurgeDevicesAndDelete(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	now := int64(1_800_000_000)
 	old := now - int64(DeviceMaxAgeDays)*86400 - 1
@@ -183,6 +189,7 @@ func TestPurgeDevicesAndDelete(t *testing.T) {
 }
 
 func TestValidDeviceID(t *testing.T) {
+	t.Parallel()
 	require.True(t, ValidDeviceID("AAAAAAAAAAAAAAAAAAAAAA"))
 	for _, s := range []string{"", "short", strings.Repeat("a", 33), "has space......chars!!", "a/b" + strings.Repeat("c", 20)} {
 		require.False(t, ValidDeviceID(s), s)
@@ -190,6 +197,7 @@ func TestValidDeviceID(t *testing.T) {
 }
 
 func TestCanonicalTheme(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, "paper", CanonicalTheme("white"))
 	require.Equal(t, "midnight", CanonicalTheme("oled"))
 	require.Equal(t, "system", CanonicalTheme("system"))

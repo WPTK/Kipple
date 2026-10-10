@@ -30,6 +30,7 @@ func (stubConn) Begin() (driver.Tx, error) { return nil, errors.New("unsupported
 func init() { sql.Register("kipple-stub-nofeatures", stubDriver{}) }
 
 func TestSelfCheckPassesOnTheRealDriver(t *testing.T) {
+	t.Parallel()
 	db, err := sql.Open("sqlite", buildDSN(filepath.Join(t.TempDir(), "x.db"), "writer"))
 	require.NoError(t, err)
 	defer db.Close()
@@ -39,6 +40,7 @@ func TestSelfCheckPassesOnTheRealDriver(t *testing.T) {
 }
 
 func TestSelfCheckNamesEveryMissingFeature(t *testing.T) {
+	t.Parallel()
 	db, err := sql.Open("kipple-stub-nofeatures", "")
 	require.NoError(t, err)
 	defer db.Close()

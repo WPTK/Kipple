@@ -69,6 +69,7 @@ func withCurrent(body string) string {
 }
 
 func TestConnectionSettingsValidateAndNormalize(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	values := func() map[string]any {
@@ -153,6 +154,7 @@ func TestConnectionSettingsValidateAndNormalize(t *testing.T) {
 // change: a session alone is refused, a wrong password is refused and counted.
 // The public URL and the allowed names need only the session.
 func TestGuardedConnectionSettingsNeedTheCurrentPassword(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	for _, body := range []string{
@@ -174,6 +176,7 @@ func TestGuardedConnectionSettingsNeedTheCurrentPassword(t *testing.T) {
 
 // A settings write puts the new values in force at once: no restart.
 func TestConnectionSettingsApplyAtOnce(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	viaProxy := func(r *http.Request) {
@@ -228,6 +231,7 @@ func TestConnectionSettingsApplyAtOnce(t *testing.T) {
 // team. Other settings still save, and so does the same Access value. Without a
 // password the proof for the write is a verified Access token.
 func TestAccessChangeRefusedWhileItIsTheSignIn(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, withAccess(t))
 	h.dropPassword()
 	k, _ := accessKeys(t)
@@ -267,6 +271,7 @@ func TestAccessChangeRefusedWhileItIsTheSignIn(t *testing.T) {
 // removal re-checks Access under the lock the settings write holds, so it is
 // refused. Without that re-check this test fails.
 func TestPasswordRemovalAndAccessOffNeverBothWin(t *testing.T) {
+	t.Parallel()
 	k, _ := accessKeys(t)
 	h := newHarness(t, withAccess(t))
 	ca := h.login()
@@ -308,6 +313,7 @@ func TestPasswordRemovalAndAccessOffNeverBothWin(t *testing.T) {
 // points Access at another team between the proof and the write makes the
 // removal fail (409 access_changed), and the password stays.
 func TestPasswordRemovalRefusedWhenAccessChangesUnderIt(t *testing.T) {
+	t.Parallel()
 	k, _ := accessKeys(t)
 	h := newHarness(t, withAccess(t))
 	ca, cb := h.login(), h.login()
@@ -326,6 +332,7 @@ func TestPasswordRemovalRefusedWhenAccessChangesUnderIt(t *testing.T) {
 // Once Access is off, removing the password is refused, even with a token that
 // was verified before (the check is made again, under the lock, at the write).
 func TestPasswordRemovalRefusedOnceAccessIsOff(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, withAccess(t))
 	c := h.login()
 	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", withCurrent(`{"security.cloudflare_access":{}}`), withCookie(c)).Code)
@@ -342,6 +349,7 @@ func TestPasswordRemovalRefusedOnceAccessIsOff(t *testing.T) {
 // but open mode does not answer it unless it is listed by name (#254), as the
 // refusal says.
 func TestLANPublicURLDoesNotWidenOpenMode(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	sess := h.openAccount(nil)
 	for _, u := range []string{"http://nas.local:1919", "http://unraid:1919", "https://rss.home.arpa"} {
@@ -359,6 +367,7 @@ func TestLANPublicURLDoesNotWidenOpenMode(t *testing.T) {
 // typed it, for example in KIPPLE_PUBLIC_URL), including router and LAN zones
 // setup mode does not answer by shape; open mode does not (#254).
 func TestSetupModeAnswersThePublicURLHost(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"kipple.fritz.box", "rss.home", "rss.corp", "nas.localdomain", "nas.local", "reader.example.net"} {
 		h := newSetupHarness(t, func(o *Options) {
 			o.Reach = reach.Fixed(reach.State{PublicURL: "http://" + name + ":1919", PublicHost: name})
@@ -377,6 +386,7 @@ func TestSetupModeAnswersThePublicURLHost(t *testing.T) {
 // The public URL's host opens in open mode once an authenticated write sets it,
 // like a listed name.
 func TestOpenModeAnswersThePublicURLHost(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	sess := h.openAccount(nil)
 	const name = "reader.example.net"
@@ -391,6 +401,7 @@ func TestOpenModeAnswersThePublicURLHost(t *testing.T) {
 // that names the caller's own address would lock the caller out: refused, and
 // nothing is written. A list without it saves, from where open mode works.
 func TestOpenModeTrustedProxiesCannotLockTheCallerOut(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	sess := h.openAccount(nil)
 	for _, list := range []string{`["127.0.0.1"]`, `["192.0.2.10","127.0.0.0/8"]`, `["::ffff:127.0.0.1"]`} {

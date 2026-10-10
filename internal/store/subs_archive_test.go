@@ -23,6 +23,7 @@ func archiveID(e *env) int64 {
 }
 
 func TestUnsubscribeArchiveInBatchKeepsStarred(t *testing.T) {
+	t.Parallel()
 	for _, archiveFirst := range []bool{false, true} {
 		e := newEnv(t)
 		a, b := e.addFeed("https://ex.com/a"), e.addFeed("https://ex.com/b")
@@ -44,6 +45,7 @@ func TestUnsubscribeArchiveInBatchKeepsStarred(t *testing.T) {
 }
 
 func TestUnsubscribeArchiveAloneAndDeleteStarred(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a := e.addFeed("https://ex.com/a")
 	seedStarred(t, e, a, 1)
@@ -65,6 +67,7 @@ func TestUnsubscribeArchiveAloneAndDeleteStarred(t *testing.T) {
 }
 
 func TestUnsubscribeEmptyArchiveIsDeleted(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a := e.addFeed("https://ex.com/a")
 	seedStarred(t, e, a, 1)

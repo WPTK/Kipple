@@ -11,6 +11,7 @@ import (
 // A schema-17 database with counts: 0018 rebuilds feed_daily_new keyed by day with the counted id spans,
 // drops the rows that have none (counting starts again), and the result is a fresh database's shape.
 func TestMigration0018RebuildsFeedDailyNew(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "kipple.db")
 	raw, err := sql.Open("sqlite", buildDSN(path, "writer"))
 	require.NoError(t, err)
@@ -35,6 +36,7 @@ func TestMigration0018RebuildsFeedDailyNew(t *testing.T) {
 
 // Each chunk widens the day's span to the ids it counted; the first document adds none.
 func TestFeedDailyNewKeepsTheCountedSpan(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(5)...))

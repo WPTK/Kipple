@@ -14,6 +14,7 @@ import (
 )
 
 func TestConformanceEditTag(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	l := seedConf(h)
 	c := newConf(t, h)
@@ -103,6 +104,7 @@ func TestConformanceEditTag(t *testing.T) {
 }
 
 func TestConformanceMarkAllAsRead(t *testing.T) {
+	t.Parallel()
 	unreadOf := func(h *harness) []string {
 		var out []string
 		rows, err := h.db.Reader().Query("SELECT title FROM items WHERE read = 0 ORDER BY id DESC")

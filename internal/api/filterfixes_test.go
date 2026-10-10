@@ -12,6 +12,7 @@ import (
 // Deleting with unmute=unread reports how many items went back to unread, which is fewer than it
 // restored when some were read before the rule muted them.
 func TestFilterDeleteReportsMadeUnread(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	feed := h.addFeed("A", 0)
@@ -69,6 +70,7 @@ func TestFilterDeleteIsBoundedAndResumable(t *testing.T) {
 // A PATCH that does not change how the rule matches or acts (a rename, a move) leaves a running apply
 // alone; one that does cancels it, and run.done says "cancelled", not a failure.
 func TestPatchCancelsApplyOnlyOnMatchingChanges(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, body string
 		cancels    bool
@@ -107,6 +109,7 @@ func TestPatchCancelsApplyOnlyOnMatchingChanges(t *testing.T) {
 // a nanosecond (issue #154) armed a timer when the clock had not ticked since the deadline was set,
 // and a 50-item scan sometimes finished before that timer fired, ending the run with no error.
 func TestApplyBudgetEndsTheRun(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.srv.apply.budget = 0
 	c := h.login()
@@ -189,6 +192,7 @@ func mustID(t *testing.T, s string) int64 {
 
 // An empty field list is title only: stored and served as ["title"], so the client draws the highlight.
 func TestHighlightWithEmptyFieldsIsDrawnOnTitles(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	code, out := h.postFilter(c, map[string]any{"action": "highlight", "terms": []string{"go"}, "fields": []string{}})
@@ -204,6 +208,7 @@ func TestHighlightWithEmptyFieldsIsDrawnOnTitles(t *testing.T) {
 // sendBeacon cannot set X-Kipple-Client, so a flush carries its client in the body: "web" or "pwa";
 // anything else falls back to the header, then to web.
 func TestStatsEventsClientFromBody(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)

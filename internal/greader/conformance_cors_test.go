@@ -12,6 +12,7 @@ import (
 // The API authenticates by the Authorization header (or T), never by a cookie, so the answer allows
 // any origin and no credentials. The web app's own routes are not part of it.
 func TestConformanceCORS(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	seedConf(h)
 	c := newConf(t, h)

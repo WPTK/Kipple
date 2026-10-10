@@ -19,6 +19,7 @@ func customTitle(t *testing.T, db *DB, id int64) sql.NullString {
 // later feed leaves the earlier ones untouched, so a client retry does not
 // re-apply half a batch.
 func TestEditSubscriptionPerFeedTitlesAtomic(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	a, err := db.Subscribe(ctx, SubscribeOpts{URL: "https://a.example/feed"})

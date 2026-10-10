@@ -14,6 +14,7 @@ import (
 // The read rule end to end (issue #120): opens from POST /open, time and scroll from POST
 // /api/stats/events, then the summary, the summary export and the streaks agree.
 func TestStatsReadRuleThroughIngest(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -79,6 +80,7 @@ func TestStatsReadRuleThroughIngest(t *testing.T) {
 
 // Only bounces today: the streak does not include today, and the export agrees.
 func TestStatsReadScrollOnlyIsNoStreakDay(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("A", 0)
 	h.stat("read_time", "2026-08-01", 9, 999, f, "warmup", 5)
@@ -102,6 +104,7 @@ func TestStatsReadScrollOnlyIsNoStreakDay(t *testing.T) {
 
 // Legacy opens are reported in totals.legacy_opens and counted as reads.
 func TestStatsReadLegacyOpensReported(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("A", 0)
 	h.stat("open", "2026-09-20", 9, 1, f, "a", nil) // no timed row at all: every open is legacy
@@ -116,6 +119,7 @@ func TestStatsReadLegacyOpensReported(t *testing.T) {
 // The dictionary states the rule with the store's thresholds, in JSON, in Markdown and in the
 // dictionary embedded in an export, and says legacy opens are unverified.
 func TestStatsDictionaryReadRule(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	cc := h.login()
 	rule := fmt.Sprintf("at least %d seconds of read_time in total, or a scroll value of at least %d together with at least %d seconds of read_time",

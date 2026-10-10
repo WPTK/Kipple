@@ -35,6 +35,7 @@ func (e *env) subscribe(o SubscribeOpts) int64 {
 // A feed added without a name stores no title and is named by its URL until its first fetch, which names it with the
 // title the feed gives itself and reports the change (the scheduler announces it as feed.changed).
 func TestFirstFetchNamesAnUntitledFeed(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.subscribe(SubscribeOpts{URL: "https://news.example/feed.xml"})
 	require.Equal(t, "https://news.example/feed.xml", e.name(id))
@@ -56,6 +57,7 @@ func TestFirstFetchNamesAnUntitledFeed(t *testing.T) {
 // A document with no title, or only whitespace, leaves the feed named by its URL; a failed first fetch (the
 // feed unreachable) leaves it too, and the next successful one names the feed.
 func TestUntitledDocumentAndFailedFetchKeepTheURL(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.subscribe(SubscribeOpts{URL: "https://news.example/feed.xml"})
 	require.NoError(t, e.db.CommitFetchError(e.ctx, &fetch.Result{Snap: e.snap(id), StartedAt: e.clk.Now(), Outcome: fetch.OutcomeError,
@@ -74,6 +76,7 @@ func TestUntitledDocumentAndFailedFetchKeepTheURL(t *testing.T) {
 // The name the feed gives itself is plain text on one line: entities decoded (twice-escaped ones too),
 // whitespace runs collapsed, and cut to fetch.MaxTitleRunes with an ellipsis.
 func TestFeedTitleIsNormalized(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.subscribe(SubscribeOpts{URL: "https://news.example/feed.xml"})
 	e.commit(e.okResult(e.snap(id), titledDoc("\n  Tom &amp;amp; Jerry&#8217;s\n\t  Blog  \n")))
@@ -90,6 +93,7 @@ func TestFeedTitleIsNormalized(t *testing.T) {
 // rename) goes through the one rule, fetch.CleanName: one line, no control or invisible characters,
 // at most 200 characters, and a name blank once cleaned is no name.
 func TestGivenNamesFollowTheOneNameRule(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	custom := func(id int64) sql.NullString {
 		return scalar[sql.NullString](t, e.db.Reader(), "SELECT custom_title FROM feeds WHERE id = ?", id)
@@ -120,6 +124,7 @@ func TestGivenNamesFollowTheOneNameRule(t *testing.T) {
 // A name given when the feed is added wins over the feed's own title, at the first fetch and after;
 // a rename later sticks the same way.
 func TestGivenNameAndRenamesStick(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.subscribe(SubscribeOpts{URL: "https://news.example/feed.xml", Title: "  My picks  "})
 	require.Equal(t, "My picks", e.name(id))
@@ -148,6 +153,7 @@ func TestGivenNameAndRenamesStick(t *testing.T) {
 // absent, in every list and in the fetch commit's rename check, so a row with empty strings is named
 // by its URL and its first titled fetch is announced.
 func TestBlankTitlesCountAsAbsent(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.subscribe(SubscribeOpts{URL: "https://blank.example/feed.xml"})
 	e.exec("UPDATE feeds SET custom_title = '  ', title = '' WHERE id = ?", id)

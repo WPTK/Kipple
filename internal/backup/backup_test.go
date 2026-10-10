@@ -106,6 +106,7 @@ func sum(b []byte) string {
 }
 
 func TestExportZipContentsAndIntegrity(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 200)
 	m := newManager(t, db)
@@ -170,6 +171,7 @@ func TestExportZipContentsAndIntegrity(t *testing.T) {
 
 // The export carries items.state_changed_at and its index, and a restored file opens as is.
 func TestExportKeepsStateChangedAt(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 10)
 	ctx := context.Background()
@@ -221,6 +223,7 @@ func keys(m map[string][]byte) []string {
 }
 
 func TestExtractRefusesDamage(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 20)
 	m := newManager(t, db)
@@ -325,6 +328,7 @@ func TestExtractRefusesDamage(t *testing.T) {
 }
 
 func TestExportConsistentUnderConcurrentWrites(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 500)
 	m := newManager(t, db)
@@ -394,6 +398,7 @@ func TestExportConsistentUnderConcurrentWrites(t *testing.T) {
 }
 
 func TestFreeSpaceRefusal(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 50)
 	var asked string
@@ -418,6 +423,7 @@ func TestFreeSpaceRefusal(t *testing.T) {
 }
 
 func TestTooLargeIsRefused(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 10)
 	m := newManager(t, db, func(o *Options) { o.MaxDBBytes = 1024 })
@@ -426,6 +432,7 @@ func TestTooLargeIsRefused(t *testing.T) {
 }
 
 func TestTokenSingleUseAndExpiry(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 20)
 	now := time.Now()
@@ -455,6 +462,7 @@ func TestTokenSingleUseAndExpiry(t *testing.T) {
 }
 
 func TestExpiryTimerDeletesTheFile(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 10)
 	m := newManager(t, db, func(o *Options) { o.TTL = 100 * time.Millisecond })
@@ -465,6 +473,7 @@ func TestExpiryTimerDeletesTheFile(t *testing.T) {
 }
 
 func TestNewExportReplacesTheOldOne(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 10)
 	m := newManager(t, db)
@@ -481,6 +490,7 @@ func TestNewExportReplacesTheOldOne(t *testing.T) {
 }
 
 func TestOneExportAtATime(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 10)
 	m := newManager(t, db)
@@ -519,6 +529,7 @@ func TestOneExportAtATime(t *testing.T) {
 }
 
 func TestNightlySnapshotWaitsForAnExport(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 10)
 	release, err := db.TrySnapshot()
@@ -543,6 +554,7 @@ func TestNightlySnapshotWaitsForAnExport(t *testing.T) {
 }
 
 func TestStartupAndFailureCleanup(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 10)
 	dir := filepath.Join(db.BackupDir(), "export")
@@ -565,6 +577,7 @@ func TestStartupAndFailureCleanup(t *testing.T) {
 }
 
 func TestInspectRefusesNewerSchemaAndForeignFiles(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 5)
 	snap := filepath.Join(t.TempDir(), "s.db")
@@ -594,6 +607,7 @@ func TestInspectRefusesNewerSchemaAndForeignFiles(t *testing.T) {
 // The download name reads in the time zone setting (UTC until chosen), whatever
 // zone the clock's time carries.
 func TestBackupFilenameFollowsTheEffectiveZone(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db := openDB(t)
 	at := time.Date(2026, 1, 15, 3, 30, 0, 0, time.UTC).In(time.FixedZone("elsewhere", 3*3600))

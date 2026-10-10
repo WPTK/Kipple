@@ -15,6 +15,7 @@ import (
 // and are stopped when the fetcher dials; internal/fetch/ssrfmatrix_test.go
 // proves that for every entry point that makes the request.
 func TestValidateFeedURLRefusesWhatIsWrongOnItsFace(t *testing.T) {
+	t.Parallel()
 	for _, raw := range []string{
 		// scheme
 		"", " ", "ftp://example.com/feed", "file:///etc/passwd", "gopher://127.0.0.1:70/_x", "javascript:alert(1)",
@@ -40,6 +41,7 @@ func TestValidateFeedURLRefusesWhatIsWrongOnItsFace(t *testing.T) {
 // What a person types is read as the address they meant (feedurl.Normalize), in every entry point,
 // and the result still gets every check above: a typed private address is refused like a full one.
 func TestValidateFeedURLReadsTypedAddresses(t *testing.T) {
+	t.Parallel()
 	for raw, want := range map[string]string{
 		"example.com/feed":            "https://example.com/feed",
 		"//example.com/feed":          "https://example.com/feed",
@@ -62,6 +64,7 @@ func TestValidateFeedURLReadsTypedAddresses(t *testing.T) {
 // With the feed's private-network exception on, a literal private address is
 // accepted (a LAN feed), but credentials and non-http schemes never are.
 func TestValidateFeedURLAllowPrivateKeepsTheSyntaxChecks(t *testing.T) {
+	t.Parallel()
 	for _, raw := range []string{"http://127.0.0.1:8080/rss", "http://192.168.1.5/feed", "http://[::1]/f", "http://nas.lan/rss"} {
 		_, _, _, err := ValidateFeedURL(raw, true)
 		require.NoError(t, err, raw)
@@ -75,6 +78,7 @@ func TestValidateFeedURLAllowPrivateKeepsTheSyntaxChecks(t *testing.T) {
 // A hostname, even one that is an alternate spelling of a private address, is
 // not resolved at this layer; the dial-time guard owns it (see above).
 func TestValidateFeedURLDoesNotResolveNames(t *testing.T) {
+	t.Parallel()
 	for _, raw := range []string{
 		"http://localhost/feed", "http://metadata.google.internal/", "http://internal.example/feed",
 		"http://2130706433/", "http://0x7f000001/", "http://0x7f.1/", "http://017700000001/", "http://127.1/", "http://127.0.0.1./",

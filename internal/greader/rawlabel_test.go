@@ -21,6 +21,7 @@ func repairParams(body string) *Params {
 }
 
 func TestMarkAllAsReadLabelWithTS(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fa := h.addFeed("https://a.example/a", "A", "Comics")
 	fb := h.addFeed("https://a.example/b", "B", "Other")
@@ -36,6 +37,7 @@ func TestMarkAllAsReadLabelWithTS(t *testing.T) {
 }
 
 func TestLabelStreamWithClientExtraKeys(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "Tech")
 	it := h.addItem(f, itemSeed{})
@@ -54,6 +56,7 @@ func TestLabelStreamWithClientExtraKeys(t *testing.T) {
 }
 
 func TestRawFolderNamesRecoveredInBody(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"News & Politics+", "R&D", "A+B", "Tom & Jerry", "Café & Thé", "日本&ニュース", "R&", "A&&B", "AT&T"} {
 		id := "user/-/label/" + name
 		for _, key := range []string{"s", "a", "r", "dest"} {
@@ -71,6 +74,7 @@ func TestRawFolderNamesRecoveredInBody(t *testing.T) {
 }
 
 func TestDisableTagAmpersandLookAlike(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fa := h.addFeed("https://a.example/a", "A", "AT&T")
 	fb := h.addFeed("https://a.example/b", "B", "AT")
@@ -82,6 +86,7 @@ func TestDisableTagAmpersandLookAlike(t *testing.T) {
 }
 
 func TestDisableTagTrailingAndDoubleAmpersand(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"R&", "A&&B"} {
 		h := newHarness(t)
 		h.addFolder("R")
@@ -194,6 +199,7 @@ func genIdentBody(rng *rand.Rand) string {
 }
 
 func TestRepairMatchesPhase1OnIdentifierPairs(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(1))
 	for i := 0; i < 20000; i++ {
 		s := genIdentBody(rng)
@@ -238,6 +244,7 @@ func FuzzSplitPairs(f *testing.F) {
 }
 
 func TestRepairKeepsParamsAndGluesNames(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		body   string
 		s      string
@@ -265,6 +272,7 @@ func TestRepairKeepsParamsAndGluesNames(t *testing.T) {
 }
 
 func TestLenientUnescape(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, "a b&100%", lenientUnescape("a%20b&100%"))
 	require.Equal(t, "%zz%4", lenientUnescape("%zz%4"))
 	require.Equal(t, "+é", lenientUnescape("+%C3%A9"))
@@ -273,6 +281,7 @@ func TestLenientUnescape(t *testing.T) {
 // subscription/edit, rename-tag and every non-disable-tag endpoint parse with
 // the exact phase 1 parser: the repair is off for them.
 func TestNoRepairOutsideDisableTag(t *testing.T) {
+	t.Parallel()
 	bodies := []string{
 		"a=user/-/label/News&", "a=user/-/label/News&&T=tok", "s=user/-/label/A&x-client=1", "s=user/-/label/A&%54=tok",
 		"s=user/-/label/&Co", "s=user/-/label/My%20News&100%", "T=tok&s=user/-/label/AT&T", "T=tok&a=user/-/label/News & Politics+",
@@ -300,6 +309,7 @@ func TestNoRepairOutsideDisableTag(t *testing.T) {
 }
 
 func TestSubscriptionEditAndRenameTagAreNotRepaired(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/a", "A", "Tech")
 	h.addFolder("News")
@@ -316,6 +326,7 @@ func TestSubscriptionEditAndRenameTagAreNotRepaired(t *testing.T) {
 }
 
 func TestDisableTagStrayAmpersandAndVendorKeys(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.addFeed("https://a.example/a", "A", "News")
 	h.post(rd+"disable-tag", "T="+h.tok+"&s=user/-/label/News&")

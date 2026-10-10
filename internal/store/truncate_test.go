@@ -10,6 +10,7 @@ import (
 
 // Stored user agents are cut on a rune boundary, never mid-character.
 func TestTruncateOnRuneBoundary(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, "abc", truncate("abc", 5))
 	require.Equal(t, "abc", truncate("abcdef", 3))
 	// "é" is 2 bytes, "€" 3, "😀" 4: every cut inside one backs off to its start.
@@ -27,6 +28,7 @@ func TestTruncateOnRuneBoundary(t *testing.T) {
 
 // The session and device user agents go through it.
 func TestSessionAndDeviceUserAgentsStayValidUTF8(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ua := strings.Repeat("a", 299) + "😀"
 	require.NoError(t, e.db.CreateSession(e.ctx, "sid", 100, 1_000_000, ua, "127.0.0.1"))

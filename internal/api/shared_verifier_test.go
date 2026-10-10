@@ -26,6 +26,7 @@ import (
 // API to one Verifier, as runServe does, and proves the two logins never run
 // argon2 at the same time.
 func TestClientLoginAndWebLoginShareOneHashingSlot(t *testing.T) {
+	t.Parallel()
 	db, err := store.Open(context.Background(), store.Options{Path: filepath.Join(t.TempDir(), "kipple.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })

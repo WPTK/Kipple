@@ -11,6 +11,7 @@ import (
 )
 
 func TestSavedSearchNormalize(t *testing.T) {
+	t.Parallel()
 	ok := func(s SavedSearch) SavedSearch {
 		t.Helper()
 		n, err := s.Normalize()
@@ -60,6 +61,7 @@ func TestSavedSearchNormalize(t *testing.T) {
 }
 
 func TestNormalizeSavedSearchesList(t *testing.T) {
+	t.Parallel()
 	good := SavedSearch{ID: "a1", Name: "n", Q: "q"}
 	_, err := NormalizeSavedSearches([]SavedSearch{good, {ID: "a1", Name: "m", Q: "q"}})
 	require.Error(t, err, "duplicate id")
@@ -76,6 +78,7 @@ func TestNormalizeSavedSearchesList(t *testing.T) {
 }
 
 func TestEditSavedSearchesLosesNoUpdate(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	ctx := context.Background()
 	const n = 20
@@ -105,6 +108,7 @@ func TestEditSavedSearchesLosesNoUpdate(t *testing.T) {
 }
 
 func TestDeletingAFeedOrFolderDropsOnlyTheScope(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	ctx := context.Background()
 	other := e.addFeed("https://b/f")
@@ -144,6 +148,7 @@ func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 // (deleted after any earlier check, dropSavedSearchScope having already run) is refused, and
 // nothing is stored.
 func TestEditSavedSearchesRefusesAScopeForAGoneFeedOrFolder(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	ctx := context.Background()
 	other := e.addFeed("https://b/f")
@@ -196,6 +201,7 @@ func TestEditSavedSearchesRefusesAScopeForAGoneFeedOrFolder(t *testing.T) {
 
 // PATCH /api/settings goes through SetSettings, which checks new scopes the same way.
 func TestSetSettingsRefusesAScopeForAGoneFeed(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	ctx := context.Background()
 	list := []any{map[string]any{"id": "a", "name": "n", "q": "q", "scope": map[string]any{"feed_id": "99999"}}}

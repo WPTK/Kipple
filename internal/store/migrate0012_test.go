@@ -67,6 +67,7 @@ func schema11Library(t *testing.T) string {
 // folder at the top level, so every Reader API label is the same string. Feeds, filters, favorites
 // and saved searches still point at the same folders, and the schema equals a fresh install's.
 func TestMigration0012KeepsEveryFolder(t *testing.T) {
+	t.Parallel()
 	db := reopen(t, schema11Library(t))
 	r := db.Reader()
 	snaps, _ := filepath.Glob(filepath.Join(filepath.Dir(db.path), "backup", "pre-migration-11-*.db"))
@@ -134,6 +135,7 @@ func TestMigration0012KeepsEveryFolder(t *testing.T) {
 
 // A schema-11 database with only the default folder migrates too.
 func TestMigration0012EmptyLibrary(t *testing.T) {
+	t.Parallel()
 	raw, path := schema11(t)
 	require.NoError(t, raw.Close())
 	db := reopen(t, path)

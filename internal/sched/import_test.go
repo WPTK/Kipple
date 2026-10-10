@@ -12,6 +12,7 @@ import (
 // An import run loads its feeds in one query: every enabled new feed is in the
 // run, a disabled or unknown one is not.
 func TestImportRunLoadsFeedsTogether(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newSrv(t, serveOK)
 	later := func(f *store.NewFeed) { f.NextFetchAt = base.Add(9 * time.Hour).Unix() }
@@ -30,6 +31,7 @@ func TestImportRunLoadsFeedsTogether(t *testing.T) {
 // An import run's events say it is one (issue #93): each fetch.done reports the import trigger and run.done its kind,
 // so a client that missed run.start still does not take the run's new items for a refresh the person asked for.
 func TestImportRunEventsSayImport(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newSrv(t, serveOK)
 	id := r.add(srv.URL+"/imported", func(f *store.NewFeed) { f.NextFetchAt = base.Add(9 * time.Hour).Unix() })

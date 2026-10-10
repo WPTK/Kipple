@@ -24,6 +24,7 @@ func (e *env) commitDiscovered(res *fetch.Result) CommitInfo {
 // A page address that linked a feed becomes that feed, due at once; the page stays in url_original
 // so subscribing the same page again finds this feed.
 func TestCommitDiscoveredAdoptsTheFeedURL(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("https://blog.example/")
 	e.exec("UPDATE feeds SET next_fetch_at = 99999999999, etag = 'x', body_hash = 'y' WHERE id = ?", id)
@@ -51,6 +52,7 @@ func TestCommitDiscoveredAdoptsTheFeedURL(t *testing.T) {
 
 // HTTP credentials never follow a change of host, nor network exceptions a change of site.
 func TestCommitDiscoveredDropsCredentialsOffTheirHost(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("https://example.com/")
 	e.exec("UPDATE feeds SET http_auth = 'bob:pw', allow_private_net = 1, allow_insecure_tls = 1 WHERE id = ?", id)
@@ -72,6 +74,7 @@ func TestCommitDiscoveredDropsCredentialsOffTheirHost(t *testing.T) {
 // When another feed already has the discovered URL, the new feed (empty) is removed, and the kept
 // feed takes its folder and custom title as a subscribe of an existing feed would.
 func TestCommitDiscoveredDuplicateMergesIntoTheKeptFeed(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	kept := e.addFeed("https://blog.example/feed.xml")
 	page := e.addFeed("https://blog.example/")
@@ -95,6 +98,7 @@ func TestCommitDiscoveredDuplicateMergesIntoTheKeptFeed(t *testing.T) {
 
 // A URL edit that lands while the page fetch is in flight wins: nothing is adopted.
 func TestCommitDiscoveredIsStaleAfterAURLEdit(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("https://blog.example/")
 	res := e.discovered(id, "https://blog.example/feed.xml")

@@ -33,6 +33,7 @@ func keep(id int64) FolderOrder { return FolderOrder{ID: id} }
 // A folder move and the new order are one Reorder: the parent and every position land together, and
 // a folder listed without a parent keeps its own.
 func TestReorderMovesAFolderWithItsOrder(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ab := e.chain("A", "B")
 	c := e.mkFolder(0, "C")
@@ -54,6 +55,7 @@ func TestReorderMovesAFolderWithItsOrder(t *testing.T) {
 // A (B under A while A is still under B) is refused in that order, and goes through when an earlier
 // entry has taken A out first.
 func TestReorderChecksEachMoveAgainstTheTreeSoFar(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ba := e.chain("B", "A")
 	b, a := ba[0], ba[1]
@@ -68,6 +70,7 @@ func TestReorderChecksEachMoveAgainstTheTreeSoFar(t *testing.T) {
 // A move in a Reorder is refused by the folder writer's own rules, and a refusal anywhere leaves
 // nothing changed: not the positions and moves listed before it, nor the feed lists.
 func TestReorderRefusedMoveChangesNothing(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	names := make([]string, MaxFolderDepth-1)
 	for i := range names {
@@ -118,6 +121,7 @@ func TestReorderRefusedMoveChangesNothing(t *testing.T) {
 
 // The archive feed in a feed list refuses the whole Reorder, a good folder move listed before it too.
 func TestReorderArchiveFeedChangesNothing(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ab := e.chain("A", "B")
 	feed := e.addFeed("http://a.example/feed")
@@ -132,6 +136,7 @@ func TestReorderArchiveFeedChangesNothing(t *testing.T) {
 
 // Moving a folder in a Reorder changes which feeds a folder filter covers, as a PATCH move does.
 func TestReorderMoveChangesFilterCoverage(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a := e.mkFolder(0, "A")
 	b := e.mkFolder(0, "B")

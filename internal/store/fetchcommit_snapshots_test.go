@@ -7,6 +7,7 @@ import (
 )
 
 func TestFeedSnapshotsByIDOneQueryInRequestOrder(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a := e.addFeed("https://a.example/feed")
 	b := e.addFeed("https://b.example/feed")

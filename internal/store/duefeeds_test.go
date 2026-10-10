@@ -10,6 +10,7 @@ import (
 // Audit L2: DueFeedsExcept leaves out held hosts and blocked ids in the query,
 // so the LIMIT is spent on feeds the scheduler can start.
 func TestDueFeedsExceptFiltersBeforeTheLimit(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	held1 := e.addFeed("http://held.example/1")
 	held2 := e.addFeed("http://held.example/2")

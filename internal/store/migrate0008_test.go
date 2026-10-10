@@ -23,6 +23,7 @@ DROP INDEX idx_stats_event;
 ALTER TABLE stats_events DROP COLUMN event_id`
 
 func TestMigration0008FreshSchema(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	r := db.Reader()
 	require.GreaterOrEqual(t, LatestVersion(), 8)
@@ -37,6 +38,7 @@ func insertStatRow(e *env, kind, key string, eventID any, value int) {
 }
 
 func TestMigration0008OnPopulatedSchema7(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for i := 0; i < 5; i++ {
 		insertStatRow(e, "read_time", "sk", nil, 10+i) // pre-migration rows: no event_id, same session
@@ -76,6 +78,7 @@ func TestMigration0008OnPopulatedSchema7(t *testing.T) {
 }
 
 func TestMigration0008RollsBackOnFailure(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	insertStatRow(e, "read_time", "sk", nil, 10)
 	e.exec(undo0008)
@@ -99,6 +102,7 @@ func TestMigration0008RollsBackOnFailure(t *testing.T) {
 
 // An older binary (seven migrations) refuses a schema-8 database.
 func TestOlderBinaryRefusesSchema8(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	ms, err := loadMigrations()
 	require.NoError(t, err)

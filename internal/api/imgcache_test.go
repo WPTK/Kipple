@@ -47,6 +47,7 @@ func pngUpstream(t *testing.T) (*httptest.Server, *int) {
 }
 
 func TestImgcacheEndpointsNeedSessionAndOrigin(t *testing.T) {
+	t.Parallel()
 	h, _ := cacheHarness(t, 64)
 	require.Equal(t, 401, h.do("GET", "/api/imgcache", "").Code)
 	require.Equal(t, 401, h.do("POST", "/api/imgcache/clear", "").Code)
@@ -61,6 +62,7 @@ func TestImgcacheEndpointsNeedSessionAndOrigin(t *testing.T) {
 }
 
 func TestImgcacheStatsClearAndProxyFill(t *testing.T) {
+	t.Parallel()
 	h, cache := cacheHarness(t, 64)
 	c := h.login()
 	up, upstreamHits := pngUpstream(t)
@@ -106,6 +108,7 @@ func TestImgcacheStatsClearAndProxyFill(t *testing.T) {
 }
 
 func TestImgcacheSettingsValidateAndApply(t *testing.T) {
+	t.Parallel()
 	h, cache := cacheHarness(t, 1024)
 	c := h.login()
 	for _, bad := range []string{`"big"`, `63`, `20481`, `-1`, `100.5`} {
@@ -152,6 +155,7 @@ func mustNum(s string) float64 {
 }
 
 func TestImgcacheWithoutCacheReportsDisabled(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	code, st, _ := h.api(c, "GET", "/api/imgcache", "")
@@ -163,6 +167,7 @@ func TestImgcacheWithoutCacheReportsDisabled(t *testing.T) {
 }
 
 func TestImageSettingsMetadata(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	_, body, _ := h.api(c, "GET", "/api/settings", "")
@@ -192,6 +197,7 @@ func TestImageSettingsMetadata(t *testing.T) {
 }
 
 func TestDefaultModeNeedsNoHTTPSInImgSrc(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	imgSrc := func() string {
@@ -209,6 +215,7 @@ func TestDefaultModeNeedsNoHTTPSInImgSrc(t *testing.T) {
 }
 
 func TestHealthImgcacheBytesComeFromTheCacheNotAWalk(t *testing.T) {
+	t.Parallel()
 	h, cache := cacheHarness(t, 64)
 	c := h.login()
 	w, err := cache.Begin(imgcache.KeyOrig(0, "http://img.example/a.png"), "http://img.example/a.png", 0, int64(len(testPNG)))
