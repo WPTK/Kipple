@@ -83,6 +83,11 @@ type ParseOptions struct {
 	HTTPCharset string      // charset parameter of Content-Type, if any
 	DedupMode   string      // auto (default) | link | link_title
 	Content     ContentFunc // optional sanitizer hook
+	// Strict makes a JSON document a feed only when it names a JSON Feed version (or is a bare "1.1" or
+	// versionless one with an items array). Only discovery sets it, to tell a feed from an API response
+	// at the moment an address is added. A feed already subscribed is parsed without it: any JSON object
+	// with an items array is accepted, so a publisher's odd version string never stops a feed that works.
+	Strict bool
 }
 
 // ParseFeed decodes body to UTF-8, parses it with gofeed and returns the
@@ -92,7 +97,7 @@ func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 	return ParseDecoded(decodeBody(body, opt.HTTPCharset), opt)
 }
 
-var errNotJSONFeed = errors.New("JSON document is not a JSON Feed (no version member)")
+var errNotJSONFeed = errors.New("JSON document is not a JSON Feed (no JSON Feed version and no items array)")
 
 // decodeBody is DecodeBody; a variable so a test can count the decodes.
 var decodeBody = DecodeBody
@@ -139,11 +144,16 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 
 	var jsonItems []*gjson.Item
 	if jf, ok := gf.OriginalFeed().(*gjson.Feed); ok {
-		// The parser takes any JSON object as a JSON Feed. What tells a feed from an API response or a config file is
-		// the spec's version URL, or, for the feeds in the wild that leave it out or write just "1.1", an items array.
-		known := strings.Contains(jf.Version, "jsonfeed.org/version/")
-		bare := (jf.Version == "" || jf.Version == "1.1") && jf.Items != nil
-		if !known && !bare {
+		// The parser takes any JSON object as a JSON Feed. Adding an address tells a feed from an API response or a
+		// config file by the spec's version URL, or, for the feeds in the wild that leave it out or write just "1.1",
+		// an items array. A feed already subscribed only needs the items array.
+		if opt.Strict {
+			known := strings.Contains(jf.Version, "jsonfeed.org/version/")
+			bare := (jf.Version == "" || jf.Version == "1.1") && jf.Items != nil
+			if !known && !bare {
+				return nil, errNotJSONFeed
+			}
+		} else if !strings.Contains(jf.Version, "jsonfeed.org/version/") && jf.Items == nil {
 			return nil, errNotJSONFeed
 		}
 		jsonItems = jf.Items
