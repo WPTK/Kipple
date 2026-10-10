@@ -130,8 +130,19 @@ export async function start(metaUrl, helpLines) {
     }
   };
 
+  /** A visible text of a locator for a failure message, never throwing: the thing may not be there at all. */
+  const textOf = (loc) => loc.innerText({ timeout: 2000 }).then((s) => s.replace(/\s+/g, " ").slice(0, 200), () => "(nothing there)");
+  /** Runs one section of a flow; if it throws, that is a finding and the next section still runs. */
+  const step = async (name, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      fail(name, `stopped: ${String(e.message).split("\n").slice(0, 2).join(" ")}`);
+    }
+  };
+
   return {
-    opt, origin, WRITE, check, fail, pass, shot, boot, settle, importOpml, opml, eachViewport, setupError,
+    textOf, step, opt, origin, WRITE, check, fail, pass, shot, boot, settle, importOpml, opml, eachViewport, setupError,
     async finish(what) {
       await browser.close();
       console.log(findings.length ? `\n${findings.length} finding(s)` : `\nall ${what} checks passed`);

@@ -20,7 +20,7 @@
 import { start } from "./common.mjs";
 
 const t = await start(import.meta.url, 22);
-const { check } = t;
+const { check, step, textOf } = t;
 
 await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
@@ -33,18 +33,29 @@ await t.eachViewport(async (page, vp) => {
   const b0 = await t.boot(page);
   const real = b0.feeds.find((f) => !f.is_archive);
   if (!real) return t.setupError(`${tag}: the seed has no feeds`);
+  await step(`${tag} F1`, async () => {
   await page.getByRole("button", { name: "Select", exact: true }).click();
   // The row on the Feeds screen itself (the desktop sidebar lists the same feed as a link, which this must not hit).
   const box = page.getByRole("checkbox", { name: `Select ${real.title}`, exact: true }).first();
-  await page.locator("label").filter({ has: box }).getByText(real.title, { exact: true }).click();
-  check(await box.isChecked(), `${tag} F1 tick`, "tapping the title ticks the feed", "the feed is not ticked");
-  check(new URL(page.url()).pathname === "/feeds", `${tag} F1 stays`, "still on /feeds", `went to ${page.url()}`);
-  check(await page.getByText("1 selected").isVisible(), `${tag} F1 count`, "1 selected", "the count does not read 1 selected");
+  const pages = page.context().pages().length;
+  // A middle-click or a long-press "Open" would open a link in a new tab however the plain click is handled, so the
+  // row must not be a link at all while selecting.
+  const links = await page.getByRole("main").getByRole("link", { name: new RegExp(`^${real.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`) }).count();
+  check(links === 0, `${tag} F1 no link`, "a feed row is not a link while selecting", `${links} link(s) to the feed on screen`);
+  await page.getByRole("main").getByText(real.title, { exact: true }).first().click({ button: "middle" }).catch(() => {});
+  await page.waitForTimeout(500);
+  check(page.context().pages().length === pages, `${tag} F1 no tab`, "a middle-click opens nothing", "a middle-click opened a new tab");
+  await page.getByRole("main").getByText(real.title, { exact: true }).first().click();
+  check(new URL(page.url()).pathname === "/feeds", `${tag} F1 stays`, "still on /feeds (selecting never opens a feed)", `went to ${page.url()}`);
+  check(await box.isChecked({ timeout: 2000 }).catch(() => false), `${tag} F1 tick`, "tapping the title ticks the feed", "the feed is not ticked");
+  check(await page.getByText("1 selected").isVisible().catch(() => false), `${tag} F1 count`, "1 selected", "the count does not read 1 selected");
   await t.shot(page, `${tag}-feeds-select`);
   await page.getByRole("button", { name: "Done", exact: true }).click();
   check(await page.getByRole("button", { name: "Select", exact: true }).isVisible(), `${tag} F1 done`, "Done leaves select mode", "still selecting");
+  });
 
   // F2: root holds feed 1; child holds feeds 2 and 3.
+  await step(`${tag} F2`, async () => {
   await t.importOpml(page, t.opml([{ folder: root, feeds: [1], children: [{ folder: child, feeds: [2, 3] }] }]));
   await page.reload({ waitUntil: "load" });
   const seeded = await t.settle(page, (b) => b.feeds.filter((f) => f.title.startsWith("UAT feed ")).length === 3);
@@ -68,7 +79,7 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("region", { name: "Selected feeds" }).getByRole("button", { name: "Delete", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("heading", { name: `Delete ${n} feed${n === 1 ? "" : "s"}?` }).waitFor({ timeout: 5000 });
-    const text = (await dialog.innerText()).replace(/\s+/g, " ");
+    const text = await textOf(dialog);
     await progressSpy();
     await dialog.getByRole("button", { name: `Delete ${n} feed${n === 1 ? "" : "s"}`, exact: true }).click();
     await dialog.waitFor({ state: "detached", timeout: 15000 });
@@ -81,20 +92,24 @@ await t.eachViewport(async (page, vp) => {
   check(!/deleted too/.test(r.text), `${tag} F2 one`, "no folder is announced while a subfolder still has feeds", `the dialog says "${r.text.slice(0, 160)}"`);
   let s = await t.settle(page, (b) => !b.feeds.some((f) => f.title === titleOf(1)));
   check(s.ok && s.b.folders.some((f) => f.name === root) && s.b.folders.some((f) => f.name === child), `${tag} F2 kept`, "both folders stay", "a folder with feeds below it went");
-  check(r.spy.max.join() === "1" && r.spy.most <= 1, `${tag} F2 bar one`, "one progress bar with total 1", `bars: totals ${r.spy.max.join(",")}, at most ${r.spy.most} at once`);
+  check(r.spy.max.join() === "1" && r.spy.most <= 1, `${tag} F2 bar one`, "one progress bar with total 1", `bars: ${r.spy.max.length ? `totals ${r.spy.max.join(",")}` : "none shown"}, at most ${r.spy.most} at once`);
 
   // The last two: the subfolder and then the root are left empty and go with them.
-  await page.getByRole("button", { name: "Select", exact: true }).waitFor({ timeout: 5000 });
+  const done = page.getByRole("button", { name: "Done", exact: true });
+  if (await done.isVisible()) await done.click();
   await pick(2, 3);
   r = await deleteSelected(2);
   check(r.text.includes(child) || r.text.includes(root), `${tag} F2 names`, "the dialog names the folders it will remove", `the dialog says "${r.text.slice(0, 200)}"`);
-  check(r.spy.max.join() === "2" && r.spy.most === 1, `${tag} F2 bar two`, "one progress bar with a fixed total of 2", `bars: totals ${r.spy.max.join(",")}, at most ${r.spy.most} at once`);
+  check(r.spy.max.join() === "2" && r.spy.most === 1, `${tag} F2 bar two`, "one progress bar with a fixed total of 2", `bars: ${r.spy.max.length ? `totals ${r.spy.max.join(",")}` : "none shown"}, at most ${r.spy.most} at once`);
   s = await t.settle(page, (b) => !b.feeds.some((f) => f.title.startsWith("UAT feed ")) && !b.folders.some((f) => f.name === root || f.name === child));
   check(s.ok, `${tag} F2 emptied`, "the feeds and the folders left empty are gone", "a disposable feed or folder is still there");
   check(s.b.feeds.length === b0.feeds.length && s.b.folders.length === b0.folders.length, `${tag} F2 rest`, "the rest of the library is untouched", `feeds ${b0.feeds.length} -> ${s.b.feeds.length}, folders ${b0.folders.length} -> ${s.b.folders.length}`);
   await t.shot(page, `${tag}-feeds-after-delete`);
 
+  });
+
   // F3
+  await step(`${tag} F3`, async () => {
   const named = `UAT Enter ${tag}`;
   const renamed = `UAT Renamed ${tag}`;
   await page.goto("/feeds", { waitUntil: "load" });
@@ -104,8 +119,14 @@ await t.eachViewport(async (page, vp) => {
   await dialog.getByRole("textbox", { name: "Name" }).fill(named);
   await dialog.getByRole("textbox", { name: "Name" }).press("Enter");
   check(await dialog.waitFor({ state: "detached", timeout: 10000 }).then(() => true, () => false), `${tag} F3 new`, "Enter creates the folder", "the dialog is still open after Enter");
-  s = await t.settle(page, (b) => b.folders.some((f) => f.name === named));
+  let s = await t.settle(page, (b) => b.folders.some((f) => f.name === named));
   check(s.ok, `${tag} F3 created`, "the folder exists", "no folder was created");
+  if (!s.ok) {
+    // Carry on to the rename with a folder made the other way, so one finding does not hide the next.
+    await page.keyboard.press("Escape");
+    await page.request.post("/api/folders", { data: { name: named }, headers: t.WRITE });
+    await page.goto("/feeds", { waitUntil: "load" });
+  }
   await page.getByRole("button", { name: `Folder actions for ${named}`, exact: true }).click();
   await page.getByRole("menuitem", { name: "Rename or set layout" }).click();
   dialog = page.getByRole("dialog");
@@ -115,7 +136,11 @@ await t.eachViewport(async (page, vp) => {
   s = await t.settle(page, (b) => b.folders.some((f) => f.name === renamed) && !b.folders.some((f) => f.name === named));
   check(s.ok, `${tag} F3 renamed`, "the folder has its new name", "the folder was not renamed");
 
+  });
+
   // F4
+  await step(`${tag} F4`, async () => {
+  await page.goto("/feeds", { waitUntil: "load" });
   const feedsBefore = (await t.boot(page)).feeds.length;
   const refuse = async (name, mimeType, body, wantText, label) => {
     await page.getByRole("button", { name: "Feed actions" }).click();
@@ -124,7 +149,7 @@ await t.eachViewport(async (page, vp) => {
     await dlg.getByLabel("OPML file").setInputFiles({ name, mimeType, buffer: Buffer.from(body) });
     if (label !== "look") await dlg.getByRole("button", { name: "Import", exact: true }).click();
     const note = dlg.getByText(wantText);
-    check(await note.waitFor({ timeout: 10000 }).then(() => true, () => false), `${tag} F4 ${label}`, "a plain refusal is shown", `no message matching ${wantText} in "${(await dlg.innerText()).replace(/\s+/g, " ").slice(0, 200)}"`);
+    check(await note.waitFor({ timeout: 10000 }).then(() => true, () => false), `${tag} F4 ${label}`, "a plain refusal is shown", `no message matching ${wantText} in "${await textOf(dlg)}"`);
     if (label === "look") check(await dlg.getByRole("button", { name: "Import", exact: true }).isDisabled(), `${tag} F4 button`, "Import stays off", "Import is on for a file refused by its look");
     await t.shot(page, `${tag}-opml-${label}`);
     await page.keyboard.press("Escape");
@@ -134,6 +159,7 @@ await t.eachViewport(async (page, vp) => {
   await refuse("feed.xml", "text/xml", '<rss version="2.0"><channel/></rss>', /That is not an OPML file/, "server");
   await refuse("export.opml", "text/x-opml", '{"error":"origin"}', /damaged or cut short/, "damaged");
   check((await t.boot(page)).feeds.length === feedsBefore, `${tag} F4 nothing`, "nothing was imported", "a refused file changed the library");
+  });
 });
 
 await t.finish("Feeds screen");

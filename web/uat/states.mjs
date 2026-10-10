@@ -19,7 +19,7 @@
 import { start } from "./common.mjs";
 
 const t = await start(import.meta.url, 20);
-const { check } = t;
+const { check, step, textOf } = t;
 
 const savedSearches = async (page) => (await (await page.request.get("/api/saved-searches", { params: { counts: 0 } })).json()).saved_searches ?? [];
 const dropSearches = async (page) => {
@@ -46,16 +46,19 @@ await t.eachViewport(async (page, vp) => {
     check(await dialog.waitFor({ state: "detached", timeout: 10000 }).then(() => true, () => false), `${tag} Q1 first`, "the first save closes the dialog", "the dialog stayed open");
     dialog = await saveAs(`UAT second ${tag}`);
     const refusal = dialog.getByText(/already saved/i);
-    check(await refusal.waitFor({ timeout: 10000 }).then(() => true, () => false), `${tag} Q1 refused`, "the duplicate is refused in the dialog", `no refusal in "${(await dialog.innerText()).replace(/\s+/g, " ").slice(0, 200)}"`);
+    check(await refusal.waitFor({ timeout: 10000 }).then(() => true, () => false), `${tag} Q1 refused`, "the duplicate is refused in the dialog", `no refusal in "${await textOf(dialog)}"`);
     await t.shot(page, `${tag}-saved-search-duplicate`);
     await page.keyboard.press("Escape");
     const mine = (await savedSearches(page)).filter((s) => s.name.startsWith("UAT "));
     check(mine.length === 1, `${tag} Q1 count`, "one saved search, not two", `${mine.length} saved searches`);
+  } catch (e) {
+    t.fail(`${tag} Q1`, `stopped: ${String(e.message).split("\n").slice(0, 2).join(" ")}`);
   } finally {
     await dropSearches(page);
   }
 
   // U1 and U2: a feed and a folder that existed and were deleted, and ids that never did.
+  await step(`${tag} U`, async () => {
   await t.importOpml(page, t.opml([{ folder: `UAT Stale ${tag}`, feeds: [1] }]));
   const seeded = await t.settle(page, (b) => b.feeds.some((f) => f.title === "UAT feed 1") && b.folders.some((f) => f.name === `UAT Stale ${tag}`));
   if (!seeded.ok) return t.fail(`${tag} U1`, "the disposable feed was not imported");
@@ -66,7 +69,7 @@ await t.eachViewport(async (page, vp) => {
   const gone = async (where, path, title) => {
     await page.goto(path, { waitUntil: "load" });
     const heading = page.getByText(title, { exact: true });
-    check(await heading.waitFor({ timeout: 15000 }).then(() => true, () => false), `${tag} ${where}`, `says "${title}"`, `no "${title}" at ${path} (page text: ${(await page.locator("main, body").first().innerText()).replace(/\s+/g, " ").slice(0, 160)})`);
+    check(await heading.waitFor({ timeout: 15000 }).then(() => true, () => false), `${tag} ${where}`, `says "${title}"`, `no "${title}" at ${path} (page text: ${await textOf(page.locator("body"))})`);
     const back = page.getByRole("link", { name: "Go to Unread" });
     check(await back.isVisible().catch(() => false), `${tag} ${where} way back`, "a Go to Unread link is offered", "no way back to Unread");
     await t.shot(page, `${tag}-${where.replace(/\s/g, "-")}`);
@@ -82,6 +85,7 @@ await t.eachViewport(async (page, vp) => {
 
   // U4
   await gone("U4 unknown path", "/no-such-screen", "Page not found");
+  });
 });
 
 await t.finish("saved search and stale address");
