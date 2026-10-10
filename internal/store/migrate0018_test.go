@@ -23,7 +23,7 @@ func TestMigration0018RebuildsFeedDailyNew(t *testing.T) {
 	e := &env{t: t, db: reopen(t, path)}
 	v, err := e.db.Version(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, 18, v)
+	require.Equal(t, LatestVersion(), v)
 	requireCleanIntegrity(t, e.db.Reader())
 	require.Zero(t, scalar[int](t, e.db.Reader(), "SELECT count(*) FROM feed_daily_new"), "rows without ids cannot take part")
 
