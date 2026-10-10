@@ -77,10 +77,10 @@ func TestSavedSearchesCRUDCountsAndBootstrap(t *testing.T) {
 	require.Equal(t, "Renamed", out["name"])
 	require.Equal(t, map[string]any{"folder_id": "1"}, out["scope"])
 	require.NotContains(t, out, "order")
-	code, out, _ = h.api(c, "PATCH", "/api/saved-searches/"+id, `{"scope":null}`)
+	code, out, _ = h.api(c, "PATCH", "/api/saved-searches/"+id, `{"scope":null,"q":"kernel two"}`)
 	require.Equal(t, 200, code)
 	require.NotContains(t, out, "scope")
-	require.Equal(t, "kernel", out["q"], "untouched fields stay")
+	require.Equal(t, "Renamed", out["name"], "untouched fields stay")
 
 	// reorder
 	ids := []string{starred["id"].(string), id, all["id"].(string)}
@@ -145,14 +145,14 @@ func TestSavedSearchLimitAndSettingsPatch(t *testing.T) {
 	c := h.login()
 	var entries []map[string]any
 	for i := range 100 {
-		entries = append(entries, map[string]any{"id": fmt.Sprintf("id%d", i), "name": "n", "q": "x"})
+		entries = append(entries, map[string]any{"id": fmt.Sprintf("id%d", i), "name": "n", "q": fmt.Sprintf("x%d", i)})
 	}
 	code, out, _ := h.api(c, "PATCH", "/api/settings", jsonStr(map[string]any{"library.saved_searches": entries}))
 	require.Equal(t, 200, code, out)
-	code, out, _ = h.api(c, "POST", "/api/saved-searches", `{"name":"n","q":"x"}`)
+	code, out, _ = h.api(c, "POST", "/api/saved-searches", `{"name":"n","q":"another"}`)
 	require.Equal(t, 409, code)
 	require.Equal(t, "too_many", out["error"])
-	over := append(entries, map[string]any{"id": "id100", "name": "n", "q": "x"})
+	over := append(entries, map[string]any{"id": "id100", "name": "n", "q": "x100"})
 	code, _, _ = h.api(c, "PATCH", "/api/settings", jsonStr(map[string]any{"library.saved_searches": over}))
 	require.Equal(t, 400, code)
 
@@ -176,6 +176,48 @@ func TestSavedSearchLimitAndSettingsPatch(t *testing.T) {
 	def := settingDefByKey["library.saved_searches"]
 	require.Equal(t, surfaceHidden, def.Surface)
 	require.Equal(t, groupLibrary, def.Group)
+}
+
+func TestSavedSearchSameSearchIsNotAddedTwice(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	feed := h.addFeed("A", 0)
+	h.saved(c, `{"name":"Rust","q":"rust"}`)
+	// Same text, scope and order under another name: refused, naming the entry that already runs it.
+	code, out, _ := h.api(c, "POST", "/api/saved-searches", `{"name":"Again","q":" rust ","order":"date"}`)
+	require.Equal(t, 409, code)
+	require.Equal(t, "already_saved", out["error"])
+	require.Contains(t, out["message"], "Rust")
+	// Search ignores case and runs of whitespace, so those do not make a different search.
+	code, out, _ = h.api(c, "POST", "/api/saved-searches", `{"name":"Again","q":"RUST"}`)
+	require.Equal(t, 409, code, out)
+	// A different scope or order is a different search.
+	h.saved(c, `{"name":"Rust in A","q":"rust","scope":{"feed_id":"`+sid(feed)+`"}}`)
+	h.saved(c, `{"name":"Rust oldest","q":"rust","order":"oldest"}`)
+	require.Len(t, savedList(t, h, c, "?counts=0"), 3)
+
+	// Editing into a copy is refused as well, over PATCH and over the settings list.
+	code, out, _ = h.api(c, "POST", "/api/saved-searches", `{"name":"Go","q":"golang"}`)
+	require.Equal(t, 201, code, out)
+	code, out, _ = h.api(c, "PATCH", "/api/saved-searches/"+out["id"].(string), `{"q":"  RUST "}`)
+	require.Equal(t, 409, code, out)
+	require.Equal(t, "already_saved", out["error"])
+	code, out, _ = h.api(c, "PATCH", "/api/settings", `{"library.saved_searches":[{"id":"a","name":"n","q":"Rust  now"},{"id":"b","name":"m","q":"rust now"}]}`)
+	require.Equal(t, 400, code, out)
+	require.Equal(t, []any{"library.saved_searches"}, out["keys"])
+}
+
+func TestSavedSearchOldDuplicatesNeverBlockOtherEdits(t *testing.T) {
+	h := newHarness(t)
+	c := h.login()
+	// A list that already holds two copies (stored before the rule) stays editable.
+	h.exec(`INSERT INTO settings (key, value) VALUES ('library.saved_searches', '[{"id":"a","name":"one","q":"x"},{"id":"b","name":"two","q":"x"}]')`)
+	code, out, _ := h.api(c, "PATCH", "/api/saved-searches/b", `{"name":"renamed"}`)
+	require.Equal(t, 200, code, out)
+	code, out, _ = h.api(c, "PATCH", "/api/settings", `{"library.saved_searches":[{"id":"a","name":"one","q":"x"},{"id":"b","name":"renamed again","q":"x"}]}`)
+	require.Equal(t, 200, code, out)
+	code, _, _ = h.api(c, "DELETE", "/api/saved-searches/a", "")
+	require.Equal(t, 204, code)
 }
 
 func TestSavedSearchConcurrentCreatesLoseNothing(t *testing.T) {

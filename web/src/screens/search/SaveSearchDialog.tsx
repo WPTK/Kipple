@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
 import { createSavedSearch, invalidateSavedSearches, patchSavedSearch } from "@/api/savedSearches";
 import type { SavedSearch } from "@/api/types";
+import { useWide } from "@/lib/useMedia";
 import { announce } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { Modal, Notice, inputCls } from "@/ui/kit";
@@ -11,6 +12,7 @@ import { Modal, Notice, inputCls } from "@/ui/kit";
 export function savedSearchError(e: unknown): string {
   if (e instanceof ApiError) {
     const m = e.body && typeof e.body.message === "string" ? e.body.message : null;
+    if (e.status === 409 && e.code === "already_saved") return m ? `${m[0]?.toUpperCase()}${m.slice(1)}.` : "This search is already saved.";
     if (e.status === 409 && e.code === "too_many") return "You already have 100 saved searches. Delete one first.";
     if (e.status === 400 && m) return m;
     if (e.status === 404) return "That saved search no longer exists.";
@@ -53,6 +55,7 @@ export function SaveSearchDialog({
   existing?: SavedSearch;
 }) {
   const qc = useQueryClient();
+  const wide = useWide();
   const id = useId();
   const trimmed = q.trim();
   const [name, setName] = useState(existing?.name ?? defaultSearchName(trimmed));
@@ -84,7 +87,7 @@ export function SaveSearchDialog({
       open={open}
       onOpenChange={(o) => !busy && onOpenChange(o)}
       title="Save this search"
-      description="It appears in the sidebar with its unread count."
+      description={wide ? "It appears in the sidebar with its unread count." : "It appears under Feeds with its unread count."}
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>

@@ -1,0 +1,1 @@
+A list that fails with a request the server refuses (for example a place in the list from before an upgrade) now offers Start over instead of a Try again that cannot help, and a list restarts itself when a later page is refused. (#356)

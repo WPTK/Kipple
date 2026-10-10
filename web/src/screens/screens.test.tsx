@@ -173,18 +173,21 @@ describe("Article view", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  it("keeps the toolbar to eight 44 px targets: rarely used actions live in More (review finding 11)", async () => {
+  it("keeps the toolbar to seven 44 px targets: rarely used actions live in More (review finding 11)", async () => {
     routes({ "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }) });
     go("/i/1001?from=unread");
     const bar = await screen.findByRole("toolbar", { name: "Article actions" });
-    // 8 x 44 px = 352 px, which fits a 375 px phone together with the padding.
-    expect(within(bar).getAllByRole("button")).toHaveLength(8);
+    // 7 x 44 px = 308 px, which fits a 320 px phone together with the padding.
+    expect(within(bar).getAllByRole("button")).toHaveLength(7);
     const user = userEvent.setup();
     await user.click(within(bar).getByRole("button", { name: "More actions" }));
     expect(await screen.findByRole("menuitem", { name: "Open original" })).toBeInTheDocument();
     await user.click(screen.getByRole("menuitem", { name: "Mute similar…" }));
     // The editor is opened through the shared store (its dialog is covered in filters.test.tsx).
     expect(filterEditorStore.get()).toMatchObject({ mode: "create" });
+    // Save is off until a suggestion is chosen, and the footer says so beside it.
+    expect(await screen.findByText("Add a word to match to save this filter.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save filter" })).toBeDisabled();
     closeFilterEditor();
   });
 
@@ -306,5 +309,118 @@ describe("Feeds and Search", () => {
     await user.type(screen.getByRole("searchbox", { name: "Search articles" }), "a");
     expect(await screen.findByText("Keep typing")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("Reader: lists and articles that are not there", () => {
+  it("says a trimmed or deleted article is no longer available, with no Try again", async () => {
+    routes({ "GET /api/items/9999": () => json({ error: "not_found" }, 404) });
+    go("/i/9999");
+    expect(await screen.findByText("This article is no longer available")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Back to the list" })).toBeInTheDocument();
+  });
+
+  it("still offers Try again when the article failed for another reason", async () => {
+    routes({ "GET /api/items/9999": () => json({ error: "boom" }, 500) });
+    go("/i/9999");
+    expect(await screen.findByText("Couldn't open this article")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("says a feed or folder that is gone is gone, never an empty list", async () => {
+    routes();
+    go("/l/unread?feed=999");
+    expect(await screen.findByText("This feed no longer exists")).toBeInTheDocument();
+    expect(screen.queryByText("All caught up")).toBeNull();
+    expect(screen.getByRole("link", { name: "Go to Unread" })).toBeInTheDocument();
+  });
+
+  it("says a malformed folder id is a missing folder, not a connection problem", async () => {
+    routes();
+    go("/l/unread?folder=zz");
+    expect(await screen.findByText("This folder no longer exists")).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't reach the server/i)).toBeNull();
+  });
+
+  it("sends a made-up list name to Unread and fixes the address", async () => {
+    routes();
+    go("/l/bogus");
+    expect(await screen.findByRole("navigation", { name: "Show" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/l/unread");
+  });
+
+  it("a failed list that the server answered is not called unreachable", async () => {
+    routes({ "GET /api/items": () => json({ error: "bad_request" }, 400) });
+    go("/l/unread");
+    expect(await screen.findByText("Couldn't load articles")).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't reach the server/i)).toBeNull();
+    // The same refusal would come again: the action restarts the list rather than repeating the request.
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Start over" })).toBeInTheDocument();
+  });
+
+  it("an empty library-wide search does not offer to search All", () => {
+    expect(emptyCopy({ view: "all", q: "zzz" }).body).toBe("Try fewer words.");
+    expect(emptyCopy({ view: "all", q: "zzz", feed: "1" }).body).toBe("Try fewer words, or search the whole library.");
+  });
+
+  it("opens a list for a feed or folder that exists", async () => {
+    routes();
+    go("/l/unread?feed=1");
+    expect(await screen.findByRole("navigation", { name: "Show" })).toBeInTheDocument();
+    expect(screen.queryByText(/no longer exists/)).toBeNull();
+    document.body.innerHTML = "";
+    go("/l/unread?folder=1");
+    expect(await screen.findByRole("navigation", { name: "Show" })).toBeInTheDocument();
+    expect(screen.queryByText(/no longer exists/)).toBeNull();
+  });
+
+  it("does not call a feed gone that another client just added: it fetches the bootstrap again first", async () => {
+    let calls = 0;
+    const added = { ...bootstrap.feeds[0]!, id: "999", title: "Fresh feed" };
+    routes({ "GET /api/bootstrap": () => json(++calls < 2 ? bootstrap : { ...bootstrap, feeds: [...bootstrap.feeds, added] }) });
+    go("/l/unread?feed=999");
+    expect(await screen.findByRole("navigation", { name: "Show" })).toBeInTheDocument();
+    expect(screen.queryByText(/no longer exists/)).toBeNull();
+  });
+
+  it("offers Check again on the gone message", async () => {
+    routes();
+    go("/l/unread?feed=999");
+    expect(await screen.findByText("This feed no longer exists")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
+  });
+
+  it("an article opened with no list has no Next or Previous, and j does not page", async () => {
+    routes();
+    go("/i/1001");
+    await screen.findByTestId("article-body");
+    expect(screen.queryByRole("button", { name: "Next article" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Previous article" })).toBeNull();
+    await userEvent.setup().keyboard("j");
+    expect(window.location.pathname).toBe("/i/1001");
+    expect(screen.queryByRole("button", { name: "Next article" })).toBeNull();
+  });
+
+  it("Back after paging Next returns to the list with the article reached in place", async () => {
+    routes();
+    go("/l/unread");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("link", { name: /Article number 1/ }));
+    await screen.findByTestId("article-body");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next article" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Next article" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1002"));
+    await user.click(screen.getByRole("button", { name: "Back to list" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/l/unread"));
+    await waitFor(() => expect(document.activeElement?.closest("[data-item-id]")?.getAttribute("data-item-id")).toBe("1002"));
+  });
+
+  it("Save this search is off on a search with no results", async () => {
+    routes({ "GET /api/items": () => json(pageOf([])) });
+    go("/search?q=zzzqqq");
+    expect(await screen.findByText('No results for "zzzqqq"')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save this search" })).toBeDisabled();
   });
 });
