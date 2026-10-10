@@ -1,6 +1,8 @@
 // node --test scripts/ci-gate.test.mjs
 // The four required checks (go, web, security, docker) must fail open to "run everything", never to "skipped": a job
 // skipped by `if` counts as passed, so a gate that skips when the `changes` job fails would let unchecked code merge.
+// The Go tests run in the `go-test` matrix job; the required check `go` only aggregates its legs, so the gate rules for
+// the work (skip only on an explicit false, prune first) apply to `go-test` and the aggregation rule to `go`.
 // This reads ci.yml as text (two-space job keys, four-space job fields, as the file is written); it does not need a
 // YAML library.
 import { test } from 'node:test';
@@ -25,11 +27,11 @@ function jobIf(job) {
   for (let k = i + 1; k < lines.length && /^      /.test(lines[k]); k++) rest.push(lines[k].trim());
   return rest.join(' ');
 }
-const needsChanges = (job) => /^    needs:[ ]*(changes|\[[ ]*changes[ ]*\])[ ]*(#.*)?$/m.test(jobs[job]);
+const needsChanges = (job) => /^    needs:[ ]*(changes|\[[ ]*(?:[a-z0-9-]+[ ]*,[ ]*)*changes[ ]*(?:,[ ]*[a-z0-9-]+[ ]*)*\])[ ]*(#.*)?$/m.test(jobs[job]);
 const REQUIRED = ['go', 'web', 'security', 'docker'];
 
 test('the required checks and the gate exist', () => {
-  for (const j of ['changes', ...REQUIRED]) assert.ok(jobs[j], `job ${j} is missing from ci.yml`);
+  for (const j of ['changes', 'go-test', ...REQUIRED]) assert.ok(jobs[j], `job ${j} is missing from ci.yml`);
 });
 
 test('no condition tests the gate for "true" (an empty output must run everything)', () => {
@@ -37,7 +39,7 @@ test('no condition tests the gate for "true" (an empty output must run everythin
 });
 
 test('every required check waits for the gate and survives its failure', () => {
-  for (const j of REQUIRED) {
+  for (const j of [...REQUIRED, 'go-test']) {
     assert.ok(needsChanges(j), `${j}: needs changes`);
     const cond = jobIf(j);
     assert.ok(cond, `${j}: needs a job-level if, or a failed gate skips it`);
@@ -49,8 +51,8 @@ test('every required check waits for the gate and survives its failure', () => {
   }
 });
 
-test('go and docker skip whole only on an explicit false', () => {
-  for (const j of ['go', 'docker']) assert.ok(jobIf(j).includes(GUARD), `${j}: if must contain ${GUARD}`);
+test('go-test and docker skip whole only on an explicit false', () => {
+  for (const j of ['go-test', 'docker']) assert.ok(jobIf(j).includes(GUARD), `${j}: if must contain ${GUARD}`);
 });
 
 test('web and security gate their heavy steps the same way and keep gitleaks and the changelog check ungated', () => {
@@ -79,9 +81,9 @@ test('the tooling job waits for the gate, skips only on an explicit false and su
   assert.match(jobs.changes, /^          scripts=true$/m, 'scripts must default to true (fail open)');
 });
 
-test('the prune step runs in go, web and docker, for real, before the build and test steps', () => {
+test('the prune step runs in go-test, web and docker, for real, before the build and test steps', () => {
   const STEP = /^      - (?:if: .*\n        )?run: bash (?:[.][.]\/)?scripts\/ci-prune-prose[.]sh --delete$/m;
-  for (const j of ['go', 'web', 'docker']) {
+  for (const j of ['go-test', 'web', 'docker']) {
     const m = STEP.exec(jobs[j]);
     assert.ok(m, `${j}: no run step that is exactly the prune with --delete (a dry run or a comment does not count)`);
     const rest = jobs[j].slice(m.index);
@@ -91,6 +93,21 @@ test('the prune step runs in go, web and docker, for real, before the build and 
     assert.doesNotMatch(block, /continue-on-error|[|][|]/, `${j}: the prune step must be able to fail the job`);
   }
   assert.ok(!jobs.security.includes('ci-prune-prose'), 'security keeps the full tree (gitleaks scans history)');
+});
+
+// A failed, cancelled or skipped leg must fail the required check; the only skip that passes is the gate's explicit
+// false. The aggregate reads the legs' result and the gate's output through env and tests exactly that.
+const AGG = '[ "$RESULT" = success ] || { [ "$RESULT" = skipped ] && [ "$CODE" = false ]; }';
+test('the required go check passes only when every go-test leg passed or the gate skipped them', () => {
+  assert.match(jobs.go, /^    needs:[ ]*\[[ ]*changes[ ]*,[ ]*go-test[ ]*\][ ]*$/m, 'go: needs [changes, go-test]');
+  assert.match(jobs.go, /^          CODE: \$\{\{ needs\.changes\.outputs\.code \}\}$/m, 'go: CODE must be the gate output');
+  assert.match(jobs.go, /^          RESULT: \$\{\{ needs\.go-test\.result \}\}$/m, 'go: RESULT must be the go-test result');
+  const lines = jobs.go.split('\n').map((l) => l.trim());
+  assert.ok(lines.includes(AGG), `go: the run step must end with exactly: ${AGG}`);
+  assert.equal(lines.filter((l) => l && !/^[a-zA-Z_-]+:|^- |^#|^echo /.test(l)).at(-1), AGG, 'go: the check must be the last command, so nothing after it masks a failure');
+  assert.doesNotMatch(jobs.go, /continue-on-error|[|][|][ ]*true/, 'go: the aggregate must be able to fail');
+  assert.doesNotMatch(jobs['go-test'], /continue-on-error/, 'go-test: a leg must be able to fail');
+  assert.match(jobs['go-test'], /^      fail-fast: false$/m, 'go-test: every leg runs to the end');
 });
 
 test('web checks the changelog fragments before the prune deletes them', () => {
@@ -110,5 +127,9 @@ test('the job-level matcher rejects the regressions', () => {
   assert.match(sample("    if: success() && !cancelled() && needs.changes.outputs.code != 'false'"), /(^|[^!])\bsuccess\(\)/);
   assert.match(sample("    if: ${{ !cancelled() && needs.changes.result == 'success' }}"), /needs\.changes\.result/);
   assert.equal(sample('    if: >-\n      !cancelled() &&\n      needs.changes.outputs.code != \'false\''), "!cancelled() && needs.changes.outputs.code != 'false'");
+  jobs.__t = '    needs: [go-test]\n';
+  assert.ok(!needsChanges('__t'), 'a needs list without changes must not pass');
+  jobs.__t = '    needs: [changes, go-test]\n';
+  assert.ok(needsChanges('__t'), 'a needs list with changes passes');
   delete jobs.__t;
 });
