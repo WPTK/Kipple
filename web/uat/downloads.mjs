@@ -8,8 +8,12 @@
 //   D1  Feeds, Feed actions, Export OPML: the saved file is an OPML document (not JSON) and not named *.json;
 //   D2  Settings, Statistics, Export…, Download: the saved file is CSV with a header row (not a JSON error);
 //   D3  Settings, Account & Devices, Export backup, the download link: the saved file is a zip (starts "PK").
-// It only reads, but it only runs against a loopback address with the seed's credentials unless --allow-remote is
-// given. Exit code: 0 clean, 1 findings, 2 setup error.
+// D3 starts a backup export (POST /api/backup), which replaces any unclaimed one, and downloading it spends it and
+// deletes the file, so nothing is left behind. It therefore only runs against a loopback address with the seed's
+// credentials unless --allow-remote is given.
+// Chromium sends Sec-Fetch-Site: same-origin for these clicks, so this checks that each saved file is the real one;
+// the requests without fetch metadata or from another site are covered by the Go tests (TestDownloadOriginMatrix).
+// Exit code: 0 clean, 1 findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium`.
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -38,7 +42,7 @@ const { values: opt } = (() => {
   }
 })();
 if (opt.help) {
-  console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split(/\r?\n/).slice(0, 13).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
+  console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split(/\r?\n/).slice(0, 17).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
   process.exit(0);
 }
 const origin = new URL(opt.url).origin;

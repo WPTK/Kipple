@@ -281,6 +281,10 @@ func TestNewRoutesOriginRules(t *testing.T) {
 	})
 	require.Equal(t, http.StatusForbidden, code)
 
+	// The stats export is a read: a cross-site request is answered like any other, and
+	// the response is unreadable there (same-origin CORP, see TestBackupDownloadHasNoOriginRule).
+	code, _, _ = h.api(c, "GET", "/api/stats/export", "", crossSite)
+	require.Equal(t, http.StatusOK, code)
 }
 
 // ---- GET /api/items ----

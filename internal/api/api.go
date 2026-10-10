@@ -146,6 +146,9 @@ type Server struct {
 	// setupSlot admits one account creation or restore confirm at a time
 	// (setupAccount, restoreConfirm), so the two exclude each other.
 	setupSlot chan struct{}
+	// exportBusy admits one statistics export at a time (statsExport): a download needs
+	// no origin proof, so a page elsewhere can start one, and each streams the whole table.
+	exportBusy atomic.Bool
 
 	mode       modeCache // the Host gate's cached auth mode and allowed hosts
 	hostWarnMu sync.Mutex
@@ -387,7 +390,7 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 // authed requires a valid session cookie, then (for state-changing methods and
-// the OPML download) the same-origin guard. Auth failures win over origin
+// the backup job poll) the same-origin guard. Auth failures win over origin
 // failures, so an anonymous caller learns nothing about the guard.
 func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

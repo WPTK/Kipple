@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/backup"
+	"github.com/WPTK/kipple/internal/httpx"
 )
 
 func (h *harness) backupSetup(t *testing.T) *http.Cookie {
@@ -125,4 +127,40 @@ func TestBackupResponseIsJSON(t *testing.T) {
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
 	require.Contains(t, m, "token")
+}
+
+// A backup download is a plain read: the browser may send no fetch metadata at all, or
+// cross-site, and either way the answer is the zip, which another origin cannot read
+// (same-origin CORP, nosniff).
+func TestBackupDownloadHasNoOriginRule(t *testing.T) {
+	h := newHarness(t, func(o *Options) {
+		o.Backups = backup.New(backup.Options{DB: o.DB, Version: "t", FreeBytes: func(string) (uint64, error) { return 1 << 40, nil }})
+	})
+	secure := httpx.Secure(h.mux, httpx.Options{})
+	body := fresh(t, h)
+	c := body["cookie"].(*http.Cookie)
+	download := func(tok string, site string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", "/api/backup/"+tok, nil)
+		r.AddCookie(c)
+		if site != "" {
+			r.Header.Set("Sec-Fetch-Site", site)
+		}
+		rec := httptest.NewRecorder()
+		secure.ServeHTTP(rec, r)
+		return rec
+	}
+	for _, site := range []string{"", "cross-site"} {
+		tok := body["token"].(string)
+		if site != "" {
+			code, b, _ := h.api(c, "POST", "/api/backup", "")
+			require.Equal(t, http.StatusOK, code)
+			tok = b["token"].(string)
+		}
+		rec := download(tok, site)
+		require.Equal(t, http.StatusOK, rec.Code, "site=%q", site)
+		require.Equal(t, "application/zip", rec.Header().Get("Content-Type"))
+		require.Equal(t, "same-origin", rec.Header().Get("Cross-Origin-Resource-Policy"))
+		require.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+		require.Equal(t, "PK", rec.Body.String()[:2])
+	}
 }
