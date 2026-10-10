@@ -705,6 +705,24 @@ describe("manage feeds", () => {
     expect(del).toEqual(["1?delete_starred=1"]);
   });
 
+  it("bulk delete also deletes a folder it leaves empty, and says so first; the default folder stays", async () => {
+    const del: string[] = [];
+    const ok = (id: string) => () => (del.push(id), new Response(null, { status: 204 }));
+    routes({ "DELETE /api/feeds/4": ok("feed 4"), "DELETE /api/folders/2": ok("folder 2"), "DELETE /api/feeds/1": ok("feed 1"), "DELETE /api/feeds/2": ok("feed 2"), "DELETE /api/feeds/3": ok("feed 3") }, boot3);
+    go("/feeds");
+    await screen.findByText("Alpha");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Select/ }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dlg = await screen.findByRole("dialog", { name: "Delete 4 feeds?" });
+    expect(within(dlg).getByText(/This folder is left empty, so it is deleted too: Tech\./)).toBeInTheDocument();
+    await user.click(within(dlg).getByRole("switch", { name: /Delete starred articles too/ }));
+    await user.click(within(dlg).getByRole("button", { name: "Delete 4 feeds" }));
+    await waitFor(() => expect(del).toContain("folder 2"));
+    expect(del.filter((d) => d.startsWith("folder"))).toEqual(["folder 2"]); // News is the default folder
+  });
+
   it("Feed health stays reachable from the Feeds menu", async () => {
     routes({}, boot3);
     go("/feeds");

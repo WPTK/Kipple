@@ -6,7 +6,9 @@ import type { Feed, Folder } from "@/api/types";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
-import { folderPath, folderTree } from "@/lib/folderTree";
+import { emptiedFolders, folderPath, folderTree } from "@/lib/folderTree";
+import { useBootstrap } from "@/api/queries";
+import { visibleFeeds } from "@/lib/visibleFeeds";
 import { announce, toast } from "@/shell/toasts";
 
 /** What a bulk delete tells the user before it starts: the count and the starred articles at stake. */
@@ -198,14 +200,30 @@ export function DeleteDialog({ feeds: selected, onClose, onDone }: { feeds: Feed
   const { count, starred } = deleteSummary(feeds);
   const [alsoStarred, setAlsoStarred] = useState(false);
   const { progress, report, setReport, busy, runEach } = useBulkRun(feeds);
+  // Folders this leaves empty are deleted too. Read from the library as it was when the dialog opened: it shrinks
+  // as the feeds go.
+  const boot = useBootstrap();
+  const [library] = useState(() => ({ folders: boot.data?.folders ?? [], feeds: visibleFeeds(boot.data?.feeds) }));
+  const emptiedFor = (gone: ReadonlySet<string>) => emptiedFolders(library.folders, library.feeds, gone);
+  const folderName = (id: string) => library.folders.find((f) => f.id === id)?.name ?? id;
+  const leaving = emptiedFor(new Set(feeds.map((f) => f.id)));
 
   const run = async () => {
     const { succeeded: deleted, failed } = await runEach((f) => deleteFeed(f.id, alsoStarred).then(() => undefined));
+    let folders = 0;
+    for (const id of emptiedFor(new Set(deleted))) {
+      try {
+        await deleteFolder(id);
+        folders++;
+      } catch (e) {
+        failed.push({ title: folderName(id), message: errorMessage(e) });
+      }
+    }
     invalidateFeeds(qc);
     void qc.invalidateQueries({ queryKey: ["items"] });
     onDone(deleted);
     if (failed.length === 0) {
-      toast(`Deleted ${deleted.length} feed${deleted.length === 1 ? "" : "s"}`);
+      toast(`Deleted ${deleted.length} feed${deleted.length === 1 ? "" : "s"}${folders > 0 ? ` and ${folders} empty folder${folders === 1 ? "" : "s"}` : ""}`);
       onClose();
     } else {
       announce(`Deleted ${deleted.length}, ${failed.length} failed`);
@@ -263,6 +281,12 @@ export function DeleteDialog({ feeds: selected, onClose, onDone }: { feeds: Feed
               </li>
             ))}
           </ul>
+          {leaving.length > 0 ? (
+            <p className="text-sm">
+              {leaving.length === 1 ? "This folder is left empty, so it is deleted too" : "These folders are left empty, so they are deleted too"}:{" "}
+              {leaving.map(folderName).join(", ")}.
+            </p>
+          ) : null}
           {busy ? <BulkProgress label="Deleting feeds" done={progress} total={count} /> : null}
         </>
       )}
