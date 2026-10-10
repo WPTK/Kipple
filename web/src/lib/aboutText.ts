@@ -22,6 +22,13 @@ export function uptimeText(seconds: number): string {
   return `${s} s`;
 }
 
+/** "Oct 1, 2026, 9:00 AM EDT": the start time in this browser\'s own time zone (the server reports UTC). */
+export function startedText(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+}
+
 const yes = (b: boolean) => (b ? "yes" : "no");
 
 const AUTH_LABELS: Record<About["auth_mode"], string> = {
@@ -39,7 +46,7 @@ export function aboutRows(a: About, c: ClientFacts): { label: string; value: str
     { label: "Go", value: `${a.go_version} (${a.os_arch})` },
     { label: "Database schema", value: a.schema_version === a.schema_latest ? String(a.schema_version) : `${a.schema_version} (this build expects ${a.schema_latest})` },
     { label: "SQLite", value: a.sqlite_version || "unknown" },
-    { label: "Running for", value: `${uptimeText(a.uptime_s)} (since ${a.started_at})` },
+    { label: "Running for", value: `${uptimeText(a.uptime_s)} (since ${startedText(a.started_at)})` },
     { label: "Time zone", value: a.tz },
     { label: "Data folder writable", value: yes(a.data_dir_writable) },
     { label: "Sign-in", value: AUTH_LABELS[a.auth_mode] ?? a.auth_mode },

@@ -203,6 +203,17 @@ describe("restore in the setup wizard", () => {
     expect(screen.getByLabelText("Backup or OPML file")).toBeInTheDocument();
   });
 
+  it("says another browser holds the restore when the refused upload shows up as a cut connection", async () => {
+    reply = { status: 0, body: {}, network: true };
+    server({ restore: "none", setup: true, signedIn: false, status: { state: "none", elsewhere: true } });
+    go();
+    const user = userEvent.setup();
+    await chooseFile(user);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Another browser is uploading or restoring a backup.");
+    expect(alert).not.toHaveTextContent("disk space");
+  });
+
   it("explains a network failure during the upload", async () => {
     reply = { status: 0, body: {}, network: true };
     server({ restore: "none", setup: true, signedIn: false, status: ready() });

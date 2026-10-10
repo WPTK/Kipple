@@ -23,6 +23,9 @@ const RESTORE_STEP = { id: "restore", n: 0, title: "Restore from a backup" } as 
 /** A network failure during the upload has no answer to quote: the usual causes are a full disk or a proxy size limit. */
 const UPLOAD_FAILED = "The upload was refused or interrupted. Check that the server has enough free disk space and that any proxy in front of Kipple allows a file this size.";
 
+/** Another browser holds the restore. The server refuses a second upload and clears an unconfirmed one after an hour. */
+const ELSEWHERE = "Another browser is uploading or restoring a backup. Finish or cancel it there, or wait up to an hour for Kipple to discard it, then try again.";
+
 /** How often the page asks the server whether its check of the backup is done. */
 export const CHECK_POLL_MS = 2000;
 
@@ -168,7 +171,9 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
       if (e instanceof ApiError && e.status === 0) {
         // The connection was cut. If the server stopped the upload (too slow), it says so in the status.
         const st = await fetchRestoreStatus().catch(() => null);
-        setError(st?.state === "failed" && st.error?.message ? st.error.message : UPLOAD_FAILED);
+        // The server refuses an upload another browser could be sending before it reads the file and closes the connection,
+        // which the browser reports as a cut connection: the status tells the two apart.
+        setError(st?.elsewhere ? ELSEWHERE : st?.state === "failed" && st.error?.message ? st.error.message : UPLOAD_FAILED);
       }
       // 411 length_required, 400 upload_incomplete, 409 restore_cancelled and the rest carry a message written for the reader.
       else setError(restoreErrorText(e));

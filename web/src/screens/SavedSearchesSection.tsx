@@ -90,8 +90,8 @@ function EditDialog({ search, onClose }: { search: SavedSearch; onClose: () => v
         </>
       }
     >
-      <Field label="Name">{(a) => <input {...a} value={name} maxLength={60} onChange={(e) => setName(e.target.value)} className={inputCls} />}</Field>
-      <Field label="Search for" help={'Same syntax as the search box: "exact phrase", -exclude, title:word, author:name, word*.'}>
+      <Field label="Name" error={name.trim() ? undefined : "Enter a name to save."}>{(a) => <input {...a} value={name} maxLength={60} onChange={(e) => setName(e.target.value)} className={inputCls} />}</Field>
+      <Field label="Search for" error={q.trim() ? undefined : "Enter something to search for."} help={'Same syntax as the search box: "exact phrase", -exclude, title:word, author:name, word*.'}>
         {(a) => <input {...a} value={q} autoCapitalize="none" spellCheck={false} onChange={(e) => setQ(e.target.value)} className={inputCls} />}
       </Field>
       <Field label="Where">
@@ -185,7 +185,7 @@ export function SavedSearchesSection() {
   return (
     <>
       <p className="text-sm text-fg2">
-        Searches you saved from the Search screen. They show in the sidebar under Favorites with their unread count. Drag the grip, or focus it and use the arrow keys, to change the order.
+        Searches you saved from the Search screen. They appear under Favorites in the navigation menu with their unread count. Drag the grip, or focus it and use the arrow keys, to change the order.
       </p>
       {loading ? <Skeleton rows={2} label="Loading saved searches" /> : null}
       {error ? (
@@ -268,7 +268,7 @@ export function SavedSearchesSection() {
             }
           }}
           title="Delete this saved search?"
-          description={`"${deleting.name}" is removed from the sidebar. Your articles are not touched.`}
+          description={`"${deleting.name}" is removed from Favorites. Your articles are not touched.`}
           footer={
             <>
               <Button variant="ghost" onClick={() => setDeleting(null)} disabled={busy}>

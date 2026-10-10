@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App, { makeQueryClient } from "@/App";
-import { authStore } from "@/api/client";
+import { api, ApiError, authStore, busyMessage, sessionLostStore } from "@/api/client";
 import { offlineStore } from "@/lib/offlineState";
 import { OfflineNotice } from "@/shell/OfflineNotice";
 import { json, mockFetch } from "@/test/mockApi";
@@ -16,6 +16,7 @@ vi.mock("@/lib/reload", () => ({ reloadToSignIn: reload, SIGN_IN_RELOAD: "kipple
 const opaqueRedirect = () => ({ type: "opaqueredirect", status: 0, ok: false, headers: new Headers() }) as unknown as Response;
 
 beforeEach(() => {
+  sessionLostStore.set(false);
   reload.mockClear();
   authStore.set("out");
   offlineStore.set({ online: true, pending: 0, updateReady: false, sessionExpired: false });
@@ -35,6 +36,35 @@ async function signIn() {
 }
 
 describe("the sign-in screen", () => {
+  it("says you were signed out when the server ended a signed-in session, and not after you chose to sign out", async () => {
+    mockFetch({ "GET /api/x": () => json({ error: "auth" }, 401) });
+    authStore.set("in");
+    await expect(api("/api/x")).rejects.toBeInstanceOf(ApiError);
+    expect(sessionLostStore.get()).toBe(true);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <LoginScreen />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("You were signed out");
+  });
+
+  it("a first visit shows no signed-out note", () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <LoginScreen />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText(/You were signed out/)).toBeNull();
+  });
+
+  it("names the wait the server asked for when sign-in is paused", () => {
+    expect(busyMessage(new ApiError(503, "busy", null, 45_000))).toContain("about 45 seconds");
+    expect(busyMessage(new ApiError(503, "busy", null, 60_000))).toContain("about 60 seconds");
+    expect(busyMessage(new ApiError(503, "busy", null, 120_000))).toContain("about 2 minutes");
+    expect(busyMessage(new ApiError(503, "busy", null, 0))).toContain("about 5 seconds");
+  });
+
   it("an expired access-proxy sign-in is not called a wrong password, and offers a reload through the proxy", async () => {
     mockFetch({ "POST /api/auth/login": opaqueRedirect });
     const user = await signIn();

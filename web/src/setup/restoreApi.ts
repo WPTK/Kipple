@@ -40,6 +40,8 @@ export interface RestoreStatus {
   /** When failed. */
   error?: { code: string; message: string };
   estimate_seconds?: number;
+  /** Another browser holds an upload, so a new one would be refused. `state` reads "none" then. */
+  elsewhere?: boolean;
 }
 
 export const fetchRestoreStatus = () => api<RestoreStatus>("/api/setup/restore", { anon: true, quiet: true, headers: restoreKeyHeaders() });

@@ -1,7 +1,8 @@
 import { useId, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, authStore, SESSION_EXPIRED } from "@/api/client";
+import { ApiError, api, authStore, busyMessage, SESSION_EXPIRED, sessionLostStore } from "@/api/client";
 import { reloadToSignIn } from "@/lib/reload";
+import { useStore } from "@/lib/store";
 import { INSTANCE_KEY } from "@/setup/api";
 import { Button } from "@/ui/button";
 
@@ -17,6 +18,7 @@ export function LoginScreen() {
   /** The sign-in in front of Kipple (the access proxy) expired: only a reload through it helps, not a password. */
   const [expired, setExpired] = useState(false);
   const [busy, setBusy] = useState(false);
+  const lost = useStore(sessionLostStore);
   const uid = useId();
   const pid = useId();
 
@@ -27,6 +29,7 @@ export function LoginScreen() {
     setExpired(false);
     try {
       await api("/api/auth/login", { method: "POST", body: { username, password } });
+      sessionLostStore.set(false);
       authStore.set("in");
       await qc.invalidateQueries();
     } catch (err) {
@@ -44,7 +47,7 @@ export function LoginScreen() {
         // This Kipple has no account yet (a stale tab): ask again what it is, and the app moves to the account form.
         setError("Kipple has no account yet. Taking you to set it up.");
         void qc.invalidateQueries({ queryKey: INSTANCE_KEY }).then(() => setError("Kipple has no account yet. Reload the page to set it up."));
-      } else if (err instanceof ApiError && err.status === 503 && err.code === "busy") setError("Kipple is busy. Try again in a moment.");
+      } else if (err instanceof ApiError && err.status === 503 && err.code === "busy") setError(busyMessage(err));
       else if (err instanceof ApiError && err.status === 401)
         setError(
           password
@@ -67,6 +70,11 @@ export function LoginScreen() {
         <h1 id="login-title" className="text-2xl font-bold">
           Sign in to Kipple
         </h1>
+        {lost && !error ? (
+          <p role="status" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg2">
+            You were signed out: your session ended, or the password was changed on another device. Sign in again.
+          </p>
+        ) : null}
         {error ? (
           <div role="alert" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-danger">
             <p>{error}</p>

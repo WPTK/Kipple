@@ -38,11 +38,12 @@ export async function opmlFileProblem(file: File): Promise<string | null> {
   return "That doesn't look like an OPML file. Choose the .opml or .xml file exported from your other reader.";
 }
 
-/** "<url>: kipple:allow_private_net" from the import report, in plain words. */
+/** "<url>: kipple:allow_private_net" or "<url>: private_address" from the import report, in plain words. */
 export function attrNote(s: string): string {
   const at = s.lastIndexOf(": ");
   const url = at >= 0 ? s.slice(0, at) : s;
   const attr = at >= 0 ? s.slice(at + 2) : "";
+  if (attr === "private_address") return `${url}: this feed is on a private-network address, so it was imported with private-network access off. Turn it on for the feed to fetch it`;
   const what = attr.endsWith("allow_private_net") ? "allowing private-network addresses" : attr.endsWith("allow_insecure_tls") ? "skipping certificate checks" : attr || "a setting";
   return `${url}: ${what} was ignored`;
 }

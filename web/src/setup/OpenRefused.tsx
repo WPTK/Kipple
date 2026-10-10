@@ -15,7 +15,7 @@ export function OpenRefusedScreen({ reason, onRetry, busy }: { reason: OpenReaso
   return (
     <main className="pt-safe pb-safe flex h-full items-center justify-center overflow-y-auto px-4" data-testid="open-refused">
       <div className="flex w-full max-w-md flex-col gap-4 py-6" role="alert">
-        <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold outline-none">
+        <h1 ref={heading} tabIndex={-1} data-route-heading className="text-2xl font-bold">
           Kipple can't let you in from here
         </h1>
         <p className="text-base">{openReasonText(reason)}</p>

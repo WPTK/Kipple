@@ -154,7 +154,7 @@ func (h *restoreHarness) restoreState() any {
 func TestRestoreEverything(t *testing.T) {
 	h := newRestoreHarness(t)
 	require.Equal(t, "none", h.restoreState())
-	require.Equal(t, map[string]any{"state": "none", "summary": nil, "error": nil, "estimate_seconds": float64(0)}, h.status())
+	require.Equal(t, map[string]any{"state": "none", "summary": nil, "error": nil, "estimate_seconds": float64(0), "elsewhere": false}, h.status())
 
 	out := h.upload(backupZip(t, "h", store.AuthStandard))
 	require.EqualValues(t, http.StatusOK, out["status"], out)
@@ -423,7 +423,7 @@ func TestRestoreBelongsToTheUploadingBrowser(t *testing.T) {
 	}
 	for _, mod := range []func(*http.Request){stranger, anotherBrowser("guess"), anotherBrowser(testKey(t))} {
 		require.Equal(t, "none", decode(t, h.req("GET", "/api/instance", "", mod))["restore"])
-		require.Equal(t, map[string]any{"state": "none", "summary": nil, "error": nil, "estimate_seconds": float64(0)}, h.status(mod))
+		require.Equal(t, map[string]any{"state": "none", "summary": nil, "error": nil, "estimate_seconds": float64(0), "elsewhere": true}, h.status(mod))
 		elsewhere(h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod))
 		elsewhere(h.req("GET", "/api/setup/restore/feeds", "", mod))
 		elsewhere(h.req("DELETE", "/api/setup/restore", "", mod))
@@ -459,6 +459,7 @@ func TestACookieGrantsNothing(t *testing.T) {
 	for _, mod := range [][]func(*http.Request){{planted}, {stranger, planted}} {
 		require.Equal(t, "none", decode(t, h.req("GET", "/api/instance", "", mod...))["restore"])
 		require.Equal(t, "none", h.status(mod...)["state"])
+		require.Equal(t, true, h.status(mod...)["elsewhere"], "another browser holds the upload: said, so a refused upload can be explained")
 		rec = h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod...)
 		require.Equal(t, http.StatusConflict, rec.Code)
 		require.Equal(t, "restore_elsewhere", decode(t, rec)["error"])

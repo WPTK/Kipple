@@ -138,7 +138,7 @@ describe("Sign-in busy", () => {
     await user.type(await screen.findByLabelText("Username"), "dev");
     await user.type(screen.getByLabelText("Password"), "secret");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Kipple is busy. Try again in a moment.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Sign-in is paused for about 5 seconds: Kipple is busy, or there were several wrong passwords from this address. A correct password is refused until then.");
   });
 });
 

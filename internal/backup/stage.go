@@ -135,6 +135,9 @@ type Upload struct {
 // Status is where the restore stands.
 type Status struct {
 	State string
+	// Elsewhere: another browser holds an upload that is arriving, being checked or ready, so this one cannot start
+	// one. State reads none then.
+	Elsewhere bool
 	// Summary is the checked backup (ready and confirmed).
 	Summary *Upload
 	// Err is why the check refused the upload (failed).
@@ -258,7 +261,9 @@ func (r *Restorer) Status(owner string) Status {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.othersLocked(owner) || r.othersFailedLocked(owner) {
-		return Status{State: RestoreNone}
+		// Reads as none; Elsewhere only says that a new upload would be refused (the answer to it already says so), so a
+		// browser whose upload connection was cut by that refusal can tell the person why.
+		return Status{State: RestoreNone, Elsewhere: r.othersLocked(owner)}
 	}
 	st := Status{State: r.state, EstimateSeconds: r.estimate}
 	if !r.mine(owner) {
