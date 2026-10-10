@@ -186,6 +186,11 @@ deepest folder to the top level and back (N4); deleting the top folder says its 
 afterwards the subtree is gone and the feed is in the default folder (N5). The feed is put back where it was, and
 folders a stopped run left behind are removed first. Same address and credential rules and exit codes as above.
 
+Downloads (`npm run uat:downloads`, `web/uat/downloads.mjs`, same instance, credentials and exit codes), at 1280x800 and
+375x812: Feeds, Feed actions, Export OPML saves an OPML document, not a JSON error (D1); Settings, Statistics, Export…,
+Download saves a CSV with a header row (D2); Settings, Account & Devices, Export backup, then the download link saves a
+zip (D3).
+
 **Label guard (no browser).** The screens above find controls by accessible name, so renaming an `aria-label` in
 `web/src` breaks every screen that looks for the old one without failing any other check. `node scripts/uat-labels.mjs
 [<git range>]` (default `origin/main...HEAD`) reads the diff of `web/src`, takes the static text of each removed or

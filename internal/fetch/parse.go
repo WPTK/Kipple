@@ -3,6 +3,7 @@ package fetch
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	stdhtml "html"
 	"io"
@@ -91,6 +92,8 @@ func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 	return ParseDecoded(decodeBody(body, opt.HTTPCharset), opt)
 }
 
+var errNotJSONFeed = errors.New("JSON document is not a JSON Feed (no version member)")
+
 // decodeBody is DecodeBody; a variable so a test can count the decodes.
 var decodeBody = DecodeBody
 
@@ -136,6 +139,13 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 
 	var jsonItems []*gjson.Item
 	if jf, ok := gf.OriginalFeed().(*gjson.Feed); ok {
+		// The parser takes any JSON object as a JSON Feed. What tells a feed from an API response or a config file is
+		// the spec's version URL, or, for the feeds in the wild that leave it out or write just "1.1", an items array.
+		known := strings.Contains(jf.Version, "jsonfeed.org/version/")
+		bare := (jf.Version == "" || jf.Version == "1.1") && jf.Items != nil
+		if !known && !bare {
+			return nil, errNotJSONFeed
+		}
 		jsonItems = jf.Items
 	}
 

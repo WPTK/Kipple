@@ -14,6 +14,9 @@ export function opmlError(e: unknown): string {
   if (e instanceof ApiError) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
     if (e.status === 413) return "That file is too large to import.";
+    if (e.code === "empty_opml") return "That OPML file has no feeds in it.";
+    if (e.code === "not_opml") return "That is not an OPML file. Choose the .opml or .xml file exported from your other reader.";
+    if (e.code === "bad_opml") return "That OPML file is damaged or cut short, so Kipple couldn't read it. Export it again from your other reader.";
     if (e.status === 400 || e.status === 422) return msg ? `Kipple couldn't read that file: ${msg}` : "Kipple couldn't read that file. Choose an OPML file exported from another reader.";
   }
   return errorMessage(e);

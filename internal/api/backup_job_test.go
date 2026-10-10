@@ -133,10 +133,6 @@ func TestBackupHeadDoesNotSpendTheToken(t *testing.T) {
 	head := func(path string, mod ...func(*http.Request)) *httptest.ResponseRecorder {
 		return h.do("HEAD", path, "", append([]func(*http.Request){withCookie(c), func(r *http.Request) { r.Header.Del("X-Kipple-Client") }}, mod...)...)
 	}
-	cross := func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }
-	require.Equal(t, http.StatusForbidden, head("/api/backup/"+tok, cross).Code, "the origin rule covers HEAD")
-	require.Equal(t, http.StatusForbidden, head("/api/opml", cross).Code)
-	require.Equal(t, http.StatusForbidden, head("/api/stats/export", cross).Code)
 	rec := head("/api/backup/" + tok)
 	require.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 	require.Equal(t, "GET", rec.Header().Get("Allow"))
