@@ -805,6 +805,23 @@ describe("Feed health", () => {
     expect(within(dlg).getByText(/Moved Site/)).toBeInTheDocument();
   });
 
+  it("Keep both on a card whose redirect is no longer pending says so and refreshes the list", async () => {
+    let fetches = 0;
+    base({
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [...bootstrap.feeds, { ...bootstrap.feeds[0], id: "3", title: "Moved Site" }] }),
+      "GET /api/health/feeds": () => {
+        fetches++;
+        return json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => (f.id === "3" ? { ...f, redirect_owner: "Zed Blog" } : f)) });
+      },
+      "POST /api/feeds/3/redirect/keep": () => json({ error: "no_redirect", message: "nothing to keep" }, 409),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Keep both" }));
+    expect(await screen.findByText("That redirect is no longer pending.")).toBeInTheDocument();
+    await waitFor(() => expect(fetches).toBeGreaterThan(1));
+  });
+
   it("Delete this feed says so, rather than opening an empty dialog, when the feed is not in the loaded list", async () => {
     base({
       "GET /api/health/feeds": () => json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => (f.id === "3" ? { ...f, redirect_owner: "Zed Blog" } : f)) }),

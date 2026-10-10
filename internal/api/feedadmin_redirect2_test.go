@@ -30,7 +30,7 @@ func TestAddFeedMergedDuringFirstFetchAnswersFeedExists(t *testing.T) {
 	require.Equal(t, sid(owner), body["feed_id"])
 	require.Contains(t, body["message"], "You already have this feed: My News")
 	require.NotContains(t, body["message"], "redirects")
-	require.Contains(t, body["message"], "Any folder or title you chose was applied to it.")
+	require.Contains(t, body["message"], "A title or folder you chose (other than the default folder) was applied to it.")
 }
 
 // The wording names what redirected: for a page it is the feed the page links, not the page itself.
@@ -75,7 +75,7 @@ func TestAddFeedGoneAfterTheWaitAnswersFeedGone(t *testing.T) {
 	code, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": srv + "/one"}))
 	require.Equal(t, 409, code, body)
 	require.Equal(t, "feed_gone", body["error"])
-	require.Contains(t, body["message"], "the folder and title you chose were applied to the feed you have")
+	require.Contains(t, body["message"], "a title or folder you chose (other than the default folder) was applied to the feed you have")
 }
 
 // The editor asks first whether the linked address is itself a feed you have, as Add does, so the

@@ -202,7 +202,12 @@ function RedirectNotice({ f, onDelete }: { f: HealthFeed; onDelete: () => void }
       invalidateFeeds(qc);
       toast("Keeping both feeds.");
     } catch (e) {
-      toast(errorMessage(e), "error");
+      if (e instanceof ApiError && e.code === "no_redirect") {
+        invalidateFeeds(qc); // the card was stale: refresh it
+        toast("That redirect is no longer pending.", "error");
+      } else {
+        toast(errorMessage(e), "error");
+      }
     } finally {
       setBusy(false);
     }
