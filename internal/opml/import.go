@@ -251,7 +251,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				a.AllowInsecureTLS = nil
 			}
 			if privateAddr {
-				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": private address, imported with allow_private_net off; turn it on for this feed to fetch it")
+				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": private_address")
 			}
 			enabled, reason := 1, any(nil)
 			if a.Enabled != nil && !*a.Enabled {

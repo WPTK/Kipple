@@ -1,0 +1,1 @@
+Sign-in: when wrong passwords slow sign-in down (or Kipple is busy), the form now says how long to wait and that even a correct password is refused until then, and a session that ended on its own says "You were signed out" instead of showing a bare form.

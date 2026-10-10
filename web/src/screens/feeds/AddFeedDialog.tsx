@@ -24,7 +24,7 @@ const addFallback: Record<string, string> = {
 };
 
 /** A server reason as a sentence: capitalized, ending in a full stop. */
-const sentence = (s: string) => {
+export const sentence = (s: string) => {
   const t = s.trim();
   return t ? t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? "" : ".") : t;
 };

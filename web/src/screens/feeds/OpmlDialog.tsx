@@ -14,6 +14,9 @@ export function opmlError(e: unknown): string {
   if (e instanceof ApiError) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
     if (e.status === 413) return "That file is too large to import.";
+    if (e.code === "empty_opml") return "That OPML file has no feeds in it.";
+    if (e.code === "not_opml") return "That is not an OPML file. Choose the .opml or .xml file exported from your other reader.";
+    if (e.code === "bad_opml") return "That OPML file is damaged or cut short, so Kipple couldn't read it. Export it again from your other reader.";
     if (e.status === 400 || e.status === 422) return msg ? `Kipple couldn't read that file: ${msg}` : "Kipple couldn't read that file. Choose an OPML file exported from another reader.";
   }
   return errorMessage(e);
@@ -38,11 +41,12 @@ export async function opmlFileProblem(file: File): Promise<string | null> {
   return "That doesn't look like an OPML file. Choose the .opml or .xml file exported from your other reader.";
 }
 
-/** "<url>: kipple:allow_private_net" from the import report, in plain words. */
+/** "<url>: kipple:allow_private_net" or "<url>: private_address" from the import report, in plain words. */
 export function attrNote(s: string): string {
   const at = s.lastIndexOf(": ");
   const url = at >= 0 ? s.slice(0, at) : s;
   const attr = at >= 0 ? s.slice(at + 2) : "";
+  if (attr === "private_address") return `${url}: this feed is on a private-network address, so it was imported with private-network access off. Turn it on for the feed to fetch it`;
   const what = attr.endsWith("allow_private_net") ? "allowing private-network addresses" : attr.endsWith("allow_insecure_tls") ? "skipping certificate checks" : attr || "a setting";
   return `${url}: ${what} was ignored`;
 }

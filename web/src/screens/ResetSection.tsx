@@ -77,8 +77,8 @@ export function ResetSection({ hasPassword }: { hasPassword: boolean }) {
         Reset Kipple
       </h3>
       <p className="text-xs text-fg2">Erases your feeds, folders, history, settings and account, and starts over in setup. A safety copy is kept.</p>
-      <Button className="self-start" onClick={() => setOpen(true)}>
-        Reset Kipple and start over
+      <Button className="self-start" onClick={() => setOpen(true)} disabled={open && info.isFetching}>
+        {open && info.isFetching ? "Checking" : "Reset Kipple and start over"}
       </Button>
       {open && info.isSuccess ? <ResetDialog hasPassword={hasPassword} envAccount={info.data.env_account} onClose={() => setOpen(false)} /> : null}
       {open && info.isError ? (

@@ -4,10 +4,11 @@ import { ApiError, errorMessage } from "@/api/client";
 import { deleteFeed, invalidateFeeds, loadFeedDetail, patchFeed, refreshFeed, type FeedDetail } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import type { Feed } from "@/api/types";
+import { sentence } from "./AddFeedDialog";
 import { AUTO_READ_PRESETS, autoReadLabel } from "@/api/autoRead";
 import { Button } from "@/ui/button";
 import { AutoReadCatchUp } from "../AutoReadCatchUp";
-import { ListOverrideFields } from "./ListOverrideFields";
+import { ListOverrideFields, useListOverrideDraft } from "./ListOverrideFields";
 import { Disclosure, Field, Modal, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { announce, toast } from "@/shell/toasts";
@@ -105,22 +106,22 @@ export function savedAddressMessage(
   return lost.length ? `Feed address updated. It is on another site or host, so ${lost.join(" and ")}. Kipple is fetching it now.` : "Feed address updated. Kipple is fetching it now.";
 }
 
-/** Turn a failed save into a message next to the field it belongs to. */
 /** The preset numbers, plus the feed's own stored value when it is not one of them, in ascending order. */
 export function withCustom(presets: readonly number[], custom: string): number[] {
   const n = Number(custom);
   return custom && !presets.includes(n) ? [...presets, n].sort((x, y) => x - y) : [...presets];
 }
 
+/** Turn a failed save into a message next to the field it belongs to. */
 function saveError(e: unknown): { field: "url" | "auth" | "form"; message: string } {
   if (e instanceof ApiError) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
-    if (e.code === "invalid_url") return { field: "url", message: msg || "That address isn't a valid feed URL." };
+    if (e.code === "invalid_url") return { field: "url", message: msg ? sentence(msg) : "That address isn't a valid feed URL." };
     if (e.code === "url_exists") return { field: "url", message: "Another feed already uses that address." };
     // A page address: it links no feed, or several (the message lists them).
     if ((e.code === "no_feed" || e.code === "several_feeds") && msg) return { field: "url", message: msg };
     if (e.code === "archive_feed") return { field: "form", message: "The archive feed can't be edited." };
-    if (e.status === 400 && msg) return { field: msg.includes("http_auth") ? "auth" : "form", message: msg };
+    if (e.status === 400 && msg) return { field: msg.includes("http_auth") ? "auth" : "form", message: sentence(msg) };
   }
   return { field: "form", message: errorMessage(e) };
 }
@@ -129,6 +130,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
   const qc = useQueryClient();
   const boot = useBootstrap();
   const q = useQuery({ queryKey: ["feed", feed.id], queryFn: () => loadFeedDetail(feed), staleTime: 0, gcTime: 0, retry: false });
+  const lists = useListOverrideDraft("feed", feed.id);
   const [edits, setEdits] = useState<Partial<Form>>({});
   const [err, setErr] = useState<{ field: "url" | "auth" | "form"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -144,11 +146,16 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
   const heldGrants = { privateNet: !!(q.data?.allow_private_net && f?.privateNet), insecureTls: !!(q.data?.allow_insecure_tls && f?.insecureTls) };
 
   const save = async () => {
-    if (!q.data || Object.keys(patch).length === 0) return onClose();
+    if (!q.data) return;
+    if (Object.keys(patch).length === 0) {
+      lists.apply();
+      return onClose();
+    }
     setBusy(true);
     setErr(null);
     try {
       const saved = await patchFeed(feed.id, patch);
+      lists.apply();
       invalidateFeeds(qc);
       // A login this edit replaced or removed itself is not news.
       const loginBefore = { has_http_auth: q.data.has_http_auth && !("http_auth" in patch) };
@@ -234,7 +241,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="solid" disabled={busy || !f} onClick={() => void save()}>
-            {Object.keys(patch).length ? "Save" : "Done"}
+            {Object.keys(patch).length || lists.dirty ? "Save" : "Done"}
           </Button>
         </>
       }
@@ -270,7 +277,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
               <FolderSelect {...a} value={f.folder} onChange={(id) => set("folder", id)} />
             )}
           </Field>
-          <ListOverrideFields kind="feed" id={feed.id} />
+          <ListOverrideFields kind="feed" id={feed.id} draft={lists} />
           <Field label="Check for new articles">
             {(a) => (
               <select {...a} value={f.interval} onChange={(e) => set("interval", e.target.value)} className={inputCls}>

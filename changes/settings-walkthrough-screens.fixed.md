@@ -1,0 +1,1 @@
+An unknown address now shows "Page not found" instead of silently opening Unread, Wrapped offers Share only for a year with reading in it, the Stats footnote about older opens is clearer, the setup step title no longer draws a focus box, and Reset shows it is checking while it loads.

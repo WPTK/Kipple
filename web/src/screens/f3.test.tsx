@@ -576,6 +576,58 @@ describe("Folders and OPML", () => {
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/reorder").map(body)).toEqual([{ folders: ["2", "1"] }]));
   });
 
+  it("Enter in the New folder name creates the folder, and the help text fits a touch screen", async () => {
+    const { calls } = mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "POST /api/folders": () => json({ id: "3", name: "Fun", position: 2, is_default: false, unread: 0 }),
+    });
+    go("/feeds");
+    const user = userEvent.setup();
+    expect(await screen.findByText(/Tap the arrow beside a folder to collapse it/)).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "New folder" }));
+    await user.type(await screen.findByLabelText("Name"), "Fun{Enter}");
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/folders")).toBe(true));
+    // Esc on a dialog opened from the menu puts the focus back on the menu's button, not on the page.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Feed actions" })).toHaveFocus());
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    expect(screen.queryByText(/Shift-click/)).toBeNull();
+  });
+
+  it("Cancel on Rename folder leaves its layout, order and opening view alone", async () => {
+    const two = { ...bootstrap, folders: [...bootstrap.folders, { id: "2", name: "Tech", position: 1, is_default: false, unread: 0 }] };
+    mockFetch({ "GET /api/bootstrap": () => json(two) });
+    go("/feeds");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Folder actions for Tech" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Rename or set layout/ }));
+    await user.selectOptions(await screen.findByLabelText("Opens in"), "all");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(devicePrefsStore.get().overrides.folder["2"]).toBeUndefined();
+  });
+
+  it("an import opened from the first-run button returns the focus to that button", async () => {
+    mockFetch({ "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [] }) });
+    go("/feeds");
+    const user = userEvent.setup();
+    const btn = await screen.findByRole("button", { name: "Import OPML" });
+    await user.click(btn);
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await new Promise((r) => setTimeout(r, 150)); // the focus retry runs for a moment
+    expect(screen.getByRole("button", { name: "Import OPML" })).toHaveFocus();
+  });
+
+  it("with no feeds, a folder you made is still listed", async () => {
+    const empty = { ...bootstrap, feeds: [], folders: [...bootstrap.folders, { id: "2", name: "Tech", position: 1, is_default: false, unread: 0 }] };
+    mockFetch({ "GET /api/bootstrap": () => json(empty) });
+    go("/feeds");
+    expect(await screen.findByText("Tech")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Select" })).toBeNull(); // nothing to select
+  });
+
   it("reorders a folder's feeds with one reorder call carrying the folder id", async () => {
     const two = { ...bootstrap, feeds: [bootstrap.feeds[0], { ...bootstrap.feeds[0], id: "2", title: "Second Feed" }] };
     const { calls } = mockFetch({
@@ -620,7 +672,7 @@ describe("Folders and OPML", () => {
           folders_merged_case: [{ kept: "News", merged: "news" }],
           skipped: [{ url: "ftp://bad", reason: "not a valid http(s) URL" }],
           invalid_attrs: ["https://x/feed: kipple:interval must be a number"],
-          ignored_attrs: ["https://x/feed: kipple:allow_private_net", "https://y/feed: kipple:allow_insecure_tls"],
+          ignored_attrs: ["https://x/feed: kipple:allow_private_net", "https://y/feed: kipple:allow_insecure_tls", "http://10.0.0.5/feed: private_address"],
         }),
     });
     go("/feeds");
@@ -635,6 +687,7 @@ describe("Folders and OPML", () => {
     expect(within(done).getByText(/ftp:\/\/bad: not a valid/)).toBeInTheDocument();
     expect(within(done).getByText(/https:\/\/x\/feed: allowing private-network addresses was ignored/)).toBeInTheDocument();
     expect(within(done).getByText(/https:\/\/y\/feed: skipping certificate checks was ignored/)).toBeInTheDocument();
+    expect(within(done).getByText(/http:\/\/10\.0\.0\.5\/feed: this feed is on a private-network address.*Turn it on for the feed to fetch it/)).toBeInTheDocument();
     expect(within(done).getByText(/kipple:interval must be a number/)).toBeInTheDocument();
     expect(within(done).getByText(/news into News/)).toBeInTheDocument();
   });
@@ -715,6 +768,32 @@ describe("Feed health", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Fetch log" }));
     const dlg = await screen.findByRole("dialog", { name: "Fetch log for NPR" });
     expect(await within(dlg).findByText("HTTP 404", { selector: "p.break-words" })).toBeInTheDocument();
+  });
+
+  it("counts the write-ahead log in the database size, and names a fetch's outcome in words", async () => {
+    base({
+      "GET /api/health/feeds": () => json({ ...HEALTH, db: { db_bytes: 4096, wal_bytes: 3 * 1024 * 1024, backup_bytes: 0, imgcache_bytes: 0 } }),
+      "GET /api/health/feeds/1/log": () => json({ log: [{ id: "9", trigger: "schedule", started_at: 900, duration_ms: 10, outcome: "not_modified", http_status: 304, error_class: null, error: null, new_items: 0, updated_items: 0, trimmed_items: 0, first_item_id: null, last_item_id: null, bytes: null, final_url: null, note: null, keep: false }] }),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    expect(await screen.findByText(/Database 3\.0 MB/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Actions for Zed Blog" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Fetch log" }));
+    const dlg = await screen.findByRole("dialog", { name: "Fetch log for Zed Blog" });
+    expect(await within(dlg).findByText("Not modified")).toBeInTheDocument();
+    expect(within(dlg).queryByText("not_modified")).toBeNull();
+  });
+
+  it("on a phone the sort has a direction button, and Done is labelled while selecting", async () => {
+    base({ "GET /api/health/feeds": () => json(HEALTH) });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByText("Zed Blog");
+    await user.click(screen.getByRole("button", { name: /^Sort ascending/ }));
+    expect(screen.getByRole("button", { name: /^Sort descending/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    expect(screen.getByRole("button", { name: "Done" })).toHaveTextContent("Done");
   });
 
   it("says when a sync app last called, the same for every app, and nothing before one has", async () => {
@@ -919,7 +998,7 @@ describe("Account and backup", () => {
     await user.type(within(dlg).getByLabelText("New password"), "abcdef");
     await user.type(within(dlg).getByLabelText("New password again"), "abcdef");
     await user.click(within(dlg).getByRole("button", { name: "Change password" }));
-    expect(await within(dlg).findByRole("alert")).toHaveTextContent("Kipple is busy. Try again in a moment.");
+    expect(await within(dlg).findByRole("alert")).toHaveTextContent("Sign-in is paused for about 5 seconds: Kipple is busy, or there were several wrong passwords from this address. A correct password is refused until then.");
   });
 
   it("confirms an export with its warning and contents, then offers the download link", async () => {

@@ -123,7 +123,7 @@ func (s *Server) backupJob(w http.ResponseWriter, r *http.Request) {
 }
 
 // backupDownload is GET /api/backup/{token}: the zip as an attachment. The
-// route needs the web session and the same-origin download rule as well as the
+// route needs the web session as well as the
 // token, which is spent by this request whether or not the transfer completes
 // (a failed one is retried with a new export). The file is deleted afterwards.
 func (s *Server) backupDownload(w http.ResponseWriter, r *http.Request) {
