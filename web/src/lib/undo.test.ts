@@ -209,16 +209,54 @@ describe("actions still in flight", () => {
     expect(shown).not.toHaveBeenCalledWith(NOTHING_TO_UNDO);
   });
 
-  it("the toast's clock resumes after an undo gave up waiting", async () => {
+  it("the toast's clock pauses while Undoing… shows and gets a full window when the wait gives up", async () => {
     read(["1"]);
+    await vi.advanceTimersByTimeAsync(10_000); // 5 s left on the toast
     const t = beginUndo("read"); // joins the toast's group, still in flight
     const z = undoLast();
     await vi.advanceTimersByTimeAsync(UNDO_WAIT_MS);
     await z;
     expect(toast()).toBe("Marked read");
-    await vi.advanceTimersByTimeAsync(TOAST_MS);
+    await vi.advanceTimersByTimeAsync(TOAST_MS - 1_000);
+    expect(toast()).toBe("Marked read");
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(toast()).toBeNull();
     t.settle(null);
+  });
+
+  it("a pushed-off group whose undo fails does not come back on top of the stack", async () => {
+    const bulkUndo = vi.fn().mockResolvedValue(false);
+    const t = beginUndo("read", { bulk: true });
+    const z = undoLast();
+    const last = vi.fn();
+    for (let i = 0; i < STACK_MAX; i++) pushUndo({ kind: i % 2 ? "unread" : "read", ids: [String(i)], undo: i === STACK_MAX - 1 ? last : vi.fn() });
+    t.settle({ ids: ["b"], undo: bulkUndo });
+    await z;
+    expect(bulkUndo).toHaveBeenCalledTimes(1);
+    expect(toast()).not.toBe("Marked 1 as read");
+    await undoLast();
+    expect(last).toHaveBeenCalled();
+    expect(bulkUndo).toHaveBeenCalledTimes(1);
+  });
+
+  it("a group whose window ended while in flight shows no toast when it lands", async () => {
+    const undo = vi.fn();
+    const t = beginUndo("read");
+    await vi.advanceTimersByTimeAsync(STACK_TTL_MS + 1_000);
+    t.settle({ ids: ["1"], undo });
+    expect(toast()).toBeNull();
+    expect(undoStore.get().canUndo).toBe(false);
+    await undoToast();
+    expect(await undoLast()).toBe(false);
+    expect(undo).not.toHaveBeenCalled();
+  });
+
+  it("a failing quick action does not lose the toast of a slower one still in flight", () => {
+    const m = beginUndo("read");
+    const s = beginUndo("star");
+    s.settle(null);
+    m.settle({ ids: ["1"], undo: vi.fn() });
+    expect(toast()).toBe("Marked read");
   });
 
   it("an in-flight action that settles with nothing leaves no group behind", () => {

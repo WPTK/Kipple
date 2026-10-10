@@ -117,11 +117,14 @@ function publish(): void {
   undoStore.set({ toast: view, canUndo: stack.length > 0 });
 }
 
-/** (Re)start the 15 s clock of the toast on screen; a toast not yet shown (in flight) has no clock. */
+/**
+ * (Re)start the 15 s clock of the toast on screen. A toast not yet shown (in flight) has no clock, and the clock is
+ * paused while it is held or while "Undoing…" stands in for it.
+ */
 function armTimer(): void {
   if (timer) clearTimeout(timer);
   timer = undefined;
-  if (!visible() || held) return;
+  if (!visible() || held || waiting) return;
   timer = setTimeout(() => {
     timer = undefined;
     toastGroup = null;
@@ -130,23 +133,28 @@ function armTimer(): void {
 }
 
 function newGroup(kind: UndoKind, bulk: boolean): Group {
-  const g: Group = { id: ++seq, kind, ids: [], bulk, at: Date.now(), undo: null, restores: [], inflight: 0, waiters: [], before: visible() };
+  // The toast it takes over, shown or still in flight, so it can be given back.
+  const g: Group = { id: ++seq, kind, ids: [], bulk, at: Date.now(), undo: null, restores: [], inflight: 0, waiters: [], before: toastGroup };
   stack.push(g);
   toastGroup = g;
   return g;
 }
 
-function addChange(g: Group, change: UndoChange): void {
+function addChange(g: Group, change: UndoChange, onStack: boolean): void {
   for (const id of change.ids) if (!g.ids.includes(id)) g.ids.push(id);
   // Merged actions share the first closure, so it must act on the ids it is handed.
   g.undo ??= change.undo;
   if (change.restore) g.restores.push(change.restore);
-  g.at = Date.now();
+  if (onStack) g.at = Date.now(); // a group off the stack does not get a new window
 }
+
+/** The toast `g` took over, if that is still undoable. */
+const givenBack = (g: Group): Group | null => (g.before && stack.includes(g.before) && alive(g.before) ? g.before : null);
 
 /**
  * Take an action's place on the stack now, as the user acts, and fill it in when the server answers. A same-kind
- * action while that kind's toast is showing joins its group (one toast, one undo), as `pushUndo` always has.
+ * action joins the toast's group (one toast, one undo), as `pushUndo` always has, whether that group is shown or
+ * still in flight.
  */
 export function beginUndo(kind: UndoKind, opts: { bulk?: boolean } = {}): UndoTicket {
   const bulk = opts.bulk === true;
@@ -155,7 +163,7 @@ export function beginUndo(kind: UndoKind, opts: { bulk?: boolean } = {}): UndoTi
   const joins = !bulk && t && t !== waiting && !t.bulk && t.kind === kind && alive(t) && stack.includes(t);
   const g = joins ? t : newGroup(kind, bulk);
   g.inflight++;
-  armTimer();
+  if (!joins) armTimer(); // the toast it replaced stops counting; a joined toast keeps its clock until this lands
   publish();
   let settled = false;
   return {
@@ -163,17 +171,16 @@ export function beginUndo(kind: UndoKind, opts: { bulk?: boolean } = {}): UndoTi
       if (settled) return;
       settled = true;
       g.inflight--;
-      // A group that expired or was pushed off the stack while in flight stays off it; a waiting undo still sees
-      // what it changed.
-      if (change && change.ids.length > 0) addChange(g, change);
-      if (g.inflight === 0) {
-        if (g.ids.length === 0) {
-          stack = stack.filter((x) => x !== g);
-          // Came to nothing: give back the toast it took over, if that is still undoable.
-          if (toastGroup === g) toastGroup = g.before && stack.includes(g.before) && alive(g.before) ? g.before : null;
-        }
-        for (const w of g.waiters.splice(0)) w();
-      }
+      prune();
+      // A group whose window ended or that was pushed off the stack while in flight stays off it and shows no
+      // toast; a waiting undo still sees what it changed.
+      const onStack = stack.includes(g);
+      if (change && change.ids.length > 0) addChange(g, change, onStack);
+      const empty = g.inflight === 0 && g.ids.length === 0;
+      if (empty) stack = stack.filter((x) => x !== g);
+      if (g.inflight === 0) for (const w of g.waiters.splice(0)) w();
+      // Nothing of its own to show: give back the toast it took over.
+      if (toastGroup === g && (empty || !onStack)) toastGroup = givenBack(g);
       // The clock starts when the toast shows, so a slow request does not use up its 15 s.
       if (toastGroup === g || toastGroup === g.before) armTimer();
       publish();
@@ -205,8 +212,11 @@ async function run(g: Group): Promise<void> {
   );
   if (!ok) {
     // The reversal did not happen: keep the group so `z` or the toast can try again, and say so.
-    if (!stack.includes(g)) stack.splice(Math.min(at < 0 ? stack.length : at, stack.length), 0, g);
-    if (wasToast && !toastGroup) toastGroup = g;
+    // Back in its own place; a group already off the stack (pushed off while in flight) stays off it.
+    if (at >= 0 && !stack.includes(g)) {
+      stack.splice(Math.min(at, stack.length), 0, g);
+      if (wasToast && !toastGroup) toastGroup = g;
+    }
     armTimer();
     publish();
     announce("Couldn't undo. Try again."); // the failed request has shown its own error toast
@@ -232,12 +242,13 @@ async function attempt(g: Group): Promise<void> {
   if (waiting) return; // one undo waits at a time; a second press does not queue a second undo
   if (g.inflight > 0) {
     waiting = g;
+    armTimer(); // paused while "Undoing…" stands in for the toast
     publish();
     const inTime = await settledInTime(g);
     waiting = null;
+    armTimer(); // the toast the wait replaced gets a full window back, with its Undo button
     publish();
     if (!inTime) {
-      armTimer(); // the toast the wait replaced gets its clock back
       toast(STILL_SAVING);
       return;
     }
