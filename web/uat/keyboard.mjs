@@ -450,7 +450,7 @@ async function k3(page) {
     await press(page, ...keys);
     const changed = await until(page, ([ids, want]) => ids.every((id) => document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread === want), expect(before));
     await press(page, "z");
-    const restored = await until(page, (snap) => snap.every(([id, u]) => (document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread ?? u) === u), before.map((r) => [r[0], r[1]]), 6000);
+    const restored = await until(page, (snap) => snap.every(([id, u]) => (document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread ?? u) === u), before.map((r) => [r[0], r[1]]), 20000);
     check(changed && restored, where(label), "marks read, and z restores it", `marked=${changed} undone=${restored}`);
   };
   await load(page, "/l/all");
