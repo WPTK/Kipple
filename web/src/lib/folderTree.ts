@@ -175,3 +175,24 @@ export function feedOrder(t: FolderTree<F>, feedsOf: (folder: string) => readonl
   walk(null);
   return out;
 }
+
+/**
+ * The folders that deleting `gone` leaves with nothing in them, so they go too: not the default folder, and only a
+ * folder that held something (a feed or a subfolder) and now holds neither. A folder that was already empty is never
+ * touched. Returns the topmost such folders: deleting one on the server deletes the emptied subfolders under it.
+ */
+export function emptiedFolders<T extends F>(folders: readonly T[], feeds: readonly { id: string; folder_id: string }[], gone: ReadonlySet<string>): string[] {
+  const t = folderTree(folders);
+  const own = new Map<string, string[]>();
+  for (const f of feeds) own.set(f.folder_id, [...(own.get(f.folder_id) ?? []), f.id]);
+  const emptied = new Set<string>();
+  // Children before parents, so a parent sees which of its subfolders are going.
+  for (const id of [...t.preorder].reverse()) {
+    if (t.byId.get(id)?.is_default) continue;
+    const ids = own.get(id) ?? [];
+    const kids = t.children.get(id) ?? [];
+    if (ids.length + kids.length === 0) continue;
+    if (ids.every((x) => gone.has(x)) && kids.every((k) => emptied.has(k))) emptied.add(id);
+  }
+  return t.preorder.filter((id) => emptied.has(id) && !emptied.has(t.parents.get(id) ?? ""));
+}

@@ -1,0 +1,1 @@
+Feeds: deleting feeds also deletes any folder that leaves empty (never the default folder, and never a folder that was already empty); the confirmation lists those folders first.
