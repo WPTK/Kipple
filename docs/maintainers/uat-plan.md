@@ -173,8 +173,8 @@ says it no longer exists and offers Go to Unread (U1, U2); an article address th
 answers says "Page not found" (U4).
 
 In CI, the `Browser UAT` workflow (`.github/workflows/browser-uat.yml`) seeds a throwaway instance on loopback and runs
-`npm run uat`, the flows above and `uat:downloads` under Chromium, and the Feeds and saved-search flows under WebKit
-(`uat:downloads` too once it takes `--browser`). It is not a required check yet. `web/uat/wait-ready.mjs` holds the start
+`npm run uat`, the flows above and `uat:downloads` under Chromium, and the Feeds, saved-search and downloads flows under WebKit
+(an earlier origin rule saved a JSON error as the file only there, never in Chromium). It is not a required check yet. `web/uat/wait-ready.mjs` holds the start
 until the seed's feeds have articles. `npm run seed` builds `web/dist` first when it is missing or older than its sources.
 
 Nested folders (`npm run uat:folders`, `web/uat/folders.mjs`, against the same seeded instance), at 1280x800 and

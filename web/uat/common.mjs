@@ -131,7 +131,7 @@ export async function start(metaUrl, helpLines) {
   };
 
   /** A visible text of a locator for a failure message, never throwing: the thing may not be there at all. */
-  const textOf = (loc) => loc.innerText({ timeout: 2000 }).then((s) => s.replace(/\s+/g, " ").slice(0, 200), () => "(nothing there)");
+  const textOf = (loc, max = 200) => loc.innerText({ timeout: 2000 }).then((s) => s.replace(/\s+/g, " ").slice(0, max), () => "(nothing there)");
   /** Runs one section of a flow; if it throws, that is a finding and the next section still runs. */
   const step = async (name, fn) => {
     try {

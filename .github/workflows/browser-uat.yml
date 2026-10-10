@@ -102,9 +102,8 @@ jobs:
           done
           exit $status
 
-      # Added with the downloads flow (web/uat/downloads.mjs); the file may not exist on a branch that predates it.
       - name: Downloads (Chromium)
-        if: steps.gate.outputs.code != 'false' && !cancelled() && hashFiles('web/uat/downloads.mjs') != ''
+        if: steps.gate.outputs.code != 'false' && !cancelled()
         working-directory: web
         run: npm run uat:downloads
 
@@ -120,11 +119,9 @@ jobs:
             npm run "uat:$flow" -- --browser webkit || status=1
             echo "::endgroup::"
           done
-          if grep -q -- '--browser' uat/downloads.mjs 2>/dev/null; then
-            echo "::group::uat:downloads (webkit)"
-            npm run uat:downloads -- --browser webkit || status=1
-            echo "::endgroup::"
-          fi
+          echo "::group::uat:downloads (webkit)"
+          npm run uat:downloads -- --browser webkit || status=1
+          echo "::endgroup::"
           exit $status
 
       - name: Keep the reports and screenshots of a failed run

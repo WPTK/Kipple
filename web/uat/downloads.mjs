@@ -14,11 +14,12 @@
 // Chromium sends Sec-Fetch-Site: same-origin for these clicks, so this checks that each saved file is the real one;
 // the requests without fetch metadata or from another site are covered by the Go tests (TestDownloadOriginMatrix).
 // Exit code: 0 clean, 1 findings, 2 setup error.
-// First time on a machine: `npx playwright install chromium`.
+// --browser chromium (default), webkit or firefox: WebKit sends different fetch metadata for a download than Chromium.
+// First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
-import { chromium } from "@playwright/test";
+import { chromium, firefox, webkit } from "@playwright/test";
 
 const setupError = (m) => {
   console.error(m);
@@ -32,6 +33,7 @@ const { values: opt } = (() => {
         user: { type: "string", default: process.env.KIPPLE_UAT_USER || "dev" },
         // The seed's throwaway local credentials (web/scripts/seed.mjs), not a secret.
         password: { type: "string", default: process.env.KIPPLE_UAT_PASSWORD || "dev-password-only-for-local-testing" },
+        browser: { type: "string", default: process.env.KIPPLE_UAT_BROWSER || "chromium" },
         headed: { type: "boolean", default: false },
         "allow-remote": { type: "boolean", default: false },
         help: { type: "boolean", default: false },
@@ -42,7 +44,7 @@ const { values: opt } = (() => {
   }
 })();
 if (opt.help) {
-  console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split(/\r?\n/).slice(0, 17).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
+  console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split(/\r?\n/).slice(0, 18).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
   process.exit(0);
 }
 const origin = new URL(opt.url).origin;
@@ -115,7 +117,8 @@ async function run(browser, vp) {
   }
 }
 
-const browser = await chromium.launch({ headless: !opt.headed }).catch((e) => setupError(`no browser: ${e.message} (npx playwright install chromium)`));
+const engine = { chromium, firefox, webkit }[opt.browser] ?? setupError(`unknown --browser ${opt.browser} (chromium, firefox or webkit)`);
+const browser = await engine.launch({ headless: !opt.headed }).catch((e) => setupError(`no browser: ${e.message} (npx playwright install ${opt.browser})`));
 for (const vp of VIEWPORTS) await run(browser, vp);
 await browser.close();
 console.log(findings.length ? `\n${findings.length} finding(s)` : "\nall download checks passed");

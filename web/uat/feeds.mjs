@@ -79,7 +79,7 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("region", { name: "Selected feeds" }).getByRole("button", { name: "Delete", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("heading", { name: `Delete ${n} feed${n === 1 ? "" : "s"}?` }).waitFor({ timeout: 5000 });
-    const text = await textOf(dialog);
+    const text = await textOf(dialog, 2000);
     await progressSpy();
     await dialog.getByRole("button", { name: `Delete ${n} feed${n === 1 ? "" : "s"}`, exact: true }).click();
     await dialog.waitFor({ state: "detached", timeout: 15000 });
