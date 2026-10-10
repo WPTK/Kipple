@@ -30,6 +30,7 @@ func TestAddFeedMergedDuringFirstFetchAnswersFeedExists(t *testing.T) {
 	require.Equal(t, sid(owner), body["feed_id"])
 	require.Contains(t, body["message"], "You already have this feed: My News")
 	require.NotContains(t, body["message"], "redirects")
+	require.Contains(t, body["message"], "Any folder or title you chose was applied to it.")
 }
 
 // The wording names what redirected: for a page it is the feed the page links, not the page itself.
@@ -64,6 +65,7 @@ func TestPatchFeedURLRefusesPageLinkingRedirectingFeed(t *testing.T) {
 // When the first fetch outlasts the wait and the feed is gone by the time it is read (merged into a
 // feed you have), the answer is a plain refusal, never a server error.
 func TestAddFeedGoneAfterTheWaitAnswersFeedGone(t *testing.T) {
+	shortWaits(t) // not parallel: it swaps the package's wait variables, as the other tests that use it
 	srv, _ := site(t)
 	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
 	c := h.login()
@@ -73,7 +75,23 @@ func TestAddFeedGoneAfterTheWaitAnswersFeedGone(t *testing.T) {
 	code, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": srv + "/one"}))
 	require.Equal(t, 409, code, body)
 	require.Equal(t, "feed_gone", body["error"])
-	require.NotEmpty(t, body["message"])
+	require.Contains(t, body["message"], "the folder and title you chose were applied to the feed you have")
+}
+
+// The editor asks first whether the linked address is itself a feed you have, as Add does, so the
+// answer says the page links it rather than that it redirects.
+func TestPatchFeedURLPageLinkingAFeedYouHaveSaysSo(t *testing.T) {
+	srv, _ := site(t)
+	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
+	c := h.login()
+	h.storeFeed(srv + "/feed.xml")
+	mine := h.storeFeed("https://other.example/feed")
+
+	code, body, _ := h.api(c, "PATCH", "/api/feeds/"+sid(mine), jsonStr(map[string]any{"url": srv + "/one"}))
+	require.Equal(t, 409, code, body)
+	require.Equal(t, "url_exists", body["error"])
+	require.Contains(t, body["message"], "The page you entered links it.")
+	require.NotContains(t, body["message"], "redirects")
 }
 
 // The feed editor drops the kept network exceptions for a linked feed on another site than the old
@@ -120,8 +138,11 @@ func TestKeepRedirect(t *testing.T) {
 	require.False(t, h.feedRow(dup, "redirect_kind").Valid)
 	require.Equal(t, "https://new.example/feed", h.feedRow(dup, "redirect_ack").String)
 
-	code, _, _ = h.api(c, "POST", "/api/feeds/"+sid(dup)+"/redirect/keep", "")
-	require.Equal(t, 204, code, "keeping again changes nothing")
+	code, body, _ := h.api(c, "POST", "/api/feeds/"+sid(dup)+"/redirect/keep", "")
+	require.Equal(t, 409, code, "nothing is pending any more")
+	require.Equal(t, "no_redirect", body["error"])
+	code, _, _ = h.api(c, "POST", "/api/feeds/"+sid(owner)+"/redirect/keep", "")
+	require.Equal(t, 409, code, "a feed that does not redirect")
 	for _, p := range []string{"/api/feeds/999/redirect/keep", "/api/feeds/x/redirect/keep"} {
 		code, _, _ = h.api(c, "POST", p, "")
 		require.Equal(t, 404, code, p)

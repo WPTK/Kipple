@@ -426,25 +426,36 @@ func (d *DB) ResetTrimmedUnread(ctx context.Context, feedID int64) error {
 
 // KeepRedirect records the user's choice to keep a feed next to the feed its permanent redirect leads to:
 // the redirect is remembered as accepted (feeds.redirect_ack) and cleared, and later fetches do not
-// record it again (applyRedirect). A feed with no pending redirect is left as it is.
+// record it again (applyRedirect). It is ErrNoRedirectToKeep unless the feed has a pending permanent
+// redirect that leads to another feed you have: there is nothing to keep, and nothing is stored.
 func (d *DB) KeepRedirect(ctx context.Context, feedID int64) error {
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE feeds SET redirect_ack = redirect_to, redirect_to = NULL, redirect_kind = NULL,
-			redirect_count = 0 WHERE id = ? AND redirect_kind = 'permanent' AND redirect_to IS NOT NULL`, feedID)
-		if err != nil {
-			return err
-		}
-		if n, _ := res.RowsAffected(); n > 0 {
-			return nil
-		}
-		var one int
-		err = tx.QueryRowContext(ctx, "SELECT 1 FROM feeds WHERE id = ?", feedID).Scan(&one)
+		var to, kind sql.NullString
+		err := tx.QueryRowContext(ctx, "SELECT redirect_to, redirect_kind FROM feeds WHERE id = ?", feedID).Scan(&to, &kind)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrFeedNotFound
 		}
+		if err != nil {
+			return err
+		}
+		if !to.Valid || kind.String != redirectPermKind {
+			return ErrNoRedirectToKeep
+		}
+		other, found, err := FindFeedByURL(ctx, tx, to.String)
+		if err != nil {
+			return err
+		}
+		if !found || other == feedID {
+			return ErrNoRedirectToKeep
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE feeds SET redirect_ack = redirect_to, redirect_to = NULL, redirect_kind = NULL,
+			redirect_count = 0 WHERE id = ?`, feedID)
 		return err
 	})
 }
+
+// ErrNoRedirectToKeep means the feed has no pending permanent redirect to a feed you have.
+var ErrNoRedirectToKeep = errors.New("store: no redirect to keep")
 
 // FetchLogRow is one fetch_log row as GET /api/health/feeds/{id}/log lists it.
 type FetchLogRow struct {

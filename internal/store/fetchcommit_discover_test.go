@@ -96,9 +96,9 @@ func TestCommitDiscoveredDuplicateMergesIntoTheKeptFeed(t *testing.T) {
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND folder_id = 7 AND custom_title = 'News' AND enabled = 0", other))
 }
 
-// The Add dialog's own fetch reports the duplicate to the person adding it, so the feed they already
-// have keeps its folder and title.
-func TestCommitDiscoveredSubscribeTriggerLeavesTheKeptFeedAlone(t *testing.T) {
+// One rule for every trigger: the folder and title the person chose apply to the kept feed, whether the
+// fetch was the Add dialog's or a scheduled one.
+func TestCommitDiscoveredAppliesTheChoiceForEveryTrigger(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	kept := e.addFeed("https://blog.example/feed.xml")
@@ -110,7 +110,7 @@ func TestCommitDiscoveredSubscribeTriggerLeavesTheKeptFeedAlone(t *testing.T) {
 	ci := e.commitDiscovered(res)
 	require.Equal(t, kept, ci.MergedInto)
 	require.Zero(t, e.count("SELECT count(*) FROM feeds WHERE id = ?", page))
-	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND folder_id != 7 AND custom_title IS NULL", kept))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND folder_id = 7 AND custom_title = 'My blog'", kept))
 }
 
 // A URL edit that lands while the page fetch is in flight wins: nothing is adopted.

@@ -87,25 +87,23 @@ func (d *DB) CommitDiscovered(ctx context.Context, res *fetch.Result) (CommitInf
 	return info, err
 }
 
-// mergeDiscovered removes feedID, a duplicate of other, carrying its folder and custom title over. The Add
-// dialog's fetch (fetch.TriggerSubscribe) is the exception: it reports the duplicate to the person adding it
-// and leaves the feed they already have as it is.
+// mergeDiscovered removes feedID, a duplicate of other, carrying its folder and custom title over. One rule
+// for every trigger: whether a person is still waiting on the fetch is not knowable here, and the choice they
+// made when adding applies either way.
 func (d *DB) mergeDiscovered(ctx context.Context, tx *sql.Tx, res *fetch.Result, feedID, other, folder int64,
 	custom sql.NullString, info *CommitInfo) error {
-	if res.Snap.Trigger != fetch.TriggerSubscribe {
-		var isDefault bool
-		if err := tx.QueryRowContext(ctx, "SELECT is_default FROM folders WHERE id = ?", folder).Scan(&isDefault); err != nil {
+	var isDefault bool
+	if err := tx.QueryRowContext(ctx, "SELECT is_default FROM folders WHERE id = ?", folder).Scan(&isDefault); err != nil {
+		return err
+	}
+	if !isDefault {
+		if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ?, updated_at = unixepoch() WHERE id = ? AND folder_id != ?", folder, other, folder); err != nil {
 			return err
 		}
-		if !isDefault {
-			if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ?, updated_at = unixepoch() WHERE id = ? AND folder_id != ?", folder, other, folder); err != nil {
-				return err
-			}
-		}
-		if custom.Valid {
-			if err := applyFeedEdit(ctx, tx, other, "", false, custom.String); err != nil {
-				return err
-			}
+	}
+	if custom.Valid {
+		if err := applyFeedEdit(ctx, tx, other, "", false, custom.String); err != nil {
+			return err
 		}
 	}
 	var enabled bool

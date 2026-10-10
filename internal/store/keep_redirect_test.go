@@ -42,6 +42,24 @@ func TestKeepRedirectHoldsThroughLaterFetches(t *testing.T) {
 	require.ErrorIs(t, e.db.KeepRedirect(e.ctx, 9999), ErrFeedNotFound)
 }
 
+// There is something to keep only while a permanent redirect to a feed you have is pending.
+func TestKeepRedirectRefusesWhenThereIsNothingToKeep(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("https://a.example/feed")
+	require.ErrorIs(t, e.db.KeepRedirect(e.ctx, id), ErrNoRedirectToKeep, "no redirect")
+
+	e.exec("UPDATE feeds SET redirect_to = 'https://nobody.example/feed', redirect_kind = 'permanent', redirect_count = 2 WHERE id = ?", id)
+	require.ErrorIs(t, e.db.KeepRedirect(e.ctx, id), ErrNoRedirectToKeep, "the target is not a feed you have")
+
+	e.addFeed("https://b.example/feed")
+	e.exec("UPDATE feeds SET redirect_to = 'https://b.example/feed', redirect_kind = 'temporary' WHERE id = ?", id)
+	require.ErrorIs(t, e.db.KeepRedirect(e.ctx, id), ErrNoRedirectToKeep, "a temporary redirect")
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND redirect_ack IS NULL AND redirect_to IS NOT NULL", id))
+
+	e.exec("UPDATE feeds SET redirect_kind = 'permanent' WHERE id = ?", id)
+	require.NoError(t, e.db.KeepRedirect(e.ctx, id))
+}
+
 // A kept redirect is recorded as no redirect at all, so it also ends an older pending one.
 func TestKeptRedirectClearsAnOlderPendingRedirect(t *testing.T) {
 	e := newEnv(t)

@@ -297,7 +297,7 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	if err == nil && !ok && merged != 0 {
 		// The page led, one step further, to a feed the user already has, and the first fetch removed
 		// the new feed as its duplicate: the same answer as when that is known before creating it.
-		s.writeFeedExists(w, r, merged, "The address you entered leads to it.")
+		s.writeFeedExists(w, r, merged, "The address you entered leads to it. Any folder or title you chose was applied to it.")
 		return
 	}
 	if err == nil && !ok {
@@ -305,7 +305,8 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 		// merged it into a feed you have after this request stopped waiting, or it was deleted). That
 		// is an answer, not a fault.
 		writeErrorMsg(w, http.StatusConflict, "feed_gone", "That feed was removed while it was being added, most likely "+
-			"because you already have it. Look through your feeds, and add it again if it is not there.")
+			"because you already have it, in which case the folder and title you chose were applied to the feed you have. "+
+			"Look through your feeds, and add it again if it is not there.")
 		return
 	}
 	if err != nil {
@@ -700,8 +701,14 @@ func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPa
 	case errors.Is(err, discover.ErrNoFeed):
 		return discoveryError(err)
 	case err == nil && (found.IsFeed || len(found.Candidates) == 1):
-		// The same check Add makes: a feed that answers through a redirect to one you already have
-		// is a duplicate whether it was typed or linked from a page.
+		// The same two checks Add makes, in the same order: the linked address itself may be a feed you
+		// have, and a feed that answers through a redirect to one you have is a duplicate whether it was
+		// typed or linked from a page.
+		if len(found.Candidates) > 0 {
+			if other, exists, ferr := s.db.FindFeedID(ctx, found.Candidates[0].URL); ferr == nil && exists && other != id {
+				return "url_exists", s.existingFeedMessage(ctx, other, "The page you entered links it.")
+			}
+		}
 		owner, oerr := s.redirectOwner(ctx, found, ua, retryUA, func(h string) (http.RoundTripper, bool) {
 			// The feed that would be saved is the linked one: the exceptions it keeps are decided by
 			// its site against the old address (as above for the page), not by the page's.
@@ -907,6 +914,10 @@ func (s *Server) keepRedirect(w http.ResponseWriter, r *http.Request) {
 	err := s.db.KeepRedirect(r.Context(), id)
 	if errors.Is(err, store.ErrFeedNotFound) {
 		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if errors.Is(err, store.ErrNoRedirectToKeep) {
+		writeErrorMsg(w, http.StatusConflict, "no_redirect", "This feed does not redirect to another feed you have, so there is nothing to keep.")
 		return
 	}
 	if err != nil {

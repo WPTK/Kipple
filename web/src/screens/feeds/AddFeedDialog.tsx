@@ -21,7 +21,7 @@ const addFallback: Record<string, string> = {
   unreachable: "Kipple couldn't reach that site. Check the address, or try again later.",
   timeout: "The site took too long to answer. Try again later.",
   feed_exists: "You already have this feed. The address you entered leads to it.",
-  feed_gone: "That feed was removed while it was being added, most likely because you already have it.",
+  feed_gone: "That feed was removed while it was being added, most likely because you already have it, in which case the folder and title you chose were applied to the feed you have.",
   private_address: "That address is on your own network, which Kipple doesn't fetch from unless you allow it for the feed.",
 };
 
