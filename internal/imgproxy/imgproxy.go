@@ -100,6 +100,15 @@ func (r Rewriter) Rewrite(u string) string {
 	if len(u) > maxURLLen {
 		return ""
 	}
+	// Only a source that would be proxied: SVG is refused by design (415), so one that says it is SVG in its path is
+	// dropped here and the page never asks for it (no 415s in the console on every open). An https source in http_only
+	// mode never reaches the proxy and is left alone above. One that does not say so in its path is still refused at
+	// the proxy once its bytes are seen.
+	path, _, _ := strings.Cut(l, "#")
+	path, _, _ = strings.Cut(path, "?")
+	if strings.HasSuffix(path, ".svg") || strings.HasSuffix(path, ".svgz") {
+		return ""
+	}
 	flags := r.Flags
 	if r.Thumb {
 		flags |= FlagThumb
