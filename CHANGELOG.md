@@ -8,6 +8,22 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.8.0-beta.7] - 2026-10-10
+
+### Added
+
+- Feeds: deleting a folder can now delete its feeds too. You choose Delete the feeds too, see how many feeds and starred articles go, and type the folder's name to confirm; if any feed can't be deleted the folder is kept.
+
+### Changed
+
+- Feeds: deleting feeds also deletes any folder that leaves empty (never the default folder, and never a folder that was already empty); the confirmation lists those folders first.
+- The documents for whoever releases Kipple (release steps, test and quality plans, risk register, UI decisions) moved to `docs/maintainers/` and the release tooling to `scripts/maintainers/`; the browser and client compatibility page is now a section of `docs/compatibility.md`, the threat model is listed in the docs index, and the release gates also check that the starter feeds are alive.
+
+### Fixed
+
+- Feeds: while selecting, tapping a feed or folder row ticks it instead of opening it, the screen shows only what selecting needs, and bulk delete and turn on/off show one progress bar instead of changing counters.
+- OPML export, the statistics export and backup downloads now work from any browser or download manager, including a link opened in a new tab, long-pressed or typed into the address bar, instead of saving a small error file.
+
 ## [0.8.0-beta.6] - 2026-10-09
 
 ### Changed
@@ -939,7 +955,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.6...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.7...HEAD
+[0.8.0-beta.7]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.6...v0.8.0-beta.7
 [0.8.0-beta.6]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.5...v0.8.0-beta.6
 [0.8.0-beta.5]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.4...v0.8.0-beta.5
 [0.8.0-beta.4]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.3...v0.8.0-beta.4
