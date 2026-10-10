@@ -96,10 +96,18 @@ describe("Wrapped screen", () => {
     expect(screen.getByText("You read 12 items in 2026")).toBeInTheDocument();
   });
 
+  it("shows a not-found page for an address nothing answers, not the Unread list", async () => {
+    setup();
+    go("/wrapped");
+    expect(await screen.findByText("Kipple has nothing at /wrapped.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go to Unread" })).toHaveAttribute("href", "/l/unread");
+  });
+
   it("has an empty state per card", async () => {
     setup({}, { ...yearData, totals: { items_read: 0, opens: 0, active_seconds: 0, days_active: 0 }, daily: [], heatmap: [], behavior: undefined, sources: [] });
     go();
     expect(await screen.findByText("No items read in 2026.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
     expect(screen.getByText("No reading time recorded in 2026.")).toBeInTheDocument();
     expect(screen.getByText("No month stands out yet.")).toBeInTheDocument();
     expect(screen.getByText(/Nothing read yet/)).toBeInTheDocument();
@@ -143,7 +151,7 @@ describe("Wrapped screen", () => {
     await user.selectOptions(sel, "2025");
     await screen.findByText("Loading your year");
     expect(screen.queryByText("You read 12 items in 2026")).toBeNull();
-    expect(screen.getByRole("button", { name: "Share" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
     resolve2025(
       json({
         ...yearData,

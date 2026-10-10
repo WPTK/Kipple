@@ -1,0 +1,1 @@
+Setup restore: when another browser already holds an upload, the page now says so (and how to clear it) instead of blaming disk space or a proxy for a dropped connection.

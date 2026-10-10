@@ -129,7 +129,7 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
           <label htmlFor={searchId} className="text-sm font-semibold">
             Search time zones
           </label>
-          <input id={searchId} type="search" autoComplete="off" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="A city, a region or an offset, such as tokyo or +9" className={inputCls} aria-describedby={`${searchId}-h`} />
+          <input id={searchId} type="search" autoComplete="off" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="A city or an offset, such as tokyo or +9" className={inputCls} aria-describedby={`${searchId}-h`} />
           <p id={`${searchId}-h`} className="text-xs text-fg2">
             <span role="status">{shown.length === 0 ? "No time zone matches." : `${shown.length} time zone${shown.length === 1 ? "" : "s"} ${query.trim() ? "match" : "in the list"}.`}</span> Use the arrow keys to move through the list.
           </p>

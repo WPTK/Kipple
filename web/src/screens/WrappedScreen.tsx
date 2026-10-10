@@ -356,9 +356,8 @@ export function WrappedScreen() {
                   ))}
                 </select>
               </label>
-              <Button disabled={!model} onClick={() => setSharing(true)}>
-                Share
-              </Button>
+              {/* Nothing read this year: there is no summary worth sending. */}
+              {model && !model.empty ? <Button onClick={() => setSharing(true)}>Share</Button> : null}
             </>
           ) : null}
         </div>

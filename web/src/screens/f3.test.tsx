@@ -672,7 +672,7 @@ describe("Folders and OPML", () => {
           folders_merged_case: [{ kept: "News", merged: "news" }],
           skipped: [{ url: "ftp://bad", reason: "not a valid http(s) URL" }],
           invalid_attrs: ["https://x/feed: kipple:interval must be a number"],
-          ignored_attrs: ["https://x/feed: kipple:allow_private_net", "https://y/feed: kipple:allow_insecure_tls"],
+          ignored_attrs: ["https://x/feed: kipple:allow_private_net", "https://y/feed: kipple:allow_insecure_tls", "http://10.0.0.5/feed: private_address"],
         }),
     });
     go("/feeds");
@@ -687,6 +687,7 @@ describe("Folders and OPML", () => {
     expect(within(done).getByText(/ftp:\/\/bad: not a valid/)).toBeInTheDocument();
     expect(within(done).getByText(/https:\/\/x\/feed: allowing private-network addresses was ignored/)).toBeInTheDocument();
     expect(within(done).getByText(/https:\/\/y\/feed: skipping certificate checks was ignored/)).toBeInTheDocument();
+    expect(within(done).getByText(/http:\/\/10\.0\.0\.5\/feed: this feed is on a private-network address.*Turn it on for the feed to fetch it/)).toBeInTheDocument();
     expect(within(done).getByText(/kipple:interval must be a number/)).toBeInTheDocument();
     expect(within(done).getByText(/news into News/)).toBeInTheDocument();
   });
@@ -997,7 +998,7 @@ describe("Account and backup", () => {
     await user.type(within(dlg).getByLabelText("New password"), "abcdef");
     await user.type(within(dlg).getByLabelText("New password again"), "abcdef");
     await user.click(within(dlg).getByRole("button", { name: "Change password" }));
-    expect(await within(dlg).findByRole("alert")).toHaveTextContent("Kipple is busy. Try again in a moment.");
+    expect(await within(dlg).findByRole("alert")).toHaveTextContent("Sign-in is paused for about 5 seconds: Kipple is busy, or there were several wrong passwords from this address. A correct password is refused until then.");
   });
 
   it("confirms an export with its warning and contents, then offers the download link", async () => {
