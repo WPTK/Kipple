@@ -396,7 +396,7 @@ describe("Add feed", () => {
     expect(addError(err("feed_exists", "You already have this feed: My News in the folder Tech. The address you entered redirects to it."))).toBe(
       "You already have this feed: My News in the folder Tech. The address you entered redirects to it.",
     );
-    expect(addError(err("feed_exists"))).toBe("You already have this feed. The address you entered redirects to it.");
+    expect(addError(err("feed_exists"))).toBe("You already have this feed. The address you entered leads to it.");
     expect(addError(err("invalid_url", "that is not a web address; enter a feed or site address such as https://example.com/feed"))).toBe(
       "That is not a web address; enter a feed or site address such as https://example.com/feed.",
     );
@@ -779,9 +779,59 @@ describe("Feed health", () => {
       "GET /api/health/feeds": () => json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => (f.id === "3" ? { ...f, redirect_owner: "Zed Blog" } : f)) }),
     });
     go("/health");
-    expect(await screen.findByText(/which you already have\. Remove this one or keep both\./)).toBeInTheDocument();
+    expect(await screen.findByText(/which you already have\./)).toBeInTheDocument();
     expect(screen.getByText("Zed Blog", { selector: "span.font-semibold" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Update to new URL" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete this feed" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Keep both" })).toBeInTheDocument();
+  });
+
+  it("Keep both stores the choice and Delete this feed opens the delete confirmation", async () => {
+    let kept = 0;
+    base({
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [...bootstrap.feeds, { ...bootstrap.feeds[0], id: "3", title: "Moved Site" }] }),
+      "GET /api/health/feeds": () => json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => (f.id === "3" ? { ...f, redirect_owner: "Zed Blog" } : f)) }),
+      "POST /api/feeds/3/redirect/keep": () => {
+        kept++;
+        return new Response(null, { status: 204 });
+      },
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Keep both" }));
+    await waitFor(() => expect(kept).toBe(1));
+    await user.click(screen.getByRole("button", { name: "Delete this feed" }));
+    const dlg = await screen.findByRole("dialog", { name: "Delete 1 feed?" });
+    expect(within(dlg).getByText(/Moved Site/)).toBeInTheDocument();
+  });
+
+  it("Keep both on a card whose redirect is no longer pending says so and refreshes the list", async () => {
+    let fetches = 0;
+    base({
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [...bootstrap.feeds, { ...bootstrap.feeds[0], id: "3", title: "Moved Site" }] }),
+      "GET /api/health/feeds": () => {
+        fetches++;
+        return json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => (f.id === "3" ? { ...f, redirect_owner: "Zed Blog" } : f)) });
+      },
+      "POST /api/feeds/3/redirect/keep": () => json({ error: "no_redirect", message: "nothing to keep" }, 409),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Keep both" }));
+    expect((await screen.findAllByText("That redirect is no longer pending.")).length).toBeGreaterThan(0);
+    await waitFor(() => expect(fetches).toBeGreaterThan(1));
+  });
+
+  it("Delete this feed says so, rather than opening an empty dialog, when the feed is not in the loaded list", async () => {
+    base({
+      "GET /api/health/feeds": () => json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => (f.id === "3" ? { ...f, redirect_owner: "Zed Blog" } : f)) }),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Delete this feed" }));
+    // The toast is announced as well as shown, so the text can be on the page more than once.
+    expect((await screen.findAllByText("Your feeds are still loading. Try again in a moment.")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("dialog", { name: "Delete 1 feed?" })).toBeNull();
   });
 
   it("counts the write-ahead log in the database size, and names a fetch's outcome in words", async () => {

@@ -67,7 +67,7 @@ func (d *DB) CommitDiscovered(ctx context.Context, res *fetch.Result) (CommitInf
 			allow_private_net = CASE WHEN ?6 THEN 0 ELSE allow_private_net END,
 			allow_insecure_tls = CASE WHEN ?6 THEN 0 ELSE allow_insecure_tls END,
 			etag = NULL, last_modified = NULL, body_hash = NULL, ttl_hint_s = NULL,
-			redirect_to = NULL, redirect_kind = NULL, redirect_count = 0,
+			redirect_to = NULL, redirect_kind = NULL, redirect_count = 0, redirect_ack = NULL,
 			last_fetch_at = ?7, last_status = ?8, next_fetch_at = ?7, current_delay_s = 0, updated_at = ?7
 			WHERE id = ?1`, feedID, res.Discovered, key, host, hostChanged, siteChanged, now, nullInt(res.Status)); err != nil {
 			return err
@@ -87,7 +87,9 @@ func (d *DB) CommitDiscovered(ctx context.Context, res *fetch.Result) (CommitInf
 	return info, err
 }
 
-// mergeDiscovered removes feedID, a duplicate of other, carrying its folder and custom title over.
+// mergeDiscovered removes feedID, a duplicate of other, carrying its folder and custom title over. One rule
+// for every trigger: whether a person is still waiting on the fetch is not knowable here, and the choice they
+// made when adding applies either way.
 func (d *DB) mergeDiscovered(ctx context.Context, tx *sql.Tx, res *fetch.Result, feedID, other, folder int64,
 	custom sql.NullString, info *CommitInfo) error {
 	var isDefault bool

@@ -76,9 +76,12 @@ type Reply struct {
 	NewItems int
 	Updated  int
 	Trimmed  int64
-	ErrClass string
-	ErrMsg   string
-	Err      error // ErrNotFound, ErrDisabled, ErrStopped
+	// MergedInto is the feed this one was removed into when the fetch found it to be a duplicate of it
+	// (a page that links a feed already subscribed); 0 otherwise.
+	MergedInto int64
+	ErrClass   string
+	ErrMsg     string
+	Err        error // ErrNotFound, ErrDisabled, ErrStopped
 }
 
 // PriorityKind selects what a priority job does.
@@ -145,10 +148,11 @@ type result struct {
 	updated    int
 	trimmed    int64
 	newItems   int
-	migrated   bool // the commit rewrote feeds.url (redirect migration, discovery)
-	discovered bool // the commit adopted a discovered URL: the feed is due again at once
-	retitled   bool // the commit changed the feed's display name (store.CommitInfo.Retitled)
-	gone       bool // a 410 disabled the feed
+	migrated   bool  // the commit rewrote feeds.url (redirect migration, discovery)
+	discovered bool  // the commit adopted a discovered URL: the feed is due again at once
+	mergedInto int64 // the commit removed the feed as a duplicate of this one (store.CommitInfo.MergedInto)
+	retitled   bool  // the commit changed the feed's display name (store.CommitInfo.Retitled)
+	gone       bool  // a 410 disabled the feed
 	retry      time.Duration
 	nextFetch  time.Time
 	cancelled  bool

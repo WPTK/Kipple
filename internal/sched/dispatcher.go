@@ -373,7 +373,7 @@ func (s *Scheduler) handleDone(r result) {
 	}
 
 	rep := Reply{FeedID: r.feedID, Outcome: r.outcome, NewItems: r.newItems, Updated: r.updated,
-		Trimmed: r.trimmed, ErrClass: r.errClass, ErrMsg: r.errMsg}
+		Trimmed: r.trimmed, MergedInto: r.mergedInto, ErrClass: r.errClass, ErrMsg: r.errMsg}
 	for _, ch := range f.replies {
 		select {
 		case ch <- rep:

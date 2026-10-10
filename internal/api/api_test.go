@@ -42,8 +42,9 @@ type fakeSched struct {
 	imported   [][]int64
 
 	submits      []sched.Priority
-	reply        sched.Reply // what Submit answers at once, unless hang
-	hang         bool        // Submit's reply channel never fires
+	reply        sched.Reply            // what Submit answers at once, unless hang
+	hang         bool                   // Submit's reply channel never fires
+	onSubmit     func(p sched.Priority) // runs inside Submit, as the fetch it stands for would
 	submitErr    error
 	retentionAll []bool
 	wakes        int
@@ -57,6 +58,9 @@ func (f *fakeSched) Submit(p sched.Priority) (<-chan sched.Reply, error) {
 	f.submits = append(f.submits, p)
 	if f.submitErr != nil {
 		return nil, f.submitErr
+	}
+	if f.onSubmit != nil {
+		f.onSubmit(p)
 	}
 	ch := make(chan sched.Reply, 1)
 	if !f.hang {
