@@ -818,7 +818,7 @@ describe("Feed health", () => {
     go("/health");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Keep both" }));
-    expect(await screen.findByText("That redirect is no longer pending.")).toBeInTheDocument();
+    expect((await screen.findAllByText("That redirect is no longer pending.")).length).toBeGreaterThan(0);
     await waitFor(() => expect(fetches).toBeGreaterThan(1));
   });
 
@@ -829,7 +829,8 @@ describe("Feed health", () => {
     go("/health");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Delete this feed" }));
-    expect(await screen.findByText("Your feeds are still loading. Try again in a moment.")).toBeInTheDocument();
+    // The toast is announced as well as shown, so the text can be on the page more than once.
+    expect((await screen.findAllByText("Your feeds are still loading. Try again in a moment.")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("dialog", { name: "Delete 1 feed?" })).toBeNull();
   });
 
