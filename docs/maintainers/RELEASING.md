@@ -74,7 +74,7 @@ fixes only) is the test.
    A failure writes `testdata\fuzz\<Target>\<hash>` in the package: fix the bug, keep that file as a regression seed.
    **UAT Suite 1, also by hand:** in `web/`, `npm run seed` (it builds the web app when `web/dist` is missing or stale, then stays in the
    foreground), then in a second terminal, once the feeds have fetched (about a minute), `npm run uat` and the single-purpose
-   flows (`npm run uat:folders`, `uat:feeds`, `uat:states`, `uat:keyboard`, `uat:offline`, and `uat:downloads` where present)
+   flows (`npm run uat:folders`, `uat:feeds`, `uat:states`, `uat:keyboard`, `uat:offline`, and `uat:downloads`, or all of them with `npm run uat:all`)
    against that seeded local instance (never the live one; see `uat-plan.md`, Suite 1). The `Browser UAT` workflow runs the
    same on every pull request that changes code (Chromium, and WebKit for the flows that support it); read its result, and
    run it by hand only to reproduce a failure. The run must finish with exit code 0, or every remaining finding must be in

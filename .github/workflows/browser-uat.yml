@@ -1,15 +1,18 @@
 name: Browser UAT
 
 # The scripted browser checks (web/uat, docs/maintainers/uat-plan.md Suite 1) against a seeded throwaway instance on
-# loopback, in real browsers: the whole suite plus the Feeds screen, saved search, address and download flows. Unit tests
-# cannot see what a browser sends or what a click really does; this can.
+# loopback, in real browsers: the whole suite plus every flow listed in web/uat/flows.json (a flow file that is neither
+# listed nor excluded fails the first step). Unit tests cannot see what a browser sends or what a click really does;
+# this can.
 #
 # Its own workflow, not a job of ci.yml: release.yml calls ci.yml, and a slow or flaky browser run must not hold up a
 # release or the go, web, security and docker checks. It is not a required check yet (do not add it to the branch
-# protection until it has run green for a few weeks); read it on every pull request that touches code.
+# protection until it has run green for a few weeks), and scripts/maintainers/pr-ready.ps1 prints its result without
+# blocking on it (its AdvisoryChecks list: take "Browser UAT" off when the check becomes required).
 #
-# The seed's feeds are real public feeds, so the run needs the runner's network. The prose-only skip is the one ci.yml
-# uses (scripts/ci-changes.sh against the base commit's rules, fail-open): the job still reports, with its steps skipped.
+# No outside network: the seed's feeds are served by web/scripts/fixture-feeds.mjs on loopback. The prose-only skip is
+# the one ci.yml uses (scripts/ci-changes.sh against the base commit's rules, fail-open): the job still reports, with
+# its steps skipped.
 on:
   push:
     branches: [main]
@@ -25,12 +28,14 @@ concurrency:
 
 jobs:
   uat:
+    name: Browser UAT
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      # A port of its own, never Kipple's default, so nothing else on the runner can answer for it.
+      # Ports of their own, never Kipple's default, so nothing else on the runner can answer for them.
       KIPPLE_DEV_PORT: "1991"
       KIPPLE_UAT_URL: http://127.0.0.1:1991
+      KIPPLE_SEED_FEEDS_URL: http://127.0.0.1:1994
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,6 +71,11 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      # A flow file nobody listed would never run: fail before anything is built.
+      - name: Every flow is listed or excluded
+        if: steps.gate.outputs.code != 'false'
+        run: node web/uat/all.mjs --check
+
       - name: Install the web dependencies and the browsers
         if: steps.gate.outputs.code != 'false'
         working-directory: web
@@ -73,58 +83,43 @@ jobs:
           npm ci --ignore-scripts
           npx playwright install --with-deps chromium webkit
 
-      # `npm run seed` builds web/dist when it is missing, builds Kipple, starts it and imports the seed's feeds.
-      - name: Start a seeded instance on loopback
+      # `npm run seed` builds web/dist when it is missing, builds Kipple, starts it and adds the fixture feeds.
+      - name: Start the fixture feeds and a seeded instance on loopback
         if: steps.gate.outputs.code != 'false'
         working-directory: web
         run: |
+          nohup node scripts/fixture-feeds.mjs --port 1994 > "$RUNNER_TEMP/fixture.log" 2>&1 &
           nohup npm run seed > "$RUNNER_TEMP/seed.log" 2>&1 &
+          seed=$!
           for i in $(seq 1 300); do
+            if ! kill -0 "$seed" 2>/dev/null; then
+              echo "::error::the seed stopped before the instance was ready; its log ends:"
+              tail -n 40 "$RUNNER_TEMP/seed.log"
+              exit 1
+            fi
             if curl -fsS "$KIPPLE_UAT_URL/healthz" > /dev/null 2>&1 && grep -q "Kipple is running" "$RUNNER_TEMP/seed.log"; then break; fi
             sleep 2
           done
-          node uat/wait-ready.mjs --seconds 240
+          if ! grep -q "Kipple is running" "$RUNNER_TEMP/seed.log"; then
+            echo "::error::the instance was not ready after 10 minutes; the seed log ends:"
+            tail -n 40 "$RUNNER_TEMP/seed.log"
+            exit 1
+          fi
+          node uat/wait-ready.mjs --seconds 120
 
-      - name: Suite 1 (every screen, Chromium)
-        if: steps.gate.outputs.code != 'false'
-        working-directory: web
-        run: npm run uat -- --screenshots
-
-      - name: Flows (Chromium)
+      - name: Every flow (Chromium)
         if: steps.gate.outputs.code != 'false' && !cancelled()
         working-directory: web
-        run: |
-          status=0
-          for flow in offline folders feeds states keyboard; do
-            echo "::group::uat:$flow"
-            npm run "uat:$flow" || status=1
-            echo "::endgroup::"
-          done
-          exit $status
-
-      - name: Downloads (Chromium)
-        if: steps.gate.outputs.code != 'false' && !cancelled()
-        working-directory: web
-        run: npm run uat:downloads
+        run: node uat/all.mjs --engine chromium
 
       # Playwright's WebKit is the WebKit engine, not Safari, but it sends the fetch metadata and download behaviour
-      # that Chromium does not, which is where the saved-error-as-a-file bug could hide.
+      # that Chromium does not, which is where the saved-error-as-a-file bug showed.
       - name: Flows (WebKit)
         if: steps.gate.outputs.code != 'false' && !cancelled()
         working-directory: web
-        run: |
-          status=0
-          for flow in feeds states; do
-            echo "::group::uat:$flow (webkit)"
-            npm run "uat:$flow" -- --browser webkit || status=1
-            echo "::endgroup::"
-          done
-          echo "::group::uat:downloads (webkit)"
-          npm run uat:downloads -- --browser webkit || status=1
-          echo "::endgroup::"
-          exit $status
+        run: node uat/all.mjs --engine webkit
 
-      - name: Keep the reports and screenshots of a failed run
+      - name: Keep the reports of a failed run
         if: steps.gate.outputs.code != 'false' && failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -132,5 +127,6 @@ jobs:
           path: |
             web/uat/results
             ${{ runner.temp }}/seed.log
+            ${{ runner.temp }}/fixture.log
           if-no-files-found: ignore
           retention-days: 7

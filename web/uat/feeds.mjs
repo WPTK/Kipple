@@ -100,7 +100,7 @@ await t.eachViewport(async (page, vp) => {
   if (await done.isVisible()) await done.click();
   await pick(2, 3);
   r = await deleteSelected(2);
-  check(r.text.includes(child) || r.text.includes(root), `${tag} F2 names`, "the dialog names the folders it will remove", `the dialog says "${r.text.slice(0, 200)}"`);
+  check(r.text.includes(root) && /left empty, so (it is|they are) deleted too/.test(r.text), `${tag} F2 names`, "the dialog names the topmost emptied folder (deleting it takes its emptied subfolder) and says it is deleted too", `the dialog says "${r.text.slice(0, 200)}"`);
   check(r.spy.max.join() === "2" && r.spy.most === 1, `${tag} F2 bar two`, "one progress bar with a fixed total of 2", `bars: ${r.spy.max.length ? `totals ${r.spy.max.join(",")}` : "none shown"}, at most ${r.spy.most} at once`);
   s = await t.settle(page, (b) => !b.feeds.some((f) => f.title.startsWith("UAT feed ")) && !b.folders.some((f) => f.name === root || f.name === child));
   check(s.ok, `${tag} F2 emptied`, "the feeds and the folders left empty are gone", "a disposable feed or folder is still there");

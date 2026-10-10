@@ -17,26 +17,45 @@ if (!["127.0.0.1", "[::1]"].includes(new URL(origin).hostname)) {
   console.error("only a loopback --url");
   process.exit(2);
 }
-// The seed's throwaway local credentials (web/scripts/seed.mjs), not a secret.
-const login = await fetch(`${origin}/api/auth/login`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json", "X-Kipple-Client": "web", Origin: origin },
-  body: JSON.stringify({ username: "dev", password: "dev-password-only-for-local-testing" }),
-});
-const cookie = login.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
-if (!login.ok || !cookie) {
-  console.error(`sign-in failed (${login.status})`);
+const die = (m) => {
+  console.error(m);
   process.exit(2);
-}
+};
 const end = Date.now() + Number(values.seconds) * 1000;
-while (Date.now() < end) {
-  const b = await fetch(`${origin}/api/bootstrap`, { headers: { Cookie: cookie, Accept: "application/json" } }).then((r) => r.json());
-  const unread = (b.feeds ?? []).filter((f) => !f.is_archive).reduce((n, f) => n + (f.unread ?? 0), 0);
-  if (unread > 0) {
-    console.log(`ready: ${unread} unread articles`);
-    process.exit(0);
+const pause = () => new Promise((r) => setTimeout(r, 3000));
+// The seed's throwaway local credentials (web/scripts/seed.mjs), not a secret.
+let cookie = "";
+let last = "";
+while (!cookie) {
+  try {
+    const login = await fetch(`${origin}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Kipple-Client": "web", Origin: origin },
+      body: JSON.stringify({ username: "dev", password: "dev-password-only-for-local-testing" }),
+    });
+    if (login.ok) cookie = login.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+    else last = `sign-in answered ${login.status}`;
+  } catch (e) {
+    last = `nothing answers at ${origin} (${e.cause?.code ?? e.message})`;
   }
-  await new Promise((r) => setTimeout(r, 3000));
+  if (!cookie) {
+    if (Date.now() > end) die(`the seeded instance never accepted the seed's sign-in: ${last}`);
+    await pause();
+  }
 }
-console.error("no feed had articles in time (the seed's feeds need network access)");
-process.exit(2);
+while (Date.now() < end) {
+  try {
+    const r = await fetch(`${origin}/api/bootstrap`, { headers: { Cookie: cookie, Accept: "application/json" } });
+    const b = await r.json();
+    const unread = (b.feeds ?? []).filter((f) => !f.is_archive).reduce((n, f) => n + (f.unread ?? 0), 0);
+    if (unread > 0) {
+      console.log(`ready: ${unread} unread articles`);
+      process.exit(0);
+    }
+    last = "the feeds have no articles yet";
+  } catch (e) {
+    last = `bootstrap failed (${e.cause?.code ?? e.message})`;
+  }
+  await pause();
+}
+die(`no feed had articles in time: ${last}. (The seed's feeds need network access, or KIPPLE_SEED_FEEDS_URL.)`);

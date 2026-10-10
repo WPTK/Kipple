@@ -36,7 +36,7 @@ export default tseslint.config(
   },
   {
     // The single-purpose flows: Node, with the functions they hand to page.evaluate written inline.
-    files: ["uat/common.mjs", "uat/feeds.mjs", "uat/states.mjs", "uat/wait-ready.mjs"],
+    files: ["uat/common.mjs", "uat/feeds.mjs", "uat/states.mjs", "uat/wait-ready.mjs", "uat/all.mjs"],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {

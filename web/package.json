@@ -18,6 +18,7 @@
     "uat": "node uat/run.mjs",
     "uat:feeds": "node uat/feeds.mjs",
     "uat:states": "node uat/states.mjs",
+    "uat:all": "node uat/all.mjs",
     "uat:wizard": "node uat/wizard.mjs",
     "uat:offline": "node uat/offline.mjs",
     "uat:keyboard": "node uat/keyboard.mjs",

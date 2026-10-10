@@ -178,9 +178,13 @@ says it no longer exists and offers Go to Unread (U1, U2); an article address th
 answers says "Page not found" (U4).
 
 In CI, the `Browser UAT` workflow (`.github/workflows/browser-uat.yml`) seeds a throwaway instance on loopback and runs
-`npm run uat`, the flows above and `uat:downloads` under Chromium, and the Feeds, saved-search and downloads flows under WebKit
-(an earlier origin rule saved a JSON error as the file only there, never in Chromium). It is not a required check yet. `web/uat/wait-ready.mjs` holds the start
-until the seed's feeds have articles. `npm run seed` builds `web/dist` first when it is missing or older than its sources.
+`npm run uat:all` (`web/uat/all.mjs`): every flow listed in `web/uat/flows.json` under Chromium, and the Feeds, saved-search and
+downloads flows under WebKit (WebKit sends fetch metadata that Chromium does not, so a download error saved as the file shows only there).
+A new flow file goes in `flows.json`, as a flow or as excluded with a reason; `node uat/all.mjs --check` fails a file that is neither.
+The workflow needs no outside network: `web/scripts/fixture-feeds.mjs` serves five feeds on loopback and `KIPPLE_SEED_FEEDS_URL`
+makes `npm run seed` add those instead of the public ones. It is not a required check yet, and `scripts/maintainers/pr-ready.ps1`
+prints its result without blocking on it. `web/uat/wait-ready.mjs` holds the start until the seed's feeds have articles.
+`npm run seed` builds `web/dist` first when it is missing or older than its sources; `KIPPLE_SEED_NO_BUILD=1` skips that.
 
 Nested folders (`npm run uat:folders`, `web/uat/folders.mjs`, against the same seeded instance), at 1280x800 and
 375x812, all through the Feeds screen: New folder, then New subfolder twice, makes three levels (N1); Select and Move to

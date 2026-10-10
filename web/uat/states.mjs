@@ -7,7 +7,7 @@
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and:
 //   Q1  saves a search, then saves the same search again under another name: the second is refused with a plain
 //       message in the dialog and the list of saved searches still has one;
-//   U1  opens the list address of a feed that was deleted, and of one that never existed: each says the feed no
+//   U1  opens the list address of a feed that was deleted, of one nobody has and of a malformed id: each says the feed no
 //       longer exists, with a way back to Unread and not an empty list;
 //   U2  the same for a deleted folder;
 //   U3  opens an article address that is gone: it says so and offers the list;
@@ -75,11 +75,12 @@ await t.eachViewport(async (page, vp) => {
     await t.shot(page, `${tag}-${where.replace(/\s/g, "-")}`);
   };
   await gone("U1 deleted feed", `/l/unread?feed=${feedId}`, "This feed no longer exists");
-  await gone("U1 unknown feed", "/l/unread?feed=00000000-0000-0000-0000-000000000000", "This feed no longer exists");
+  await gone("U1 unknown feed", "/l/unread?feed=4611686018427387904", "This feed no longer exists"); // well-formed but nobody has it
+  await gone("U1 malformed feed id", "/l/unread?feed=not-an-id", "This feed no longer exists");
   await gone("U2 deleted folder", `/l/unread?folder=${folderId}`, "This folder no longer exists");
 
   // U3
-  await page.goto("/i/00000000-0000-0000-0000-000000000000", { waitUntil: "load" });
+  await page.goto("/i/4611686018427387904", { waitUntil: "load" });
   check(await page.getByText("This article is no longer available", { exact: true }).waitFor({ timeout: 15000 }).then(() => true, () => false), `${tag} U3`, "a gone article says so", "no 'no longer available' message");
   await t.shot(page, `${tag}-U3-article-gone`);
 
