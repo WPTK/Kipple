@@ -41,7 +41,7 @@ import { FirstRun } from "./FirstRun";
 import { StatusChip } from "./StatusChip";
 import { SavedSearchesNav } from "./SavedSearchesNav";
 import { CollapseToggle } from "./FeedTree";
-import { DeleteDialog, MoveDialog } from "./feeds/BulkActions";
+import { DeleteDialog, DeleteFolderDialog, MoveDialog } from "./feeds/BulkActions";
 
 // The dialogs load when first opened, not with the Feeds screen.
 const AddFeedDialog = lazyScreen(() => import("./feeds/AddFeedDialog").then((m) => ({ default: m.AddFeedDialog })));
@@ -131,22 +131,14 @@ function FolderDialogs({
     const at = tree.preorder.indexOf(f.id);
     const focusNext = tree.preorder.slice(at).find((id) => !inside.has(id)) ?? tree.preorder.slice(0, Math.max(0, at)).at(-1);
     return (
-      <Modal
-        open
-        onOpenChange={(o) => !o && onClose()}
+      <DeleteFolderDialog
+        folder={f}
         title={`Delete ${pathOf(f.id)}?`}
-        description={deleteFolderText(tree, f.id, feeds)}
-        footer={
-          <>
-            <Button onClick={() => onClose()}>Cancel</Button>
-            <Button variant="solid" disabled={busy} onClick={() => void run(() => deleteFolder(f.id), `Deleted folder ${f.name}`, focusNext)}>
-              Delete folder
-            </Button>
-          </>
-        }
-      >
-        {error ? <Notice tone="error">{error}</Notice> : null}
-      </Modal>
+        keepText={deleteFolderText(tree, f.id, feeds)}
+        feeds={feeds.filter((x) => inside.has(x.folder_id))}
+        focusNext={focusNext}
+        onClose={onClose}
+      />
     );
   }
   if (dialog.kind === "move") {

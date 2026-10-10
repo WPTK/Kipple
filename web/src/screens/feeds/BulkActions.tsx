@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { deleteFeed, invalidateFeeds, patchFeed, reorder as reorderApi } from "@/api/admin";
+import { deleteFeed, deleteFolder, invalidateFeeds, patchFeed, reorder as reorderApi } from "@/api/admin";
 import { errorMessage } from "@/api/client";
 import type { Feed, Folder } from "@/api/types";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, Switch } from "@/ui/kit";
+import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { folderPath, folderTree } from "@/lib/folderTree";
 import { announce, toast } from "@/shell/toasts";
@@ -264,6 +264,139 @@ export function DeleteDialog({ feeds: selected, onClose, onDone }: { feeds: Feed
             ))}
           </ul>
           {busy ? <BulkProgress label="Deleting feeds" done={progress} total={count} /> : null}
+        </>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * Delete a folder. By default its feeds are kept and move to `fallback` (what the server does). The other choice
+ * deletes the feeds of the whole subtree first, then the folder; it asks for the folder's name, and if any feed
+ * fails the folder is left alone so no surviving feed is moved by accident.
+ */
+export function DeleteFolderDialog({
+  folder,
+  title,
+  keepText,
+  feeds: inside,
+  focusNext,
+  onClose,
+}: {
+  folder: Folder;
+  title: string;
+  /** What deleting the folder alone does, in a sentence. */
+  keepText: string;
+  /** The feeds in the folder and all its subfolders. */
+  feeds: Feed[];
+  focusNext?: string;
+  onClose: (focusFolder?: string) => void;
+}) {
+  const qc = useQueryClient();
+  const [feeds] = useState(inside);
+  const { count, starred } = deleteSummary(feeds);
+  const [mode, setMode] = useState<"keep" | "all">("keep");
+  const [alsoStarred, setAlsoStarred] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  const { progress, report, setReport, busy, runEach } = useBulkRun(feeds);
+  const all = mode === "all";
+  const ready = !all || typed.trim() === folder.name;
+  const plural = `${count} feed${count === 1 ? "" : "s"}`;
+
+  const run = async () => {
+    setWorking(true);
+    setError(null);
+    try {
+      if (all) {
+        const { succeeded, failed } = await runEach((f) => deleteFeed(f.id, alsoStarred).then(() => undefined));
+        if (failed.length > 0) {
+          invalidateFeeds(qc);
+          announce(`Deleted ${succeeded.length}, ${failed.length} failed. The folder was kept.`);
+          setReport({ done: succeeded.length, failed });
+          return;
+        }
+      }
+      await deleteFolder(folder.id);
+      invalidateFeeds(qc);
+      void qc.invalidateQueries({ queryKey: ["items"] });
+      toast(all ? `Deleted folder ${folder.name} and ${plural}` : `Deleted folder ${folder.name}`);
+      onClose(focusNext);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => !o && !working && onClose()}
+      title={report ? "Some feeds were not deleted" : title}
+      description={report ? `${report.done} deleted, ${report.failed.length} failed. The folder was kept.` : mode === "keep" ? keepText : undefined}
+      footer={
+        report ? (
+          <Button variant="solid" onClick={() => onClose()}>
+            Close
+          </Button>
+        ) : (
+          <>
+            <Button onClick={() => onClose()} disabled={working}>
+              Cancel
+            </Button>
+            <Button variant="solid" disabled={working || !ready} onClick={() => void run()}>
+              {working ? "Deleting…" : all ? `Delete folder and ${plural}` : "Delete folder"}
+            </Button>
+          </>
+        )
+      }
+    >
+      {report ? (
+        <ul className="flex flex-col gap-2 text-sm" aria-label="Feeds that could not be deleted">
+          {report.failed.map((f, i) => (
+            <li key={i}>
+              <span className="font-semibold">{f.title}</span>: {f.message}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <>
+          {error ? <Notice tone="error">{error}</Notice> : null}
+          {count > 0 ? (
+            <fieldset className="flex flex-col gap-2 text-sm" disabled={working}>
+              <legend className="sr-only">What happens to the feeds</legend>
+              <label className="flex min-h-11 items-center gap-3">
+                <input type="radio" name="folder-feeds" checked={!all} onChange={() => setMode("keep")} className="size-5 accent-[var(--kp-accent)]" />
+                Keep the feeds
+              </label>
+              <label className="flex min-h-11 items-center gap-3">
+                <input type="radio" name="folder-feeds" checked={all} onChange={() => setMode("all")} className="size-5 accent-[var(--kp-accent)]" />
+                Delete the {plural} too
+              </label>
+            </fieldset>
+          ) : null}
+          {all ? (
+            <>
+              <Notice tone="warn">
+                This permanently deletes {plural} and their articles, and your sync apps stop seeing them.
+                {starred > 0 ? ` They hold ${starred} starred article${starred === 1 ? "" : "s"}, kept in the Archive unless you choose below.` : ""}
+              </Notice>
+              {starred > 0 ? <Switch label="Delete starred articles too" checked={alsoStarred} onChange={setAlsoStarred} disabled={working} help="This can't be undone." /> : null}
+              <ul className="max-h-40 overflow-y-auto text-sm text-fg2" aria-label="Feeds to delete">
+                {feeds.map((f) => (
+                  <li key={f.id} className="truncate">
+                    {f.title}
+                  </li>
+                ))}
+              </ul>
+              <Field label={`Type ${folder.name} to confirm`}>
+                {(a) => <input {...a} type="text" autoComplete="off" autoCapitalize="off" value={typed} onChange={(e) => setTyped(e.target.value)} className={inputCls} />}
+              </Field>
+              {busy ? <BulkProgress label="Deleting feeds" done={progress} total={count} /> : null}
+            </>
+          ) : null}
         </>
       )}
     </Modal>

@@ -167,6 +167,28 @@ describe("managing nested folders", () => {
     expect(dialog).toHaveTextContent("Its 3 subfolders are deleted too. The 2 feeds in it are not deleted: they move to Uncategorized.");
   });
 
+  it("a folder can be deleted with its feeds, only after typing its name, and the folder is deleted last", async () => {
+    const { calls } = routes({
+      "DELETE /api/feeds/2": () => new Response(null, { status: 204 }),
+      "DELETE /api/feeds/3": () => new Response(null, { status: 204 }),
+      "DELETE /api/folders/2": () => new Response(null, { status: 204 }),
+    });
+    media(WIDE);
+    go("/feeds");
+    const user = userEvent.setup();
+    await actions(user, "Tech");
+    await user.click(await screen.findByRole("menuitem", { name: "Delete folder" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete Tech?" });
+    await user.click(within(dialog).getByRole("radio", { name: "Delete the 2 feeds too" }));
+    const go2 = within(dialog).getByRole("button", { name: "Delete folder and 2 feeds" });
+    expect(go2).toBeDisabled();
+    await user.type(within(dialog).getByLabelText("Type Tech to confirm"), "Tech");
+    expect(go2).toBeEnabled();
+    await user.click(go2);
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url.pathname === "/api/folders/2")).toBe(true));
+    expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname)).toEqual(["/api/feeds/2", "/api/feeds/3", "/api/folders/2"]);
+  });
+
   it("Move to… offers only valid places, labelled by path, and saves the move", async () => {
     const { calls } = routes();
     media(WIDE);
