@@ -240,11 +240,38 @@ describe("actions still in flight", () => {
 
   it("a joined action that lands after a newer toast does not take the toast back", async () => {
     read(["1"]);
-    await vi.advanceTimersByTimeAsync(14_800);
     const t = beginUndo("read");
     pushUndo({ kind: "star", ids: ["9"], undo: vi.fn() });
     t.settle({ ids: ["2"], undo: vi.fn() });
     expect(toast()).toBe("Starred");
+  });
+
+  it("a joined action that lands after a newer toast timed out shows no toast", async () => {
+    read(["1"]);
+    await vi.advanceTimersByTimeAsync(14_800);
+    const t = beginUndo("read"); // joins; the read toast times out at 15 s
+    pushUndo({ kind: "star", ids: ["9"], undo: vi.fn() });
+    await vi.advanceTimersByTimeAsync(TOAST_MS);
+    expect(toast()).toBeNull(); // the star toast timed out too
+    t.settle({ ids: ["2"], undo: vi.fn() });
+    expect(toast()).toBeNull(); // z would undo the star, so no read toast
+  });
+
+  it("a newer group whose undo fails gets its toast back from an older one that landed meanwhile", async () => {
+    const readUndo = vi.fn();
+    let fail!: (ok: boolean) => void;
+    const starUndo = vi.fn().mockImplementationOnce(() => new Promise<boolean>((r) => (fail = r))).mockResolvedValue(undefined);
+    const a = beginUndo("read"); // slow
+    pushUndo({ kind: "star", ids: ["9"], undo: starUndo });
+    const z = undoToast(); // the star's toast
+    a.settle({ ids: ["1"], undo: readUndo });
+    expect(toast()).toBe("Marked read"); // the star is out being undone
+    fail(false);
+    await z;
+    expect(toast()).toBe("Starred");
+    await undoToast();
+    expect(starUndo).toHaveBeenCalledTimes(2);
+    expect(readUndo).not.toHaveBeenCalled();
   });
 
   it("a pushed-off group whose undo fails does not come back on top of the stack", async () => {

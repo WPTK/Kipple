@@ -178,8 +178,8 @@ export function beginUndo(kind: UndoKind, opts: { bulk?: boolean } = {}): UndoTi
       const landed = change !== null && change.ids.length > 0;
       if (change && landed) addChange(g, change, onStack);
       // A joined action that lands after its toast's time ran out shows it again, like any action that lands, as long
-      // as nothing newer has taken the toast or the stack.
-      if (landed && onStack && !toastGroup && stack[stack.length - 1] === g) toastGroup = g;
+      // as it is still the newest group (a newer one owns the toast, shown or not).
+      if (landed && onStack && stack[stack.length - 1] === g) toastGroup = g;
       const empty = g.inflight === 0 && g.ids.length === 0;
       if (empty) stack = stack.filter((x) => x !== g);
       if (g.inflight === 0) for (const w of g.waiters.splice(0)) w();
@@ -219,7 +219,8 @@ async function run(g: Group): Promise<void> {
     // Back in its own place; a group already off the stack (pushed off while in flight) stays off it.
     if (at >= 0 && !stack.includes(g)) {
       stack.splice(Math.min(at, stack.length), 0, g);
-      if (wasToast && !toastGroup) toastGroup = g;
+      // It gets its toast back, also from an older group that landed and took the slot while this undo was out.
+      if (wasToast && (!toastGroup || stack.indexOf(toastGroup) < stack.indexOf(g))) toastGroup = g;
     }
     armTimer();
     publish();
