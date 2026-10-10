@@ -153,3 +153,57 @@ describe("bulk marks reconcile the optimistic rows", () => {
     expect(unhide).not.toHaveBeenCalled();
   });
 });
+
+describe("z during a mark that has not finished", () => {
+  const all = { view: "all" as const };
+  const rows = (qc: QueryClient) => qc.getQueryData<InfiniteData<ItemsPage>>(keys.items(all))!.pages.flatMap((p) => p.items).map((r) => r.read);
+  /** A mark-read endpoint whose scope (bulk) requests wait for `release`; id requests answer at once. */
+  function heldBulk(changed: string[]) {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const bodies: { ids?: string[]; read: boolean; scope?: unknown }[] = [];
+    mockFetch({
+      "POST /api/items/mark-read": async (_u, init) => {
+        const body = JSON.parse(String(init?.body));
+        bodies.push(body);
+        if (!body.scope) return json({ changed: body.ids, restored: [], count: body.ids.length });
+        await held;
+        return json({ changed, restored: [], count: changed.length, undoable: true });
+      },
+    });
+    return { release, bodies };
+  }
+
+  it("undoes that mark once it lands, not an older action", async () => {
+    const { release, bodies } = heldBulk(["1002", "1003"]);
+    const qc = new QueryClient();
+    qc.setQueryData<InfiniteData<ItemsPage>>(keys.items(all), { pages: [pageOf([card(1, { read: true }), card(2), card(3)])], pageParams: [""] });
+    const act = itemActions(qc);
+    // A single mark-unread first, so the stack holds an older group z could wrongly pick.
+    await act.setRead(["1001"], false, "key");
+    expect(rows(qc)).toEqual([false, false, false]);
+
+    // Shift+A: the rows turn read at once, and z is pressed while the request is still in flight.
+    const marking = act.markAll(all, "1003", ["1001", "1002", "1003"]);
+    expect(rows(qc)).toEqual([true, true, true]);
+    const undoing = undoLast();
+    await Promise.resolve();
+    release();
+    await marking;
+    await undoing;
+
+    // The bulk mark is what was undone; the older mark-unread of 1001 was left alone (no request for it).
+    expect(bodies.slice(2).map((b) => [b.ids, b.read])).toEqual([[["1002", "1003"], false]]);
+    expect(rows(qc).slice(1)).toEqual([false, false]);
+    expect(undoStore.get().canUndo).toBe(true);
+  });
+
+  it("offers Undo while the mark is in flight", async () => {
+    const { release } = heldBulk(["1001"]);
+    const marking = itemActions(new QueryClient()).markAll(all, "1001", ["1001"]);
+    expect(undoStore.get().canUndo).toBe(true);
+    release();
+    await marking;
+    expect(undoStore.get().canUndo).toBe(true);
+  });
+});

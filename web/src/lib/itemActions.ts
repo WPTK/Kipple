@@ -6,7 +6,7 @@ import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
 import type { Card, ItemsPage, Scope } from "@/api/types";
 import { announce, toast } from "@/shell/toasts";
 import { createStore } from "./store";
-import { pushUndo } from "./undo";
+import { pushUndo, undoable } from "./undo";
 
 /**
  * Articles the user marked read on purpose, with a button, a key or the menu (not by opening them, and not by a
@@ -252,5 +252,17 @@ export function itemActions(qc: QueryClient) {
     return true;
   }
 
-  return { setRead, toggleRead, toggleStar, markSide, markAll, restoreMuted };
+  // Each of these changes the screen at once and pushes its undo group only when the server has answered.
+  const tracked =
+    <A extends unknown[], R>(fn: (...a: A) => Promise<R>) =>
+    (...a: A): Promise<R> =>
+      undoable(fn(...a));
+  return {
+    setRead: tracked(setRead),
+    toggleRead: tracked(toggleRead),
+    toggleStar: tracked(toggleStar),
+    markSide: tracked(markSide),
+    markAll: tracked(markAll),
+    restoreMuted,
+  };
 }
