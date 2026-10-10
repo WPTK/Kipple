@@ -360,6 +360,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/feeds/{id}/refresh", s.authed(s.refreshFeed))
 	handle("POST /api/feeds/{id}/mark-fetch-read", s.authed(s.markFetchRead))
 	handle("POST /api/feeds/{id}/trimmed-unread/reset", s.authed(s.resetTrimmedUnread))
+	handle("POST /api/feeds/{id}/redirect/keep", s.authed(s.keepRedirect))
 	handle("POST /api/archive/purge-unstarred", s.authed(s.purgeArchive))
 	handle("POST /api/folders", s.authed(s.createFolder))
 	handle("PATCH /api/folders/{id}", s.authed(s.patchFolder))

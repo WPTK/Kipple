@@ -248,7 +248,7 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 				}
 				sets = append(sets, "url_original = COALESCE(url_original, url)", "url_original_key = COALESCE(url_original_key, url_key)",
 					"etag = NULL", "last_modified = NULL", "body_hash = NULL", "ttl_hint_s = NULL",
-					"redirect_to = NULL", "redirect_kind = NULL", "redirect_count = 0",
+					"redirect_to = NULL", "redirect_kind = NULL", "redirect_count = 0", "redirect_ack = NULL",
 					"consecutive_failures = 0", "current_delay_s = 0", "ua_fallback = 0",
 					// The new URL has never been fetched: its first success brings a backlog, not
 					// arrivals, so feed_daily_new leaves it out like a new subscription's.
@@ -423,6 +423,39 @@ func (d *DB) ResetTrimmedUnread(ctx context.Context, feedID int64) error {
 		return nil
 	})
 }
+
+// KeepRedirect records the user's choice to keep a feed next to the feed its permanent redirect leads to:
+// the redirect is remembered as accepted (feeds.redirect_ack) and cleared, and later fetches do not
+// record it again (applyRedirect). It is ErrNoRedirectToKeep unless the feed has a pending permanent
+// redirect that leads to another feed you have: there is nothing to keep, and nothing is stored.
+func (d *DB) KeepRedirect(ctx context.Context, feedID int64) error {
+	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		var to, kind sql.NullString
+		err := tx.QueryRowContext(ctx, "SELECT redirect_to, redirect_kind FROM feeds WHERE id = ?", feedID).Scan(&to, &kind)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrFeedNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if !to.Valid || kind.String != redirectPermKind {
+			return ErrNoRedirectToKeep
+		}
+		other, found, err := FindFeedByURL(ctx, tx, to.String)
+		if err != nil {
+			return err
+		}
+		if !found || other == feedID {
+			return ErrNoRedirectToKeep
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE feeds SET redirect_ack = redirect_to, redirect_to = NULL, redirect_kind = NULL,
+			redirect_count = 0 WHERE id = ?`, feedID)
+		return err
+	})
+}
+
+// ErrNoRedirectToKeep means the feed has no pending permanent redirect to a feed you have.
+var ErrNoRedirectToKeep = errors.New("store: no redirect to keep")
 
 // FetchLogRow is one fetch_log row as GET /api/health/feeds/{id}/log lists it.
 type FetchLogRow struct {
