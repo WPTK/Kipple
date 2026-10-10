@@ -9,7 +9,7 @@ import { ApiError, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import type { Bootstrap, Feed, Folder } from "@/api/types";
 import { useDevicePrefs } from "@/lib/devicePrefs";
-import { ListOverrideFields } from "./feeds/ListOverrideFields";
+import { ListOverrideFields, useListOverrideDraft } from "./feeds/ListOverrideFields";
 import type { Favorite } from "@/lib/devicePrefs";
 import {
   arrayMove,
@@ -108,11 +108,14 @@ function FolderDialogs({
   const [parent, setParent] = useState(dialog.kind === "new" ? (dialog.parent ?? "") : dialog.kind === "move" ? (parentOf(tree, dialog.folder.id) ?? "") : "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Layout, order and opening view are written with the rename (Save), not as they are picked.
+  const lists = useListOverrideDraft("folder", dialog.kind === "rename" ? dialog.folder.id : "");
   const run = async (fn: () => Promise<unknown>, done: string, focusFolder?: string) => {
     setBusy(true);
     setError(null);
     try {
       await fn();
+      lists.apply();
       invalidateFeeds(qc);
       toast(done);
       onClose(focusFolder);
@@ -169,6 +172,13 @@ function FolderDialogs({
     );
   }
   const isNew = dialog.kind === "new";
+  const submit = () => {
+    if (busy || !name.trim()) return;
+    void run(
+      () => (isNew ? createFolder(name.trim(), parent || null) : patchFolder(dialog.folder.id, { name: name.trim() })),
+      isNew ? "Folder created" : "Folder renamed",
+    );
+  };
   return (
     <Modal
       open
@@ -177,16 +187,8 @@ function FolderDialogs({
       footer={
         <>
           <Button onClick={() => onClose()}>Cancel</Button>
-          <Button
-            variant="solid"
-            disabled={busy || !name.trim()}
-            onClick={() =>
-              void run(
-                () => (isNew ? createFolder(name.trim(), parent || null) : patchFolder(dialog.folder.id, { name: name.trim() })),
-                isNew ? "Folder created" : "Folder renamed",
-              )
-            }
-          >
+          {/* The form's submit button, so Enter in the name field saves too. */}
+          <Button variant="solid" type="submit" form="folder-form" disabled={busy || !name.trim()}>
             {isNew ? "Create" : "Save"}
           </Button>
         </>
@@ -194,8 +196,10 @@ function FolderDialogs({
     >
       {error ? <Notice tone="error">{error}</Notice> : null}
       <form
+        id="folder-form"
         onSubmit={(e) => {
           e.preventDefault();
+          submit();
         }}
         className="flex flex-col gap-4"
       >
@@ -205,7 +209,7 @@ function FolderDialogs({
         {isNew ? (
           <Field label="Inside">{(a) => <FolderSelect {...a} value={parent} onChange={setParent} only={parentChoices(tree, null)} none="Top level" />}</Field>
         ) : (
-          <ListOverrideFields kind="folder" id={dialog.folder.id} />
+          <ListOverrideFields kind="folder" id={dialog.folder.id} draft={lists} />
         )}
       </form>
     </Modal>
@@ -215,6 +219,7 @@ function FolderDialogs({
 type Sel = ReadonlySet<string>;
 
 const folderActionsId = (folder: string) => `folder-actions-${folder}`;
+const FEED_ACTIONS_ID = "feed-actions";
 
 /**
  * After a move or a delete, put the focus on a folder row's actions button. The row re-mounts (moved) or the dialog's
@@ -222,9 +227,14 @@ const folderActionsId = (folder: string) => `folder-actions-${folder}`;
  * the focus from anything the person moved it to since.
  */
 function focusFolderActions(folder: string) {
+  focusActionsButton(folderActionsId(folder));
+}
+
+/** The same for any actions button (the header's Feed actions too), by element id: a dialog opened from a menu item returns the focus there. */
+function focusActionsButton(id: string) {
   let tries = 0;
   const tick = () => {
-    const el = document.getElementById(folderActionsId(folder));
+    const el = document.getElementById(id);
     const now = document.activeElement;
     const adrift = !now || now === document.body || !now.isConnected || (now instanceof HTMLElement && now.dataset.folderActions !== undefined);
     if (el && now !== el && adrift) el.focus();
@@ -425,6 +435,13 @@ export function FeedsScreen() {
 
   // ---- selection ----
   const selected = realFeeds.filter((f) => sel.has(f.id));
+  const finePointer = typeof window.matchMedia === "function" && window.matchMedia("(any-pointer: fine)").matches;
+  // Nothing left to select (every feed deleted): the action bar would only sit under "No feeds yet".
+  if (selecting && boot.data && realFeeds.length === 0) {
+    setSelecting(false);
+    setSel(new Set());
+    setAnchor(null);
+  }
   const clearSel = () => {
     setSel(new Set());
     setAnchor(null);
@@ -713,10 +730,12 @@ export function FeedsScreen() {
               <span className="hidden min-[400px]:inline">{editMode ? "Done" : "Edit"}</span>
             </Button>
           ) : null}
-          <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
-            <CheckSquare aria-hidden="true" />
-            <span className="hidden min-[400px]:inline">{selecting ? "Done" : "Select"}</span>
-          </Button>
+          {realFeeds.length > 0 ? (
+            <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
+              {selecting ? <Check aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
+              <span className={selecting ? undefined : "hidden min-[400px]:inline"}>{selecting ? "Done" : "Select"}</span>
+            </Button>
+          ) : null}
           {!selecting ? (
             <Button variant="ghost" onClick={() => setAdding(true)} aria-label="Add feed">
               <Plus aria-hidden="true" />
@@ -726,7 +745,7 @@ export function FeedsScreen() {
           {!selecting ? (
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Feed actions">
+                <Button variant="ghost" size="icon" id={FEED_ACTIONS_ID} aria-label="Feed actions">
                   <MoreVertical aria-hidden="true" />
                 </Button>
               </DropdownMenu.Trigger>
@@ -761,18 +780,18 @@ export function FeedsScreen() {
         </div>
         <p className="pb-1 text-xs text-fg2">
           {selecting
-            ? "Tap feeds to select them, then move or delete them. Shift-click selects a range."
+            ? `Tap feeds to select them, then move or delete them.${finePointer ? " Shift-click selects a range." : ""}`
             : editMode
               ? "Drag a feed or folder to reorder it. Changes are saved as you drop."
-              : "Tap a folder to collapse it. Tap Edit to reorder, rename or delete a feed."}
+              : "Tap the arrow beside a folder to collapse it, or its menu to rename, move or delete it. Tap Edit to reorder feeds or change one."}
         </p>
       </header>
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {boot.isPending ? <Skeleton rows={5} label="Loading feeds" /> : null}
         {boot.isError ? <Notice tone="error">Couldn't load your feeds. Check your connection and try again.</Notice> : null}
-        {boot.data && realFeeds.length === 0 ? (
-          <FirstRun onAdd={() => setAdding(true)} onImport={() => setImporting(true)} />
-        ) : boot.data ? (
+        {boot.data && realFeeds.length === 0 ? <FirstRun onAdd={() => setAdding(true)} onImport={() => setImporting(true)} /> : null}
+        {/* With no feeds the tree still shows the folders you made, so a new folder is never invisible. */}
+        {boot.data && (realFeeds.length > 0 || folders.some((fo) => !fo.is_default)) ? (
           <>
             {selecting ? null : (
               <ul className="mb-2 flex flex-col gap-1">
@@ -830,7 +849,14 @@ export function FeedsScreen() {
       ) : null}
       <Suspense fallback={null}>
         {adding ? <AddFeedDialog onClose={() => setAdding(false)} onOpenFeed={(id) => { setAdding(false); navigate(openListTo({ feed: id })); }} /> : null}
-        {importing ? <OpmlImportDialog onClose={() => setImporting(false)} /> : null}
+        {importing ? (
+          <OpmlImportDialog
+            onClose={() => {
+              setImporting(false);
+              focusActionsButton(FEED_ACTIONS_ID);
+            }}
+          />
+        ) : null}
         {editing ? <FeedEditor feed={editing} onClose={() => setEditing(null)} /> : null}
       </Suspense>
       {bulk === "move" ? <MoveDialog feeds={selected} folders={folders} allFeeds={feeds} onClose={() => setBulk(null)} onDone={exitSelect} /> : null}
@@ -851,8 +877,12 @@ export function FeedsScreen() {
           feeds={realFeeds}
           onMove={moveFolder}
           onClose={(focusFolder) => {
+            // The menu item the dialog opened from is gone by now: put the focus back on that menu's button.
+            const from = folderDialog.kind === "new" ? folderDialog.parent : folderDialog.folder.id;
             setFolderDialog(null);
             if (focusFolder) focusFolderActions(focusFolder);
+            else if (from) focusFolderActions(from);
+            else focusActionsButton(FEED_ACTIONS_ID);
           }}
         />
       ) : null}

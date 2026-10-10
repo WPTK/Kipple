@@ -294,6 +294,11 @@ const msgPrivateAddress = "That address is on a private network (this computer o
 	"fetch from private addresses unless you allow it for the feed. If this feed is on your own network, turn on " +
 	"\"Allow addresses on my own network\" and add it again."
 
+// msgPrivateAddressEdit is the same refusal for the feed editor, where the switch is under Unsafe options.
+const msgPrivateAddressEdit = "That address is on a private network (this computer or your local network). Kipple does not " +
+	"fetch from private addresses unless you allow it for the feed. If this feed is on your own network, turn on " +
+	"\"Allow addresses on my own network\" under Unsafe options below and save again."
+
 // discoveryError maps a failed discovery to the add dialog's error code and a plain-language message.
 func discoveryError(err error) (code, msg string) {
 	var se *discover.StatusError
@@ -494,6 +499,9 @@ func (s *Server) patchFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	case errors.Is(err, store.ErrFolderNotFound):
 		writeErrorMsg(w, http.StatusBadRequest, "folder_not_found", "no such folder")
+		return
+	case errors.As(err, &bad) && bad.Private:
+		writeErrorMsg(w, http.StatusBadRequest, "invalid_url", msgPrivateAddressEdit)
 		return
 	case errors.As(err, &bad):
 		writeErrorMsg(w, http.StatusBadRequest, "invalid_url", bad.Reason)

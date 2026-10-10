@@ -13,7 +13,7 @@ import { updatePrefs } from "@/lib/prefs";
 import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
 import { clearListMemory } from "./ListPane";
-import { ListOverrideFields } from "./feeds/ListOverrideFields";
+import { ListOverrideFields, useListOverrideDraft } from "./feeds/ListOverrideFields";
 import { DeviceSaveStatus } from "@/shell/SaveStatus";
 import { syncStore } from "@/lib/deviceSync";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
@@ -166,25 +166,39 @@ describe("per-feed order", () => {
 });
 
 describe("the feed and folder editors", () => {
+  // What a dialog does with the fields: they are a draft, written when its Save runs.
+  function Dialog({ kind, id }: { kind: "feed" | "folder"; id: string }) {
+    const draft = useListOverrideDraft(kind, id);
+    return (
+      <>
+        <ListOverrideFields kind={kind} id={id} draft={draft} />
+        <button onClick={draft.apply}>Save</button>
+      </>
+    );
+  }
   function renderFields(kind: "feed" | "folder", id: string, boot: Bootstrap = bootstrap) {
     const qc = new QueryClient();
     qc.setQueryData(keys.bootstrap, boot);
     return render(
       <QueryClientProvider client={qc}>
-        <ListOverrideFields kind={kind} id={id} />
+        <Dialog kind={kind} id={id} />
       </QueryClientProvider>,
     );
   }
 
-  it("set and clear each field of the override", async () => {
+  it("set and clear each field of the override, on Save only", async () => {
     const boot = { ...bootstrap, folders: [...bootstrap.folders, { id: "4", name: "Tech", position: 1, is_default: false, unread: 0 }] };
     renderFields("folder", "4", boot);
     const user = userEvent.setup();
     await user.selectOptions(screen.getByLabelText("Order on this device"), "oldest");
     await user.selectOptions(screen.getByLabelText("Opens in"), "all");
+    expect(screen.getByLabelText("Opens in")).toHaveValue("all");
+    expect(devicePrefsStore.get().overrides.folder["4"]).toBeUndefined(); // nothing is written before Save
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(devicePrefsStore.get().overrides.folder["4"]).toEqual({ order: "oldest", view: "all" });
     await user.selectOptions(screen.getByLabelText("Order on this device"), "default");
     await user.selectOptions(screen.getByLabelText("Opens in"), "default");
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(devicePrefsStore.get().overrides.folder["4"]).toBeUndefined();
   });
 
@@ -209,7 +223,9 @@ describe("the feed and folder editors", () => {
     setListOverride("folder", "90", "layout", "cards"); // the same for a folder
     setListOverride("folder", "1", "layout", "inbox");
     renderFields("feed", "1", boot);
-    await userEvent.setup().selectOptions(screen.getByLabelText("Opens in"), "all");
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Opens in"), "all");
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(devicePrefsStore.get().overrides).toEqual({
       feed: { "1": { view: "all" }, "150": { order: "oldest" } },
       folder: { "1": { layout: "inbox" }, "90": { layout: "cards" } },
@@ -219,7 +235,9 @@ describe("the feed and folder editors", () => {
   it("a bootstrap from the offline copy prunes nothing", async () => {
     setListOverride("feed", "99", "layout", "cards");
     renderFields("feed", "1", { ...bootstrap, fromCache: true } as Bootstrap);
-    await userEvent.setup().selectOptions(screen.getByLabelText("Opens in"), "all");
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText("Opens in"), "all");
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(devicePrefsStore.get().overrides.feed).toEqual({ "99": { layout: "cards" }, "1": { view: "all" } });
   });
 });

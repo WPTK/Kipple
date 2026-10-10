@@ -9,6 +9,7 @@ import {
   type ListField,
   type ListOverride,
 } from "@/lib/devicePrefs";
+import { useState } from "react";
 import { Field, inputCls } from "@/ui/kit";
 import { useFallbackLabel } from "../LayoutMenu";
 
@@ -20,13 +21,38 @@ const CHOICES: { field: ListField; label: string; ids: readonly string[]; names:
 
 /**
  * A feed's or folder's own layout, order and opening view on this device (the same overrides the list header's
- * options menu sets). Each applies at once, like the menu. The first choice of each clears the list's own value and
+
+ * options menu sets), as a draft: nothing is written until the dialog's Save calls `apply` from
+ * useListOverrideDraft, so Cancel leaves them as they were. The first choice of each clears the list's own value and
  * names what it then gets, as the menu does: "Inherited from Tech (Cards)", or the device default.
  */
-export function ListOverrideFields({ kind, id }: { kind: "feed" | "folder"; id: string }) {
-  const own = useDevicePrefs().overrides[kind][id];
-  const ctx = useListContext(kind === "feed" ? { feed: id } : { folder: id });
+export interface OverrideDraft {
+  /** The fields changed in the dialog; a null value clears the override. */
+  draft: Partial<Record<ListField, string | null>>;
+  setDraft: (field: ListField, value: string | null) => void;
+  /** Write the draft to this device's preferences. */
+  apply: () => void;
+  /** Whether Save has anything to write. */
+  dirty: boolean;
+}
+
+export function useListOverrideDraft(kind: "feed" | "folder", id: string): OverrideDraft {
+  const [draft, setAll] = useState<Partial<Record<ListField, string | null>>>({});
   const setListOverride = useSetListOverride();
+  return {
+    draft,
+    setDraft: (field, value) => setAll((d) => ({ ...d, [field]: value })),
+    apply: () => {
+      for (const [field, value] of Object.entries(draft)) setListOverride(kind, id, field as ListField, value as ListOverride[ListField] | null);
+    },
+    dirty: Object.keys(draft).length > 0,
+  };
+}
+
+export function ListOverrideFields({ kind, id, draft: state }: { kind: "feed" | "folder"; id: string; draft: OverrideDraft }) {
+  const stored = useDevicePrefs().overrides[kind][id];
+  const own = (field: ListField): string | null => (field in state.draft ? (state.draft[field] ?? null) : ((stored?.[field] as string | undefined) ?? null));
+  const ctx = useListContext(kind === "feed" ? { feed: id } : { folder: id });
   const fallback: Record<ListField, string> = {
     layout: useFallbackLabel(ctx, "layout"),
     order: useFallbackLabel(ctx, "order"),
@@ -43,8 +69,8 @@ export function ListOverrideFields({ kind, id }: { kind: "feed" | "folder"; id: 
           {(a) => (
             <select
               {...a}
-              value={own?.[c.field] ?? "default"}
-              onChange={(e) => setListOverride(kind, id, c.field, e.target.value === "default" ? null : (e.target.value as NonNullable<ListOverride[ListField]>))}
+              value={own(c.field) ?? "default"}
+              onChange={(e) => state.setDraft(c.field, e.target.value === "default" ? null : e.target.value)}
               className={inputCls}
             >
               <option value="default">{fallback[c.field]}</option>
