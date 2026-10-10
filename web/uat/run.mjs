@@ -990,6 +990,8 @@ function writeReport(results, s6) {
 
   console.log(`\n${Object.entries(summary).map(([c, s]) => `${c} ${s.fail}${s.waived ? ` (+${s.waived} waived)` : ""}`).join("  ")}`);
   console.log(`Report: ${join(outDir, "report.md")}`);
+  // A run in CI has only its log on screen, so the unwaived findings are printed here too, one line each.
+  for (const f of fails) console.log(`FINDING ${f.check} ${f.screen ?? "-"}/${f.theme ?? "-"}/${f.viewport ?? "-"}: ${f.message}${f.detail ? ` | ${String(typeof f.detail === "string" ? f.detail : JSON.stringify(f.detail)).slice(0, 300)}` : ""}`);
   if (summary.run.fail) return 2;
   return fails.length ? 1 : 0;
 }

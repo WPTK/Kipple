@@ -4,5 +4,12 @@
     "rule": "target-size",
     "match": "after:absolute",
     "reason": "False positive (issue #50). A list row's title link is only its text box (19-21 px tall), but its ::after (after:absolute after:inset-0) covers the whole row: the containing block is the row's <article class=\"relative\"> (no positioned element in between, and the title's overflow:hidden does not clip it), so the tap target is the full row, at least 44 px on touch and 28 px (Email - Compact, dense) with a mouse. axe-core measures the <a> box and cannot see the pseudo-element. Matching on the first overlay class keeps the waiver to links that have it (the report cuts a long link snippet, so the second class may not be in the text)."
+  },
+  {
+    "check": "S3",
+    "rule": "scrollable-region-focusable",
+    "screen": "list-options",
+    "match": "role=\"menu\"",
+    "reason": "False positive. The List options menu scrolls when the window is short (max height is the space Radix reports as available), and axe wants a tabbable element inside a scrollable region. A menu is a roving-focus widget: focus is on one item, the arrow keys, Home and End move it and scroll it into view, and Tab closes the menu, so every item is reachable by keyboard. Making the menu or each item tabbable would break that pattern."
   }
 ]
