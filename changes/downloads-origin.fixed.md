@@ -1,0 +1,1 @@
+OPML export, the statistics export and backup downloads save the real file however the browser starts them: from a link, a new tab, the address bar, a reload, a bookmark, a download manager or after being sent back from a sign-in page, where some saved a small error file instead. Only one statistics export runs at a time.

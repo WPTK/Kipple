@@ -180,6 +180,14 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bom := bomQ == "1" && format == "csv"
+	// One export at a time: a download needs no origin proof, so another page can start
+	// one, and each streams the whole table.
+	if !s.exportBusy.CompareAndSwap(false, true) {
+		w.Header().Set("Retry-After", "5")
+		writeErrorMsg(w, http.StatusTooManyRequests, "busy", "A statistics export is already running. Try again in a moment.")
+		return
+	}
+	defer s.exportBusy.Store(false)
 	rd := s.db.Reader()
 	recording, loc, tz, weekStart, err := store.StatsSettings(ctx, rd)
 	if err != nil {
