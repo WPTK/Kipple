@@ -39,7 +39,7 @@ export function WizardFrame({
             ) : null}
           </div>
           {step.n > 0 ? <Progress n={step.n} /> : null}
-          <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold outline-none">
+          <h1 ref={heading} tabIndex={-1} data-route-heading className="text-2xl font-bold">
             {step.title}
           </h1>
           {description ? <p className="text-base text-fg2">{description}</p> : null}

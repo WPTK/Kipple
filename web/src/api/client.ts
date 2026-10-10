@@ -28,6 +28,25 @@ export type AuthState = "unknown" | "in" | "out";
 export const authStore = createStore<AuthState>("unknown");
 
 /**
+ * True once a signed-in session was ended by the server (a 401 on a request that was signed in: the cookie expired, was
+ * cleared, or the password was changed on another device). The sign-in form says so. A sign-out you chose never sets it.
+ */
+export const sessionLostStore = createStore<boolean>(false);
+
+/** Set before a sign-out you chose begins: the 401s that follow it (a stream reconnecting, queued writes) are not a lost session. */
+let signOutChosen = false;
+export function chooseSignOut(chosen: boolean) {
+  signOutChosen = chosen;
+}
+
+/** The one place the app becomes signed in: a lost-session note and a sign-out intent end with it. */
+export function setSignedIn() {
+  signOutChosen = false;
+  sessionLostStore.set(false);
+  authStore.set("in");
+}
+
+/**
  * Set when a signed-in request is refused by the open gate (an account with no password, reached from an address or
  * network the server does not allow: 403 open_refused). The app then shows why instead of a broken screen. Cleared by
  * the next request that goes through.
@@ -155,6 +174,7 @@ async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
   if (!cached) setSessionExpired(false);
   noteResponse(res, opts.quiet);
   if (res.status === 401 && !opts.anon) {
+    if (authStore.get() === "in" && !signOutChosen) sessionLostStore.set(true);
     authStore.set("out");
     throw new ApiError(401, "auth");
   }
@@ -175,11 +195,22 @@ async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
     err.fromKipple = res.headers.has("X-Kipple-API");
     throw err;
   }
-  if ((!opts.anon || opts.signsIn) && authStore.get() !== "in") authStore.set("in");
+  if ((!opts.anon || opts.signsIn) && authStore.get() !== "in") setSignedIn();
   if ((!opts.anon || opts.signsIn) && openRefusedStore.get()) openRefusedStore.set(null);
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   return (text ? JSON.parse(text) : undefined) as T;
+}
+
+/**
+ * What a 503 "busy" answer to a password check means. The server gives one answer for two causes (its password checker
+ * is occupied, or this address typed several wrong passwords and is being slowed down) and refuses even a correct
+ * password until the wait is over, so the message names both and the wait the server asked for.
+ */
+export function busyMessage(e: ApiError): string {
+  const s = Math.max(1, Math.round((e.retryAfterMs || 5_000) / 1000));
+  const wait = s >= 90 ? `${Math.ceil(s / 60)} minutes` : s === 1 ? "1 second" : `${s} seconds`;
+  return `Sign-in is paused for about ${wait}: Kipple is busy, or there were several wrong passwords from this address. A correct password is refused until then.`;
 }
 
 /** Human message for an error toast. */
