@@ -2198,6 +2198,15 @@ The design is in docs/maintainers/ui-decisions.md ("The Gazette"); this is how t
 - **Scroll position** comes back when the reader returns, once the pages are tall enough to hold it. Any scroll the restore did not make before that (the reader's, the article pane's previous and next, find in page) cancels it, so loading more pages never jumps back.
 - **Not built yet:** swipe and the row menu on stories (issue #314).
 
+### 7.11 Undo in the web app (`web/src/lib/undo.ts`, `web/src/lib/itemActions.ts`)
+
+The toast and the stack's limits are in docs/maintainers/ui-decisions.md ("Gestures and keys"): one toast for 15 s, same-kind actions merged, up to 20 groups reachable with `z` for 60 s, bulk marks never merged and undoable for 2 minutes. Undo reverses exactly what the server says it changed (`changed`, `ledger_ids`; §7.1), never the rows the client guessed.
+
+- **A slot when the user acts.** An undoable action (a single mark read or unread, a swipe star, mark above or below, Shift+A) takes its group on the stack the moment it changes the screen, before its request is sent, so the stack is in the order the user acted. The request then settles the group: with the ids the server changed and their inverse, or with nothing when it failed, the server marked nothing, the change is over the server's undo cap, or the action cannot be undone. A group that settles with nothing is removed and gives back the toast it took over. A star from the row menu takes no slot.
+- **The toast** shows a group once it has settled, and its 15 s start then, so a slow request does not use them up. A same-kind action joins the group of the toast on screen, except the group an undo is waiting for.
+- **Undo** (`z`, the toast's button, the list menu's item) acts on the newest group at the moment of the press. A settled group is undone at once. A group still in flight is waited for, and only that group: the toast says "Undoing…" (its button stays, marked disabled, so focus is not lost), further presses are ignored rather than queued, and the wait ends after 10 s. Then it is undone, or the app says one of: **"Nothing to undo"** (the group settled with nothing, or the stack is empty; never falls through to an older group), **"Still saving. Try Undo again in a moment."** (the 10 s passed; the request is not cancelled and the group stays), **"Couldn't undo. Try again."** (the inverse request failed; the group stays). The first two are shown as a toast and announced; the third is announced next to the failed request's own error toast.
+- A group that falls off the stack while in flight (20 newer groups, or its window ended) stays off it when it settles; an undo already waiting for it still undoes it.
+
 ---
 
 ## 8. Stats model and write-path rules

@@ -22,15 +22,17 @@ export function UndoToast() {
           onBlur={() => holdUndoToast(false)}
         >
           <span className="flex-1 font-medium">{toast.text}</span>
-          {toast.busy ? null : (
-            <button
-              type="button"
-              className="hit inline-flex items-center justify-center rounded-md px-2 font-bold underline underline-offset-2"
-              onClick={() => void undoToast()}
-            >
-              Undo
-            </button>
-          )}
+          {/* While busy the button stays (focus is not lost) but does nothing: the undo is already under way. */}
+          <button
+            type="button"
+            className="hit inline-flex items-center justify-center rounded-md px-2 font-bold underline underline-offset-2 aria-disabled:opacity-50"
+            aria-disabled={toast.busy ? true : undefined}
+            onClick={() => {
+              if (!toast.busy) void undoToast();
+            }}
+          >
+            Undo
+          </button>
         </div>
       ) : null}
     </div>

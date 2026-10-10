@@ -1,14 +1,15 @@
 import { createStore } from "./store";
-import { announce } from "@/shell/toasts";
+import { announce, toast } from "@/shell/toasts";
 
 // Undo model (docs/maintainers/ui-decisions.md, "Gestures and keys"):
 // - one toast slot, 15 s, repeated same-kind actions merge into one toast;
 // - a stack of 20 undoable groups, reachable with `z` for 60 s;
 // - bulk batches (mark above/below, Shift+A) coalesce with nothing and stay undoable for 2 minutes;
 // - an action takes its place on the stack when the user acts (`beginUndo`), not when the server answers, so the
-//   stack is in the order the user acted. Until its request settles the group is in flight: `z`, the toast and the
-//   menu wait for that one group (at most UNDO_WAIT_MS), and if it comes to nothing they say so instead of undoing
-//   an older one.
+//   stack is in the order the user acted. Until its request settles the group is in flight and shows no toast (its
+//   15 s start when it settles). `z`, the toast and the menu wait for that one group (at most UNDO_WAIT_MS, toast
+//   "Undoing…", further presses ignored); if it comes to nothing they say "Nothing to undo" instead of undoing an
+//   older one, and give the older toast back. docs/design.md §7.11.
 
 export type UndoKind = "read" | "unread" | "star" | "unstar";
 
@@ -18,6 +19,8 @@ export const STACK_TTL_MS = 60_000;
 export const BULK_TTL_MS = 120_000;
 /** How long an undo waits for its action's request before giving up (the request itself is not cancelled). */
 export const UNDO_WAIT_MS = 10_000;
+export const NOTHING_TO_UNDO = "Nothing to undo";
+export const STILL_SAVING = "Still saving. Try Undo again in a moment.";
 
 type UndoFn = (ids: string[]) => void | boolean | Promise<void | boolean>;
 
@@ -54,10 +57,12 @@ interface Group {
   /** Actions in this group whose request has not settled. A group with none and no ids is removed. */
   inflight: number;
   waiters: (() => void)[];
+  /** The toast this group took over when it started, shown again if the group comes to nothing. */
+  before: Group | null;
 }
 
 export interface UndoView {
-  /** `busy`: an undo is waiting for its action's request; the toast says so and offers no button. */
+  /** `busy`: an undo is waiting for its action's request; the toast says so and its button does nothing. */
   toast: { id: number; text: string; busy?: true } | null;
   canUndo: boolean;
 }
@@ -70,6 +75,7 @@ let toastGroup: Group | null = null;
 let waiting: Group | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let held = false;
+let shownId: number | null = null;
 let seq = 0;
 
 const ttl = (g: Group): number => (g.bulk ? BULK_TTL_MS : STACK_TTL_MS);
@@ -94,24 +100,28 @@ function prune(): void {
   stack = stack.filter(alive).slice(-STACK_MAX);
 }
 
+/** The toast's group while it has something to show: a group still in flight shows nothing yet. */
+const visible = (): Group | null => (toastGroup && toastGroup.ids.length > 0 ? toastGroup : null);
+
 function publish(): void {
   prune();
-  if (!toastGroup) held = false; // a hovered or focused toast that went away no longer holds the clock
-  const shown = toastGroup && toastGroup.ids.length > 0 ? toastGroup : null;
-  undoStore.set({
-    toast: waiting
-      ? { id: waiting.id, text: "Undoing…", busy: true }
-      : shown
-        ? { id: shown.id, text: undoText(shown.kind, shown.ids.length, shown.bulk) }
-        : null,
-    canUndo: stack.length > 0,
-  });
+  const shown = visible();
+  const view = waiting
+    ? { id: waiting.id, text: "Undoing…", busy: true as const }
+    : shown
+      ? { id: shown.id, text: undoText(shown.kind, shown.ids.length, shown.bulk) }
+      : null;
+  // A hovered or focused toast that went away, or was replaced, no longer holds the clock.
+  if ((view?.id ?? null) !== shownId) held = false;
+  shownId = view?.id ?? null;
+  undoStore.set({ toast: view, canUndo: stack.length > 0 });
 }
 
+/** (Re)start the 15 s clock of the toast on screen; a toast not yet shown (in flight) has no clock. */
 function armTimer(): void {
   if (timer) clearTimeout(timer);
   timer = undefined;
-  if (!toastGroup || held) return;
+  if (!visible() || held) return;
   timer = setTimeout(() => {
     timer = undefined;
     toastGroup = null;
@@ -120,7 +130,7 @@ function armTimer(): void {
 }
 
 function newGroup(kind: UndoKind, bulk: boolean): Group {
-  const g: Group = { id: ++seq, kind, ids: [], bulk, at: Date.now(), undo: null, restores: [], inflight: 0, waiters: [] };
+  const g: Group = { id: ++seq, kind, ids: [], bulk, at: Date.now(), undo: null, restores: [], inflight: 0, waiters: [], before: visible() };
   stack.push(g);
   toastGroup = g;
   return g;
@@ -141,7 +151,9 @@ function addChange(g: Group, change: UndoChange): void {
 export function beginUndo(kind: UndoKind, opts: { bulk?: boolean } = {}): UndoTicket {
   const bulk = opts.bulk === true;
   const t = toastGroup;
-  const g = !bulk && t && !t.bulk && t.kind === kind && alive(t) && stack.includes(t) ? t : newGroup(kind, bulk);
+  // Never join the group an undo is waiting for: that undo is for what had happened when it was pressed.
+  const joins = !bulk && t && t !== waiting && !t.bulk && t.kind === kind && alive(t) && stack.includes(t);
+  const g = joins ? t : newGroup(kind, bulk);
   g.inflight++;
   armTimer();
   publish();
@@ -151,18 +163,19 @@ export function beginUndo(kind: UndoKind, opts: { bulk?: boolean } = {}): UndoTi
       if (settled) return;
       settled = true;
       g.inflight--;
-      if (change && change.ids.length > 0) {
-        // Undone, expired or pushed off while in flight: what this action changed is still undoable, as its own group.
-        addChange(stack.includes(g) ? g : newGroup(kind, bulk), change);
-      }
+      // A group that expired or was pushed off the stack while in flight stays off it; a waiting undo still sees
+      // what it changed.
+      if (change && change.ids.length > 0) addChange(g, change);
       if (g.inflight === 0) {
         if (g.ids.length === 0) {
           stack = stack.filter((x) => x !== g);
-          if (toastGroup === g) toastGroup = null;
+          // Came to nothing: give back the toast it took over, if that is still undoable.
+          if (toastGroup === g) toastGroup = g.before && stack.includes(g.before) && alive(g.before) ? g.before : null;
         }
         for (const w of g.waiters.splice(0)) w();
       }
-      armTimer();
+      // The clock starts when the toast shows, so a slow request does not use up its 15 s.
+      if (toastGroup === g || toastGroup === g.before) armTimer();
       publish();
     },
   };
@@ -196,7 +209,7 @@ async function run(g: Group): Promise<void> {
     if (wasToast && !toastGroup) toastGroup = g;
     armTimer();
     publish();
-    announce("Couldn't undo. Try again.");
+    announce("Couldn't undo. Try again."); // the failed request has shown its own error toast
     return;
   }
   announce("Undone");
@@ -224,11 +237,13 @@ async function attempt(g: Group): Promise<void> {
     waiting = null;
     publish();
     if (!inTime) {
-      announce("Still saving. Try Undo again in a moment.");
+      armTimer(); // the toast the wait replaced gets its clock back
+      toast(STILL_SAVING);
       return;
     }
-    if (!stack.includes(g)) {
-      announce("Nothing to undo");
+    // Its ids, not its place on the stack: a group pushed off while this undo waited is still the one meant.
+    if (g.ids.length === 0) {
+      toast(NOTHING_TO_UNDO);
       return;
     }
   }
@@ -237,9 +252,13 @@ async function attempt(g: Group): Promise<void> {
 
 /** `z`, and the Undo item in the list menu: the most recent group still inside its window. */
 export async function undoLast(): Promise<boolean> {
+  if (waiting) return true; // already undoing; this press is ignored
   prune();
   const g = stack[stack.length - 1];
-  if (!g) return false;
+  if (!g) {
+    toast(NOTHING_TO_UNDO);
+    return false;
+  }
   await attempt(g);
   return true;
 }

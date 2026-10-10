@@ -144,7 +144,9 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
 - **Swipe directions match iOS Mail everywhere** (this supersedes round 1's "read left, unread right"):
   swipe right (leading) = toggle read/unread; swipe left (trailing) = star, plus a "More" action opening the
   row menu. Full swipe commits with undo. Star also has a row button, `s`, and the long-press menu.
-- Undo toast lasts **15 seconds** (merged toast; `z` undo stack as specified).
+- Undo toast lasts **15 seconds** from when the change is saved (merged toast). `z` undoes the newest change, up to 20
+  changes back within 60 s (bulk marks 2 minutes), waiting for one that is still saving; the full model is
+  docs/design.md §7.11.
 - Single-key shortcuts: global on/off setting. `c`: toggle the Compact layout (match the layout system).
   `m` in Unread view: row dims in place (shipped differently: a row marked read on purpose dims,
   then leaves the Unread list after 1.5 s with the undo toast up; the open article leaves when you

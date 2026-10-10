@@ -179,13 +179,17 @@ describe("z while an action is still in flight", () => {
   }
   const changedBoth = () => json({ changed: ["1002", "1003"], restored: [], count: 2, undoable: true });
   /** Id marks answer at once; a scope (bulk) mark waits for `bulk`, then answers `bulkReply`; a star of 1001 waits for `star`. */
-  function server(bulkReply: () => Response | Promise<Response> = changedBoth) {
+  function server(bulkReply: () => Response | Promise<Response> = changedBoth, heldId?: string) {
     const bulk = gate();
     const star = gate();
+    const id = gate();
     const { calls } = mockFetch({
       "POST /api/items/mark-read": async (_u, init) => {
         const b = JSON.parse(String(init?.body));
-        if (!b.scope) return json({ changed: b.ids, restored: [], count: b.ids.length });
+        if (!b.scope) {
+          if (b.read && heldId && b.ids.includes(heldId)) await id.p;
+          return json({ changed: b.ids, restored: [], count: b.ids.length });
+        }
         await bulk.p;
         return bulkReply();
       },
@@ -195,7 +199,7 @@ describe("z while an action is still in flight", () => {
       },
       "GET /api/items": (u) => json(pageOf((u.searchParams.get("ids") ?? "").split(",").map((id) => card(Number(id) - 1000)))),
     });
-    return { bulk, star, calls };
+    return { bulk, star, id, calls };
   }
 
   it("z during Shift+A undoes the Shift+A once it lands, not the older mark below it", async () => {
@@ -245,7 +249,7 @@ describe("z while an action is still in flight", () => {
     ["marks nothing", () => json({ changed: [], restored: [], count: 0, undoable: true })],
     ["is over the undo cap", () => json({ changed: [], restored: [], count: 5000, undoable: false })],
   ])("when the in-flight Shift+A %s, z undoes nothing and says so, never the older mark", async (_name, reply) => {
-    const say = vi.spyOn(toasts, "announce");
+    const say = vi.spyOn(toasts, "toast");
     const { bulk, calls } = server(reply);
     const act = itemActions(seeded());
     await act.setRead(["1001"], true, "key");
@@ -263,7 +267,7 @@ describe("z while an action is still in flight", () => {
   it("a request that never answers: z gives up after UNDO_WAIT_MS and says so; a second z meanwhile is ignored", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
-      const say = vi.spyOn(toasts, "announce");
+      const say = vi.spyOn(toasts, "toast");
       const { calls } = server();
       const act = itemActions(seeded());
       await act.setRead(["1001"], true, "key");
@@ -310,6 +314,65 @@ describe("z while an action is still in flight", () => {
     star.open();
     await starring;
     expect(undoStore.get().canUndo).toBe(false);
+  });
+
+  it("a second z while the first waits, then the mark lands: exactly one undo request", async () => {
+    const { bulk, calls } = server();
+    const act = itemActions(seeded());
+    await act.setRead(["1001"], true, "key");
+    const marking = act.markAll(all, "1003", ["1002", "1003"]);
+    const z1 = undoLast();
+    await tick();
+    const z2 = undoLast();
+    await tick();
+    bulk.open();
+    await Promise.all([marking, z1, z2]);
+    expect(asked(calls)).toEqual(["mark-read 1001 true", "mark-read scope true", "mark-read 1002,1003 false"]);
+  });
+
+  it("m, z, m on another row while the z waits: exactly the first m is undone", async () => {
+    const { id, calls } = server(changedBoth, "1001");
+    const act = itemActions(seeded());
+    const first = act.setRead(["1001"], true, "key"); // held
+    const z = undoLast();
+    await tick();
+    await act.setRead(["1002"], true, "key"); // must not join the group z is waiting for
+    id.open();
+    await Promise.all([first, z]);
+    expect(asked(calls)).toEqual(["mark-read 1001 true", "mark-read 1002 true", "mark-read 1001 false"]);
+    expect(undoStore.get().toast?.text).toBe("Marked read"); // the second m, still undoable
+  });
+
+  it("a Shift+A slower than 15 s still shows its toast, for 15 s from when it lands", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { bulk } = server();
+      const marking = itemActions(seeded()).markAll(all, "1003", ["1002", "1003"]);
+      await vi.advanceTimersByTimeAsync(16_000);
+      bulk.open();
+      await marking;
+      expect(undoStore.get().toast?.text).toBe("Marked 2 as read");
+      await vi.advanceTimersByTimeAsync(14_000);
+      expect(undoStore.get().toast?.text).toBe("Marked 2 as read");
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(undoStore.get().toast).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["fails", () => json({ error: "x" }, 500)],
+    ["marks nothing", () => json({ changed: [], restored: [], count: 0, undoable: true })],
+  ])("a Shift+A that %s gives the older mark's toast back", async (_name, reply) => {
+    const { bulk } = server(reply);
+    const act = itemActions(seeded());
+    await act.setRead(["1001"], true, "key");
+    const marking = act.markAll(all, "1003", ["1002", "1003"]);
+    expect(undoStore.get().toast).toBeNull();
+    bulk.open();
+    await marking;
+    expect(undoStore.get().toast?.text).toBe("Marked read");
   });
 
   it("Undo is available as soon as an undoable mark starts", async () => {

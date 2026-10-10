@@ -3,7 +3,9 @@ import {
   BULK_TTL_MS,
   STACK_MAX,
   STACK_TTL_MS,
+  NOTHING_TO_UNDO,
   TOAST_MS,
+  UNDO_WAIT_MS,
   beginUndo,
   dismissUndoToast,
   holdUndoToast,
@@ -14,6 +16,7 @@ import {
   undoText,
   undoToast,
 } from "./undo";
+import * as toasts from "@/shell/toasts";
 
 const read = (ids: string[], undo: (ids: string[]) => void | Promise<void> = vi.fn(), extra: Partial<Parameters<typeof pushUndo>[0]> = {}) => pushUndo({ kind: "read", ids, undo, ...extra });
 const toast = () => undoStore.get().toast?.text ?? null;
@@ -175,6 +178,47 @@ describe("actions still in flight", () => {
     await z;
     expect(undo).toHaveBeenCalledWith(["1", "2"]);
     expect(undoStore.get().canUndo).toBe(false);
+  });
+
+  it("z with nothing to undo says so where it can be seen", async () => {
+    const shown = vi.spyOn(toasts, "toast");
+    expect(await undoLast()).toBe(false);
+    expect(shown).toHaveBeenCalledWith(NOTHING_TO_UNDO);
+  });
+
+  it("a group pushed off the stack while in flight does not land on top when it settles", async () => {
+    const bulkUndo = vi.fn();
+    const t = beginUndo("read", { bulk: true });
+    const last = vi.fn();
+    for (let i = 0; i < STACK_MAX; i++) pushUndo({ kind: i % 2 ? "unread" : "read", ids: [String(i)], undo: i === STACK_MAX - 1 ? last : vi.fn() });
+    t.settle({ ids: ["b"], undo: bulkUndo });
+    await undoLast();
+    expect(last).toHaveBeenCalled();
+    expect(bulkUndo).not.toHaveBeenCalled();
+  });
+
+  it("a waiting z still undoes its group when it lands, even if the group was pushed off meanwhile", async () => {
+    const shown = vi.spyOn(toasts, "toast");
+    const bulkUndo = vi.fn();
+    const t = beginUndo("read", { bulk: true });
+    const z = undoLast();
+    for (let i = 0; i < STACK_MAX; i++) pushUndo({ kind: i % 2 ? "unread" : "read", ids: [String(i)], undo: vi.fn() });
+    t.settle({ ids: ["b"], undo: bulkUndo });
+    await z;
+    expect(bulkUndo).toHaveBeenCalledWith(["b"]);
+    expect(shown).not.toHaveBeenCalledWith(NOTHING_TO_UNDO);
+  });
+
+  it("the toast's clock resumes after an undo gave up waiting", async () => {
+    read(["1"]);
+    const t = beginUndo("read"); // joins the toast's group, still in flight
+    const z = undoLast();
+    await vi.advanceTimersByTimeAsync(UNDO_WAIT_MS);
+    await z;
+    expect(toast()).toBe("Marked read");
+    await vi.advanceTimersByTimeAsync(TOAST_MS);
+    expect(toast()).toBeNull();
+    t.settle(null);
   });
 
   it("an in-flight action that settles with nothing leaves no group behind", () => {
