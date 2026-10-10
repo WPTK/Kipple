@@ -124,6 +124,7 @@ func (e *env) fetchBody(id int64, body []byte) CommitInfo {
 }
 
 func TestCommitInsertUpdateAndOrdering(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 
@@ -173,6 +174,7 @@ func TestCommitInsertUpdateAndOrdering(t *testing.T) {
 }
 
 func TestMissingDateUsesCrawlTimeAndClampsFuture(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(
@@ -188,6 +190,7 @@ func TestMissingDateUsesCrawlTimeAndClampsFuture(t *testing.T) {
 }
 
 func TestRetentionCapStarredExemptAndLedger(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id) // unlimited while loading
@@ -232,6 +235,7 @@ func TestRetentionCapStarredExemptAndLedger(t *testing.T) {
 }
 
 func TestRetentionUnlimitedAndDefault(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -254,6 +258,7 @@ func TestRetentionUnlimitedAndDefault(t *testing.T) {
 }
 
 func TestRetentionRetainUntilHoldAndRanking(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -278,6 +283,7 @@ func TestRetentionRetainUntilHoldAndRanking(t *testing.T) {
 }
 
 func TestRetentionStubsOnlyWhenRestoreDays(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -295,6 +301,7 @@ func TestRetentionStubsOnlyWhenRestoreDays(t *testing.T) {
 }
 
 func TestFirstFetchTrimIsNotCountedAsUnreadBacklog(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
@@ -308,6 +315,7 @@ func TestFirstFetchTrimIsNotCountedAsUnreadBacklog(t *testing.T) {
 }
 
 func TestTrimRunsOnNotModified(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -328,6 +336,7 @@ func TestTrimRunsOnNotModified(t *testing.T) {
 }
 
 func TestChunkedCommitOverFiveHundred(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -353,6 +362,7 @@ func TestChunkedCommitOverFiveHundred(t *testing.T) {
 }
 
 func TestFirstSuccessAndInitialRead(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	cut := base.Add(-90 * time.Minute).Unix()
@@ -370,6 +380,7 @@ func TestFirstSuccessAndInitialRead(t *testing.T) {
 }
 
 func TestChurnNote(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -384,6 +395,7 @@ func TestChurnNote(t *testing.T) {
 }
 
 func TestErrorCommit(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	fail := func(class, msg string, status int, gone bool) {
@@ -408,6 +420,7 @@ func TestErrorCommit(t *testing.T) {
 }
 
 func TestFetchLogCap(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	old := base.Add(-30 * 24 * time.Hour).Unix()
@@ -423,6 +436,7 @@ func TestFetchLogCap(t *testing.T) {
 }
 
 func TestRedirectMigration(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	newURL := "https://a.example/feed"
@@ -456,6 +470,7 @@ func TestRedirectMigration(t *testing.T) {
 }
 
 func TestRekey(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -487,6 +502,7 @@ func TestRekey(t *testing.T) {
 }
 
 func TestIDAllocMonotonicAcrossRestart(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "kipple.db")
 	clk := clock.NewFake(base)
 	db, err := Open(context.Background(), Options{Path: path, Clock: clk})
@@ -513,6 +529,7 @@ func TestIDAllocMonotonicAcrossRestart(t *testing.T) {
 }
 
 func TestCommitKeepsSiteURLWhenFeedHasNoLink(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET site_url = 'https://kept.example/' WHERE id = ?", id)
@@ -523,6 +540,7 @@ func TestCommitKeepsSiteURLWhenFeedHasNoLink(t *testing.T) {
 }
 
 func TestChunkedCommitFailureReportsCommittedChunks(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -549,6 +567,7 @@ func TestChunkedCommitFailureReportsCommittedChunks(t *testing.T) {
 }
 
 func TestChunkedCommitEachChunkHasItsOwnDeadline(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -580,6 +599,7 @@ func staleFetch(t *testing.T) (e *env, id int64, snap fetch.Snapshot, newURL str
 }
 
 func TestStaleFetchAfterURLEditDropsItems(t *testing.T) {
+	t.Parallel()
 	e, id, snap, _ := staleFetch(t)
 	e.commit(e.okResult(snap, rss(numbered(2)...)))
 	require.Equal(t, 0, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
@@ -587,6 +607,7 @@ func TestStaleFetchAfterURLEditDropsItems(t *testing.T) {
 }
 
 func TestStaleFetchAfterURLEditKeepsPatchedRow(t *testing.T) {
+	t.Parallel()
 	e, id, snap, nu := staleFetch(t)
 	before := e.count("SELECT next_fetch_at FROM feeds WHERE id = ?", id)
 	res := e.okResult(snap, rss(numbered(2)...))
@@ -598,6 +619,7 @@ func TestStaleFetchAfterURLEditKeepsPatchedRow(t *testing.T) {
 }
 
 func TestStaleFetchErrorAfterURLEditIsIgnored(t *testing.T) {
+	t.Parallel()
 	e, id, snap, _ := staleFetch(t)
 	// a 410 on the old URL must not disable the repointed feed, nor count as its failure
 	er := &fetch.Result{Snap: snap, StartedAt: e.clk.Now(), Outcome: fetch.OutcomeError, ErrClass: "http", ErrMsg: "gone", Gone: true,
@@ -608,6 +630,7 @@ func TestStaleFetchErrorAfterURLEditIsIgnored(t *testing.T) {
 }
 
 func TestPatchFeedResetsLearnedUAFallback(t *testing.T) {
+	t.Parallel()
 	learn := func(e *env, id int64) {
 		require.NoError(t, e.db.SetFeedUAFallback(e.ctx, id, "http://example.test/a.xml", ""))
 		require.Equal(t, 1, e.count("SELECT ua_fallback FROM feeds WHERE id = ?", id))
@@ -634,6 +657,7 @@ func TestPatchFeedResetsLearnedUAFallback(t *testing.T) {
 // The document's RSS ttl is stored by a commit and read back into the snapshot,
 // which is how a later 304 still honors it.
 func TestDocumentTTLRoundTrips(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.test/f")
 	snap, ok, err := e.db.FeedSnapshot(e.ctx, e.db.FetchSettings(e.ctx), id)
@@ -651,6 +675,7 @@ func TestDocumentTTLRoundTrips(t *testing.T) {
 }
 
 func TestPullInScheduleRespectsPublisherTTL(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	mk := func(url string, ttl any) int64 {
 		id := e.addFeed(url)
@@ -685,6 +710,7 @@ func TestPullInScheduleRespectsPublisherTTL(t *testing.T) {
 
 // Every database gets one random slot salt at open, and keeps it.
 func TestSlotSaltIsSetOnceAtOpen(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	salt := e.db.FetchSettings(e.ctx).SlotSalt
 	require.NotZero(t, salt)
@@ -696,6 +722,7 @@ func TestSlotSaltIsSetOnceAtOpen(t *testing.T) {
 // A URL edit landing between chunks of a large fetch: the earlier chunks are
 // durable and reported, the rest (trim, bookkeeping, log row) is dropped.
 func TestChunkedCommitStaleMidwayReportsWhatCommitted(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -714,6 +741,7 @@ func TestChunkedCommitStaleMidwayReportsWhatCommitted(t *testing.T) {
 }
 
 func TestSetFeedUAFallbackIsBoundToTheFetchedURL(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://example.test/a.xml")
 	e.exec("UPDATE feeds SET url = 'http://example.test/b.xml' WHERE id = ?", id) // PATCHed after the fetch
@@ -727,6 +755,7 @@ func TestSetFeedUAFallbackIsBoundToTheFetchedURL(t *testing.T) {
 // entity tag without control characters, and a short printable Last-Modified
 // kept exactly as the server sent it.
 func TestCommitStoresOnlyUsableValidators(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ etag, lm, wantETag, wantLM string }{
 		"strong tag":          {`"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT", `"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT"},
 		"weak tag":            {`W/"abc"`, "", `W/"abc"`, ""},
@@ -758,6 +787,7 @@ func TestCommitStoresOnlyUsableValidators(t *testing.T) {
 // A feed stored by an earlier release may hold a validator that would not be
 // stored today. The next 304 commit drops it and keeps a good one.
 func TestCommitCleansStoredValidatorsOnNotModified(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ etag, lm, wantETag, wantLM string }{
 		"bad tag dropped, good date kept": {`"a b"`, "Wed, 01 Jan 2025 10:00:00 GMT", "", "Wed, 01 Jan 2025 10:00:00 GMT"},
 		"bad date dropped, good tag kept": {`"abc"`, "Wed, 01 Jan 2025 10:00:00 GMT" + strings.Repeat(" ", 40), `"abc"`, ""},

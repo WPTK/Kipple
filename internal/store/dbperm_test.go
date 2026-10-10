@@ -13,6 +13,7 @@ import (
 // A new live database and its -wal and -shm are 0600, never world-readable,
 // whatever the umask would give a file SQLite creates itself.
 func TestNewDatabaseFilesArePrivate(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix permission bits")
 	}
@@ -32,6 +33,7 @@ func TestNewDatabaseFilesArePrivate(t *testing.T) {
 
 // An existing database keeps its mode: the pre-create never touches it.
 func TestExistingDatabaseModeIsKept(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix permission bits")
 	}

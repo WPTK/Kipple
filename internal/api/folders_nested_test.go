@@ -11,6 +11,7 @@ import (
 // POST and PATCH /api/folders take parent_id (a folder id, or null for the top level); the writer's
 // refusals are 409s with their own codes, and bootstrap lists parent_id.
 func TestNestedFoldersAPI(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 
@@ -95,6 +96,7 @@ func TestNestedFoldersAPI(t *testing.T) {
 // A stored folder name that today's rules refuse (written before them) is a 400 on a move, by PATCH or
 // by POST /api/reorder, with the code a bad name gets on create, not a 500; renaming it fixes it.
 func TestMoveOfAFolderWithAnOldBadName(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	tech := h.addFolder("Tech")
@@ -115,6 +117,7 @@ func TestMoveOfAFolderWithAnOldBadName(t *testing.T) {
 // (the folder keeps its parent) or {id, parent_id}. A move is refused with the folder writer's codes,
 // and any refusal writes nothing.
 func TestReorderMovesFolders(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	tech := h.addFolder("Tech")

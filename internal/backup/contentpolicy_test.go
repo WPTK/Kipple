@@ -13,6 +13,7 @@ import (
 // A backup carries its own record of which sanitize policy its stored HTML was cleaned under. It
 // comes from another server, so a restore forgets it and the next start cleans every row again.
 func TestRestoreForgetsTheBackupsContentPolicyMark(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	library(t, dir, false, map[string]any{})
 	stagedLibrary(t, dir, map[string]any{store.SettingContentPolicy: 999})

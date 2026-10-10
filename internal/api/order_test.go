@@ -45,6 +45,7 @@ func pageAll(t *testing.T, h *harness, c *http.Cookie, query string, limit int) 
 }
 
 func TestListItemsOrderOldestPagination(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	_, ids := tiedFixture(h, 23)
@@ -59,6 +60,7 @@ func TestListItemsOrderOldestPagination(t *testing.T) {
 }
 
 func TestListItemsOldestSearch(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -73,6 +75,7 @@ func TestListItemsOldestSearch(t *testing.T) {
 }
 
 func TestListItemsCursorOrderMismatch(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -108,6 +111,7 @@ func TestListItemsCursorOrderMismatch(t *testing.T) {
 }
 
 func TestListItemsReadingTime(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -134,6 +138,7 @@ func TestListItemsReadingTime(t *testing.T) {
 }
 
 func TestMarkReadBoundTable(t *testing.T) {
+	t.Parallel()
 	// The bound must equal "the rows the list shows before/after the anchor",
 	// so the expectation is derived by listing in that order and slicing.
 	for _, order := range []string{"date", "oldest"} {
@@ -183,6 +188,7 @@ func TestMarkReadBoundTable(t *testing.T) {
 }
 
 func TestMarkReadBoundMaxIDGuard(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -209,6 +215,7 @@ func TestMarkReadBoundMaxIDGuard(t *testing.T) {
 }
 
 func TestMarkReadBoundScopes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	fo := h.addFolder("News")
@@ -256,6 +263,7 @@ func TestMarkReadBoundScopes(t *testing.T) {
 }
 
 func TestMarkReadBoundReadingTime(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -272,6 +280,7 @@ func TestMarkReadBoundReadingTime(t *testing.T) {
 }
 
 func TestMarkReadBoundValidation(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
@@ -312,6 +321,7 @@ func TestMarkReadBoundValidation(t *testing.T) {
 }
 
 func TestMarkReadBoundUndoAndEvents(t *testing.T) {
+	t.Parallel()
 	rec := &countingRecorder{}
 	h := newHarness(t, func(o *Options) { o.Stats = rec })
 	c := h.login()
@@ -353,6 +363,7 @@ func TestMarkReadBoundUndoAndEvents(t *testing.T) {
 }
 
 func TestMarkReadOverCapWithholdsIDs(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)

@@ -19,6 +19,7 @@ import (
 // ---- retention: a fetch never trims its own muted items ----
 
 func TestTrimKeepsThisCommitsMutedItems(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
@@ -64,6 +65,7 @@ func TestTrimKeepsThisCommitsMutedItems(t *testing.T) {
 }
 
 func TestMutedAllowance(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ n, real, muted, want int }{
 		{50, 50, 2, 2},   // a few muted items: all kept (the cap is n/5 = 10)
 		{50, 50, 30, 10}, // plenty of both: muted are bounded to n/5
@@ -80,6 +82,7 @@ func TestMutedAllowance(t *testing.T) {
 // ---- resumable delete ----
 
 func TestDeleteFilterResumesAfterCancel(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.seedRetro(2200)
 	rule := e.mkFilter(newFilter("mute", "spam"))
@@ -108,6 +111,7 @@ func TestDeleteFilterResumesAfterCancel(t *testing.T) {
 }
 
 func TestDeleteFilterProcessesOrphansOfAMissingRow(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.seedRetro(40)
 	rule := e.mkFilter(newFilter("mute", "spam"))
@@ -134,6 +138,7 @@ func TestDeleteFilterProcessesOrphansOfAMissingRow(t *testing.T) {
 // ---- unmute=unread only touches what was unread before the mute ----
 
 func TestUnmuteUnreadKeepsPriorReadState(t *testing.T) {
+	t.Parallel()
 	// retroactive apply with include_read
 	e := newEnv(t)
 	e.seedRetro(20)
@@ -177,6 +182,7 @@ func TestUnmuteUnreadKeepsPriorReadState(t *testing.T) {
 // ---- an apply stops writing when its rule goes away or changes ----
 
 func TestApplyStopsWhenRuleIsDeletedOrChanged(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		act  func(e *env, f Filter)
@@ -216,6 +222,7 @@ func TestApplyStopsWhenRuleIsDeletedOrChanged(t *testing.T) {
 // ---- category rules ignore items without stored categories ----
 
 func TestInvertedCategoryRuleSkipsItemsWithoutCategories(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.seedRetro(10) // no categories at all: like every pre-0004 item
 	inv := newFilter("mute", "news")
@@ -243,6 +250,7 @@ func TestInvertedCategoryRuleSkipsItemsWithoutCategories(t *testing.T) {
 // ---- the cache generation is bumped inside the write transaction ----
 
 func TestFilterGenerationBumpedBeforeCommit(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.seedRetro(4)
 	var seen []uint64
@@ -270,6 +278,7 @@ func TestFilterGenerationBumpedBeforeCommit(t *testing.T) {
 // ---- prediction and commit agree on the feed title ----
 
 func TestMutedUIDsUsesDocumentTitleLikeTheCommit(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/rss") // no "feed" in the URL, the last fallback of the feed title
 	r := newFilter("mute", "Feed")

@@ -17,6 +17,7 @@ import (
 // Reader client listing the feed in between must not see them unheld. Items the
 // queue then refuses lose their hold.
 func TestPickedItemsHeldWhenCommitReturns(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{block: true}
 	r := newRig(t, Options{Extractor: fx, FulltextQueue: 2, FulltextGlobal: 1})
 	type seen struct {
@@ -83,6 +84,7 @@ func TestHeldHostBacklogDoesNotStarveOtherFeeds(t *testing.T) {
 // When the queue refuses the held items (shut since the pick), their holds are
 // cleared: nothing is held that is not waiting for text.
 func TestRefusedHeldItemsAreReleased(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{Extractor: &fakeExt{}})
 	feed := r.ftFeed("https://ex.test/f")
 	items := ftItems("https://art.test", 1, 2, 3)

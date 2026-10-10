@@ -11,6 +11,7 @@ import (
 )
 
 func TestFailedSwapLeavesNoEmptyPreRestoreDir(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	live := filepath.Join(dir, "kipple.db")
 	require.NoError(t, os.WriteFile(live, []byte("live"), 0o600))
@@ -35,6 +36,7 @@ var farFuture = time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
 // than KeepPreRestoreFor: the library replaced a day ago survives three more
 // swaps in a row, and goes only once it is old and three newer ones exist.
 func TestPruneKeepsRecentPreRestoreCopies(t *testing.T) {
+	t.Parallel()
 	backupDir := filepath.Join(t.TempDir(), "backup")
 	day0 := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	mk := func(at time.Time) string {
@@ -65,6 +67,7 @@ func TestPruneKeepsRecentPreRestoreCopies(t *testing.T) {
 // Each copy is a whole library, so recent copies are capped too: past
 // KeepPreRestoreMax the oldest goes, however young.
 func TestPruneCapsRecentPreRestoreCopies(t *testing.T) {
+	t.Parallel()
 	backupDir := filepath.Join(t.TempDir(), "backup")
 	day0 := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	var all []string
@@ -84,6 +87,7 @@ func TestPruneCapsRecentPreRestoreCopies(t *testing.T) {
 }
 
 func TestPruneIgnoresEmptyPreRestoreDirs(t *testing.T) {
+	t.Parallel()
 	backupDir := filepath.Join(t.TempDir(), "backup")
 	full := func(name string) string {
 		d := filepath.Join(backupDir, name)
@@ -105,6 +109,7 @@ func TestPruneIgnoresEmptyPreRestoreDirs(t *testing.T) {
 // The -N suffix orders as a number (-10 is newer than -2) and a name that is
 // not ours is never pruned.
 func TestPrunePreRestoreOrdersSuffixNumerically(t *testing.T) {
+	t.Parallel()
 	backupDir := filepath.Join(t.TempDir(), "backup")
 	full := func(name string) string {
 		d := filepath.Join(backupDir, name)
@@ -141,6 +146,7 @@ func TestPrunePreRestoreOrdersSuffixNumerically(t *testing.T) {
 // Names are UTC, so the repeated hour at the end of daylight saving time can
 // never make the newer directory sort first.
 func TestPreRestoreNamesAreUTC(t *testing.T) {
+	t.Parallel()
 	ny, err := time.LoadLocation("America/New_York")
 	require.NoError(t, err)
 	backupDir := filepath.Join(t.TempDir(), "backup")
@@ -164,6 +170,7 @@ func TestPreRestoreNamesAreUTC(t *testing.T) {
 // east of UTC the old names read as UTC would look hours newer than they are
 // and pruning would delete the new copy; they are read as local time instead.
 func TestPrunePreRestoreMixesLegacyLocalAndUTCNames(t *testing.T) {
+	t.Parallel()
 	local := time.FixedZone("UTC+3", 3*3600)
 
 	at, _, ok := preRestoreKey("pre-restore-20260926-120000", local)

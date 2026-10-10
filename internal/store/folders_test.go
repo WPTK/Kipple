@@ -107,6 +107,7 @@ func checkFolderInvariants(t testing.TB, q Querier) {
 
 // folderByPath follows names that hold a '/' at any level, and a path that is not a folder's is not found.
 func TestFolderByPathSlashNames(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	music := e.mkFolder(0, "Music")
 	acdc := e.mkFolder(music, "AC/DC")
@@ -128,6 +129,7 @@ func TestFolderByPathSlashNames(t *testing.T) {
 }
 
 func TestFolderSiblingNamesUniqueIgnoringCase(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	tech := e.mkFolder(0, "Tech")
 	_, err := e.db.CreateFolder(e.ctx, "tech", 0, -1)
@@ -146,6 +148,7 @@ func TestFolderSiblingNamesUniqueIgnoringCase(t *testing.T) {
 
 // A literal top-level "AC/DC" and the folder DC inside AC would be one Reader API label.
 func TestFolderPathsUniqueAcrossLevels(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	acdc := e.mkFolder(0, "AC/DC")
 	ac := e.mkFolder(0, "AC")
@@ -170,6 +173,7 @@ func TestFolderPathsUniqueAcrossLevels(t *testing.T) {
 
 // A move checks the whole subtree: a subfolder landing on a taken path refuses the move.
 func TestFolderMoveChecksSubtreePaths(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a := e.chain("A", "B")
 	e.mkFolder(0, "Z/A/B") // a literal top-level name equal to the path B would get
@@ -180,6 +184,7 @@ func TestFolderMoveChecksSubtreePaths(t *testing.T) {
 }
 
 func TestResolveFolderPathLongestPrefix(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	lit := e.mkFolder(0, "A/B")
 	c := e.resolve("A/B/C")
@@ -214,6 +219,7 @@ func TestResolveFolderPathLongestPrefix(t *testing.T) {
 // A label longer than any real folder path is refused before it is resolved, on subscribe/edit and on
 // rename-tag; one of exactly MaxFolderPathRunes (eight 100-character names) still resolves.
 func TestFolderPathLengthCap(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	name := strings.Repeat("x", MaxFolderNameRunes)
 	names := make([]string, MaxFolderDepth)
@@ -269,6 +275,7 @@ func (c *countingQuerier) QueryRowContext(ctx context.Context, query string, arg
 // The read side (FindLabel, folderByPath) stops at the first level that matches no folder: a label with a
 // hundred thousand '/' costs a bounded number of probes, so it needs no length gate.
 func TestFolderByPathLongLabelCostsFewProbes(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.chain("a", "a", "a")
 	for _, label := range []string{strings.Repeat("a/", 100000) + "a", strings.Repeat("z/", 100000) + "z"} {
@@ -281,6 +288,7 @@ func TestFolderByPathLongLabelCostsFewProbes(t *testing.T) {
 }
 
 func TestFolderMoveRefusesCycles(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ids := e.chain("A", "B", "C")
 	require.ErrorIs(t, e.move(ids[0], ids[2]), ErrFolderCycle)
@@ -293,6 +301,7 @@ func TestFolderMoveRefusesCycles(t *testing.T) {
 }
 
 func TestFolderDepthCap(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	names := make([]string, MaxFolderDepth)
 	for i := range names {
@@ -316,6 +325,7 @@ func TestFolderDepthCap(t *testing.T) {
 }
 
 func TestDefaultFolderStaysAtTheTop(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	_, err := e.db.CreateFolder(e.ctx, "Child", 1, -1)
 	require.ErrorIs(t, err, ErrFolderParent)
@@ -336,6 +346,7 @@ func TestDefaultFolderStaysAtTheTop(t *testing.T) {
 // Deleting a folder deletes its subtree, eight levels deep: every feed moves to the default folder,
 // every folder filter goes, and the favorites and saved-search scopes of every id are dropped.
 func TestDeleteFolderDeletesTheSubtree(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	names := make([]string, MaxFolderDepth)
 	for i := range names {
@@ -387,6 +398,7 @@ func TestDeleteFolderDeletesTheSubtree(t *testing.T) {
 // The cascade itself is the database's: a plain DELETE of the top folder removes all eight levels
 // and sends their feeds to the default folder (feeds.folder_id ON DELETE SET DEFAULT).
 func TestFolderDeleteCascadesInTheSchema(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	names := make([]string, MaxFolderDepth)
 	for i := range names {
@@ -401,6 +413,7 @@ func TestFolderDeleteCascadesInTheSchema(t *testing.T) {
 }
 
 func TestFolderRenameKeepsDescendantPaths(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ids := e.chain("Tech", "Apple", "Mac")
 	name := "Gear"
@@ -412,6 +425,7 @@ func TestFolderRenameKeepsDescendantPaths(t *testing.T) {
 // The Reader API rename-tag: a dest path may rename, move or both; a merge of a folder with
 // subfolders is refused and changes nothing.
 func TestRenameLabelPaths(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	tech := e.chain("Tech", "Apple")
 	feed := e.addFeed("http://apple.example/feed")
@@ -449,6 +463,7 @@ func TestRenameLabelPaths(t *testing.T) {
 // The web scope of a folder is its subtree: its list, search, mark-read and unread count agree.
 // The Reader API's label scope (StreamFilter, MarkAllRead, UnreadCounts) is the folder's own feeds.
 func TestFolderScopes(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ids := e.chain("Tech", "Apple")
 	top := e.addFeed("http://tech.example/feed")
@@ -512,6 +527,7 @@ func TestFolderScopes(t *testing.T) {
 // A folder filter covers the feeds of its subfolders, at ingest and retroactively, and stops
 // covering a feed that moves out.
 func TestFolderFilterCoversSubfolders(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ids := e.chain("Tech", "Apple", "Mac")
 	feed := e.addFeed("http://mac.example/feed")
@@ -544,6 +560,7 @@ func newFilterScoped(folder int64, terms ...string) Filter {
 
 // Moving a folder recompiles nothing but changes which feeds a folder rule covers: the next ingest sees it.
 func TestFolderMoveChangesFilterCoverage(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a := e.mkFolder(0, "A")
 	b := e.mkFolder(0, "B")
@@ -559,6 +576,7 @@ func TestFolderMoveChangesFilterCoverage(t *testing.T) {
 
 // Bootstrap folders carry parent_id and list the tree in pre-order, siblings by position.
 func TestUIFoldersTreeOrder(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	b, err := e.db.CreateFolder(e.ctx, "B", 0, 20)
 	require.NoError(t, err)
@@ -587,6 +605,7 @@ func TestUIFoldersTreeOrder(t *testing.T) {
 // OPML's explicit chains: a literal top-level "AC/DC" takes the chain AC > DC without an empty "AC"
 // being created on the way, and the chain still walks real levels when they exist.
 func TestEnsureFolderChainPrefersAWholeLiteralPath(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	acdc := e.mkFolder(0, "AC/DC")
 	chain := func(segs ...string) (int64, int) {
@@ -615,6 +634,7 @@ func TestEnsureFolderChainPrefersAWholeLiteralPath(t *testing.T) {
 
 // The two mark-read functions each refuse the other's folder scope.
 func TestMarkScopeFolderFieldsBelongToOneFunctionEach(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
 		_, err := MarkAllRead(ctx, tx, MarkScope{FolderTreeID: 1}, 1, 1)
@@ -628,6 +648,7 @@ func TestMarkScopeFolderFieldsBelongToOneFunctionEach(t *testing.T) {
 // A rename-tag of a folder deleted meanwhile is ErrFolderNotFound (the Reader API answers OK), and a
 // dest with an empty level is refused before anything changes.
 func TestRenameLabelMissingAndEmptyLevel(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	x := e.mkFolder(0, "X")
 	_, err := e.db.RenameLabel(e.ctx, 999, "Y")
@@ -643,6 +664,7 @@ func TestRenameLabelMissingAndEmptyLevel(t *testing.T) {
 // A folder the view cannot reach (a cycle written behind the writer's back) never hides its feeds
 // from the Reader API: they are listed with an empty label instead of vanishing.
 func TestFeedsOfAnUnreachableFolderStayListed(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a := e.mkFolder(0, "A")
 	b := e.mkFolder(a, "B")
@@ -668,6 +690,7 @@ func TestFeedsOfAnUnreachableFolderStayListed(t *testing.T) {
 // function), so an import that resolves thousands of folders stays linear. Checked on the query plan,
 // which does not depend on the machine's speed.
 func TestFolderLookupPlans(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for i := 0; i < 50; i++ {
 		top := e.mkFolder(0, fmt.Sprintf("Top %d", i))

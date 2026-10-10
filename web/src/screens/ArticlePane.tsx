@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { useLocation, useNavigate } from "react-router";
 import { DropdownMenu } from "radix-ui";
 import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
+import { ApiError } from "@/api/client";
 import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
@@ -24,7 +25,7 @@ import { clearMarks, wrapMarks } from "@/lib/highlight";
 import { Hl, useGroups } from "@/lib/useHighlights";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
-import { StatusBlock, focusListRow } from "./ListPane";
+import { StatusBlock, focusListRow, rememberListPlace } from "./ListPane";
 import type { Scope } from "@/api/types";
 import { ReadingMenu } from "./AppearanceControls";
 import { ListenBar } from "./ListenBar";
@@ -58,7 +59,10 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const act = useItemActions();
   const fulltext = useFulltext();
 
-  const ids = useMemo(() => flattenItems(list.data).map((i) => i.id), [list.data]);
+  // Paging needs the list this article came from. Without one (a shared or bookmarked link) there is none, however
+  // much of the fallback Unread list happens to be cached, so buttons and keys agree: no Next or Previous.
+  const paging = pane || hasFrom;
+  const ids = useMemo(() => (paging ? flattenItems(list.data).map((i) => i.id) : []), [list.data, paging]);
   // The article's own detail fetch can fail (offline, a server error) with no data at all, but the list this
   // article was opened from often already has this item's card cached, url included: enough to still offer
   // "read the original" even though the article body itself could not be loaded.
@@ -98,6 +102,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const go = (target: string | undefined, via: "key" | "nav") => {
     if (!target) return;
     // Prev/next replaces the history entry so back is always one step to the list.
+    if (!pane) rememberListPlace(scope, target); // a list beside the article follows it itself
     navigate(articleTo(target, scope), { replace: true, state: { via } });
   };
   const next = (via: "key" | "nav") => {
@@ -239,22 +244,33 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     );
   }
   if (item.isError || !item.data) {
+    // A 404 is final: retention trimmed the article, or it was deleted, or the id was never one. Retrying cannot help,
+    // so that answer says so and offers the list; only other failures (network, 5xx) offer Try again.
+    const gone = item.error instanceof ApiError && item.error.status === 404;
     // The original is on the web: with the browser offline it cannot open either, so it is offered only online (the
     // server alone being unreachable, #78, still leaves it).
-    const originalUrl = browserOnline ? safeHttpUrl(cachedCard?.url) : undefined;
+    const originalUrl = !gone && browserOnline ? safeHttpUrl(cachedCard?.url) : undefined;
     return (
       <div className="flex h-full flex-col">
         {!pane && <TopBar onBack={back} />}
-        <StatusBlock
-          role="alert"
-          title="Couldn't open this article"
-          body={originalUrl ? "The article couldn't be loaded. You can read the original instead." : "The article couldn't be loaded."}
-        >
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button onClick={() => void item.refetch()}>Try again</Button>
-            {originalUrl ? <Button variant="ghost" onClick={() => openOriginalAndRecord({ id, url: originalUrl })}>Read the original</Button> : null}
-          </div>
-        </StatusBlock>
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <StatusBlock
+            role="alert"
+            title={gone ? "This article is no longer available" : "Couldn't open this article"}
+            body={
+              gone
+                ? "It may have been removed by a feed's retention limit or deleted."
+                : originalUrl
+                  ? "The article couldn't be loaded. You can read the original instead."
+                  : "The article couldn't be loaded."
+            }
+          >
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {gone ? pane ? null : <Button onClick={back}>Back to the list</Button> : <Button onClick={() => void item.refetch()}>Try again</Button>}
+              {originalUrl ? <Button variant="ghost" onClick={() => openOriginalAndRecord({ id, url: originalUrl })}>Read the original</Button> : null}
+            </div>
+          </StatusBlock>
+        </div>
       </div>
     );
   }
@@ -274,6 +290,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           a={a}
           ftOn={ftOn}
           ftBusy={ftBusy}
+          paging={paging}
           canPrev={!!prevId}
           canNext={canPage}
           onPrev={() => prev("nav")}
@@ -297,7 +314,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
               >
                 {a.read ? "Read" : "Unread"}
               </span>
-              <a href={safeHttpUrl(a.feed.site_url)} target={linkTarget === "new" ? "_blank" : undefined} rel="noopener noreferrer" className="hover:underline">
+              <a href={safeHttpUrl(a.feed.site_url)} target={linkTarget === "new" ? "_blank" : undefined} rel="noopener noreferrer" className="hit-pad hover:underline">
                 {a.source || a.feed.title}
               </a>
             </p>
@@ -358,6 +375,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           a={a}
           ftOn={ftOn}
           ftBusy={ftBusy}
+          paging={paging}
           canPrev={!!prevId}
           canNext={canPage}
           onPrev={() => prev("nav")}
@@ -400,6 +418,8 @@ interface ToolbarProps {
   a: NonNullable<ReturnType<typeof useItem>["data"]>;
   ftOn: boolean;
   ftBusy: boolean;
+  /** There is a list to page through (an article opened with no list, such as a shared link, has none: no Next or Previous). */
+  paging: boolean;
   canPrev: boolean;
   canNext: boolean;
   top?: boolean;
@@ -426,12 +446,16 @@ function Toolbar(p: ToolbarProps) {
         p.top ? "border-b border-line py-1" : "pb-safe border-t border-line py-1",
       )}
     >
-      <Button variant="ghost" size="icon" onClick={p.onPrev} disabled={!p.canPrev} aria-label="Previous article">
-        {p.top ? <ChevronUp aria-hidden="true" /> : <ChevronLeft aria-hidden="true" />}
-      </Button>
-      <Button variant="ghost" size="icon" onClick={p.onNext} disabled={!p.canNext} aria-label="Next article">
-        {p.top ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
-      </Button>
+      {p.paging ? (
+        <>
+          <Button variant="ghost" size="icon" onClick={p.onPrev} disabled={!p.canPrev} aria-label="Previous article">
+            {p.top ? <ChevronUp aria-hidden="true" /> : <ChevronLeft aria-hidden="true" />}
+          </Button>
+          <Button variant="ghost" size="icon" onClick={p.onNext} disabled={!p.canNext} aria-label="Next article">
+            {p.top ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+          </Button>
+        </>
+      ) : null}
       <Button
         variant="ghost"
         size="icon"
@@ -462,10 +486,7 @@ function Toolbar(p: ToolbarProps) {
       >
         <FileText aria-hidden="true" />
       </Button>
-      <Button variant="ghost" size="icon" onClick={p.onShare} aria-label="Share" title="Share">
-        <Share2 aria-hidden="true" />
-      </Button>
-      {/* The rarely used actions share one 44 px target, so eight targets (352 px) still fit a 375 px phone with Aa. */}
+      {/* The rarely used actions (Share included) share one 44 px target, so seven targets (308 px) fit the narrowest phone and a narrow pane with Aa. */}
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <Button variant="ghost" size="icon" aria-label="More actions" title="More actions">
@@ -481,6 +502,10 @@ function Toolbar(p: ToolbarProps) {
             <DropdownMenu.Item className={moreItem} onSelect={p.onOriginal}>
               <ExternalLink className="size-5" aria-hidden="true" />
               Open original
+            </DropdownMenu.Item>
+            <DropdownMenu.Item className={moreItem} onSelect={p.onShare}>
+              <Share2 className="size-5" aria-hidden="true" />
+              Share
             </DropdownMenu.Item>
             <DropdownMenu.Item className={moreItem} onSelect={p.onMuteSimilar}>
               <BellOff className="size-5" aria-hidden="true" />

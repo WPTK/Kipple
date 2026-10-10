@@ -8,6 +8,7 @@ import (
 )
 
 func TestClassify(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in   string
 		rest string
@@ -40,6 +41,7 @@ func TestClassify(t *testing.T) {
 }
 
 func TestFrontProbesAndFallthrough(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for _, p := range []string{base, base + "/"} {
 		w := h.do(http.MethodGet, p, "", map[string]string{"Authorization": ""})
@@ -57,6 +59,7 @@ func TestFrontProbesAndFallthrough(t *testing.T) {
 }
 
 func TestFrontNoRedirectsAndBodiesArrive(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	var got string
 	h.api.routes["echo-write"] = route{post: true, h: func(c *call) { got = c.p.Get("i"); c.ok() }}
@@ -76,6 +79,7 @@ func TestFrontNoRedirectsAndBodiesArrive(t *testing.T) {
 }
 
 func TestUnknownEndpointIsEmptyJSONArrayAfterAuth(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	w := h.get(rd + "no-such-thing")
 	require.Equal(t, 200, w.Code)
@@ -85,6 +89,7 @@ func TestUnknownEndpointIsEmptyJSONArrayAfterAuth(t *testing.T) {
 }
 
 func TestWriteEndpointRejectsGET(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.api.routes["echo-write"] = route{post: true, h: func(c *call) { c.ok() }}
 	w := h.get(rd + "echo-write")

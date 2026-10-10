@@ -828,8 +828,9 @@ export function StatsScreen() {
           Stats
         </h1>
         {on && !(data && !data.enabled) ? (
-          <div className="flex items-end gap-3">
-            <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-end gap-3">
+            {/* Five 44 px choices need 15 rem: on the narrowest phones Export drops to its own line. */}
+            <div className="min-w-0 flex-1 basis-60">
               <Segmented legend="Range" value={range} onChange={pick} options={SCREEN_RANGES} />
             </div>
             <Button onClick={() => setExporting(true)}>Export</Button>

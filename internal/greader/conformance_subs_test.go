@@ -57,6 +57,7 @@ func subLabel(sub map[string]any) string {
 }
 
 func TestConformanceSubscriptionList(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	l := seedConf(h)
 	c := newConf(t, h)
@@ -102,6 +103,7 @@ func TestConformanceSubscriptionList(t *testing.T) {
 }
 
 func TestConformanceTagList(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	seedConf(h)
 	h.addFolder("Empty")
@@ -125,6 +127,7 @@ func TestConformanceTagList(t *testing.T) {
 }
 
 func TestConformanceQuickAdd(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := newConf(t, h)
 
@@ -176,6 +179,7 @@ func TestConformanceQuickAdd(t *testing.T) {
 }
 
 func TestConformanceSubscriptionEdit(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	l := seedConf(h)
 	c := newConf(t, h)
@@ -232,6 +236,7 @@ func TestConformanceSubscriptionEdit(t *testing.T) {
 }
 
 func TestConformanceRenameAndDisableTag(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	l := seedConf(h)
 	c := newConf(t, h)
@@ -263,6 +268,7 @@ func TestConformanceRenameAndDisableTag(t *testing.T) {
 }
 
 func TestConformanceUnreadCount(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	l := seedConf(h)
 	c := newConf(t, h)
@@ -301,6 +307,7 @@ func TestConformanceUnreadCount(t *testing.T) {
 }
 
 func TestConformanceOPML(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	seedConf(h)
 	c := newConf(t, h)

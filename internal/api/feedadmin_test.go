@@ -25,6 +25,15 @@ const rssBody = `<?xml version="1.0"?><rss version="2.0"><channel><title>T</titl
 // openGuard lets the loopback test servers through; SSRF tests use the real guard.
 func openGuard(bool, bool, bool) http.RoundTripper { return http.DefaultTransport }
 
+// unreachableGuard fails every request at once, as a site that cannot be reached does.
+func unreachableGuard(bool, bool, bool) http.RoundTripper { return unreachable{} }
+
+type unreachable struct{}
+
+func (unreachable) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, fmt.Errorf("test: no route to host")
+}
+
 func shortWaits(t *testing.T) {
 	t.Helper()
 	a, r := addWait, refreshWait
@@ -41,6 +50,15 @@ func site(t *testing.T) (string, *atomic.Int64) {
 		hits.Add(1)
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(rssBody))
+	})
+	mux.HandleFunc("/moved", func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.Redirect(w, r, "/feed.xml", http.StatusMovedPermanently)
+	})
+	mux.HandleFunc("/pagemoved", func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><head><link rel="alternate" type="application/rss+xml" title="Moved" href="/moved"></head><body></body></html>`))
 	})
 	mux.HandleFunc("/one", func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
@@ -107,6 +125,7 @@ func feedChanged(t *testing.T, sub *events.Sub) []string {
 // ---- auth ----
 
 func TestFeedAdminRoutesRequireSessionAndOrigin(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	routes := []struct{ method, path string }{
@@ -132,6 +151,7 @@ func TestFeedAdminRoutesRequireSessionAndOrigin(t *testing.T) {
 // ---- POST /api/feeds ----
 
 func TestAddFeedCreatesAndWaitsForFirstFetch(t *testing.T) {
+	t.Parallel()
 	srv, _ := site(t)
 	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
 	c := h.login()
@@ -159,6 +179,7 @@ func TestAddFeedCreatesAndWaitsForFirstFetch(t *testing.T) {
 }
 
 func TestAddFeedDiscovery(t *testing.T) {
+	t.Parallel()
 	srv, hits := site(t)
 	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
 	c := h.login()
@@ -220,6 +241,7 @@ func TestAddFeedDiscovery(t *testing.T) {
 }
 
 func TestAddFeedValidation(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
 	c := h.login()
 	for _, tc := range []struct {
@@ -263,6 +285,7 @@ func TestAddFeedValidation(t *testing.T) {
 
 // A name that resolves to a blocked address is stopped by the real dial guard.
 func TestAddFeedSSRFThroughHostnameIsBlocked(t *testing.T) {
+	t.Parallel()
 	srv, hits := site(t)
 	h := newHarness(t) // default Guard: fetch.Client's dial-time check
 	c := h.login()
@@ -278,6 +301,7 @@ func TestAddFeedSSRFThroughHostnameIsBlocked(t *testing.T) {
 // The add dialog's "Allow addresses on my own network" adds a feed on a private address: discovery goes through
 // the guard with the exception on, and the feed is created with it.
 func TestAddFeedAllowPrivateNet(t *testing.T) {
+	t.Parallel()
 	srv, hits := site(t)
 	h := newHarness(t) // the real dial guard
 	c := h.login()
@@ -287,7 +311,7 @@ func TestAddFeedAllowPrivateNet(t *testing.T) {
 	feed := body["feed"].(map[string]any)
 	require.Equal(t, srv+"/feed.xml", feed["url"])
 	require.Equal(t, true, feed["allow_private_net"])
-	require.EqualValues(t, 1, hits.Load(), "the page was reached through the guard")
+	require.EqualValues(t, 2, hits.Load(), "the page and the feed it links (probed for a redirect) were reached through the guard")
 
 	// A literal private address is accepted with the exception, too.
 	lit := strings.Replace(srv, "localhost", "127.0.0.1", 1) + "/one"
@@ -305,6 +329,7 @@ func TestAddFeedAllowPrivateNet(t *testing.T) {
 // page with several or none is refused with a message, and an address that cannot be checked now
 // is kept as typed (as an edit always did).
 func TestEditFeedURLToAPage(t *testing.T) {
+	t.Parallel()
 	srv, _ := site(t)
 	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
 	c := h.login()
@@ -332,6 +357,7 @@ func TestEditFeedURLToAPage(t *testing.T) {
 // An edit that moves a feed with the private-network exception to another site probes the new
 // address without it (the saved feed loses it too), unless the edit sets it again.
 func TestEditFeedURLProbeDropsExceptionsOffSite(t *testing.T) {
+	t.Parallel()
 	srv, hits := site(t)
 	h := newHarness(t) // the real dial guard: the test site is on loopback
 	c := h.login()
@@ -354,6 +380,7 @@ func TestEditFeedURLProbeDropsExceptionsOffSite(t *testing.T) {
 
 // Whatever form the address is typed or pasted in, the dialog adds the feed it names.
 func TestAddFeedTypedAddressForms(t *testing.T) {
+	t.Parallel()
 	srv, _ := site(t)
 	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
 	c := h.login()
@@ -393,6 +420,7 @@ func TestAddFeedFirstFetchPendingAndSchedulerDown(t *testing.T) {
 }
 
 func TestAddFeedReportsFailedFirstFetch(t *testing.T) {
+	t.Parallel()
 	srv, _ := site(t)
 	h := newHarness(t, func(o *Options) { o.Guard = openGuard })
 	c := h.login()
@@ -407,6 +435,7 @@ func TestAddFeedReportsFailedFirstFetch(t *testing.T) {
 // Web discovery follows fetch.user_agent_mode: a site that refuses Kipple's
 // User-Agent is retried once as a browser; "default" never retries.
 func TestAddFeedDiscoveryRetriesWithBrowserUserAgent(t *testing.T) {
+	t.Parallel()
 	var uas []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uas = append(uas, r.UserAgent())
@@ -446,6 +475,7 @@ func TestAddFeedDiscoveryRetriesWithBrowserUserAgent(t *testing.T) {
 // One control-character rule for titles, folder names and header values: tab is
 // fine, everything else below 0x20 and DEL is not.
 func TestHasControlRule(t *testing.T) {
+	t.Parallel()
 	require.False(t, hasControl("a\tb ünï"))
 	for _, s := range []string{"a\nb", "a\rb", "a\x00b", "a\x1fb", "a\x7fb"} {
 		require.True(t, hasControl(s), "%q", s)

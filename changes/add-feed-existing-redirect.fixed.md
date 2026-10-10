@@ -1,0 +1,1 @@
+Adding an address that redirects to a feed you already have is refused with a message naming that feed and its folder, instead of creating a duplicate that says "Feed added"; a duplicate that already exists (or arrives through an import or a sync app) now shows in Feed Health which feed it redirects to, and fixing a feed's address names the feed that already uses it.

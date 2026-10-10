@@ -254,6 +254,27 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 		s.writeExisting(w, r, id)
 		return
 	}
+	// The feed may answer through a redirect to one the user already has: that is checked on the
+	// address that answered, not the one typed or linked, before anything is created.
+	final := found.Final
+	if !found.IsFeed {
+		if _, _, h, err := store.ValidateFeedURL(target, allowPrivate); err == nil {
+			pctx, pcancel := context.WithTimeout(ctx, discoverWait)
+			if probe, perr := discover.Find(pctx, fetch.ScopedTransport(s.opt.Guard, h, allowPrivate, false, false), ua, retryUA, target, allowPrivate); perr == nil {
+				final = probe.Final
+			}
+			pcancel()
+		}
+	}
+	if final != "" {
+		if id, exists, err := s.db.FindFeedID(ctx, final); err != nil {
+			s.serverError(w, "add feed", err)
+			return
+		} else if exists {
+			s.writeFeedExists(w, r, id)
+			return
+		}
+	}
 
 	opts.URL = target
 	res, err := s.db.Subscribe(ctx, opts)
@@ -281,8 +302,11 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	} else if rep, got, werr := s.awaitReply(r, ch, addWait); werr == nil && got && rep.Err == nil {
 		fo = outcomeOf(rep)
 	}
-	fd, _, err := s.db.FeedDetail(ctx, res.FeedID, s.statusEnv())
-	if err != nil {
+	fd, ok, err := s.db.FeedDetail(ctx, res.FeedID, s.statusEnv())
+	if err != nil || !ok {
+		if err == nil {
+			err = store.ErrFeedNotFound
+		}
 		s.serverError(w, "add feed", err)
 		return
 	}
@@ -331,6 +355,26 @@ func discoveryError(err error) (code, msg string) {
 	default:
 		return "unreachable", "Kipple could not reach that site (" + detail + ")."
 	}
+}
+
+// writeFeedExists refuses an address that leads to a feed the user already has, naming that feed.
+func (s *Server) writeFeedExists(w http.ResponseWriter, r *http.Request, id int64) {
+	writeJSON(w, http.StatusConflict, map[string]any{"error": "feed_exists", "feed_id": idStr(id),
+		"message": s.existingFeedMessage(r.Context(), id, "The address you entered redirects to it.")})
+}
+
+// existingFeedMessage says which feed the user already has: its title and, when it is in a folder, the
+// folder. tail is a sentence about the address that led there.
+func (s *Server) existingFeedMessage(ctx context.Context, id int64, tail string) string {
+	title, folder, err := s.db.FeedLabel(ctx, id)
+	if err != nil {
+		return "You already have this feed. " + tail
+	}
+	where := ""
+	if folder != "" {
+		where = " in the folder " + folder
+	}
+	return "You already have this feed: " + title + where + ". " + tail
 }
 
 func (s *Server) writeExisting(w http.ResponseWriter, r *http.Request, id int64) {
@@ -483,7 +527,11 @@ func (s *Server) patchFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.URL != nil {
 		if code, msg := s.resolveEditedURL(r.Context(), id, &p); code != "" {
-			writeErrorMsg(w, http.StatusUnprocessableEntity, code, msg)
+			status := http.StatusUnprocessableEntity
+			if code == "url_exists" {
+				status = http.StatusConflict // the same answer as the patch's own collision
+			}
+			writeErrorMsg(w, status, code, msg)
 			return
 		}
 	}
@@ -507,7 +555,8 @@ func (s *Server) patchFeed(w http.ResponseWriter, r *http.Request) {
 		writeErrorMsg(w, http.StatusBadRequest, "invalid_url", bad.Reason)
 		return
 	case errors.As(err, &clash):
-		writeJSON(w, http.StatusConflict, map[string]any{"error": "url_exists", "message": err.Error(), "feed_id": idStr(clash.Other)})
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "url_exists", "feed_id": idStr(clash.Other),
+			"message": s.existingFeedMessage(r.Context(), clash.Other, "That address cannot be used for this feed too.")})
 		return
 	case err != nil:
 		s.serverError(w, "patch feed", err)
@@ -596,6 +645,11 @@ func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPa
 	switch {
 	case errors.Is(err, discover.ErrNoFeed):
 		return discoveryError(err)
+	case err == nil && found.IsFeed && found.Final != "":
+		if other, exists, ferr := s.db.FindFeedID(ctx, found.Final); ferr == nil && exists && other != id {
+			return "url_exists", s.existingFeedMessage(ctx, other, "The address you entered redirects to it.")
+		}
+		return "", ""
 	case err != nil || found.IsFeed || len(found.Candidates) == 0:
 		return "", ""
 	case len(found.Candidates) == 1:

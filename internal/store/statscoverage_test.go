@@ -9,6 +9,7 @@ import (
 // covered_from skips what a comparison must not read as quiet days: before the first row, a delete, and a
 // stretch with recording off; timed_from also waits for the first timed event.
 func TestStatsCoverageReportsGaps(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	require.Nil(t, e.summary("2026-09-01", "2026-09-24").CoveredFrom, "no rows, no history")
 	e.putStat("open", "2026-09-02", 1, 1, "a", nil, "F")
@@ -50,6 +51,7 @@ func TestStatsCoverageReportsGaps(t *testing.T) {
 // A delete's gap is the days of the rows that went, not the range it named: deleting every row stores
 // the last day with rows, never a far-future bound, and rows dated after today (another zone) count.
 func TestStatsDeleteGapIsTheNewestRemovedDay(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t) // today is 2026-09-24
 	marker := func(day string) int {
 		return e.count(`SELECT count(*) FROM settings WHERE key = 'sys.stats_gap_end' AND value = ?`, `"`+day+`"`)
@@ -77,6 +79,7 @@ func TestStatsDeleteGapIsTheNewestRemovedDay(t *testing.T) {
 // The marker is never after today: a marker from the future (a backup made under a fast clock, or an
 // edited file) is replaced by the next gap, whichever path records it.
 func TestStatsGapReplacesAMarkerAfterToday(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t) // today is 2026-09-24
 	e.putStat("open", "2026-09-02", 1, 1, "a", nil, "F")
 	put := func(m string) {

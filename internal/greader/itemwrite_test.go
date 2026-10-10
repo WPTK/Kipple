@@ -43,6 +43,7 @@ func bigRow(articleBytes int) *store.ContentRow {
 
 // summary.content and content.content are the same bytes, and the item is valid JSON with every field.
 func TestItemContentFieldsIdentical(t *testing.T) {
+	t.Parallel()
 	for _, n := range []int{0, 10, 40_000, contentCap + 1000} {
 		var buf bytes.Buffer
 		bw := bufio.NewWriter(&buf)

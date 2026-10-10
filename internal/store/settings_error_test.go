@@ -21,6 +21,7 @@ func breakSettings(e *env) (repair func()) {
 }
 
 func TestLoadFetchSettingsReadFailure(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.exec(`INSERT INTO settings(key, value) VALUES ('retention.default', '100')`)
 
@@ -46,6 +47,7 @@ func TestLoadFetchSettingsReadFailure(t *testing.T) {
 }
 
 func TestTransactionalSettingsReadFailureFailsTheTransaction(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(250)...))
@@ -66,6 +68,7 @@ func TestTransactionalSettingsReadFailureFailsTheTransaction(t *testing.T) {
 }
 
 func TestPurgesFailOnSettingsReadFailure(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(300)...)) // 50 trimmed into the ledger with stubs
@@ -97,6 +100,7 @@ func TestPurgesFailOnSettingsReadFailure(t *testing.T) {
 }
 
 func TestPullInScheduleSettingsReadFailure(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	repair := breakSettings(e)
 	_, err := e.db.PullInSchedule(e.ctx, 10)
@@ -107,6 +111,7 @@ func TestPullInScheduleSettingsReadFailure(t *testing.T) {
 }
 
 func TestJSONTextReportsMarshalErrors(t *testing.T) {
+	t.Parallel()
 	_, err := jsonText(make(chan int))
 	require.Error(t, err)
 	_, err = idsJSON(nil)
@@ -125,6 +130,7 @@ func TestJSONTextReportsMarshalErrors(t *testing.T) {
 }
 
 func TestHoldPendingEncoding(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	require.Equal(t, "[]", e.db.HoldPending())
 	e.db.ftPend.mu.Lock()
@@ -140,6 +146,7 @@ func TestHoldPendingEncoding(t *testing.T) {
 // The bookkeeping commits and TrimOnly go through the commit gate: they wait for
 // it (bounded by ctx), hold it for their transaction and release it after.
 func TestGatedWritesWaitForTheGate(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	snap := e.snap(id)
@@ -174,6 +181,7 @@ func TestGatedWritesWaitForTheGate(t *testing.T) {
 // KeyAndNormalize must agree with the pair of calls it replaced (Normalize, then
 // Key of the normalized form).
 func TestKeyAndNormalizeMatchesSeparateCalls(t *testing.T) {
+	t.Parallel()
 	for _, raw := range []string{
 		"http://Example.COM:80/feed.xml", "https://example.com:443/a%20b?x=1&y=2#frag", "  http://[::1]:8080/f  ",
 		"https://ex.com/a/../b/./c?q=%7E", "http://ex.com", "http://ex.com:8080/é?ü=1",

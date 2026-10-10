@@ -17,14 +17,17 @@ export const LAYOUT_LABELS: Record<LayoutId, string> = {
   gazette: "Gazette",
 };
 
-/** One-line description of each layout, shown beside it in the layout menu and settings. */
+/**
+ * A short description of each layout, shown under its name in the layout menu. Each is about 30 characters so it fits on
+ * one line at the narrowest phone width (the menu is 288 px wide there); it wraps rather than cuts when text is larger.
+ */
 export const LAYOUT_HINTS: Record<LayoutId, string> = {
-  magazine: "Big lead image, large title and excerpt",
+  magazine: "Big lead picture, large titles",
   cards: "A grid of picture cards",
-  compact: "Small source line over the title, no pictures",
-  inbox: "Email rows: sender, subject, snippet, time",
+  compact: "Source over title, no pictures",
+  inbox: "Email-style rows with a preview",
   headlines: "One line per article, titles only",
-  gazette: "A newspaper: front page and sections, newest first",
+  gazette: "A newspaper: front page, sections",
 };
 
 /** The longest name the Gazette can be given (`client.paper_name`). */

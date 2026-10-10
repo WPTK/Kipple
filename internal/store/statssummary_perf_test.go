@@ -59,6 +59,7 @@ func seedStats(t testing.TB, e *env, n int, end time.Time) {
 
 // TestStatsSummaryPerf checks the design budget (under 200 ms at a million events); skipped with -short.
 func TestStatsSummaryPerf(t *testing.T) {
+	t.Parallel()
 	if testing.Short() || (os.Getenv("KIPPLE_PERF") == "" && os.Getenv("KIPPLE_PERF_DB") == "") {
 		t.Skip("seeds a million stats rows; set KIPPLE_PERF=1 (or KIPPLE_PERF_DB=<path> to reuse a seeded database)")
 	}

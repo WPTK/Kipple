@@ -35,6 +35,7 @@ func ftsCheck5(t *testing.T, e *env, db *DB) {
 }
 
 func TestMigration0005FreshSchema(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	r := db.Reader()
 	require.GreaterOrEqual(t, LatestVersion(), 5)
@@ -45,6 +46,7 @@ func TestMigration0005FreshSchema(t *testing.T) {
 }
 
 func TestMigration0005OnPopulatedSchema4(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ids := seedSearch(t, e,
 		sitem{"Running the marathon", "Ann", "she runs every morning"},
@@ -103,6 +105,7 @@ func seedMore(t *testing.T, e *env, it sitem) int64 {
 }
 
 func TestMigration0005RollsBackOnFailure(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	seedSearch(t, e, sitem{"Running", "Ann", "runs"})
 	downgradeTo4(t, e)
@@ -127,6 +130,7 @@ func TestMigration0005RollsBackOnFailure(t *testing.T) {
 }
 
 func TestOlderBinaryRefusesSchema5(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	ms, err := loadMigrations()
 	require.NoError(t, err)
@@ -137,6 +141,7 @@ func TestOlderBinaryRefusesSchema5(t *testing.T) {
 
 // The search join still uses the FTS index and the items primary key (design §2.3 plans).
 func TestSearchPlan(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	seedSearch(t, e, sitem{"a", "b", "c"})
 	rows, err := e.db.Reader().QueryContext(e.ctx, `EXPLAIN QUERY PLAN SELECT i.id FROM items_fts JOIN items i ON i.id = items_fts.rowid

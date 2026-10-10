@@ -55,6 +55,7 @@ func srcByFeed(s *StatsSummary) map[string]StatsSource {
 // A new subscription's first document is a backlog: reading 20 of its 50 items says nothing about the
 // feed's new items. The rate is 2 read of the 5 that arrived since, through the real fetch path.
 func TestStatsReadRateCountsOnlyItemsThatArrivedCounted(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t) // the summary's today is 2026-09-24
 	e.putStat("open", "2026-09-01", 1, 999, "old", nil, "F")
 
@@ -90,6 +91,7 @@ func TestStatsReadRateCountsOnlyItemsThatArrivedCounted(t *testing.T) {
 // An item muted between two counted ones in one document. Each splits the day into runs of counted ids,
 // so reading the backlog or the muted item adds nothing: the reads are of counted items only.
 func TestStatsReadRateRunsLeaveOutUncountedItemsBetween(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.putStat("open", "2026-09-01", 1, 999, "old", nil, "F")
 	e.clk.Set(base.AddDate(0, 0, -4)) // the 20th
@@ -121,6 +123,7 @@ func TestStatsReadRateRunsLeaveOutUncountedItemsBetween(t *testing.T) {
 // Counted fetches with nothing of the feed between them extend one row, so a feed that brings an item at
 // every fetch keeps one row a day.
 func TestFeedDailyNewRunsJoinAcrossFetches(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(2)...))
@@ -134,6 +137,7 @@ func TestFeedDailyNewRunsJoinAcrossFetches(t *testing.T) {
 // The window runs over complete days from where reads are complete (covered_from). No window or nothing
 // new is no data (nil), never 0%.
 func TestStatsReadRateWindow(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t) // today is 2026-09-24
 
 	e.read("2026-09-10", 1, 1)
@@ -198,6 +202,7 @@ func TestStatsReadRateWindow(t *testing.T) {
 
 // Spans of one feed that overlap (a time zone change moved a day) are merged, so every id in them counts.
 func TestStatsArrivalsMergeSpans(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.putDailyNew(1, "2026-09-02", 2, 10, 30)
 	e.putDailyNew(1, "2026-09-03", 2, 20, 40)
@@ -219,6 +224,7 @@ func TestStatsArrivalsMergeSpans(t *testing.T) {
 // between two runs reads the id range of both tables, never a feed_id-leading index, also once the
 // planner has statistics.
 func TestStatsArrivalsPlans(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	feed := e.addFeed("http://a.example/feed")
 	lo, hi := "2026-01-01", "2026-12-31"
@@ -268,6 +274,7 @@ func TestStatsArrivalsPlans(t *testing.T) {
 // about one fetch interval) and on the whole day (a feed that posts in the morning and in the evening);
 // see design §2.5 (0018) for the figures.
 func TestFeedDailyNewBetweenPerf(t *testing.T) {
+	t.Parallel()
 	if testing.Short() || os.Getenv("KIPPLE_PERF") == "" {
 		t.Skip("seeds 360,000 rows; set KIPPLE_PERF=1")
 	}
@@ -332,6 +339,7 @@ func TestFeedDailyNewBetweenPerf(t *testing.T) {
 
 // The summary of a feed whose window rows are many stays one pass; see design §8 Read rate for the figure.
 func TestStatsReadRatePerf(t *testing.T) {
+	t.Parallel()
 	if testing.Short() || os.Getenv("KIPPLE_PERF") == "" {
 		t.Skip("seeds a million stats rows and 500,000 arrival rows; set KIPPLE_PERF=1")
 	}

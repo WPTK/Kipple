@@ -12,6 +12,7 @@ import (
 // A muted item is read on arrival, never queued for full text, left out of the fetch.done ids and
 // counted in muted_items; the rest of the fetch is untouched.
 func TestMutedItemsSkipFulltextAndFetchDoneIds(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newFTServer(t, nil)
 	srv.body.Store(ftFeed(srv.URL, 1, 2, 3))

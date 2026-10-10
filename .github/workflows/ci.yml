@@ -63,13 +63,29 @@ jobs:
           echo "scripts=$scripts" >> "$GITHUB_OUTPUT"
           echo "code=$code scripts=$scripts"
 
-  go:
+  # The Go tests run on three runners at once: internal/api and internal/store, the two slowest packages under -race,
+  # each get their own, and `rest` takes every other package (so a new package is never left out). The required check
+  # is the `go` job below, which passes only when every leg passed.
+  go-test:
+    name: go test (${{ matrix.leg }})
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
+    # Longer than the go test -timeout values the leg runs back to back, plus 10 minutes for setup, the build and vet,
+    # so a hung test is stopped by Go (whose panic names it) before the runner kills the job: api and store run one
+    # 15-minute step, rest runs a 15-minute and a 10-minute one.
+    timeout-minutes: ${{ matrix.minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { leg: api, minutes: 25 }
+          - { leg: store, minutes: 25 }
+          - { leg: rest, minutes: 35 }
     env:
       # Job-level so the step-level `if` below can see it (a step's own env is not in scope for its `if`).
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      LEG: ${{ matrix.leg }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,6 +99,7 @@ jobs:
           go-version-file: go.mod
 
       - name: gofmt
+        if: matrix.leg == 'rest'
         run: |
           out="$(gofmt -l .)"
           if [ -n "$out" ]; then
@@ -91,19 +108,32 @@ jobs:
 
       # web/dist only has the committed .gitkeep placeholder here; the Go
       # build and tests must succeed against that (see web/embed.go).
-      - run: go vet ./...
+      - if: matrix.leg == 'rest'
+        run: go vet ./...
+
       # Coverage is visibility only (SQA plan): printed per package and uploaded to Codecov, not a gate.
       # -race requires -covermode=atomic.
-      - run: go test -race -shuffle=on -timeout 15m -covermode=atomic -coverprofile=coverage.out ./...
+      - name: go test -race
+        run: |
+          mod="$(go list -m)"
+          case "$LEG" in
+            api | store) pkgs="./internal/$LEG" ;;
+            rest) pkgs="$(go list ./... | grep -v -x -e "$mod/internal/api" -e "$mod/internal/store")" ;;
+            *) echo "unknown leg $LEG"; exit 1 ;;
+          esac
+          # shellcheck disable=SC2086 # one package path per word
+          go test -race -shuffle=on -timeout 15m -covermode=atomic -coverprofile=coverage.out $pkgs
 
       - run: go tool cover -func=coverage.out | tail -n 1
 
       # The thumbnail memory-limit tests skip under -race (the detector's own allocations break the measurement), so
       # without this step no CI run would execute them.
       - name: go test internal/imgproxy (no -race)
+        if: matrix.leg == 'rest'
         run: go test -count=1 -shuffle=on -timeout 10m ./internal/imgproxy
 
-      # Skipped without the CODECOV_TOKEN secret (fork PRs, or before it is set); never fails the build.
+      # Skipped without the CODECOV_TOKEN secret (fork PRs, or before it is set); never fails the build. Codecov merges
+      # the three legs' uploads for the commit.
       - name: Upload Go coverage to Codecov
         if: env.CODECOV_TOKEN != ''
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
@@ -112,6 +142,22 @@ jobs:
           files: coverage.out
           flags: go
           fail_ci_if_error: false
+
+  # The required check. It passes when every go-test leg passed, or when the gate skipped them for a prose-only change;
+  # a leg that failed, was cancelled or was skipped for any other reason fails it. always(), not !cancelled(): a
+  # cancelled run must still report this check as failed, since a skipped required check counts as passed.
+  go:
+    needs: [changes, go-test]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          CODE: ${{ needs.changes.outputs.code }}
+          RESULT: ${{ needs.go-test.result }}
+        run: |
+          echo "go-test: $RESULT (code=$CODE)"
+          [ "$RESULT" = success ] || { [ "$RESULT" = skipped ] && [ "$CODE" = false ]; }
 
   security:
     needs: changes

@@ -45,6 +45,7 @@ func (h *harness) ingest(feed int64, feedURL string, titles ...string) map[strin
 }
 
 func TestReaderAgreesWithMutedIngest(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	const url = "https://f.example/rss"
 	feed := h.addFeed(url, "F", "")
@@ -90,6 +91,7 @@ func TestReaderAgreesWithMutedIngest(t *testing.T) {
 }
 
 func TestReaderUnreadCountsFollowRetroactiveApplyAndUnmute(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	const url = "https://g.example/rss"
 	feed := h.addFeed(url, "G", "")
@@ -134,6 +136,7 @@ func TestReaderUnreadCountsFollowRetroactiveApplyAndUnmute(t *testing.T) {
 // A muted item is never queued for extraction, so the Reader hold never applies to it: it is served
 // at once as a read item while an ordinary new item of the same full-text feed is held.
 func TestMutedItemsAreNeverHeldByTheReader(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	const url = "https://ft.example/rss"
 	feed := h.fulltextFeed(url)

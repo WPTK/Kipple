@@ -73,6 +73,7 @@ func (h *harness) unreadTotal() int64 {
 }
 
 func TestHoldListings(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	ft := h.fulltextFeed("https://ft.example/f")
 	plain := h.addFeed("https://plain.example/f", "P", "")
@@ -107,6 +108,7 @@ func TestHoldListings(t *testing.T) {
 }
 
 func TestHoldReleasedByWindowExpiry(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	ft := h.fulltextFeed("https://ft.example/f")
 	held := h.crawledAgo(ft, time.Second, itemSeed{Title: "held"})
@@ -121,6 +123,7 @@ func TestHoldReleasedByWindowExpiry(t *testing.T) {
 }
 
 func TestHoldNeverAppliesToNonFulltext(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	ft := h.fulltextFeed("https://ft.example/f")
 	plain := h.addFeed("https://plain.example/f", "P", "")
@@ -136,6 +139,7 @@ func TestHoldNeverAppliesToNonFulltext(t *testing.T) {
 }
 
 func TestHoldDisabledAndClamped(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	ft := h.fulltextFeed("https://ft.example/f")
 	id := h.crawledAgo(ft, time.Second, itemSeed{})
@@ -158,6 +162,7 @@ func TestHoldDisabledAndClamped(t *testing.T) {
 }
 
 func TestHoldPagingAndContinuation(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	ft := h.fulltextFeed("https://ft.example/f")
 	plain := h.addFeed("https://plain.example/f", "P", "")
@@ -212,6 +217,7 @@ func TestHoldPagingAndContinuation(t *testing.T) {
 // past the item's crawl time. The next sync must still get the item, because
 // leg 1 reaches 120 s (> the hold) before ot.
 func TestHoldOTClientAdvancedPastHeldItem(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	ft := h.fulltextFeed("https://ft.example/f")
 	plain := h.addFeed("https://plain.example/f", "P", "")
@@ -236,6 +242,7 @@ func TestHoldOTClientAdvancedPastHeldItem(t *testing.T) {
 }
 
 func TestHoldMarkAllAsReadSkipsHeldItems(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	ft := h.fulltextFeed("https://ft.example/f")
 	plain := h.addFeed("https://plain.example/f", "P", "")
@@ -254,6 +261,7 @@ func TestHoldMarkAllAsReadSkipsHeldItems(t *testing.T) {
 // fetch.fulltext_all makes every feed's new items hold-eligible and serves the
 // extracted text for them; a per-item mode of 0 still wins. It flips at once.
 func TestFulltextAllHoldAndContent(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	plain := h.addFeed("https://plain.example/f", "P", "")
 	a := h.crawledAgo(plain, 2*time.Second, itemSeed{Title: "a", HTML: "<p>feed body of a</p>"})
@@ -294,6 +302,7 @@ func TestFulltextAllHoldAndContent(t *testing.T) {
 // (over the per-fetch cap, queue full) or that the pool finished with is served
 // at once instead of waiting out the window for text that is not coming.
 func TestHoldOnlyAppliesToQueuedItems(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	ft := h.fulltextFeed("https://ft.example/f")
 	queued := h.crawledAgo(ft, time.Second, itemSeed{Title: "queued"})

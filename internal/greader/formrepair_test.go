@@ -9,6 +9,7 @@ import (
 // A correctly form-encoded label followed by a stray '&' is not glued into its name; raw names
 // keep their repair.
 func TestRepairDoesNotGlueStrayAmpersandAfterEncodedLabel(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ in, key, want string }{
 		{"a=user%2F-%2Flabel%2FMy+Folder&", "a", "user/-/label/My Folder"},
 		{"T=tok&s=user%2F-%2Flabel%2FMy+Folder&", "s", "user/-/label/My Folder"},

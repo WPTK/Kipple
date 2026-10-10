@@ -189,11 +189,21 @@ function RedirectNotice({ f }: { f: HealthFeed }) {
       toast("Feed address updated. Kipple is fetching it now.");
     } catch (e) {
       const code = e instanceof ApiError ? e.code : undefined;
-      toast(code === "url_exists" ? "Another feed already uses the new address." : errorMessage(e), "error");
+      const msg = e instanceof ApiError && typeof e.body?.message === "string" ? e.body.message : "";
+      toast(code === "url_exists" ? msg || "Another feed already uses the new address." : errorMessage(e), "error");
     } finally {
       setBusy(false);
     }
   };
+  if (f.redirect_owner) {
+    return (
+      <div className="mt-2 rounded-lg border border-line bg-bg p-2 text-xs">
+        <p className="break-words">
+          This address redirects to <span className="font-semibold">{f.redirect_owner}</span>, which you already have. Remove this one or keep both.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="mt-2 rounded-lg border border-line bg-bg p-2 text-xs">
       <p className="break-all">

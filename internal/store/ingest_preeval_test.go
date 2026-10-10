@@ -158,6 +158,7 @@ func runIngestCase(t *testing.T, c ingestCase, noPreEval bool) (ingestOutcome, i
 }
 
 func TestPreEvaluatedVerdictsMatchInTransaction(t *testing.T) {
+	t.Parallel()
 	for _, c := range ingestCases() {
 		t.Run(c.name, func(t *testing.T) {
 			old, oldTx := runIngestCase(t, c, true)
@@ -172,6 +173,7 @@ func TestPreEvaluatedVerdictsMatchInTransaction(t *testing.T) {
 
 // A sanity check on the table itself: the cases exercise every verdict.
 func TestIngestCasesCoverEveryEffect(t *testing.T) {
+	t.Parallel()
 	var muted, marked, starred, wasRead bool
 	for _, c := range ingestCases() {
 		o, _ := runIngestCase(t, c, false)
@@ -193,6 +195,7 @@ func TestIngestCasesCoverEveryEffect(t *testing.T) {
 // A filter write between the evaluation and the transaction moves the generation:
 // the transaction discards the early results and evaluates with the new rules.
 func TestPreEvalFallsBackWhenFiltersChange(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	txMatches := e.countTxMatches()
 	id := e.addFeed("http://a.example/feed")
@@ -240,6 +243,7 @@ func TestPreEvalFallsBackWhenFiltersChange(t *testing.T) {
 // holds the old rules under the new generation. The rule-list comparison catches
 // it and the transaction evaluates with the committed rules.
 func TestPreEvalCatchesRulesReadBeforeTheirCommit(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	txMatches := e.countTxMatches()
 	id := e.addFeed("http://a.example/feed")
@@ -263,6 +267,7 @@ func TestPreEvalCatchesRulesReadBeforeTheirCommit(t *testing.T) {
 // Without any change in between, no rule is evaluated inside the transaction, on a
 // cold cache (the first commit compiles it) as on a warm one, regex rules included.
 func TestWriteTransactionDoesNoFilterMatching(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	txMatches := e.countTxMatches()
 	id := e.addFeed("http://a.example/feed")

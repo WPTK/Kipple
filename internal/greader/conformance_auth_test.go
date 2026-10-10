@@ -19,6 +19,7 @@ import (
 )
 
 func TestConformanceClientLogin(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := newConf(t, h)
 	tok := c.token
@@ -129,6 +130,7 @@ func (c *confClient) rawPost(path, body, ctype string) resp {
 }
 
 func TestConformanceTokenAndUserInfo(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := newConf(t, h)
 
@@ -148,6 +150,7 @@ func TestConformanceTokenAndUserInfo(t *testing.T) {
 }
 
 func TestConformanceAuthFailures(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	l := seedConf(h)
 	c := newConf(t, h)
@@ -234,6 +237,7 @@ func requireUnauthorized(t *testing.T, r resp, what string) {
 }
 
 func TestConformanceRevokedTokenUntilSignInAgain(t *testing.T) {
+	t.Parallel()
 	// Tokens do not expire on a timer; changing the API password revokes every token at once, and
 	// the client gets a working token by signing in with the new password [K §6.3].
 	const newPass, newHash = "a-new-api-password", "another-hash"
@@ -264,6 +268,7 @@ func TestConformanceRevokedTokenUntilSignInAgain(t *testing.T) {
 }
 
 func TestConformanceAPIDisabled(t *testing.T) {
+	t.Parallel()
 	// With no API password set, sign-in and every endpoint answer 401 (never 403 or 404).
 	h := newHarness(t, harnessOpts{noAPIPassword: true})
 	c := &confClient{client: newClient(t, h, base, confUA), h: h}
@@ -274,6 +279,7 @@ func TestConformanceAPIDisabled(t *testing.T) {
 }
 
 func TestConformanceMethodsAndContentTypes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	l := seedConf(h)
 	c := newConf(t, h)

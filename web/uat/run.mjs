@@ -13,6 +13,8 @@
 //   S5  no literal "undefined", "NaN", "[object Object]" or "Invalid Date" in visible text, field values or
 //       accessible names
 //   S6  scripts/contrast.mjs over all 20 schemes
+//   S8  touch targets (tablet, phone and narrow phone): every control of Kipple's has a hit area of at least 44 x 44 px,
+//       measured by hit-testing around it (so a larger label or a padded pseudo-element counts, see tapProbe)
 //   S7  the reading-font choice is reachable: the Aa menu above every list and article, and Settings > Appearance &
 //       Reading, each offer a "Reading font" select with every font (it once went missing from Settings unnoticed)
 // Known, accepted issues are waived in uat/waivers.json:
@@ -50,7 +52,10 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
-import { activeScheme, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady } from "./probes.mjs";
+import { activeScheme, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
+
+/** The smallest touch target, in CSS px (S8). WCAG 2.2 asks for 24; Kipple keeps to the 44 of the Apple and Material guides. */
+const TAP_MIN = 44;
 
 /** The first line of an error's message. */
 const firstLine = (e) => String(e?.message ?? e).split("\n")[0];
@@ -155,6 +160,8 @@ const VIEWPORTS = [
   { id: "desktop", width: 1280, height: 800, mobile: false },
   { id: "tablet", width: 768, height: 1024, mobile: true },
   { id: "phone", width: 390, height: 844, mobile: true },
+  // The smallest width Kipple supports (an iPhone SE class screen).
+  { id: "narrow", width: 320, height: 568, mobile: true },
 ];
 const LAYOUTS = [
   { id: "magazine", label: "Editorial" },
@@ -224,7 +231,7 @@ const waivers = orSetupError("uat/waivers.json", () => {
   const list = JSON.parse(readFileSync(new URL("./waivers.json", import.meta.url), "utf8"));
   if (!Array.isArray(list)) throw new Error("must be a JSON array");
   const allowed = {
-    check: ["S1", "S2", "S3", "S4", "S5", "S6"],
+    check: ["S1", "S2", "S3", "S4", "S5", "S6", "S8"],
     browser: Object.keys(ENGINES),
     screen: [...SCREENS.map((s) => s.id), "boot"],
     theme: THEMES.map((t) => t.id),
@@ -542,6 +549,24 @@ async function selfTest() {
   if (!same(feed, wantFeed)) problems.push(`S5 feed notes ${JSON.stringify(feed)}`);
   // The fixture has no <title> and no lang: two violations axe always reports.
   if (!axeIds.includes("document-title") || !axeIds.includes("html-has-lang")) problems.push(`S3 missed a known violation (${axeIds.join(", ")})`);
+  // S8: what a finger hits. A bare small button and a bare checkbox are flagged; a button padded to 44, a checkbox in a
+  // 44 px label, a link with a padded ::before and a control inside the feed's article HTML are not.
+  const tapPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await tapPage.setContent(
+    `<style>.pad{position:relative}.pad::before{content:"";position:absolute;top:50%;left:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}</style>` +
+      `<main style="padding:20px"><div style="display:flex;flex-direction:column;align-items:flex-start;gap:60px">` +
+      `<button id="tiny" style="width:20px;height:20px;padding:0">x</button>` +
+      `<button id="big" style="width:44px;height:44px;padding:0">x</button>` +
+      `<input id="bare" type="checkbox" style="width:20px;height:20px;margin:0">` +
+      `<label id="lab" style="display:flex;align-items:center;min-height:44px;min-width:100px"><input id="inlab" type="checkbox"> Tick</label>` +
+      `<a id="padlink" class="pad" href="#a">link</a><a id="plain" href="#b">link</a>` +
+      `</div><article aria-labelledby="article-title"><div class="article-body"><button id="feedtiny" style="width:10px;height:10px;padding:0"></button></div></article></main>`,
+  );
+  await tapPage.evaluate(PAGE_SCRIPT);
+  const tap = await tapPage.evaluate(tapProbe, { feed: FEED, min: TAP_MIN });
+  await tapPage.close();
+  const tapIds = tap.small.map((x) => x.desc.split(" ")[0].replace(/\..*/, "")).sort();
+  if (!same(tapIds, ["button#tiny", "input#bare", "a#plain"].map((s) => s.replace(/\..*/, "")))) problems.push(`S8 flagged ${JSON.stringify(tap.small)}`);
   if (problems.length) throw new Error(`self-test failed: ${problems.join("; ")}`);
 }
 
@@ -797,6 +822,8 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       await Promise.all([...harvesting]); // this screen's API answers are in FEED.names
       const s5 = await page.evaluate(literalProbe, FEED);
       const axe = await runAxe(page, screen.menu ? MENU : undefined);
+      // S8 on the touch widths. With a menu open the page behind it is inert, so only the menu is measured.
+      const s8 = vp.mobile ? await page.evaluate(tapProbe, { feed: FEED, min: TAP_MIN, root: screen.menu ? MENU : undefined }) : null;
       if (screen.font) {
         const s7 = await fontCheck(page, screen.font);
         if (s7) report("S7", where, "font-choice", s7);
@@ -813,6 +840,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         for (const n of own) report("S3", where, v.id, `${v.id} (${v.impact}): ${v.help}`, [n]);
         if (feed.length) note("S3", where, `${v.id} in the feed's article HTML: ${v.help}`, feed);
       }
+      for (const t of s8?.small ?? []) report("S8", where, "tap-target", `${t.desc} is ${t.w} x ${t.h} px, under ${TAP_MIN} x ${TAP_MIN}`);
       for (const s of s4) {
         if (s.feed) note("S4", where, s.message);
         else report("S4", where, s.rule, s.message);
@@ -823,7 +851,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       }
 
       const mine = findings.filter((f) => f.screen === screen.id && f.theme === theme.id && f.viewport === vp.id && f.severity === "fail");
-      row.checks = Object.fromEntries(["S1", "S2", "S3", "S4", "S5", "S7"].map((c) => [c, mine.filter((f) => f.check === c).length]));
+      row.checks = Object.fromEntries(["S1", "S2", "S3", "S4", "S5", "S7", "S8"].map((c) => [c, mine.filter((f) => f.check === c).length]));
       row.ok = mine.length === 0;
       if (!row.ok || opt.screenshots) {
         // The screen is checked by now: a screenshot that fails (a page too tall to capture, a full disk) is a note.
@@ -904,7 +932,7 @@ function writeReport(results, s6) {
   }
   const fails = findings.filter((f) => f.severity === "fail");
   const summary = Object.fromEntries(
-    ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "run"].map((c) => [
+    ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "run"].map((c) => [
       c,
       { fail: fails.filter((f) => f.check === c).length, waived: findings.filter((f) => f.check === c && f.severity === "waived").length },
     ]),

@@ -624,14 +624,14 @@ describe("the query client offline", () => {
     expect(offlineStore.get().pending).toBe(2);
   });
 
-  it("a write that is not queued fails with its usual error offline", async () => {
+  it("a write that is not queued fails offline, worded like the pull gesture's refusal", async () => {
     offline();
     netFail();
     const toast = vi.spyOn(toasts, "toast");
     const refresh = renderHook(() => useRefreshAll(), { wrapper: wrapperFor(makeQueryClient()) });
     refresh.result.current.mutate();
     await waitFor(() => expect(refresh.result.current.isError).toBe(true));
-    expect(toast).toHaveBeenCalledWith("Kipple couldn't reach the server.", "error");
+    expect(toast).toHaveBeenCalledWith("Can't refresh while offline", "error");
   });
 
   it("the online state starts from the browser's, so a launch offline still sees the network come back", () => {

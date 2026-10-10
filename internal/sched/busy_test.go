@@ -77,6 +77,7 @@ func TestBusyIsReliableWhenTheDispatcherIsLoaded(t *testing.T) {
 // first must not unregister the older one, which is still listed by Status,
 // still reports progress, and keeps Busy true until its own jobs are done.
 func TestOverlappingRunsOfOneKindAreAllTracked(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	rel := map[string]chan struct{}{"/a1": make(chan struct{}), "/a2": make(chan struct{}), "/b": make(chan struct{})}
 	var mu sync.Mutex
