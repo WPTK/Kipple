@@ -56,6 +56,32 @@ var ErrSavedSearchNotFound = errors.New("store: no such saved search")
 // ErrTooManySavedSearches is returned when a create would pass MaxSavedSearches.
 var ErrTooManySavedSearches = errors.New("store: too many saved searches")
 
+// DuplicateSavedSearchError is returned when a create repeats a saved search the list already holds: Name is the
+// existing entry's name.
+type DuplicateSavedSearchError struct{ Name string }
+
+func (e *DuplicateSavedSearchError) Error() string { return "store: already saved as " + e.Name }
+
+// Same reports whether two normalized entries run the same search: same text, scope and order (no order is the
+// default, newest first). The name and id do not matter; they do not change what the search finds.
+func (s SavedSearch) Same(o SavedSearch) bool {
+	ord := func(v string) string {
+		if v == "" {
+			return "date"
+		}
+		return v
+	}
+	// Search ignores case and runs of whitespace, so two texts that differ only in those find the same articles.
+	fold := func(q string) string { return strings.Join(strings.Fields(strings.ToLower(q)), " ") }
+	if fold(s.Q) != fold(o.Q) || ord(s.Order) != ord(o.Order) {
+		return false
+	}
+	if s.Scope == nil || o.Scope == nil {
+		return s.Scope == nil && o.Scope == nil
+	}
+	return *s.Scope == *o.Scope
+}
+
 // SavedSearchError is a validation failure of one field.
 type SavedSearchError struct{ Field, Message string }
 
@@ -207,6 +233,9 @@ func (d *DB) EditSavedSearches(ctx context.Context, fn func([]SavedSearch) ([]Sa
 		if err := checkNewSavedSearchScopes(ctx, tx, prev, next); err != nil {
 			return err
 		}
+		if err := checkNewSavedSearchDuplicates(prev, next); err != nil {
+			return err
+		}
 		b, err := json.Marshal(next)
 		if err != nil {
 			return err
@@ -251,6 +280,28 @@ func checkNewSavedSearchScopes(ctx context.Context, tx *sql.Tx, prev, next []Sav
 		}
 		if !exists {
 			return badSS("scope", "no such feed or folder")
+		}
+	}
+	return nil
+}
+
+// checkNewSavedSearchDuplicates is the one place a saved search is kept from repeating another: every entry of next
+// that is new or whose search (text, scope, order) changed against prev must not run the same search as another entry
+// (DuplicateSavedSearchError). It serves create, patch and a replaced list alike. An entry left as it was is not
+// checked, so an old duplicate never blocks other edits (renaming it, reordering, deleting its twin).
+func checkNewSavedSearchDuplicates(prev, next []SavedSearch) error {
+	before := make(map[string]SavedSearch, len(prev))
+	for _, p := range prev {
+		before[p.ID] = p
+	}
+	for i, n := range next {
+		if old, ok := before[n.ID]; ok && old.Same(n) {
+			continue
+		}
+		for j, m := range next {
+			if i != j && n.Same(m) {
+				return &DuplicateSavedSearchError{Name: m.Name}
+			}
 		}
 	}
 	return nil

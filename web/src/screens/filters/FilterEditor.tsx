@@ -386,6 +386,17 @@ function EditorForm({
   // The preview on screen (and the count in the Apply help) is for an older state of the rule until this is false.
   const previewStale = d.terms.length > 0 && preview.status === "loading";
   const ok = d.terms.length > 0 && d.fields.length > 0 && scopeOk && !nameTooLong;
+  // Why Save is off, in the footer beside it: a disabled button alone never says what is missing.
+  const whyNot = ok
+    ? null
+    : d.terms.length === 0
+      ? "Add a word to match to save this filter."
+      : d.fields.length === 0
+        ? "Pick at least one place to look to save this filter."
+        : !scopeOk
+          ? `Pick ${d.scope === "folder" ? "a folder" : "a feed"} to save this filter.`
+          : "Shorten the name to save this filter.";
+  const whyId = useId();
 
   // Suggestions from the article "Mute similar...": a tap adds a word or the author, a second tap takes it out again.
   // Whether a suggestion is on is read from the rule itself (its terms and fields), never kept separately. Adding the
@@ -462,13 +473,18 @@ function EditorForm({
       description="A filter looks for words in new articles as they arrive and mutes, marks read, stars or highlights the ones that match."
       footer={
         <div className="flex w-full flex-wrap items-center gap-2">
-          <p aria-hidden="true" data-busy={previewStale || undefined} className={cn("min-w-0 flex-1 text-xs text-fg2", previewStale && "opacity-60")}>
+          {whyNot ? (
+            <p id={whyId} className="min-w-0 flex-1 text-xs text-fg2">
+              {whyNot}
+            </p>
+          ) : null}
+          <p aria-hidden="true" hidden={!!whyNot} data-busy={previewStale || undefined} className={cn("min-w-0 flex-1 text-xs text-fg2", previewStale && "opacity-60")}>
             {d.terms.length === 0 ? "" : preview.data ? previewSummary(preview.data, d.action) : preview.status === "loading" ? "Checking…" : ""}
           </p>
           <Button variant="ghost" onClick={closeFilterEditor} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="solid" onClick={() => void save()} disabled={busy || !ok || (apply && canApply && previewStale)}>
+          <Button variant="solid" onClick={() => void save()} aria-describedby={whyNot ? whyId : undefined} disabled={busy || !ok || (apply && canApply && previewStale)}>
             {busy ? "Saving" : "Save filter"}
           </Button>
         </div>

@@ -4,11 +4,11 @@ import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import { remeasureMounted } from "@/lib/remeasure";
 import { useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
-import { ApiError, SESSION_EXPIRED } from "@/api/client";
+import { ApiError, SESSION_EXPIRED, errorMessage } from "@/api/client";
 import { offlineStore } from "@/lib/offlineState";
 import { applyRead, changeError, flattenItems, keys, scopeKey, useBootstrap, useItems } from "@/api/queries";
 import { clearPending, liveStore, pendingFor } from "@/api/events";
-import { useRefreshAll, useRefreshing } from "@/api/refresh";
+import { CANT_REFRESH_OFFLINE, useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, Feed, Scope } from "@/api/types";
 import { SwipeRow } from "@/gestures/SwipeRow";
 import { openRowMenu } from "@/gestures/rowMenu";
@@ -85,6 +85,8 @@ interface ListMemory {
    * the same offset lands rows away from where the reader was (#94). */
   sizes?: { sig: string; items: VirtualItem[] };
   selectedId?: string;
+  /** A row the list must scroll to when it next mounts (the article reached by paging Next or Previous). */
+  reveal?: string;
   /** Rows swiped or marked away in Unread, so leaving the list and coming back keeps them gone. */
   hidden: ReadonlySet<string>;
   checked: ReadonlySet<string>;
@@ -120,6 +122,13 @@ onBecameUnread((ids) => {
   for (const m of memory.values()) if (ids.some((id) => m.hidden.has(id))) m.hidden = new Set([...m.hidden].filter((x) => !ids.includes(x)));
 });
 
+/** The article reached by Next or Previous is where the list should be when the reader goes back to it. */
+export function rememberListPlace(scope: Scope, id: string): void {
+  const m = memoryFor(scopeKey(scope));
+  m.selectedId = id;
+  m.reveal = id;
+}
+
 /** Forget remembered scroll and selection (tests). */
 export function clearListMemory(): void {
   memory.clear();
@@ -132,7 +141,11 @@ export const NO_RANGE_IN_PAGES = "Mark above and below are off in the Gazette: i
 export const LEAVE_MS = 1500;
 
 export function emptyCopy(scope: Scope, pendingNew = 0): { title: string; body: string } {
-  if (scope.q) return { title: `No results for "${scope.q}"`, body: "Try fewer words, or search All instead of just this feed." };
+  if (scope.q) {
+    // Only a search narrowed to a feed or folder has a wider place to try (the chip on the Search screen widens it).
+    const narrowed = scope.feed || scope.folder;
+    return { title: `No results for "${scope.q}"`, body: narrowed ? "Try fewer words, or search the whole library." : "Try fewer words." };
+  }
   if (scope.view === "muted") return { title: "Nothing muted", body: "Articles that your filters mute are kept here, so you can restore any of them. Add a filter in Settings." };
   if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here. Retention never removes starred articles." };
   if (scope.view === "unread") {
@@ -153,6 +166,8 @@ export interface ListControls {
   count: number;
   /** A search that had no exact match and shows partial matches (docs/design.md 2.4). */
   fallback: boolean;
+  /** The list finished loading and has no articles at all. */
+  empty: boolean;
 }
 
 /** What a search that came back 422 says: the server's own message, or a plain one. */
@@ -309,7 +324,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   // never throws a reader back to the top mid-visit.
   const restoredAsOf = useRef(saved?.offsetAsOf);
   // A page layout's offset waits for its pages (below); a list refetched since then starts at the top instead.
-  const pageRestored = useRef(!saved?.offset);
+  const pageRestored = useRef(!saved?.offset && !saved?.reveal);
   useEffect(() => {
     if (restoredAsOf.current === undefined) return;
     if (restoredAsOf.current !== currentAsOf) {
@@ -435,7 +450,21 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   );
   useLayoutEffect(() => {
     const el = parentRef.current;
-    if (!Page || pageRestored.current || !el || el.scrollHeight - el.clientHeight < (saved?.offset ?? 0)) return;
+    if (!Page || pageRestored.current || !el) return;
+    // Paging in the article moved the place to read: land on that story instead of the old offset. The stories exist
+    // only once the pages are laid out, so until then the reveal stays pending (and this runs again each render).
+    const reveal = saved?.reveal;
+    if (reveal) {
+      const story = el.querySelector(`[data-item-id="${CSS.escape(reveal)}"]`);
+      if (!story) return;
+      if (saved) saved.reveal = undefined;
+      pageRestored.current = true;
+      story.scrollIntoView?.({ block: "center" });
+      restoreTarget.current = el.scrollTop;
+      if (markOnScrollPageRef.current) rebuildSeen(el);
+      return;
+    }
+    if (el.scrollHeight - el.clientHeight < (saved?.offset ?? 0)) return;
     pageRestored.current = true;
     el.scrollTop = saved?.offset ?? 0;
     restoreTarget.current = el.scrollTop;
@@ -498,8 +527,17 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   useEffect(() => {
     if (restoredFocus.current || !saved?.selectedId || items.length === 0) return;
     restoredFocus.current = true;
+    // Paging Next or Previous in the article moved the place to read: come back to that row, not where the list was
+    // when the first article opened.
+    // A page layout does this in its own layout effect, once its stories are laid out.
+    const reveal = saved.reveal;
+    if (reveal && !pagedRef.current) {
+      saved.reveal = undefined;
+      const i = rowIndexOf(reveal);
+      if (i >= 0) virtualizer.scrollToIndex(i, { align: "center" });
+    }
     requestAnimationFrame(() => focusRow(parentRef.current, saved.selectedId as string));
-  }, [items.length, saved?.selectedId]);
+  }, [items.length, saved?.selectedId, rowIndexOf, virtualizer, saved]);
 
   // The reader pane (or j/k in it) changed the open item: keep it in view.
   const lastActive = useRef<string | undefined>(undefined);
@@ -948,21 +986,21 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const [holding, setHolding] = useState(false);
   const startRefresh = useCallback(() => {
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      announce("Can't refresh while offline");
+      announce(CANT_REFRESH_OFFLINE);
       return;
     }
     setHolding(true);
     refreshAll.mutate();
   }, [refreshAll]);
-  // A relevance cursor from before a server upgrade (or one for another ordering) is refused with 400 bad_cursor on a later
-  // page: start the search over instead of leaving "Couldn't load more" that can never succeed. At most twice.
+  // A cursor from before a server upgrade (or one for another ordering) is refused with 400 bad_cursor on a later
+  // page: start the list over instead of leaving "Couldn't load more" that can never succeed. At most twice.
   const restarts = useRef(0);
   useEffect(() => {
-    if (!scope.q || !q.isFetchNextPageError) return;
+    if (!q.isFetchNextPageError) return;
     const e = q.error;
     if (!(e instanceof ApiError) || e.status !== 400 || e.code !== "bad_cursor" || restarts.current >= 2) return;
     restarts.current++;
-    announce("Search restarted");
+    announce(scope.q ? "Search restarted" : "List restarted");
     void qc.resetQueries({ queryKey: keys.items(scope) });
   }, [q.isFetchNextPageError, q.error, scope, qc]);
 
@@ -1075,9 +1113,17 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       // A search the server calls too broad says so in its own words; asking again would not help.
       const broad = tooBroadMessage(q.error);
       if (broad) return <StatusBlock role="status" title="That search is too broad" body={broad} />;
+      // Only a failed connection is "couldn't reach the server"; any other answer (a 400, a 5xx) is the server's.
+      const unreachable = !(q.error instanceof ApiError) || q.error.status === 0;
+      const refused = q.error instanceof ApiError && q.error.status === 400;
       return (
-        <StatusBlock role="alert" title="Couldn't load articles" body="Kipple couldn't reach the server. Your place in the list is saved.">
-          <Button onClick={() => void q.refetch()}>Try again</Button>
+        <StatusBlock
+          role="alert"
+          title="Couldn't load articles"
+          body={unreachable ? "Kipple couldn't reach the server. Your place in the list is saved." : refused ? "Kipple no longer recognises this place in the list." : errorMessage(q.error)}
+        >
+          {/* A refused request (400) repeats the same refusal: start the list from its first page instead. */}
+          {refused ? <Button onClick={() => void qc.resetQueries({ queryKey: keys.items(scope) })}>Start over</Button> : <Button onClick={() => void q.refetch()}>Try again</Button>}
         </StatusBlock>
       );
     }
@@ -1152,13 +1198,15 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const pullOffset = holding ? 56 : pull.distance;
   const pullLabel = holding || refreshing ? "Refreshing" : pull.armed ? "Release to refresh" : "Pull to refresh";
   const showPull = holding || pull.distance >= 16;
-  const controls: ListControls = { markAllRead, count: items.length, fallback };
+  // Known to have nothing (not merely still loading): a search with no results has nothing to save or mark.
+  const empty = !q.isPending && allItems.length === 0;
+  const controls: ListControls = { markAllRead, count: items.length, fallback, empty };
   const headerNode = typeof header === "function" ? header(controls) : header;
   const controlsRef = useRef(onControls);
   controlsRef.current = onControls;
   useEffect(() => {
-    controlsRef.current?.({ markAllRead, count: items.length, fallback });
-  }, [markAllRead, items.length, fallback]);
+    controlsRef.current?.({ markAllRead, count: items.length, fallback, empty });
+  }, [markAllRead, items.length, fallback, empty]);
 
   return (
     <section aria-label="Articles" className="flex h-full min-h-0 flex-col">
