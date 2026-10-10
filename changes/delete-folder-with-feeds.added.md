@@ -1,1 +1,0 @@
-Feeds: deleting a folder can now delete its feeds too. You choose Delete the feeds too, see how many feeds and starred articles go, and type the folder's name to confirm; if any feed can't be deleted the folder is kept.
