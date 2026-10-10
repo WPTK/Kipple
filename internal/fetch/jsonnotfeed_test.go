@@ -40,6 +40,9 @@ func TestParseFeedLenientForSubscribedFeeds(t *testing.T) {
 		_, err = ParseFeed([]byte(ok), ParseOptions{FeedURL: lax.FeedURL, Strict: true})
 		require.Error(t, err, "adding refuses it: "+ok)
 	}
+	// A feed with the version URL and no items key (an empty feed) keeps parsing.
+	_, err := ParseFeed([]byte(`{"version":"https://jsonfeed.org/version/1.1","title":"T"}`), lax)
+	require.NoError(t, err)
 	for _, bad := range []string{`{"a":1}`, `{"title":"T"}`, `{"data":[1,2]}`} {
 		_, err := ParseFeed([]byte(bad), lax)
 		require.Error(t, err, bad)

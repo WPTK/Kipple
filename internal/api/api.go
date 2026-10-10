@@ -150,7 +150,9 @@ type Server struct {
 	// no origin proof, so a page elsewhere can start one, and each streams the whole table.
 	// A second request waits for the slot instead of being refused, because a browser
 	// saves whatever a download link answers, an error included.
-	exportSlot chan struct{}
+	exportSlot    chan struct{}
+	exportWaiting atomic.Int32  // requests queued for exportSlot
+	exportWait    time.Duration // the longest one waits
 
 	mode       modeCache // the Host gate's cached auth mode and allowed hosts
 	hostWarnMu sync.Mutex
@@ -212,6 +214,7 @@ func New(opt Options) *Server {
 	}
 	s.setupSlot = make(chan struct{}, 1)
 	s.exportSlot = make(chan struct{}, 1)
+	s.exportWait = defaultExportWait
 	s.reach = opt.Reach
 	if s.reach == nil {
 		// Tests only: production passes the process's one Live in.

@@ -97,7 +97,7 @@ func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 	return ParseDecoded(decodeBody(body, opt.HTTPCharset), opt)
 }
 
-var errNotJSONFeed = errors.New("JSON document is not a JSON Feed (no version member)")
+var errNotJSONFeed = errors.New("JSON document is not a JSON Feed (no JSON Feed version and no items array)")
 
 // decodeBody is DecodeBody; a variable so a test can count the decodes.
 var decodeBody = DecodeBody
@@ -153,7 +153,7 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 			if !known && !bare {
 				return nil, errNotJSONFeed
 			}
-		} else if jf.Items == nil {
+		} else if !strings.Contains(jf.Version, "jsonfeed.org/version/") && jf.Items == nil {
 			return nil, errNotJSONFeed
 		}
 		jsonItems = jf.Items
