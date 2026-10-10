@@ -13,8 +13,9 @@ func TestOPMLImportRefusesNonOPMLAndEmpty(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
 	for _, tc := range []struct{ name, body, code string }{
-		{"rss", `<?xml version="1.0"?><rss version="2.0"><channel><title>x</title></channel></rss>`, "bad_opml"},
-		{"html", `<html><body>hi</body></html>`, "bad_opml"},
+		{"rss", `<?xml version="1.0"?><rss version="2.0"><channel><title>x</title></channel></rss>`, "not_opml"},
+		{"html", `<html><body>hi</body></html>`, "not_opml"},
+		{"truncated", `<?xml version="1.0"?><opml version="2.0"><body><outline text="a"`, "bad_opml"},
 		{"empty opml", `<?xml version="1.0"?><opml version="2.0"><head/><body/></opml>`, "empty_opml"},
 	} {
 		rec := h.do("POST", "/api/opml", tc.body, withCookie(c))

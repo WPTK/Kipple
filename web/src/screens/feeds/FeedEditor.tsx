@@ -117,7 +117,6 @@ function saveError(e: unknown): { field: "url" | "auth" | "form"; message: strin
   if (e instanceof ApiError) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
     if (e.code === "invalid_url") return { field: "url", message: msg ? sentence(msg) : "That address isn't a valid feed URL." };
-    if (e.code === "private_address") return { field: "url", message: msg ? sentence(msg) : "That address is on a private network. Turn on \"Allow addresses on my own network\" under Unsafe options to use it." };
     if (e.code === "url_exists") return { field: "url", message: "Another feed already uses that address." };
     // A page address: it links no feed, or several (the message lists them).
     if ((e.code === "no_feed" || e.code === "several_feeds") && msg) return { field: "url", message: msg };

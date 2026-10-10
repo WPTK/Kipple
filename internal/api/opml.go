@@ -50,6 +50,10 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	doc, err := opml.Parse(bytes.NewReader(body))
+	if errors.Is(err, opml.ErrNotOPML) {
+		writeError(w, http.StatusBadRequest, "not_opml")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "bad_opml")
 		return

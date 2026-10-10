@@ -730,10 +730,12 @@ export function FeedsScreen() {
               <span className="hidden min-[400px]:inline">{editMode ? "Done" : "Edit"}</span>
             </Button>
           ) : null}
-          <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
-            {selecting ? <Check aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
-            <span className={selecting ? undefined : "hidden min-[400px]:inline"}>{selecting ? "Done" : "Select"}</span>
-          </Button>
+          {realFeeds.length > 0 ? (
+            <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
+              {selecting ? <Check aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
+              <span className={selecting ? undefined : "hidden min-[400px]:inline"}>{selecting ? "Done" : "Select"}</span>
+            </Button>
+          ) : null}
           {!selecting ? (
             <Button variant="ghost" onClick={() => setAdding(true)} aria-label="Add feed">
               <Plus aria-hidden="true" />
@@ -743,7 +745,7 @@ export function FeedsScreen() {
           {!selecting ? (
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
-                <Button variant="ghost" size="icon" id={FEED_ACTIONS_ID} data-folder-actions="" aria-label="Feed actions">
+                <Button variant="ghost" size="icon" id={FEED_ACTIONS_ID} aria-label="Feed actions">
                   <MoreVertical aria-hidden="true" />
                 </Button>
               </DropdownMenu.Trigger>

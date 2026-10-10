@@ -139,9 +139,11 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 
 	var jsonItems []*gjson.Item
 	if jf, ok := gf.OriginalFeed().(*gjson.Feed); ok {
-		// The parser takes any JSON object as a JSON Feed; the spec's required version member is what tells one
-		// from an API response or a config file.
-		if !strings.Contains(jf.Version, "jsonfeed.org/version/") {
+		// The parser takes any JSON object as a JSON Feed. What tells a feed from an API response or a config file is
+		// the spec's version URL, or, for the feeds in the wild that leave it out or write just "1.1", an items array.
+		known := strings.Contains(jf.Version, "jsonfeed.org/version/")
+		bare := (jf.Version == "" || jf.Version == "1.1") && jf.Items != nil
+		if !known && !bare {
 			return nil, errNotJSONFeed
 		}
 		jsonItems = jf.Items

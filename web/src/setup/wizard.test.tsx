@@ -807,7 +807,7 @@ describe("Step 4: OPML import", () => {
   });
 
   it("says what was wrong with a file the server cannot read", async () => {
-    server(signedIn(), { "POST /api/opml": () => json({ error: "bad_opml" }, 400) });
+    server(signedIn(), { "POST /api/opml": () => json({ error: "not_opml" }, 400) });
     go("/welcome/import");
     const user = userEvent.setup();
     await heading();

@@ -607,11 +607,25 @@ describe("Folders and OPML", () => {
     expect(devicePrefsStore.get().overrides.folder["2"]).toBeUndefined();
   });
 
+  it("an import opened from the first-run button returns the focus to that button", async () => {
+    mockFetch({ "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [] }) });
+    go("/feeds");
+    const user = userEvent.setup();
+    const btn = await screen.findByRole("button", { name: "Import OPML" });
+    await user.click(btn);
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await new Promise((r) => setTimeout(r, 150)); // the focus retry runs for a moment
+    expect(screen.getByRole("button", { name: "Import OPML" })).toHaveFocus();
+  });
+
   it("with no feeds, a folder you made is still listed", async () => {
     const empty = { ...bootstrap, feeds: [], folders: [...bootstrap.folders, { id: "2", name: "Tech", position: 1, is_default: false, unread: 0 }] };
     mockFetch({ "GET /api/bootstrap": () => json(empty) });
     go("/feeds");
     expect(await screen.findByText("Tech")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Select" })).toBeNull(); // nothing to select
   });
 
   it("reorders a folder's feeds with one reorder call carrying the folder id", async () => {
