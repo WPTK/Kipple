@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, Navigate, useMatch, useNavigate, useSearchParams } from "react-router";
 import { DropdownMenu } from "radix-ui";
@@ -426,18 +426,42 @@ export function ReaderRoute() {
   const scope = useMemo(() => readerScope(base, order), [base, order]);
   const boot = useBootstrap();
   const tree = useFolderTree();
+  // A feed or folder that is not in the bootstrap on hand may only be new (added from another client or tab), so it is
+  // declared gone only after the bootstrap was fetched again for it. `checked` is the target that fetch settled for.
+  const missing = !isArticle && boot.data ? (scope.feed && !visibleFeeds(boot.data.feeds).some((f) => f.id === scope.feed) ? { kind: "feed", id: scope.feed } : scope.folder && !tree.byId.has(scope.folder) ? { kind: "folder", id: scope.folder } : null) : null;
+  const missingKey = missing ? `${missing.kind}:${missing.id}` : null;
+  const [checked, setChecked] = useState<{ key: string; round: number } | null>(null);
+  const [round, setRound] = useState(0);
+  const refetchBoot = boot.refetch;
+  useEffect(() => {
+    if (!missingKey) return;
+    let live = true;
+    void refetchBoot().finally(() => live && setChecked({ key: missingKey, round }));
+    return () => {
+      live = false;
+    };
+  }, [missingKey, round, refetchBoot]);
   // A list whose view is not one of ours is not a list: go to Unread (and fix the address) rather than show Unread
   // under a made-up one.
   if (view !== undefined && !VIEWS.some((v) => v.view === view) && view !== "muted") return <Navigate to={listTo({ view: "unread" })} replace />;
-  // A feed or folder that is not (or no longer) there is said so, instead of a list that looks merely empty. The
-  // shell shows no route until the bootstrap is in, so its feeds and folders are known here.
-  const gone = !isArticle && boot.data ? (scope.feed && !visibleFeeds(boot.data.feeds).some((f) => f.id === scope.feed) ? "feed" : scope.folder && !tree.byId.has(scope.folder) ? "folder" : null) : null;
-  if (gone) {
+  if (missing && missingKey) {
+    if (checked?.key !== missingKey || checked.round !== round) return <StatusBlock role="status" title="Checking" body={`Looking for this ${missing.kind}.`} />;
+    // A bootstrap that could not be fetched again proves nothing about the feed.
+    const unsure = boot.isRefetchError;
     return (
-      <StatusBlock role="status" title={`This ${gone} no longer exists`} body="It may have been deleted, or the address is out of date.">
-        <Link to={listTo({ view: "unread" })} replace className={buttonVariants({})}>
-          Go to Unread
-        </Link>
+      <StatusBlock
+        role="status"
+        title={unsure ? `Couldn't check this ${missing.kind}` : `This ${missing.kind} no longer exists`}
+        body={unsure ? "Kipple couldn't reach the server to look for it." : "It may have been deleted, or the address is out of date."}
+      >
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <Link to={listTo({ view: "unread" })} replace className={buttonVariants({})}>
+            Go to Unread
+          </Link>
+          <Button variant="ghost" onClick={() => setRound((n) => n + 1)}>
+            Check again
+          </Button>
+        </div>
       </StatusBlock>
     );
   }

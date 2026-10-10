@@ -324,7 +324,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   // never throws a reader back to the top mid-visit.
   const restoredAsOf = useRef(saved?.offsetAsOf);
   // A page layout's offset waits for its pages (below); a list refetched since then starts at the top instead.
-  const pageRestored = useRef(!saved?.offset);
+  const pageRestored = useRef(!saved?.offset && !saved?.reveal);
   useEffect(() => {
     if (restoredAsOf.current === undefined) return;
     if (restoredAsOf.current !== currentAsOf) {
@@ -450,7 +450,21 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   );
   useLayoutEffect(() => {
     const el = parentRef.current;
-    if (!Page || pageRestored.current || !el || el.scrollHeight - el.clientHeight < (saved?.offset ?? 0)) return;
+    if (!Page || pageRestored.current || !el) return;
+    // Paging in the article moved the place to read: land on that story instead of the old offset. The stories exist
+    // only once the pages are laid out, so until then the reveal stays pending (and this runs again each render).
+    const reveal = saved?.reveal;
+    if (reveal) {
+      const story = el.querySelector(`[data-item-id="${CSS.escape(reveal)}"]`);
+      if (!story) return;
+      if (saved) saved.reveal = undefined;
+      pageRestored.current = true;
+      story.scrollIntoView?.({ block: "center" });
+      restoreTarget.current = el.scrollTop;
+      if (markOnScrollPageRef.current) rebuildSeen(el);
+      return;
+    }
+    if (el.scrollHeight - el.clientHeight < (saved?.offset ?? 0)) return;
     pageRestored.current = true;
     el.scrollTop = saved?.offset ?? 0;
     restoreTarget.current = el.scrollTop;
@@ -515,12 +529,12 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     restoredFocus.current = true;
     // Paging Next or Previous in the article moved the place to read: come back to that row, not where the list was
     // when the first article opened.
+    // A page layout does this in its own layout effect, once its stories are laid out.
     const reveal = saved.reveal;
-    if (reveal) {
+    if (reveal && !pagedRef.current) {
       saved.reveal = undefined;
       const i = rowIndexOf(reveal);
-      if (pagedRef.current) storyIntoView(parentRef.current, reveal);
-      else if (i >= 0) virtualizer.scrollToIndex(i, { align: "center" });
+      if (i >= 0) virtualizer.scrollToIndex(i, { align: "center" });
     }
     requestAnimationFrame(() => focusRow(parentRef.current, saved.selectedId as string));
   }, [items.length, saved?.selectedId, rowIndexOf, virtualizer, saved]);
@@ -978,15 +992,15 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     setHolding(true);
     refreshAll.mutate();
   }, [refreshAll]);
-  // A relevance cursor from before a server upgrade (or one for another ordering) is refused with 400 bad_cursor on a later
-  // page: start the search over instead of leaving "Couldn't load more" that can never succeed. At most twice.
+  // A cursor from before a server upgrade (or one for another ordering) is refused with 400 bad_cursor on a later
+  // page: start the list over instead of leaving "Couldn't load more" that can never succeed. At most twice.
   const restarts = useRef(0);
   useEffect(() => {
-    if (!scope.q || !q.isFetchNextPageError) return;
+    if (!q.isFetchNextPageError) return;
     const e = q.error;
     if (!(e instanceof ApiError) || e.status !== 400 || e.code !== "bad_cursor" || restarts.current >= 2) return;
     restarts.current++;
-    announce("Search restarted");
+    announce(scope.q ? "Search restarted" : "List restarted");
     void qc.resetQueries({ queryKey: keys.items(scope) });
   }, [q.isFetchNextPageError, q.error, scope, qc]);
 
@@ -1101,13 +1115,15 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       if (broad) return <StatusBlock role="status" title="That search is too broad" body={broad} />;
       // Only a failed connection is "couldn't reach the server"; any other answer (a 400, a 5xx) is the server's.
       const unreachable = !(q.error instanceof ApiError) || q.error.status === 0;
+      const refused = q.error instanceof ApiError && q.error.status === 400;
       return (
         <StatusBlock
           role="alert"
           title="Couldn't load articles"
-          body={unreachable ? "Kipple couldn't reach the server. Your place in the list is saved." : errorMessage(q.error)}
+          body={unreachable ? "Kipple couldn't reach the server. Your place in the list is saved." : refused ? "Kipple no longer recognises this place in the list." : errorMessage(q.error)}
         >
-          <Button onClick={() => void q.refetch()}>Try again</Button>
+          {/* A refused request (400) repeats the same refusal: start the list from its first page instead. */}
+          {refused ? <Button onClick={() => void qc.resetQueries({ queryKey: keys.items(scope) })}>Start over</Button> : <Button onClick={() => void q.refetch()}>Try again</Button>}
         </StatusBlock>
       );
     }

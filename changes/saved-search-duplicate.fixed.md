@@ -1,1 +1,1 @@
-Saving a search you already have saved now says so, naming the existing one, instead of adding an identical copy. The save dialog also points phones to the Feeds tab.
+Saving a search you already have saved (the same words, ignoring case and spacing, in the same scope and order) now says so, naming the existing one, instead of adding an identical copy; editing a saved search into a copy is refused the same way. The save dialog also points phones to the Feeds tab. (#356)

@@ -71,7 +71,9 @@ func (s SavedSearch) Same(o SavedSearch) bool {
 		}
 		return v
 	}
-	if s.Q != o.Q || ord(s.Order) != ord(o.Order) {
+	// Search ignores case and runs of whitespace, so two texts that differ only in those find the same articles.
+	fold := func(q string) string { return strings.Join(strings.Fields(strings.ToLower(q)), " ") }
+	if fold(s.Q) != fold(o.Q) || ord(s.Order) != ord(o.Order) {
 		return false
 	}
 	if s.Scope == nil || o.Scope == nil {
@@ -231,6 +233,9 @@ func (d *DB) EditSavedSearches(ctx context.Context, fn func([]SavedSearch) ([]Sa
 		if err := checkNewSavedSearchScopes(ctx, tx, prev, next); err != nil {
 			return err
 		}
+		if err := checkNewSavedSearchDuplicates(prev, next); err != nil {
+			return err
+		}
 		b, err := json.Marshal(next)
 		if err != nil {
 			return err
@@ -275,6 +280,28 @@ func checkNewSavedSearchScopes(ctx context.Context, tx *sql.Tx, prev, next []Sav
 		}
 		if !exists {
 			return badSS("scope", "no such feed or folder")
+		}
+	}
+	return nil
+}
+
+// checkNewSavedSearchDuplicates is the one place a saved search is kept from repeating another: every entry of next
+// that is new or whose search (text, scope, order) changed against prev must not run the same search as another entry
+// (DuplicateSavedSearchError). It serves create, patch and a replaced list alike. An entry left as it was is not
+// checked, so an old duplicate never blocks other edits (renaming it, reordering, deleting its twin).
+func checkNewSavedSearchDuplicates(prev, next []SavedSearch) error {
+	before := make(map[string]SavedSearch, len(prev))
+	for _, p := range prev {
+		before[p.ID] = p
+	}
+	for i, n := range next {
+		if old, ok := before[n.ID]; ok && old.Same(n) {
+			continue
+		}
+		for j, m := range next {
+			if i != j && n.Same(m) {
+				return &DuplicateSavedSearchError{Name: m.Name}
+			}
 		}
 	}
 	return nil

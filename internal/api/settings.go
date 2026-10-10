@@ -107,6 +107,13 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 				"this account has no web password and signs in through Cloudflare Access: set a web password first (Account), then change or turn off Access")
 			return
 		}
+		var dup *store.DuplicateSavedSearchError
+		if errors.As(err, &dup) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": "invalid_settings", "message": "invalid settings: " + store.SettingSavedSearches, "keys": []string{store.SettingSavedSearches},
+				"issues": []settingIssue{{store.SettingSavedSearches, "this search is already saved as " + dup.Name}}})
+			return
+		}
 		var ve *store.SavedSearchError
 		if errors.As(err, &ve) {
 			// A saved search names a feed or folder that does not exist (checked in the write).

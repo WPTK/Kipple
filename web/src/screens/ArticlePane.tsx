@@ -59,7 +59,10 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const act = useItemActions();
   const fulltext = useFulltext();
 
-  const ids = useMemo(() => flattenItems(list.data).map((i) => i.id), [list.data]);
+  // Paging needs the list this article came from. Without one (a shared or bookmarked link) there is none, however
+  // much of the fallback Unread list happens to be cached, so buttons and keys agree: no Next or Previous.
+  const paging = pane || hasFrom;
+  const ids = useMemo(() => (paging ? flattenItems(list.data).map((i) => i.id) : []), [list.data, paging]);
   // The article's own detail fetch can fail (offline, a server error) with no data at all, but the list this
   // article was opened from often already has this item's card cached, url included: enough to still offer
   // "read the original" even though the article body itself could not be loaded.
@@ -287,7 +290,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           a={a}
           ftOn={ftOn}
           ftBusy={ftBusy}
-          paging={pane || hasFrom}
+          paging={paging}
           canPrev={!!prevId}
           canNext={canPage}
           onPrev={() => prev("nav")}
@@ -372,7 +375,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           a={a}
           ftOn={ftOn}
           ftBusy={ftBusy}
-          paging={pane || hasFrom}
+          paging={paging}
           canPrev={!!prevId}
           canNext={canPage}
           onPrev={() => prev("nav")}

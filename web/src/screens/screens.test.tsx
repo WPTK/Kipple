@@ -185,6 +185,9 @@ describe("Article view", () => {
     await user.click(screen.getByRole("menuitem", { name: "Mute similar…" }));
     // The editor is opened through the shared store (its dialog is covered in filters.test.tsx).
     expect(filterEditorStore.get()).toMatchObject({ mode: "create" });
+    // Save is off until a suggestion is chosen, and the footer says so beside it.
+    expect(await screen.findByText("Add a word to match to save this filter.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save filter" })).toBeDisabled();
     closeFilterEditor();
   });
 
@@ -352,10 +355,72 @@ describe("Reader: lists and articles that are not there", () => {
     go("/l/unread");
     expect(await screen.findByText("Couldn't load articles")).toBeInTheDocument();
     expect(screen.queryByText(/couldn't reach the server/i)).toBeNull();
+    // The same refusal would come again: the action restarts the list rather than repeating the request.
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Start over" })).toBeInTheDocument();
   });
 
   it("an empty library-wide search does not offer to search All", () => {
     expect(emptyCopy({ view: "all", q: "zzz" }).body).toBe("Try fewer words.");
     expect(emptyCopy({ view: "all", q: "zzz", feed: "1" }).body).toBe("Try fewer words, or search the whole library.");
+  });
+
+  it("opens a list for a feed or folder that exists", async () => {
+    routes();
+    go("/l/unread?feed=1");
+    expect(await screen.findByRole("navigation", { name: "Show" })).toBeInTheDocument();
+    expect(screen.queryByText(/no longer exists/)).toBeNull();
+    document.body.innerHTML = "";
+    go("/l/unread?folder=1");
+    expect(await screen.findByRole("navigation", { name: "Show" })).toBeInTheDocument();
+    expect(screen.queryByText(/no longer exists/)).toBeNull();
+  });
+
+  it("does not call a feed gone that another client just added: it fetches the bootstrap again first", async () => {
+    let calls = 0;
+    const added = { ...bootstrap.feeds[0]!, id: "999", title: "Fresh feed" };
+    routes({ "GET /api/bootstrap": () => json(++calls < 2 ? bootstrap : { ...bootstrap, feeds: [...bootstrap.feeds, added] }) });
+    go("/l/unread?feed=999");
+    expect(await screen.findByRole("navigation", { name: "Show" })).toBeInTheDocument();
+    expect(screen.queryByText(/no longer exists/)).toBeNull();
+  });
+
+  it("offers Check again on the gone message", async () => {
+    routes();
+    go("/l/unread?feed=999");
+    expect(await screen.findByText("This feed no longer exists")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
+  });
+
+  it("an article opened with no list has no Next or Previous, and j does not page", async () => {
+    routes();
+    go("/i/1001");
+    await screen.findByTestId("article-body");
+    expect(screen.queryByRole("button", { name: "Next article" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Previous article" })).toBeNull();
+    await userEvent.setup().keyboard("j");
+    expect(window.location.pathname).toBe("/i/1001");
+    expect(screen.queryByRole("button", { name: "Next article" })).toBeNull();
+  });
+
+  it("Back after paging Next returns to the list with the article reached in place", async () => {
+    routes();
+    go("/l/unread");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("link", { name: /Article number 1/ }));
+    await screen.findByTestId("article-body");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next article" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Next article" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1002"));
+    await user.click(screen.getByRole("button", { name: "Back to list" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/l/unread"));
+    await waitFor(() => expect(document.activeElement?.closest("[data-item-id]")?.getAttribute("data-item-id")).toBe("1002"));
+  });
+
+  it("Save this search is off on a search with no results", async () => {
+    routes({ "GET /api/items": () => json(pageOf([])) });
+    go("/search?q=zzzqqq");
+    expect(await screen.findByText('No results for "zzzqqq"')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save this search" })).toBeDisabled();
   });
 });

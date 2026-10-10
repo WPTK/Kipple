@@ -174,12 +174,6 @@ func (s *Server) createSavedSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	ss.ID = store.NewSavedSearchID()
 	_, err = s.db.EditSavedSearches(r.Context(), func(list []store.SavedSearch) ([]store.SavedSearch, error) {
-		// The same search twice only adds a second sidebar row: say so instead.
-		for _, have := range list {
-			if have.Same(ss) {
-				return nil, &store.DuplicateSavedSearchError{Name: have.Name}
-			}
-		}
 		if len(list) >= store.MaxSavedSearches {
 			return nil, store.ErrTooManySavedSearches
 		}
