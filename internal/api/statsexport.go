@@ -181,13 +181,15 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 	}
 	bom := bomQ == "1" && format == "csv"
 	// One export at a time: a download needs no origin proof, so another page can start
-	// one, and each streams the whole table.
-	if !s.exportBusy.CompareAndSwap(false, true) {
-		w.Header().Set("Retry-After", "5")
-		writeErrorMsg(w, http.StatusTooManyRequests, "busy", "A statistics export is already running. Try again in a moment.")
+	// one, and each streams the whole table. A second request waits its turn rather than
+	// being refused: it is usually a browser download, which would save an error body as
+	// the file. It gives up only when the client does.
+	select {
+	case s.exportSlot <- struct{}{}:
+		defer func() { <-s.exportSlot }()
+	case <-ctx.Done():
 		return
 	}
-	defer s.exportBusy.Store(false)
 	rd := s.db.Reader()
 	recording, loc, tz, weekStart, err := store.StatsSettings(ctx, rd)
 	if err != nil {

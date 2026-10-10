@@ -304,13 +304,7 @@ func TestStatsExportGuards(t *testing.T) {
 	noClient := func(r *http.Request) { r.Header.Del("X-Kipple-Client") }
 	require.Equal(t, 200, h.do("GET", "/api/stats/export", "", withCookie(cc), noClient).Code, "a plain download needs no client header")
 	require.Equal(t, 200, h.do("GET", "/api/stats/export", "", withCookie(cc), cross, noClient).Code, "a download has no origin rule")
-	// One export at a time: while one runs, another is refused with Retry-After.
-	h.srv.exportBusy.Store(true)
-	busy := h.do("GET", "/api/stats/export", "", withCookie(cc), noClient)
-	require.Equal(t, http.StatusTooManyRequests, busy.Code)
-	require.NotEmpty(t, busy.Header().Get("Retry-After"))
-	h.srv.exportBusy.Store(false)
-	require.Equal(t, 200, h.do("GET", "/api/stats/export", "", withCookie(cc), noClient).Code, "the slot is released")
+	require.Equal(t, 200, h.do("GET", "/api/stats/export", "", withCookie(cc), noClient).Code, "the slot is released after each export")
 	body := `{"from":"2026-01-01","to":"2026-01-02","dry_run":true}`
 	require.Equal(t, 403, h.do("POST", "/api/stats/delete", body, withCookie(cc), noClient).Code, "delete needs X-Kipple-Client")
 	require.Equal(t, 403, h.do("POST", "/api/stats/delete", body, withCookie(cc), cross).Code)
@@ -563,3 +557,42 @@ type countingWriter struct {
 }
 
 func (c *countingWriter) Write(b []byte) (int, error) { c.n += len(b); return len(b), nil }
+
+// One export at a time, and the second is never an error: a browser download saves whatever the link
+// answers, so a refusal would become a file. The second request, sent the way a browser sends a download
+// (a plain GET with a cookie, no client header), waits for the first and then answers the real export;
+// one that gives up first (the tab is closed) answers nothing.
+func TestStatsExportSecondDownloadWaits(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	cc := h.login()
+	noClient := func(r *http.Request) { r.Header.Del("X-Kipple-Client") }
+	h.srv.exportSlot <- struct{}{} // an export is running
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- h.do("GET", "/api/stats/export", "", withCookie(cc), noClient) }()
+	select {
+	case rec := <-done:
+		t.Fatalf("the second download answered %d while one was running", rec.Code)
+	case <-time.After(150 * time.Millisecond):
+	}
+	<-h.srv.exportSlot // the first one finishes
+	select {
+	case rec := <-done:
+		require.Equal(t, 200, rec.Code)
+		require.Contains(t, rec.Header().Get("Content-Disposition"), "attachment")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second download never ran")
+	}
+
+	h.srv.exportSlot <- struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	gone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		gone <- h.do("GET", "/api/stats/export", "", withCookie(cc), noClient, func(r *http.Request) { *r = *r.WithContext(ctx) })
+	}()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	rec := <-gone
+	require.Zero(t, rec.Body.Len(), "a client that left gets no body")
+	<-h.srv.exportSlot
+}

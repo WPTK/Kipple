@@ -146,9 +146,11 @@ type Server struct {
 	// setupSlot admits one account creation or restore confirm at a time
 	// (setupAccount, restoreConfirm), so the two exclude each other.
 	setupSlot chan struct{}
-	// exportBusy admits one statistics export at a time (statsExport): a download needs
+	// exportSlot admits one statistics export at a time (statsExport): a download needs
 	// no origin proof, so a page elsewhere can start one, and each streams the whole table.
-	exportBusy atomic.Bool
+	// A second request waits for the slot instead of being refused, because a browser
+	// saves whatever a download link answers, an error included.
+	exportSlot chan struct{}
 
 	mode       modeCache // the Host gate's cached auth mode and allowed hosts
 	hostWarnMu sync.Mutex
@@ -209,6 +211,7 @@ func New(opt Options) *Server {
 		s.fails.Now = s.now
 	}
 	s.setupSlot = make(chan struct{}, 1)
+	s.exportSlot = make(chan struct{}, 1)
 	s.reach = opt.Reach
 	if s.reach == nil {
 		// Tests only: production passes the process's one Live in.
