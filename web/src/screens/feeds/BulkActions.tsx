@@ -120,7 +120,8 @@ function BulkProgress({ label, done, total }: { label: string; done: number | nu
  * Turn the selected feeds on or off, one at a time (a feed has no bulk endpoint of its own): progress and a
  * per-feed error list, same shape as the delete dialog. One bad feed does not stop the rest.
  */
-export function ToggleDialog({ feeds, enable, onClose, onDone }: { feeds: Feed[]; enable: boolean; onClose: () => void; onDone: () => void }) {
+export function ToggleDialog({ feeds: selected, enable, onClose, onDone }: { feeds: Feed[]; enable: boolean; onClose: () => void; onDone: () => void }) {
+  const [feeds] = useState(selected); // fixed when the dialog opens: the live selection shrinks as feeds change
   const qc = useQueryClient();
   const count = feeds.length;
   const { progress, report, setReport, busy, runEach } = useBulkRun(feeds);
@@ -191,7 +192,8 @@ export function ToggleDialog({ feeds, enable, onClose, onDone }: { feeds: Feed[]
  * Delete the selected feeds one at a time (DELETE /api/feeds/{id}), with progress and a per-feed error list:
  * one bad feed does not stop the rest. Starred articles move to the Archive unless the switch says otherwise.
  */
-export function DeleteDialog({ feeds, onClose, onDone }: { feeds: Feed[]; onClose: () => void; onDone: (deletedIds: string[]) => void }) {
+export function DeleteDialog({ feeds: selected, onClose, onDone }: { feeds: Feed[]; onClose: () => void; onDone: (deletedIds: string[]) => void }) {
+  const [feeds] = useState(selected); // fixed when the dialog opens: the live selection shrinks as feeds are deleted
   const qc = useQueryClient();
   const { count, starred } = deleteSummary(feeds);
   const [alsoStarred, setAlsoStarred] = useState(false);
