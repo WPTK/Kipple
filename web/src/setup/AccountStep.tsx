@@ -166,7 +166,7 @@ export function AccountStep({
         ) : null}
         {onRestore ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface p-3">
-            <p className="text-sm">{feedsReady ? "Chose the wrong file?" : "Already have a Kipple backup or an OPML file?"}</p>
+            <p className="text-sm">{feedsReady ? "Chose the wrong file?" : "Already have a Kipple backup?"}</p>
             <Button onClick={onRestore} disabled={busy}>
               Restore from a backup
             </Button>

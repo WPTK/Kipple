@@ -47,8 +47,8 @@ func TestUploadBelongsToItsOwner(t *testing.T) {
 	_, err := upload(r, b)
 	require.NoError(t, err)
 
-	require.Equal(t, Status{State: RestoreNone}, r.Status(other), "no summary, no state")
-	require.Equal(t, Status{State: RestoreNone}, r.Status(""), "no key is not the owner")
+	require.Equal(t, Status{State: RestoreNone, Refusal: ErrRestoreElsewhere}, r.Status(other), "no summary, no state; only that a new upload would be refused")
+	require.Equal(t, Status{State: RestoreNone, Refusal: ErrRestoreElsewhere}, r.Status(""), "no key is not the owner")
 	_, _, err = r.Uploaded(other)
 	require.ErrorIs(t, err, ErrRestoreElsewhere)
 	_, err = r.Feeds(other)
