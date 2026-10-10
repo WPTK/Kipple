@@ -1,0 +1,1 @@
+Feeds: while selecting, tapping a feed or folder row ticks it instead of opening it, the screen shows only what selecting needs, and bulk delete and turn on/off show one progress bar instead of changing counters.
