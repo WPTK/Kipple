@@ -137,6 +137,7 @@ func TestBackupResponseIsJSON(t *testing.T) {
 // cross-site, and either way the answer is the zip, which another origin cannot read
 // (same-origin CORP, nosniff).
 func TestBackupDownloadHasNoOriginRule(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, func(o *Options) {
 		o.Backups = backup.New(backup.Options{DB: o.DB, Version: "t", FreeBytes: func(string) (uint64, error) { return 1 << 40, nil }})
 	})

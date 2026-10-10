@@ -8,6 +8,7 @@ import (
 
 // A private address typed into the feed editor is refused with a message that says where the switch is.
 func TestPatchFeedPrivateAddressNamesTheSwitch(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	id := h.storeFeed("https://a.example/feed")
