@@ -396,7 +396,7 @@ describe("Add feed", () => {
     expect(addError(err("feed_exists", "You already have this feed: My News in the folder Tech. The address you entered redirects to it."))).toBe(
       "You already have this feed: My News in the folder Tech. The address you entered redirects to it.",
     );
-    expect(addError(err("feed_exists"))).toBe("You already have this feed. The address you entered redirects to it.");
+    expect(addError(err("feed_exists"))).toBe("You already have this feed. The address you entered leads to it.");
     expect(addError(err("invalid_url", "that is not a web address; enter a feed or site address such as https://example.com/feed"))).toBe(
       "That is not a web address; enter a feed or site address such as https://example.com/feed.",
     );
@@ -779,9 +779,30 @@ describe("Feed health", () => {
       "GET /api/health/feeds": () => json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => (f.id === "3" ? { ...f, redirect_owner: "Zed Blog" } : f)) }),
     });
     go("/health");
-    expect(await screen.findByText(/which you already have\. Remove this one or keep both\./)).toBeInTheDocument();
+    expect(await screen.findByText(/which you already have\./)).toBeInTheDocument();
     expect(screen.getByText("Zed Blog", { selector: "span.font-semibold" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Update to new URL" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete this feed" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Keep both" })).toBeInTheDocument();
+  });
+
+  it("Keep both stores the choice and Delete this feed opens the delete confirmation", async () => {
+    let kept = 0;
+    base({
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [...bootstrap.feeds, { ...bootstrap.feeds[0], id: "3", title: "Moved Site" }] }),
+      "GET /api/health/feeds": () => json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => (f.id === "3" ? { ...f, redirect_owner: "Zed Blog" } : f)) }),
+      "POST /api/feeds/3/redirect/keep": () => {
+        kept++;
+        return new Response(null, { status: 204 });
+      },
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Keep both" }));
+    await waitFor(() => expect(kept).toBe(1));
+    await user.click(screen.getByRole("button", { name: "Delete this feed" }));
+    const dlg = await screen.findByRole("dialog", { name: "Delete 1 feed?" });
+    expect(within(dlg).getByText(/Moved Site/)).toBeInTheDocument();
   });
 
   it("counts the write-ahead log in the database size, and names a fetch's outcome in words", async () => {

@@ -424,6 +424,28 @@ func (d *DB) ResetTrimmedUnread(ctx context.Context, feedID int64) error {
 	})
 }
 
+// KeepRedirect records the user's choice to keep a feed next to the feed its permanent redirect leads to:
+// the redirect is remembered as accepted (feeds.redirect_ack) and cleared, and later fetches do not
+// record it again (applyRedirect). A feed with no pending redirect is left as it is.
+func (d *DB) KeepRedirect(ctx context.Context, feedID int64) error {
+	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE feeds SET redirect_ack = redirect_to, redirect_to = NULL, redirect_kind = NULL,
+			redirect_count = 0 WHERE id = ? AND redirect_kind = 'permanent' AND redirect_to IS NOT NULL`, feedID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			return nil
+		}
+		var one int
+		err = tx.QueryRowContext(ctx, "SELECT 1 FROM feeds WHERE id = ?", feedID).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrFeedNotFound
+		}
+		return err
+	})
+}
+
 // FetchLogRow is one fetch_log row as GET /api/health/feeds/{id}/log lists it.
 type FetchLogRow struct {
 	ID           int64   `json:"id,string"`

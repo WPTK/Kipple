@@ -256,24 +256,14 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	// The feed may answer through a redirect to one the user already has: that is checked on the
 	// address that answered, not the one typed or linked, before anything is created.
-	final := found.Final
-	if !found.IsFeed {
-		if _, _, h, err := store.ValidateFeedURL(target, allowPrivate); err == nil {
-			pctx, pcancel := context.WithTimeout(ctx, discoverWait)
-			if probe, perr := discover.Find(pctx, fetch.ScopedTransport(s.opt.Guard, h, allowPrivate, false, false), ua, retryUA, target, allowPrivate); perr == nil {
-				final = probe.Final
-			}
-			pcancel()
-		}
-	}
-	if final != "" {
-		if id, exists, err := s.db.FindFeedID(ctx, final); err != nil {
-			s.serverError(w, "add feed", err)
-			return
-		} else if exists {
-			s.writeFeedExists(w, r, id)
-			return
-		}
+	if owner, err := s.redirectOwner(ctx, found, ua, retryUA, allowPrivate, func(h string) http.RoundTripper {
+		return fetch.ScopedTransport(s.opt.Guard, h, allowPrivate, false, false)
+	}); err != nil {
+		s.serverError(w, "add feed", err)
+		return
+	} else if owner != 0 {
+		s.writeFeedExists(w, r, owner, redirectTail(found.IsFeed))
+		return
 	}
 
 	opts.URL = target
@@ -296,13 +286,20 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	s.publishFeedChanged(res.FeedID)
 	ch, err := s.opt.Sched.Submit(sched.Priority{FeedID: res.FeedID, Full: true, Trigger: fetch.TriggerSubscribe})
 	fo := fetchOutcome{Pending: true}
+	var merged int64
 	if err != nil {
 		s.log.Warn("api: add feed: submit first fetch", "err", err)
 		s.opt.Sched.Wake() // the feed is due; the tick picks it up
 	} else if rep, got, werr := s.awaitReply(r, ch, addWait); werr == nil && got && rep.Err == nil {
-		fo = outcomeOf(rep)
+		fo, merged = outcomeOf(rep), rep.MergedInto
 	}
 	fd, ok, err := s.db.FeedDetail(ctx, res.FeedID, s.statusEnv())
+	if err == nil && !ok && merged != 0 {
+		// The page led, one step further, to a feed the user already has, and the first fetch removed
+		// the new feed as its duplicate: the same answer as when that is known before creating it.
+		s.writeFeedExists(w, r, merged, "The address you entered leads to it.")
+		return
+	}
 	if err != nil || !ok {
 		if err == nil {
 			err = store.ErrFeedNotFound
@@ -357,10 +354,52 @@ func discoveryError(err error) (code, msg string) {
 	}
 }
 
-// writeFeedExists refuses an address that leads to a feed the user already has, naming that feed.
-func (s *Server) writeFeedExists(w http.ResponseWriter, r *http.Request, id int64) {
+// writeFeedExists refuses an address that leads to a feed the user already has, naming that feed. tail
+// is the sentence about how the address led there (redirectTail).
+func (s *Server) writeFeedExists(w http.ResponseWriter, r *http.Request, id int64, tail string) {
 	writeJSON(w, http.StatusConflict, map[string]any{"error": "feed_exists", "feed_id": idStr(id),
-		"message": s.existingFeedMessage(r.Context(), id, "The address you entered redirects to it.")})
+		"message": s.existingFeedMessage(r.Context(), id, tail)})
+}
+
+// redirectTail says how an address led to a feed the user already has, through a redirect: typed is true
+// when the address the user entered is itself the feed that redirects, false when it is a page that links
+// a feed that does.
+func redirectTail(typed bool) string {
+	if typed {
+		return "The address you entered redirects to it."
+	}
+	return "The page you entered links a feed that redirects to it."
+}
+
+// redirectOwner returns the feed the user already has at the address that answered for the feed found
+// describes, or 0. For a typed feed that is its own final address; for a page that links one feed it is
+// where that feed answers, probed here with the transport and redirect policy its first fetch will use
+// (scope builds it for a host). A probe that fails leaves it unknown, and the fetch that follows reports
+// the problem. Add and the feed editor both ask this, so a duplicate is refused the same way in both.
+func (s *Server) redirectOwner(ctx context.Context, found discover.Result, ua, retryUA string, allowPrivate bool,
+	scope func(host string) http.RoundTripper) (int64, error) {
+	final := found.Final
+	if !found.IsFeed {
+		if len(found.Candidates) != 1 {
+			return 0, nil
+		}
+		target := found.Candidates[0].URL
+		if _, _, h, err := store.ValidateFeedURL(target, allowPrivate); err == nil {
+			pctx, cancel := context.WithTimeout(ctx, discoverWait)
+			defer cancel()
+			if probe, perr := discover.Find(pctx, scope(h), ua, retryUA, target, allowPrivate); perr == nil {
+				final = probe.Final
+			}
+		}
+	}
+	if final == "" {
+		return 0, nil
+	}
+	id, exists, err := s.db.FindFeedID(ctx, final)
+	if err != nil || !exists {
+		return 0, err
+	}
+	return id, nil
 }
 
 // existingFeedMessage says which feed the user already has: its title and, when it is in a folder, the
@@ -645,16 +684,21 @@ func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPa
 	switch {
 	case errors.Is(err, discover.ErrNoFeed):
 		return discoveryError(err)
-	case err == nil && found.IsFeed && found.Final != "":
-		if other, exists, ferr := s.db.FindFeedID(ctx, found.Final); ferr == nil && exists && other != id {
-			return "url_exists", s.existingFeedMessage(ctx, other, "The address you entered redirects to it.")
+	case err == nil && (found.IsFeed || len(found.Candidates) == 1):
+		// The same check Add makes: a feed that answers through a redirect to one you already have
+		// is a duplicate whether it was typed or linked from a page.
+		owner, oerr := s.redirectOwner(ctx, found, ua, retryUA, private, func(h string) http.RoundTripper {
+			return fetch.ScopedTransport(s.opt.Guard, h, private, insecure, flag("disable_http2", fd.DisableHTTP2))
+		})
+		if oerr == nil && owner != 0 && owner != id {
+			return "url_exists", s.existingFeedMessage(ctx, owner, redirectTail(found.IsFeed))
+		}
+		if !found.IsFeed {
+			u := found.Candidates[0].URL
+			p.URL = &u
 		}
 		return "", ""
 	case err != nil || found.IsFeed || len(found.Candidates) == 0:
-		return "", ""
-	case len(found.Candidates) == 1:
-		u := found.Candidates[0].URL
-		p.URL = &u
 		return "", ""
 	}
 	urls := make([]string, len(found.Candidates))
@@ -831,6 +875,27 @@ func (s *Server) resetTrimmedUnread(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "trimmed-unread reset", err)
 		return
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// keepRedirect is POST /api/feeds/{id}/redirect/keep: the user keeps a feed that redirects to a feed they
+// already have, so Feed Health stops flagging it (store.KeepRedirect).
+func (s *Server) keepRedirect(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathItemID(r)
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	err := s.db.KeepRedirect(r.Context(), id)
+	if errors.Is(err, store.ErrFeedNotFound) {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if err != nil {
+		s.serverError(w, "keep redirect", err)
+		return
+	}
+	s.publishFeedChanged(id)
 	w.WriteHeader(http.StatusNoContent)
 }
 

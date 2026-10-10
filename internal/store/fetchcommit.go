@@ -698,6 +698,12 @@ func (d *DB) rekey(ctx context.Context, tx *sql.Tx, feedID int64, doc, fresh []f
 func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, st *commitState) error {
 	feedID := res.Snap.ID
 	dec := res.Redirect
+	if dec.Action != fetch.RedirectClear && dec.Kind == redirectPermKind {
+		kept, err := keptRedirect(ctx, tx, feedID, dec.To)
+		if err != nil || kept {
+			return err
+		}
+	}
 	switch dec.Action {
 	case fetch.RedirectSet:
 		_, err := tx.ExecContext(ctx, `UPDATE feeds SET redirect_to = ?, redirect_kind = ?, redirect_count = ? WHERE id = ?`,
@@ -759,6 +765,21 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 			WHERE id = ? AND redirect_to IS NOT NULL`, feedID)
 		return err
 	}
+}
+
+// keptRedirect reports whether the user chose to keep this feed next to the feed that already owns the
+// address its permanent redirect leads to (KeepRedirect). Such a redirect is not recorded again, so the
+// choice holds through every later fetch. When the other feed is gone the choice no longer applies.
+func keptRedirect(ctx context.Context, tx *sql.Tx, feedID int64, to string) (bool, error) {
+	var ack sql.NullString
+	if err := tx.QueryRowContext(ctx, "SELECT redirect_ack FROM feeds WHERE id = ?", feedID).Scan(&ack); err != nil {
+		return false, err
+	}
+	if !ack.Valid || ack.String != to {
+		return false, nil
+	}
+	other, found, err := FindFeedByURL(ctx, tx, to)
+	return found && other != feedID, err
 }
 
 // FeedSnapshotsByID loads the snapshots of the given feeds (enabled or not) in

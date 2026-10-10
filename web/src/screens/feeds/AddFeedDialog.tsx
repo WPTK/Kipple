@@ -20,7 +20,7 @@ const addFallback: Record<string, string> = {
   not_feed: "That address doesn't answer with a feed or a web page.",
   unreachable: "Kipple couldn't reach that site. Check the address, or try again later.",
   timeout: "The site took too long to answer. Try again later.",
-  feed_exists: "You already have this feed. The address you entered redirects to it.",
+  feed_exists: "You already have this feed. The address you entered leads to it.",
   private_address: "That address is on your own network, which Kipple doesn't fetch from unless you allow it for the feed.",
 };
 

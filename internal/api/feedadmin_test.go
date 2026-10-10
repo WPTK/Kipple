@@ -60,6 +60,11 @@ func site(t *testing.T) (string, *atomic.Int64) {
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = w.Write([]byte(`<html><head><link rel="alternate" type="application/rss+xml" title="Moved" href="/moved"></head><body></body></html>`))
 	})
+	mux.HandleFunc("/pageofpage", func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><head><link rel="alternate" type="application/rss+xml" title="Inner" href="/one"></head><body></body></html>`))
+	})
 	mux.HandleFunc("/one", func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		w.Header().Set("Content-Type", "text/html")
@@ -131,7 +136,7 @@ func TestFeedAdminRoutesRequireSessionAndOrigin(t *testing.T) {
 	routes := []struct{ method, path string }{
 		{"POST", "/api/feeds"}, {"POST", "/api/reorder"}, {"GET", "/api/feeds/1"}, {"PATCH", "/api/feeds/1"}, {"DELETE", "/api/feeds/1"},
 		{"POST", "/api/feeds/1/refresh"}, {"POST", "/api/feeds/1/mark-fetch-read"},
-		{"POST", "/api/feeds/1/trimmed-unread/reset"}, {"POST", "/api/archive/purge-unstarred"},
+		{"POST", "/api/feeds/1/trimmed-unread/reset"}, {"POST", "/api/feeds/1/redirect/keep"}, {"POST", "/api/archive/purge-unstarred"},
 		{"POST", "/api/folders"}, {"PATCH", "/api/folders/1"}, {"DELETE", "/api/folders/1"},
 		{"GET", "/api/health/feeds/1/log"},
 	}

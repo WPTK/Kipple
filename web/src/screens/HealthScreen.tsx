@@ -169,7 +169,7 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
 }
 
 /** The one-tap fix for a permanent redirect. */
-function RedirectNotice({ f }: { f: HealthFeed }) {
+function RedirectNotice({ f, onDelete }: { f: HealthFeed; onDelete: () => void }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   if (!f.redirect_pending || !f.redirect_to) {
@@ -195,12 +195,32 @@ function RedirectNotice({ f }: { f: HealthFeed }) {
       setBusy(false);
     }
   };
+  const keepBoth = async () => {
+    setBusy(true);
+    try {
+      await api(`/api/feeds/${f.id}/redirect/keep`, { method: "POST" });
+      invalidateFeeds(qc);
+      toast("Keeping both feeds.");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
   if (f.redirect_owner) {
     return (
       <div className="mt-2 rounded-lg border border-line bg-bg p-2 text-xs">
         <p className="break-words">
-          This address redirects to <span className="font-semibold">{f.redirect_owner}</span>, which you already have. Remove this one or keep both.
+          This address redirects to <span className="font-semibold">{f.redirect_owner}</span>, which you already have.
         </p>
+        <div className="mt-1 flex flex-wrap gap-2">
+          <Button disabled={busy} onClick={onDelete}>
+            Delete this feed
+          </Button>
+          <Button disabled={busy} onClick={() => void keepBoth()}>
+            Keep both
+          </Button>
+        </div>
       </div>
     );
   }
@@ -241,6 +261,9 @@ export function HealthScreen() {
   const [selecting, setSelecting] = useState(false);
   const [sel, setSel] = useState<ReadonlySet<string>>(new Set());
   const [bulk, setBulk] = useState<null | "delete" | "enable" | "disable">(null);
+  // The feed a row's "Delete this feed" is deleting: the same confirmation as the bulk Delete, for one feed.
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const deletingFeed = deleting ? boot.data?.feeds.find((x) => x.id === deleting) : undefined;
 
   const feeds = useMemo(() => (h.data ? healthSort(healthFilter(h.data.feeds, filter, q), sort, dir) : []), [h.data, filter, q, sort, dir]);
   const editing = edit ? boot.data?.feeds.find((f) => f.id === edit) : undefined;
@@ -393,7 +416,7 @@ export function HealthScreen() {
                       <th scope="row" className="max-w-[24rem] px-3 py-2 text-left font-medium">
                         <span className="block truncate">{f.title}</span>
                         <span className="block truncate text-xs font-normal text-fg2">{f.url}</span>
-                        <RedirectNotice f={f} />
+                        <RedirectNotice f={f} onDelete={() => setDeleting(f.id)} />
                         <ErrorLine f={f} />
                       </th>
                       <td className="px-3 py-2">
@@ -441,7 +464,7 @@ export function HealthScreen() {
                       <dt className="text-fg2">Next fetch</dt>
                       <dd>{f.enabled ? whenLabel(f.next_fetch_at) : "Turned off"}</dd>
                     </dl>
-                    <RedirectNotice f={f} />
+                    <RedirectNotice f={f} onDelete={() => setDeleting(f.id)} />
                     <ErrorLine f={f} />
                   </li>
                 ))}
@@ -486,6 +509,7 @@ export function HealthScreen() {
           onDone={exitSelect}
         />
       ) : null}
+      {deletingFeed ? <DeleteDialog feeds={[deletingFeed]} onClose={() => setDeleting(null)} onDone={() => undefined} /> : null}
       {bulk === "enable" || bulk === "disable" ? (
         <ToggleDialog feeds={selectedFeeds} enable={bulk === "enable"} onClose={() => setBulk(null)} onDone={exitSelect} />
       ) : null}

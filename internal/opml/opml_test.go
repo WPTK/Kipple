@@ -155,7 +155,7 @@ func TestLegacyHostTitleDoesNotRoundTrip(t *testing.T) {
 			return err
 		}
 		// Back to schema 13: drop what the later, run-once migrations add (0017), then rewind.
-		if _, err := tx.ExecContext(ctx, "DROP TABLE feed_daily_new; ALTER TABLE feeds DROP COLUMN url_succeeded"); err != nil {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE feeds DROP COLUMN redirect_ack; DROP TABLE feed_daily_new; ALTER TABLE feeds DROP COLUMN url_succeeded"); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, "PRAGMA user_version = 13")
