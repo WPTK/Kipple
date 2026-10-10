@@ -408,7 +408,7 @@ function AppearancePage() {
           </Button>
           <p className="mt-1 text-xs text-fg2">Swipe a row right to mark it read or unread, left to star it or see more. Every swipe has a button.</p>
         </div>
-        <Link to="/feeds" className="text-sm text-link underline underline-offset-2">
+        <Link to="/feeds" className="inline-flex min-h-11 items-center self-start text-sm text-link underline underline-offset-2">
           Manage feeds and folders
         </Link>
       </Section>
@@ -420,7 +420,7 @@ function AppearancePage() {
             type="checkbox"
             checked={p.shortcuts}
             onChange={(e) => updatePrefs({ shortcuts: e.target.checked })}
-            className="mt-0.5 size-5 accent-[var(--kp-accent)]"
+            className="mt-0.5 size-5 shrink-0 accent-[var(--kp-accent)]"
           />
           <span>
             Single-key shortcuts

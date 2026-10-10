@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router";
 import { ApiError, authStore, openRefusedStore, SESSION_EXPIRED } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
@@ -18,7 +18,7 @@ import { OpenRefusedScreen } from "@/setup/OpenRefused";
 import { SignedOut } from "@/setup/SignedOut";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { StatusBlock } from "@/screens/ListPane";
-import { Button } from "@/ui/button";
+import { Button, buttonVariants } from "@/ui/button";
 import { Skeleton } from "@/ui/kit";
 
 // Settings, Feeds and Health load on first visit; the reader and list stay in the main chunk.
@@ -36,6 +36,18 @@ const SettingsScreen = lazyScreen(() => import("@/screens/SettingsScreen").then(
  */
 export const BOOT_RECHECK_MS = 6000;
 export const BOOT_RECHECK_MAX_MS = 2 * 60_000;
+
+/** A path nothing answers (a mistyped address, an old link): say so instead of silently showing Unread. */
+function NotFound() {
+  const { pathname } = useLocation();
+  return (
+    <StatusBlock role="alert" title="Page not found" body={`Kipple has nothing at ${pathname}.`}>
+      <Link to="/l/unread" className={buttonVariants({ variant: "solid" })}>
+        Go to Unread
+      </Link>
+    </StatusBlock>
+  );
+}
 
 function Lazy({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<Skeleton label="Loading screen" />}>{children}</Suspense>;
@@ -195,7 +207,7 @@ function Gate() {
         <Route path="stats" element={<Lazy><StatsScreen /></Lazy>} />
         <Route path="stats/wrapped" element={<Lazy><WrappedScreen /></Lazy>} />
         <Route path="settings/*" element={<Lazy><SettingsScreen /></Lazy>} />
-        <Route path="*" element={<Navigate to="/l/unread" replace />} />
+        <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
   );

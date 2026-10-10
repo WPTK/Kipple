@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { About } from "@/api/about";
-import { debugText, uptimeText, type ClientFacts } from "./aboutText";
+import { debugText, startedText, uptimeText, type ClientFacts } from "./aboutText";
 import { reloadForUpdate, serverRebuilt } from "./buildInfo";
+
+it.each([
+  ["a UTC time becomes a local one with a year, not raw ISO", "2026-10-01T13:00:00Z", (s: string) => !s.includes("T13:00") && /2026/.test(s)],
+  ["text that is not a time is shown as it is", "garbage", (s: string) => s === "garbage"],
+])("startedText: %s", (_name, input, ok) => {
+  expect(ok(startedText(input))).toBe(true);
+});
 
 describe("serverRebuilt", () => {
   it("is true only when the server names a build that is not this bundle's", () => {
@@ -65,7 +72,7 @@ describe("debug text", () => {
       "Go: go1.27.0 (linux/arm64)",
       "Database schema: 9",
       "SQLite: 3.50.0",
-      "Running for: 3 h 12 min (since 2026-10-01T13:00:00Z)",
+      `Running for: 3 h 12 min (since ${startedText("2026-10-01T13:00:00Z")})`,
       "Data folder writable: yes",
       "Sign-in: password",
       "Cloudflare Access validation: off",
@@ -75,6 +82,7 @@ describe("debug text", () => {
       "Service worker: 1759000000000-abc",
       "Opened as: installed app",
       "Browser: TestBrowser/1.0",
+      "Started (UTC): 2026-10-01T13:00:00Z",
     ])
       expect(t).toContain(line);
   });

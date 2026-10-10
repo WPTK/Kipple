@@ -165,14 +165,18 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
       }
     } catch (e) {
       if (e instanceof ApiError && e.code === "aborted") return;
+      let busy = e instanceof ApiError && e.code === "restore_busy";
       if (e instanceof ApiError && e.status === 0) {
         // The connection was cut. If the server stopped the upload (too slow), it says so in the status.
         const st = await fetchRestoreStatus().catch(() => null);
-        setError(st?.state === "failed" && st.error?.message ? st.error.message : UPLOAD_FAILED);
+        // The server refuses an upload it cannot take before it reads the file and closes the connection, which the
+        // browser reports as a cut one: the status carries the refusal in the server's own words.
+        busy = st?.refusal?.code === "restore_busy";
+        setError(st?.refusal?.message ? st.refusal.message : st?.state === "failed" && st.error?.message ? st.error.message : UPLOAD_FAILED);
       }
       // 411 length_required, 400 upload_incomplete, 409 restore_cancelled and the rest carry a message written for the reader.
       else setError(restoreErrorText(e));
-      setBusyUpload(e instanceof ApiError && e.code === "restore_busy");
+      setBusyUpload(busy);
       setFile(null);
       setProgress(null);
       setView("pick");
