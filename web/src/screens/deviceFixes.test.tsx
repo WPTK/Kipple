@@ -708,7 +708,7 @@ describe("manage feeds", () => {
   it("bulk delete also deletes a folder it leaves empty, and says so first; the default folder stays", async () => {
     const del: string[] = [];
     const ok = (id: string) => () => (del.push(id), new Response(null, { status: 204 }));
-    routes({ "DELETE /api/feeds/4": ok("feed 4"), "DELETE /api/folders/2": ok("folder 2"), "DELETE /api/feeds/1": ok("feed 1"), "DELETE /api/feeds/2": ok("feed 2"), "DELETE /api/feeds/3": ok("feed 3") }, boot3);
+    routes({ "GET /api/bootstrap": () => json({ ...boot3, feeds: boot3.feeds.filter((f) => !del.includes("feed " + f.id)) }), "DELETE /api/feeds/4": ok("feed 4"), "DELETE /api/folders/2": ok("folder 2"), "DELETE /api/feeds/1": ok("feed 1"), "DELETE /api/feeds/2": ok("feed 2"), "DELETE /api/feeds/3": ok("feed 3") }, boot3);
     go("/feeds");
     await screen.findByText("Alpha");
     const user = userEvent.setup();
@@ -721,6 +721,25 @@ describe("manage feeds", () => {
     await user.click(within(dlg).getByRole("button", { name: "Delete 4 feeds" }));
     await waitFor(() => expect(del).toContain("folder 2"));
     expect(del.filter((d) => d.startsWith("folder"))).toEqual(["folder 2"]); // News is the default folder
+  });
+
+  it("bulk delete keeps a folder that gained a feed while it ran, and reports a folder it could not delete", async () => {
+    const del: string[] = [];
+    const ok = (id: string) => () => (del.push(id), new Response(null, { status: 204 }));
+    // Delta (4) is the only feed in Tech; by the time the run ends a new feed 9 sits there too.
+    const arrived = { ...boot3.feeds[3]!, id: "9", title: "Newcomer" };
+    routes({ "GET /api/bootstrap": () => json({ ...boot3, feeds: [...boot3.feeds.filter((f) => !del.includes("feed " + f.id)), ...(del.length ? [arrived] : [])] }), "DELETE /api/feeds/4": ok("feed 4"), "DELETE /api/folders/2": ok("folder 2") }, boot3);
+    go("/feeds");
+    await screen.findByText("Alpha");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Select/ }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Delta" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dlg = await screen.findByRole("dialog", { name: "Delete 1 feed?" });
+    await user.click(within(dlg).getByRole("button", { name: "Delete 1 feed" }));
+    await waitFor(() => expect(del).toContain("feed 4"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull()); // the run is over
+    expect(del).toEqual(["feed 4"]); // Tech was not deleted: it holds Newcomer now
   });
 
   it("Feed health stays reachable from the Feeds menu", async () => {

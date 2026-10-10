@@ -838,10 +838,9 @@ export function FeedsScreen() {
         <DeleteDialog
           feeds={selected}
           onClose={() => setBulk(null)}
-          onDone={(ids) => {
-            const left = [...sel].filter((x) => !ids.includes(x));
-            if (left.length === 0) exitSelect();
-            else setSel(new Set(left));
+          onDone={(ids, all) => {
+            if (all) exitSelect();
+            else setSel((s) => new Set([...s].filter((x) => !ids.includes(x))));
           }}
         />
       ) : null}
