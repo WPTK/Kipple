@@ -135,9 +135,10 @@ type Upload struct {
 // Status is where the restore stands.
 type Status struct {
 	State string
-	// Elsewhere: another browser holds an upload that is arriving, being checked or ready, so this one cannot start
-	// one. State reads none then.
-	Elsewhere bool
+	// Refusal is why a new upload from this browser would be refused (ErrRestorePending, ErrRestoreBusy or
+	// ErrRestoreElsewhere), nil when it would be taken. A browser whose upload connection was cut by the refusal
+	// reads its reason here.
+	Refusal error
 	// Summary is the checked backup (ready and confirmed).
 	Summary *Upload
 	// Err is why the check refused the upload (failed).
@@ -249,6 +250,22 @@ func (r *Restorer) othersLocked(owner string) bool {
 	return false
 }
 
+// refusalLocked is why a new upload from owner would be refused now, or nil: a restore already confirmed, this
+// browser\'s own upload still running, or another browser\'s. Upload and Status share it, so the answer a refused upload
+// gets and the one a status request gives are one. Under mu.
+func (r *Restorer) refusalLocked(owner string) error {
+	switch {
+	case r.state == RestoreConfirmed:
+		return ErrRestorePending
+	case r.job != nil || r.state == RestoreUploading || r.state == RestoreChecking || r.state == RestoreReady:
+		if r.mine(owner) {
+			return ErrRestoreBusy
+		}
+		return ErrRestoreElsewhere
+	}
+	return nil
+}
+
 // othersFailedLocked reports a refused upload that is not owner's. Under mu.
 func (r *Restorer) othersFailedLocked(owner string) bool {
 	return r.state == RestoreFailed && !r.mine(owner)
@@ -261,11 +278,10 @@ func (r *Restorer) Status(owner string) Status {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.othersLocked(owner) || r.othersFailedLocked(owner) {
-		// Reads as none; Elsewhere only says that a new upload would be refused (the answer to it already says so), so a
-		// browser whose upload connection was cut by that refusal can tell the person why.
-		return Status{State: RestoreNone, Elsewhere: r.othersLocked(owner)}
+		// Reads as none; Refusal only says that a new upload would be refused, which the refused upload already says.
+		return Status{State: RestoreNone, Refusal: r.refusalLocked(owner)}
 	}
-	st := Status{State: r.state, EstimateSeconds: r.estimate}
+	st := Status{State: r.state, EstimateSeconds: r.estimate, Refusal: r.refusalLocked(owner)}
 	if !r.mine(owner) {
 		return st // none, or confirmed by another browser
 	}
@@ -305,18 +321,11 @@ func (r *Restorer) Upload(reqCtx context.Context, owner string, body io.Reader, 
 		return Upload{}, ErrNotBackup
 	}
 	r.mu.Lock()
-	switch {
-	case r.closed:
+	if r.closed {
 		r.mu.Unlock()
 		return Upload{}, context.Canceled
-	case r.state == RestoreConfirmed:
-		r.mu.Unlock()
-		return Upload{}, ErrRestorePending
-	case r.job != nil || r.state == RestoreUploading || r.state == RestoreChecking || r.state == RestoreReady:
-		err := ErrRestoreBusy
-		if !r.mine(owner) {
-			err = ErrRestoreElsewhere
-		}
+	}
+	if err := r.refusalLocked(owner); err != nil {
 		r.mu.Unlock()
 		return Upload{}, err
 	}

@@ -62,7 +62,8 @@ export function aboutRows(a: About, c: ClientFacts): { label: string; value: str
 
 /** The plain-text block for a bug report. Nothing in it identifies the person or where Kipple runs. */
 export function debugText(a: About, c: ClientFacts): string {
-  return ["Kipple debug info", ...aboutRows(a, c).map((r) => `${r.label}: ${r.value}`)].join("\n");
+  // The exact start time stays in UTC: a local rendering alone is ambiguous in a bug report.
+  return ["Kipple debug info", ...aboutRows(a, c).map((r) => `${r.label}: ${r.value}`), `Started (UTC): ${a.started_at}`].join("\n");
 }
 
 /** The browser-side facts, read once when the About screen opens. Never throws. */

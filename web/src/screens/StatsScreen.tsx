@@ -177,7 +177,7 @@ export function SummaryTiles({ data, compare = false, feed }: { data: StatsSumma
       <p className="mt-2 text-xs text-fg2">
         {READ_RULE}
         {legacy > 0
-          ? ` ${plural(legacy, "article")} here ${legacy === 1 ? "was" : "were"} opened before Kipple measured reading time. ${legacy === 1 ? "It counts" : "They count"} as read but add${legacy === 1 ? "s" : ""} no time.`
+          ? ` ${plural(legacy, "open")} here happened before Kipple measured reading time. ${legacy === 1 ? "It counts" : "They count"} as read but add${legacy === 1 ? "s" : ""} no time.`
           : ""}
       </p>
     </>

@@ -91,13 +91,13 @@ describe("Stats screen", () => {
     setup(() => ({ ...richStats, totals: { ...richStats.totals!, legacy_opens: 7 } }));
     const r2 = go();
     const s2 = await screen.findByRole("region", { name: "Summary" });
-    expect(within(s2).getByText(/7 articles here were opened before Kipple measured reading time. They count as read but add no time\./)).toBeInTheDocument();
+    expect(within(s2).getByText(/7 opens here happened before Kipple measured reading time. They count as read but add no time\./)).toBeInTheDocument();
     r2.unmount();
 
     setup(() => ({ ...richStats, totals: { ...richStats.totals!, legacy_opens: 1 } }));
     go();
     const s3 = await screen.findByRole("region", { name: "Summary" });
-    expect(within(s3).getByText(/1 article here was opened before Kipple measured reading time. It counts as read but adds no time/)).toBeInTheDocument();
+    expect(within(s3).getByText(/1 open here happened before Kipple measured reading time. It counts as read but adds no time/)).toBeInTheDocument();
   });
 
   it("shows friendly empty states, not blank charts", async () => {

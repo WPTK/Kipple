@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, authStore, busyMessage, errorMessage } from "@/api/client";
+import { ApiError, api, authStore, busyMessage, chooseSignOut, errorMessage } from "@/api/client";
 import { applyRetention, changePassword, exportBackup, fetchMe, generateApiPassword, removePassword, type BackupInfo } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import { keys } from "@/api/queryKeys";
@@ -313,9 +313,11 @@ export function AccountActions() {
     }
   };
   const signOut = async () => {
+    chooseSignOut(true);
     try {
       await api("/api/auth/logout", { method: "POST" });
     } catch (e) {
+      chooseSignOut(false);
       toast(errorMessage(e), "error");
       return;
     }

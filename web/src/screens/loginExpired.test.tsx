@@ -36,7 +36,7 @@ async function signIn() {
 }
 
 describe("the sign-in screen", () => {
-  it("says you were signed out when the server ended a signed-in session, and not after you chose to sign out", async () => {
+  it("says you were signed out when the server ended a signed-in session", async () => {
     mockFetch({ "GET /api/x": () => json({ error: "auth" }, 401) });
     authStore.set("in");
     await expect(api("/api/x")).rejects.toBeInstanceOf(ApiError);

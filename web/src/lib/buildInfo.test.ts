@@ -3,10 +3,11 @@ import type { About } from "@/api/about";
 import { debugText, startedText, uptimeText, type ClientFacts } from "./aboutText";
 import { reloadForUpdate, serverRebuilt } from "./buildInfo";
 
-it("writes the start time as local time, not raw UTC", () => {
-  expect(startedText("2026-10-01T13:00:00Z")).not.toContain("T13:00");
-  expect(startedText("2026-10-01T13:00:00Z")).toMatch(/2026/);
-  expect(startedText("garbage")).toBe("garbage");
+it.each([
+  ["a UTC time becomes a local one with a year, not raw ISO", "2026-10-01T13:00:00Z", (s: string) => !s.includes("T13:00") && /2026/.test(s)],
+  ["text that is not a time is shown as it is", "garbage", (s: string) => s === "garbage"],
+])("startedText: %s", (_name, input, ok) => {
+  expect(ok(startedText(input))).toBe(true);
 });
 
 describe("serverRebuilt", () => {
@@ -19,12 +20,6 @@ describe("serverRebuilt", () => {
     expect(serverRebuilt("", "aaa")).toBe(false);
     expect(serverRebuilt(undefined, "aaa")).toBe(false);
   });
-});
-
-it("writes the start time as local time, not raw UTC", () => {
-  expect(startedText("2026-10-01T13:00:00Z")).not.toContain("T13:00");
-  expect(startedText("2026-10-01T13:00:00Z")).toMatch(/2026/);
-  expect(startedText("garbage")).toBe("garbage");
 });
 
 describe("reloadForUpdate", () => {
@@ -66,12 +61,6 @@ const about: About = {
 };
 const client: ClientFacts = { bundleVersion: "v0.5.0-beta.1", bundleBuild: "abc123def4", workerShell: "1759000000000-abc", standalone: true, userAgent: "TestBrowser/1.0" };
 
-it("writes the start time as local time, not raw UTC", () => {
-  expect(startedText("2026-10-01T13:00:00Z")).not.toContain("T13:00");
-  expect(startedText("2026-10-01T13:00:00Z")).toMatch(/2026/);
-  expect(startedText("garbage")).toBe("garbage");
-});
-
 describe("debug text", () => {
   it("is a plain block with the server's and the browser's facts", () => {
     const t = debugText(about, client);
@@ -93,6 +82,7 @@ describe("debug text", () => {
       "Service worker: 1759000000000-abc",
       "Opened as: installed app",
       "Browser: TestBrowser/1.0",
+      "Started (UTC): 2026-10-01T13:00:00Z",
     ])
       expect(t).toContain(line);
   });

@@ -234,7 +234,11 @@ func (s *Server) restoreStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := s.restore.Status(restoreKey(r))
-	out := map[string]any{"state": st.State, "summary": nil, "error": nil, "estimate_seconds": st.EstimateSeconds, "elsewhere": st.Elsewhere}
+	out := map[string]any{"state": st.State, "summary": nil, "error": nil, "estimate_seconds": st.EstimateSeconds, "refusal": nil}
+	if st.Refusal != nil {
+		_, code, msg := restoreErrorInfo(st.Refusal)
+		out["refusal"] = map[string]string{"code": code, "message": msg}
+	}
 	if st.Summary != nil { // ready and confirmed
 		out["summary"] = s.restoreSummary(r, *st.Summary)
 	}

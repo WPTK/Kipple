@@ -33,6 +33,19 @@ export const authStore = createStore<AuthState>("unknown");
  */
 export const sessionLostStore = createStore<boolean>(false);
 
+/** Set before a sign-out you chose begins: the 401s that follow it (a stream reconnecting, queued writes) are not a lost session. */
+let signOutChosen = false;
+export function chooseSignOut(chosen: boolean) {
+  signOutChosen = chosen;
+}
+
+/** The one place the app becomes signed in: a lost-session note and a sign-out intent end with it. */
+export function setSignedIn() {
+  signOutChosen = false;
+  sessionLostStore.set(false);
+  authStore.set("in");
+}
+
 /**
  * Set when a signed-in request is refused by the open gate (an account with no password, reached from an address or
  * network the server does not allow: 403 open_refused). The app then shows why instead of a broken screen. Cleared by
@@ -161,7 +174,7 @@ async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
   if (!cached) setSessionExpired(false);
   noteResponse(res, opts.quiet);
   if (res.status === 401 && !opts.anon) {
-    if (authStore.get() === "in") sessionLostStore.set(true);
+    if (authStore.get() === "in" && !signOutChosen) sessionLostStore.set(true);
     authStore.set("out");
     throw new ApiError(401, "auth");
   }
@@ -182,7 +195,7 @@ async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
     err.fromKipple = res.headers.has("X-Kipple-API");
     throw err;
   }
-  if ((!opts.anon || opts.signsIn) && authStore.get() !== "in") authStore.set("in");
+  if ((!opts.anon || opts.signsIn) && authStore.get() !== "in") setSignedIn();
   if ((!opts.anon || opts.signsIn) && openRefusedStore.get()) openRefusedStore.set(null);
   if (res.status === 204) return undefined as T;
   const text = await res.text();
