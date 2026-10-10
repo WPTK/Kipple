@@ -487,34 +487,34 @@ export function FeedsScreen() {
         className={cn("flex items-center", DND_ROW_CLASS, dragCls("feed", f.id), before && "border-t-2 border-accent", atEnd && "border-b-2 border-accent")}
       >
         {selecting ? (
-          <input
-            type="checkbox"
-            aria-label={`Select ${f.title}`}
-            checked={sel.has(f.id)}
-            onChange={() => undefined}
-            onClick={(e) => onCheck(f.id, e.shiftKey)}
-            className="mx-3 size-5 shrink-0 accent-[var(--kp-accent)]"
-          />
-        ) : editMode ? (
-          grip(src, f.title)
-        ) : null}
-        <Link
-          to={openListTo({ feed: f.id })}
-          draggable={false}
-          onClick={(e) => {
-            if (selecting) {
-              e.preventDefault();
-              onCheck(f.id, e.shiftKey);
-            }
-          }}
-          className={`${row} min-w-0 flex-1 text-sm`}
-        >
-          <span className="min-w-0">
-            <span className="block truncate">{f.title}</span>
-            {f.status !== "ok" ? <StatusChip status={f.status} /> : null}
-          </span>
-          <Badge n={f.unread} />
-        </Link>
+          // While selecting, the whole row is the checkbox's label: a tap anywhere on it ticks it and nothing opens.
+          <label className={cn(row, "min-w-0 flex-1 cursor-pointer text-sm", sel.has(f.id) && "bg-selection")}>
+            <input
+              type="checkbox"
+              aria-label={`Select ${f.title}`}
+              checked={sel.has(f.id)}
+              onChange={() => undefined}
+              onClick={(e) => onCheck(f.id, e.shiftKey)}
+              className="size-5 shrink-0 accent-[var(--kp-accent)]"
+            />
+            <span className="min-w-0">
+              <span className="block truncate">{f.title}</span>
+              {f.status !== "ok" ? <StatusChip status={f.status} /> : null}
+            </span>
+            <Badge n={f.unread} />
+          </label>
+        ) : (
+          <>
+            {editMode ? grip(src, f.title) : null}
+            <Link to={openListTo({ feed: f.id })} draggable={false} className={`${row} min-w-0 flex-1 text-sm`}>
+              <span className="min-w-0">
+                <span className="block truncate">{f.title}</span>
+                {f.status !== "ok" ? <StatusChip status={f.status} /> : null}
+              </span>
+              <Badge n={f.unread} />
+            </Link>
+          </>
+        )}
         {!selecting ? (
           <>
             {moves(src, i, list.length, f.title)}
@@ -620,28 +620,32 @@ export function FeedsScreen() {
           {...(selecting || !editMode ? {} : dnd.rowProps(fsrc))}
         >
           {selecting ? (
-            <input
-              type="checkbox"
-              aria-label={`Select all feeds in ${label}`}
-              checked={state === "all"}
-              ref={(el) => {
-                if (el) el.indeterminate = state === "some";
-              }}
-              onChange={() => {
-                setSel(toggleGroup(inSubtree, sel));
-                setAnchor(null);
-              }}
-              className="mx-3 size-5 shrink-0 accent-[var(--kp-accent)]"
-            />
-          ) : editMode ? (
-            grip(fsrc, `folder ${label}`)
+            <label className={cn(row, "min-w-0 flex-1 cursor-pointer text-sm font-semibold", state === "all" && "bg-selection")}>
+              <input
+                type="checkbox"
+                aria-label={`Select all feeds in ${label}`}
+                checked={state === "all"}
+                ref={(el) => {
+                  if (el) el.indeterminate = state === "some";
+                }}
+                onChange={() => {
+                  setSel(toggleGroup(inSubtree, sel));
+                  setAnchor(null);
+                }}
+                className="size-5 shrink-0 accent-[var(--kp-accent)]"
+              />
+              <span className="truncate">{fo.name}</span>
+              <Badge n={fo.unread} />
+            </label>
           ) : (
-            <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} />
+            <>
+              {editMode ? grip(fsrc, `folder ${label}`) : <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} />}
+              <Link to={openListTo({ folder: fo.id })} draggable={false} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
+                <span className="truncate">{fo.name}</span>
+                <Badge n={fo.unread} />
+              </Link>
+            </>
           )}
-          <Link to={openListTo({ folder: fo.id })} draggable={false} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
-            <span className="truncate">{fo.name}</span>
-            <Badge n={fo.unread} />
-          </Link>
           {!selecting ? (
             <>
               {moves(fsrc, siblings.indexOf(fo.id), siblings.length, `folder ${label}`)}
@@ -721,47 +725,51 @@ export function FeedsScreen() {
             <CheckSquare aria-hidden="true" />
             <span className="hidden min-[400px]:inline">{selecting ? "Done" : "Select"}</span>
           </Button>
-          <Button variant="ghost" onClick={() => setAdding(true)} aria-label="Add feed">
-            <Plus aria-hidden="true" />
-            <span className="hidden min-[400px]:inline">Add feed</span>
-          </Button>
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Feed actions">
-                <MoreVertical aria-hidden="true" />
-              </Button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
-                <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: null })}>
-                  <FolderPlus className="size-5" aria-hidden="true" />
-                  New folder
-                </DropdownMenu.Item>
-                <DropdownMenu.Item className={menuItem} onSelect={() => setImporting(true)}>
-                  <Upload className="size-5" aria-hidden="true" />
-                  Import OPML
-                </DropdownMenu.Item>
-                <DropdownMenu.Item asChild className={menuItem}>
-                  <a href="/api/opml" download>
-                    <Download className="size-5" aria-hidden="true" />
-                    Export OPML
-                  </a>
-                </DropdownMenu.Item>
-                <DropdownMenu.Item className={menuItem} onSelect={() => setButtons((r) => !r)}>
-                  <ArrowUp className="size-5" aria-hidden="true" />
-                  {buttons ? "Hide move buttons" : "Show move buttons"}
-                </DropdownMenu.Item>
-                <DropdownMenu.Item className={menuItem} onSelect={() => navigate("/health")}>
-                  <HeartPulse className="size-5" aria-hidden="true" />
-                  Feed health
-                </DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
+          {!selecting ? (
+            <Button variant="ghost" onClick={() => setAdding(true)} aria-label="Add feed">
+              <Plus aria-hidden="true" />
+              <span className="hidden min-[400px]:inline">Add feed</span>
+            </Button>
+          ) : null}
+          {!selecting ? (
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Feed actions">
+                  <MoreVertical aria-hidden="true" />
+                </Button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
+                  <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: null })}>
+                    <FolderPlus className="size-5" aria-hidden="true" />
+                    New folder
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item className={menuItem} onSelect={() => setImporting(true)}>
+                    <Upload className="size-5" aria-hidden="true" />
+                    Import OPML
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item asChild className={menuItem}>
+                    <a href="/api/opml" download>
+                      <Download className="size-5" aria-hidden="true" />
+                      Export OPML
+                    </a>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item className={menuItem} onSelect={() => setButtons((r) => !r)}>
+                    <ArrowUp className="size-5" aria-hidden="true" />
+                    {buttons ? "Hide move buttons" : "Show move buttons"}
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item className={menuItem} onSelect={() => navigate("/health")}>
+                    <HeartPulse className="size-5" aria-hidden="true" />
+                    Feed health
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          ) : null}
         </div>
         <p className="pb-1 text-xs text-fg2">
           {selecting
-            ? "Tick feeds to move or delete them. Shift-click ticks a range."
+            ? "Tap feeds to select them, then move or delete them. Shift-click selects a range."
             : editMode
               ? "Drag a feed or folder to reorder it. Changes are saved as you drop."
               : "Tap a folder to collapse it. Tap Edit to reorder, rename or delete a feed."}
@@ -774,38 +782,40 @@ export function FeedsScreen() {
           <FirstRun onAdd={() => setAdding(true)} onImport={() => setImporting(true)} />
         ) : boot.data ? (
           <>
-            <ul className="mb-2 flex flex-col gap-1">
-              <li>
-                <Link to={listTo({ view: "unread" })} className={row}>
-                  Unread
-                  <Badge n={c?.unread ?? 0} />
-                </Link>
-              </li>
-              <li>
-                <Link to={listTo({ view: "all" })} className={row}>
-                  All articles
-                </Link>
-              </li>
-              <li>
-                <Link to={listTo({ view: "starred" })} className={row}>
-                  Starred
-                  <Badge n={c?.starred ?? 0} />
-                </Link>
-              </li>
-              <li>
-                <Link to={listTo({ view: "muted" })} className={row}>
-                  Muted
-                  <MutedCount n={c?.muted ?? 0} className="ml-auto" />
-                </Link>
-              </li>
-            </ul>
-            {favs.favorites.length > 0 ? (
+            {selecting ? null : (
+              <ul className="mb-2 flex flex-col gap-1">
+                <li>
+                  <Link to={listTo({ view: "unread" })} className={row}>
+                    Unread
+                    <Badge n={c?.unread ?? 0} />
+                  </Link>
+                </li>
+                <li>
+                  <Link to={listTo({ view: "all" })} className={row}>
+                    All articles
+                  </Link>
+                </li>
+                <li>
+                  <Link to={listTo({ view: "starred" })} className={row}>
+                    Starred
+                    <Badge n={c?.starred ?? 0} />
+                  </Link>
+                </li>
+                <li>
+                  <Link to={listTo({ view: "muted" })} className={row}>
+                    Muted
+                    <MutedCount n={c?.muted ?? 0} className="ml-auto" />
+                  </Link>
+                </li>
+              </ul>
+            )}
+            {favs.favorites.length > 0 && !selecting ? (
               <section aria-label="Favorites" className="mb-3">
                 <h2 className="px-3 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase">Favorites</h2>
                 <ul className="flex flex-col">{favRows}</ul>
               </section>
             ) : null}
-            <SavedSearchesNav />
+            {selecting ? null : <SavedSearchesNav />}
             <ul className="flex flex-col gap-1">{topLevel.map((id) => folderNode(ftree.byId.get(id) as Folder))}</ul>
           </>
         ) : null}
@@ -836,7 +846,11 @@ export function FeedsScreen() {
         <DeleteDialog
           feeds={selected}
           onClose={() => setBulk(null)}
-          onDone={(ids) => setSel((s) => new Set([...s].filter((x) => !ids.includes(x))))}
+          onDone={(ids) => {
+            const left = [...sel].filter((x) => !ids.includes(x));
+            if (left.length === 0) exitSelect();
+            else setSel(new Set(left));
+          }}
         />
       ) : null}
       {folderDialog ? (

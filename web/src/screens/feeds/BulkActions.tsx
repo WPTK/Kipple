@@ -105,6 +105,17 @@ function useBulkRun(feeds: readonly Feed[]) {
   return { progress, report, setReport, busy, runEach };
 }
 
+/** One progress bar for a running bulk action: the button stays put and only the bar moves. */
+function BulkProgress({ label, done, total }: { label: string; done: number | null; total: number }) {
+  if (done === null) return null;
+  return (
+    <div role="status" className="flex flex-col gap-1 text-sm">
+      <span>{label}</span>
+      <progress className="h-2 w-full accent-[var(--kp-accent)]" value={done} max={total} aria-label={label} />
+    </div>
+  );
+}
+
 /**
  * Turn the selected feeds on or off, one at a time (a feed has no bulk endpoint of its own): progress and a
  * per-feed error list, same shape as the delete dialog. One bad feed does not stop the rest.
@@ -146,7 +157,7 @@ export function ToggleDialog({ feeds, enable, onClose, onDone }: { feeds: Feed[]
               Cancel
             </Button>
             <Button variant="solid" disabled={busy} onClick={() => void run()}>
-              {busy ? `Working ${progress} of ${count}` : `${verb} ${count} feed${count === 1 ? "" : "s"}`}
+              {busy ? "Working…" : `${verb} ${count} feed${count === 1 ? "" : "s"}`}
             </Button>
           </>
         )
@@ -169,11 +180,7 @@ export function ToggleDialog({ feeds, enable, onClose, onDone }: { feeds: Feed[]
               </li>
             ))}
           </ul>
-          {busy ? (
-            <p role="status" className="text-sm">
-              Working {progress} of {count}
-            </p>
-          ) : null}
+          {busy ? <BulkProgress label={`${enable ? "Turning on" : "Turning off"} feeds`} done={progress} total={count} /> : null}
         </>
       )}
     </Modal>
@@ -221,7 +228,7 @@ export function DeleteDialog({ feeds, onClose, onDone }: { feeds: Feed[]; onClos
               Cancel
             </Button>
             <Button variant="solid" disabled={busy} onClick={() => void run()}>
-              {busy ? `Deleting ${progress} of ${count}` : `Delete ${count} feed${count === 1 ? "" : "s"}`}
+              {busy ? "Deleting…" : `Delete ${count} feed${count === 1 ? "" : "s"}`}
             </Button>
           </>
         )
@@ -254,11 +261,7 @@ export function DeleteDialog({ feeds, onClose, onDone }: { feeds: Feed[]; onClos
               </li>
             ))}
           </ul>
-          {busy ? (
-            <p role="status" className="text-sm">
-              Deleting {progress} of {count}
-            </p>
-          ) : null}
+          {busy ? <BulkProgress label="Deleting feeds" done={progress} total={count} /> : null}
         </>
       )}
     </Modal>

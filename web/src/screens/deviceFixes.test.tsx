@@ -661,6 +661,23 @@ describe("manage feeds", () => {
     await waitFor(() => expect(reorderCalls(calls)).toEqual([{ feeds: [{ folder_id: "2", ids: ["4", "2", "3"] }] }]));
   });
 
+  it("while selecting, a tap anywhere on a feed or folder row ticks it and opens nothing", async () => {
+    routes({}, boot3);
+    go("/feeds");
+    await screen.findByText("Alpha");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Select/ }));
+    // Nothing to open or edit from here: no links, no Add feed, no menu.
+    expect(screen.queryByRole("link", { name: /Alpha|Bravo|News/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add feed" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Feed actions" })).toBeNull();
+    await user.click(screen.getByText("Bravo")); // the title, not the checkbox
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    await user.click(screen.getByText("News"));
+    expect(screen.getByText("3 selected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+  });
+
   it("bulk delete confirms the count and the starred total, offers deleting starred too, and reports each failure", async () => {
     const del: string[] = [];
     routes(
