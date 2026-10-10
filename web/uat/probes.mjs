@@ -227,3 +227,90 @@ export async function axeProbe({ feed, include }) {
     })),
   }));
 }
+
+// S8. Touch target size: every visible control that is Kipple's (not the feed's article HTML) must have a hit area of at
+// least `min` x `min` CSS px. The hit area is measured the way a finger finds it: points around the control's centre
+// are tested with elementFromPoint, so a larger label around a checkbox, or a padded ::after, counts, and a bare icon
+// does not. A control another element covers at its centre (behind a dialog, under a sticky bar) is skipped.
+export function tapProbe({ feed, min, root }) {
+  const SEL =
+    'button, a[href], input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="combobox"]';
+  const hiddenClip = (el) => {
+    for (let a = el; a && a !== document.body; a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      if (cs.clip === "rect(0px, 0px, 0px, 0px)" || cs.clipPath === "inset(50%)") return true;
+    }
+    return false;
+  };
+  const describe = (el) => {
+    const id = el.id ? `#${el.id}` : "";
+    const cls = typeof el.className === "string" && el.className ? "." + el.className.trim().split(/\s+/).slice(0, 3).join(".") : "";
+    const name = el.getAttribute("aria-label") || (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 40);
+    return `${el.tagName.toLowerCase()}${id}${cls}${name ? ` "${name}"` : ""}`;
+  };
+  const shown = (el) => el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+  const targets = new Set();
+  for (const el of document.body.querySelectorAll(SEL)) {
+    if (el.disabled || el.closest("[inert], [aria-hidden='true']")) continue;
+    if (window.__uatInBody(el, feed.body, feed.own)) continue;
+    if (root && !el.closest(root)) continue;
+    if (!shown(el)) continue;
+    // A skip link hidden until it has focus.
+    if (el.matches("a.sr-only-live")) continue;
+    if (hiddenClip(el)) {
+      // A visually hidden input is operated through its label: that is the target.
+      const lab = el.labels?.[0];
+      if (lab && shown(lab)) targets.add(lab);
+      continue;
+    }
+    targets.add(el);
+  }
+  const out = [];
+  const covered = [];
+  let measured = 0;
+  const vw = document.documentElement.clientWidth;
+  const vh = window.innerHeight;
+  for (const el of targets) {
+    // Centred, so neither a sticky header nor the bottom bar covers it.
+    el.scrollIntoView({ block: "center", inline: "nearest" });
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) continue;
+    const isLabel = el.matches("label");
+    const lab = isLabel ? null : el.labels?.[0];
+    const hits = (x, y) => {
+      if (x < 0 || y < 0 || x >= vw || y >= vh) return false;
+      const p = document.elementFromPoint(x, y);
+      if (!p) return false;
+      if (el.contains(p)) return true;
+      // The label of a control is the same target, unless another control sits inside it.
+      if (lab && lab.contains(p)) {
+        const c = p.closest(SEL);
+        return !c || c === el;
+      }
+      return false;
+    };
+    // Covered at its own centre: behind something else, not tappable right now.
+    if (!hits(cx, cy)) {
+      covered.push(describe(el));
+      continue;
+    }
+    measured++;
+    // The hit area: how far the control's own hit-testing runs from the centre along each axis.
+    const lim = Math.max(r.width, r.height) / 2 + min;
+    const run = (dx, dy) => {
+      let n = 0;
+      for (let d = 1; d <= lim; d += 1) {
+        if (!hits(cx + dx * d, cy + dy * d)) break;
+        n = d;
+      }
+      return n;
+    };
+    const w = Math.round(run(-1, 0) + run(1, 0));
+    const h = Math.round(run(0, -1) + run(0, 1));
+    if (w < min - 1 || h < min - 1) out.push({ desc: describe(el), w, h });
+  }
+  return { small: out, measured, covered };
+}

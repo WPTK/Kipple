@@ -35,6 +35,30 @@ describe("hit-row tap target", () => {
   });
 });
 
+describe("hit-pad tap target", () => {
+  it("grows a text link to a 44px box on coarse pointers, without moving the text", () => {
+    expect(css).toMatch(/@media \(pointer: coarse\) \{\s*\.hit-pad \{ position: relative; \}/);
+    const r = rules().find((x) => x.sel === ".hit-pad::before");
+    expect(r?.body).toMatch(/width:\s*max\(100%, 44px\);/);
+    expect(r?.body).toMatch(/height:\s*max\(100%, 44px\);/);
+    expect(r?.body).toMatch(/position:\s*absolute;/);
+  });
+});
+
+describe("choice rows keep a 44px touch size", () => {
+  const read = (p: string) => readFileSync(p, "utf8");
+  it("segmented choices are 44px wide at least and wrap rather than squeeze", () => {
+    const src = read("src/ui/segmented.tsx");
+    expect(src).toMatch(/min-h-11 min-w-11 flex-1/);
+    expect(src).toMatch(/flex w-full flex-wrap/);
+  });
+  it("the layout menu's descriptions wrap instead of being cut off", () => {
+    const src = read("src/screens/LayoutMenu.tsx");
+    const radio = src.slice(src.indexOf("function Radio"));
+    expect(radio).not.toContain("truncate");
+  });
+});
+
 describe("status-bar cover", () => {
   it("is a solid, fixed, touch-through strip the height of the notch inset, in the page background", () => {
     const r = rules().find((x) => x.sel.endsWith("#kp-top-cover"));
