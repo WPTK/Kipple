@@ -143,17 +143,16 @@ func TestIDsNHonoredUpTo100000AndClamped(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
-	// 2500 rows in one transaction; enough to prove n beyond the 1000 contents cap.
+	// 2500 rows in one statement (row by row under -race on a busy runner ran past the write deadline); enough to
+	// prove n beyond the 1000 contents cap. Item i has id baseID + i*1000, sort_at id/1e6 and uid u<i>.
 	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
-		for i := 0; i < 2500; i++ {
-			id := baseID + int64(i)*1000
-			if _, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, published_at, sort_at, uid, content_hash, text_hash)
-				VALUES (?,?,?,?,?,'c','t')`, id, f, id/1_000_000, id/1_000_000, fmt.Sprintf("u%d", i)); err != nil {
-				return err
-			}
-		}
-		return nil
+		_, err := tx.ExecContext(ctx, `WITH RECURSIVE s(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM s WHERE i < 2499)
+			INSERT INTO items (id, feed_id, published_at, sort_at, uid, content_hash, text_hash)
+			SELECT ?1 + i * 1000, ?2, (?1 + i * 1000) / 1000000, (?1 + i * 1000) / 1000000, 'u' || i, 'c', 't' FROM s`,
+			baseID, f)
+		return err
 	}))
+	require.Equal(t, 2500, q[int](h, "SELECT count(*) FROM items WHERE feed_id = ?", f))
 	ids, _, has := idsPage(t, h.get(rd+"stream/items/ids?n=100000"))
 	require.Len(t, ids, 2500)
 	require.False(t, has)
@@ -625,18 +624,17 @@ func TestContentsIDCapIs1000(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
+	// 1100 items with content rows, set-based like TestIDsNHonoredUpTo100000AndClamped.
 	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
-		for i := 0; i < 1100; i++ {
-			id := baseID + int64(i)*1000
-			if _, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, published_at, sort_at, uid, content_hash, text_hash) VALUES (?,?,1,1,?,'c','t')`, id, f, fmt.Sprintf("u%d", i)); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO item_content (item_id) VALUES (?)`, id); err != nil {
-				return err
-			}
+		if _, err := tx.ExecContext(ctx, `WITH RECURSIVE s(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM s WHERE i < 1099)
+			INSERT INTO items (id, feed_id, published_at, sort_at, uid, content_hash, text_hash)
+			SELECT ?1 + i * 1000, ?2, 1, 1, 'u' || i, 'c', 't' FROM s`, baseID, f); err != nil {
+			return err
 		}
-		return nil
+		_, err := tx.ExecContext(ctx, `INSERT INTO item_content (item_id) SELECT id FROM items WHERE feed_id = ?`, f)
+		return err
 	}))
+	require.Equal(t, 1100, q[int](h, "SELECT count(*) FROM item_content c JOIN items i ON i.id = c.item_id WHERE i.feed_id = ?", f))
 	var idl []string
 	for i := 0; i < 1100; i++ {
 		idl = append(idl, FormatDecimal(baseID+int64(i)*1000))

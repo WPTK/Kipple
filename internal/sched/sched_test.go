@@ -807,8 +807,8 @@ func TestRetentionJobsAndRun(t *testing.T) {
 	require.Equal(t, 2, info.Total)
 }
 
+// Not parallel: it measures wall time.
 func TestShutdownDuringLargeRun(t *testing.T) {
-	t.Parallel()
 	r := newRig(t, Options{PerHost: 8})
 	var completed atomic.Int32
 	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {

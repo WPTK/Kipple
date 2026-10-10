@@ -802,8 +802,8 @@ func TestUnconfirmedUploadExpires(t *testing.T) {
 
 // A refused upload expires like an unconfirmed one, and reading the state does
 // not renew either: the TTL runs from when the upload became ready or failed.
+// Not parallel: it measures wall time.
 func TestRefusedUploadExpiresAndNothingRenewsTheTTL(t *testing.T) {
-	t.Parallel()
 	r, _ := newRestorer(t, func(o *RestorerOptions) { o.TTL = 300 * time.Millisecond })
 	_, err := upload(r, hostBackup(t)[:100])
 	require.Error(t, err)

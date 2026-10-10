@@ -585,8 +585,8 @@ func TestTheUploaderCancelsAnUploadStillArriving(t *testing.T) {
 // A client that stalls mid-upload does not hold the slot past an account
 // claim: the claim unblocks the waiting read at once (the handler's stop hook
 // sets the connection's read deadline), and the uploader gets an answer.
+// Not parallel: it measures wall time.
 func TestAClaimUnblocksAStalledUpload(t *testing.T) {
-	t.Parallel()
 	h := newRestoreHarness(t)
 	srv := httptest.NewServer(h.root)
 	defer srv.Close()

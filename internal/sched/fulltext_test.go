@@ -264,8 +264,8 @@ func (f *fakeExt) waitCalls(t *testing.T, n int) {
 	})
 }
 
+// Not parallel: it measures wall time.
 func TestFetchDoesNotWaitForSlowArticleHosts(t *testing.T) {
-	t.Parallel()
 	fx := &fakeExt{block: true} // every article host hangs until cancelled
 	r := newRig(t, Options{Extractor: fx})
 	srv := newFTServer(t, nil)

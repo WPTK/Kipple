@@ -7,6 +7,7 @@
 // YAML library.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -43,7 +44,10 @@ test('every required check waits for the gate and survives its failure', () => {
     assert.ok(needsChanges(j), `${j}: needs changes`);
     const cond = jobIf(j);
     assert.ok(cond, `${j}: needs a job-level if, or a failed gate skips it`);
-    assert.ok(cond.includes('!cancelled()'), `${j}: the job-level if must contain !cancelled()`);
+    // The go aggregate runs even in a cancelled run, so it reports failed instead of skipped (a skipped required
+    // check counts as passed); the others skip on a cancel, which leaves nothing mergeable behind.
+    if (j === 'go') assert.equal(cond, '${{ always() }}', 'go: the job-level if must be exactly always()');
+    else assert.ok(cond.includes('!cancelled()'), `${j}: the job-level if must contain !cancelled()`);
     // success() is implied when an if has no status function; written out, or tested through the gate job's result,
     // it skips the job when the gate fails.
     assert.doesNotMatch(cond, /(^|[^!])\bsuccess\(\)/, `${j}: success() in the job-level if skips the job when the gate fails`);
@@ -108,6 +112,18 @@ test('the required go check passes only when every go-test leg passed or the gat
   assert.doesNotMatch(jobs.go, /continue-on-error|[|][|][ ]*true/, 'go: the aggregate must be able to fail');
   assert.doesNotMatch(jobs['go-test'], /continue-on-error/, 'go-test: a leg must be able to fail');
   assert.match(jobs['go-test'], /^      fail-fast: false$/m, 'go-test: every leg runs to the end');
+});
+
+// The aggregate's verdict for every result a needed job can have (success, failure, cancelled, skipped), run through
+// bash as the runner runs it.
+test('the go aggregate fails a cancelled, failed or wrongly skipped leg', () => {
+  const passes = (RESULT, CODE) => spawnSync('bash', ['-c', AGG], { env: { ...process.env, RESULT, CODE } }).status === 0;
+  for (const code of ['true', 'false', '']) assert.ok(passes('success', code), `success with code=${code} passes`);
+  assert.ok(passes('skipped', 'false'), 'skipped by the prose-only gate passes');
+  for (const code of ['true', '']) assert.ok(!passes('skipped', code), `skipped with code=${code} fails`);
+  for (const result of ['failure', 'cancelled', '']) {
+    for (const code of ['true', 'false', '']) assert.ok(!passes(result, code), `${result || 'no result'} with code=${code} fails`);
+  }
 });
 
 test('web checks the changelog fragments before the prune deletes them', () => {
