@@ -566,6 +566,7 @@ async function selfTest() {
   const tap = await tapPage.evaluate(tapProbe, { feed: FEED, min: TAP_MIN });
   await tapPage.close();
   const tapIds = tap.small.map((x) => x.desc.split(" ")[0].replace(/\..*/, "")).sort();
+  if (tap.measured !== 6 || tap.covered.length) problems.push(`S8 measured ${tap.measured} and found ${tap.covered.length} covered, expected 6 and 0`);
   if (!same(tapIds, ["button#tiny", "input#bare", "a#plain"].map((s) => s.replace(/\..*/, "")))) problems.push(`S8 flagged ${JSON.stringify(tap.small)}`);
   if (problems.length) throw new Error(`self-test failed: ${problems.join("; ")}`);
 }
@@ -840,6 +841,10 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         for (const n of own) report("S3", where, v.id, `${v.id} (${v.impact}): ${v.help}`, [n]);
         if (feed.length) note("S3", where, `${v.id} in the feed's article HTML: ${v.help}`, feed);
       }
+      // A probe that measured nothing checked nothing. Controls it skipped as covered at their centre (a stretched link
+      // under its card's buttons, a loading overlay, the bottom bar) are listed so a skip never goes unseen.
+      if (s8 && s8.measured === 0) report("S8", where, "tap-none", "no control could be measured, so no touch target was checked");
+      if (s8?.covered.length) note("S8", where, `${s8.covered.length} control(s) covered at their centre were not measured: ${s8.covered.slice(0, 3).join("; ")}`);
       for (const t of s8?.small ?? []) report("S8", where, "tap-target", `${t.desc} is ${t.w} x ${t.h} px, under ${TAP_MIN} x ${TAP_MIN}`);
       for (const s of s4) {
         if (s.feed) note("S4", where, s.message);
