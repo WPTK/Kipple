@@ -53,8 +53,6 @@ func TestBackupCreateAndDownload(t *testing.T) {
 	}
 	code, _, _ := get() // no session
 	require.Equal(t, http.StatusUnauthorized, code)
-	code, _, _ = get(withCookie(c), func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") })
-	require.Equal(t, http.StatusForbidden, code, "the origin rule applies")
 
 	code, zipBytes, hdr := get(withCookie(c))
 	require.Equal(t, http.StatusOK, code)

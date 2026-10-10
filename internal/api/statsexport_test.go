@@ -296,11 +296,6 @@ func TestStatsExportGuards(t *testing.T) {
 	cc := h.login()
 	cross := func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }
 	noClient := func(r *http.Request) { r.Header.Del("X-Kipple-Client") }
-	require.Equal(t, 403, h.do("GET", "/api/stats/export", "", withCookie(cc), cross, noClient).Code)
-	require.Equal(t, 403, h.do("GET", "/api/stats/export", "", withCookie(cc), func(r *http.Request) {
-		r.Header.Del("Sec-Fetch-Site")
-		r.Header.Set("Origin", "https://evil.example")
-	}).Code)
 	require.Equal(t, 200, h.do("GET", "/api/stats/export", "", withCookie(cc), noClient).Code, "a plain download needs no client header")
 	body := `{"from":"2026-01-01","to":"2026-01-02","dry_run":true}`
 	require.Equal(t, 403, h.do("POST", "/api/stats/delete", body, withCookie(cc), noClient).Code, "delete needs X-Kipple-Client")
