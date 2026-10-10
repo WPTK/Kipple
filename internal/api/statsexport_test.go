@@ -302,12 +302,15 @@ func TestStatsExportGuards(t *testing.T) {
 	cc := h.login()
 	cross := func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }
 	noClient := func(r *http.Request) { r.Header.Del("X-Kipple-Client") }
-	require.Equal(t, 403, h.do("GET", "/api/stats/export", "", withCookie(cc), cross, noClient).Code)
-	require.Equal(t, 403, h.do("GET", "/api/stats/export", "", withCookie(cc), func(r *http.Request) {
-		r.Header.Del("Sec-Fetch-Site")
-		r.Header.Set("Origin", "https://evil.example")
-	}).Code)
 	require.Equal(t, 200, h.do("GET", "/api/stats/export", "", withCookie(cc), noClient).Code, "a plain download needs no client header")
+	require.Equal(t, 200, h.do("GET", "/api/stats/export", "", withCookie(cc), cross, noClient).Code, "a download has no origin rule")
+	// One export at a time: while one runs, another is refused with Retry-After.
+	h.srv.exportBusy.Store(true)
+	busy := h.do("GET", "/api/stats/export", "", withCookie(cc), noClient)
+	require.Equal(t, http.StatusTooManyRequests, busy.Code)
+	require.NotEmpty(t, busy.Header().Get("Retry-After"))
+	h.srv.exportBusy.Store(false)
+	require.Equal(t, 200, h.do("GET", "/api/stats/export", "", withCookie(cc), noClient).Code, "the slot is released")
 	body := `{"from":"2026-01-01","to":"2026-01-02","dry_run":true}`
 	require.Equal(t, 403, h.do("POST", "/api/stats/delete", body, withCookie(cc), noClient).Code, "delete needs X-Kipple-Client")
 	require.Equal(t, 403, h.do("POST", "/api/stats/delete", body, withCookie(cc), cross).Code)

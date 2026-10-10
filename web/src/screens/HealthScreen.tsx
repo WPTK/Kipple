@@ -2,7 +2,7 @@ import { Suspense, useMemo, useState } from "react";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
-import { ArrowDown, ArrowUp, CheckSquare, MoreVertical } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckSquare, MoreVertical } from "lucide-react";
 import {
   invalidateFeeds,
   patchFeed,
@@ -65,6 +65,16 @@ export function healthFilter(feeds: HealthFeed[], filter: Filter, q: string): He
   });
 }
 
+/** The fetch log's outcome codes, in words. */
+const OUTCOME_LABEL: Record<string, string> = {
+  ok: "Fetched",
+  not_modified: "Not modified",
+  unchanged: "Nothing new",
+  error: "Failed",
+  skipped: "Skipped",
+  trim_only: "Trimmed old articles",
+};
+
 /** Fetch log for one feed (14 days), with "mark this fetch read". */
 function LogDialog({ feed, onClose }: { feed: HealthFeed; onClose: () => void }) {
   const q = useFeedLog(feed.id);
@@ -91,7 +101,7 @@ function LogDialog({ feed, onClose }: { feed: HealthFeed; onClose: () => void })
         {q.data?.map((r) => (
           <li key={r.id} className="rounded-xl border border-line bg-surface p-3 text-sm">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="font-semibold">{r.outcome}</span>
+              <span className="font-semibold">{OUTCOME_LABEL[r.outcome] ?? r.outcome}</span>
               <span className="text-xs text-fg2">{fullDate(r.started_at)}</span>
             </div>
             <p className="text-fg2">
@@ -269,8 +279,8 @@ export function HealthScreen() {
             Feed health
           </h1>
           <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
-            <CheckSquare aria-hidden="true" />
-            <span className="hidden min-[400px]:inline">{selecting ? "Done" : "Select"}</span>
+            {selecting ? <Check aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
+            <span className={selecting ? undefined : "hidden min-[400px]:inline"}>{selecting ? "Done" : "Select"}</span>
           </Button>
         </div>
       </header>
@@ -317,6 +327,11 @@ export function HealthScreen() {
                     ))}
                   </select>
                 </label>
+              ) : null}
+              {!wide ? (
+                <Button onClick={() => setDir((x) => (x === 1 ? -1 : 1))} aria-label={dir === 1 ? "Sort ascending. Switch to descending" : "Sort descending. Switch to ascending"}>
+                  {dir === 1 ? <ArrowUp aria-hidden="true" /> : <ArrowDown aria-hidden="true" />}
+                </Button>
               ) : null}
               <Button onClick={() => { void qc.invalidateQueries({ queryKey: ["health"] }); announce("Feed health refreshed"); }}>Reload</Button>
             </div>
@@ -390,13 +405,15 @@ export function HealthScreen() {
                   <li key={f.id} className="rounded-xl border border-line bg-surface p-3">
                     <div className="flex items-start gap-2">
                       {selecting ? (
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${f.title}`}
-                          checked={sel.has(f.id)}
-                          onChange={() => check(f.id)}
-                          className="mt-1 size-5 shrink-0 accent-[var(--kp-accent)]"
-                        />
+                        <label className="hit-row -my-1 -ml-2 inline-flex shrink-0 items-center justify-center">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${f.title}`}
+                            checked={sel.has(f.id)}
+                            onChange={() => check(f.id)}
+                            className="size-5 accent-[var(--kp-accent)]"
+                          />
+                        </label>
                       ) : null}
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-semibold">{f.title}</p>
@@ -421,7 +438,7 @@ export function HealthScreen() {
               </ul>
             )}
             <p className="mt-4 text-xs text-fg2">
-              Database {bytesLabel(d.db.db_bytes)}, backups {bytesLabel(d.db.backup_bytes)}
+              Database {bytesLabel(d.db.db_bytes + (d.db.wal_bytes ?? 0))}, backups {bytesLabel(d.db.backup_bytes)}
               {typeof d.db.imgcache_bytes === "number" ? `, image cache ${bytesLabel(d.db.imgcache_bytes)}` : ""}, {d.unread_total} unread.
             </p>
           </>

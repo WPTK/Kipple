@@ -4,6 +4,7 @@ package opml
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -110,7 +111,8 @@ type outline struct {
 }
 
 type document struct {
-	Body struct {
+	XMLName xml.Name
+	Body    struct {
 		Outlines []outline `xml:"outline"`
 	} `xml:"body"`
 }
@@ -149,6 +151,9 @@ func (o outline) name() string {
 	return o.get("title")
 }
 
+// ErrNotOPML is Parse's refusal of well-formed XML (an RSS feed, a web page) whose root is not <opml>.
+var ErrNotOPML = errors.New("opml: not an OPML document")
+
 // Parse reads an OPML document. Every named outline without an xmlUrl is a
 // folder and nests as it does in the file, down to store.MaxFolderDepth levels;
 // an unnamed wrapper is transparent.
@@ -166,6 +171,10 @@ func Parse(r io.Reader) (*Doc, error) {
 	var d document
 	if err := dec.Decode(&d); err != nil {
 		return nil, fmt.Errorf("opml: %w", err)
+	}
+	// The decoder accepts any well-formed XML or HTML; only an <opml> root is an OPML document.
+	if !strings.EqualFold(d.XMLName.Local, "opml") {
+		return nil, ErrNotOPML
 	}
 	doc := &Doc{}
 	type node struct {
