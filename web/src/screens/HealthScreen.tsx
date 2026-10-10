@@ -195,6 +195,15 @@ function RedirectNotice({ f }: { f: HealthFeed }) {
       setBusy(false);
     }
   };
+  if (f.redirect_owner) {
+    return (
+      <div className="mt-2 rounded-lg border border-line bg-bg p-2 text-xs">
+        <p className="break-words">
+          This address redirects to <span className="font-semibold">{f.redirect_owner}</span>, which you already have. Remove this one or keep both.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="mt-2 rounded-lg border border-line bg-bg p-2 text-xs">
       <p className="break-all">

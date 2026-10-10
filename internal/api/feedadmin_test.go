@@ -46,6 +46,11 @@ func site(t *testing.T) (string, *atomic.Int64) {
 		hits.Add(1)
 		http.Redirect(w, r, "/feed.xml", http.StatusMovedPermanently)
 	})
+	mux.HandleFunc("/pagemoved", func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><head><link rel="alternate" type="application/rss+xml" title="Moved" href="/moved"></head><body></body></html>`))
+	})
 	mux.HandleFunc("/one", func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		w.Header().Set("Content-Type", "text/html")
@@ -291,7 +296,7 @@ func TestAddFeedAllowPrivateNet(t *testing.T) {
 	feed := body["feed"].(map[string]any)
 	require.Equal(t, srv+"/feed.xml", feed["url"])
 	require.Equal(t, true, feed["allow_private_net"])
-	require.EqualValues(t, 1, hits.Load(), "the page was reached through the guard")
+	require.EqualValues(t, 2, hits.Load(), "the page and the feed it links (probed for a redirect) were reached through the guard")
 
 	// A literal private address is accepted with the exception, too.
 	lit := strings.Replace(srv, "localhost", "127.0.0.1", 1) + "/one"

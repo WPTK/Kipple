@@ -32,6 +32,14 @@ func TestAddFeedRefusesAddressRedirectingToExistingFeed(t *testing.T) {
 		_, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": srv + "/moved"}))
 		require.Equal(t, "You already have this feed: My News. The address you entered redirects to it.", body["message"])
 	})
+	t.Run("a page whose one linked feed redirects to a feed you have is refused too", func(t *testing.T) {
+		h.exec("UPDATE feeds SET folder_id = ? WHERE id = ?", folder, id)
+		before := h.count("SELECT count(*) FROM feeds")
+		code, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": srv + "/pagemoved"}))
+		require.Equal(t, 409, code, body)
+		require.Equal(t, "feed_exists", body["error"])
+		require.Equal(t, before, h.count("SELECT count(*) FROM feeds"))
+	})
 	t.Run("the same address is added when no feed owns the target", func(t *testing.T) {
 		h.exec("DELETE FROM feeds")
 		code, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": srv + "/moved"}))
@@ -56,7 +64,7 @@ func TestPatchFeedURLNamesTheFeedThatOwnsIt(t *testing.T) {
 	require.Contains(t, body["message"], "Owner Feed")
 
 	code, body, _ = h.api(c, "PATCH", path, jsonStr(map[string]any{"url": srv + "/moved"}))
-	require.Equal(t, 422, code, body)
+	require.Equal(t, 409, code, body)
 	require.Equal(t, "url_exists", body["error"])
 	require.Contains(t, body["message"], "Owner Feed")
 	require.Contains(t, body["message"], "redirects to it")

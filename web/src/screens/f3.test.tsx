@@ -729,9 +729,9 @@ describe("Folders and OPML", () => {
 
 const HEALTH: HealthResponse = {
   feeds: [
-    { id: "1", title: "Zed Blog", url: "https://zed.test/feed", url_original: null, status: "ok", redirect_pending: false, notices: [], enabled: true, disabled_reason: null, last_success_at: 1000, last_fetch_at: 1000, last_error_at: null, last_error_class: null, last_error: null, last_status: 200, consecutive_failures: 0, current_delay_s: 1800, next_fetch_at: 5000, redirect_to: null, redirect_kind: null, redirect_count: 0, last_new_items_at: 1000, trimmed_unread_count: 0, trimmed_unread_since: null, host_throttled_until: null },
-    { id: "2", title: "NPR", url: "https://npr.test/feed", url_original: null, status: "failing", redirect_pending: false, notices: [], enabled: true, disabled_reason: null, last_success_at: 500, last_fetch_at: 900, last_error_at: 900, last_error_class: "http", last_error: "HTTP 404", last_status: 404, consecutive_failures: 20, current_delay_s: 86400, next_fetch_at: 90000, redirect_to: null, redirect_kind: null, redirect_count: 0, last_new_items_at: null, trimmed_unread_count: 0, trimmed_unread_since: null, host_throttled_until: null },
-    { id: "3", title: "Moved Site", url: "http://old.test/feed", url_original: null, status: "redirecting", redirect_pending: true, notices: ["moved permanently (301) to https://new.test/feed"], enabled: true, disabled_reason: null, last_success_at: 800, last_fetch_at: 900, last_error_at: null, last_error_class: null, last_error: null, last_status: 301, consecutive_failures: 0, current_delay_s: 1800, next_fetch_at: 4000, redirect_to: "https://new.test/feed", redirect_kind: "permanent", redirect_count: 1, last_new_items_at: 800, trimmed_unread_count: 4, trimmed_unread_since: 100, host_throttled_until: null },
+    { id: "1", title: "Zed Blog", url: "https://zed.test/feed", url_original: null, status: "ok", redirect_pending: false, notices: [], enabled: true, disabled_reason: null, last_success_at: 1000, last_fetch_at: 1000, last_error_at: null, last_error_class: null, last_error: null, last_status: 200, consecutive_failures: 0, current_delay_s: 1800, next_fetch_at: 5000, redirect_to: null, redirect_kind: null, redirect_count: 0, redirect_owner: null, last_new_items_at: 1000, trimmed_unread_count: 0, trimmed_unread_since: null, host_throttled_until: null },
+    { id: "2", title: "NPR", url: "https://npr.test/feed", url_original: null, status: "failing", redirect_pending: false, notices: [], enabled: true, disabled_reason: null, last_success_at: 500, last_fetch_at: 900, last_error_at: 900, last_error_class: "http", last_error: "HTTP 404", last_status: 404, consecutive_failures: 20, current_delay_s: 86400, next_fetch_at: 90000, redirect_to: null, redirect_kind: null, redirect_count: 0, redirect_owner: null, last_new_items_at: null, trimmed_unread_count: 0, trimmed_unread_since: null, host_throttled_until: null },
+    { id: "3", title: "Moved Site", url: "http://old.test/feed", url_original: null, status: "redirecting", redirect_pending: true, notices: ["moved permanently (301) to https://new.test/feed"], enabled: true, disabled_reason: null, last_success_at: 800, last_fetch_at: 900, last_error_at: null, last_error_class: null, last_error: null, last_status: 301, consecutive_failures: 0, current_delay_s: 1800, next_fetch_at: 4000, redirect_to: "https://new.test/feed", redirect_kind: "permanent", redirect_count: 1, redirect_owner: null, last_new_items_at: 800, trimmed_unread_count: 4, trimmed_unread_since: 100, host_throttled_until: null },
   ],
   reader_last_seen_at: null,
   snapshot: { last_at: null, last_error: "disk full" },
@@ -771,6 +771,16 @@ describe("Feed health", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Fetch log" }));
     const dlg = await screen.findByRole("dialog", { name: "Fetch log for NPR" });
     expect(await within(dlg).findByText("HTTP 404", { selector: "p.break-words" })).toBeInTheDocument();
+  });
+
+  it("says which feed a redirecting address already belongs to, with no update button", async () => {
+    base({
+      "GET /api/health/feeds": () => json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => (f.id === "3" ? { ...f, redirect_owner: "Zed Blog" } : f)) }),
+    });
+    go("/health");
+    expect(await screen.findByText(/which you already have\. Remove this one or keep both\./)).toBeInTheDocument();
+    expect(screen.getByText("Zed Blog", { selector: "span.font-semibold" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update to new URL" })).toBeNull();
   });
 
   it("counts the write-ahead log in the database size, and names a fetch's outcome in words", async () => {

@@ -240,6 +240,8 @@ export interface HealthFeed {
   redirect_to: string | null;
   redirect_kind: string | null;
   redirect_count: number;
+  /** Title of another feed that already has the address this one redirects to. */
+  redirect_owner: string | null;
   last_new_items_at: number | null;
   trimmed_unread_count: number;
   trimmed_unread_since: number | null;
