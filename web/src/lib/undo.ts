@@ -4,7 +4,8 @@ import { announce } from "@/shell/toasts";
 // Undo model (docs/maintainers/ui-decisions.md, "Gestures and keys"):
 // - one toast slot, 15 s, repeated same-kind actions merge into one toast;
 // - a stack of 20 undoable groups, reachable with `z` for 60 s;
-// - bulk batches (mark above/below, Shift+A) coalesce with nothing and stay undoable for 2 minutes.
+// - bulk batches (mark above/below, Shift+A) coalesce with nothing and stay undoable for 2 minutes;
+// - `z` pressed while an action's request is in flight waits for it and undoes that action (`undoable`).
 
 export type UndoKind = "read" | "unread" | "star" | "unstar";
 
@@ -42,6 +43,8 @@ export interface UndoView {
 export const undoStore = createStore<UndoView>({ toast: null, canUndo: false });
 
 let stack: Group[] = [];
+/** Actions whose request has not settled yet: their group is pushed when it does, so `z` waits for them. */
+const pending = new Set<Promise<unknown>>();
 let toastGroup: Group | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let held = false;
@@ -74,8 +77,23 @@ function publish(): void {
   if (!toastGroup) held = false; // a hovered or focused toast that went away no longer holds the clock
   undoStore.set({
     toast: toastGroup ? { id: toastGroup.id, text: undoText(toastGroup.kind, toastGroup.ids.length, toastGroup.bulk) } : null,
-    canUndo: stack.length > 0,
+    canUndo: stack.length > 0 || pending.size > 0,
   });
+}
+
+/**
+ * Track an undoable action from the moment it changes the screen until its request settles (and it has pushed its
+ * group, or not). `z` in that window undoes this action once it lands, never the older group below it.
+ */
+export function undoable<T>(work: Promise<T>): Promise<T> {
+  pending.add(work);
+  publish();
+  const settled = () => {
+    pending.delete(work);
+    publish();
+  };
+  work.then(settled, settled);
+  return work;
 }
 
 function armTimer(): void {
@@ -136,6 +154,7 @@ async function run(g: Group): Promise<void> {
 
 /** `z`, and the Undo item in the list menu: the most recent group still inside its window. */
 export async function undoLast(): Promise<boolean> {
+  while (pending.size > 0) await Promise.allSettled([...pending]);
   prune();
   const g = stack[stack.length - 1];
   if (!g) return false;

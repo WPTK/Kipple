@@ -1,0 +1,1 @@
+Pressing `z` right after marking articles read (Shift+A, mark above or below, or a single mark or star) now undoes that change. Before, if the server had not answered yet, `z` could undo an older change instead and leave the new one in place.
