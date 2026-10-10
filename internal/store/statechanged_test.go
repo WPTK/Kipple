@@ -50,6 +50,7 @@ func (e *env) trimWithStub(id int64) {
 }
 
 func TestMigration0007FreshSchema(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	r := db.Reader()
 	require.GreaterOrEqual(t, LatestVersion(), 7)
@@ -61,6 +62,7 @@ func TestMigration0007FreshSchema(t *testing.T) {
 // Ingest never sets state_changed_at, even when it sets the initial state (a star or
 // mark-read rule); every later change to read or starred does, and a replay does not.
 func TestStateChangedAtIngestAndItemState(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.mkFilter(newFilter("star", "starme"))
 	e.mkFilter(newFilter("mark_read", "readme"))
@@ -175,6 +177,7 @@ func TestStateChangedAtIngestAndItemState(t *testing.T) {
 // A retro mute stamps only the items it turns read; un-mute to unread stamps only the ones it
 // turns back to unread; the other un-mute modes change no state and stamp nothing.
 func TestStateChangedAtFilterMuteAndUnmute(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.seedRetro(10) // spam 0,2,4,6,8; ham 1,3,5,7,9
 	t0 := e.clk.Now().Unix()
@@ -218,6 +221,7 @@ func TestStateChangedAtFilterMuteAndUnmute(t *testing.T) {
 }
 
 func TestStateChangedAtAutoRead(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	e.setDays(e.feed, 1)
 	old := e.item(e.feed, 10*24*h)
@@ -233,6 +237,7 @@ func TestStateChangedAtAutoRead(t *testing.T) {
 // read_at and starred_at (what the ot query matched before), the index exists and is used,
 // and the FTS index and its triggers are untouched.
 func TestMigration0007OnPopulatedSchema6(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	fid := e.addFeed("https://ex.com/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", fid)
@@ -312,6 +317,7 @@ func TestMigration0007OnPopulatedSchema6(t *testing.T) {
 }
 
 func TestMigration0007RollsBackOnFailure(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.exec(undo0007)
 	e.exec(`PRAGMA user_version = 6`)
@@ -334,6 +340,7 @@ func TestMigration0007RollsBackOnFailure(t *testing.T) {
 
 // An older binary (six migrations) refuses a schema-7 database.
 func TestOlderBinaryRefusesSchema7(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	ms, err := loadMigrations()
 	require.NoError(t, err)

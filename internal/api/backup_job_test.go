@@ -31,6 +31,7 @@ func slowBackupHarness(t *testing.T, gate chan struct{}, space *atomic.Uint64) *
 }
 
 func TestBackupJobLifecycle(t *testing.T) {
+	t.Parallel()
 	gate := make(chan struct{})
 	h := slowBackupHarness(t, gate, nil)
 	c := h.backupSetup(t)
@@ -91,6 +92,7 @@ func TestBackupJobLifecycle(t *testing.T) {
 }
 
 func TestBackupJobFailure(t *testing.T) {
+	t.Parallel()
 	var space atomic.Uint64
 	space.Store(1 << 20) // too little
 	gate := make(chan struct{})
@@ -115,6 +117,7 @@ func TestBackupJobFailure(t *testing.T) {
 
 // A build inside the sync window still answers 200 with the token, as before.
 func TestBackupSyncFastPath(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.backupSetup(t)
 	code, body, _ := h.api(c, "POST", "/api/backup", "")
@@ -125,6 +128,7 @@ func TestBackupSyncFastPath(t *testing.T) {
 
 // HEAD is routed to the GET handler; it must neither spend the token nor skip the origin rule.
 func TestBackupHeadDoesNotSpendTheToken(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	body := fresh(t, h)
 	c := body["cookie"].(*http.Cookie)

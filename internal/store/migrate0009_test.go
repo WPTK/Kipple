@@ -9,6 +9,7 @@ import (
 )
 
 func TestMigration0009FreshSchema(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	r := db.Reader()
 	require.GreaterOrEqual(t, LatestVersion(), 9)
@@ -19,6 +20,7 @@ func TestMigration0009FreshSchema(t *testing.T) {
 }
 
 func TestMigration0009OnPopulatedSchema8(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for i := 0; i < 5; i++ {
 		insertStatRow(e, "read_time", "sk", nil, 10+i)
@@ -46,6 +48,7 @@ func TestMigration0009OnPopulatedSchema8(t *testing.T) {
 }
 
 func TestMigration0009RollsBackOnFailure(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	insertStatRow(e, "read_time", "sk", nil, 10)
 	e.exec(undo0009)
@@ -68,6 +71,7 @@ func TestMigration0009RollsBackOnFailure(t *testing.T) {
 
 // An older binary (eight migrations) refuses a schema-9 database.
 func TestOlderBinaryRefusesSchema9(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	ms, err := loadMigrations()
 	require.NoError(t, err)

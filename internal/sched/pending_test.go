@@ -76,6 +76,7 @@ func waitReply(t *testing.T, ch <-chan Reply, what string) Reply {
 // A trim queued behind a scheduled fetch that is still waiting for a worker,
 // on a host that then turns held, must still run and be answered.
 func TestPendingFlightWithTrimFollowupIsNotDropped(t *testing.T) {
+	t.Parallel()
 	r, _, release, y, _ := pendingRig(t)
 	holdHosts(r, "y.test")
 	ch, err := r.s.Submit(Priority{FeedID: y, Kind: PriorityTrim})
@@ -90,6 +91,7 @@ func TestPendingFlightWithTrimFollowupIsNotDropped(t *testing.T) {
 // A full refresh for a pending unstarted flight upgrades it in place and is
 // answered by a real fetch even though the host is held.
 func TestFullRefreshUpgradesPendingFlight(t *testing.T) {
+	t.Parallel()
 	r, srv, release, _, z := pendingRig(t)
 	holdHosts(r, "z.test")
 	ch, err := r.s.Submit(Priority{FeedID: z, Full: true})
@@ -113,6 +115,7 @@ func TestFullRefreshUpgradesPendingFlight(t *testing.T) {
 
 // A refresh-all must not count a trim job for a feed as having fetched it.
 func TestRunDoesNotBorrowTrimFlight(t *testing.T) {
+	t.Parallel()
 	r, srv, release, y, _ := pendingRig(t)
 	ch, err := r.s.Submit(Priority{FeedID: y, Kind: PriorityTrim})
 	require.NoError(t, err)

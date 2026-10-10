@@ -40,6 +40,7 @@ func nestedLibrary(h *harness) map[string]int64 {
 // Each nested folder is one flat label named by its full path; every feed has exactly one category,
 // its own folder's; a pure container (Work: subfolders, no feed) is not a tag; an empty leaf is.
 func TestNestedFoldersAsPathLabels(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	feeds := nestedLibrary(h)
 
@@ -68,6 +69,7 @@ func TestNestedFoldersAsPathLabels(t *testing.T) {
 
 // A label's stream, unread count and mark-all-as-read cover its own feeds only, never its subfolders'.
 func TestNestedLabelScopeIsOwnFeeds(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	feeds := nestedLibrary(h)
 	var techItem, appleItem int64
@@ -106,6 +108,7 @@ func TestNestedLabelScopeIsOwnFeeds(t *testing.T) {
 
 // Subscribing or filing into a path label creates the folders of the path; the item categories are paths.
 func TestNestedLabelWrites(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	w := h.post(rd+"subscription/edit", "T="+h.tok+"&ac=subscribe&s=feed/"+url.QueryEscape("https://one.example/rss")+
 		"&a="+clientEnc("user/-/label/Work/Clients"))
@@ -132,6 +135,7 @@ func TestNestedLabelWrites(t *testing.T) {
 
 // disable-tag deletes the folder's subtree, moving every feed in it to Uncategorized.
 func TestNestedDisableTagDeletesSubtree(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	feeds := nestedLibrary(h)
 	w := h.post(rd+"disable-tag", "T="+h.tok+"&s=user/-/label/Tech")
@@ -150,6 +154,7 @@ func TestNestedDisableTagDeletesSubtree(t *testing.T) {
 // rename-tag moves and renames by path; a merge of a folder that has subfolders is refused with a
 // WARN and an OK, and nothing changes.
 func TestNestedRenameTag(t *testing.T) {
+	t.Parallel()
 	var logs bytes.Buffer
 	h := newHarness(t, harnessOpts{logger: debugLogger(&logs)})
 	feeds := nestedLibrary(h)
@@ -173,6 +178,7 @@ func TestNestedRenameTag(t *testing.T) {
 // never costs a subscription: each s= feed is subscribed into the default folder with a WARN, and the
 // later s= values are still subscribed.
 func TestSubscribeWithRefusedLabelUsesTheDefaultFolder(t *testing.T) {
+	t.Parallel()
 	for _, label := range []string{"user/-/label/News/", "user/-/label//News", "user/-/label/Uncategorized/X",
 		"user/-/label/A//B", "user/-/label/1/2/3/4/5/6/7/8/9"} {
 		t.Run(label, func(t *testing.T) {

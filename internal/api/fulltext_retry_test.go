@@ -11,6 +11,7 @@ import (
 )
 
 func TestFulltextTransientFailureRetriesAfterAnHour(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	site := newFTSite(t)
@@ -53,6 +54,7 @@ func TestFulltextTransientFailureRetriesAfterAnHour(t *testing.T) {
 }
 
 func TestFulltextPermanentAndUnclassifiedFailuresStaySticky(t *testing.T) {
+	t.Parallel()
 	var hits atomic.Int32
 	var status atomic.Int32
 	status.Store(http.StatusNotFound)

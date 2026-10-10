@@ -33,6 +33,7 @@ func scalar[T any](t testing.TB, q Querier, query string, args ...any) T {
 }
 
 func TestMigrateFromEmptyAndReopen(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, path := openTest(t)
 
@@ -68,6 +69,7 @@ func TestMigrateFromEmptyAndReopen(t *testing.T) {
 }
 
 func TestPragmasAndPools(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 
@@ -100,6 +102,7 @@ func TestPragmasAndPools(t *testing.T) {
 }
 
 func TestOpenRefusals(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Not a Kipple database: application_id 0 with a non-empty schema.
@@ -127,6 +130,7 @@ func TestOpenRefusals(t *testing.T) {
 // be meaningful under `go test -race` (CI); it also asserts readers never see a torn
 // state and that nothing deadlocks or hits SQLITE_BUSY.
 func TestConcurrentReadWrite(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	db, _ := openTest(t)
@@ -206,6 +210,7 @@ func TestConcurrentReadWrite(t *testing.T) {
 }
 
 func TestCommitGateExcludes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	rel, err := db.AcquireGate(ctx)
@@ -224,6 +229,7 @@ func TestCommitGateExcludes(t *testing.T) {
 }
 
 func TestFTSTriggers(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 
@@ -280,6 +286,7 @@ func TestFTSTriggers(t *testing.T) {
 }
 
 func TestFTSDeleteAndCascade(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	exec := func(q string, args ...any) {
@@ -323,6 +330,7 @@ func ftsIntegrity(t *testing.T, db *DB) {
 }
 
 func TestPreMigrationSnapshotKeepsThree(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	for i := 0; i < 5; i++ {
@@ -336,6 +344,7 @@ func TestPreMigrationSnapshotKeepsThree(t *testing.T) {
 // An upgrade that stopped partway (13 to 16, failing after 14 committed) and then fails the same migration on every
 // restart keeps one 14-16 snapshot, so the 13-16 one (the only one the previous version can open) is never pruned.
 func TestPreMigrationSnapshotRestartsDoNotPushOutTheRollback(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	require.NoError(t, db.preMigrationSnapshot(ctx, 13, 16, nil))
@@ -351,6 +360,7 @@ func TestPreMigrationSnapshotRestartsDoNotPushOutTheRollback(t *testing.T) {
 }
 
 func TestForeignFileUntouchedOnRefusal(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	foreign := filepath.Join(t.TempDir(), "other.db")
 	raw, err := sql.Open("sqlite", "file:"+filepath.ToSlash(foreign)+"?_pragma=journal_mode(DELETE)")
@@ -372,6 +382,7 @@ func TestForeignFileUntouchedOnRefusal(t *testing.T) {
 }
 
 func TestWithWriteContextBoundsStatements(t *testing.T) {
+	t.Parallel()
 	db, _ := openTest(t)
 	err := db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
 		dl, ok := ctx.Deadline()
@@ -383,6 +394,7 @@ func TestWithWriteContextBoundsStatements(t *testing.T) {
 }
 
 func TestWithWriteTimeoutLogsHolder(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	var mu sync.Mutex
 	logger := slog.New(slog.NewTextHandler(lockedWriter{&buf, &mu}, nil))
@@ -429,6 +441,7 @@ func (w lockedWriter) Write(p []byte) (int, error) {
 }
 
 func TestSnapshotRetentionKeepsNewest(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	require.NoError(t, ensureDir(db.backupDir))
@@ -461,6 +474,7 @@ func TestSnapshotRetentionKeepsNewest(t *testing.T) {
 }
 
 func TestMigrateNonFreshPendingTakesSnapshot(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	ms, err := loadMigrations()
@@ -482,6 +496,7 @@ func TestMigrateNonFreshPendingTakesSnapshot(t *testing.T) {
 }
 
 func TestOpenNoMigrateRefusesOlderOrMissingSchema(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "kipple.db")
 
@@ -518,6 +533,7 @@ func TestOpenNoMigrateRefusesOlderOrMissingSchema(t *testing.T) {
 }
 
 func TestCloseNoCheckpointLeavesTheWALAlone(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "kipple.db")
 	server, err := Open(ctx, Options{Path: path})

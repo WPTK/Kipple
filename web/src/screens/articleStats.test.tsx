@@ -73,11 +73,13 @@ describe("article stats events", () => {
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Share" }));
+    await user.click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Share" }));
     await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
     await new Promise((r) => setTimeout(r, 20));
     expect(await beaconed(beacon, "share")).toEqual([]);
-    await user.click(screen.getByRole("button", { name: "Share" }));
+    await user.click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Share" }));
     await waitFor(async () => expect(await beaconed(beacon, "share")).toEqual([{ kind: "share", item_id: 1001 }]));
   });
 

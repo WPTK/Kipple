@@ -14,6 +14,7 @@ func debugLogger(buf *bytes.Buffer) *slog.Logger {
 }
 
 func TestRequestLogKeysOnlyByDefault(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	h := newHarness(t, harnessOpts{logger: debugLogger(&buf)})
 	h.api.routes["echo-write"] = route{post: true, h: func(c *call) { c.ok() }}
@@ -34,6 +35,7 @@ func TestRequestLogKeysOnlyByDefault(t *testing.T) {
 }
 
 func TestRequestLogFormValuesGatedAndRedacted(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	h := newHarness(t, harnessOpts{logger: debugLogger(&buf), logForms: true})
 	h.api.routes["echo-write"] = route{post: true, h: func(c *call) { c.ok() }}
@@ -48,6 +50,7 @@ func TestRequestLogFormValuesGatedAndRedacted(t *testing.T) {
 }
 
 func TestNoRequestLogAtInfoLevel(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	h := newHarness(t, harnessOpts{logger: slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))})
 	h.get(rd + "token")
@@ -55,6 +58,7 @@ func TestNoRequestLogAtInfoLevel(t *testing.T) {
 }
 
 func TestZeroIDsFromNonEmptyBodyWarns(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	h := newHarness(t, harnessOpts{logger: debugLogger(&buf)})
 	h.api.routes["echo-write"] = route{post: true, h: func(c *call) { c.warnNoIDs(len(c.p.All("i"))); c.ok() }}

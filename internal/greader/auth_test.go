@@ -21,6 +21,7 @@ func login(h *harness, email, pass string) (int, string) {
 }
 
 func TestClientLoginSuccessShape(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	code, body := login(h, "OWNER", testPass) // Email is case-insensitive
 	require.Equal(t, 200, code)
@@ -37,6 +38,7 @@ func TestClientLoginSuccessShape(t *testing.T) {
 }
 
 func TestClientLoginFailure(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for _, c := range [][2]string{{"owner", "wrong"}, {"mallory", testPass}, {"owner", ""}} {
 		w := h.do(http.MethodPost, base+"/accounts/ClientLogin", "Email="+c[0]+"&Passwd="+c[1], nil)
@@ -49,6 +51,7 @@ func TestClientLoginFailure(t *testing.T) {
 }
 
 func TestClientLoginDisabledAPI(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOpts{noAPIPassword: true})
 	code, _ := login(h, "owner", testPass)
 	require.Equal(t, 401, code)
@@ -58,6 +61,7 @@ func TestClientLoginDisabledAPI(t *testing.T) {
 }
 
 func TestAuthMatrix(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	bad := func(w interface{ Result() *http.Response }, msg string) {
 		t.Helper()
@@ -87,6 +91,7 @@ func TestAuthMatrix(t *testing.T) {
 }
 
 func TestWriteTokenRules(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.api.routes["echo-write"] = route{post: true, h: func(c *call) { c.ok() }}
 	noHdr := map[string]string{"Authorization": ""}
@@ -122,6 +127,7 @@ func TestWriteTokenRules(t *testing.T) {
 // attempt waits 2 s (here the fake clock advances instead) and is then verified,
 // so the right password is never answered 401 unchecked. Never a 429.
 func TestClientLoginOverBudgetPacesButVerifies(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for i := 0; i < 5; i++ {
 		code, body := login(h, "owner", "wrong")
@@ -155,6 +161,7 @@ func TestClientLoginOverBudgetPacesButVerifies(t *testing.T) {
 // A remembered success must not reset the budget of an address it shares with
 // someone guessing (carrier NAT).
 func TestClientLoginRememberedSuccessKeepsFailureCount(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	code, _ := login(h, "owner", testPass)
 	require.Equal(t, 200, code)
@@ -171,6 +178,7 @@ func TestClientLoginRememberedSuccessKeepsFailureCount(t *testing.T) {
 // (or the same IPv6 /64), such as a retry of a slow login, waits for the first
 // and is then verified instead of failing.
 func TestClientLoginConcurrentAttemptWaitsForTheFirst(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	started := make(chan string, 4)
 	var cur, peak atomic.Int32
@@ -209,6 +217,7 @@ func TestClientLoginConcurrentAttemptWaitsForTheFirst(t *testing.T) {
 }
 
 func TestClientLoginIPv6BudgetIsPer64(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for i := 0; i < 20; i++ {
 		remote := "[2001:db8:0:7:" + strconv.Itoa(i+1) + "::1]:443"
@@ -219,6 +228,7 @@ func TestClientLoginIPv6BudgetIsPer64(t *testing.T) {
 }
 
 func TestMemoizedLoginSkipsHashing(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for i := 0; i < 5; i++ {
 		code, _ := login(h, "owner", testPass)
@@ -228,6 +238,7 @@ func TestMemoizedLoginSkipsHashing(t *testing.T) {
 }
 
 func TestConcurrentWrongLoginsRunOneHashAtATime(t *testing.T) {
+	t.Parallel()
 	var cur, peak, total atomic.Int32
 	ver := auth.NewVerifier([]byte(testSecret), auth.VerifierOptions{Wait: 30 * time.Second, Check: func(pw, phc string) bool {
 		n := cur.Add(1)
@@ -261,6 +272,7 @@ func TestConcurrentWrongLoginsRunOneHashAtATime(t *testing.T) {
 }
 
 func TestVerifierSemaphoreWaitIsBounded(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	v := auth.NewVerifier([]byte("k"), auth.VerifierOptions{Wait: 20 * time.Millisecond, Check: func(pw, phc string) bool {
 		<-release
@@ -277,6 +289,7 @@ func TestVerifierSemaphoreWaitIsBounded(t *testing.T) {
 // Every Reader API client is the same: whatever its User-Agent, an authenticated call moves the one
 // last-seen time, at most once a minute; an unauthenticated call does not.
 func TestLastSeenIsOneTimeForEveryClient(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	require.True(t, h.api.LastSeen().IsZero(), "no call yet")
 	h.do(http.MethodGet, base+rd+"token", "", map[string]string{"Authorization": ""})
@@ -294,6 +307,7 @@ func TestLastSeenIsOneTimeForEveryClient(t *testing.T) {
 }
 
 func TestClientLoginBusyHashingSlotIs401WithoutFailureOrRetryAfter(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	started := make(chan struct{}, 1)
 	h := newHarness(t)
@@ -320,6 +334,7 @@ func TestClientLoginBusyHashingSlotIs401WithoutFailureOrRetryAfter(t *testing.T)
 // A snapshot read before InvalidateAccount must not be cached after it, or the
 // old token would keep working until the TTL expires.
 func TestInvalidateAccountDuringInflightLoad(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	ctx := context.Background()
 	h.api.afterAcctRead = func() {

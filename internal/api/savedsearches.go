@@ -106,11 +106,14 @@ func (s *Server) savedSearchViews(ctx context.Context, list []store.SavedSearch,
 
 func (s *Server) savedSearchError(w http.ResponseWriter, what string, err error) {
 	var ve *store.SavedSearchError
+	var dup *store.DuplicateSavedSearchError
 	switch {
 	case errors.As(err, &ve):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad_saved_search", "field": ve.Field, "message": ve.Message})
 	case errors.Is(err, store.ErrSavedSearchNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
+	case errors.As(err, &dup):
+		writeErrorMsg(w, http.StatusConflict, "already_saved", "this search is already saved as "+dup.Name)
 	case errors.Is(err, store.ErrTooManySavedSearches):
 		writeErrorMsg(w, http.StatusConflict, "too_many", "at most 100 saved searches")
 	default:

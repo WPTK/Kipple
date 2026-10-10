@@ -39,6 +39,7 @@ func (e *env) summary(from, to string) *StatsSummary {
 // indexes). A hint whose index is missing fails to prepare, so a future table rebuild that forgets
 // to recreate the indexes fails here.
 func TestStatsSummaryPlans(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for _, h := range statsHinted() {
 		rows, err := e.db.Reader().Query("EXPLAIN QUERY PLAN "+h.sql, h.args...)
@@ -62,6 +63,7 @@ func TestStatsSummaryPlans(t *testing.T) {
 
 // A read that fails partway through must fail the request, never return the rows seen so far.
 func TestEachRowReportsMidIterationError(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for i := 0; i < 50; i++ {
 		e.putStat("open", "2026-09-01", int64(i), 1, "", nil, "F")
@@ -91,6 +93,7 @@ func TestEachRowReportsMidIterationError(t *testing.T) {
 }
 
 func TestStatsGroupCapsConcurrencyAndCancelsOnError(t *testing.T) {
+	t.Parallel()
 	g := newStatsGroup(context.Background(), 3)
 	var cur, peak atomic.Int32
 	for i := 0; i < 12; i++ {
@@ -133,6 +136,7 @@ func TestStatsGroupCapsConcurrencyAndCancelsOnError(t *testing.T) {
 
 // first_event_date is the smallest local date, not the date of the lowest id.
 func TestStatsFirstEventDateIsMinimum(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	got, err := StatsFirstEventDate(e.ctx, e.db.Reader())
 	require.NoError(t, err)
@@ -152,6 +156,7 @@ func TestStatsFirstEventDateIsMinimum(t *testing.T) {
 
 // Rows whose local date is later than today (a zone change) count as today for the streaks.
 func TestStatsStreaksClampFutureDates(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t) // today is 2026-09-24 in UTC
 	for i, d := range []string{"2026-09-23", "2026-09-24", "2026-09-25", "2026-09-27"} {
 		e.putStat("open", d, int64(i+1), 1, "", nil, "F") // legacy opens count as reads
@@ -181,6 +186,7 @@ func (q *insertAfterMax) QueryRowContext(ctx context.Context, query string, args
 }
 
 func TestStatsSummaryIsBoundedBySnapshot(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('tz', '\"UTC\"')")
 	e.putStat("open", "2026-09-19", 9, 1, "old", nil, "F") // legacy: before the first read_time
@@ -209,6 +215,7 @@ func TestStatsSummaryIsBoundedBySnapshot(t *testing.T) {
 
 // A feed with only read time in the range is named from its read_time snapshot row.
 func TestStatsSourceNamedFromReadTimeSnapshot(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.addFeed("https://example.com/current.xml")
 	e.exec("UPDATE feeds SET title = 'Current name' WHERE id = ?", f)
@@ -228,6 +235,7 @@ func TestStatsSourceNamedFromReadTimeSnapshot(t *testing.T) {
 }
 
 func TestStatsSourcesTruncation(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for i := 1; i <= statsSourcesMax; i++ {
 		e.putStat("open", "2026-09-20", int64(i), int64(i), "", nil, fmt.Sprintf("F%d", i))
@@ -242,6 +250,7 @@ func TestStatsSourcesTruncation(t *testing.T) {
 }
 
 func TestStatsSourceTimedFields(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.putStat("open", "2026-09-19", 9, 1, "old", nil, "F")   // legacy read, no time
 	e.putStat("open", "2026-09-20", 1, 1, "a", nil, "F")     // read, 30 s
@@ -297,6 +306,7 @@ func TestStatsSummarySurvivesDeleteOfTheLongestRead(t *testing.T) {
 // A read_time or scroll row without a session key must not fail the summary, and must not be
 // attributed to the sessions of opens that have no key either.
 func TestStatsSummaryToleratesNullSessionKeys(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.putStat("open", "2026-09-19", 9, 1, "old", nil, "F")
 	e.putStat("open", "2026-09-20", 1, 1, "", nil, "F") // an open without a key

@@ -300,7 +300,11 @@ func setSettingsTx(ctx context.Context, tx *sql.Tx, set map[string]any) error {
 			if err := tx.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", k).Scan(&raw); err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return err
 			}
-			if err := checkNewSavedSearchScopes(ctx, tx, decodeSavedSearches(raw), decodeSavedSearches(string(b))); err != nil {
+			prev, next := decodeSavedSearches(raw), decodeSavedSearches(string(b))
+			if err := checkNewSavedSearchScopes(ctx, tx, prev, next); err != nil {
+				return err
+			}
+			if err := checkNewSavedSearchDuplicates(prev, next); err != nil {
 				return err
 			}
 		}

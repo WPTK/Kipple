@@ -14,6 +14,7 @@ import (
 // a statistics run (ANALYZE, or the nightly PRAGMA optimize) had recorded its size, three times
 // per trimming feed (issue #237). The plans are checked on a fresh database and after ANALYZE.
 func TestTrimStatementsSearchItemsByID(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a := e.loadFeed("http://a.example/feed", 300)
 	e.loadFeed("http://b.example/feed", 300)

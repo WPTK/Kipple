@@ -34,6 +34,7 @@ func (e *env) seedRetro(n int) int64 {
 }
 
 func TestPreviewCountsSamplesAndWritesNothing(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.seedRetro(100)
 	e.exec("UPDATE items SET read = 1 WHERE title = 'spam 0'")
@@ -67,6 +68,7 @@ func TestPreviewCountsSamplesAndWritesNothing(t *testing.T) {
 }
 
 func TestPreviewBudgetTruncates(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.seedRetro(3000)
 	res, err := e.db.PreviewFilter(e.ctx, newFilter("mute", "spam"), false, time.Nanosecond)
@@ -76,6 +78,7 @@ func TestPreviewBudgetTruncates(t *testing.T) {
 }
 
 func TestPreviewRespectsPrecedenceAndFields(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.seedRetro(20)
 	e.mkFilter(newFilter("star", "spam")) // saved star rule: it will star every "spam" item
@@ -96,6 +99,7 @@ func TestPreviewRespectsPrecedenceAndFields(t *testing.T) {
 }
 
 func TestApplyMuteBatchesAndRetroSemantics(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.seedRetro(1300)
 	e.exec("UPDATE items SET read = 1 WHERE title IN ('spam 0', 'spam 2')")
@@ -136,6 +140,7 @@ func TestApplyMuteBatchesAndRetroSemantics(t *testing.T) {
 }
 
 func TestApplyStarAndMarkRead(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.seedRetro(20)
 	mute := e.mkFilter(newFilter("mute", "spam"))
@@ -160,6 +165,7 @@ func TestApplyStarAndMarkRead(t *testing.T) {
 }
 
 func TestApplyRefusesWhatCannotApply(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.seedRetro(4)
 	var fe *filter.Error
@@ -201,6 +207,7 @@ func (e *env) seedMixed() int64 {
 // A retroactive run loads every field the rules it evaluates read, not only the applied rule's:
 // a saved star rule on content, on categories, or inverted, must see the same item as at ingest.
 func TestRetroLoadsTheFieldsOfTheStarRules(t *testing.T) {
+	t.Parallel()
 	muteSpam := func(e *env) Filter { return newFilter("mute", "spam") } // title only
 	star := func(e *env, mut func(*Filter)) {
 		f := newFilter("star", "keepme")
@@ -256,6 +263,7 @@ func TestRetroLoadsTheFieldsOfTheStarRules(t *testing.T) {
 // The `feed` field is the same title at ingest and in a retroactive run: custom title, else stored
 // title, else (both blank) the feed URL.
 func TestFeedFieldAgreesBetweenIngestAndRetro(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://untitled.example/feed")
 	rule := newFilter("mute", "untitled.example")
@@ -299,6 +307,7 @@ func (e *env) seedCostly(n int) Filter {
 // The preview checks its budget on every item, not every 64: with items that cost milliseconds each,
 // a 64-item page would otherwise run far past the budget (and report an untruncated full scan).
 func TestPreviewBudgetIsCheckedOnEveryItem(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := e.seedCostly(64)
 	start := time.Now()
@@ -310,6 +319,7 @@ func TestPreviewBudgetIsCheckedOnEveryItem(t *testing.T) {
 }
 
 // An apply notices a cancel (or its deadline) at the next item, not after evaluating a whole page.
+// Not parallel: it measures wall time.
 func TestApplyStopsAtTheNextItemOnCancel(t *testing.T) {
 	e := newEnv(t)
 	rule := e.mkFilter(e.seedCostly(128))
@@ -331,6 +341,7 @@ func TestApplyStopsAtTheNextItemOnCancel(t *testing.T) {
 // A deadline-bounded delete restores at least one batch per call, answers Done=false while muted
 // items remain, keeps the rule (disabled) until the last call, and counts what went back to unread.
 func TestDeleteFilterWithinIsResumable(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.seedRetro(2400)
 	e.exec("UPDATE items SET read = 1 WHERE title IN ('spam 0', 'spam 2', 'spam 4')")
@@ -361,6 +372,7 @@ func TestDeleteFilterWithinIsResumable(t *testing.T) {
 // An empty field list is stored and read back as ["title"], so the client's highlighter (which only
 // sees the stored list) draws it where the engine matches.
 func TestEmptyFieldsAreTitle(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	f := newFilter("highlight", "go")
 	f.Fields = []string{}
@@ -382,6 +394,7 @@ func TestEmptyFieldsAreTitle(t *testing.T) {
 }
 
 func TestDeleteFilterUnmuteModes(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		mode                    string
 		wantRead, wantMutedLeft int

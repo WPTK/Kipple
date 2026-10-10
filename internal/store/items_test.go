@@ -14,6 +14,7 @@ import (
 // changed index for leg 2, idx_items_unread for the unread stream, on a fresh
 // database and after ANALYZE.
 func TestStreamIDsQueryPlans(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {

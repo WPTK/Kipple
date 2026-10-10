@@ -69,6 +69,7 @@ func (e *arEnv) setDays(feed int64, days any) {
 const h = time.Hour
 
 func TestAutoReadBoundsAreUnixArithmeticAcrossDST(t *testing.T) {
+	t.Parallel()
 	// Local-calendar arithmetic across the 2026-11-01 fall-back would land an hour off; the window
 	// is unix seconds, so ten days is exactly 864,000 s whatever the zone did in between.
 	since := time.Date(2026, 11, 1, 12, 0, 0, 0, time.FixedZone("EST", -5*3600))
@@ -86,6 +87,7 @@ func TestAutoReadBoundsAreUnixArithmeticAcrossDST(t *testing.T) {
 }
 
 func TestAutoReadWindowMarksOnlyItemsCrossingSinceTheLastRun(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	ctx := context.Background()
 	e.setDays(e.feed, 10)
@@ -116,6 +118,7 @@ func TestAutoReadWindowMarksOnlyItemsCrossingSinceTheLastRun(t *testing.T) {
 }
 
 func TestAutoReadDowntimeIsCoveredByTheWindowStart(t *testing.T) {
+	t.Parallel()
 	// The server was down for three nights: the window starts at the last completed run, so the
 	// three days' crossings are all caught, and nothing older is.
 	e := newAREnv(t)
@@ -136,6 +139,7 @@ func TestAutoReadDowntimeIsCoveredByTheWindowStart(t *testing.T) {
 }
 
 func TestAutoReadSparesStarredMutedHeldAndReadItems(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	ctx := context.Background()
 	e.setDays(e.feed, 5)
@@ -163,6 +167,7 @@ func TestAutoReadSparesStarredMutedHeldAndReadItems(t *testing.T) {
 }
 
 func TestAutoReadCatchUpEqualsPreviewAndInheritsTheGlobalDefault(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	ctx := context.Background()
 	other := e.addFeed("https://b/f")
@@ -212,6 +217,7 @@ func TestAutoReadCatchUpEqualsPreviewAndInheritsTheGlobalDefault(t *testing.T) {
 func ptr[T any](v T) *T { return &v }
 
 func TestAutoReadMarksTheTrimmedLedgerAndUnreadCountsAgree(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	ctx := context.Background()
 	e.setDays(e.feed, 10)
@@ -241,6 +247,7 @@ func TestAutoReadMarksTheTrimmedLedgerAndUnreadCountsAgree(t *testing.T) {
 }
 
 func TestAutoReadNeverTouchesTheArchiveFeed(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	arch := e.addFeed("https://arch/f")
 	e.exec("UPDATE feeds SET enabled = 0, disabled_reason = 'archive' WHERE id = ?", arch)
@@ -253,6 +260,7 @@ func TestAutoReadNeverTouchesTheArchiveFeed(t *testing.T) {
 }
 
 func TestAutoReadLastRunRoundTrips(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	ctx := context.Background()
 	_, ok, err := AutoReadLastRun(ctx, e.db.Reader())
@@ -269,6 +277,7 @@ func TestAutoReadLastRunRoundTrips(t *testing.T) {
 }
 
 func TestAutoReadCancelledContextStops(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	e.setDays(e.feed, 1)
 	e.item(e.feed, 10*24*h)
@@ -281,6 +290,7 @@ func TestAutoReadCancelledContextStops(t *testing.T) {
 // A failed settings read is an error, never "off" or "never ran": read as 0 it would give the
 // nightly step an empty window that recording the run then closes for good.
 func TestAutoReadSettingsReadFailureIsAnError(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	ctx := context.Background()
 	require.NoError(t, e.db.SetSettings(ctx, map[string]any{SettingAutoReadDays: 7}))
@@ -312,6 +322,7 @@ func TestAutoReadSettingsReadFailureIsAnError(t *testing.T) {
 // A run that stops at feed 2 leaves feed 1 with its own finished window: a reader's mark-unread in
 // feed 1 is not undone by the rerun, which still does feed 2.
 func TestAutoReadPerFeedMarksMakeAFailedRunIdempotent(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	f2 := e.addFeed("https://b/f")
 	e.setDays(e.feed, 10)
@@ -346,6 +357,7 @@ func TestAutoReadPerFeedMarksMakeAFailedRunIdempotent(t *testing.T) {
 
 // Feeds that finished with nothing to mark are remembered too (stored when the run ends early).
 func TestAutoReadPerFeedMarksCoverFeedsWithNothingToMark(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	f2 := e.addFeed("https://b/f")
 	e.setDays(e.feed, 10)
@@ -374,6 +386,7 @@ func TestAutoReadPerFeedMarksCoverFeedsWithNothingToMark(t *testing.T) {
 
 // A night with nothing to mark takes the commit gate never; a night with candidates does.
 func TestAutoReadNothingToMarkTakesNoGate(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	for i := 0; i < 5; i++ {
 		e.setDays(e.addFeed(fmt.Sprint("https://n", i, "/f")), 10)
@@ -401,6 +414,7 @@ func TestAutoReadNothingToMarkTakesNoGate(t *testing.T) {
 // A disabled feed can never clear itself (nothing new arrives, so nothing is read by scrolling
 // past), so auto-read includes it; an archived feed is a keepsake and is left alone.
 func TestAutoReadIncludesDisabledFeedsAndSkipsArchived(t *testing.T) {
+	t.Parallel()
 	e := newAREnv(t)
 	ctx := context.Background()
 	require.NoError(t, e.db.SetSettings(ctx, map[string]any{SettingAutoReadDays: 7}))

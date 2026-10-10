@@ -214,7 +214,7 @@ export function SearchScreen() {
         </div>
         {ready ? (
           <div className="mt-1 flex flex-wrap gap-x-2">
-            <Button variant="ghost" onClick={() => setSaving(true)} className="px-2">
+            <Button variant="ghost" onClick={() => setSaving(true)} disabled={controls?.empty === true} title={controls?.empty ? "No results to save" : undefined} className="px-2">
               <BookmarkPlus aria-hidden="true" />
               Save this search
             </Button>

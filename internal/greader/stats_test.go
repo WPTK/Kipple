@@ -15,6 +15,7 @@ import (
 // edit-tag star/unstar record one row per id that actually changed (design §8);
 // read changes and no-op replays record nothing.
 func TestEditTagRecordsStarStats(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.api.opt.Stats = stats.New(h.clk.Now)
 	f := h.addFeed("https://a.example/f", "A", "")
@@ -45,6 +46,7 @@ func TestEditTagRecordsStarStats(t *testing.T) {
 
 // A star that restores a trimmed item is a change and records a row.
 func TestEditTagStarRestoreRecordsStat(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.api.opt.Stats = stats.New(h.clk.Now)
 	f := h.addFeed("https://a.example/f", "A", "")
@@ -56,6 +58,7 @@ func TestEditTagStarRestoreRecordsStat(t *testing.T) {
 
 // A bulk star of ~10k ids must finish well inside the 10 s write deadline: the
 // stats path loads the time zone once and looks each feed up once per batch.
+// Not parallel: it measures wall time.
 func TestEditTagBulkStarFinishesWellInsideWriteDeadline(t *testing.T) {
 	n := 10000
 	if testing.Short() || raceEnabled() { // the full 10k under the race detector is slower than the deadline itself
@@ -102,6 +105,7 @@ func (b *batchRecorder) RecordStars(_ *sql.Tx, _, _ string, ids []int64) error {
 // Star/unstar go through the batched RecordStars path, one call per operation,
 // never one Record per id.
 func TestEditTagStarUsesBatchedStatsPath(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	rec := &batchRecorder{}
 	h.api.opt.Stats = rec
@@ -136,6 +140,7 @@ func raceEnabled() bool {
 
 // With stats.enabled off, star edits still succeed and record nothing.
 func TestEditTagStarWithStatsOff(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.api.opt.Stats = stats.New(h.clk.Now)
 	require.NoError(t, h.db.SetSettings(context.Background(), map[string]any{"stats.enabled": false}))

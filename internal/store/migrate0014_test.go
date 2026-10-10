@@ -13,6 +13,7 @@ import (
 // on an enabled feed that fetched (whose validators it clears too, so the next fetch is a full one),
 // never on a disabled, gone or archive feed that fetched, whose title may really be its domain.
 func TestMigration0014ClearsPlaceholderTitles(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	type row struct {
 		url, title, original string

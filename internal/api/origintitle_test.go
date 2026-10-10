@@ -7,6 +7,7 @@ import (
 )
 
 func TestCardAndDetailSourceUsesOriginTitle(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("Alpha", 0)

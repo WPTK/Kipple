@@ -9,6 +9,7 @@ import (
 // A stats row names the feed the way the rest of the app does: the custom title, else the stored
 // title, else the URL, with a blank title counting as absent.
 func TestStatSnapshotsUseTheFeedDisplayTitle(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://stats.example/feed")
 	e.fetchBody(id, frss(fspec{guid: "s1", title: "one"}))

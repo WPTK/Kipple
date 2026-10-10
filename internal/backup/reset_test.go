@@ -57,6 +57,7 @@ func settingKeys(t *testing.T, path string) map[string]bool {
 // A reset stages a fresh database that carries the server settings and nothing
 // of the library, and the next start applies it as it applies a restore.
 func TestStageResetThenApply(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
 	library(t, dir, true, map[string]any{
@@ -94,6 +95,7 @@ func TestStageResetThenApply(t *testing.T) {
 
 // Two requests at once: one marker, one winner.
 func TestStageResetConcurrentHasOneWinner(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	library(t, dir, true, nil)
 	live := openLive(t, dir)

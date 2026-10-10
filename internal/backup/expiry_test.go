@@ -14,6 +14,7 @@ import (
 // A build that takes most of its allowance must still hand out a token that is
 // good for a full TTL: expiry counts from when the export is ready.
 func TestTokenTTLCountsFromReady(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 20)
 	t0 := time.Now()
@@ -40,6 +41,7 @@ func TestTokenTTLCountsFromReady(t *testing.T) {
 }
 
 func TestExportFilesArePrivate(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("unix permission bits")
 	}
@@ -61,6 +63,7 @@ func TestExportFilesArePrivate(t *testing.T) {
 }
 
 func TestSnapshotToIsOwnerOnly(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("unix permission bits")
 	}
@@ -77,6 +80,7 @@ func TestSnapshotToIsOwnerOnly(t *testing.T) {
 }
 
 func TestJobFailureLeavesNoFilesAndFreesTheSlot(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 5)
 	m := newManager(t, db, func(o *Options) { o.FreeBytes = func(string) (uint64, error) { return 1, nil } })
