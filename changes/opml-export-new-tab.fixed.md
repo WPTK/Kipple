@@ -1,1 +1,0 @@
-OPML export, the statistics export and backup downloads now work from any browser or download manager, including a link opened in a new tab, long-pressed or typed into the address bar, instead of saving a small error file.
