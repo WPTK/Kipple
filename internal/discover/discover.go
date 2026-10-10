@@ -36,6 +36,9 @@ type Result struct {
 	// IsFeed is true when the URL itself parsed as a feed; Candidates then holds just it.
 	IsFeed     bool
 	Candidates []Candidate
+	// Final is the address that answered, after any redirects. For a feed it is where the typed
+	// address really leads; a caller that finds it already subscribed has a duplicate, not a new feed.
+	Final string
 }
 
 // findTimeout bounds one Find, headers and body together, when its caller sets
@@ -108,7 +111,7 @@ func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw str
 	html := fetch.LooksHTML(body)
 	if !html {
 		if _, perr := fetch.ParseFeed(body, fetch.ParseOptions{FeedURL: final, HTTPCharset: charsetOf(ct)}); perr == nil {
-			return Result{IsFeed: true, Candidates: []Candidate{{URL: raw, Type: kindOf(ct, body)}}}, nil
+			return Result{IsFeed: true, Final: final, Candidates: []Candidate{{URL: raw, Type: kindOf(ct, body)}}}, nil
 		}
 	}
 	cands := candidates(body, final, raw, allowPrivate)

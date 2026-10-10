@@ -117,7 +117,7 @@ function saveError(e: unknown): { field: "url" | "auth" | "form"; message: strin
   if (e instanceof ApiError) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
     if (e.code === "invalid_url") return { field: "url", message: msg ? sentence(msg) : "That address isn't a valid feed URL." };
-    if (e.code === "url_exists") return { field: "url", message: "Another feed already uses that address." };
+    if (e.code === "url_exists") return { field: "url", message: msg ? sentence(msg) : "Another feed already uses that address." };
     // A page address: it links no feed, or several (the message lists them).
     if ((e.code === "no_feed" || e.code === "several_feeds") && msg) return { field: "url", message: msg };
     if (e.code === "archive_feed") return { field: "form", message: "The archive feed can't be edited." };

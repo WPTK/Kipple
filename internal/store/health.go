@@ -29,9 +29,12 @@ type FeedHealth struct {
 	RedirectTo          *string `json:"redirect_to"`
 	RedirectKind        *string `json:"redirect_kind"`
 	RedirectCount       int64   `json:"redirect_count"`
-	LastNewItemsAt      *int64  `json:"last_new_items_at"`
-	TrimmedUnreadCount  int64   `json:"trimmed_unread_count"`
-	TrimmedUnreadSince  *int64  `json:"trimmed_unread_since"`
+	// RedirectOwner is the title of another feed that already has the address this feed redirects to
+	// (so the redirect cannot be accepted), nil when there is none.
+	RedirectOwner      *string `json:"redirect_owner"`
+	LastNewItemsAt     *int64  `json:"last_new_items_at"`
+	TrimmedUnreadCount int64   `json:"trimmed_unread_count"`
+	TrimmedUnreadSince *int64  `json:"trimmed_unread_since"`
 
 	// Host and CreatedAt feed FeedStatus and the host throttle lookup; not serialized.
 	Host      string `json:"-"`
@@ -74,7 +77,24 @@ func (d *DB) FeedHealth(ctx context.Context) ([]FeedHealth, error) {
 		h.LastNewItemsAt, h.TrimmedUnreadSince = intp(newAt), intp(trimSince)
 		out = append(out, h)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		h := &out[i]
+		if h.RedirectTo == nil {
+			continue
+		}
+		other, found, err := FindFeedByURL(ctx, d.reader, *h.RedirectTo)
+		if err != nil || !found || other == h.ID {
+			continue
+		}
+		if title, _, err := d.FeedLabel(ctx, other); err == nil {
+			h.RedirectOwner = &title
+		}
+	}
+	return out, nil
 }
 
 // UnreadTotal counts unread items (ledger rows are not in items), leaving out a
