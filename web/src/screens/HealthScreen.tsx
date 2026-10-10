@@ -262,8 +262,13 @@ export function HealthScreen() {
   const [sel, setSel] = useState<ReadonlySet<string>>(new Set());
   const [bulk, setBulk] = useState<null | "delete" | "enable" | "disable">(null);
   // The feed a row's "Delete this feed" is deleting: the same confirmation as the bulk Delete, for one feed.
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const deletingFeed = deleting ? boot.data?.feeds.find((x) => x.id === deleting) : undefined;
+  const [deleting, setDeleting] = useState<Feed | null>(null);
+  // The Feed is taken when the button is pressed, so the dialog keeps it as the person saw it even after a refetch drops the row.
+  const askDelete = (id: string) => {
+    const f = boot.data?.feeds.find((x) => x.id === id);
+    if (f) setDeleting(f);
+    else toast("Your feeds are still loading. Try again in a moment.", "error");
+  };
 
   const feeds = useMemo(() => (h.data ? healthSort(healthFilter(h.data.feeds, filter, q), sort, dir) : []), [h.data, filter, q, sort, dir]);
   const editing = edit ? boot.data?.feeds.find((f) => f.id === edit) : undefined;
@@ -416,7 +421,7 @@ export function HealthScreen() {
                       <th scope="row" className="max-w-[24rem] px-3 py-2 text-left font-medium">
                         <span className="block truncate">{f.title}</span>
                         <span className="block truncate text-xs font-normal text-fg2">{f.url}</span>
-                        <RedirectNotice f={f} onDelete={() => setDeleting(f.id)} />
+                        <RedirectNotice f={f} onDelete={() => askDelete(f.id)} />
                         <ErrorLine f={f} />
                       </th>
                       <td className="px-3 py-2">
@@ -464,7 +469,7 @@ export function HealthScreen() {
                       <dt className="text-fg2">Next fetch</dt>
                       <dd>{f.enabled ? whenLabel(f.next_fetch_at) : "Turned off"}</dd>
                     </dl>
-                    <RedirectNotice f={f} onDelete={() => setDeleting(f.id)} />
+                    <RedirectNotice f={f} onDelete={() => askDelete(f.id)} />
                     <ErrorLine f={f} />
                   </li>
                 ))}
@@ -509,7 +514,7 @@ export function HealthScreen() {
           onDone={exitSelect}
         />
       ) : null}
-      {deletingFeed ? <DeleteDialog feeds={[deletingFeed]} onClose={() => setDeleting(null)} onDone={() => undefined} /> : null}
+      {deleting ? <DeleteDialog feeds={[deleting]} onClose={() => setDeleting(null)} onDone={() => undefined} /> : null}
       {bulk === "enable" || bulk === "disable" ? (
         <ToggleDialog feeds={selectedFeeds} enable={bulk === "enable"} onClose={() => setBulk(null)} onDone={exitSelect} />
       ) : null}

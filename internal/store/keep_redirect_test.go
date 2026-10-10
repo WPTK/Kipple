@@ -41,3 +41,31 @@ func TestKeepRedirectHoldsThroughLaterFetches(t *testing.T) {
 
 	require.ErrorIs(t, e.db.KeepRedirect(e.ctx, 9999), ErrFeedNotFound)
 }
+
+// A kept redirect is recorded as no redirect at all, so it also ends an older pending one.
+func TestKeptRedirectClearsAnOlderPendingRedirect(t *testing.T) {
+	e := newEnv(t)
+	e.addFeed("https://b.example/feed")
+	id := e.addFeed("https://a.example/feed")
+	e.exec("UPDATE feeds SET redirect_to = 'https://c.example/feed', redirect_kind = 'permanent', redirect_count = 2, redirect_ack = 'https://b.example/feed' WHERE id = ?", id)
+	res := e.okResult(e.snap(id), rss(numbered(1)...))
+	res.Redirect = fetch.RedirectDecision{Action: fetch.RedirectSet, To: "https://b.example/feed", Kind: "permanent", Count: 1}
+	e.commit(res)
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND redirect_to IS NULL AND redirect_kind IS NULL AND redirect_count = 0", id))
+}
+
+// A URL edit, or a discovery that changes the address, forgets the kept choice.
+func TestRedirectAckEndsWithTheAddress(t *testing.T) {
+	e := newEnv(t)
+	id := e.addFeed("https://a.example/feed")
+	e.exec("UPDATE feeds SET redirect_ack = 'https://b.example/feed' WHERE id = ?", id)
+	nu := "https://a.example/other"
+	_, err := e.db.PatchFeed(e.ctx, id, FeedPatch{URL: &nu, Cols: map[string]any{}})
+	require.NoError(t, err)
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND redirect_ack IS NULL", id))
+
+	page := e.addFeed("https://p.example/")
+	e.exec("UPDATE feeds SET redirect_ack = 'https://b.example/feed' WHERE id = ?", page)
+	e.commitDiscovered(e.discovered(page, "https://p.example/feed.xml"))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND redirect_ack IS NULL", page))
+}

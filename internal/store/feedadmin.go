@@ -248,7 +248,7 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 				}
 				sets = append(sets, "url_original = COALESCE(url_original, url)", "url_original_key = COALESCE(url_original_key, url_key)",
 					"etag = NULL", "last_modified = NULL", "body_hash = NULL", "ttl_hint_s = NULL",
-					"redirect_to = NULL", "redirect_kind = NULL", "redirect_count = 0",
+					"redirect_to = NULL", "redirect_kind = NULL", "redirect_count = 0", "redirect_ack = NULL",
 					"consecutive_failures = 0", "current_delay_s = 0", "ua_fallback = 0",
 					// The new URL has never been fetched: its first success brings a backlog, not
 					// arrivals, so feed_daily_new leaves it out like a new subscription's.

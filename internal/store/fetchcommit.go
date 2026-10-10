@@ -700,8 +700,12 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 	dec := res.Redirect
 	if dec.Action != fetch.RedirectClear && dec.Kind == redirectPermKind {
 		kept, err := keptRedirect(ctx, tx, feedID, dec.To)
-		if err != nil || kept {
+		if err != nil {
 			return err
+		}
+		if kept {
+			// Accepted: it is recorded as no redirect at all, which also ends an older pending one.
+			dec = fetch.RedirectDecision{Action: fetch.RedirectClear}
 		}
 	}
 	switch dec.Action {
@@ -750,7 +754,7 @@ func (d *DB) applyRedirect(ctx context.Context, tx *sql.Tx, res *fetch.Result, s
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE feeds SET url_original = COALESCE(url_original, url),
 			url_original_key = COALESCE(url_original_key, url_key),
-			url = ?2, url_key = ?3, host = ?4, redirect_to = NULL, redirect_kind = NULL, redirect_count = 0,
+			url = ?2, url_key = ?3, host = ?4, redirect_to = NULL, redirect_kind = NULL, redirect_count = 0, redirect_ack = NULL,
 			http_auth = CASE WHEN ?5 THEN NULL ELSE http_auth END,
 			allow_insecure_tls = CASE WHEN ?5 THEN 0 ELSE allow_insecure_tls END,
 			allow_private_net = CASE WHEN ?5 THEN 0 ELSE allow_private_net END

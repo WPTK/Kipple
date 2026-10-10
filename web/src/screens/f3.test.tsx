@@ -805,6 +805,17 @@ describe("Feed health", () => {
     expect(within(dlg).getByText(/Moved Site/)).toBeInTheDocument();
   });
 
+  it("Delete this feed says so, rather than opening an empty dialog, when the feed is not in the loaded list", async () => {
+    base({
+      "GET /api/health/feeds": () => json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => (f.id === "3" ? { ...f, redirect_owner: "Zed Blog" } : f)) }),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Delete this feed" }));
+    expect(await screen.findByText("Your feeds are still loading. Try again in a moment.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Delete 1 feed?" })).toBeNull();
+  });
+
   it("counts the write-ahead log in the database size, and names a fetch's outcome in words", async () => {
     base({
       "GET /api/health/feeds": () => json({ ...HEALTH, db: { db_bytes: 4096, wal_bytes: 3 * 1024 * 1024, backup_bytes: 0, imgcache_bytes: 0 } }),

@@ -96,6 +96,23 @@ func TestCommitDiscoveredDuplicateMergesIntoTheKeptFeed(t *testing.T) {
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND folder_id = 7 AND custom_title = 'News' AND enabled = 0", other))
 }
 
+// The Add dialog's own fetch reports the duplicate to the person adding it, so the feed they already
+// have keeps its folder and title.
+func TestCommitDiscoveredSubscribeTriggerLeavesTheKeptFeedAlone(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	kept := e.addFeed("https://blog.example/feed.xml")
+	page := e.addFeed("https://blog.example/")
+	e.exec("INSERT INTO folders (id, name, position) VALUES (7, 'Tech', 1)")
+	e.exec("UPDATE feeds SET folder_id = 7, custom_title = 'My blog' WHERE id = ?", page)
+	res := e.discovered(page, "https://blog.example/feed.xml")
+	res.Snap.Trigger = fetch.TriggerSubscribe
+	ci := e.commitDiscovered(res)
+	require.Equal(t, kept, ci.MergedInto)
+	require.Zero(t, e.count("SELECT count(*) FROM feeds WHERE id = ?", page))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND folder_id != 7 AND custom_title IS NULL", kept))
+}
+
 // A URL edit that lands while the page fetch is in flight wins: nothing is adopted.
 func TestCommitDiscoveredIsStaleAfterAURLEdit(t *testing.T) {
 	t.Parallel()

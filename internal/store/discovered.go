@@ -67,7 +67,7 @@ func (d *DB) CommitDiscovered(ctx context.Context, res *fetch.Result) (CommitInf
 			allow_private_net = CASE WHEN ?6 THEN 0 ELSE allow_private_net END,
 			allow_insecure_tls = CASE WHEN ?6 THEN 0 ELSE allow_insecure_tls END,
 			etag = NULL, last_modified = NULL, body_hash = NULL, ttl_hint_s = NULL,
-			redirect_to = NULL, redirect_kind = NULL, redirect_count = 0,
+			redirect_to = NULL, redirect_kind = NULL, redirect_count = 0, redirect_ack = NULL,
 			last_fetch_at = ?7, last_status = ?8, next_fetch_at = ?7, current_delay_s = 0, updated_at = ?7
 			WHERE id = ?1`, feedID, res.Discovered, key, host, hostChanged, siteChanged, now, nullInt(res.Status)); err != nil {
 			return err
@@ -87,21 +87,25 @@ func (d *DB) CommitDiscovered(ctx context.Context, res *fetch.Result) (CommitInf
 	return info, err
 }
 
-// mergeDiscovered removes feedID, a duplicate of other, carrying its folder and custom title over.
+// mergeDiscovered removes feedID, a duplicate of other, carrying its folder and custom title over. The Add
+// dialog's fetch (fetch.TriggerSubscribe) is the exception: it reports the duplicate to the person adding it
+// and leaves the feed they already have as it is.
 func (d *DB) mergeDiscovered(ctx context.Context, tx *sql.Tx, res *fetch.Result, feedID, other, folder int64,
 	custom sql.NullString, info *CommitInfo) error {
-	var isDefault bool
-	if err := tx.QueryRowContext(ctx, "SELECT is_default FROM folders WHERE id = ?", folder).Scan(&isDefault); err != nil {
-		return err
-	}
-	if !isDefault {
-		if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ?, updated_at = unixepoch() WHERE id = ? AND folder_id != ?", folder, other, folder); err != nil {
+	if res.Snap.Trigger != fetch.TriggerSubscribe {
+		var isDefault bool
+		if err := tx.QueryRowContext(ctx, "SELECT is_default FROM folders WHERE id = ?", folder).Scan(&isDefault); err != nil {
 			return err
 		}
-	}
-	if custom.Valid {
-		if err := applyFeedEdit(ctx, tx, other, "", false, custom.String); err != nil {
-			return err
+		if !isDefault {
+			if _, err := tx.ExecContext(ctx, "UPDATE feeds SET folder_id = ?, updated_at = unixepoch() WHERE id = ? AND folder_id != ?", folder, other, folder); err != nil {
+				return err
+			}
+		}
+		if custom.Valid {
+			if err := applyFeedEdit(ctx, tx, other, "", false, custom.String); err != nil {
+				return err
+			}
 		}
 	}
 	var enabled bool

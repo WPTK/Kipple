@@ -256,8 +256,8 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	// The feed may answer through a redirect to one the user already has: that is checked on the
 	// address that answered, not the one typed or linked, before anything is created.
-	if owner, err := s.redirectOwner(ctx, found, ua, retryUA, allowPrivate, func(h string) http.RoundTripper {
-		return fetch.ScopedTransport(s.opt.Guard, h, allowPrivate, false, false)
+	if owner, err := s.redirectOwner(ctx, found, ua, retryUA, func(h string) (http.RoundTripper, bool) {
+		return fetch.ScopedTransport(s.opt.Guard, h, allowPrivate, false, false), allowPrivate
 	}); err != nil {
 		s.serverError(w, "add feed", err)
 		return
@@ -300,10 +300,15 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 		s.writeFeedExists(w, r, merged, "The address you entered leads to it.")
 		return
 	}
-	if err != nil || !ok {
-		if err == nil {
-			err = store.ErrFeedNotFound
-		}
+	if err == nil && !ok {
+		// Gone with no word from the fetch: it was removed while it was being added (the first fetch
+		// merged it into a feed you have after this request stopped waiting, or it was deleted). That
+		// is an answer, not a fault.
+		writeErrorMsg(w, http.StatusConflict, "feed_gone", "That feed was removed while it was being added, most likely "+
+			"because you already have it. Look through your feeds, and add it again if it is not there.")
+		return
+	}
+	if err != nil {
 		s.serverError(w, "add feed", err)
 		return
 	}
@@ -374,21 +379,26 @@ func redirectTail(typed bool) string {
 // redirectOwner returns the feed the user already has at the address that answered for the feed found
 // describes, or 0. For a typed feed that is its own final address; for a page that links one feed it is
 // where that feed answers, probed here with the transport and redirect policy its first fetch will use
-// (scope builds it for a host). A probe that fails leaves it unknown, and the fetch that follows reports
-// the problem. Add and the feed editor both ask this, so a duplicate is refused the same way in both.
-func (s *Server) redirectOwner(ctx context.Context, found discover.Result, ua, retryUA string, allowPrivate bool,
-	scope func(host string) http.RoundTripper) (int64, error) {
+// (scope builds it for the linked feed's host, with whether that host may be a private address: what the
+// saved feed may reach there, which differs from the page's when the link is on another site). A probe
+// that fails leaves it unknown, and the fetch that follows reports the problem. Add and the feed editor
+// both ask this, so a duplicate is refused the same way in both.
+func (s *Server) redirectOwner(ctx context.Context, found discover.Result, ua, retryUA string,
+	scope func(host string) (http.RoundTripper, bool)) (int64, error) {
 	final := found.Final
 	if !found.IsFeed {
 		if len(found.Candidates) != 1 {
 			return 0, nil
 		}
 		target := found.Candidates[0].URL
-		if _, _, h, err := store.ValidateFeedURL(target, allowPrivate); err == nil {
-			pctx, cancel := context.WithTimeout(ctx, discoverWait)
-			defer cancel()
-			if probe, perr := discover.Find(pctx, scope(h), ua, retryUA, target, allowPrivate); perr == nil {
-				final = probe.Final
+		if _, _, h, err := store.ValidateFeedURL(target, true); err == nil {
+			rt, private := scope(h)
+			if _, _, _, err := store.ValidateFeedURL(target, private); err == nil {
+				pctx, cancel := context.WithTimeout(ctx, discoverWait)
+				defer cancel()
+				if probe, perr := discover.Find(pctx, rt, ua, retryUA, target, private); perr == nil {
+					final = probe.Final
+				}
 			}
 		}
 	}
@@ -651,24 +661,29 @@ func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPa
 		}
 		return cur
 	}
-	private := flag("allow_private_net", fd.AllowPrivateNet)
-	insecure := flag("allow_insecure_tls", fd.AllowInsecureTLS)
-	norm, _, host, err := store.ValidateFeedURL(*p.URL, private)
+	// A move to another site drops the exceptions the patch does not set itself (store.PatchFeed), so a
+	// probe runs without them: no request goes where the saved feed may not go. That holds for the
+	// address typed and, separately, for the feed a page links, which may be on yet another site.
+	oldHost, _ := feedurl.Host(fd.URL)
+	keepExceptions := func(h string) (private, insecure bool) {
+		private, insecure = flag("allow_private_net", fd.AllowPrivateNet), flag("allow_insecure_tls", fd.AllowInsecureTLS)
+		if !fetch.SameSite(oldHost, h) {
+			if _, set := p.Cols["allow_private_net"]; !set {
+				private = false
+			}
+			if _, set := p.Cols["allow_insecure_tls"]; !set {
+				insecure = false
+			}
+		}
+		return private, insecure
+	}
+	norm, _, host, err := store.ValidateFeedURL(*p.URL, flag("allow_private_net", fd.AllowPrivateNet))
 	if err != nil || norm == fd.URL {
 		return "", ""
 	}
-	// A move to another site drops the exceptions the patch does not set itself (store.PatchFeed),
-	// so the probe runs without them: no request goes where the saved feed may not go.
-	if oldHost, _ := feedurl.Host(fd.URL); !fetch.SameSite(oldHost, host) {
-		if _, set := p.Cols["allow_private_net"]; !set && private {
-			private = false
-			if norm, _, _, err = store.ValidateFeedURL(*p.URL, false); err != nil {
-				return "", ""
-			}
-		}
-		if _, set := p.Cols["allow_insecure_tls"]; !set {
-			insecure = false
-		}
+	private, insecure := keepExceptions(host)
+	if norm, _, _, err = store.ValidateFeedURL(*p.URL, private); err != nil {
+		return "", ""
 	}
 	if _, found, err := s.db.FindFeedID(ctx, norm); err != nil || found {
 		return "", "" // the patch answers url_exists (or it is this feed's own old address)
@@ -687,8 +702,11 @@ func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPa
 	case err == nil && (found.IsFeed || len(found.Candidates) == 1):
 		// The same check Add makes: a feed that answers through a redirect to one you already have
 		// is a duplicate whether it was typed or linked from a page.
-		owner, oerr := s.redirectOwner(ctx, found, ua, retryUA, private, func(h string) http.RoundTripper {
-			return fetch.ScopedTransport(s.opt.Guard, h, private, insecure, flag("disable_http2", fd.DisableHTTP2))
+		owner, oerr := s.redirectOwner(ctx, found, ua, retryUA, func(h string) (http.RoundTripper, bool) {
+			// The feed that would be saved is the linked one: the exceptions it keeps are decided by
+			// its site against the old address (as above for the page), not by the page's.
+			priv, ins := keepExceptions(h)
+			return fetch.ScopedTransport(s.opt.Guard, h, priv, ins, flag("disable_http2", fd.DisableHTTP2)), priv
 		})
 		if oerr == nil && owner != 0 && owner != id {
 			return "url_exists", s.existingFeedMessage(ctx, owner, redirectTail(found.IsFeed))
