@@ -189,7 +189,8 @@ function RedirectNotice({ f }: { f: HealthFeed }) {
       toast("Feed address updated. Kipple is fetching it now.");
     } catch (e) {
       const code = e instanceof ApiError ? e.code : undefined;
-      toast(code === "url_exists" ? "Another feed already uses the new address." : errorMessage(e), "error");
+      const msg = e instanceof ApiError && typeof e.body?.message === "string" ? e.body.message : "";
+      toast(code === "url_exists" ? msg || "Another feed already uses the new address." : errorMessage(e), "error");
     } finally {
       setBusy(false);
     }

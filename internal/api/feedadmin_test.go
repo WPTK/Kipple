@@ -42,6 +42,10 @@ func site(t *testing.T) (string, *atomic.Int64) {
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(rssBody))
 	})
+	mux.HandleFunc("/moved", func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.Redirect(w, r, "/feed.xml", http.StatusMovedPermanently)
+	})
 	mux.HandleFunc("/one", func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		w.Header().Set("Content-Type", "text/html")

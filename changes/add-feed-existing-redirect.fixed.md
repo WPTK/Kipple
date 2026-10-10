@@ -1,0 +1,1 @@
+Adding an address that redirects to a feed you already have is refused with a message naming that feed (and its folder) instead of creating a duplicate, and a feed from an import or a sync client that turns out to be one you already have is merged into it on its first fetch. Fixing a feed's address in Feed Health or the editor names the feed that already uses it.

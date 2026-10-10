@@ -393,6 +393,10 @@ describe("Add feed", () => {
     expect(addError(err("timeout"))).toBe("The site took too long to answer. Try again later.");
     expect(addError(err("unreachable", "the site answered HTTP 404 Not Found"))).toBe("The site answered HTTP 404 Not Found.");
     expect(addError(err("not_feed"))).toMatch(/doesn't answer with a feed/);
+    expect(addError(err("feed_exists", "You already have this feed: My News in the folder Tech. The address you entered redirects to it."))).toBe(
+      "You already have this feed: My News in the folder Tech. The address you entered redirects to it.",
+    );
+    expect(addError(err("feed_exists"))).toBe("You already have this feed. The address you entered redirects to it.");
     expect(addError(err("invalid_url", "that is not a web address; enter a feed or site address such as https://example.com/feed"))).toBe(
       "That is not a web address; enter a feed or site address such as https://example.com/feed.",
     );
@@ -415,7 +419,7 @@ describe("Feed editor", () => {
       "GET /api/feeds/1": () => json(feedDetail()),
       "PATCH /api/feeds/1": (_u, init) => {
         const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
-        return b.url === "https://example.com/dup" ? json({ error: "url_exists", message: "used", feed_id: "9" }, 409) : json(feedDetail({ url: b.url ?? "https://example.com/feed.xml" }));
+        return b.url === "https://example.com/dup" ? json({ error: "url_exists", message: "You already have this feed: Other Feed in the folder News. That address cannot be used for this feed too.", feed_id: "9" }, 409) : json(feedDetail({ url: b.url ?? "https://example.com/feed.xml" }));
       },
     });
     const { container } = go("/feeds");
@@ -428,7 +432,7 @@ describe("Feed editor", () => {
     await user.clear(url);
     await user.type(url, "https://example.com/dup");
     await user.click(within(dlg).getByRole("button", { name: "Save" }));
-    expect(await within(dlg).findByText("Another feed already uses that address.")).toBeInTheDocument();
+    expect(await within(dlg).findByText(/You already have this feed: Other Feed in the folder News/)).toBeInTheDocument();
     await user.clear(url);
     await user.type(url, "https://example.com/new.xml");
     await user.click(within(dlg).getByRole("button", { name: "Save" }));

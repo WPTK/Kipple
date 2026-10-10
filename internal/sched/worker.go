@@ -14,6 +14,17 @@ import (
 const commitTimeout = 10 * time.Second
 
 // commitCtx is a fresh commit context, detached from the fetch context.
+// mergeRedirectDuplicate removes a feed that never fetched and answered through a redirect to a feed
+// the user already has (store.CommitRedirectDuplicate); merged is false for every other result.
+func (s *Scheduler) mergeRedirectDuplicate(res *fetch.Result) (ci store.CommitInfo, merged bool, err error) {
+	if !res.Success() || res.Redirect.To == "" {
+		return ci, false, nil
+	}
+	cctx, cancel := s.commitCtx()
+	defer cancel()
+	return s.db.CommitRedirectDuplicate(cctx, res)
+}
+
 func (s *Scheduler) commitCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(s.fetchCtx), s.opt.CommitTimeout)
 }
@@ -130,6 +141,13 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			ci, cerr := s.db.CommitDiscovered(cctx, res)
 			err = cerr
 			if cerr == nil {
+				phase = phaseCommitted
+				out.migrated, out.discovered = ci.Migrated, ci.Migrated
+				out.nextFetch = time.Time{}
+			}
+		} else if ci, merged, merr := s.mergeRedirectDuplicate(res); merr != nil || merged {
+			err = merr
+			if merr == nil {
 				phase = phaseCommitted
 				out.migrated, out.discovered = ci.Migrated, ci.Migrated
 				out.nextFetch = time.Time{}

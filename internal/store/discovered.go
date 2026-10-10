@@ -52,7 +52,7 @@ func (d *DB) CommitDiscovered(ctx context.Context, res *fetch.Result) (CommitInf
 			return err
 		}
 		if found && other != feedID {
-			return d.mergeDiscovered(ctx, tx, res, feedID, other, folder, custom, &info)
+			return d.mergeDuplicate(ctx, tx, res, res.Discovered, feedID, other, folder, custom, &info)
 		}
 		key, kerr := feedurl.Key(res.Discovered)
 		host, herr := feedurl.Host(res.Discovered)
@@ -87,8 +87,46 @@ func (d *DB) CommitDiscovered(ctx context.Context, res *fetch.Result) (CommitInf
 	return info, err
 }
 
-// mergeDiscovered removes feedID, a duplicate of other, carrying its folder and custom title over.
-func (d *DB) mergeDiscovered(ctx context.Context, tx *sql.Tx, res *fetch.Result, feedID, other, folder int64,
+// CommitRedirectDuplicate applies the one fetch outcome that would otherwise leave a duplicate: a
+// feed that has never fetched successfully answered through a redirect to the address of a feed the
+// user already has (an address typed, imported or subscribed from a client that is a moved or
+// alternate address of that feed). It is removed and the kept feed takes its folder and custom title,
+// exactly as for a discovered duplicate (mergeDuplicate). handled is false when this is not that case
+// (no redirect, the redirect target is free, the feed already fetched before, or its URL changed
+// under the fetch), and the caller commits the fetch normally. Add feed in the web app refuses such an
+// address before it creates the feed; this is the same rule for the paths that cannot fetch first.
+func (d *DB) CommitRedirectDuplicate(ctx context.Context, res *fetch.Result) (info CommitInfo, handled bool, err error) {
+	to := res.Redirect.To
+	if to == "" || (res.Redirect.Action != fetch.RedirectSet && res.Redirect.Action != fetch.RedirectMigrate) {
+		return info, false, nil
+	}
+	err = d.gated(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		info, handled = CommitInfo{}, false
+		feedID := res.Snap.ID
+		var curURL string
+		var folder int64
+		var custom sql.NullString
+		var fetched bool
+		if err := tx.QueryRowContext(ctx, "SELECT url, folder_id, custom_title, last_success_at IS NOT NULL FROM feeds WHERE id = ?", feedID).
+			Scan(&curURL, &folder, &custom, &fetched); err != nil {
+			return err
+		}
+		if curURL != res.Snap.URL || fetched {
+			return nil
+		}
+		other, found, err := FindFeedByURL(ctx, tx, to)
+		if err != nil || !found || other == feedID {
+			return err
+		}
+		handled = true
+		return d.mergeDuplicate(ctx, tx, res, to, feedID, other, folder, custom, &info)
+	})
+	return info, handled && err == nil, err
+}
+
+// mergeDuplicate removes feedID, a duplicate of other (the feed that owns target), carrying its folder
+// and custom title over.
+func (d *DB) mergeDuplicate(ctx context.Context, tx *sql.Tx, res *fetch.Result, target string, feedID, other, folder int64,
 	custom sql.NullString, info *CommitInfo) error {
 	var isDefault bool
 	if err := tx.QueryRowContext(ctx, "SELECT is_default FROM folders WHERE id = ?", folder).Scan(&isDefault); err != nil {
@@ -112,8 +150,8 @@ func (d *DB) mergeDiscovered(ctx context.Context, tx *sql.Tx, res *fetch.Result,
 		return err
 	}
 	d.bumpFilters() // its filters cascade away
-	d.log.Info("store: a page address led to a feed that is already subscribed; the duplicate was removed",
-		"feed", feedID, "page", res.Snap.URL, "feed_url", res.Discovered, "kept", other, "kept_enabled", enabled)
+	d.log.Info("store: an address led to a feed that is already subscribed; the duplicate was removed",
+		"feed", feedID, "address", res.Snap.URL, "feed_url", target, "kept", other, "kept_enabled", enabled)
 	info.MergedInto, info.Migrated = other, true
 	return nil
 }
