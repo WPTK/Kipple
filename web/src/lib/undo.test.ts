@@ -224,6 +224,29 @@ describe("actions still in flight", () => {
     t.settle(null);
   });
 
+  it("a join does not restart the toast's clock, and the joined action shows the toast again when it lands", async () => {
+    read(["1"]);
+    await vi.advanceTimersByTimeAsync(14_800);
+    const t = beginUndo("read"); // joins the toast's group
+    await vi.advanceTimersByTimeAsync(400);
+    expect(toast()).toBeNull(); // the clock ran out between join and landing (a restart on join would still show it)
+    t.settle({ ids: ["2"], undo: vi.fn() });
+    expect(toast()).toBe("2 articles marked read");
+    await vi.advanceTimersByTimeAsync(TOAST_MS - 100);
+    expect(toast()).toBe("2 articles marked read");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(toast()).toBeNull();
+  });
+
+  it("a joined action that lands after a newer toast does not take the toast back", async () => {
+    read(["1"]);
+    await vi.advanceTimersByTimeAsync(14_800);
+    const t = beginUndo("read");
+    pushUndo({ kind: "star", ids: ["9"], undo: vi.fn() });
+    t.settle({ ids: ["2"], undo: vi.fn() });
+    expect(toast()).toBe("Starred");
+  });
+
   it("a pushed-off group whose undo fails does not come back on top of the stack", async () => {
     const bulkUndo = vi.fn().mockResolvedValue(false);
     const t = beginUndo("read", { bulk: true });

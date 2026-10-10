@@ -175,7 +175,11 @@ export function beginUndo(kind: UndoKind, opts: { bulk?: boolean } = {}): UndoTi
       // A group whose window ended or that was pushed off the stack while in flight stays off it and shows no
       // toast; a waiting undo still sees what it changed.
       const onStack = stack.includes(g);
-      if (change && change.ids.length > 0) addChange(g, change, onStack);
+      const landed = change !== null && change.ids.length > 0;
+      if (change && landed) addChange(g, change, onStack);
+      // A joined action that lands after its toast's time ran out shows it again, like any action that lands, as long
+      // as nothing newer has taken the toast or the stack.
+      if (landed && onStack && !toastGroup && stack[stack.length - 1] === g) toastGroup = g;
       const empty = g.inflight === 0 && g.ids.length === 0;
       if (empty) stack = stack.filter((x) => x !== g);
       if (g.inflight === 0) for (const w of g.waiters.splice(0)) w();
