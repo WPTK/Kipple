@@ -30,6 +30,7 @@ func realVerifier(o *Options) {
 }
 
 func TestSettingsAuthAndOrigin(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	for _, ep := range [][2]string{
@@ -47,6 +48,7 @@ func TestSettingsAuthAndOrigin(t *testing.T) {
 }
 
 func TestGetSettingsDefaults(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	code, out, _ := h.api(h.login(), "GET", "/api/settings", "")
 	require.Equal(t, http.StatusOK, code)
@@ -64,6 +66,7 @@ func TestGetSettingsDefaults(t *testing.T) {
 func vals(out map[string]any) map[string]any { return out["values"].(map[string]any) }
 
 func TestPatchSettingsValidation(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, body, badKey string
 	}{
@@ -139,6 +142,7 @@ func TestPatchSettingsValidation(t *testing.T) {
 }
 
 func TestPatchSettingsListsEveryBadKey(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	code, out, _ := h.api(h.login(), "PATCH", "/api/settings", `{"zzz":1,"retention.restore_days":500,"ui.theme":"dark"}`)
 	require.Equal(t, http.StatusBadRequest, code)
@@ -146,6 +150,7 @@ func TestPatchSettingsListsEveryBadKey(t *testing.T) {
 }
 
 func TestPatchSettingsAccepted(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		key  string
 		body string
@@ -199,6 +204,7 @@ func TestPatchSettingsAccepted(t *testing.T) {
 }
 
 func TestPatchSettingsNullResetsToDefault(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	h.api(c, "PATCH", "/api/settings", `{"imgproxy.mode":"http_only"}`)
@@ -213,6 +219,7 @@ func TestPatchSettingsNullResetsToDefault(t *testing.T) {
 }
 
 func TestPatchRetentionDefaultStartsRun(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	h.api(c, "PATCH", "/api/settings", `{"ui.theme":"dark"}`)
@@ -229,6 +236,7 @@ func TestPatchRetentionDefaultStartsRun(t *testing.T) {
 }
 
 func TestPatchIntervalTakesEffectWithoutRestart(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	now := h.clk.Now().Unix()
@@ -273,6 +281,7 @@ func TestPatchIntervalTakesEffectWithoutRestart(t *testing.T) {
 }
 
 func TestRetentionApply(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	code, out, _ := h.api(h.login(), "POST", "/api/retention/apply", "")
 	require.Equal(t, http.StatusAccepted, code)
@@ -282,6 +291,7 @@ func TestRetentionApply(t *testing.T) {
 }
 
 func TestAccountPassword(t *testing.T) {
+	t.Parallel()
 	newPass := "a-brand-new-passphrase"
 	t.Run("changes password, keeps this session, drops others", func(t *testing.T) {
 		h := newHarness(t, realVerifier)
@@ -331,6 +341,7 @@ func repeatByte(b byte, n int) []byte {
 }
 
 func TestAccountPasswordFailuresArePacedNeverLocked(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, realVerifier)
 	c := h.login()
 	bad := `{"current":"wrong-wrong-wrong","new":"a-brand-new-passphrase"}`
@@ -349,6 +360,7 @@ func TestAccountPasswordFailuresArePacedNeverLocked(t *testing.T) {
 }
 
 func TestAccountAPIPassword(t *testing.T) {
+	t.Parallel()
 	t.Run("generate returns it once and enables the API", func(t *testing.T) {
 		var hook int
 		h := newHarness(t, realVerifier, func(o *Options) { o.OnAPIPasswordChange = func() { hook++ } })
@@ -410,6 +422,7 @@ func TestAccountAPIPassword(t *testing.T) {
 // runServe does, and proves a change revokes the token at once and clears the
 // ClientLogin memo.
 func TestAPIPasswordChangeRevokesReaderToken(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, realVerifier)
 	var ga *greader.API
 	h.srv.opt.OnAPIPasswordChange = func() { ga.InvalidateAccount() }
@@ -471,6 +484,7 @@ func authLine(body string) string {
 }
 
 func TestPasswordLengthBounds(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, pw string
 		want     int
@@ -490,6 +504,7 @@ func TestPasswordLengthBounds(t *testing.T) {
 
 // The CSP reads imgproxy.mode from an atomic cache that a PATCH refreshes.
 func TestImgModeCacheFollowsPatch(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	require.Equal(t, "all", h.srv.ImgMode(), "the default sends every image through Kipple")
@@ -504,6 +519,7 @@ func TestImgModeCacheFollowsPatch(t *testing.T) {
 // A first-use fill that read the old mode must not store it after a PATCH has
 // stored the new one: the CSP would keep the wrong img-src until a restart.
 func TestImgModeCacheFillRacingPatch(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	readOld := make(chan struct{})
@@ -542,6 +558,7 @@ func TestImgModeCacheFillRacingPatch(t *testing.T) {
 }
 
 func TestFavoritesLimit(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	build := func(n int) string {
@@ -563,6 +580,7 @@ func TestFavoritesLimit(t *testing.T) {
 }
 
 func TestNewSettingDefaultsAndBootstrap(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	_, out, _ := h.api(c, "GET", "/api/settings", "")

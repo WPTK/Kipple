@@ -47,6 +47,7 @@ func labelsOf(sub map[string]any) []string {
 }
 
 func TestSubscriptionListShapeAndETag(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f1 := h.addFeed("https://a.example/feed.xml", "Alpha", "Comics")
 	h.addFeed("https://b.example/rss", "", "")
@@ -78,6 +79,7 @@ func TestSubscriptionListShapeAndETag(t *testing.T) {
 }
 
 func TestTagList(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.addFolder("News")
 	w := h.get(rd + "tag/list?output=json")
@@ -93,6 +95,7 @@ func TestTagList(t *testing.T) {
 }
 
 func TestQuickAddNewThenOldETagStillGets200WithNewFeed(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.addFeed("https://a.example/feed.xml", "Alpha", "")
 	etag := h.get(rd + "subscription/list").Header().Get("ETag")
@@ -115,6 +118,7 @@ func TestQuickAddNewThenOldETagStillGets200WithNewFeed(t *testing.T) {
 }
 
 func TestQuickAddIsIdempotentAcrossSchemes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	id := h.addFeed("https://a.example/feed.xml", "Alpha", "")
 	w := h.post(rd+"subscription/quickadd", "T="+h.tok+"&quickadd="+url.QueryEscape("http://a.example/feed.xml"))
@@ -132,6 +136,7 @@ func TestQuickAddIsIdempotentAcrossSchemes(t *testing.T) {
 }
 
 func TestQuickAddInvalidURL(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for _, u := range []string{"not a url", "ftp://x.example/feed", "http://127.0.0.1/feed", "http://[::1]/feed", "http://169.254.169.254/latest"} {
 		w := h.post(rd+"subscription/quickadd", "quickadd="+url.QueryEscape(u))
@@ -144,6 +149,7 @@ func TestQuickAddInvalidURL(t *testing.T) {
 }
 
 func TestEditMoveRenameAndDefaultFolder(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	id := h.addFeed("https://a.example/feed.xml", "Alpha", "Old")
 	fid := feedID(id)
@@ -176,6 +182,7 @@ func TestEditMoveRenameAndDefaultFolder(t *testing.T) {
 // A batch edit with one title for several feeds renames none of them; one title
 // per feed renames each.
 func TestBatchEditTitles(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	a := feedID(h.addFeed("https://a.example/feed.xml", "Alpha", "Old"))
 	b := feedID(h.addFeed("https://b.example/feed.xml", "Beta", "Old"))
@@ -204,6 +211,7 @@ func TestBatchEditTitles(t *testing.T) {
 }
 
 func TestFolderNameWithSemicolonSurvives(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	id := h.addFeed("https://a.example/feed.xml", "Alpha", "")
 	// Some clients leave ';' unencoded in a= values.
@@ -214,6 +222,7 @@ func TestFolderNameWithSemicolonSurvives(t *testing.T) {
 }
 
 func TestEditSubscribeAndUnsubscribeByURL(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	w := h.post(rd+"subscription/edit", "T="+h.tok+"&ac=subscribe&s=feed/"+url.QueryEscape("https://one.example/rss")+
 		"&s=feed/"+url.QueryEscape("https://two.example/rss")+"&t=One&t=Two&a=user/-/label/Reading")
@@ -234,6 +243,7 @@ func TestEditSubscribeAndUnsubscribeByURL(t *testing.T) {
 }
 
 func TestUnsubscribeArchivesStarredItems(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/feed.xml", "Alpha", "")
 	keep := h.addItem(f, itemSeed{Title: "starred one", Starred: true})
@@ -267,6 +277,7 @@ func TestUnsubscribeArchivesStarredItems(t *testing.T) {
 // unread-count, a folder's label stream), while its starred items stay in the
 // starred stream and in stream/items/contents under their original feed's name.
 func TestArchiveFeedIsNeverListed(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/feed.xml", "Alpha", "")
 	keep := h.addItem(f, itemSeed{Title: "starred unread", Starred: true})
@@ -323,6 +334,7 @@ func TestArchiveFeedIsNeverListed(t *testing.T) {
 }
 
 func TestUnsubscribeStarredFeedAndArchiveTogether(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/feed.xml", "Alpha", "")
 	keep := h.addItem(f, itemSeed{Title: "starred one", Starred: true})
@@ -340,6 +352,7 @@ func TestUnsubscribeStarredFeedAndArchiveTogether(t *testing.T) {
 }
 
 func TestRenameTagAndMerge(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	a := h.addFeed("https://a.example/f", "A", "Old Name")
 	b := h.addFeed("https://b.example/f", "B", "Target")
@@ -365,6 +378,7 @@ func TestRenameTagAndMerge(t *testing.T) {
 }
 
 func TestDisableTagRawBodyFallback(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	news := h.addFeed("https://a.example/f", "A", "News & Politics+")
 	plain := h.addFeed("https://b.example/f", "B", "Sports")
@@ -391,6 +405,7 @@ func TestDisableTagRawBodyFallback(t *testing.T) {
 }
 
 func TestSubscriptionImportOPML(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	opmlBody := `<?xml version="1.0"?><opml version="2.0"><head/><body>
 	<outline text="Tech; News &amp; More">
@@ -419,6 +434,7 @@ func TestSubscriptionImportOPML(t *testing.T) {
 }
 
 func TestSubscriptionExport(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	h.addFeed("https://a.example/rss", "Alpha", "Comics")
 	w := h.get(rd + "subscription/export")
@@ -429,6 +445,7 @@ func TestSubscriptionExport(t *testing.T) {
 }
 
 func TestUnreadCount(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f1 := h.addFeed("https://a.example/f", "A", "Comics")
 	f2 := h.addFeed("https://b.example/f", "B", "Comics")
@@ -458,6 +475,7 @@ func TestUnreadCount(t *testing.T) {
 }
 
 func TestIconEndpoint(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	require.NoError(t, execSQL(h, "INSERT INTO feed_icons (feed_id, data, content_type, hash, fetched_at) VALUES (?, x'89504e47', 'image/png', 'abc123', 1)", f))
@@ -481,6 +499,7 @@ func TestIconEndpoint(t *testing.T) {
 // Every feed.changed event carries the feed id as a string, like the web API and
 // the scheduler do (a JSON number would lose precision in JS clients).
 func TestFeedChangedEventsCarryStringFeedID(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	hub := events.New()
 	h.api.opt.Events = hub
@@ -539,6 +558,7 @@ var rawFolderNames = []string{"News & Politics+", "R&D", "A+B", "Tom & Jerry", "
 func folderCount(h *harness) int { return q[int](h, "SELECT count(*) FROM folders") }
 
 func TestRawLabelNamesSubscriptionEdit(t *testing.T) {
+	t.Parallel()
 	for _, name := range rawFolderNames {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
@@ -566,6 +586,7 @@ func TestRawLabelNamesSubscriptionEdit(t *testing.T) {
 }
 
 func TestRawLabelNamesRenameAndDisable(t *testing.T) {
+	t.Parallel()
 	for _, name := range rawFolderNames {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
@@ -594,6 +615,7 @@ func TestRawLabelNamesRenameAndDisable(t *testing.T) {
 }
 
 func TestParseUserPath(t *testing.T) {
+	t.Parallel()
 	n, ok := parseUserPath("user/-/label/Tech", "/label/")
 	require.True(t, ok)
 	require.Equal(t, "Tech", n)
@@ -615,6 +637,7 @@ func clientEnc(s string) string { return strings.ReplaceAll(url.QueryEscape(s), 
 // A rename-tag merge that turns folder filters into feed filters announces
 // filters.changed, so an open Filters screen reloads; a plain rename does not.
 func TestRenameTagAnnouncesFiltersChanged(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	hub := events.New()
 	h.api.opt.Events = hub
@@ -650,6 +673,7 @@ func TestRenameTagAnnouncesFiltersChanged(t *testing.T) {
 
 // Every folder mutation over the Reader API announces folder.changed.
 func TestFolderChangedEventsFromReaderAPI(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	hub := events.New()
 	h.api.opt.Events = hub
@@ -690,6 +714,7 @@ func TestFolderChangedEventsFromReaderAPI(t *testing.T) {
 }
 
 func TestQuickAddFetchNowOnlyWhenSettingOn(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	var calls []int64
 	h.api.opt.FetchNow = func(_ context.Context, id int64, wait time.Duration) {
@@ -728,6 +753,7 @@ func TestQuickAddFetchNowOnlyWhenSettingOn(t *testing.T) {
 // data: 200 OK, never a 5xx; an edit or rename changes nothing, a subscribe files
 // the new feed in the default folder.
 func TestReaderFolderNameLimitsAreOKNoOps(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "News")
 	long := strings.Repeat("x", 101)

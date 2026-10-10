@@ -16,6 +16,7 @@ import (
 // failed about half the iterations (TestFullRefreshUpgradesPendingFlight's
 // flake: its check ran before the upgrade it checked for).
 func TestBarrierWaitsForQueuedSubmit(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	for i := range 50 {
 		wedged, unwedge := make(chan struct{}), make(chan struct{})
@@ -49,6 +50,7 @@ func TestBarrierWaitsForQueuedSubmit(t *testing.T) {
 // re-raised on the caller, and the dispatcher keeps running: it must never turn
 // into a wait that only go test's -timeout ends.
 func TestInDispatcherReraisesGoexitAndPanic(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 
 	exited := make(chan bool, 1)

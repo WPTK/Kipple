@@ -14,6 +14,7 @@ import (
 func iptr(n int) *int { return &n }
 
 func TestEffectiveFulltextTable(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		item      *int
 		feed, all bool
@@ -34,6 +35,7 @@ func TestEffectiveFulltextTable(t *testing.T) {
 
 // The SQL builder must agree with the Go function for every input.
 func TestFulltextModeSQLMatchesGo(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for _, all := range []bool{false, true} {
 		for _, item := range []any{nil, 0, 1} {
@@ -76,6 +78,7 @@ func (e *env) setAll(v any) {
 }
 
 func TestFulltextAllCacheFlipsImmediately(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	require.False(t, e.db.FulltextAll(e.ctx))
 	e.setAll(true)
@@ -89,6 +92,7 @@ func TestFulltextAllCacheFlipsImmediately(t *testing.T) {
 }
 
 func TestFulltextAllGetFulltextItemAndSnapshot(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	feed, a, b := ftFixture(t, e, false)
 	eff := func(id int64) int {
@@ -114,6 +118,7 @@ func TestFulltextAllGetFulltextItemAndSnapshot(t *testing.T) {
 }
 
 func TestFulltextAllGuardedSave(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	_, a, b := ftFixture(t, e, false)
 	url := func(id int64) string {
@@ -133,6 +138,7 @@ func TestFulltextAllGuardedSave(t *testing.T) {
 }
 
 func TestFulltextAllItemDetailAndBootstrap(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	_, a, b := ftFixture(t, e, false)
 	e.exec("INSERT INTO item_fulltext (item_id, content_html, content_text, word_count, extracted_at) VALUES (?, '<p>FULL</p>', 'FULL', 1, 1)", a)
@@ -165,6 +171,7 @@ func TestFulltextAllItemDetailAndBootstrap(t *testing.T) {
 }
 
 func TestFulltextAllStubEffective(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	feed, _, _ := ftFixture(t, e, false)
 	e.fetchBody(feed, rss(numbered(70)...))
@@ -185,6 +192,7 @@ func TestFulltextAllStubEffective(t *testing.T) {
 }
 
 func TestFulltextAllHold(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	feed, a, b := ftFixture(t, e, false)
 	list := func() map[int64]bool {
@@ -233,6 +241,7 @@ func TestFulltextAllHold(t *testing.T) {
 }
 
 func TestFavoritesDroppedWithFolderAndFeed(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	fo, err := e.db.CreateFolder(e.ctx, "News", 0, 5)
 	require.NoError(t, err)
@@ -267,6 +276,7 @@ func TestFavoritesDroppedWithFolderAndFeed(t *testing.T) {
 }
 
 func TestFulltextAllCancelledContextDoesNotPoisonCache(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.setAll(true) // invalidates: the next read is a cache miss
 	cctx, cancel := context.WithCancel(e.ctx)
@@ -279,6 +289,7 @@ func TestFulltextAllCancelledContextDoesNotPoisonCache(t *testing.T) {
 }
 
 func TestBoolCacheSkipsFailedLoads(t *testing.T) {
+	t.Parallel()
 	var c boolCache
 	calls := 0
 	fail := func() (bool, error) { calls++; return false, errors.New("boom") }
@@ -290,6 +301,7 @@ func TestBoolCacheSkipsFailedLoads(t *testing.T) {
 }
 
 func TestNormalizeFavoriteID(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{"7": "7", "007": "7", "9223372036854775807": "9223372036854775807"} {
 		got, ok := NormalizeFavoriteID(in)
 		require.True(t, ok, in)
@@ -304,6 +316,7 @@ func TestNormalizeFavoriteID(t *testing.T) {
 // Every path that deletes a folder or feed cleans its favorite in the same
 // transaction: the Reader API label rename-merge and disable-tag, too.
 func TestFavoritesDroppedByReaderLabelPaths(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a, err := e.db.CreateFolder(e.ctx, "A", 0, 5)
 	require.NoError(t, err)
@@ -342,6 +355,7 @@ func TestFavoritesDroppedByReaderLabelPaths(t *testing.T) {
 }
 
 func TestMergedSettingsNormalizesFavorites(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	e.exec(`INSERT INTO settings (key, value) VALUES (?, ?)`, SettingFavorites,
 		`[{"t":"feed","id":"007"},{"t":"feed","id":"7"},{"t":"feed","id":"0"},{"t":"tag","id":"3"}]`)
@@ -351,6 +365,7 @@ func TestMergedSettingsNormalizesFavorites(t *testing.T) {
 }
 
 func TestHoldIgnoresItemsTheQueueNeverAccepted(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	feed, a, b := ftFixture(t, e, true) // a follows the feed (full text); b is forced off
 	require.NotZero(t, b)
@@ -368,6 +383,7 @@ func TestHoldIgnoresItemsTheQueueNeverAccepted(t *testing.T) {
 }
 
 func TestFeedFulltextNowUsesCurrentState(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	feed := e.addFeed("https://ex.com/feed")
 	on, err := e.db.FeedFulltextNow(e.ctx, feed)

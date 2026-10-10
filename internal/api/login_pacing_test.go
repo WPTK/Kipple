@@ -18,6 +18,7 @@ import (
 // (the fake clock advances instead of sleeping), and the right password still
 // signs in however many wrong ones came before it from the same client.
 func TestLoginWrongPasswordsEscalateButTheRightOneSignsIn(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for i := 0; i < 5; i++ {
 		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody("wrong")).Code, "attempt %d", i)
@@ -47,6 +48,7 @@ func TestLoginWrongPasswordsEscalateButTheRightOneSignsIn(t *testing.T) {
 // answered at once (503 busy) with that wait as Retry-After, not after 10 s with
 // a flat 5.
 func TestLoginOwnLongWaitAnswersAtOnceWithTheRealRetryAfter(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for i := 0; i < 8; i++ {
 		h.do("POST", "/api/auth/login", loginBody("wrong"))
@@ -64,6 +66,7 @@ func TestLoginOwnLongWaitAnswersAtOnceWithTheRealRetryAfter(t *testing.T) {
 
 // The count fades only after a quiet hour, not every few minutes.
 func TestLoginFailuresFadeAfterAQuietHour(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for i := 0; i < 8; i++ {
 		h.do("POST", "/api/auth/login", loginBody("wrong"))
@@ -83,6 +86,7 @@ func TestLoginFailuresFadeAfterAQuietHour(t *testing.T) {
 // and holds only a few requests open; the rest are told to retry (503), and
 // nothing is ever answered 429. The right password still signs in afterwards.
 func TestLoginBurstRunsOneCheckAtATime(t *testing.T) {
+	t.Parallel()
 	var cur, peak atomic.Int32
 	h := newHarness(t, func(o *Options) {
 		o.Verifier = auth.NewVerifier([]byte(testSecret), auth.VerifierOptions{Wait: 30 * time.Second, Check: func(pw, phc string) bool {
@@ -122,6 +126,7 @@ func TestLoginBurstRunsOneCheckAtATime(t *testing.T) {
 // X-Forwarded-For (never CF-Connecting-IP): a stranger's wrong passwords cost
 // the stranger's address, not the owner's.
 func TestLoginBehindXForwardedForProxyKeysOnTheClient(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, func(o *Options) {
 		o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}})
 	})
@@ -143,6 +148,7 @@ func TestLoginBehindXForwardedForProxyKeysOnTheClient(t *testing.T) {
 
 // Same for Cloudflare Tunnel, which sends CF-Connecting-IP.
 func TestLoginBehindCloudflareKeysOnTheClient(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, func(o *Options) {
 		o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{netip.MustParsePrefix("192.0.2.20/32")}})
 	})
@@ -167,6 +173,7 @@ func TestLoginBehindCloudflareKeysOnTheClient(t *testing.T) {
 // password is still checked and signs in. This covers sequential noise only;
 // the flood test below covers the case this cannot promise.
 func TestLoginSharedAddressSequentialNoiseOnlySlowsTheOwner(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	gw := peer("172.17.0.1:50000")
 	for i := 0; i < 10; i++ {
@@ -182,6 +189,7 @@ func TestLoginSharedAddressSequentialNoiseOnlySlowsTheOwner(t *testing.T) {
 // nothing is counted), and signs in as soon as the flood eases. With the proxy
 // list correct each visitor is a separate key and this cannot happen.
 func TestLoginFloodOnASharedKeyMakesTheOwnerBusyNotLockedOut(t *testing.T) {
+	t.Parallel()
 	started := make(chan struct{}, 16)
 	release := make(chan struct{})
 	h := newHarness(t, func(o *Options) {
@@ -219,6 +227,7 @@ func TestLoginFloodOnASharedKeyMakesTheOwnerBusyNotLockedOut(t *testing.T) {
 // A peer that is not a trusted proxy cannot pick its own client address: rotating
 // X-Forwarded-For or CF-Connecting-IP buys no fresh budget.
 func TestLoginSpoofedForwardingHeadersFromAnUntrustedPeerAreIgnored(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, func(o *Options) {
 		o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{netip.MustParsePrefix("192.0.2.20/32")}})
 	})
@@ -233,6 +242,7 @@ func TestLoginSpoofedForwardingHeadersFromAnUntrustedPeerAreIgnored(t *testing.T
 // A trusted proxy's client is the rightmost untrusted hop: a spoofed leftmost
 // entry does not give a fresh budget either.
 func TestLoginRightmostUntrustedHopIsTheClient(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, func(o *Options) {
 		o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{netip.MustParsePrefix("172.16.0.0/12")}})
 	})

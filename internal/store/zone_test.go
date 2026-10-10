@@ -10,6 +10,7 @@ import (
 // store.Zone is the tz setting, else UTC; a stored name that does not resolve
 // (or "Local", which would silently mean the process zone) is UTC.
 func TestZoneIsTheSetting(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := context.Background()
 	for _, tc := range []struct {
@@ -39,6 +40,7 @@ func TestZoneIsTheSetting(t *testing.T) {
 // TZ only gives a new install its zone: it is stored when no tz row exists and is
 // never read again once one does.
 func TestSeedZone(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	ctx := context.Background()
 	require.NoError(t, e.db.SeedZone(ctx, ""), "no TZ seeds nothing")

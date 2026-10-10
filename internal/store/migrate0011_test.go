@@ -32,6 +32,7 @@ func schema10WithDevices(t *testing.T, rows, devices map[string]string) string {
 
 // 0011 deletes the dead rows and leaves every other setting alone.
 func TestMigration0011DropsTheDeadSettings(t *testing.T) {
+	t.Parallel()
 	rows := map[string]string{"tz": `"Europe/Paris"`, "sys.setup_completed_at": "123", "security.allowed_hosts": `["nas"]`}
 	for _, k := range deadSettingKeys {
 		rows[k] = "true"
@@ -49,6 +50,7 @@ func TestMigration0011DropsTheDeadSettings(t *testing.T) {
 
 // A database without those rows migrates unchanged.
 func TestMigration0011WithoutTheRows(t *testing.T) {
+	t.Parallel()
 	db := reopen(t, schema10(t, map[string]string{"tz": `"UTC"`}))
 	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT count(*) FROM settings WHERE key = 'tz'"))
 	for _, k := range deadSettingKeys {
@@ -60,6 +62,7 @@ func TestMigration0011WithoutTheRows(t *testing.T) {
 // 0011 also removes the three dead ui.* keys from device profiles, touching only
 // the profiles that hold one and leaving every other key (and an empty profile) alone.
 func TestMigration0011CleansDeviceProfiles(t *testing.T) {
+	t.Parallel()
 	const keep = "0123456789abcdef"
 	const dirty = "fedcba9876543210"
 	const empty = "aaaaaaaaaaaaaaaa"
@@ -78,6 +81,7 @@ func TestMigration0011CleansDeviceProfiles(t *testing.T) {
 
 // A database with no devices at all migrates fine.
 func TestMigration0011WithoutDevices(t *testing.T) {
+	t.Parallel()
 	db := reopen(t, schema10(t, nil))
 	require.Zero(t, scalar[int](t, db.Reader(), "SELECT count(*) FROM devices"))
 }

@@ -10,6 +10,7 @@ import (
 // redirect migration does and as the held-redirect note promises; an edit within
 // the site keeps them, and a patch that sets them in the same request wins.
 func TestURLEditToAnotherSiteResetsNetworkExceptions(t *testing.T) {
+	t.Parallel()
 	flags := func(e *env, id int64) (int, int) {
 		return e.count("SELECT allow_private_net FROM feeds WHERE id = ?", id), e.count("SELECT allow_insecure_tls FROM feeds WHERE id = ?", id)
 	}

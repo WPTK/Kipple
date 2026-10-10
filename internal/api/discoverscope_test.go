@@ -14,6 +14,7 @@ import (
 // host, not whatever the page redirects to: a hop to another host goes through
 // the guard like any other request.
 func TestDiscoveryHopsLeaveTheNetworkExceptionBehind(t *testing.T) {
+	t.Parallel()
 	var secret atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

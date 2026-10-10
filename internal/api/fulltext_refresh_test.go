@@ -29,6 +29,7 @@ func (e *slowExtractor) Extract(ctx context.Context, _ extract.Target) (extract.
 // POST /api/feeds/{id}/refresh answers when the fetch is committed, not when
 // the feed's article pages are extracted.
 func TestRefreshOfFulltextFeedDoesNotWaitForSlowArticleHosts(t *testing.T) {
+	t.Parallel()
 	feedSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rss+xml")
 		fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><link>https://ex.com/</link>`)

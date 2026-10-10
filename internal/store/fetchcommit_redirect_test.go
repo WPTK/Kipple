@@ -12,6 +12,7 @@ import (
 // feed has HTTP credentials or a network exception, which were granted for the
 // old host and would have to be dropped: it stays pending with a note.
 func TestRedirectToNewSiteHeldWhileExceptionsSet(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("https://a.example/feed")
 	e.exec("UPDATE feeds SET http_auth = 'bob:secret', allow_insecure_tls = 1, allow_private_net = 1 WHERE id = ?", id)
@@ -28,6 +29,7 @@ func TestRedirectToNewSiteHeldWhileExceptionsSet(t *testing.T) {
 
 // Without any of them the move to another site migrates as before.
 func TestRedirectToNewSiteMigratesWithoutExceptions(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("https://a.example/feed")
 	e.exec("UPDATE feeds SET allow_private_net = 0 WHERE id = ?", id) // the test helper sets it
@@ -42,6 +44,7 @@ func TestRedirectToNewSiteMigratesWithoutExceptions(t *testing.T) {
 // A move inside the same site keeps them: bare -> www, and a LAN name gaining
 // its search domain (the feed would otherwise be left guard-blocked or 401).
 func TestRedirectMigrationSameSiteKeepsCredentials(t *testing.T) {
+	t.Parallel()
 	for _, c := range [][2]string{
 		{"https://example.com/feed", "https://www.example.com/feed"},
 		{"http://nas/feed", "http://nas.lan/feed"},
@@ -60,6 +63,7 @@ func TestRedirectMigrationSameSiteKeepsCredentials(t *testing.T) {
 
 // The same-host migration (http -> https) keeps them.
 func TestRedirectMigrationSameHostKeepsCredentials(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET http_auth = 'bob:secret', allow_insecure_tls = 1, allow_private_net = 1 WHERE id = ?", id)

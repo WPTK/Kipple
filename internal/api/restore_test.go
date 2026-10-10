@@ -152,6 +152,7 @@ func (h *restoreHarness) restoreState() any {
 }
 
 func TestRestoreEverything(t *testing.T) {
+	t.Parallel()
 	h := newRestoreHarness(t)
 	require.Equal(t, "none", h.restoreState())
 	require.Equal(t, map[string]any{"state": "none", "summary": nil, "error": nil, "estimate_seconds": float64(0)}, h.status())
@@ -189,6 +190,7 @@ func TestRestoreEverything(t *testing.T) {
 }
 
 func TestRestoreNeedsANewPassword(t *testing.T) {
+	t.Parallel()
 	// No password, signed in through Cloudflare Access, which is not set up here.
 	h := newRestoreHarness(t)
 	out := h.upload(backupZip(t, "", store.AuthStandard))
@@ -240,6 +242,7 @@ func TestRestoreNeedsANewPassword(t *testing.T) {
 func (h *restoreHarness) Restore() *backup.Restorer { return h.srv.restore }
 
 func TestRestoreUploadKindsAndErrors(t *testing.T) {
+	t.Parallel()
 	h := newRestoreHarness(t)
 	out := h.upload([]byte(`<opml version="2.0"><body><outline text="A" xmlUrl="http://a.test/rss"/></body></opml>`))
 	require.Equal(t, map[string]any{"status": float64(200), "kind": "opml", "feeds": float64(1)}, out)
@@ -305,6 +308,7 @@ func TestRestoreUploadKindsAndErrors(t *testing.T) {
 }
 
 func TestRestoreFeedsOnly(t *testing.T) {
+	t.Parallel()
 	h := newRestoreHarness(t)
 	rec := h.req("GET", "/api/setup/restore/feeds", "")
 	require.Equal(t, http.StatusNotFound, rec.Code)
@@ -323,6 +327,7 @@ func TestRestoreFeedsOnly(t *testing.T) {
 // The account form and a restore exclude each other: a claim after an upload
 // wins and drops the upload; afterwards every restore route is gone.
 func TestRestoreLosesToAnAccountClaim(t *testing.T) {
+	t.Parallel()
 	h := newRestoreHarness(t)
 	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"], "uploaded and checked")
 	rec := h.createAccount(map[string]any{"username": "reader", "password": setupPass})
@@ -344,6 +349,7 @@ func TestRestoreLosesToAnAccountClaim(t *testing.T) {
 // A confirm that finds the account already there (claimed between the upload
 // and the confirm, through another process's database) refuses cleanly.
 func TestRestoreConfirmRechecksTheAccountRow(t *testing.T) {
+	t.Parallel()
 	h := newRestoreHarness(t)
 	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"], "uploaded and checked")
 	_, err := h.db.CreateAccount(context.Background(), store.Account{Username: "other", PasswordHash: "x", Secret: strings.Repeat("cd", 32)})
@@ -358,6 +364,7 @@ func TestRestoreConfirmRechecksTheAccountRow(t *testing.T) {
 // A confirm and an account claim sent at the same moment: exactly one wins,
 // and the loser changes nothing.
 func TestRestoreConfirmRacesAnAccountClaim(t *testing.T) {
+	t.Parallel()
 	zipped := backupZip(t, "h", store.AuthStandard)
 	for i := 0; i < 8; i++ {
 		h := newRestoreHarness(t)
@@ -398,6 +405,7 @@ func TestRestoreConfirmRacesAnAccountClaim(t *testing.T) {
 // An account claim while a backup is being checked cancels the check: the
 // upload is gone and the restore routes with it.
 func TestAccountClaimCancelsTheCheck(t *testing.T) {
+	t.Parallel()
 	h := newRestoreHarness(t)
 	rec := h.req("POST", "/api/setup/restore/upload", string(backupZip(t, "h", store.AuthStandard)))
 	require.Equal(t, http.StatusAccepted, rec.Code)
@@ -413,6 +421,7 @@ func TestAccountClaimCancelsTheCheck(t *testing.T) {
 // cannot confirm it with a password of their own, cannot take its feed list
 // and cannot cancel it; the uploader still can.
 func TestRestoreBelongsToTheUploadingBrowser(t *testing.T) {
+	t.Parallel()
 	h := newRestoreHarness(t)
 	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"])
 
@@ -445,6 +454,7 @@ func TestRestoreBelongsToTheUploadingBrowser(t *testing.T) {
 // The owner's page, which sends its own key in the header, sees no restore
 // and cannot confirm or take the attacker's upload; only the header counts.
 func TestACookieGrantsNothing(t *testing.T) {
+	t.Parallel()
 	h := newRestoreHarness(t)
 	k := testKey(t)
 	rec := h.req("POST", "/api/setup/restore/upload", string(backupZip(t, "h", store.AuthStandard)), anotherBrowser(k))
@@ -473,6 +483,7 @@ func TestACookieGrantsNothing(t *testing.T) {
 // decode strictly: of the four spellings of one key that differ only in their
 // last character's unused bits, only one is accepted.
 func TestUploadNeedsAKey(t *testing.T) {
+	t.Parallel()
 	h := newRestoreHarness(t)
 	b := string(backupZip(t, "h", store.AuthStandard))
 	k := testKey(t)
@@ -542,6 +553,7 @@ func readAnswer(t *testing.T, conn net.Conn) (int, map[string]any) {
 // restore and its cancel is refused. The last byte is held back, so the upload
 // cannot finish first whatever the timing.
 func TestTheUploaderCancelsAnUploadStillArriving(t *testing.T) {
+	t.Parallel()
 	h := newRestoreHarness(t)
 	srv := httptest.NewServer(h.root)
 	defer srv.Close()
@@ -574,6 +586,7 @@ func TestTheUploaderCancelsAnUploadStillArriving(t *testing.T) {
 // claim: the claim unblocks the waiting read at once (the handler's stop hook
 // sets the connection's read deadline), and the uploader gets an answer.
 func TestAClaimUnblocksAStalledUpload(t *testing.T) {
+	t.Parallel()
 	h := newRestoreHarness(t)
 	srv := httptest.NewServer(h.root)
 	defer srv.Close()
@@ -656,6 +669,7 @@ func TestASlowUploadIsStopped(t *testing.T) {
 // One upload holds the slot at most max(2 h, its size at 128 KB/s), and never
 // more than 4 h, whatever size it declares.
 func TestRestoreDeadline(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, 2*time.Hour, restoreDeadline(100<<20))
 	require.Equal(t, 8192*time.Second, restoreDeadline(1<<30))
 	require.Equal(t, 4*time.Hour, restoreDeadline(4<<30))
@@ -663,6 +677,7 @@ func TestRestoreDeadline(t *testing.T) {
 
 // A full disk while an upload is kept answers no_space, like the free-space check.
 func TestRestoreErrorInfoFullDisk(t *testing.T) {
+	t.Parallel()
 	status, code, msg := restoreErrorInfo(fmt.Errorf("wrapped: %w", backup.ErrDiskFull))
 	require.Equal(t, http.StatusInsufficientStorage, status)
 	require.Equal(t, "no_space", code)

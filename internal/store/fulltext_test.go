@@ -13,6 +13,7 @@ import (
 )
 
 func TestFulltextErrorClassRoundTripAndURLGuard(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("https://ex.com/feed")
 	e.fetchBody(id, rss(numbered(2)...))
@@ -77,6 +78,7 @@ func TestFulltextErrorClassRoundTripAndURLGuard(t *testing.T) {
 // Migration 0003 adds error_class; an error row stored before it stays valid
 // and reads as unclassified (permanent).
 func TestMigration0003KeepsExistingFulltextErrors(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "kipple.db")
 	clk := clock.NewFake(base)
@@ -115,6 +117,7 @@ func TestMigration0003KeepsExistingFulltextErrors(t *testing.T) {
 // Article extraction resolves the User-Agent like a feed fetch does (mode,
 // remembered fallback, per-feed override).
 func TestGetFulltextItemResolvesUserAgent(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("https://ex.com/feed")
 	e.fetchBody(id, rss(numbered(1)...))

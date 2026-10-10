@@ -30,6 +30,7 @@ func goodBackup(t *testing.T) []byte {
 // A manifest (and zip entry) declaring a database over DefaultMaxDBBytes is
 // refused before a byte is written, although the entry holds almost nothing.
 func TestExtractRefusesOversizedDeclaredDB(t *testing.T) {
+	t.Parallel()
 	good := goodBackup(t)
 	zr, err := zip.NewReader(bytes.NewReader(good), int64(len(good)))
 	require.NoError(t, err)

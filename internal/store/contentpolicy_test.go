@@ -31,6 +31,7 @@ func seedStoredHTML(t *testing.T, db *DB, html string) (item int64) {
 }
 
 func TestStoredHTMLIsCleanedAgainUnderANewPolicyVersion(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	seedStoredHTML(t, db, hostileHTML)
@@ -63,6 +64,7 @@ func TestStoredHTMLIsCleanedAgainUnderANewPolicyVersion(t *testing.T) {
 }
 
 func TestStoredHTMLCleaningCoversRestoreStubsAndRecountsWords(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	feed := seedFeed(t, db)

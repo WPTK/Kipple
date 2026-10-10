@@ -19,6 +19,7 @@ func renameLabel(ctx context.Context, db *DB, id int64, name string) error {
 // each feed that was in the old folder, so a mute on "Old" never starts muting
 // the feeds that were already in "New".
 func TestRenameMergeKeepsFolderFilterScope(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	a, err := db.Subscribe(ctx, SubscribeOpts{URL: "https://a.example/feed", Folder: "Old"})
@@ -70,6 +71,7 @@ func TestRenameMergeKeepsFolderFilterScope(t *testing.T) {
 // Merging the default folder away (it is never deleted) keeps its folder filter
 // for feeds that land there later and adds feed filters for the feeds that moved.
 func TestRenameMergeDefaultFolderFilters(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	a, err := db.Subscribe(ctx, SubscribeOpts{URL: "https://a.example/feed"})
@@ -97,6 +99,7 @@ func TestRenameMergeDefaultFolderFilters(t *testing.T) {
 // A merge whose copies would take the filter set past filter.MaxRules is refused
 // before anything changes: the folders, feeds and filters stay as they were.
 func TestRenameMergeRefusedPastRuleLimit(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	for _, u := range []string{"https://a.example/feed", "https://b.example/feed", "https://c.example/feed"} {
@@ -124,6 +127,7 @@ func TestRenameMergeRefusedPastRuleLimit(t *testing.T) {
 // Nor may a merge switch off copies of a rule that runs today: 60 copies of one
 // enabled regex rule would pass the 50 regex rules a set may run.
 func TestRenameMergeRefusedPastRegexLimit(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	for i := 0; i < 60; i++ {
@@ -152,6 +156,7 @@ func TestRenameMergeRefusedPastRegexLimit(t *testing.T) {
 
 // A folder filter Kipple switched off keeps its reason on every copy.
 func TestRenameMergeCarriesDisabledReason(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	a, err := db.Subscribe(ctx, SubscribeOpts{URL: "https://a.example/feed", Folder: "Old"})
@@ -179,6 +184,7 @@ func TestRenameMergeCarriesDisabledReason(t *testing.T) {
 
 // An empty old folder's filters matched nothing and go with the folder.
 func TestRenameMergeEmptyFolderDropsFilters(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	_, err := db.Subscribe(ctx, SubscribeOpts{URL: "https://b.example/feed", Folder: "New"})

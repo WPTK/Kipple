@@ -8,6 +8,7 @@ import (
 )
 
 func TestParseItemIDVectors(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in   string
 		want int64
@@ -46,6 +47,7 @@ func TestParseItemIDVectors(t *testing.T) {
 }
 
 func TestFormatsMatchDocumentedExamples(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, "00063f8740c61a40", FormatHex16(1758700000123456))
 	require.Equal(t, "tag:google.com,2005:reader/item/00063f8740c61a40", FormatLongID(1758700000123456))
 	require.Equal(t, "ffffffffffffcdef", FormatHex16(-12817))
@@ -56,6 +58,7 @@ func TestFormatsMatchDocumentedExamples(t *testing.T) {
 // bare-hex form is only unambiguous for ids Kipple allocates (positive, < 2^60,
 // so the padded form always starts with 0).
 func TestItemIDRoundTripProperty(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewPCG(1, 2))
 	check := func(id int64) {
 		got, ok := ParseItemID(FormatDecimal(id))

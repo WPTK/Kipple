@@ -49,6 +49,7 @@ func (d *dev) call(method, path, body string, mod ...func(*http.Request)) (int, 
 }
 
 func TestDeviceCookieIssuedOnFirstBootstrap(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	sess := h.login()
 	require.Nil(t, deviceCookieOf(h.do("POST", "/api/auth/login", loginBody(testPass))), "login does not issue it")
@@ -84,6 +85,7 @@ func TestDeviceCookieIssuedOnFirstBootstrap(t *testing.T) {
 }
 
 func TestDeviceCookieSecureOverHTTPS(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	sess := h.login()
 	_, _, rec := h.api(sess, "GET", "/api/device", "", func(r *http.Request) { r.TLS = &tls.ConnectionState{} })
@@ -93,6 +95,7 @@ func TestDeviceCookieSecureOverHTTPS(t *testing.T) {
 }
 
 func TestUnknownOrMalformedDeviceCookieGetsAFreshDevice(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	sess := h.login()
 	for _, v := range []string{"AAAAAAAAAAAAAAAAAAAAAA", "short", "not valid!!not valid!!"} {
@@ -107,6 +110,7 @@ func TestUnknownOrMalformedDeviceCookieGetsAFreshDevice(t *testing.T) {
 }
 
 func TestDeviceLastSeenSlidesDaily(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	d := h.newDev()
 	_, out, _ := d.call("GET", "/api/device", "")
@@ -122,6 +126,7 @@ func TestDeviceLastSeenSlidesDaily(t *testing.T) {
 }
 
 func TestDeviceResolutionOrder(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	d := h.newDev()
 	get := func() (defaults, profile, merged map[string]any) {
@@ -169,6 +174,7 @@ func TestDeviceResolutionOrder(t *testing.T) {
 }
 
 func TestPatchDeviceValidation(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	d := h.newDev()
 	for _, tc := range []struct{ name, body, bad string }{
@@ -235,6 +241,7 @@ func TestPatchDeviceValidation(t *testing.T) {
 }
 
 func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	d := h.newDev()
 	body := `{"ui.theme":"system","ui.theme_schedule":true,"ui.theme_day":"linen","ui.theme_night":"carbon","ui.theme_night_start":"22:30","ui.theme_day_start":"06:15","ui.font_body":"Atkinson Hyperlegible Next",
@@ -301,6 +308,7 @@ func listOverridesOf(n int) string {
 // client.list_overrides has its own byte budget: over it, the key alone is refused (400 naming it,
 // so a client puts aside only that key), and the rest of the patch is not applied either (all or nothing).
 func TestListOverridesBudget(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	d := h.newDev()
 	fits := listOverridesOf(store.MaxListOverridesBytes)
@@ -323,6 +331,7 @@ func TestListOverridesBudget(t *testing.T) {
 }
 
 func TestDeviceProfileSizeLimit413(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	d := h.newDev()
 	// The list overrides fit their own budget (just under 4 KB) and the collapsed folders fit too,
@@ -343,6 +352,7 @@ func TestDeviceProfileSizeLimit413(t *testing.T) {
 }
 
 func TestDeviceName(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	d := h.newDev()
 	code, out, _ := d.call("PUT", "/api/device/name", `{"name":"  Owners iPhone  "}`)
@@ -360,6 +370,7 @@ func TestDeviceName(t *testing.T) {
 }
 
 func TestListCopyDeleteDevices(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	phone, laptop := h.newDev(), h.newDev()
 	phone.call("PATCH", "/api/device", `{"ui.theme":"fountain","client.layout":"inbox"}`)
@@ -423,6 +434,7 @@ func TestListCopyDeleteDevices(t *testing.T) {
 }
 
 func TestMakeDeviceDefault(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	phone, tablet := h.newDev(), h.newDev()
 	phone.call("PATCH", "/api/device", `{"ui.theme":"fountain","ui.reading_density":"airy","client.layout":"cards","client.sidebar_width":300}`)
@@ -458,6 +470,7 @@ func TestMakeDeviceDefault(t *testing.T) {
 // Make default merges this device's client.* keys into the stored defaults; the
 // merge is held to the same 8 KB cap as a direct write of ui.device_defaults.
 func TestMakeDeviceDefaultSizeCap(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	stored := `{"ui.device_defaults":{"client.list_overrides":` + listOverridesOf(store.MaxListOverridesBytes) + `}}`
@@ -487,6 +500,7 @@ func TestMakeDeviceDefaultSizeCap(t *testing.T) {
 }
 
 func TestSettingsMetadataScope(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	_, out, _ := h.api(c, "GET", "/api/settings", "")
@@ -528,6 +542,7 @@ func TestSettingsMetadataScope(t *testing.T) {
 }
 
 func TestDeviceRoutesAuthAndOrigin(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	routes := [][2]string{
@@ -555,6 +570,7 @@ func TestDeviceRoutesAuthAndOrigin(t *testing.T) {
 
 // A device cookie is not a credential: without a session the routes stay closed.
 func TestDeviceCookieAloneGrantsNothing(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	d := h.newDev()
 	d.call("GET", "/api/device", "")
@@ -569,6 +585,7 @@ func TestDeviceCookieAloneGrantsNothing(t *testing.T) {
 // devices a day, then keeps getting its last one: a buggy or cookieless client cannot fill the
 // table or evict real profiles.
 func TestCookielessSessionRegistrationIsCapped(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	sess := h.login()
 	var ids []string
@@ -595,6 +612,7 @@ func TestCookielessSessionRegistrationIsCapped(t *testing.T) {
 
 // Concurrent first loads (two tabs, bootstrap plus device) share one device.
 func TestConcurrentFirstLoadsRegisterOneDevice(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	sess := h.login()
 	var wg sync.WaitGroup
@@ -620,6 +638,7 @@ func TestConcurrentFirstLoadsRegisterOneDevice(t *testing.T) {
 // At the cap with every device recently seen, a new client is served defaults, nothing is
 // evicted, and writes to the unsaved device are refused.
 func TestDeviceCapNeverEvictsRecentDevices(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	sess := h.login()
 	now := h.clk.Now().Unix()
@@ -647,6 +666,7 @@ func TestDeviceCapNeverEvictsRecentDevices(t *testing.T) {
 // A fixed theme ends the schedule when the patch does not name it (a client that predates the schedule sends
 // only ui.theme), so a later "system" from that client is plain follow-system again.
 func TestFixedThemeEndsSchedule(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	d := h.newDev()
 	code, out, _ := d.call("PATCH", "/api/device", `{"ui.theme":"graphite"}`)
@@ -682,6 +702,7 @@ func TestFixedThemeEndsSchedule(t *testing.T) {
 // ui.theme_schedule turns the account's schedule off, so devices without their own override never
 // inherit a fixed theme with the flag stuck on.
 func TestAccountFixedThemeEndsSchedule(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	sess := h.login()
 	values := func(out map[string]any) map[string]any { return out["values"].(map[string]any) }
@@ -748,6 +769,7 @@ func TestAccountFixedThemeEndsSchedule(t *testing.T) {
 // Make-default copies the device's theme into the account defaults under the same rule: a fixed theme
 // ends the account's schedule unless the device carries its own schedule flag.
 func TestMakeDefaultFixedThemeEndsSchedule(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	d := h.newDev()
 	// The device picks a fixed theme while the account's schedule is off: no flag of its own.

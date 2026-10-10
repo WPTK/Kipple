@@ -15,6 +15,7 @@ import (
 
 // The image cache is disposable: no export and no nightly snapshot may carry it.
 func TestBackupsExcludeTheImageCache(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	seed(t, db, 20)
 	data := filepath.Dir(db.BackupDir())

@@ -35,6 +35,7 @@ func findFilter(t *testing.T, fs []Filter, id int64) Filter {
 // (with its message shown on whatever rule was being edited). Now only the edited rule is judged,
 // and the stored one is switched off visibly with its reason.
 func TestLegacyFilterDoesNotBlockOtherEdits(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	on := e.legacyFilter("old on", true)
 	off := e.legacyFilter("old off", false)
@@ -90,6 +91,7 @@ func TestLegacyFilterDoesNotBlockOtherEdits(t *testing.T) {
 
 // The list notices a legacy rule lazily (a read on a database no write has touched since the upgrade).
 func TestListFiltersDisablesLegacyRuleLazily(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	on := e.legacyFilter("old", true)
 	fs, err := e.db.ListFilters(e.ctx)
@@ -107,6 +109,7 @@ func TestListFiltersDisablesLegacyRuleLazily(t *testing.T) {
 // At ingest the legacy rule used to be dropped silently while the list showed it enabled; now the
 // first fetch commit switches it off with its reason, and the valid rules still run.
 func TestIngestDisablesLegacyRuleVisibly(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	on := e.legacyFilter("old", true)
@@ -121,6 +124,7 @@ func TestIngestDisablesLegacyRuleVisibly(t *testing.T) {
 
 // A legacy set over the set-wide cost cap: the newest rules give way, visibly.
 func TestSanitizeDisablesNewestPastTheSetCap(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	const p = `[a-z ]{1,50}[0-9]{3}`
 	heavy := filter.NewRule(filter.ScopeGlobal, filter.KindRegex, filter.ActionMute, p+"a", p+"b", p+"c")

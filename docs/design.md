@@ -2449,7 +2449,7 @@ No goroutine holds a transaction across a channel send, an HTTP call or an SSE w
 
 ## 10. Test plan
 
-CI runs `go test -race -shuffle=on -timeout 15m ./...` (the `race_on`/`race_off` build-tagged test files stretch timing ceilings under the race detector; the Windows dev box has no C compiler, so it runs without `-race`). Every store and API test gets a SQLite file in `t.TempDir()` on the **pinned modernc driver**. Golden files with an `-update` flag are used only by the `internal/fetch` parser tests; the Reader contract tests assert inline. Items marked **TODO** below are planned but not yet written.
+CI runs `go test -race -shuffle=on -timeout 15m` over every package, split across three runners (`internal/api`, `internal/store`, the rest) behind one required `go` check (the `race_on`/`race_off` build-tagged test files stretch timing ceilings under the race detector; the Windows dev box has no C compiler, so it runs without `-race`). Every store and API test gets a SQLite file in `t.TempDir()` on the **pinned modernc driver**, so tests run with `t.Parallel()`; the exceptions stay serial: a test that swaps a package variable (a hook, a batch size, a budget), reads process-wide memory statistics, or asserts a wall-time ceiling. Golden files with an `-update` flag are used only by the `internal/fetch` parser tests; the Reader contract tests assert inline. Items marked **TODO** below are planned but not yet written.
 
 **`internal/store`**
 

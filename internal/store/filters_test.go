@@ -92,6 +92,7 @@ func (e *env) titles(where string, args ...any) []string {
 }
 
 func TestIngestWithoutFiltersChangesNothing(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	info := e.fetchBody(id, frss(fspec{guid: "a", cats: []string{"Go", "News"}}, fspec{guid: "b"}))
@@ -106,6 +107,7 @@ func TestIngestWithoutFiltersChangesNothing(t *testing.T) {
 }
 
 func TestIngestMuteMarkReadStar(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	mute := e.mkFilter(newFilter("mute", "sponsored"))
@@ -154,6 +156,7 @@ func TestIngestMuteMarkReadStar(t *testing.T) {
 }
 
 func TestIngestFilterScopesAndFields(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	a := e.addFeed("http://a.example/feed")
 	b := e.addFeed("http://b.example/feed")
@@ -193,6 +196,7 @@ func TestIngestFilterScopesAndFields(t *testing.T) {
 }
 
 func TestIngestInvertedRuleIsOnlyShowMatching(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	f := newFilter("mute", "golang")
@@ -207,6 +211,7 @@ func TestIngestInvertedRuleIsOnlyShowMatching(t *testing.T) {
 }
 
 func TestFilterCacheFollowsWrites(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	fs := func(guid string) []byte { return frss(fspec{guid: guid, title: "spam " + guid}) }
@@ -244,6 +249,7 @@ func TestFilterCacheFollowsWrites(t *testing.T) {
 }
 
 func TestUnmutePaths(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.mkFilter(newFilter("mute", "spam"))
@@ -292,6 +298,7 @@ func TestUnmutePaths(t *testing.T) {
 }
 
 func TestTrimTakesMutedFirst(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
@@ -320,6 +327,7 @@ func TestTrimTakesMutedFirst(t *testing.T) {
 }
 
 func TestCategoriesCappedAndDeduped(t *testing.T) {
+	t.Parallel()
 	var cats []string
 	for i := 0; i < 30; i++ {
 		cats = append(cats, fmt.Sprintf("cat%d", i))
@@ -344,6 +352,7 @@ func fetchCats(t *testing.T, cats []string) []string {
 }
 
 func TestPredictedMutesAreSkippedByFulltextPick(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	empty, err := e.db.MutedUIDs(e.ctx, id, "", nil)
@@ -358,6 +367,7 @@ func TestPredictedMutesAreSkippedByFulltextPick(t *testing.T) {
 	require.Equal(t, map[string]bool{"a": true}, got, "a starred item is not muted, so it is still extracted")
 }
 
+// Not parallel: it measures wall time.
 func TestIngestPerformanceBudget(t *testing.T) {
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
@@ -392,6 +402,7 @@ func TestIngestPerformanceBudget(t *testing.T) {
 }
 
 func TestFilterCRUDValidationAndLimits(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	bad := newFilter("mute")
 	_, err := e.db.CreateFilter(e.ctx, bad)

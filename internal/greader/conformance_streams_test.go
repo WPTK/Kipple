@@ -18,6 +18,7 @@ import (
 var confAllDesc = []string{"tech-new", "news-unread", "news-unread-starred", "tech-unread", "loose-old", "news-old-starred", "tech-old-read"}
 
 func TestConformanceStreamItemIDs(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	l := seedConf(h)
 	c := newConf(t, h)
@@ -113,6 +114,7 @@ func TestConformanceStreamItemIDs(t *testing.T) {
 }
 
 func TestConformanceStreamContents(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	l := seedConf(h)
 	c := newConf(t, h)
@@ -205,6 +207,7 @@ func TestConformanceStreamContents(t *testing.T) {
 }
 
 func TestConformanceStreamItemsContents(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	l := seedConf(h)
 	c := newConf(t, h)

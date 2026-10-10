@@ -11,6 +11,7 @@ import (
 )
 
 func TestAscCursorRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := Cursor{SortAt: 77, ID: 99, Asc: true}
 	back, err := ParseCursor(c.Encode())
 	require.NoError(t, err)
@@ -24,6 +25,7 @@ func TestAscCursorRoundTrip(t *testing.T) {
 }
 
 func TestBoundOperatorTable(t *testing.T) {
+	t.Parallel()
 	// order x side x inclusive: "above" is a larger key in a newest-first list
 	// and a smaller one in an oldest-first list.
 	cases := []struct {
@@ -41,6 +43,7 @@ func TestBoundOperatorTable(t *testing.T) {
 }
 
 func TestReadingWhere(t *testing.T) {
+	t.Parallel()
 	w, a := ReadingWhere("w", 0, 0)
 	require.Empty(t, w)
 	require.Empty(t, a)
@@ -55,6 +58,7 @@ func TestReadingWhere(t *testing.T) {
 // The ascending keyset scans the same indexes as the descending one, for every
 // list shape and for the bounded mark query, fresh and after ANALYZE.
 func TestOrderQueryPlans(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
 	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {

@@ -15,6 +15,7 @@ import (
 // parse error for that feed, with the normal backoff; the server and the other
 // feeds carry on and the dispatcher's counters stay balanced.
 func TestPanicInFetchBecomesParseError(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{Workers: 1})
 	srv := newSrv(t, serveOK)
 	bad := r.add(srv.URL+"/bad", nil)
@@ -50,6 +51,7 @@ func TestPanicInFetchBecomesParseError(t *testing.T) {
 // A panic during the commit leaves the stored state unknown: the result is a
 // failed commit, which the dispatcher backs off in memory.
 func TestPanicInCommitBacksOffInMemory(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{Workers: 1})
 	r.s.inDispatcher(func() {
 		r.s.commitFetchFn = func(context.Context, *fetch.Result, time.Duration) (store.CommitInfo, error) {
@@ -74,6 +76,7 @@ func TestPanicInCommitBacksOffInMemory(t *testing.T) {
 // a written schedule and a healthy feed: no in-memory backoff, and the result
 // keeps what was committed.
 func TestPanicAfterCommitDoesNotBackOff(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{Workers: 1})
 	r.s.inDispatcher(func() {
 		r.s.afterCommit = func(int64) { panic("after the commit") }
@@ -100,6 +103,7 @@ func TestPanicAfterCommitDoesNotBackOff(t *testing.T) {
 // Audit L4: a panicking trim job writes no schedule, so it must not back off the
 // feed's fetches either.
 func TestPanicInTrimDoesNotBackOff(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{Workers: 1})
 	r.s.inDispatcher(func() {
 		r.s.trimFn = func(context.Context, int64, store.TrimBudget) (int64, bool, error) { panic("trim exploded") }
@@ -117,6 +121,7 @@ func TestPanicInTrimDoesNotBackOff(t *testing.T) {
 
 // A panicking skip job is not a failed commit either (no fetch schedule).
 func TestRecoveredSkipIsNotAFailedCommit(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	f := &flight{kind: kindSkip, snap: fetch.Snapshot{ID: 7, Host: "h.test"}}
 	out := r.s.recovered(f, "boom", nil, phaseFetch, result{})

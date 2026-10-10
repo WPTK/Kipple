@@ -50,6 +50,7 @@ func TestPairFloodRejectedCheaply(t *testing.T) {
 }
 
 func TestEditTagManyIDsStillWorks(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	var ids []string
@@ -65,6 +66,7 @@ func TestEditTagManyIDsStillWorks(t *testing.T) {
 }
 
 func TestEditTagOverTheIDCapProcessesTheFirstAndReturns200(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	inside := h.addItem(f, itemSeed{})
@@ -78,6 +80,7 @@ func TestEditTagOverTheIDCapProcessesTheFirstAndReturns200(t *testing.T) {
 }
 
 func TestBodyOverTheReadCapIs413NotATruncatedParse(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	noHdr := map[string]string{"Authorization": ""}
 	// T sits past the 64 KiB pre-auth cap: 413, not a 401 (or worse, a parse of
@@ -95,6 +98,7 @@ func TestBodyOverTheReadCapIs413NotATruncatedParse(t *testing.T) {
 }
 
 func TestIconOnlyServesSafeTypes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	require.NoError(t, execSQL(h, "INSERT INTO settings (key, value) VALUES ('greader.icon_urls', 'true')"))
 	noAuth := map[string]string{"Authorization": ""}
@@ -119,6 +123,7 @@ func TestIconOnlyServesSafeTypes(t *testing.T) {
 }
 
 func TestMountPrefixNonReaderPathNeverReachesWebMux(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	for _, p := range []string{"/api/greader.php/other", "/api/greader.php/api/greader.php/x", "//api//greader.php//other"} {
 		w := h.do(http.MethodGet, p, "", nil)
@@ -129,6 +134,7 @@ func TestMountPrefixNonReaderPathNeverReachesWebMux(t *testing.T) {
 }
 
 func TestUnencodedPlusLabelInStreamsAndMarkAll(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "Tech+News")
 	it := h.addItem(f, itemSeed{})

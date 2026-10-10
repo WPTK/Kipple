@@ -100,6 +100,7 @@ func (r *rig) lastNote(feedID int64) string {
 }
 
 func TestExtractsNewItemsAfterCommitOnce(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newFTServer(t, nil)
 	srv.body.Store(ftFeed(srv.URL, 1, 2))
@@ -139,6 +140,7 @@ func TestExtractsNewItemsAfterCommitOnce(t *testing.T) {
 }
 
 func TestFailuresAreClassifiedIsolatedAndNotRetriedByPolling(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newFTServer(t, map[string]int{"1": 500, "2": 404})
 	srv.body.Store(ftFeed(srv.URL, 1, 2, 3))
@@ -263,6 +265,7 @@ func (f *fakeExt) waitCalls(t *testing.T, n int) {
 }
 
 func TestFetchDoesNotWaitForSlowArticleHosts(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{block: true} // every article host hangs until cancelled
 	r := newRig(t, Options{Extractor: fx})
 	srv := newFTServer(t, nil)
@@ -283,6 +286,7 @@ func TestFetchDoesNotWaitForSlowArticleHosts(t *testing.T) {
 }
 
 func TestQueuedItemsGetTextLater(t *testing.T) {
+	t.Parallel()
 	gate := make(chan struct{})
 	fx := &fakeExt{gate: gate}
 	r := newRig(t, Options{Extractor: fx})
@@ -300,6 +304,7 @@ func TestQueuedItemsGetTextLater(t *testing.T) {
 }
 
 func TestCapDefersTheRestNewestFirst(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{}
 	r := newRig(t, Options{Extractor: fx, FulltextMaxItems: 2})
 	srv := newFTServer(t, nil)
@@ -318,6 +323,7 @@ func TestCapDefersTheRestNewestFirst(t *testing.T) {
 }
 
 func TestQueueBoundDefersWithANote(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{block: true}
 	r := newRig(t, Options{Extractor: fx, FulltextQueue: 2, FulltextGlobal: 1})
 	srv := newFTServer(t, nil)
@@ -332,6 +338,7 @@ func TestQueueBoundDefersWithANote(t *testing.T) {
 }
 
 func TestPoolConcurrencyAndPerHostLimits(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{rendezvous: 2, hold: 20 * time.Millisecond}
 	r := newRig(t, Options{Extractor: fx, FulltextPerHost: 2, FulltextGlobal: 4})
 	srv := newFTServer(t, nil)
@@ -368,6 +375,7 @@ func spreadFeed(feed, n int) string {
 }
 
 func TestGlobalCapAcrossFeeds(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{hold: 150 * time.Millisecond}
 	r := newRig(t, Options{Extractor: fx, Workers: 6, FulltextPerHost: 3, FulltextGlobal: 2})
 	const feeds = 5
@@ -388,6 +396,7 @@ func TestGlobalCapAcrossFeeds(t *testing.T) {
 }
 
 func TestOffDoesNothing(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{}
 	r := newRig(t, Options{Extractor: fx})
 	srv := newFTServer(t, nil)
@@ -405,6 +414,7 @@ func TestOffDoesNothing(t *testing.T) {
 // A queued item is skipped when the feed, the item or its URL changes before
 // its turn comes.
 func TestQueuedWorkSurvivesEditsAndDeletes(t *testing.T) {
+	t.Parallel()
 	gate := make(chan struct{})
 	fx := &fakeExt{gate: gate}
 	r := newRig(t, Options{Extractor: fx, FulltextGlobal: 1})
@@ -442,6 +452,7 @@ func TestQueuedWorkSurvivesEditsAndDeletes(t *testing.T) {
 }
 
 func TestResultForChangedURLIsDropped(t *testing.T) {
+	t.Parallel()
 	gate := make(chan struct{})
 	fx := &fakeExt{gate: gate}
 	r := newRig(t, Options{Extractor: fx, FulltextGlobal: 1})
@@ -459,6 +470,7 @@ func TestResultForChangedURLIsDropped(t *testing.T) {
 }
 
 func TestStopCancelsExtractionCleanly(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{block: true}
 	r := newRig(t, Options{Extractor: fx})
 	srv := newFTServer(t, nil)
@@ -484,6 +496,7 @@ func TestStopCancelsExtractionCleanly(t *testing.T) {
 }
 
 func TestQueueDedupesBoundsAndSpreadsHosts(t *testing.T) {
+	t.Parallel()
 	q := newFTQueue(3, 1)
 	a1 := ftJob{itemID: 1, url: "https://a/1", host: "a"}
 	require.Equal(t, pushQueued, q.push(a1))
@@ -512,6 +525,7 @@ func TestQueueDedupesBoundsAndSpreadsHosts(t *testing.T) {
 // A parser panic on a hostile page must not take the process down: it is stored
 // as a permanent failure for that item and the pool carries on.
 func TestPanickingExtractionIsStoredAsPermanentErrorAndPoolSurvives(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{panics: "/a/2"}
 	r := newRig(t, Options{Extractor: fx, FulltextGlobal: 1})
 	srv := newFTServer(t, nil)
@@ -528,6 +542,7 @@ func TestPanickingExtractionIsStoredAsPermanentErrorAndPoolSurvives(t *testing.T
 // collapsed to its first occurrence before the pick and the commit alike, so
 // the URL extracted is the URL stored and it is fetched once.
 func TestDuplicateItemsInADocumentExtractTheStoredURLOnce(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{}
 	r := newRig(t, Options{Extractor: fx})
 	srv := newFTServer(t, nil)
@@ -548,6 +563,7 @@ func TestDuplicateItemsInADocumentExtractTheStoredURLOnce(t *testing.T) {
 // fetch.fulltext_all extracts the new items of a feed whose own flag is off,
 // takes effect on the next fetch without a restart, and never backfills.
 func TestFulltextAllSwitchAppliesToNewItemsOnly(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newFTServer(t, nil)
 	srv.body.Store(ftFeed(srv.URL, 1, 2))
@@ -608,6 +624,7 @@ func (r *rig) okResult(feed int64, snapFT bool, items []fetch.Item) *fetch.Resul
 // Mode changes between the fetch's snapshot and its commit apply to the new items:
 // queue-time evaluation uses the current switch and feed flag, not the snapshot.
 func TestQueueTimeUsesCurrentModeSwitchTurnedOn(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{gate: make(chan struct{})}
 	r := newRig(t, Options{Extractor: fx})
 	feed := r.add("https://ex.test/f", nil) // feed flag off, switch off: the snapshot says no
@@ -625,6 +642,7 @@ func TestQueueTimeUsesCurrentModeSwitchTurnedOn(t *testing.T) {
 }
 
 func TestQueueTimeUsesCurrentModeFeedFlagTurnedOn(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{}
 	r := newRig(t, Options{Extractor: fx})
 	feed := r.add("https://ex.test/f", nil)
@@ -637,6 +655,7 @@ func TestQueueTimeUsesCurrentModeFeedFlagTurnedOn(t *testing.T) {
 }
 
 func TestQueueTimeUsesCurrentModeTurnedOff(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{}
 	r := newRig(t, Options{Extractor: fx})
 	feed := r.ftFeed("https://ex.test/f")
@@ -662,6 +681,7 @@ func TestQueueTimeUsesCurrentModeTurnedOff(t *testing.T) {
 // While the switch is on the per-fetch cap and the queue bound are the larger
 // "all" limits; concurrency is untouched.
 func TestSwitchOnScalesPerFetchCapAndQueue(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{Extractor: &fakeExt{block: true}, FulltextMaxItems: 2, FulltextQueue: 3, FulltextMaxItemsAll: 5, FulltextQueueAll: 4, FulltextGlobal: 1})
 	feed := r.add("https://ex.test/f", nil)
 	items := ftItems("https://art.test", 1, 2, 3, 4, 5, 6, 7)
@@ -678,6 +698,7 @@ func TestSwitchOnScalesPerFetchCapAndQueue(t *testing.T) {
 // The Reader API holds only items that were really queued: deferred ones are
 // served at once, and a finished one is released with its row.
 func TestOnlyQueuedItemsArePending(t *testing.T) {
+	t.Parallel()
 	fx := &fakeExt{block: true}
 	r := newRig(t, Options{Extractor: fx, FulltextQueue: 2, FulltextGlobal: 1})
 	srv := newFTServer(t, nil)
@@ -704,6 +725,7 @@ func scalarStr(t *testing.T, r *rig, q string, args ...any) string {
 }
 
 func TestPendingClearsWhenExtractionFinishes(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newFTServer(t, nil)
 	srv.body.Store(ftFeed(srv.URL, 1, 2))

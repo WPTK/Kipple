@@ -9,6 +9,7 @@ import (
 // Both network exceptions apply to the feed's own host, its subdomains and its
 // bare/www twin, and to nothing else.
 func TestScopeNetExceptionsToFeedHost(t *testing.T) {
+	t.Parallel()
 	secret := []byte("0123456789abcdef0123456789abcdef")
 	flags := imgproxy.FlagPrivateNet | imgproxy.FlagInsecureTLS
 	rw := imgproxy.Rewriter{Secret: secret, Flags: flags, All: true}

@@ -32,6 +32,7 @@ func (s *Scheduler) queueForTest(f *flight) {
 // slots are taken) is reloaded again before it finally starts, so a feed
 // disabled meanwhile is not fetched.
 func TestReloadedJobThatCannotStartIsReloadedAgain(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{Workers: 1, PerHost: 1})
 	y := r.add("http://y.test/feed", nil)
 	r.setHost(y, "busy.test") // a URL edit moved it to a host whose slot is taken
@@ -66,6 +67,7 @@ func TestReloadedJobThatCannotStartIsReloadedAgain(t *testing.T) {
 // host whose feed now lives on a held host is dropped (a plain scheduled fetch)
 // or turned into a skip (someone waits on it), not fetched against the hold.
 func TestReloadRedoesHostHoldDecision(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{Workers: 2, PerHost: 1})
 	y := r.add("http://y.test/feed", nil)
 	z := r.add("http://z.test/feed", nil)
@@ -98,6 +100,7 @@ func TestReloadRedoesHostHoldDecision(t *testing.T) {
 // A job turned into a skip for its queued host becomes a fetch again when the
 // reload moves it to a host that is not held.
 func TestReloadedSkipForFreeHostFetches(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{Workers: 1, PerHost: 1})
 	y := r.add("http://y.test/feed", nil)
 	r.setHost(y, "free.test")

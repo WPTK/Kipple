@@ -18,6 +18,7 @@ ALTER TABLE feeds DROP COLUMN url_succeeded`
 // has succeeded), leaves every other value alone, and the result has exactly the objects of a fresh
 // database. The next fetch then counts.
 func TestMigration0017OnAPopulatedSchema16(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.fetchBody(id, rss(numbered(5)...))

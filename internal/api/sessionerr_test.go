@@ -11,6 +11,7 @@ import (
 // A session lookup that fails (here: a cancelled request context) is a server
 // error, never 401: a 401 signs the web app out although the session is valid.
 func TestSessionLookupErrorIsNotUnauthorized(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 	rec := h.do("GET", "/api/bootstrap", "", withCookie(c), func(r *http.Request) {

@@ -68,6 +68,7 @@ func reverse(in []int64) []int64 {
 }
 
 func TestIDsBasicOrderAndStringShapes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	all := seedN(h, f, 5, nil)
@@ -91,6 +92,7 @@ func TestIDsBasicOrderAndStringShapes(t *testing.T) {
 }
 
 func TestIDsContinuationLoopHasNoEmptyTrailingPage(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	all := seedN(h, f, 7, nil)
@@ -138,6 +140,7 @@ func TestIDsContinuationLoopHasNoEmptyTrailingPage(t *testing.T) {
 }
 
 func TestIDsNHonoredUpTo100000AndClamped(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	// 2500 rows in one transaction; enough to prove n beyond the 1000 contents cap.
@@ -169,6 +172,7 @@ func TestIDsNHonoredUpTo100000AndClamped(t *testing.T) {
 }
 
 func TestIDsStreamGrammar(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fa := h.addFeed("https://a.example/f", "A", "Comics")
 	fb := h.addFeed("https://b.example/f", "B", "")
@@ -210,6 +214,7 @@ func TestIDsStreamGrammar(t *testing.T) {
 }
 
 func TestIDsInvalidContinuationIgnoredAndNT(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	// ids at exact second boundaries for nt.
@@ -229,6 +234,7 @@ func TestIDsInvalidContinuationIgnoredAndNT(t *testing.T) {
 }
 
 func TestIDsOTSemantics(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	const ot = int64(1_790_251_000) // seconds
@@ -281,6 +287,7 @@ func TestIDsOTSemantics(t *testing.T) {
 // The two-leg query must equal the naive OR query for every combination of
 // cursor, direction and window (design §10 property test).
 func TestIDsOTTwoLegEqualsNaiveOR(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fa := h.addFeed("https://a.example/f", "A", "")
 	fb := h.addFeed("https://b.example/f", "B", "Group")
@@ -434,6 +441,7 @@ func contentsBody(ids ...string) string {
 }
 
 func TestContentsEnvelopeAndSwiftFatalFields(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fa := h.addFeed("https://a.example/f", "Alpha", "Comics")
 	fb := h.addFeed("https://b.example/f", "", "") // no title yet
@@ -537,6 +545,7 @@ func TestContentsEnvelopeAndSwiftFatalFields(t *testing.T) {
 }
 
 func TestContentsIDFormsTrimmedAndUnknown(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	ids := seedN(h, f, 6, nil)
@@ -574,6 +583,7 @@ func TestContentsIDFormsTrimmedAndUnknown(t *testing.T) {
 }
 
 func TestContentsOrderAscAndCapsAndFulltext(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	ids := seedN(h, f, 3, nil)
@@ -612,6 +622,7 @@ func TestContentsOrderAscAndCapsAndFulltext(t *testing.T) {
 func isValidUTF8(s string) bool { return strings.ToValidUTF8(s, "�") == s }
 
 func TestContentsIDCapIs1000(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
@@ -637,6 +648,7 @@ func TestContentsIDCapIs1000(t *testing.T) {
 }
 
 func TestStreamContents(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	fa := h.addFeed("https://a.example/f", "A", "Comics")
 	fb := h.addFeed("https://b.example/f", "B", "")
@@ -683,6 +695,7 @@ func TestStreamContents(t *testing.T) {
 }
 
 func TestSmokeUnreadAndFeedMeRequests(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")
 	seedN(h, f, 3, nil)
@@ -702,6 +715,7 @@ func TestSmokeUnreadAndFeedMeRequests(t *testing.T) {
 }
 
 func TestStreamRowByRowWritesBeforeFinishing(t *testing.T) {
+	t.Parallel()
 	// The handler must flush through a 32 KB writer, not build the body: a
 	// 1000-item response for large content arrives intact and well-formed.
 	h := newHarness(t)
@@ -732,6 +746,7 @@ func advanceTo(h *harness, s int64) {
 }
 
 func TestOTIncludesUserChangesWhenSettingOn(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	feed := h.addFeed("https://a.example/feed.xml", "Alpha", "")
 	old := h.addItem(feed, itemSeed{Title: "old"})
@@ -754,6 +769,7 @@ func TestOTIncludesUserChangesWhenSettingOn(t *testing.T) {
 // Mark unread and unstar clear read_at and starred_at, but they are changes too: with the
 // setting on they appear in ids?ot=, with it off they do not. So do star and mark-all-as-read.
 func TestOTUserChangesReportUnreadAndUnstar(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	feed := h.addFeed("https://a.example/feed.xml", "Alpha", "")
 	other := h.addFeed("https://b.example/feed.xml", "Beta", "")
@@ -804,6 +820,7 @@ func TestOTUserChangesReportUnreadAndUnstar(t *testing.T) {
 // changes and state changes, some items matching both) and leg 1 (crawled after ot), with no
 // duplicates and nothing skipped.
 func TestOTUserChangesPagingAcrossLegs(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	otUserChanges(t, h, true)
 	feed := h.addFeed("https://a.example/feed.xml", "Alpha", "")

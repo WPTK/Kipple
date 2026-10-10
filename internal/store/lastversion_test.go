@@ -12,6 +12,7 @@ import (
 
 // A database newer than the binary is still refused, and now says which Kipple last opened it and what to do.
 func TestDowngradeMessageNamesTheNewerVersion(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "kipple.db")
 
@@ -37,6 +38,7 @@ func TestDowngradeMessageNamesTheNewerVersion(t *testing.T) {
 // so it never recorded itself). The refusal then names the snapshot by this binary's schema and does not tell the
 // person to run the version they are running.
 func TestDowngradeMessageAfterAPartialUpgrade(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "kipple.db")
@@ -69,6 +71,7 @@ func TestDowngradeMessageAfterAPartialUpgrade(t *testing.T) {
 
 // With no version on record (a database from before Kipple wrote one) the refusal still explains itself.
 func TestDowngradeMessageWithoutARecordedVersion(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "kipple.db")
 	d, err := Open(ctx, Options{Path: path})
@@ -94,6 +97,7 @@ func latestSchema(t *testing.T) int {
 
 // A development build never overwrites the version a real release recorded.
 func TestRecordVersionIgnoresDev(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, err := Open(ctx, Options{Path: filepath.Join(t.TempDir(), "kipple.db")})
 	require.NoError(t, err)

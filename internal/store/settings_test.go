@@ -9,6 +9,7 @@ import (
 )
 
 func TestRestoreDaysClamped(t *testing.T) {
+	t.Parallel()
 	e := newEnv(t)
 	for _, tc := range []struct {
 		raw  string
@@ -29,6 +30,7 @@ func TestRestoreDaysClamped(t *testing.T) {
 }
 
 func TestResolveUserAgent(t *testing.T) {
+	t.Parallel()
 	mk := func(mode, custom string) FetchSettings { return FetchSettings{UAMode: mode, UserAgent: custom} }
 	for _, tc := range []struct {
 		name         string

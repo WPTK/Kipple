@@ -46,6 +46,7 @@ func export(t *testing.T, db *store.DB) string {
 }
 
 func TestParseNestedEntitiesTextOverTitle(t *testing.T) {
+	t.Parallel()
 	d := parseString(t, `<opml version="1.1"><body>
 	<outline text="Tech &amp;amp; Gadgets" title="ignored">
 	  <outline text="Apple" title="Apple">
@@ -99,6 +100,7 @@ func firstFetch(t *testing.T, db *store.DB, host, title string) {
 // same rule as a document title (fetch.FeedTitle, after the parser's own doubled-&amp; rule): one
 // line, at most 200 characters, a level of escaping left behind decoded.
 func TestImportNamesFeeds(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	long := strings.Repeat("y", 250)
 	importString(t, db, `<opml><body>
@@ -119,6 +121,7 @@ func TestImportNamesFeeds(t *testing.T) {
 // An OPML name that is the same text as the feed's own title, however each is escaped, is dropped at
 // the first successful fetch, so the feed follows its own renames afterwards.
 func TestOPMLNameEqualToTheDocumentTitleIsDropped(t *testing.T) {
+	t.Parallel()
 	for name, outline := range map[string]string{
 		"literal":         `It’s mine`,
 		"reference":       `It&#8217;s mine`,
@@ -140,6 +143,7 @@ func TestOPMLNameEqualToTheDocumentTitleIsDropped(t *testing.T) {
 // good) does not round-trip that host as a name once migration 0014 has run: the export writes no
 // name and the re-imported feed is not pinned to the host.
 func TestLegacyHostTitleDoesNotRoundTrip(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "kipple.db")
 	db, err := store.Open(ctx, store.Options{Path: path})
@@ -176,6 +180,7 @@ func TestLegacyHostTitleDoesNotRoundTrip(t *testing.T) {
 // A feed that was never fetched round-trips through OPML without picking up a name: the export writes
 // none, so the re-imported feed still takes the title its first fetch finds.
 func TestRoundTripOfAnUnfetchedFeedKeepsItUnnamed(t *testing.T) {
+	t.Parallel()
 	src := openDB(t)
 	importString(t, src, `<opml><body><outline xmlUrl="https://fresh.test/rss"/></body></opml>`, ImportOptions{})
 	out := export(t, src)
@@ -204,6 +209,7 @@ func TestRoundTripOfAnUnfetchedFeedKeepsItUnnamed(t *testing.T) {
 }
 
 func TestImportReportsAndDedup(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	r := importString(t, db, `<opml><body>
 	<outline text="News"><outline text="A" xmlUrl="http://a.test/rss"/><outline text="B" xmlUrl="ftp://bad"/></outline>
@@ -226,6 +232,7 @@ func TestImportReportsAndDedup(t *testing.T) {
 }
 
 func TestKippleAttrsAndMarkRead(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	r := importString(t, db, `<opml xmlns:kipple="`+NS+`"><body><outline text="F">
 	<outline text="A" xmlUrl="http://a.test/rss" kipple:interval="30" kipple:retention="0" kipple:fulltext="1"
@@ -254,6 +261,7 @@ func TestKippleAttrsAndMarkRead(t *testing.T) {
 }
 
 func TestHTTPAuthNeverExported(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	importString(t, db, `<opml><body><outline text="F"><outline text="A" xmlUrl="http://a.test/rss"/></outline></body></opml>`, ImportOptions{})
 	require.NoError(t, db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
@@ -269,6 +277,7 @@ func TestHTTPAuthNeverExported(t *testing.T) {
 // kipple:deleting:<id> placeholder) is left out of the export entirely; its
 // folder is still listed, and a default folder left empty by it is not.
 func TestExportLeavesOutDeletingFeed(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	importString(t, db, `<opml><body><outline text="F"><outline text="A" xmlUrl="http://a.test/rss"/>
 	<outline text="B" xmlUrl="http://b.test/rss"/></outline><outline text="Root" xmlUrl="http://r.test/rss"/></body></opml>`, ImportOptions{})
@@ -287,6 +296,7 @@ func TestExportLeavesOutDeletingFeed(t *testing.T) {
 }
 
 func TestRoundTripFixedPoint(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "synthetic.opml"))
 	require.NoError(t, err)
 	roundTrip(t, src, 138, 15)
@@ -295,6 +305,7 @@ func TestRoundTripFixedPoint(t *testing.T) {
 // TestRoundTripRealFile runs the same gate against a real exported OPML file when
 // KIPPLE_REAL_OPML points at it. The file is personal and is never committed.
 func TestRoundTripRealFile(t *testing.T) {
+	t.Parallel()
 	p := os.Getenv("KIPPLE_REAL_OPML")
 	if p == "" {
 		t.Skip("KIPPLE_REAL_OPML not set")
@@ -357,6 +368,7 @@ func roundTrip(t *testing.T, src []byte, wantFeeds, wantFolders int) {
 }
 
 func TestParseURLsNotDoubleUnescaped(t *testing.T) {
+	t.Parallel()
 	// Correctly escaped query strings must round-trip unchanged: "&sect" and
 	// "&region" look like legacy no-semicolon entities to html.UnescapeString.
 	d := parseString(t, `<opml><body>
@@ -371,6 +383,7 @@ func TestParseURLsNotDoubleUnescaped(t *testing.T) {
 }
 
 func TestUnnamedWrapperUnderNamedContainerImports(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	r := importString(t, db, `<opml><body>
 	<outline text="Tech"><outline><outline text="Wrapped" xmlUrl="http://w.test/rss"/></outline></outline>
@@ -391,6 +404,7 @@ func TestUnnamedWrapperUnderNamedContainerImports(t *testing.T) {
 }
 
 func TestParseNonUTF8Charsets(t *testing.T) {
+	t.Parallel()
 	latin := "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><opml><body><outline text=\"Caf\xe9\" xmlUrl=\"http://l.test/rss\"/></body></opml>"
 	d, err := Parse(strings.NewReader(latin))
 	require.NoError(t, err)
@@ -408,6 +422,7 @@ func TestParseNonUTF8Charsets(t *testing.T) {
 }
 
 func TestImportIgnoresDangerousAttrsAndBareNamespace(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	// No xmlns declaration: the bare "kipple" prefix must not count as ours.
 	r := importString(t, db, `<opml><body><outline text="F">
@@ -439,6 +454,7 @@ func TestImportIgnoresDangerousAttrsAndBareNamespace(t *testing.T) {
 // reported, not skipped), the feed PATCH rule for kipple:user_agent, and the
 // folder name limits (the folder is refused and reported, its feeds kept).
 func TestImportValidatesURLUserAgentAndFolderNames(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	long := strings.Repeat("f", 101)
 	ok100 := strings.Repeat("g", 100)
@@ -497,6 +513,7 @@ func TestImportValidatesURLUserAgentAndFolderNames(t *testing.T) {
 // or has credentials in it, is skipped and reported, never stored, and no file can
 // switch on a feed's private-network or insecure-TLS exceptions.
 func TestImportSkipsNonHTTPSchemesAndNeverGrantsExceptions(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	r := importString(t, db, `<opml xmlns:kipple="`+NS+`"><body>
 	<outline text="a" xmlUrl="ftp://a.test/rss"/>

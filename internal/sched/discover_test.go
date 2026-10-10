@@ -33,6 +33,7 @@ func servePage(p string, w http.ResponseWriter, req *http.Request) {
 // network request) becomes the page's feed: the page fetch adopts the link, and the feed is fetched
 // right after, as a fetch of its own.
 func TestFirstFetchDiscoversThePagesFeed(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newSrv(t, servePage)
 	id := r.add(srv.URL+"/", nil)
@@ -52,6 +53,7 @@ func TestFirstFetchDiscoversThePagesFeed(t *testing.T) {
 
 // A page whose feed is already subscribed: the new feed is removed, the existing one is untouched.
 func TestFirstFetchOfAPageWhoseFeedExistsLeavesOneFeed(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{})
 	srv := newSrv(t, servePage)
 	kept := r.add(srv.URL+"/feed.xml", nil)
@@ -69,6 +71,7 @@ func TestFirstFetchOfAPageWhoseFeedExistsLeavesOneFeed(t *testing.T) {
 // An OPML import of many page addresses on one site whose feeds all live on another host: the
 // linked feeds are fetched under that host's per-host limit, not the pages' host's.
 func TestDiscoveredFeedsKeepTheirHostsLimit(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{PerHost: 2, Workers: 8})
 	client := fetch.NewClient(fetch.ClientOptions{})
 	var inFlight, peak atomic.Int32

@@ -15,6 +15,7 @@ import (
 // cookie value is unguessable and never reused: every sign-in mints a new one,
 // whatever cookie the browser already carried.
 func TestSessionCookieValueIsNeverStoredOrReused(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	a, b := h.login(), h.login()
 	require.NotEqual(t, a.Value, b.Value)
@@ -41,6 +42,7 @@ func TestSessionCookieValueIsNeverStoredOrReused(t *testing.T) {
 // Logout deletes the server-side row, not just the browser's cookie: replaying the
 // old cookie fails, and signing out one browser leaves the others signed in.
 func TestLogoutDeletesTheServerSideSession(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	a, b := h.login(), h.login()
 	require.Equal(t, 2, h.count("SELECT count(*) FROM sessions"))
@@ -64,6 +66,7 @@ func TestLogoutDeletesTheServerSideSession(t *testing.T) {
 // A session that is not used for the whole 90 days expires, and one that is used
 // slides forward from the use.
 func TestSessionExpiresAfterNinetyIdleDaysAndSlidesWithUse(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	idle, busy := h.login(), h.login()
 

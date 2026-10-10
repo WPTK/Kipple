@@ -33,6 +33,7 @@ func resetBody(pw, phrase string) string {
 }
 
 func TestResetInfoReportsTheEnvironmentAccount(t *testing.T) {
+	t.Parallel()
 	for _, env := range []bool{false, true} {
 		h, _, _ := newResetHarness(t, env)
 		code, out, _ := h.api(h.login(), "GET", "/api/reset", "")
@@ -45,6 +46,7 @@ func TestResetInfoReportsTheEnvironmentAccount(t *testing.T) {
 }
 
 func TestResetConfirms(t *testing.T) {
+	t.Parallel()
 	t.Run("writes the marker and restarts", func(t *testing.T) {
 		h, dir, restarts := newResetHarness(t, false)
 		code, out, _ := h.api(h.login(), "POST", "/api/reset", resetBody(testPass, "  Reset KIPPLE "))
@@ -112,6 +114,7 @@ func TestResetConfirms(t *testing.T) {
 }
 
 func TestResetEnvironmentAccountIsAlwaysIgnored(t *testing.T) {
+	t.Parallel()
 	t.Run("with the variables the file is written", func(t *testing.T) {
 		h, dir, _ := newResetHarness(t, true)
 		code, _, _ := h.api(h.login(), "POST", "/api/reset", resetBody(testPass, resetPhrase))
@@ -128,6 +131,7 @@ func TestResetEnvironmentAccountIsAlwaysIgnored(t *testing.T) {
 }
 
 func TestResetTwoAtOnceGiveOne202AndOne409(t *testing.T) {
+	t.Parallel()
 	h, _, restarts := newResetHarness(t, false)
 	me := h.login()
 	codes := make(chan int, 2)
@@ -143,6 +147,7 @@ func TestResetTwoAtOnceGiveOne202AndOne409(t *testing.T) {
 }
 
 func TestResetIsNotOfferedInSetupMode(t *testing.T) {
+	t.Parallel()
 	h := newSetupHarness(t)
 	for _, m := range []string{"GET", "POST"} {
 		code := h.req(m, "/api/reset", "{}").Code
@@ -153,6 +158,7 @@ func TestResetIsNotOfferedInSetupMode(t *testing.T) {
 // A wizard restore through api.New (which builds its own Restorer) keeps the
 // address this instance answers at: the Restorer must be given the live database.
 func TestWizardRestoreKeepsTheLiveAddress(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	restarts := &atomic.Int32{}
 	sh := newSetupHarness(t, func(o *Options) {

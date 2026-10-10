@@ -19,6 +19,7 @@ import (
 // '&' and non-ASCII letters, an empty folder, the default folder, a disabled feed and an archived
 // (unsubscribed, starred) item.
 func TestFlatLibraryWireOutputUnchanged(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 	folders := []struct {
 		id       int64

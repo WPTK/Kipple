@@ -34,6 +34,7 @@ func blockingSrv(t *testing.T) (*feedSrv, func()) {
 // A job waiting in the queue picks up changes made to its feed meanwhile: a
 // feed disabled while its job waited is not fetched and its caller hears so.
 func TestQueuedJobDroppedWhenFeedDisabled(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{Workers: 1})
 	srv, release := blockingSrv(t)
 	r.add(srv.URL+"/a", nil)
@@ -65,6 +66,7 @@ func TestQueuedJobDroppedWhenFeedDisabled(t *testing.T) {
 // A URL edit while the job waited: the job fetches the new URL, and its result is
 // committed (not dropped as stale).
 func TestQueuedJobUsesCurrentURL(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{Workers: 1})
 	srv, release := blockingSrv(t)
 	r.add(srv.URL+"/a", nil)
@@ -92,6 +94,7 @@ func TestQueuedJobUsesCurrentURL(t *testing.T) {
 
 // A run whose queued job is dropped still finishes, counting the feed as an error.
 func TestQueuedRunJobDroppedSettlesRun(t *testing.T) {
+	t.Parallel()
 	r := newRig(t, Options{Workers: 1})
 	srv, release := blockingSrv(t)
 	r.add(srv.URL+"/a", nil)

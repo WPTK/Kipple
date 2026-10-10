@@ -7,6 +7,7 @@ import (
 )
 
 func TestNormalizeSQL(t *testing.T) {
+	t.Parallel()
 	// Comments and spacing do not matter; everything else does.
 	require.Equal(t,
 		NormalizeSQL("CREATE TABLE t ( a TEXT UNIQUE, b INTEGER DEFAULT 0 )"),

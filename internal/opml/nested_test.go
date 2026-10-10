@@ -39,6 +39,7 @@ func paths(t *testing.T, db *store.DB) []string {
 }
 
 func TestParseKeepsTheTree(t *testing.T) {
+	t.Parallel()
 	d := parseString(t, `<opml><body>
 	<outline text="Tech"><outline text="News"><outline xmlUrl="https://t.test/f"/></outline></outline>
 	<outline text="Sports"><outline text="News"><outline xmlUrl="https://s.test/f"/></outline></outline>
@@ -55,6 +56,7 @@ func TestParseKeepsTheTree(t *testing.T) {
 }
 
 func TestParseAndImportTooDeep(t *testing.T) {
+	t.Parallel()
 	var b strings.Builder
 	b.WriteString("<opml><body>")
 	for i := 1; i <= 10; i++ {
@@ -88,6 +90,7 @@ func TestParseAndImportTooDeep(t *testing.T) {
 // A folder the writer refuses (a bad name, a subfolder of Uncategorized) is reported once, at its
 // top; its feeds and its subfolders' feeds go into the deepest ancestor that was kept.
 func TestImportRefusedFolderFallsBackToAncestor(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	r := importString(t, db, `<opml><body>
 	<outline text="Uncategorized"><outline text="X"><outline xmlUrl="https://u.test/f"/></outline></outline>
@@ -106,6 +109,7 @@ func TestImportRefusedFolderFallsBackToAncestor(t *testing.T) {
 }
 
 func TestImportNestedSameNamesStayDistinct(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	r := importString(t, db, `<opml><body>
 	<outline text="Tech"><outline text="News"><outline xmlUrl="https://t.test/f"/></outline></outline>
@@ -122,6 +126,7 @@ func TestImportNestedSameNamesStayDistinct(t *testing.T) {
 }
 
 func TestExportNestsTheTree(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	importString(t, db, `<opml><body>
 	<outline text="Tech"><outline xmlUrl="https://t.test/f" text="T"/><outline text="Apple"><outline xmlUrl="https://a.test/f" text="A"/></outline></outline>
@@ -156,6 +161,7 @@ func TestExportNestsTheTree(t *testing.T) {
 
 // Siblings are exported in folder order, whatever order they were created in.
 func TestExportSiblingsInPositionOrder(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	importString(t, db, `<opml><body><outline text="P"><outline text="B"/><outline text="A"/></outline></body></opml>`, ImportOptions{})
 	ctx := context.Background()
@@ -170,6 +176,7 @@ func TestExportSiblingsInPositionOrder(t *testing.T) {
 }
 
 func TestRoundTripNested(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("testdata", "nested.opml"))
 	require.NoError(t, err)
 	roundTrip(t, src, 38, 19)
@@ -186,6 +193,7 @@ func TestRoundTripNested(t *testing.T) {
 // Without MoveExisting a re-import leaves existing feeds where they are; with it, they move into the
 // file's folders, and a folder left empty is reported, not deleted.
 func TestImportMoveExisting(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	flat := `<opml><body>
 	<outline text="Apple"><outline xmlUrl="https://a.test/f"/><outline xmlUrl="https://b.test/f"/></outline>
@@ -227,6 +235,7 @@ func TestImportMoveExisting(t *testing.T) {
 // query plans (store.TestFolderLookupPlans), not with a big tree on the clock: under the race detector
 // the SQLite engine runs some 40 times slower, and 1,000 folders already took over 10 s on CI.
 func TestImportManyFolders(t *testing.T) {
+	t.Parallel()
 	var b strings.Builder
 	b.WriteString("<opml><body>")
 	n := 0
@@ -253,6 +262,7 @@ func TestImportManyFolders(t *testing.T) {
 // With MoveExisting, a feed whose folder in the file was refused (a bad name, too deep) stays where it
 // is instead of falling back to an ancestor or Uncategorized.
 func TestImportMoveExistingSkipsRefusedFolders(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	importString(t, db, `<opml><body><outline text="Keep">
 	<outline xmlUrl="https://bad.test/f"/><outline xmlUrl="https://deep.test/f"/><outline xmlUrl="https://ok.test/f"/>
@@ -275,6 +285,7 @@ func TestImportMoveExistingSkipsRefusedFolders(t *testing.T) {
 // A chain that lands on an existing folder with the same full path but other levels is reported, and
 // the container it came through is not created empty.
 func TestImportReportsPathMerge(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	importString(t, db, `<opml><body><outline text="Music"><outline text="AC/DC"><outline xmlUrl="https://acdc.test/f"/></outline></outline></body></opml>`, ImportOptions{})
 	r := importString(t, db, `<opml><body><outline text="Music"><outline text="AC"><outline text="DC"><outline xmlUrl="https://dc.test/f"/></outline></outline></outline></body></opml>`, ImportOptions{})
@@ -292,6 +303,7 @@ func TestImportReportsPathMerge(t *testing.T) {
 // Sibling names are compared like SQLite's NOCASE: ASCII letters only, so "É" and "é" are two folders
 // in the parser and in the store, and a re-import keeps both.
 func TestParseFoldsASCIICaseOnly(t *testing.T) {
+	t.Parallel()
 	src := `<opml><body><outline text="École"><outline xmlUrl="https://a.test/f"/></outline>` +
 		`<outline text="école"><outline xmlUrl="https://b.test/f"/></outline>` +
 		`<outline text="ÉCOLE"><outline xmlUrl="https://c.test/f"/></outline></body></opml>`
@@ -321,6 +333,7 @@ func (r reorderQ) QueryContext(ctx context.Context, query string, args ...any) (
 
 // Rows out of tree order are an error, never misnested XML.
 func TestExportRefusesRowsOutOfTreeOrder(t *testing.T) {
+	t.Parallel()
 	db := openDB(t)
 	importString(t, db, `<opml><body><outline text="A"><outline text="B"><outline xmlUrl="https://b.test/f"/></outline></outline>
 	<outline text="C"><outline xmlUrl="https://c.test/f"/></outline></body></opml>`, ImportOptions{})
