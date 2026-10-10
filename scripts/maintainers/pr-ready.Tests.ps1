@@ -62,6 +62,17 @@ Describe 'Get-PrVerdict' {
     $v.Text | Should -Match '^READY'
     $v.HeadSha | Should -Be $head
   }
+  It 'prints an advisory check that fails or is pending and does not block on it' {
+    $roll = @(
+      [pscustomobject]@{ name = 'web'; status = 'COMPLETED'; conclusion = 'SUCCESS' },
+      [pscustomobject]@{ name = 'Browser UAT'; status = 'COMPLETED'; conclusion = 'FAILURE' }
+    )
+    $v = Get-PrVerdict -Pr (New-Pr @{ statusCheckRollup = $roll }) -AncestorStatus 'ahead'
+    $v.Ready | Should -BeTrue
+    $v.Text | Should -Match 'advisory, not blocking: Browser UAT: failing'
+    $roll[1].status = 'IN_PROGRESS'
+    (Get-PrVerdict -Pr (New-Pr @{ statusCheckRollup = $roll }) -AncestorStatus 'ahead').Text | Should -Match 'Browser UAT: pending'
+  }
   It 'is BLOCKED, naming the check, when a check fails' {
     $pr = New-Pr @{ statusCheckRollup = @([pscustomobject]@{ name = 'web'; status = 'COMPLETED'; conclusion = 'FAILURE' }) }
     $v = Get-PrVerdict -Pr $pr -AncestorStatus 'ahead'

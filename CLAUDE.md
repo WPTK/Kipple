@@ -82,7 +82,11 @@ exact commands, backup, verification and GHCR steps are in `docs/maintainers/REL
 
 - Phases and the plan to 1.0 live in the history repo plan `plans/0.8-1.0-plan.md`. Release steps follow
   `docs/maintainers/RELEASING.md` (gates scale with what changed); the 1.0 sign-off is `docs/maintainers/release-checklist.md`.
-- Verify iOS layout in the browser pane at the mobile preset before calling a UI change done.
+- A UI change is not done until it has been driven in a real browser, at the mobile preset and on desktop, against a
+  seeded instance (`npm run seed`): every control it touches, and every download or export path (a saved file can be
+  an error body that no test of the handler sees). Tests must send what real browsers send (fetch metadata, `Origin`,
+  `Accept`); a hand-built header set proves only what the code was written to do. Add the flow to `web/uat/` and list it in
+  `web/uat/flows.json` (it then runs in the `Browser UAT` workflow, which `pr-ready` shows but does not block on), and record what you drove in the PR description.
 - Save decisions and gotchas to memory. Update the history repo (`WPTK/kipple-history`, `C:\kipple-history`) at least
   daily and after every release, meeting or incident: fetch first, never force-push, and apply the scrub rules (no
   host names or labels, `rss.example.com`, account names, IPs or emails).
