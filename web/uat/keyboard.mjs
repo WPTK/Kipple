@@ -453,6 +453,9 @@ async function k3(page) {
     const restored = await until(page, (snap) => snap.every(([id, u]) => (document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread ?? u) === u), before.map((r) => [r[0], r[1]]), 6000);
     const after = restored ? [] : (await rowState(page)).filter((r) => before.some((b) => b[0] === r[0] && b[1] !== r[1]));
     check(changed && restored, where(label), "marks read, and z restores it", `marked=${changed} undone=${restored} rows=${before.length} not restored=${after.length} (${after.slice(0, 3).map((r) => r[0] + ":" + r[1]).join(", ")}) toasts=${JSON.stringify(await page.locator("[role=status]").allInnerTexts())}`);
+    // A mark that changed nothing on screen passes at once while its z still waits for the server, and the app
+    // ignores a z pressed during that wait: let it finish before the next step presses z.
+    await until(page, () => ![...document.querySelectorAll("[role=status]")].some((e) => /Undoing/.test(e.textContent ?? "")), undefined, 12000);
   };
   await load(page, "/l/all");
   await press(page, "j", "j");

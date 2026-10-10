@@ -3,10 +3,10 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { applyRead, applyStar, bumpMuted, dropFromLists, keys, patchItems } from "@/api/queries";
 import { api, errorMessage } from "@/api/client";
 import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
-import type { Card, ItemsPage, Scope } from "@/api/types";
+import type { BulkMarkResponse, Card, ItemsPage, Scope } from "@/api/types";
 import { announce, toast } from "@/shell/toasts";
 import { createStore } from "./store";
-import { pushUndo } from "./undo";
+import { beginUndo, type UndoChange } from "./undo";
 
 /**
  * Articles the user marked read on purpose, with a button, a key or the menu (not by opening them, and not by a
@@ -87,8 +87,13 @@ export function itemActions(qc: QueryClient) {
   /** Set read state for ids and record an undo (mark-read undone = mark-unread through the API). */
   async function setRead(ids: string[], read: boolean, reason: "swipe" | "key", restore?: () => void): Promise<void> {
     if (ids.length === 0) return;
-    const res = await applyRead(qc, ids, read, reason);
+    const ticket = beginUndo(read ? "read" : "unread");
+    const res = await applyRead(qc, ids, read, reason).catch((e: unknown) => {
+      ticket.settle(null);
+      throw e;
+    });
     if (!res) {
+      ticket.settle(null);
       restore?.();
       return;
     }
@@ -98,8 +103,7 @@ export function itemActions(qc: QueryClient) {
       invalidateUnreadLists(qc);
       notifyUnread(ids);
     }
-    pushUndo({
-      kind: read ? "read" : "unread",
+    ticket.settle({
       ids,
       restore,
       undo: async (undoIds) => {
@@ -121,20 +125,21 @@ export function itemActions(qc: QueryClient) {
   /** Resolves to whether the server took it. */
   async function toggleStar(item: Card, undoable = false): Promise<boolean> {
     const starred = !item.starred;
+    const ticket = undoable ? beginUndo(starred ? "star" : "unstar") : null;
     const ok = await applyStar(qc, item.id, starred);
-    if (!ok) return false;
-    announce(starred ? "Starred" : "Unstarred");
-    if (undoable) {
-      // Merged swipe-stars share the first closure, so it must act on the ids it is handed.
-      pushUndo({
-        kind: starred ? "star" : "unstar",
-        ids: [item.id],
-        undo: async (ids) => {
-          const done = await Promise.all(ids.map((id) => applyStar(qc, id, !starred)));
-          return done.every(Boolean);
-        },
-      });
+    if (!ok) {
+      ticket?.settle(null);
+      return false;
     }
+    announce(starred ? "Starred" : "Unstarred");
+    // Merged swipe-stars share the first closure, so it must act on the ids it is handed.
+    ticket?.settle({
+      ids: [item.id],
+      undo: async (ids) => {
+        const done = await Promise.all(ids.map((id) => applyStar(qc, id, !starred)));
+        return done.every(Boolean);
+      },
+    });
     return true;
   }
 
@@ -174,7 +179,7 @@ export function itemActions(qc: QueryClient) {
     asOf: string | undefined,
     restore?: () => void,
     unhide?: (ids: string[]) => void,
-  ): Promise<void> {
+  ): Promise<UndoChange | null> {
     const overCap = res.undoable === false && res.changed.length === 0 && (res.count ?? 0) > 0;
     // Only what the server says it changed is undoable: local guesses would flip items another client read.
     const changed = res.undoable === false ? [] : res.changed;
@@ -183,7 +188,7 @@ export function itemActions(qc: QueryClient) {
       // The server marked more than it will list, so which local rows it skipped is unknown: refetch the truth.
       announce(`Marked ${res.count} as read`);
       void qc.invalidateQueries({ queryKey: keys.itemsAll }).then(() => unhide?.(local));
-      return;
+      return null;
     }
     if (changed.length) patchItems(qc, changed, { read: true });
     const kept = new Set(changed);
@@ -197,37 +202,31 @@ export function itemActions(qc: QueryClient) {
     const n = res.count ?? changed.length;
     if (changed.length === 0) {
       announce(n === 0 ? "Nothing to mark" : `Marked ${n} as read`);
-      return;
+      return null;
     }
-    pushUndo({
-      kind: "read",
-      bulk: true,
-      ids: changed,
-      restore,
-      undo: (ids) => undoBulk(qc, ids, ledger),
-    });
+    return { ids: changed, restore, undo: (ids) => undoBulk(qc, ids, ledger) };
   }
 
-  async function markSide(p: RangeParams, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
+  /** A bulk mark: its undo group is on the stack from the moment the rows turn read, filled in by the answer. */
+  async function bulkMark(send: () => Promise<BulkMarkResponse>, local: string[], asOf: string | undefined, restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
+    const ticket = beginUndo("read", { bulk: true });
     patchItems(qc, local, { read: true });
     try {
-      await finishBulk(await markRange(p), local, p.maxId, restore, unhide);
+      ticket.settle(await finishBulk(await send(), local, asOf, restore, unhide));
     } catch {
+      ticket.settle(null);
       patchItems(qc, local, { read: false });
       restore?.();
       announce("Couldn't mark those as read");
     }
   }
 
-  async function markAll(scope: Scope, maxId: string | undefined, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
-    patchItems(qc, local, { read: true });
-    try {
-      await finishBulk(await markAllRead(scope, maxId), local, maxId, restore, unhide);
-    } catch {
-      patchItems(qc, local, { read: false });
-      restore?.();
-      announce("Couldn't mark those as read");
-    }
+  function markSide(p: RangeParams, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
+    return bulkMark(() => markRange(p), local, p.maxId, restore, unhide);
+  }
+
+  function markAll(scope: Scope, maxId: string | undefined, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
+    return bulkMark(() => markAllRead(scope, maxId), local, maxId, restore, unhide);
   }
 
   /**
