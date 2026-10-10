@@ -607,16 +607,28 @@ func TestStatsExportQueueBounds(t *testing.T) {
 	h.srv.exportWait = 150 * time.Millisecond
 	h.srv.exportSlot <- struct{}{}
 	defer func() { <-h.srv.exportSlot }()
+	// do answers within 10 s, so a regression that waits forever fails with a message, not a test timeout.
+	do := func(method, path string) *httptest.ResponseRecorder {
+		ch := make(chan *httptest.ResponseRecorder, 1)
+		go func() { ch <- h.do(method, path, "", withCookie(cc), noClient) }()
+		select {
+		case rec := <-ch:
+			return rec
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s %s was still waiting after 10 s", method, path)
+			return nil
+		}
+	}
 
 	for _, path := range []string{"/api/stats/export?content=summary", "/api/stats/export?format=csv"} {
 		method := "GET"
 		if strings.HasSuffix(path, "csv") {
 			method = "HEAD"
 		}
-		require.Equal(t, 200, h.do(method, path, "", withCookie(cc), noClient).Code, method+" "+path+" does not queue")
+		require.Equal(t, 200, do(method, path).Code, method+" "+path+" does not queue")
 	}
 
-	rec := h.do("GET", "/api/stats/export", "", withCookie(cc), noClient)
+	rec := do("GET", "/api/stats/export")
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code, "the wait ran out")
 	require.NotEmpty(t, rec.Header().Get("Retry-After"))
 	require.Zero(t, rec.Body.Len(), "nothing a browser could save")
@@ -624,43 +636,9 @@ func TestStatsExportQueueBounds(t *testing.T) {
 
 	h.srv.exportWaiting.Store(exportMaxWaiters)
 	start := time.Now()
-	rec = h.do("GET", "/api/stats/export", "", withCookie(cc), noClient)
+	rec = do("GET", "/api/stats/export")
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code, "the queue is full")
 	require.Zero(t, rec.Body.Len())
 	require.Less(t, time.Since(start), 100*time.Millisecond, "a full queue refuses at once")
 	h.srv.exportWaiting.Store(0)
-}
-
-// deadlineRecorder notes every write deadline the handler sets.
-type deadlineRecorder struct {
-	*httptest.ResponseRecorder
-	deadlines []time.Time
-}
-
-func (d *deadlineRecorder) SetWriteDeadline(t time.Time) error {
-	d.deadlines = append(d.deadlines, t)
-	return nil
-}
-
-// A request that queued behind a long export has used up part of the server's 60 s write timeout; the
-// handler restarts the deadline as soon as it holds the slot.
-func TestStatsExportRestartsDeadlineAfterWaiting(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-	cc := h.login()
-	h.srv.exportSlot <- struct{}{}
-	r := httptest.NewRequest("GET", "/api/stats/export", nil)
-	r.RemoteAddr = "10.20.30.10:5555"
-	r.Header.Set("Sec-Fetch-Site", "same-origin")
-	withCookie(cc)(r)
-	rec := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
-	done := make(chan struct{})
-	go func() { h.mux.ServeHTTP(rec, r); close(done) }()
-	time.Sleep(100 * time.Millisecond)
-	freed := time.Now()
-	<-h.srv.exportSlot
-	<-done
-	require.Equal(t, 200, rec.Code)
-	require.NotEmpty(t, rec.deadlines)
-	require.True(t, rec.deadlines[0].After(freed.Add(statsWriteWindow-time.Second)), "the deadline starts after the wait")
 }

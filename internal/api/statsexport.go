@@ -400,8 +400,7 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 // queue (exportMaxWaiters), so waiting cannot pile up. When either bound is hit the answer is a
 // bodiless 503 with Retry-After: Chromium and Firefox show a failed download for a non-2xx status
 // instead of saving it, and even a browser that saved it would save an empty file. It reports
-// false when it has answered or the client has gone. A request that queued had its write deadline
-// running the whole time, so the deadline is restarted once the slot is held.
+// false when it has answered or the client has gone.
 func (s *Server) acquireExport(w http.ResponseWriter, r *http.Request) bool {
 	select {
 	case s.exportSlot <- struct{}{}:
@@ -425,7 +424,6 @@ func (s *Server) acquireExport(w http.ResponseWriter, r *http.Request) bool {
 			return false
 		}
 	}
-	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(statsWriteWindow))
 	return true
 }
 
