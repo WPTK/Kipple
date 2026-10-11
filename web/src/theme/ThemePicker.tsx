@@ -8,6 +8,7 @@ import { DEFAULT_DAY, DEFAULT_NIGHT, schemeById, type Scheme } from "./schemes";
 import { useAllowedSchemes } from "./serverThemes";
 import { chooseFixed, choosePair, clockMinutes, themeChoice, toClockTime } from "./settings";
 import { themeStore, updateTheme } from "./theme";
+import { useLatestRef } from "@/lib/useLatestRef";
 
 const GROUP_LABEL: Record<Scheme["group"], string> = {
   light: "Light",
@@ -132,10 +133,7 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
     setDraft(value);
   }
   // The latest props, for the saves that outlive the render that started them (unmount, page hide).
-  const latest = useRef({ value, onChange });
-  useEffect(() => {
-    latest.current = { value, onChange };
-  });
+  const latest = useLatestRef({ value, onChange });
   // The time waiting to be saved, with the saved value it replaces: if that changed elsewhere meanwhile (another tab,
   // the server), the newer value wins and the waiting time is dropped.
   const pending = useRef<{ t: string; from: string } | null>(null);
@@ -143,7 +141,7 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
     const p = pending.current;
     pending.current = null;
     if (p && p.from === latest.current.value) latest.current.onChange(p.t);
-  }, []);
+  }, [latest]);
   // Closing Settings, or leaving the page, with a time still waiting saves it. A phone may discard a page in the
   // background without pagehide, so going to the background (visibility hidden) saves too.
   useEffect(() => {

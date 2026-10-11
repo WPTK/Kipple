@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLatestRef } from "@/lib/useLatestRef";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { defaultRangeExtractor, useVirtualizer, type Range, type VirtualItem } from "@tanstack/react-virtual";
 import { remeasureMounted } from "@/lib/remeasure";
@@ -907,10 +908,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   }, [key]);
 
   // Read through a ref so a cache patch (a mark-read) does not change `range`, and with it every row's menu actions.
-  const itemsRef = useRef(items);
-  useLayoutEffect(() => {
-    itemsRef.current = items;
-  });
+  const itemsRef = useLatestRef(items);
   const range = useCallback(
     (item: Card, side: "above" | "below") => {
       if (scope.view === "muted") return; // nothing to mark in the muted list: those articles are already read
@@ -926,7 +924,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       const restore = unreadView && local.length ? hide(local) : undefined;
       void act.markSide({ scope: markScope, order: scope.order === "oldest" ? "oldest" : "date", side, anchor: item, maxId: asOf.current }, local, restore, unhide);
     },
-    [act, hide, unhide, scope, markScope, unreadView, rank],
+    [itemsRef, act, hide, unhide, scope, markScope, unreadView, rank],
   );
 
   const markAllRead = useCallback(() => {

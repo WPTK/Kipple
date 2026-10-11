@@ -4,6 +4,7 @@ import { Collapsible } from "radix-ui";
 import { ChevronDown, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "./button";
+import { useLatestRef } from "@/lib/useLatestRef";
 
 /**
  * Where the focus on `el` belongs: `el` itself, or, in an open menu, the button that opened the menu (the menu closes
@@ -244,10 +245,7 @@ export function Stepper({
   const clamp = (n: number) => Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n));
   const [text, setText] = useState(String(value));
   const [problem, setProblem] = useState<string | null>(null);
-  const latest = useRef({ value, onChange, text });
-  useEffect(() => {
-    latest.current = { value, onChange, text };
-  });
+  const latest = useLatestRef({ value, onChange, text });
   // The saved value changed under us (a reset, a rollback): show it.
   const [seen, setSeen] = useState(value);
   if (seen !== value) {
