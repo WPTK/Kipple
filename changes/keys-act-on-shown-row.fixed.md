@@ -1,0 +1,1 @@
+A shortcut pressed right after moving through the list with the article open beside it (for example `k` then `x`) now acts on the row the list shows as selected. Before, a key pressed quickly enough could act on the row selected a moment earlier. (#371)

@@ -804,7 +804,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
 
   /** Swipe right, `m` in the menu: toggle read. Unread view: a row that became read leaves at once. */
   const mutedView = scope.view === "muted";
-  /** Muted list: bring an article back (marks it unread, which un-mutes it) and take its row out of the list. */
+  /** Muted list: bring an article back (un-mutes it and puts back the read state it had before) and take its row out. */
   const restoreRow = useCallback(
     (item: Card) => {
       void act.restoreMuted([item], hide([item.id]));

@@ -45,34 +45,66 @@ const bannerRatio = 4
 // highest-scoring one wins; when no candidate names a size, the first one
 // found is kept, exactly as before.
 func LeadImage(src string, bases ...string) string {
+	if c := LeadImages(src, 1, bases...); len(c) > 0 {
+		return c[0]
+	}
+	return ""
+}
+
+// LeadImages is LeadImage's ranking kept for the best n images instead of the best one: distinct URLs, best first,
+// ties in document order. It is one pass over src and O(candidates x n) work, whatever src holds, so a hostile
+// document cannot make a caller's later choice among them expensive.
+func LeadImages(src string, n int, bases ...string) []string {
 	type candidate struct {
 		url   string
 		score int
 	}
-	var best candidate
-	haveBest := false
-	// outranks reports whether a new candidate should replace best, treating an unknown size (0) as
-	// assumedWidth rather than 0 so it isn't beaten by any image that merely happens to declare a size.
-	outranks := func(score int) bool {
-		if !haveBest {
-			return true
+	// effective treats an unknown size (0) as assumedWidth rather than 0 so it isn't beaten by any image that merely
+	// happens to declare a size.
+	effective := func(s int) int {
+		if s == 0 {
+			return assumedWidth
 		}
-		effective := func(s int) int {
-			if s == 0 {
-				return assumedWidth
+		return s
+	}
+	var best []candidate // at most n, best first
+	add := func(u string, score int) {
+		// A repeat of a URL already kept counts at the larger of its two sizes, as the single best pick always did.
+		for i, c := range best {
+			if c.url == u {
+				if effective(score) <= effective(c.score) {
+					return
+				}
+				best = append(best[:i], best[i+1:]...)
+				break
 			}
-			return s
 		}
-		return effective(score) > effective(best.score)
+		pos := len(best)
+		for i, c := range best {
+			if effective(score) > effective(c.score) {
+				pos = i
+				break
+			}
+		}
+		if pos >= n {
+			return
+		}
+		best = append(best, candidate{})
+		copy(best[pos+1:], best[pos:])
+		best[pos] = candidate{u, score}
+		if len(best) > n {
+			best = best[:n]
+		}
 	}
 	z := html.NewTokenizer(strings.NewReader(src))
 	for {
 		switch z.Next() {
 		case html.ErrorToken:
-			if haveBest {
-				return best.url
+			urls := make([]string, len(best))
+			for i, c := range best {
+				urls[i] = c.url
 			}
-			return ""
+			return urls
 		case html.StartTagToken, html.SelfClosingTagToken:
 			name, hasAttr := z.TagName()
 			if string(name) != "img" || !hasAttr {
@@ -95,10 +127,7 @@ func LeadImage(src string, bases ...string) string {
 				if isBanner(attrs) {
 					w = bannerScore
 				}
-				if outranks(w) {
-					best = candidate{url: u, score: w}
-					haveBest = true
-				}
+				add(u, w)
 				continue
 			}
 			cands := append([]string{attrs["src"]}, func() []string {
@@ -121,10 +150,7 @@ func LeadImage(src string, bases ...string) string {
 				if isBanner(attrs) {
 					score = bannerScore
 				}
-				if outranks(score) {
-					best = candidate{url: abs, score: score}
-					haveBest = true
-				}
+				add(abs, score)
 				break
 			}
 		}

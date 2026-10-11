@@ -178,8 +178,8 @@ says it no longer exists and offers Go to Unread (U1, U2); an article address th
 answers says "Page not found" (U4).
 
 In CI, the `Browser UAT` workflow (`.github/workflows/browser-uat.yml`) seeds a throwaway instance on loopback and runs
-`npm run uat:all` (`web/uat/all.mjs`): every flow listed in `web/uat/flows.json` under Chromium, and the Feeds, saved-search and
-downloads flows under WebKit (WebKit sends fetch metadata that Chromium does not, so a download error saved as the file shows only there).
+`npm run uat:all` (`web/uat/all.mjs`): every flow listed in `web/uat/flows.json` under Chromium, and the Feeds, saved-search,
+downloads and images flows under WebKit (WebKit sends fetch metadata that Chromium does not, so a download error saved as the file shows only there).
 A new flow file goes in `flows.json`, as a flow or as excluded with a reason; `node uat/all.mjs --check` fails a file that is neither.
 The workflow needs no outside network: `web/scripts/fixture-feeds.mjs` serves five feeds on loopback and `KIPPLE_SEED_FEEDS_URL`
 makes `npm run seed` add those instead of the public ones. It is not a required check yet, and `scripts/maintainers/pr-ready.ps1`
@@ -199,6 +199,14 @@ Downloads (`npm run uat:downloads`, `web/uat/downloads.mjs`, same instance, cred
 375x812: Feeds, Feed actions, Export OPML saves an OPML document, not a JSON error (D1); Settings, Statistics, Export…,
 Download saves a CSV with a header row (D2); Settings, Account & Devices, Export backup, then the download link saves a
 zip (D3).
+
+Images (`npm run uat:images`, `web/uat/images.mjs`, same instance, credentials and exit codes), at 1280x800 and 375x812,
+against a feed the flow serves itself on a loopback port: an SVG named as one and an SVG that is not each show "Image
+not shown" with their alt text, no image is left in their place and the cue keeps the box the image declared (I1); the
+cue's Open original link goes to the article in a new tab (I2); a GIF in the same article is shown, a 1x1 tracking
+pixel gets no cue, and an image whose source answers 500 stays an image (I3); back to the list and the same article
+again, from the app's cache, shows the cues again (I4); a second article of 30 lazy images below the fold sends no
+image request and no check until it is scrolled, then they load (I5).
 
 **Label guard (no browser).** The screens above find controls by accessible name, so renaming an `aria-label` in
 `web/src` breaks every screen that looks for the old one without failing any other check. `node scripts/uat-labels.mjs
