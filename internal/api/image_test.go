@@ -274,3 +274,20 @@ func TestImagesAreDroppedWhenTheProxyCannotSign(t *testing.T) {
 	require.Nil(t, det["image"])
 	require.NotContains(t, det["content_html"], "a.example")
 }
+
+// TestRefusedSVGKeepsAnEmptyImage pins what the web app's "Image not shown" cue relies on: an SVG source is never
+// sent to the browser, but its <img> stays (alt text included) with an empty src, which fails at once in the browser
+// and so gets the cue (web/src/lib/articleDom.ts watchImages). Dropping the element instead would leave no trace.
+func TestRefusedSVGKeepsAnEmptyImage(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	id := h.addItem(f, seedItem{Text: "x"})
+	h.exec("UPDATE item_content SET content_html = ? WHERE item_id = ?", `<p><img src="https://a.example/chart.svg?v=2" alt="A chart"></p>`, id)
+
+	_, det, _ := h.api(c, "GET", "/api/items/"+sid(id), "")
+	html := det["content_html"].(string)
+	require.Contains(t, html, `<img src="" alt="A chart">`)
+	require.NotContains(t, html, "chart.svg")
+}

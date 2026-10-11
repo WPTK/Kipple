@@ -6,7 +6,7 @@ import { ApiError } from "@/api/client";
 import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
-import { enhanceEmbeds, handleArticleClick } from "@/lib/articleDom";
+import { enhanceEmbeds, handleArticleClick, watchImages } from "@/lib/articleDom";
 import { useItemActions } from "@/lib/itemActions";
 import { articleTo, listTo } from "@/lib/routes";
 import { sanitizeArticleHtml } from "@/lib/safeHtml";
@@ -222,6 +222,25 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     if (bodyRef.current) enhanceEmbeds(bodyRef.current);
   }, [html, item.data?.trimmed]);
 
+  // An image refused for good gets the "Image not shown" cue instead of a blank gap. The watch follows the body element
+  // itself (a ref callback with a cleanup), so a body that comes back after "Try again" is watched too. The original is
+  // offered only online, as on the error screen below: offline it cannot open. Going on or offline re-attaches the
+  // watch, which updates the cues already shown.
+  const articleUrl = browserOnline ? safeHttpUrl(item.data?.url) : undefined;
+  const sameTab = linkTarget === "same";
+  const bodyCallback = useCallback(
+    (el: HTMLDivElement | null) => {
+      bodyRef.current = el;
+      if (!el) return;
+      const stop = watchImages(el, articleUrl, sameTab);
+      return () => {
+        stop();
+        bodyRef.current = null;
+      };
+    },
+    [articleUrl, sameTab],
+  );
+
   // Highlight filters: after the article was sanitized and put in the DOM, split its text nodes around the words
   // (never HTML built from a term). The cleanup puts the text back, so turning the setting off or editing a rule
   // never leaves stale marks.
@@ -369,7 +388,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
             <StatusBlock role="status" title="This article was removed" body="Kipple keeps only the newest articles for this feed. Open the original to read it." />
           ) : (
             <div
-              ref={bodyRef}
+              ref={bodyCallback}
               className="article-body"
               data-testid="article-body"
               onClick={(e) => {

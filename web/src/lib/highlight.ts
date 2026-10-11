@@ -1,4 +1,5 @@
 import type { Highlight } from "@/api/types";
+import { NOT_SHOWN_CLASS } from "./articleDom";
 import { createStore } from "./store";
 
 // Keyword highlighting. The server hands the client each enabled, non-inverted text highlight rule (bootstrap
@@ -248,7 +249,7 @@ const SKIP_TAGS = new Set(["A", "CODE", "PRE", "KBD", "SAMP", "SCRIPT", "STYLE",
 
 function skipped(node: Node, root: Element): boolean {
   for (let p = node.parentElement; p && p !== root; p = p.parentElement) {
-    if (SKIP_TAGS.has(p.tagName.toUpperCase()) || p.classList.contains("kp-embed")) return true;
+    if (SKIP_TAGS.has(p.tagName.toUpperCase()) || p.classList.contains("kp-embed") || p.classList.contains(NOT_SHOWN_CLASS)) return true;
   }
   return false;
 }
