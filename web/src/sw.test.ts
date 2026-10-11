@@ -301,6 +301,29 @@ describe("read-only API answers", () => {
     await expect(w.fetch("/api/items?view=all")).rejects.toThrow("offline"); // nothing kept for it
   });
 
+  it("keeps the saved searches for offline use, by their full address", async () => {
+    const w = setup();
+    w.setNetwork(() => json({ saved_searches: [{ id: "s1" }] }));
+    await w.fetch("/api/saved-searches?counts=0");
+    w.setNetwork(() => {
+      throw new TypeError("offline");
+    });
+    const off = (await w.fetch("/api/saved-searches?counts=0"))!;
+    expect(off.headers.get("X-Kipple-Cache")).toBe("1");
+    expect(await off.json()).toEqual({ saved_searches: [{ id: "s1" }] });
+    await expect(w.fetch("/api/saved-searches")).rejects.toThrow("offline"); // the counts were never kept
+  });
+
+  it("sends saved-search writes and other saved-searches paths to the network, uncached", async () => {
+    const w = setup();
+    expect(await w.fetch("/api/saved-searches/s1")).toBeUndefined();
+    expect(await w.fetch("/api/saved-searches/reorder")).toBeUndefined();
+    expect(await w.fetch("/api/saved-searches-x")).toBeUndefined();
+    expect(await w.fetch("/api/saved-searches", { method: "POST" })).toBeUndefined();
+    expect(await w.fetch("/api/saved-searches/s1", { method: "DELETE" })).toBeUndefined();
+    expect(await w.fetch("/api/saved-searches/reorder", { method: "POST" })).toBeUndefined();
+  });
+
   it("a server error falls back to the copy; a 401 is the answer and is never kept", async () => {
     const w = setup();
     w.setNetwork(() => json({ ok: 1 }));

@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { applyRead, applyStar, bumpMuted, dropFromLists, keys, patchItems } from "@/api/queries";
+import { applyRead, applyStar, bumpMuted, dropFromLists, invalidateLists, keys, undoKept, patchItems } from "@/api/queries";
 import { api, errorMessage } from "@/api/client";
 import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
-import type { Card, ItemsPage, Scope } from "@/api/types";
+import type { BulkMarkResponse, Card, ItemsPage, MarkReadResponse, Scope } from "@/api/types";
 import { announce, toast } from "@/shell/toasts";
 import { createStore } from "./store";
-import { pushUndo } from "./undo";
+import { beginUndo, type UndoChange } from "./undo";
 
 /**
  * Articles the user marked read on purpose, with a button, a key or the menu (not by opening them, and not by a
@@ -40,12 +40,19 @@ export function useItemActions() {
   return useMemo(() => itemActions(qc), [qc]);
 }
 
+/** `"kept"` when the server left every id as it was, so the undo changed nothing. */
+function allKept(ids: string[], kept: string[] | undefined): true | "kept" {
+  return ids.length > 0 && kept !== undefined && ids.every((id) => kept.includes(id)) ? "kept" : true;
+}
+
 /** Undo a scope mark: the changed ids plus the trimmed-ledger ids it flipped (design 7.1). */
-async function undoBulk(qc: QueryClient, ids: string[], ledger: string[]): Promise<boolean> {
+async function undoBulk(qc: QueryClient, ids: string[], ledger: string[]): Promise<boolean | "kept"> {
   patchItems(qc, ids, { read: false });
   try {
-    await api("/api/items/mark-read", { method: "POST", body: { ids, ...(ledger.length ? { ledger_ids: ledger } : {}), read: false, reason: "bulk" } });
-    return true;
+    const res = await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, ...(ledger.length ? { ledger_ids: ledger } : {}), read: false, reason: "bulk", undo: true } });
+    undoKept(qc, res?.kept);
+    // Ledger rows the undo flipped back are a change even when every stored article was kept.
+    return ledger.length > 0 ? true : allKept(ids, res?.kept);
   } catch (e) {
     patchItems(qc, ids, { read: true });
     toast(errorMessage(e), "error");
@@ -80,6 +87,15 @@ export function arrivedAfter(id: string, asOf: string | undefined): boolean {
   }
 }
 
+/** What a Restore in Muted says: n articles un-muted, `unread` of them unread again (the rest were read before the mute). */
+export function restoredMessage(n: number, unread: number): string {
+  if (n === 0) return "Nothing to restore";
+  if (n === 1) return unread ? "Restored. It is unread again." : "Restored. It stays read, as it was before it was muted.";
+  if (unread === n) return `Restored ${n} articles. They are unread again.`;
+  if (unread === 0) return `Restored ${n} articles. They stay read, as they were before they were muted.`;
+  return `Restored ${n} articles. ${unread} of them ${unread === 1 ? "is" : "are"} unread again; the others stay read, as they were before they were muted.`;
+}
+
 /** The most ids GET /api/items?ids= takes in one request (the server's card limit). */
 const IDS_PER_QUERY = 100;
 
@@ -87,8 +103,13 @@ export function itemActions(qc: QueryClient) {
   /** Set read state for ids and record an undo (mark-read undone = mark-unread through the API). */
   async function setRead(ids: string[], read: boolean, reason: "swipe" | "key", restore?: () => void): Promise<void> {
     if (ids.length === 0) return;
-    const res = await applyRead(qc, ids, read, reason);
+    const ticket = beginUndo(read ? "read" : "unread");
+    const res = await applyRead(qc, ids, read, reason).catch((e: unknown) => {
+      ticket.settle(null);
+      throw e;
+    });
     if (!res) {
+      ticket.settle(null);
       restore?.();
       return;
     }
@@ -98,18 +119,19 @@ export function itemActions(qc: QueryClient) {
       invalidateUnreadLists(qc);
       notifyUnread(ids);
     }
-    pushUndo({
-      kind: read ? "read" : "unread",
+    ticket.settle({
       ids,
       restore,
       undo: async (undoIds) => {
         dropIntent(undoIds);
-        const ok = (await applyRead(qc, undoIds, !read, "key")) !== undefined;
-        if (ok && read) {
+        // Undoing a mark read is a mark unread, which would also un-mute an article a filter muted since: `undo`
+        // has the server leave those alone (an undo of a mark unread marks read, which never un-mutes).
+        const res = await applyRead(qc, undoIds, !read, "key", { undo: read });
+        if (res && read) {
           invalidateUnreadLists(qc);
-          notifyUnread(undoIds);
+          notifyUnread(undoIds.filter((id) => !res.kept?.includes(id)));
         }
-        return ok;
+        return res === undefined ? false : read ? allKept(undoIds, res.kept) : true;
       },
     });
   }
@@ -121,20 +143,23 @@ export function itemActions(qc: QueryClient) {
   /** Resolves to whether the server took it. */
   async function toggleStar(item: Card, undoable = false): Promise<boolean> {
     const starred = !item.starred;
+    const ticket = undoable ? beginUndo(starred ? "star" : "unstar") : null;
     const ok = await applyStar(qc, item.id, starred);
-    if (!ok) return false;
-    announce(starred ? "Starred" : "Unstarred");
-    if (undoable) {
-      // Merged swipe-stars share the first closure, so it must act on the ids it is handed.
-      pushUndo({
-        kind: starred ? "star" : "unstar",
-        ids: [item.id],
-        undo: async (ids) => {
-          const done = await Promise.all(ids.map((id) => applyStar(qc, id, !starred)));
-          return done.every(Boolean);
-        },
-      });
+    if (!ok) {
+      ticket?.settle(null);
+      return false;
     }
+    announce(starred ? "Starred" : "Unstarred");
+    // Merged swipe-stars share the first closure, so it must act on the ids it is handed.
+    ticket?.settle({
+      ids: [item.id],
+      undo: async (ids) => {
+        // Undoing an unstar is a star, which would also un-mute: `undo` has the server leave a muted article alone.
+        const done = await Promise.all(ids.map((id) => applyStar(qc, id, !starred, !starred)));
+        if (!done.every((d) => d !== false)) return false;
+        return done.every((d) => d === "kept") ? "kept" : true;
+      },
+    });
     return true;
   }
 
@@ -174,7 +199,7 @@ export function itemActions(qc: QueryClient) {
     asOf: string | undefined,
     restore?: () => void,
     unhide?: (ids: string[]) => void,
-  ): Promise<void> {
+  ): Promise<UndoChange | null> {
     const overCap = res.undoable === false && res.changed.length === 0 && (res.count ?? 0) > 0;
     // Only what the server says it changed is undoable: local guesses would flip items another client read.
     const changed = res.undoable === false ? [] : res.changed;
@@ -183,7 +208,7 @@ export function itemActions(qc: QueryClient) {
       // The server marked more than it will list, so which local rows it skipped is unknown: refetch the truth.
       announce(`Marked ${res.count} as read`);
       void qc.invalidateQueries({ queryKey: keys.itemsAll }).then(() => unhide?.(local));
-      return;
+      return null;
     }
     if (changed.length) patchItems(qc, changed, { read: true });
     const kept = new Set(changed);
@@ -197,58 +222,59 @@ export function itemActions(qc: QueryClient) {
     const n = res.count ?? changed.length;
     if (changed.length === 0) {
       announce(n === 0 ? "Nothing to mark" : `Marked ${n} as read`);
-      return;
+      return null;
     }
-    pushUndo({
-      kind: "read",
-      bulk: true,
-      ids: changed,
-      restore,
-      undo: (ids) => undoBulk(qc, ids, ledger),
-    });
+    return { ids: changed, restore, undo: (ids) => undoBulk(qc, ids, ledger) };
   }
 
-  async function markSide(p: RangeParams, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
+  /** A bulk mark: its undo group is on the stack from the moment the rows turn read, filled in by the answer. */
+  async function bulkMark(send: () => Promise<BulkMarkResponse>, local: string[], asOf: string | undefined, restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
+    const ticket = beginUndo("read", { bulk: true });
     patchItems(qc, local, { read: true });
     try {
-      await finishBulk(await markRange(p), local, p.maxId, restore, unhide);
+      ticket.settle(await finishBulk(await send(), local, asOf, restore, unhide));
     } catch {
+      ticket.settle(null);
       patchItems(qc, local, { read: false });
       restore?.();
       announce("Couldn't mark those as read");
     }
   }
 
-  async function markAll(scope: Scope, maxId: string | undefined, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
-    patchItems(qc, local, { read: true });
-    try {
-      await finishBulk(await markAllRead(scope, maxId), local, maxId, restore, unhide);
-    } catch {
-      patchItems(qc, local, { read: false });
-      restore?.();
-      announce("Couldn't mark those as read");
-    }
+  function markSide(p: RangeParams, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
+    return bulkMark(() => markRange(p), local, p.maxId, restore, unhide);
+  }
+
+  function markAll(scope: Scope, maxId: string | undefined, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
+    return bulkMark(() => markAllRead(scope, maxId), local, maxId, restore, unhide);
   }
 
   /**
-   * Restore muted articles: mark them unread, which is what un-mutes them (the server clears the mute in the same
-   * write). There is no undo entry: putting one back under its rule is not something a mark-read can do, so the
-   * announcement says where they went instead. Resolves to the ids the server accepted.
+   * Restore muted articles: un-mute them and put back the read state each had before the mute (POST
+   * /api/items/unmute), so an article read before it was muted stays read and an unread one is unread again. There is
+   * no undo entry: putting one back under its rule is not something the client can do, so the announcement says where
+   * they went instead. Resolves to whether the server took it.
    */
   async function restoreMuted(items: Pick<Card, "id">[], restore?: () => void): Promise<boolean> {
     const ids = items.map((i) => i.id);
     if (ids.length === 0) return false;
-    const res = await applyRead(qc, ids, false, "key");
-    if (!res) {
+    let res: { changed: string[]; made_unread: string[] };
+    try {
+      res = await api("/api/items/unmute", { method: "POST", body: { ids } });
+    } catch (e) {
+      toast(errorMessage(e), "error");
       restore?.();
       return false;
     }
-    patchItems(qc, ids, { muted_by: null, muted_by_name: null });
+    const { changed, made_unread: unread } = res;
+    patchItems(qc, changed, { muted_by: null, muted_by_name: null });
+    if (unread.length) patchItems(qc, unread, { read: false });
     dropFromLists(qc, ids, (k) => k.startsWith("muted"));
-    invalidateUnreadLists(qc);
-    notifyUnread(ids);
-    bumpMuted(qc, -ids.length);
-    announce(ids.length === 1 ? "Restored. It is unread again." : `Restored ${ids.length} articles. They are unread again.`);
+    // Back in All and search (and, the unread ones, in Unread) the next time those are shown.
+    invalidateLists(qc, (k) => !k.startsWith("muted"));
+    if (unread.length) notifyUnread(unread);
+    bumpMuted(qc, -changed.length);
+    announce(restoredMessage(changed.length, unread.length));
     return true;
   }
 

@@ -492,7 +492,7 @@ describe("mark above and below, and mark all", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Mark below as read" }));
     await user.click(await within(screen.getByTestId("undo-region")).findByRole("button", { name: "Undo" }));
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read").length).toBe(2));
-    expect(bodyOf(calls.filter((c) => c.url.pathname === "/api/items/mark-read")[1])).toEqual({ ids: ["1004", "1005"], read: false, reason: "bulk" });
+    expect(bodyOf(calls.filter((c) => c.url.pathname === "/api/items/mark-read")[1])).toEqual({ ids: ["1004", "1005"], read: false, reason: "bulk", undo: true });
   });
 
   it("Shift+A marks the whole list, bounded by what was loaded", async () => {
@@ -539,7 +539,7 @@ describe("mark above and below, and mark all", () => {
     await user.keyboard("{Shift>}A{/Shift}");
     await user.click(await within(screen.getByTestId("undo-region")).findByRole("button", { name: "Undo" }));
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read").length).toBe(2));
-    expect(bodyOf(calls.filter((c) => c.url.pathname === "/api/items/mark-read")[1])).toEqual({ ids: ["1001", "1004"], ledger_ids: ["77", "78"], read: false, reason: "bulk" });
+    expect(bodyOf(calls.filter((c) => c.url.pathname === "/api/items/mark-read")[1])).toEqual({ ids: ["1001", "1004"], ledger_ids: ["77", "78"], read: false, reason: "bulk", undo: true });
   });
 
   it("a failed undo does not say Undone and keeps the toast's Undo", async () => {

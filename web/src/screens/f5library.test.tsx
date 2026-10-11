@@ -175,6 +175,84 @@ describe("Saved searches in the Feeds list", () => {
     expect(screen.queryByRole("region", { name: "Saved searches" })).toBeNull();
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  it("says so, with a retry that refetches, when the list could not be loaded", async () => {
+    let fail = true;
+    const { calls } = base({
+      "GET /api/saved-searches": (u) =>
+        fail && u.searchParams.get("counts") === "0"
+          ? json({ error: "boom" }, 500)
+          : json({ saved_searches: u.searchParams.get("counts") === "0" ? SAVED : withCounts(SAVED) }),
+    });
+    go("/feeds");
+    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    expect(within(nav).getByRole("status")).toHaveTextContent(/Couldn't load your saved searches\./);
+    const retry = within(nav).getByRole("button", { name: /^Try again/ });
+    retry.focus();
+    fail = false;
+    const before = calls.filter((c) => c.url.pathname === "/api/saved-searches").length;
+    await userEvent.setup().click(within(nav).getByRole("button", { name: /^Try again/ }));
+    expect(await within(nav).findByRole("link", { name: /Rust news/ })).toBeInTheDocument();
+    expect(calls.filter((c) => c.url.pathname === "/api/saved-searches").length).toBeGreaterThan(before);
+    expect(within(nav).queryByText(/Couldn't load your saved searches/)).toBeNull();
+  });
+
+  it("keeps keyboard focus on Try again while it retries, and ignores a second press", async () => {
+    let release: (() => void) | undefined;
+    let listCalls = 0;
+    base({
+      "GET /api/saved-searches": (u) => {
+        if (u.searchParams.get("counts") !== "0") return json({ saved_searches: withCounts(SAVED) });
+        listCalls++;
+        if (listCalls === 1) return json({ error: "boom" }, 500);
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(json({ saved_searches: SAVED }));
+        });
+      },
+    });
+    go("/feeds");
+    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    const retry = within(nav).getByRole("button", { name: /^Try again/ });
+    retry.focus();
+    await userEvent.setup().keyboard("{Enter}");
+    await waitFor(() => expect(retry).toHaveAttribute("aria-disabled", "true"));
+    expect(retry).toHaveFocus();
+    await userEvent.setup().click(retry);
+    expect(listCalls).toBe(2);
+    release?.();
+    expect(await within(nav).findByRole("link", { name: /Rust news/ })).toBeInTheDocument();
+  });
+
+  it("keeps the list, with no message, when a refetch fails after it loaded", async () => {
+    let fail = false;
+    base({
+      "GET /api/saved-searches": (u) =>
+        fail && u.searchParams.get("counts") === "0"
+          ? json({ error: "boom" }, 500)
+          : json({ saved_searches: u.searchParams.get("counts") === "0" ? SAVED : withCounts(SAVED) }),
+    });
+    const client = makeQueryClient({ retry: false });
+    window.history.replaceState({ idx: 0 }, "", "/feeds");
+    render(<App client={client} />);
+    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    await within(nav).findByRole("link", { name: /Rust news/ });
+    fail = true;
+    await act(async () => {
+      await client.refetchQueries({ queryKey: savedSearchesKey, exact: true });
+    });
+    expect(within(nav).getByRole("link", { name: /Rust news/ })).toBeInTheDocument();
+    expect(within(nav).queryByText(/Couldn't load your saved searches/)).toBeNull();
+  });
+
+  it("keeps the names and offers a retry when only the counts failed", async () => {
+    base({ "GET /api/saved-searches": (u) => (u.searchParams.get("counts") === "0" ? json({ saved_searches: SAVED }) : json({ error: "boom" }, 500)) });
+    go("/feeds");
+    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    expect(within(nav).getByRole("link", { name: /Rust news/ })).toBeInTheDocument();
+    expect(await within(nav).findByText(/Couldn't count unread articles\./, undefined, { timeout: 8000 })).toBeInTheDocument();
+    expect(within(nav).queryByText(/Couldn't load your saved searches/)).toBeNull();
+    expect(within(nav).getByRole("button", { name: /^Try again/ })).toBeInTheDocument();
+  }, 15000);
 });
 
 describe("Save this search", () => {
@@ -689,11 +767,11 @@ describe("Saved search counts (review 3)", () => {
     });
     go("/feeds");
     const nav = await screen.findByRole("region", { name: "Saved searches" });
-    await waitFor(() => expect(within(nav).getByRole("button", { name: "Try again" })).toBeInTheDocument());
+    await waitFor(() => expect(within(nav).getByRole("button", { name: /^Try again/ })).toBeInTheDocument());
     expect(countCalls).toBe(3); // the first try and two retries
     expect(within(nav).queryByText("Unread count unavailable")).toBeNull();
     fail = false;
-    await userEvent.setup().click(within(nav).getByRole("button", { name: "Try again" }));
+    await userEvent.setup().click(within(nav).getByRole("button", { name: /^Try again/ }));
     await waitFor(() => expect(within(nav).getByText("999+")).toBeInTheDocument());
     Object.assign(COUNTS_RETRY, saved);
   });

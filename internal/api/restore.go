@@ -437,6 +437,8 @@ func restoreErrorInfo(err error) (status int, code, msg string) {
 		return http.StatusConflict, "restore_busy", err.Error()
 	case errors.Is(err, backup.ErrRestoreElsewhere):
 		return http.StatusConflict, "restore_elsewhere", err.Error()
+	case errors.Is(err, backup.ErrRestoreReplaced):
+		return http.StatusConflict, "restore_replaced", err.Error()
 	case errors.Is(err, backup.ErrRestorePending):
 		return http.StatusConflict, "restore_pending", err.Error()
 	case errors.Is(err, backup.ErrNoUpload):

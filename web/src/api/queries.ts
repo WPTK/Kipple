@@ -32,9 +32,9 @@ import { chainOf, folderTree, type FolderTree } from "@/lib/folderTree";
 import { useMemo } from "react";
 import { setUpdateReady } from "@/lib/offlineState";
 import { toast } from "@/shell/toasts";
-import { itemsParams, keys, patchItems } from "./queryKeys";
+import { itemsParams, keys, patchItems, undoKept } from "./queryKeys";
 
-export { PAGE_SIZE, keys, scopeKey, parseScopeKey, itemsParams, patchItems, type ItemPatch } from "./queryKeys";
+export { PAGE_SIZE, keys, scopeKey, parseScopeKey, itemsParams, patchItems, dropFromLists, invalidateLists, undoKept, type ItemPatch } from "./queryKeys";
 
 /** The toast for a failed change: one made offline that could not be stored says so, not "the server". */
 export function changeError(e: unknown): string {
@@ -112,20 +112,6 @@ export function useItem(id: string | undefined) {
 
 export function flattenItems(data: InfiniteData<ItemsPage> | undefined): Card[] {
   return data?.pages.flatMap((p) => p.items) ?? [];
-}
-
-/** Take these ids out of the cached lists whose scope key passes `match` (a Muted list after a restore, All after a mute). */
-export function dropFromLists(qc: QueryClient, ids: string[], match: (scopeKey: string) => boolean): void {
-  const set = new Set(ids);
-  qc.setQueriesData<InfiniteData<ItemsPage>>({ queryKey: keys.itemsAll, predicate: (q) => match(String(q.queryKey[1])) }, (old) => {
-    if (!old || !old.pages.some((p) => p.items.some((i) => set.has(i.id)))) return old;
-    return { ...old, pages: old.pages.map((p) => ({ ...p, items: p.items.filter((i) => !set.has(i.id)) })) };
-  });
-}
-
-/** Mark the cached lists whose scope key passes `match` stale without refetching: they reload when next shown. */
-export function invalidateLists(qc: QueryClient, match: (scopeKey: string) => boolean): void {
-  void qc.invalidateQueries({ queryKey: keys.itemsAll, predicate: (q) => match(String(q.queryKey[1])), refetchType: "none" });
 }
 
 /** When the last optimistic count change was made (ms); `counts` events older than it are stale. */
@@ -283,26 +269,30 @@ export function useFulltext() {
 
 /**
  * Mark ids read or unread with an optimistic patch; reverts and toasts on failure. `onError` replaces the toast
- * for a caller that decides itself what to say (mark-read-on-scroll tells a streak of failures once).
+ * for a caller that decides itself what to say (mark-read-on-scroll tells a streak of failures once). `undo` (with
+ * read false) is the undo of a mark read: the server leaves articles muted since as they are.
  */
 export async function applyRead(
   qc: QueryClient,
   ids: string[],
   read: boolean,
   reason: "swipe" | "key" | "scroll" | "bulk",
-  opts: { onError?: (e: unknown) => void } = {},
+  opts: { onError?: (e: unknown) => void; undo?: boolean } = {},
 ): Promise<MarkReadResponse | undefined> {
   const shift = unreadShift(qc, ids, read);
+  const undo = opts.undo === true;
   patchItems(qc, ids, { read });
   await supersede({ read: ids });
   try {
     try {
-      return await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason } });
+      const res = await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason, ...(undo ? { undo } : {}) } });
+      undoKept(qc, res?.kept);
+      return res;
     } catch (e) {
       // No network: keep the change on screen and send it when the connection returns (lib/offline.ts). A
       // change that could not be stored for later is a failure like any other.
       if (!isOffline(e)) throw e;
-      const res = await queueRead(ids, read);
+      const res = await queueRead(ids, read, undo);
       // Online the server's `counts` event moves the badges; offline none comes, so they move here.
       for (const [feed, d] of shift) bumpUnread(qc, feed, d);
       return res;
@@ -315,16 +305,24 @@ export async function applyRead(
   }
 }
 
-/** Set starred with an optimistic patch; reverts and toasts on failure. */
-export async function applyStar(qc: QueryClient, id: string, starred: boolean): Promise<boolean> {
+/**
+ * Set starred with an optimistic patch; reverts and toasts on failure. `undo` (with starred true) is the undo of an
+ * unstar: the server leaves an article muted since as it is. Resolves `false` when the change failed, `"kept"` when
+ * an undo left the article as it was (muted or trimmed since).
+ */
+export async function applyStar(qc: QueryClient, id: string, starred: boolean, undo = false): Promise<boolean | "kept"> {
   patchItems(qc, [id], { starred: starred });
   await supersede({ star: id });
   try {
     try {
-      await api(`/api/items/${id}/star`, { method: "PUT", body: { starred } });
+      const res = await api<{ kept?: boolean }>(`/api/items/${id}/star`, { method: "PUT", body: { starred, ...(undo ? { undo } : {}) } });
+      if (res?.kept) {
+        undoKept(qc, [id]);
+        return "kept";
+      }
     } catch (e) {
       if (!isOffline(e)) throw e;
-      await queueStar(id, starred);
+      await queueStar(id, starred, undefined, undo);
     }
     return true;
   } catch (e) {

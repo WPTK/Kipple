@@ -6,7 +6,8 @@
   Run it when you think a PR is done. It reads the PR from GitHub and prints one verdict, READY or
   BLOCKED because <reasons>. It checks:
     - the PR is open and not a draft;
-    - every check passed: it names failing and pending checks;
+    - every check passed: it names failing and pending checks (except the advisory ones below, which are printed and
+      never block);
     - origin's base branch is an ancestor of the PR head (the PR has the latest base merged in), asked of
       GitHub's compare API so no local fetch is needed and FETCH_HEAD is never touched;
     - GitHub's mergeStateStatus is CLEAN (or HAS_HOOKS);
@@ -48,6 +49,9 @@ $ErrorActionPreference = 'Stop'
 
 $script:FailingConclusions = @('FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR')
 $script:PendingStates = @('PENDING', 'EXPECTED')
+# Checks that report but never block: the slow real-browser run (.github/workflows/browser-uat.yml, not a required check
+# yet). Matched by exact check name. Take a name off this list when its check becomes required.
+$script:AdvisoryChecks = @('Browser UAT')
 
 function Get-CheckSummary {
   <#
@@ -56,26 +60,34 @@ function Get-CheckSummary {
   .DESCRIPTION
     Handles both shapes GitHub returns: check runs (name, status, conclusion) and commit statuses (context, state).
   .OUTPUTS
-    PSCustomObject with Failing and Pending (string arrays) and Total.
+    PSCustomObject with Failing and Pending (string arrays), Advisory (strings like 'Browser UAT: failing' for the
+    advisory checks that are not passing) and Total. Advisory checks are in neither Failing nor Pending.
   #>
   [CmdletBinding()]
   [OutputType([pscustomobject])]
   param([AllowEmptyCollection()][object[]]$Rollup = @())
   $failing = [System.Collections.Generic.List[string]]::new()
   $pending = [System.Collections.Generic.List[string]]::new()
+  $advisory = [System.Collections.Generic.List[string]]::new()
   foreach ($c in $Rollup) {
     $props = $c.PSObject.Properties.Name
     if ($props -contains 'context') {
       $name = $c.context
-      if ($c.state -in $script:FailingConclusions) { $failing.Add($name) }
+      if ($name -in $script:AdvisoryChecks) {
+        if ($c.state -in $script:FailingConclusions) { $advisory.Add("${name}: failing") } elseif ($c.state -in $script:PendingStates) { $advisory.Add("${name}: pending") }
+      }
+      elseif ($c.state -in $script:FailingConclusions) { $failing.Add($name) }
       elseif ($c.state -in $script:PendingStates) { $pending.Add($name) }
     } else {
       $name = $c.name
-      if ($c.status -ne 'COMPLETED') { $pending.Add($name) }
+      if ($name -in $script:AdvisoryChecks) {
+        if ($c.status -ne 'COMPLETED') { $advisory.Add("${name}: pending") } elseif ($c.conclusion -in $script:FailingConclusions) { $advisory.Add("${name}: failing") }
+      }
+      elseif ($c.status -ne 'COMPLETED') { $pending.Add($name) }
       elseif ($c.conclusion -in $script:FailingConclusions) { $failing.Add($name) }
     }
   }
-  return [pscustomobject]@{ Failing = $failing.ToArray(); Pending = $pending.ToArray(); Total = @($Rollup).Count }
+  return [pscustomobject]@{ Failing = $failing.ToArray(); Pending = $pending.ToArray(); Advisory = $advisory.ToArray(); Total = @($Rollup).Count }
 }
 
 function Get-PrVerdict {
@@ -109,7 +121,8 @@ function Get-PrVerdict {
     Ready   = $ready
     HeadSha = $Pr.headRefOid
     Reasons = $reasons.ToArray()
-    Text    = $(if ($ready) { "READY (#$($Pr.number) at $($Pr.headRefOid))" } else { "BLOCKED because $($reasons -join '; ')" })
+    Advisory = $checks.Advisory
+    Text    = $(if ($ready) { "READY (#$($Pr.number) at $($Pr.headRefOid))$(if ($checks.Advisory.Count) { " (advisory, not blocking: $($checks.Advisory -join ', '))" })" } else { "BLOCKED because $($reasons -join '; ')" })
   }
 }
 

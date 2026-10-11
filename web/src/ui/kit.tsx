@@ -6,27 +6,55 @@ import { cn } from "@/lib/cn";
 import { Button } from "./button";
 
 /**
+ * Where the focus on `el` belongs: `el` itself, or, in an open menu, the button that opened the menu (the menu closes
+ * and gives focus back to it). Null for nothing or the page itself, and for a menu that gives focus back to nothing
+ * (`data-no-focus-return`: a row menu opened by a long press, with focus nowhere).
+ */
+export function focusOrigin(el: Element | null): HTMLElement | null {
+  if (!(el instanceof HTMLElement) || el === document.body) return null;
+  const menu = el.closest('[role="menu"]');
+  if (menu?.hasAttribute("data-no-focus-return")) return null;
+  return (menu?.id && document.querySelector<HTMLElement>(`[aria-controls="${CSS.escape(menu.id)}"]`)) || el;
+}
+
+/**
  * Props for a Radix `Dialog.Content` that is opened by state (a button, a key, a menu item) rather than by a
  * `Dialog.Trigger`. Radix gives focus back to the trigger on close and to nothing when there is none, so Escape would
  * drop the keyboard to the top of the page. This remembers what had focus when `open` turned true, read while rendering
  * (before the commit moves focus into the dialog, which an `autoFocus` field does before any effect can run), and
- * returns focus there.
+ * returns focus there. A dialog opened from a menu item returns focus to the button that opened the menu, since the
+ * menu is gone by then. When the opener left the page while the dialog was open (a live update took its row out),
+ * focus goes to the nearest focusable element around it that is still there, such as the list, not to the top of the
+ * page. `onClosed` runs once focus is back: a change that takes the opener off the page (the editor muting the article
+ * whose row opened it) waits for it, so the list can hand focus on from there.
  */
-export function useReturnFocus(open: boolean) {
+export function useReturnFocus(open: boolean, onClosed?: () => void) {
   const [wasOpen, setWasOpen] = useState(false);
-  const [opener, setOpener] = useState<HTMLElement | null>(null);
+  const [places, setPlaces] = useState<HTMLElement[]>([]);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) setOpener(document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null);
+    if (open) setPlaces(focusPlaces(focusOrigin(document.activeElement)));
   }
   return {
     onCloseAutoFocus: (e: Event) => {
-      if (opener?.isConnected) {
+      // Around the opener only when focus has nowhere else to be: a caller may have put it somewhere on purpose.
+      const a = document.activeElement;
+      const lost = !a || a === document.body || !!a.closest('[role="dialog"]');
+      const back = places.find((p, i) => p.isConnected && (i === 0 || lost));
+      if (back) {
         e.preventDefault();
-        opener.focus();
+        back.focus();
       }
+      onClosed?.();
     },
   };
+}
+
+/** `el` and the elements around it that take focus, nearest first. */
+function focusPlaces(el: HTMLElement | null): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (let p = el?.parentElement; p && p !== document.body; p = p.parentElement) if (p.hasAttribute("tabindex")) out.push(p);
+  return el ? [el, ...out] : out;
 }
 
 /** A modal sheet: bottom-aligned on phones, centered on wide screens. Radix traps focus and restores it. */
@@ -38,6 +66,7 @@ export function Modal({
   children,
   footer,
   size = "md",
+  onClosed,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -47,8 +76,10 @@ export function Modal({
   footer?: ReactNode;
   /** lg: room for a form with a preview beside its fields (still a bottom sheet on a phone). */
   size?: "md" | "lg";
+  /** Runs once the sheet has closed and given focus back (useReturnFocus). */
+  onClosed?: () => void;
 }) {
-  const returnFocus = useReturnFocus(open);
+  const returnFocus = useReturnFocus(open, onClosed);
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>

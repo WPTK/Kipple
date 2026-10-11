@@ -633,11 +633,13 @@ Things to know:
 - **A backup from a newer Kipple** is refused: update Kipple first. One from an older Kipple is upgraded on the start
   that applies it, after the usual `pre-migration-*` snapshot.
 - **One restore at a time, and it belongs to your browser tab.** Only the page that started an upload can see it,
-  confirm it or cancel it; another browser that can reach setup gets a 409 `restore_elsewhere` and sees nothing of it.
-  While an upload is arriving, being checked or waiting for your confirmation, a second upload is refused. A checked
-  upload you do not confirm is deleted after an hour, or at the next start. Once you confirm, creating an account is
-  refused until the restore is applied; if someone creates the account first, the restore is refused and the upload
-  deleted.
+  confirm it or cancel it; another browser that can reach setup sees nothing of it. While an upload is arriving or
+  being checked, an upload from another browser is refused with a 409 `restore_elsewhere`. Once it has been checked,
+  an upload from another browser replaces it as soon as it starts, so a tab left open on a checked backup never keeps
+  you out. The first page then says its backup was replaced and asks for the file again; that also happens if the
+  other browser sent a wrong file. A checked upload you do not confirm is deleted after an hour, or at the next
+  start. Once you confirm, creating an account is refused until the restore is applied; if someone creates the
+  account first, the restore is refused and the upload deleted.
 - **Slow or stalled uploads are stopped** so they cannot hold the one restore slot: nothing received for two minutes,
   an average under 32 KB/s after the first two minutes, or a transfer that runs past its allowance (its size at
   128 KB/s, at least two hours, never more than four). The page says why, and a refused upload expires after an hour

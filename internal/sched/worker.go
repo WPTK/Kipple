@@ -131,7 +131,7 @@ func (s *Scheduler) exec(f *flight) (out result) {
 			err = cerr
 			if cerr == nil {
 				phase = phaseCommitted
-				out.migrated, out.discovered = ci.Migrated, ci.Migrated
+				out.migrated, out.discovered, out.mergedInto = ci.Migrated, ci.Migrated, ci.MergedInto
 				out.nextFetch = time.Time{}
 			}
 		} else if res.Success() {

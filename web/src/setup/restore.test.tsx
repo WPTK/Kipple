@@ -205,12 +205,12 @@ describe("restore in the setup wizard", () => {
 
   it("says another browser holds the restore when the refused upload shows up as a cut connection", async () => {
     reply = { status: 0, body: {}, network: true };
-    server({ restore: "none", setup: true, signedIn: false, status: { state: "none", refusal: { code: "restore_elsewhere", message: "Another browser is uploading or restoring a backup." } } });
+    server({ restore: "none", setup: true, signedIn: false, status: { state: "none", refusal: { code: "restore_elsewhere", message: "Another browser is uploading a backup, or has uploaded one." } } });
     go();
     const user = userEvent.setup();
     await chooseFile(user);
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Another browser is uploading or restoring a backup.");
+    expect(alert).toHaveTextContent("Another browser is uploading a backup, or has uploaded one.");
     expect(alert).not.toHaveTextContent("disk space");
   });
 
@@ -382,7 +382,7 @@ describe("restore in the setup wizard", () => {
   });
 
   it("says another browser's upload is in the way without offering to cancel it", async () => {
-    const msg = "Another browser is uploading or restoring a backup. Kipple stops an upload that stalls or crawls, deletes a backup nobody confirms within an hour, and clears both when it restarts.";
+    const msg = "Another browser is uploading a backup, or has uploaded one. Kipple stops an upload that stalls or crawls; once it has been checked, a new upload from this browser replaces it.";
     reply = { status: 409, body: { error: "restore_elsewhere", message: msg } };
     const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() });
     go();
@@ -391,6 +391,35 @@ describe("restore in the setup wizard", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(msg);
     expect(screen.queryByRole("button", { name: "Cancel the other upload" })).toBeNull();
     expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
+  });
+
+  it.each([
+    ["Restore everything", "POST /api/setup/restore/confirm"],
+    ["Continue", "GET /api/setup/restore/feeds"],
+  ])("goes back to the picker when another browser's upload replaced this one (%s)", async (button, route) => {
+    const msg = "Another browser uploaded a backup, which replaced the one uploaded here. Choose the file again to restore it from this browser.";
+    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() }, { [route]: () => json({ error: "restore_replaced", message: msg }, 409) });
+    go();
+    const user = userEvent.setup();
+    await chooseFile(user);
+    expect(await screen.findByTestId("backup-summary")).toBeInTheDocument();
+    if (button === "Continue") await user.click(screen.getByLabelText("Feeds only"));
+    await user.click(screen.getByRole("button", { name: button }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(msg);
+    expect(screen.queryByTestId("backup-summary")).toBeNull();
+    expect(screen.getByLabelText("Backup or OPML file")).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
+  });
+
+  it("goes back to the picker when Cancel finds another browser's upload in its place", async () => {
+    server({ restore: "none", setup: true, signedIn: false, status: ready() }, { "DELETE /api/setup/restore": () => json({ error: "restore_elsewhere", message: "elsewhere" }, 409) });
+    go();
+    const user = userEvent.setup();
+    await chooseFile(user);
+    await screen.findByTestId("backup-summary");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByLabelText("Backup or OPML file")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("sends this browser's owner key with the upload and every restore call, the same key each time", async () => {

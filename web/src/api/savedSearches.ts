@@ -28,6 +28,8 @@ export function useSavedSearches(opts: { counts?: boolean } = {}): {
   searches: SavedSearch[];
   loading: boolean;
   error: boolean;
+  fetching: boolean;
+  countsFetching: boolean;
   countsError: boolean;
   refetch: () => void;
   refetchCounts: () => void;
@@ -57,6 +59,8 @@ export function useSavedSearches(opts: { counts?: boolean } = {}): {
     searches,
     loading: base.isPending,
     error: base.isError,
+    fetching: base.isFetching,
+    countsFetching: withCounts.isFetching,
     countsError: withCounts.isError && !withCounts.data,
     refetch: () => void base.refetch(),
     refetchCounts: () => void withCounts.refetch(),

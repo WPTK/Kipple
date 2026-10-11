@@ -188,8 +188,21 @@ function Test-Signature {
   [CmdletBinding()]
   [OutputType([pscustomobject])]
   param([Parameter(Mandatory)][string]$Cosign, [Parameter(Mandatory)][string]$Step, [Parameter(Mandatory)][string[]]$Arguments, [string]$ExpectDigest = '')
-  $r = Invoke-Native -FilePath $Cosign -Arguments $Arguments -Step $Step -AllowFailure `
-    -Fix 'cosign 3 or later is needed; check the tag is the one the workflow signed'
+  # The image is public: verifying needs no registry login. An empty Docker config keeps cosign from calling the
+  # machine's credential helper, which fails when Docker Desktop's helper is not on PATH.
+  $emptyConfig = Join-Path ([IO.Path]::GetTempPath()) ("kipple-docker-" + [guid]::NewGuid().ToString('N'))
+  $oldConfig = $env:DOCKER_CONFIG
+  try {
+    $null = New-Item -ItemType Directory -Path $emptyConfig
+    Set-Content -LiteralPath (Join-Path $emptyConfig 'config.json') -Value '{}'
+    $env:DOCKER_CONFIG = $emptyConfig
+    $r = Invoke-Native -FilePath $Cosign -Arguments $Arguments -Step $Step -AllowFailure `
+      -Fix 'cosign 3 or later is needed; check the tag is the one the workflow signed'
+  }
+  finally {
+    $env:DOCKER_CONFIG = $oldConfig
+    Remove-Item -LiteralPath $emptyConfig -Recurse -Force -ErrorAction SilentlyContinue
+  }
   if ($r.ExitCode -ne 0) {
     return [pscustomobject]@{ Step = $Step; Ok = $false; Detail = (($r.Output | Select-Object -Last 5) -join ' | ') }
   }

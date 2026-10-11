@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 // Keymap per docs/maintainers/ui-decisions.md ("Gestures and keys").
 // Rules: never bind Ctrl/Cmd/Alt; single keys are off while typing, during IME
@@ -100,7 +100,7 @@ const CHORD: Record<string, Action> = {
 /**
  * Map a key press to an action. Pure so it can be tested without a DOM.
  * `pendingG` says a `g` chord is waiting; the result carries the next value.
- * Arrow keys stay unbound so the browser keeps scrolling.
+ * Arrow keys stay unbound here so the browser keeps scrolling; on a focused row link they move focus between rows (ListPane).
  */
 export function interpretKey(
   e: KeyLike,
@@ -132,7 +132,11 @@ export type Handlers = Partial<Record<Action, () => void>>;
 /** Global key handling. Only actions present in `handlers` are consumed. */
 export function useHotkeys(handlers: Handlers, opts: { singleKeys: boolean; enabled?: boolean }): void {
   const ref = useRef({ handlers, opts });
-  useEffect(() => {
+  // A layout effect, not a passive one: it runs in the same task as the commit, so a key pressed once the screen
+  // shows a new selection acts on that selection. A passive effect may run only after the browser has handled
+  // the next keydown (React defers it after a render scheduled as a transition, such as a navigation), and that key
+  // then acted on the row selected before.
+  useLayoutEffect(() => {
     ref.current = { handlers, opts };
   });
   useEffect(() => {
@@ -182,6 +186,7 @@ export const KEYMAP: KeyDoc[] = [
   { keys: "Enter", desc: "Open the folder's or feed's list", scope: "Sidebar" },
   { keys: "p", desc: "Add to favorites or take out", scope: "Sidebar" },
   { keys: "j / k", desc: "Next / previous article", scope: "List" },
+  { keys: "↓ / ↑", desc: "Move focus to the next / previous article without opening it (Tab leaves the list)", scope: "List" },
   { keys: "Enter", desc: "Open the selected article", scope: "List" },
   { keys: "x", desc: "Select or deselect the row (then m, s, { and } act on the selection; { and } anchor on its first and last row)", scope: "List" },
   { keys: "m", desc: "Mark read or unread", scope: "List" },

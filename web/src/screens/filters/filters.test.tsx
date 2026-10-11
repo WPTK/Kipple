@@ -294,6 +294,8 @@ describe("filter editor", () => {
     await user.click(w.getByRole("button", { name: "Save filter" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/filters")).toBe(true));
     expect(body(calls.find((c) => c.method === "POST" && c.url.pathname === "/api/filters") as never)).toMatchObject({ scope: "folder", folder_id: "2", feed_id: null });
+    // A rule started in Settings comes from no article.
+    expect(body(calls.find((c) => c.method === "POST" && c.url.pathname === "/api/filters") as never)).not.toHaveProperty("source_item_id");
   });
 
   it("regular expressions: only patterns, no whole-word or accent options, highlight not offered a word list", async () => {

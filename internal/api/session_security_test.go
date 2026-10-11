@@ -63,6 +63,21 @@ func TestLogoutDeletesTheServerSideSession(t *testing.T) {
 	require.Equal(t, 1, h.count("SELECT count(*) FROM sessions"))
 }
 
+// A logout whose session row could not be deleted says so and keeps the cookie: clearing
+// it would report a sign-out while a copy of the cookie still works.
+func TestLogoutThatCannotDeleteTheSessionFailsAndKeepsTheCookie(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	a := h.login()
+	h.exec(`CREATE TRIGGER stop_logout BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT, 'boom'); END`)
+
+	rec := h.do("POST", "/api/auth/logout", "", withCookie(a))
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	require.Empty(t, rec.Result().Cookies(), "no cookie is cleared")
+	code, _, _ := h.api(a, "GET", "/api/status", "")
+	require.Equal(t, http.StatusOK, code, "still signed in, so the sign-out can be tried again")
+}
+
 // A session that is not used for the whole 90 days expires, and one that is used
 // slides forward from the use.
 func TestSessionExpiresAfterNinetyIdleDaysAndSlidesWithUse(t *testing.T) {
