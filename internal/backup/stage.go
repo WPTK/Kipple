@@ -79,13 +79,16 @@ var (
 	ErrRestoreBusy = &Refusal{"Another restore upload is in progress. Cancel it first, then try again."}
 	// ErrRestoreElsewhere: the upload belongs to another browser (see
 	// Restorer), which alone can see, confirm or cancel it.
-	ErrRestoreElsewhere = &Refusal{"Another browser is uploading or restoring a backup. Kipple stops an upload that stalls or crawls, deletes a backup nobody confirms within an hour, and clears both when it restarts."}
+	ErrRestoreElsewhere = &Refusal{"Another browser is uploading a backup. Kipple stops an upload that stalls or crawls; once it has been checked, a new upload from this browser replaces it."}
 	ErrRestorePending   = &Refusal{"A restore is waiting to be applied: Kipple is restarting to finish it."}
 	ErrNoUpload         = &Refusal{"No checked backup is waiting, or it expired. Upload it again."}
 	ErrNotBackup        = &Refusal{"This is not a Kipple backup zip or an OPML file."}
 	ErrUploadTooLarge   = &Refusal{"This file is larger than the " + human(MaxUploadBytes) + " a restore accepts."}
 	ErrOPMLTooLarge     = &Refusal{"This OPML file is larger than the " + human(opml.MaxFileBytes) + " an import accepts."}
 	ErrUploadCut        = &Refusal{"The upload stopped before the whole file arrived. Try again."}
+	// ErrRestoreReplaced: a page asked to confirm or take the feeds of its
+	// upload, and another browser's upload has replaced it.
+	ErrRestoreReplaced = &Refusal{"Another browser uploaded a backup, which replaced the one uploaded here. Choose the file again to restore it from this browser."}
 	// ErrDiskFull: the volume filled up while the upload was being kept.
 	ErrDiskFull = &Refusal{"The disk is full, so the upload could not be kept. Free some space and try again."}
 	// ErrUploadTooSlow: the body reader stopped an upload that sent too slowly
@@ -173,7 +176,9 @@ type RestorerOptions struct {
 // random value the server gave that browser before it sent the file), and
 // every later call brings the caller's key. Only the owner sees
 // the summary, takes the feeds, confirms or cancels; to anyone else an upload
-// reads as none, and acting on it is ErrRestoreElsewhere.
+// reads as none, and acting on it is ErrRestoreElsewhere (ErrRestoreReplaced
+// for a confirm or the feeds). A new upload replaces a checked one that
+// nobody confirmed: nothing of its browser runs, so nothing says it is there.
 type Restorer struct {
 	o   RestorerOptions
 	log *slog.Logger
@@ -251,17 +256,19 @@ func (r *Restorer) othersLocked(owner string) bool {
 }
 
 // refusalLocked is why a new upload from owner would be refused now, or nil: a restore already confirmed, this
-// browser\'s own upload still running, or another browser\'s. Upload and Status share it, so the answer a refused upload
-// gets and the one a status request gives are one. Under mu.
+// browser's own upload, or another browser's still arriving or being checked (its ready one is replaced). Upload and
+// Status share it, so the answer a refused upload gets and the one a status request gives are one. Under mu.
 func (r *Restorer) refusalLocked(owner string) error {
 	switch {
 	case r.state == RestoreConfirmed:
 		return ErrRestorePending
-	case r.job != nil || r.state == RestoreUploading || r.state == RestoreChecking || r.state == RestoreReady:
+	case r.job != nil || r.state == RestoreUploading || r.state == RestoreChecking:
 		if r.mine(owner) {
 			return ErrRestoreBusy
 		}
 		return ErrRestoreElsewhere
+	case r.state == RestoreReady && r.mine(owner):
+		return ErrRestoreBusy
 	}
 	return nil
 }
@@ -329,7 +336,10 @@ func (r *Restorer) Upload(reqCtx context.Context, owner string, body io.Reader, 
 		r.mu.Unlock()
 		return Upload{}, err
 	}
-	// none, or failed (a new upload replaces a refused one)
+	// none, or failed or another browser's ready upload (a new upload replaces either)
+	if r.state == RestoreReady {
+		r.discardLocked()
+	}
 	r.gen++
 	g := r.gen
 	r.state, r.failErr, r.estimate, r.cur, r.feeds, r.owner = RestoreUploading, nil, 0, nil, nil, owner
@@ -536,7 +546,7 @@ func (r *Restorer) Feeds(owner string) ([]byte, error) {
 	case r.state == RestoreConfirmed:
 		return nil, ErrRestorePending
 	case r.othersLocked(owner):
-		return nil, ErrRestoreElsewhere
+		return nil, ErrRestoreReplaced
 	case r.state != RestoreReady:
 		return nil, ErrNoUpload
 	}
@@ -547,7 +557,7 @@ func (r *Restorer) Feeds(owner string) ([]byte, error) {
 }
 
 // Uploaded is the owner's checked, unconfirmed upload and its ticket for
-// Confirm: ErrRestorePending once confirmed, ErrRestoreElsewhere for another
+// Confirm: ErrRestorePending once confirmed, ErrRestoreReplaced for another
 // browser's upload, ErrNoUpload without a checked one.
 func (r *Restorer) Uploaded(owner string) (up Upload, ticket int, err error) {
 	r.mu.Lock()
@@ -556,7 +566,7 @@ func (r *Restorer) Uploaded(owner string) (up Upload, ticket int, err error) {
 	case r.state == RestoreConfirmed:
 		return Upload{}, 0, ErrRestorePending
 	case r.othersLocked(owner):
-		return Upload{}, 0, ErrRestoreElsewhere
+		return Upload{}, 0, ErrRestoreReplaced
 	case r.state != RestoreReady:
 		return Upload{}, 0, ErrNoUpload
 	}
