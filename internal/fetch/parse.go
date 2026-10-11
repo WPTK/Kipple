@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -169,19 +170,19 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 		keep = newestEntries(entries, MaxItemsPerFetch, time.Now())
 	}
 	items := make([]Item, 0, len(keep))
-	repicks := make([]func(skip func(string) bool) string, 0, len(keep))
+	var images [][]string // each kept item's ranked images, parallel to items
 	skipped := 0
 	for _, i := range keep {
 		gi := entries[i]
-		it, repick, ok := convertItem(i, gi, out.SiteURL, out.Title, opt, content, jsonItems)
+		it, imgs, ok := convertItem(i, gi, out.SiteURL, out.Title, opt, content, jsonItems)
 		if !ok {
 			skipped++
 			continue
 		}
 		items = append(items, it)
-		repicks = append(repicks, repick)
+		images = append(images, imgs)
 	}
-	dropSharedImages(items, repicks)
+	dropSharedImages(items, images)
 
 	mode := opt.DedupMode
 	if mode == "" {
@@ -313,10 +314,10 @@ func (f xmlFilter) Read(p []byte) (int, error) {
 // image at all (every such entry would share one uid), or one whose conversion panics on
 // hostile input. One bad entry is dropped and counted, never fatal to the
 // fetch (design §13 item 9).
-func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOptions, content func(string, ...string) (string, string), jsonItems []*gjson.Item) (it Item, repick func(skip func(string) bool) string, ok bool) {
+func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOptions, content func(string, ...string) (string, string), jsonItems []*gjson.Item) (it Item, images []string, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
-			it, repick, ok = Item{}, nil, false
+			it, images, ok = Item{}, nil, false
 		}
 	}()
 	if gi == nil {
@@ -350,8 +351,10 @@ func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOpt
 	}
 	it.ContentHTML, it.ContentText = content(raw, bases...)
 
-	repick = func(skip func(string) bool) string { return pickImage(gi, raw, bases, skip) }
-	it.ImageURL = repick(nil)
+	images = pickImages(gi, raw, bases)
+	if len(images) > 0 {
+		it.ImageURL = images[0]
+	}
 	it.Categories = itemCategories(gi.Categories)
 	it.Published = firstTime(gi.PublishedParsed, gi.UpdatedParsed)
 	it.Updated = validTime(gi.UpdatedParsed)
@@ -381,42 +384,73 @@ func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOpt
 		it.GUID = media
 		it.Title = mediaTitle(media, feedTitle)
 	}
-	return it, repick, true
+	return it, images, true
 }
 
-// sharedImageItems is how many items of one fetch must lead with the same image for it to count as the site's own
-// (a logo, a sponsor mark, a newsletter banner) rather than any article's picture.
+// sharedImageItems is how many items of one fetch must carry the same image among their best imagesPerItem for it to
+// count as the site's own (a logo, a sponsor mark, a newsletter banner) and not any article's picture. Two is too few:
+// a photo two posts of a series share is still theirs. A real picture three or more posts share (a series banner, a
+// show's art on every episode, a young feed of three posts with one hero) is dropped with the logos and those posts
+// show no image.
 const sharedImageItems = 3
 
-// dropSharedImages re-picks the lead image of every item whose pick leads sharedImageItems or more items of the same
-// fetch, leaving that image out, so a feed that opens every post with one logo shows each article's own picture (or
-// none). The next pick can itself be shared, so it repeats until none is; each round drops at least one image and an
-// item has few, so it ends quickly. repicks is parallel to items.
-func dropSharedImages(items []Item, repicks []func(skip func(string) bool) string) {
-	shared := map[string]bool{}
-	skip := func(u string) bool { return shared[u] }
-	for {
-		count := map[string]int{}
-		for _, it := range items {
-			if it.ImageURL != "" {
-				count[it.ImageURL]++
+// imagesPerItem is how many ranked images per item take part in that count and are kept as fallbacks.
+const imagesPerItem = 4
+
+// dropSharedImages gives every item the first of its ranked images that is not shared with sharedImageItems or more
+// items of the same fetch, or none. images[i] belongs to items[i]. It decides from this fetch's document alone, in one
+// pass of at most imagesPerItem steps per item, so the same feed always gives the same pictures; the cost is that a
+// feed listing fewer items than that, or a sponsor on only two of them, is not caught, and an item stored earlier
+// keeps its picture until its content changes (the store re-reads a lead image only then).
+func dropSharedImages(items []Item, images [][]string) {
+	holders := map[string]map[int]bool{} // image key -> items that carry it among their best
+	for i, imgs := range images {
+		for _, u := range imgs {
+			k := imageKey(u)
+			if holders[k] == nil {
+				holders[k] = map[int]bool{}
 			}
+			holders[k][i] = true
 		}
-		found := false
-		for u, n := range count {
-			if n >= sharedImageItems {
-				shared[u], found = true, true
-			}
-		}
-		if !found {
-			return
-		}
-		for i := range items {
-			if shared[items[i].ImageURL] {
-				items[i].ImageURL = repicks[i](skip)
+	}
+	for i, imgs := range images {
+		items[i].ImageURL = ""
+		for _, u := range imgs {
+			if len(holders[imageKey(u)]) < sharedImageItems {
+				items[i].ImageURL = u
+				break
 			}
 		}
 	}
+}
+
+// sizedSuffix is a CDN or WordPress size suffix before the extension: logo-150x150.png, logo-300x300.png.
+var sizedSuffix = regexp.MustCompile(`-\d{2,5}x\d{2,5}(\.[A-Za-z0-9]{2,5})$`)
+
+// sizeParams are query parameters that change how an image is cut or tracked, not which image it is.
+var sizeParams = map[string]bool{
+	"v": true, "ver": true, "w": true, "h": true, "width": true, "height": true, "resize": true, "fit": true,
+	"quality": true, "q": true, "auth": true, "ssl": true, "fbclid": true,
+}
+
+// imageKey names an image for the shared count: the same file under http or https, with or without "www.", with a
+// size suffix, a tracking or sizing query, or a different case of the host is one image. Other query parameters stay,
+// because many image hosts name the picture in the query.
+func imageKey(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	var keep []string
+	for k, vs := range u.Query() {
+		if lk := strings.ToLower(k); !sizeParams[lk] && !strings.HasPrefix(lk, "utm_") {
+			for _, v := range vs {
+				keep = append(keep, k+"="+v)
+			}
+		}
+	}
+	sort.Strings(keep)
+	return strings.TrimPrefix(strings.ToLower(u.Host), "www.") + sizedSuffix.ReplaceAllString(u.Path, "$1") + "?" + strings.Join(keep, "&")
 }
 
 // mediaTitle names an enclosure-only entry: the file name of its media URL
@@ -496,51 +530,51 @@ func origLink(gi *gofeed.Item) string {
 // order (map iteration is random and the output must be deterministic):
 // media:content with an image type/medium, media:thumbnail, then inside
 // media:group.
-func mediaImage(m map[string][]ext.Extension, bases []string, skipped func(string) bool) string {
+func mediaImage(m map[string][]ext.Extension, bases []string) string {
 	for _, c := range m["content"] {
 		if strings.HasPrefix(strings.ToLower(c.Attrs["type"]), "image/") || c.Attrs["medium"] == "image" {
-			if u := sanitize.ResolveURL(c.Attrs["url"], bases...); !skipped(u) {
+			if u := sanitize.ResolveURL(c.Attrs["url"], bases...); u != "" {
 				return u
 			}
 		}
 	}
 	for _, t := range m["thumbnail"] {
-		if u := sanitize.ResolveURL(t.Attrs["url"], bases...); !skipped(u) {
+		if u := sanitize.ResolveURL(t.Attrs["url"], bases...); u != "" {
 			return u
 		}
 	}
 	for _, g := range m["group"] {
-		if u := mediaImage(g.Children, bases, skipped); u != "" {
+		if u := mediaImage(g.Children, bases); u != "" {
 			return u
 		}
 	}
 	return ""
 }
 
-// pickImage chooses the lead image, in order: gofeed's explicit image
-// (itunes:image, media:content image, image enclosure, JSON Feed image or
-// banner_image), media:thumbnail / media:content anywhere in the media
-// namespace (Atom, media:group), an image enclosure, then the first real <img>
-// in the content. The result is absolute or "".
-// A nil skip skips nothing; otherwise an image skip reports true for is passed over wherever it would be picked.
-func pickImage(gi *gofeed.Item, rawHTML string, bases []string, skip func(string) bool) string {
-	skipped := func(u string) bool { return u == "" || (skip != nil && skip(u)) }
-	if gi.Image != nil {
-		if u := sanitize.ResolveURL(gi.Image.URL, bases...); !skipped(u) {
-			return u
+// pickImages ranks the item's images, best first, at most imagesPerItem distinct absolute URLs: gofeed's explicit
+// image (itunes:image, media:content image, image enclosure, JSON Feed image or banner_image), media:thumbnail /
+// media:content anywhere in the media namespace (Atom, media:group), image enclosures, then the real <img> tags of
+// the content by sanitize.LeadImages. The first is the lead image.
+func pickImages(gi *gofeed.Item, rawHTML string, bases []string) []string {
+	var out []string
+	add := func(u string) {
+		if u != "" && len(out) < imagesPerItem && !slices.Contains(out, u) {
+			out = append(out, u)
 		}
 	}
-	if u := mediaImage(gi.Extensions["media"], bases, skipped); u != "" {
-		return u
+	if gi.Image != nil {
+		add(sanitize.ResolveURL(gi.Image.URL, bases...))
 	}
+	add(mediaImage(gi.Extensions["media"], bases))
 	for _, e := range gi.Enclosures {
 		if strings.HasPrefix(strings.ToLower(e.Type), "image/") {
-			if u := sanitize.ResolveURL(e.URL, bases...); !skipped(u) {
-				return u
-			}
+			add(sanitize.ResolveURL(e.URL, bases...))
 		}
 	}
-	return sanitize.LeadImageSkipping(rawHTML, skip, bases...)
+	for _, u := range sanitize.LeadImages(rawHTML, imagesPerItem, bases...) {
+		add(u)
+	}
+	return out
 }
 
 // Category limits (backend additions 1.8): a feed can list dozens of tags.

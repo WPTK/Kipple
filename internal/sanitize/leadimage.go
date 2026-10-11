@@ -44,39 +44,59 @@ const bannerRatio = 4
 // `srcset` width descriptor, else the `width`/`height` attribute) and the
 // highest-scoring one wins; when no candidate names a size, the first one
 // found is kept, exactly as before.
-func LeadImage(src string, bases ...string) string { return LeadImageSkipping(src, nil, bases...) }
+func LeadImage(src string, bases ...string) string {
+	if c := LeadImages(src, 1, bases...); len(c) > 0 {
+		return c[0]
+	}
+	return ""
+}
 
-// LeadImageSkipping is LeadImage ignoring every image whose resolved URL skip reports true (nil skips none). A feed
-// uses it to leave out a picture that leads many of its items, which is the site's, not the article's.
-func LeadImageSkipping(src string, skip func(string) bool, bases ...string) string {
+// LeadImages is LeadImage's ranking kept for the best n images instead of the best one: distinct URLs, best first,
+// ties in document order. It is one pass over src and O(candidates x n) work, whatever src holds, so a hostile
+// document cannot make a caller's later choice among them expensive.
+func LeadImages(src string, n int, bases ...string) []string {
 	type candidate struct {
 		url   string
 		score int
 	}
-	var best candidate
-	haveBest := false
-	// outranks reports whether a new candidate should replace best, treating an unknown size (0) as
-	// assumedWidth rather than 0 so it isn't beaten by any image that merely happens to declare a size.
-	outranks := func(score int) bool {
-		if !haveBest {
-			return true
+	// effective treats an unknown size (0) as assumedWidth rather than 0 so it isn't beaten by any image that merely
+	// happens to declare a size.
+	effective := func(s int) int {
+		if s == 0 {
+			return assumedWidth
 		}
-		effective := func(s int) int {
-			if s == 0 {
-				return assumedWidth
+		return s
+	}
+	var best []candidate // at most n, best first
+	add := func(u string, score int) {
+		pos := len(best)
+		for i, c := range best {
+			if c.url == u {
+				return
 			}
-			return s
+			if pos == len(best) && effective(score) > effective(c.score) {
+				pos = i
+			}
 		}
-		return effective(score) > effective(best.score)
+		if pos >= n {
+			return
+		}
+		best = append(best, candidate{})
+		copy(best[pos+1:], best[pos:])
+		best[pos] = candidate{u, score}
+		if len(best) > n {
+			best = best[:n]
+		}
 	}
 	z := html.NewTokenizer(strings.NewReader(src))
 	for {
 		switch z.Next() {
 		case html.ErrorToken:
-			if haveBest {
-				return best.url
+			urls := make([]string, len(best))
+			for i, c := range best {
+				urls[i] = c.url
 			}
-			return ""
+			return urls
 		case html.StartTagToken, html.SelfClosingTagToken:
 			name, hasAttr := z.TagName()
 			if string(name) != "img" || !hasAttr {
@@ -95,14 +115,11 @@ func LeadImageSkipping(src string, skip func(string) bool, bases ...string) stri
 			}
 			// srcset's widest candidate, if any, is preferred over plain src/lazy attrs: src is often the
 			// small default a JS-less client would get, while srcset lists the full range up to the original.
-			if u, w := bestSrcset(attrs["srcset"], bases); u != "" && (skip == nil || !skip(u)) {
+			if u, w := bestSrcset(attrs["srcset"], bases); u != "" {
 				if isBanner(attrs) {
 					w = bannerScore
 				}
-				if outranks(w) {
-					best = candidate{url: u, score: w}
-					haveBest = true
-				}
+				add(u, w)
 				continue
 			}
 			cands := append([]string{attrs["src"]}, func() []string {
@@ -118,17 +135,14 @@ func LeadImageSkipping(src string, skip func(string) bool, bases ...string) stri
 					continue
 				}
 				abs := ResolveURL(c, bases...)
-				if abs == "" || isTracker(abs) || (skip != nil && skip(abs)) {
+				if abs == "" || isTracker(abs) {
 					continue
 				}
 				score := attrWidth(attrs)
 				if isBanner(attrs) {
 					score = bannerScore
 				}
-				if outranks(score) {
-					best = candidate{url: abs, score: score}
-					haveBest = true
-				}
+				add(abs, score)
 				break
 			}
 		}
