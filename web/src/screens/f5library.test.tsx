@@ -175,6 +175,35 @@ describe("Saved searches in the Feeds list", () => {
     expect(screen.queryByRole("region", { name: "Saved searches" })).toBeNull();
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  it("says so, with a retry that refetches, when the list could not be loaded", async () => {
+    let fail = true;
+    const { calls } = base({
+      "GET /api/saved-searches": (u) =>
+        fail && u.searchParams.get("counts") === "0"
+          ? json({ error: "boom" }, 500)
+          : json({ saved_searches: u.searchParams.get("counts") === "0" ? SAVED : withCounts(SAVED) }),
+    });
+    go("/feeds");
+    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    expect(within(nav).getByText(/Couldn't load saved searches\./)).toBeInTheDocument();
+    fail = false;
+    const before = calls.filter((c) => c.url.pathname === "/api/saved-searches").length;
+    await userEvent.setup().click(within(nav).getByRole("button", { name: "Try again" }));
+    expect(await within(nav).findByRole("link", { name: /Rust news/ })).toBeInTheDocument();
+    expect(calls.filter((c) => c.url.pathname === "/api/saved-searches").length).toBeGreaterThan(before);
+    expect(within(nav).queryByText(/Couldn't load saved searches/)).toBeNull();
+  });
+
+  it("keeps the names and offers a retry when only the counts failed", async () => {
+    base({ "GET /api/saved-searches": (u) => (u.searchParams.get("counts") === "0" ? json({ saved_searches: SAVED }) : json({ error: "boom" }, 500)) });
+    go("/feeds");
+    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    expect(within(nav).getByRole("link", { name: /Rust news/ })).toBeInTheDocument();
+    expect(await within(nav).findByText(/Couldn't count unread articles\./, undefined, { timeout: 8000 })).toBeInTheDocument();
+    expect(within(nav).queryByText(/Couldn't load saved searches/)).toBeNull();
+    expect(within(nav).getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  }, 15000);
 });
 
 describe("Save this search", () => {

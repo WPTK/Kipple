@@ -30,16 +30,30 @@ export function SavedCount({ s }: { s: SavedSearch }) {
   );
 }
 
+function RetryNote({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <li className="px-3 text-xs text-fg2">
+      {message}{" "}
+      <button type="button" onClick={onRetry} className="min-h-11 text-link underline underline-offset-2">
+        Try again
+      </button>
+    </li>
+  );
+}
+
 /**
  * "Saved searches" under Favorites: name and unread count, tap runs the search in its scope and order. Collapsible
- * (remembered on this device). Counts are lazy: the names paint first, the numbers follow. Hidden when there are none.
+ * (remembered on this device). Counts are lazy: the names paint first, the numbers follow. Hidden when there are none;
+ * says so, with a retry, when the list could not be loaded.
  */
 export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
-  const { searches, countsError, refetchCounts } = useSavedSearches({ counts: true });
+  const { searches, error, refetch, countsError, refetchCounts } = useSavedSearches({ counts: true });
   const listId = useId();
   const open = useStore(savedOpenStore);
   const loc = useLocation();
-  if (searches.length === 0) return null;
+  // Hidden only when the list loaded and is empty; a list that failed to load says so, so it is not mistaken for none.
+  const listFailed = error && searches.length === 0;
+  if (searches.length === 0 && !listFailed) return null;
   const current = loc.pathname === "/search" ? new URLSearchParams(loc.search).get("ss") : null;
   return (
     <section aria-label="Saved searches" className="mb-2">
@@ -72,14 +86,8 @@ export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
               </Link>
             </li>
           ))}
-          {countsError ? (
-            <li className="px-3 text-xs text-fg2">
-              Couldn't count unread articles.{" "}
-              <button type="button" onClick={refetchCounts} className="min-h-11 text-link underline underline-offset-2">
-                Try again
-              </button>
-            </li>
-          ) : null}
+          {listFailed ? <RetryNote message="Couldn't load saved searches." onRetry={refetch} /> : null}
+          {countsError ? <RetryNote message="Couldn't count unread articles." onRetry={refetchCounts} /> : null}
         </ul>
       ) : null}
     </section>
