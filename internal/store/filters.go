@@ -487,7 +487,23 @@ func nullableID(p *int64) any {
 // it. Validation failures are *filter.Error. The filter's own ID, Hits and
 // timestamps are ignored.
 func (d *DB) CreateFilter(ctx context.Context, f Filter) (Filter, error) {
+	out, _, err := d.CreateFilterFrom(ctx, f, 0)
+	return out, err
+}
+
+// SourceResult is what CreateFilterFrom did to the article the rule was started from.
+type SourceResult struct {
+	Mute    SourceMute // empty when no source article was named
+	Changed StateResult
+}
+
+// CreateFilterFrom is CreateFilter for a rule started from article sourceID ("Mute similar..."; 0 for
+// none). When the stored rule is an enabled mute, the same transaction mutes that article if the rule
+// matches it (see muteSource), so saving acts on the article the rule came from. The rule is stored
+// whatever happens to the article, including when it no longer exists (SourceGone).
+func (d *DB) CreateFilterFrom(ctx context.Context, f Filter, sourceID int64) (Filter, SourceResult, error) {
 	var out Filter
+	var src SourceResult
 	now := d.clock.Now().Unix()
 	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		if _, err := d.sanitizeFiltersTx(ctx, tx); err != nil {
@@ -534,11 +550,25 @@ func (d *DB) CreateFilter(ctx context.Context, f Filter) (Filter, error) {
 		if err != nil {
 			return err
 		}
+		if sourceID != 0 {
+			src.Mute, src.Changed.Changed, err = muteSource(ctx, tx, cur, out, sourceID, now)
+			if err != nil {
+				return err
+			}
+			if len(src.Changed.Changed) > 0 {
+				if out, err = getFilter(ctx, tx, id); err != nil { // with the hit the mute counted
+					return err
+				}
+			}
+		}
 		d.bumpFilters()
 		d.filterTxDone()
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return Filter{}, SourceResult{}, err
+	}
+	return out, src, nil
 }
 
 // UpdateFilter loads filter id, lets mutate change it, validates the result
@@ -733,17 +763,7 @@ func (d *DB) DeleteFilterWithin(ctx context.Context, id int64, unmute string, de
 				return 0, err
 			}
 			if unmute == UnmuteUnread {
-				// Only what was unread before the mute goes back to unread; an item the user had already read
-				// (or one muted from the initial-read window) keeps its read state and read_at.
-				urows, err := tx.QueryContext(ctx, `UPDATE items SET muted_by = NULL, muted_was_read = NULL,
-					read = CASE WHEN COALESCE(muted_was_read, 1) = 1 THEN read ELSE 0 END,
-					read_at = CASE WHEN COALESCE(muted_was_read, 1) = 1 THEN read_at ELSE NULL END,
-					state_changed_at = CASE WHEN COALESCE(muted_was_read, 1) = 1 OR read = 0 THEN state_changed_at ELSE ?3 END
-					WHERE id IN (SELECT value FROM json_each(?1)) AND muted_by = ?2 RETURNING id, feed_id, read`, js, id, d.clock.Now().Unix())
-				if err != nil {
-					return 0, err
-				}
-				if res, err = scanUnmuted(urows); err != nil {
+				if res, err = unmuteRestoring(ctx, tx, js, id, d.clock.Now().Unix()); err != nil {
 					return 0, err
 				}
 			} else {
@@ -800,6 +820,39 @@ func (d *DB) DeleteFilterWithin(ctx context.Context, id int64, unmute string, de
 	}
 	out.Done = true
 	return out, hadRow || orphans, nil
+}
+
+// unmuteRestoring un-mutes the items in js (a JSON array of ids) muted by rule ruleID, or by any rule
+// when ruleID is 0, and puts back the read state each had before the mute: only what was unread then
+// goes back to unread; an item the user had already read (or one muted from the initial-read window,
+// or with no recorded state) keeps its read state and read_at.
+func unmuteRestoring(ctx context.Context, tx *sql.Tx, js string, ruleID, now int64) (StateResult, error) {
+	rows, err := tx.QueryContext(ctx, `UPDATE items SET muted_by = NULL, muted_was_read = NULL,
+		read = CASE WHEN COALESCE(muted_was_read, 1) = 1 THEN read ELSE 0 END,
+		read_at = CASE WHEN COALESCE(muted_was_read, 1) = 1 THEN read_at ELSE NULL END,
+		state_changed_at = CASE WHEN COALESCE(muted_was_read, 1) = 1 OR read = 0 THEN state_changed_at ELSE ?3 END
+		WHERE id IN (SELECT value FROM json_each(?1)) AND muted_by = COALESCE(NULLIF(?2, 0), muted_by)
+		RETURNING id, feed_id, read`, js, ruleID, now)
+	if err != nil {
+		return StateResult{}, err
+	}
+	return scanUnmuted(rows)
+}
+
+// RestoreMuted un-mutes the items ids, whichever rule muted them, and puts back the read state each
+// had before the mute (unmuteRestoring): the Muted list's Restore. Items that are not muted are left
+// alone. Changed are the un-muted ids, MadeUnread those of them that are unread again.
+func (d *DB) RestoreMuted(ctx context.Context, ids []int64) (StateResult, error) {
+	var res StateResult
+	js, err := idsJSON(ids)
+	if err != nil {
+		return res, err
+	}
+	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		res, err = unmuteRestoring(ctx, tx, js, 0, d.clock.Now().Unix())
+		return err
+	})
+	return res, err
 }
 
 // scanUnmuted reads RETURNING id, feed_id, read of an un-mute UPDATE: every id is Changed, and

@@ -25,20 +25,21 @@ describe("titleKeywords", () => {
 
 describe("similarSeed", () => {
   it("scopes the rule to the article's feed, starts with no terms and no name, and offers the keywords and the author", () => {
-    const s = similarSeed({ title: "Sponsored giveaway: win a free laptop today", author: " Ada ", feed_id: "9", source: "Tech Daily" });
+    const s = similarSeed({ id: "7", title: "Sponsored giveaway: win a free laptop today", author: " Ada ", feed_id: "9", source: "Tech Daily" });
     expect(s.draft).toMatchObject({ scope: "feed", feed_id: "9", action: "mute", fields: ["title"], terms: [], name: "" });
+    expect(s.itemId).toBe("7");
     expect(s.keywords).toEqual(["Sponsored", "giveaway", "free", "laptop"]);
     expect(s.author).toBe("Ada");
     expect(s.feedTitle).toBe("Tech Daily");
   });
 
   it("offers no generic headline words, and keeps the distinctive one", () => {
-    const s = similarSeed({ title: "Best Apps Like Kalshi Alternatives You Should Try This Week", author: "", feed_id: "2", source: "Sports" });
+    const s = similarSeed({ id: "7", title: "Best Apps Like Kalshi Alternatives You Should Try This Week", author: "", feed_id: "2", source: "Sports" });
     expect(s.keywords).toEqual(["Kalshi"]);
     expect(s.draft.terms).toEqual([]);
   });
   it("works for an article with no usable words", () => {
-    const s = similarSeed({ title: "42", author: "", feed_id: "1", source: "X" });
+    const s = similarSeed({ id: "7", title: "42", author: "", feed_id: "1", source: "X" });
     expect(s.draft.terms).toEqual([]);
     expect(s.author).toBeNull();
   });
@@ -61,7 +62,7 @@ describe("unspaced scripts and the term limit (review finding 5)", () => {
     const long = "a".repeat(300);
     for (const w of titleKeywords(long)) expect([...w].length).toBeLessThanOrEqual(100);
     const thai = "ประกาศผลการแข่งขันฟุตบอลโลกรอบชิงชนะเลิศ";
-    const s = similarSeed({ title: thai + " " + thai, author: "", feed_id: "1", source: "x" });
+    const s = similarSeed({ id: "7", title: thai + " " + thai, author: "", feed_id: "1", source: "x" });
     expect(new TextEncoder().encode(s.draft.name).length).toBeLessThanOrEqual(200);
     for (const t of s.draft.terms) expect([...t].length).toBeLessThanOrEqual(100);
   });

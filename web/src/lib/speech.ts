@@ -1,3 +1,4 @@
+import { NOT_SHOWN_CLASS } from "./articleDom";
 import { createStore } from "./store";
 
 // Read aloud through the Web Speech API. Client only, no server cost. The article is split into chunks
@@ -48,6 +49,14 @@ export interface Chunk {
   text: string;
 }
 
+/** A block's text without the "Image not shown" cues in it: they are not part of the article. */
+function spokenText(el: Element): string {
+  if (!el.querySelector(`.${NOT_SHOWN_CLASS}`)) return el.textContent ?? "";
+  const copy = el.cloneNode(true) as Element;
+  copy.querySelectorAll(`.${NOT_SHOWN_CLASS}`).forEach((c) => c.remove());
+  return copy.textContent ?? "";
+}
+
 /** The readable blocks of an article body, in order, each split to a speakable size. */
 export function chunksOf(root: Element): Chunk[] {
   const out: Chunk[] = [];
@@ -55,7 +64,7 @@ export function chunksOf(root: Element): Chunk[] {
     // A block that contains other blocks is spoken through its children.
     if (el.querySelector("p,li,blockquote,h1,h2,h3,h4,h5,h6")) return;
     if (el.closest("pre")) return;
-    for (const text of splitText(el.textContent ?? "")) out.push({ el, text });
+    for (const text of splitText(spokenText(el))) out.push({ el, text });
   });
   return out;
 }

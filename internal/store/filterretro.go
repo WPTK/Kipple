@@ -107,17 +107,7 @@ func retroSQL(r filter.Rule, includeRead bool, cols retroCols) (from, where stri
 // errRetroBudget, inside one.
 func (d *DB) retroScan(ctx context.Context, r filter.Rule, rc retroCols, includeRead bool, deadline time.Time, onPage func([]retroItem) error) (truncated bool, err error) {
 	from, where, args := retroSQL(r, includeRead, rc)
-	cols := `i.id, i.feed_id, f.folder_id, ` + feedTitleSQL("f") + `,
-		i.title, i.author, i.url, i.read, i.starred, i.muted_by IS NOT NULL`
-	wantContent, wantCats := rc.content, rc.cats
-	if wantContent {
-		// substr counts characters, the engine bytes: a character is at least a byte, so this is enough.
-		cols += fmt.Sprintf(", COALESCE(substr(c.content_text, 1, %d), '')", rc.contentMax)
-	}
-	if wantCats {
-		cols += ", c.categories_json"
-	}
-	q := "SELECT " + cols + " FROM " + from + " WHERE i.id < ? AND " + where + " ORDER BY i.id DESC LIMIT " + fmt.Sprint(retroPage)
+	q := "SELECT " + retroSelect(rc) + " FROM " + from + " WHERE i.id < ? AND " + where + " ORDER BY i.id DESC LIMIT " + fmt.Sprint(retroPage)
 	cursor := maxInt64
 	chains := map[int64][]int64{} // folder id -> folderChain, read once per scan
 	for {
@@ -130,23 +120,10 @@ func (d *DB) retroScan(ctx context.Context, r filter.Rule, rc retroCols, include
 		}
 		page := make([]retroItem, 0, retroPage)
 		for rows.Next() {
-			var it retroItem
-			var read, starred, muted int
-			var cats sql.NullString
-			dest := []any{&it.id, &it.feedID, &it.folderID, &it.feedTitle, &it.title, &it.author, &it.url, &read, &starred, &muted}
-			if wantContent {
-				dest = append(dest, &it.content)
-			}
-			if wantCats {
-				dest = append(dest, &cats)
-			}
-			if err := rows.Scan(dest...); err != nil {
+			it, err := scanRetroItem(rows, rc)
+			if err != nil {
 				rows.Close()
 				return false, err
-			}
-			it.read, it.starred, it.muted = read == 1, starred == 1, muted == 1
-			if cats.Valid {
-				it.categories = decodeStrings(cats.String)
 			}
 			page = append(page, it)
 		}
@@ -182,6 +159,42 @@ func (d *DB) retroScan(ctx context.Context, r filter.Rule, rc retroCols, include
 	}
 }
 
+// retroSelect is the column list scanRetroItem reads, over the joins retroSQL makes for rc.
+func retroSelect(rc retroCols) string {
+	cols := `i.id, i.feed_id, f.folder_id, ` + feedTitleSQL("f") + `,
+		i.title, i.author, i.url, i.read, i.starred, i.muted_by IS NOT NULL`
+	if rc.content {
+		// substr counts characters, the engine bytes: a character is at least a byte, so this is enough.
+		cols += fmt.Sprintf(", COALESCE(substr(c.content_text, 1, %d), '')", rc.contentMax)
+	}
+	if rc.cats {
+		cols += ", c.categories_json"
+	}
+	return cols
+}
+
+// scanRetroItem reads one row selected with retroSelect(rc); folders is left for the caller.
+func scanRetroItem(sc interface{ Scan(...any) error }, rc retroCols) (retroItem, error) {
+	var it retroItem
+	var read, starred, muted int
+	var cats sql.NullString
+	dest := []any{&it.id, &it.feedID, &it.folderID, &it.feedTitle, &it.title, &it.author, &it.url, &read, &starred, &muted}
+	if rc.content {
+		dest = append(dest, &it.content)
+	}
+	if rc.cats {
+		dest = append(dest, &cats)
+	}
+	if err := sc.Scan(dest...); err != nil {
+		return it, err
+	}
+	it.read, it.starred, it.muted = read == 1, starred == 1, muted == 1
+	if cats.Valid {
+		it.categories = decodeStrings(cats.String)
+	}
+	return it, nil
+}
+
 // retroSet is the set a retroactive run evaluates, and the columns its scan must load. The saved
 // enabled rules with r in place (or added, forced enabled) are validated as one set, so the set-wide
 // limits hold. Evaluation then needs only r and the enabled star rules: retroEffect looks at r's own
@@ -193,6 +206,11 @@ func (d *DB) retroSet(ctx context.Context, r filter.Rule) (*filter.Set, filter.R
 	if err != nil {
 		return nil, r, retroCols{}, err
 	}
+	return retroSetOf(all, r)
+}
+
+// retroSetOf is retroSet over the saved filters all.
+func retroSetOf(all []Filter, r filter.Rule) (*filter.Set, filter.Rule, retroCols, error) {
 	if r.ID == 0 {
 		r.ID = unsavedFilterID
 	}
@@ -456,13 +474,7 @@ func (d *DB) applyBatch(ctx context.Context, applied Filter, r filter.Rule, ids 
 		}
 		switch r.Action {
 		case filter.ActionMute:
-			rows, err := tx.QueryContext(ctx, `UPDATE items SET muted_by = ?1, muted_was_read = read, read_at = CASE WHEN read = 0 THEN ?2 ELSE read_at END,
-				state_changed_at = CASE WHEN read = 0 THEN ?2 ELSE state_changed_at END, read = 1
-				WHERE id IN (SELECT value FROM json_each(?3)) AND starred = 0 AND muted_by IS NULL RETURNING id, feed_id`, r.ID, now, js)
-			if err != nil {
-				return 0, err
-			}
-			if res.Changed, err = scanIDs(rows); err != nil {
+			if res.Changed, err = muteItems(ctx, tx, r.ID, now, js); err != nil {
 				return 0, err
 			}
 		case filter.ActionMarkRead:
@@ -476,14 +488,115 @@ func (d *DB) applyBatch(ctx context.Context, applied Filter, r filter.Rule, ids 
 		default:
 			return 0, fmt.Errorf("store: cannot apply a %s filter", r.Action)
 		}
-		if len(res.Changed) > 0 {
-			if _, err := tx.ExecContext(ctx, "UPDATE filters SET hits = hits + ?, last_hit_at = ? WHERE id = ?", len(res.Changed), now, r.ID); err != nil {
-				return 0, err
-			}
+		if err := countHits(ctx, tx, r.ID, len(res.Changed), now); err != nil {
+			return 0, err
 		}
 		return int64(len(res.Changed)), nil
 	})
 	return res, err
+}
+
+// muteItems mutes the items in js (a JSON array of ids) for rule ruleID: read, with the read state
+// before the mute kept in muted_was_read so deleting the rule can put it back. A starred or already
+// muted item is left alone. It returns the ids it changed.
+func muteItems(ctx context.Context, tx *sql.Tx, ruleID, now int64, js string) ([]int64, error) {
+	rows, err := tx.QueryContext(ctx, `UPDATE items SET muted_by = ?1, muted_was_read = read, read_at = CASE WHEN read = 0 THEN ?2 ELSE read_at END,
+		state_changed_at = CASE WHEN read = 0 THEN ?2 ELSE state_changed_at END, read = 1
+		WHERE id IN (SELECT value FROM json_each(?3)) AND starred = 0 AND muted_by IS NULL RETURNING id, feed_id`, ruleID, now, js)
+	if err != nil {
+		return nil, err
+	}
+	return scanIDs(rows)
+}
+
+// countHits adds n hits to rule ruleID.
+func countHits(ctx context.Context, tx *sql.Tx, ruleID int64, n int, now int64) error {
+	if n == 0 {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, "UPDATE filters SET hits = hits + ?, last_hit_at = ? WHERE id = ?", n, now, ruleID)
+	return err
+}
+
+// SourceMute says what saving a rule started from an article ("Mute similar...") did to that article.
+// Every value but SourceMuted leaves the article as it was; the rule is saved either way.
+type SourceMute string
+
+const (
+	// SourceMuted: the rule matches the article, which is muted now, exactly as an apply mutes it.
+	SourceMuted SourceMute = "muted"
+	// SourceNotMute: the rule does not mute (mark read, star or highlight), so saving touches no article.
+	SourceNotMute SourceMute = "not_mute"
+	// SourceDisabled: the rule is saved turned off, so it mutes nothing yet.
+	SourceDisabled SourceMute = "disabled"
+	// SourceGone: the article no longer exists (trimmed, or its feed deleted, while the editor was open).
+	SourceGone SourceMute = "gone"
+	// SourceStarred: the article is starred, and a star beats a mute.
+	SourceStarred SourceMute = "starred"
+	// SourceArchived: the article's feed is archived, and rules skip archived feeds.
+	SourceArchived SourceMute = "archived"
+	// SourceNoMatch: the rule as saved does not match the article (the reader changed its words or scope).
+	SourceNoMatch SourceMute = "no_match"
+	// SourceAlreadyMuted: another rule muted the article already; it stays with that rule.
+	SourceAlreadyMuted SourceMute = "already_muted"
+	// SourceStarFilter: a star filter matches the article, and a star beats a mute.
+	SourceStarFilter SourceMute = "star_filter"
+)
+
+// muteSource mutes item sourceID for the just-stored rule f if f is an enabled mute that matches it,
+// in the caller's write transaction. all are the other saved filters (for the star rules that cancel
+// a mute). The evaluation is retroEffect's and the write is an apply's, so the article is restored by
+// the same paths as any muted one.
+func muteSource(ctx context.Context, tx *sql.Tx, all []Filter, f Filter, sourceID, now int64) (SourceMute, []int64, error) {
+	switch {
+	case f.Action != string(filter.ActionMute):
+		return SourceNotMute, nil, nil
+	case !f.Enabled:
+		return SourceDisabled, nil, nil
+	}
+	var starred, archived bool
+	err := tx.QueryRowContext(ctx, `SELECT i.starred, f.disabled_reason IS 'archive' FROM items i JOIN feeds f ON f.id = i.feed_id
+		WHERE i.id = ?`, sourceID).Scan(&starred, &archived)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return SourceGone, nil, nil
+	case err != nil:
+		return "", nil, err
+	case starred:
+		return SourceStarred, nil, nil
+	case archived:
+		return SourceArchived, nil, nil
+	}
+	set, r, rc, err := retroSetOf(all, f.Rule())
+	if err != nil {
+		return "", nil, err
+	}
+	// Global scope: the candidate query applies only what every rule skips; r's own scope is the engine's.
+	from, where, args := retroSQL(filter.Rule{Scope: filter.ScopeGlobal}, true, rc)
+	it, err := scanRetroItem(tx.QueryRowContext(ctx, "SELECT "+retroSelect(rc)+" FROM "+from+" WHERE "+where+" AND i.id = ?", append(args, sourceID)...), rc)
+	if err != nil {
+		return "", nil, err // the row was read above in this transaction
+	}
+	if it.folders, err = folderChain(ctx, tx, it.folderID); err != nil {
+		return "", nil, err
+	}
+	switch {
+	case !slices.Contains(set.Evaluate(it.engine()).Matched, r.ID):
+		return SourceNoMatch, nil, nil
+	case it.muted:
+		return SourceAlreadyMuted, nil, nil
+	case retroEffect(set, r, it) != effMute:
+		return SourceStarFilter, nil, nil
+	}
+	js, err := idsJSON([]int64{sourceID})
+	if err != nil {
+		return "", nil, err
+	}
+	changed, err := muteItems(ctx, tx, r.ID, now, js)
+	if err != nil {
+		return "", nil, err
+	}
+	return SourceMuted, changed, countHits(ctx, tx, r.ID, len(changed), now)
 }
 
 // decodeStrings parses a JSON string array; anything else is no categories.

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import { arrivedAfter, itemActions } from "./itemActions";
+import { arrivedAfter, itemActions, restoredMessage } from "./itemActions";
 import { UNDO_WAIT_MS, resetUndo, undoLast, undoStore, undoToast } from "./undo";
 import type { InfiniteData } from "@tanstack/react-query";
 import { keys } from "@/api/queries";
@@ -385,3 +385,13 @@ describe("z while an action is still in flight", () => {
   });
 });
 
+describe("restoredMessage", () => {
+  it("says which restored articles are unread again and which stay read", () => {
+    expect(restoredMessage(1, 1)).toBe("Restored. It is unread again.");
+    expect(restoredMessage(1, 0)).toBe("Restored. It stays read, as it was before it was muted.");
+    expect(restoredMessage(3, 3)).toBe("Restored 3 articles. They are unread again.");
+    expect(restoredMessage(3, 0)).toBe("Restored 3 articles. They stay read, as they were before they were muted.");
+    expect(restoredMessage(3, 1)).toBe("Restored 3 articles. 1 of them is unread again; the others stay read, as they were before they were muted.");
+    expect(restoredMessage(0, 0)).toBe("Nothing to restore");
+  });
+});

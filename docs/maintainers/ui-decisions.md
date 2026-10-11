@@ -191,6 +191,19 @@ Choices made where the decisions above were silent; the owner may overrule any o
   and alternatives (`web/src/lib/stopwords.ts`). Words a reader may want to mute (free, deals, review, video, live) are
   not on the list. The list is English only: other languages rely on the length, digit and script rules (unspaced
   scripts are cut into short pieces).
+- Saving a mute rule from **Mute similar...** also mutes the article it was started from, read or unread, when the rule
+  as saved matches it (#374): the editor sends the article's id and the server mutes it in the same transaction, with
+  the same write as Apply, so Restore, mark unread, star and delete-with-unmute undo it like any mute. Only that article
+  changes; "Apply to existing articles" still covers the rest of the feed. A starred article is not muted (star beats
+  mute). A muted article leaves every list except Muted at once, Unread included, as if it had arrived muted; while
+  it stays open, Next and Previous go on from where it was in the list. Any mute takes the article out of the undo
+  stack, since undoing an earlier mark read or unstar of it would now un-mute it. The save
+  toast says what happened in one sentence, and when nothing was muted it says why: the rule does not mute, it is
+  turned off, the article no longer exists (the rule is still saved), it is starred, its feed is archived, the rule no
+  longer matches it, another filter already muted it (it stays with that filter), or a star filter matches it.
+- **Restore** in Muted puts back the read state an article had before it was muted (#374 review): an article read
+  before the mute stays read, an unread one is unread again, and the announcement says which. One rule for every muted
+  article, the same one delete-with-unmute=unread uses for a whole filter.
 ### Working agreement
 - Commit and open PRs without asking. Merge docs-only PRs when CI is green. Code PR for `phase-2` opens at
   deploy time. Reviews (Opus, high) after every two or three backend steps; fix all findings.
