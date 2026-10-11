@@ -25,7 +25,7 @@ import { clearMarks, wrapMarks } from "@/lib/highlight";
 import { Hl, useGroups } from "@/lib/useHighlights";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
-import { StatusBlock, focusListRow, rememberListPlace } from "./ListPane";
+import { StatusBlock, focusInList, focusListRow, rememberListPlace } from "./ListPane";
 import type { Scope } from "@/api/types";
 import { ReadingMenu } from "./AppearanceControls";
 import { ListenBar } from "./ListenBar";
@@ -168,11 +168,21 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   // article is not among the loaded rows (a deep link, or it left the list while open), the list has nothing to
   // drive and the article takes the whole set. In the full-screen view the list is not on screen, so the article
   // owns all keys.
+  // With focus in the list the list acts on its cursor row (even for a deep-linked article that is not one of its rows).
   const ownsItemKeys = !pane || index < 0;
+  const unlessInList = (fn: () => void) => () => {
+    if (!focusInList()) fn();
+  };
   useHotkeys(
     {
       ...(ownsItemKeys
-        ? { next: () => next("key"), prev: () => prev("key"), original: openOriginal, star: toggleStar, toggleRead }
+        ? {
+            next: unlessInList(() => next("key")),
+            prev: unlessInList(() => prev("key")),
+            original: unlessInList(openOriginal),
+            star: unlessInList(toggleStar),
+            toggleRead: unlessInList(toggleRead),
+          }
         : {}),
       fulltext: toggleFulltext,
       up: () => (pane ? focusListRow(id) : back()),

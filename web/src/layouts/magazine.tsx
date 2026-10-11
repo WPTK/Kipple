@@ -1,3 +1,4 @@
+import { useOpenMark } from "./openArticle";
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import { CheckBadge, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
@@ -13,12 +14,14 @@ import { useRowTabIndex } from "./rowTabStop";
  * "magazine" so saved choices keep working; only the name shown to people changed.)
  */
 function EditorialRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
+  const openMark = useOpenMark(item.id);
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
   return (
     <article
       data-item-id={item.id}
       data-selected={selected || undefined}
+      {...openMark}
       className={cn(
         "row-host @container relative flex flex-col gap-3 border-b border-line bg-bg px-4 py-[calc(var(--row-py)+0.5rem)]",
         selected ? "bg-selection" : "hover:bg-surface",

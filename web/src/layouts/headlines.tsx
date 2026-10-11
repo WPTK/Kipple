@@ -1,3 +1,4 @@
+import { useOpenMark } from "./openArticle";
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import { CheckBadge, PublishedTime, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
@@ -12,12 +13,14 @@ import { useRowTabIndex } from "./rowTabStop";
  * name as a column (table-like on desktop). 44 px on touch; 28 to 36 px with a mouse, by density step.
  */
 function HeadlineRow({ item, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
+  const openMark = useOpenMark(item.id);
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
   return (
     <article
       data-item-id={item.id}
       data-selected={selected || undefined}
+      {...openMark}
       className={cn(
         "row-host row-headline relative flex items-center gap-2 border-b border-line bg-bg px-4",
         selected ? "bg-selection" : "hover:bg-surface",

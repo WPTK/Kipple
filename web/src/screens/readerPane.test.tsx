@@ -192,6 +192,73 @@ describe("reader pane: keys", () => {
     expect(calls.filter((c) => c.url.pathname === "/api/items/1003/open")).toHaveLength(0);
   });
 
+  const starCalls = (calls: { url: URL }[]) => calls.filter((c) => /\/star/.test(c.url.pathname)).map((c) => c.url.pathname);
+
+  it("an arrow-key cursor on another row does not retarget the keys pressed while reading the open article", async () => {
+    const { calls } = routes();
+    go("/i/1001?from=unread");
+    await screen.findByTestId("article-body");
+    await waitFor(() => expect(rowOf(2)).not.toBeNull());
+    const user = userEvent.setup();
+    // The open row says so, and keeps saying so when the cursor moves off it.
+    expect(rowOf(1)).toHaveAttribute("aria-current", "true");
+    rowLink(1).focus();
+    await user.keyboard("{ArrowDown}");
+    await waitFor(() => expect(document.activeElement?.closest('[data-item-id="1002"]')).not.toBeNull());
+    expect(rowOf(2)).toHaveAttribute("data-selected", "true");
+    expect(rowOf(1)).toHaveAttribute("aria-current", "true");
+    expect(rowOf(2)).not.toHaveAttribute("aria-current");
+    // Focus into the reader: the keys act on the open article, not on the row the cursor was left on.
+    (document.activeElement as HTMLElement).blur();
+    await waitFor(() => expect(rowOf(1)).toHaveAttribute("data-selected", "true"));
+    await user.keyboard("s");
+    await waitFor(() => expect(starCalls(calls)).toHaveLength(1));
+    expect(starCalls(calls)[0]).toContain("1001");
+    // Back in the list the cursor is where the arrows left it.
+    rowLink(2).focus();
+    await user.keyboard("s");
+    await waitFor(() => expect(starCalls(calls)).toHaveLength(2));
+    expect(starCalls(calls)[1]).toContain("1002");
+  });
+
+  it("a click on another row's own button does not retarget the keyboard", async () => {
+    const { calls } = routes();
+    go("/i/1001?from=unread");
+    await screen.findByTestId("article-body");
+    await waitFor(() => expect(rowOf(2)).not.toBeNull());
+    const user = userEvent.setup();
+    await user.click(within(rowOf(2) as HTMLElement).getAllByRole("button")[0]!);
+    await waitFor(() => expect(starCalls(calls)).toHaveLength(1)); // the click starred row 2 and nothing else
+    expect(starCalls(calls)[0]).toContain("1002");
+    await user.keyboard("s");
+    await waitFor(() => expect(starCalls(calls)).toHaveLength(2));
+    expect(starCalls(calls)[1]).toContain("1001");
+  });
+
+  it("a deep-linked article that is not in the list: the reader has the keys, the list's cursor row has them from the list", async () => {
+    const { calls } = routes({
+      "GET /api/items/1099": () => json(detail(99)),
+      "POST /api/items/1099/open": () => json({ session_key: "k", item: detail(99, { read: true }) }),
+    });
+    go("/i/1099?from=unread");
+    await screen.findByTestId("article-body");
+    await waitFor(() => expect(rowOf(2)).not.toBeNull());
+    const user = userEvent.setup();
+    await user.keyboard("s");
+    await waitFor(() => expect(starCalls(calls)).toHaveLength(1));
+    expect(starCalls(calls)[0]).toContain("1099");
+    rowLink(1).focus();
+    await user.keyboard("{ArrowDown}");
+    await waitFor(() => expect(document.activeElement?.closest('[data-item-id="1002"]')).not.toBeNull());
+    await user.keyboard("s"); // once, on the reached row: not also on the article
+    await waitFor(() => expect(starCalls(calls)).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(starCalls(calls)).toHaveLength(2);
+    expect(starCalls(calls)[1]).toContain("1002");
+    await user.keyboard("j"); // from the reached row
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1003"));
+  });
+
   it("Esc returns focus to the list row of the open article", async () => {
     routes();
     go("/i/1002?from=unread");

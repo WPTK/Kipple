@@ -1,3 +1,4 @@
+import { useOpenMark } from "./openArticle";
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import { CheckBadge, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
@@ -14,12 +15,14 @@ import { useRowTabIndex } from "./rowTabStop";
  * own width, and opening one shows the article full width (no reader pane).
  */
 function CardRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
+  const openMark = useOpenMark(item.id);
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
   return (
     <article
       data-item-id={item.id}
       data-selected={selected || undefined}
+      {...openMark}
       className={cn(
         "row-host relative flex h-full flex-col overflow-hidden rounded-2xl [--row-radius:calc(1rem-1px)] border border-line bg-surface shadow-md",
         selected && "bg-selection outline-2 outline-accent",

@@ -1,3 +1,4 @@
+import { OpenArticle } from "@/layouts/openArticle";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { defaultRangeExtractor, useVirtualizer, type Range, type VirtualItem } from "@tanstack/react-virtual";
@@ -294,14 +295,18 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
 
   const saved = memory.get(key);
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
-  // One cursor: the selected row is the row the keys act on, the row that has focus (the arrow keys, Tab and a click
-  // move it, as do j and k) and the open article (the reader's Next and Previous move it). Before the first move the
-  // open article is the cursor.
-  const selected = selectedId ?? activeId;
+  // The cursor is the row that has focus in the list (the arrow keys, Tab and j and k move it); the open article
+  // moves it too (the reader's Next and Previous, and opening one). The keys act on the cursor's row only while focus
+  // is inside the list. With an article open beside the list and focus elsewhere (the reader), they act on the open
+  // article, so the cursor parked on another row is never the target of a key pressed while reading.
+  const [listFocused, setListFocused] = useState(false);
+  const cursor = selectedId ?? activeId;
+  const readerHasKeys = articleOpen && !!activeId && !listFocused;
+  const selected = readerHasKeys ? activeId : cursor;
   // The list is one Tab stop (rowTabStop.ts): the cursor's row, else the first. Its row is always rendered, so Tab into
   // the list finds it wherever the list is scrolled.
   const shown = (id: string | undefined, of: readonly Card[]) => (id && of.some((i) => i.id === id) ? id : undefined);
-  const tabStopId = shown(selected, items) ?? items[0]?.id;
+  const tabStopId = shown(cursor, items) ?? items[0]?.id;
   const stopIndex = useMemo(
     () => (tabStopId ? rows.findIndex((r) => (r.kind === "item" ? r.item.id === tabStopId : r.kind === "group" && r.items.some((i) => i.id === tabStopId))) : -1),
     [rows, tabStopId],
@@ -690,7 +695,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       // A page layout's reading order is its DOM order (ListLayout.Page), which is not the list's order.
       const order = Page ? pageOrder(parentRef.current, allItems) : items;
       if (order.length === 0) return;
-      const cur = selected ? order.findIndex((i) => i.id === selected) : -1;
+      const cur = selected ? order.findIndex((i) => i.id === selected) : -1; // from the open article when the reader has the keys
       const next = Math.min(order.length - 1, Math.max(0, cur < 0 ? (delta === 1 ? 0 : order.length - 1) : cur + delta));
       const item = order[next];
       if (!item) return;
@@ -724,8 +729,22 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     focusLater(item.id);
   };
 
+  const onListBlur = (e: React.FocusEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setListFocused(false);
+  };
+
   /** The row that takes focus in the list (its own focus, or one of its controls) becomes the list's Tab stop. */
+  // A pointer is down on the list (pressed, not yet clicked): the focus it brings is not a keyboard move.
+  const pointerFocus = useRef(false);
+  const endPointer = () => (pointerFocus.current = false);
   const onListFocus = (e: React.FocusEvent) => {
+    setListFocused(true);
+    if (pointerFocus.current) {
+      // A click on a row's own button (its star or menu) is not a keyboard move: with an article open the keys keep
+      // acting on it, and a cursor parked elsewhere comes back to it.
+      if (activeId) setSelectedId(activeId);
+      return;
+    }
     const id = e.target instanceof HTMLElement ? e.target.closest<HTMLElement>("[data-item-id],[data-muted-for]") : null;
     const rowId = id?.dataset.itemId ?? id?.dataset.mutedFor;
     if (rowId) setSelectedId(rowId);
@@ -1051,9 +1070,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         else virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
       },
   };
-  // An article open beside the list that is not one of its rows (a deep link) has nothing here to drive:
-  // the article pane takes j/k/m/s/o/v itself.
-  if (articleOpen && activeId && !allItems.some((i) => i.id === activeId)) {
+  // An article open beside the list that is not one of its rows (a deep link) has nothing here to drive while the
+  // reader has the keys: the article pane takes j/k/m/s/o/v itself. With focus in the list they act on its cursor row.
+  if (readerHasKeys && !allItems.some((i) => i.id === activeId)) {
     for (const k of ["next", "prev", "original", "background", "star", "toggleRead"] as const) delete hotkeys[k];
   }
   useHotkeys(hotkeys, { singleKeys: prefs.shortcuts, enabled: keysEnabled });
@@ -1218,7 +1237,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       return (
         <>
           <div ref={pageBoxRef} data-page-box="">
-            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} tabStopId={shown(selected, allItems)} checked={checked} onOpen={openItem} />
+            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} tabStopId={shown(cursor, allItems)} checked={checked} onOpen={openItem} />
           </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
           {q.isFetchingNextPage ? (
@@ -1329,8 +1348,13 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
           aria-busy={q.isPending || q.isFetchingNextPage}
           className="@container h-full overflow-y-auto overscroll-y-contain"
           tabIndex={-1}
+          onPointerDownCapture={() => (pointerFocus.current = true)}
+          onClickCapture={endPointer}
+          onPointerCancelCapture={endPointer}
+          onKeyDownCapture={endPointer}
           onKeyDown={onRowArrow}
           onFocus={onListFocus}
+          onBlur={onListBlur}
         >
           <div
             style={
@@ -1339,7 +1363,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
                 : undefined
             }
           >
-            {body}
+            <OpenArticle.Provider value={articleOpen ? activeId : undefined}>{body}</OpenArticle.Provider>
           </div>
         </div>
       </div>
@@ -1472,6 +1496,11 @@ export function windowReach(range: { endIndex: number } | null | undefined, coun
 }
 
 /** Put keyboard focus back on a list row (Esc or u in the reader pane); the list itself when the row is not rendered. */
+/** Whether focus is inside the article list: then the keys act on its cursor row. */
+export function focusInList(): boolean {
+  return !!document.activeElement?.closest('[data-testid="list-scroll"]');
+}
+
 export function focusListRow(id: string): void {
   const list = document.querySelector<HTMLElement>('[data-testid="list-scroll"]');
   const link = list?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a`);

@@ -1,3 +1,4 @@
+import { useOpenMark } from "./openArticle";
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import { CheckBadge, PublishedTime, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
@@ -12,6 +13,7 @@ import { useRowTabIndex } from "./rowTabStop";
  * Unread is a dot AND weight, never color alone.
  */
 function InboxRow({ item, selected, checked, to, onOpen, onToggleStar, actions, showThumb = true }: RowProps) {
+  const openMark = useOpenMark(item.id);
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
   const thumb = showThumb && item.image;
@@ -19,6 +21,7 @@ function InboxRow({ item, selected, checked, to, onOpen, onToggleStar, actions, 
     <article
       data-item-id={item.id}
       data-selected={selected || undefined}
+      {...openMark}
       className={cn(
         "row-host relative flex min-h-[var(--row-min)] gap-2 border-b border-line bg-bg py-[var(--row-py)] pr-4 pl-2",
         "@container",

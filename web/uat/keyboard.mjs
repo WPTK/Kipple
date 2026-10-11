@@ -289,6 +289,36 @@ async function cardsRing(page) {
   }
 }
 
+/** An article open beside the list: the arrow cursor on another row does not take the keys pressed while reading. */
+async function splitCursor(page) {
+  const where = "K3 open article and cursor";
+  await load(page, "/l/all");
+  await press(page, "j"); // selects and opens the first row beside the list
+  await page.locator('[data-testid="article-body"]').first().waitFor({ timeout: 15000 });
+  const open = await page.evaluate(() => document.querySelector('article[aria-current="true"]')?.dataset.itemId ?? null);
+  await press(page, "ArrowDown");
+  const reached = await until(page, (was) => {
+    const id = document.activeElement?.closest("[data-item-id]")?.getAttribute("data-item-id");
+    return !!id && id !== was;
+  }, open);
+  const cursor = await selectedId(page);
+  const marks = await page.evaluate(([o, c]) => {
+    const row = (id) => document.querySelector(`article[data-item-id="${id}"]`);
+    return { openKept: row(o)?.getAttribute("aria-current") === "true", cursorNotOpen: !row(c)?.hasAttribute("aria-current"), bar: parseFloat(getComputedStyle(row(o), "::before").width) };
+  }, [open, cursor]);
+  check(!!open && reached && cursor !== open && marks.openKept && marks.cursorNotOpen && marks.bar > 0, where, "the open row keeps its own marker while the cursor is on another row", `open ${open}, cursor ${cursor}, ${JSON.stringify(marks)}`);
+  const starred = (id) => page.evaluate((i) => document.querySelector(`article[data-item-id="${i}"] button[aria-pressed]`)?.getAttribute("aria-pressed"), id);
+  const [openBefore, cursorBefore] = [await starred(open), await starred(cursor)];
+  // Focus leaves the list for the reader: s is about the article being read.
+  await page.evaluate(() => document.activeElement?.blur());
+  await press(page, "s");
+  const onOpen = await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] button[aria-pressed]`)?.getAttribute("aria-pressed") !== was, [open, openBefore]);
+  const cursorSame = (await starred(cursor)) === cursorBefore;
+  await press(page, "s");
+  await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] button[aria-pressed]`)?.getAttribute("aria-pressed") === was, [open, openBefore]);
+  check(onOpen && cursorSame, where + " (s)", "with focus in the reader, s stars the open article, not the row the arrow keys reached", `open article starred=${onOpen}, cursor row untouched=${cursorSame}`);
+}
+
 // ---- the desktop checks ----
 async function desktop(cookies) {
   const ctx = await newContext({ viewport: { width: 1280, height: 800 }, storageState: { cookies, origins: [] } });
@@ -321,6 +351,7 @@ async function desktop(cookies) {
     await k2(page);
     await k3(page);
     await cardsRing(page);
+    await splitCursor(page);
   } finally {
     if (refused.length) note("desktop", `${refused.length} fetch(es) WebKit refused while the page was being left (not counted): ${[...new Set(refused)].join(", ")}`);
   }

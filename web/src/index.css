@@ -563,3 +563,22 @@ a.sr-only-live:focus {
   :root:not([data-motion="on"]) .wrapped-card { animation: kp-wrapped-in 0.4s ease-out both; }
 }
 :root[data-motion="off"] .wrapped-card { animation: kp-wrapped-in 0.4s ease-out both; }
+
+/* The article open in the reader pane: a bar on the row's leading edge. The keyboard cursor is the selection fill or
+   outline, so the two read apart when the cursor is on another row. */
+[data-open] {
+  position: relative;
+}
+[data-open]::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 4px;
+  background: var(--kp-accent);
+  pointer-events: none;
+  z-index: 1;
+}
+@media (forced-colors: active) {
+  [data-open]::before { background: Highlight; }
+}

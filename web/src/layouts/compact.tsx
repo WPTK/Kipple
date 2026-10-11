@@ -1,3 +1,4 @@
+import { useOpenMark } from "./openArticle";
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import { CheckBadge, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
@@ -11,12 +12,14 @@ import { useRowTabIndex } from "./rowTabStop";
  * is in the row menu. Rows are min 44 px on touch (see .row-compact).
  */
 function CompactRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
+  const openMark = useOpenMark(item.id);
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
   return (
     <article
       data-item-id={item.id}
       data-selected={selected || undefined}
+      {...openMark}
       className={cn(
         "row-host row-compact relative flex items-center gap-2 border-b border-line bg-bg px-4",
         selected ? "bg-selection" : "hover:bg-surface",

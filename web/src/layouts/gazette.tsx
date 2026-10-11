@@ -1,3 +1,4 @@
+import { useOpenMark } from "./openArticle";
 import { useMemo, useState } from "react";
 import { Link, type To } from "react-router";
 import { useBootstrap } from "@/api/queries";
@@ -230,6 +231,7 @@ function headlineClass(slot: Slot, phone: boolean): string {
 }
 
 function Story({ slot, item, heading: H, to, onOpen, phone, selected, tabStop, checked }: StoryProps) {
+  const openMark = useOpenMark(item.id);
   const lead = slot.kind === "lead" || slot.kind === "co-lead";
   const picture = !!item.image && (slot.kind === "photo" || (lead && slot.picture));
   const brief = slot.kind === "brief";
@@ -241,6 +243,7 @@ function Story({ slot, item, heading: H, to, onOpen, phone, selected, tabStop, c
       data-slot={slot.kind}
       data-read={item.read || undefined}
       data-selected={selected || undefined}
+      {...openMark}
       data-checked={checked || undefined}
       // The selection is an outline outside the story's box, so selecting one never moves the page; a tick (`x`) sits
       // on its corner for the same reason.
