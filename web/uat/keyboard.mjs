@@ -29,7 +29,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
-import { cancelledLoad } from "./common.mjs";
+import { accessControlUrl, unloadRefusal } from "./common.mjs";
 
 const setupError = (m) => {
   console.error(m);
@@ -223,7 +223,16 @@ async function desktop(cookies) {
   const ctx = await newContext({ viewport: { width: 1280, height: 800 }, storageState: { cookies, origins: [] } });
   const page = await ctx.newPage();
   const errors = [];
-  page.on("pageerror", (e) => cancelledLoad(e, origin) || errors.push(String(e).slice(0, 200)));
+  const refused = [];
+  const failedRequests = [];
+  const isUnloadRefusal = unloadRefusal(page, origin);
+  page.on("pageerror", (e) => (isUnloadRefusal(e) ? refused.push(accessControlUrl(e).pathname) : errors.push(String(e).slice(0, 200))));
+  page.on("requestfailed", (req) => {
+    const why = req.failure()?.errorText ?? "failed";
+    // A navigation aborts what was in flight; each engine words it its own way (as in run.mjs).
+    if (/ERR_ABORTED|NS_BINDING_ABORTED|cancel+ed/i.test(why) || new URL(req.url()).origin !== origin) return;
+    failedRequests.push(`${req.method()} ${new URL(req.url()).pathname}: ${why}`);
+  });
   await load(page, "/l/all");
   // The layout the shortcuts are exercised in: Editorial, whose rows carry the unread dot and a Star button.
   const layoutBtn = page.locator('button[aria-label^="List options, "]').first();
@@ -240,6 +249,8 @@ async function desktop(cookies) {
   await k2(page);
   await k3(page);
   if (errors.length) fail("desktop", `uncaught page errors: ${errors.join(" | ")}`);
+  if (failedRequests.length) fail("desktop", `requests failed: ${failedRequests.slice(0, 4).join(" | ")}`);
+  if (refused.length) console.log(`note desktop: ${refused.length} fetch(es) WebKit refused while the page was being left (not counted): ${[...new Set(refused)].join(", ")}`);
   await ctx.close();
 }
 

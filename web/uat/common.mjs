@@ -19,21 +19,45 @@ export const VIEWPORTS = [
 export const deadFeed = (n) => `http://uat-feed-${n}.invalid/feed.xml`;
 
 /**
- * Whether a `pageerror` is WebKit saying that a same-origin load was cancelled, not a script error. When a navigation
- * leaves the page while a fetch is in flight, WebKit may log "Fetch API cannot load <url> due to access control
- * checks." as a script-sourced console error, and Playwright hands those to `pageerror` (issue #370). The page did not
- * throw: had it left the rejection unhandled, WebKit adds its own "Unhandled Promise Rejection: ..." error, which still
- * counts. A same-origin request has no access control check, so there the message can only mean the load was cancelled,
- * which the flows' request checks already do not count. For another origin it is a real refusal and still counts.
+ * The URL of WebKit's "Fetch API cannot load <url> due to access control checks." console error, as Playwright hands it
+ * to `pageerror`, or null for any other error. Playwright splits a WebKit console error at its first colon into a name
+ * and a message (dropping the two characters after the colon), so the text arrives as "Fetch API cannot load http:
+ * /host/path ..." and the scheme is put back together here.
  */
-export function cancelledLoad(err, origin) {
+export function accessControlUrl(err) {
   const m = /^Fetch API cannot load (https?):\s*\/*(\S+) due to access control checks\.$/.exec(String(err));
-  if (!m) return false;
+  if (!m) return null;
   try {
-    return new URL(`${m[1]}://${m[2]}`).origin === origin;
+    return new URL(`${m[1]}://${m[2]}`);
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * Returns `(err) => boolean`: whether a `pageerror` is WebKit refusing a same-origin fetch that the page being left
+ * started while the main frame was navigating away (issue #370). Measured on the seeded instance (sign in, then
+ * navigate at once): the error arrives after the main frame's navigation request and before the new document commits,
+ * WebKit reports no request at all for it, and it never comes with a `requestfailed` for the same URL (0 of 32 runs);
+ * it is the other outcome of the same race in which WebKit reports that request as `requestfailed: Load request
+ * cancelled`, which the flows already do not count. So the pairing is the navigation in progress, not a request
+ * event, and the message text alone never decides: outside a navigation, for another origin, or for any other text,
+ * the error counts. A rejection the page left unhandled is a separate "Unhandled Promise Rejection: ..." error that
+ * WebKit adds, and it always counts.
+ */
+export function unloadRefusal(page, origin) {
+  let navigating = false;
+  const main = (r) => r.isNavigationRequest() && r.frame() === page.mainFrame();
+  page.on("request", (r) => {
+    if (main(r)) navigating = true;
+  });
+  page.on("requestfailed", (r) => {
+    if (main(r)) navigating = false;
+  });
+  page.on("framenavigated", (f) => {
+    if (f === page.mainFrame()) navigating = false;
+  });
+  return (err) => navigating && accessControlUrl(err)?.origin === origin;
 }
 
 export async function start(metaUrl, helpLines) {
