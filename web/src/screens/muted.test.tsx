@@ -12,7 +12,7 @@ import type { Bootstrap, Card, ItemsPage } from "@/api/types";
 import { rowMenuStore } from "@/gestures/rowMenu";
 import { resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
-import { closeFilterEditor, openFilterEditor } from "@/lib/similar";
+import { closeFilterEditor, openFilterEditor, similarSeed } from "@/lib/similar";
 import { closeFeedEditor } from "@/lib/feedEditor";
 import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
@@ -351,6 +351,65 @@ describe("Mute similar… saves and says what it did to the article", () => {
     }
     // Said once: the toast is the announcement.
     expect(screen.getByTestId("live-region").textContent?.replace(/\u200b/g, "")).toBe(message);
+  });
+});
+
+describe("Mute similar… from the open article", () => {
+  // The muted article leaves the list it was opened from; Next and Previous go on from where it was.
+  it.each(["phone", "wide"] as const)("%s: Previous and Next still work after the article leaves its list", async (layout) => {
+    if (layout === "wide") wide();
+    prefsStore.set({ ...DEFAULT_PREFS, shortcuts: true });
+    const open = (n: number) => () => json({ session_key: "k", item: detail(n, { read: true }) });
+    routes({
+      "GET /api/items": () => json(pageOf([card(1), card(2), card(3)])),
+      ...Object.fromEntries([1, 2, 3].map((n) => [`GET /api/items/${1000 + n}`, () => json(detail(n))])),
+      ...Object.fromEntries([1, 2, 3].map((n) => [`POST /api/items/${1000 + n}/open`, open(n)])),
+      "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }),
+      "POST /api/filters": () => json({ filter: { ...rule, id: "9", name: "Ada" }, applied: null, source: { item_id: "1002", result: "muted" } }, 201),
+    });
+    go("/i/1002?from=unread");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { level: 1, name: "Article number 2" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next article" })).toBeEnabled());
+    await user.click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mute similar…" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "New filter" }));
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    await user.click(dialog.getByRole("button", { name: "Save filter" }));
+    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent("This article is muted."));
+    const cached = qc.getQueryData<InfiniteData<ItemsPage>>(keys.items({ view: "unread" }))?.pages[0]?.items.map((i) => i.id);
+    expect(cached).toEqual(["1001", "1003"]);
+    expect(screen.getByRole("button", { name: "Previous article" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Next article" })).toBeEnabled();
+    if (layout === "wide") await user.keyboard("j");
+    else await user.click(screen.getByRole("button", { name: "Next article" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1003"));
+    await user.keyboard("k");
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1001"));
+  });
+});
+
+describe("Mute similar… and undo", () => {
+  it("z after muting an article marked read with m does not mark it unread (which would un-mute it)", async () => {
+    prefsStore.set({ ...DEFAULT_PREFS, shortcuts: true });
+    const { calls } = routes({
+      "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }),
+      "POST /api/filters": () => json({ filter: { ...rule, id: "9", name: "Ada" }, applied: null, source: { item_id: "1001", result: "muted" } }, 201),
+    });
+    go("/l/unread");
+    const user = userEvent.setup();
+    await screen.findByText("Article number 1");
+    await user.keyboard("j");
+    await user.keyboard("m");
+    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read" && body(c).read === true)).toBe(true));
+    act(() => openFilterEditor({ mode: "create", seed: similarSeed(card(1), "Feed") }));
+    const dialog = within(await screen.findByRole("dialog", { name: "New filter" }));
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    await user.click(dialog.getByRole("button", { name: "Save filter" }));
+    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent("This article is muted."));
+    await user.keyboard("z");
+    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent("Nothing to undo"));
+    expect(calls.some((c) => c.url.pathname === "/api/items/mark-read" && body(c).read === false)).toBe(false);
   });
 });
 

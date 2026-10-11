@@ -195,7 +195,9 @@ Choices made where the decisions above were silent; the owner may overrule any o
   as saved matches it (#374): the editor sends the article's id and the server mutes it in the same transaction, with
   the same write as Apply, so Restore, mark unread, star and delete-with-unmute undo it like any mute. Only that article
   changes; "Apply to existing articles" still covers the rest of the feed. A starred article is not muted (star beats
-  mute). A muted article leaves every list except Muted at once, Unread included, as if it had arrived muted. The save
+  mute). A muted article leaves every list except Muted at once, Unread included, as if it had arrived muted; while
+  it stays open, Next and Previous go on from where it was in the list. Any mute takes the article out of the undo
+  stack, since undoing an earlier mark read or unstar of it would now un-mute it. The save
   toast says what happened in one sentence, and when nothing was muted it says why: the rule does not mute, it is
   turned off, the article no longer exists (the rule is still saved), it is starred, its feed is archived, the rule no
   longer matches it, another filter already muted it (it stays with that filter), or a star filter matches it.

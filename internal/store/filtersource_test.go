@@ -126,3 +126,34 @@ func TestCreateFilterFromSourceInAnotherFeed(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, SourceStarred, src.Mute)
 }
+
+// Restore in Muted (RestoreMuted) un-mutes whichever rule muted an article, including a rule deleted
+// with unmute=keep (an orphan), and puts back the read state each had before its mute.
+func TestRestoreMutedWhicheverRuleMutedIt(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.seedRetro(6)
+	byF, byG, orphan := e.itemID("spam 0"), e.itemID("spam 2"), e.itemID("spam 4")
+	e.exec("UPDATE items SET read = 1, read_at = 777 WHERE id = ?", byG)
+
+	mute := func(term string, id int64) Filter {
+		f, src, err := e.db.CreateFilterFrom(e.ctx, newFilter("mute", term), id)
+		require.NoError(t, err)
+		require.Equal(t, SourceMuted, src.Mute, term)
+		return f
+	}
+	f, g, h := mute("spam 0", byF), mute("spam 2", byG), mute("spam 4", orphan)
+	require.NotEqual(t, f.ID, g.ID)
+	_, ok, err := e.db.DeleteFilter(e.ctx, h.ID, UnmuteKeep, nil)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND muted_by = ?", orphan, h.ID), "an orphan keeps its muted_by")
+
+	res, err := e.db.RestoreMuted(e.ctx, []int64{byF, byG, orphan, e.itemID("ham 1")})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []int64{byF, byG, orphan}, res.Changed)
+	require.ElementsMatch(t, []int64{byF, orphan}, res.MadeUnread)
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND read = 1 AND read_at = 777", byG), "read before its mute: stays read")
+	require.Zero(t, e.count("SELECT count(*) FROM items WHERE muted_by IS NOT NULL"))
+	e.assertMutedInvariant()
+}

@@ -7,7 +7,8 @@
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and, on four unread articles:
 //   M1  an unread article, from its row menu in the list: tap a suggestion, Save; the toast says it is muted and the
 //       server has it read and muted by the new filter; its row leaves the Unread list at once and after a reload;
-//   M2  a read article, from the opened article's More actions: the same, and it stays read;
+//   M2  a read article opened from its feed's All list, from the article's More actions: the same, it stays read,
+//       and Next still opens the next article although this one has left the list;
 //   M3  a starred article: the filter is saved, the toast says it is starred and was not muted, and it is still starred;
 //   M4  an unread article whose rule is edited to a word not in it: the filter is saved, the toast says the filter no
 //       longer matches it, and the article is unchanged;
@@ -18,7 +19,7 @@
 // First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 19);
+const t = await start(import.meta.url, 20);
 const { check, step, textOf } = t;
 const JSON_ACCEPT = { Accept: "application/json" };
 
@@ -46,7 +47,12 @@ await t.eachViewport(async (page, vp) => {
       await row.waitFor({ timeout: 15000 });
       await row.getByRole("button", { name: "More actions" }).click();
     } else {
-      await page.goto(`/i/${it.id}`, { waitUntil: "load" });
+      // Opened from the feed's All list, as a reader would, so the article has a list to page through.
+      await page.goto(`/l/all?feed=${it.feed_id}`, { waitUntil: "load" });
+      const row = page.locator(`[data-item-id="${it.id}"]`).first();
+      await row.waitFor({ timeout: 15000 });
+      await row.locator("a").first().click();
+      await page.waitForURL(new RegExp(`/i/${it.id}\\b`), { timeout: 10000 });
       await page.getByRole("toolbar", { name: "Article actions" }).getByRole("button", { name: "More actions" }).click();
     }
     await page.getByRole("menuitem", { name: "Mute similar…" }).click();
@@ -82,6 +88,10 @@ await t.eachViewport(async (page, vp) => {
       await save(await openEditor(read, false), "M2", "Filter saved. This article is muted.");
       const it = await item(page, read.id);
       check(it.read === true && !!it.muted_by, `${tag} M2 state`, "muted and still read", `read=${it.read} muted_by=${it.muted_by}`);
+      // The article left its list; Next still goes on from where it was (the seed's feeds hold more than four articles).
+      await page.getByRole("button", { name: "Next article" }).first().click({ timeout: 5000 }).catch(() => {});
+      const moved = await page.waitForURL((u) => /^\/i\/\d+/.test(u.pathname) && !u.pathname.endsWith(`/${read.id}`), { timeout: 5000 }).then(() => true, () => false);
+      check(moved, `${tag} M2 paging`, "Next opens the next article", `still on ${page.url()}`);
     });
     await step(`${tag} M3`, async () => {
       await save(await openEditor(starred, false), "M3", "Filter saved. This article is starred, so it was not muted.");

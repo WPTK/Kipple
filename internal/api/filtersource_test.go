@@ -75,7 +75,8 @@ func TestCreateFilterRefusesAMalformedSourceID(t *testing.T) {
 	require.Zero(t, h.count("SELECT count(*) FROM filters"), "nothing is stored")
 }
 
-// Restore in Muted un-mutes and puts back the read state from before the mute, whichever rule muted it.
+// Restore in Muted un-mutes and puts back the read state from before the mute (several rules and an
+// orphan: TestRestoreMutedWhicheverRuleMutedIt in the store).
 func TestUnmuteRestoresTheReadStateBeforeTheMute(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
