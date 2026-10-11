@@ -99,8 +99,8 @@ function setup(precache: string[] = [], build = "0000000000001-aaaa", opts: { at
     stores,
     skipped: () => skipped,
     setNetwork: (f: (url: string) => Promise<Response> | Response) => (network = async (u) => f(u)),
-    lifecycle: async (type: "install" | "activate") => {
-      handlers.get(type)!({ waitUntil: (p: Promise<unknown>) => waits.push(p) });
+    lifecycle: async (type: "install" | "activate", extra: Record<string, unknown> = {}) => {
+      handlers.get(type)!({ waitUntil: (p: Promise<unknown>) => waits.push(p), ...extra });
       await settle();
     },
     message: async (data: unknown) => {
@@ -135,6 +135,27 @@ describe("install and activate", () => {
     bad.setNetwork((u) => (u.endsWith("gone.js") ? new Response("no", { status: 404 }) : new Response("ok")));
     await expect(bad.lifecycle("install")).rejects.toThrow("404");
     expect([...bad.stores.keys()]).toEqual([]); // no half-filled shell left for an offline launch to prefer
+  });
+
+  it("routes every write to the network without waking the worker (a beacon sent as the page unloads is lost otherwise)", async () => {
+    const w = setup(["/"]);
+    w.setNetwork(() => new Response("ok"));
+    const addRoutes = vi.fn().mockResolvedValue(undefined);
+    await w.lifecycle("install", { addRoutes });
+    expect(addRoutes).toHaveBeenCalledWith({ condition: { not: { requestMethod: "GET" } }, source: "network" });
+    expect(w.skipped()).toBe(1);
+  });
+
+  it("installs without the static routing API, and when registering the route fails", async () => {
+    const a = setup(["/"]);
+    a.setNetwork(() => new Response("ok"));
+    await a.lifecycle("install");
+    expect(a.skipped()).toBe(1);
+
+    const b = setup(["/"]);
+    b.setNetwork(() => new Response("ok"));
+    await b.lifecycle("install", { addRoutes: vi.fn().mockRejectedValue(new TypeError("unsupported condition")) });
+    expect(b.skipped()).toBe(1);
   });
 
   it("keeps this build's shell and the one before, drops older ones", async () => {

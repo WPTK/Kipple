@@ -2,13 +2,11 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { deleteFeed, deleteFolder, invalidateFeeds, patchFeed, reorder as reorderApi } from "@/api/admin";
 import { errorMessage } from "@/api/client";
-import type { Bootstrap, Feed, Folder } from "@/api/types";
+import type { Feed, Folder } from "@/api/types";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
-import { emptiedFolders, folderPath, folderTree, subtreeOf } from "@/lib/folderTree";
-import { keys, useBootstrap } from "@/api/queries";
-import { visibleFeeds } from "@/lib/visibleFeeds";
+import { folderPath, folderTree } from "@/lib/folderTree";
 import { announce, toast } from "@/shell/toasts";
 
 /** What a bulk delete tells the user before it starts: the count and the starred articles at stake. */
@@ -90,8 +88,6 @@ export function MoveDialog({
 export interface BulkReport {
   done: number;
   failed: { title: string; message: string }[];
-  /** Folders that could not be deleted after their feeds were. */
-  folders?: { title: string; message: string }[];
 }
 
 /**
@@ -243,30 +239,22 @@ function FeedsToDelete({
   );
 }
 
-/** What a bulk delete could not do, item by item. */
+/** The feeds a bulk delete could not delete, with the reason for each. */
 function DeleteFailures({ report }: { report: BulkReport }) {
-  const list = (label: string, items: { title: string; message: string }[]) =>
-    items.length === 0 ? null : (
-      <ul className="flex flex-col gap-2 text-sm" aria-label={label}>
-        {items.map((f, i) => (
-          <li key={i}>
-            <span className="font-semibold">{f.title}</span>: {f.message}
-          </li>
-        ))}
-      </ul>
-    );
   return (
-    <>
-      {list("Feeds that could not be deleted", report.failed)}
-      {list("Folders that could not be deleted", report.folders ?? [])}
-    </>
+    <ul className="flex flex-col gap-2 text-sm" aria-label="Feeds that could not be deleted">
+      {report.failed.map((f, i) => (
+        <li key={i}>
+          <span className="font-semibold">{f.title}</span>: {f.message}
+        </li>
+      ))}
+    </ul>
   );
 }
 
 /**
  * Delete the selected feeds one at a time (DELETE /api/feeds/{id}), with progress and a per-feed error list:
  * one bad feed does not stop the rest. Starred articles move to the Archive unless the switch says otherwise.
- * A folder the delete leaves empty is deleted too.
  */
 export function DeleteDialog({
   feeds: selected,
@@ -283,45 +271,18 @@ export function DeleteDialog({
   const { count, starred } = deleteSummary(feeds);
   const [alsoStarred, setAlsoStarred] = useState(false);
   const { progress, report, setReport, busy, runEach } = useBulkRun(feeds);
-  // Planned from the library as it was when the dialog opened (it shrinks as the feeds go), and checked again
-  // against the server's before each folder goes: deleting a folder moves any feed still in it to the default
-  // folder, so a feed that arrived meanwhile keeps its folder.
-  const boot = useBootstrap();
-  const [library] = useState(() => ({ folders: boot.data?.folders ?? [], feeds: visibleFeeds(boot.data?.feeds) }));
-  const emptiedFor = (gone: ReadonlySet<string>) => emptiedFolders(library.folders, library.feeds, gone);
-  const folderName = (id: string) => library.folders.find((f) => f.id === id)?.name ?? id;
-  const leaving = emptiedFor(new Set(feeds.map((f) => f.id)));
-  const stillEmpty = async (ids: string[]) => {
-    if (ids.length === 0) return ids;
-    await qc.refetchQueries({ queryKey: keys.bootstrap });
-    const fresh = qc.getQueryData<Bootstrap>(keys.bootstrap);
-    if (!fresh) return [];
-    const t = folderTree(fresh.folders);
-    const live = visibleFeeds(fresh.feeds);
-    return ids.filter((id) => t.byId.has(id) && !live.some((f) => subtreeOf(t, id).has(f.folder_id)));
-  };
 
   const run = async () => {
     const { succeeded: deleted, failed } = await runEach((f) => deleteFeed(f.id, alsoStarred).then(() => undefined));
-    let folders = 0;
-    const folderFailed: NonNullable<BulkReport["folders"]> = [];
-    for (const id of await stillEmpty(emptiedFor(new Set(deleted)))) {
-      try {
-        await deleteFolder(id);
-        folders++;
-      } catch (e) {
-        folderFailed.push({ title: folderName(id), message: errorMessage(e) });
-      }
-    }
     invalidateFeeds(qc);
     void qc.invalidateQueries({ queryKey: ["items"] });
     onDone(deleted, failed.length === 0);
-    if (failed.length === 0 && folderFailed.length === 0) {
-      toast(`Deleted ${deleted.length} feed${deleted.length === 1 ? "" : "s"}${folders > 0 ? ` and ${folders} empty folder${folders === 1 ? "" : "s"}` : ""}`);
+    if (failed.length === 0) {
+      toast(`Deleted ${deleted.length} feed${deleted.length === 1 ? "" : "s"}`);
       onClose();
     } else {
-      announce(`Deleted ${deleted.length}, ${failed.length + folderFailed.length} failed`);
-      setReport({ done: deleted.length, failed, folders: folderFailed });
+      announce(`Deleted ${deleted.length}, ${failed.length} failed`);
+      setReport({ done: deleted.length, failed });
     }
   };
 
@@ -329,8 +290,8 @@ export function DeleteDialog({
     <Modal
       open
       onOpenChange={(o) => !o && !busy && onClose()}
-      title={report ? (report.failed.length > 0 ? "Some feeds were not deleted" : "Some folders were not deleted") : `Delete ${count} ${deleteCopy(count, starred).feeds}?`}
-      description={report ? `${report.done} deleted, ${report.failed.length + (report.folders?.length ?? 0)} failed.` : deleteCopy(count, starred).consequence}
+      title={report ? "Some feeds were not deleted" : `Delete ${count} ${deleteCopy(count, starred).feeds}?`}
+      description={report ? `${report.done} deleted, ${report.failed.length} failed.` : deleteCopy(count, starred).consequence}
       footer={
         report ? (
           <Button variant="solid" onClick={onClose}>
@@ -353,12 +314,6 @@ export function DeleteDialog({
       ) : (
         <>
           <FeedsToDelete feeds={feeds} starred={starred} alsoStarred={alsoStarred} onAlsoStarred={setAlsoStarred} disabled={busy} noneNote />
-          {leaving.length > 0 ? (
-            <p className="text-sm">
-              {leaving.length === 1 ? "This folder is left empty, so it is deleted too" : "These folders are left empty, so they are deleted too"}:{" "}
-              {leaving.map(folderName).join(", ")}.
-            </p>
-          ) : null}
           {busy ? <BulkProgress label="Deleting feeds" done={progress} total={count} /> : null}
         </>
       )}

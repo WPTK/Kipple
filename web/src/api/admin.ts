@@ -187,7 +187,7 @@ export interface OpmlResult {
   memberships_dropped: { url: string; kept: string; dropped: string[] }[];
   /** Feeds that already existed and were moved into the file's folders (with `moveExisting`). */
   feeds_moved?: { url: string; feed_id: string }[];
-  /** Folders (by path) that moving existing feeds left empty; they are kept. */
+  /** Folders (by path) that moving existing feeds left with no feeds; they are kept. */
   folders_emptied?: string[];
   /** Folders of the file filed into an existing folder with the same full path but other levels, as chains of names. */
   folders_merged_path?: { kept: string[]; merged: string[] }[];

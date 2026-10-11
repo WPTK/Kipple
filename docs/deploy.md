@@ -187,7 +187,7 @@ An import keeps the file's folder tree: nested outlines become subfolders, up to
 in a folder whose name Kipple cannot store (over 100 characters, control characters), goes into the nearest folder above
 it, and the import report lists that folder under `folders_refused`. A feed you already have stays in its folder unless
 you ask for "move feeds that already exist into the file's folders" (`kipple import -move-existing`, or
-`POST /api/opml?move_existing=true`); folders that this leaves empty are listed under `folders_emptied` and kept.
+`POST /api/opml?move_existing=true`); folders that this leaves with no feeds are listed under `folders_emptied` and kept.
 
 `kipple import [-mark-read-older-than-days N] [-move-existing] <file.opml | ->` is safe while the server runs and prints JSON on standard output. The flags must come before the file. Pipe the file in, because the container user cannot read a bind-mounted `/import`:
 
