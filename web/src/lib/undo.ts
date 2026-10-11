@@ -22,7 +22,8 @@ export const UNDO_WAIT_MS = 10_000;
 export const NOTHING_TO_UNDO = "Nothing to undo";
 export const STILL_SAVING = "Still saving. Try Undo again in a moment.";
 
-type UndoFn = (ids: string[]) => void | boolean | Promise<void | boolean>;
+/** Resolve `false` when the request failed, `"kept"` when the server left every id as it was (muted or trimmed since). */
+type UndoFn = (ids: string[]) => void | boolean | "kept" | Promise<void | boolean | "kept">;
 
 /** What an action changed, once the server has said so. */
 export interface UndoChange {
@@ -59,8 +60,6 @@ interface Group {
   waiters: (() => void)[];
   /** The toast this group took over when it started, shown again if the group comes to nothing. */
   before: Group | null;
-  /** Ids forgotten while it was in flight (forgetUndo): not added when it lands. */
-  dropped: Set<string>;
 }
 
 export interface UndoView {
@@ -136,14 +135,14 @@ function armTimer(): void {
 
 function newGroup(kind: UndoKind, bulk: boolean): Group {
   // The toast it takes over, shown or still in flight, so it can be given back.
-  const g: Group = { id: ++seq, kind, ids: [], bulk, at: Date.now(), undo: null, restores: [], inflight: 0, waiters: [], before: toastGroup, dropped: new Set() };
+  const g: Group = { id: ++seq, kind, ids: [], bulk, at: Date.now(), undo: null, restores: [], inflight: 0, waiters: [], before: toastGroup };
   stack.push(g);
   toastGroup = g;
   return g;
 }
 
 function addChange(g: Group, change: UndoChange, onStack: boolean): void {
-  for (const id of change.ids) if (!g.ids.includes(id) && !g.dropped.has(id)) g.ids.push(id);
+  for (const id of change.ids) if (!g.ids.includes(id)) g.ids.push(id);
   // Merged actions share the first closure, so it must act on the ids it is handed.
   g.undo ??= change.undo;
   if (change.restore) g.restores.push(change.restore);
@@ -212,10 +211,11 @@ async function run(g: Group): Promise<void> {
   // shows its real (read) state and the group stays undoable.
   for (const r of g.restores) r();
   const undo = g.undo;
-  const ok = await (async () => undo?.([...g.ids]))().then(
-    (r) => r !== false,
-    () => false,
+  const result = await (async () => undo?.([...g.ids]))().then(
+    (r) => r,
+    () => false as const,
   );
+  const ok = result !== false;
   if (!ok) {
     // The reversal did not happen: keep the group so `z` or the toast can try again, and say so.
     // Back in its own place, which is the order the user acted in (ids rise with each action); a group already off
@@ -231,7 +231,7 @@ async function run(g: Group): Promise<void> {
     announce("Couldn't undo. Try again."); // the failed request has shown its own error toast
     return;
   }
-  announce("Undone");
+  announce(result === "kept" ? NOTHING_TO_UNDO : "Undone");
 }
 
 /** Whether `g`'s in-flight actions settled within UNDO_WAIT_MS. */
@@ -298,25 +298,6 @@ export function dismissUndoToast(): void {
 export function holdUndoToast(hold: boolean): void {
   held = hold;
   armTimer();
-}
-
-/**
- * Take these articles out of every undo group: something else has changed them since (a filter muted them), so
- * undoing an earlier mark or star would now do something else (a mark-unread or a star un-mutes). A group left with
- * nothing is removed, and its toast with it; one still in flight drops them when it lands.
- */
-export function forgetUndo(ids: string[]): void {
-  if (ids.length === 0) return;
-  const gone = new Set(ids);
-  for (const g of stack) {
-    for (const id of ids) g.dropped.add(id);
-    g.ids = g.ids.filter((id) => !gone.has(id));
-  }
-  const empty = (g: Group) => g.inflight === 0 && g.ids.length === 0;
-  if (toastGroup && empty(toastGroup)) toastGroup = givenBack(toastGroup);
-  stack = stack.filter((g) => !empty(g));
-  armTimer();
-  publish();
 }
 
 export function resetUndo(): void {

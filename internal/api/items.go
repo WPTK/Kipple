@@ -337,11 +337,13 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 		// offline. Absent means now; a time ahead of the clock is taken as now, one older than
 		// maxStarAge is taken as maxStarAge ago (the star still counts); not positive is a bad request.
 		At *int64 `json:"at"`
+		// Undo marks the web app's undo of an unstar: an article muted since is left alone (store.UndoUnstar).
+		Undo bool `json:"undo"`
 	}
 	if !decodeBody(w, r, &body, false) {
 		return
 	}
-	if body.Starred == nil {
+	if body.Starred == nil || (body.Undo && !*body.Starred) { // `undo` reverses an unstar only
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
@@ -368,7 +370,12 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 	var res store.StateResult
 	err := s.db.WithWrite(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
 		var err error
-		if res, err = store.SetStarredAt(ctx, tx, []int64{id}, *body.Starred, at, now); err != nil {
+		if body.Undo {
+			res, err = store.UndoUnstar(ctx, tx, []int64{id}, at, now)
+		} else {
+			res, err = store.SetStarredAt(ctx, tx, []int64{id}, *body.Starred, at, now)
+		}
+		if err != nil {
 			return err
 		}
 		for _, cid := range res.Changed { // only when RETURNING shows a change
@@ -384,7 +391,11 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.publishState(res, map[string]any{"starred": *body.Starred})
-	writeJSON(w, http.StatusOK, map[string]any{"starred": *body.Starred, "restored": len(res.Restored) > 0})
+	out := map[string]any{"starred": *body.Starred, "restored": len(res.Restored) > 0}
+	if body.Undo {
+		out["kept"] = len(res.Kept) > 0 // the undo left it unstarred: muted or trimmed since
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // ---- POST /api/items/mark-read ----
@@ -414,6 +425,8 @@ type markReadRequest struct {
 	LedgerIDs []json.RawMessage `json:"ledger_ids"`
 	Read      *bool             `json:"read"`
 	Reason    string            `json:"reason"`
+	// Undo marks the web app's undo of a mark read (by id, read:false): an article muted since is left alone.
+	Undo bool `json:"undo"`
 }
 
 // markRead never receives the Recorder: read-state changes are not stats
@@ -430,7 +443,7 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 		bad()
 		return
 	}
-	if req.Read == nil || (req.IDs != nil) == (req.Scope != nil) || (req.Bound != nil && req.Scope == nil) {
+	if req.Read == nil || (req.IDs != nil) == (req.Scope != nil) || (req.Bound != nil && req.Scope == nil) || (req.Undo && (*req.Read || req.Scope != nil)) {
 		bad()
 		return
 	}
@@ -543,7 +556,11 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 		if req.Scope != nil {
 			res, err = store.MarkScopeRead(ctx, tx, scope, filter, maxID, now)
 		} else {
-			res, err = store.SetRead(ctx, tx, ids, read, now)
+			if req.Undo {
+				res, err = store.UndoMarkRead(ctx, tx, ids, now)
+			} else {
+				res, err = store.SetRead(ctx, tx, ids, read, now)
+			}
 			if err == nil {
 				res.LedgerRead, err = store.UnreadLedger(ctx, tx, ledger)
 			}
@@ -561,7 +578,11 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 	if !undoable {
 		changed, ledgerIDs = nil, nil
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"changed": idStrings(nonNil(changed)), "restored": idStrings(nonNil(res.Restored)), "ledger_ids": idStrings(nonNil(ledgerIDs)), "count": len(res.Changed), "undoable": undoable})
+	out := map[string]any{"changed": idStrings(nonNil(changed)), "restored": idStrings(nonNil(res.Restored)), "ledger_ids": idStrings(nonNil(ledgerIDs)), "count": len(res.Changed), "undoable": undoable}
+	if req.Undo {
+		out["kept"] = idStrings(nonNil(res.Kept)) // left read (muted or trimmed since): the client shows them so
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // ---- POST /api/items/unmute ----

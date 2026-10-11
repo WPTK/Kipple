@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Check as CheckIcon, X } from "lucide-react";
 import { handleServerEvent } from "@/api/events";
@@ -448,6 +448,7 @@ function EditorForm({
     setBlocked(null);
     set({ terms: [...d.terms, t], ...(field && !d.fields.includes(field) ? { fields: [...d.fields, field] } : {}) });
   };
+  const afterClose = useRef<(() => void) | null>(null);
   const save = async () => {
     if (!ok) return;
     const draft: FilterDraft = { ...d, name: d.name.trim() || autoName(d) };
@@ -467,7 +468,10 @@ function EditorForm({
         run = res.applied;
         if (res.source) {
           source = res.source.result;
-          if (source === "muted") showMuted(qc, res.source.item_id, res.filter);
+          const { item_id: muted } = res.source;
+          // The article leaves its lists once the editor has given focus back to where it was opened (a row's menu
+          // button, say), so the list moves that focus on to the next row instead of losing it with the row.
+          if (source === "muted") afterClose.current = () => showMuted(qc, muted, res.filter);
         }
       }
       invalidateFilterData(qc);
@@ -499,6 +503,7 @@ function EditorForm({
       open
       size="lg"
       onOpenChange={(o) => !o && !busy && closeFilterEditor()}
+      onClosed={() => afterClose.current?.()}
       title={id ? "Edit filter" : "New filter"}
       description="A filter looks for words in new articles as they arrive and mutes, marks read, stars or highlights the ones that match."
       footer={

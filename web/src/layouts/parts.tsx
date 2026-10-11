@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useState } from "react";
 import { DropdownMenu } from "radix-ui";
 import { BellOff, Check, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, MoveUp, Pencil, Rss, RotateCcw, Share2, Star } from "lucide-react";
 import type { Card } from "@/api/types";
@@ -67,14 +67,14 @@ export function RowMenu({
   const open = openId === item.id;
   // Whether something had focus when the menu opened (a key or a click on the button) as opposed to a long press or a
   // swipe, which open it from the row with focus nowhere. Only the first gets focus back on close.
-  const hadFocus = useRef(false);
+  const [hadFocus, setHadFocus] = useState(false);
   const canShare = canNativeShare();
   const muted = item.muted_by !== null && item.muted_by !== undefined;
   const tabIndex = useRowTabIndex();
   return (
     <DropdownMenu.Root open={open} onOpenChange={(o) => {
         if (o) {
-          hadFocus.current = !!document.activeElement && document.activeElement !== document.body;
+          setHadFocus(!!document.activeElement && document.activeElement !== document.body);
           rowMenuStore.set(item.id);
         } else closeRowMenu();
       }} modal={false}>
@@ -98,11 +98,13 @@ export function RowMenu({
           sideOffset={4}
           collisionPadding={8}
           className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl"
+          // Read by focusOrigin (ui/kit): a dialog opened from this menu gives focus back only where this menu would.
+          data-no-focus-return={hadFocus ? undefined : ""}
           onCloseAutoFocus={(e) => {
             // Long-press and swipe open the menu without focus in the row; let focus stay where the user is. By the
             // time this runs the menu is gone, so the page's focus is already on the body: ask what it was at the start.
-            if (!hadFocus.current) e.preventDefault();
-            hadFocus.current = false;
+            if (!hadFocus) e.preventDefault();
+            setHadFocus(false);
           }}
         >
           <DropdownMenu.Item className={menuItem} onSelect={() => actions.toggleStar(item)}>

@@ -8,7 +8,6 @@ import {
   UNDO_WAIT_MS,
   beginUndo,
   dismissUndoToast,
-  forgetUndo,
   holdUndoToast,
   pushUndo,
   resetUndo,
@@ -322,35 +321,5 @@ describe("actions still in flight", () => {
     beginUndo("read", { bulk: true }).settle(null);
     expect(undoStore.get().canUndo).toBe(false);
     expect(toast()).toBeNull();
-  });
-});
-
-describe("forgetUndo (a filter muted the articles since)", () => {
-  it("takes the articles out of their groups, and a group left empty goes with its toast", async () => {
-    const undoA = vi.fn();
-    const undoB = vi.fn();
-    pushUndo({ kind: "star", ids: ["2"], undo: undoB });
-    read(["1"], undoA);
-    expect(toast()).toBe("Marked read");
-    forgetUndo(["1"]);
-    // The read group is gone and the star toast it took over is back.
-    expect(toast()).toBe("Starred");
-    await undoLast();
-    expect(undoA).not.toHaveBeenCalled();
-    expect(undoB).toHaveBeenCalledWith(["2"]);
-  });
-
-  it("keeps the rest of a group, and a group still in flight drops them when it lands", async () => {
-    const undo = vi.fn();
-    read(["1", "2"], undo);
-    forgetUndo(["1"]);
-    expect(toast()).toBe("Marked read");
-    const t = beginUndo("unread");
-    forgetUndo(["3"]);
-    t.settle({ ids: ["3"], undo: vi.fn() });
-    expect(toast()).toBe("Marked read");
-    await undoLast();
-    expect(undo).toHaveBeenCalledWith(["2"]);
-    expect(undoStore.get().canUndo).toBe(false);
   });
 });

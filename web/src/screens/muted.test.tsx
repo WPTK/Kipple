@@ -12,7 +12,7 @@ import type { Bootstrap, Card, ItemsPage } from "@/api/types";
 import { rowMenuStore } from "@/gestures/rowMenu";
 import { resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
-import { closeFilterEditor, openFilterEditor, similarSeed } from "@/lib/similar";
+import { closeFilterEditor, openFilterEditor } from "@/lib/similar";
 import { closeFeedEditor } from "@/lib/feedEditor";
 import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
@@ -390,11 +390,15 @@ describe("Mute similar… from the open article", () => {
 });
 
 describe("Mute similar… and undo", () => {
-  it("z after muting an article marked read with m does not mark it unread (which would un-mute it)", async () => {
+  // The mute happened where this tab did not hear of it (another device, or while the live connection was down), so
+  // only the server knows: it answers the undo with the article it left muted, and the article stays read and gone.
+  it("z after an article marked read with m was muted elsewhere leaves it read and out of Unread", async () => {
     prefsStore.set({ ...DEFAULT_PREFS, shortcuts: true });
     const { calls } = routes({
-      "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }),
-      "POST /api/filters": () => json({ filter: { ...rule, id: "9", name: "Ada" }, applied: null, source: { item_id: "1001", result: "muted" } }, 201),
+      "POST /api/items/mark-read": (_u, init) => {
+        const b = JSON.parse(String(init?.body)) as { ids: string[]; undo?: boolean };
+        return json(b.undo ? { changed: [], restored: [], kept: ["1001"] } : { changed: b.ids, restored: [] });
+      },
     });
     go("/l/unread");
     const user = userEvent.setup();
@@ -402,14 +406,13 @@ describe("Mute similar… and undo", () => {
     await user.keyboard("j");
     await user.keyboard("m");
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read" && body(c).read === true)).toBe(true));
-    act(() => openFilterEditor({ mode: "create", seed: similarSeed(card(1), "Feed") }));
-    const dialog = within(await screen.findByRole("dialog", { name: "New filter" }));
-    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
-    await user.click(dialog.getByRole("button", { name: "Save filter" }));
-    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent("This article is muted."));
     await user.keyboard("z");
-    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent("Nothing to undo"));
-    expect(calls.some((c) => c.url.pathname === "/api/items/mark-read" && body(c).read === false)).toBe(false);
+    // Marking unread is also the un-mute: the undo says it is one, and the server skips an article muted since.
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read" && body(c).read === false).map(body)).toEqual([expect.objectContaining({ ids: ["1001"], undo: true })]));
+    await waitFor(() => expect(screen.queryByText("Article number 1")).toBeNull());
+    const cached = qc.getQueryData<InfiniteData<ItemsPage>>(keys.items({ view: "unread" }))?.pages[0]?.items.map((i) => i.id);
+    expect(cached).toEqual(["1002"]);
+    expect(screen.getByText("Article number 2")).toBeInTheDocument();
   });
 });
 

@@ -26,6 +26,7 @@ import { useSearchHighlight } from "@/lib/useHighlights";
 import { useHotkeys, type Handlers } from "@/lib/keys";
 import { onBecameUnread, readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
+import { focusOrigin } from "@/ui/kit";
 import { articleTo } from "@/lib/routes";
 import { FirstRun } from "./FirstRun";
 import { announce, toast } from "@/shell/toasts";
@@ -299,8 +300,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const [focusId, setFocusId] = useState<string | undefined>(undefined);
   const shown = (id: string | undefined, of: readonly Card[]) => (id && of.some((i) => i.id === id) ? id : undefined);
   const tabStopId = shown(focusId, items) ?? shown(selected, items) ?? items[0]?.id;
-  const focusIdRef = useRef(focusId);
-  focusIdRef.current = focusId;
   const stopIndex = useMemo(
     () => (tabStopId ? rows.findIndex((r) => (r.kind === "item" ? r.item.id === tabStopId : r.kind === "group" && r.items.some((i) => i.id === tabStopId))) : -1),
     [rows, tabStopId],
@@ -765,18 +764,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
           setSelectedId(next.id);
         }
       }
-      // Focus was in a leaving row (its link, a button, its Muted strip, or the row's menu, which closes with it): it
-      // moves to the row that takes its place instead of dropping to the page, where the next Tab would start over.
-      const last = focusIdRef.current;
-      const active = document.activeElement;
-      const lost = !active || active === document.body || !!active.closest('[role="menu"]') || !!(last && active.closest(`[data-item-id="${CSS.escape(last)}"],[data-muted-for="${CSS.escape(last)}"]`));
-      if (last && lost && ids.includes(last)) {
-        const next = after(last);
-        if (next) {
-          setFocusId(next.id);
-          requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, next.id)));
-        } else requestAnimationFrame(() => parentRef.current?.focus({ preventScroll: true }));
-      }
       setHidden((h) => new Set([...h, ...ids]));
       setLeaving((l) => new Set([...l].filter((x) => !ids.includes(x))));
     };
@@ -817,6 +804,29 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     if (stale.length) unhide(stale);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allItems]);
+
+  // A row that has focus and leaves the list (marked read in Unread, muted, whatever took it out) hands focus to the row
+  // that takes its place, or the one before it at the end, instead of dropping it to the page, where the next Tab would
+  // start over. Only focus that is in that row moves: its link or a control, its Muted strip, or a menu opened from it with
+  // the keyboard. A dialog opened from the row (Mute similar…) gives focus back to the row before it takes the row out
+  // (FilterEditor's onClosed), so it lands here too. Focus anywhere else (the open article, the page) stays where it is.
+  // Where focus is gets read while rendering, before this render's commit takes the row out of the page.
+  const shownIds = useMemo(() => (Page ? allItems : items).map((i) => i.id), [Page, allItems, items]);
+  const holder = focusOrigin(document.activeElement)?.closest<HTMLElement>("[data-item-id],[data-muted-for]");
+  const held = holder && parentRef.current?.contains(holder) ? (holder.dataset.itemId ?? holder.dataset.mutedFor) : undefined;
+  const shownBefore = useRef(shownIds);
+  useLayoutEffect(() => {
+    const before = shownBefore.current;
+    shownBefore.current = shownIds;
+    if (!held || shownIds.includes(held) || !before.includes(held)) return;
+    const now = new Set(shownIds);
+    const at = before.indexOf(held);
+    const next = before.slice(at + 1).find((id) => now.has(id)) ?? before.slice(0, at).reverse().find((id) => now.has(id));
+    if (next) {
+      setFocusId(next);
+      requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, next)));
+    } else requestAnimationFrame(() => parentRef.current?.focus({ preventScroll: true }));
+  }, [shownIds, held]);
 
   // After rows are removed, put the first visible row back where it was on screen.
   useLayoutEffect(() => {

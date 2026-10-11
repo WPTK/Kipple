@@ -35,6 +35,88 @@ describe("star undo", () => {
   });
 });
 
+describe("undo never un-mutes (the server leaves articles muted since alone)", () => {
+  const body = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body)) as Record<string, unknown>;
+
+  it("the undo of a mark read, an unstar and a bulk mark says it is an undo; the actions themselves do not", async () => {
+    const { calls } = mockFetch({
+      "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [], count: 1, undoable: true }),
+      "PUT /api/items/1002/star": () => json({}),
+    });
+    const act = itemActions(new QueryClient());
+    await act.setRead(["1001"], true, "key");
+    await undoLast();
+    await act.toggleStar(card(2, { starred: true }), true);
+    await undoLast();
+    await act.markAll({ view: "unread" }, "1001", ["1001"]);
+    await undoLast();
+    expect(calls.map((c) => [`${c.method} ${c.url.pathname}`, body(c).undo])).toEqual([
+      ["POST /api/items/mark-read", undefined],
+      ["POST /api/items/mark-read", true],
+      ["PUT /api/items/1002/star", undefined],
+      ["PUT /api/items/1002/star", true],
+      ["POST /api/items/mark-read", undefined],
+      ["POST /api/items/mark-read", true],
+    ]);
+  });
+
+  it("an undo of a mark unread does not need it: marking read never un-mutes", async () => {
+    const { calls } = mockFetch({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [] }) });
+    const act = itemActions(new QueryClient());
+    await act.setRead(["1001"], false, "key");
+    await undoLast();
+    expect(calls.map(body)).toEqual([expect.objectContaining({ read: false }), expect.objectContaining({ read: true })]);
+    expect(calls.map((c) => body(c).undo)).toEqual([undefined, undefined]);
+  });
+
+  it("an undo that leaves every article as it was says so instead of Undone (mark read, star, bulk)", async () => {
+    const announce = vi.spyOn(toasts, "announce");
+    mockFetch({
+      "POST /api/items/mark-read": (_u, init) =>
+        json(body({ init }).undo ? { changed: [], restored: [], kept: ["1001"] } : { changed: ["1001"], restored: [], count: 1, undoable: true }),
+      "PUT /api/items/1002/star": (_u, init) => json(body({ init }).undo ? { starred: true, restored: false, kept: true } : {}),
+    });
+    const act = itemActions(new QueryClient());
+    await act.setRead(["1001"], true, "key");
+    await undoLast();
+    expect(announce).toHaveBeenLastCalledWith("Nothing to undo");
+    await act.toggleStar(card(2, { starred: true }), true);
+    await undoLast();
+    expect(announce).toHaveBeenLastCalledWith("Nothing to undo");
+    await act.markAll({ view: "unread" }, "1001", ["1001"]);
+    await undoLast();
+    expect(announce).toHaveBeenLastCalledWith("Nothing to undo");
+    expect(announce).not.toHaveBeenCalledWith("Undone");
+    announce.mockRestore();
+  });
+
+  it("a bulk undo that kept every article but flipped ledger rows back still says Undone", async () => {
+    const announce = vi.spyOn(toasts, "announce");
+    mockFetch({
+      "POST /api/items/mark-read": (_u, init) =>
+        json(body({ init }).undo ? { changed: [], restored: [], kept: ["1001"] } : { changed: ["1001"], restored: [], ledger_ids: ["9"], count: 2, undoable: true }),
+    });
+    const act = itemActions(new QueryClient());
+    await act.markAll({ view: "unread" }, "1001", ["1001"]);
+    await undoLast();
+    expect(announce).toHaveBeenLastCalledWith("Undone");
+    announce.mockRestore();
+  });
+
+  it("an undo that changed some articles still says Undone", async () => {
+    const announce = vi.spyOn(toasts, "announce");
+    mockFetch({
+      "POST /api/items/mark-read": (_u, init) =>
+        json(body({ init }).undo ? { changed: ["1001"], restored: [], kept: ["1002"] } : { changed: ["1001", "1002"], restored: [], count: 2, undoable: true }),
+    });
+    const act = itemActions(new QueryClient());
+    await act.setRead(["1001", "1002"], true, "key");
+    await undoLast();
+    expect(announce).toHaveBeenLastCalledWith("Undone");
+    announce.mockRestore();
+  });
+});
+
 describe("bulk marks reconcile the optimistic rows", () => {
   const rows = (qc: QueryClient) => qc.getQueryData<InfiniteData<ItemsPage>>(keys.items({ view: "unread" }))!.pages.flatMap((p) => p.items);
   function seeded() {

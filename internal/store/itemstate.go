@@ -26,6 +26,8 @@ type StateResult struct {
 	// MadeUnread are the ids among Changed that an un-mute (DeleteFilter, unmute=unread) turned
 	// back to unread; the rest keep the read state they had before the mute.
 	MadeUnread []int64
+	// Kept are the ids an undo (UndoMarkRead, UndoUnstar) left as they were: muted since, or trimmed since.
+	Kept []int64
 }
 
 // jsonText is the one way this package encodes a value for a JSON column or a
@@ -87,6 +89,33 @@ func queryIDs(ctx context.Context, q Querier, query string, args ...any) ([]int6
 // trimmed item from its stub when one exists, else clears the ledger flag.
 // The WHERE guards make replays no-ops.
 func SetRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64) (StateResult, error) {
+	return setRead(ctx, tx, ids, read, now, false)
+}
+
+// UndoMarkRead is the web app's undo of a mark read: SetRead(false) on the stored articles, except that one muted
+// since stays muted and read (Kept lists those). An undo reverses what the person did and never un-mutes
+// (design §7.11). It leaves the retention ledger alone: a trimmed row keeps no mute, so restoring one could bring
+// back an article a filter muted before it was trimmed. An article trimmed since is in Kept too.
+func UndoMarkRead(ctx context.Context, tx *sql.Tx, ids []int64, now int64) (StateResult, error) {
+	return setRead(ctx, tx, ids, false, now, true)
+}
+
+// undoWhere is the extra condition of an undo's UPDATE: it leaves muted articles alone.
+func undoWhere(undo bool) string {
+	if undo {
+		return " AND muted_by IS NULL"
+	}
+	return ""
+}
+
+// kept lists the ids an undo left as they were: every one that is not a stored, unmuted article (muted since, or
+// trimmed since, which the undo does not restore).
+func kept(ctx context.Context, tx *sql.Tx, js string) ([]int64, error) {
+	return queryIDs(ctx, tx, `SELECT value FROM json_each(?1)
+		WHERE value NOT IN (SELECT id FROM items WHERE id IN (SELECT value FROM json_each(?1)) AND muted_by IS NULL) ORDER BY value`, js)
+}
+
+func setRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64, undo bool) (StateResult, error) {
 	var res StateResult
 	if len(ids) == 0 {
 		return res, nil
@@ -110,11 +139,15 @@ func SetRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64)
 	}
 	// Marking unread is also the un-mute: muted_by is cleared in the same UPDATE (design 5.2a).
 	rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 0, read_at = NULL, muted_by = NULL, muted_was_read = NULL, state_changed_at = ?2
-		WHERE id IN (SELECT value FROM json_each(?1)) AND (read = 1 OR muted_by IS NOT NULL) RETURNING id, feed_id`, js, now)
+		WHERE id IN (SELECT value FROM json_each(?1)) AND (read = 1 OR muted_by IS NOT NULL)`+undoWhere(undo)+` RETURNING id, feed_id`, js, now)
 	if err != nil {
 		return res, err
 	}
 	if res.Changed, err = scanIDs(rows); err != nil {
+		return res, err
+	}
+	if undo {
+		res.Kept, err = kept(ctx, tx, js)
 		return res, err
 	}
 	restored, err := restoreTrimmed(ctx, tx, ids, "unread", now, now)
@@ -139,6 +172,17 @@ func SetStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, now 
 // item) given apart from now, for a client queue that replays a star made offline. state_changed_at
 // is always now, when the server applied the change: that is what a sync app passing ot has missed.
 func SetStarredAt(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, at, now int64) (StateResult, error) {
+	return setStarred(ctx, tx, ids, starred, at, now, false)
+}
+
+// UndoUnstar is the web app's undo of an unstar: SetStarred(true) on the stored articles, except that one muted since
+// stays muted and unstarred (Kept lists those, with any trimmed since), since a star is also the un-mute (design §7.11). Like
+// UndoMarkRead it restores nothing from the retention ledger.
+func UndoUnstar(ctx context.Context, tx *sql.Tx, ids []int64, at, now int64) (StateResult, error) {
+	return setStarred(ctx, tx, ids, true, at, now, true)
+}
+
+func setStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, at, now int64, undo bool) (StateResult, error) {
 	var res StateResult
 	if len(ids) == 0 {
 		return res, nil
@@ -158,11 +202,15 @@ func SetStarredAt(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, at
 	}
 	// A manual star also un-mutes (star beats mute); the item stays read.
 	rows, err := tx.QueryContext(ctx, `UPDATE items SET starred = 1, starred_at = ?1, state_changed_at = ?3, muted_by = NULL, muted_was_read = NULL
-		WHERE id IN (SELECT value FROM json_each(?2)) AND (starred = 0 OR muted_by IS NOT NULL) RETURNING id, feed_id`, at, js, now)
+		WHERE id IN (SELECT value FROM json_each(?2)) AND (starred = 0 OR muted_by IS NOT NULL)`+undoWhere(undo)+` RETURNING id, feed_id`, at, js, now)
 	if err != nil {
 		return res, err
 	}
 	if res.Changed, err = scanIDs(rows); err != nil {
+		return res, err
+	}
+	if undo {
+		res.Kept, err = kept(ctx, tx, js)
 		return res, err
 	}
 	restored, err := restoreTrimmed(ctx, tx, ids, "star", at, now)

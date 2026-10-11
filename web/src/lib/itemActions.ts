@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { applyRead, applyStar, bumpMuted, dropFromLists, invalidateLists, keys, patchItems } from "@/api/queries";
+import { applyRead, applyStar, bumpMuted, dropFromLists, invalidateLists, keys, undoKept, patchItems } from "@/api/queries";
 import { api, errorMessage } from "@/api/client";
 import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
-import type { BulkMarkResponse, Card, ItemsPage, Scope } from "@/api/types";
+import type { BulkMarkResponse, Card, ItemsPage, MarkReadResponse, Scope } from "@/api/types";
 import { announce, toast } from "@/shell/toasts";
 import { createStore } from "./store";
 import { beginUndo, type UndoChange } from "./undo";
@@ -40,12 +40,19 @@ export function useItemActions() {
   return useMemo(() => itemActions(qc), [qc]);
 }
 
+/** `"kept"` when the server left every id as it was, so the undo changed nothing. */
+function allKept(ids: string[], kept: string[] | undefined): true | "kept" {
+  return ids.length > 0 && kept !== undefined && ids.every((id) => kept.includes(id)) ? "kept" : true;
+}
+
 /** Undo a scope mark: the changed ids plus the trimmed-ledger ids it flipped (design 7.1). */
-async function undoBulk(qc: QueryClient, ids: string[], ledger: string[]): Promise<boolean> {
+async function undoBulk(qc: QueryClient, ids: string[], ledger: string[]): Promise<boolean | "kept"> {
   patchItems(qc, ids, { read: false });
   try {
-    await api("/api/items/mark-read", { method: "POST", body: { ids, ...(ledger.length ? { ledger_ids: ledger } : {}), read: false, reason: "bulk" } });
-    return true;
+    const res = await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, ...(ledger.length ? { ledger_ids: ledger } : {}), read: false, reason: "bulk", undo: true } });
+    undoKept(qc, res?.kept);
+    // Ledger rows the undo flipped back are a change even when every stored article was kept.
+    return ledger.length > 0 ? true : allKept(ids, res?.kept);
   } catch (e) {
     patchItems(qc, ids, { read: true });
     toast(errorMessage(e), "error");
@@ -117,12 +124,14 @@ export function itemActions(qc: QueryClient) {
       restore,
       undo: async (undoIds) => {
         dropIntent(undoIds);
-        const ok = (await applyRead(qc, undoIds, !read, "key")) !== undefined;
-        if (ok && read) {
+        // Undoing a mark read is a mark unread, which would also un-mute an article a filter muted since: `undo`
+        // has the server leave those alone (an undo of a mark unread marks read, which never un-mutes).
+        const res = await applyRead(qc, undoIds, !read, "key", { undo: read });
+        if (res && read) {
           invalidateUnreadLists(qc);
-          notifyUnread(undoIds);
+          notifyUnread(undoIds.filter((id) => !res.kept?.includes(id)));
         }
-        return ok;
+        return res === undefined ? false : read ? allKept(undoIds, res.kept) : true;
       },
     });
   }
@@ -145,8 +154,10 @@ export function itemActions(qc: QueryClient) {
     ticket?.settle({
       ids: [item.id],
       undo: async (ids) => {
-        const done = await Promise.all(ids.map((id) => applyStar(qc, id, !starred)));
-        return done.every(Boolean);
+        // Undoing an unstar is a star, which would also un-mute: `undo` has the server leave a muted article alone.
+        const done = await Promise.all(ids.map((id) => applyStar(qc, id, !starred, !starred)));
+        if (!done.every((d) => d !== false)) return false;
+        return done.every((d) => d === "kept") ? "kept" : true;
       },
     });
     return true;
