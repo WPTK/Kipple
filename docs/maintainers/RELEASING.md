@@ -30,16 +30,17 @@ and one CI wait for them; code fixes with different root causes stay separate PR
 
 ### Version path to 1.0.0
 
-`0.8.0-beta.1`, `0.8.0-beta.2`, then `1.0.0-rc.N`, then `1.0.0`. A candidate for 1.0.0 is named `1.0.0-rc.N`, never `0.8.0-rc.N`. A
-release candidate adds no features, so a feature lands in a beta. `0.8.0` never ships as a stable release. A change that
-needs no schema or Reader API change and is small may go into `1.0.0-rc.1` instead if the PR says why; the rc rule (bug
-fixes only) is the test.
+The 0.8.0 line ends at `0.8.0-beta.8`. Features landed after it, so the next line is `0.9.0` (new features mean a minor
+bump): `0.9.0-beta.1` (the bug fixes plus those features), then `1.0.0-rc.N`, then `1.0.0`. A candidate for 1.0.0 is named
+`1.0.0-rc.N`, never `0.9.0-rc.N`. A release candidate adds no features, so a feature lands in a beta. Neither `0.8.0` nor
+`0.9.0` ships as a stable release. A change that needs no schema or Reader API change and is small may go into
+`1.0.0-rc.1` instead if the PR says why; the rc rule (bug fixes only) is the test.
 
 - **Alpha → beta.1:** only once every planned feature has shipped and `uat-plan.md` Suites 1, 2 and 4 have been
   executed clean of open P0/P1 defects. Feature-complete means verified, not declared: beta itself adds no new
   features, only fixes.
 - **Beta → rc.1:** Suites 1, 2 and 4 re-verified on the beta build, plus the beta's own soak (the owner's real daily
-  use, about three days, zero new P0/P1 defects). RC then means "only fixing what the soak or UAT found," not
+  use, about three days, zero new P0/P1 defects). A regression found in the soak resets it on the next build. RC then means "only fixing what the soak or UAT found," not
   starting a fresh test cycle.
 - **Suite 3 (owner-only device checks) is not a promotion gate at any step.** The owner runs it informally on his own
   devices as he uses each build. If it surfaces something real, that becomes its own tracked fix and does not block a
