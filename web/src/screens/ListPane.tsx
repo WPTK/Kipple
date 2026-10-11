@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer, type Range, type VirtualItem } from "@tanstack/react-virtual";
 import { remeasureMounted } from "@/lib/remeasure";
 import { useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
@@ -16,13 +16,14 @@ import { prefersReducedMotion } from "@/gestures/tracking";
 import { COLLAPSE_MS, captureAnchor, compensate, type ScrollAnchor } from "@/lib/collapse";
 import { usePullToRefresh } from "@/gestures/usePullToRefresh";
 import { pageOf, useResolvedLayout } from "@/layouts";
+import { RowTabStop, useRowTabIndex } from "@/layouts/rowTabStop";
 import type { ListLayout, RowMenuActions } from "@/layouts";
 import { sessionLayoutStore, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { prefsStore } from "@/lib/prefs";
 import { useStore, useStoreSelector } from "@/lib/store";
 import { withDayHeaders, type Row } from "@/lib/format";
 import { useSearchHighlight } from "@/lib/useHighlights";
-import { useHotkeys, type Handlers } from "@/lib/keys";
+import { isTypingTarget, useHotkeys, type Handlers } from "@/lib/keys";
 import { onBecameUnread, readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
 import { articleTo } from "@/lib/routes";
@@ -97,6 +98,8 @@ interface ListMemory {
   seenByScroll: Set<string>;
 }
 const MEMORY_CAP = 100;
+/** Rows rendered past each end of the visible window. */
+const OVERSCAN = 8;
 const memory = new Map<string, ListMemory>();
 const memoryFor = (key: string): ListMemory => {
   let m = memory.get(key);
@@ -291,6 +294,21 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const saved = memory.get(key);
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
   const selected = activeId ?? selectedId;
+  // The list is one Tab stop (rowTabStop.ts): the selected row, else the first. Its row is always rendered, so Tab
+  // into the list finds it wherever the list is scrolled.
+  const tabStopId = selected && items.some((i) => i.id === selected) ? selected : items[0]?.id;
+  const stopIndex = useMemo(
+    () => (tabStopId ? rows.findIndex((r) => (r.kind === "item" ? r.item.id === tabStopId : r.kind === "group" && r.items.some((i) => i.id === tabStopId))) : -1),
+    [rows, tabStopId],
+  );
+  const rangeExtractor = useCallback(
+    (range: Range) => {
+      const indexes = defaultRangeExtractor(range);
+      if (stopIndex < 0 || indexes.includes(stopIndex)) return indexes;
+      return stopIndex < (indexes[0] ?? 0) ? [stopIndex, ...indexes] : [...indexes, stopIndex];
+    },
+    [stopIndex],
+  );
 
   // The list's measured width and root font size, for layouts whose rows change shape with width (Editorial).
   const sizeCtx = useRef({ width: 0, rem: 16 });
@@ -306,7 +324,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       return layout.estimateRow(r.item, sizeCtx.current);
     },
     getItemKey: (i) => rows[i]?.key ?? i,
-    overscan: 8,
+    overscan: OVERSCAN,
+    rangeExtractor,
     // A page layout restores its own offset once its pages are laid out (below); a jump here would land short.
     initialOffset: Page ? 0 : (saved?.offset ?? 0),
     // The heights from the last visit, so the restored offset points at the rows it was taken over.
@@ -564,7 +583,9 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     endObserver.current.observe(el);
   }, []);
   const virtualItems = virtualizer.getVirtualItems();
-  const lastIndex = virtualItems.length ? (virtualItems[virtualItems.length - 1]?.index ?? 0) : 0;
+  // The last row the window and its overscan reach (not the tab-stop row rangeExtractor adds, which can be far below).
+  const windowEnd = virtualizer.range?.endIndex;
+  const lastIndex = windowEnd === undefined ? 0 : Math.min(rows.length - 1, windowEnd + OVERSCAN);
   useEffect(() => {
     // After a failed page the auto-fetch stops (offline would retry every render); the inline Retry row resumes it.
     // Not while the list itself is being refetched (an on-mount refetch of an invalidated list): fetchNextPage would
@@ -659,11 +680,11 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   }, [markOnScroll, qc, virtualizer, pagedScroll, lookAtStories]);
 
   const move = useCallback(
-    (delta: 1 | -1) => {
+    (delta: 1 | -1, from: string | undefined = selected) => {
       // A page layout's reading order is its DOM order (ListLayout.Page), which is not the list's order.
       const order = Page ? pageOrder(parentRef.current, allItems) : items;
       if (order.length === 0) return;
-      const cur = selected ? order.findIndex((i) => i.id === selected) : -1;
+      const cur = from ? order.findIndex((i) => i.id === from) : -1;
       const next = Math.min(order.length - 1, Math.max(0, cur < 0 ? (delta === 1 ? 0 : order.length - 1) : cur + delta));
       const item = order[next];
       if (!item) return;
@@ -676,6 +697,18 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     },
     [Page, allItems, items, selected, virtualizer, rowIndexOf, onKeyMove],
   );
+
+  // The arrow keys move between rows when a row has focus, as j and k do, and work with single-key shortcuts off: the
+  // list is one Tab stop, so they are how the keyboard reaches the other rows. Elsewhere the arrows scroll as usual.
+  const onRowArrow = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
+    const row = e.target instanceof HTMLElement && !isTypingTarget(e.target) ? e.target.closest<HTMLElement>("[data-item-id]") : null;
+    if (!row) return;
+    e.preventDefault();
+    // From the row that has focus: Tab lands on the first row when nothing is selected yet.
+    move(e.key === "ArrowDown" ? 1 : -1, row.dataset.itemId);
+  };
 
   const selectedItem = (Page ? allItems : items).find((i) => i.id === selected);
 
@@ -1085,6 +1118,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       swipe={swipe}
       peek={peek}
       selected={item.id === selected}
+      tabStop={item.id === tabStopId}
       checked={checked.has(item.id)}
       showThumb={dp.inboxThumbs === "auto"}
       showMuted={mutedView}
@@ -1251,6 +1285,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
           aria-busy={q.isPending || q.isFetchingNextPage}
           className="@container h-full overflow-y-auto overscroll-y-contain"
           tabIndex={-1}
+          onKeyDown={onRowArrow}
         >
           <div
             style={
@@ -1300,6 +1335,8 @@ interface ListRowProps {
   swipe: boolean;
   peek: boolean;
   selected: boolean;
+  /** This row's controls are the list's one Tab stop (rowTabStop.ts). */
+  tabStop: boolean;
   checked: boolean;
   showThumb: boolean;
   /** The Muted list: each row says which filter muted it, with Restore and Edit rule. */
@@ -1341,18 +1378,18 @@ export const ListRow = memo(function ListRow(p: ListRowProps) {
       />
     </SwipeRow>
   );
-  if (!p.showMuted) return row;
   return (
-    <>
+    <RowTabStop.Provider value={p.tabStop}>
       {row}
-      <MutedStrip item={item} onRestore={() => p.actions.restore(item)} onEditRule={() => p.actions.editRule(item)} />
-    </>
+      {p.showMuted ? <MutedStrip item={item} onRestore={() => p.actions.restore(item)} onEditRule={() => p.actions.editRule(item)} /> : null}
+    </RowTabStop.Provider>
   );
 });
 
 /** "Muted by <rule>" under a row of the Muted list, with the two things you can do about it. */
 export function MutedStrip({ item, onRestore, onEditRule }: { item: Card; onRestore: () => void; onEditRule: () => void }) {
   const name = item.muted_by_name;
+  const tabIndex = useRowTabIndex();
   return (
     <div data-testid="muted-strip" className="flex flex-wrap items-center gap-x-3 border-b border-line bg-surface px-4 text-xs">
       <span className="min-w-0 flex-1 py-1 text-fg2">
@@ -1364,11 +1401,11 @@ export function MutedStrip({ item, onRestore, onEditRule }: { item: Card; onRest
           "Muted by a filter that was deleted"
         )}
       </span>
-      <Button variant="ghost" onClick={onRestore} aria-label={`Restore ${item.title || "article"}`}>
+      <Button variant="ghost" tabIndex={tabIndex} onClick={onRestore} aria-label={`Restore ${item.title || "article"}`}>
         Restore
       </Button>
       {name ? (
-        <Button variant="ghost" onClick={onEditRule} aria-label={`Edit the rule that muted ${item.title || "this article"}`}>
+        <Button variant="ghost" tabIndex={tabIndex} onClick={onEditRule} aria-label={`Edit the rule that muted ${item.title || "this article"}`}>
           Edit rule
         </Button>
       ) : null}

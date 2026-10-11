@@ -7,8 +7,8 @@
 //
 // At 1280x800, with the keyboard only (no mouse, no click, except to sign in):
 //   K1  Tab order: on every main screen each visible control is reached by Tab, the one that has focus shows a focus
-//       indicator, and Tab walks on to the end of the page (or round to the skip link) with no trap, the way back
-//       with Shift+Tab too. A long list is walked for its first 150 stops and its first 8 rows are expected.
+//       indicator, and Tab walks on to the end of the page with no trap, the way back with Shift+Tab too. A list is
+//       one Tab stop: from a row reached with the arrow keys deep in the list, a few Tab presses leave it.
 //   K2  Escape: every menu and dialog tried opens from the keyboard, keeps focus inside while it is a modal dialog,
 //       closes on Escape, and gives focus back to the control that opened it.
 //   K3  The shortcuts of web/src/lib/keys.ts (the `?` overlay): j k Enter x m s { } Shift+A z g g Shift+G [ ] c o v f u
@@ -107,33 +107,23 @@ function installHelpers() {
     n: 0,
     keyOf,
     /** An element Tab should reach: enabled, tabbable, drawn, not inert or hidden from assistive technology. */
-    expected(rowLimit, skipLinks, within = null) {
+    expected(skipLinks) {
       const sel = 'a[href],button,input,select,textarea,summary,[tabindex],[role="button"],[role="switch"],[role="checkbox"],[role="slider"]';
-      const rows = new Map();
       const out = [];
       let last = null;
-      // Past the limit a long list is not walked to its end, so the controls after it (its pane resizer, the article
-      // beside it) are not expected.
-      const all = [...document.querySelectorAll("article[data-item-id]")];
-      const cut = all.length > rowLimit ? all[rowLimit] : null;
-      for (const e of (within ? document.querySelector(within) : document)?.querySelectorAll(sel) ?? []) {
+      // A list is one Tab stop (web/src/layouts/rowTabStop.ts): the other rows' controls are tabindex -1, left out below.
+      for (const e of document.querySelectorAll(sel)) {
         if (skipLinks && e.matches("a[href]")) continue;
         // Of a radio group Tab reaches only the checked one; it can be the last stop of a page.
         const checkedRadio = e instanceof HTMLInputElement && e.type === "radio" && e.checked && !e.disabled && e.isConnected;
-        if (checkedRadio && e.checkVisibility({ visibilityProperty: true })) last = keyOf(e);
+        if (checkedRadio && e.checkVisibility({ visibilityProperty: true })) [last, this.lastEl] = [keyOf(e), e];
         if (e.disabled || e.tabIndex < 0 || e.matches(roving) || (e instanceof HTMLInputElement && e.type === "hidden")) continue;
         if (!e.checkVisibility({ visibilityProperty: true })) continue;
         if (e.closest('[inert],[aria-hidden="true"]')) continue;
         const r = e.getBoundingClientRect();
         if (r.width === 0 || r.height === 0) continue;
-        if (cut && cut.compareDocumentPosition(e) & (Node.DOCUMENT_POSITION_FOLLOWING | Node.DOCUMENT_POSITION_CONTAINED_BY)) continue;
-        const row = e.closest("article[data-item-id]");
-        if (row) {
-          if (!rows.has(row)) rows.set(row, rows.size);
-          if (rows.get(row) >= rowLimit) continue;
-        }
         out.push(keyOf(e));
-        last = keyOf(e);
+        [last, this.lastEl] = [keyOf(e), e];
       }
       // Unique keys, and the last control in the page's order (a key can occur twice: a feed in the sidebar and in the list).
       return { keys: [...new Set(out)], last };
@@ -261,39 +251,93 @@ async function k1(page, articlePath) {
     ["/settings/advanced", "settings: advanced", false],
     ["/stats", "stats", false],
     ["/stats/wrapped", "wrapped", false],
-    // The article beside its list: the list comes first and has no end Tab can reach in a real library (it loads more
-    // as focus moves down), so it is walked like a list, and the article from the skip link (K1 article, skip link).
     [articlePath, "article", true],
   ];
   const skipLinks = WEBKIT_NO_LINK_TAB && opt.browser === "webkit";
-  for (const [path, name, long] of screens) {
+  for (const [path, name, list] of screens) {
     const where = `K1 ${name}`;
     await load(page, path);
-    const { keys: expected, last: lastKey } = await page.evaluate(([n, links]) => window.__kk.expected(n, links), [long ? 8 : Infinity, skipLinks]);
+    const { keys: expected, last: lastKey } = await page.evaluate((links) => window.__kk.expected(links), skipLinks);
     // A screen may put the caret in a field on load (Search): walk from the start of the page, not from there.
     const rewound = await rewind(page);
-    const walked = await walk(page, where, long ? 150 : 400, lastKey, rewound);
-    report(where, expected, walked, long);
+    const walked = await walk(page, where, lastKey, rewound);
+    report(where, expected, walked);
     if (walked.ended && walked.ended !== "TRAP") await backwards(page, where);
+    if (list) await keepingReadState(page, () => leaveList(page, `${where} (deep in the list)`, 30));
   }
-  // The skip link is the way past the article's list: from the start of the page it is the first stop, it lands on
-  // the article, and Tab walks on from there through every control of the article to the end of the page.
-  const where = "K1 article, skip link";
-  await load(page, articlePath);
-  const { keys: expected, last: lastKey } = await page.evaluate(([links]) => window.__kk.expected(Infinity, links, "[data-skip-target]"), [skipLinks]);
-  await rewind(page);
-  // WebKit leaves links out of the Tab order (WEBKIT_NO_LINK_TAB), so there the link is focused directly.
-  if (skipLinks) await page.locator('a[href="#main"]').focus();
-  else await page.keyboard.press("Tab");
-  const link = await focusOf(page);
-  if (!link || !/Skip to article/.test(link.key)) {
-    fail(where, `the first Tab stop is ${link?.key ?? "nothing"}, not the Skip to article link`);
-    return;
+}
+
+/** Run `fn`, then mark unread again what it marked read: beside the reader pane, moving through the list opens each
+ * article it reaches (as j does), and the seeded instance should end as it began. */
+async function keepingReadState(page, fn) {
+  // The newest 500 unread articles: the check moves through 30 rows, all of them among these.
+  const unread = () =>
+    page.evaluate(async () => {
+      const ids = [];
+      let cursor = "";
+      for (let n = 0; n < 5; n++) {
+        const res = await fetch(`/api/items?view=unread&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { headers: { Accept: "application/json" } });
+        const page = await res.json();
+        ids.push(...page.items.map((i) => i.id));
+        if (!page.next_cursor) break;
+        cursor = page.next_cursor;
+      }
+      return ids;
+    });
+  const before = await unread();
+  try {
+    await fn();
+  } finally {
+    await page.waitForLoadState("networkidle").catch(() => {});
+    const still = new Set(await unread());
+    const read = before.filter((id) => !still.has(id));
+    if (read.length) {
+      const status = await page.evaluate(
+        async (ids) => (await fetch("/api/items/mark-read", { method: "POST", headers: { "Content-Type": "application/json", "X-Kipple-Client": "web" }, body: JSON.stringify({ ids, read: false, reason: "key" }) })).status,
+        read,
+      );
+      if (status !== 200) fail("K1", `could not mark ${read.length} article(s) unread again after the list check (HTTP ${status})`);
+    }
   }
-  await page.keyboard.press("Enter");
-  const landed = await page.evaluate(() => !!document.activeElement?.matches("[data-skip-target]"));
-  check(landed, `${where} (lands)`, "the link moves focus to the article", "the link did not move focus to the article");
-  report(where, expected, await walk(page, where, 400, lastKey, new Set()), false);
+}
+
+/** The list is one Tab stop: after moving `moves` rows down with the arrow keys (which loads more rows as it goes), a
+ * few Tab presses leave the list for the control after it. A list whose rows were all Tab stops would never let go. */
+async function leaveList(page, where, moves) {
+  const row = page.locator('[data-testid="list-scroll"] article[data-item-id] a').first();
+  if (!(await row.count())) return fail(where, "the list has no rows");
+  await row.focus();
+  const start = await page.evaluate(() => document.activeElement?.closest("[data-item-id]")?.getAttribute("data-item-id"));
+  const rows = new Set([start]);
+  for (let i = 0; i < moves; i++) {
+    await page.keyboard.press("ArrowDown");
+    // The list scrolls the row into view and then moves focus to it, a frame or two later.
+    const moved = await page
+      .waitForFunction((seen) => {
+        const id = document.activeElement?.closest("[data-item-id]")?.getAttribute("data-item-id");
+        return id && !seen.includes(id) ? id : null;
+      }, [...rows], { timeout: 2000 })
+      .then((h) => h.jsonValue())
+      .catch(() => null);
+    if (!moved) break; // the end of a short list, or the arrow did nothing
+    rows.add(moved);
+  }
+  rows.delete(start);
+  if (rows.size < Math.min(moves, 5)) return fail(where, `ArrowDown moved focus through ${rows.size} rows in ${moves} presses`);
+  moves = rows.size;
+  for (let i = 1; i <= 6; i++) {
+    await page.keyboard.press("Tab");
+    const out = await page.evaluate((links) => {
+      const e = document.activeElement;
+      if (!e || e === document.body) return "the end of the page";
+      // Firefox keeps focus on the page's last control when Tab has nowhere further to go (see walk).
+      window.__kk.expected(links);
+      if (e === window.__kk.lastEl) return "the end of the page (its last control)";
+      return e.closest('[data-testid="list-scroll"]') ? null : (e.getAttribute("aria-label") ?? e.textContent ?? "").trim().slice(0, 40) || e.tagName;
+    }, WEBKIT_NO_LINK_TAB && opt.browser === "webkit");
+    if (out) return pass(where, `after ${moves} rows down, Tab ${i}x leaves the list for ${out}`);
+  }
+  fail(where, `after ${moves} rows down, focus was still in the list after 6 Tab presses (keyboard trap)`);
 }
 
 /** Shift+Tab to the start of the page; the controls passed on the way. */
@@ -308,8 +352,9 @@ async function rewind(page) {
   return rewound;
 }
 
-/** Tab on from where focus is, at most `cap` times: what it reached, which stops showed no ring, and how it ended. */
-async function walk(page, where, cap, lastKey, seenBefore) {
+/** Tab on from where focus is, at most 400 times: what it reached, which stops showed no ring, and how it ended. */
+async function walk(page, where, lastKey, seenBefore) {
+  const cap = 400;
   const seen = new Set(seenBefore); // reached by Tab (backwards) on the way to the start
   const ids = new Set();
   const noRing = new Set();
@@ -345,16 +390,15 @@ async function walk(page, where, cap, lastKey, seenBefore) {
     seen.add(f.key);
     if (!f.ring) noRing.add(f.key);
   }
-  if (ended === null && cap === 400) fail(where, `Tab did not reach the end of the page in ${cap} presses (keyboard trap or an endless page)`);
-  return { seen, noRing, ended, steps };
+  if (ended === null) fail(where, `Tab did not reach the end of the page in ${cap} presses (keyboard trap or an endless page)`);
+  return { seen, noRing, ended };
 }
 
-function report(where, expected, { seen, noRing, ended, steps }, long) {
-  // A long list is only walked so far: what is past its first rows is not expected.
+function report(where, expected, { seen, noRing, ended }) {
   const missed = expected.filter((k) => !seen.has(k)).map((k) => k.replace(/\|+/g, "|"));
   if (missed.length) fail(where, `${missed.length} control(s) Tab never reached: ${missed.slice(0, 4).join("; ")}`);
   if (noRing.size) fail(where, `${noRing.size} focused control(s) show no focus indicator: ${[...noRing].slice(0, 4).map((k) => k.replace(/\|+/g, "|")).join("; ")}`);
-  if (!missed.length && !noRing.size && (ended || long)) pass(where, `${seen.size} stops, ${ended ?? `first ${steps}, no trap`}, focus always visible`);
+  if (!missed.length && !noRing.size && ended) pass(where, `${seen.size} stops, ${ended}, focus always visible`);
 }
 
 /** The way back: Shift+Tab from the first stop moves on too (no backward trap). */

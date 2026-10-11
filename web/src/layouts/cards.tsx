@@ -3,6 +3,7 @@ import { cn } from "@/lib/cn";
 import { CheckBadge, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
+import { useRowTabIndex } from "./rowTabStop";
 
 /**
  * Cards: a real card shell (raised surface, border, shadow, an inset lead image with its
@@ -13,6 +14,7 @@ import { Hl } from "@/lib/useHighlights";
  * own width, and opening one shows the article full width (no reader pane).
  */
 function CardRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
+  const tabIndex = useRowTabIndex();
   const unread = !item.read;
   return (
     <article
@@ -42,6 +44,7 @@ function CardRow({ item, feed, selected, checked, to, onOpen, onToggleStar, acti
         <SourceTimeMeta item={item} icon={feed?.icon} dot={<UnreadDot unread={unread} />} />
         <h3 className={cn("clamp-title text-base leading-snug", unread ? "font-bold text-fg" : "font-normal text-fg2")}>
           <Link
+            tabIndex={tabIndex}
             to={to}
             onClick={() => onOpen(item)}
             className="after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:outline-accent"

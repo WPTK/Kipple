@@ -56,6 +56,19 @@ describe("Gazette pages", () => {
     expect(new Set(order).size).toBe(cards.length);
   });
 
+  it("is one Tab stop: the first story in reading order, else the selected one", () => {
+    const tabbable = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>("article[data-item-id] a")].filter((a) => a.tabIndex >= 0).map((a) => a.closest("article")!.getAttribute("data-item-id"));
+    const { container, rerender } = draw(cards, p);
+    expect(tabbable(container)).toEqual([planOrder(p)[0]]);
+    const picked = planOrder(p)[10]!;
+    rerender(
+      <MemoryRouter>
+        <Gazette plan={p} items={new Map(cards.map((c) => [c.id, c]))} name="The Gazette" date={DATE} screen="wide" to={(c) => `/item/${c.id}`} onOpen={vi.fn()} selectedId={picked} />
+      </MemoryRouter>,
+    );
+    expect(tabbable(container)).toEqual([picked]);
+  });
+
   it("has a masthead on the front page, a folio line on inner pages and the closing line", () => {
     draw(cards, p);
     expect(screen.getByRole("heading", { level: 2, name: "The Gazette" })).toBeInTheDocument();

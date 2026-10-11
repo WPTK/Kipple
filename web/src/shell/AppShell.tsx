@@ -254,17 +254,15 @@ export function AppShell() {
 
   return (
     <div className="flex h-full">
-      {/* On the article screen the list column comes first and has no end a keyboard can reach (it loads more as
-          focus moves down), so the skip link goes to the article itself (data-skip-target), not to the screen. */}
       <a
         href="#main"
         className="sr-only-live focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-accent focus:px-4 focus:py-3 focus:text-bg"
         onClick={(e) => {
           e.preventDefault();
-          (mainRef.current?.querySelector<HTMLElement>("[data-skip-target]") ?? mainRef.current)?.focus();
+          mainRef.current?.focus();
         }}
       >
-        {inArticle ? "Skip to article" : "Skip to content"}
+        Skip to content
       </a>
       {wide ? <Sidebar /> : null}
       <div className="kp-stack flex min-w-0 flex-1 flex-col">

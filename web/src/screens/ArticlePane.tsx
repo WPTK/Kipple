@@ -282,8 +282,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const ftBusy = fulltext.isPending && fulltext.variables?.id === id;
 
   return (
-    // The skip link's target (shell/AppShell.tsx): the next Tab from here is the article's first control.
-    <div ref={frameRef} data-skip-target tabIndex={-1} className="flex h-full min-h-0 flex-col bg-bg outline-none">
+    <div ref={frameRef} className="flex h-full min-h-0 flex-col bg-bg">
       {!pane && <TopBar onBack={back} />}
       {pane && (
         <Toolbar
