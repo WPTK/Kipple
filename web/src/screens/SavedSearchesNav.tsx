@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { ChevronDown, ChevronRight, Search } from "lucide-react";
 import { searchRoute, unreadLabel, useSavedSearches } from "@/api/savedSearches";
@@ -30,22 +30,40 @@ export function SavedCount({ s }: { s: SavedSearch }) {
   );
 }
 
-/** A failure note with its retry. role=status (not alert): the section is mounted twice in the wide layout. The button's name carries the message so it is not one of several "Try again". */
+/**
+ * Whether a failure note is shown. TanStack Query clears `error` while a retry of a request that never succeeded is
+ * running, which would unmount the note and its focused button at once; so a failure stays shown until that request
+ * succeeds (`resolved`), and `fetching` is what marks it busy.
+ */
+function useFailureShown(failed: boolean, fetching: boolean, resolved: boolean): boolean {
+  const [sticky, setSticky] = useState(false);
+  const next = resolved ? false : failed ? true : fetching ? sticky : false;
+  if (next !== sticky) setSticky(next);
+  return next;
+}
+
+/**
+ * A failure note with its retry. Only the message is a live region (role=status, not alert: the section is mounted
+ * twice in the wide layout, so a failure may be announced once per mount). The button's name carries the message so
+ * it is not one of several "Try again"; while a retry runs it is aria-disabled, not disabled, so keyboard focus stays.
+ */
 function RetryNote({ message, busy, onRetry }: { message: string; busy: boolean; onRetry: () => void }) {
   return (
     <li className="px-3 text-xs text-fg2">
-      <div role="status" aria-busy={busy}>
-        {message}{" "}
-        <button
-          type="button"
-          onClick={onRetry}
-          disabled={busy}
-          aria-label={`Try again: ${message.replace(/\.$/, "").toLowerCase()}`}
-          className="min-h-11 text-link underline underline-offset-2 disabled:opacity-60"
-        >
-          Try again
-        </button>
-      </div>
+      <span role="status" aria-busy={busy}>
+        {message}
+      </span>{" "}
+      <button
+        type="button"
+        onClick={() => {
+          if (!busy) onRetry();
+        }}
+        aria-disabled={busy}
+        aria-label={`Try again: ${message.replace(/\.$/, "").toLowerCase()}`}
+        className="min-h-11 text-link underline underline-offset-2 aria-disabled:opacity-60"
+      >
+        Try again
+      </button>
     </li>
   );
 }
@@ -61,7 +79,8 @@ export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
   const open = useStore(savedOpenStore);
   const loc = useLocation();
   // Hidden only when the list loaded and is empty; a list that failed to load says so, so it is not mistaken for none.
-  const listFailed = error && searches.length === 0;
+  const listFailed = useFailureShown(error, fetching, searches.length > 0) && searches.length === 0;
+  const countsFailed = useFailureShown(countsError, countsFetching, searches.some((s) => s.unread !== undefined));
   if (searches.length === 0 && !listFailed) return null;
   const current = loc.pathname === "/search" ? new URLSearchParams(loc.search).get("ss") : null;
   return (
@@ -96,7 +115,7 @@ export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
             </li>
           ))}
           {listFailed ? <RetryNote message="Couldn't load your saved searches." busy={fetching} onRetry={refetch} /> : null}
-          {countsError ? <RetryNote message="Couldn't count unread articles." busy={countsFetching} onRetry={refetchCounts} /> : null}
+          {countsFailed ? <RetryNote message="Couldn't count unread articles." busy={countsFetching} onRetry={refetchCounts} /> : null}
         </ul>
       ) : null}
     </section>

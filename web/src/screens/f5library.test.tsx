@@ -187,12 +187,40 @@ describe("Saved searches in the Feeds list", () => {
     go("/feeds");
     const nav = await screen.findByRole("region", { name: "Saved searches" });
     expect(within(nav).getByRole("status")).toHaveTextContent(/Couldn't load your saved searches\./);
+    const retry = within(nav).getByRole("button", { name: /^Try again/ });
+    retry.focus();
     fail = false;
     const before = calls.filter((c) => c.url.pathname === "/api/saved-searches").length;
     await userEvent.setup().click(within(nav).getByRole("button", { name: /^Try again/ }));
     expect(await within(nav).findByRole("link", { name: /Rust news/ })).toBeInTheDocument();
     expect(calls.filter((c) => c.url.pathname === "/api/saved-searches").length).toBeGreaterThan(before);
     expect(within(nav).queryByText(/Couldn't load your saved searches/)).toBeNull();
+  });
+
+  it("keeps keyboard focus on Try again while it retries, and ignores a second press", async () => {
+    let release: (() => void) | undefined;
+    let listCalls = 0;
+    base({
+      "GET /api/saved-searches": (u) => {
+        if (u.searchParams.get("counts") !== "0") return json({ saved_searches: withCounts(SAVED) });
+        listCalls++;
+        if (listCalls === 1) return json({ error: "boom" }, 500);
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(json({ saved_searches: SAVED }));
+        });
+      },
+    });
+    go("/feeds");
+    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    const retry = within(nav).getByRole("button", { name: /^Try again/ });
+    retry.focus();
+    await userEvent.setup().keyboard("{Enter}");
+    await waitFor(() => expect(retry).toHaveAttribute("aria-disabled", "true"));
+    expect(retry).toHaveFocus();
+    await userEvent.setup().click(retry);
+    expect(listCalls).toBe(2);
+    release?.();
+    expect(await within(nav).findByRole("link", { name: /Rust news/ })).toBeInTheDocument();
   });
 
   it("keeps the list, with no message, when a refetch fails after it loaded", async () => {

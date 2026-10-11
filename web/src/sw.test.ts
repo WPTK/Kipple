@@ -314,6 +314,16 @@ describe("read-only API answers", () => {
     await expect(w.fetch("/api/saved-searches")).rejects.toThrow("offline"); // the counts were never kept
   });
 
+  it("sends saved-search writes and other saved-searches paths to the network, uncached", async () => {
+    const w = setup();
+    expect(await w.fetch("/api/saved-searches/s1")).toBeUndefined();
+    expect(await w.fetch("/api/saved-searches/reorder")).toBeUndefined();
+    expect(await w.fetch("/api/saved-searches-x")).toBeUndefined();
+    expect(await w.fetch("/api/saved-searches", { method: "POST" })).toBeUndefined();
+    expect(await w.fetch("/api/saved-searches/s1", { method: "DELETE" })).toBeUndefined();
+    expect(await w.fetch("/api/saved-searches/reorder", { method: "POST" })).toBeUndefined();
+  });
+
   it("a server error falls back to the copy; a 401 is the answer and is never kept", async () => {
     const w = setup();
     w.setNetwork(() => json({ ok: 1 }));

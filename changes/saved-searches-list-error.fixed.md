@@ -1,1 +1,1 @@
-When the list of saved searches cannot be loaded, the sidebar now says "Couldn't load your saved searches." with a Try again button, instead of leaving out the whole section as if there were none.
+When the list of saved searches cannot be loaded, the sidebar now says "Couldn't load your saved searches." with a Try again button, instead of leaving out the whole section as if there were none. The saved searches and their unread counts are also kept for offline use: offline, the sidebar shows the last values it saw.
