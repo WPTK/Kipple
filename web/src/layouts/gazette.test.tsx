@@ -158,6 +158,44 @@ describe("Gazette pages", () => {
     expect(lead.querySelector("h3")!.className).not.toContain("text-[1.625rem]");
   });
 
+  it("lays a photo whose picture failed out as an ordinary story with its standfirst", () => {
+    // No favorites and several pictures: a busy front page with a row of photos under a text lead.
+    const busy = Array.from({ length: 40 }, (_, i) => card(i + 1, { image: i % 4 === 0 ? IMG : null }));
+    const bp = plan(busy);
+    const { container } = draw(busy, bp);
+    const photo = container.querySelector<HTMLElement>('article[data-slot="photo"]')!;
+    const id = photo.getAttribute("data-item-id")!;
+    expect(photo.querySelector("img")).not.toBeNull();
+    expect(photo.querySelector("p.font-reading")).toBeNull();
+    expect(photo.querySelector("h3, h4")!.className).toContain("text-base");
+    fireEvent.error(photo.querySelector("img")!);
+    const after = container.querySelector<HTMLElement>(`article[data-item-id="${id}"]`)!;
+    expect(after.getAttribute("data-slot")).toBe("story");
+    expect(after.querySelector("img")).toBeNull();
+    expect(after.querySelector("h3, h4")!.className).toContain("text-lg");
+    expect(after.querySelector("p.font-reading")!.textContent).toBe(busy.find((c) => c.id === id)!.excerpt);
+    expect(domOrder(container)).toEqual(planOrder(bp));
+  });
+
+  it("lays a co-lead whose picture failed out as a headline lead", () => {
+    const two = Array.from({ length: 40 }, (_, i) => card(i + 1, { image: i < 2 ? IMG : null, feed_id: i % 2 ? "2" : "1" }));
+    const tp = plan(two, { favorites: [{ t: "feed", id: "1" }, { t: "feed", id: "2" }] });
+    expect(tp.pages[0]!.type).toBe("co-leads");
+    const { container } = draw(two, tp);
+    const co = container.querySelector<HTMLElement>('article[data-slot="co-lead"]')!;
+    const lead = container.querySelector<HTMLElement>('article[data-slot="lead"]')!;
+    expect(co.querySelector("img")).not.toBeNull();
+    expect(co.querySelector("h3")!.className).toContain("text-[1.625rem]");
+    expect(co.querySelector("p.font-reading")).not.toBeNull();
+    fireEvent.error(co.querySelector("img")!);
+    expect(co.getAttribute("data-slot")).toBe("co-lead");
+    expect(co.querySelector("img")).toBeNull();
+    expect(co.querySelector("h3")!.className).toContain("text-[2.5rem]");
+    // Only the failed one changes; the other lead keeps its picture and size.
+    expect(lead.querySelector("img")).not.toBeNull();
+    expect(lead.querySelector("h3")!.className).toContain("text-[1.625rem]");
+  });
+
   it("passes axe with read and unread stories", async () => {
     const mixed = cards.map((c, i) => (i % 3 === 0 ? { ...c, read: true } : c));
     const { container } = draw(mixed, p);
