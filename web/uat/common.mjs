@@ -107,21 +107,23 @@ export async function start(metaUrl, helpLines) {
 
   /**
    * WebKit now and then answers a navigation with "WebKit encountered an internal error" (the engine, not the app, so
-   * the page never loaded). Makes `page.goto` retry once, and only for that error: any other failure, and every
-   * assertion, still fails at once. The retry is logged so a run that needed it says so.
+   * the page never loaded). Makes `page.goto` and `page.reload` retry once, and only for that error: any other failure,
+   * and every assertion, still fails at once. The retry is logged so a run that needed it says so.
    */
-  const retryWebKitGoto = (page) => {
-    const goto = page.goto.bind(page);
-    page.goto = async (url, options) => {
-      try {
-        return await goto(url, options);
-      } catch (e) {
-        if (!String(e.message).includes("WebKit encountered an internal error")) throw e;
-        console.log(`note ${url}: WebKit internal error on navigation, retrying once`);
-        await page.waitForTimeout(500);
-        return goto(url, options);
-      }
-    };
+  const retryWebKitNavigation = (page) => {
+    for (const method of ["goto", "reload"]) {
+      const original = page[method].bind(page);
+      page[method] = async (...args) => {
+        try {
+          return await original(...args);
+        } catch (e) {
+          if (!String(e.message).includes("WebKit encountered an internal error")) throw e;
+          console.log(`note page.${method}${method === "goto" ? ` ${args[0]}` : ""}: WebKit internal error on navigation, retrying once`);
+          await page.waitForTimeout(500);
+          return original(...args);
+        }
+      };
+    }
   };
 
   /** Runs `body(page, vp)` once per width, each in a fresh signed-in browser context, then cleans up what it made. */
@@ -130,7 +132,7 @@ export async function start(metaUrl, helpLines) {
       const context = await browser.newContext({ baseURL: origin, viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile });
       try {
         const page = await context.newPage();
-        retryWebKitGoto(page);
+        retryWebKitNavigation(page);
         await page.goto("/", { waitUntil: "load" });
         await page.getByLabel("Username").fill(opt.user);
         await page.getByLabel("Password").fill(opt.password);
