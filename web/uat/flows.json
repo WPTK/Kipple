@@ -5,8 +5,10 @@
   "excluded": {
     "all.mjs": "this runner",
     "common.mjs": "shared set-up of the flows, not a flow",
+    "common.test.mjs": "unit tests of common.mjs (run by npm test), not a flow",
     "faults.mjs": "tells a browser fault from a finding, for common.mjs; not a flow",
     "faults.test.mjs": "unit test of faults.mjs (vitest, part of npm test), not a flow",
+    "measure-unload-refusal.mjs": "reproduces the measurement behind common.mjs unloadRefusal; prints counts, asserts nothing",
     "probes.mjs": "page helpers of run.mjs, not a flow",
     "wait-ready.mjs": "waits for the seeded instance, not a flow",
     "wizard.mjs": "needs a fresh instance in setup mode (KIPPLE_SEED_SET=fresh), so it cannot share the seeded one"

@@ -22,7 +22,7 @@ export default tseslint.config(
   },
   {
     // The UAT runner is Node; the probes it hands to page.evaluate run in the page and only see the page.
-    files: ["uat/run.mjs"],
+    files: ["uat/run.mjs", "uat/measure-unload-refusal.mjs"],
     languageOptions: { globals: { ...globals.node } },
   },
   {

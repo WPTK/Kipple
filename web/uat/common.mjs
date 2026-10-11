@@ -21,6 +21,69 @@ export const VIEWPORTS = [
 /** The feed address every disposable feed uses: it never resolves, so nothing is fetched and nothing leaves the machine. */
 export const deadFeed = (n) => `http://uat-feed-${n}.invalid/feed.xml`;
 
+/**
+ * The URL of WebKit's "Fetch API cannot load <url> due to access control checks." console error, as Playwright hands it
+ * to `pageerror`, or null for any other error. Playwright splits a WebKit console error at its first colon into a name
+ * and a message (dropping the two characters after the colon), so the text arrives as "Fetch API cannot load http:
+ * /host/path ..." and the scheme is put back together here.
+ */
+export function accessControlUrl(err) {
+  const m = /^Fetch API cannot load (https?):\s*\/*(\S+) due to access control checks\.$/.exec(String(err));
+  if (!m) return null;
+  try {
+    return new URL(`${m[1]}://${m[2]}`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The read-only URLs the app legitimately has in flight when the main frame navigates away, so WebKit may refuse them
+ * as the page is torn down (issue #370). Anything else, and above all a write the old page starts on pagehide (the
+ * theme save, the stats keepalive), still counts: WebKit refusing one of those is a lost write, not noise.
+ *   /api/saved-searches: the sidebar's saved-search list, fetched on mount and on focus; the only URL seen refused in
+ *   the observed runs.
+ */
+export const LEAVING_READS = ["/api/saved-searches"];
+
+/**
+ * Returns `(err) => boolean`: whether a `pageerror` is WebKit refusing a same-origin fetch of one of LEAVING_READS that
+ * the page being left started while the main frame was navigating away (issue #370). Measured with
+ * `web/uat/measure-unload-refusal.mjs`: the error arrives after the main frame's navigation request and before the new
+ * document commits, WebKit reports no request at all for it, and it does not come with a `requestfailed` for the same
+ * URL; it is the other outcome of the same race in which WebKit reports that request as `requestfailed: Load request
+ * cancelled`, which the flows already do not count. So the pairing is the navigation in progress, not a request
+ * event, and the message text alone never decides: outside a navigation, for another origin, another path, or any
+ * other text, the error counts. A rejection the page left unhandled is a separate "Unhandled Promise Rejection: ..."
+ * error that WebKit adds, and it always counts.
+ *
+ * The window closes on the commit (framenavigated), a failed navigation (requestfailed), or a main-frame response
+ * that ends without a commit (204, 205 or a download).
+ */
+export function unloadRefusal(page, origin) {
+  let navigating = false;
+  const main = (r) => r.isNavigationRequest() && r.frame() === page.mainFrame();
+  page.on("request", (r) => {
+    if (main(r)) navigating = true;
+  });
+  page.on("requestfailed", (r) => {
+    if (main(r)) navigating = false;
+  });
+  page.on("response", (res) => {
+    const r = res.request();
+    if (!main(r)) return;
+    const s = res.status();
+    if (s === 204 || s === 205 || res.headers()["content-disposition"]?.toLowerCase().startsWith("attachment")) navigating = false;
+  });
+  page.on("framenavigated", (f) => {
+    if (f === page.mainFrame()) navigating = false;
+  });
+  return (err) => {
+    const u = navigating ? accessControlUrl(err) : null;
+    return !!u && u.origin === origin && LEAVING_READS.includes(u.pathname);
+  };
+}
+
 export async function start(metaUrl, helpLines) {
   const setupError = (m) => {
     console.error(m);
