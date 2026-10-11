@@ -38,6 +38,7 @@ describe("unloadRefusal", () => {
     page.main = { name: "main" };
     page.mainFrame = () => page.main;
     page.nav = (url = `${origin}/feeds`) => page.emit("request", { isNavigationRequest: () => true, frame: () => page.main, url: () => url });
+    page.respond = (status, headers = {}) => page.emit("response", { status: () => status, headers: () => headers, request: () => ({ isNavigationRequest: () => true, frame: () => page.main }) });
     page.commit = () => page.emit("framenavigated", page.main);
     return page;
   };
@@ -50,6 +51,30 @@ describe("unloadRefusal", () => {
     expect(is(err)).toBe(true);
     page.commit();
     expect(is(err)).toBe(false);
+  });
+  it("counts a refusal of a write or any other path during a navigation", () => {
+    const page = fakePage();
+    const is = unloadRefusal(page, origin);
+    page.nav();
+    expect(is(refusal(`${origin}/api/saved-searches`))).toBe(true);
+    expect(is(refusal(`${origin}/api/settings`))).toBe(false);
+    expect(is(refusal(`${origin}/api/stats/events`))).toBe(false);
+    expect(is(refusal(`${origin}/api/saved-searches/3`))).toBe(false);
+  });
+  it("ends the window on a navigation that never commits", () => {
+    const err = refusal(`${origin}/api/saved-searches`);
+    for (const [status, headers] of [[204, {}], [205, {}], [200, { "content-disposition": "attachment; filename=x" }]]) {
+      const page = fakePage();
+      const is = unloadRefusal(page, origin);
+      page.nav();
+      page.respond(status, headers);
+      expect(is(err)).toBe(false);
+    }
+    const page = fakePage();
+    const is = unloadRefusal(page, origin);
+    page.nav();
+    page.respond(200);
+    expect(is(err)).toBe(true); // a page response still waits for its commit
   });
   it("still counts everything else during a navigation", () => {
     const page = fakePage();
