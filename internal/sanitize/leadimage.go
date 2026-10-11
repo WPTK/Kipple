@@ -44,7 +44,11 @@ const bannerRatio = 4
 // `srcset` width descriptor, else the `width`/`height` attribute) and the
 // highest-scoring one wins; when no candidate names a size, the first one
 // found is kept, exactly as before.
-func LeadImage(src string, bases ...string) string {
+func LeadImage(src string, bases ...string) string { return LeadImageSkipping(src, nil, bases...) }
+
+// LeadImageSkipping is LeadImage ignoring every image whose resolved URL skip reports true (nil skips none). A feed
+// uses it to leave out a picture that leads many of its items, which is the site's, not the article's.
+func LeadImageSkipping(src string, skip func(string) bool, bases ...string) string {
 	type candidate struct {
 		url   string
 		score int
@@ -91,7 +95,7 @@ func LeadImage(src string, bases ...string) string {
 			}
 			// srcset's widest candidate, if any, is preferred over plain src/lazy attrs: src is often the
 			// small default a JS-less client would get, while srcset lists the full range up to the original.
-			if u, w := bestSrcset(attrs["srcset"], bases); u != "" {
+			if u, w := bestSrcset(attrs["srcset"], bases); u != "" && (skip == nil || !skip(u)) {
 				if isBanner(attrs) {
 					w = bannerScore
 				}
@@ -114,7 +118,7 @@ func LeadImage(src string, bases ...string) string {
 					continue
 				}
 				abs := ResolveURL(c, bases...)
-				if abs == "" || isTracker(abs) {
+				if abs == "" || isTracker(abs) || (skip != nil && skip(abs)) {
 					continue
 				}
 				score := attrWidth(attrs)

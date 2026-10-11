@@ -169,16 +169,19 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 		keep = newestEntries(entries, MaxItemsPerFetch, time.Now())
 	}
 	items := make([]Item, 0, len(keep))
+	repicks := make([]func(skip func(string) bool) string, 0, len(keep))
 	skipped := 0
 	for _, i := range keep {
 		gi := entries[i]
-		it, ok := convertItem(i, gi, out.SiteURL, out.Title, opt, content, jsonItems)
+		it, repick, ok := convertItem(i, gi, out.SiteURL, out.Title, opt, content, jsonItems)
 		if !ok {
 			skipped++
 			continue
 		}
 		items = append(items, it)
+		repicks = append(repicks, repick)
 	}
+	dropSharedImages(items, repicks)
 
 	mode := opt.DedupMode
 	if mode == "" {
@@ -310,14 +313,14 @@ func (f xmlFilter) Read(p []byte) (int, error) {
 // image at all (every such entry would share one uid), or one whose conversion panics on
 // hostile input. One bad entry is dropped and counted, never fatal to the
 // fetch (design §13 item 9).
-func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOptions, content func(string, ...string) (string, string), jsonItems []*gjson.Item) (it Item, ok bool) {
+func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOptions, content func(string, ...string) (string, string), jsonItems []*gjson.Item) (it Item, repick func(skip func(string) bool) string, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
-			it, ok = Item{}, false
+			it, repick, ok = Item{}, nil, false
 		}
 	}()
 	if gi == nil {
-		return Item{}, false
+		return Item{}, nil, false
 	}
 	it = Item{
 		GUID:    gi.GUID,
@@ -347,7 +350,8 @@ func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOpt
 	}
 	it.ContentHTML, it.ContentText = content(raw, bases...)
 
-	it.ImageURL = pickImage(gi, raw, bases)
+	repick = func(skip func(string) bool) string { return pickImage(gi, raw, bases, skip) }
+	it.ImageURL = repick(nil)
 	it.Categories = itemCategories(gi.Categories)
 	it.Published = firstTime(gi.PublishedParsed, gi.UpdatedParsed)
 	it.Updated = validTime(gi.UpdatedParsed)
@@ -372,12 +376,47 @@ func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOpt
 			media = it.ImageURL
 		}
 		if media == "" {
-			return Item{}, false
+			return Item{}, nil, false
 		}
 		it.GUID = media
 		it.Title = mediaTitle(media, feedTitle)
 	}
-	return it, true
+	return it, repick, true
+}
+
+// sharedImageItems is how many items of one fetch must lead with the same image for it to count as the site's own
+// (a logo, a sponsor mark, a newsletter banner) rather than any article's picture.
+const sharedImageItems = 3
+
+// dropSharedImages re-picks the lead image of every item whose pick leads sharedImageItems or more items of the same
+// fetch, leaving that image out, so a feed that opens every post with one logo shows each article's own picture (or
+// none). The next pick can itself be shared, so it repeats until none is; each round drops at least one image and an
+// item has few, so it ends quickly. repicks is parallel to items.
+func dropSharedImages(items []Item, repicks []func(skip func(string) bool) string) {
+	shared := map[string]bool{}
+	skip := func(u string) bool { return shared[u] }
+	for {
+		count := map[string]int{}
+		for _, it := range items {
+			if it.ImageURL != "" {
+				count[it.ImageURL]++
+			}
+		}
+		found := false
+		for u, n := range count {
+			if n >= sharedImageItems {
+				shared[u], found = true, true
+			}
+		}
+		if !found {
+			return
+		}
+		for i := range items {
+			if shared[items[i].ImageURL] {
+				items[i].ImageURL = repicks[i](skip)
+			}
+		}
+	}
 }
 
 // mediaTitle names an enclosure-only entry: the file name of its media URL
@@ -457,21 +496,21 @@ func origLink(gi *gofeed.Item) string {
 // order (map iteration is random and the output must be deterministic):
 // media:content with an image type/medium, media:thumbnail, then inside
 // media:group.
-func mediaImage(m map[string][]ext.Extension, bases []string) string {
+func mediaImage(m map[string][]ext.Extension, bases []string, skipped func(string) bool) string {
 	for _, c := range m["content"] {
 		if strings.HasPrefix(strings.ToLower(c.Attrs["type"]), "image/") || c.Attrs["medium"] == "image" {
-			if u := sanitize.ResolveURL(c.Attrs["url"], bases...); u != "" {
+			if u := sanitize.ResolveURL(c.Attrs["url"], bases...); !skipped(u) {
 				return u
 			}
 		}
 	}
 	for _, t := range m["thumbnail"] {
-		if u := sanitize.ResolveURL(t.Attrs["url"], bases...); u != "" {
+		if u := sanitize.ResolveURL(t.Attrs["url"], bases...); !skipped(u) {
 			return u
 		}
 	}
 	for _, g := range m["group"] {
-		if u := mediaImage(g.Children, bases); u != "" {
+		if u := mediaImage(g.Children, bases, skipped); u != "" {
 			return u
 		}
 	}
@@ -483,23 +522,25 @@ func mediaImage(m map[string][]ext.Extension, bases []string) string {
 // banner_image), media:thumbnail / media:content anywhere in the media
 // namespace (Atom, media:group), an image enclosure, then the first real <img>
 // in the content. The result is absolute or "".
-func pickImage(gi *gofeed.Item, rawHTML string, bases []string) string {
+// A nil skip skips nothing; otherwise an image skip reports true for is passed over wherever it would be picked.
+func pickImage(gi *gofeed.Item, rawHTML string, bases []string, skip func(string) bool) string {
+	skipped := func(u string) bool { return u == "" || (skip != nil && skip(u)) }
 	if gi.Image != nil {
-		if u := sanitize.ResolveURL(gi.Image.URL, bases...); u != "" {
+		if u := sanitize.ResolveURL(gi.Image.URL, bases...); !skipped(u) {
 			return u
 		}
 	}
-	if u := mediaImage(gi.Extensions["media"], bases); u != "" {
+	if u := mediaImage(gi.Extensions["media"], bases, skipped); u != "" {
 		return u
 	}
 	for _, e := range gi.Enclosures {
 		if strings.HasPrefix(strings.ToLower(e.Type), "image/") {
-			if u := sanitize.ResolveURL(e.URL, bases...); u != "" {
+			if u := sanitize.ResolveURL(e.URL, bases...); !skipped(u) {
 				return u
 			}
 		}
 	}
-	return sanitize.LeadImage(rawHTML, bases...)
+	return sanitize.LeadImageSkipping(rawHTML, skip, bases...)
 }
 
 // Category limits (backend additions 1.8): a feed can list dozens of tags.

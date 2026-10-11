@@ -1,0 +1,1 @@
+Cards no longer show one site-wide logo, sponsor mark or newsletter banner on most items of a feed: a picture that leads three or more items of a fetch is treated as the site's, and those items show their own photo or none. Items already stored keep their picture until they age out. (#382)
