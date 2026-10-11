@@ -1469,18 +1469,25 @@ func TestUndoNeverUnmutes(t *testing.T) {
 	code, out, _ := h.api(c, "POST", "/api/items/mark-read", jsonStr(map[string]any{"ids": strs(plain, muted), "read": false, "reason": "key", "undo": true}))
 	require.Equal(t, 200, code)
 	require.Equal(t, strs(plain), anyStrs(out["changed"]))
+	require.Equal(t, strs(muted), anyStrs(out["muted"]))
 	require.Equal(t, 0, h.count("SELECT read FROM items WHERE id = ?", plain))
 	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE id = ? AND read = 1 AND muted_by = 9999", muted))
 
-	code, _, _ = h.api(c, "PUT", "/api/items/"+sid(muted)+"/star", `{"starred":true,"undo":true}`)
+	code, out, _ = h.api(c, "PUT", "/api/items/"+sid(muted)+"/star", `{"starred":true,"undo":true}`)
 	require.Equal(t, 200, code)
+	require.Equal(t, true, out["muted"])
 	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE id = ? AND starred = 0 AND muted_by = 9999", muted))
+	code, out, _ = h.api(c, "PUT", "/api/items/"+sid(plain)+"/star", `{"starred":true,"undo":true}`)
+	require.Equal(t, 200, code)
+	require.Equal(t, false, out["muted"])
 
-	// `undo` reverses a mark read by id only.
+	// `undo` reverses a mark read by id, or an unstar, only.
 	for _, bad := range []string{`{"ids":["1"],"read":true,"undo":true}`, `{"scope":{"all":true},"read":true,"undo":true}`} {
 		code, _, _ = h.api(c, "POST", "/api/items/mark-read", bad)
 		require.Equal(t, 400, code, bad)
 	}
+	code, _, _ = h.api(c, "PUT", "/api/items/"+sid(plain)+"/star", `{"starred":false,"undo":true}`)
+	require.Equal(t, 400, code)
 
 	// Without `undo` both are the un-mute, as before.
 	code, _, _ = h.api(c, "PUT", "/api/items/"+sid(muted)+"/star", `{"starred":true}`)

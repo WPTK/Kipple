@@ -343,7 +343,7 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body, false) {
 		return
 	}
-	if body.Starred == nil {
+	if body.Starred == nil || (body.Undo && !*body.Starred) { // `undo` reverses an unstar only
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
@@ -370,7 +370,7 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 	var res store.StateResult
 	err := s.db.WithWrite(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
 		var err error
-		if *body.Starred && body.Undo {
+		if body.Undo {
 			res, err = store.UndoUnstar(ctx, tx, []int64{id}, at, now)
 		} else {
 			res, err = store.SetStarredAt(ctx, tx, []int64{id}, *body.Starred, at, now)
@@ -391,7 +391,11 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.publishState(res, map[string]any{"starred": *body.Starred})
-	writeJSON(w, http.StatusOK, map[string]any{"starred": *body.Starred, "restored": len(res.Restored) > 0})
+	out := map[string]any{"starred": *body.Starred, "restored": len(res.Restored) > 0}
+	if body.Undo {
+		out["muted"] = len(res.KeptMuted) > 0 // the undo left it unstarred: it is muted since
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // ---- POST /api/items/mark-read ----
@@ -574,7 +578,11 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 	if !undoable {
 		changed, ledgerIDs = nil, nil
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"changed": idStrings(nonNil(changed)), "restored": idStrings(nonNil(res.Restored)), "ledger_ids": idStrings(nonNil(ledgerIDs)), "count": len(res.Changed), "undoable": undoable})
+	out := map[string]any{"changed": idStrings(nonNil(changed)), "restored": idStrings(nonNil(res.Restored)), "ledger_ids": idStrings(nonNil(ledgerIDs)), "count": len(res.Changed), "undoable": undoable}
+	if req.Undo {
+		out["muted"] = idStrings(nonNil(res.KeptMuted)) // left read and muted: the client shows them so
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // ---- POST /api/items/unmute ----

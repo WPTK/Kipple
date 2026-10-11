@@ -14,7 +14,7 @@
 //       longer matches it, and the article is unchanged;
 //   M5  Restore on M2's article in Muted: the toast says it stays read, and the server has it read and not muted.
 //   M6  With the page's live connection cut, an article marked read from its row menu is then muted by a filter made
-//       through the API; the toast's Undo leaves it read and muted (undo never un-mutes).
+//       through the API; the toast's Undo leaves it read and muted (undo never un-mutes), and its row leaves All.
 // Afterwards it deletes the filters it made with unmute=unread and puts every article back as it found it. It only runs
 // against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0 clean, 1
 // findings, 2 setup error.
@@ -150,6 +150,8 @@ await t.eachViewport(async (page, vp) => {
         await page.waitForTimeout(1500);
         const it = await item(page, other.id);
         check(it.read === true && !!it.muted_by, `${tag} M6 state`, "Undo left it read and muted", `read=${it.read} muted_by=${it.muted_by}: the undo un-muted it`);
+        const shown = await row.count();
+        check(shown === 0, `${tag} M6 list`, "the page heard it from the undo's answer: the row left All", "the row is still in All, shown as if the undo had worked");
       } finally {
         await page.unroute("**/api/events**");
       }

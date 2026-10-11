@@ -7,11 +7,13 @@ import { Button } from "./button";
 
 /**
  * Where the focus on `el` belongs: `el` itself, or, in an open menu, the button that opened the menu (the menu closes
- * and gives focus back to it). Null for nothing or the page itself.
+ * and gives focus back to it). Null for nothing or the page itself, and for a menu that gives focus back to nothing
+ * (`data-no-focus-return`: a row menu opened by a long press, with focus nowhere).
  */
 export function focusOrigin(el: Element | null): HTMLElement | null {
   if (!(el instanceof HTMLElement) || el === document.body) return null;
   const menu = el.closest('[role="menu"]');
+  if (menu?.hasAttribute("data-no-focus-return")) return null;
   return (menu?.id && document.querySelector<HTMLElement>(`[aria-controls="${CSS.escape(menu.id)}"]`)) || el;
 }
 

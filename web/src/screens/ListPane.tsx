@@ -807,9 +807,10 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
 
   // A row that has focus and leaves the list (marked read in Unread, muted, whatever took it out) hands focus to the row
   // that takes its place, or the one before it at the end, instead of dropping it to the page, where the next Tab would
-  // start over. Only focus that is in that row moves: its link or a control, its Muted strip, or a menu or dialog opened
-  // from it. Focus anywhere else (the open article, the page) stays where it is. Where focus is gets read while
-  // rendering, before this render's commit takes the row out of the page.
+  // start over. Only focus that is in that row moves: its link or a control, its Muted strip, or a menu opened from it with
+  // the keyboard. A dialog opened from the row (Mute similar…) gives focus back to the row before it takes the row out
+  // (FilterEditor's onClosed), so it lands here too. Focus anywhere else (the open article, the page) stays where it is.
+  // Where focus is gets read while rendering, before this render's commit takes the row out of the page.
   const shownIds = useMemo(() => (Page ? allItems : items).map((i) => i.id), [Page, allItems, items]);
   const holder = focusOrigin(document.activeElement)?.closest<HTMLElement>("[data-item-id],[data-muted-for]");
   const held = holder && parentRef.current?.contains(holder) ? (holder.dataset.itemId ?? holder.dataset.mutedFor) : undefined;

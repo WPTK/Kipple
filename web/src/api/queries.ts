@@ -128,6 +128,18 @@ export function invalidateLists(qc: QueryClient, match: (scopeKey: string) => bo
   void qc.invalidateQueries({ queryKey: keys.itemsAll, predicate: (q) => match(String(q.queryKey[1])), refetchType: "none" });
 }
 
+/**
+ * Articles an undo left as they were because a filter muted them since (design §7.11): a muted article is read and
+ * unstarred, so the undo's optimistic patch is taken back and the article leaves every list but Muted, which loads
+ * it the next time it is shown.
+ */
+export function keepMuted(qc: QueryClient, ids: string[] | undefined): void {
+  if (!ids?.length) return;
+  patchItems(qc, ids, { read: true, starred: false });
+  dropFromLists(qc, ids, (k) => !k.startsWith("muted"));
+  invalidateLists(qc, (k) => k.startsWith("muted"));
+}
+
 /** When the last optimistic count change was made (ms); `counts` events older than it are stale. */
 let lastBumpAt = 0;
 export const COUNTS_GUARD_MS = 1500;
@@ -299,7 +311,9 @@ export async function applyRead(
   await supersede({ read: ids });
   try {
     try {
-      return await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason, ...(undo ? { undo } : {}) } });
+      const res = await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason, ...(undo ? { undo } : {}) } });
+      keepMuted(qc, res?.muted);
+      return res;
     } catch (e) {
       // No network: keep the change on screen and send it when the connection returns (lib/offline.ts). A
       // change that could not be stored for later is a failure like any other.
@@ -326,7 +340,8 @@ export async function applyStar(qc: QueryClient, id: string, starred: boolean, u
   await supersede({ star: id });
   try {
     try {
-      await api(`/api/items/${id}/star`, { method: "PUT", body: { starred, ...(undo ? { undo } : {}) } });
+      const res = await api<{ muted?: boolean }>(`/api/items/${id}/star`, { method: "PUT", body: { starred, ...(undo ? { undo } : {}) } });
+      if (res?.muted) keepMuted(qc, [id]);
     } catch (e) {
       if (!isOffline(e)) throw e;
       await queueStar(id, starred, undefined, undo);
