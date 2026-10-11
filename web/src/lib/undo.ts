@@ -22,7 +22,8 @@ export const UNDO_WAIT_MS = 10_000;
 export const NOTHING_TO_UNDO = "Nothing to undo";
 export const STILL_SAVING = "Still saving. Try Undo again in a moment.";
 
-type UndoFn = (ids: string[]) => void | boolean | Promise<void | boolean>;
+/** Resolve `false` when the request failed, `"kept"` when the server left every id as it was (muted or trimmed since). */
+type UndoFn = (ids: string[]) => void | boolean | "kept" | Promise<void | boolean | "kept">;
 
 /** What an action changed, once the server has said so. */
 export interface UndoChange {
@@ -210,10 +211,11 @@ async function run(g: Group): Promise<void> {
   // shows its real (read) state and the group stays undoable.
   for (const r of g.restores) r();
   const undo = g.undo;
-  const ok = await (async () => undo?.([...g.ids]))().then(
-    (r) => r !== false,
-    () => false,
+  const result = await (async () => undo?.([...g.ids]))().then(
+    (r) => r,
+    () => false as const,
   );
+  const ok = result !== false;
   if (!ok) {
     // The reversal did not happen: keep the group so `z` or the toast can try again, and say so.
     // Back in its own place, which is the order the user acted in (ids rise with each action); a group already off
@@ -229,7 +231,7 @@ async function run(g: Group): Promise<void> {
     announce("Couldn't undo. Try again."); // the failed request has shown its own error toast
     return;
   }
-  announce("Undone");
+  announce(result === "kept" ? NOTHING_TO_UNDO : "Undone");
 }
 
 /** Whether `g`'s in-flight actions settled within UNDO_WAIT_MS. */

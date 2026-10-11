@@ -1465,10 +1465,10 @@ func TestUndoNeverUnmutes(t *testing.T) {
 	f := h.addFeed("A", 0)
 	plain, muted := h.addItem(f, seedItem{Read: true}), h.addItem(f, seedItem{})
 	h.exec("UPDATE items SET read = 1, muted_by = 9999, muted_was_read = 0 WHERE id = ?", muted)
-	// Trimmed since: a ledger row keeps no mute, so the undo leaves it as it is too.
+	// Trimmed since, with a restore stub: a plain mark unread or star would restore it, but the stub may hold an article a
+	// filter muted before it was trimmed, so the undo leaves it in the ledger.
 	gone := h.addItem(f, seedItem{Read: true})
-	h.exec("INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at) SELECT id, feed_id, uid, 1, 1, 1 FROM items WHERE id = ?", gone)
-	h.exec("DELETE FROM items WHERE id = ?", gone)
+	h.trim(gone, true, h.clk.Now().Unix()-86400)
 
 	code, out, _ := h.api(c, "POST", "/api/items/mark-read", jsonStr(map[string]any{"ids": strs(plain, muted, gone), "read": false, "reason": "key", "undo": true}))
 	require.Equal(t, 200, code)
@@ -1477,11 +1477,19 @@ func TestUndoNeverUnmutes(t *testing.T) {
 	require.Equal(t, 0, h.count("SELECT read FROM items WHERE id = ?", plain))
 	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE id = ? AND read = 1 AND muted_by = 9999", muted))
 	require.Equal(t, 1, h.count("SELECT read FROM trimmed_items WHERE id = ?", gone))
+	require.Equal(t, 0, h.count("SELECT count(*) FROM items WHERE id = ?", gone), "an undo does not restore a trimmed article")
 
 	code, out, _ = h.api(c, "PUT", "/api/items/"+sid(muted)+"/star", `{"starred":true,"undo":true}`)
 	require.Equal(t, 200, code)
 	require.Equal(t, true, out["kept"])
 	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE id = ? AND starred = 0 AND muted_by = 9999", muted))
+	require.Equal(t, 0, h.count("SELECT count(*) FROM stats_events WHERE kind = 'star' AND item_id = ?", muted), "a kept star undo records no star")
+	code, out, _ = h.api(c, "PUT", "/api/items/"+sid(gone)+"/star", `{"starred":true,"undo":true}`)
+	require.Equal(t, 200, code)
+	require.Equal(t, true, out["kept"])
+	require.Equal(t, false, out["restored"])
+	require.Equal(t, 0, h.count("SELECT count(*) FROM items WHERE id = ?", gone))
+	require.Equal(t, 0, h.count("SELECT count(*) FROM stats_events WHERE kind = 'star' AND item_id = ?", gone))
 	code, out, _ = h.api(c, "PUT", "/api/items/"+sid(plain)+"/star", `{"starred":true,"undo":true}`)
 	require.Equal(t, 200, code)
 	require.Equal(t, false, out["kept"])

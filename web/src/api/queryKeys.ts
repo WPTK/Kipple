@@ -111,12 +111,13 @@ export function invalidateLists(qc: QueryClient, match: (scopeKey: string) => bo
 
 /**
  * Articles an undo left as they were (the reply's `kept`, design §7.11): muted since, which makes an article read and
- * unstarred, or trimmed since, which the undo does not restore. The undo's optimistic patch is taken back and the
- * article leaves every list but Muted, which loads it the next time it is shown.
+ * unstarred, or trimmed since, which the undo does not restore. The undo's optimistic patch is taken back by
+ * reloading the open article, and it leaves every list but Muted, which loads it the next time it is shown.
  */
 export function undoKept(qc: QueryClient, ids: string[] | undefined): void {
   if (!ids?.length) return;
-  patchItems(qc, ids, { read: true, starred: false });
+  // The state the server holds (muted, read, unstarred; or gone) is not known here: the open article is read again.
+  for (const id of ids) void qc.invalidateQueries({ queryKey: keys.item(id) });
   dropFromLists(qc, ids, (k) => !k.startsWith("muted"));
   invalidateLists(qc, (k) => k.startsWith("muted"));
 }

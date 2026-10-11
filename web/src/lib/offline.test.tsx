@@ -82,8 +82,27 @@ describe("the offline queue", () => {
     await flushQueue(qc);
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ starred: true, at: 1_700_000_000, undo: true });
     expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ ids: ["1002"], read: false, undo: true });
-    expect(qc.getQueryData(keys.item("1001"))).toMatchObject({ starred: false });
-    expect(qc.getQueryData(keys.item("1002"))).toMatchObject({ read: true });
+    // The open article is read again from the server rather than patched to a guess.
+    expect(qc.getQueryState(keys.item("1001"))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(keys.item("1002"))?.isInvalidated).toBe(true);
+  });
+
+  it("an undo's kept article is not touched when a later queued change to it was confirmed", async () => {
+    await queueRead(["1002"], true);
+    await queueRead(["1002"], false, true); // the undo: the server finds it muted and leaves it
+    await queueRead(["1002"], true);
+    await queueRead(["1002"], false); // a plain mark unread afterwards, which also un-mutes
+    let n = 0;
+    const { calls } = mockFetch({
+      "POST /api/items/mark-read": () => json(++n === 2 ? { changed: [], restored: [], kept: ["1002"] } : { changed: ["1002"], restored: [] }),
+      "GET /api/bootstrap": () => json({}),
+    });
+    const qc = new QueryClient();
+    qc.setQueryData(keys.item("1002"), { id: "1002", read: true, starred: false });
+    await flushQueue(qc);
+    expect(calls.length).toBe(4);
+    expect(qc.getQueryState(keys.item("1002"))?.isInvalidated).toBe(false);
+    expect(qc.getQueryData(keys.item("1002"))).toMatchObject({ read: false });
   });
 
   it("a later star of the same article replaces the earlier one", async () => {

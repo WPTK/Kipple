@@ -450,7 +450,7 @@ async function doFlush(qc?: QueryClient): Promise<void> {
   let sent = 0;
   let dropped = 0;
   const confirmed: Queued[] = [];
-  const kept: string[] = []; // what replayed undos left as they were (muted or trimmed since)
+  const kept: { at: number; ids: string[] }[] = []; // what replayed undos left as they were (muted or trimmed since), and after which confirmed row
   // Each row is read from the store right before it is sent, never from a list taken at the start: an online
   // write in the meantime (supersede) may have removed it or narrowed its ids, and replaying the old copy
   // would undo that write. Rows queued during the run are picked up too, in order.
@@ -469,7 +469,8 @@ async function doFlush(qc?: QueryClient): Promise<void> {
           ? api<{ kept?: boolean }>(`/api/items/${r.id}/star`, { method: "PUT", body: { starred: r.starred, at: r.at, ...(r.undo ? { undo: true } : {}) }, signal: ctl.signal }).then((res) => (res?.kept ? [r.id] : []))
           : api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids: r.ids, read: r.read, reason: "key", ...(r.undo ? { undo: true } : {}) }, signal: ctl.signal }).then((res) => res?.kept ?? []);
       sending = { row: r, done };
-      kept.push(...(await done));
+      const left = await done;
+      if (left.length) kept.push({ at: confirmed.length, ids: left });
       confirmed.push(r);
     } catch (e) {
       if (ctl.signal.aborted || isOffline(e) || (e instanceof ApiError && (e.status === 401 || e.status === 429 || e.status >= 500))) break;
@@ -486,7 +487,11 @@ async function doFlush(qc?: QueryClient): Promise<void> {
   if (sent > 0 && qc) void qc.invalidateQueries({ queryKey: keys.bootstrap });
   // What the server just took is what the screen shows, whether or not the event stream is up to say so.
   if (qc) for (const r of confirmed) patchItems(qc, r.kind === "star" ? [r.id] : r.ids, r.kind === "star" ? { starred: r.starred } : { read: r.read });
-  if (qc) undoKept(qc, kept);
+  if (qc) {
+    // A change confirmed after the undo that left an article as it was (a later mark read, say) decides that article.
+    const later = (at: number, id: string) => confirmed.slice(at + 1).some((r) => (r.kind === "star" ? r.id === id : r.ids.includes(id)));
+    undoKept(qc, kept.flatMap((k) => k.ids.filter((id) => !later(k.at, id))));
+  }
   if (dropped > 0) {
     // The kept counts still count the refused change. With nothing left waiting the next bootstrap's own replace them;
     // with changes still waiting they are kept, since dropping them would lose those too (they cannot be taken apart).
