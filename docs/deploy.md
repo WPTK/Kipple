@@ -635,8 +635,10 @@ Things to know:
 - **One restore at a time, and it belongs to your browser tab.** Only the page that started an upload can see it,
   confirm it or cancel it; another browser that can reach setup sees nothing of it. While an upload is arriving or
   being checked, an upload from another browser is refused with a 409 `restore_elsewhere`. Once it has been checked,
-  an upload from another browser replaces it, so a tab left open on a checked backup never keeps you out. A checked
-  upload you do not confirm is deleted after an hour, or at the next start. Once you confirm, creating an account is
+  an upload from another browser replaces it as soon as that upload has passed the check too, so a tab left open on a
+  checked backup never keeps you out, and a wrong file sent from elsewhere does not delete it. The first page then
+  says its backup was replaced and asks for the file again. A checked upload you do not confirm is deleted after an
+  hour, or at the next start. Once you confirm, creating an account is
   refused until the restore is applied; if someone creates the account first, the restore is refused and the upload
   deleted.
 - **Slow or stalled uploads are stopped** so they cannot hold the one restore slot: nothing received for two minutes,

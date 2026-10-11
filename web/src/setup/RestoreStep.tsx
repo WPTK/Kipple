@@ -24,10 +24,12 @@ const RESTORE_STEP = { id: "restore", n: 0, title: "Restore from a backup" } as 
 const UPLOAD_FAILED = "The upload was refused or interrupted. Check that the server has enough free disk space and that any proxy in front of Kipple allows a file this size.";
 
 /**
- * The server holds no upload of this page's any more: another browser's upload replaced it, or it expired. The summary
- * on screen is stale, so the page goes back to choosing a file.
+ * The server holds no upload of this page's any more: another browser's upload replaced it (the server's message says
+ * so and asks for the file again), or it expired. The summary on screen is stale, so the page goes back to choosing a
+ * file. restore_elsewhere is not one of these: another browser's upload is still arriving or being checked, and this
+ * page's upload comes back if that one fails.
  */
-const uploadGone = (e: unknown): boolean => e instanceof ApiError && (e.code === "restore_elsewhere" || e.code === "no_upload");
+const uploadGone = (e: unknown): boolean => e instanceof ApiError && (e.code === "restore_replaced" || e.code === "no_upload");
 
 /** How often the page asks the server whether its check of the backup is done. */
 export const CHECK_POLL_MS = 2000;

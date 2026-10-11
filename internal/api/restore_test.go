@@ -461,9 +461,19 @@ func TestASecondBrowserReplacesAnAbandonedUpload(t *testing.T) {
 	out := h.upload(backupZip(t, "h", store.AuthStandard), second)
 	require.EqualValues(t, http.StatusOK, out["status"], out)
 	require.Equal(t, "none", h.restoreState(), "the first browser's upload is gone")
-	rec := h.req("POST", "/api/setup/restore/confirm", `{}`)
-	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
-	require.Equal(t, "restore_elsewhere", decode(t, rec)["error"])
+	for _, rq := range [][2]string{{"POST", "/api/setup/restore/confirm"}, {"GET", "/api/setup/restore/feeds"}} {
+		rec := h.req(rq[0], rq[1], `{}`)
+		require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+		out := decode(t, rec)
+		require.Equal(t, "restore_replaced", out["error"], "the first browser is told its upload was replaced")
+		require.Equal(t, backup.ErrRestoreReplaced.Error(), out["message"])
+	}
+	require.Equal(t, http.StatusNoContent, h.req("DELETE", "/api/setup/restore", "").Code, "nothing of its own is left to cancel")
+
+	// A file that is not a backup leaves the second browser's checked upload as it was.
+	rec := h.req("POST", "/api/setup/restore/upload", "plain text", hdr("Content-Type", "application/octet-stream"))
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	require.Equal(t, "ready", h.status(second)["state"])
 
 	rec = h.req("POST", "/api/setup/restore/confirm", `{}`, second)
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())

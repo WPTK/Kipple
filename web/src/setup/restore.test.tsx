@@ -397,8 +397,8 @@ describe("restore in the setup wizard", () => {
     ["Restore everything", "POST /api/setup/restore/confirm"],
     ["Continue", "GET /api/setup/restore/feeds"],
   ])("goes back to the picker when another browser's upload replaced this one (%s)", async (button, route) => {
-    const msg = "Another browser is uploading a backup, or has uploaded one.";
-    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() }, { [route]: () => json({ error: "restore_elsewhere", message: msg }, 409) });
+    const msg = "Another browser uploaded a backup, which replaced the one uploaded here. Choose the file again to restore it from this browser.";
+    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() }, { [route]: () => json({ error: "restore_replaced", message: msg }, 409) });
     go();
     const user = userEvent.setup();
     await chooseFile(user);
@@ -411,7 +411,20 @@ describe("restore in the setup wizard", () => {
     expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
   });
 
-  it("goes back to the picker when Cancel finds the upload already replaced", async () => {
+  it("keeps the backup on screen while another browser's upload that may replace it is still being checked", async () => {
+    const msg = "Another browser is uploading a backup, or has uploaded one.";
+    server({ restore: "none", setup: true, signedIn: false, status: ready() }, { "POST /api/setup/restore/confirm": () => json({ error: "restore_elsewhere", message: msg }, 409) });
+    go();
+    const user = userEvent.setup();
+    await chooseFile(user);
+    await screen.findByTestId("backup-summary");
+    await user.click(screen.getByRole("button", { name: "Restore everything" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(msg);
+    expect(screen.getByTestId("backup-summary")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restore everything" })).toBeEnabled();
+  });
+
+  it("goes back to the picker when Cancel finds another browser's upload in its place", async () => {
     server({ restore: "none", setup: true, signedIn: false, status: ready() }, { "DELETE /api/setup/restore": () => json({ error: "restore_elsewhere", message: "elsewhere" }, 409) });
     go();
     const user = userEvent.setup();

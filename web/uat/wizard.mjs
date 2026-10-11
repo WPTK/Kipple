@@ -220,17 +220,25 @@ try {
     const me = await page.evaluate(async () => (await fetch("/api/auth/me")).json());
     check("A account", me.setup_pending === false, "setup is still pending after Finish");
     check("A account", errors.length === 0, `console or page errors: ${errors.join(" | ")}`);
-    // A backup of this library, for Run D, made the way the settings page makes one.
-    backupZip = Buffer.from(
-      await page.evaluate(async () => {
-        const made = await (await fetch("/api/backup", { method: "POST", headers: { "X-Kipple-Client": "web" } })).json();
-        const bytes = new Uint8Array(await (await fetch(made.url)).arrayBuffer());
-        let bin = "";
-        for (const b of bytes) bin += String.fromCharCode(b);
-        return btoa(bin);
-      }),
-      "base64",
-    );
+    // A backup of this library, for Run D, made the way the settings page makes one: POST /api/backup answers 200 with
+    // the download, or 202 with a job to follow until it is ready.
+    const made = await page.evaluate(async () => {
+      const opts = { headers: { "X-Kipple-Client": "web" } };
+      let ans = await (await fetch("/api/backup", { method: "POST", ...opts })).json();
+      for (let i = 0; ans.status === "building" && ans.job_id && i < 300; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        ans = await (await fetch(`/api/backup/jobs/${ans.job_id}`, opts)).json();
+      }
+      if (!ans.url) return { error: JSON.stringify(ans) };
+      const res = await fetch(ans.url);
+      if (!res.ok) return { error: `the download answered ${res.status}` };
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      let bin = "";
+      for (const b of bytes) bin += String.fromCharCode(b);
+      return { zip: btoa(bin) };
+    });
+    if (made.zip) backupZip = Buffer.from(made.zip, "base64");
+    else fail("A backup", `making the backup for Run D failed: ${made.error}`);
     await ctx.close();
     await stranger.close();
   }
@@ -347,7 +355,7 @@ try {
     await ctx.close();
   }
   // ---------------------------------------------------------------------------------------------- Run D
-  if (!check("D", backupZip?.length > 0, "Run A made no backup to restore")) throw new Error("lost");
+  if (!backupZip) throw new Error("lost"); // Run A said why
   {
     const { origin } = await startServer("d", 7194);
     const phone = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
@@ -379,7 +387,7 @@ try {
     await pp.getByRole("button", { name: "Restore everything" }).click();
     try {
       await pp.getByRole("alert").waitFor({ timeout: 10_000 });
-      check("D phone", /Another browser/.test((await pp.getByRole("alert").textContent()) ?? ""), "the phone's confirm did not say another browser has the upload");
+      check("D phone", /Another browser uploaded a backup, which replaced the one uploaded here/.test((await pp.getByRole("alert").textContent()) ?? ""), "the phone's confirm did not say another browser's upload replaced its own");
       check("D phone", await pp.getByLabel("Backup or OPML file").isVisible(), "the phone did not go back to the file picker");
       check("D phone", (await pp.getByTestId("backup-summary").count()) === 0, "the phone still shows the replaced backup");
       await axeRun(pp, "D phone replaced");

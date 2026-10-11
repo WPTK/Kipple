@@ -355,11 +355,18 @@ func syncDir(dir string) {
 	}
 }
 
-// removeStaged deletes the files of an upload: the spool, the staged database
-// and anything SQLite left beside it.
+// removeStaged deletes the files of every upload: the spool, the staged
+// databases and anything SQLite left beside them.
 func removeStaged(dataDir string) {
-	staged := filepath.Join(dataDir, StagedFile)
-	for _, p := range []string{filepath.Join(dataDir, UploadFile), staged, staged + "-journal", staged + "-wal", staged + "-shm", filepath.Join(dataDir, MarkerFile+".tmp")} {
+	_ = os.Remove(filepath.Join(dataDir, UploadFile))
+	_ = os.Remove(filepath.Join(dataDir, MarkerFile+".tmp"))
+	removeDB(filepath.Join(dataDir, StagedFile))
+	removeDB(filepath.Join(dataDir, NextStagedFile))
+}
+
+// removeDB deletes a database file and anything SQLite left beside it.
+func removeDB(path string) {
+	for _, p := range []string{path, path + "-journal", path + "-wal", path + "-shm"} {
 		_ = os.Remove(p)
 	}
 }

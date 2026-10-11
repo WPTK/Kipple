@@ -32,6 +32,9 @@ const (
 	UploadFile = "restore-upload.tmp"
 	// StagedFile is the verified database of an upload.
 	StagedFile = "restore-staged.db"
+	// NextStagedFile is where an upload's check extracts its database; it
+	// becomes StagedFile once the check passes.
+	NextStagedFile = "restore-staged-next.db"
 	// MarkerFile confirms StagedFile; it is written last.
 	MarkerFile = "restore-pending.json"
 
@@ -81,12 +84,14 @@ var (
 	// Restorer), which alone can see, confirm or cancel it. Only an upload
 	// still arriving or being checked refuses another browser's new upload.
 	ErrRestoreElsewhere = &Refusal{"Another browser is uploading a backup, or has uploaded one. Kipple stops an upload that stalls or crawls; once it has been checked, a new upload from this browser replaces it."}
-	ErrRestorePending   = &Refusal{"A restore is waiting to be applied: Kipple is restarting to finish it."}
-	ErrNoUpload         = &Refusal{"No checked backup is waiting, or it expired. Upload it again."}
-	ErrNotBackup        = &Refusal{"This is not a Kipple backup zip or an OPML file."}
-	ErrUploadTooLarge   = &Refusal{"This file is larger than the " + human(MaxUploadBytes) + " a restore accepts."}
-	ErrOPMLTooLarge     = &Refusal{"This OPML file is larger than the " + human(opml.MaxFileBytes) + " an import accepts."}
-	ErrUploadCut        = &Refusal{"The upload stopped before the whole file arrived. Try again."}
+	// ErrRestoreReplaced: another browser's checked upload replaced the caller's.
+	ErrRestoreReplaced = &Refusal{"Another browser uploaded a backup, which replaced the one uploaded here. Choose the file again to restore it from this browser."}
+	ErrRestorePending  = &Refusal{"A restore is waiting to be applied: Kipple is restarting to finish it."}
+	ErrNoUpload        = &Refusal{"No checked backup is waiting, or it expired. Upload it again."}
+	ErrNotBackup       = &Refusal{"This is not a Kipple backup zip or an OPML file."}
+	ErrUploadTooLarge  = &Refusal{"This file is larger than the " + human(MaxUploadBytes) + " a restore accepts."}
+	ErrOPMLTooLarge    = &Refusal{"This OPML file is larger than the " + human(opml.MaxFileBytes) + " an import accepts."}
+	ErrUploadCut       = &Refusal{"The upload stopped before the whole file arrived. Try again."}
 	// ErrDiskFull: the volume filled up while the upload was being kept.
 	ErrDiskFull = &Refusal{"The disk is full, so the upload could not be kept. Free some space and try again."}
 	// ErrUploadTooSlow: the body reader stopped an upload that sent too slowly
@@ -174,24 +179,42 @@ type RestorerOptions struct {
 // random value the server gave that browser before it sent the file), and
 // every later call brings the caller's key. Only the owner sees
 // the summary, takes the feeds, confirms or cancels; to anyone else an upload
-// reads as none, and acting on it is ErrRestoreElsewhere. Another browser's
-// upload replaces a checked one that nobody confirmed: that upload has no
-// request or job running, so nothing says its browser is still there.
+// reads as none, and acting on it is ErrRestoreElsewhere.
+//
+// Another browser's upload may replace a checked one that nobody confirmed:
+// that upload has no request or job running, so nothing says its browser is
+// still there. It is set aside (held) while the new one arrives and is
+// checked, and replaced only when the new one passes the check; anything else
+// (a file that is not a backup, an OPML file, a refusal, a cancel) puts it
+// back as it was. A job writes only UploadFile and NextStagedFile, so the
+// held upload's StagedFile is never touched until it is replaced.
 type Restorer struct {
 	o   RestorerOptions
 	log *slog.Logger
 
 	mu       sync.Mutex
 	state    string
-	job      *job // the upload or check running, if any; it alone touches the files then
+	job      *job // the upload or check running, if any; it alone touches UploadFile and NextStagedFile then
 	cur      *Upload
 	feeds    []byte // the backup's feeds.opml
 	failErr  error
 	estimate int
 	timer    *time.Timer
-	gen      int    // bumped by each upload, discard and confirm, so stale work changes nothing
-	owner    string // the owner key of the upload; "" with none
+	expires  time.Time // when a ready or failed upload is discarded
+	gen      int       // bumped by each upload, discard and confirm, so stale work changes nothing
+	owner    string    // the owner key of the upload; "" with none
+	held     *held     // another browser's ready upload, set aside while the job runs
+	replaced string    // the owner key of the last upload another browser's replaced
 	closed   bool
+}
+
+// held is a ready upload set aside while another browser's upload runs.
+type held struct {
+	owner    string
+	cur      *Upload
+	feeds    []byte
+	estimate int
+	expires  time.Time
 }
 
 type job struct {
@@ -236,9 +259,7 @@ func (r *Restorer) State() string {
 }
 
 // mine reports whether owner is the key of the current upload. Under mu.
-func (r *Restorer) mine(owner string) bool {
-	return r.owner != "" && subtle.ConstantTimeCompare([]byte(r.owner), []byte(owner)) == 1
-}
+func (r *Restorer) mine(owner string) bool { return sameKey(r.owner, owner) }
 
 // othersLocked reports whether there is an upload that owner may not see or
 // touch: one arriving, being checked or ready that another browser sent. A
@@ -337,10 +358,15 @@ func (r *Restorer) Upload(reqCtx context.Context, owner string, body io.Reader, 
 		return Upload{}, err
 	}
 	// none, failed (a new upload replaces a refused one), or another browser's
-	// ready upload, which this one replaces the same way
+	// ready upload, set aside until this one has been checked
 	if r.state == RestoreReady {
-		r.discardLocked()
-		r.log.Info("restore: another browser's unconfirmed upload was replaced by a new upload")
+		if r.timer != nil {
+			r.timer.Stop()
+		}
+		r.held = &held{owner: r.owner, cur: r.cur, feeds: r.feeds, estimate: r.estimate, expires: r.expires}
+	}
+	if r.wasReplacedLocked(owner) {
+		r.replaced = ""
 	}
 	r.gen++
 	g := r.gen
@@ -367,13 +393,16 @@ func (r *Restorer) Upload(reqCtx context.Context, owner string, body io.Reader, 
 		r.mu.Unlock()
 		err = context.Canceled
 	}
-	// Done here: an OPML file, or a refusal. Nothing is kept but a refusal for
-	// slowness, as the owner's failed state (see ErrUploadTooSlow).
-	removeStaged(r.o.DataDir)
+	// Done here: an OPML file, or a refusal. A held upload comes back; else
+	// nothing is kept but a refusal for slowness, as the owner's failed state
+	// (see ErrUploadTooSlow).
+	removeJobFiles(r.o.DataDir)
 	r.mu.Lock()
-	if errors.Is(err, ErrUploadTooSlow) && r.gen == g {
+	switch {
+	case r.restoreHeldLocked():
+	case errors.Is(err, ErrUploadTooSlow) && r.gen == g:
 		r.failLocked(g, err)
-	} else {
+	default:
 		r.state, r.owner = RestoreNone, "" // the job held the slot until now: nothing else can have started
 	}
 	r.job = nil
@@ -414,7 +443,7 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 	if err := r.needSpace(size + uploadSpaceSlack); err != nil {
 		return Upload{}, err
 	}
-	removeStaged(r.o.DataDir) // a leftover of an upload this process lost track of
+	removeJobFiles(r.o.DataDir) // a leftover of an upload this process lost track of
 	f, err := openSpool(r.path(UploadFile))
 	if err != nil {
 		return Upload{}, fmt.Errorf("restore: spool: %w", err)
@@ -463,17 +492,28 @@ func (r *Restorer) check(ctx context.Context, j *job, g int) {
 	up, feeds, err := r.verify(ctx, g)
 	r.mu.Lock()
 	r.job = nil
+	if err == nil && r.gen == g && ctx.Err() == nil {
+		err = r.promoteLocked()
+	}
 	switch {
 	case r.gen != g || ctx.Err() != nil:
-		removeStaged(r.o.DataDir) // cancelled: the files are this job's to remove
-		r.state, r.owner = RestoreNone, ""
+		removeJobFiles(r.o.DataDir) // cancelled: the files are this job's to remove
+		if !r.restoreHeldLocked() {
+			r.state, r.owner = RestoreNone, ""
+		}
 	case err != nil:
-		removeStaged(r.o.DataDir)
-		r.failLocked(g, err)
+		removeJobFiles(r.o.DataDir)
 		r.log.Info("restore: the uploaded backup was refused", "err", err)
+		if !r.restoreHeldLocked() {
+			r.failLocked(g, err)
+		}
 	default:
+		if r.held != nil {
+			r.replaced, r.held = r.held.owner, nil
+			r.log.Info("restore: another browser's unconfirmed upload was replaced by a new upload")
+		}
 		r.state, r.cur, r.feeds, r.estimate = RestoreReady, &up, feeds, up.EstimateSeconds
-		r.expireLocked(g)
+		r.expireLocked(g, r.o.TTL)
 		r.log.Info("restore: backup uploaded and checked", "kipple_version", up.Manifest.KippleVersion,
 			"created_at", up.Manifest.CreatedAt, "feeds", up.Info.Feeds, "items", up.Info.Items, "db_bytes", up.Manifest.DBBytes)
 	}
@@ -483,7 +523,7 @@ func (r *Restorer) check(ctx context.Context, j *job, g int) {
 }
 
 func (r *Restorer) verify(ctx context.Context, g int) (Upload, []byte, error) {
-	spool, staged := r.path(UploadFile), r.path(StagedFile)
+	spool, staged := r.path(UploadFile), r.path(NextStagedFile)
 	defer os.Remove(spool)
 	x, err := Extract(ctx, spool, staged, r.o.FreeBytes)
 	if err != nil {
@@ -547,6 +587,8 @@ func (r *Restorer) Feeds(owner string) ([]byte, error) {
 	switch {
 	case r.state == RestoreConfirmed:
 		return nil, ErrRestorePending
+	case r.wasReplacedLocked(owner):
+		return nil, ErrRestoreReplaced
 	case r.othersLocked(owner):
 		return nil, ErrRestoreElsewhere
 	case r.state != RestoreReady:
@@ -559,7 +601,8 @@ func (r *Restorer) Feeds(owner string) ([]byte, error) {
 }
 
 // Uploaded is the owner's checked, unconfirmed upload and its ticket for
-// Confirm: ErrRestorePending once confirmed, ErrRestoreElsewhere for another
+// Confirm: ErrRestorePending once confirmed, ErrRestoreReplaced when another
+// browser's upload replaced the owner's, ErrRestoreElsewhere for another
 // browser's upload, ErrNoUpload without a checked one.
 func (r *Restorer) Uploaded(owner string) (up Upload, ticket int, err error) {
 	r.mu.Lock()
@@ -567,6 +610,8 @@ func (r *Restorer) Uploaded(owner string) (up Upload, ticket int, err error) {
 	switch {
 	case r.state == RestoreConfirmed:
 		return Upload{}, 0, ErrRestorePending
+	case r.wasReplacedLocked(owner):
+		return Upload{}, 0, ErrRestoreReplaced
 	case r.othersLocked(owner):
 		return Upload{}, 0, ErrRestoreElsewhere
 	case r.state != RestoreReady:
@@ -577,8 +622,9 @@ func (r *Restorer) Uploaded(owner string) (up Upload, ticket int, err error) {
 
 // Cancel ends the owner's upload short of a confirmed one: it stops one
 // arriving or being checked (unblocking its read) and waits briefly for it to
-// clean up, removes a checked one, clears a failed one. Nothing to cancel is
-// fine. A confirmed restore cannot be cancelled (ErrRestorePending), nor can
+// clean up, removes a checked one (also one set aside while another browser's
+// upload runs), clears a failed one. Nothing to cancel is fine, an upload
+// another browser's replaced included. A confirmed restore cannot be cancelled (ErrRestorePending), nor can
 // another browser's upload (ErrRestoreElsewhere).
 func (r *Restorer) Cancel(owner string) error {
 	j, err := r.drop(&owner)
@@ -601,6 +647,18 @@ func (r *Restorer) drop(owner *string) (*job, error) {
 	defer r.mu.Unlock()
 	if r.state == RestoreConfirmed {
 		return nil, ErrRestorePending
+	}
+	// A held upload is not the job's: dropping it removes its files at once
+	// (a job never touches StagedFile until it replaces it, under mu).
+	if r.held != nil && (owner == nil || r.heldBy(*owner)) {
+		r.held = nil
+		removeDB(r.path(StagedFile))
+		if owner != nil {
+			return nil, nil // the other browser's upload goes on
+		}
+	}
+	if owner != nil && r.wasReplacedLocked(*owner) {
+		return nil, nil // nothing of theirs to cancel
 	}
 	if owner != nil && r.othersLocked(*owner) {
 		return nil, ErrRestoreElsewhere
@@ -642,18 +700,19 @@ func (r *Restorer) Close() {
 // which expires like a ready upload. Under mu.
 func (r *Restorer) failLocked(g int, err error) {
 	r.state, r.failErr = RestoreFailed, err
-	r.expireLocked(g)
+	r.expireLocked(g, r.o.TTL)
 }
 
-// expireLocked discards upload g, ready or failed, TTL after now unless it
-// has moved on (a confirm, a cancel, a new upload). It is set once per
-// upload, when it becomes ready or failed: nothing a caller does renews it.
-// Under mu.
-func (r *Restorer) expireLocked(g int) {
+// expireLocked discards upload g, ready or failed, after d unless it has moved
+// on (a confirm, a cancel, a new upload). It is set once per upload, when it
+// becomes ready or failed (with TTL), and again with what is left when a held
+// upload comes back: nothing a caller does renews it. Under mu.
+func (r *Restorer) expireLocked(g int, d time.Duration) {
 	if r.timer != nil {
 		r.timer.Stop()
 	}
-	r.timer = time.AfterFunc(r.o.TTL, func() {
+	r.expires = time.Now().Add(d)
+	r.timer = time.AfterFunc(max(d, 0), func() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		if r.gen == g && (r.state == RestoreReady || r.state == RestoreFailed) {
@@ -664,7 +723,7 @@ func (r *Restorer) expireLocked(g int) {
 }
 
 // discardLocked forgets the upload and removes its files. Only with no job
-// running (drop handles a running one).
+// running (drop handles a running one), so there is nothing held either.
 func (r *Restorer) discardLocked() {
 	if r.timer != nil {
 		r.timer.Stop()
@@ -673,6 +732,56 @@ func (r *Restorer) discardLocked() {
 	r.gen++
 	r.state, r.cur, r.feeds, r.failErr, r.estimate, r.owner = RestoreNone, nil, nil, nil, 0, ""
 	removeStaged(r.o.DataDir)
+}
+
+// sameKey reports whether a and b are the same owner key, a not empty.
+func sameKey(a, b string) bool {
+	return a != "" && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+// heldBy reports whether owner's upload is the one set aside. Under mu.
+func (r *Restorer) heldBy(owner string) bool { return r.held != nil && sameKey(r.held.owner, owner) }
+
+// wasReplacedLocked reports whether owner's checked upload was replaced by
+// another browser's and owner has not uploaded since. Under mu.
+func (r *Restorer) wasReplacedLocked(owner string) bool {
+	return sameKey(r.replaced, owner) && !r.mine(owner)
+}
+
+// restoreHeldLocked puts the upload set aside back, as it was, when the job
+// that would have replaced it ended without a checked upload. It reports
+// whether there was one. Under mu, with the job's files removed.
+func (r *Restorer) restoreHeldLocked() bool {
+	h := r.held
+	if h == nil {
+		return false
+	}
+	r.held = nil
+	r.gen++
+	r.state, r.owner, r.cur, r.feeds, r.estimate, r.failErr = RestoreReady, h.owner, h.cur, h.feeds, h.estimate, nil
+	r.expireLocked(r.gen, time.Until(h.expires))
+	return true
+}
+
+// promoteLocked makes the checked database of the job the staged one,
+// replacing a held upload's. Under mu, once the job has finished with it.
+func (r *Restorer) promoteLocked() error {
+	// The rename replaces a held upload's database in one step, so a rename
+	// that fails leaves it whole for restoreHeldLocked.
+	staged := r.path(StagedFile)
+	if err := os.Rename(r.path(NextStagedFile), staged); err != nil {
+		return fmt.Errorf("restore: keep the checked backup: %w", err)
+	}
+	for _, p := range []string{staged + "-journal", staged + "-wal", staged + "-shm"} {
+		_ = os.Remove(p)
+	}
+	return nil
+}
+
+// removeJobFiles removes what an upload and its check write.
+func removeJobFiles(dataDir string) {
+	_ = os.Remove(filepath.Join(dataDir, UploadFile))
+	removeDB(filepath.Join(dataDir, NextStagedFile))
 }
 
 // Confirm prepares the staged database of the checked upload and writes the
