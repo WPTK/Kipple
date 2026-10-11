@@ -184,6 +184,15 @@ Describe 'Test-Signature' {
     $r.Ok | Should -BeFalse
     $r.Detail | Should -Match 'no matching signatures'
   }
+  It 'runs cosign with an empty Docker config, so no credential helper is called, and restores the variable' {
+    $script:seen = $null
+    $env:DOCKER_CONFIG = 'kept'
+    Mock Invoke-Native { $script:seen = Get-Content -LiteralPath (Join-Path $env:DOCKER_CONFIG 'config.json') -Raw; [pscustomobject]@{ ExitCode = 0; Output = @(); CommandLine = 'cosign' } }
+    (Test-Signature -Cosign 'cosign' -Step 'verify' -Arguments @('verify', 'x')).Ok | Should -BeTrue
+    $script:seen.Trim() | Should -Be '{}'
+    $env:DOCKER_CONFIG | Should -Be 'kept'
+    $env:DOCKER_CONFIG = $null
+  }
   It 'passes a tag check whose verified digest equals the notes digest' {
     Mock Invoke-Native { [pscustomobject]@{ ExitCode = 0; Output = @('[{"critical":{"image":{"docker-manifest-digest":"' + $script:want + '"}}}]'); CommandLine = 'cosign' } }
     (Test-Signature -Cosign 'cosign' -Step 'tag' -Arguments @('verify', 'x') -ExpectDigest $script:want).Ok | Should -BeTrue
