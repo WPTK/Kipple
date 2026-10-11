@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, request, webkit } from "@playwright/test";
+import { faultReason, faultStart } from "./faults.mjs";
 
 const ENGINES = { chromium, firefox, webkit };
 /** The session cookie the server sets at sign-in (internal/api). */
@@ -55,9 +56,16 @@ export async function start(metaUrl, helpLines) {
   if (!ENGINES[opt.browser]) setupError(`unknown --browser ${opt.browser} (chromium, firefox or webkit)`);
   if (opt.screenshots) mkdirSync(opt.screenshots, { recursive: true });
 
+  /** `{ text, jar }`: `jar` is filled in by `attempt` (see faults.mjs). */
   const findings = [];
+  /** The widths that ran again after a browser fault, and why: printed by `finish`, even on a green run. */
+  const reruns = [];
+  /** The signed-in context of the attempt running now: each finding notes whether it still held its session cookie. */
+  let watching = null;
   const fail = (where, what) => {
-    findings.push(`${where}: ${what}`);
+    const w = watching;
+    const jar = w ? w.context.cookies(origin).then((cs) => cs.some((c) => c.name === SESSION_COOKIE && c.value === w.session.value), () => false) : null;
+    findings.push({ text: `${where}: ${what}`, jar });
     console.error(`FAIL ${where}: ${what}`);
   };
   const pass = (where, what) => console.log(`ok   ${where}: ${what}`);
@@ -107,27 +115,25 @@ export async function start(metaUrl, helpLines) {
     }
   };
 
-  /**
-   * Why a failed attempt at a width says nothing about Kipple, or null. WebKit sometimes fails under a run: a navigation
-   * ends in "WebKit encountered an internal error", or the context loses its cookies and every later request is signed
-   * out (a 401 the app never caused). The proof of the second is the session cookie the run signed in with: the browser
-   * no longer sends it, yet the server still accepts it, so nothing in Kipple ended the session. A session the server
-   * ended (a sign-out, a revoked session) is not the browser's doing and stays a finding.
-   */
-  const browserFault = async (context, session, found) => {
-    if (found.some((f) => f.includes("WebKit encountered an internal error"))) return "WebKit reported an internal error";
-    if (!session) return null;
-    const now = (await context.cookies(origin).catch(() => [])).find((c) => c.name === SESSION_COOKIE);
-    if (now?.value === session.value) return null;
-    const probe = await request.newContext({ baseURL: origin, extraHTTPHeaders: { Cookie: `${SESSION_COOKIE}=${session.value}`, Accept: "application/json" } });
+  /** Whether the server still accepts `session`, asked without the browser; a server that cannot be asked is a finding. */
+  const serverAccepts = async (vp, session) => {
+    let probe;
     try {
-      return (await probe.get("/api/bootstrap")).ok() ? "the browser dropped the session cookie, which the server still accepts" : null;
+      probe = await request.newContext({ baseURL: origin, extraHTTPHeaders: { Cookie: `${SESSION_COOKIE}=${session.value}`, Accept: "application/json" } });
+      return (await probe.get("/api/bootstrap")).ok();
+    } catch (e) {
+      fail(vp.id, `could not ask the server whether the session it issued is still valid: ${String(e.message).split("\n")[0]}`);
+      return false;
     } finally {
-      await probe.dispose();
+      await probe?.dispose().catch(() => {});
     }
   };
 
-  /** One signed-in run of `body` at a width, in a fresh browser context; returns `browserFault` of what it found. */
+  /**
+   * One signed-in run of `body` at a width, in a fresh browser context. Returns where a browser fault began among the
+   * findings it added (faults.mjs: WebKit's internal error, or the session cookie gone from the browser while the server
+   * still accepts it) and why, or null.
+   */
   const attempt = async (body, vp) => {
     const context = await browser.newContext({ baseURL: origin, viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile });
     const mark = findings.length;
@@ -140,6 +146,7 @@ export async function start(metaUrl, helpLines) {
       await page.getByRole("button", { name: "Sign in" }).click();
       await page.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
       session = (await context.cookies(origin)).find((c) => c.name === SESSION_COOKIE) ?? null;
+      if (session) watching = { context, session };
       await cleanup(page); // what an earlier run that stopped half-way left behind
       await body(page, vp);
     } catch (e) {
@@ -147,8 +154,14 @@ export async function start(metaUrl, helpLines) {
       if (page) await shot(page, `${vp.id}-stopped`);
       fail(vp.id, `the run stopped: ${String(e.message).split("\n").slice(0, 3).join(" ")}`);
     }
+    watching = null;
     try {
-      return findings.length > mark ? await browserFault(context, session, findings.slice(mark)) : null;
+      const found = findings.slice(mark);
+      for (const f of found) f.jar = await f.jar;
+      if (found.length === 0) return null;
+      const accepts = session && found.some((f) => f.jar === false) ? await serverAccepts(vp, session) : false;
+      const start = faultStart(found, accepts);
+      return start < 0 ? null : { start, reason: faultReason(found[start]) };
     } finally {
       const page = context.pages()[0];
       if (page) await cleanup(page).catch(() => {});
@@ -158,18 +171,27 @@ export async function start(metaUrl, helpLines) {
 
   /**
    * Runs `body(page, vp)` once per width, each in a fresh signed-in browser context, then cleans up what it made. When
-   * the browser failed under an attempt (`browserFault`), that attempt's findings are set aside and the width runs again
-   * in a fresh context, once: every check runs again and must pass, and the browser failing a second time is a finding.
+   * the browser failed under an attempt, the findings from the fault on are set aside (those before it stay: the browser
+   * still worked) and the width runs again in a fresh context, once: every check runs again and must pass, and the
+   * browser failing a second time is a finding. Each rerun is counted and printed by `finish`, also on a green run.
    */
   const eachViewport = async (body) => {
     for (const vp of VIEWPORTS) {
       const mark = findings.length;
       const fault = await attempt(body, vp);
       if (!fault) continue;
-      console.log(`note ${vp.id}: ${fault}; the ${findings.length - mark} finding(s) above are set aside and ${vp.id} runs again in a fresh browser context`);
-      findings.length = mark;
+      const kept = findings.slice(mark, mark + fault.start).map((f) => f.text);
+      console.log(
+        `note ${vp.id}: ${fault.reason}; the ${findings.length - mark - fault.start} finding(s) from then on are set aside` +
+          `${kept.length ? ` (the ${kept.length} before it stay)` : ""} and ${vp.id} runs again in a fresh browser context`,
+      );
+      findings.length = mark + fault.start;
+      reruns.push(`${vp.id}: ${fault.reason}`);
       const again = await attempt(body, vp);
-      if (again) fail(vp.id, `the browser failed under the run again: ${again}`);
+      // A finding kept from the first attempt that the rerun finds again is still one finding.
+      const rerun = findings.splice(mark + fault.start).filter((f) => !kept.includes(f.text));
+      findings.push(...rerun);
+      if (again) fail(vp.id, `the browser failed under the run again: ${again.reason}`);
     }
   };
 
@@ -188,6 +210,12 @@ export async function start(metaUrl, helpLines) {
     textOf, step, opt, origin, WRITE, check, fail, pass, shot, boot, settle, importOpml, opml, eachViewport, setupError,
     async finish(what) {
       await browser.close();
+      if (reruns.length) {
+        const said = `${reruns.length} width(s) ran again after the browser failed under the run: ${reruns.join("; ")}`;
+        console.log(`\n${said}`);
+        // An annotation on the workflow run, so a green run that needed a rerun is still seen and counted.
+        if (process.env.GITHUB_ACTIONS === "true") console.log(`::warning title=Browser UAT rerun (${what})::${said}`);
+      }
       console.log(findings.length ? `\n${findings.length} finding(s)` : `\nall ${what} checks passed`);
       process.exit(findings.length ? 1 : 0);
     },

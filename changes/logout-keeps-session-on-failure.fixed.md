@@ -1,0 +1,1 @@
+Signing out now fails with an error, and keeps you signed in so you can try again, when the server could not end the session. Before, the browser was signed out while the session stayed valid on the server. (#371)
