@@ -29,24 +29,39 @@ await t.eachViewport(async (page, vp) => {
   const enabled = (await t.boot(page)).settings?.["stats.enabled"] !== false;
   if (!enabled) return t.setupError(`${tag}: statistics are off on this instance`);
 
-  /** Opens the article, reads for about 12.5 s, leaves with `leave`, and returns how many seconds the server gained. */
+  /** Reads the server's active seconds until they have not changed for `quietMs` (late beacons have landed), up to `maxMs`. */
+  const settled = async (quietMs, maxMs) => {
+    const end = Date.now() + maxMs;
+    let value = await activeSeconds(page);
+    let since = Date.now();
+    while (Date.now() - since < quietMs && Date.now() < end) {
+      await page.waitForTimeout(250);
+      const now = await activeSeconds(page);
+      if (now !== value) {
+        value = now;
+        since = Date.now();
+      }
+    }
+    return value;
+  };
+
+  /**
+   * Opens the article, reads for about 12.5 s, leaves with `leave`, and returns how many seconds the server gained.
+   * It starts from a neutral page (the list, not a reading session) and waits for the totals to stop moving, so a
+   * beacon still on its way from the previous step (the page before this one was a reading session) cannot land
+   * between "before" and the read; and it ends when the totals stop moving, not at the first gain.
+   */
   const readThenLeave = async (it, leave) => {
-    const before = await activeSeconds(page);
+    await page.goto("/l/unread", { waitUntil: "load" });
+    const before = await settled(3000, 15000);
     await page.goto(`/i/${it.id}`, { waitUntil: "load" });
     await page.getByTestId("article-body").waitFor({ timeout: 15000 });
     // The service worker controls the page, as it does for a reader: the beacon has to get past it.
     check(await page.evaluate(() => !!navigator.serviceWorker?.controller), `${tag} worker`, "the service worker controls the page", "no service worker controls the page, so the check below would not cover it");
     await page.waitForTimeout(12500);
     await leave();
-    // The beacon is delivered by the browser after the unload: give the server a moment to write it.
-    const end = Date.now() + 8000;
-    let gained;
-    do {
-      gained = (await activeSeconds(page)) - before;
-      if (gained > 0) break;
-      await page.waitForTimeout(250);
-    } while (Date.now() < end);
-    return gained;
+    // The beacon is delivered by the browser after the unload (0.5 to 2 s): wait until the totals have been still for 3 s.
+    return (await settled(3000, 15000)) - before;
   };
   const inRange = (n) => n >= 11 && n <= 13;
 
