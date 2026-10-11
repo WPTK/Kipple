@@ -26,8 +26,7 @@ const UPLOAD_FAILED = "The upload was refused or interrupted. Check that the ser
 /**
  * The server holds no upload of this page's any more: another browser's upload replaced it (the server's message says
  * so and asks for the file again), or it expired. The summary on screen is stale, so the page goes back to choosing a
- * file. restore_elsewhere is not one of these: another browser's upload is still arriving or being checked, and this
- * page's upload comes back if that one fails.
+ * file.
  */
 const uploadGone = (e: unknown): boolean => e instanceof ApiError && (e.code === "restore_replaced" || e.code === "no_upload");
 

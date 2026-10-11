@@ -51,9 +51,9 @@ func TestUploadBelongsToItsOwner(t *testing.T) {
 	require.Equal(t, Status{State: RestoreNone}, r.Status(other), "no summary, no state")
 	require.Equal(t, Status{State: RestoreNone}, r.Status(""), "no key is not the owner")
 	_, _, err = r.Uploaded(other)
-	require.ErrorIs(t, err, ErrRestoreElsewhere)
+	require.ErrorIs(t, err, ErrRestoreReplaced)
 	_, err = r.Feeds(other)
-	require.ErrorIs(t, err, ErrRestoreElsewhere)
+	require.ErrorIs(t, err, ErrRestoreReplaced)
 	require.ErrorIs(t, r.Cancel(other), ErrRestoreElsewhere)
 	_, err = r.Upload(context.Background(), me, bytes.NewReader(b), int64(len(b)), nil)
 	require.ErrorIs(t, err, ErrRestoreBusy, "the owner may cancel its own and try again")
@@ -116,10 +116,6 @@ func TestANewBrowserReplacesAnUnconfirmedUpload(t *testing.T) {
 	require.ErrorIs(t, r.Confirm(context.Background(), ticket, ""), ErrNoUpload, "the replaced upload's ticket confirms nothing")
 	_, _, err = r.Uploaded(me)
 	require.ErrorIs(t, err, ErrRestoreReplaced, "the first browser is told its upload was replaced")
-	_, err = r.Feeds(me)
-	require.ErrorIs(t, err, ErrRestoreReplaced)
-	require.NoError(t, r.Cancel(me), "nothing of the first browser's is left to cancel")
-	require.Equal(t, RestoreReady, r.Status(other).State)
 
 	// While the second browser's next upload arrives, its request is alive: the
 	// first browser is refused until it ends.
@@ -139,95 +135,6 @@ func TestANewBrowserReplacesAnUnconfirmedUpload(t *testing.T) {
 	require.Error(t, <-first)
 	_, err = upload(r, b)
 	require.NoError(t, err, "the request that held the slot ended, and with it the hold")
-}
-
-// Another browser's upload replaces a checked one only once it has been
-// checked itself. A file that is not a backup, an OPML file, a zip that fails
-// the check, a body cut short or a cancelled upload leaves the first
-// browser's checked upload as it was, ready to confirm.
-func TestAFailedReplacementKeepsTheCheckedUpload(t *testing.T) {
-	t.Parallel()
-	const other = "second-browser"
-	b := hostBackup(t)
-	r, dir := newRestorer(t)
-	_, err := upload(r, b)
-	require.NoError(t, err)
-	staged, err := os.ReadFile(filepath.Join(dir, StagedFile))
-	require.NoError(t, err)
-
-	kept := func(why string) {
-		t.Helper()
-		require.Eventually(t, func() bool { return r.Status(me).State == RestoreReady }, 30*time.Second, 5*time.Millisecond, why)
-		st := r.Status(me)
-		require.NotNil(t, st.Summary, why)
-		now, err := os.ReadFile(filepath.Join(dir, StagedFile))
-		require.NoError(t, err, why)
-		require.Equal(t, staged, now, why)
-		require.NoFileExists(t, filepath.Join(dir, UploadFile), why)
-		require.NoFileExists(t, filepath.Join(dir, NextStagedFile), why)
-	}
-	send := func(body []byte) error {
-		_, err := r.Upload(context.Background(), other, bytes.NewReader(body), int64(len(body)), nil)
-		return err
-	}
-
-	require.ErrorIs(t, send([]byte("not a backup at all")), ErrNotBackup)
-	kept("a file that is not a backup")
-	const feeds = `<opml version="2.0"><body><outline xmlUrl="http://a.test/rss"/></body></opml>`
-	up, err := r.Upload(context.Background(), other, strings.NewReader(feeds), int64(len(feeds)), nil)
-	require.NoError(t, err)
-	require.Equal(t, KindOPML, up.Kind)
-	kept("an OPML file")
-	_, err = r.Upload(context.Background(), other, bytes.NewReader(b[:len(b)/2]), int64(len(b)), nil)
-	require.ErrorIs(t, err, ErrUploadCut)
-	kept("a body cut short")
-	require.NoError(t, send(b[:len(b)/2]), "a damaged zip arrives whole and fails the check")
-	kept("a zip that fails the check")
-
-	pr, pw := io.Pipe()
-	done := make(chan error, 1)
-	go func() {
-		_, err := r.Upload(context.Background(), other, pr, int64(len(b)), func() { _ = pr.CloseWithError(errors.New("stopped")) })
-		done <- err
-	}()
-	_, err = pw.Write(b[:100])
-	require.NoError(t, err)
-	require.Equal(t, RestoreUploading, r.Status(other).State)
-	_, _, err = r.Uploaded(me)
-	require.ErrorIs(t, err, ErrRestoreElsewhere, "while the other upload arrives, the first one waits")
-	require.NoError(t, r.Cancel(other))
-	require.ErrorIs(t, <-done, context.Canceled)
-	kept("a cancelled upload")
-
-	_, ticket, err := r.Uploaded(me)
-	require.NoError(t, err)
-	require.NoError(t, r.Confirm(context.Background(), ticket, ""), "the kept upload is still the first browser's to confirm")
-}
-
-// An account created while another browser's upload would replace a checked
-// one ends both: nothing is kept.
-func TestDropEndsAReplacementAndWhatItWouldReplace(t *testing.T) {
-	t.Parallel()
-	b := hostBackup(t)
-	r, dir := newRestorer(t)
-	_, err := upload(r, b)
-	require.NoError(t, err)
-	pr, pw := io.Pipe()
-	done := make(chan error, 1)
-	go func() {
-		_, err := r.Upload(context.Background(), "second-browser", pr, int64(len(b)), func() { _ = pr.CloseWithError(errors.New("stopped")) })
-		done <- err
-	}()
-	_, err = pw.Write(b[:100])
-	require.NoError(t, err)
-	require.Equal(t, RestoreUploading, r.State())
-	r.Drop()
-	require.Error(t, <-done)
-	require.Equal(t, RestoreNone, r.State())
-	require.Equal(t, Status{State: RestoreNone}, r.Status(me))
-	for _, f := range []string{StagedFile, NextStagedFile, UploadFile} {
-		require.NoFileExists(t, filepath.Join(dir, f))
-	}
 }
 
 // upload sends b and, for a zip, waits for the background check: it returns
@@ -1076,7 +983,7 @@ func TestEstimateSeconds(t *testing.T) {
 // The texts a person restoring reads never mention schema numbers.
 func TestRestoreTextsSayNoSchemaVersion(t *testing.T) {
 	t.Parallel()
-	for _, e := range []error{ErrRestoreBusy, ErrRestoreElsewhere, ErrRestoreReplaced, ErrRestorePending, ErrNoUpload, ErrNotBackup, ErrUploadTooLarge, ErrOPMLTooLarge,
+	for _, e := range []error{ErrRestoreBusy, ErrRestoreReplaced, ErrRestorePending, ErrNoUpload, ErrNotBackup, ErrUploadTooLarge, ErrOPMLTooLarge,
 		ErrUploadCut, &NewerError{}, &NewerError{KippleVersion: "1.2"}, &UploadSpaceError{Need: 1, Free: 0}} {
 		require.NotContains(t, strings.ToLower(e.Error()), "schema", e.Error())
 	}

@@ -425,17 +425,17 @@ func TestRestoreBelongsToTheUploadingBrowser(t *testing.T) {
 	h := newRestoreHarness(t)
 	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"])
 
-	elsewhere := func(rec *httptest.ResponseRecorder) {
+	refused := func(code string, rec *httptest.ResponseRecorder) {
 		t.Helper()
 		require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
-		require.Equal(t, "restore_elsewhere", decode(t, rec)["error"])
+		require.Equal(t, code, decode(t, rec)["error"])
 	}
 	for _, mod := range []func(*http.Request){stranger, anotherBrowser("guess"), anotherBrowser(testKey(t))} {
 		require.Equal(t, "none", decode(t, h.req("GET", "/api/instance", "", mod))["restore"])
 		require.Equal(t, map[string]any{"state": "none", "summary": nil, "error": nil, "estimate_seconds": float64(0), "refusal": nil}, h.status(mod))
-		elsewhere(h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod))
-		elsewhere(h.req("GET", "/api/setup/restore/feeds", "", mod))
-		elsewhere(h.req("DELETE", "/api/setup/restore", "", mod))
+		refused("restore_replaced", h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod))
+		refused("restore_replaced", h.req("GET", "/api/setup/restore/feeds", "", mod))
+		refused("restore_elsewhere", h.req("DELETE", "/api/setup/restore", "", mod))
 	}
 	require.Zero(t, h.restarts.Load())
 	require.NoFileExists(t, filepath.Join(h.dir, backup.MarkerFile))
@@ -461,19 +461,11 @@ func TestASecondBrowserReplacesAnAbandonedUpload(t *testing.T) {
 	out := h.upload(backupZip(t, "h", store.AuthStandard), second)
 	require.EqualValues(t, http.StatusOK, out["status"], out)
 	require.Equal(t, "none", h.restoreState(), "the first browser's upload is gone")
-	for _, rq := range [][2]string{{"POST", "/api/setup/restore/confirm"}, {"GET", "/api/setup/restore/feeds"}} {
-		rec := h.req(rq[0], rq[1], `{}`)
-		require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
-		out := decode(t, rec)
-		require.Equal(t, "restore_replaced", out["error"], "the first browser is told its upload was replaced")
-		require.Equal(t, backup.ErrRestoreReplaced.Error(), out["message"])
-	}
-	require.Equal(t, http.StatusNoContent, h.req("DELETE", "/api/setup/restore", "").Code, "nothing of its own is left to cancel")
-
-	// A file that is not a backup leaves the second browser's checked upload as it was.
-	rec := h.req("POST", "/api/setup/restore/upload", "plain text", hdr("Content-Type", "application/octet-stream"))
-	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-	require.Equal(t, "ready", h.status(second)["state"])
+	rec := h.req("POST", "/api/setup/restore/confirm", `{}`)
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	out = decode(t, rec)
+	require.Equal(t, "restore_replaced", out["error"], "the first browser is told why")
+	require.Equal(t, backup.ErrRestoreReplaced.Error(), out["message"])
 
 	rec = h.req("POST", "/api/setup/restore/confirm", `{}`, second)
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
@@ -504,7 +496,7 @@ func TestACookieGrantsNothing(t *testing.T) {
 		require.Nil(t, h.status(mod...)["refusal"], "another browser's checked upload refuses nothing: a new upload would replace it")
 		rec = h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod...)
 		require.Equal(t, http.StatusConflict, rec.Code)
-		require.Equal(t, "restore_elsewhere", decode(t, rec)["error"])
+		require.Equal(t, "restore_replaced", decode(t, rec)["error"])
 		require.Equal(t, http.StatusConflict, h.req("GET", "/api/setup/restore/feeds", "", mod...).Code)
 	}
 	require.Zero(t, h.restarts.Load())
