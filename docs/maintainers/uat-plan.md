@@ -168,7 +168,7 @@ credentials like the main run. Exit code 0 clean, 1 findings, 2 setup error.
 Feeds screen (`npm run uat:feeds`, `web/uat/feeds.mjs`, same instance, credentials, `--browser` and exit codes), at 1280x800 and
 375x812, on disposable feeds that point at an address that never resolves (a stopped run's leftovers are removed first):
 tapping a feed's title in select mode ticks it and never opens it (F1); deleting selected feeds shows one progress bar
-with a fixed total, keeps a folder that still holds feeds and removes the folders the delete left empty, and touches
+with a fixed total, keeps every folder, including one the delete left with no feeds, and touches
 nothing else (F2); New folder and Rename folder save on Enter (F3); Import OPML refuses a file that is not OPML, by its
 look, as an RSS feed and as JSON named `.opml`, in plain words and adds nothing (F4).
 
