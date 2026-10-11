@@ -484,6 +484,23 @@ a.sr-only-live:focus {
 }
 .article-body a[href^="#kp-"] { text-decoration-style: dotted; }
 
+/* An image that could not be shown (web/src/lib/articleDom.ts imageNotShown): the embed placeholder's box, dashed. */
+.article-body .kp-img-off {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  max-width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--kp-border);
+  border-radius: 0.5rem;
+  background: var(--kp-surface);
+  color: var(--kp-text2);
+  font-size: 0.875em;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 /* Stats heatmap: level fill is --heat percent of the text color into the surface (ramp in src/theme/contrast.ts,
    checked by scripts/contrast.mjs). Older browsers without color-mix get an opacity-based fill instead. */
 .heat-cell {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { embedSrc, footnoteTarget, handleArticleClick, loadEmbed } from "./articleDom";
+import { embedSrc, footnoteTarget, handleArticleClick, imageNotShown, loadEmbed, watchImages } from "./articleDom";
 
 describe("embedSrc", () => {
   it("allows only YouTube (nocookie) and Vimeo with sane ids", () => {
@@ -91,5 +91,77 @@ describe("malformed footnote hrefs", () => {
     expect(() => handleArticleClick(ev, body, null, false)).not.toThrow();
     expect(ev.defaultPrevented).toBe(true);
     body.remove();
+  });
+});
+
+describe("images that cannot be shown", () => {
+  const body = (html: string) => {
+    const d = document.createElement("div");
+    d.innerHTML = html;
+    document.body.append(d);
+    return d;
+  };
+  const fail = (img: Element | null) => img?.dispatchEvent(new Event("error"));
+
+  it("a failed image becomes the cue, with its alt text and a link to the original", () => {
+    const root = body('<p>Before <img src="" alt="A chart of rivers"> after</p>');
+    const stop = watchImages(root, "https://example.com/a/1", false);
+    fail(root.querySelector("img"));
+    const cue = root.querySelector(".kp-img-off");
+    expect(root.querySelector("img")).toBeNull();
+    expect(cue?.textContent).toBe("Image not shown: A chart of riversOpen original");
+    const a = cue?.querySelector("a");
+    expect(a?.getAttribute("href")).toBe("https://example.com/a/1");
+    expect(a?.target).toBe("_blank");
+    expect(a?.rel).toBe("noopener noreferrer");
+    expect(root.querySelector("p")?.textContent?.startsWith("Before ")).toBe(true);
+    stop();
+    root.remove();
+  });
+
+  it("says only that the image is not shown when it has no alt text, and opens in the same tab when asked", () => {
+    const root = body('<img src="/img/x">');
+    watchImages(root, "https://example.com/a/1", true);
+    fail(root.querySelector("img"));
+    expect(root.querySelector(".kp-img-off > span")?.textContent).toBe("Image not shown");
+    expect(root.querySelector(".kp-img-off a")?.hasAttribute("target")).toBe(false);
+    root.remove();
+  });
+
+  it("inside a link it is plain text (no link in a link), and without an original there is no link", () => {
+    const root = body('<a href="https://example.com/big.png"><img src=""></a>');
+    expect(imageNotShown(root.querySelector("img") as HTMLImageElement, "https://example.com/a/1", false)).not.toBeNull();
+    expect(root.querySelectorAll("a")).toHaveLength(1);
+    expect(root.querySelector("a .kp-img-off")?.textContent).toBe("Image not shown");
+    const bare = body('<img src="">');
+    imageNotShown(bare.querySelector("img") as HTMLImageElement, undefined, false);
+    expect(bare.querySelector(".kp-img-off a")).toBeNull();
+    root.remove();
+    bare.remove();
+  });
+
+  it("a picture is replaced whole", () => {
+    const root = body('<picture><source srcset=""><img src="" alt="x"></picture>');
+    imageNotShown(root.querySelector("img") as HTMLImageElement, undefined, false);
+    expect(root.querySelector("picture, source, img")).toBeNull();
+    expect(root.querySelector(".kp-img-off")).not.toBeNull();
+    root.remove();
+  });
+
+  it("tracking pixels and embed thumbnails get no cue", () => {
+    const root = body('<img src="" width="1" height="1"><img src="" height="2px"><figure class="kp-embed"><img src=""></figure>');
+    watchImages(root, "https://example.com/a/1", false);
+    root.querySelectorAll("img").forEach((i) => fail(i));
+    expect(root.querySelector(".kp-img-off")).toBeNull();
+    expect(root.querySelectorAll("img")).toHaveLength(3);
+    root.remove();
+  });
+
+  it("stops watching after cleanup", () => {
+    const root = body('<img src="">');
+    watchImages(root, undefined, false)();
+    fail(root.querySelector("img"));
+    expect(root.querySelector(".kp-img-off")).toBeNull();
+    root.remove();
   });
 });

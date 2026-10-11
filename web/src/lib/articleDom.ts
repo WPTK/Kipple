@@ -80,6 +80,57 @@ export function enhanceEmbeds(root: ParentNode): void {
   }
 }
 
+/** A declared size this small is a tracking pixel, not artwork (the server's rule too, internal/sanitize/leadimage.go). */
+const isBeacon = (img: HTMLImageElement): boolean =>
+  ["width", "height"].some((k) => {
+    const n = parseInt(img.getAttribute(k) ?? "", 10);
+    return !Number.isNaN(n) && n <= 2;
+  });
+
+/**
+ * Puts the "Image not shown" cue in place of an article image the browser could not show, and returns it (null when
+ * the image gets none). Every reason ends here: a source the server refused (an SVG is never shown, so its address
+ * comes empty or the image proxy answers 415), a source that is gone, a load that failed. The cue keeps the image's
+ * alt text and offers the original article, where the image can be seen; inside a link it is plain text (the link
+ * still works). Tracking pixels and embed thumbnails (the embed has its own link) get no cue.
+ */
+export function imageNotShown(img: HTMLImageElement, original: string | undefined, sameTab: boolean): HTMLElement | null {
+  if (!img.isConnected || isBeacon(img) || img.closest("figure.kp-embed, .kp-img-off")) return null;
+  const doc = img.ownerDocument;
+  const cue = doc.createElement("span");
+  cue.className = "kp-img-off";
+  const alt = (img.getAttribute("alt") ?? "").trim();
+  const label = doc.createElement("span");
+  label.textContent = alt ? `Image not shown: ${alt}` : "Image not shown";
+  cue.append(label);
+  if (original && !img.closest("a")) {
+    const a = doc.createElement("a");
+    a.href = original;
+    a.rel = "noopener noreferrer";
+    if (!sameTab) a.target = "_blank";
+    a.textContent = "Open original";
+    cue.append(a);
+  }
+  // A <picture> is one image: the cue takes the place of the whole of it.
+  const box = img.parentElement?.tagName === "PICTURE" ? img.parentElement : img;
+  box.replaceWith(cue);
+  return cue;
+}
+
+/**
+ * Watches an article body for images that cannot be shown and gives each the cue. A failed load fires an error event,
+ * which does not bubble, so it is caught on the way down. Call it in the same task that put the HTML in the DOM (a
+ * layout effect): the event of an image that fails at once (an empty address) is queued, never fired before that.
+ * Returns the cleanup.
+ */
+export function watchImages(root: HTMLElement, original: string | undefined, sameTab: boolean): () => void {
+  const onError = (e: Event) => {
+    if (e.target instanceof HTMLImageElement && root.contains(e.target)) imageNotShown(e.target, original, sameTab);
+  };
+  root.addEventListener("error", onError, true);
+  return () => root.removeEventListener("error", onError, true);
+}
+
 /** Element a `#kp-...` footnote link points at, inside `root`. */
 export function footnoteTarget(root: ParentNode, href: string): HTMLElement | null {
   if (!href.startsWith("#kp-") || href.length < 5) return null;

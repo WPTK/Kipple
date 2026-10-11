@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { DropdownMenu } from "radix-ui";
 import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
@@ -6,7 +6,7 @@ import { ApiError } from "@/api/client";
 import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
-import { enhanceEmbeds, handleArticleClick } from "@/lib/articleDom";
+import { enhanceEmbeds, handleArticleClick, watchImages } from "@/lib/articleDom";
 import { useItemActions } from "@/lib/itemActions";
 import { articleTo, listTo } from "@/lib/routes";
 import { sanitizeArticleHtml } from "@/lib/safeHtml";
@@ -212,6 +212,14 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   useEffect(() => {
     if (bodyRef.current) enhanceEmbeds(bodyRef.current);
   }, [html, item.data?.trimmed]);
+
+  // An image that cannot be shown gets the "Image not shown" cue instead of a blank gap. A layout effect, so the
+  // listener is there before any image of this HTML can fail.
+  const articleUrl = safeHttpUrl(item.data?.url);
+  useLayoutEffect(() => {
+    if (!bodyRef.current) return;
+    return watchImages(bodyRef.current, articleUrl, linkTarget === "same");
+  }, [html, item.data?.trimmed, articleUrl, linkTarget]);
 
   // Highlight filters: after the article was sanitized and put in the DOM, split its text nodes around the words
   // (never HTML built from a term). The cleanup puts the text back, so turning the setting off or editing a rule

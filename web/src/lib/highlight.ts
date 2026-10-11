@@ -248,7 +248,7 @@ const SKIP_TAGS = new Set(["A", "CODE", "PRE", "KBD", "SAMP", "SCRIPT", "STYLE",
 
 function skipped(node: Node, root: Element): boolean {
   for (let p = node.parentElement; p && p !== root; p = p.parentElement) {
-    if (SKIP_TAGS.has(p.tagName.toUpperCase()) || p.classList.contains("kp-embed")) return true;
+    if (SKIP_TAGS.has(p.tagName.toUpperCase()) || p.classList.contains("kp-embed") || p.classList.contains("kp-img-off")) return true;
   }
   return false;
 }
