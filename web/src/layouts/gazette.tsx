@@ -36,6 +36,8 @@ export interface GazetteProps {
   onOpen: (item: Card) => void;
   /** The story selected with j/k or open in the reader pane: it is outlined. */
   selectedId?: string;
+  /** The story that last had focus: the paper's one Tab stop when it is still there. */
+  focusedId?: string;
   /** Stories ticked with `x`: each shows a tick. */
   checked?: ReadonlySet<string>;
 }
@@ -51,10 +53,13 @@ export function closingLine(name: string): string {
 const longDate = (d: Date) => d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 const shortDate = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
-export function Gazette({ plan, items, name: given, date, screen, to, onOpen, selectedId, checked }: GazetteProps) {
+export function Gazette({ plan, items, name: given, date, screen, to, onOpen, selectedId, focusedId, checked }: GazetteProps) {
   const phone = screen === "phone";
   const name = paperName(given);
   const last = plan.pages.length - 1;
+  // The paper is one Tab stop, like a list (rowTabStop.ts): the story that last had focus, else the selected one, else
+  // the first one in reading order.
+  const tabStopId = [focusedId, selectedId].find((id) => id && items.has(id)) ?? firstStory(plan, items);
   return (
     <div data-gazette="" className="gazette bg-bg px-4 pb-10 text-fg">
       {plan.pages.map((page, i) => (
@@ -68,6 +73,7 @@ export function Gazette({ plan, items, name: given, date, screen, to, onOpen, se
           to={to}
           onOpen={onOpen}
           selectedId={selectedId}
+          tabStopId={tabStopId}
           checked={checked}
           ruled={i > 0}
         />
@@ -79,14 +85,27 @@ export function Gazette({ plan, items, name: given, date, screen, to, onOpen, se
   );
 }
 
+/** The paper's first story in reading order (page by page, block by block, column by column). */
+function firstStory(plan: GazettePlan, items: ReadonlyMap<string, Card>): string | undefined {
+  for (const page of plan.pages) {
+    for (const block of page.blocks) {
+      const shown = block.slots.filter((s) => items.has(s.id));
+      if (shown.length) return shown.reduce((a, b) => (b.column < a.column ? b : a)).id;
+    }
+  }
+  return undefined;
+}
+
 interface PagePlanProps extends Omit<GazetteProps, "plan" | "screen"> {
   page: PagePlan;
   phone: boolean;
+  /** The one story whose link is in the Tab order. */
+  tabStopId: string | undefined;
   /** Draw the page rule above it (every page after the first). */
   ruled: boolean;
 }
 
-function GazettePage({ page, items, name, date, phone, to, onOpen, selectedId, checked, ruled }: PagePlanProps) {
+function GazettePage({ page, items, name, date, phone, to, onOpen, selectedId, tabStopId, checked, ruled }: PagePlanProps) {
   const front = page.kind === "front";
   return (
     // A plain section with no accessible name, so a long paper does not add one landmark per page; its h2 is what
@@ -95,7 +114,7 @@ function GazettePage({ page, items, name, date, phone, to, onOpen, selectedId, c
       {front ? <Masthead name={name} date={date} phone={phone} /> : <Folio name={name} date={date} number={page.number} phone={phone} />}
       <div className="flex flex-col gap-6">
         {page.blocks.map((b, i) => (
-          <GazetteBlock key={i} block={b} items={items} to={to} onOpen={onOpen} phone={phone} selectedId={selectedId} checked={checked} />
+          <GazetteBlock key={i} block={b} items={items} to={to} onOpen={onOpen} phone={phone} selectedId={selectedId} tabStopId={tabStopId} checked={checked} />
         ))}
       </div>
     </section>
@@ -135,6 +154,7 @@ function Folio({ name, date, number, phone }: { name: string; date: Date; number
 
 interface BlockProps {
   block: Block;
+  tabStopId: string | undefined;
   items: ReadonlyMap<string, Card>;
   to: (item: Card) => To;
   onOpen: (item: Card) => void;
@@ -143,7 +163,7 @@ interface BlockProps {
   checked: ReadonlySet<string> | undefined;
 }
 
-function GazetteBlock({ block, items, to, onOpen, phone, selectedId, checked }: BlockProps) {
+function GazetteBlock({ block, items, to, onOpen, phone, selectedId, tabStopId, checked }: BlockProps) {
   const columns = phone ? 1 : block.columns;
   const byColumn: Slot[][] = Array.from({ length: columns }, () => []);
   for (const s of block.slots) if (items.has(s.id)) byColumn[Math.min(s.column, columns - 1)]!.push(s);
@@ -170,6 +190,7 @@ function GazetteBlock({ block, items, to, onOpen, phone, selectedId, checked }: 
                 onOpen={onOpen}
                 phone={phone}
                 selected={s.id === selectedId}
+                tabStop={s.id === tabStopId}
                 checked={!!checked?.has(s.id)}
               />
             ))}
@@ -188,6 +209,8 @@ interface StoryProps {
   onOpen: (item: Card) => void;
   phone: boolean;
   selected: boolean;
+  /** This story's link is the paper's one Tab stop. */
+  tabStop: boolean;
   checked: boolean;
 }
 
@@ -206,7 +229,7 @@ function headlineClass(slot: Slot, phone: boolean): string {
   }
 }
 
-function Story({ slot, item, heading: H, to, onOpen, phone, selected, checked }: StoryProps) {
+function Story({ slot, item, heading: H, to, onOpen, phone, selected, tabStop, checked }: StoryProps) {
   const lead = slot.kind === "lead" || slot.kind === "co-lead";
   const picture = !!item.image && (slot.kind === "photo" || (lead && slot.picture));
   const brief = slot.kind === "brief";
@@ -242,9 +265,11 @@ function Story({ slot, item, heading: H, to, onOpen, phone, selected, checked }:
       <H className={cn("font-reading font-bold", headlineClass(slot, phone), item.read ? "text-fg2" : "text-fg")}>
         <Link
           to={to}
+          tabIndex={tabStop ? undefined : -1}
           onClick={() => onOpen(item)}
           aria-label={rowLabel(item)}
-          className="after:absolute after:inset-0 hover:underline focus-visible:after:outline-2 focus-visible:after:outline-accent"
+          aria-keyshortcuts="ArrowDown ArrowUp"
+          className="row-link hover:underline"
         >
           {item.title || "Untitled"}
         </Link>
@@ -271,7 +296,7 @@ export const PHONE_BELOW = 600;
  * was opened. Until the planner has a front page (it waits for the lead window, or the end of the list) it says the
  * front page is being laid out; the list screen keeps loading meanwhile.
  */
-function GazetteList({ items, scope, more, width, selectedId, checked, onOpen }: PageProps) {
+function GazetteList({ items, scope, more, width, selectedId, tabStopId, checked, onOpen }: PageProps) {
   const boot = useBootstrap();
   const { favorites } = useFavorites();
   const { paperName: name } = useDevicePrefs();
@@ -294,7 +319,7 @@ function GazetteList({ items, scope, more, width, selectedId, checked, onOpen }:
       </p>
     );
   }
-  return <Gazette plan={plan} items={byId} name={name} date={date} screen={screen} to={(c) => articleTo(c.id, scope)} onOpen={onOpen} selectedId={selectedId} checked={checked} />;
+  return <Gazette plan={plan} items={byId} name={name} date={date} screen={screen} to={(c) => articleTo(c.id, scope)} onOpen={onOpen} selectedId={selectedId} focusedId={tabStopId} checked={checked} />;
 }
 
 /** In a search, which a paper cannot be planned from, the Gazette shows Editorial rows. */

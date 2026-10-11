@@ -232,9 +232,11 @@ describe("coming back to a long list (#94)", () => {
       }))
       .sort((a, b) => a.top - b.top);
   const rowAt = (scroller: HTMLElement, offset: number) => rowsOf(scroller).find((r) => r.top <= offset && offset < r.top + ROW)?.id;
-  /** How far apart the mounted rows stand: all ROW when none kept its estimated height. */
+  /** How far apart the mounted rows stand: all ROW when none kept its estimated height. Not counting the list's Tab
+   * stop (the first row here), which stays mounted however far the list has scrolled from it. */
   const steps = (scroller: HTMLElement) => {
-    const rows = rowsOf(scroller);
+    const stop = scroller.querySelector("[data-item-id] a:not([tabindex='-1'])")?.closest<HTMLElement>("[data-item-id]")?.dataset.itemId;
+    const rows = rowsOf(scroller).filter((r) => r.id !== stop);
     expect(rows.length).toBeGreaterThan(2);
     return [...new Set(rows.slice(1).map((r, i) => r.top - (rows[i] as { top: number }).top))];
   };

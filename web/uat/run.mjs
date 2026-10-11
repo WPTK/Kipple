@@ -52,6 +52,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
+import { accessControlUrl, unloadRefusal } from "./common.mjs";
 import { activeScheme, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
 
 /** The smallest touch target, in CSS px (S8). WCAG 2.2 asks for 24; Kipple keeps to the 44 of the Apple and Material guides. */
@@ -249,8 +250,11 @@ const waivers = orSetupError("uat/waivers.json", () => {
   return list;
 });
 const used = new Set();
+// The one text a finding is matched and printed by, so a waiver's `match` can be copied from a FINDING line. It is
+// JSON, so a double quote shows as \" : name a quote-free part of the element in `match`.
+const detailText = (detail) => (detail === undefined ? "" : typeof detail === "string" ? detail : JSON.stringify(detail));
 function waived(check, rule, where, message, detail) {
-  const text = `${message}\n${detail === undefined ? "" : JSON.stringify(detail)}`;
+  const text = `${message}\n${detailText(detail)}`;
   const hits = waivers
     .map((w, i) => [w, i])
     .filter(
@@ -566,6 +570,7 @@ async function selfTest() {
   const tap = await tapPage.evaluate(tapProbe, { feed: FEED, min: TAP_MIN });
   await tapPage.close();
   const tapIds = tap.small.map((x) => x.desc.split(" ")[0].replace(/\..*/, "")).sort();
+  if (tap.measured !== 6 || tap.covered.length) problems.push(`S8 measured ${tap.measured} and found ${tap.covered.length} covered, expected 6 and 0`);
   if (!same(tapIds, ["button#tiny", "input#bare", "a#plain"].map((s) => s.replace(/\..*/, "")))) problems.push(`S8 flagged ${JSON.stringify(tap.small)}`);
   if (problems.length) throw new Error(`self-test failed: ${problems.join("; ")}`);
 }
@@ -696,8 +701,12 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
   // Events are always collected; each screen reports what arrived while it was checked, and what arrives after (a
   // query that fails late, during the screenshot) is reported against it when the next screen starts.
   let prev = null;
-  const bucket = { console: [], api: [], other: [] };
-  page.on("pageerror", (err) => bucket.console.push({ kind: "pageerror", text: String(err.stack || err).slice(0, 600) }));
+  const bucket = { console: [], api: [], other: [], refused: [] };
+  const isUnloadRefusal = unloadRefusal(page, origin);
+  page.on("pageerror", (err) => {
+    if (isUnloadRefusal(err)) bucket.refused.push(accessControlUrl(err).pathname);
+    else bucket.console.push({ kind: "pageerror", text: String(err.stack || err).slice(0, 600) });
+  });
   page.on("console", (msg) => {
     if (msg.type() !== "error") return;
     const url = msg.location()?.url ?? "";
@@ -742,7 +751,9 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     for (const c of bucket.console) report("S1", where, c.kind, c.text, c.url);
     for (const a of bucket.api) report("S2", where, String(a.status), `${a.method} ${a.url} -> ${a.status || a.error}`);
     for (const o of bucket.other) note("S2", where, `non-API request failed: ${o.url} ${o.text}`);
-    bucket.console.length = bucket.api.length = bucket.other.length = 0;
+    // Not counted, but said, so a page that keeps starting fetches as it is left stays visible.
+    if (bucket.refused.length) note("S1", where, `${bucket.refused.length} fetch(es) WebKit refused while the page was being left (not counted): ${[...new Set(bucket.refused)].join(", ")}`);
+    bucket.console.length = bucket.api.length = bucket.other.length = bucket.refused.length = 0;
   };
 
   // An article to open: the first one in All. Looked for again in the next browser while none is found (the feeds may
@@ -840,6 +851,10 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         for (const n of own) report("S3", where, v.id, `${v.id} (${v.impact}): ${v.help}`, [n]);
         if (feed.length) note("S3", where, `${v.id} in the feed's article HTML: ${v.help}`, feed);
       }
+      // A probe that measured nothing checked nothing. Controls it skipped as covered at their centre (a stretched link
+      // under its card's buttons, a loading overlay, the bottom bar) are listed so a skip never goes unseen.
+      if (s8 && s8.measured === 0) report("S8", where, "tap-none", "no control could be measured, so no touch target was checked");
+      if (s8?.covered.length) note("S8", where, `${s8.covered.length} control(s) covered at their centre were not measured: ${s8.covered.slice(0, 3).join("; ")}`);
       for (const t of s8?.small ?? []) report("S8", where, "tap-target", `${t.desc} is ${t.w} x ${t.h} px, under ${TAP_MIN} x ${TAP_MIN}`);
       for (const s of s4) {
         if (s.feed) note("S4", where, s.message);
@@ -928,7 +943,10 @@ function writeReport(results, s6) {
   for (const [i, w] of waivers.entries()) {
     if (used.has(i)) continue;
     const exercised = w.screen ? screens.some((s) => s.id === w.screen) : w.check === "S6" || !only;
-    if (exercised) note("waivers", {}, `unused waiver: ${JSON.stringify(w)}`);
+    if (exercised) {
+      note("waivers", {}, `unused waiver: ${JSON.stringify(w)}`);
+      console.log(`NOTE unused waiver (matched no finding; fine if it only applies on some machines): ${JSON.stringify({ ...w, reason: undefined })}`);
+    }
   }
   const fails = findings.filter((f) => f.severity === "fail");
   const summary = Object.fromEntries(
@@ -990,6 +1008,8 @@ function writeReport(results, s6) {
 
   console.log(`\n${Object.entries(summary).map(([c, s]) => `${c} ${s.fail}${s.waived ? ` (+${s.waived} waived)` : ""}`).join("  ")}`);
   console.log(`Report: ${join(outDir, "report.md")}`);
+  // A run in CI has only its log on screen, so the unwaived findings are printed here too, one line each.
+  for (const f of fails) console.log(`FINDING ${f.check} ${f.screen ?? "-"}/${f.theme ?? "-"}/${f.viewport ?? "-"}: ${f.message}${f.detail ? ` | ${detailText(f.detail).slice(0, 300)}` : ""}`);
   if (summary.run.fail) return 2;
   return fails.length ? 1 : 0;
 }

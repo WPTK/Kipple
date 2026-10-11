@@ -215,6 +215,9 @@ func (s *Server) createFilter(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		filterIn
 		ApplyExisting *applyExisting `json:"apply_existing"`
+		// SourceItemID is the article a rule was started from ("Mute similar..."): an enabled mute rule
+		// that matches it mutes it as it is saved.
+		SourceItemID json.RawMessage `json:"source_item_id"`
 	}
 	if !decodeBody(w, r, &body, false) {
 		return
@@ -223,6 +226,15 @@ func (s *Server) createFilter(w http.ResponseWriter, r *http.Request) {
 	if e := body.applyTo(&f); e != nil {
 		writeBadFilter(w, e.Field, e.Message)
 		return
+	}
+	source, _, e := idField(body.SourceItemID, "source_item_id")
+	if e != nil {
+		writeBadFilter(w, e.Field, e.Message)
+		return
+	}
+	var sourceID int64
+	if source != nil {
+		sourceID = *source
 	}
 	if body.Action == nil {
 		writeBadFilter(w, "action", "is required (mute, mark_read, star or highlight)")
@@ -234,18 +246,23 @@ func (s *Server) createFilter(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	created, err := s.db.CreateFilter(r.Context(), f)
+	created, src, err := s.db.CreateFilterFrom(r.Context(), f, sourceID)
 	if err != nil {
 		s.filterError(w, "create filter", err)
 		return
 	}
 	s.publishFiltersChanged()
+	s.publishState(src.Changed, map[string]any{"read": true, "muted": true})
 	views, err := s.filterViews(r.Context(), created)
 	if err != nil {
 		s.serverError(w, "create filter", err)
 		return
 	}
-	resp := map[string]any{"filter": views[0], "applied": nil}
+	// source: null when no article was named; otherwise what saving did to it.
+	resp := map[string]any{"filter": views[0], "applied": nil, "source": nil}
+	if src.Mute != "" {
+		resp["source"] = map[string]any{"item_id": idStr(sourceID), "result": src.Mute}
+	}
 	if ae := body.ApplyExisting; ae != nil {
 		run, err := s.startApply(created.ID, ae.IncludeRead)
 		switch {

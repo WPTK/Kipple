@@ -265,6 +265,10 @@ export function tapProbe({ feed, min, root }) {
     }
     targets.add(el);
   }
+  // scrollIntoView below moves the window and any list scroller; put them back afterwards so the next check on this
+  // screen (S7, screenshots) and the next screen start where this one was left.
+  const saved = [[document.scrollingElement, document.scrollingElement.scrollLeft, document.scrollingElement.scrollTop]];
+  for (const el of document.body.querySelectorAll("*")) if (el.scrollTop || el.scrollLeft) saved.push([el, el.scrollLeft, el.scrollTop]);
   const out = [];
   const covered = [];
   let measured = 0;
@@ -311,6 +315,10 @@ export function tapProbe({ feed, min, root }) {
     const w = Math.round(run(-1, 0) + run(1, 0));
     const h = Math.round(run(0, -1) + run(0, 1));
     if (w < min - 1 || h < min - 1) out.push({ desc: describe(el), w, h });
+  }
+  for (const [el, left, top] of saved) {
+    el.scrollLeft = left;
+    el.scrollTop = top;
   }
   return { small: out, measured, covered };
 }

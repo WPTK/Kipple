@@ -474,7 +474,7 @@ func boolI(b bool) int {
 }
 
 // rewind turns a finished database into one the migrations from schema v up produce the latest
-// shape from. Every version first undoes 0017 and 0018 (each runs once) and flattens
+// shape from. Every version first undoes 0017 to 0019 (each runs once) and flattens
 // the folder tree to the shape before migration 0012: each folder becomes a top-level folder named by
 // its full path, so 0012 has a table to rebuild. 11 does only that; 10 also restores the settings rows
 // 0011 deletes; 6 also drops what 0007 to 0009 added, so those migrations do their real work (a full
@@ -487,7 +487,7 @@ func rewind(path string, v int) error {
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 	stmts := []string{
-		`DROP TABLE feed_daily_new`, `ALTER TABLE feeds DROP COLUMN url_succeeded`,
+		`DROP TABLE feed_daily_new`, `ALTER TABLE feeds DROP COLUMN url_succeeded`, `ALTER TABLE feeds DROP COLUMN redirect_ack`,
 		`CREATE TABLE folders_old (
 		   id INTEGER PRIMARY KEY AUTOINCREMENT,
 		   name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(trim(name)) > 0),

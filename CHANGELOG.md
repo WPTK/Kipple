@@ -8,6 +8,59 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.9.0-beta.1] - 2026-10-11
+
+### Added
+
+- Articles: an image Kipple does not display (an SVG, or a file of a type the image proxy does not pass) is replaced by an "Image not shown" note with its description and a link to the original article, in the space the image would have taken, instead of a blank gap. (#375)
+- Mute similar: saving the filter also mutes the article you started it from when the filter matches it, read or unread, and the article leaves every list but Muted at once, Unread included. A starred article stays starred and is not muted. When the article was not muted, the confirmation says why in one sentence: the filter does not mute or is turned off, the article no longer exists, it is starred, its feed is archived, the edited filter no longer matches it, another filter already muted it, or a star filter matches it. The filter is saved in every case. (#374)
+
+### Changed
+
+- The OPML import summary and its move-existing option now say "Folders left empty" for a folder that ends up with no feeds, matching bulk delete. Bulk delete removes such folders; an import that moves feeds keeps them.
+- Restore in Muted puts back the read state an article had before it was muted: an article you had read stays read, and an unread one is unread again. Restore used to make every article unread. (#374)
+
+### Fixed
+
+- Keyboard: when the article that has focus leaves the list (marked read in Unread, or muted with Mute similar from its menu), focus moves to the article that takes its place instead of dropping to the top of the page. Focus that is somewhere else, such as on the open article, stays there, so Space and Page Down keep scrolling the article.
+- A shortcut pressed right after moving through the list with the article open beside it (for example `k` then `x`) now acts on the row the list shows as selected. Before, a key pressed quickly enough could act on the row selected a moment earlier. (#371)
+- Signing out now fails with an error, and keeps you signed in so you can try again, when the server could not end the session. Before, the browser was signed out while the session stayed valid on the server. (#371)
+- When the list of saved searches cannot be loaded, the sidebar now says "Couldn't load your saved searches." with a Try again button, instead of leaving out the whole section as if there were none. The saved searches and their unread counts are also kept for offline use: offline, the sidebar shows the last values it saw.
+- Cards no longer show one site-wide logo, sponsor mark or newsletter banner on most posts of a feed: a picture that is among the best few images of three or more posts in one refresh is treated as the site's, and those posts show their own next picture or none. A real photo shared by three or more posts (a series banner, a show's art) is treated the same way. Posts already stored keep their picture until their content changes in the feed. (#382)
+- Keyboard: the article list is one Tab stop. Tab enters it on the article that last had focus (else the selected one, else the first) and the next Tab presses leave it for the controls after it, such as the open article's toolbar. On a focused article the Down and Up arrow keys move focus to the next or previous article without opening it or marking it read (Enter opens it), also with single-key shortcuts off. The focus ring is drawn inside the article's row, so no edge of it is cut off. Before, every article was its own Tab stop and the list loads more articles as focus moves down, so in a library of any size Tab never got past the list. (#369)
+- Undo now always applies to your most recent change, even when you press `z` or Undo before the server has saved it (Shift+A, mark above or below, or a single mark or star): it waits up to 10 seconds for that change, showing "Undoing…", and then undoes it. If the change came to nothing, it says "Nothing to undo" and leaves earlier changes alone; if saving takes longer, it says so and you can try again. The undo toast's 15 seconds now start when the change is saved. Before, Undo pressed while a change was saving could reverse an older change instead.
+- Undo never un-mutes an article. Undoing a mark as read or an unstar leaves an article that a filter has muted since muted, also when the mute happened on another device or while the app's live connection was down, and says "Nothing to undo" when that leaves nothing changed. An undo also no longer restores an article that retention has trimmed since. Before, the undo could bring such an article back unread or starred.
+- Setup restore: a backup that was uploaded and checked in one browser but never confirmed no longer keeps a second browser out of the setup wizard for up to an hour; an upload from the second browser replaces it, and the first page says its backup was replaced and asks for the file again. (#372)
+
+## [0.8.0-beta.8] - 2026-10-10
+
+### Added
+
+- Feed Health: a feed whose address redirects to a feed you already have now offers Delete this feed (with the usual confirmation) and Keep both; Keep both clears the Moved status and the needs-attention listing, and the choice holds through later fetches. It adds schema 19 (one column, `feeds.redirect_ack`, and `POST /api/feeds/{id}/redirect/keep`); going back to an earlier version means restoring the pre-migration snapshot the first start writes, as with every migration.
+
+### Fixed
+
+- Adding an address that redirects to a feed you already have is refused with a message naming that feed and its folder, instead of creating a duplicate that says "Feed added"; a duplicate that already exists (or arrives through an import or a sync app) now shows in Feed Health which feed it redirects to, and fixing a feed's address names the feed that already uses it.
+- The article toolbar now fits the narrowest phones and narrow panes without cutting off the Reading appearance button: Share moved into the More menu, and Next and Previous are hidden for an article opened from a shared link, where there is no list to page through.
+- OPML export and the statistics export save the real file however the browser starts them: from a link, a new tab, the address bar, a reload, a bookmark, a download manager or after being sent back from a sign-in page, where some saved a small error file instead. Backup downloads work from the link the page gives (a backup link is single-use). Only one statistics export runs at a time; a second raw export waits for the first (up to 20 seconds, at most three waiting) instead of saving an error as the file, and past that the download answers 503 with no body (Chromium reports a failed download; a WebKit browser may save an empty file; iOS Safari was not checked).
+- Feeds: importing a file that is not OPML (an RSS feed, a web page), a damaged OPML or an OPML with no feeds now says which it is instead of "Import finished, 0 feeds added"; a JSON address that is not a JSON Feed (no version URL and no items array) is refused when you add it in the web app (the add dialog and the feed editor; subscribing from another client and importing OPML accept it), while a feed you already follow keeps updating whatever version string it writes as long as it has an items array; Enter creates or renames a folder, and Layout, Order and Opens in in the edit dialogs apply on Save, not before Cancel; a folder you create stays visible while you have no feeds, Select is hidden then, and Select mode ends when the last feed goes; feed address errors in the editor read as sentences and say where the private-network switch is; the help text matches what taps do; Feed Health counts the write-ahead log in the database size, names fetch outcomes in words, has a sort direction button on phones and a labelled Done while selecting, and its tick boxes are full-size touch targets; closing a dialog opened from a menu returns the focus to that menu.
+- The filter editor says why Save is off (no word, no place to look, no feed or folder chosen) instead of leaving a dead button.
+- Images in articles whose address ends in .svg are no longer requested through the image proxy, which refuses SVG, so opening an article no longer fills the browser console with 415 errors.
+- A list that fails with a request the server refuses (for example a place in the list from before an upgrade) now offers Start over instead of a Try again that cannot help, and a list restarts itself when a later page is refused. (#356)
+- Opening an article that retention trimmed or that was deleted now says it is no longer available and offers the list, instead of a Try again that can never work.
+- Back to the list after paging with Next or Previous now returns to the article you reached, not where the list was when you first opened one.
+- A list address for a feed or folder that no longer exists (or a made-up list name) now says so and links to Unread, instead of showing an empty list or claiming the server could not be reached.
+- Adding a page that leads to a feed you already have now answers "You already have this feed" in every case (when the first fetch merges the new feed into it, a title or folder you chose is applied to it and the message says so), and says "feed removed while it was being added" instead of a server error when the first fetch is slow; the message says whether the address you entered or the feed it links redirects, and the feed editor checks a page's linked feed the same way adding does, without carrying private-network or insecure-connection exceptions to a feed on another site.
+- Refreshing while offline says the same thing from the Refresh button as from pull to refresh: Can't refresh while offline.
+- Saving a search you already have saved (the same words, ignoring case and spacing, in the same scope and order) now says so, naming the existing one, instead of adding an identical copy; editing a saved search into a copy is refused the same way. The save dialog also points phones to the Feeds tab. (#356)
+- A search with no results no longer suggests searching everything when it already covers the whole library, and Save this search is off until there is a result.
+- Setup restore: when another browser already holds an upload, the page now says so (and how to clear it) instead of blaming disk space or a proxy for a dropped connection.
+- An unknown address now shows "Page not found" instead of silently opening Unread, Wrapped offers Share only for a year with reading in it, the Stats footnote about older opens is clearer, the setup step title no longer draws a focus box, and Reset shows it is checking while it loads.
+- Sign-in: when wrong passwords slow sign-in down (or Kipple is busy), the form now says how long to wait and that even a correct password is refused until then, and a session that ended on its own says "You were signed out" instead of showing a bare form.
+- Settings and setup wording: the first setup step no longer offers an OPML file it does not take, the time zone box fits a phone, "Single-key shortcuts" and "Manage feeds and folders" are full-size tap targets, About shows the start time in your own time zone, a private-address feed in an import is explained in plain words, saved searches no longer mention a sidebar, and the Address and access help is shorter.
+- Statistics: the screen-reader tables under the daily and monthly charts no longer make the page scroll sideways on a 320 px wide screen.
+- Touch targets and text on phones: the source name in an article's header and the Range choices on Stats (on the narrowest phones) are now full-size 44 px touch targets, and each layout's description in the list options menu wraps onto a second line instead of being cut off. The Gazette description reads "Newspaper, always newest first".
+
 ## [0.8.0-beta.7] - 2026-10-10
 
 ### Added
@@ -955,7 +1008,9 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.7...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.9.0-beta.1...HEAD
+[0.9.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.8...v0.9.0-beta.1
+[0.8.0-beta.8]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.7...v0.8.0-beta.8
 [0.8.0-beta.7]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.6...v0.8.0-beta.7
 [0.8.0-beta.6]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.5...v0.8.0-beta.6
 [0.8.0-beta.5]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.4...v0.8.0-beta.5

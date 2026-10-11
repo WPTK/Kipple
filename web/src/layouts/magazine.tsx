@@ -3,6 +3,7 @@ import { cn } from "@/lib/cn";
 import { CheckBadge, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
+import { useRowTabIndex } from "./rowTabStop";
 
 /**
  * Editorial: image-forward. A large 16:9 lead image over the source line, a big title and a longer excerpt,
@@ -12,6 +13,7 @@ import { Hl } from "@/lib/useHighlights";
  * "magazine" so saved choices keep working; only the name shown to people changed.)
  */
 function EditorialRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
+  const tabIndex = useRowTabIndex();
   const unread = !item.read;
   return (
     <article
@@ -44,9 +46,11 @@ function EditorialRow({ item, feed, selected, checked, to, onOpen, onToggleStar,
           <SourceTimeMeta item={item} icon={feed?.icon} dot={<UnreadDot unread={unread} />} />
           <h3 className={cn("clamp-title text-xl leading-tight", unread ? "font-bold text-fg" : "font-normal text-fg2")}>
             <Link
+              tabIndex={tabIndex}
               to={to}
               onClick={() => onOpen(item)}
-              className="after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:outline-accent"
+              aria-keyshortcuts="ArrowDown ArrowUp"
+              className="row-link"
               aria-label={rowLabel(item)}
             >
               <Hl text={item.title || "Untitled"} field="title" feedId={item.feed_id} />
