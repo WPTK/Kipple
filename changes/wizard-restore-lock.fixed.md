@@ -1,1 +1,0 @@
-Setup restore: a backup that was uploaded and checked in one browser but never confirmed no longer keeps a second browser out of the setup wizard for up to an hour; an upload from the second browser replaces it, and the first page says its backup was replaced and asks for the file again. (#372)
