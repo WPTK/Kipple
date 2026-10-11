@@ -283,26 +283,28 @@ export function useFulltext() {
 
 /**
  * Mark ids read or unread with an optimistic patch; reverts and toasts on failure. `onError` replaces the toast
- * for a caller that decides itself what to say (mark-read-on-scroll tells a streak of failures once).
+ * for a caller that decides itself what to say (mark-read-on-scroll tells a streak of failures once). `undo` (with
+ * read false) is the undo of a mark read: the server leaves articles muted since as they are.
  */
 export async function applyRead(
   qc: QueryClient,
   ids: string[],
   read: boolean,
   reason: "swipe" | "key" | "scroll" | "bulk",
-  opts: { onError?: (e: unknown) => void } = {},
+  opts: { onError?: (e: unknown) => void; undo?: boolean } = {},
 ): Promise<MarkReadResponse | undefined> {
   const shift = unreadShift(qc, ids, read);
+  const undo = opts.undo === true;
   patchItems(qc, ids, { read });
   await supersede({ read: ids });
   try {
     try {
-      return await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason } });
+      return await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason, ...(undo ? { undo } : {}) } });
     } catch (e) {
       // No network: keep the change on screen and send it when the connection returns (lib/offline.ts). A
       // change that could not be stored for later is a failure like any other.
       if (!isOffline(e)) throw e;
-      const res = await queueRead(ids, read);
+      const res = await queueRead(ids, read, undo);
       // Online the server's `counts` event moves the badges; offline none comes, so they move here.
       for (const [feed, d] of shift) bumpUnread(qc, feed, d);
       return res;
@@ -315,16 +317,19 @@ export async function applyRead(
   }
 }
 
-/** Set starred with an optimistic patch; reverts and toasts on failure. */
-export async function applyStar(qc: QueryClient, id: string, starred: boolean): Promise<boolean> {
+/**
+ * Set starred with an optimistic patch; reverts and toasts on failure. `undo` (with starred true) is the undo of an
+ * unstar: the server leaves an article muted since as it is.
+ */
+export async function applyStar(qc: QueryClient, id: string, starred: boolean, undo = false): Promise<boolean> {
   patchItems(qc, [id], { starred: starred });
   await supersede({ star: id });
   try {
     try {
-      await api(`/api/items/${id}/star`, { method: "PUT", body: { starred } });
+      await api(`/api/items/${id}/star`, { method: "PUT", body: { starred, ...(undo ? { undo } : {}) } });
     } catch (e) {
       if (!isOffline(e)) throw e;
-      await queueStar(id, starred);
+      await queueStar(id, starred, undefined, undo);
     }
     return true;
   } catch (e) {

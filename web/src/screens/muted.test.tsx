@@ -390,7 +390,7 @@ describe("Mute similar… from the open article", () => {
 });
 
 describe("Mute similar… and undo", () => {
-  it("z after muting an article marked read with m does not mark it unread (which would un-mute it)", async () => {
+  it("z after muting an article marked read with m sends its undo as one, so the server leaves the muted article alone", async () => {
     prefsStore.set({ ...DEFAULT_PREFS, shortcuts: true });
     const { calls } = routes({
       "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }),
@@ -408,8 +408,8 @@ describe("Mute similar… and undo", () => {
     await user.click(dialog.getByRole("button", { name: "Save filter" }));
     await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent("This article is muted."));
     await user.keyboard("z");
-    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent("Nothing to undo"));
-    expect(calls.some((c) => c.url.pathname === "/api/items/mark-read" && body(c).read === false)).toBe(false);
+    // Marking unread is also the un-mute: the undo says it is one, and the server skips an article muted since.
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read" && body(c).read === false).map(body)).toEqual([expect.objectContaining({ ids: ["1001"], undo: true })]));
   });
 });
 

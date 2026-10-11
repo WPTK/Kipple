@@ -6,18 +6,30 @@ import { cn } from "@/lib/cn";
 import { Button } from "./button";
 
 /**
+ * Where the focus on `el` belongs: `el` itself, or, in an open menu, the button that opened the menu (the menu closes
+ * and gives focus back to it). Null for nothing or the page itself.
+ */
+export function focusOrigin(el: Element | null): HTMLElement | null {
+  if (!(el instanceof HTMLElement) || el === document.body) return null;
+  const menu = el.closest('[role="menu"]');
+  return (menu?.id && document.querySelector<HTMLElement>(`[aria-controls="${CSS.escape(menu.id)}"]`)) || el;
+}
+
+/**
  * Props for a Radix `Dialog.Content` that is opened by state (a button, a key, a menu item) rather than by a
  * `Dialog.Trigger`. Radix gives focus back to the trigger on close and to nothing when there is none, so Escape would
  * drop the keyboard to the top of the page. This remembers what had focus when `open` turned true, read while rendering
  * (before the commit moves focus into the dialog, which an `autoFocus` field does before any effect can run), and
- * returns focus there.
+ * returns focus there. A dialog opened from a menu item returns focus to the button that opened the menu, since the
+ * menu is gone by then. `onClosed` runs once focus is back: a change that takes the opener off the page (the editor
+ * muting the article whose row opened it) waits for it, so the list can hand focus on from there.
  */
-export function useReturnFocus(open: boolean) {
+export function useReturnFocus(open: boolean, onClosed?: () => void) {
   const [wasOpen, setWasOpen] = useState(false);
   const [opener, setOpener] = useState<HTMLElement | null>(null);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) setOpener(document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null);
+    if (open) setOpener(focusOrigin(document.activeElement));
   }
   return {
     onCloseAutoFocus: (e: Event) => {
@@ -25,6 +37,7 @@ export function useReturnFocus(open: boolean) {
         e.preventDefault();
         opener.focus();
       }
+      onClosed?.();
     },
   };
 }
@@ -38,6 +51,7 @@ export function Modal({
   children,
   footer,
   size = "md",
+  onClosed,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -47,8 +61,10 @@ export function Modal({
   footer?: ReactNode;
   /** lg: room for a form with a preview beside its fields (still a bottom sheet on a phone). */
   size?: "md" | "lg";
+  /** Runs once the sheet has closed and given focus back (useReturnFocus). */
+  onClosed?: () => void;
 }) {
-  const returnFocus = useReturnFocus(open);
+  const returnFocus = useReturnFocus(open, onClosed);
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>

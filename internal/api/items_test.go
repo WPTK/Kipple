@@ -1455,3 +1455,35 @@ func TestStatsEventsDedupBeforeCap(t *testing.T) {
 	require.Equal(t, 55, sum())
 	require.Equal(t, 1, h.count("SELECT count(*) FROM stats_events WHERE kind = 'read_time'"))
 }
+
+// An undo from the web app (`undo: true`) reverses the person's own mark or unstar but never un-mutes: an article a
+// filter muted since is left muted, read and unstarred, and is not in `changed` (design §7.11).
+func TestUndoNeverUnmutes(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	plain, muted := h.addItem(f, seedItem{Read: true}), h.addItem(f, seedItem{})
+	h.exec("UPDATE items SET read = 1, muted_by = 9999, muted_was_read = 0 WHERE id = ?", muted)
+
+	code, out, _ := h.api(c, "POST", "/api/items/mark-read", jsonStr(map[string]any{"ids": strs(plain, muted), "read": false, "reason": "key", "undo": true}))
+	require.Equal(t, 200, code)
+	require.Equal(t, strs(plain), anyStrs(out["changed"]))
+	require.Equal(t, 0, h.count("SELECT read FROM items WHERE id = ?", plain))
+	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE id = ? AND read = 1 AND muted_by = 9999", muted))
+
+	code, _, _ = h.api(c, "PUT", "/api/items/"+sid(muted)+"/star", `{"starred":true,"undo":true}`)
+	require.Equal(t, 200, code)
+	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE id = ? AND starred = 0 AND muted_by = 9999", muted))
+
+	// `undo` reverses a mark read by id only.
+	for _, bad := range []string{`{"ids":["1"],"read":true,"undo":true}`, `{"scope":{"all":true},"read":true,"undo":true}`} {
+		code, _, _ = h.api(c, "POST", "/api/items/mark-read", bad)
+		require.Equal(t, 400, code, bad)
+	}
+
+	// Without `undo` both are the un-mute, as before.
+	code, _, _ = h.api(c, "PUT", "/api/items/"+sid(muted)+"/star", `{"starred":true}`)
+	require.Equal(t, 200, code)
+	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE id = ? AND starred = 1 AND muted_by IS NULL", muted))
+}

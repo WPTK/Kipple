@@ -1,0 +1,1 @@
+Undo never un-mutes an article. Undoing a mark as read or an unstar leaves an article that a filter has muted since muted, also when the mute happened on another device or while the app's live connection was down. Before, the undo could bring such an article back unread or starred.

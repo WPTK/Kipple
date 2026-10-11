@@ -67,6 +67,19 @@ describe("the offline queue", () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: keys.bootstrap });
   });
 
+  it("an undo queued offline is replayed as an undo, so the server still leaves an article muted since alone", async () => {
+    await queueStar("1001", true, 1_700_000_000, true);
+    await queueRead(["1002"], false, true);
+    const { calls } = mockFetch({
+      "PUT /api/items/1001/star": () => json({ starred: true, restored: false }),
+      "POST /api/items/mark-read": () => json({ changed: ["1002"], restored: [] }),
+      "GET /api/bootstrap": () => json({}),
+    });
+    await flushQueue(new QueryClient());
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ starred: true, at: 1_700_000_000, undo: true });
+    expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ ids: ["1002"], read: false, undo: true });
+  });
+
   it("a later star of the same article replaces the earlier one", async () => {
     await queueStar("1001", true, 10);
     await queueStar("1001", false, 20);

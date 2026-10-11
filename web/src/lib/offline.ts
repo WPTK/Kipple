@@ -22,9 +22,10 @@ import { wipeStatsQueue } from "./statsSender";
  * rule: the last change to reach the server wins. What this device does online in the meantime is protected by
  * supersede(), which drops the queued change for those articles before the online write is sent.
  */
+/** `undo`: the change undoes an unstar or a mark read, so the server leaves an article muted since alone (§7.11). */
 export type Queued =
-  | { kind: "star"; id: string; starred: boolean; at: number }
-  | { kind: "read"; ids: string[]; read: boolean };
+  | { kind: "star"; id: string; starred: boolean; at: number; undo?: true }
+  | { kind: "read"; ids: string[]; read: boolean; undo?: true };
 
 type Row = Queued & { seq: number };
 
@@ -207,9 +208,9 @@ async function refreshCount(): Promise<void> {
  * Queue a star change. A later change to the same article replaces an earlier queued one. Rejects with
  * QueueWriteError when the change could not be stored.
  */
-export async function queueStar(id: string, starred: boolean, at = Math.floor(Date.now() / 1000)): Promise<void> {
+export async function queueStar(id: string, starred: boolean, at = Math.floor(Date.now() / 1000), undo = false): Promise<void> {
   // Stored first, so a failed save leaves the earlier queued change in place rather than nothing at all.
-  const row: Row = { kind: "star", id, starred, at, seq: nextSeq() };
+  const row: Row = { kind: "star", id, starred, at, ...(undo ? { undo } : {}), seq: nextSeq() };
   await put(row);
   await queuedHere();
   const rows = await safe((b) => b.all(), []);
@@ -221,8 +222,8 @@ export async function queueStar(id: string, starred: boolean, at = Math.floor(Da
  * Queue a read or unread mark for ids; answers the way the server would for a plain by-id mark. Rejects with
  * QueueWriteError when the change could not be stored.
  */
-export async function queueRead(ids: string[], read: boolean): Promise<MarkReadResponse> {
-  await put({ kind: "read", ids, read, seq: nextSeq() });
+export async function queueRead(ids: string[], read: boolean, undo = false): Promise<MarkReadResponse> {
+  await put({ kind: "read", ids, read, ...(undo ? { undo } : {}), seq: nextSeq() });
   await queuedHere();
   await refreshCount();
   return { changed: ids, restored: [] };
@@ -464,8 +465,8 @@ async function doFlush(qc?: QueryClient): Promise<void> {
     try {
       const done =
         r.kind === "star"
-          ? api(`/api/items/${r.id}/star`, { method: "PUT", body: { starred: r.starred, at: r.at }, signal: ctl.signal })
-          : api("/api/items/mark-read", { method: "POST", body: { ids: r.ids, read: r.read, reason: "key" }, signal: ctl.signal });
+          ? api(`/api/items/${r.id}/star`, { method: "PUT", body: { starred: r.starred, at: r.at, ...(r.undo ? { undo: true } : {}) }, signal: ctl.signal })
+          : api("/api/items/mark-read", { method: "POST", body: { ids: r.ids, read: r.read, reason: "key", ...(r.undo ? { undo: true } : {}) }, signal: ctl.signal });
       sending = { row: r, done };
       await done;
       confirmed.push(r);

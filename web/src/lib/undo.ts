@@ -59,8 +59,6 @@ interface Group {
   waiters: (() => void)[];
   /** The toast this group took over when it started, shown again if the group comes to nothing. */
   before: Group | null;
-  /** Ids forgotten while it was in flight (forgetUndo): not added when it lands. */
-  dropped: Set<string>;
 }
 
 export interface UndoView {
@@ -136,14 +134,14 @@ function armTimer(): void {
 
 function newGroup(kind: UndoKind, bulk: boolean): Group {
   // The toast it takes over, shown or still in flight, so it can be given back.
-  const g: Group = { id: ++seq, kind, ids: [], bulk, at: Date.now(), undo: null, restores: [], inflight: 0, waiters: [], before: toastGroup, dropped: new Set() };
+  const g: Group = { id: ++seq, kind, ids: [], bulk, at: Date.now(), undo: null, restores: [], inflight: 0, waiters: [], before: toastGroup };
   stack.push(g);
   toastGroup = g;
   return g;
 }
 
 function addChange(g: Group, change: UndoChange, onStack: boolean): void {
-  for (const id of change.ids) if (!g.ids.includes(id) && !g.dropped.has(id)) g.ids.push(id);
+  for (const id of change.ids) if (!g.ids.includes(id)) g.ids.push(id);
   // Merged actions share the first closure, so it must act on the ids it is handed.
   g.undo ??= change.undo;
   if (change.restore) g.restores.push(change.restore);
@@ -298,25 +296,6 @@ export function dismissUndoToast(): void {
 export function holdUndoToast(hold: boolean): void {
   held = hold;
   armTimer();
-}
-
-/**
- * Take these articles out of every undo group: something else has changed them since (a filter muted them), so
- * undoing an earlier mark or star would now do something else (a mark-unread or a star un-mutes). A group left with
- * nothing is removed, and its toast with it; one still in flight drops them when it lands.
- */
-export function forgetUndo(ids: string[]): void {
-  if (ids.length === 0) return;
-  const gone = new Set(ids);
-  for (const g of stack) {
-    for (const id of ids) g.dropped.add(id);
-    g.ids = g.ids.filter((id) => !gone.has(id));
-  }
-  const empty = (g: Group) => g.inflight === 0 && g.ids.length === 0;
-  if (toastGroup && empty(toastGroup)) toastGroup = givenBack(toastGroup);
-  stack = stack.filter((g) => !empty(g));
-  armTimer();
-  publish();
 }
 
 export function resetUndo(): void {

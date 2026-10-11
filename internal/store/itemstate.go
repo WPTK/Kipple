@@ -87,6 +87,19 @@ func queryIDs(ctx context.Context, q Querier, query string, args ...any) ([]int6
 // trimmed item from its stub when one exists, else clears the ledger flag.
 // The WHERE guards make replays no-ops.
 func SetRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64) (StateResult, error) {
+	return setRead(ctx, tx, ids, read, now, "")
+}
+
+// UndoMarkRead is the web app's undo of a mark read: SetRead(false), except that an article muted since stays muted
+// and read. An undo reverses what the person did; it never un-mutes (design §7.11).
+func UndoMarkRead(ctx context.Context, tx *sql.Tx, ids []int64, now int64) (StateResult, error) {
+	return setRead(ctx, tx, ids, false, now, notMuted)
+}
+
+// notMuted is the extra condition of an undo's UPDATE: it leaves muted articles alone.
+const notMuted = " AND muted_by IS NULL"
+
+func setRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64, where string) (StateResult, error) {
 	var res StateResult
 	if len(ids) == 0 {
 		return res, nil
@@ -110,7 +123,7 @@ func SetRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64)
 	}
 	// Marking unread is also the un-mute: muted_by is cleared in the same UPDATE (design 5.2a).
 	rows, err := tx.QueryContext(ctx, `UPDATE items SET read = 0, read_at = NULL, muted_by = NULL, muted_was_read = NULL, state_changed_at = ?2
-		WHERE id IN (SELECT value FROM json_each(?1)) AND (read = 1 OR muted_by IS NOT NULL) RETURNING id, feed_id`, js, now)
+		WHERE id IN (SELECT value FROM json_each(?1)) AND (read = 1 OR muted_by IS NOT NULL)`+where+` RETURNING id, feed_id`, js, now)
 	if err != nil {
 		return res, err
 	}
@@ -139,6 +152,16 @@ func SetStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, now 
 // item) given apart from now, for a client queue that replays a star made offline. state_changed_at
 // is always now, when the server applied the change: that is what a sync app passing ot has missed.
 func SetStarredAt(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, at, now int64) (StateResult, error) {
+	return setStarred(ctx, tx, ids, starred, at, now, "")
+}
+
+// UndoUnstar is the web app's undo of an unstar: SetStarred(true), except that an article muted since stays muted
+// and unstarred, since a star is also the un-mute (design §7.11).
+func UndoUnstar(ctx context.Context, tx *sql.Tx, ids []int64, at, now int64) (StateResult, error) {
+	return setStarred(ctx, tx, ids, true, at, now, notMuted)
+}
+
+func setStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, at, now int64, where string) (StateResult, error) {
 	var res StateResult
 	if len(ids) == 0 {
 		return res, nil
@@ -158,7 +181,7 @@ func SetStarredAt(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, at
 	}
 	// A manual star also un-mutes (star beats mute); the item stays read.
 	rows, err := tx.QueryContext(ctx, `UPDATE items SET starred = 1, starred_at = ?1, state_changed_at = ?3, muted_by = NULL, muted_was_read = NULL
-		WHERE id IN (SELECT value FROM json_each(?2)) AND (starred = 0 OR muted_by IS NOT NULL) RETURNING id, feed_id`, at, js, now)
+		WHERE id IN (SELECT value FROM json_each(?2)) AND (starred = 0 OR muted_by IS NOT NULL)`+where+` RETURNING id, feed_id`, at, js, now)
 	if err != nil {
 		return res, err
 	}

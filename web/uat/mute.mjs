@@ -13,6 +13,8 @@
 //   M4  an unread article whose rule is edited to a word not in it: the filter is saved, the toast says the filter no
 //       longer matches it, and the article is unchanged;
 //   M5  Restore on M2's article in Muted: the toast says it stays read, and the server has it read and not muted.
+//   M6  With the page's live connection cut, an article marked read from its row menu is then muted by a filter made
+//       through the API; the toast's Undo leaves it read and muted (undo never un-mutes).
 // Afterwards it deletes the filters it made with unmute=unread and puts every article back as it found it. It only runs
 // against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0 clean, 1
 // findings, 2 setup error.
@@ -121,6 +123,36 @@ await t.eachViewport(async (page, vp) => {
       await t.shot(page, `${tag}-M5`);
       const it = await item(page, read.id);
       check(it.read === true && !it.muted_by, `${tag} M5 state`, "read and not muted", `read=${it.read} muted_by=${it.muted_by}`);
+    });
+    await step(`${tag} M6`, async () => {
+      // Undo never un-mutes: an article marked read here and then muted by a filter the page never heard about (its
+      // live connection is cut, the worst case of a connection that was down) stays muted when the mark is undone.
+      const other = (list.items ?? []).find((i) => !picks.some((p) => p.id === i.id) && /\p{L}{5,}/u.test(i.title ?? ""));
+      if (!other) return t.setupError(`${tag}: the seed has no fifth unread article for M6`);
+      picks.push(other);
+      await page.route("**/api/events**", (r) => r.abort());
+      try {
+        await page.goto(`/l/all?feed=${other.feed_id}`, { waitUntil: "load" });
+        const row = page.locator(`[data-item-id="${other.id}"]`).first();
+        await row.waitFor({ timeout: 15000 });
+        await row.getByRole("button", { name: "More actions" }).click();
+        await page.getByRole("menuitem", { name: "Mark as read" }).click();
+        const undo = page.getByRole("button", { name: "Undo" }).first();
+        await undo.waitFor({ timeout: 10000 });
+        const word = (other.title.match(/\p{L}{5,}/u) ?? [""])[0];
+        const made = await page.request.post("/api/filters", {
+          headers: t.WRITE,
+          data: { name: "uat M6", enabled: true, scope: "feed", feed_id: other.feed_id, folder_id: null, kind: "text", terms: [word], fields: ["title"], case_sensitive: false, whole_word: true, fold_diacritics: true, invert: false, action: "mute", source_item_id: other.id },
+        });
+        const res = await made.json();
+        check(res.source?.result === "muted", `${tag} M6 setup`, "a filter muted the article behind the page's back", `the filter did not mute it: ${JSON.stringify(res).slice(0, 200)}`);
+        await undo.click();
+        await page.waitForTimeout(1500);
+        const it = await item(page, other.id);
+        check(it.read === true && !!it.muted_by, `${tag} M6 state`, "Undo left it read and muted", `read=${it.read} muted_by=${it.muted_by}: the undo un-muted it`);
+      } finally {
+        await page.unroute("**/api/events**");
+      }
     });
   } finally {
     for (const id of (await filterIds(page)).filter((id) => !before.has(id))) {

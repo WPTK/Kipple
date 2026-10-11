@@ -44,7 +44,7 @@ export function useItemActions() {
 async function undoBulk(qc: QueryClient, ids: string[], ledger: string[]): Promise<boolean> {
   patchItems(qc, ids, { read: false });
   try {
-    await api("/api/items/mark-read", { method: "POST", body: { ids, ...(ledger.length ? { ledger_ids: ledger } : {}), read: false, reason: "bulk" } });
+    await api("/api/items/mark-read", { method: "POST", body: { ids, ...(ledger.length ? { ledger_ids: ledger } : {}), read: false, reason: "bulk", undo: true } });
     return true;
   } catch (e) {
     patchItems(qc, ids, { read: true });
@@ -117,7 +117,9 @@ export function itemActions(qc: QueryClient) {
       restore,
       undo: async (undoIds) => {
         dropIntent(undoIds);
-        const ok = (await applyRead(qc, undoIds, !read, "key")) !== undefined;
+        // Undoing a mark read is a mark unread, which would also un-mute an article a filter muted since: `undo`
+        // has the server leave those alone (an undo of a mark unread marks read, which never un-mutes).
+        const ok = (await applyRead(qc, undoIds, !read, "key", { undo: read })) !== undefined;
         if (ok && read) {
           invalidateUnreadLists(qc);
           notifyUnread(undoIds);
@@ -145,7 +147,8 @@ export function itemActions(qc: QueryClient) {
     ticket?.settle({
       ids: [item.id],
       undo: async (ids) => {
-        const done = await Promise.all(ids.map((id) => applyStar(qc, id, !starred)));
+        // Undoing an unstar is a star, which would also un-mute: `undo` has the server leave a muted article alone.
+        const done = await Promise.all(ids.map((id) => applyStar(qc, id, !starred, !starred)));
         return done.every(Boolean);
       },
     });
