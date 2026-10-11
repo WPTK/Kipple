@@ -424,14 +424,19 @@ async function k3(page) {
   check(!!f1 && f1.key.includes("/i/"), where("j (focus)"), "keyboard focus follows the selected row", `focus is on ${f1?.key}`);
 
   // x, m, s on the selected row
+  // Where the selection and the address are when each x goes in: a failure then says which row the second x hit.
+  const snap = async () => `${await selectedId(page)} at ${pathOf(page)}`;
   const selA = await selectedId(page);
+  const before1 = await snap();
   await press(page, "x");
   const ticked = await until(page, () => window.__kk.said.some((t) => /1 selected/.test(t)));
   const selB = await selectedId(page);
+  const before2 = await snap();
   await press(page, "x");
   const cleared = await until(page, () => window.__kk.said.some((t) => /Selection cleared/.test(t)));
   await page.waitForTimeout(300);
-  check(ticked && cleared, where("x"), 'ticks and clears the row ("1 selected", "Selection cleared")', `ticked=${ticked} cleared=${cleared}; selected ${selA} then ${selB}; the live regions said ${JSON.stringify(await page.evaluate(() => window.__kk.said.slice(-4)))}`);
+  const after = await snap();
+  check(ticked && cleared, where("x"), 'ticks and clears the row ("1 selected", "Selection cleared")', `ticked=${ticked} cleared=${cleared}; selected ${selA} then ${selB}; selection and address before the first x: ${before1}, before the second: ${before2}, after: ${after}; the live regions said ${JSON.stringify(await page.evaluate(() => window.__kk.said.slice(-4)))}`);
   const s0 = (await rowState(page)).find((r) => r[2]);
   await press(page, "m");
   const flipped = await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread !== was, [s0[0], s0[1]]);
