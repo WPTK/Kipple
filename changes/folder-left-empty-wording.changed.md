@@ -1,0 +1,1 @@
+The OPML import summary and its move-existing option now say "Folders left empty" for a folder that ends up with no feeds, matching bulk delete. Bulk delete removes such folders; an import that moves feeds keeps them.
