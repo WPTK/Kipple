@@ -205,7 +205,8 @@ against a feed the flow serves itself on a loopback port: an SVG named as one an
 not shown" with their alt text, no image is left in their place and the cue keeps the box the image declared (I1); the
 cue's Open original link goes to the article in a new tab (I2); a GIF in the same article is shown, a 1x1 tracking
 pixel gets no cue, and an image whose source answers 500 stays an image (I3); back to the list and the same article
-again, from the app's cache, shows the cues again (I4).
+again, from the app's cache, shows the cues again (I4); a second article of 30 lazy images below the fold sends no
+image request and no check until it is scrolled, then they load (I5).
 
 **Label guard (no browser).** The screens above find controls by accessible name, so renaming an `aria-label` in
 `web/src` breaks every screen that looks for the old one without failing any other check. `node scripts/uat-labels.mjs

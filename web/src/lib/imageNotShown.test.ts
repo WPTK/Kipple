@@ -37,12 +37,82 @@ describe("images refused for good", () => {
     root.remove();
   });
 
-  it("an image that failed before the watch began is found by its state", async () => {
-    const root = body('<img src="" alt="early">');
-    failedAlready(root.querySelector("img") as HTMLImageElement);
+  it("an image with no address gets the cue when the watch begins, with no error event and no request", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const root = body('<img src=" " alt="early">');
     watchImages(root, undefined, false);
     await settle();
     expect(root.querySelector(".kp-img-off")?.textContent).toBe("Image not shown: early");
+    expect(fetchMock).not.toHaveBeenCalled();
+    root.remove();
+  });
+
+  it("an image that only looks failed (lazy, below the fold, not loaded yet) is not fetched when the watch begins", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 415 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const root = body('<img src="/img/a" loading="lazy"><img src="/img/b" loading="lazy">');
+    root.querySelectorAll("img").forEach((i) => failedAlready(i));
+    const stop = watchImages(root, undefined, false);
+    await settle();
+    stop();
+    watchImages(root, "https://example.com/a/1", false); // the online flip attaches again
+    await settle();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(root.querySelectorAll("img")).toHaveLength(2);
+    root.remove();
+  });
+
+  it("a check still in flight when the article closes or switches adds no cue, and its request is stopped", async () => {
+    let answer: (r: Response) => void = () => {};
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_u: string, init: RequestInit) => {
+        signals.push(init.signal as AbortSignal);
+        return new Promise<Response>((r) => (answer = r));
+      }),
+    );
+    // Closed: the cleanup runs, then the proxy answers 415.
+    const closed = body('<img src="/img/svg">');
+    const stop = watchImages(closed, undefined, false);
+    fail(closed.querySelector("img"));
+    stop();
+    answer(new Response(null, { status: 415 }));
+    await settle();
+    expect(closed.querySelector(".kp-img-off")).toBeNull();
+    expect(signals[0]?.aborted).toBe(true);
+    // Switched: the same body shows another article (new HTML, a new watch) before the old answer comes back.
+    const pane = body('<img src="/img/svg" alt="old">');
+    const stopOld = watchImages(pane, "https://example.com/a/1", false);
+    fail(pane.querySelector("img"));
+    const late = answer;
+    stopOld();
+    pane.innerHTML = '<p>The next article.</p><img src="/img/photo" alt="new">';
+    watchImages(pane, "https://example.com/a/2", false);
+    late(new Response(null, { status: 415 }));
+    await settle();
+    expect(pane.querySelector(".kp-img-off")).toBeNull();
+    expect(pane.querySelector("img")?.alt).toBe("new");
+    expect(signals[1]?.aborted).toBe(true);
+    closed.remove();
+    pane.remove();
+  });
+
+  it("an image whose check was stopped by a new watch of the same body is checked again", async () => {
+    const fetchMock = vi.fn((_u: string, init: RequestInit) =>
+      init.signal?.aborted ? Promise.reject(new DOMException("aborted", "AbortError")) : Promise.resolve(new Response(null, { status: 415 })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const root = body('<img src="/img/svg" alt="chart">');
+    const stop = watchImages(root, undefined, false);
+    fail(root.querySelector("img"));
+    stop(); // the browser went online mid-check: the link changes and the watch starts again
+    watchImages(root, "https://example.com/a/1", false);
+    await settle();
+    await settle();
+    expect(root.querySelector(".kp-img-off")?.textContent).toBe("Image not shown: chart Open original");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     root.remove();
   });
 
@@ -150,11 +220,14 @@ describe("images refused for good", () => {
   });
 
   it("stops watching after cleanup", async () => {
-    const root = body('<img src="">');
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 415 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const root = body('<img src="/img/svg">');
     watchImages(root, undefined, false)();
     fail(root.querySelector("img"));
     await settle();
     expect(root.querySelector(".kp-img-off")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
     root.remove();
   });
 

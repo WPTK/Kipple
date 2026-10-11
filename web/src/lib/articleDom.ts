@@ -95,25 +95,34 @@ const declared = (img: HTMLImageElement, k: "width" | "height"): number | null =
  */
 const isBeacon = (img: HTMLImageElement): boolean => ["width", "height"].some((k) => (declared(img, k as "width") ?? 3) <= 2);
 
+/** Images that fired an error event, kept for the next watch of the same body. */
+const erred = new WeakSet<HTMLImageElement>();
+
+/** An image the server sent with no address: it refused it before any request (an SVG named as one). */
+const noAddress = (img: HTMLImageElement): boolean =>
+  !(img.getAttribute("src") ?? "").trim() && !(img.getAttribute("srcset") ?? "").trim();
+
 /**
- * Whether a failed image was refused for good, which is the only failure that gets the cue: the server sent it with no
- * address (an SVG named as one, or a source it cannot proxy), or the image proxy answers 415 (an SVG seen by its
- * bytes; one more request, same origin, only after the image failed). Anything else (offline, a timeout, a source
- * that is down) may work next time, so the image is left as it is.
+ * Whether an image that fired an error was refused for good, which is the only failure that gets the cue: it has no
+ * address, or the image proxy answers 415 (a type Kipple does not display, seen by its bytes; one more request, same
+ * origin, only after a real error event). Any other answer, a 200 included, means the failure was not a refusal (the
+ * network or the source failed, and the image may load next time), so the image is left as it is. The body is never
+ * read, and `signal` stops the check when the article closes.
  */
-async function refused(img: HTMLImageElement): Promise<boolean> {
-  const addr = img.currentSrc || img.getAttribute("src")?.trim() || "";
-  if (!addr) return true;
+async function refused(img: HTMLImageElement, signal: AbortSignal): Promise<boolean> {
+  if (noAddress(img)) return true;
   const doc = img.ownerDocument;
   let u: URL;
   try {
-    u = new URL(addr, doc.baseURI);
+    u = new URL(img.currentSrc || img.getAttribute("src")!.trim(), doc.baseURI);
   } catch {
     return false;
   }
   if (u.origin !== doc.location?.origin || !u.pathname.startsWith("/img/")) return false;
   try {
-    return (await fetch(u.href, { credentials: "same-origin" })).status === 415;
+    const res = await fetch(u.href, { credentials: "same-origin", signal });
+    void res.body?.cancel().catch(() => {});
+    return res.status === 415;
   } catch {
     return false;
   }
@@ -162,30 +171,36 @@ export function imageNotShown(img: HTMLImageElement, original: string | undefine
 }
 
 /**
- * Watches an article body for images refused for good and gives each the cue. An image that already failed before
- * this ran (the HTML went in during an earlier task, or an article opened again from the cache) is found by its state;
- * a later failure by its error event, which does not bubble, so it is caught on the way down. Cues already in the body
- * get the link for `original` (pass undefined while the browser is offline: the original cannot open). Returns the
- * cleanup.
+ * Watches an article body for images refused for good and gives each the cue. An image the server sent with no
+ * address gets it at once, with no request. Any other image is checked only after its error event (which does not
+ * bubble, so it is caught on the way down): not by its state, because a lazy image below the fold that has not loaded
+ * yet looks failed in some browsers, and checking it would fetch it. The HTML goes in during the same commit as this
+ * runs, and load errors come in later tasks, so no error is missed. Cues already in the body get the link for
+ * `original` (pass undefined while the browser is offline: the original cannot open). Returns the cleanup, which also
+ * stops checks still in flight.
  */
 export function watchImages(root: HTMLElement, original: string | undefined, sameTab: boolean): () => void {
-  let live = true;
+  const stop = new AbortController();
   const asked = new WeakSet<HTMLImageElement>();
   const check = (img: HTMLImageElement) => {
     if (asked.has(img) || isBeacon(img) || img.closest("figure.kp-embed")) return;
     asked.add(img);
-    void refused(img).then((yes) => {
-      if (yes && live) imageNotShown(img, original, sameTab);
+    void refused(img, stop.signal).then((yes) => {
+      if (yes && !stop.signal.aborted) imageNotShown(img, original, sameTab);
     });
   };
   for (const cue of root.querySelectorAll<HTMLElement>(`.${NOT_SHOWN_CLASS}`)) setCueLink(cue, original, sameTab);
-  for (const img of root.querySelectorAll("img")) if (img.complete && img.naturalWidth === 0) check(img);
+  // No address, or an error seen by an earlier watch of this body whose check was stopped (the link changed mid-check).
+  for (const img of root.querySelectorAll("img")) if (noAddress(img) || erred.has(img)) check(img);
   const onError = (e: Event) => {
-    if (e.target instanceof HTMLImageElement && root.contains(e.target)) check(e.target);
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement) || !root.contains(img)) return;
+    erred.add(img);
+    check(img);
   };
   root.addEventListener("error", onError, true);
   return () => {
-    live = false;
+    stop.abort();
     root.removeEventListener("error", onError, true);
   };
 }

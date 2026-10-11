@@ -12,14 +12,16 @@
 //       box the image declared;
 //   I2  the cue's "Open original" link goes to the article's own address and opens in a new tab;
 //   I3  the GIF is shown, the tracking pixel gets no cue, and the image whose source is down stays an image (no cue);
-//   I4  back to the list and the same article again (from the app's cache): the cues are there again.
+//   I4  back to the list and the same article again (from the app's cache): the cues are there again;
+//   I5  a second article of 30 lazy images below the fold sends no image request or check until scrolled, then loads.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { Buffer } from "node:buffer";
 import { createServer } from "node:http";
+import { URL } from "node:url";
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 18);
+const t = await start(import.meta.url, 19);
 const { check, step } = t;
 
 // A 1x1 GIF: a raster image the proxy passes.
@@ -35,11 +37,20 @@ const article = () =>
   `<p><img src="${base}/photo.gif" alt="A photo" width="8" height="8"></p>` +
   `<p><img src="${base}/flaky.gif" alt="Flaky"></p>` +
   `<p>The end.</p>`;
+// Far more text than any browser's lazy-load margin, then 30 pictures: none is near the first screen.
+const filler = "A long paragraph of text that keeps the pictures well below the first screen of the article. ".repeat(6);
+const lazyArticle = () =>
+  `<p>Thirty pictures follow, far below.</p>` +
+  `<p>${filler}</p>`.repeat(80) +
+  Array.from({ length: 30 }, (_, i) => `<p><img src="${base}/photo.gif?n=${i + 1}" alt="Picture ${i + 1}" width="600" height="400"></p>`).join("") +
+  `<p>Picture 30 ends the article.</p>`;
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 const server = createServer((req, res) => {
   const path = (req.url ?? "").split("?")[0];
   if (path === "/feed.xml") {
-    const item = `<item><title>UAT images article</title><link>${base}/page/1</link><guid isPermaLink="false">uat-images-1</guid><pubDate>${new Date().toUTCString()}</pubDate><description>${esc(article())}</description></item>`;
+    const item =
+      `<item><title>UAT images article</title><link>${base}/page/1</link><guid isPermaLink="false">uat-images-1</guid><pubDate>${new Date().toUTCString()}</pubDate><description>${esc(article())}</description></item>` +
+      `<item><title>UAT thirty pictures</title><link>${base}/page/2</link><guid isPermaLink="false">uat-images-2</guid><pubDate>${new Date(Date.now() - 60000).toUTCString()}</pubDate><description>${esc(lazyArticle())}</description></item>`;
     res.writeHead(200, { "Content-Type": "application/rss+xml; charset=utf-8" }).end(`<?xml version="1.0"?><rss version="2.0"><channel><title>UAT images</title><link>${base}/</link><description>t</description>${item}</channel></rss>`);
   } else if (path === "/chart.svg" || path === "/badge" || path === "/pixel.svg") {
     res.writeHead(200, { "Content-Type": "image/svg+xml" }).end(SVG);
@@ -65,7 +76,7 @@ await t.eachViewport(async (page, vp) => {
     const end = Date.now() + 30000;
     while (!itemId && Date.now() < end) {
       const r = await page.request.get(`/api/items?view=all&feed=${feedId}`, { headers: { Accept: "application/json" } });
-      itemId = r.ok() ? (await r.json()).items?.[0]?.id : undefined;
+      itemId = r.ok() ? (await r.json()).items?.find((i) => i.title === "UAT images article")?.id : undefined;
       if (!itemId) await page.waitForTimeout(500);
     }
     if (!itemId) return t.fail(`${tag} I setup`, "the feed's article never arrived (was it fetched?)");
@@ -108,12 +119,32 @@ await t.eachViewport(async (page, vp) => {
     await cues.first().scrollIntoViewIfNeeded();
     await t.shot(page, `${tag}-image-not-shown`);
 
-    // I4: back to the list and the same article again, from the app's cache: its images fail before the body is watched.
+    // I4: back to the list and the same article again, from the app's cache, into a new body.
     // On the desktop the list stays beside the article; another article first, so the reopen is a new render.
     if (vp.mobile) await page.goBack();
     else await page.getByText(/The story of/).first().click();
     await row.click();
     await verify("I4 reopened");
+
+    // I5: an article of 30 lazy images below the fold sends no image request, and no check, until it is scrolled.
+    const asked = [];
+    const onRequest = (r) => {
+      if (new URL(r.url()).pathname.startsWith("/img/")) asked.push(r.resourceType());
+    };
+    if (vp.mobile) await page.goBack();
+    const lazyRow = page.getByText("UAT thirty pictures").first();
+    page.on("request", onRequest);
+    await lazyRow.click();
+    await body.getByText("Picture 30 ends the article.").waitFor({ timeout: 15000 });
+    await page.waitForTimeout(1500);
+    check(asked.length === 0, `${tag} I5 lazy`, "no image below the fold is requested or checked before scrolling", `${asked.length} requests: ${JSON.stringify(asked)}`);
+    await body.getByText("Picture 30 ends the article.").scrollIntoViewIfNeeded();
+    const last = body.locator('img[alt="Picture 30"]');
+    const loaded = await last
+      .evaluate((i) => (i.complete && i.naturalWidth > 0) || new Promise((ok) => i.addEventListener("load", () => ok(true), { once: true })))
+      .catch(() => false);
+    check(loaded === true && !asked.includes("fetch"), `${tag} I5 scrolled`, "scrolled into view, the images load with no extra check", `loaded ${loaded}, requests ${JSON.stringify(asked)}`);
+    page.off("request", onRequest);
   });
 });
 
