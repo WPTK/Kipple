@@ -1,7 +1,7 @@
 // Runs every UAT flow listed in flows.json against one seeded instance and prints one verdict per flow.
 //
 //   node uat/all.mjs --check                       only checks that every web/uat/*.mjs is a flow or excluded
-//   node uat/all.mjs [--engine chromium|webkit]    runs the flows of that engine (default chromium), all of them
+//   node uat/all.mjs [--engine chromium|webkit|firefox]    runs the flows of that engine (default chromium), all of them
 //                                                  even when one fails; the address and credentials are
 //                                                  KIPPLE_UAT_URL and the seed's, as for each flow
 //
@@ -17,11 +17,12 @@ const dir = dirname(fileURLToPath(import.meta.url));
 const { values } = parseArgs({ options: { check: { type: "boolean", default: false }, engine: { type: "string", default: "chromium" } } });
 const manifest = JSON.parse(readFileSync(join(dir, "flows.json"), "utf8"));
 const files = readdirSync(dir).filter((f) => f.endsWith(".mjs"));
-const known = new Set([...manifest.chromium, ...manifest.webkit, ...Object.keys(manifest.excluded)]);
+const known = new Set([...manifest.chromium, ...manifest.webkit, ...manifest.firefox, ...Object.keys(manifest.excluded)]);
 const problems = [
   ...files.filter((f) => !known.has(f)).map((f) => `${f} is neither a flow nor excluded: add it to uat/flows.json`),
   ...[...known].filter((f) => !files.includes(f)).map((f) => `${f} is in uat/flows.json but does not exist`),
   ...manifest.webkit.filter((f) => !manifest.chromium.includes(f)).map((f) => `${f} runs under WebKit but not Chromium`),
+  ...manifest.firefox.filter((f) => !manifest.chromium.includes(f)).map((f) => `${f} runs under Firefox but not Chromium`),
 ];
 if (problems.length) {
   console.error(problems.join("\n"));
@@ -33,7 +34,7 @@ if (values.check) {
 }
 const list = manifest[values.engine];
 if (!list) {
-  console.error(`unknown --engine ${values.engine} (chromium or webkit)`);
+  console.error(`unknown --engine ${values.engine} (chromium, webkit or firefox)`);
   process.exit(2);
 }
 let worst = 0;
