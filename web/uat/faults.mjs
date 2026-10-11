@@ -10,7 +10,8 @@ export const INTERNAL_ERROR = "WebKit encountered an internal error";
  * server still accepts that cookie.
  *
  * A finding about WebKit's internal error is a fault. So is the first finding recorded after the cookie left the jar
- * while the server still accepts it: nothing in Kipple ended the session, the browser lost it. A session the server
+ * while the server still accepts it: the server did not end the session, so most likely the browser lost the cookie
+ * (not proven, so the reason says so, and the rerun must still pass every check). A session the server
  * ended (a sign-out, a revoked session) is not a fault, and neither is a cookie still in the jar. Findings before the
  * fault were recorded while the browser still worked, so they are about Kipple and stay.
  */
@@ -19,4 +20,7 @@ export function faultStart(found, serverAccepts) {
 }
 
 /** What the fault at `found[i]` was, for the log. */
-export const faultReason = (f) => (f.text.includes(INTERNAL_ERROR) ? "WebKit reported an internal error" : "the browser dropped the session cookie, which the server still accepts");
+export const faultReason = (f) =>
+  f.text.includes(INTERNAL_ERROR)
+    ? "WebKit reported an internal error"
+    : "the session cookie vanished from the browser while the server still accepted it (cause unproven: the browser or Kipple)";

@@ -18,7 +18,7 @@ test("a finding before WebKit's internal error stays; the error and what follows
 test("a cookie the browser dropped while the server still accepts it is a fault from the first finding after the loss", () => {
   const found = [f("desktop Q1 refused: no refusal"), f("desktop Q1 count: 0 saved searches", false), f("desktop U: 401", false)];
   assert.equal(faultStart(found, true), 1);
-  assert.match(faultReason(found[1]), /dropped the session cookie/);
+  assert.match(faultReason(found[1]), /vanished .*cause unproven: the browser or Kipple/);
 });
 
 test("a session the server ended is a finding, not a fault", () => {

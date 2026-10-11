@@ -58,6 +58,31 @@ describe("sign-out", () => {
     expect(sessionLostStore.get()).toBe(false);
   });
 
+  it("a sign-out the server could not complete says so, stays signed in and can be tried again", async () => {
+    let logouts = 0;
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf([card(1)])),
+      "GET /api/settings": () => json({ settings: [], values: {} }),
+      "GET /api/filters": () => json({ filters: [] }),
+      "GET /api/devices": () => json({ devices: [] }),
+      // The server keeps the session (and the cookie) when it cannot delete it.
+      "POST /api/auth/logout": () => (++logouts === 1 ? json({ error: "internal" }, 500) : new Response(null, { status: 204 })),
+    });
+    vi.stubGlobal("caches", { delete: async () => true });
+    window.history.replaceState({ idx: 0 }, "", "/settings/account");
+    render(<App client={makeQueryClient({ retry: false })} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Sign out" }));
+    expect(await screen.findByText("The server returned an error. Try again.")).toBeTruthy();
+    expect(authStore.get()).toBe("in");
+    expect(sessionLostStore.get()).toBe(false);
+    // Still on the account screen, signed in: the same button tries again.
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await waitFor(() => expect(authStore.get()).toBe("out"));
+    expect(logouts).toBe(2);
+  });
+
   it("any way of becoming signed in clears the lost-session note", () => {
     sessionLostStore.set(true);
     setSignedIn();
