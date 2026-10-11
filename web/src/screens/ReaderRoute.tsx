@@ -267,7 +267,7 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
         </div>
       ) : null}
       {scope.view === "muted" ? (
-        <p className="mt-1 max-w-[25rem] text-xs text-fg2">Articles your filters muted. Restore brings one back as unread. Muting keeps them here instead of deleting them.</p>
+        <p className="mt-1 max-w-[25rem] text-xs text-fg2">Articles your filters muted. Restore brings one back as it was before it was muted. Muting keeps them here instead of deleting them.</p>
       ) : null}
     </header>
   );

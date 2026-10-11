@@ -10,6 +10,7 @@
 //   F2  bulk delete of disposable feeds in a folder with a subfolder: the dialog names the folders it will remove,
 //       the one progress bar keeps one fixed total while it runs, a folder that still holds feeds stays, and the
 //       folders left empty are gone afterwards, with the library otherwise untouched;
+//       (a single feed's dialog speaks of "its articles" and "this feed", several feeds of "their articles");
 //   F3  New folder and Rename folder both save on Enter in the name field;
 //   F4  Import OPML refuses a file that is not OPML, by its look (JSON named .json), on the server when it is
 //       an RSS feed or when it is JSON named .opml, says so in plain words and adds nothing.
@@ -90,6 +91,7 @@ await t.eachViewport(async (page, vp) => {
   // The root's own feed alone: its subfolder still holds feeds, so the root stays.
   await pick(1);
   let r = await deleteSelected(1);
+  check(/Its articles are removed/.test(r.text) && /this feed/.test(r.text) && !/Their articles|these feeds/i.test(r.text), `${tag} F2 copy one`, "a single feed is described in the singular", `the dialog says "${r.text.slice(0, 200)}"`);
   check(!/deleted too/.test(r.text), `${tag} F2 one`, "no folder is announced while a subfolder still has feeds", `the dialog says "${r.text.slice(0, 160)}"`);
   let s = await t.settle(page, (b) => !b.feeds.some((f) => f.title === titleOf(1)));
   check(s.ok && s.b.folders.some((f) => f.name === root) && s.b.folders.some((f) => f.name === child), `${tag} F2 kept`, "both folders stay", "a folder with feeds below it went");
@@ -100,6 +102,7 @@ await t.eachViewport(async (page, vp) => {
   if (await done.isVisible()) await done.click();
   await pick(2, 3);
   r = await deleteSelected(2);
+  check(/Their articles are removed/.test(r.text) && /these feeds/.test(r.text), `${tag} F2 copy two`, "several feeds are described in the plural", `the dialog says "${r.text.slice(0, 200)}"`);
   check(r.text.includes(root) && /left empty, so (it is|they are) deleted too/.test(r.text), `${tag} F2 names`, "the dialog names the topmost emptied folder (deleting it takes its emptied subfolder) and says it is deleted too", `the dialog says "${r.text.slice(0, 200)}"`);
   check(r.spy.max.join() === "2" && r.spy.most === 1, `${tag} F2 bar two`, "one progress bar with a fixed total of 2", `bars: ${r.spy.max.length ? `totals ${r.spy.max.join(",")}` : "none shown"}, at most ${r.spy.most} at once`);
   s = await t.settle(page, (b) => !b.feeds.some((f) => f.title.startsWith("UAT feed ")) && !b.folders.some((f) => f.name === root || f.name === child));

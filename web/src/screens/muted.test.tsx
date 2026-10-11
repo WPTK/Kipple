@@ -146,6 +146,7 @@ describe("the Muted list", () => {
     await screen.findByText("Muted article 1");
     expect(calls.find((c) => c.url.pathname === "/api/items")?.url.searchParams.get("view")).toBe("muted");
     expect(screen.getByRole("heading", { name: "Muted" })).toBeInTheDocument();
+    expect(screen.getByText(/Restore brings one back as it was before it was muted/)).toBeInTheDocument();
     const strips = screen.getAllByTestId("muted-strip");
     expect(strips).toHaveLength(2);
     expect(strips[0]).toHaveTextContent("Muted by No giveaways");
