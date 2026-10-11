@@ -5,8 +5,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/WPTK/kipple/internal/filter"
 )
 
 // A rule saved from an article ("Mute similar...") mutes that article in the same transaction when
@@ -72,9 +70,10 @@ func TestCreateFilterFromLeavesWhatItDoesNotMute(t *testing.T) {
 	}{
 		{"the edited rule no longer matches", newFilter("mute", "ham"), spam0, SourceNoMatch, true},
 		{"starred: a star beats a mute", newFilter("mute", "spam 2"), spam2, SourceStarred, true},
-		{"a star filter matches it", newFilter("mute", "spam 6"), spam6, SourceStarred, true},
+		{"a star filter matches it", newFilter("mute", "spam 6"), spam6, SourceStarFilter, true},
 		{"another rule muted it already", newFilter("mute", "spam 4", "other"), spam4, SourceAlreadyMuted, true},
-		{"not a mute rule", newFilter("mark_read", "spam"), spam0, "", true},
+		{"not a mute rule", newFilter("mark_read", "spam"), spam0, SourceNotMute, true},
+		{"the article no longer exists", newFilter("mute", "gone"), 99999, SourceGone, true},
 	}
 	for _, c := range cases {
 		f, src, err := e.db.CreateFilterFrom(e.ctx, c.rule, c.id)
@@ -88,7 +87,7 @@ func TestCreateFilterFromLeavesWhatItDoesNotMute(t *testing.T) {
 	off.Enabled = false
 	_, src, err := e.db.CreateFilterFrom(e.ctx, off, spam0)
 	require.NoError(t, err)
-	require.Empty(t, src.Mute, "a disabled rule mutes nothing")
+	require.Equal(t, SourceDisabled, src.Mute, "a disabled rule mutes nothing")
 
 	require.Equal(t, before, unchanged())
 	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND starred = 1 AND muted_by IS NULL", spam2))
@@ -116,23 +115,14 @@ func TestCreateFilterFromSourceInAnotherFeed(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, SourceMuted, src.Mute)
 
-	// an archived feed is skipped by every rule, so its article is not muted either
-	e.fetchBody(b, frss(fspec{guid: "b2", title: "spam archived", age: time.Minute}))
+	// an archived feed is skipped by every rule, so its article is not muted either; a starred one says starred
+	e.fetchBody(b, frss(fspec{guid: "b2", title: "spam archived", age: time.Minute}, fspec{guid: "b3", title: "spam archived starred", age: time.Minute}))
+	e.exec("UPDATE items SET starred = 1, starred_at = 1 WHERE title = 'spam archived starred'")
 	e.exec("UPDATE feeds SET enabled = 0, disabled_reason = 'archive' WHERE id = ?", b)
 	_, src, err = e.db.CreateFilterFrom(e.ctx, newFilter("mute", "archived"), e.itemID("spam archived"))
 	require.NoError(t, err)
-	require.Equal(t, SourceNoMatch, src.Mute)
-}
-
-func TestCreateFilterFromUnknownArticleStoresNothing(t *testing.T) {
-	t.Parallel()
-	e := newEnv(t)
-	e.seedRetro(2)
-	for _, action := range []string{"mute", "mark_read"} {
-		_, _, err := e.db.CreateFilterFrom(e.ctx, newFilter(action, "spam"), 99999)
-		var fe *filter.Error
-		require.ErrorAs(t, err, &fe)
-		require.Equal(t, "source_item_id", fe.Field)
-	}
-	require.Zero(t, e.count("SELECT count(*) FROM filters"))
+	require.Equal(t, SourceArchived, src.Mute)
+	_, src, err = e.db.CreateFilterFrom(e.ctx, newFilter("mute", "starred"), e.itemID("spam archived starred"))
+	require.NoError(t, err)
+	require.Equal(t, SourceStarred, src.Mute)
 }

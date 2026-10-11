@@ -258,7 +258,7 @@ func (s *Server) createFilter(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "create filter", err)
 		return
 	}
-	// source: null when no article was named or the rule is not an enabled mute; otherwise what saving did to it.
+	// source: null when no article was named; otherwise what saving did to it.
 	resp := map[string]any{"filter": views[0], "applied": nil, "source": nil}
 	if src.Mute != "" {
 		resp["source"] = map[string]any{"item_id": idStr(sourceID), "result": src.Mute}

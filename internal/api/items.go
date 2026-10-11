@@ -564,6 +564,43 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"changed": idStrings(nonNil(changed)), "restored": idStrings(nonNil(res.Restored)), "ledger_ids": idStrings(nonNil(ledgerIDs)), "count": len(res.Changed), "undoable": undoable})
 }
 
+// ---- POST /api/items/unmute ----
+
+// unmuteItems is the Muted list's Restore: it un-mutes the ids and puts back the read state each had
+// before the mute (an article read before it was muted stays read). Body {ids}; answers {changed,
+// made_unread}, the un-muted ids and those of them that are unread again.
+func (s *Server) unmuteItems(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs []json.RawMessage `json:"ids"`
+	}
+	if !decodeBody(w, r, &req, false) {
+		return
+	}
+	if len(req.IDs) == 0 || len(req.IDs) > maxMarkIDs {
+		writeError(w, http.StatusBadRequest, "bad_request")
+		return
+	}
+	ids := make([]int64, 0, len(req.IDs))
+	for _, raw := range req.IDs {
+		id, ok := parseID(raw)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "bad_request")
+			return
+		}
+		ids = append(ids, id)
+	}
+	res, err := s.db.RestoreMuted(r.Context(), ids)
+	if err != nil {
+		s.serverError(w, "unmute", err)
+		return
+	}
+	s.publishState(res, map[string]any{"muted": false})
+	if len(res.MadeUnread) > 0 {
+		s.publishState(store.StateResult{Changed: res.MadeUnread}, map[string]any{"read": false})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"changed": idStrings(nonNil(res.Changed)), "made_unread": idStrings(nonNil(res.MadeUnread))})
+}
+
 func nonNil(ids []int64) []int64 {
 	if ids == nil {
 		return []int64{}

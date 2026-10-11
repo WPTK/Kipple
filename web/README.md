@@ -224,11 +224,12 @@ unread (explicit) or leave muted (`DELETE ?unmute=`). `400 bad_filter` shows nex
 cosmetic on the server (precedence is set-based), so there is no drag ordering.
 
 **Muted** (sidebar, Feeds screen, a pill in list headers): `view=muted`, "Muted by <rule>" on each row with Restore
-(mark unread, which un-mutes; no undo, because a mark-read cannot put it back under its rule) and Edit rule, the same in
-the row menu and on an opened article. `Mute similar...` in the row menu and the article toolbar starts a rule from the
-article: its feed, the title's keywords and the author as one-tap suggestions. Saving sends the article's id
-(`source_item_id`), so a mute rule that matches it mutes it too, and the toast says whether it did. Events: `items.state` muted, `counts.muted`,
-`filters.changed`.
+(`POST /api/items/unmute`: un-mutes and puts back the read state it had before the mute; no undo, because the client
+cannot put it back under its rule) and Edit rule, the same in the row menu and on an opened article. `Mute similar...`
+in the row menu and the article toolbar starts a rule from the article: its feed, the title's keywords and the author
+as one-tap suggestions. Saving sends the article's id (`source_item_id`), so a mute rule that matches it mutes it too
+and drops it from every list but Muted; the toast says whether it did, and why not. Events: `items.state` muted,
+`counts.muted`, `filters.changed`.
 
 **Highlights** (`lib/highlight.ts`, `lib/useHighlights.tsx`): bootstrap `highlights` are matched with the engine's rules
 (whole words, case, accents, phrases, unspaced scripts) in list titles and excerpts, the article title, author and body.

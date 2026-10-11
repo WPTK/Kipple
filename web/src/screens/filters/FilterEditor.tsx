@@ -2,8 +2,7 @@ import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Check as CheckIcon, X } from "lucide-react";
 import { handleServerEvent } from "@/api/events";
-import { useBootstrap } from "@/api/queries";
-import { patchItems } from "@/api/queryKeys";
+import { dropFromLists, patchItems, useBootstrap } from "@/api/queries";
 import { ApiError, errorMessage } from "@/api/client";
 import {
   FIELDS,
@@ -33,7 +32,7 @@ import {
 } from "@/api/filters";
 import { relativeTime } from "@/lib/format";
 import { closeFilterEditor, type EditorRequest, type SimilarSeed } from "@/lib/similar";
-import { announce, toast } from "@/shell/toasts";
+import { toast } from "@/shell/toasts";
 import { cn } from "@/lib/cn";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { Button } from "@/ui/button";
@@ -45,18 +44,25 @@ export const PREVIEW_DEBOUNCE_MS = 600;
 /** What saving a rule from "Mute similar..." did to that article, as one sentence of the save toast. */
 const SOURCE_NOTE: Record<SourceResult, string> = {
   muted: "This article is muted.",
-  no_match: "This article was not muted because the filter no longer matches it.",
+  not_mute: "This article was not muted because the filter does not mute.",
+  disabled: "This article was not muted because the filter is turned off.",
+  gone: "This article no longer exists.",
   starred: "This article is starred, so it was not muted.",
+  archived: "This article was not muted because its feed is archived.",
+  no_match: "This article was not muted because the filter no longer matches it.",
   already_muted: "This article was already muted by another filter.",
+  star_filter: "A star filter matches this article, so it was not muted.",
 };
 
 /**
  * The source article is muted: the same cache change as the server's items.state event (which may not arrive when live
- * updates are down), plus the rule's name, so an open article shows what muted it.
+ * updates are down), plus the rule's name, so an open article shows what muted it. The reader asked for this one article
+ * to go, so it also leaves every list (Unread too, where another mute only turns the row read); the Muted list reloads.
  */
 function showMuted(qc: QueryClient, itemId: string, f: Filter): void {
   handleServerEvent(qc, { type: "items.state", data: { ids: [itemId], read: true, muted: true, source: "web" } });
   patchItems(qc, [itemId], { muted_by: f.id, muted_by_name: f.name });
+  dropFromLists(qc, [itemId], (k) => !k.startsWith("muted"));
 }
 
 type Group = ReturnType<typeof fieldGroup>;
@@ -469,11 +475,7 @@ function EditorForm({
       const note = source ? ` ${SOURCE_NOTE[source]}` : "";
       if (run && "error" in run) toast(`Filter saved.${note} Another filter is still being applied, so this one was not applied to stored articles. Apply it from the Filters list in a moment.`);
       else if (run) toast(`Filter saved.${note} Applying it to your articles…`);
-      else {
-        const msg = source ? `Filter saved.${note}` : "Filter saved";
-        toast(msg);
-        announce(msg);
-      }
+      else toast(source ? `Filter saved.${note}` : "Filter saved"); // a toast is also announced
     } catch (e) {
       const bf = badFilter(e);
       if (saved && e instanceof ApiError && e.status === 409) {

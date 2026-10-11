@@ -331,8 +331,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
               {[fullDate(a.published_at), a.reading_minutes ? `${a.reading_minutes} min read` : null].filter(Boolean).join(" · ")}
             </p>
           </header>
+          {/* Not a live region: whatever muted the open article (a filter saved from it) says so in its own toast. */}
           {a.muted_by !== null && a.muted_by !== undefined ? (
-            <div role="status" data-testid="muted-banner" className="mx-auto mb-4 flex max-w-[min(var(--kp-col),100%)] flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1 text-sm">
+            <div data-testid="muted-banner" className="mx-auto mb-4 flex max-w-[min(var(--kp-col),100%)] flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1 text-sm">
               <span className="min-w-0 flex-1">
                 {a.muted_by_name ? (
                   <>

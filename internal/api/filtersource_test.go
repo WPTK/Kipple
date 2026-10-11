@@ -47,33 +47,60 @@ func TestCreateFilterMutesTheSourceArticle(t *testing.T) {
 		{"the rule does not match it", map[string]any{"action": "mute", "terms": []string{"ham"}, "source_item_id": fmt.Sprint(spam6)}, "no_match"},
 		{"starred", map[string]any{"action": "mute", "terms": []string{"spam 4"}, "source_item_id": fmt.Sprint(spam4)}, "starred"},
 		{"muted by another rule", map[string]any{"action": "mute", "terms": []string{"spam 2"}, "source_item_id": fmt.Sprint(spam2)}, "already_muted"},
+		{"a rule that does not mute", map[string]any{"action": "mark_read", "terms": []string{"spam"}, "source_item_id": fmt.Sprint(spam6)}, "not_mute"},
+		{"a rule saved turned off", map[string]any{"action": "mute", "terms": []string{"spam 6"}, "enabled": false, "source_item_id": fmt.Sprint(spam6)}, "disabled"},
+		{"an article that no longer exists", map[string]any{"action": "mute", "terms": []string{"gone"}, "source_item_id": "424242"}, "gone"},
 	} {
 		code, out = h.postFilter(c, tc.body)
 		require.Equal(t, 201, code, "%s: %v", tc.name, out)
 		require.Equal(t, tc.want, out["source"].(map[string]any)["result"], tc.name)
 	}
-	// no source, or a rule that does not mute: source is null
-	for _, body := range []map[string]any{
-		{"action": "mute", "terms": []string{"plain"}},
-		{"action": "mark_read", "terms": []string{"spam"}, "source_item_id": fmt.Sprint(spam6)},
-	} {
-		code, out = h.postFilter(c, body)
-		require.Equal(t, 201, code, "%v", out)
-		require.Nil(t, out["source"])
-	}
+	// no source: source is null
+	code, out = h.postFilter(c, map[string]any{"action": "mute", "terms": []string{"plain"}})
+	require.Equal(t, 201, code, "%v", out)
+	require.Nil(t, out["source"])
 	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE muted_by IS NOT NULL"))
 	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE id = ? AND starred = 1 AND muted_by IS NULL", spam4))
 }
 
-func TestCreateFilterRefusesAnUnknownSourceArticle(t *testing.T) {
+func TestCreateFilterRefusesAMalformedSourceID(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
-	h.bulkItems(h.addFeed("A", 0), 2)
-	for _, src := range []any{"424242", "not an id", true} {
+	for _, src := range []any{"not an id", true, map[string]any{}} {
 		code, out := h.postFilter(c, map[string]any{"action": "mute", "terms": []string{"spam"}, "source_item_id": src})
 		require.Equal(t, 400, code, "%v", src)
 		require.Equal(t, "source_item_id", out["field"], "%v", src)
 	}
 	require.Zero(t, h.count("SELECT count(*) FROM filters"), "nothing is stored")
+}
+
+// Restore in Muted un-mutes and puts back the read state from before the mute, whichever rule muted it.
+func TestUnmuteRestoresTheReadStateBeforeTheMute(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	feed := h.addFeed("A", 0)
+	h.bulkItems(feed, 6)
+	id := func(title string) int64 { return int64(h.count("SELECT id FROM items WHERE title = ?", title)) }
+	wasRead, wasUnread, plain := id("spam 2"), id("spam 4"), id("ham 1")
+	h.exec(fmt.Sprintf("UPDATE items SET read = 1, read_at = 5 WHERE id = %d", wasRead))
+	h.mustFilter(c, map[string]any{"action": "mute", "terms": []string{"spam"}, "apply_existing": map[string]any{"include_read": true}})
+	require.Eventually(t, func() bool { return h.count("SELECT count(*) FROM items WHERE muted_by IS NOT NULL") == 3 }, 5*time.Second, 20*time.Millisecond)
+	sub := h.hub.Subscribe(0)
+	defer sub.Close()
+
+	code, out, _ := h.api(c, "POST", "/api/items/unmute", jsonStr(map[string]any{"ids": []string{fmt.Sprint(wasRead), fmt.Sprint(wasUnread), fmt.Sprint(plain)}}))
+	require.Equal(t, 200, code, "%v", out)
+	require.ElementsMatch(t, []any{fmt.Sprint(wasRead), fmt.Sprint(wasUnread)}, out["changed"], "an article that is not muted is left alone")
+	require.Equal(t, []any{fmt.Sprint(wasUnread)}, out["made_unread"])
+	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE id = ? AND read = 1 AND read_at = 5 AND muted_by IS NULL AND muted_was_read IS NULL", wasRead))
+	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE id = ? AND read = 0 AND muted_by IS NULL", wasUnread))
+	evs := ofType(collect(t, sub, "items.state", 5*time.Second), "items.state")
+	require.Equal(t, false, evs[0]["muted"])
+
+	for _, body := range []any{map[string]any{"ids": []string{}}, map[string]any{"ids": []string{"x"}}, map[string]any{}} {
+		code, _, _ = h.api(c, "POST", "/api/items/unmute", jsonStr(body))
+		require.Equal(t, 400, code, "%v", body)
+	}
 }

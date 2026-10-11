@@ -519,48 +519,63 @@ func countHits(ctx context.Context, tx *sql.Tx, ruleID int64, n int, now int64) 
 }
 
 // SourceMute says what saving a rule started from an article ("Mute similar...") did to that article.
+// Every value but SourceMuted leaves the article as it was; the rule is saved either way.
 type SourceMute string
 
 const (
 	// SourceMuted: the rule matches the article, which is muted now, exactly as an apply mutes it.
 	SourceMuted SourceMute = "muted"
-	// SourceNoMatch: the rule as saved does not match the article (the reader changed its words or
-	// scope, or the article's feed is archived, which rules skip), so the article is unchanged.
-	SourceNoMatch SourceMute = "no_match"
-	// SourceStarred: the rule matches, but the article is starred or a star filter matches it, and a
-	// star beats a mute.
+	// SourceNotMute: the rule does not mute (mark read, star or highlight), so saving touches no article.
+	SourceNotMute SourceMute = "not_mute"
+	// SourceDisabled: the rule is saved turned off, so it mutes nothing yet.
+	SourceDisabled SourceMute = "disabled"
+	// SourceGone: the article no longer exists (trimmed, or its feed deleted, while the editor was open).
+	SourceGone SourceMute = "gone"
+	// SourceStarred: the article is starred, and a star beats a mute.
 	SourceStarred SourceMute = "starred"
+	// SourceArchived: the article's feed is archived, and rules skip archived feeds.
+	SourceArchived SourceMute = "archived"
+	// SourceNoMatch: the rule as saved does not match the article (the reader changed its words or scope).
+	SourceNoMatch SourceMute = "no_match"
 	// SourceAlreadyMuted: another rule muted the article already; it stays with that rule.
 	SourceAlreadyMuted SourceMute = "already_muted"
+	// SourceStarFilter: a star filter matches the article, and a star beats a mute.
+	SourceStarFilter SourceMute = "star_filter"
 )
 
-// checkSourceItem reports an unknown source article as a *filter.Error, so the create fails as a bad request.
-func checkSourceItem(ctx context.Context, q Querier, id int64) error {
-	var one int
-	err := q.QueryRowContext(ctx, "SELECT 1 FROM items WHERE id = ?", id).Scan(&one)
-	if errors.Is(err, sql.ErrNoRows) {
-		return &filter.Error{Field: "source_item_id", Message: "no such article"}
+// muteSource mutes item sourceID for the just-stored rule f if f is an enabled mute that matches it,
+// in the caller's write transaction. all are the other saved filters (for the star rules that cancel
+// a mute). The evaluation is retroEffect's and the write is an apply's, so the article is restored by
+// the same paths as any muted one.
+func muteSource(ctx context.Context, tx *sql.Tx, all []Filter, f Filter, sourceID, now int64) (SourceMute, []int64, error) {
+	switch {
+	case f.Action != string(filter.ActionMute):
+		return SourceNotMute, nil, nil
+	case !f.Enabled:
+		return SourceDisabled, nil, nil
 	}
-	return err
-}
-
-// muteSource mutes item sourceID for the just-stored mute rule r if r matches it, in the caller's
-// write transaction. all are the other saved filters (for the star rules that cancel a mute). The
-// evaluation is retroEffect's and the write is an apply's, so the article is restored by the same
-// paths as any muted one. The caller has checked that the item exists (checkSourceItem).
-func muteSource(ctx context.Context, tx *sql.Tx, all []Filter, r filter.Rule, sourceID, now int64) (SourceMute, []int64, error) {
-	set, r, rc, err := retroSetOf(all, r)
+	var starred, archived bool
+	err := tx.QueryRowContext(ctx, `SELECT i.starred, f.disabled_reason IS 'archive' FROM items i JOIN feeds f ON f.id = i.feed_id
+		WHERE i.id = ?`, sourceID).Scan(&starred, &archived)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return SourceGone, nil, nil
+	case err != nil:
+		return "", nil, err
+	case starred:
+		return SourceStarred, nil, nil
+	case archived:
+		return SourceArchived, nil, nil
+	}
+	set, r, rc, err := retroSetOf(all, f.Rule())
 	if err != nil {
 		return "", nil, err
 	}
 	// Global scope: the candidate query applies only what every rule skips; r's own scope is the engine's.
 	from, where, args := retroSQL(filter.Rule{Scope: filter.ScopeGlobal}, true, rc)
 	it, err := scanRetroItem(tx.QueryRowContext(ctx, "SELECT "+retroSelect(rc)+" FROM "+from+" WHERE "+where+" AND i.id = ?", append(args, sourceID)...), rc)
-	if errors.Is(err, sql.ErrNoRows) {
-		return SourceNoMatch, nil, nil
-	}
 	if err != nil {
-		return "", nil, err
+		return "", nil, err // the row was read above in this transaction
 	}
 	if it.folders, err = folderChain(ctx, tx, it.folderID); err != nil {
 		return "", nil, err
@@ -571,7 +586,7 @@ func muteSource(ctx context.Context, tx *sql.Tx, all []Filter, r filter.Rule, so
 	case it.muted:
 		return SourceAlreadyMuted, nil, nil
 	case retroEffect(set, r, it) != effMute:
-		return SourceStarred, nil, nil
+		return SourceStarFilter, nil, nil
 	}
 	js, err := idsJSON([]int64{sourceID})
 	if err != nil {

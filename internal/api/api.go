@@ -325,6 +325,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/imgcache/clear", s.authed(s.imgcacheClear))
 	handle("GET /api/items", s.authed(s.listItems))
 	handle("POST /api/items/mark-read", s.authed(s.markRead))
+	handle("POST /api/items/unmute", s.authed(s.unmuteItems))
 	handle("GET /api/items/{id}", s.authed(s.getItem))
 	handle("POST /api/items/{id}/fulltext", s.authed(s.itemFulltext))
 	handle("POST /api/items/{id}/open", s.authed(s.openItem))

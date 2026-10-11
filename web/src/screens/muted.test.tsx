@@ -78,6 +78,7 @@ function routes(extra: Parameters<typeof mockFetch>[0] = {}, boot: Bootstrap = w
     "GET /api/settings": () => json({ settings: [], values: {} }),
     "GET /api/filters": () => json({ filters: [rule] }),
     "POST /api/items/mark-read": (_u, init) => json({ changed: JSON.parse(String(init?.body)).ids, restored: [] }),
+    "POST /api/items/unmute": (_u, init) => json({ changed: JSON.parse(String(init?.body)).ids, made_unread: JSON.parse(String(init?.body)).ids }),
     ...extra,
   });
 }
@@ -153,6 +154,16 @@ describe("the Muted list", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("Restore keeps an article read when it was read before the mute, and says so", async () => {
+    routes({ "POST /api/items/unmute": () => json({ changed: ["1001"], made_unread: [] }) });
+    wide();
+    go("/l/muted");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Restore Muted article 1" }));
+    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent("Restored. It stays read, as it was before it was muted."));
+    await waitFor(() => expect(screen.queryByText("Muted article 1")).toBeNull());
+  });
+
   it("an article whose rule was deleted says so and has no Edit rule", async () => {
     routes({ "GET /api/items": () => json(pageOf([muted(1, null)])) });
     go("/l/muted");
@@ -161,19 +172,20 @@ describe("the Muted list", () => {
     expect(screen.queryByRole("button", { name: /Edit the rule/ })).toBeNull();
   });
 
-  it("Restore marks the article unread (that is what un-mutes it), takes its row out and lowers the count", async () => {
+  it("Restore un-mutes the article with the read state it had before, takes its row out and lowers the count", async () => {
     const { calls } = routes();
     wide();
     go("/l/muted");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Restore Muted article 1" }));
-    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
-    expect(body(calls.find((c) => c.url.pathname === "/api/items/mark-read") as never)).toMatchObject({ ids: ["1001"], read: false });
+    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/unmute")).toBe(true));
+    expect(body(calls.find((c) => c.url.pathname === "/api/items/unmute") as never)).toEqual({ ids: ["1001"] });
+    expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(false);
     await waitFor(() => expect(screen.queryByText("Muted article 1")).toBeNull());
     expect(screen.getByText("Muted article 2")).toBeInTheDocument();
     expect(qc.getQueryData<Bootstrap>(keys.bootstrap)?.counts.muted).toBe(1);
     expect(screen.getByTestId("live-region")).toHaveTextContent("Restored. It is unread again.");
-    // No undo is offered: putting it back under its rule is not something a mark-read can do.
+    // No undo is offered: putting it back under its rule is not something the client can do.
     expect(screen.getByTestId("undo-region")).not.toHaveTextContent("Undo");
   });
 
@@ -215,9 +227,10 @@ describe("the Muted list", () => {
     go("/i/1001?from=muted");
     const banner = await screen.findByTestId("muted-banner");
     expect(banner).toHaveTextContent("Muted by No giveaways");
+    expect(banner).not.toHaveAttribute("role"); // not a live region: the action that muted it says so itself
     await userEvent.setup().click(within(banner).getByRole("button", { name: "Restore" }));
-    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
-    expect(body(calls.find((c) => c.url.pathname === "/api/items/mark-read") as never)).toMatchObject({ ids: ["1001"], read: false });
+    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/unmute")).toBe(true));
+    expect(body(calls.find((c) => c.url.pathname === "/api/items/unmute") as never)).toEqual({ ids: ["1001"] });
     await waitFor(() => expect(screen.queryByTestId("muted-banner")).toBeNull());
   });
 });
@@ -304,6 +317,11 @@ describe("Mute similar… saves and says what it did to the article", () => {
     ["no_match", "Filter saved. This article was not muted because the filter no longer matches it."],
     ["starred", "Filter saved. This article is starred, so it was not muted."],
     ["already_muted", "Filter saved. This article was already muted by another filter."],
+    ["star_filter", "Filter saved. A star filter matches this article, so it was not muted."],
+    ["archived", "Filter saved. This article was not muted because its feed is archived."],
+    ["gone", "Filter saved. This article no longer exists."],
+    ["not_mute", "Filter saved. This article was not muted because the filter does not mute."],
+    ["disabled", "Filter saved. This article was not muted because the filter is turned off."],
   ] as const)("%s", async (result, message) => {
     const { calls } = routes({
       "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }),
@@ -323,8 +341,16 @@ describe("Mute similar… saves and says what it did to the article", () => {
       .getQueriesData<InfiniteData<ItemsPage>>({ queryKey: keys.itemsAll })
       .flatMap(([, d]) => d?.pages.flatMap((p) => p.items) ?? [])
       .find((i) => i.id === "1001");
-    if (result === "muted") expect(cached).toMatchObject({ read: true, muted_by: "9", muted_by_name: "Ada" });
-    else expect(cached).toMatchObject({ read: false, muted_by: null });
+    // The reader asked for this article to go: a muted one leaves the list on screen, Unread included.
+    if (result === "muted") {
+      expect(cached).toBeUndefined();
+      await waitFor(() => expect(screen.queryByText("Article number 1")).toBeNull());
+    } else {
+      expect(cached).toMatchObject({ read: false, muted_by: null });
+      expect(screen.getByText("Article number 1")).toBeInTheDocument();
+    }
+    // Said once: the toast is the announcement.
+    expect(screen.getByTestId("live-region").textContent?.replace(/\u200b/g, "")).toBe(message);
   });
 });
 

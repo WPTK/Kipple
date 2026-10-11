@@ -6,18 +6,19 @@
 //
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and, on four unread articles:
 //   M1  an unread article, from its row menu in the list: tap a suggestion, Save; the toast says it is muted and the
-//       server has it read and muted by the new filter;
+//       server has it read and muted by the new filter; its row leaves the Unread list at once and after a reload;
 //   M2  a read article, from the opened article's More actions: the same, and it stays read;
 //   M3  a starred article: the filter is saved, the toast says it is starred and was not muted, and it is still starred;
 //   M4  an unread article whose rule is edited to a word not in it: the filter is saved, the toast says the filter no
-//       longer matches it, and the article is unchanged.
+//       longer matches it, and the article is unchanged;
+//   M5  Restore on M2's article in Muted: the toast says it stays read, and the server has it read and not muted.
 // Afterwards it deletes the filters it made with unmute=unread and puts every article back as it found it. It only runs
 // against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0 clean, 1
 // findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 18);
+const t = await start(import.meta.url, 19);
 const { check, step, textOf } = t;
 const JSON_ACCEPT = { Accept: "application/json" };
 
@@ -68,6 +69,14 @@ await t.eachViewport(async (page, vp) => {
       await save(await openEditor(unread, true), "M1", "Filter saved. This article is muted.");
       const it = await item(page, unread.id);
       check(it.read === true && !!it.muted_by, `${tag} M1 state`, "read and muted", `read=${it.read} muted_by=${it.muted_by}`);
+      // The editor was opened from this Unread list, so the row must already be gone, and stay gone on a reload.
+      const row = () => page.locator(`[data-item-id="${unread.id}"]`);
+      const left = await row().first().waitFor({ state: "detached", timeout: 5000 }).then(() => true, () => false);
+      check(left, `${tag} M1 list`, "the row leaves Unread", "the muted row is still in the Unread list");
+      await page.goto(`/l/unread?feed=${unread.feed_id}`, { waitUntil: "load" });
+      await page.getByRole("main").waitFor({ timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(1000);
+      check((await row().count()) === 0, `${tag} M1 reload`, "the row stays out of Unread after a reload", "the muted row came back after a reload");
     });
     await step(`${tag} M2`, async () => {
       await save(await openEditor(read, false), "M2", "Filter saved. This article is muted.");
@@ -89,6 +98,19 @@ await t.eachViewport(async (page, vp) => {
       await save(dialog, "M4", "Filter saved. This article was not muted because the filter no longer matches it.");
       const it = await item(page, edited.id);
       check(!it.muted_by, `${tag} M4 state`, "not muted", `muted_by=${it.muted_by}`);
+    });
+    await step(`${tag} M5`, async () => {
+      await page.goto("/l/muted", { waitUntil: "load" });
+      const row = page.locator(`[data-item-id="${read.id}"]`).first();
+      await row.waitFor({ timeout: 15000 });
+      // The "Muted by" strip with Restore sits under the row, not inside it, and is labelled with the title.
+      await page.getByRole("button", { name: `Restore ${read.title}`, exact: true }).first().click();
+      const message = "Restored. It stays read, as it was before it was muted.";
+      const said = await page.getByText(message).first().waitFor({ timeout: 10000 }).then(() => true, () => false);
+      check(said, `${tag} M5 toast`, `says "${message}"`, `no "${message}" (page: ${await textOf(page.locator("body"), 400)})`);
+      await t.shot(page, `${tag}-M5`);
+      const it = await item(page, read.id);
+      check(it.read === true && !it.muted_by, `${tag} M5 state`, "read and not muted", `read=${it.read} muted_by=${it.muted_by}`);
     });
   } finally {
     for (const id of (await filterIds(page)).filter((id) => !before.has(id))) {
