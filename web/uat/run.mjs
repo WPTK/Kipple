@@ -52,6 +52,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
+import { cancelledLoad } from "./common.mjs";
 import { activeScheme, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
 
 /** The smallest touch target, in CSS px (S8). WCAG 2.2 asks for 24; Kipple keeps to the 44 of the Apple and Material guides. */
@@ -701,7 +702,9 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
   // query that fails late, during the screenshot) is reported against it when the next screen starts.
   let prev = null;
   const bucket = { console: [], api: [], other: [] };
-  page.on("pageerror", (err) => bucket.console.push({ kind: "pageerror", text: String(err.stack || err).slice(0, 600) }));
+  page.on("pageerror", (err) => {
+    if (!cancelledLoad(err, origin)) bucket.console.push({ kind: "pageerror", text: String(err.stack || err).slice(0, 600) });
+  });
   page.on("console", (msg) => {
     if (msg.type() !== "error") return;
     const url = msg.location()?.url ?? "";

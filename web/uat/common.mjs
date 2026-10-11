@@ -18,6 +18,24 @@ export const VIEWPORTS = [
 /** The feed address every disposable feed uses: it never resolves, so nothing is fetched and nothing leaves the machine. */
 export const deadFeed = (n) => `http://uat-feed-${n}.invalid/feed.xml`;
 
+/**
+ * Whether a `pageerror` is WebKit saying that a same-origin load was cancelled, not a script error. When a navigation
+ * leaves the page while a fetch is in flight, WebKit may log "Fetch API cannot load <url> due to access control
+ * checks." as a script-sourced console error, and Playwright hands those to `pageerror` (issue #370). The page did not
+ * throw: had it left the rejection unhandled, WebKit adds its own "Unhandled Promise Rejection: ..." error, which still
+ * counts. A same-origin request has no access control check, so there the message can only mean the load was cancelled,
+ * which the flows' request checks already do not count. For another origin it is a real refusal and still counts.
+ */
+export function cancelledLoad(err, origin) {
+  const m = /^Fetch API cannot load (https?):\s*\/*(\S+) due to access control checks\.$/.exec(String(err));
+  if (!m) return false;
+  try {
+    return new URL(`${m[1]}://${m[2]}`).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
 export async function start(metaUrl, helpLines) {
   const setupError = (m) => {
     console.error(m);

@@ -5,6 +5,7 @@
   "excluded": {
     "all.mjs": "this runner",
     "common.mjs": "shared set-up of the flows, not a flow",
+    "common.test.mjs": "unit tests of common.mjs (run by npm test), not a flow",
     "probes.mjs": "page helpers of run.mjs, not a flow",
     "wait-ready.mjs": "waits for the seeded instance, not a flow",
     "wizard.mjs": "needs a fresh instance in setup mode (KIPPLE_SEED_SET=fresh), so it cannot share the seeded one"

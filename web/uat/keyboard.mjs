@@ -29,6 +29,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
+import { cancelledLoad } from "./common.mjs";
 
 const setupError = (m) => {
   console.error(m);
@@ -222,7 +223,7 @@ async function desktop(cookies) {
   const ctx = await newContext({ viewport: { width: 1280, height: 800 }, storageState: { cookies, origins: [] } });
   const page = await ctx.newPage();
   const errors = [];
-  page.on("pageerror", (e) => errors.push(String(e).slice(0, 200)));
+  page.on("pageerror", (e) => cancelledLoad(e, origin) || errors.push(String(e).slice(0, 200)));
   await load(page, "/l/all");
   // The layout the shortcuts are exercised in: Editorial, whose rows carry the unread dot and a Star button.
   const layoutBtn = page.locator('button[aria-label^="List options, "]').first();
