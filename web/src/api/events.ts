@@ -8,6 +8,7 @@ import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type
 import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
+import { forgetUndo } from "@/lib/undo";
 import { folderTree, rollUp, subtreeOf } from "@/lib/folderTree";
 import {
   SERVER_EVENT_TYPES,
@@ -266,6 +267,8 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
         // A mute leaves All and search (the item is read now); the Muted list loads it next time it is shown.
         dropFromLists(qc, ids, (k) => k.startsWith("all") || k.includes("|q:"));
         invalidateLists(qc, (k) => k.startsWith("muted"));
+        // An earlier mark or star of these can no longer be undone as it was: its undo would un-mute them.
+        forgetUndo(ids);
       } else if (muted === false) {
         // Un-muted: gone from Muted, and back in All, Unread and search the next time those are shown.
         dropFromLists(qc, ids, (k) => k.startsWith("muted"));

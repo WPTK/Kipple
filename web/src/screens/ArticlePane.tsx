@@ -69,9 +69,15 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const cachedCard = useMemo(() => flattenItems(list.data).find((i) => i.id === id), [list.data, id]);
   const browserOnline = useSyncExternalStore(subscribeOnline, () => navigator.onLine !== false);
   const index = ids.indexOf(id);
-  const prevId = index > 0 ? ids[index - 1] : undefined;
-  const nextId = index >= 0 ? ids[index + 1] : undefined;
-  const canPage = index >= 0;
+  // The list order as it was while this article was in it. An article can leave its list while it is open (saving
+  // "Mute similar..." from it drops it from every list but Muted), and Next and Previous then go on from where it was.
+  const [seen, setSeen] = useState<{ id: string; ids: string[] } | null>(null);
+  if (index >= 0 && (seen?.id !== id || seen.ids !== ids)) setSeen({ id, ids });
+  const order = index < 0 && seen?.id === id ? seen.ids : ids;
+  const at = order.indexOf(id);
+  const prevId = at > 0 ? order[at - 1] : undefined;
+  const nextId = at >= 0 ? order[at + 1] : undefined;
+  const canPage = at >= 0;
 
   // Mark read on open, once per article (design 7.1: POST /open, never a stat elsewhere).
   const opened = useRef<string | null>(null);
@@ -110,7 +116,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     if (canPage && list.hasNextPage) {
       void list.fetchNextPage().then((r) => {
         const all = flattenItems(r.data).map((i) => i.id);
-        const n = all[all.indexOf(id) + 1];
+        // An article that left the list goes on to the first one the new page brought.
+        const known = new Set(order);
+        const n = all.includes(id) ? all[all.indexOf(id) + 1] : all.find((x) => !known.has(x));
         if (n) go(n, via);
         else toast("End of list");
       });
@@ -157,9 +165,10 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   // Precedence in the wide pane: the open article is the list's selected row, so the list's keys drive
   // j/k/m/s/o/v (and stay live for mark all, above/below, select, gg/G, Enter). The article keeps only
   // what the list has no notion of: f (full text) and u/Esc, which returns focus to the list. If the
-  // article is not among the loaded rows (a deep link), the list has nothing to drive and the article
-  // takes the whole set. In the full-screen view the list is not on screen, so the article owns all keys.
-  const ownsItemKeys = !pane || !canPage;
+  // article is not among the loaded rows (a deep link, or it left the list while open), the list has nothing to
+  // drive and the article takes the whole set. In the full-screen view the list is not on screen, so the article
+  // owns all keys.
+  const ownsItemKeys = !pane || index < 0;
   useHotkeys(
     {
       ...(ownsItemKeys
@@ -350,8 +359,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
               {[fullDate(a.published_at), a.reading_minutes ? `${a.reading_minutes} min read` : null].filter(Boolean).join(" · ")}
             </p>
           </header>
+          {/* Not a live region: whatever muted the open article (a filter saved from it) says so in its own toast. */}
           {a.muted_by !== null && a.muted_by !== undefined ? (
-            <div role="status" data-testid="muted-banner" className="mx-auto mb-4 flex max-w-[min(var(--kp-col),100%)] flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1 text-sm">
+            <div data-testid="muted-banner" className="mx-auto mb-4 flex max-w-[min(var(--kp-col),100%)] flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1 text-sm">
               <span className="min-w-0 flex-1">
                 {a.muted_by_name ? (
                   <>

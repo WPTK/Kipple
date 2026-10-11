@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { applyRead, applyStar, bumpMuted, dropFromLists, keys, patchItems } from "@/api/queries";
+import { applyRead, applyStar, bumpMuted, dropFromLists, invalidateLists, keys, patchItems } from "@/api/queries";
 import { api, errorMessage } from "@/api/client";
 import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
 import type { BulkMarkResponse, Card, ItemsPage, Scope } from "@/api/types";
@@ -78,6 +78,15 @@ export function arrivedAfter(id: string, asOf: string | undefined): boolean {
   } catch {
     return true;
   }
+}
+
+/** What a Restore in Muted says: n articles un-muted, `unread` of them unread again (the rest were read before the mute). */
+export function restoredMessage(n: number, unread: number): string {
+  if (n === 0) return "Nothing to restore";
+  if (n === 1) return unread ? "Restored. It is unread again." : "Restored. It stays read, as it was before it was muted.";
+  if (unread === n) return `Restored ${n} articles. They are unread again.`;
+  if (unread === 0) return `Restored ${n} articles. They stay read, as they were before they were muted.`;
+  return `Restored ${n} articles. ${unread} of them ${unread === 1 ? "is" : "are"} unread again; the others stay read, as they were before they were muted.`;
 }
 
 /** The most ids GET /api/items?ids= takes in one request (the server's card limit). */
@@ -230,24 +239,31 @@ export function itemActions(qc: QueryClient) {
   }
 
   /**
-   * Restore muted articles: mark them unread, which is what un-mutes them (the server clears the mute in the same
-   * write). There is no undo entry: putting one back under its rule is not something a mark-read can do, so the
-   * announcement says where they went instead. Resolves to the ids the server accepted.
+   * Restore muted articles: un-mute them and put back the read state each had before the mute (POST
+   * /api/items/unmute), so an article read before it was muted stays read and an unread one is unread again. There is
+   * no undo entry: putting one back under its rule is not something the client can do, so the announcement says where
+   * they went instead. Resolves to whether the server took it.
    */
   async function restoreMuted(items: Pick<Card, "id">[], restore?: () => void): Promise<boolean> {
     const ids = items.map((i) => i.id);
     if (ids.length === 0) return false;
-    const res = await applyRead(qc, ids, false, "key");
-    if (!res) {
+    let res: { changed: string[]; made_unread: string[] };
+    try {
+      res = await api("/api/items/unmute", { method: "POST", body: { ids } });
+    } catch (e) {
+      toast(errorMessage(e), "error");
       restore?.();
       return false;
     }
-    patchItems(qc, ids, { muted_by: null, muted_by_name: null });
+    const { changed, made_unread: unread } = res;
+    patchItems(qc, changed, { muted_by: null, muted_by_name: null });
+    if (unread.length) patchItems(qc, unread, { read: false });
     dropFromLists(qc, ids, (k) => k.startsWith("muted"));
-    invalidateUnreadLists(qc);
-    notifyUnread(ids);
-    bumpMuted(qc, -ids.length);
-    announce(ids.length === 1 ? "Restored. It is unread again." : `Restored ${ids.length} articles. They are unread again.`);
+    // Back in All and search (and, the unread ones, in Unread) the next time those are shown.
+    invalidateLists(qc, (k) => !k.startsWith("muted"));
+    if (unread.length) notifyUnread(unread);
+    bumpMuted(qc, -changed.length);
+    announce(restoredMessage(changed.length, unread.length));
     return true;
   }
 

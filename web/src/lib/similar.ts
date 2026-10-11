@@ -48,6 +48,8 @@ export function titleKeywords(title: string, max = 8): string[] {
 
 export interface SimilarSeed {
   draft: FilterDraft;
+  /** The article the rule starts from: saving a mute rule that matches it mutes it too. */
+  itemId: string;
   /** Suggestions the editor offers as one-click additions. */
   keywords: string[];
   author: string | null;
@@ -55,10 +57,11 @@ export interface SimilarSeed {
 }
 
 /** The rule "Mute similar..." starts with: this article's feed, no terms (the user taps the suggestions), action Mute. */
-export function similarSeed(item: Pick<Card, "title" | "author" | "feed_id" | "source">, feedTitle?: string): SimilarSeed {
+export function similarSeed(item: Pick<Card, "id" | "title" | "author" | "feed_id" | "source">, feedTitle?: string): SimilarSeed {
   const author = item.author.trim() ? item.author.trim() : null;
   return {
     draft: emptyDraft({ scope: "feed", feed_id: item.feed_id, terms: [], fields: ["title"], action: "mute", name: "" }),
+    itemId: item.id,
     // A word that is the author's name is offered once, as the author.
     keywords: titleKeywords(item.title).filter((k) => k.toLowerCase() !== author?.toLowerCase()),
     author,
