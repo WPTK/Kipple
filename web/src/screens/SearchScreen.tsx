@@ -15,6 +15,7 @@ import { ReadingMenu } from "./AppearanceControls";
 import { ListPane, StatusBlock, type ListControls } from "./ListPane";
 import { SaveSearchDialog } from "./search/SaveSearchDialog";
 import { SearchHelp } from "./search/SearchHelp";
+import { useLatestRef } from "@/lib/useLatestRef";
 
 /** Debounce of the search box: the query is sent this long after the last keystroke. */
 export const SEARCH_DEBOUNCE_MS = 250;
@@ -56,10 +57,7 @@ export function SearchScreen() {
 
   // The debounce timer fires after the render that scheduled it: it must build the URL from the params as they are
   // then, or a scope chip or Sort change made inside the window would be put back.
-  const latest = useRef(sp);
-  useEffect(() => {
-    latest.current = sp;
-  });
+  const latest = useLatestRef(sp);
 
   /** Change the URL, keeping the scope and saved-search params unless told otherwise. */
   const setQuery = (q: string, drop: string[] = []) => {

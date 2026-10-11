@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReorderBody } from "@/api/admin";
+import { useLatestRef } from "./useLatestRef";
 
 // Drag-to-reorder by grabbing the row itself, with pointer (mouse, pen), touch (press and hold on the row, or
 // a touch on the grip at once) and keyboard (arrow keys on the grip). Everything that decides WHAT a drop
@@ -272,16 +273,10 @@ const docUp = (e: PointerEvent) => proxy.up(e);
  */
 export function useRowDnd(opts: Options) {
   const [state, setState] = useState<DragState>({ source: null, target: null, dy: 0 });
-  const optsRef = useRef(opts);
-  useEffect(() => {
-    optsRef.current = opts;
-  });
+  const optsRef = useLatestRef(opts);
   const live = useRef<Live | null>(null);
   const suppress = useRef(false);
-  const stateRef = useRef(state);
-  useEffect(() => {
-    stateRef.current = state;
-  });
+  const stateRef = useLatestRef(state);
 
   const finish = useCallback((commit: boolean) => {
     const l = live.current;
@@ -304,7 +299,7 @@ export function useRowDnd(opts: Options) {
       setState({ source: null, target: null, dy: 0 });
       if (commit && target) optsRef.current.onDrop(l.src, target);
     }
-  }, []);
+  }, [optsRef, stateRef]);
 
   const begin = useCallback((l: Live) => {
     l.started = true;
@@ -321,7 +316,7 @@ export function useRowDnd(opts: Options) {
       cur.raf = requestAnimationFrame(tick);
     };
     l.raf = requestAnimationFrame(tick);
-  }, []);
+  }, [optsRef]);
 
   const onMove = useCallback(
     (e: PointerEvent) => {
