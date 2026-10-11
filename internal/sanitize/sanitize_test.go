@@ -98,3 +98,15 @@ func TestContentLiteralShieldURLSurvives(t *testing.T) {
 	require.Contains(t, out, `href="https://fragment.kipple.invalid/0"`)
 	require.Contains(t, out, `href="#real"`)
 }
+
+func TestLeadImagesRanksTheBestN(t *testing.T) {
+	const base = "https://a.com/post/"
+	got := LeadImages(`<img src="a.jpg"><img src="b.jpg" width="900"><img src="a.jpg"><img src="c.jpg" width="500"><img src="d.jpg">`, 3, base)
+	require.Equal(t, []string{"https://a.com/post/b.jpg", "https://a.com/post/c.jpg", "https://a.com/post/a.jpg"}, got)
+	require.Empty(t, LeadImages(`<p>none</p>`, 3, base))
+}
+
+func TestLeadImageRepeatKeepsItsLargestSize(t *testing.T) {
+	require.Equal(t, "https://a.com/x.jpg",
+		LeadImage(`<img src="https://a.com/x.jpg" width="100"><img src="https://a.com/x.jpg" width="1200"><img src="https://a.com/y.jpg">`))
+}
