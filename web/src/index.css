@@ -500,6 +500,8 @@ a.sr-only-live:focus {
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
+/* Holding a declared image size (width and aspect-ratio set by imageNotShown): the text sits in the middle. */
+.article-body .kp-img-off[data-sized] { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 /* Inside a link the cue is part of that link, so it looks like one (an underline does not reach an inline-flex box). */
 .article-body a .kp-img-off { color: var(--kp-link); text-decoration: underline; text-underline-offset: 0.15em; }
 

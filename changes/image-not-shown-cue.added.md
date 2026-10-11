@@ -1,1 +1,1 @@
-Articles: an image that cannot be shown (an SVG the image proxy refuses, or one whose source fails to load) is replaced by an "Image not shown" note with its description and a link to the original article, instead of a blank gap. (#375)
+Articles: an image Kipple refuses to show (an SVG, which the image proxy does not pass) is replaced by an "Image not shown" note with its description and a link to the original article, in the space the image would have taken, instead of a blank gap. (#375)

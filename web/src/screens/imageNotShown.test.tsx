@@ -44,10 +44,8 @@ describe("an article image that cannot be shown", () => {
     window.history.replaceState({ idx: 0 }, "", "/i/1001?from=unread");
     render(<App client={makeQueryClient({ retry: false })} />);
     const body = await screen.findByTestId("article-body");
-    // The client sanitizer keeps the empty address. A browser fires error for it; jsdom does not, so the test does.
-    const refused = body.querySelector('img[alt="A diagram of the river"]');
-    expect(refused?.getAttribute("src")).toBe("");
-    refused?.dispatchEvent(new Event("error"));
+    // The client sanitizer keeps the empty address, so the image has failed by the time the watch begins (jsdom fires
+    // no error event, but reports it as complete with no size, as a browser does), and the watch finds it by its state.
     const cue = await waitFor(() => {
       const c = body.querySelector<HTMLElement>(".kp-img-off");
       expect(c).not.toBeNull();

@@ -213,10 +213,11 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     if (bodyRef.current) enhanceEmbeds(bodyRef.current);
   }, [html, item.data?.trimmed]);
 
-  // An image that cannot be shown gets the "Image not shown" cue instead of a blank gap. The listener follows the body
-  // element itself (a ref callback with a cleanup), so it is there in the same commit that puts the HTML in the DOM,
-  // before any image can fail, and a body that comes back after "Try again" gets it too.
-  const articleUrl = safeHttpUrl(item.data?.url);
+  // An image refused for good gets the "Image not shown" cue instead of a blank gap. The watch follows the body element
+  // itself (a ref callback with a cleanup), so a body that comes back after "Try again" is watched too. The original is
+  // offered only online, as on the error screen below: offline it cannot open. Going on or offline re-attaches the
+  // watch, which updates the cues already shown.
+  const articleUrl = browserOnline ? safeHttpUrl(item.data?.url) : undefined;
   const sameTab = linkTarget === "same";
   const bodyCallback = useCallback(
     (el: HTMLDivElement | null) => {

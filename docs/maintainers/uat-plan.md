@@ -202,8 +202,10 @@ zip (D3).
 
 Images (`npm run uat:images`, `web/uat/images.mjs`, same instance, credentials and exit codes), at 1280x800 and 375x812,
 against a feed the flow serves itself on a loopback port: an SVG named as one and an SVG that is not each show "Image
-not shown" with their alt text and no image is left in their place (I1); the cue's Open original link goes to the
-article in a new tab (I2); a GIF in the same article is shown and a 1x1 tracking pixel gets no cue (I3).
+not shown" with their alt text, no image is left in their place and the cue keeps the box the image declared (I1); the
+cue's Open original link goes to the article in a new tab (I2); a GIF in the same article is shown, a 1x1 tracking
+pixel gets no cue, and an image whose source answers 500 stays an image (I3); back to the list and the same article
+again, from the app's cache, shows the cues again (I4).
 
 **Label guard (no browser).** The screens above find controls by accessible name, so renaming an `aria-label` in
 `web/src` breaks every screen that looks for the old one without failing any other check. `node scripts/uat-labels.mjs
