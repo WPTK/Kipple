@@ -113,6 +113,7 @@ await t.eachViewport(async (page, vp) => {
     });
     await step(`${tag} M5`, async () => {
       await page.goto("/l/muted", { waitUntil: "load" });
+      check(await page.getByText("Restore brings one back as it was before it was muted").first().waitFor({ timeout: 10000 }).then(() => true, () => false), `${tag} M5 intro`, "the Muted intro says Restore puts back the earlier state", `intro: ${await textOf(page.locator("body"), 300)}`);
       const row = page.locator(`[data-item-id="${read.id}"]`).first();
       await row.waitFor({ timeout: 15000 });
       // The "Muted by" strip with Restore sits under the row, not inside it, and is labelled with the title.
