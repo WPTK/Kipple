@@ -23,6 +23,7 @@ import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
 import { StatusChip } from "./StatusChip";
 import { DeleteDialog, ToggleDialog } from "./feeds/BulkActions";
+import { BottomBar } from "@/ui/BottomBar";
 
 const FeedEditor = lazyScreen(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
 
@@ -488,7 +489,7 @@ export function HealthScreen() {
         ) : null}
       </div>
       {selecting ? (
-        <div role="region" aria-label="Selected feeds" className="pb-safe flex shrink-0 flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-2">
+        <BottomBar label="Selected feeds">
           <span className="mr-auto text-sm font-semibold" aria-live="polite">
             {shownSel.size} selected
           </span>
@@ -504,7 +505,7 @@ export function HealthScreen() {
           <Button variant="solid" onClick={() => setBulk("delete")} disabled={shownSel.size === 0}>
             Delete
           </Button>
-        </div>
+        </BottomBar>
       ) : null}
       {log ? <LogDialog feed={log} onClose={() => setLog(null)} /> : null}
       {editing ? (

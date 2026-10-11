@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { CheckBadge, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
+import { CheckBadge, ListImage, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex } from "./rowTabStop";
@@ -27,18 +27,7 @@ function CardRow({ item, feed, selected, checked, to, onOpen, onToggleStar, acti
     >
       <CheckBadge checked={checked} />
       {item.image ? (
-        <div className="p-2 pb-0">
-          <img
-            src={item.image}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            className={cn("aspect-video w-full rounded-lg bg-bg object-cover", item.read && "opacity-60")}
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-            }}
-          />
-        </div>
+        <ListImage src={item.image} frame={{ className: "p-2 pb-0" }} className={cn("aspect-video w-full rounded-lg bg-bg object-cover", item.read && "opacity-60")} />
       ) : null}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-3">
         <SourceTimeMeta item={item} icon={feed?.icon} dot={<UnreadDot unread={unread} />} />

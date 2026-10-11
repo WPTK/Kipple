@@ -19,6 +19,19 @@ export function SourceIcon({ src, className }: { src: string | null | undefined;
   return <img src={src} alt="" width={16} height={16} loading="lazy" className={cn("size-4 shrink-0 rounded-sm", className)} />;
 }
 
+/**
+ * A list row's lead picture. When it cannot be shown (the image proxy refuses the format, the file is gone) the
+ * picture and its `frame` (the box that holds its place) are removed together, so no layout keeps an empty box.
+ * The one place that rule lives; every layout draws its picture through here. (The article itself says "Image not
+ * shown" in place of an image; a list row just drops it.) A new `src` is tried again.
+ */
+export function ListImage({ src, className, frame }: { src: string; className?: string; frame?: { className?: string } }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  if (failed === src) return null;
+  const img = <img src={src} alt="" loading="lazy" decoding="async" className={className} onError={() => setFailed(src)} />;
+  return frame ? <div className={frame.className}>{img}</div> : img;
+}
+
 export function CheckBadge({ checked, className }: { checked: boolean; className?: string }) {
   if (!checked) return null;
   return (

@@ -8,7 +8,7 @@ import { useFavorites } from "@/lib/favorites";
 import { articleTo } from "@/lib/routes";
 import { planGazette, type Block, type GazettePlan, type PagePlan, type Slot } from "./gazettePlan";
 import { magazine } from "./magazine";
-import { CheckBadge, PublishedTime, rowLabel } from "./parts";
+import { CheckBadge, ListImage, PublishedTime, rowLabel } from "./parts";
 import type { ListLayout, PageProps } from "./types";
 
 // The Gazette's pages (docs/maintainers/ui-decisions.md, "The Gazette"). It draws what planGazette returns, in that order: a page
@@ -248,19 +248,11 @@ function Story({ slot, item, heading: H, to, onOpen, phone, selected, tabStop, c
     >
       <CheckBadge checked={checked} className="-top-2.5 -left-2.5" />
       {picture ? (
-        // The box holds the picture's place, so a picture that fails to load leaves an empty box, not a gap.
-        <div className={cn("w-full bg-surface", slot.kind === "photo" ? "aspect-[4/3]" : "aspect-video")}>
-          <img
-            src={item.image!}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            className={cn("size-full object-cover", item.read && "opacity-60")}
-            onError={(e) => {
-              e.currentTarget.style.visibility = "hidden";
-            }}
-          />
-        </div>
+        <ListImage
+          src={item.image!}
+          frame={{ className: cn("w-full bg-surface", slot.kind === "photo" ? "aspect-[4/3]" : "aspect-video") }}
+          className={cn("size-full object-cover", item.read && "opacity-60")}
+        />
       ) : null}
       <H className={cn("font-reading font-bold", headlineClass(slot, phone), item.read ? "text-fg2" : "text-fg")}>
         <Link

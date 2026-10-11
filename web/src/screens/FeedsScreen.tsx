@@ -42,6 +42,7 @@ import { StatusChip } from "./StatusChip";
 import { SavedSearchesNav } from "./SavedSearchesNav";
 import { CollapseToggle } from "./FeedTree";
 import { DeleteDialog, DeleteFolderDialog, MoveDialog } from "./feeds/BulkActions";
+import { BottomBar } from "@/ui/BottomBar";
 
 // The dialogs load when first opened, not with the Feeds screen.
 const AddFeedDialog = lazyScreen(() => import("./feeds/AddFeedDialog").then((m) => ({ default: m.AddFeedDialog })));
@@ -832,7 +833,7 @@ export function FeedsScreen() {
         ) : null}
       </div>
       {selecting ? (
-        <div role="region" aria-label="Selected feeds" className="pb-safe flex shrink-0 flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-2">
+        <BottomBar label="Selected feeds">
           <span className="mr-auto text-sm font-semibold" aria-live="polite">
             {selected.length} selected
           </span>
@@ -845,7 +846,7 @@ export function FeedsScreen() {
           <Button variant="solid" onClick={() => setBulk("delete")} disabled={selected.length === 0}>
             Delete
           </Button>
-        </div>
+        </BottomBar>
       ) : null}
       <Suspense fallback={null}>
         {adding ? <AddFeedDialog onClose={() => setAdding(false)} onOpenFeed={(id) => { setAdding(false); navigate(openListTo({ feed: id })); }} /> : null}

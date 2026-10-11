@@ -139,13 +139,15 @@ describe("Gazette pages", () => {
     expect(unread.querySelector("h3")!.classList).toContain("text-fg");
   });
 
-  it("keeps a broken picture's box", () => {
+  it("drops a picture that cannot be shown, with the box that held its place", () => {
     const { container } = draw(cards, p);
-    const img = container.querySelector<HTMLImageElement>('article[data-slot="lead"] img')!;
-    fireEvent.error(img);
-    expect(img.style.visibility).toBe("hidden");
-    expect(img.style.display).toBe("");
+    const lead = container.querySelector<HTMLElement>('article[data-slot="lead"]')!;
+    const img = lead.querySelector<HTMLImageElement>("img")!;
     expect(img.parentElement!.className).toContain("aspect-video");
+    fireEvent.error(img);
+    expect(lead.querySelector("img")).toBeNull();
+    expect(lead.querySelector(".aspect-video")).toBeNull();
+    expect(within(lead).getByRole("link")).toBeTruthy();
   });
 
   it("passes axe with read and unread stories", async () => {
