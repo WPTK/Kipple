@@ -16,6 +16,17 @@ export function deleteSummary(feeds: readonly Feed[]): { count: number; starred:
   return { count: feeds.length, starred: feeds.reduce((n, f) => n + (f.starred_count ?? 0), 0) };
 }
 
+/** The delete dialogs' wording, right for one feed and for several: the one place the singular and plural forms live. */
+export function deleteCopy(count: number, starred: number) {
+  const one = count === 1;
+  return {
+    feeds: one ? "feed" : "feeds",
+    consequence: `${one ? "Its articles are" : "Their articles are"} removed from Kipple. Your sync apps stop seeing ${one ? "this feed" : "these feeds"}.`,
+    starredWarning: `${one ? "This feed holds" : "These feeds hold"} ${starred} starred article${starred === 1 ? "" : "s"}${one ? "" : " in total"}. By default ${starred === 1 ? "it is" : "they are"} kept in the Archive.`,
+    noStarred: one ? "This feed has no starred articles." : "None of these feeds has starred articles.",
+  };
+}
+
 /** Move the selected feeds to the end of another folder: one atomic POST /api/reorder. */
 export function MoveDialog({
   feeds,
@@ -208,17 +219,18 @@ function FeedsToDelete({
   disabled: boolean;
   noneNote?: boolean;
 }) {
+  const copy = deleteCopy(feeds.length, starred);
   return (
     <>
       {starred > 0 ? (
         <>
           <Notice tone="warn">
-            These feeds hold {starred} starred article{starred === 1 ? "" : "s"} in total. By default they are kept in the Archive.
+            {copy.starredWarning}
           </Notice>
           <Switch label="Delete starred articles too" checked={alsoStarred} onChange={onAlsoStarred} disabled={disabled} help="This can't be undone." />
         </>
       ) : noneNote ? (
-        <p className="text-sm text-fg2">None of these feeds has starred articles.</p>
+        <p className="text-sm text-fg2">{copy.noStarred}</p>
       ) : null}
       <ul className="max-h-40 overflow-y-auto text-sm text-fg2" aria-label="Feeds to delete">
         {feeds.map((f) => (
@@ -317,8 +329,8 @@ export function DeleteDialog({
     <Modal
       open
       onOpenChange={(o) => !o && !busy && onClose()}
-      title={report ? (report.failed.length > 0 ? "Some feeds were not deleted" : "Some folders were not deleted") : `Delete ${count} feed${count === 1 ? "" : "s"}?`}
-      description={report ? `${report.done} deleted, ${report.failed.length + (report.folders?.length ?? 0)} failed.` : "Their articles are removed from Kipple. Your sync apps stop seeing these feeds."}
+      title={report ? (report.failed.length > 0 ? "Some feeds were not deleted" : "Some folders were not deleted") : `Delete ${count} ${deleteCopy(count, starred).feeds}?`}
+      description={report ? `${report.done} deleted, ${report.failed.length + (report.folders?.length ?? 0)} failed.` : deleteCopy(count, starred).consequence}
       footer={
         report ? (
           <Button variant="solid" onClick={onClose}>
@@ -330,7 +342,7 @@ export function DeleteDialog({
               Cancel
             </Button>
             <Button variant="solid" disabled={busy} onClick={() => void run()}>
-              {busy ? "Deleting…" : `Delete ${count} feed${count === 1 ? "" : "s"}`}
+              {busy ? "Deleting…" : `Delete ${count} ${deleteCopy(count, starred).feeds}`}
             </Button>
           </>
         )
