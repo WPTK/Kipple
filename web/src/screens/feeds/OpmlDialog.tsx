@@ -77,7 +77,7 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
         </li>
       ) : null}
       {moved ? <li>{moved === 1 ? "1 feed you already had was moved into the file's folder" : `${moved} feeds you already had were moved into the file's folders`}</li> : null}
-      {emptied.length ? <li>Folders now empty, kept: {emptied.join(", ")}</li> : null}
+      {emptied.length ? <li>Folders left empty, kept: {emptied.join(", ")}</li> : null}
       {dropped ? (
         <li>
           {dropped === 1
