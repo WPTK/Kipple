@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { CheckBadge, ListImage, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
+import { CheckBadge, ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex } from "./rowTabStop";
@@ -16,6 +16,7 @@ import { useRowTabIndex } from "./rowTabStop";
 function CardRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
+  const failure = useImageFailure(item.image);
   return (
     <article
       data-item-id={item.id}
@@ -27,7 +28,7 @@ function CardRow({ item, feed, selected, checked, to, onOpen, onToggleStar, acti
     >
       <CheckBadge checked={checked} />
       {item.image ? (
-        <ListImage src={item.image} frame={{ className: "p-2 pb-0" }} className={cn("aspect-video w-full rounded-lg bg-bg object-cover", item.read && "opacity-60")} />
+        <ListImage src={item.image} failure={failure} frame={{ className: "p-2 pb-0" }} className={cn("aspect-video w-full rounded-lg bg-bg object-cover", item.read && "opacity-60")} />
       ) : null}
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-3">
         <SourceTimeMeta item={item} icon={feed?.icon} dot={<UnreadDot unread={unread} />} />

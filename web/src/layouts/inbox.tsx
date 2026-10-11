@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { CheckBadge, ListImage, PublishedTime, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
+import { CheckBadge, ListImage, useImageFailure, PublishedTime, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex } from "./rowTabStop";
@@ -15,6 +15,7 @@ function InboxRow({ item, selected, checked, to, onOpen, onToggleStar, actions, 
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
   const thumb = showThumb && item.image;
+  const failure = useImageFailure(item.image);
   return (
     <article
       data-item-id={item.id}
@@ -50,7 +51,7 @@ function InboxRow({ item, selected, checked, to, onOpen, onToggleStar, actions, 
       </div>
       <div className="pointer-events-none relative z-10 flex shrink-0 flex-col items-end justify-between gap-1">
         {thumb ? (
-          <ListImage src={item.image!} className={cn("size-14 rounded-lg bg-surface object-cover @max-[20rem]:hidden", item.read && "opacity-60")} />
+          <ListImage src={item.image!} failure={failure} className={cn("size-14 rounded-lg bg-surface object-cover @max-[20rem]:hidden", item.read && "opacity-60")} />
         ) : null}
         <div className="-mr-2 flex items-center">
           <StarButton item={item} onToggleStar={onToggleStar} />

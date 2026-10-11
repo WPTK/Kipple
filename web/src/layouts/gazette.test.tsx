@@ -150,6 +150,14 @@ describe("Gazette pages", () => {
     expect(within(lead).getByRole("link")).toBeTruthy();
   });
 
+  it("lays a story whose picture failed out as a story without a picture", () => {
+    const { container } = draw(cards, p);
+    const lead = container.querySelector<HTMLElement>('article[data-slot="lead"]')!;
+    expect(lead.querySelector("h3")!.className).toContain("text-[1.625rem]");
+    fireEvent.error(lead.querySelector("img")!);
+    expect(lead.querySelector("h3")!.className).not.toContain("text-[1.625rem]");
+  });
+
   it("passes axe with read and unread stories", async () => {
     const mixed = cards.map((c, i) => (i % 3 === 0 ? { ...c, read: true } : c));
     const { container } = draw(mixed, p);

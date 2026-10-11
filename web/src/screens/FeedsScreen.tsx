@@ -833,7 +833,7 @@ export function FeedsScreen() {
         ) : null}
       </div>
       {selecting ? (
-        <BottomBar label="Selected feeds">
+        <BottomBar ariaLabel="Selected feeds">
           <span className="mr-auto text-sm font-semibold" aria-live="polite">
             {selected.length} selected
           </span>

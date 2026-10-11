@@ -1,25 +1,37 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
-import { ListImage } from "./parts";
+import { ListImage, useImageFailure } from "./parts";
+
+function Pic({ src, frame }: { src: string; frame?: { className?: string } }) {
+  const failure = useImageFailure(src);
+  return (
+    <>
+      <ListImage src={src} failure={failure} frame={frame} className="pic" />
+      <span data-testid="state">{failure.failed ? "failed" : "ok"}</span>
+    </>
+  );
+}
 
 describe("ListImage", () => {
   it("removes the picture and its frame together when it cannot be shown", () => {
-    const { container } = render(<ListImage src="/a.bmp" frame={{ className: "frame" }} className="pic" />);
+    const { container, getByTestId } = render(<Pic src="/a.bmp" frame={{ className: "frame" }} />);
     expect(container.querySelector(".frame .pic")).toBeTruthy();
     fireEvent.error(container.querySelector("img")!);
-    expect(container.innerHTML).toBe("");
+    expect(container.querySelector(".frame, img")).toBeNull();
+    expect(getByTestId("state").textContent).toBe("failed");
   });
 
   it("removes a bare picture", () => {
-    const { container } = render(<ListImage src="/a.bmp" className="pic" />);
+    const { container } = render(<Pic src="/a.bmp" />);
     fireEvent.error(container.querySelector("img")!);
-    expect(container.innerHTML).toBe("");
+    expect(container.querySelector("img")).toBeNull();
   });
 
   it("tries a new image again", () => {
-    const { container, rerender } = render(<ListImage src="/a.bmp" className="pic" />);
+    const { container, rerender, getByTestId } = render(<Pic src="/a.bmp" />);
     fireEvent.error(container.querySelector("img")!);
-    rerender(<ListImage src="/b.jpg" className="pic" />);
+    rerender(<Pic src="/b.jpg" />);
     expect(container.querySelector("img")?.getAttribute("src")).toBe("/b.jpg");
+    expect(getByTestId("state").textContent).toBe("ok");
   });
 });

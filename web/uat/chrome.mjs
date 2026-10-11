@@ -12,6 +12,7 @@
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
+import { Buffer } from "node:buffer";
 import { start } from "./common.mjs";
 
 const t = await start(import.meta.url, 13);
@@ -105,7 +106,7 @@ await t.eachViewport(async (page, vp) => {
           .flatMap((r) => [...r.querySelectorAll("img")].filter((i) => !i.src.includes("/icon")).map((i) => ({ box: i.parentElement.getBoundingClientRect().height, shown: i.naturalWidth > 0 })))
           .filter((x) => !x.shown),
       );
-      const boxes = await page.locator('[data-item-id] [class*="aspect-"]').count();
+      const boxes = await page.locator("[data-item-id]", { hasText: "UAT" }).locator('[class*="aspect-"]').count();
       check(left.length === 0 && boxes === 0, `${tag} G1 ${layout}`, `${layout}: no picture or empty box is left for a picture that cannot be shown`, `${layout}: ${left.length} failed picture(s) and ${boxes} empty box(es) remain`);
       if (layout === "Gazette") await t.shot(page, `${tag}-gazette-no-box`);
     }

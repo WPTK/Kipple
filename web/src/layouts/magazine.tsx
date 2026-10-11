@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { CheckBadge, ListImage, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
+import { CheckBadge, ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex } from "./rowTabStop";
@@ -15,6 +15,7 @@ import { useRowTabIndex } from "./rowTabStop";
 function EditorialRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
+  const failure = useImageFailure(item.image);
   return (
     <article
       data-item-id={item.id}
@@ -29,6 +30,7 @@ function EditorialRow({ item, feed, selected, checked, to, onOpen, onToggleStar,
         {item.image ? (
           <ListImage
             src={item.image}
+            failure={failure}
             className={cn("aspect-video w-full rounded-xl bg-surface object-cover @[34rem]:w-2/5 @[34rem]:self-start", item.read && "opacity-60")}
           />
         ) : null}

@@ -8,15 +8,15 @@ import { useFavorites } from "@/lib/favorites";
 import { articleTo } from "@/lib/routes";
 import { planGazette, type Block, type GazettePlan, type PagePlan, type Slot } from "./gazettePlan";
 import { magazine } from "./magazine";
-import { CheckBadge, ListImage, PublishedTime, rowLabel } from "./parts";
+import { CheckBadge, ListImage, useImageFailure, PublishedTime, rowLabel } from "./parts";
 import type { ListLayout, PageProps } from "./types";
 
 // The Gazette's pages (docs/maintainers/ui-decisions.md, "The Gazette"). It draws what planGazette returns, in that order: a page
 // is a stack of blocks, a block is a grid of columns, and each column lists its slots top to bottom, so the DOM order
 // is the reading order. Colors are theme tokens only (rules and section marks use the theme's accent). A read story
 // keeps its weight and size: its picture fades and its text turns to the secondary color (which meets 4.5:1 on the
-// background in every theme), so marking one read never moves the page. A broken picture keeps its box for the same
-// reason.
+// background in every theme), so marking one read never moves the page. A picture that cannot be shown is dropped with its box, and its story is
+// laid out as the story it is without one (a lead as a headline lead, a photo as a story).
 
 /** The paper's name when none is set. */
 export const DEFAULT_PAPER_NAME = "The Gazette";
@@ -229,7 +229,11 @@ function headlineClass(slot: Slot, phone: boolean): string {
   }
 }
 
-function Story({ slot, item, heading: H, to, onOpen, phone, selected, tabStop, checked }: StoryProps) {
+function Story({ slot: planned, item, heading: H, to, onOpen, phone, selected, tabStop, checked }: StoryProps) {
+  const failure = useImageFailure(item.image);
+  // A picture that cannot be shown takes the slot back to what it is without one: a lead without a picture is the
+  // headline lead, a photo cell is an ordinary story with its standfirst.
+  const slot: Slot = !failure.failed ? planned : planned.kind === "photo" ? { ...planned, kind: "story" } : { ...planned, picture: false };
   const lead = slot.kind === "lead" || slot.kind === "co-lead";
   const picture = !!item.image && (slot.kind === "photo" || (lead && slot.picture));
   const brief = slot.kind === "brief";
@@ -250,6 +254,7 @@ function Story({ slot, item, heading: H, to, onOpen, phone, selected, tabStop, c
       {picture ? (
         <ListImage
           src={item.image!}
+          failure={failure}
           frame={{ className: cn("w-full bg-surface", slot.kind === "photo" ? "aspect-[4/3]" : "aspect-video") }}
           className={cn("size-full object-cover", item.read && "opacity-60")}
         />
