@@ -23,7 +23,7 @@ import { prefsStore } from "@/lib/prefs";
 import { useStore, useStoreSelector } from "@/lib/store";
 import { withDayHeaders, type Row } from "@/lib/format";
 import { useSearchHighlight } from "@/lib/useHighlights";
-import { isTypingTarget, useHotkeys, type Handlers } from "@/lib/keys";
+import { useHotkeys, type Handlers } from "@/lib/keys";
 import { onBecameUnread, readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
 import { articleTo } from "@/lib/routes";
@@ -294,21 +294,18 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const saved = memory.get(key);
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
   const selected = activeId ?? selectedId;
-  // The list is one Tab stop (rowTabStop.ts): the selected row, else the first. Its row is always rendered, so Tab
-  // into the list finds it wherever the list is scrolled.
-  const tabStopId = selected && items.some((i) => i.id === selected) ? selected : items[0]?.id;
+  // The list is one Tab stop (rowTabStop.ts): the row that last had focus, else the selected row, else the first. Its
+  // row is always rendered, so Tab into the list finds it wherever the list is scrolled.
+  const [focusId, setFocusId] = useState<string | undefined>(undefined);
+  const shown = (id: string | undefined, of: readonly Card[]) => (id && of.some((i) => i.id === id) ? id : undefined);
+  const tabStopId = shown(focusId, items) ?? shown(selected, items) ?? items[0]?.id;
+  const focusIdRef = useRef(focusId);
+  focusIdRef.current = focusId;
   const stopIndex = useMemo(
     () => (tabStopId ? rows.findIndex((r) => (r.kind === "item" ? r.item.id === tabStopId : r.kind === "group" && r.items.some((i) => i.id === tabStopId))) : -1),
     [rows, tabStopId],
   );
-  const rangeExtractor = useCallback(
-    (range: Range) => {
-      const indexes = defaultRangeExtractor(range);
-      if (stopIndex < 0 || indexes.includes(stopIndex)) return indexes;
-      return stopIndex < (indexes[0] ?? 0) ? [stopIndex, ...indexes] : [...indexes, stopIndex];
-    },
-    [stopIndex],
-  );
+  const rangeExtractor = useCallback((range: Range) => keepMounted(range, stopIndex), [stopIndex]);
 
   // The list's measured width and root font size, for layouts whose rows change shape with width (Editorial).
   const sizeCtx = useRef({ width: 0, rem: 16 });
@@ -584,8 +581,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   }, []);
   const virtualItems = virtualizer.getVirtualItems();
   // The last row the window and its overscan reach (not the tab-stop row rangeExtractor adds, which can be far below).
-  const windowEnd = virtualizer.range?.endIndex;
-  const lastIndex = windowEnd === undefined ? 0 : Math.min(rows.length - 1, windowEnd + OVERSCAN);
+  const lastIndex = windowReach(virtualizer.range, rows.length);
   useEffect(() => {
     // After a failed page the auto-fetch stops (offline would retry every render); the inline Retry row resumes it.
     // Not while the list itself is being refetched (an on-mount refetch of an invalidated list): fetchNextPage would
@@ -680,11 +676,11 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   }, [markOnScroll, qc, virtualizer, pagedScroll, lookAtStories]);
 
   const move = useCallback(
-    (delta: 1 | -1, from: string | undefined = selected) => {
+    (delta: 1 | -1) => {
       // A page layout's reading order is its DOM order (ListLayout.Page), which is not the list's order.
       const order = Page ? pageOrder(parentRef.current, allItems) : items;
       if (order.length === 0) return;
-      const cur = from ? order.findIndex((i) => i.id === from) : -1;
+      const cur = selected ? order.findIndex((i) => i.id === selected) : -1;
       const next = Math.min(order.length - 1, Math.max(0, cur < 0 ? (delta === 1 ? 0 : order.length - 1) : cur + delta));
       const item = order[next];
       if (!item) return;
@@ -698,16 +694,31 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     [Page, allItems, items, selected, virtualizer, rowIndexOf, onKeyMove],
   );
 
-  // The arrow keys move between rows when a row has focus, as j and k do, and work with single-key shortcuts off: the
-  // list is one Tab stop, so they are how the keyboard reaches the other rows. Elsewhere the arrows scroll as usual.
+  // The arrow keys move focus between row links, and only focus: unlike j and k they select nothing and open nothing
+  // (beside the reader pane j opens the article it reaches), so looking through the list marks nothing read. They work
+  // with single-key shortcuts off: the list is one Tab stop, so they are how the keyboard reaches the other rows. On a
+  // row's other controls the arrows keep their own meaning (a menu button opens its menu); elsewhere they scroll.
   const onRowArrow = (e: React.KeyboardEvent) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
-    const row = e.target instanceof HTMLElement && !isTypingTarget(e.target) ? e.target.closest<HTMLElement>("[data-item-id]") : null;
-    if (!row) return;
+    const row = e.target instanceof HTMLElement ? e.target.closest<HTMLElement>("[data-item-id]") : null;
+    if (!row || e.target !== row.querySelector("a")) return;
+    const order = Page ? pageOrder(parentRef.current, allItems) : items;
+    const item = order[order.findIndex((i) => i.id === row.dataset.itemId) + (e.key === "ArrowDown" ? 1 : -1)];
     e.preventDefault();
-    // From the row that has focus: Tab lands on the first row when nothing is selected yet.
-    move(e.key === "ArrowDown" ? 1 : -1, row.dataset.itemId);
+    if (!item) return;
+    setFocusId(item.id);
+    pageRestored.current = true; // moving by key is the reader moving the page
+    if (Page) storyIntoView(parentRef.current, item.id);
+    else virtualizer.scrollToIndex(rowIndexOf(item.id), { align: "auto" });
+    requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, item.id)));
+  };
+
+  /** The row that takes focus in the list (its own focus, or one of its controls) becomes the list's Tab stop. */
+  const onListFocus = (e: React.FocusEvent) => {
+    const id = e.target instanceof HTMLElement ? e.target.closest<HTMLElement>("[data-item-id],[data-muted-for]") : null;
+    const rowId = id?.dataset.itemId ?? id?.dataset.mutedFor;
+    if (rowId) setFocusId(rowId);
   };
 
   const selectedItem = (Page ? allItems : items).find((i) => i.id === selected);
@@ -738,21 +749,33 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       pendingAnchor.current = el && el.scrollTop > 0 ? captureAnchor(el, ids) : null;
       // The selected row is leaving (marked read in Unread): the selection moves to the row that takes its place, or
       // the one before it at the end, so j/k carry on from there and m, s, o, x and Enter still have a row to act on.
+      const all = allItemsRef.current;
+      const gone = memoryFor(key).hidden;
+      const stays = (i: Card) => !gone.has(i.id) && !ids.includes(i.id);
+      /** The row that takes the place of a leaving one, or the one before it at the end. */
+      const after = (id: string) => {
+        const at = all.findIndex((i) => i.id === id);
+        return at < 0 ? undefined : (all.slice(at + 1).find(stays) ?? all.slice(0, at).reverse().find(stays));
+      };
       const { selectedId: sel, activeId: open } = selectionRef.current;
       if (sel && !open && ids.includes(sel)) {
-        const all = allItemsRef.current;
-        const gone = memoryFor(key).hidden;
-        const at = all.findIndex((i) => i.id === sel);
-        const stays = (i: Card) => !gone.has(i.id) && !ids.includes(i.id);
-        const next = at < 0 ? undefined : (all.slice(at + 1).find(stays) ?? all.slice(0, at).reverse().find(stays));
+        const next = after(sel);
         if (next) {
           memoryFor(key).selectedId = next.id;
           setSelectedId(next.id);
-          // Focus was on the leaving row: it follows the selection instead of dropping to the page.
-          const focused = document.activeElement;
-          const inRow = focused instanceof HTMLElement && ids.some((id) => focused.closest(`[data-item-id="${CSS.escape(id)}"]`));
-          if (inRow) requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, next.id)));
         }
+      }
+      // Focus was in a leaving row (its link, a button, its Muted strip, or the row's menu, which closes with it): it
+      // moves to the row that takes its place instead of dropping to the page, where the next Tab would start over.
+      const last = focusIdRef.current;
+      const active = document.activeElement;
+      const lost = !active || active === document.body || !!active.closest('[role="menu"]') || !!(last && active.closest(`[data-item-id="${CSS.escape(last)}"],[data-muted-for="${CSS.escape(last)}"]`));
+      if (last && lost && ids.includes(last)) {
+        const next = after(last);
+        if (next) {
+          setFocusId(next.id);
+          requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, next.id)));
+        } else requestAnimationFrame(() => parentRef.current?.focus({ preventScroll: true }));
       }
       setHidden((h) => new Set([...h, ...ids]));
       setLeaving((l) => new Set([...l].filter((x) => !ids.includes(x))));
@@ -1174,7 +1197,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       return (
         <>
           <div ref={pageBoxRef} data-page-box="">
-            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} checked={checked} onOpen={openItem} />
+            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} tabStopId={shown(focusId, allItems)} checked={checked} onOpen={openItem} />
           </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
           {q.isFetchingNextPage ? (
@@ -1286,6 +1309,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
           className="@container h-full overflow-y-auto overscroll-y-contain"
           tabIndex={-1}
           onKeyDown={onRowArrow}
+          onFocus={onListFocus}
         >
           <div
             style={
@@ -1391,7 +1415,7 @@ export function MutedStrip({ item, onRestore, onEditRule }: { item: Card; onRest
   const name = item.muted_by_name;
   const tabIndex = useRowTabIndex();
   return (
-    <div data-testid="muted-strip" className="flex flex-wrap items-center gap-x-3 border-b border-line bg-surface px-4 text-xs">
+    <div data-testid="muted-strip" data-muted-for={item.id} className="flex flex-wrap items-center gap-x-3 border-b border-line bg-surface px-4 text-xs">
       <span className="min-w-0 flex-1 py-1 text-fg2">
         {name ? (
           <>
@@ -1411,6 +1435,19 @@ export function MutedStrip({ item, onRestore, onEditRule }: { item: Card; onRest
       ) : null}
     </div>
   );
+}
+
+/** The rows to render: the visible window and its overscan, plus the list's Tab stop row wherever it is. */
+export function keepMounted(range: Range, stopIndex: number): number[] {
+  const indexes = defaultRangeExtractor(range);
+  if (stopIndex < 0 || indexes.includes(stopIndex)) return indexes;
+  return stopIndex < (indexes[0] ?? 0) ? [stopIndex, ...indexes] : [...indexes, stopIndex];
+}
+
+/** The last row the visible window and its overscan reach, which decides when the next page loads: not the Tab stop
+ * row keepMounted adds, which can be far below. */
+export function windowReach(range: { endIndex: number } | null | undefined, count: number): number {
+  return range ? Math.min(count - 1, range.endIndex + OVERSCAN) : 0;
 }
 
 /** Put keyboard focus back on a list row (Esc or u in the reader pane); the list itself when the row is not rendered. */

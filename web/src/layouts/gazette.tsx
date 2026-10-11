@@ -36,6 +36,8 @@ export interface GazetteProps {
   onOpen: (item: Card) => void;
   /** The story selected with j/k or open in the reader pane: it is outlined. */
   selectedId?: string;
+  /** The story that last had focus: the paper's one Tab stop when it is still there. */
+  focusedId?: string;
   /** Stories ticked with `x`: each shows a tick. */
   checked?: ReadonlySet<string>;
 }
@@ -51,12 +53,13 @@ export function closingLine(name: string): string {
 const longDate = (d: Date) => d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 const shortDate = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
-export function Gazette({ plan, items, name: given, date, screen, to, onOpen, selectedId, checked }: GazetteProps) {
+export function Gazette({ plan, items, name: given, date, screen, to, onOpen, selectedId, focusedId, checked }: GazetteProps) {
   const phone = screen === "phone";
   const name = paperName(given);
   const last = plan.pages.length - 1;
-  // The paper is one Tab stop, like a list (rowTabStop.ts): the selected story, else the first one in reading order.
-  const tabStopId = selectedId && items.has(selectedId) ? selectedId : firstStory(plan, items);
+  // The paper is one Tab stop, like a list (rowTabStop.ts): the story that last had focus, else the selected one, else
+  // the first one in reading order.
+  const tabStopId = [focusedId, selectedId].find((id) => id && items.has(id)) ?? firstStory(plan, items);
   return (
     <div data-gazette="" className="gazette bg-bg px-4 pb-10 text-fg">
       {plan.pages.map((page, i) => (
@@ -265,7 +268,8 @@ function Story({ slot, item, heading: H, to, onOpen, phone, selected, tabStop, c
           tabIndex={tabStop ? undefined : -1}
           onClick={() => onOpen(item)}
           aria-label={rowLabel(item)}
-          className="after:absolute after:inset-0 hover:underline focus-visible:after:outline-2 focus-visible:after:outline-accent"
+          aria-keyshortcuts="ArrowDown ArrowUp"
+          className="row-link hover:underline"
         >
           {item.title || "Untitled"}
         </Link>
@@ -292,7 +296,7 @@ export const PHONE_BELOW = 600;
  * was opened. Until the planner has a front page (it waits for the lead window, or the end of the list) it says the
  * front page is being laid out; the list screen keeps loading meanwhile.
  */
-function GazetteList({ items, scope, more, width, selectedId, checked, onOpen }: PageProps) {
+function GazetteList({ items, scope, more, width, selectedId, tabStopId, checked, onOpen }: PageProps) {
   const boot = useBootstrap();
   const { favorites } = useFavorites();
   const { paperName: name } = useDevicePrefs();
@@ -315,7 +319,7 @@ function GazetteList({ items, scope, more, width, selectedId, checked, onOpen }:
       </p>
     );
   }
-  return <Gazette plan={plan} items={byId} name={name} date={date} screen={screen} to={(c) => articleTo(c.id, scope)} onOpen={onOpen} selectedId={selectedId} checked={checked} />;
+  return <Gazette plan={plan} items={byId} name={name} date={date} screen={screen} to={(c) => articleTo(c.id, scope)} onOpen={onOpen} selectedId={selectedId} focusedId={tabStopId} checked={checked} />;
 }
 
 /** In a search, which a paper cannot be planned from, the Gazette shows Editorial rows. */

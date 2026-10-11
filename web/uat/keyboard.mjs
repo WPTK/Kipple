@@ -94,6 +94,32 @@ function installHelpers() {
   const keyOf = (e) =>
     [e.tagName, e.getAttribute("role") ?? "", e.getAttribute("aria-label") ?? "", e.getAttribute("href") ?? "", e.id, e.getAttribute("name") ?? "", (e.textContent ?? "").trim().slice(0, 30)].join("|");
   const ringOf = (st) => st.outlineStyle !== "none" && parseFloat(st.outlineWidth) > 0 && st.outlineColor !== "rgba(0, 0, 0, 0)";
+  /**
+   * Whether a list row control's focus ring is cut off by a box that clips its overflow (the row's neighbours, the
+   * swipe container, a line-clamped title), checked from the boxes: the ring's rectangle is the control's box, or for a
+   * ring drawn by an absolutely placed ::after (a row link's) its containing block's, grown by outline offset and width.
+   * Only boxes inside the list's scroller count: the scroller clipping a row scrolled half out of view is not a fault.
+   */
+  const ringClipped = (e, s) => {
+    const scroller = e.closest('[data-testid="list-scroll"]');
+    if (!scroller || !e.closest("[data-item-id]")) return false;
+    const after = getComputedStyle(e, "::after");
+    const own = ringOf(s);
+    const st = own ? s : after;
+    if (!own && !(ringOf(after) && after.position === "absolute")) return false;
+    const box = own ? e : e.offsetParent;
+    if (!box) return false;
+    const grow = parseFloat(st.outlineOffset) + parseFloat(st.outlineWidth);
+    const r = box.getBoundingClientRect();
+    const ring = { top: r.top - grow, left: r.left - grow, bottom: r.bottom + grow, right: r.right + grow };
+    for (let a = own ? e.parentElement : box; a && a !== scroller; a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
+      const c = a.getBoundingClientRect();
+      if (ring.top < c.top - 0.5 || ring.left < c.left - 0.5 || ring.bottom > c.bottom + 0.5 || ring.right > c.right + 0.5) return true;
+    }
+    return false;
+  };
   // Everything the live regions said (an announcement is replaced within moments, too fast to poll for).
   const said = [];
   new MutationObserver(() => {
@@ -141,7 +167,7 @@ function installHelpers() {
         ringOf(getComputedStyle(e, "::after")) ||
         ringOf(getComputedStyle(e, "::before")) ||
         (wrap && wrap !== e && (ringOf(getComputedStyle(wrap)) || getComputedStyle(wrap).boxShadow !== "none"));
-      return { id: e.__kid, key: keyOf(e), ring: !!ring, inRow: !!e.closest("article[data-item-id]") };
+      return { id: e.__kid, key: keyOf(e), ring: !!ring && !ringClipped(e, s), inRow: !!e.closest("article[data-item-id]") };
     },
   };
 }
@@ -263,42 +289,27 @@ async function k1(page, articlePath) {
     const walked = await walk(page, where, lastKey, rewound);
     report(where, expected, walked);
     if (walked.ended && walked.ended !== "TRAP") await backwards(page, where);
-    if (list) await keepingReadState(page, () => leaveList(page, `${where} (deep in the list)`, 30));
+    if (list) await onlyFocusMoves(page, `${where} (deep in the list)`, () => leaveList(page, `${where} (deep in the list)`, 30));
   }
 }
 
-/** Run `fn`, then mark unread again what it marked read: beside the reader pane, moving through the list opens each
- * article it reaches (as j does), and the seeded instance should end as it began. */
-async function keepingReadState(page, fn) {
-  // The newest 500 unread articles: the check moves through 30 rows, all of them among these.
-  const unread = () =>
-    page.evaluate(async () => {
-      const ids = [];
-      let cursor = "";
-      for (let n = 0; n < 5; n++) {
-        const res = await fetch(`/api/items?view=unread&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { headers: { Accept: "application/json" } });
-        const page = await res.json();
-        ids.push(...page.items.map((i) => i.id));
-        if (!page.next_cursor) break;
-        cursor = page.next_cursor;
-      }
-      return ids;
-    });
-  const before = await unread();
+/** Run `fn` (arrow keys through the list) and check that it opened nothing and marked nothing read: the arrows
+ * move focus only, unlike j and k, which open the article they reach beside the reader pane. */
+async function onlyFocusMoves(page, where, fn) {
+  const sent = [];
+  const onRequest = (req) => {
+    if (req.method() === "POST" && /\/api\/items\/(mark-read|[^/]+\/open)$/.test(new URL(req.url()).pathname)) sent.push(new URL(req.url()).pathname);
+  };
+  const path = new URL(page.url()).pathname;
+  page.on("request", onRequest);
   try {
     await fn();
-  } finally {
     await page.waitForLoadState("networkidle").catch(() => {});
-    const still = new Set(await unread());
-    const read = before.filter((id) => !still.has(id));
-    if (read.length) {
-      const status = await page.evaluate(
-        async (ids) => (await fetch("/api/items/mark-read", { method: "POST", headers: { "Content-Type": "application/json", "X-Kipple-Client": "web" }, body: JSON.stringify({ ids, read: false, reason: "key" }) })).status,
-        read,
-      );
-      if (status !== 200) fail("K1", `could not mark ${read.length} article(s) unread again after the list check (HTTP ${status})`);
-    }
+  } finally {
+    page.off("request", onRequest);
   }
+  const moved = new URL(page.url()).pathname;
+  check(!sent.length && moved === path, `${where} (nothing opened)`, "the arrow keys open nothing and mark nothing read", `the arrow keys sent ${sent.length} open or mark-read request(s) (${sent.slice(0, 3).join(", ")}) and the page went from ${path} to ${moved}`);
 }
 
 /** The list is one Tab stop: after moving `moves` rows down with the arrow keys (which loads more rows as it goes), a

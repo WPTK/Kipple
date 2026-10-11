@@ -100,7 +100,7 @@ const CHORD: Record<string, Action> = {
 /**
  * Map a key press to an action. Pure so it can be tested without a DOM.
  * `pendingG` says a `g` chord is waiting; the result carries the next value.
- * Arrow keys stay unbound here so the browser keeps scrolling; on a focused list row the list moves with them (ListPane).
+ * Arrow keys stay unbound here so the browser keeps scrolling; on a focused row link they move focus between rows (ListPane).
  */
 export function interpretKey(
   e: KeyLike,
@@ -186,7 +186,7 @@ export const KEYMAP: KeyDoc[] = [
   { keys: "Enter", desc: "Open the folder's or feed's list", scope: "Sidebar" },
   { keys: "p", desc: "Add to favorites or take out", scope: "Sidebar" },
   { keys: "j / k", desc: "Next / previous article", scope: "List" },
-  { keys: "↓ / ↑", desc: "Next / previous article when a row has focus (Tab leaves the list)", scope: "List" },
+  { keys: "↓ / ↑", desc: "Move focus to the next / previous article without opening it (Tab leaves the list)", scope: "List" },
   { keys: "Enter", desc: "Open the selected article", scope: "List" },
   { keys: "x", desc: "Select or deselect the row (then m, s, { and } act on the selection; { and } anchor on its first and last row)", scope: "List" },
   { keys: "m", desc: "Mark read or unread", scope: "List" },
