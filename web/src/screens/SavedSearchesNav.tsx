@@ -30,13 +30,22 @@ export function SavedCount({ s }: { s: SavedSearch }) {
   );
 }
 
-function RetryNote({ message, onRetry }: { message: string; onRetry: () => void }) {
+/** A failure note with its retry. role=status (not alert): the section is mounted twice in the wide layout. The button's name carries the message so it is not one of several "Try again". */
+function RetryNote({ message, busy, onRetry }: { message: string; busy: boolean; onRetry: () => void }) {
   return (
     <li className="px-3 text-xs text-fg2">
-      {message}{" "}
-      <button type="button" onClick={onRetry} className="min-h-11 text-link underline underline-offset-2">
-        Try again
-      </button>
+      <div role="status" aria-busy={busy}>
+        {message}{" "}
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={busy}
+          aria-label={`Try again: ${message.replace(/\.$/, "").toLowerCase()}`}
+          className="min-h-11 text-link underline underline-offset-2 disabled:opacity-60"
+        >
+          Try again
+        </button>
+      </div>
     </li>
   );
 }
@@ -47,7 +56,7 @@ function RetryNote({ message, onRetry }: { message: string; onRetry: () => void 
  * says so, with a retry, when the list could not be loaded.
  */
 export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
-  const { searches, error, refetch, countsError, refetchCounts } = useSavedSearches({ counts: true });
+  const { searches, error, fetching, refetch, countsFetching, countsError, refetchCounts } = useSavedSearches({ counts: true });
   const listId = useId();
   const open = useStore(savedOpenStore);
   const loc = useLocation();
@@ -86,8 +95,8 @@ export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
               </Link>
             </li>
           ))}
-          {listFailed ? <RetryNote message="Couldn't load saved searches." onRetry={refetch} /> : null}
-          {countsError ? <RetryNote message="Couldn't count unread articles." onRetry={refetchCounts} /> : null}
+          {listFailed ? <RetryNote message="Couldn't load your saved searches." busy={fetching} onRetry={refetch} /> : null}
+          {countsError ? <RetryNote message="Couldn't count unread articles." busy={countsFetching} onRetry={refetchCounts} /> : null}
         </ul>
       ) : null}
     </section>

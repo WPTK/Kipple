@@ -7,7 +7,7 @@
  *  - precaches the app shell (index, hashed JS and CSS, icons) so a launch works offline;
  *  - navigations: network first, the cached shell when the network is down or slow;
  *  - /assets/*: cache first (hashed names never change);
- *  - a few read-only API GETs (bootstrap, item lists, one item): network first, the last good answer when
+ *  - a few read-only API GETs (bootstrap, item lists, one item, the saved searches): network first, the last good answer when
  *    the network is down or slow, marked X-Kipple-Cache: 1. A list fetched with include=content is also
  *    stored as one entry per item, so each article opens offline;
  *  - images (/img/*, feed icons): cache first, bounded;
@@ -31,7 +31,7 @@ const IMAGES_MAX = 400;
 const STATIC_MAX = 200;
 const NET_WAIT_MS = 5000;
 
-const API_READS = /^\/api\/(bootstrap|items|items\/\d+)$/;
+const API_READS = /^\/api\/(bootstrap|items|items\/\d+|saved-searches)$/;
 const ICONS = /^\/api\/feeds\/\d+\/icon$/;
 
 /** Bumped by every clear-data; a copy whose request started in an older generation is not stored. */

@@ -24,7 +24,6 @@ function routes(extra: Parameters<typeof mockFetch>[0] = {}) {
   const open = (n: number) => () => json({ session_key: "k", item: detail(n, { read: true }) });
   return mockFetch({
     "GET /api/bootstrap": () => json(bootstrap),
-    "GET /api/saved-searches": () => json({ saved_searches: [] }),
     "GET /api/items": () => json(pageOf(items(), null, "2000")),
     "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 3 }),
     "POST /api/refresh": () => json({ run_id: "r1", total: 1 }, 202),
