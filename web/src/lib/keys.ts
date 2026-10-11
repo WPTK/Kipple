@@ -186,7 +186,7 @@ export const KEYMAP: KeyDoc[] = [
   { keys: "Enter", desc: "Open the folder's or feed's list", scope: "Sidebar" },
   { keys: "p", desc: "Add to favorites or take out", scope: "Sidebar" },
   { keys: "j / k", desc: "Next / previous article", scope: "List" },
-  { keys: "↓ / ↑", desc: "Move focus to the next / previous article without opening it (Tab leaves the list)", scope: "List" },
+  { keys: "↓ / ↑", desc: "Move focus to the next / previous article without opening it (x, m, s, { and } then act on it; Tab leaves the list)", scope: "List" },
   { keys: "Enter", desc: "Open the selected article", scope: "List" },
   { keys: "x", desc: "Select or deselect the row (then m, s, { and } act on the selection; { and } anchor on its first and last row)", scope: "List" },
   { keys: "m", desc: "Mark read or unread", scope: "List" },

@@ -294,12 +294,14 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
 
   const saved = memory.get(key);
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
-  const selected = activeId ?? selectedId;
-  // The list is one Tab stop (rowTabStop.ts): the row that last had focus, else the selected row, else the first. Its
-  // row is always rendered, so Tab into the list finds it wherever the list is scrolled.
-  const [focusId, setFocusId] = useState<string | undefined>(undefined);
+  // One cursor: the selected row is the row the keys act on, the row that has focus (the arrow keys, Tab and a click
+  // move it, as do j and k) and the open article (the reader's Next and Previous move it). Before the first move the
+  // open article is the cursor.
+  const selected = selectedId ?? activeId;
+  // The list is one Tab stop (rowTabStop.ts): the cursor's row, else the first. Its row is always rendered, so Tab into
+  // the list finds it wherever the list is scrolled.
   const shown = (id: string | undefined, of: readonly Card[]) => (id && of.some((i) => i.id === id) ? id : undefined);
-  const tabStopId = shown(focusId, items) ?? shown(selected, items) ?? items[0]?.id;
+  const tabStopId = shown(selected, items) ?? items[0]?.id;
   const stopIndex = useMemo(
     () => (tabStopId ? rows.findIndex((r) => (r.kind === "item" ? r.item.id === tabStopId : r.kind === "group" && r.items.some((i) => i.id === tabStopId))) : -1),
     [rows, tabStopId],
@@ -559,6 +561,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   useEffect(() => {
     if (!activeId || lastActive.current === activeId) return;
     lastActive.current = activeId;
+    setSelectedId(activeId); // the cursor goes with the open article, wherever the reader's own buttons took it
     if (pagedRef.current) return storyIntoView(parentRef.current, activeId);
     const i = rowIndexOf(activeId);
     if (i >= 0) virtualizer.scrollToIndex(i, { align: "auto" });
@@ -674,6 +677,14 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     };
   }, [markOnScroll, qc, virtualizer, pagedScroll, lookAtStories]);
 
+  // Focus follows the cursor a frame or two after the row is scrolled into view. Only the latest move gets its focus:
+  // keys pressed faster than that must not have an earlier row's focus pull the cursor back (focusing a row moves it).
+  const focusToken = useRef(0);
+  const focusLater = useCallback((id: string) => {
+    const mine = ++focusToken.current;
+    requestAnimationFrame(() => requestAnimationFrame(() => mine === focusToken.current && focusRow(parentRef.current, id)));
+  }, []);
+
   const move = useCallback(
     (delta: 1 | -1) => {
       // A page layout's reading order is its DOM order (ListLayout.Page), which is not the list's order.
@@ -687,14 +698,14 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       pageRestored.current = true; // moving by key is the reader moving the page
       if (Page) storyIntoView(parentRef.current, item.id);
       else virtualizer.scrollToIndex(rowIndexOf(item.id), { align: "auto" });
-      requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, item.id)));
+      focusLater(item.id);
       onKeyMove?.(item);
     },
-    [Page, allItems, items, selected, virtualizer, rowIndexOf, onKeyMove],
+    [Page, allItems, items, selected, virtualizer, rowIndexOf, onKeyMove, focusLater],
   );
 
-  // The arrow keys move focus between row links, and only focus: unlike j and k they select nothing and open nothing
-  // (beside the reader pane j opens the article it reaches), so looking through the list marks nothing read. They work
+  // The arrow keys move focus between row links, and the cursor with it: unlike j and k they open nothing (beside the
+  // reader pane j opens the article it reaches), so looking through the list marks nothing read. They work
   // with single-key shortcuts off: the list is one Tab stop, so they are how the keyboard reaches the other rows. On a
   // row's other controls the arrows keep their own meaning (a menu button opens its menu); elsewhere they scroll.
   const onRowArrow = (e: React.KeyboardEvent) => {
@@ -706,18 +717,18 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     const item = order[order.findIndex((i) => i.id === row.dataset.itemId) + (e.key === "ArrowDown" ? 1 : -1)];
     e.preventDefault();
     if (!item) return;
-    setFocusId(item.id);
+    setSelectedId(item.id);
     pageRestored.current = true; // moving by key is the reader moving the page
     if (Page) storyIntoView(parentRef.current, item.id);
     else virtualizer.scrollToIndex(rowIndexOf(item.id), { align: "auto" });
-    requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, item.id)));
+    focusLater(item.id);
   };
 
   /** The row that takes focus in the list (its own focus, or one of its controls) becomes the list's Tab stop. */
   const onListFocus = (e: React.FocusEvent) => {
     const id = e.target instanceof HTMLElement ? e.target.closest<HTMLElement>("[data-item-id],[data-muted-for]") : null;
     const rowId = id?.dataset.itemId ?? id?.dataset.mutedFor;
-    if (rowId) setFocusId(rowId);
+    if (rowId) setSelectedId(rowId);
   };
 
   const selectedItem = (Page ? allItems : items).find((i) => i.id === selected);
@@ -746,7 +757,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     const commit = () => {
       const el = parentRef.current;
       pendingAnchor.current = el && el.scrollTop > 0 ? captureAnchor(el, ids) : null;
-      // The selected row is leaving (marked read in Unread): the selection moves to the row that takes its place, or
+      // The cursor's row is leaving (marked read in Unread): the selection moves to the row that takes its place, or
       // the one before it at the end, so j/k carry on from there and m, s, o, x and Enter still have a row to act on.
       const all = allItemsRef.current;
       const gone = memoryFor(key).hidden;
@@ -757,7 +768,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         return at < 0 ? undefined : (all.slice(at + 1).find(stays) ?? all.slice(0, at).reverse().find(stays));
       };
       const { selectedId: sel, activeId: open } = selectionRef.current;
-      if (sel && !open && ids.includes(sel)) {
+      if (sel && sel !== open && ids.includes(sel)) {
         const next = after(sel);
         if (next) {
           memoryFor(key).selectedId = next.id;
@@ -823,10 +834,10 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     const at = before.indexOf(held);
     const next = before.slice(at + 1).find((id) => now.has(id)) ?? before.slice(0, at).reverse().find((id) => now.has(id));
     if (next) {
-      setFocusId(next);
-      requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, next)));
+      setSelectedId(next);
+      focusLater(next);
     } else requestAnimationFrame(() => parentRef.current?.focus({ preventScroll: true }));
-  }, [shownIds, held]);
+  }, [shownIds, held, focusLater]);
 
   // After rows are removed, put the first visible row back where it was on screen.
   useLayoutEffect(() => {
@@ -1207,7 +1218,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       return (
         <>
           <div ref={pageBoxRef} data-page-box="">
-            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} tabStopId={shown(focusId, allItems)} checked={checked} onOpen={openItem} />
+            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} tabStopId={shown(selected, allItems)} checked={checked} onOpen={openItem} />
           </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
           {q.isFetchingNextPage ? (

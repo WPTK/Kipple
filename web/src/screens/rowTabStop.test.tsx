@@ -77,13 +77,29 @@ describe("the article list is one Tab stop", () => {
     fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
     await waitFor(() => expect(rowOfFocus()).toBe(b));
     expect(stops(scroller)).toEqual([b]);
-    // Nothing selected, nothing opened, nothing marked read.
-    expect(selectedRows(scroller)).toBe(0);
+    // The cursor moved with focus; nothing opened, nothing marked read.
+    expect(selectedRows(scroller)).toBe(1);
+    expect(scroller.querySelector(`[data-item-id="${b}"]`)).toHaveAttribute("data-selected", "true");
     expect(window.location.pathname).toBe(path);
     expect(api.calls.some((c) => /mark-read|\/open/.test(String(c.url)))).toBe(false);
     fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
     await waitFor(() => expect(rowOfFocus()).toBe(a));
     expect(stops(scroller)).toEqual([a]);
+  });
+
+  it("acts on the row the arrows reached: x and j start from it", async () => {
+    const { scroller, ids, api } = await list();
+    const user = userEvent.setup();
+    const [, b, c] = ids();
+    linkOf(scroller, ids()[0]!).focus();
+    await user.keyboard("{ArrowDown}");
+    await waitFor(() => expect(rowOfFocus()).toBe(b));
+    await user.keyboard("s");
+    await waitFor(() => expect(api.calls.some((c) => /star/.test(String(c.url)))).toBe(true));
+    const sent = api.calls.find((c) => /star/.test(String(c.url)))!;
+    expect(String(sent.url)).toContain(b!);
+    await user.keyboard("j"); // from the focused row, not from the first
+    await waitFor(() => expect(rowOfFocus()).toBe(c));
   });
 
   it("leaves the arrows to a row's other controls, and to modified presses", async () => {

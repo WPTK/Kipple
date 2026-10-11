@@ -124,6 +124,27 @@ function installHelpers() {
       if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
       const c = a.getBoundingClientRect();
       if (ring.top < c.top - 0.5 || ring.left < c.left - 0.5 || ring.bottom > c.bottom + 0.5 || ring.right > c.right + 0.5) return true;
+      // A rounded clipping box cuts the corners of a ring that is square (or rounder than the box) even when the
+      // rectangles nest: the ring's corner arc must stay inside the box's corner arc.
+      const corners = [
+        ["TopLeft", 1, 1, ring.left, ring.top, c.left, c.top],
+        ["TopRight", -1, 1, ring.right, ring.top, c.right, c.top],
+        ["BottomLeft", 1, -1, ring.left, ring.bottom, c.left, c.bottom],
+        ["BottomRight", -1, -1, ring.right, ring.bottom, c.right, c.bottom],
+      ];
+      for (const [name, sx, sy, rx, ry, cx, cy] of corners) {
+        const R = parseFloat(cs[`border${name}Radius`]) || 0;
+        if (R <= 0) continue;
+        const rr = parseFloat(st[`border${name}Radius`]) || 0;
+        // The ring's outermost corner point: on its arc 45 degrees out, or the square corner itself.
+        const k = rr * (1 - Math.SQRT1_2);
+        const px = rx + sx * k;
+        const py = ry + sy * k;
+        const ox = cx + sx * R;
+        const oy = cy + sy * R;
+        const inCorner = (px - ox) * sx < 0 && (py - oy) * sy < 0;
+        if (inCorner && Math.hypot(px - ox, py - oy) > R + 0.5) return true;
+      }
     }
     return false;
   };
@@ -241,6 +262,33 @@ const selectedId = async (page) => (await rowState(page)).find((r) => r[2])?.[0]
 const until = (page, fn, arg, ms = 4000) => page.waitForFunction(fn, arg, { timeout: ms, polling: 100 }).then(() => true, () => false);
 const pathOf = (page) => new URL(page.url()).pathname + new URL(page.url()).search;
 
+/** Cards: the focus ring of a row follows the card's rounded corners (a square ring is cut off by them, which a
+ * comparison of rectangles does not see). Leaves the list in the Editorial layout, as the run found it. */
+async function cardsRing(page) {
+  const where = "K1 Cards focus ring";
+  await load(page, "/l/all");
+  const pick = async (name) => {
+    await page.locator('button[aria-label^="List options, "]').first().click();
+    await page.getByRole("menuitemradio", { name: new RegExp(`^${name}\\b`) }).click();
+    await page.waitForTimeout(400);
+  };
+  await pick("Cards");
+  try {
+    const row = page.locator('[data-testid="list-scroll"] article[data-item-id] a').first();
+    await row.waitFor({ timeout: 15000 });
+    await row.focus();
+    const f = await focusOf(page);
+    const corner = await page.evaluate(() => {
+      const a = document.activeElement;
+      const card = a?.closest("article[data-item-id]");
+      return { ring: parseFloat(getComputedStyle(a, "::after").borderTopLeftRadius), card: card ? parseFloat(getComputedStyle(card).borderTopLeftRadius) : 0 };
+    });
+    check(!!f?.ring && corner.card > 0 && corner.ring > 0 && corner.ring <= corner.card, where, "the ring is drawn, and rounded to sit inside the card's corners", `ring shown=${f?.ring}, ring radius ${corner.ring}px, card radius ${corner.card}px`);
+  } finally {
+    await pick("Editorial");
+  }
+}
+
 // ---- the desktop checks ----
 async function desktop(cookies) {
   const ctx = await newContext({ viewport: { width: 1280, height: 800 }, storageState: { cookies, origins: [] } });
@@ -272,6 +320,7 @@ async function desktop(cookies) {
     await k1(page, articlePath);
     await k2(page);
     await k3(page);
+    await cardsRing(page);
   } finally {
     if (refused.length) note("desktop", `${refused.length} fetch(es) WebKit refused while the page was being left (not counted): ${[...new Set(refused)].join(", ")}`);
   }
@@ -555,6 +604,20 @@ async function k3(page) {
   await press(page, "s");
   const unstarred = await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] button[aria-pressed]`)?.getAttribute("aria-pressed") === was, [s0[0], s0[3]]);
   check(starred && unstarred, where("s"), "stars and unstars", `starred=${starred} unstarred=${unstarred}`);
+
+  // The arrow keys move the one cursor: the row they reach is the row s acts on (nothing else is "selected").
+  const fromRow = await selectedId(page);
+  await press(page, "ArrowDown");
+  const reached = await until(page, (was) => {
+    const id = document.activeElement?.closest("[data-item-id]")?.getAttribute("data-item-id");
+    return id && id !== was && document.querySelector(`article[data-item-id="${id}"]`)?.getAttribute("data-selected") === "true";
+  }, fromRow);
+  const arrowRow = await selectedId(page);
+  const before = (await rowState(page)).find((r) => r[0] === arrowRow);
+  await press(page, "s");
+  const arrowStarred = await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] button[aria-pressed]`)?.getAttribute("aria-pressed") !== was, [arrowRow, before?.[3]]);
+  await press(page, "s");
+  check(reached && arrowStarred, where("arrow then s"), "the row the arrows reached is selected, and s stars that row", `cursor moved=${reached} from ${fromRow} to ${arrowRow}; starred=${arrowStarred}`);
 
   // Bulk marking, each undone with z: { } Shift+A.
   const bulk = async (label, keys, expect) => {

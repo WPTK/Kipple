@@ -21,7 +21,7 @@ function CardRow({ item, feed, selected, checked, to, onOpen, onToggleStar, acti
       data-item-id={item.id}
       data-selected={selected || undefined}
       className={cn(
-        "row-host relative flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-md",
+        "row-host relative flex h-full flex-col overflow-hidden rounded-2xl [--row-radius:calc(1rem-1px)] border border-line bg-surface shadow-md",
         selected && "bg-selection outline-2 outline-accent",
       )}
     >
