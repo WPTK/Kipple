@@ -298,6 +298,36 @@ describe("Mute similar…", () => {
   });
 });
 
+describe("Mute similar… saves and says what it did to the article", () => {
+  it.each([
+    ["muted", "Filter saved. This article is muted."],
+    ["no_match", "Filter saved. This article was not muted because the filter no longer matches it."],
+    ["starred", "Filter saved. This article is starred, so it was not muted."],
+    ["already_muted", "Filter saved. This article was already muted by another filter."],
+  ] as const)("%s", async (result, message) => {
+    const { calls } = routes({
+      "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }),
+      "POST /api/filters": () => json({ filter: { ...rule, id: "9", name: "Ada" }, applied: null, source: { item_id: "1001", result } }, 201),
+    });
+    go("/l/unread");
+    const user = userEvent.setup();
+    const row = (await screen.findByText("Article number 1")).closest("[data-item-id]") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mute similar…" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "New filter" }));
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    await user.click(dialog.getByRole("button", { name: "Save filter" }));
+    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent(message));
+    expect(body(calls.find((c) => c.init?.method === "POST" && c.url.pathname === "/api/filters") as never)).toMatchObject({ source_item_id: "1001", action: "mute" });
+    const cached = qc
+      .getQueriesData<InfiniteData<ItemsPage>>({ queryKey: keys.itemsAll })
+      .flatMap(([, d]) => d?.pages.flatMap((p) => p.items) ?? [])
+      .find((i) => i.id === "1001");
+    if (result === "muted") expect(cached).toMatchObject({ read: true, muted_by: "9", muted_by_name: "Ada" });
+    else expect(cached).toMatchObject({ read: false, muted_by: null });
+  });
+});
+
 describe("Mute similar… apostrophes", () => {
   it("shows a suggestion pressed when the rule already holds it with a typographic apostrophe", async () => {
     routes({ "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }) });

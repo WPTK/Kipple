@@ -487,7 +487,23 @@ func nullableID(p *int64) any {
 // it. Validation failures are *filter.Error. The filter's own ID, Hits and
 // timestamps are ignored.
 func (d *DB) CreateFilter(ctx context.Context, f Filter) (Filter, error) {
+	out, _, err := d.CreateFilterFrom(ctx, f, 0)
+	return out, err
+}
+
+// SourceResult is what CreateFilterFrom did to the article the rule was started from.
+type SourceResult struct {
+	Mute    SourceMute // empty when there was no source article to act on
+	Changed StateResult
+}
+
+// CreateFilterFrom is CreateFilter for a rule started from article sourceID ("Mute similar..."; 0 for
+// none). When the stored rule is an enabled mute, the same transaction mutes that article if the rule
+// matches it (see muteSource), so saving acts on the article the rule came from. An unknown sourceID
+// is a *filter.Error and nothing is stored.
+func (d *DB) CreateFilterFrom(ctx context.Context, f Filter, sourceID int64) (Filter, SourceResult, error) {
 	var out Filter
+	var src SourceResult
 	now := d.clock.Now().Unix()
 	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		if _, err := d.sanitizeFiltersTx(ctx, tx); err != nil {
@@ -534,11 +550,30 @@ func (d *DB) CreateFilter(ctx context.Context, f Filter) (Filter, error) {
 		if err != nil {
 			return err
 		}
+		if sourceID != 0 {
+			if err := checkSourceItem(ctx, tx, sourceID); err != nil {
+				return err
+			}
+			if out.Enabled && out.Action == string(filter.ActionMute) {
+				src.Mute, src.Changed.Changed, err = muteSource(ctx, tx, cur, out.Rule(), sourceID, now)
+				if err != nil {
+					return err
+				}
+				if len(src.Changed.Changed) > 0 {
+					if out, err = getFilter(ctx, tx, id); err != nil { // with the hit the mute counted
+						return err
+					}
+				}
+			}
+		}
 		d.bumpFilters()
 		d.filterTxDone()
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return Filter{}, SourceResult{}, err
+	}
+	return out, src, nil
 }
 
 // UpdateFilter loads filter id, lets mutate change it, validates the result

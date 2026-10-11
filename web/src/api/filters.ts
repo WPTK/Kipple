@@ -216,10 +216,18 @@ export interface CreateResult {
   filter: Filter;
   /** null: not asked; a run: started; {error:"busy"}: another apply is running (the filter was created anyway). */
   applied: ApplyRun | { error: "busy" } | null;
+  /** What saving did to the article the rule was started from; null when none was named or the rule does not mute. */
+  source: { item_id: string; result: SourceResult } | null;
 }
 
-export const createFilter = (d: FilterDraft, applyExisting?: { include_read: boolean }) =>
-  api<CreateResult>("/api/filters", { method: "POST", body: { ...bodyOf(d), ...(applyExisting ? { apply_existing: applyExisting } : {}) } });
+/** muted; no_match: the rule as saved does not match it; starred: a star beats a mute; already_muted: by another rule. */
+export type SourceResult = "muted" | "no_match" | "starred" | "already_muted";
+
+export const createFilter = (d: FilterDraft, applyExisting?: { include_read: boolean }, sourceItemId?: string) =>
+  api<CreateResult>("/api/filters", {
+    method: "POST",
+    body: { ...bodyOf(d), ...(applyExisting ? { apply_existing: applyExisting } : {}), ...(sourceItemId ? { source_item_id: sourceItemId } : {}) },
+  });
 
 export const updateFilter = (id: string, d: FilterDraft) => {
   noteFilterTouched(id);

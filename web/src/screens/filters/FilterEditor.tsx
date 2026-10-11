@@ -1,7 +1,9 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Check as CheckIcon, X } from "lucide-react";
+import { handleServerEvent } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
+import { patchItems } from "@/api/queryKeys";
 import { ApiError, errorMessage } from "@/api/client";
 import {
   FIELDS,
@@ -22,7 +24,9 @@ import {
   updateFilter,
   useFilters,
   type ApplyRun,
+  type Filter,
   type FilterDraft,
+  type SourceResult,
   type FilterField,
   type FilterMode,
   type Preview,
@@ -37,6 +41,23 @@ import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 
 export const PREVIEW_DEBOUNCE_MS = 600;
+
+/** What saving a rule from "Mute similar..." did to that article, as one sentence of the save toast. */
+const SOURCE_NOTE: Record<SourceResult, string> = {
+  muted: "This article is muted.",
+  no_match: "This article was not muted because the filter no longer matches it.",
+  starred: "This article is starred, so it was not muted.",
+  already_muted: "This article was already muted by another filter.",
+};
+
+/**
+ * The source article is muted: the same cache change as the server's items.state event (which may not arrive when live
+ * updates are down), plus the rule's name, so an open article shows what muted it.
+ */
+function showMuted(qc: QueryClient, itemId: string, f: Filter): void {
+  handleServerEvent(qc, { type: "items.state", data: { ids: [itemId], read: true, muted: true, source: "web" } });
+  patchItems(qc, [itemId], { muted_by: f.id, muted_by_name: f.name });
+}
 
 type Group = ReturnType<typeof fieldGroup>;
 type Issue = { field: string; message: string };
@@ -430,21 +451,28 @@ function EditorForm({
     let saved = false;
     try {
       let run: ApplyRun | { error: "busy" } | null = null;
+      let source: SourceResult | null = null;
       if (id) {
         await updateFilter(id, draft);
         saved = true;
         if (apply && canApply) run = await applyFilter(id, includeRead);
       } else {
-        const res = await createFilter(draft, apply && canApply ? { include_read: includeRead } : undefined);
+        const res = await createFilter(draft, apply && canApply ? { include_read: includeRead } : undefined, seed?.itemId);
         run = res.applied;
+        if (res.source) {
+          source = res.source.result;
+          if (source === "muted") showMuted(qc, res.source.item_id, res.filter);
+        }
       }
       invalidateFilterData(qc);
       closeFilterEditor();
-      if (run && "error" in run) toast("Filter saved. Another filter is still being applied, so this one was not applied to stored articles. Apply it from the Filters list in a moment.");
-      else if (run) toast("Filter saved. Applying it to your articles…");
+      const note = source ? ` ${SOURCE_NOTE[source]}` : "";
+      if (run && "error" in run) toast(`Filter saved.${note} Another filter is still being applied, so this one was not applied to stored articles. Apply it from the Filters list in a moment.`);
+      else if (run) toast(`Filter saved.${note} Applying it to your articles…`);
       else {
-        toast("Filter saved");
-        announce("Filter saved");
+        const msg = source ? `Filter saved.${note}` : "Filter saved";
+        toast(msg);
+        announce(msg);
       }
     } catch (e) {
       const bf = badFilter(e);

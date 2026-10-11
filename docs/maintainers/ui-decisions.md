@@ -191,6 +191,12 @@ Choices made where the decisions above were silent; the owner may overrule any o
   and alternatives (`web/src/lib/stopwords.ts`). Words a reader may want to mute (free, deals, review, video, live) are
   not on the list. The list is English only: other languages rely on the length, digit and script rules (unspaced
   scripts are cut into short pieces).
+- Saving a mute rule from **Mute similar...** also mutes the article it was started from, read or unread, when the rule
+  as saved matches it (#374): the editor sends the article's id and the server mutes it in the same transaction, with
+  the same write as Apply, so Restore, mark unread, star and delete-with-unmute undo it like any mute. Only that article
+  changes; "Apply to existing articles" still covers the rest of the feed. A starred article is not muted (star beats
+  mute). The save toast says what happened in one sentence: muted, not muted because the rule no longer matches it,
+  starred so not muted, or already muted by another filter (it stays with that filter).
 ### Working agreement
 - Commit and open PRs without asking. Merge docs-only PRs when CI is green. Code PR for `phase-2` opens at
   deploy time. Reviews (Opus, high) after every two or three backend steps; fix all findings.

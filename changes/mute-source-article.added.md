@@ -1,0 +1,1 @@
+Mute similar: saving the filter also mutes the article you started it from when the filter matches it, read or unread. A starred article stays starred and is not muted, and the confirmation says when the article was not muted and why (for example, the edited filter no longer matches it). Restore it from Muted like any muted article. (#374)
