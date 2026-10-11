@@ -52,6 +52,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
+import { accessControlUrl, unloadRefusal } from "./common.mjs";
 import { activeScheme, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
 
 /** The smallest touch target, in CSS px (S8). WCAG 2.2 asks for 24; Kipple keeps to the 44 of the Apple and Material guides. */
@@ -700,8 +701,12 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
   // Events are always collected; each screen reports what arrived while it was checked, and what arrives after (a
   // query that fails late, during the screenshot) is reported against it when the next screen starts.
   let prev = null;
-  const bucket = { console: [], api: [], other: [] };
-  page.on("pageerror", (err) => bucket.console.push({ kind: "pageerror", text: String(err.stack || err).slice(0, 600) }));
+  const bucket = { console: [], api: [], other: [], refused: [] };
+  const isUnloadRefusal = unloadRefusal(page, origin);
+  page.on("pageerror", (err) => {
+    if (isUnloadRefusal(err)) bucket.refused.push(accessControlUrl(err).pathname);
+    else bucket.console.push({ kind: "pageerror", text: String(err.stack || err).slice(0, 600) });
+  });
   page.on("console", (msg) => {
     if (msg.type() !== "error") return;
     const url = msg.location()?.url ?? "";
@@ -746,7 +751,9 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     for (const c of bucket.console) report("S1", where, c.kind, c.text, c.url);
     for (const a of bucket.api) report("S2", where, String(a.status), `${a.method} ${a.url} -> ${a.status || a.error}`);
     for (const o of bucket.other) note("S2", where, `non-API request failed: ${o.url} ${o.text}`);
-    bucket.console.length = bucket.api.length = bucket.other.length = 0;
+    // Not counted, but said, so a page that keeps starting fetches as it is left stays visible.
+    if (bucket.refused.length) note("S1", where, `${bucket.refused.length} fetch(es) WebKit refused while the page was being left (not counted): ${[...new Set(bucket.refused)].join(", ")}`);
+    bucket.console.length = bucket.api.length = bucket.other.length = bucket.refused.length = 0;
   };
 
   // An article to open: the first one in All. Looked for again in the next browser while none is found (the feeds may

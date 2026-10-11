@@ -29,6 +29,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
+import { accessControlUrl, unloadRefusal } from "./common.mjs";
 
 const setupError = (m) => {
   console.error(m);
@@ -80,6 +81,12 @@ const findings = [];
 const fail = (where, what) => {
   findings.push(`${where}: ${what}`);
   console.error(`FAIL ${where}: ${what}`);
+};
+/** Said as it happens and again in the closing summary, so it is not lost when a later check throws. */
+const notes = [];
+const note = (where, what) => {
+  notes.push(`${where}: ${what}`);
+  console.log(`note ${where}: ${what}`);
 };
 const pass = (where, what) => console.log(`ok   ${where}: ${what}`);
 const check = (cond, where, okText, failText) => (cond ? pass(where, okText) : fail(where, failText));
@@ -239,7 +246,16 @@ async function desktop(cookies) {
   const ctx = await newContext({ viewport: { width: 1280, height: 800 }, storageState: { cookies, origins: [] } });
   const page = await ctx.newPage();
   const errors = [];
-  page.on("pageerror", (e) => errors.push(String(e).slice(0, 200)));
+  const refused = [];
+  const failedRequests = [];
+  const isUnloadRefusal = unloadRefusal(page, origin);
+  page.on("pageerror", (e) => (isUnloadRefusal(e) ? refused.push(accessControlUrl(e).pathname) : errors.push(String(e).slice(0, 200))));
+  page.on("requestfailed", (req) => {
+    const why = req.failure()?.errorText ?? "failed";
+    // A navigation aborts what was in flight; each engine words it its own way (as in run.mjs).
+    if (/ERR_ABORTED|NS_BINDING_ABORTED|cancel+ed/i.test(why) || new URL(req.url()).origin !== origin) return;
+    failedRequests.push(`${req.method()} ${new URL(req.url()).pathname}: ${why}`);
+  });
   await load(page, "/l/all");
   // The layout the shortcuts are exercised in: Editorial, whose rows carry the unread dot and a Star button.
   const layoutBtn = page.locator('button[aria-label^="List options, "]').first();
@@ -252,10 +268,15 @@ async function desktop(cookies) {
   const articlePath = await page.locator("main article a[href^='/i/']").first().getAttribute("href");
   // The sort button is a toggle and the run changes nothing it does not restore: start from newest first.
   if (articlePath && /order(%3A|:)oldest/.test(articlePath)) await page.getByRole("button", { name: /^Newest first$/ }).first().click();
-  await k1(page, articlePath);
-  await k2(page);
-  await k3(page);
+  try {
+    await k1(page, articlePath);
+    await k2(page);
+    await k3(page);
+  } finally {
+    if (refused.length) note("desktop", `${refused.length} fetch(es) WebKit refused while the page was being left (not counted): ${[...new Set(refused)].join(", ")}`);
+  }
   if (errors.length) fail("desktop", `uncaught page errors: ${errors.join(" | ")}`);
+  if (failedRequests.length) fail("desktop", `requests failed: ${failedRequests.slice(0, 4).join(" | ")}`);
   await ctx.close();
 }
 
@@ -723,6 +744,7 @@ async function main() {
     console.error(`run aborted: ${String(e?.stack ?? e).split("\n").slice(0, 3).join("\n")}`);
     exitCode = 2;
   } finally {
+    if (notes.length) console.log(`${notes.length} note(s), not counted as findings`);
     await browser.close().catch(() => {});
   }
   process.exitCode = exitCode;
