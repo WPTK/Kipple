@@ -78,19 +78,17 @@ func (e *Refusal) Error() string { return e.Msg }
 var (
 	ErrRestoreBusy = &Refusal{"Another restore upload is in progress. Cancel it first, then try again."}
 	// ErrRestoreElsewhere: the upload belongs to another browser (see
-	// Restorer), which alone can see, confirm or cancel it. Only an upload
-	// still arriving or being checked refuses another browser's new upload.
-	ErrRestoreElsewhere = &Refusal{"Another browser is uploading a backup, or has uploaded one. Kipple stops an upload that stalls or crawls; once it has been checked, a new upload from this browser replaces it."}
-	// ErrRestoreReplaced: the caller asked for its checked upload (to confirm
-	// it or take its feeds) and another browser's upload is in its place. A
-	// ready upload refuses nobody, so that one replaced it.
+	// Restorer), which alone can see, confirm or cancel it.
+	ErrRestoreElsewhere = &Refusal{"Another browser is uploading a backup. Kipple stops an upload that stalls or crawls; once it has been checked, a new upload from this browser replaces it."}
+	ErrRestorePending   = &Refusal{"A restore is waiting to be applied: Kipple is restarting to finish it."}
+	ErrNoUpload         = &Refusal{"No checked backup is waiting, or it expired. Upload it again."}
+	ErrNotBackup        = &Refusal{"This is not a Kipple backup zip or an OPML file."}
+	ErrUploadTooLarge   = &Refusal{"This file is larger than the " + human(MaxUploadBytes) + " a restore accepts."}
+	ErrOPMLTooLarge     = &Refusal{"This OPML file is larger than the " + human(opml.MaxFileBytes) + " an import accepts."}
+	ErrUploadCut        = &Refusal{"The upload stopped before the whole file arrived. Try again."}
+	// ErrRestoreReplaced: a page asked to confirm or take the feeds of its
+	// upload, and another browser's upload has replaced it.
 	ErrRestoreReplaced = &Refusal{"Another browser uploaded a backup, which replaced the one uploaded here. Choose the file again to restore it from this browser."}
-	ErrRestorePending  = &Refusal{"A restore is waiting to be applied: Kipple is restarting to finish it."}
-	ErrNoUpload        = &Refusal{"No checked backup is waiting, or it expired. Upload it again."}
-	ErrNotBackup       = &Refusal{"This is not a Kipple backup zip or an OPML file."}
-	ErrUploadTooLarge  = &Refusal{"This file is larger than the " + human(MaxUploadBytes) + " a restore accepts."}
-	ErrOPMLTooLarge    = &Refusal{"This OPML file is larger than the " + human(opml.MaxFileBytes) + " an import accepts."}
-	ErrUploadCut       = &Refusal{"The upload stopped before the whole file arrived. Try again."}
 	// ErrDiskFull: the volume filled up while the upload was being kept.
 	ErrDiskFull = &Refusal{"The disk is full, so the upload could not be kept. Free some space and try again."}
 	// ErrUploadTooSlow: the body reader stopped an upload that sent too slowly
@@ -179,10 +177,8 @@ type RestorerOptions struct {
 // every later call brings the caller's key. Only the owner sees
 // the summary, takes the feeds, confirms or cancels; to anyone else an upload
 // reads as none, and acting on it is ErrRestoreElsewhere (ErrRestoreReplaced
-// for a confirm or the feeds: a page asks for those only after an upload of
-// its own, which the other one replaced). Another browser's
-// upload replaces a checked one that nobody confirmed: that upload has no
-// request or job running, so nothing says its browser is still there.
+// for a confirm or the feeds). A new upload replaces a checked one that
+// nobody confirmed: nothing of its browser runs, so nothing says it is there.
 type Restorer struct {
 	o   RestorerOptions
 	log *slog.Logger
@@ -260,10 +256,8 @@ func (r *Restorer) othersLocked(owner string) bool {
 }
 
 // refusalLocked is why a new upload from owner would be refused now, or nil: a restore already confirmed, this
-// browser's own upload arriving, being checked or ready, or another browser's upload arriving or being checked.
-// Another browser's ready upload refuses nothing: no request or job of that browser holds it, so nothing tells
-// whether that browser is still there, and a new upload replaces it (see Upload). Upload and Status share it, so the
-// answer a refused upload gets and the one a status request gives are one. Under mu.
+// browser's own upload, or another browser's still arriving or being checked (its ready one is replaced). Upload and
+// Status share it, so the answer a refused upload gets and the one a status request gives are one. Under mu.
 func (r *Restorer) refusalLocked(owner string) error {
 	switch {
 	case r.state == RestoreConfirmed:
@@ -342,11 +336,9 @@ func (r *Restorer) Upload(reqCtx context.Context, owner string, body io.Reader, 
 		r.mu.Unlock()
 		return Upload{}, err
 	}
-	// none, failed (a new upload replaces a refused one), or another browser's
-	// ready upload, which this one replaces the same way
+	// none, or failed or another browser's ready upload (a new upload replaces either)
 	if r.state == RestoreReady {
 		r.discardLocked()
-		r.log.Info("restore: another browser's unconfirmed upload was replaced by a new upload")
 	}
 	r.gen++
 	g := r.gen
