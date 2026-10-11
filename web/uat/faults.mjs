@@ -1,5 +1,5 @@
 // Telling a browser that failed under a UAT run apart from a finding about Kipple (used by common.mjs). No browser or
-// Playwright import, so `node --test uat/faults.test.mjs` runs without them.
+// Playwright import, so its test (faults.test.mjs) runs with the web app's unit tests.
 
 export const INTERNAL_ERROR = "WebKit encountered an internal error";
 
