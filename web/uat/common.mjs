@@ -7,9 +7,11 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { chromium, firefox, webkit } from "@playwright/test";
+import { chromium, firefox, request, webkit } from "@playwright/test";
 
 const ENGINES = { chromium, firefox, webkit };
+/** The session cookie the server sets at sign-in (internal/api). */
+const SESSION_COOKIE = "kipple_session";
 export const SEP = " › ";
 export const VIEWPORTS = [
   { id: "desktop", width: 1280, height: 800, mobile: false },
@@ -106,47 +108,68 @@ export async function start(metaUrl, helpLines) {
   };
 
   /**
-   * WebKit now and then answers a navigation with "WebKit encountered an internal error" (the engine, not the app, so
-   * the page never loaded). Makes `page.goto` retry once, and only for that error: any other failure, and every
-   * assertion, still fails at once. The retry is logged so a run that needed it says so.
+   * Why a failed attempt at a width says nothing about Kipple, or null. WebKit sometimes fails under a run: a navigation
+   * ends in "WebKit encountered an internal error", or the context loses its cookies and every later request is signed
+   * out (a 401 the app never caused). The proof of the second is the session cookie the run signed in with: the browser
+   * no longer sends it, yet the server still accepts it, so nothing in Kipple ended the session. A session the server
+   * ended (a sign-out, a revoked session) is not the browser's doing and stays a finding.
    */
-  const retryWebKitGoto = (page) => {
-    const goto = page.goto.bind(page);
-    page.goto = async (url, options) => {
-      try {
-        return await goto(url, options);
-      } catch (e) {
-        if (!String(e.message).includes("WebKit encountered an internal error")) throw e;
-        console.log(`note ${url}: WebKit internal error on navigation, retrying once`);
-        await page.waitForTimeout(500);
-        return goto(url, options);
-      }
-    };
+  const browserFault = async (context, session, found) => {
+    if (found.some((f) => f.includes("WebKit encountered an internal error"))) return "WebKit reported an internal error";
+    if (!session) return null;
+    const now = (await context.cookies(origin).catch(() => [])).find((c) => c.name === SESSION_COOKIE);
+    if (now?.value === session.value) return null;
+    const probe = await request.newContext({ baseURL: origin, extraHTTPHeaders: { Cookie: `${SESSION_COOKIE}=${session.value}`, Accept: "application/json" } });
+    try {
+      return (await probe.get("/api/bootstrap")).ok() ? "the browser dropped the session cookie, which the server still accepts" : null;
+    } finally {
+      await probe.dispose();
+    }
   };
 
-  /** Runs `body(page, vp)` once per width, each in a fresh signed-in browser context, then cleans up what it made. */
+  /** One signed-in run of `body` at a width, in a fresh browser context; returns `browserFault` of what it found. */
+  const attempt = async (body, vp) => {
+    const context = await browser.newContext({ baseURL: origin, viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile });
+    const mark = findings.length;
+    let session = null;
+    try {
+      const page = await context.newPage();
+      await page.goto("/", { waitUntil: "load" });
+      await page.getByLabel("Username").fill(opt.user);
+      await page.getByLabel("Password").fill(opt.password);
+      await page.getByRole("button", { name: "Sign in" }).click();
+      await page.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
+      session = (await context.cookies(origin)).find((c) => c.name === SESSION_COOKIE) ?? null;
+      await cleanup(page); // what an earlier run that stopped half-way left behind
+      await body(page, vp);
+    } catch (e) {
+      const page = context.pages()[0];
+      if (page) await shot(page, `${vp.id}-stopped`);
+      fail(vp.id, `the run stopped: ${String(e.message).split("\n").slice(0, 3).join(" ")}`);
+    }
+    try {
+      return findings.length > mark ? await browserFault(context, session, findings.slice(mark)) : null;
+    } finally {
+      const page = context.pages()[0];
+      if (page) await cleanup(page).catch(() => {});
+      await context.close();
+    }
+  };
+
+  /**
+   * Runs `body(page, vp)` once per width, each in a fresh signed-in browser context, then cleans up what it made. When
+   * the browser failed under an attempt (`browserFault`), that attempt's findings are set aside and the width runs again
+   * in a fresh context, once: every check runs again and must pass, and the browser failing a second time is a finding.
+   */
   const eachViewport = async (body) => {
     for (const vp of VIEWPORTS) {
-      const context = await browser.newContext({ baseURL: origin, viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile });
-      try {
-        const page = await context.newPage();
-        retryWebKitGoto(page);
-        await page.goto("/", { waitUntil: "load" });
-        await page.getByLabel("Username").fill(opt.user);
-        await page.getByLabel("Password").fill(opt.password);
-        await page.getByRole("button", { name: "Sign in" }).click();
-        await page.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
-        await cleanup(page); // what an earlier run that stopped half-way left behind
-        await body(page, vp);
-      } catch (e) {
-        const page = context.pages()[0];
-        if (page) await shot(page, `${vp.id}-stopped`);
-        fail(vp.id, `the run stopped: ${String(e.message).split("\n").slice(0, 3).join(" ")}`);
-      } finally {
-        const page = context.pages()[0];
-        if (page) await cleanup(page).catch(() => {});
-        await context.close();
-      }
+      const mark = findings.length;
+      const fault = await attempt(body, vp);
+      if (!fault) continue;
+      console.log(`note ${vp.id}: ${fault}; the ${findings.length - mark} finding(s) above are set aside and ${vp.id} runs again in a fresh browser context`);
+      findings.length = mark;
+      const again = await attempt(body, vp);
+      if (again) fail(vp.id, `the browser failed under the run again: ${again}`);
     }
   };
 

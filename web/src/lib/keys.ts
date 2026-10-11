@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 // Keymap per docs/maintainers/ui-decisions.md ("Gestures and keys").
 // Rules: never bind Ctrl/Cmd/Alt; single keys are off while typing, during IME
@@ -132,7 +132,11 @@ export type Handlers = Partial<Record<Action, () => void>>;
 /** Global key handling. Only actions present in `handlers` are consumed. */
 export function useHotkeys(handlers: Handlers, opts: { singleKeys: boolean; enabled?: boolean }): void {
   const ref = useRef({ handlers, opts });
-  useEffect(() => {
+  // A layout effect, not a passive one: it runs in the same task as the commit, so a key pressed once the screen
+  // shows a new selection acts on that selection. A passive effect may run only after the browser has handled
+  // the next keydown (React defers it after a render scheduled as a transition, such as a navigation), and that key
+  // then acted on the row selected before.
+  useLayoutEffect(() => {
     ref.current = { handlers, opts };
   });
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { useLayoutEffect } from "react";
 import { interpretKey, isTypingTarget, useHotkeys } from "./keys";
 
 describe("useHotkeys", () => {
@@ -27,6 +28,25 @@ describe("useHotkeys", () => {
     document.body.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
     expect(up).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("a key pressed as soon as a render is on screen uses that render's handlers", () => {
+    // The row a key acts on is the one the screen shows: a keydown handled after the commit but before passive
+    // effects ran (a transition render) must not reach the handlers of the render before.
+    const acted: number[] = [];
+    const { rerender, unmount } = renderHook(
+      ({ row }) => {
+        useHotkeys({ select: () => acted.push(row) }, { singleKeys: true });
+        // Runs after the hook's own layout work in the same commit, before any passive effect.
+        useLayoutEffect(() => {
+          if (row === 2) document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true, cancelable: true }));
+        }, [row]);
+      },
+      { initialProps: { row: 1 } },
+    );
+    rerender({ row: 2 });
+    expect(acted).toEqual([2]);
     unmount();
   });
 });
