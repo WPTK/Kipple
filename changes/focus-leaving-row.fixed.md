@@ -1,1 +1,0 @@
-Keyboard: when the article that has focus leaves the list (marked read in Unread, or muted with Mute similar from its menu), focus moves to the article that takes its place instead of dropping to the top of the page. Focus that is somewhere else, such as on the open article, stays there, so Space and Page Down keep scrolling the article.

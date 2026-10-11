@@ -8,6 +8,30 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.9.0-beta.1] - 2026-10-11
+
+### Added
+
+- Articles: an image Kipple does not display (an SVG, or a file of a type the image proxy does not pass) is replaced by an "Image not shown" note with its description and a link to the original article, in the space the image would have taken, instead of a blank gap. (#375)
+- Mute similar: saving the filter also mutes the article you started it from when the filter matches it, read or unread, and the article leaves every list but Muted at once, Unread included. A starred article stays starred and is not muted. When the article was not muted, the confirmation says why in one sentence: the filter does not mute or is turned off, the article no longer exists, it is starred, its feed is archived, the edited filter no longer matches it, another filter already muted it, or a star filter matches it. The filter is saved in every case. (#374)
+
+### Changed
+
+- The OPML import summary and its move-existing option now say "Folders left empty" for a folder that ends up with no feeds, matching bulk delete. Bulk delete removes such folders; an import that moves feeds keeps them.
+- Restore in Muted puts back the read state an article had before it was muted: an article you had read stays read, and an unread one is unread again. Restore used to make every article unread. (#374)
+
+### Fixed
+
+- Keyboard: when the article that has focus leaves the list (marked read in Unread, or muted with Mute similar from its menu), focus moves to the article that takes its place instead of dropping to the top of the page. Focus that is somewhere else, such as on the open article, stays there, so Space and Page Down keep scrolling the article.
+- A shortcut pressed right after moving through the list with the article open beside it (for example `k` then `x`) now acts on the row the list shows as selected. Before, a key pressed quickly enough could act on the row selected a moment earlier. (#371)
+- Signing out now fails with an error, and keeps you signed in so you can try again, when the server could not end the session. Before, the browser was signed out while the session stayed valid on the server. (#371)
+- When the list of saved searches cannot be loaded, the sidebar now says "Couldn't load your saved searches." with a Try again button, instead of leaving out the whole section as if there were none. The saved searches and their unread counts are also kept for offline use: offline, the sidebar shows the last values it saw.
+- Cards no longer show one site-wide logo, sponsor mark or newsletter banner on most posts of a feed: a picture that is among the best few images of three or more posts in one refresh is treated as the site's, and those posts show their own next picture or none. A real photo shared by three or more posts (a series banner, a show's art) is treated the same way. Posts already stored keep their picture until their content changes in the feed. (#382)
+- Keyboard: the article list is one Tab stop. Tab enters it on the article that last had focus (else the selected one, else the first) and the next Tab presses leave it for the controls after it, such as the open article's toolbar. On a focused article the Down and Up arrow keys move focus to the next or previous article without opening it or marking it read (Enter opens it), also with single-key shortcuts off. The focus ring is drawn inside the article's row, so no edge of it is cut off. Before, every article was its own Tab stop and the list loads more articles as focus moves down, so in a library of any size Tab never got past the list. (#369)
+- Undo now always applies to your most recent change, even when you press `z` or Undo before the server has saved it (Shift+A, mark above or below, or a single mark or star): it waits up to 10 seconds for that change, showing "Undoing…", and then undoes it. If the change came to nothing, it says "Nothing to undo" and leaves earlier changes alone; if saving takes longer, it says so and you can try again. The undo toast's 15 seconds now start when the change is saved. Before, Undo pressed while a change was saving could reverse an older change instead.
+- Undo never un-mutes an article. Undoing a mark as read or an unstar leaves an article that a filter has muted since muted, also when the mute happened on another device or while the app's live connection was down, and says "Nothing to undo" when that leaves nothing changed. An undo also no longer restores an article that retention has trimmed since. Before, the undo could bring such an article back unread or starred.
+- Setup restore: a backup that was uploaded and checked in one browser but never confirmed no longer keeps a second browser out of the setup wizard for up to an hour; an upload from the second browser replaces it, and the first page says its backup was replaced and asks for the file again. (#372)
+
 ## [0.8.0-beta.8] - 2026-10-10
 
 ### Added
@@ -984,7 +1008,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.8...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.9.0-beta.1...HEAD
+[0.9.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.8...v0.9.0-beta.1
 [0.8.0-beta.8]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.7...v0.8.0-beta.8
 [0.8.0-beta.7]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.6...v0.8.0-beta.7
 [0.8.0-beta.6]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.5...v0.8.0-beta.6
