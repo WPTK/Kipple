@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { gestureLock } from "./lock";
 import { PULL, PullTracker } from "./tracking";
+import { useLatestRef } from "@/lib/useLatestRef";
 
 export interface PullState {
   /** Displayed pull distance in px (after resistance). */
@@ -23,10 +24,7 @@ export function usePullToRefresh(
   { enabled, onRefresh }: { enabled: boolean; onRefresh: () => void },
 ): PullState {
   const [state, setState] = useState<PullState>(IDLE);
-  const cb = useRef(onRefresh);
-  useEffect(() => {
-    cb.current = onRefresh;
-  });
+  const cb = useLatestRef(onRefresh);
 
   useEffect(() => {
     const el = ref.current;
@@ -77,7 +75,7 @@ export function usePullToRefresh(
       el.removeEventListener("touchend", end);
       el.removeEventListener("touchcancel", end);
     };
-  }, [ref, enabled]);
+  }, [ref, enabled, cb]);
 
   return state;
 }

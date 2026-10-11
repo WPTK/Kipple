@@ -17,6 +17,7 @@ import {
   type OpmlSummary,
   type RestoreStatus,
 } from "./restoreApi";
+import { useLatestRef } from "@/lib/useLatestRef";
 
 const RESTORE_STEP = { id: "restore", n: 0, title: "Restore from a backup" } as const;
 
@@ -66,10 +67,7 @@ function passwordReason(s: BackupSummary): string {
 export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: RestoreHandlers & { resume: boolean }) {
   const uid = useId();
   const [view, setView] = useState<View>(resume ? "waiting" : "pick");
-  const viewNow = useRef(view);
-  useEffect(() => {
-    viewNow.current = view;
-  });
+  const viewNow = useLatestRef(view);
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<{ sent: number; total: number } | null>(null);
   const [serverState, setServerState] = useState<"uploading" | "checking">("checking");
@@ -85,10 +83,7 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
   const [over, setOver] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const pwInput = useRef<HTMLInputElement>(null);
-  const handoff = useRef({ onConfirmed });
-  useEffect(() => {
-    handoff.current = { onConfirmed };
-  });
+  const handoff = useLatestRef({ onConfirmed });
 
   // An upload still in flight when this screen goes away is stopped.
   useEffect(() => () => abort.current?.abort(), []);

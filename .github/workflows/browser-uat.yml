@@ -81,7 +81,7 @@ jobs:
         working-directory: web
         run: |
           npm ci --ignore-scripts
-          npx playwright install --with-deps chromium webkit
+          npx playwright install --with-deps chromium webkit firefox
 
       # `npm run seed` builds web/dist when it is missing, builds Kipple, starts it and adds the fixture feeds.
       - name: Start the fixture feeds and a seeded instance on loopback
@@ -118,6 +118,13 @@ jobs:
         if: steps.gate.outputs.code != 'false' && !cancelled()
         working-directory: web
         run: node uat/all.mjs --engine webkit
+
+      # Firefox has no static routing API in its service workers, so it keeps the worker's fetch handler for writes;
+      # this runs the reading-time flow there to prove the beacon still gets through.
+      - name: Flows (Firefox)
+        if: steps.gate.outputs.code != 'false' && !cancelled()
+        working-directory: web
+        run: node uat/all.mjs --engine firefox
 
       - name: Keep the reports of a failed run
         if: steps.gate.outputs.code != 'false' && failure()

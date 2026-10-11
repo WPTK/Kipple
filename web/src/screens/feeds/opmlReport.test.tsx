@@ -11,7 +11,7 @@ afterEach(() => vi.unstubAllGlobals());
 const base: OpmlResult = { folders_created: 0, feeds_added: 0, feeds_existing: [], folders_merged_case: [], memberships_dropped: [] };
 
 describe("the OPML import report", () => {
-  it("says which existing feeds moved, which folders were left empty, and counts only the rest as left alone", () => {
+  it("says which existing feeds moved, which folders were left with no feeds, and counts only the rest as left alone", () => {
     render(
       <OpmlResultSummary
         result={{
@@ -31,7 +31,7 @@ describe("the OPML import report", () => {
     );
     expect(screen.getByText("2 feeds you already had were moved into the file's folders")).toBeInTheDocument();
     expect(screen.getByText("1 feed was already in Kipple and was left as it is")).toBeInTheDocument();
-    expect(screen.getByText("Folders left empty, kept: Old, Tech/Old")).toBeInTheDocument();
+    expect(screen.getByText("Folders with no feeds are kept: Old, Tech/Old")).toBeInTheDocument();
   });
 
   it("lists folders that could not be made, with the reason, and where their feeds went", () => {
@@ -50,7 +50,7 @@ describe("the OPML import report", () => {
     render(<OpmlResultSummary result={{ ...base, feeds_added: 3, feeds_moved: [], folders_emptied: [], folders_refused: [] }} />);
     expect(screen.queryByText(/moved into/)).toBeNull();
     expect(screen.queryByText(/not created/)).toBeNull();
-    expect(screen.queryByText(/left empty/)).toBeNull();
+    expect(screen.queryByText(/no feeds are kept/)).toBeNull();
   });
 
   it("the move switch is off by default and, turned on, asks the server to move existing feeds", async () => {

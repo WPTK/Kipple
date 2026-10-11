@@ -77,7 +77,7 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
         </li>
       ) : null}
       {moved ? <li>{moved === 1 ? "1 feed you already had was moved into the file's folder" : `${moved} feeds you already had were moved into the file's folders`}</li> : null}
-      {emptied.length ? <li>Folders left empty, kept: {emptied.join(", ")}</li> : null}
+      {emptied.length ? <li>Folders with no feeds are kept: {emptied.join(", ")}</li> : null}
       {dropped ? (
         <li>
           {dropped === 1
@@ -243,7 +243,7 @@ export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
       </Field>
       <Switch
         label="Move feeds that already exist into the file's folders"
-        help="Off: feeds you already have stay where they are. On: they move to the folder the file puts them in. Folders left empty are kept."
+        help="Off: feeds you already have stay where they are. On: they move to the folder the file puts them in. Folders with no feeds are kept."
         checked={moveExisting}
         onChange={setMoveExisting}
       />

@@ -3,6 +3,7 @@ import { Mail, MailOpen, MoreHorizontal, Star } from "lucide-react";
 import type { Card } from "@/api/types";
 import { LongPress, ROW, RowSwipe, prefersReducedMotion, rubberBand } from "./tracking";
 import { gestureLock } from "./lock";
+import { useLatestRef } from "@/lib/useLatestRef";
 
 // Row swipe, matching iOS Mail: swipe RIGHT (leading) toggles read/unread, swipe LEFT
 // (trailing) reveals Star and More. A full swipe commits (the caller records an undo),
@@ -43,12 +44,8 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const activePointer = useRef<number | null>(null);
   const touches = useRef(new Set<number>());
-  const latest = useRef({ onLeading, onTrailing, onLongPress });
-  useEffect(() => {
-    latest.current = { onLeading, onTrailing, onLongPress };
-  });
+  const latest = useLatestRef({ onLeading, onTrailing, onLongPress });
   const lpRef = useRef<LongPress | null>(null);
-  const fireRef = useRef<() => void>(() => undefined);
 
   const later = (fn: () => void, ms: number) => {
     const h = setTimeout(fn, ms);
@@ -101,10 +98,7 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
     latest.current.onLongPress();
   }
 
-  const finishRef = useRef<(cancelled: boolean) => void>(() => undefined);
-  useEffect(() => {
-    fireRef.current = fireLongPress;
-  });
+  const fireRef = useLatestRef(fireLongPress);
 
   useEffect(() => {
     const lp = new LongPress(() => fireRef.current());
@@ -123,7 +117,7 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
       if (suppressTimer.current) clearTimeout(suppressTimer.current);
       if (openRow?.id === item.id) openRow = null;
     };
-  }, [item.id]);
+  }, [item.id, fireRef]);
 
   // A tap or touch outside an open row closes it.
   useEffect(() => {
@@ -219,9 +213,7 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
     }
   };
 
-  useEffect(() => {
-    finishRef.current = finish;
-  });
+  const finishRef = useLatestRef(finish);
 
   // A touch that ends without a pointer event (the app loses focus, the OS steals the touch) must not leave the lock on.
   useEffect(() => {
@@ -234,7 +226,7 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
       window.removeEventListener("blur", abort);
       document.removeEventListener("touchcancel", abort, true);
     };
-  }, []);
+  }, [finishRef]);
 
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     touches.current.delete(e.pointerId);

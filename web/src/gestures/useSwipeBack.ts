@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { BackSwipe, prefersReducedMotion } from "./tracking";
+import { useLatestRef } from "@/lib/useLatestRef";
 
 const CONTROL = "input,textarea,select,button,video,audio,iframe,[contenteditable='true'],[data-no-swipe]";
 
@@ -47,10 +48,7 @@ interface Opts {
  * error screen's "Try again" brings the article back, and the listeners must move to the new frame.
  */
 export function useSwipeBack(el: HTMLElement | null, { enabled, onBack }: Opts): void {
-  const cb = useRef(onBack);
-  useEffect(() => {
-    cb.current = onBack;
-  });
+  const cb = useLatestRef(onBack);
 
   useEffect(() => {
     if (!enabled || !el) return;
@@ -118,5 +116,5 @@ export function useSwipeBack(el: HTMLElement | null, { enabled, onBack }: Opts):
       el.style.transform = "";
       el.style.transition = "";
     };
-  }, [el, enabled]);
+  }, [el, enabled, cb]);
 }
