@@ -32,9 +32,9 @@ import { chainOf, folderTree, type FolderTree } from "@/lib/folderTree";
 import { useMemo } from "react";
 import { setUpdateReady } from "@/lib/offlineState";
 import { toast } from "@/shell/toasts";
-import { itemsParams, keys, patchItems } from "./queryKeys";
+import { itemsParams, keys, patchItems, undoKept } from "./queryKeys";
 
-export { PAGE_SIZE, keys, scopeKey, parseScopeKey, itemsParams, patchItems, type ItemPatch } from "./queryKeys";
+export { PAGE_SIZE, keys, scopeKey, parseScopeKey, itemsParams, patchItems, dropFromLists, invalidateLists, undoKept, type ItemPatch } from "./queryKeys";
 
 /** The toast for a failed change: one made offline that could not be stored says so, not "the server". */
 export function changeError(e: unknown): string {
@@ -112,32 +112,6 @@ export function useItem(id: string | undefined) {
 
 export function flattenItems(data: InfiniteData<ItemsPage> | undefined): Card[] {
   return data?.pages.flatMap((p) => p.items) ?? [];
-}
-
-/** Take these ids out of the cached lists whose scope key passes `match` (a Muted list after a restore, All after a mute). */
-export function dropFromLists(qc: QueryClient, ids: string[], match: (scopeKey: string) => boolean): void {
-  const set = new Set(ids);
-  qc.setQueriesData<InfiniteData<ItemsPage>>({ queryKey: keys.itemsAll, predicate: (q) => match(String(q.queryKey[1])) }, (old) => {
-    if (!old || !old.pages.some((p) => p.items.some((i) => set.has(i.id)))) return old;
-    return { ...old, pages: old.pages.map((p) => ({ ...p, items: p.items.filter((i) => !set.has(i.id)) })) };
-  });
-}
-
-/** Mark the cached lists whose scope key passes `match` stale without refetching: they reload when next shown. */
-export function invalidateLists(qc: QueryClient, match: (scopeKey: string) => boolean): void {
-  void qc.invalidateQueries({ queryKey: keys.itemsAll, predicate: (q) => match(String(q.queryKey[1])), refetchType: "none" });
-}
-
-/**
- * Articles an undo left as they were because a filter muted them since (design §7.11): a muted article is read and
- * unstarred, so the undo's optimistic patch is taken back and the article leaves every list but Muted, which loads
- * it the next time it is shown.
- */
-export function keepMuted(qc: QueryClient, ids: string[] | undefined): void {
-  if (!ids?.length) return;
-  patchItems(qc, ids, { read: true, starred: false });
-  dropFromLists(qc, ids, (k) => !k.startsWith("muted"));
-  invalidateLists(qc, (k) => k.startsWith("muted"));
 }
 
 /** When the last optimistic count change was made (ms); `counts` events older than it are stale. */
@@ -312,7 +286,7 @@ export async function applyRead(
   try {
     try {
       const res = await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason, ...(undo ? { undo } : {}) } });
-      keepMuted(qc, res?.muted);
+      undoKept(qc, res?.kept);
       return res;
     } catch (e) {
       // No network: keep the change on screen and send it when the connection returns (lib/offline.ts). A
@@ -340,8 +314,8 @@ export async function applyStar(qc: QueryClient, id: string, starred: boolean, u
   await supersede({ star: id });
   try {
     try {
-      const res = await api<{ muted?: boolean }>(`/api/items/${id}/star`, { method: "PUT", body: { starred, ...(undo ? { undo } : {}) } });
-      if (res?.muted) keepMuted(qc, [id]);
+      const res = await api<{ kept?: boolean }>(`/api/items/${id}/star`, { method: "PUT", body: { starred, ...(undo ? { undo } : {}) } });
+      if (res?.kept) undoKept(qc, [id]);
     } catch (e) {
       if (!isOffline(e)) throw e;
       await queueStar(id, starred, undefined, undo);

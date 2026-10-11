@@ -397,7 +397,7 @@ describe("Mute similar… and undo", () => {
     const { calls } = routes({
       "POST /api/items/mark-read": (_u, init) => {
         const b = JSON.parse(String(init?.body)) as { ids: string[]; undo?: boolean };
-        return json(b.undo ? { changed: [], restored: [], muted: ["1001"] } : { changed: b.ids, restored: [] });
+        return json(b.undo ? { changed: [], restored: [], kept: ["1001"] } : { changed: b.ids, restored: [] });
       },
     });
     go("/l/unread");

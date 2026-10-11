@@ -26,8 +26,8 @@ type StateResult struct {
 	// MadeUnread are the ids among Changed that an un-mute (DeleteFilter, unmute=unread) turned
 	// back to unread; the rest keep the read state they had before the mute.
 	MadeUnread []int64
-	// KeptMuted are the ids an undo (UndoMarkRead, UndoUnstar) left as they were because they are muted.
-	KeptMuted []int64
+	// Kept are the ids an undo (UndoMarkRead, UndoUnstar) left as they were: muted since, or trimmed since.
+	Kept []int64
 }
 
 // jsonText is the one way this package encodes a value for a JSON column or a
@@ -93,9 +93,9 @@ func SetRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64)
 }
 
 // UndoMarkRead is the web app's undo of a mark read: SetRead(false) on the stored articles, except that one muted
-// since stays muted and read (KeptMuted lists those). An undo reverses what the person did and never un-mutes
+// since stays muted and read (Kept lists those). An undo reverses what the person did and never un-mutes
 // (design §7.11). It leaves the retention ledger alone: a trimmed row keeps no mute, so restoring one could bring
-// back an article a filter muted before it was trimmed.
+// back an article a filter muted before it was trimmed. An article trimmed since is in Kept too.
 func UndoMarkRead(ctx context.Context, tx *sql.Tx, ids []int64, now int64) (StateResult, error) {
 	return setRead(ctx, tx, ids, false, now, true)
 }
@@ -108,9 +108,11 @@ func undoWhere(undo bool) string {
 	return ""
 }
 
-// keptMuted lists the ids an undo left alone because they are muted.
-func keptMuted(ctx context.Context, tx *sql.Tx, js string) ([]int64, error) {
-	return queryIDs(ctx, tx, `SELECT id FROM items WHERE id IN (SELECT value FROM json_each(?1)) AND muted_by IS NOT NULL ORDER BY id`, js)
+// kept lists the ids an undo left as they were: every one that is not a stored, unmuted article (muted since, or
+// trimmed since, which the undo does not restore).
+func kept(ctx context.Context, tx *sql.Tx, js string) ([]int64, error) {
+	return queryIDs(ctx, tx, `SELECT value FROM json_each(?1)
+		WHERE value NOT IN (SELECT id FROM items WHERE id IN (SELECT value FROM json_each(?1)) AND muted_by IS NULL) ORDER BY value`, js)
 }
 
 func setRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64, undo bool) (StateResult, error) {
@@ -145,7 +147,7 @@ func setRead(ctx context.Context, tx *sql.Tx, ids []int64, read bool, now int64,
 		return res, err
 	}
 	if undo {
-		res.KeptMuted, err = keptMuted(ctx, tx, js)
+		res.Kept, err = kept(ctx, tx, js)
 		return res, err
 	}
 	restored, err := restoreTrimmed(ctx, tx, ids, "unread", now, now)
@@ -174,7 +176,7 @@ func SetStarredAt(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, at
 }
 
 // UndoUnstar is the web app's undo of an unstar: SetStarred(true) on the stored articles, except that one muted since
-// stays muted and unstarred (KeptMuted lists those), since a star is also the un-mute (design §7.11). Like
+// stays muted and unstarred (Kept lists those, with any trimmed since), since a star is also the un-mute (design §7.11). Like
 // UndoMarkRead it restores nothing from the retention ledger.
 func UndoUnstar(ctx context.Context, tx *sql.Tx, ids []int64, at, now int64) (StateResult, error) {
 	return setStarred(ctx, tx, ids, true, at, now, true)
@@ -208,7 +210,7 @@ func setStarred(ctx context.Context, tx *sql.Tx, ids []int64, starred bool, at, 
 		return res, err
 	}
 	if undo {
-		res.KeptMuted, err = keptMuted(ctx, tx, js)
+		res.Kept, err = kept(ctx, tx, js)
 		return res, err
 	}
 	restored, err := restoreTrimmed(ctx, tx, ids, "star", at, now)

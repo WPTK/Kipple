@@ -23,25 +23,38 @@ export function focusOrigin(el: Element | null): HTMLElement | null {
  * drop the keyboard to the top of the page. This remembers what had focus when `open` turned true, read while rendering
  * (before the commit moves focus into the dialog, which an `autoFocus` field does before any effect can run), and
  * returns focus there. A dialog opened from a menu item returns focus to the button that opened the menu, since the
- * menu is gone by then. `onClosed` runs once focus is back: a change that takes the opener off the page (the editor
- * muting the article whose row opened it) waits for it, so the list can hand focus on from there.
+ * menu is gone by then. When the opener left the page while the dialog was open (a live update took its row out),
+ * focus goes to the nearest focusable element around it that is still there, such as the list, not to the top of the
+ * page. `onClosed` runs once focus is back: a change that takes the opener off the page (the editor muting the article
+ * whose row opened it) waits for it, so the list can hand focus on from there.
  */
 export function useReturnFocus(open: boolean, onClosed?: () => void) {
   const [wasOpen, setWasOpen] = useState(false);
-  const [opener, setOpener] = useState<HTMLElement | null>(null);
+  const [places, setPlaces] = useState<HTMLElement[]>([]);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) setOpener(focusOrigin(document.activeElement));
+    if (open) setPlaces(focusPlaces(focusOrigin(document.activeElement)));
   }
   return {
     onCloseAutoFocus: (e: Event) => {
-      if (opener?.isConnected) {
+      // Around the opener only when focus has nowhere else to be: a caller may have put it somewhere on purpose.
+      const a = document.activeElement;
+      const lost = !a || a === document.body || !!a.closest('[role="dialog"]');
+      const back = places.find((p, i) => p.isConnected && (i === 0 || lost));
+      if (back) {
         e.preventDefault();
-        opener.focus();
+        back.focus();
       }
       onClosed?.();
     },
   };
+}
+
+/** `el` and the elements around it that take focus, nearest first. */
+function focusPlaces(el: HTMLElement | null): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (let p = el?.parentElement; p && p !== document.body; p = p.parentElement) if (p.hasAttribute("tabindex")) out.push(p);
+  return el ? [el, ...out] : out;
 }
 
 /** A modal sheet: bottom-aligned on phones, centered on wide screens. Radix traps focus and restores it. */

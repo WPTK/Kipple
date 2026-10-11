@@ -393,7 +393,7 @@ func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
 	s.publishState(res, map[string]any{"starred": *body.Starred})
 	out := map[string]any{"starred": *body.Starred, "restored": len(res.Restored) > 0}
 	if body.Undo {
-		out["muted"] = len(res.KeptMuted) > 0 // the undo left it unstarred: it is muted since
+		out["kept"] = len(res.Kept) > 0 // the undo left it unstarred: muted or trimmed since
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -580,7 +580,7 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 	}
 	out := map[string]any{"changed": idStrings(nonNil(changed)), "restored": idStrings(nonNil(res.Restored)), "ledger_ids": idStrings(nonNil(ledgerIDs)), "count": len(res.Changed), "undoable": undoable}
 	if req.Undo {
-		out["muted"] = idStrings(nonNil(res.KeptMuted)) // left read and muted: the client shows them so
+		out["kept"] = idStrings(nonNil(res.Kept)) // left read (muted or trimmed since): the client shows them so
 	}
 	writeJSON(w, http.StatusOK, out)
 }

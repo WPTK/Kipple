@@ -94,3 +94,29 @@ export function patchItems(qc: QueryClient, ids: string[], patch: ItemPatch): vo
     qc.setQueryData<ItemDetail>(keys.item(id), (old) => (old ? { ...old, ...patch } : old));
   }
 }
+
+/** Take these ids out of the cached lists whose scope key passes `match` (a Muted list after a restore, All after a mute). */
+export function dropFromLists(qc: QueryClient, ids: string[], match: (scopeKey: string) => boolean): void {
+  const set = new Set(ids);
+  qc.setQueriesData<InfiniteData<ItemsPage>>({ queryKey: keys.itemsAll, predicate: (q) => match(String(q.queryKey[1])) }, (old) => {
+    if (!old || !old.pages.some((p) => p.items.some((i) => set.has(i.id)))) return old;
+    return { ...old, pages: old.pages.map((p) => ({ ...p, items: p.items.filter((i) => !set.has(i.id)) })) };
+  });
+}
+
+/** Mark the cached lists whose scope key passes `match` stale without refetching: they reload when next shown. */
+export function invalidateLists(qc: QueryClient, match: (scopeKey: string) => boolean): void {
+  void qc.invalidateQueries({ queryKey: keys.itemsAll, predicate: (q) => match(String(q.queryKey[1])), refetchType: "none" });
+}
+
+/**
+ * Articles an undo left as they were (the reply's `kept`, design §7.11): muted since, which makes an article read and
+ * unstarred, or trimmed since, which the undo does not restore. The undo's optimistic patch is taken back and the
+ * article leaves every list but Muted, which loads it the next time it is shown.
+ */
+export function undoKept(qc: QueryClient, ids: string[] | undefined): void {
+  if (!ids?.length) return;
+  patchItems(qc, ids, { read: true, starred: false });
+  dropFromLists(qc, ids, (k) => !k.startsWith("muted"));
+  invalidateLists(qc, (k) => k.startsWith("muted"));
+}

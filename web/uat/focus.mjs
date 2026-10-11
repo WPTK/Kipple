@@ -8,6 +8,8 @@
 //   F1  Mute similar from a row's menu in an Unread list, opened from the keyboard: Escape gives focus back to the
 //       row; then tap a suggestion, Save. The row leaves the list and focus moves to the row that took its place, not
 //       to the page, so the next Tab or arrow key goes on from there.
+//   F3  The same in All, where the live update of the mute takes the row out while the editor is still open: focus
+//       stays in the list.
 //   F2  (desktop, Editorial) Open an article in the reading pane, move focus to the next row with the Down arrow, then
 //       put focus on the page and press Shift+A. The rows leave, the row the list remembers among them, and focus
 //       stays on the page instead of jumping into the list, so Space and Page Down still scroll the article. z then
@@ -17,7 +19,7 @@
 // 1 findings, 2 setup error. First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 16);
+const t = await start(import.meta.url, 18);
 const { check, step, textOf } = t;
 const JSON_ACCEPT = { Accept: "application/json" };
 
@@ -81,6 +83,29 @@ await t.eachViewport(async (page, vp) => {
       const at = await focusOf(page);
       check(at.startsWith("row ") && at !== `row ${it.id}`, `${tag} F1 focus`, `focus moves to the row that took its place (${at})`, `focus is on ${at}, not on a row of the list`);
       await t.shot(page, `${tag}-F1`);
+    });
+    await step(`${tag} F3`, async () => {
+      // In All the live update of the mute takes the row out while the editor is still open, so the button that opened
+      // it is gone when it closes: focus goes to the list around it, not to the page.
+      const list = ((await (await page.request.get("/api/items", { params: { view: "all", limit: 40, feed }, headers: JSON_ACCEPT })).json()).items ?? []);
+      const it = list.find((i) => /\p{L}{5,}/u.test(i.title ?? "") && !i.muted_by);
+      if (!it) return t.setupError(`${tag}: the feed has no article left in All for F3`);
+      await page.goto(`/l/all?feed=${feed}`, { waitUntil: "load" });
+      const row = page.locator(`[data-item-id="${it.id}"]`).first();
+      await row.waitFor({ timeout: 15000 });
+      const dialog = page.getByRole("dialog", { name: "New filter" });
+      await row.getByRole("button", { name: "More actions" }).focus();
+      await page.keyboard.press("Enter");
+      await page.getByRole("menuitem", { name: "Mute similar…" }).focus();
+      await page.keyboard.press("Enter");
+      await dialog.waitFor({ timeout: 10000 });
+      await dialog.getByRole("region", { name: "Suggestions from this article" }).getByRole("button").first().click();
+      await dialog.getByRole("button", { name: "Save filter" }).click();
+      await dialog.waitFor({ state: "detached", timeout: 10000 });
+      const left = await row.waitFor({ state: "detached", timeout: 5000 }).then(() => true, () => false);
+      await page.waitForTimeout(500);
+      const at = await focusOf(page);
+      check(left && (at === "list" || (at.startsWith("row ") && at !== `row ${it.id}`)), `${tag} F3 focus`, `the row leaves All and focus stays in the list (${at})`, `left=${left}; focus is on ${at}`);
     });
     if (vp.mobile) return;
     await step(`${tag} F2`, async () => {

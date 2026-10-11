@@ -1,6 +1,6 @@
 import { onlineManager, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError, authStore, buildPath } from "@/api/client";
-import { itemsParams, keys, PAGE_SIZE, patchItems } from "@/api/queryKeys";
+import { itemsParams, keys, PAGE_SIZE, patchItems, undoKept } from "@/api/queryKeys";
 import { toast } from "@/shell/toasts";
 import { devicePrefsStore, resolveOrder, sessionLayoutStore } from "./devicePrefs";
 import type { Bootstrap, MarkReadResponse } from "@/api/types";
@@ -450,6 +450,7 @@ async function doFlush(qc?: QueryClient): Promise<void> {
   let sent = 0;
   let dropped = 0;
   const confirmed: Queued[] = [];
+  const kept: string[] = []; // what replayed undos left as they were (muted or trimmed since)
   // Each row is read from the store right before it is sent, never from a list taken at the start: an online
   // write in the meantime (supersede) may have removed it or narrowed its ids, and replaying the old copy
   // would undo that write. Rows queued during the run are picked up too, in order.
@@ -465,10 +466,10 @@ async function doFlush(qc?: QueryClient): Promise<void> {
     try {
       const done =
         r.kind === "star"
-          ? api(`/api/items/${r.id}/star`, { method: "PUT", body: { starred: r.starred, at: r.at, ...(r.undo ? { undo: true } : {}) }, signal: ctl.signal })
-          : api("/api/items/mark-read", { method: "POST", body: { ids: r.ids, read: r.read, reason: "key", ...(r.undo ? { undo: true } : {}) }, signal: ctl.signal });
+          ? api<{ kept?: boolean }>(`/api/items/${r.id}/star`, { method: "PUT", body: { starred: r.starred, at: r.at, ...(r.undo ? { undo: true } : {}) }, signal: ctl.signal }).then((res) => (res?.kept ? [r.id] : []))
+          : api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids: r.ids, read: r.read, reason: "key", ...(r.undo ? { undo: true } : {}) }, signal: ctl.signal }).then((res) => res?.kept ?? []);
       sending = { row: r, done };
-      await done;
+      kept.push(...(await done));
       confirmed.push(r);
     } catch (e) {
       if (ctl.signal.aborted || isOffline(e) || (e instanceof ApiError && (e.status === 401 || e.status === 429 || e.status >= 500))) break;
@@ -485,6 +486,7 @@ async function doFlush(qc?: QueryClient): Promise<void> {
   if (sent > 0 && qc) void qc.invalidateQueries({ queryKey: keys.bootstrap });
   // What the server just took is what the screen shows, whether or not the event stream is up to say so.
   if (qc) for (const r of confirmed) patchItems(qc, r.kind === "star" ? [r.id] : r.ids, r.kind === "star" ? { starred: r.starred } : { read: r.read });
+  if (qc) undoKept(qc, kept);
   if (dropped > 0) {
     // The kept counts still count the refused change. With nothing left waiting the next bootstrap's own replace them;
     // with changes still waiting they are kept, since dropping them would lose those too (they cannot be taken apart).

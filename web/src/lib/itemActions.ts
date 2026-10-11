@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { applyRead, applyStar, bumpMuted, dropFromLists, invalidateLists, keepMuted, keys, patchItems } from "@/api/queries";
+import { applyRead, applyStar, bumpMuted, dropFromLists, invalidateLists, keys, undoKept, patchItems } from "@/api/queries";
 import { api, errorMessage } from "@/api/client";
 import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
 import type { BulkMarkResponse, Card, ItemsPage, MarkReadResponse, Scope } from "@/api/types";
@@ -45,7 +45,7 @@ async function undoBulk(qc: QueryClient, ids: string[], ledger: string[]): Promi
   patchItems(qc, ids, { read: false });
   try {
     const res = await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, ...(ledger.length ? { ledger_ids: ledger } : {}), read: false, reason: "bulk", undo: true } });
-    keepMuted(qc, res?.muted);
+    undoKept(qc, res?.kept);
     return true;
   } catch (e) {
     patchItems(qc, ids, { read: true });
@@ -123,7 +123,7 @@ export function itemActions(qc: QueryClient) {
         const res = await applyRead(qc, undoIds, !read, "key", { undo: read });
         if (res && read) {
           invalidateUnreadLists(qc);
-          notifyUnread(undoIds.filter((id) => !res.muted?.includes(id)));
+          notifyUnread(undoIds.filter((id) => !res.kept?.includes(id)));
         }
         return res !== undefined;
       },

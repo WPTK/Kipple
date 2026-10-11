@@ -70,14 +70,20 @@ describe("the offline queue", () => {
   it("an undo queued offline is replayed as an undo, so the server still leaves an article muted since alone", async () => {
     await queueStar("1001", true, 1_700_000_000, true);
     await queueRead(["1002"], false, true);
+    // Both were muted since: the server leaves them as they are and says so, and the screen shows what it holds.
     const { calls } = mockFetch({
-      "PUT /api/items/1001/star": () => json({ starred: true, restored: false }),
-      "POST /api/items/mark-read": () => json({ changed: ["1002"], restored: [] }),
+      "PUT /api/items/1001/star": () => json({ starred: true, restored: false, kept: true }),
+      "POST /api/items/mark-read": () => json({ changed: [], restored: [], kept: ["1002"] }),
       "GET /api/bootstrap": () => json({}),
     });
-    await flushQueue(new QueryClient());
+    const qc = new QueryClient();
+    qc.setQueryData(keys.item("1001"), { id: "1001", read: true, starred: true });
+    qc.setQueryData(keys.item("1002"), { id: "1002", read: false, starred: false });
+    await flushQueue(qc);
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ starred: true, at: 1_700_000_000, undo: true });
     expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ ids: ["1002"], read: false, undo: true });
+    expect(qc.getQueryData(keys.item("1001"))).toMatchObject({ starred: false });
+    expect(qc.getQueryData(keys.item("1002"))).toMatchObject({ read: true });
   });
 
   it("a later star of the same article replaces the earlier one", async () => {
