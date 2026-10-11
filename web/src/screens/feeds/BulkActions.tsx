@@ -6,14 +6,23 @@ import type { Feed, Folder } from "@/api/types";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
-import { foldersLeftWithoutFeeds, folderPath, folderTree } from "@/lib/folderTree";
-import { useBootstrap } from "@/api/queries";
-import { visibleFeeds } from "@/lib/visibleFeeds";
+import { folderPath, folderTree } from "@/lib/folderTree";
 import { announce, toast } from "@/shell/toasts";
 
 /** What a bulk delete tells the user before it starts: the count and the starred articles at stake. */
 export function deleteSummary(feeds: readonly Feed[]): { count: number; starred: number } {
   return { count: feeds.length, starred: feeds.reduce((n, f) => n + (f.starred_count ?? 0), 0) };
+}
+
+/** The delete dialogs' wording, right for one feed and for several: the one place the singular and plural forms live. */
+export function deleteCopy(count: number, starred: number) {
+  const one = count === 1;
+  return {
+    feeds: one ? "feed" : "feeds",
+    consequence: `${one ? "Its articles are" : "Their articles are"} removed from Kipple. Your sync apps stop seeing ${one ? "this feed" : "these feeds"}.`,
+    starredWarning: `${one ? "This feed holds" : "These feeds hold"} ${starred} starred article${starred === 1 ? "" : "s"}${one ? "" : " in total"}. By default ${starred === 1 ? "it is" : "they are"} kept in the Archive.`,
+    noStarred: one ? "This feed has no starred articles." : "None of these feeds has starred articles.",
+  };
 }
 
 /** Move the selected feeds to the end of another folder: one atomic POST /api/reorder. */
@@ -206,17 +215,18 @@ function FeedsToDelete({
   disabled: boolean;
   noneNote?: boolean;
 }) {
+  const copy = deleteCopy(feeds.length, starred);
   return (
     <>
       {starred > 0 ? (
         <>
           <Notice tone="warn">
-            These feeds hold {starred} starred article{starred === 1 ? "" : "s"} in total. By default they are kept in the Archive.
+            {copy.starredWarning}
           </Notice>
           <Switch label="Delete starred articles too" checked={alsoStarred} onChange={onAlsoStarred} disabled={disabled} help="This can't be undone." />
         </>
       ) : noneNote ? (
-        <p className="text-sm text-fg2">None of these feeds has starred articles.</p>
+        <p className="text-sm text-fg2">{copy.noStarred}</p>
       ) : null}
       <ul className="max-h-40 overflow-y-auto text-sm text-fg2" aria-label="Feeds to delete">
         {feeds.map((f) => (
@@ -229,29 +239,22 @@ function FeedsToDelete({
   );
 }
 
-/** What a bulk delete could not do, item by item. */
+/** The feeds a bulk delete could not delete, with the reason for each. */
 function DeleteFailures({ report }: { report: BulkReport }) {
-  const list = (label: string, items: { title: string; message: string }[]) =>
-    items.length === 0 ? null : (
-      <ul className="flex flex-col gap-2 text-sm" aria-label={label}>
-        {items.map((f, i) => (
-          <li key={i}>
-            <span className="font-semibold">{f.title}</span>: {f.message}
-          </li>
-        ))}
-      </ul>
-    );
   return (
-    <>
-      {list("Feeds that could not be deleted", report.failed)}
-    </>
+    <ul className="flex flex-col gap-2 text-sm" aria-label="Feeds that could not be deleted">
+      {report.failed.map((f, i) => (
+        <li key={i}>
+          <span className="font-semibold">{f.title}</span>: {f.message}
+        </li>
+      ))}
+    </ul>
   );
 }
 
 /**
  * Delete the selected feeds one at a time (DELETE /api/feeds/{id}), with progress and a per-feed error list:
  * one bad feed does not stop the rest. Starred articles move to the Archive unless the switch says otherwise.
- * A folder the delete leaves with no feeds is kept.
  */
 export function DeleteDialog({
   feeds: selected,
@@ -268,12 +271,6 @@ export function DeleteDialog({
   const { count, starred } = deleteSummary(feeds);
   const [alsoStarred, setAlsoStarred] = useState(false);
   const { progress, report, setReport, busy, runEach } = useBulkRun(feeds);
-  // The folders the delete leaves with no feeds, from the library as it was when the dialog opened. They are kept:
-  // a folder goes only when the user deletes it (its filters go with it), the same rule as an OPML import.
-  const boot = useBootstrap();
-  const [library] = useState(() => ({ folders: boot.data?.folders ?? [], feeds: visibleFeeds(boot.data?.feeds) }));
-  const folderName = (id: string) => library.folders.find((f) => f.id === id)?.name ?? id;
-  const leaving = foldersLeftWithoutFeeds(library.folders, library.feeds, new Set(feeds.map((f) => f.id)));
 
   const run = async () => {
     const { succeeded: deleted, failed } = await runEach((f) => deleteFeed(f.id, alsoStarred).then(() => undefined));
@@ -293,8 +290,8 @@ export function DeleteDialog({
     <Modal
       open
       onOpenChange={(o) => !o && !busy && onClose()}
-      title={report ? ("Some feeds were not deleted") : `Delete ${count} feed${count === 1 ? "" : "s"}?`}
-      description={report ? `${report.done} deleted, ${report.failed.length} failed.` : "Their articles are removed from Kipple. Your sync apps stop seeing these feeds."}
+      title={report ? "Some feeds were not deleted" : `Delete ${count} ${deleteCopy(count, starred).feeds}?`}
+      description={report ? `${report.done} deleted, ${report.failed.length} failed.` : deleteCopy(count, starred).consequence}
       footer={
         report ? (
           <Button variant="solid" onClick={onClose}>
@@ -306,7 +303,7 @@ export function DeleteDialog({
               Cancel
             </Button>
             <Button variant="solid" disabled={busy} onClick={() => void run()}>
-              {busy ? "Deleting…" : `Delete ${count} feed${count === 1 ? "" : "s"}`}
+              {busy ? "Deleting…" : `Delete ${count} ${deleteCopy(count, starred).feeds}`}
             </Button>
           </>
         )
@@ -317,12 +314,6 @@ export function DeleteDialog({
       ) : (
         <>
           <FeedsToDelete feeds={feeds} starred={starred} alsoStarred={alsoStarred} onAlsoStarred={setAlsoStarred} disabled={busy} noneNote />
-          {leaving.length > 0 ? (
-            <p className="text-sm">
-              Folders with no feeds are kept:{" "}
-              {leaving.map(folderName).join(", ")}.
-            </p>
-          ) : null}
           {busy ? <BulkProgress label="Deleting feeds" done={progress} total={count} /> : null}
         </>
       )}

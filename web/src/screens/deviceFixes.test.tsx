@@ -705,7 +705,7 @@ describe("manage feeds", () => {
     expect(del).toEqual(["1?delete_starred=1"]);
   });
 
-  it("bulk delete keeps a folder it leaves with no feeds, and says so first", async () => {
+  it("bulk delete never deletes a folder, even one it leaves with no feeds", async () => {
     const del: string[] = [];
     const ok = (id: string) => () => (del.push(id), new Response(null, { status: 204 }));
     routes({ "DELETE /api/feeds/4": ok("feed 4"), "DELETE /api/feeds/1": ok("feed 1"), "DELETE /api/feeds/2": ok("feed 2"), "DELETE /api/feeds/3": ok("feed 3") }, boot3);
@@ -716,7 +716,7 @@ describe("manage feeds", () => {
     await user.click(screen.getByRole("button", { name: "Select all" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const dlg = await screen.findByRole("dialog", { name: "Delete 4 feeds?" });
-    expect(within(dlg).getByText(/Folders with no feeds are kept: Tech\./)).toBeInTheDocument();
+    expect(within(dlg).queryByText(/folder/i)).toBeNull();
     await user.click(within(dlg).getByRole("switch", { name: /Delete starred articles too/ }));
     await user.click(within(dlg).getByRole("button", { name: "Delete 4 feeds" }));
     await waitFor(() => expect(del).toContain("feed 4"));

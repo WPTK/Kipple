@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_FOLDER_DEPTH, chainOf, childrenOf, depthOf, feedOrder, folderPath, folderTree, heightOf, parentChoices, parentOf, parentPath, foldersLeftWithoutFeeds, rollUp, subtreeFeeds, subtreeOf } from "./folderTree";
+import { MAX_FOLDER_DEPTH, chainOf, childrenOf, depthOf, feedOrder, folderPath, folderTree, heightOf, parentChoices, parentOf, parentPath, rollUp, subtreeFeeds, subtreeOf } from "./folderTree";
 
 // Uncategorized (default); Tech > (Apple > Mac, News); Sports > News. Listed in pre-order, as the bootstrap does.
 const folders = [
@@ -96,20 +96,5 @@ describe("folderTree", () => {
   it("feedOrder lists each folder's subfolders before its own feeds", () => {
     const feeds: Record<string, string[]> = { "1": ["u"], "2": ["t"], "3": ["a"], "4": ["m"], "6": ["s"] };
     expect(feedOrder(t, (id) => feeds[id] ?? [])).toEqual(["u", "m", "a", "t", "s"]);
-  });
-});
-
-describe("foldersLeftWithoutFeeds", () => {
-  const feeds = [
-    { id: "a", folder_id: "1" },
-    { id: "b", folder_id: "3" },
-    { id: "c", folder_id: "4" },
-    { id: "d", folder_id: "4" },
-  ];
-  it("lists a folder whose own feeds all go, never the default folder or one that had none", () => {
-    expect(foldersLeftWithoutFeeds(folders, feeds, new Set(["a", "b", "c", "d"]))).toEqual(["3", "4"]);
-  });
-  it("leaves a folder that keeps a feed, and counts only its own feeds", () => {
-    expect(foldersLeftWithoutFeeds(folders, feeds, new Set(["c"]))).toEqual([]);
   });
 });
