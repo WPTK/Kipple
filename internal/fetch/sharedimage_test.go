@@ -60,7 +60,8 @@ func TestSharedImageFromMediaAndSrcsetFallsBack(t *testing.T) {
 }
 
 func TestSharedImagesCascade(t *testing.T) {
-	// A logo and a banner both lead three items; the third image is each item's own, or the next shared one.
+	// A logo leads three items and the banner behind it then leads the same three: each moves past both, to its own
+	// third image or none.
 	a, b := `<img src="https://a.com/logo.png" width="900">`, `<img src="https://a.com/banner.png" width="800">`
 	got := leadImages(t, rssWith("",
 		a+b+`<img src="https://a.com/own1.jpg" width="100">`,
@@ -82,6 +83,40 @@ func TestSharedImageIgnoresSizeSuffixSchemeAndTracking(t *testing.T) {
 	got = leadImages(t, rssWith("",
 		`<img src="https://a.com/img?id=1">`, `<img src="https://a.com/img?id=2">`, `<img src="https://a.com/img?id=3">`))
 	require.Equal(t, []string{"https://a.com/img?id=1", "https://a.com/img?id=2", "https://a.com/img?id=3"}, got)
+}
+
+// A thumbnail a post carries further down (a "related posts" crop) must not cost another post its own hero.
+func TestOnlyLeadsCountAsShared(t *testing.T) {
+	got := leadImages(t, rssWith("",
+		`<img src="https://a.com/up/hero-1024x683.jpg" width="1024"><p>text</p>`,
+		`<img src="https://a.com/up/b.jpg" width="900"><img src="https://a.com/up/hero-150x150.jpg" width="150">`,
+		`<img src="https://a.com/up/c.jpg" width="900"><img src="https://a.com/up/hero-150x150.jpg" width="150">`,
+	))
+	require.Equal(t, []string{"https://a.com/up/hero-1024x683.jpg", "https://a.com/up/b.jpg", "https://a.com/up/c.jpg"}, got)
+}
+
+// A host that names the picture in a q parameter gives three posts three images, not one.
+func TestQueryThatNamesThePictureIsKept(t *testing.T) {
+	var imgs []string
+	for _, id := range []string{"a", "b", "c"} {
+		imgs = append(imgs, `<img src="https://t.example/images?q=tbn:`+id+`&amp;usqp=CAU">`)
+	}
+	got := leadImages(t, rssWith("", imgs...))
+	require.Equal(t, []string{"https://t.example/images?q=tbn:a&usqp=CAU", "https://t.example/images?q=tbn:b&usqp=CAU", "https://t.example/images?q=tbn:c&usqp=CAU"}, got)
+}
+
+// One post listed three times is one post: it does not make its own picture shared.
+func TestRepeatedEntryIsNotThreeHolders(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><link>https://a.com/</link>`)
+	for i := 0; i < 3; i++ {
+		fmt.Fprintf(&b, `<item><title>Same</title><link>https://a.com/same</link><guid>g%d</guid><description><![CDATA[<img src="https://a.com/own.jpg" width="800">]]></description></item>`, i)
+	}
+	b.WriteString(`</channel></rss>`)
+	feed, err := ParseFeed([]byte(b.String()), ParseOptions{FeedURL: "https://a.com/feed", DedupMode: DedupLink})
+	require.NoError(t, err)
+	require.Len(t, feed.Items, 1)
+	require.Equal(t, "https://a.com/own.jpg", feed.Items[0].ImageURL)
 }
 
 // A document of many distinct unsized images, in the same order in several items, must cost one pass, not one pass

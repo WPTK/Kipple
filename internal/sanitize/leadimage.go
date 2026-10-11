@@ -69,13 +69,21 @@ func LeadImages(src string, n int, bases ...string) []string {
 	}
 	var best []candidate // at most n, best first
 	add := func(u string, score int) {
-		pos := len(best)
+		// A repeat of a URL already kept counts at the larger of its two sizes, as the single best pick always did.
 		for i, c := range best {
 			if c.url == u {
-				return
+				if effective(score) <= effective(c.score) {
+					return
+				}
+				best = append(best[:i], best[i+1:]...)
+				break
 			}
-			if pos == len(best) && effective(score) > effective(c.score) {
+		}
+		pos := len(best)
+		for i, c := range best {
+			if effective(score) > effective(c.score) {
 				pos = i
+				break
 			}
 		}
 		if pos >= n {

@@ -105,3 +105,8 @@ func TestLeadImagesRanksTheBestN(t *testing.T) {
 	require.Equal(t, []string{"https://a.com/post/b.jpg", "https://a.com/post/c.jpg", "https://a.com/post/a.jpg"}, got)
 	require.Empty(t, LeadImages(`<p>none</p>`, 3, base))
 }
+
+func TestLeadImageRepeatKeepsItsLargestSize(t *testing.T) {
+	require.Equal(t, "https://a.com/x.jpg",
+		LeadImage(`<img src="https://a.com/x.jpg" width="100"><img src="https://a.com/x.jpg" width="1200"><img src="https://a.com/y.jpg">`))
+}

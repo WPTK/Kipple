@@ -51,6 +51,7 @@ type Item struct {
 	Published   *time.Time  `json:"published,omitempty"` // PublishedParsed ?? UpdatedParsed; nil = store uses id/1e6
 	Updated     *time.Time  `json:"updated,omitempty"`   // item's own updated date, if any
 	Enclosures  []Enclosure `json:"enclosures,omitempty"`
+	images      []string    // ranked lead candidates until dropSharedImages has chosen; never stored
 	WordCount   int         `json:"-"` // words in ContentText; not in the golden output
 	// Categories are the entry's category/tag labels (at most MaxCategories of MaxCategoryRunes),
 	// stored at ingest so category filter rules can match. Not in the golden output.
@@ -170,25 +171,23 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 		keep = newestEntries(entries, MaxItemsPerFetch, time.Now())
 	}
 	items := make([]Item, 0, len(keep))
-	var images [][]string // each kept item's ranked images, parallel to items
 	skipped := 0
 	for _, i := range keep {
 		gi := entries[i]
-		it, imgs, ok := convertItem(i, gi, out.SiteURL, out.Title, opt, content, jsonItems)
+		it, ok := convertItem(i, gi, out.SiteURL, out.Title, opt, content, jsonItems)
 		if !ok {
 			skipped++
 			continue
 		}
 		items = append(items, it)
-		images = append(images, imgs)
 	}
-	dropSharedImages(items, images)
 
 	mode := opt.DedupMode
 	if mode == "" {
 		mode = DedupAuto
 	}
 	items, notes := AssignUIDs(items, mode)
+	dropSharedImages(items) // after the duplicate entries are gone, so a post listed twice counts once
 	for i := range items {
 		it := &items[i]
 		it.WordCount = sanitize.WordCount(it.ContentText)
@@ -314,14 +313,14 @@ func (f xmlFilter) Read(p []byte) (int, error) {
 // image at all (every such entry would share one uid), or one whose conversion panics on
 // hostile input. One bad entry is dropped and counted, never fatal to the
 // fetch (design §13 item 9).
-func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOptions, content func(string, ...string) (string, string), jsonItems []*gjson.Item) (it Item, images []string, ok bool) {
+func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOptions, content func(string, ...string) (string, string), jsonItems []*gjson.Item) (it Item, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
-			it, images, ok = Item{}, nil, false
+			it, ok = Item{}, false
 		}
 	}()
 	if gi == nil {
-		return Item{}, nil, false
+		return Item{}, false
 	}
 	it = Item{
 		GUID:    gi.GUID,
@@ -351,9 +350,9 @@ func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOpt
 	}
 	it.ContentHTML, it.ContentText = content(raw, bases...)
 
-	images = pickImages(gi, raw, bases)
-	if len(images) > 0 {
-		it.ImageURL = images[0]
+	it.images = pickImages(gi, raw, bases)
+	if len(it.images) > 0 {
+		it.ImageURL = it.images[0]
 	}
 	it.Categories = itemCategories(gi.Categories)
 	it.Published = firstTime(gi.PublishedParsed, gi.UpdatedParsed)
@@ -379,63 +378,80 @@ func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOpt
 			media = it.ImageURL
 		}
 		if media == "" {
-			return Item{}, nil, false
+			return Item{}, false
 		}
 		it.GUID = media
 		it.Title = mediaTitle(media, feedTitle)
 	}
-	return it, images, true
+	return it, true
 }
 
-// sharedImageItems is how many items of one fetch must carry the same image among their best imagesPerItem for it to
-// count as the site's own (a logo, a sponsor mark, a newsletter banner) and not any article's picture. Two is too few:
-// a photo two posts of a series share is still theirs. A real picture three or more posts share (a series banner, a
-// show's art on every episode, a young feed of three posts with one hero) is dropped with the logos and those posts
-// show no image.
+// sharedImageItems is how many items of one fetch must lead with the same image for it to count as the site's own (a
+// logo, a sponsor mark, a newsletter banner) and not any article's picture. Two is too few: a photo two posts of a
+// series share is still theirs. A real picture three or more posts lead with (a series banner, a show's art on every
+// episode, a young feed of three posts with one hero) is dropped with the logos and those posts show their next image
+// or none.
 const sharedImageItems = 3
 
-// imagesPerItem is how many ranked images per item take part in that count and are kept as fallbacks.
+// imagesPerItem is how many ranked images an item keeps as fallbacks for a shared lead.
 const imagesPerItem = 4
 
-// dropSharedImages gives every item the first of its ranked images that is not shared with sharedImageItems or more
-// items of the same fetch, or none. images[i] belongs to items[i]. It decides from this fetch's document alone, in one
-// pass of at most imagesPerItem steps per item, so the same feed always gives the same pictures; the cost is that a
-// feed listing fewer items than that, or a sponsor on only two of them, is not caught, and an item stored earlier
-// keeps its picture until its content changes (the store re-reads a lead image only then).
-func dropSharedImages(items []Item, images [][]string) {
-	holders := map[string]map[int]bool{} // image key -> items that carry it among their best
-	for i, imgs := range images {
-		for _, u := range imgs {
-			k := imageKey(u)
-			if holders[k] == nil {
-				holders[k] = map[int]bool{}
+// dropSharedImages gives every item the first of its ranked images that fewer than sharedImageItems items lead with.
+// Only a lead counts, so a thumbnail an item carries further down (a "related posts" crop) never costs another post
+// its own hero. An item that moves to its next image counts again under that one, so a logo followed by a banner is
+// followed past both; each round moves every item of a shared image down one place, so at most imagesPerItem rounds
+// run, whatever the document holds. It decides from this fetch's document alone, so the same feed always gives the
+// same pictures; the cost is that a feed listing fewer posts than that, or a sponsor on only two, is not caught, and
+// a post stored earlier keeps its picture until its content changes (the store re-reads a lead image only then).
+func dropSharedImages(items []Item) {
+	next := make([]int, len(items)) // position in items[i].images of the current pick
+	lead := func(i int) string {
+		if next[i] < len(items[i].images) {
+			return imageKey(items[i].images[next[i]])
+		}
+		return ""
+	}
+	for range imagesPerItem {
+		holders := map[string]int{}
+		for i := range items {
+			if k := lead(i); k != "" {
+				holders[k]++
 			}
-			holders[k][i] = true
+		}
+		moved := false
+		for i := range items {
+			if k := lead(i); k != "" && holders[k] >= sharedImageItems {
+				next[i]++
+				moved = true
+			}
+		}
+		if !moved {
+			break
 		}
 	}
-	for i, imgs := range images {
-		items[i].ImageURL = ""
-		for _, u := range imgs {
-			if len(holders[imageKey(u)]) < sharedImageItems {
-				items[i].ImageURL = u
-				break
-			}
+	for i := range items {
+		it := &items[i]
+		it.ImageURL = ""
+		if next[i] < len(it.images) {
+			it.ImageURL = it.images[next[i]]
 		}
+		it.images = nil
 	}
 }
 
 // sizedSuffix is a CDN or WordPress size suffix before the extension: logo-150x150.png, logo-300x300.png.
 var sizedSuffix = regexp.MustCompile(`-\d{2,5}x\d{2,5}(\.[A-Za-z0-9]{2,5})$`)
 
-// sizeParams are query parameters that change how an image is cut or tracked, not which image it is.
+// sizeParams are the query parameters known to change how an image is cut, versioned or tracked, not which image it
+// is. A parameter not listed stays part of the key: image hosts name the picture in the query under names like q, id
+// or url, so only a known name is ever dropped.
 var sizeParams = map[string]bool{
-	"v": true, "ver": true, "w": true, "h": true, "width": true, "height": true, "resize": true, "fit": true,
-	"quality": true, "q": true, "auth": true, "ssl": true, "fbclid": true,
+	"ver": true, "w": true, "h": true, "width": true, "height": true, "resize": true, "fit": true, "quality": true,
+	"auth": true, "ssl": true, "fbclid": true,
 }
 
 // imageKey names an image for the shared count: the same file under http or https, with or without "www.", with a
-// size suffix, a tracking or sizing query, or a different case of the host is one image. Other query parameters stay,
-// because many image hosts name the picture in the query.
+// size suffix, a sizing or tracking query parameter (sizeParams, utm_*), or a different case of the host is one image.
 func imageKey(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
