@@ -488,8 +488,9 @@ async function doFlush(qc?: QueryClient): Promise<void> {
   // What the server just took is what the screen shows, whether or not the event stream is up to say so.
   if (qc) for (const r of confirmed) patchItems(qc, r.kind === "star" ? [r.id] : r.ids, r.kind === "star" ? { starred: r.starred } : { read: r.read });
   if (qc) {
-    // A change confirmed after the undo that left an article as it was (a later mark read, say) decides that article.
-    const later = (at: number, id: string) => confirmed.slice(at + 1).some((r) => (r.kind === "star" ? r.id === id : r.ids.includes(id)));
+    // A change confirmed after the undo that clears the mute (a later mark unread or star, not an undo) decides that article.
+    const clears = (r: Queued, id: string) => !r.undo && (r.kind === "star" ? r.starred && r.id === id : !r.read && r.ids.includes(id));
+    const later = (at: number, id: string) => confirmed.slice(at + 1).some((r) => clears(r, id));
     undoKept(qc, kept.flatMap((k) => k.ids.filter((id) => !later(k.at, id))));
   }
   if (dropped > 0) {

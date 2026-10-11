@@ -87,6 +87,20 @@ describe("the offline queue", () => {
     expect(qc.getQueryState(keys.item("1002"))?.isInvalidated).toBe(true);
   });
 
+  it("an undo's kept article is reloaded when only a later mark read follows it", async () => {
+    await queueRead(["1002"], false, true);
+    await queueRead(["1002"], true); // marking read does not clear a mute
+    let n = 0;
+    mockFetch({
+      "POST /api/items/mark-read": () => json(++n === 1 ? { changed: [], restored: [], kept: ["1002"] } : { changed: ["1002"], restored: [] }),
+      "GET /api/bootstrap": () => json({}),
+    });
+    const qc = new QueryClient();
+    qc.setQueryData(keys.item("1002"), { id: "1002", read: true, starred: false });
+    await flushQueue(qc);
+    expect(qc.getQueryState(keys.item("1002"))?.isInvalidated).toBe(true);
+  });
+
   it("an undo's kept article is not touched when a later queued change to it was confirmed", async () => {
     await queueRead(["1002"], true);
     await queueRead(["1002"], false, true); // the undo: the server finds it muted and leaves it

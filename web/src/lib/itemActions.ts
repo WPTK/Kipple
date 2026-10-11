@@ -51,7 +51,8 @@ async function undoBulk(qc: QueryClient, ids: string[], ledger: string[]): Promi
   try {
     const res = await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, ...(ledger.length ? { ledger_ids: ledger } : {}), read: false, reason: "bulk", undo: true } });
     undoKept(qc, res?.kept);
-    return allKept(ids, res?.kept);
+    // Ledger rows the undo flipped back are a change even when every stored article was kept.
+    return ledger.length > 0 ? true : allKept(ids, res?.kept);
   } catch (e) {
     patchItems(qc, ids, { read: true });
     toast(errorMessage(e), "error");

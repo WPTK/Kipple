@@ -90,6 +90,19 @@ describe("undo never un-mutes (the server leaves articles muted since alone)", (
     announce.mockRestore();
   });
 
+  it("a bulk undo that kept every article but flipped ledger rows back still says Undone", async () => {
+    const announce = vi.spyOn(toasts, "announce");
+    mockFetch({
+      "POST /api/items/mark-read": (_u, init) =>
+        json(body({ init }).undo ? { changed: [], restored: [], kept: ["1001"] } : { changed: ["1001"], restored: [], ledger_ids: ["9"], count: 2, undoable: true }),
+    });
+    const act = itemActions(new QueryClient());
+    await act.markAll({ view: "unread" }, "1001", ["1001"]);
+    await undoLast();
+    expect(announce).toHaveBeenLastCalledWith("Undone");
+    announce.mockRestore();
+  });
+
   it("an undo that changed some articles still says Undone", async () => {
     const announce = vi.spyOn(toasts, "announce");
     mockFetch({

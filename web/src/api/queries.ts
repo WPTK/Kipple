@@ -307,9 +307,9 @@ export async function applyRead(
 
 /**
  * Set starred with an optimistic patch; reverts and toasts on failure. `undo` (with starred true) is the undo of an
- * unstar: the server leaves an article muted since as it is.
+ * unstar: the server leaves an article muted since as it is. Resolves `false` when the change failed, `"kept"` when
+ * an undo left the article as it was (muted or trimmed since).
  */
-/** Resolves `false` when the change failed, `"kept"` when an undo left the article as it was (muted or trimmed since). */
 export async function applyStar(qc: QueryClient, id: string, starred: boolean, undo = false): Promise<boolean | "kept"> {
   patchItems(qc, [id], { starred: starred });
   await supersede({ star: id });
