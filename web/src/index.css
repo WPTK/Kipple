@@ -157,6 +157,28 @@ body {
   outline-width: 3px;
 }
 
+/* A list row's title link covers the whole row with its ::after (the row is the containing block), which makes the
+   row the tap target and draws the focus ring around the row. The ring goes inside the row: outside it, the row's
+   neighbours and the swipe container would clip it. The link's own ring would be cut by the title's line clamp. */
+.row-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.row-link:focus-visible {
+  outline: none;
+}
+.row-link:focus-visible::after {
+  outline: 2px solid var(--kp-accent);
+  outline-offset: -2px;
+}
+:root[data-theme="signal"] .row-link:focus-visible::after,
+:root[data-theme="inkwell"] .row-link:focus-visible::after,
+:root[data-theme="teletype"] .row-link:focus-visible::after {
+  outline-width: 3px;
+  outline-offset: -3px;
+}
+
 /* A focusable scroll region that fills its pane (Your year): the ring goes inside, where the screen edges and
    #root's overflow cannot clip it. Unlayered like the rules above, which a Tailwind utility could not override. */
 .kp-scroll-region:focus-visible {
@@ -325,6 +347,8 @@ a.sr-only-live:focus {
 @media (prefers-contrast: more) {
   :root[data-theme] { --kp-border: var(--kp-text); --kp-text2: var(--kp-text); }
   :focus-visible { outline-width: 3px; outline-offset: 3px; }
+  .row-link:focus-visible { outline: none; }
+  .row-link:focus-visible::after { outline-width: 3px; outline-offset: -3px; }
   a { text-decoration: underline; }
   .clamp-snippet { color: var(--kp-text); }
 }
@@ -333,6 +357,8 @@ a.sr-only-live:focus {
    meaning through a background image or color alone (unread and starred also have shape and text). */
 @media (forced-colors: active) {
   :focus-visible { outline: 3px solid Highlight; outline-offset: 2px; }
+  .row-link:focus-visible { outline: none; }
+  .row-link:focus-visible::after { outline: 3px solid Highlight; outline-offset: -3px; }
   .kp-unread-dot[data-unread="true"] { forced-color-adjust: none; background: CanvasText; }
   [aria-current="page"], [aria-checked="true"], label:has(input:checked) { outline: 2px solid Highlight; }
   label:has(input:checked) { forced-color-adjust: none; background: Highlight; color: HighlightText; }
@@ -483,6 +509,27 @@ a.sr-only-live:focus {
   margin-left: 0.25rem;
 }
 .article-body a[href^="#kp-"] { text-decoration-style: dotted; }
+
+/* An image that could not be shown (web/src/lib/articleDom.ts imageNotShown): the embed placeholder's box, dashed. */
+.article-body .kp-img-off {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  max-width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--kp-border);
+  border-radius: 0.5rem;
+  background: var(--kp-surface);
+  color: var(--kp-text2);
+  font-size: 0.875em;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+/* Holding a declared image size (width and aspect-ratio set by imageNotShown): the text sits in the middle. */
+.article-body .kp-img-off[data-sized] { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+/* Inside a link the cue is part of that link, so it looks like one (an underline does not reach an inline-flex box). */
+.article-body a .kp-img-off { color: var(--kp-link); text-decoration: underline; text-underline-offset: 0.15em; }
 
 /* Stats heatmap: level fill is --heat percent of the text color into the surface (ramp in src/theme/contrast.ts,
    checked by scripts/contrast.mjs). Older browsers without color-mix get an opacity-based fill instead. */

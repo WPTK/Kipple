@@ -3,6 +3,7 @@ import { cn } from "@/lib/cn";
 import { CheckBadge, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
+import { useRowTabIndex } from "./rowTabStop";
 
 /**
  * Compact: unread dot, a small source and time line over a 1-2 line title, no
@@ -10,6 +11,7 @@ import { Hl } from "@/lib/useHighlights";
  * is in the row menu. Rows are min 44 px on touch (see .row-compact).
  */
 function CompactRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
+  const tabIndex = useRowTabIndex();
   const unread = !item.read;
   return (
     <article
@@ -26,9 +28,11 @@ function CompactRow({ item, feed, selected, checked, to, onOpen, onToggleStar, a
         <SourceTimeMeta item={item} icon={feed?.icon} />
         <h3 className={cn("line-clamp-2 text-sm leading-snug", unread ? "font-bold text-fg" : "font-normal text-fg2")}>
           <Link
+            tabIndex={tabIndex}
             to={to}
             onClick={() => onOpen(item)}
-            className="after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:outline-accent"
+            aria-keyshortcuts="ArrowDown ArrowUp"
+            className="row-link"
             aria-label={rowLabel(item)}
           >
             <Hl text={item.title || "Untitled"} field="title" feedId={item.feed_id} />

@@ -27,7 +27,7 @@ export const LAYOUT_HINTS: Record<LayoutId, string> = {
   compact: "Source over title, no pictures",
   inbox: "Email-style rows with a preview",
   headlines: "One line per article, titles only",
-  gazette: "A newspaper: front page, sections",
+  gazette: "Newspaper, always newest first",
 };
 
 /** The longest name the Gazette can be given (`client.paper_name`). */

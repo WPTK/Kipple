@@ -1,6 +1,6 @@
 import { onlineManager, type QueryClient } from "@tanstack/react-query";
 import { api, ApiError, authStore, buildPath } from "@/api/client";
-import { itemsParams, keys, PAGE_SIZE, patchItems } from "@/api/queryKeys";
+import { itemsParams, keys, PAGE_SIZE, patchItems, undoKept } from "@/api/queryKeys";
 import { toast } from "@/shell/toasts";
 import { devicePrefsStore, resolveOrder, sessionLayoutStore } from "./devicePrefs";
 import type { Bootstrap, MarkReadResponse } from "@/api/types";
@@ -22,9 +22,10 @@ import { wipeStatsQueue } from "./statsSender";
  * rule: the last change to reach the server wins. What this device does online in the meantime is protected by
  * supersede(), which drops the queued change for those articles before the online write is sent.
  */
+/** `undo`: the change undoes an unstar or a mark read, so the server leaves an article muted since alone (§7.11). */
 export type Queued =
-  | { kind: "star"; id: string; starred: boolean; at: number }
-  | { kind: "read"; ids: string[]; read: boolean };
+  | { kind: "star"; id: string; starred: boolean; at: number; undo?: true }
+  | { kind: "read"; ids: string[]; read: boolean; undo?: true };
 
 type Row = Queued & { seq: number };
 
@@ -207,9 +208,9 @@ async function refreshCount(): Promise<void> {
  * Queue a star change. A later change to the same article replaces an earlier queued one. Rejects with
  * QueueWriteError when the change could not be stored.
  */
-export async function queueStar(id: string, starred: boolean, at = Math.floor(Date.now() / 1000)): Promise<void> {
+export async function queueStar(id: string, starred: boolean, at = Math.floor(Date.now() / 1000), undo = false): Promise<void> {
   // Stored first, so a failed save leaves the earlier queued change in place rather than nothing at all.
-  const row: Row = { kind: "star", id, starred, at, seq: nextSeq() };
+  const row: Row = { kind: "star", id, starred, at, ...(undo ? { undo } : {}), seq: nextSeq() };
   await put(row);
   await queuedHere();
   const rows = await safe((b) => b.all(), []);
@@ -221,8 +222,8 @@ export async function queueStar(id: string, starred: boolean, at = Math.floor(Da
  * Queue a read or unread mark for ids; answers the way the server would for a plain by-id mark. Rejects with
  * QueueWriteError when the change could not be stored.
  */
-export async function queueRead(ids: string[], read: boolean): Promise<MarkReadResponse> {
-  await put({ kind: "read", ids, read, seq: nextSeq() });
+export async function queueRead(ids: string[], read: boolean, undo = false): Promise<MarkReadResponse> {
+  await put({ kind: "read", ids, read, ...(undo ? { undo } : {}), seq: nextSeq() });
   await queuedHere();
   await refreshCount();
   return { changed: ids, restored: [] };
@@ -449,6 +450,7 @@ async function doFlush(qc?: QueryClient): Promise<void> {
   let sent = 0;
   let dropped = 0;
   const confirmed: Queued[] = [];
+  const kept: { at: number; ids: string[] }[] = []; // what replayed undos left as they were (muted or trimmed since), and after which confirmed row
   // Each row is read from the store right before it is sent, never from a list taken at the start: an online
   // write in the meantime (supersede) may have removed it or narrowed its ids, and replaying the old copy
   // would undo that write. Rows queued during the run are picked up too, in order.
@@ -464,10 +466,11 @@ async function doFlush(qc?: QueryClient): Promise<void> {
     try {
       const done =
         r.kind === "star"
-          ? api(`/api/items/${r.id}/star`, { method: "PUT", body: { starred: r.starred, at: r.at }, signal: ctl.signal })
-          : api("/api/items/mark-read", { method: "POST", body: { ids: r.ids, read: r.read, reason: "key" }, signal: ctl.signal });
+          ? api<{ kept?: boolean }>(`/api/items/${r.id}/star`, { method: "PUT", body: { starred: r.starred, at: r.at, ...(r.undo ? { undo: true } : {}) }, signal: ctl.signal }).then((res) => (res?.kept ? [r.id] : []))
+          : api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids: r.ids, read: r.read, reason: "key", ...(r.undo ? { undo: true } : {}) }, signal: ctl.signal }).then((res) => res?.kept ?? []);
       sending = { row: r, done };
-      await done;
+      const left = await done;
+      if (left.length) kept.push({ at: confirmed.length, ids: left });
       confirmed.push(r);
     } catch (e) {
       if (ctl.signal.aborted || isOffline(e) || (e instanceof ApiError && (e.status === 401 || e.status === 429 || e.status >= 500))) break;
@@ -484,6 +487,12 @@ async function doFlush(qc?: QueryClient): Promise<void> {
   if (sent > 0 && qc) void qc.invalidateQueries({ queryKey: keys.bootstrap });
   // What the server just took is what the screen shows, whether or not the event stream is up to say so.
   if (qc) for (const r of confirmed) patchItems(qc, r.kind === "star" ? [r.id] : r.ids, r.kind === "star" ? { starred: r.starred } : { read: r.read });
+  if (qc) {
+    // A change confirmed after the undo that clears the mute (a later mark unread or star, not an undo) decides that article.
+    const clears = (r: Queued, id: string) => !r.undo && (r.kind === "star" ? r.starred && r.id === id : !r.read && r.ids.includes(id));
+    const later = (at: number, id: string) => confirmed.slice(at + 1).some((r) => clears(r, id));
+    undoKept(qc, kept.flatMap((k) => k.ids.filter((id) => !later(k.at, id))));
+  }
   if (dropped > 0) {
     // The kept counts still count the refused change. With nothing left waiting the next bootstrap's own replace them;
     // with changes still waiting they are kept, since dropping them would lose those too (they cannot be taken apart).

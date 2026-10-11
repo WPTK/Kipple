@@ -188,6 +188,8 @@ export interface FulltextResponse {
 export interface MarkReadResponse {
   changed: string[];
   restored: string[];
+  /** On an undo (`undo: true`): ids it left read, because a filter muted them or retention trimmed them since. */
+  kept?: string[];
 }
 
 /** What a list screen asks for. `q` is search text. */

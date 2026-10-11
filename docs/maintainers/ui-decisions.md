@@ -144,7 +144,9 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
 - **Swipe directions match iOS Mail everywhere** (this supersedes round 1's "read left, unread right"):
   swipe right (leading) = toggle read/unread; swipe left (trailing) = star, plus a "More" action opening the
   row menu. Full swipe commits with undo. Star also has a row button, `s`, and the long-press menu.
-- Undo toast lasts **15 seconds** (merged toast; `z` undo stack as specified).
+- Undo toast lasts **15 seconds** from when the change is saved (merged toast). `z` undoes the newest change, up to 20
+  changes back within 60 s (bulk marks 2 minutes), waiting for one that is still saving; the full model is
+  docs/design.md §7.11.
 - Single-key shortcuts: global on/off setting. `c`: toggle the Compact layout (match the layout system).
   `m` in Unread view: row dims in place (shipped differently: a row marked read on purpose dims,
   then leaves the Unread list after 1.5 s with the undo toast up; the open article leaves when you
@@ -189,6 +191,19 @@ Choices made where the decisions above were silent; the owner may overrule any o
   and alternatives (`web/src/lib/stopwords.ts`). Words a reader may want to mute (free, deals, review, video, live) are
   not on the list. The list is English only: other languages rely on the length, digit and script rules (unspaced
   scripts are cut into short pieces).
+- Saving a mute rule from **Mute similar...** also mutes the article it was started from, read or unread, when the rule
+  as saved matches it (#374): the editor sends the article's id and the server mutes it in the same transaction, with
+  the same write as Apply, so Restore, mark unread, star and delete-with-unmute undo it like any mute. Only that article
+  changes; "Apply to existing articles" still covers the rest of the feed. A starred article is not muted (star beats
+  mute). A muted article leaves every list except Muted at once, Unread included, as if it had arrived muted; while
+  it stays open, Next and Previous go on from where it was in the list. Undo never un-mutes: undoing an
+  earlier mark read or unstar leaves an article muted since as it is (the server decides, design §7.11). The save
+  toast says what happened in one sentence, and when nothing was muted it says why: the rule does not mute, it is
+  turned off, the article no longer exists (the rule is still saved), it is starred, its feed is archived, the rule no
+  longer matches it, another filter already muted it (it stays with that filter), or a star filter matches it.
+- **Restore** in Muted puts back the read state an article had before it was muted (#374 review): an article read
+  before the mute stays read, an unread one is unread again, and the announcement says which. One rule for every muted
+  article, the same one delete-with-unmute=unread uses for a whole filter.
 ### Working agreement
 - Commit and open PRs without asking. Merge docs-only PRs when CI is green. Code PR for `phase-2` opens at
   deploy time. Reviews (Opus, high) after every two or three backend steps; fix all findings.

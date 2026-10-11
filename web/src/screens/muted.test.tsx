@@ -78,6 +78,7 @@ function routes(extra: Parameters<typeof mockFetch>[0] = {}, boot: Bootstrap = w
     "GET /api/settings": () => json({ settings: [], values: {} }),
     "GET /api/filters": () => json({ filters: [rule] }),
     "POST /api/items/mark-read": (_u, init) => json({ changed: JSON.parse(String(init?.body)).ids, restored: [] }),
+    "POST /api/items/unmute": (_u, init) => json({ changed: JSON.parse(String(init?.body)).ids, made_unread: JSON.parse(String(init?.body)).ids }),
     ...extra,
   });
 }
@@ -153,6 +154,16 @@ describe("the Muted list", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("Restore keeps an article read when it was read before the mute, and says so", async () => {
+    routes({ "POST /api/items/unmute": () => json({ changed: ["1001"], made_unread: [] }) });
+    wide();
+    go("/l/muted");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Restore Muted article 1" }));
+    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent("Restored. It stays read, as it was before it was muted."));
+    await waitFor(() => expect(screen.queryByText("Muted article 1")).toBeNull());
+  });
+
   it("an article whose rule was deleted says so and has no Edit rule", async () => {
     routes({ "GET /api/items": () => json(pageOf([muted(1, null)])) });
     go("/l/muted");
@@ -161,19 +172,20 @@ describe("the Muted list", () => {
     expect(screen.queryByRole("button", { name: /Edit the rule/ })).toBeNull();
   });
 
-  it("Restore marks the article unread (that is what un-mutes it), takes its row out and lowers the count", async () => {
+  it("Restore un-mutes the article with the read state it had before, takes its row out and lowers the count", async () => {
     const { calls } = routes();
     wide();
     go("/l/muted");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Restore Muted article 1" }));
-    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
-    expect(body(calls.find((c) => c.url.pathname === "/api/items/mark-read") as never)).toMatchObject({ ids: ["1001"], read: false });
+    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/unmute")).toBe(true));
+    expect(body(calls.find((c) => c.url.pathname === "/api/items/unmute") as never)).toEqual({ ids: ["1001"] });
+    expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(false);
     await waitFor(() => expect(screen.queryByText("Muted article 1")).toBeNull());
     expect(screen.getByText("Muted article 2")).toBeInTheDocument();
     expect(qc.getQueryData<Bootstrap>(keys.bootstrap)?.counts.muted).toBe(1);
     expect(screen.getByTestId("live-region")).toHaveTextContent("Restored. It is unread again.");
-    // No undo is offered: putting it back under its rule is not something a mark-read can do.
+    // No undo is offered: putting it back under its rule is not something the client can do.
     expect(screen.getByTestId("undo-region")).not.toHaveTextContent("Undo");
   });
 
@@ -215,9 +227,10 @@ describe("the Muted list", () => {
     go("/i/1001?from=muted");
     const banner = await screen.findByTestId("muted-banner");
     expect(banner).toHaveTextContent("Muted by No giveaways");
+    expect(banner).not.toHaveAttribute("role"); // not a live region: the action that muted it says so itself
     await userEvent.setup().click(within(banner).getByRole("button", { name: "Restore" }));
-    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
-    expect(body(calls.find((c) => c.url.pathname === "/api/items/mark-read") as never)).toMatchObject({ ids: ["1001"], read: false });
+    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/unmute")).toBe(true));
+    expect(body(calls.find((c) => c.url.pathname === "/api/items/unmute") as never)).toEqual({ ids: ["1001"] });
     await waitFor(() => expect(screen.queryByTestId("muted-banner")).toBeNull());
   });
 });
@@ -295,6 +308,111 @@ describe("Mute similar…", () => {
     await user.click(dialog.getByRole("button", { name: "Author Ada" }));
     await user.click(dialog.getByRole("button", { name: "Remove Ada" }));
     expect(dialog.getByRole("button", { name: "Author Ada" })).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+describe("Mute similar… saves and says what it did to the article", () => {
+  it.each([
+    ["muted", "Filter saved. This article is muted."],
+    ["no_match", "Filter saved. This article was not muted because the filter no longer matches it."],
+    ["starred", "Filter saved. This article is starred, so it was not muted."],
+    ["already_muted", "Filter saved. This article was already muted by another filter."],
+    ["star_filter", "Filter saved. A star filter matches this article, so it was not muted."],
+    ["archived", "Filter saved. This article was not muted because its feed is archived."],
+    ["gone", "Filter saved. This article no longer exists."],
+    ["not_mute", "Filter saved. This article was not muted because the filter does not mute."],
+    ["disabled", "Filter saved. This article was not muted because the filter is turned off."],
+  ] as const)("%s", async (result, message) => {
+    const { calls } = routes({
+      "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }),
+      "POST /api/filters": () => json({ filter: { ...rule, id: "9", name: "Ada" }, applied: null, source: { item_id: "1001", result } }, 201),
+    });
+    go("/l/unread");
+    const user = userEvent.setup();
+    const row = (await screen.findByText("Article number 1")).closest("[data-item-id]") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mute similar…" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "New filter" }));
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    await user.click(dialog.getByRole("button", { name: "Save filter" }));
+    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent(message));
+    expect(body(calls.find((c) => c.init?.method === "POST" && c.url.pathname === "/api/filters") as never)).toMatchObject({ source_item_id: "1001", action: "mute" });
+    const cached = qc
+      .getQueriesData<InfiniteData<ItemsPage>>({ queryKey: keys.itemsAll })
+      .flatMap(([, d]) => d?.pages.flatMap((p) => p.items) ?? [])
+      .find((i) => i.id === "1001");
+    // The reader asked for this article to go: a muted one leaves the list on screen, Unread included.
+    if (result === "muted") {
+      expect(cached).toBeUndefined();
+      await waitFor(() => expect(screen.queryByText("Article number 1")).toBeNull());
+    } else {
+      expect(cached).toMatchObject({ read: false, muted_by: null });
+      expect(screen.getByText("Article number 1")).toBeInTheDocument();
+    }
+    // Said once: the toast is the announcement.
+    expect(screen.getByTestId("live-region").textContent?.replace(/\u200b/g, "")).toBe(message);
+  });
+});
+
+describe("Mute similar… from the open article", () => {
+  // The muted article leaves the list it was opened from; Next and Previous go on from where it was.
+  it.each(["phone", "wide"] as const)("%s: Previous and Next still work after the article leaves its list", async (layout) => {
+    if (layout === "wide") wide();
+    prefsStore.set({ ...DEFAULT_PREFS, shortcuts: true });
+    const open = (n: number) => () => json({ session_key: "k", item: detail(n, { read: true }) });
+    routes({
+      "GET /api/items": () => json(pageOf([card(1), card(2), card(3)])),
+      ...Object.fromEntries([1, 2, 3].map((n) => [`GET /api/items/${1000 + n}`, () => json(detail(n))])),
+      ...Object.fromEntries([1, 2, 3].map((n) => [`POST /api/items/${1000 + n}/open`, open(n)])),
+      "POST /api/filters/preview": () => json({ matches: 0, scanned: 0, truncated: false, sample: [], warnings: [] }),
+      "POST /api/filters": () => json({ filter: { ...rule, id: "9", name: "Ada" }, applied: null, source: { item_id: "1002", result: "muted" } }, 201),
+    });
+    go("/i/1002?from=unread");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { level: 1, name: "Article number 2" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next article" })).toBeEnabled());
+    await user.click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mute similar…" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "New filter" }));
+    await user.click(dialog.getByRole("button", { name: "Author Ada" }));
+    await user.click(dialog.getByRole("button", { name: "Save filter" }));
+    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent("This article is muted."));
+    const cached = qc.getQueryData<InfiniteData<ItemsPage>>(keys.items({ view: "unread" }))?.pages[0]?.items.map((i) => i.id);
+    expect(cached).toEqual(["1001", "1003"]);
+    expect(screen.getByRole("button", { name: "Previous article" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Next article" })).toBeEnabled();
+    if (layout === "wide") await user.keyboard("j");
+    else await user.click(screen.getByRole("button", { name: "Next article" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1003"));
+    await user.keyboard("k");
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1001"));
+  });
+});
+
+describe("Mute similar… and undo", () => {
+  // The mute happened where this tab did not hear of it (another device, or while the live connection was down), so
+  // only the server knows: it answers the undo with the article it left muted, and the article stays read and gone.
+  it("z after an article marked read with m was muted elsewhere leaves it read and out of Unread", async () => {
+    prefsStore.set({ ...DEFAULT_PREFS, shortcuts: true });
+    const { calls } = routes({
+      "POST /api/items/mark-read": (_u, init) => {
+        const b = JSON.parse(String(init?.body)) as { ids: string[]; undo?: boolean };
+        return json(b.undo ? { changed: [], restored: [], kept: ["1001"] } : { changed: b.ids, restored: [] });
+      },
+    });
+    go("/l/unread");
+    const user = userEvent.setup();
+    await screen.findByText("Article number 1");
+    await user.keyboard("j");
+    await user.keyboard("m");
+    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read" && body(c).read === true)).toBe(true));
+    await user.keyboard("z");
+    // Marking unread is also the un-mute: the undo says it is one, and the server skips an article muted since.
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read" && body(c).read === false).map(body)).toEqual([expect.objectContaining({ ids: ["1001"], undo: true })]));
+    await waitFor(() => expect(screen.queryByText("Article number 1")).toBeNull());
+    const cached = qc.getQueryData<InfiniteData<ItemsPage>>(keys.items({ view: "unread" }))?.pages[0]?.items.map((i) => i.id);
+    expect(cached).toEqual(["1002"]);
+    expect(screen.getByText("Article number 2")).toBeInTheDocument();
   });
 });
 

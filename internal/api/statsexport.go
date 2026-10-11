@@ -18,6 +18,12 @@ import (
 // WriteTimeout would otherwise cut a long export off, so each page extends it.
 const statsWriteWindow = 60 * time.Second
 
+// exportMaxWaiters and defaultExportWait bound the queue behind a running raw export (acquireExport).
+const (
+	exportMaxWaiters  = 3
+	defaultExportWait = 20 * time.Second
+)
+
 // csvHeader is the raw export's CSV header, in statsColumns order.
 func csvHeader() []string {
 	h := make([]string, len(statsColumns))
@@ -180,14 +186,6 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bom := bomQ == "1" && format == "csv"
-	// One export at a time: a download needs no origin proof, so another page can start
-	// one, and each streams the whole table.
-	if !s.exportBusy.CompareAndSwap(false, true) {
-		w.Header().Set("Retry-After", "5")
-		writeErrorMsg(w, http.StatusTooManyRequests, "busy", "A statistics export is already running. Try again in a moment.")
-		return
-	}
-	defer s.exportBusy.Store(false)
 	rd := s.db.Reader()
 	recording, loc, tz, weekStart, err := store.StatsSettings(ctx, rd)
 	if err != nil {
@@ -215,6 +213,16 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 	if content == "summary" {
 		s.exportSummary(w, r, p, titles, stamp, recording)
 		return
+	}
+
+	// One raw export at a time (the summary is bounded work behind its own gate, and HEAD
+	// sends no body): a download needs no origin proof, so another page can start one, and
+	// each streams the whole table. See acquireExport.
+	if r.Method != http.MethodHead {
+		if !s.acquireExport(w, r) {
+			return
+		}
+		defer func() { <-s.exportSlot }()
 	}
 
 	// The range echoed in the envelope. "all" runs from the first date present through today (the
@@ -384,6 +392,45 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, "\n],\"event_count\":%d}\n", written)
 	}
 	h.Set("X-Kipple-Rows-Sent", strconv.Itoa(written))
+}
+
+// acquireExport takes the one raw-export slot. A second request waits for it, because it is usually
+// a browser download and a browser saves whatever a download link answers, an error body included.
+// The wait is bounded (exportWait, shorter than a typical proxy's header timeout) and so is the
+// queue (exportMaxWaiters), so waiting cannot pile up. When either bound is hit the answer is a
+// bodiless 503 with Retry-After: Chromium and Firefox show a failed download for a non-2xx status
+// instead of saving it, and even a browser that saved it would save an empty file. It reports
+// false when it has answered or the client has gone.
+func (s *Server) acquireExport(w http.ResponseWriter, r *http.Request) bool {
+	select {
+	case s.exportSlot <- struct{}{}:
+	default:
+		if s.exportWaiting.Add(1) > exportMaxWaiters {
+			s.exportWaiting.Add(-1)
+			refuseExport(w)
+			return false
+		}
+		t := time.NewTimer(s.exportWait)
+		defer t.Stop()
+		select {
+		case s.exportSlot <- struct{}{}:
+			s.exportWaiting.Add(-1)
+		case <-t.C:
+			s.exportWaiting.Add(-1)
+			refuseExport(w)
+			return false
+		case <-r.Context().Done():
+			s.exportWaiting.Add(-1)
+			return false
+		}
+	}
+	return true
+}
+
+// refuseExport answers a download that could not get the slot: no body, so nothing to save.
+func refuseExport(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "10")
+	w.WriteHeader(http.StatusServiceUnavailable)
 }
 
 // exportSummary writes content=summary: the summary of the range as one JSON document.

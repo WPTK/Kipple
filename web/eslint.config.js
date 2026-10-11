@@ -22,17 +22,22 @@ export default tseslint.config(
   },
   {
     // The UAT runner is Node; the probes it hands to page.evaluate run in the page and only see the page.
-    files: ["uat/run.mjs"],
+    files: ["uat/run.mjs", "uat/measure-unload-refusal.mjs"],
     languageOptions: { globals: { ...globals.node } },
   },
   {
     // Node, with functions that run in the page (page.evaluate) written inline.
-    files: ["uat/wizard.mjs", "uat/offline.mjs", "uat/keyboard.mjs", "uat/folders.mjs", "uat/downloads.mjs"],
+    files: ["uat/wizard.mjs", "uat/offline.mjs", "uat/keyboard.mjs", "uat/folders.mjs", "uat/downloads.mjs", "uat/focus.mjs"],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {
     files: ["uat/probes.mjs"],
     languageOptions: { globals: { ...globals.browser } },
+  },
+  {
+    // The single-purpose flows: Node, with the functions they hand to page.evaluate written inline.
+    files: ["uat/common.mjs", "uat/feeds.mjs", "uat/states.mjs", "uat/wait-ready.mjs", "uat/all.mjs"],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {
     rules: {

@@ -8,10 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// undo0017 turns a current database into a schema-16 one (no feed_daily_new, no feeds.url_succeeded),
+// undo0017 turns a current database into a schema-16 one (no feed_daily_new, no feeds.url_succeeded, no feeds.redirect_ack),
 // and is the first step of every downgrade helper below it (a migration file runs once, docs/design.md
 // §2.5).
-const undo0017 = `DROP TABLE feed_daily_new;
+const undo0017 = `ALTER TABLE feeds DROP COLUMN redirect_ack;
+DROP TABLE feed_daily_new;
 ALTER TABLE feeds DROP COLUMN url_succeeded`
 
 // A populated schema-16 database: 0017 adds the empty table, its index and url_succeeded (1 where the feed

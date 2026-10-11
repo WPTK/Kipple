@@ -38,7 +38,8 @@ func newRestorer(t *testing.T, tune ...func(*RestorerOptions)) (*Restorer, strin
 const me = "owner-key"
 
 // An upload belongs to the key that sent it: another key sees no restore and
-// can neither read, confirm nor cancel it, and cannot upload over it.
+// can neither read, confirm nor cancel it (a new upload of its own replaces
+// it: see TestANewBrowserReplacesAnUnconfirmedUpload).
 func TestUploadBelongsToItsOwner(t *testing.T) {
 	t.Parallel()
 	const other = "someone-else"
@@ -47,15 +48,13 @@ func TestUploadBelongsToItsOwner(t *testing.T) {
 	_, err := upload(r, b)
 	require.NoError(t, err)
 
-	require.Equal(t, Status{State: RestoreNone, Refusal: ErrRestoreElsewhere}, r.Status(other), "no summary, no state; only that a new upload would be refused")
-	require.Equal(t, Status{State: RestoreNone, Refusal: ErrRestoreElsewhere}, r.Status(""), "no key is not the owner")
+	require.Equal(t, Status{State: RestoreNone}, r.Status(other), "no summary, no state")
+	require.Equal(t, Status{State: RestoreNone}, r.Status(""), "no key is not the owner")
 	_, _, err = r.Uploaded(other)
-	require.ErrorIs(t, err, ErrRestoreElsewhere)
+	require.ErrorIs(t, err, ErrRestoreReplaced)
 	_, err = r.Feeds(other)
-	require.ErrorIs(t, err, ErrRestoreElsewhere)
+	require.ErrorIs(t, err, ErrRestoreReplaced)
 	require.ErrorIs(t, r.Cancel(other), ErrRestoreElsewhere)
-	_, err = r.Upload(context.Background(), other, bytes.NewReader(b), int64(len(b)), nil)
-	require.ErrorIs(t, err, ErrRestoreElsewhere)
 	_, err = r.Upload(context.Background(), me, bytes.NewReader(b), int64(len(b)), nil)
 	require.ErrorIs(t, err, ErrRestoreBusy, "the owner may cancel its own and try again")
 	require.Equal(t, RestoreReady, r.State(), "nothing another key did changed it")
@@ -88,6 +87,54 @@ func TestUploadBelongsToItsOwner(t *testing.T) {
 	require.Equal(t, RestoreFailed, r.Status(me).State, "another key's cancel leaves the owner's refusal")
 	_, err = r.Upload(context.Background(), "", bytes.NewReader(b), int64(len(b)), nil)
 	require.Error(t, err, "an upload needs a key")
+}
+
+// A checked upload that nobody confirms holds nothing up: no request or job of
+// its browser is running, so that browser may be gone for good (an abandoned
+// tab, a phone put away). Another browser's upload replaces it at once instead
+// of waiting for it to expire, and the first browser's ticket confirms
+// nothing. An upload still arriving or being checked has a live holder and
+// keeps the slot.
+func TestANewBrowserReplacesAnUnconfirmedUpload(t *testing.T) {
+	t.Parallel()
+	const other = "second-browser"
+	b := hostBackup(t)
+	r, dir := newRestorer(t, func(o *RestorerOptions) { o.TTL = time.Hour })
+	_, err := upload(r, b)
+	require.NoError(t, err)
+	_, ticket, err := r.Uploaded(me)
+	require.NoError(t, err)
+
+	require.Equal(t, Status{State: RestoreNone}, r.Status(other), "nothing would refuse the second browser's upload")
+	up, err := r.Upload(context.Background(), other, bytes.NewReader(b), int64(len(b)), nil)
+	require.NoError(t, err)
+	require.Equal(t, KindBackup, up.Kind)
+	require.Eventually(t, func() bool { return r.Status(other).State == RestoreReady }, 30*time.Second, 5*time.Millisecond)
+	require.FileExists(t, filepath.Join(dir, StagedFile))
+
+	require.Equal(t, Status{State: RestoreNone}, r.Status(me), "the first browser's upload is gone, and it sees nothing of the second's")
+	require.ErrorIs(t, r.Confirm(context.Background(), ticket, ""), ErrNoUpload, "the replaced upload's ticket confirms nothing")
+	_, _, err = r.Uploaded(me)
+	require.ErrorIs(t, err, ErrRestoreReplaced, "the first browser is told its upload was replaced")
+
+	// While the second browser's next upload arrives, its request is alive: the
+	// first browser is refused until it ends.
+	require.NoError(t, r.Cancel(other))
+	pr, pw := io.Pipe()
+	first := make(chan error, 1)
+	go func() {
+		_, err := r.Upload(context.Background(), other, pr, int64(len(b)), func() { _ = pr.CloseWithError(errors.New("stopped")) })
+		first <- err
+	}()
+	_, err = pw.Write(b[:100])
+	require.NoError(t, err)
+	require.Equal(t, Status{State: RestoreNone, Refusal: ErrRestoreElsewhere}, r.Status(me))
+	_, err = r.Upload(context.Background(), me, bytes.NewReader(b), int64(len(b)), nil)
+	require.ErrorIs(t, err, ErrRestoreElsewhere)
+	require.NoError(t, pw.CloseWithError(errors.New("tab closed")))
+	require.Error(t, <-first)
+	_, err = upload(r, b)
+	require.NoError(t, err, "the request that held the slot ended, and with it the hold")
 }
 
 // upload sends b and, for a zip, waits for the background check: it returns
@@ -233,7 +280,7 @@ func TestConfirmWithoutNewPasswordKeepsTheAccount(t *testing.T) {
 func TestRestoreASchema16Backup(t *testing.T) {
 	t.Parallel()
 	r, dir := newRestorer(t)
-	up, err := upload(r, rebuilt(t, hostBackup(t), "DROP TABLE feed_daily_new; ALTER TABLE feeds DROP COLUMN url_succeeded; PRAGMA user_version = 16"))
+	up, err := upload(r, rebuilt(t, hostBackup(t), "ALTER TABLE feeds DROP COLUMN redirect_ack; DROP TABLE feed_daily_new; ALTER TABLE feeds DROP COLUMN url_succeeded; PRAGMA user_version = 16"))
 	require.NoError(t, err)
 	require.Equal(t, 16, up.Info.SchemaVersion)
 	_, ticket, _ := r.Uploaded(me)
@@ -936,7 +983,7 @@ func TestEstimateSeconds(t *testing.T) {
 // The texts a person restoring reads never mention schema numbers.
 func TestRestoreTextsSayNoSchemaVersion(t *testing.T) {
 	t.Parallel()
-	for _, e := range []error{ErrRestoreBusy, ErrRestorePending, ErrNoUpload, ErrNotBackup, ErrUploadTooLarge, ErrOPMLTooLarge,
+	for _, e := range []error{ErrRestoreBusy, ErrRestoreReplaced, ErrRestorePending, ErrNoUpload, ErrNotBackup, ErrUploadTooLarge, ErrOPMLTooLarge,
 		ErrUploadCut, &NewerError{}, &NewerError{KippleVersion: "1.2"}, &UploadSpaceError{Need: 1, Free: 0}} {
 		require.NotContains(t, strings.ToLower(e.Error()), "schema", e.Error())
 	}
