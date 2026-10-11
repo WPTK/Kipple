@@ -1,0 +1,1 @@
+Keyboard: on the article screen the skip link is now "Skip to article" and moves focus to the open article, so its toolbar and links are a few Tab presses away. Before, in a wide window, Tab from the top of the page went through the article list beside it first, and that list keeps loading more articles, so in a library of any size Tab never reached the article. (#369)

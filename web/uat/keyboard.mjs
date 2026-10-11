@@ -107,15 +107,16 @@ function installHelpers() {
     n: 0,
     keyOf,
     /** An element Tab should reach: enabled, tabbable, drawn, not inert or hidden from assistive technology. */
-    expected(rowLimit, skipLinks) {
+    expected(rowLimit, skipLinks, within = null) {
       const sel = 'a[href],button,input,select,textarea,summary,[tabindex],[role="button"],[role="switch"],[role="checkbox"],[role="slider"]';
       const rows = new Map();
       const out = [];
       let last = null;
-      // Past the limit a long list is not walked to its end, so the controls after it (its pane resizer) are not expected.
+      // Past the limit a long list is not walked to its end, so the controls after it (its pane resizer, the article
+      // beside it) are not expected.
       const all = [...document.querySelectorAll("article[data-item-id]")];
       const cut = all.length > rowLimit ? all[rowLimit] : null;
-      for (const e of document.querySelectorAll(sel)) {
+      for (const e of (within ? document.querySelector(within) : document)?.querySelectorAll(sel) ?? []) {
         if (skipLinks && e.matches("a[href]")) continue;
         // Of a radio group Tab reaches only the checked one; it can be the last stop of a page.
         const checkedRadio = e instanceof HTMLInputElement && e.type === "radio" && e.checked && !e.disabled && e.isConnected;
@@ -260,76 +261,111 @@ async function k1(page, articlePath) {
     ["/settings/advanced", "settings: advanced", false],
     ["/stats", "stats", false],
     ["/stats/wrapped", "wrapped", false],
-    [articlePath, "article", false],
+    // The article beside its list: the list comes first and has no end Tab can reach in a real library (it loads more
+    // as focus moves down), so it is walked like a list, and the article from the skip link (K1 article, skip link).
+    [articlePath, "article", true],
   ];
+  const skipLinks = WEBKIT_NO_LINK_TAB && opt.browser === "webkit";
   for (const [path, name, long] of screens) {
     const where = `K1 ${name}`;
     await load(page, path);
-    const { keys: expected, last: lastKey } = await page.evaluate(([n, links]) => window.__kk.expected(n, links), [long ? 8 : Infinity, WEBKIT_NO_LINK_TAB && opt.browser === "webkit"]);
+    const { keys: expected, last: lastKey } = await page.evaluate(([n, links]) => window.__kk.expected(n, links), [long ? 8 : Infinity, skipLinks]);
     // A screen may put the caret in a field on load (Search): walk from the start of the page, not from there.
-    const rewound = new Set();
-    for (let i = 0; i < 80; i++) {
-      const f = await focusOf(page);
-      if (!f) break;
-      rewound.add(f.key);
-      await page.keyboard.press("Shift+Tab");
-    }
-    const cap = long ? 150 : 400;
-    const seen = new Set(rewound); // reached by Tab (backwards) on the way to the start
-    const ids = new Set();
-    const noRing = new Set();
-    let ended = null;
-    let same = 0;
-    let prev = null;
-    let steps = 0;
-    for (; steps < cap; steps++) {
-      await page.keyboard.press("Tab");
-      const f = await focusOf(page);
-      if (!f) {
-        ended = "left the page";
-        break;
-      }
-      if (ids.has(f.id) && f.id !== prev) {
-        ended = "wrapped to the start";
-        break;
-      }
-      same = f.id === prev ? same + 1 : 0;
-      if (same >= 2 && f.key === lastKey) {
-        // Firefox keeps focus on the page's last control when Tab has nowhere further to go (no browser toolbar to
-        // move to in a headless run); that is the end of the page, not a trap.
-        ended = "last control";
-        break;
-      }
-      if (same >= 2) {
-        ended = "TRAP";
-        fail(where, `focus stuck on ${f.key} after ${steps} Tab presses`);
-        break;
-      }
-      prev = f.id;
-      ids.add(f.id);
-      seen.add(f.key);
-      if (!f.ring) noRing.add(f.key);
-    }
-    if (ended === null && !long) fail(where, `Tab did not reach the end of the page in ${cap} presses (keyboard trap or an endless page)`);
-    const missed = expected.filter((k) => !seen.has(k));
-    // A long list is only walked so far: what is past its first rows is not expected.
-    const missedText = missed.map((k) => k.replace(/\|+/g, "|"));
-    if (missed.length) {
-      fail(where, `${missed.length} control(s) Tab never reached: ${missedText.slice(0, 4).join("; ")}`);
-    }
-    if (noRing.size) fail(where, `${noRing.size} focused control(s) show no focus indicator: ${[...noRing].slice(0, 4).map((k) => k.replace(/\|+/g, "|")).join("; ")}`);
-    if (!missed.length && !noRing.size && (ended || long)) pass(where, `${seen.size} stops, ${ended ?? `first ${steps}, no trap`}, focus always visible`);
-    // The way back: Shift+Tab from the first stop moves on too (no backward trap).
-    if (ended && ended !== "TRAP") {
-      const back = new Set();
-      for (let i = 0; i < 4; i++) {
-        await page.keyboard.press("Shift+Tab");
-        const f = await focusOf(page);
-        back.add(f ? f.id : 0);
-      }
-      check(back.size >= 3, `${where} (Shift+Tab)`, "moves backwards through the page", `Shift+Tab visited only ${back.size} distinct place(s) in 4 presses`);
-    }
+    const rewound = await rewind(page);
+    const walked = await walk(page, where, long ? 150 : 400, lastKey, rewound);
+    report(where, expected, walked, long);
+    if (walked.ended && walked.ended !== "TRAP") await backwards(page, where);
   }
+  // The skip link is the way past the article's list: from the start of the page it is the first stop, it lands on
+  // the article, and Tab walks on from there through every control of the article to the end of the page.
+  const where = "K1 article, skip link";
+  await load(page, articlePath);
+  const { keys: expected, last: lastKey } = await page.evaluate(([links]) => window.__kk.expected(Infinity, links, "[data-skip-target]"), [skipLinks]);
+  await rewind(page);
+  // WebKit leaves links out of the Tab order (WEBKIT_NO_LINK_TAB), so there the link is focused directly.
+  if (skipLinks) await page.locator('a[href="#main"]').focus();
+  else await page.keyboard.press("Tab");
+  const link = await focusOf(page);
+  if (!link || !/Skip to article/.test(link.key)) {
+    fail(where, `the first Tab stop is ${link?.key ?? "nothing"}, not the Skip to article link`);
+    return;
+  }
+  await page.keyboard.press("Enter");
+  const landed = await page.evaluate(() => !!document.activeElement?.matches("[data-skip-target]"));
+  check(landed, `${where} (lands)`, "the link moves focus to the article", "the link did not move focus to the article");
+  report(where, expected, await walk(page, where, 400, lastKey, new Set()), false);
+}
+
+/** Shift+Tab to the start of the page; the controls passed on the way. */
+async function rewind(page) {
+  const rewound = new Set();
+  for (let i = 0; i < 80; i++) {
+    const f = await focusOf(page);
+    if (!f) break;
+    rewound.add(f.key);
+    await page.keyboard.press("Shift+Tab");
+  }
+  return rewound;
+}
+
+/** Tab on from where focus is, at most `cap` times: what it reached, which stops showed no ring, and how it ended. */
+async function walk(page, where, cap, lastKey, seenBefore) {
+  const seen = new Set(seenBefore); // reached by Tab (backwards) on the way to the start
+  const ids = new Set();
+  const noRing = new Set();
+  let ended = null;
+  let same = 0;
+  let prev = null;
+  let steps = 0;
+  for (; steps < cap; steps++) {
+    await page.keyboard.press("Tab");
+    const f = await focusOf(page);
+    if (!f) {
+      ended = "left the page";
+      break;
+    }
+    if (ids.has(f.id) && f.id !== prev) {
+      ended = "wrapped to the start";
+      break;
+    }
+    same = f.id === prev ? same + 1 : 0;
+    if (same >= 2 && f.key === lastKey) {
+      // Firefox keeps focus on the page's last control when Tab has nowhere further to go (no browser toolbar to
+      // move to in a headless run); that is the end of the page, not a trap.
+      ended = "last control";
+      break;
+    }
+    if (same >= 2) {
+      ended = "TRAP";
+      fail(where, `focus stuck on ${f.key} after ${steps} Tab presses`);
+      break;
+    }
+    prev = f.id;
+    ids.add(f.id);
+    seen.add(f.key);
+    if (!f.ring) noRing.add(f.key);
+  }
+  if (ended === null && cap === 400) fail(where, `Tab did not reach the end of the page in ${cap} presses (keyboard trap or an endless page)`);
+  return { seen, noRing, ended, steps };
+}
+
+function report(where, expected, { seen, noRing, ended, steps }, long) {
+  // A long list is only walked so far: what is past its first rows is not expected.
+  const missed = expected.filter((k) => !seen.has(k)).map((k) => k.replace(/\|+/g, "|"));
+  if (missed.length) fail(where, `${missed.length} control(s) Tab never reached: ${missed.slice(0, 4).join("; ")}`);
+  if (noRing.size) fail(where, `${noRing.size} focused control(s) show no focus indicator: ${[...noRing].slice(0, 4).map((k) => k.replace(/\|+/g, "|")).join("; ")}`);
+  if (!missed.length && !noRing.size && (ended || long)) pass(where, `${seen.size} stops, ${ended ?? `first ${steps}, no trap`}, focus always visible`);
+}
+
+/** The way back: Shift+Tab from the first stop moves on too (no backward trap). */
+async function backwards(page, where) {
+  const back = new Set();
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press("Shift+Tab");
+    const f = await focusOf(page);
+    back.add(f ? f.id : 0);
+  }
+  check(back.size >= 3, `${where} (Shift+Tab)`, "moves backwards through the page", `Shift+Tab visited only ${back.size} distinct place(s) in 4 presses`);
 }
 
 // K2: menus and dialogs open from the keyboard and Escape closes them and returns focus.
