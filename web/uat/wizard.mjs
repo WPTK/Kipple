@@ -2,7 +2,7 @@
 //
 //   npm run build && node uat/wizard.mjs [--headed] [--screenshots <dir>] [--bin <path to a kipple binary>]
 //
-// It builds Kipple (go build; needs Go on PATH) unless --bin is given, then starts three THROWAWAY servers on 127.0.0.1
+// It builds Kipple (go build; needs Go on PATH) unless --bin is given, then starts four THROWAWAY servers on 127.0.0.1
 // with fresh data directories under the system temp directory and NO account, so each starts in setup mode. It never
 // touches any other instance:
 //
@@ -15,6 +15,10 @@
 //     (POST /api/auth/open), and a request that carries a forwarding header is refused with the plain-English screen.
 //   Run C (phone, time zone Asia/Tokyo): GET /api/instance unreachable (a Try again screen, never a password form), then
 //     "Skip the rest of setup" on step 2, which must still save the preselected zone.
+//   Run D (a phone and a desktop browser on one fresh server): the phone uploads a backup made in Run A and leaves it
+//     unconfirmed, as an abandoned tab would. The desktop browser's upload must then be accepted at once (it replaces the
+//     phone's), the phone's "Restore everything" must say another browser has the upload and go back to the picker, and
+//     the desktop's confirm must start the restore.
 //
 // axe-core (WCAG 2.0/2.1/2.2 A and AA) runs on every step at both sizes. Exit code: 0 clean, 1 findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium`.
@@ -33,7 +37,7 @@ const webDir = fileURLToPath(new URL("../", import.meta.url));
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const { values: opt } = parseArgs({ options: { headed: { type: "boolean", default: false }, screenshots: { type: "string" }, bin: { type: "string" }, help: { type: "boolean", default: false } } });
 if (opt.help) {
-  console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split(/\r?\n/).slice(0, 22).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
+  console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split(/\r?\n/).slice(0, 26).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
   process.exit(0);
 }
 const AXE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
@@ -124,6 +128,15 @@ async function tapRun(page, where) {
   for (const t of small) fail(`${where} touch target`, `${t.desc} is ${t.w} x ${t.h} px, under 44 x 44`);
 }
 
+/** Run A's backup, uploaded in Run D. */
+let backupZip = null;
+
+/** Opens the restore screen of the wizard on page and sends the backup through its file picker. */
+async function uploadBackup(page) {
+  await page.getByRole("button", { name: "Restore from a backup" }).click();
+  await page.getByLabel("Backup or OPML file").setInputFiles({ name: "kipple-backup.zip", mimeType: "application/zip", buffer: backupZip });
+}
+
 const browser = await chromium.launch({ headless: !opt.headed }).catch((e) => setupError(`could not start Chromium (npx playwright install chromium): ${e.message.split("\n")[0]}`));
 
 try {
@@ -207,6 +220,17 @@ try {
     const me = await page.evaluate(async () => (await fetch("/api/auth/me")).json());
     check("A account", me.setup_pending === false, "setup is still pending after Finish");
     check("A account", errors.length === 0, `console or page errors: ${errors.join(" | ")}`);
+    // A backup of this library, for Run D, made the way the settings page makes one.
+    backupZip = Buffer.from(
+      await page.evaluate(async () => {
+        const made = await (await fetch("/api/backup", { method: "POST", headers: { "X-Kipple-Client": "web" } })).json();
+        const bytes = new Uint8Array(await (await fetch(made.url)).arrayBuffer());
+        let bin = "";
+        for (const b of bytes) bin += String.fromCharCode(b);
+        return btoa(bin);
+      }),
+      "base64",
+    );
     await ctx.close();
     await stranger.close();
   }
@@ -321,6 +345,61 @@ try {
     check("C skip-all", me.setup_pending === false, "setup is still pending after Skip the rest of setup");
     check("C account", errors.length === 0, `page errors: ${errors.join(" | ")}`);
     await ctx.close();
+  }
+  // ---------------------------------------------------------------------------------------------- Run D
+  if (!check("D", backupZip?.length > 0, "Run A made no backup to restore")) throw new Error("lost");
+  {
+    const { origin } = await startServer("d", 7194);
+    const phone = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
+    const desk = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pp = await phone.newPage();
+    const dp = await desk.newPage();
+    const errors = [];
+    for (const p of [pp, dp]) p.on("pageerror", (e) => errors.push(String(e)));
+
+    // The phone uploads a backup and leaves it unconfirmed.
+    await pp.goto(origin);
+    await uploadBackup(pp);
+    await pp.getByTestId("backup-summary").waitFor({ timeout: 30_000 });
+    if (opt.screenshots) await pp.screenshot({ path: join(opt.screenshots, "D-phone-ready.png"), fullPage: true });
+
+    // The desktop browser is not kept out: its upload replaces the phone's.
+    await dp.goto(origin);
+    await uploadBackup(dp);
+    try {
+      await dp.getByTestId("backup-summary").waitFor({ timeout: 30_000 });
+    } catch {
+      fail("D desktop", `the second browser's upload was not accepted: ${(await dp.getByRole("alert").allTextContents()).join(" | ")}`);
+      throw new Error("lost");
+    }
+    await axeRun(dp, "D desktop review");
+    await overflowRun(dp, "D desktop review");
+
+    // The phone's upload is gone: its confirm says so and the page goes back to the picker.
+    await pp.getByRole("button", { name: "Restore everything" }).click();
+    try {
+      await pp.getByRole("alert").waitFor({ timeout: 10_000 });
+      check("D phone", /Another browser/.test((await pp.getByRole("alert").textContent()) ?? ""), "the phone's confirm did not say another browser has the upload");
+      check("D phone", await pp.getByLabel("Backup or OPML file").isVisible(), "the phone did not go back to the file picker");
+      check("D phone", (await pp.getByTestId("backup-summary").count()) === 0, "the phone still shows the replaced backup");
+      await axeRun(pp, "D phone replaced");
+      await overflowRun(pp, "D phone replaced");
+      await tapRun(pp, "D phone replaced");
+      if (opt.screenshots) await pp.screenshot({ path: join(opt.screenshots, "D-phone-replaced.png"), fullPage: true });
+    } catch {
+      fail("D phone", "no message after the phone confirmed a replaced upload");
+    }
+
+    // The desktop browser restores.
+    await dp.getByRole("button", { name: "Restore everything" }).click();
+    await dp
+      .getByRole("heading", { name: "Restoring your library" })
+      .waitFor({ timeout: 10_000 })
+      .catch(() => fail("D desktop", "the second browser's confirm did not start the restore"));
+    if (opt.screenshots) await dp.screenshot({ path: join(opt.screenshots, "D-desktop-restoring.png"), fullPage: true });
+    check("D", errors.length === 0, `page errors: ${errors.join(" | ")}`);
+    await phone.close();
+    await desk.close();
   }
 } catch (e) {
   if (e.message !== "lost") fail("run", e.stack ?? String(e));

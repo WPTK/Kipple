@@ -78,8 +78,9 @@ func (e *Refusal) Error() string { return e.Msg }
 var (
 	ErrRestoreBusy = &Refusal{"Another restore upload is in progress. Cancel it first, then try again."}
 	// ErrRestoreElsewhere: the upload belongs to another browser (see
-	// Restorer), which alone can see, confirm or cancel it.
-	ErrRestoreElsewhere = &Refusal{"Another browser is uploading or restoring a backup. Kipple stops an upload that stalls or crawls, deletes a backup nobody confirms within an hour, and clears both when it restarts."}
+	// Restorer), which alone can see, confirm or cancel it. Only an upload
+	// still arriving or being checked refuses another browser's new upload.
+	ErrRestoreElsewhere = &Refusal{"Another browser is uploading a backup, or has uploaded one. Kipple stops an upload that stalls or crawls; once it has been checked, a new upload from this browser replaces it."}
 	ErrRestorePending   = &Refusal{"A restore is waiting to be applied: Kipple is restarting to finish it."}
 	ErrNoUpload         = &Refusal{"No checked backup is waiting, or it expired. Upload it again."}
 	ErrNotBackup        = &Refusal{"This is not a Kipple backup zip or an OPML file."}
@@ -173,7 +174,9 @@ type RestorerOptions struct {
 // random value the server gave that browser before it sent the file), and
 // every later call brings the caller's key. Only the owner sees
 // the summary, takes the feeds, confirms or cancels; to anyone else an upload
-// reads as none, and acting on it is ErrRestoreElsewhere.
+// reads as none, and acting on it is ErrRestoreElsewhere. Another browser's
+// upload replaces a checked one that nobody confirmed: that upload has no
+// request or job running, so nothing says its browser is still there.
 type Restorer struct {
 	o   RestorerOptions
 	log *slog.Logger
@@ -251,17 +254,21 @@ func (r *Restorer) othersLocked(owner string) bool {
 }
 
 // refusalLocked is why a new upload from owner would be refused now, or nil: a restore already confirmed, this
-// browser\'s own upload still running, or another browser\'s. Upload and Status share it, so the answer a refused upload
-// gets and the one a status request gives are one. Under mu.
+// browser's own upload arriving, being checked or ready, or another browser's upload arriving or being checked.
+// Another browser's ready upload refuses nothing: no request or job of that browser holds it, so nothing tells
+// whether that browser is still there, and a new upload replaces it (see Upload). Upload and Status share it, so the
+// answer a refused upload gets and the one a status request gives are one. Under mu.
 func (r *Restorer) refusalLocked(owner string) error {
 	switch {
 	case r.state == RestoreConfirmed:
 		return ErrRestorePending
-	case r.job != nil || r.state == RestoreUploading || r.state == RestoreChecking || r.state == RestoreReady:
+	case r.job != nil || r.state == RestoreUploading || r.state == RestoreChecking:
 		if r.mine(owner) {
 			return ErrRestoreBusy
 		}
 		return ErrRestoreElsewhere
+	case r.state == RestoreReady && r.mine(owner):
+		return ErrRestoreBusy
 	}
 	return nil
 }
@@ -329,7 +336,12 @@ func (r *Restorer) Upload(reqCtx context.Context, owner string, body io.Reader, 
 		r.mu.Unlock()
 		return Upload{}, err
 	}
-	// none, or failed (a new upload replaces a refused one)
+	// none, failed (a new upload replaces a refused one), or another browser's
+	// ready upload, which this one replaces the same way
+	if r.state == RestoreReady {
+		r.discardLocked()
+		r.log.Info("restore: another browser's unconfirmed upload was replaced by a new upload")
+	}
 	r.gen++
 	g := r.gen
 	r.state, r.failErr, r.estimate, r.cur, r.feeds, r.owner = RestoreUploading, nil, 0, nil, nil, owner

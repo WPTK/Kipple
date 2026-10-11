@@ -23,6 +23,12 @@ const RESTORE_STEP = { id: "restore", n: 0, title: "Restore from a backup" } as 
 /** A network failure during the upload has no answer to quote: the usual causes are a full disk or a proxy size limit. */
 const UPLOAD_FAILED = "The upload was refused or interrupted. Check that the server has enough free disk space and that any proxy in front of Kipple allows a file this size.";
 
+/**
+ * The server holds no upload of this page's any more: another browser's upload replaced it, or it expired. The summary
+ * on screen is stale, so the page goes back to choosing a file.
+ */
+const uploadGone = (e: unknown): boolean => e instanceof ApiError && (e.code === "restore_elsewhere" || e.code === "no_upload");
+
 /** How often the page asks the server whether its check of the backup is done. */
 export const CHECK_POLL_MS = 2000;
 
@@ -192,6 +198,17 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
     if (f && view === "pick" && !busy) void start(f);
   };
 
+  /** Forgets the upload on screen, keeping the error, and shows the file picker. */
+  const backToPick = () => {
+    setBackup(null);
+    setOpml(null);
+    setFile(null);
+    setProgress(null);
+    setPassword("");
+    setAgain("");
+    setView("pick");
+  };
+
   /** Throws the upload away (on the server too) and goes back to choosing a file. */
   const discard = async () => {
     abort.current?.abort();
@@ -199,24 +216,19 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
     try {
       await cancelRestore();
     } catch (e) {
-      // 409: already confirmed, so it cannot be cancelled. Any other failure leaves nothing here to cancel.
-      if (e instanceof ApiError && e.status === 409) {
+      // 409 restore_pending: already confirmed, so it cannot be cancelled. Any other failure (another browser's upload
+      // replaced this page's, say) leaves nothing here to cancel.
+      if (e instanceof ApiError && e.code === "restore_pending") {
         setError(restoreErrorText(e));
         setBusy(false);
         return;
       }
     }
     setBusy(false);
-    setBackup(null);
-    setOpml(null);
-    setProgress(null);
-    setFile(null);
-    setPassword("");
-    setAgain("");
     setError(null);
     setBusyUpload(false);
     setPwError(null);
-    setView("pick");
+    backToPick();
   };
 
   const submit = async (e: FormEvent) => {
@@ -230,6 +242,7 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
       } catch (err) {
         setError(restoreErrorText(err));
         setBusy(false);
+        if (uploadGone(err)) backToPick();
       }
       return;
     }
@@ -254,6 +267,7 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
         return;
       }
       setError(restoreErrorText(err));
+      if (uploadGone(err)) backToPick();
     }
   };
 

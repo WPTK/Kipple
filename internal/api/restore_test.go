@@ -432,12 +432,11 @@ func TestRestoreBelongsToTheUploadingBrowser(t *testing.T) {
 	}
 	for _, mod := range []func(*http.Request){stranger, anotherBrowser("guess"), anotherBrowser(testKey(t))} {
 		require.Equal(t, "none", decode(t, h.req("GET", "/api/instance", "", mod))["restore"])
-		require.Equal(t, map[string]any{"state": "none", "summary": nil, "error": nil, "estimate_seconds": float64(0), "refusal": map[string]any{"code": "restore_elsewhere", "message": backup.ErrRestoreElsewhere.Error()}}, h.status(mod))
+		require.Equal(t, map[string]any{"state": "none", "summary": nil, "error": nil, "estimate_seconds": float64(0), "refusal": nil}, h.status(mod))
 		elsewhere(h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod))
 		elsewhere(h.req("GET", "/api/setup/restore/feeds", "", mod))
 		elsewhere(h.req("DELETE", "/api/setup/restore", "", mod))
 	}
-	elsewhere(h.req("POST", "/api/setup/restore/upload", string(backupZip(t, "h", store.AuthStandard)), anotherBrowser(testKey(t))))
 	require.Zero(t, h.restarts.Load())
 	require.NoFileExists(t, filepath.Join(h.dir, backup.MarkerFile))
 
@@ -446,6 +445,29 @@ func TestRestoreBelongsToTheUploadingBrowser(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
 	require.Equal(t, "confirmed", decode(t, h.req("GET", "/api/instance", "", stranger))["restore"], "everyone waits for the restart")
 	require.Nil(t, h.status(stranger)["summary"], "but only the uploader sees whose account it is")
+}
+
+// A browser that uploaded a backup and was then abandoned before confirming it
+// does not keep a second browser out of setup: the second browser's upload
+// replaces it and can be confirmed, and the first browser's confirm finds
+// nothing of its own.
+func TestASecondBrowserReplacesAnAbandonedUpload(t *testing.T) {
+	t.Parallel()
+	h := newRestoreHarness(t)
+	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"])
+
+	second := anotherBrowser(testKey(t))
+	require.Nil(t, h.status(second)["refusal"])
+	out := h.upload(backupZip(t, "h", store.AuthStandard), second)
+	require.EqualValues(t, http.StatusOK, out["status"], out)
+	require.Equal(t, "none", h.restoreState(), "the first browser's upload is gone")
+	rec := h.req("POST", "/api/setup/restore/confirm", `{}`)
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	require.Equal(t, "restore_elsewhere", decode(t, rec)["error"])
+
+	rec = h.req("POST", "/api/setup/restore/confirm", `{}`, second)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	require.EqualValues(t, 1, h.restarts.Load())
 }
 
 // A cookie grants nothing. Someone who can set cookies for the owner's
@@ -469,7 +491,7 @@ func TestACookieGrantsNothing(t *testing.T) {
 	for _, mod := range [][]func(*http.Request){{planted}, {stranger, planted}} {
 		require.Equal(t, "none", decode(t, h.req("GET", "/api/instance", "", mod...))["restore"])
 		require.Equal(t, "none", h.status(mod...)["state"])
-		require.Equal(t, "restore_elsewhere", h.status(mod...)["refusal"].(map[string]any)["code"], "another browser holds the upload: said, so a refused upload can be explained")
+		require.Nil(t, h.status(mod...)["refusal"], "another browser's checked upload refuses nothing: a new upload would replace it")
 		rec = h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod...)
 		require.Equal(t, http.StatusConflict, rec.Code)
 		require.Equal(t, "restore_elsewhere", decode(t, rec)["error"])
