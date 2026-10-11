@@ -239,6 +239,35 @@ describe("reading time", () => {
     expect(new Set(sent(send).map((e) => e.event_id)).size).toBe(3);
   });
 
+  it("a full-page navigation (pagehide with no visibilitychange before it) delivers the open interval, once", () => {
+    const { send, stop } = session();
+    sec(12.5);
+    window.dispatchEvent(new Event("pagehide"));
+    expect(seconds(send)).toBe(12);
+    // The page is gone, or restored from the back-forward cache: what was delivered is not sent again.
+    stop();
+    expect(seconds(send)).toBe(12);
+  });
+
+  it("pagehide sends the article's events through sendBeacon, and nothing with stats off", () => {
+    const beacon = vi.fn().mockReturnValue(true);
+    vi.stubGlobal("navigator", { onLine: true, sendBeacon: beacon });
+    const stop1 = startReadingSession({ itemId: 1001, sessionKey: "k1" });
+    sec(12.5);
+    window.dispatchEvent(new Event("pagehide"));
+    expect(beacon).toHaveBeenCalledTimes(1);
+    stop1();
+    const body = JSON.parse(beacon.mock.calls[0]?.[1] as string) as { events: StatsEvent[] };
+    expect(body.events.map(({ kind, item_id, value }) => ({ kind, item_id, value }))).toEqual([{ kind: "read_time", item_id: 1001, value: 12 }]);
+
+    setStatsClient(client({ "stats.enabled": false }));
+    const stop2 = startReadingSession({ itemId: 1002, sessionKey: "k2" });
+    sec(5);
+    window.dispatchEvent(new Event("pagehide"));
+    expect(beacon).toHaveBeenCalledTimes(1);
+    stop2();
+  });
+
   it("coming back to the tab without focus yet looks again at about 1 s and 3 s (no touch needed)", () => {
     const { send, stop } = session();
     sec(5);

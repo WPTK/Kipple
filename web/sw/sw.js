@@ -11,7 +11,9 @@
  *    the network is down or slow, marked X-Kipple-Cache: 1. A list fetched with include=content is also
  *    stored as one entry per item, so each article opens offline;
  *  - images (/img/*, feed icons): cache first, bounded;
- *  - every other request, and every write, goes straight to the network.
+ *  - every other request, and every write, goes straight to the network. Writes never reach this worker at all
+ *    (a static route, below): a stats beacon sent as the page unloads is lost if the browser has to wake the worker
+ *    to be told "not mine".
  * Sign-out sends {type:"clear-data"} and everything read from the API is dropped. Each clear starts a new
  * generation: a copy that a request from before it was still going to store (an answer landing late, an image
  * still downloading) is dropped instead of filling the caches again with the signed-out session's data.
@@ -38,8 +40,24 @@ const ICONS = /^\/api\/feeds\/\d+\/icon$/;
 let generation = 0;
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(precache().then(() => self.skipWaiting()));
+  event.waitUntil(Promise.all([routeWritesToNetwork(event), precache()]).then(() => self.skipWaiting()));
 });
+
+/**
+ * Every request from a page this worker controls is first dispatched to the worker, even one it will not answer. A
+ * keepalive request made as the page unloads (the stats beacon on pagehide) is cancelled in Chromium before the
+ * dispatch completes, so a reload or a typed address recorded nothing. A static route lets the browser decide without
+ * waking the worker: a write goes to the network. Browsers without the static routing API (and without the loss) skip it;
+ * a failure here costs only that, never the install.
+ */
+async function routeWritesToNetwork(event) {
+  if (typeof event.addRoutes !== "function") return;
+  try {
+    await event.addRoutes({ condition: { not: { requestMethod: "GET" } }, source: "network" });
+  } catch {
+    /* the worker still answers every request itself, as before */
+  }
+}
 
 async function precache() {
   const cache = await caches.open(SHELL);
