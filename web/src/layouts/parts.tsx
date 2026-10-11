@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import { relativeTime } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import { canNativeShare } from "@/lib/share";
+import { useRowTabIndex } from "./rowTabStop";
 import type { RowMenuActions } from "./types";
 
 export function UnreadDot({ unread, className }: { unread: boolean; className?: string }) {
@@ -28,9 +29,11 @@ export function CheckBadge({ checked, className }: { checked: boolean; className
 }
 
 export function StarButton({ item, onToggleStar, className }: { item: Card; onToggleStar: (i: Card) => void; className?: string }) {
+  const tabIndex = useRowTabIndex();
   return (
     <button
       type="button"
+      tabIndex={tabIndex}
       onClick={() => onToggleStar(item)}
       aria-pressed={item.starred}
       aria-label={item.starred ? "Unstar" : "Star"}
@@ -67,6 +70,7 @@ export function RowMenu({
   const hadFocus = useRef(false);
   const canShare = canNativeShare();
   const muted = item.muted_by !== null && item.muted_by !== undefined;
+  const tabIndex = useRowTabIndex();
   return (
     <DropdownMenu.Root open={open} onOpenChange={(o) => {
         if (o) {
@@ -78,6 +82,7 @@ export function RowMenu({
         <button
           type="button"
           aria-label="More actions"
+          tabIndex={tabIndex}
           className={cn(
             "hit-row pointer-events-auto relative z-10 inline-flex items-center justify-center rounded-lg text-fg2 hover:text-fg",
             revealOnHover && "row-reveal",

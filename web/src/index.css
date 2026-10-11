@@ -157,6 +157,28 @@ body {
   outline-width: 3px;
 }
 
+/* A list row's title link covers the whole row with its ::after (the row is the containing block), which makes the
+   row the tap target and draws the focus ring around the row. The ring goes inside the row: outside it, the row's
+   neighbours and the swipe container would clip it. The link's own ring would be cut by the title's line clamp. */
+.row-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.row-link:focus-visible {
+  outline: none;
+}
+.row-link:focus-visible::after {
+  outline: 2px solid var(--kp-accent);
+  outline-offset: -2px;
+}
+:root[data-theme="signal"] .row-link:focus-visible::after,
+:root[data-theme="inkwell"] .row-link:focus-visible::after,
+:root[data-theme="teletype"] .row-link:focus-visible::after {
+  outline-width: 3px;
+  outline-offset: -3px;
+}
+
 /* A focusable scroll region that fills its pane (Your year): the ring goes inside, where the screen edges and
    #root's overflow cannot clip it. Unlayered like the rules above, which a Tailwind utility could not override. */
 .kp-scroll-region:focus-visible {
@@ -325,6 +347,8 @@ a.sr-only-live:focus {
 @media (prefers-contrast: more) {
   :root[data-theme] { --kp-border: var(--kp-text); --kp-text2: var(--kp-text); }
   :focus-visible { outline-width: 3px; outline-offset: 3px; }
+  .row-link:focus-visible { outline: none; }
+  .row-link:focus-visible::after { outline-width: 3px; outline-offset: -3px; }
   a { text-decoration: underline; }
   .clamp-snippet { color: var(--kp-text); }
 }
@@ -333,6 +357,8 @@ a.sr-only-live:focus {
    meaning through a background image or color alone (unread and starred also have shape and text). */
 @media (forced-colors: active) {
   :focus-visible { outline: 3px solid Highlight; outline-offset: 2px; }
+  .row-link:focus-visible { outline: none; }
+  .row-link:focus-visible::after { outline: 3px solid Highlight; outline-offset: -3px; }
   .kp-unread-dot[data-unread="true"] { forced-color-adjust: none; background: CanvasText; }
   [aria-current="page"], [aria-checked="true"], label:has(input:checked) { outline: 2px solid Highlight; }
   label:has(input:checked) { forced-color-adjust: none; background: Highlight; color: HighlightText; }
