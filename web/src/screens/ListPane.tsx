@@ -295,14 +295,14 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
 
   const saved = memory.get(key);
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
-  // The cursor is the row that has focus in the list (the arrow keys, Tab and j and k move it); the open article
-  // moves it too (the reader's Next and Previous, and opening one). The keys act on the cursor's row only while focus
-  // is inside the list. With an article open beside the list and focus elsewhere (the reader), they act on the open
-  // article, so the cursor parked on another row is never the target of a key pressed while reading.
-  const [listFocused, setListFocused] = useState(false);
+  // The cursor is the row that has focus in the list, however focus got there (the arrow keys, Tab, j and k, a click on
+  // the row or on one of its buttons); the open article moves it too (the reader's Next and Previous, and opening one).
+  // The keys act on the cursor's row while focus is inside the list (focusInList). With an article open beside the list
+  // and focus anywhere else (the reader), they act on the open article, so a cursor parked on another row is never the
+  // target of a key pressed while reading. The reader pane reads the same focusInList, so exactly one of them acts.
   const cursor = selectedId ?? activeId;
-  const readerHasKeys = articleOpen && !!activeId && !listFocused;
-  const selected = readerHasKeys ? activeId : cursor;
+  const readerOwns = useCallback(() => articleOpen && !!activeId && !focusInList(), [articleOpen, activeId]);
+  const keyTargetId = useCallback(() => (readerOwns() ? activeId : cursor), [readerOwns, activeId, cursor]);
   // The list is one Tab stop (rowTabStop.ts): the cursor's row, else the first. Its row is always rendered, so Tab into
   // the list finds it wherever the list is scrolled.
   const shown = (id: string | undefined, of: readonly Card[]) => (id && of.some((i) => i.id === id) ? id : undefined);
@@ -695,7 +695,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       // A page layout's reading order is its DOM order (ListLayout.Page), which is not the list's order.
       const order = Page ? pageOrder(parentRef.current, allItems) : items;
       if (order.length === 0) return;
-      const cur = selected ? order.findIndex((i) => i.id === selected) : -1; // from the open article when the reader has the keys
+      const from = keyTargetId(); // the open article when the reader has the keys
+      const cur = from ? order.findIndex((i) => i.id === from) : -1;
       const next = Math.min(order.length - 1, Math.max(0, cur < 0 ? (delta === 1 ? 0 : order.length - 1) : cur + delta));
       const item = order[next];
       if (!item) return;
@@ -706,7 +707,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       focusLater(item.id);
       onKeyMove?.(item);
     },
-    [Page, allItems, items, selected, virtualizer, rowIndexOf, onKeyMove, focusLater],
+    [Page, allItems, items, keyTargetId, virtualizer, rowIndexOf, onKeyMove, focusLater],
   );
 
   // The arrow keys move focus between row links, and the cursor with it: unlike j and k they open nothing (beside the
@@ -729,28 +730,19 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     focusLater(item.id);
   };
 
-  const onListBlur = (e: React.FocusEvent) => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setListFocused(false);
-  };
-
   /** The row that takes focus in the list (its own focus, or one of its controls) becomes the list's Tab stop. */
-  // A pointer is down on the list (pressed, not yet clicked): the focus it brings is not a keyboard move.
-  const pointerFocus = useRef(false);
-  const endPointer = () => (pointerFocus.current = false);
   const onListFocus = (e: React.FocusEvent) => {
-    setListFocused(true);
-    if (pointerFocus.current) {
-      // A click on a row's own button (its star or menu) is not a keyboard move: with an article open the keys keep
-      // acting on it, and a cursor parked elsewhere comes back to it.
-      if (activeId) setSelectedId(activeId);
-      return;
-    }
     const id = e.target instanceof HTMLElement ? e.target.closest<HTMLElement>("[data-item-id],[data-muted-for]") : null;
     const rowId = id?.dataset.itemId ?? id?.dataset.mutedFor;
     if (rowId) setSelectedId(rowId);
   };
 
-  const selectedItem = (Page ? allItems : items).find((i) => i.id === selected);
+  // The row a key acts on, read when the key is pressed (focus is not render state). Not a row of this list (a deep-linked
+  // article beside it) when the reader has the keys: the article pane acts then.
+  const keyItem = (): Card | undefined => {
+    const id = keyTargetId();
+    return (Page ? allItems : items).find((i) => i.id === id);
+  };
 
   // ---- actions -----------------------------------------------------------
 
@@ -990,36 +982,50 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   );
 
   const toggleChecked = () => {
-    if (!selectedItem) return;
+    const row = keyItem();
+    if (!row) return;
     setChecked((c) => {
       const n = new Set(c);
-      if (n.has(selectedItem.id)) n.delete(selectedItem.id);
-      else n.add(selectedItem.id);
+      if (n.has(row.id)) n.delete(row.id);
+      else n.add(row.id);
       announce(n.size === 0 ? "Selection cleared" : `${n.size} selected`);
       return n;
     });
   };
-  const targets = (): Card[] => (checked.size ? items.filter((i) => checked.has(i.id)) : selectedItem ? [selectedItem] : []);
+  const targets = (): Card[] => (checked.size ? items.filter((i) => checked.has(i.id)) : (([row]) => (row ? [row] : []))([keyItem()]));
 
+  // An article beside the list that is not one of its rows (a deep link) while the reader has the keys: the article pane
+  // acts on j/k/m/s/o/v, so the list declines them (focus in the list: they act on its cursor row).
+  const readerOnly = (fn: () => void) => () => {
+    if (readerOwns() && !allItems.some((i) => i.id === activeId)) return false;
+    fn();
+  };
   const hotkeys: Handlers = {
-      next: () => move(1),
-      prev: () => move(-1),
+      next: readerOnly(() => move(1)),
+      prev: readerOnly(() => move(-1)),
       open: () => {
-        if (!selectedItem || selectedItem.id === activeId) return; // already open beside the list
-        openItem(selectedItem);
-        navigate(articleTo(selectedItem.id, scope), { state: { via: "key" } });
+        const row = keyItem();
+        if (!row || row.id === activeId) return; // already open beside the list
+        openItem(row);
+        navigate(articleTo(row.id, scope), { state: { via: "key" } });
       },
-      original: () => selectedItem && openOriginalAndRecord(selectedItem),
+      original: readerOnly(() => {
+        const row = keyItem();
+        if (row) openOriginalAndRecord(row);
+      }),
       // A background tab is a browser decision; window.open is the best a page can do.
-      background: () => selectedItem && openOriginalAndRecord(selectedItem, "new"),
-      star: () => {
+      background: readerOnly(() => {
+        const row = keyItem();
+        if (row) openOriginalAndRecord(row, "new");
+      }),
+      star: readerOnly(() => {
         const t = targets();
         if (t.length === 0) return;
         const allStarred = t.every((i) => i.starred);
         for (const i of t) if (i.starred === allStarred) void act.toggleStar(i);
         setChecked(new Set());
-      },
-      toggleRead: () => {
+      }),
+      toggleRead: readerOnly(() => {
         const t = targets();
         if (t.length === 0) return;
         if (mutedView) {
@@ -1035,21 +1041,21 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
           "key",
         );
         setChecked(new Set());
-      },
+      }),
       select: toggleChecked,
       // With rows ticked with `x`, the range is around the selection: above its first row, below its last.
       // Off in a page layout (see range): nothing is marked, so the ticks stay too.
       markAbove: () => {
         if (Page) return announce(NO_RANGE_IN_PAGES);
         const t = checked.size ? targets() : [];
-        const anchor = t.length ? t[0] : selectedItem;
+        const anchor = t.length ? t[0] : keyItem();
         if (anchor) range(anchor, "above");
         setChecked(new Set());
       },
       markBelow: () => {
         if (Page) return announce(NO_RANGE_IN_PAGES);
         const t = checked.size ? targets() : [];
-        const anchor = t.length ? t[t.length - 1] : selectedItem;
+        const anchor = t.length ? t[t.length - 1] : keyItem();
         if (anchor) range(anchor, "below");
         setChecked(new Set());
       },
@@ -1070,11 +1076,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
         else virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
       },
   };
-  // An article open beside the list that is not one of its rows (a deep link) has nothing here to drive while the
-  // reader has the keys: the article pane takes j/k/m/s/o/v itself. With focus in the list they act on its cursor row.
-  if (readerHasKeys && !allItems.some((i) => i.id === activeId)) {
-    for (const k of ["next", "prev", "original", "background", "star", "toggleRead"] as const) delete hotkeys[k];
-  }
   useHotkeys(hotkeys, { singleKeys: prefs.shortcuts, enabled: keysEnabled });
 
   // ---- pull to refresh ---------------------------------------------------
@@ -1180,7 +1181,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       scope={scope}
       swipe={swipe}
       peek={peek}
-      selected={item.id === selected}
+      selected={item.id === cursor}
       tabStop={item.id === tabStopId}
       checked={checked.has(item.id)}
       showThumb={dp.inboxThumbs === "auto"}
@@ -1237,7 +1238,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       return (
         <>
           <div ref={pageBoxRef} data-page-box="">
-            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} tabStopId={shown(cursor, allItems)} checked={checked} onOpen={openItem} />
+            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={cursor} tabStopId={shown(cursor, allItems)} checked={checked} onOpen={openItem} />
           </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
           {q.isFetchingNextPage ? (
@@ -1348,13 +1349,8 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
           aria-busy={q.isPending || q.isFetchingNextPage}
           className="@container h-full overflow-y-auto overscroll-y-contain"
           tabIndex={-1}
-          onPointerDownCapture={() => (pointerFocus.current = true)}
-          onClickCapture={endPointer}
-          onPointerCancelCapture={endPointer}
-          onKeyDownCapture={endPointer}
           onKeyDown={onRowArrow}
           onFocus={onListFocus}
-          onBlur={onListBlur}
         >
           <div
             style={
@@ -1495,12 +1491,15 @@ export function windowReach(range: { endIndex: number } | null | undefined, coun
   return range ? Math.min(count - 1, range.endIndex + OVERSCAN) : 0;
 }
 
-/** Put keyboard focus back on a list row (Esc or u in the reader pane); the list itself when the row is not rendered. */
-/** Whether focus is inside the article list: then the keys act on its cursor row. */
+/**
+ * Whether focus is inside the article list: then the keys act on its cursor row, else (beside an open article) on the
+ * article. The one place that is read, by the list and the reader pane alike, at the moment a key is pressed.
+ */
 export function focusInList(): boolean {
   return !!document.activeElement?.closest('[data-testid="list-scroll"]');
 }
 
+/** Put keyboard focus back on a list row (Esc or u in the reader pane); the list itself when the row is not rendered. */
 export function focusListRow(id: string): void {
   const list = document.querySelector<HTMLElement>('[data-testid="list-scroll"]');
   const link = list?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a`);

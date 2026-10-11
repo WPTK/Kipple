@@ -127,7 +127,8 @@ export function interpretKey(
   return { action: a ?? null, pendingG: false };
 }
 
-export type Handlers = Partial<Record<Action, () => void>>;
+/** A handler that returns false declines the key: it is not another handler's to ignore (no preventDefault). */
+export type Handlers = Partial<Record<Action, () => unknown>>;
 
 /** Global key handling. Only actions present in `handlers` are consumed. */
 export function useHotkeys(handlers: Handlers, opts: { singleKeys: boolean; enabled?: boolean }): void {
@@ -162,8 +163,9 @@ export function useHotkeys(handlers: Handlers, opts: { singleKeys: boolean; enab
       if (e.repeat && res.action !== "next" && res.action !== "prev") return;
       const fn = h[res.action];
       if (!fn) return;
-      e.preventDefault();
-      fn();
+      // The list and the reader pane both listen; the one that is not the key's target declines, so the other still sees
+      // an unhandled key.
+      if (fn() !== false) e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => {

@@ -31,6 +31,18 @@ describe("useHotkeys", () => {
     unmount();
   });
 
+  it("a handler that returns false declines the key: the next listener still sees it unhandled", () => {
+    const second = vi.fn();
+    const a = renderHook(() => useHotkeys({ star: () => false }, { singleKeys: true }));
+    const b = renderHook(() => useHotkeys({ star: second }, { singleKeys: true }));
+    const ev = new KeyboardEvent("keydown", { key: "s", bubbles: true, cancelable: true });
+    document.body.dispatchEvent(ev);
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(ev.defaultPrevented).toBe(true); // the second took it
+    a.unmount();
+    b.unmount();
+  });
+
   it("a key pressed as soon as a render is on screen uses that render's handlers", () => {
     // The row a key acts on is the one the screen shows: a keydown handled after the commit but before passive
     // effects ran (a transition render) must not reach the handlers of the render before.

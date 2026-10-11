@@ -171,7 +171,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   // With focus in the list the list acts on its cursor row (even for a deep-linked article that is not one of its rows).
   const ownsItemKeys = !pane || index < 0;
   const unlessInList = (fn: () => void) => () => {
-    if (!focusInList()) fn();
+    if (focusInList()) return false;
+    fn();
   };
   useHotkeys(
     {

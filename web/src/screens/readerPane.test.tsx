@@ -209,8 +209,10 @@ describe("reader pane: keys", () => {
     expect(rowOf(1)).toHaveAttribute("aria-current", "true");
     expect(rowOf(2)).not.toHaveAttribute("aria-current");
     // Focus into the reader: the keys act on the open article, not on the row the cursor was left on.
-    (document.activeElement as HTMLElement).blur();
-    await waitFor(() => expect(rowOf(1)).toHaveAttribute("data-selected", "true"));
+    const body = screen.getByTestId("article-body");
+    body.tabIndex = -1;
+    body.focus();
+    expect(document.activeElement).toBe(body);
     await user.keyboard("s");
     await waitFor(() => expect(starCalls(calls)).toHaveLength(1));
     expect(starCalls(calls)[0]).toContain("1001");
@@ -221,7 +223,7 @@ describe("reader pane: keys", () => {
     expect(starCalls(calls)[1]).toContain("1002");
   });
 
-  it("a click on another row's own button does not retarget the keyboard", async () => {
+  it("a click on another row's own button moves the cursor there with focus: s then stars that row", async () => {
     const { calls } = routes();
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
@@ -230,9 +232,46 @@ describe("reader pane: keys", () => {
     await user.click(within(rowOf(2) as HTMLElement).getAllByRole("button")[0]!);
     await waitFor(() => expect(starCalls(calls)).toHaveLength(1)); // the click starred row 2 and nothing else
     expect(starCalls(calls)[0]).toContain("1002");
+    await waitFor(() => expect(rowOf(2)).toHaveAttribute("data-selected", "true"));
+    expect(rowOf(1)).toHaveAttribute("aria-current", "true"); // the open row stays marked
     await user.keyboard("s");
     await waitFor(() => expect(starCalls(calls)).toHaveLength(2));
-    expect(starCalls(calls)[1]).toContain("1001");
+    expect(starCalls(calls)[1]).toContain("1002"); // focus is still on row 2's button
+  });
+
+  it("a right or middle click leaves nothing sticky: with focus out of the list the keys act on the open article", async () => {
+    const { calls } = routes();
+    go("/i/1001?from=unread");
+    await screen.findByTestId("article-body");
+    await waitFor(() => expect(rowOf(2)).not.toBeNull());
+    const user = userEvent.setup();
+    const button = within(rowOf(2) as HTMLElement).getAllByRole("button")[0]!;
+    await user.pointer({ keys: "[MouseRight]", target: button });
+    await user.pointer({ keys: "[MouseMiddle]", target: button });
+    expect(starCalls(calls)).toHaveLength(0);
+    (document.activeElement as HTMLElement).blur(); // focus leaves the list
+    await user.keyboard("s");
+    await waitFor(() => expect(starCalls(calls)).toHaveLength(1));
+    expect(starCalls(calls)[0]).toContain("1001");
+  });
+
+  it("the focused row unmounting hands the keys to the reader alone: one navigation, not two", async () => {
+    const { calls } = routes();
+    go("/i/1001?from=unread");
+    await screen.findByTestId("article-body");
+    await waitFor(() => expect(rowOf(3)).not.toBeNull());
+    const user = userEvent.setup();
+    rowLink(1).focus();
+    await user.keyboard("{ArrowDown}");
+    await waitFor(() => expect(document.activeElement?.closest('[data-item-id="1002"]')).not.toBeNull());
+    await user.keyboard("{ArrowDown}");
+    await waitFor(() => expect(document.activeElement?.closest('[data-item-id="1003"]')).not.toBeNull());
+    (document.activeElement as HTMLElement).blur(); // what the browser does when the focused node is removed
+    await user.keyboard("j");
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1002")); // from the open article, not from the cursor row
+    await new Promise((r) => setTimeout(r, 100));
+    expect(window.location.pathname).toBe("/i/1002");
+    expect(calls.filter((c) => /\/api\/items\/\d+\/open/.test(c.url.pathname) && !c.url.pathname.includes("1001"))).toHaveLength(1);
   });
 
   it("a deep-linked article that is not in the list: the reader has the keys, the list's cursor row has them from the list", async () => {
@@ -244,6 +283,7 @@ describe("reader pane: keys", () => {
     await screen.findByTestId("article-body");
     await waitFor(() => expect(rowOf(2)).not.toBeNull());
     const user = userEvent.setup();
+    void 0;
     await user.keyboard("s");
     await waitFor(() => expect(starCalls(calls)).toHaveLength(1));
     expect(starCalls(calls)[0]).toContain("1099");

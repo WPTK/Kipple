@@ -317,6 +317,40 @@ async function splitCursor(page) {
   await press(page, "s");
   await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] button[aria-pressed]`)?.getAttribute("aria-pressed") === was, [open, openBefore]);
   check(onOpen && cursorSame, where + " (s)", "with focus in the reader, s stars the open article, not the row the arrow keys reached", `open article starred=${onOpen}, cursor row untouched=${cursorSame}`);
+
+  // A click on another row's own star moves the cursor (and focus) there: s then acts on that row, and once focus is
+  // out of the list again the keys are the open article's. Nothing is left over from the pointer.
+  const other = (await rowState(page)).map((r) => r[0]).find((id) => id !== open && id !== cursor);
+  const otherBefore = await starred(other);
+  await page.locator(`article[data-item-id="${other}"] button[aria-pressed]`).click();
+  const clicked = await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] button[aria-pressed]`)?.getAttribute("aria-pressed") !== was, [other, otherBefore]);
+  const movedTo = await until(page, (id) => document.querySelector(`article[data-item-id="${id}"]`)?.getAttribute("data-selected") === "true", other);
+  await press(page, "s");
+  const backAgain = await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] button[aria-pressed]`)?.getAttribute("aria-pressed") === was, [other, otherBefore]);
+  check(!!other && clicked && movedTo && backAgain, where + " (click)", "a click on another row's star moves the cursor there, and s then stars that row", `clicked=${clicked} cursor moved=${movedTo} s acted on it=${backAgain}`);
+  const openNow = await starred(open);
+  await page.evaluate(() => document.activeElement?.blur());
+  await press(page, "s");
+  const onOpenAgain = await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] button[aria-pressed]`)?.getAttribute("aria-pressed") !== was, [open, openNow]);
+  const otherSame = (await starred(other)) === otherBefore;
+  await press(page, "s");
+  check(onOpenAgain && otherSame, where + " (click, then reader)", "after a click in the list, with focus out of it the keys are the open article's", `open article starred=${onOpenAgain}, clicked row untouched=${otherSame}`);
+
+  // A right or middle click on a row's star starts nothing and leaves nothing behind: with focus out of the list the
+  // keys are still the open article's.
+  const star2 = page.locator(`article[data-item-id="${other}"] button[aria-pressed]`);
+  const otherPressed = await starred(other);
+  await star2.click({ button: "right" }).catch(() => {});
+  await page.keyboard.press("Escape");
+  await star2.click({ button: "middle" }).catch(() => {});
+  await page.mouse.click(2, 2, { button: "left" }).catch(() => {}); // the browser's own middle-click scroll mode swallows the next click or key
+  await page.evaluate(() => document.activeElement?.blur());
+  const openThen = await starred(open);
+  await press(page, "s");
+  const openFlipped = await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] button[aria-pressed]`)?.getAttribute("aria-pressed") !== was, [open, openThen]);
+  const otherUntouched = (await starred(other)) === otherPressed;
+  await press(page, "s");
+  check(openFlipped && otherUntouched, where + " (right and middle click)", "after a right or middle click, nothing is left over: s stars the open article only", `open article starred=${openFlipped}, clicked row untouched=${otherUntouched}`);
 }
 
 // ---- the desktop checks ----
