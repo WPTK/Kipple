@@ -80,11 +80,11 @@ export function enhanceEmbeds(root: ParentNode): void {
   }
 }
 
-/** A declared size this small is a tracking pixel, not artwork (the server's rule too, internal/sanitize/leadimage.go). */
+/** A declared size this small is a tracking pixel, not artwork: tinyDim in internal/sanitize/leadimage.go. */
 const isBeacon = (img: HTMLImageElement): boolean =>
   ["width", "height"].some((k) => {
-    const n = parseInt(img.getAttribute(k) ?? "", 10);
-    return !Number.isNaN(n) && n <= 2;
+    const m = /^(\d+)(?:px)?$/.exec((img.getAttribute(k) ?? "").trim());
+    return m !== null && Number(m[1]) <= 2;
   });
 
 /**
@@ -109,7 +109,7 @@ export function imageNotShown(img: HTMLImageElement, original: string | undefine
     a.rel = "noopener noreferrer";
     if (!sameTab) a.target = "_blank";
     a.textContent = "Open original";
-    cue.append(a);
+    cue.append(" ", a); // the space keeps the text (read aloud, copied) two phrases
   }
   // A <picture> is one image: the cue takes the place of the whole of it.
   const box = img.parentElement?.tagName === "PICTURE" ? img.parentElement : img;

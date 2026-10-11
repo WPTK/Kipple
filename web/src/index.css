@@ -500,6 +500,8 @@ a.sr-only-live:focus {
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
+/* Inside a link the cue is part of that link, so it looks like one (an underline does not reach an inline-flex box). */
+.article-body a .kp-img-off { color: var(--kp-link); text-decoration: underline; text-underline-offset: 0.15em; }
 
 /* Stats heatmap: level fill is --heat percent of the text color into the surface (ramp in src/theme/contrast.ts,
    checked by scripts/contrast.mjs). Older browsers without color-mix get an opacity-based fill instead. */

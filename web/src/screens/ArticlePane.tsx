@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { DropdownMenu } from "radix-ui";
 import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
@@ -213,13 +213,23 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     if (bodyRef.current) enhanceEmbeds(bodyRef.current);
   }, [html, item.data?.trimmed]);
 
-  // An image that cannot be shown gets the "Image not shown" cue instead of a blank gap. A layout effect, so the
-  // listener is there before any image of this HTML can fail.
+  // An image that cannot be shown gets the "Image not shown" cue instead of a blank gap. The listener follows the body
+  // element itself (a ref callback with a cleanup), so it is there in the same commit that puts the HTML in the DOM,
+  // before any image can fail, and a body that comes back after "Try again" gets it too.
   const articleUrl = safeHttpUrl(item.data?.url);
-  useLayoutEffect(() => {
-    if (!bodyRef.current) return;
-    return watchImages(bodyRef.current, articleUrl, linkTarget === "same");
-  }, [html, item.data?.trimmed, articleUrl, linkTarget]);
+  const sameTab = linkTarget === "same";
+  const bodyCallback = useCallback(
+    (el: HTMLDivElement | null) => {
+      bodyRef.current = el;
+      if (!el) return;
+      const stop = watchImages(el, articleUrl, sameTab);
+      return () => {
+        stop();
+        bodyRef.current = null;
+      };
+    },
+    [articleUrl, sameTab],
+  );
 
   // Highlight filters: after the article was sanitized and put in the DOM, split its text nodes around the words
   // (never HTML built from a term). The cleanup puts the text back, so turning the setting off or editing a rule
@@ -367,7 +377,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
             <StatusBlock role="status" title="This article was removed" body="Kipple keeps only the newest articles for this feed. Open the original to read it." />
           ) : (
             <div
-              ref={bodyRef}
+              ref={bodyCallback}
               className="article-body"
               data-testid="article-body"
               onClick={(e) => {

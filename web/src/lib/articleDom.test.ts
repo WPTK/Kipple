@@ -109,7 +109,7 @@ describe("images that cannot be shown", () => {
     fail(root.querySelector("img"));
     const cue = root.querySelector(".kp-img-off");
     expect(root.querySelector("img")).toBeNull();
-    expect(cue?.textContent).toBe("Image not shown: A chart of riversOpen original");
+    expect(cue?.textContent).toBe("Image not shown: A chart of rivers Open original");
     const a = cue?.querySelector("a");
     expect(a?.getAttribute("href")).toBe("https://example.com/a/1");
     expect(a?.target).toBe("_blank");
@@ -154,6 +154,14 @@ describe("images that cannot be shown", () => {
     root.querySelectorAll("img").forEach((i) => fail(i));
     expect(root.querySelector(".kp-img-off")).toBeNull();
     expect(root.querySelectorAll("img")).toHaveLength(3);
+    root.remove();
+  });
+
+  it("a size that is not a whole number of pixels is not a tracking pixel (the server's rule)", () => {
+    const root = body('<img src="" width="1.5em"><img src="" height="2%">');
+    watchImages(root, undefined, false);
+    root.querySelectorAll("img").forEach((i) => fail(i));
+    expect(root.querySelectorAll(".kp-img-off")).toHaveLength(2);
     root.remove();
   });
 
