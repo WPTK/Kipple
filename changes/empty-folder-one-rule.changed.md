@@ -1,1 +1,0 @@
-Folders with no feeds are kept everywhere: deleting every feed in a folder no longer deletes the folder (it used to), and the bulk delete dialog no longer mentions folders, matching an OPML import that moves feeds out. A folder is deleted only by deleting the folder, which also deletes its filters. (#373)

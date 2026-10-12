@@ -1,1 +1,0 @@
-Reading time and scroll depth are now recorded when you leave an article by reloading the page or typing another address; before, Chromium-based browsers dropped the stats beacon because the service worker was asked about it as the page unloaded, so the time was lost. (#393)

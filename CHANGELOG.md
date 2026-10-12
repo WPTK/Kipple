@@ -8,6 +8,19 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [0.9.0-beta.2] - 2026-10-12
+
+### Changed
+
+- Folders with no feeds are kept everywhere: deleting every feed in a folder no longer deletes the folder (it used to), and the bulk delete dialog no longer mentions folders, matching an OPML import that moves feeds out. A folder is deleted only by deleting the folder, which also deletes its filters. (#373)
+- Keyboard: the single-key shortcuts (j and k, s, m, o, x, z, c, r, the g chords, the bracket and brace keys, Shift+A, / and ?), the shortcuts overlay and the Settings option for them are gone. Every action has a visible control, so nothing depends on remembering a key. Selecting several articles with x and acting on them together is gone with no replacement; mark all, mark above and below and the list's Mark all as read menu item cover bulk reads. Tab, Enter and Space work as before; ArrowUp and ArrowDown move between article rows from any control in a row (so a keyboard that skips links in Tab, as Safari does by default, still reaches every row) and in the sidebar trees; Esc closes a menu or dialog, leaves an open article and goes back from the Search screen (not while the search box has focus, where the first Esc leaves the box).
+
+### Fixed
+
+- Muted view: the intro says Restore brings an article back as it was before it was muted (read or unread), matching what Restore does. (#394)
+- Deleting a single feed: the dialog now says "Its articles", "this feed" and "This feed holds N starred articles" instead of the plural wording. (#396)
+- Reading time and scroll depth are now recorded when you leave an article by reloading the page or typing another address; before, Chromium-based browsers dropped the stats beacon because the service worker was asked about it as the page unloaded, so the time was lost. (#393)
+
 ## [0.9.0-beta.1] - 2026-10-11
 
 ### Added
@@ -1008,7 +1021,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.9.0-beta.1...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.9.0-beta.2...HEAD
+[0.9.0-beta.2]: https://github.com/WPTK/Kipple/compare/v0.9.0-beta.1...v0.9.0-beta.2
 [0.9.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.8...v0.9.0-beta.1
 [0.8.0-beta.8]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.7...v0.8.0-beta.8
 [0.8.0-beta.7]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.6...v0.8.0-beta.7
