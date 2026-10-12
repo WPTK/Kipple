@@ -19,7 +19,9 @@ env:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to a pull request supersedes the old run; a push to main (or a release calling this workflow) always
+  # finishes, so every merged commit keeps its own result ("CI green on the exact head").
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Decides whether the expensive checks run. A pull request that changes only prose nothing reads (scripts/ci-prose.txt

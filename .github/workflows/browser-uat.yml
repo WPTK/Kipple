@@ -24,7 +24,9 @@ permissions:
 
 concurrency:
   group: browser-uat-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to a pull request supersedes the old run; a push to main (or a release calling this workflow) always
+  # finishes, so every merged commit keeps its own result ("CI green on the exact head").
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   uat:
@@ -49,7 +51,14 @@ jobs:
           RULES: ${{ runner.temp }}/base-rules
         run: |
           code=true
+          engines=all
           if [ "$EVENT_NAME" = pull_request ]; then
+            # WebKit and Firefox differ from Chromium only in what the browser does with the page, so a pull request that
+            # touches nothing the browser loads (the web app, the embedding, the image) runs Chromium alone; main, a manual
+            # run and any diff that cannot be read run all three. A server change is still exercised end to end in Chromium.
+            if files="$(git diff --name-only HEAD^1 HEAD)" && ! grep -qE '^(web/|internal/web/|Dockerfile$|\.github/workflows/browser-uat\.yml$)' <<< "$files"; then
+              engines=chromium
+            fi
             if mkdir -p "$RULES" && git show HEAD^1:scripts/ci-changes.sh > "$RULES/ci-changes.sh" && git show HEAD^1:scripts/ci-prose.txt > "$RULES/ci-prose.txt" && out="$(bash "$RULES/ci-changes.sh" "$EVENT_NAME")"; then
               if [ "$out" = false ]; then code=false; fi
             else
@@ -57,7 +66,8 @@ jobs:
             fi
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "code=$code"
+          echo "engines=$engines" >> "$GITHUB_OUTPUT"
+          echo "code=$code engines=$engines"
 
       - if: steps.gate.outputs.code != 'false'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -79,9 +89,12 @@ jobs:
       - name: Install the web dependencies and the browsers
         if: steps.gate.outputs.code != 'false'
         working-directory: web
+        env:
+          ENGINES: ${{ steps.gate.outputs.engines == 'all' && 'chromium webkit firefox' || 'chromium' }}
         run: |
           npm ci --ignore-scripts
-          npx playwright install --with-deps chromium webkit firefox
+          # shellcheck disable=SC2086 # one engine name per word
+          npx playwright install --with-deps $ENGINES
 
       # `npm run seed` builds web/dist when it is missing, builds Kipple, starts it and adds the fixture feeds.
       - name: Start the fixture feeds and a seeded instance on loopback
@@ -115,14 +128,14 @@ jobs:
       # Playwright's WebKit is the WebKit engine, not Safari, but it sends the fetch metadata and download behaviour
       # that Chromium does not, which is where the saved-error-as-a-file bug showed.
       - name: Flows (WebKit)
-        if: steps.gate.outputs.code != 'false' && !cancelled()
+        if: steps.gate.outputs.code != 'false' && steps.gate.outputs.engines == 'all' && !cancelled()
         working-directory: web
         run: node uat/all.mjs --engine webkit
 
       # Firefox has no static routing API in its service workers, so it keeps the worker's fetch handler for writes;
       # this runs the reading-time flow there to prove the beacon still gets through.
       - name: Flows (Firefox)
-        if: steps.gate.outputs.code != 'false' && !cancelled()
+        if: steps.gate.outputs.code != 'false' && steps.gate.outputs.engines == 'all' && !cancelled()
         working-directory: web
         run: node uat/all.mjs --engine firefox
 
