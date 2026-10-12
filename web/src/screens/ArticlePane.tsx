@@ -14,9 +14,7 @@ import { resolveLinkTarget } from "@/lib/links";
 import { safeHttpUrl } from "@/lib/safeUrl";
 import { ARTICLE_WIDTH_REM, useDevicePrefs } from "@/lib/devicePrefs";
 import { fullDate } from "@/lib/format";
-import { useHotkeys } from "@/lib/keys";
-import { prefsStore } from "@/lib/prefs";
-import { useStore } from "@/lib/store";
+import { useLatestRef } from "@/lib/useLatestRef";
 import { Button } from "@/ui/button";
 import { openOriginalAndRecord, shareAndRecord, useReadingStats, useStatsEnabled } from "@/lib/statsSender";
 import { openFilterEditor, similarSeed } from "@/lib/similar";
@@ -49,7 +47,6 @@ interface Props {
 export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
-  const prefs = useStore(prefsStore);
   const dp = useDevicePrefs();
 
   const item = useItem(id);
@@ -162,23 +159,20 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     fulltext.mutate({ id, mode: item.data.fulltext.effective === 1 ? 0 : 1 });
   };
 
-  // Precedence in the wide pane: the open article is the list's selected row, so the list's keys drive
-  // j/k/m/s/o/v (and stay live for mark all, above/below, select, gg/G, Enter). The article keeps only
-  // what the list has no notion of: f (full text) and u/Esc, which returns focus to the list. If the
-  // article is not among the loaded rows (a deep link, or it left the list while open), the list has nothing to
-  // drive and the article takes the whole set. In the full-screen view the list is not on screen, so the article
-  // owns all keys.
-  const ownsItemKeys = !pane || index < 0;
-  useHotkeys(
-    {
-      ...(ownsItemKeys
-        ? { next: () => next("key"), prev: () => prev("key"), original: openOriginal, star: toggleStar, toggleRead }
-        : {}),
-      fulltext: toggleFulltext,
-      up: () => (pane ? focusListRow(id) : back()),
-    },
-    { singleKeys: prefs.shortcuts },
-  );
+  // Escape leaves the article: beside the list focus returns to the list row, full screen goes back. Radix closes a
+  // menu or dialog on Escape first (it prevents the default), so an Escape that did that does not also leave.
+  const leaveRef = useLatestRef(() => (pane ? focusListRow(id) : back()));
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+      if (e.target instanceof HTMLElement && (e.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) return;
+      if (document.querySelector('[role="dialog"],[role="menu"]')) return;
+      e.preventDefault();
+      leaveRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [leaveRef]);
 
   // Focus the article when it opens (narrow) so screen readers land on it.
   const headingRef = useRef<HTMLHeadingElement>(null);

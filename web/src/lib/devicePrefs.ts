@@ -308,7 +308,6 @@ export function replaceDevicePrefs(next: DevicePrefs): void {
 /** Test helper: back to factory defaults. */
 export function resetDevicePrefs(): void {
   devicePrefsStore.set(parseDevicePrefs(null));
-  sessionLayoutStore.set(null);
 }
 
 const isId = (x: string): boolean => /^[0-9]{1,19}$/.test(x);
@@ -369,9 +368,6 @@ export function clearListOverrides(): void {
   });
 }
 
-/** Transient layout used by the `c` key (not persisted, cleared by any explicit choice). */
-export const sessionLayoutStore = createStore<LayoutId | null>(null);
-
 export interface LayoutContext {
   feedId?: string;
   /** The list's folder (a feed list: the feed's folder) and the folders above it, nearest first. */
@@ -411,9 +407,9 @@ export function inheritedList<F extends ListField>(p: DevicePrefs, ctx: LayoutCo
   return resolveList(p, { folderIds: target.kind === "feed" ? ctx.folderIds : ctx.folderIds?.slice(1) }, field);
 }
 
-/** The layout for a list: the session toggle (`c`), else resolveList. */
-export function resolveLayout(p: DevicePrefs, ctx: LayoutContext, session: LayoutId | null = null): LayoutId {
-  return session ?? resolveList(p, ctx, "layout").value;
+/** The layout for a list: the feed's override, a folder's, else the device default. */
+export function resolveLayout(p: DevicePrefs, ctx: LayoutContext): LayoutId {
+  return resolveList(p, ctx, "layout").value;
 }
 
 /**
@@ -421,8 +417,8 @@ export function resolveLayout(p: DevicePrefs, ctx: LayoutContext, session: Layou
  * articles, and a page it has shown stays the same only while what is loaded is the start of a newest-first list
  * (layouts/gazettePlan.ts). So in that layout the list's and the device's order settings do not apply.
  */
-export function resolveOrder(p: DevicePrefs, ctx: LayoutContext, session: LayoutId | null = null): OrderPref {
-  return followsOrder(resolveLayout(p, ctx, session)) ? resolveList(p, ctx, "order").value : "newest";
+export function resolveOrder(p: DevicePrefs, ctx: LayoutContext): OrderPref {
+  return followsOrder(resolveLayout(p, ctx)) ? resolveList(p, ctx, "order").value : "newest";
 }
 
 /** Whether a layout shows the list in the order the reader set (every layout but the Gazette). */

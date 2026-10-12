@@ -40,10 +40,6 @@ export interface Prefs {
   listDensity: Step;
   readingDensity: Step;
   adjustSeparately: boolean;
-  /** Single-key shortcuts (WCAG 2.1.4): global on/off. */
-  shortcuts: boolean;
-  /** The user has set shortcuts themselves; until then the default follows the device (off when touch-first). */
-  shortcutsChosen: boolean;
   spacing: Spacing;
   motion: Motion;
   /** Bigger touch and click targets everywhere (56 px instead of 44 px). */
@@ -64,8 +60,6 @@ export const DEFAULT_PREFS: Prefs = {
   listDensity: "standard",
   readingDensity: "standard",
   adjustSeparately: false,
-  shortcuts: true,
-  shortcutsChosen: false,
   spacing: "normal",
   motion: "system",
   largeTargets: false,
@@ -77,29 +71,13 @@ export const DEFAULT_PREFS: Prefs = {
 
 export const PREFS_KEY = "kipple.prefs.v1";
 
-/**
- * A touch-first device: the primary pointer is coarse (a finger) and no mouse or trackpad is attached. Single-key
- * shortcuts default to off there (there is no keyboard to press them on, and letter keys clash with the on-screen
- * one); an iPad with a trackpad or mouse reports a fine secondary pointer and keeps them on.
- */
-export function touchFirst(): boolean {
-  try {
-    return window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(any-pointer: fine)").matches;
-  } catch {
-    return false;
-  }
-}
-
 const isStep = (v: unknown): v is Step => STEPS.includes(v as Step);
 
 export function parsePrefs(raw: string | null): Prefs {
   const d = DEFAULT_PREFS;
-  if (!raw) return { ...d, shortcuts: !touchFirst() };
+  if (!raw) return { ...d };
   try {
     const v = JSON.parse(raw) as Partial<Prefs> | null;
-    // Chosen only when flagged. A saved value with no flag at all predates the flag, when an "off" could only have
-    // been the user's doing, so that one stays chosen. A flagged-false "off" is the device default saved back.
-    const chosen = typeof v?.shortcuts === "boolean" && (v.shortcutsChosen === true || (v.shortcutsChosen === undefined && v.shortcuts === false));
     return {
       font: isFontId(v?.font) ? v.font : d.font,
       fontEverywhere: v?.fontEverywhere === true,
@@ -107,9 +85,6 @@ export function parsePrefs(raw: string | null): Prefs {
       listDensity: isStep(v?.listDensity) ? v.listDensity : d.listDensity,
       readingDensity: isStep(v?.readingDensity) ? v.readingDensity : d.readingDensity,
       adjustSeparately: v?.adjustSeparately === true,
-      // An explicit "off" is always kept. An "on" that was only the old default is not a choice: it follows the device.
-      shortcuts: chosen ? (v?.shortcuts as boolean) : !touchFirst(),
-      shortcutsChosen: chosen,
       spacing: (SPACINGS as readonly unknown[]).includes(v?.spacing) ? (v?.spacing as Spacing) : d.spacing,
       motion: (MOTIONS as readonly unknown[]).includes(v?.motion) ? (v?.motion as Motion) : d.motion,
       largeTargets: v?.largeTargets === true,
@@ -127,25 +102,8 @@ function load(): Prefs {
   try {
     return parsePrefs(localStorage.getItem(PREFS_KEY));
   } catch {
-    return { ...DEFAULT_PREFS, shortcuts: !touchFirst() };
+    return { ...DEFAULT_PREFS };
   }
-}
-
-/**
- * Evidence of a hardware keyboard on a touch-first device: a key pressed while nothing is being typed into (the
- * on-screen keyboard only appears for text fields). The default then switches on; a choice the user made stays.
- */
-function watchHardwareKeyboard(): void {
-  const p = prefsStore.get();
-  if (p.shortcutsChosen || p.shortcuts || typeof document === "undefined") return;
-  const onKey = (e: KeyboardEvent) => {
-    const t = e.target;
-    const typing = t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
-    if (typing || e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return;
-    document.removeEventListener("keydown", onKey, true);
-    if (!prefsStore.get().shortcutsChosen) prefsStore.set((q) => ({ ...q, shortcuts: true }));
-  };
-  document.addEventListener("keydown", onKey, true);
 }
 
 export const prefsStore = createStore<Prefs>(load());
@@ -153,7 +111,6 @@ export const prefsStore = createStore<Prefs>(load());
 export function updatePrefs(patch: Partial<Prefs>): void {
   prefsStore.set((p) => {
     const next = { ...p, ...patch };
-    if ("shortcuts" in patch && !("shortcutsChosen" in patch)) next.shortcutsChosen = true;
     // One Density choice drives both unless "Adjust separately" is on.
     if (!next.adjustSeparately) {
       if (patch.listDensity && !patch.readingDensity) next.readingDensity = patch.listDensity;
@@ -195,7 +152,6 @@ export function prefersReducedMotion(): boolean {
 /** Wire the store to the DOM and localStorage. Call once at startup. */
 export function initPrefs(): void {
   applyPrefs(prefsStore.get());
-  watchHardwareKeyboard();
   prefsStore.subscribe(() => {
     const p = prefsStore.get();
     applyPrefs(p);

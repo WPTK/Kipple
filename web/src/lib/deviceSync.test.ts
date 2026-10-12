@@ -146,16 +146,13 @@ describe("mapping between the local stores and the profile", () => {
     expect(profileOf(local())["ui.font_body"]).toBe("easy");
   });
 
-  it("leaves keys without a device value unset: shortcuts, list width, link target", () => {
+  it("leaves keys without a device value unset: list width, link target", () => {
     const p = profileOf(local());
-    expect(p["client.shortcuts"]).toBeNull();
     expect(p["client.list_width"]).toBeNull();
     expect(p["client.link_target"]).toBeNull();
-    updatePrefs({ shortcuts: false });
     updateDevicePrefs({ listWidth: 400, linkTarget: "same" });
-    expect(profileOf(local())).toMatchObject({ "client.shortcuts": false, "client.list_width": 400, "client.link_target": "same" });
-    const back = deriveLocal({ ...DEFAULTS, "client.shortcuts": true, "client.list_width": 500 }, local());
-    expect(back.prefs).toMatchObject({ shortcuts: true, shortcutsChosen: true });
+    expect(profileOf(local())).toMatchObject({ "client.list_width": 400, "client.link_target": "same" });
+    const back = deriveLocal({ ...DEFAULTS, "client.list_width": 500 }, local());
     expect(back.dp.listWidth).toBe(500);
   });
 });
@@ -412,11 +409,11 @@ describe("saving", () => {
   });
 });
 
-// Every key the server accepts (internal/api/devices.go clientDefs plus the device-scoped ui.* keys this client mirrors).
+// Every key this client writes: internal/api/devices.go clientDefs (less the retired client.shortcuts) plus the device-scoped ui.* keys this client mirrors.
 const SERVER_CLIENT_KEYS = [
   "client.layout", "client.list_overrides", "client.order", "client.search_order", "client.inbox_thumbs", "client.peek_seen", "client.article_width",
   "client.list_width", "client.sidebar_width", "client.link_target", "client.unread_badge", "client.text_size",
-  "client.adjust_separately", "client.shortcuts", "client.spacing", "client.motion", "client.large_targets",
+  "client.adjust_separately", "client.spacing", "client.motion", "client.large_targets",
   "client.listen", "client.voice", "client.rate", "client.collapsed_folders", "client.highlight_keywords",
 ];
 
@@ -433,7 +430,7 @@ describe("every device pref is carried both ways (review finding 2)", () => {
       "client.layout": "cards", "client.list_overrides": { feed: { "5": { layout: "compact", order: "oldest" } }, folder: { "7": { layout: "inbox", view: "all" } } },
       "client.order": "oldest", "client.search_order": "newest", "client.inbox_thumbs": "off", "client.peek_seen": true, "client.article_width": "wide",
       "client.list_width": 400, "client.sidebar_width": 300, "client.link_target": "same", "client.unread_badge": "dot",
-      "client.text_size": 1.25, "client.adjust_separately": true, "client.shortcuts": false, "client.spacing": "roomy",
+      "client.text_size": 1.25, "client.adjust_separately": true, "client.spacing": "roomy",
       "client.motion": "off", "client.large_targets": true, "client.listen": true, "client.voice": "Samantha",
       "client.rate": 1.2, "client.collapsed_folders": ["3", "9"], "client.highlight_keywords": false,
     };

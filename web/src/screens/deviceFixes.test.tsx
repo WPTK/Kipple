@@ -11,9 +11,8 @@ import type { Bootstrap } from "@/api/types";
 import { rowMenuStore } from "@/gestures/rowMenu";
 import { resetDevicePrefs, devicePrefsStore, updateDevicePrefs } from "@/lib/devicePrefs";
 import { itemActions } from "@/lib/itemActions";
-import { DEFAULT_PREFS, applyPrefs, prefsStore, updatePrefs } from "@/lib/prefs";
+import { DEFAULT_PREFS, applyPrefs, prefsStore } from "@/lib/prefs";
 import { resetUndo, undoLast } from "@/lib/undo";
-import { helpStore } from "@/shell/HelpDialog";
 import { INFO_MS, ACTION_MS, clearToasts, toast, toastMs, Toasts } from "@/shell/toasts";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 import { clearListMemory, NewArticlesPill } from "./ListPane";
@@ -84,7 +83,6 @@ beforeEach(() => {
   liveStore.set(initialLive);
   resetDevicePrefs();
   resetUndo();
-  helpStore.set(false);
   prefsStore.set({ ...DEFAULT_PREFS });
   updateDevicePrefs({ peekSeen: true });
   vi.stubGlobal("EventSource", NoES);
@@ -862,14 +860,13 @@ describe("share", () => {
   });
 });
 
-describe("keyboard shortcut default and layouts", () => {
+describe("layout names", () => {
   it("labels the layouts Editorial and Email - Compact, ids unchanged", async () => {
     routes();
     media(WIDE);
     go("/l/unread");
     await screen.findByText("Article number 1");
     expect(screen.getByRole("button", { name: "List options, Editorial layout" })).toBeInTheDocument();
-    act(() => updatePrefs({ shortcuts: true }));
     act(() => updateDevicePrefs({ layout: "headlines" }));
     expect(await screen.findByRole("button", { name: "List options, Email - Compact layout" })).toBeInTheDocument();
     expect(devicePrefsStore.get().layout).toBe("headlines");

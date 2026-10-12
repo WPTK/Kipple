@@ -275,7 +275,7 @@ describe("managing nested folders", () => {
 });
 
 describe("nested folder review fixes", () => {
-  it("taking the focused item out of Favorites with P leaves the focus on the item now in its place, one tab stop", async () => {
+  it("taking the focused item out of Favorites with its star leaves the focus on the item now in its place, one tab stop", async () => {
     routes({ "GET /api/bootstrap": () => json({ ...nested, settings: { "library.favorites": [{ t: "feed", id: "2" }, { t: "feed", id: "3" }] } }) });
     media(WIDE);
     go("/l/unread");
@@ -287,7 +287,7 @@ describe("nested folder review fixes", () => {
     first.focus();
     // The star is not a tab stop inside the tree: Tab leaves the tree.
     expect(within(first).getByRole("button", { name: "Favorite Apple Daily" })).toHaveAttribute("tabindex", "-1");
-    await user.keyboard("p");
+    await user.click(within(first).getByRole("button", { name: "Favorite Apple Daily" }));
     await waitFor(() => expect(within(favTree).getAllByRole("treeitem")).toHaveLength(1));
     const left = within(favTree).getAllByRole("treeitem")[0]!;
     await waitFor(() => expect(document.activeElement).toBe(left));
@@ -303,8 +303,9 @@ describe("nested folder review fixes", () => {
     go("/l/unread");
     const nav = await screen.findByRole("navigation", { name: "Primary" });
     const favTree = await within(nav).findByRole("tree", { name: "Favorites" });
-    within(favTree).getAllByRole("treeitem")[0]!.focus();
-    await userEvent.setup().keyboard("p");
+    const only = within(favTree).getAllByRole("treeitem")[0]!;
+    only.focus();
+    await userEvent.setup().click(within(only).getByRole("button", { name: /^Favorite / }));
     await waitFor(() => expect(within(nav).queryByRole("tree", { name: "Favorites" })).toBeNull());
     const feeds = within(nav).getByRole("tree", { name: "Feeds" });
     await waitFor(() => expect(feeds.contains(document.activeElement)).toBe(true));

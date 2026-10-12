@@ -9,7 +9,6 @@ import { keys, parseScopeKey, scopeKey } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { devicePrefsStore, resetDevicePrefs, setListOverride, updateDevicePrefs } from "@/lib/devicePrefs";
-import { updatePrefs } from "@/lib/prefs";
 import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
 import { clearListMemory } from "./ListPane";
@@ -49,7 +48,6 @@ beforeEach(() => {
   liveStore.set(initialLive);
   resetDevicePrefs();
   resetUndo();
-  updatePrefs({ shortcuts: true });
   updateDevicePrefs({ peekSeen: true });
   vi.stubGlobal("EventSource", NoES);
 });

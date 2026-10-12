@@ -179,7 +179,7 @@ async function run(browser, vp) {
       await until(page, () => /\d+ changes? will be sent/.test(document.querySelector('[data-testid="offline-notice"]')?.textContent ?? ""), undefined, 10000);
       const before = await pendingCount(page);
       if (before < 1) fail(`${tag} O2`, `opening the article offline queued no read (notice: "${await noticeText(page)}")`);
-      await page.keyboard.press("s");
+      await page.getByRole("toolbar", { name: "Article actions" }).getByRole("button", { name: "Star", exact: true }).click();
       const after = await until(
         page,
         (n) => {

@@ -4,7 +4,6 @@ import { chainOf, type FolderTree } from "@/lib/folderTree";
 import type { Scope } from "@/api/types";
 import {
   resolveLayout,
-  sessionLayoutStore,
   setListOverride,
   useDevicePrefs,
   type KnownLists,
@@ -13,7 +12,6 @@ import {
   type ListField,
   type ListOverride,
 } from "@/lib/devicePrefs";
-import { useStore } from "@/lib/store";
 import { cards } from "./cards";
 import { compact } from "./compact";
 import { gazette } from "./gazette";
@@ -69,12 +67,11 @@ export function useSetListOverride(): <F extends ListField>(kind: "feed" | "fold
   }, [data]);
 }
 
-/** The layout in effect for a list: `c` toggle, then feed override, folder overrides up the tree, device default. */
+/** The layout in effect for a list: feed override, folder overrides up the tree, device default. */
 export function useResolvedLayout(scope: Scope): { layout: ListLayout; ctx: LayoutContext } {
   const dp = useDevicePrefs();
-  const session = useStore(sessionLayoutStore);
   const ctx = useListContext(scope);
-  return { layout: getLayout(resolveLayout(dp, ctx, session)), ctx };
+  return { layout: getLayout(resolveLayout(dp, ctx)), ctx };
 }
 
 export type { ListLayout, PageProps, RowProps, RowMenuActions } from "./types";

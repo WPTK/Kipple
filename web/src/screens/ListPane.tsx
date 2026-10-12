@@ -19,12 +19,11 @@ import { usePullToRefresh } from "@/gestures/usePullToRefresh";
 import { pageOf, useResolvedLayout } from "@/layouts";
 import { RowTabStop, useRowTabIndex } from "@/layouts/rowTabStop";
 import type { ListLayout, RowMenuActions } from "@/layouts";
-import { sessionLayoutStore, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
+import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { prefsStore } from "@/lib/prefs";
 import { useStore, useStoreSelector } from "@/lib/store";
 import { withDayHeaders, type Row } from "@/lib/format";
 import { useSearchHighlight } from "@/lib/useHighlights";
-import { useHotkeys, type Handlers } from "@/lib/keys";
 import { onBecameUnread, readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
 import { focusOrigin } from "@/ui/kit";
@@ -92,7 +91,6 @@ interface ListMemory {
   reveal?: string;
   /** Rows swiped or marked away in Unread, so leaving the list and coming back keeps them gone. */
   hidden: ReadonlySet<string>;
-  checked: ReadonlySet<string>;
   /** Ids already sent by mark-read-on-scroll. */
   sentByScroll: Set<string>;
   /** Rows actually rendered in the visible window at some point (not just overscan), so a mark-on-scroll
@@ -106,7 +104,7 @@ const memory = new Map<string, ListMemory>();
 const memoryFor = (key: string): ListMemory => {
   let m = memory.get(key);
   if (!m) {
-    m = { offset: 0, hidden: new Set(), checked: new Set(), sentByScroll: new Set(), seenByScroll: new Set() };
+    m = { offset: 0, hidden: new Set(), sentByScroll: new Set(), seenByScroll: new Set() };
     memory.set(key, m);
     // Bounded: every scope (each partial search string too) adds an entry. Map order is insertion order, so the
     // oldest go first; a touched entry is re-inserted below to stay recent.
@@ -140,7 +138,7 @@ export function clearListMemory(): void {
 }
 
 /** Why mark above and below do nothing in a page layout (the Gazette). */
-export const NO_RANGE_IN_PAGES = "Mark above and below are off in the Gazette: its pages are not in date order";
+const NO_RANGE_IN_PAGES = "Mark above and below are off in the Gazette: its pages are not in date order";
 
 /** How long a row marked read on purpose stays in the Unread list (the undo toast lasts far longer). */
 export const LEAVE_MS = 1500;
@@ -186,11 +184,6 @@ interface Props {
   scope: Scope;
   /** Item open in the reader pane (or route), highlighted in the list. */
   activeId?: string;
-  /** Called on j/k. On a wide screen the route opens the item in the reader pane. */
-  onKeyMove?: (item: Card) => void;
-  keysEnabled?: boolean;
-  /** An article is open in the reader pane beside this list: the article, not the list, owns `f` and `u`/Esc. */
-  articleOpen?: boolean;
   header?: ReactNode | ((c: ListControls) => ReactNode);
   /** Called when what a header could offer changes (the loaded count, the fallback flag, mark all). The Search screen keeps its own header. */
   onControls?: (c: ListControls) => void;
@@ -233,7 +226,7 @@ const isTouch = (): boolean => {
   }
 };
 
-export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, articleOpen = false, header, onControls }: Props) {
+export function ListPane({ scope, activeId, header, onControls }: Props) {
   const key = scopeKey(scope);
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -241,7 +234,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const q = useItems(scope);
   const prefs = useStore(prefsStore);
   const dp = useDevicePrefs();
-  const session = useStore(sessionLayoutStore);
   const { layout } = useResolvedLayout(scope);
   // A page layout (the Gazette) draws the whole loaded list itself: no virtualized rows, and no row ever leaves it.
   const Page = pageOf(layout, scope);
@@ -261,7 +253,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => memory.get(key)?.hidden ?? new Set());
   // Rows that are collapsing (COLLAPSE_MS) before they leave the list.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(() => new Set());
-  const [checked, setChecked] = useState<ReadonlySet<string>>(() => memory.get(key)?.checked ?? new Set());
   const allItems = useMemo(() => flattenItems(q.data), [q.data]);
   const loadedIdSet = useMemo(() => new Set(allItems.map((i) => i.id)), [allItems]);
   const items = useMemo(() => (hidden.size ? allItems.filter((i) => !hidden.has(i.id)) : allItems), [allItems, hidden]);
@@ -407,12 +398,11 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
   useEffect(() => {
     memoryFor(key).selectedId = selectedId;
   }, [key, selectedId]);
-  // Hidden and ticked rows outlive the mount (opening an article on a phone unmounts the list).
+  // Hidden rows outlive the mount (opening an article on a phone unmounts the list).
   useEffect(() => {
     const m = memoryFor(key);
     m.hidden = hidden;
-    m.checked = checked;
-  }, [key, hidden, checked]);
+  }, [key, hidden]);
 
   // A page layout has no virtualizer to restore the offset: its pages appear once the list has a width and enough
   // articles to plan from, so the offset is put back after the first render that is tall enough to hold it. Any
@@ -675,25 +665,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     };
   }, [markOnScroll, qc, virtualizer, pagedScroll, lookAtStories]);
 
-  const move = useCallback(
-    (delta: 1 | -1) => {
-      // A page layout's reading order is its DOM order (ListLayout.Page), which is not the list's order.
-      const order = Page ? pageOrder(parentRef.current, allItems) : items;
-      if (order.length === 0) return;
-      const cur = selected ? order.findIndex((i) => i.id === selected) : -1;
-      const next = Math.min(order.length - 1, Math.max(0, cur < 0 ? (delta === 1 ? 0 : order.length - 1) : cur + delta));
-      const item = order[next];
-      if (!item) return;
-      setSelectedId(item.id);
-      pageRestored.current = true; // moving by key is the reader moving the page
-      if (Page) storyIntoView(parentRef.current, item.id);
-      else virtualizer.scrollToIndex(rowIndexOf(item.id), { align: "auto" });
-      requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, item.id)));
-      onKeyMove?.(item);
-    },
-    [Page, allItems, items, selected, virtualizer, rowIndexOf, onKeyMove],
-  );
-
   // The arrow keys move focus between row links, and only focus: unlike j and k they select nothing and open nothing
   // (beside the reader pane j opens the article it reaches), so looking through the list marks nothing read. They work
   // with single-key shortcuts off: the list is one Tab stop, so they are how the keyboard reaches the other rows. On a
@@ -720,8 +691,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     const rowId = id?.dataset.itemId ?? id?.dataset.mutedFor;
     if (rowId) setFocusId(rowId);
   };
-
-  const selectedItem = (Page ? allItems : items).find((i) => i.id === selected);
 
   // ---- actions -----------------------------------------------------------
 
@@ -957,94 +926,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     [act, range, restoreRow, feedById, rank, scope.typing, Page],
   );
 
-  const toggleChecked = () => {
-    if (!selectedItem) return;
-    setChecked((c) => {
-      const n = new Set(c);
-      if (n.has(selectedItem.id)) n.delete(selectedItem.id);
-      else n.add(selectedItem.id);
-      announce(n.size === 0 ? "Selection cleared" : `${n.size} selected`);
-      return n;
-    });
-  };
-  const targets = (): Card[] => (checked.size ? items.filter((i) => checked.has(i.id)) : selectedItem ? [selectedItem] : []);
-
-  const hotkeys: Handlers = {
-      next: () => move(1),
-      prev: () => move(-1),
-      open: () => {
-        if (!selectedItem || selectedItem.id === activeId) return; // already open beside the list
-        openItem(selectedItem);
-        navigate(articleTo(selectedItem.id, scope), { state: { via: "key" } });
-      },
-      original: () => selectedItem && openOriginalAndRecord(selectedItem),
-      // A background tab is a browser decision; window.open is the best a page can do.
-      background: () => selectedItem && openOriginalAndRecord(selectedItem, "new"),
-      star: () => {
-        const t = targets();
-        if (t.length === 0) return;
-        const allStarred = t.every((i) => i.starred);
-        for (const i of t) if (i.starred === allStarred) void act.toggleStar(i);
-        setChecked(new Set());
-      },
-      toggleRead: () => {
-        const t = targets();
-        if (t.length === 0) return;
-        if (mutedView) {
-          void act.restoreMuted(t, hide(t.map((i) => i.id)));
-          setChecked(new Set());
-          return;
-        }
-        if (t.length === 1) return void act.toggleRead(t[0] as Card, "key");
-        const read = t.some((i) => !i.read);
-        void act.setRead(
-          t.filter((i) => i.read !== read).map((i) => i.id),
-          read,
-          "key",
-        );
-        setChecked(new Set());
-      },
-      select: toggleChecked,
-      // With rows ticked with `x`, the range is around the selection: above its first row, below its last.
-      // Off in a page layout (see range): nothing is marked, so the ticks stay too.
-      markAbove: () => {
-        if (Page) return announce(NO_RANGE_IN_PAGES);
-        const t = checked.size ? targets() : [];
-        const anchor = t.length ? t[0] : selectedItem;
-        if (anchor) range(anchor, "above");
-        setChecked(new Set());
-      },
-      markBelow: () => {
-        if (Page) return announce(NO_RANGE_IN_PAGES);
-        const t = checked.size ? targets() : [];
-        const anchor = t.length ? t[t.length - 1] : selectedItem;
-        if (anchor) range(anchor, "below");
-        setChecked(new Set());
-      },
-      markAll: markAllRead,
-      compact: () => {
-        if (session) sessionLayoutStore.set(null);
-        else if (layout.id !== "compact") sessionLayoutStore.set("compact");
-        else announce("Already using the Compact layout");
-      },
-      top: () => {
-        pageRestored.current = true;
-        if (Page) parentRef.current?.scrollTo({ top: 0 });
-        else virtualizer.scrollToOffset(0);
-      },
-      bottom: () => {
-        pageRestored.current = true;
-        if (Page) parentRef.current?.scrollTo({ top: parentRef.current.scrollHeight });
-        else virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
-      },
-  };
-  // An article open beside the list that is not one of its rows (a deep link) has nothing here to drive:
-  // the article pane takes j/k/m/s/o/v itself.
-  if (articleOpen && activeId && !allItems.some((i) => i.id === activeId)) {
-    for (const k of ["next", "prev", "original", "background", "star", "toggleRead"] as const) delete hotkeys[k];
-  }
-  useHotkeys(hotkeys, { singleKeys: prefs.shortcuts, enabled: keysEnabled });
-
   // ---- pull to refresh ---------------------------------------------------
 
   const [holding, setHolding] = useState(false);
@@ -1114,7 +995,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
     asOf.current = undefined;
     setHidden(new Set());
     setLeaving(new Set());
-    setChecked(new Set());
     // Other cached lists for the cleared feeds are now stale too; they refetch when next opened.
     void qc.invalidateQueries({ queryKey: keys.itemsAll, refetchType: "none" });
     void qc.resetQueries({ queryKey: keys.items(scope) }).then(() => {
@@ -1150,7 +1030,6 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       peek={peek}
       selected={item.id === selected}
       tabStop={item.id === tabStopId}
-      checked={checked.has(item.id)}
       showThumb={dp.inboxThumbs === "auto"}
       showMuted={mutedView}
       actions={menuActions}
@@ -1205,7 +1084,7 @@ export function ListPane({ scope, activeId, onKeyMove, keysEnabled = true, artic
       return (
         <>
           <div ref={pageBoxRef} data-page-box="">
-            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} tabStopId={shown(focusId, allItems)} checked={checked} onOpen={openItem} />
+            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} tabStopId={shown(focusId, allItems)} onOpen={openItem} />
           </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
           {q.isFetchingNextPage ? (
@@ -1369,7 +1248,6 @@ interface ListRowProps {
   selected: boolean;
   /** This row's controls are the list's one Tab stop (rowTabStop.ts). */
   tabStop: boolean;
-  checked: boolean;
   showThumb: boolean;
   /** The Muted list: each row says which filter muted it, with Restore and Edit rule. */
   showMuted: boolean;
@@ -1401,7 +1279,6 @@ export const ListRow = memo(function ListRow(p: ListRowProps) {
         item={item}
         feed={p.feed}
         selected={p.selected}
-        checked={p.checked}
         to={articleTo(item.id, p.scope)}
         onOpen={p.onOpen}
         onToggleStar={p.onStar}

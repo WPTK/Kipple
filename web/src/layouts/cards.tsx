@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { CheckBadge, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
+import { RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex } from "./rowTabStop";
@@ -13,7 +13,7 @@ import { useRowTabIndex } from "./rowTabStop";
  * body, with the actions in a footer. The list lays cards out in 1, 2 or 3 columns by its
  * own width, and opening one shows the article full width (no reader pane).
  */
-function CardRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
+function CardRow({ item, feed, selected, to, onOpen, onToggleStar, actions }: RowProps) {
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
   return (
@@ -25,7 +25,6 @@ function CardRow({ item, feed, selected, checked, to, onOpen, onToggleStar, acti
         selected && "bg-selection outline-2 outline-accent",
       )}
     >
-      <CheckBadge checked={checked} />
       {item.image ? (
         <div className="p-2 pb-0">
           <img

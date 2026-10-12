@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { CheckBadge, PublishedTime, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
+import { PublishedTime, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex } from "./rowTabStop";
@@ -11,7 +11,7 @@ import { useRowTabIndex } from "./rowTabStop";
  * thumbnail. On a wide screen it sits in the three-pane shell beside the reader.
  * Unread is a dot AND weight, never color alone.
  */
-function InboxRow({ item, selected, checked, to, onOpen, onToggleStar, actions, showThumb = true }: RowProps) {
+function InboxRow({ item, selected, to, onOpen, onToggleStar, actions, showThumb = true }: RowProps) {
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
   const thumb = showThumb && item.image;
@@ -25,7 +25,6 @@ function InboxRow({ item, selected, checked, to, onOpen, onToggleStar, actions, 
         selected ? "bg-selection" : "hover:bg-surface",
       )}
     >
-      <CheckBadge checked={checked} />
       <div className="flex w-3 shrink-0 justify-center pt-1.5">
         <UnreadDot unread={unread} />
       </div>

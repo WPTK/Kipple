@@ -17,7 +17,7 @@ import {
   searchOrderFromServer,
   type DevicePrefs,
 } from "./devicePrefs";
-import { DEFAULT_PREFS, PREFS_KEY, STEPS, parsePrefs, prefsStore, touchFirst, type Prefs, type Step } from "./prefs";
+import { DEFAULT_PREFS, PREFS_KEY, STEPS, parsePrefs, prefsStore, type Prefs, type Step } from "./prefs";
 import { createStore } from "./store";
 
 // The server's device profile (docs/design.md 7.1c) is the truth for everything per device: the
@@ -82,7 +82,6 @@ export function profileOf(l: LocalState): Profile {
     "ui.mark_read_on_scroll": p.markReadOnScroll,
     "client.text_size": p.textSize,
     "client.adjust_separately": p.adjustSeparately,
-    "client.shortcuts": p.shortcutsChosen ? p.shortcuts : null,
     "client.spacing": p.spacing,
     "client.motion": p.motion,
     "client.large_targets": p.largeTargets,
@@ -124,7 +123,6 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
   if (isClockTime(g("ui.theme_day_start"))) theme.dayStart = g("ui.theme_day_start") as string;
 
   const fontId = g("ui.font_body");
-  const has = (k: string) => m[k] !== undefined && m[k] !== null;
   const raw = {
     font: isFontId(fontId) ? fontId : cur.prefs.font,
     fontEverywhere: g("client.font_everywhere"),
@@ -132,8 +130,6 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     listDensity: stepFrom(g("ui.list_density"), cur.prefs.listDensity),
     readingDensity: stepFrom(g("ui.reading_density"), cur.prefs.readingDensity),
     adjustSeparately: g("client.adjust_separately"),
-    shortcuts: has("client.shortcuts") ? g("client.shortcuts") : undefined,
-    shortcutsChosen: has("client.shortcuts"),
     spacing: g("client.spacing"),
     motion: g("client.motion"),
     largeTargets: g("client.large_targets"),
@@ -143,11 +139,6 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     markReadOnScroll: g("ui.mark_read_on_scroll"),
   };
   const prefs = parsePrefs(JSON.stringify(raw));
-  // parsePrefs derives an unchosen shortcuts default from the device; keep that (it is not a stored choice).
-  if (!raw.shortcutsChosen) {
-    prefs.shortcuts = !touchFirst();
-    prefs.shortcutsChosen = false;
-  }
   const dpRaw = {
     layout: g("client.layout"),
     overrides: g("client.list_overrides"),
@@ -510,7 +501,6 @@ function legacyProfileKeys(): Set<string> {
   }, DEFAULT_PREFS);
   // Never held before F4, so only a true value is a choice; false is just the field's default.
   if (p?.markReadOnScroll === true) out.add("ui.mark_read_on_scroll");
-  if (p && parsePrefs(JSON.stringify(p)).shortcutsChosen) out.add("client.shortcuts");
   // The v1 cache counts when this build has not written its own yet (devicePrefs converts it on load).
   add(read(DEVICE_PREFS_KEY) ?? read(LEGACY_DEVICE_PREFS_KEY), {
     layout: ["client.layout"], overrides: ["client.list_overrides"], order: ["client.order"], searchOrder: ["client.search_order"], inboxThumbs: ["client.inbox_thumbs"],

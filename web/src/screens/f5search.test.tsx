@@ -36,39 +36,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("Search: the / key on the Search screen", () => {
-  it("focuses the box and keeps the query instead of navigating to a blank search", async () => {
-    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
-    go("/search?q=cats");
-    const box = await screen.findByRole("searchbox", { name: "Search articles" });
-    expect(box).toHaveValue("cats");
-    const row = (await screen.findByText("Cats")).closest("[data-item-id]")!.querySelector<HTMLElement>("a")!;
-    row.focus();
-    expect(box).not.toHaveFocus();
-    await userEvent.setup().keyboard("/");
-    await waitFor(() => expect(box).toHaveFocus());
-    expect(new URLSearchParams(window.location.search).get("q")).toBe("cats");
-    expect(box).toHaveValue("cats");
-  });
-});
-
-describe("Search: the / key from another screen", () => {
-  // Child effects run before the shell's: Search focused its box, then the shell's arrival focus moved it to the
-  // heading. The / key now asks for the box (router state), the box names itself the arrival target, and the shell
-  // is the only one that focuses.
-  it("lands in the search box, not on the screen heading (UAT Suite 2, TC-R3)", async () => {
-    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
-    go("/l/unread");
-    await screen.findByText("Cats");
-    (document.activeElement as HTMLElement | null)?.blur();
-    await userEvent.setup().keyboard("/");
-    const box = await screen.findByRole("searchbox", { name: "Search articles" });
-    await waitFor(() => expect(box).toHaveFocus());
-    // Used once: Back or Forward to this entry later arrives at the heading like any other screen.
-    await waitFor(() => expect((window.history.state as { usr?: unknown } | null)?.usr ?? null).toBeNull());
-    expect(window.location.pathname).toBe("/search");
-  });
-
+describe("Search: arriving from another screen", () => {
   it("arriving from the Search link or tab still goes to the heading, which announces the screen", async () => {
     mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
     go("/l/unread");

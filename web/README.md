@@ -67,17 +67,13 @@ at the top of a list to refresh (not in search). The first-run swipe peek shows 
 All of these have a visible button or a key, none is the only way to do something, and `prefers-reduced-motion` or the
 in-app Reduce motion setting turns the animation off (rows leave instantly).
 
-**Keys** (single keys can be switched off in Settings; `?` and `Esc` always work; `?` opens the searchable overlay): `j`/`k` next
-and previous, `Enter` open, `o` original, `v` background tab (lists only), `m` toggle read, `s` star, `x` select, `z` undo (last 60 s, 2 min for bulk marks),
-`f` full text, `r` refresh, `[`/`]` previous or next feed (or folder), `{`/`}` mark above or below, `A` mark
-all, `c` Compact, `u` or `Esc` back to the list, `Shift+G` bottom, `g g` or `Home` top, `/` search, `g` then `i`, `a`,
-`s`, `f` or `,` to jump to Unread, All, Starred, Feeds or Settings. Ctrl, Cmd and Alt are never bound.
+**Keys.** There are no single-key shortcuts; every action has a visible control. The keyboard works as on any page: `Tab` and `Shift+Tab` move through controls (the article list is one Tab stop), the arrow keys move focus between rows in the list and in the sidebar trees, `Enter` and `Space` activate, and `Esc` closes a menu or dialog and returns focus, or leaves an open article for the list. Ctrl, Cmd and Alt are never bound.
 
-**Undo.** Every read, unread and bulk mark pushes an undo entry; a star pushes one only when made by a full swipe (the star button, `s` and the menus toggle it directly). The toast (one slot, merged text such as
+**Undo.** Every read, unread and bulk mark pushes an undo entry; a star pushes one only when made by a full swipe (the star button and the menus toggle it directly). The toast (one slot, merged text such as
 "4 articles marked read", 15 s, paused while hovered or focused) has a real Undo button; every toast uses one themed
 surface (`--kp-toast-bg`: 18% accent into the scheme's surface, accent border, real shadow; `npm run contrast`
 checks it in every theme). Info and help toasts stay 8 s, a toast with an action 15 s, an error until dismissed, and hovering or focusing any
-toast holds it; `z` and the header menu do
+toast holds it; the header menu's Undo does
 the same. Rows leaving the Unread list collapse over
 180 ms and the first still-visible row stays put on screen (`src/lib/collapse.ts`).
 
@@ -133,9 +129,7 @@ empty prints "The Gazette"), Article width (Narrow, Medium, Wide, Full;
 `--kp-col`), Open links in (New tab or Same tab; the default is Same tab on iPhone and iPad, where a link an installed
 app claims otherwise leaves an about:blank tab, New tab elsewhere; `lib/links.ts`), Unread badge (Count capped at
 99+, Dot only, Off; tab bar and sidebar), Thumbnails in Inbox (Auto or Off) and "Show swipe tips again" (resets the first-run peek). The sidebar and the list column of the reader pane are resizable (drag the
-edge, arrow keys, double-click to reset) and remember their widths. Single-key shortcuts (under Settings > Keyboard) default to off on a touch-first
-device (coarse pointer and no fine pointer; a hardware key press switches the default on) and stay a choice you can
-change. Text spacing (WCAG 1.4.12: Less, Default, More) is in Accessibility, not in the Aa menu.
+edge, arrow keys, double-click to reset) and remember their widths. Text spacing (WCAG 1.4.12: Less, Default, More) is in Accessibility, not in the Aa menu.
 
 **Layouts.** Editorial is image-forward (a large lead image, a big title and excerpt, more whitespace; in a wide list
 the image sits beside the text). Inbox is text-first (sender, subject, snippet, time, small optional thumbnail).
@@ -143,7 +137,7 @@ The Gazette is a page layout (`ListLayout.Page`): the list screen hands it every
 rows, and a marker after the last page loads more. It is always fetched newest first, whatever order the device or the
 list sets (`resolveOrder`), because a page once shown stays fixed only while the loaded articles are the start of a
 newest-first list; the order button is hidden there. A story marked read fades in place and never leaves the page;
-in the list, `j`/`k` follow the page's reading order (its DOM order). Mark above and below are off (the page is not
+in the list, the arrow keys follow the page's reading order (its DOM order). Mark above and below are off (the page is not
 in date order); mark as read while scrolling works on stories. Under 600 px of list width it prints the one-column
 phone page. A search shows Editorial rows instead. Details: docs/design.md 7.10.
 The layout menu is one list: the radio is the choice (a feed or folder's own override on those lists, the device default

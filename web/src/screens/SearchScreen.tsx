@@ -1,14 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 import { BookmarkPlus, CheckCheck, X } from "lucide-react";
 import { savedScopeOf, scopeFromSearchParams, useSavedSearches } from "@/api/savedSearches";
 import { useBootstrap, useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
 import type { Scope } from "@/api/types";
-import { useHotkeys } from "@/lib/keys";
-import { prefsStore } from "@/lib/prefs";
 import { SEARCH_ORDERS, SEARCH_ORDER_LABELS, scopeOrder, setSearchOrder, useSearchOrder, type SearchOrder } from "@/lib/searchPrefs";
-import { useStore } from "@/lib/store";
 import { Button } from "@/ui/button";
 import { inputCls } from "@/ui/kit";
 import { ReadingMenu } from "./AppearanceControls";
@@ -30,7 +27,6 @@ export const SEARCH_DEBOUNCE_MS = 250;
  */
 export function SearchScreen() {
   const [sp, setSp] = useSearchParams();
-  const navigate = useNavigate();
   const urlQ = sp.get("q") ?? "";
   const ssId = sp.get("ss");
   const [text, setText] = useState(urlQ);
@@ -46,7 +42,6 @@ export function SearchScreen() {
   const inputId = useId();
   const sortId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
-  const prefs = useStore(prefsStore);
   const pref = useSearchOrder();
   const boot = useBootstrap();
   const tree = useFolderTree();
@@ -88,18 +83,8 @@ export function SearchScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text, urlQ]);
 
-  // Where focus lands on arrival (the shell does the focusing, see AppShell): the box on a page load or reload, as
-  // before (data-load-focus), and when the / key asked for it (router state, data-route-focus); the heading for
-  // every other in-app arrival.
-  const location = useLocation();
-  const slashAsked = (location.state as { focusSearchBox?: unknown } | null)?.focusSearchBox === true;
-  // The / key's request is used once: cleared from the history entry so Back or Forward to it later arrives at the
-  // heading. The replace re-renders after the shell has already read the target.
-  useEffect(() => {
-    if (slashAsked) void navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, { replace: true, state: null });
-  }, [slashAsked, location.pathname, location.search, location.hash, navigate]);
-
-  useHotkeys({ up: () => navigate(-1) }, { singleKeys: prefs.shortcuts });
+  // Where focus lands on arrival (the shell does the focusing, see AppShell): the box on a page load or reload
+  // (data-load-focus), the heading for every in-app arrival.
 
   const submit = () => {
     pushed.current = text;
@@ -155,7 +140,6 @@ export function SearchScreen() {
             ref={inputRef}
             data-search-input
             data-load-focus
-            data-route-focus={slashAsked ? "" : undefined}
             type="search"
             enterKeyHint="search"
             autoComplete="off"

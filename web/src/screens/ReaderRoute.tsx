@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, Navigate, useMatch, useNavigate, useSearchParams } from "react-router";
 import { DropdownMenu } from "radix-ui";
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, Keyboard, MoreVertical, RefreshCw, Settings, Timer, Undo2, X } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, MoreVertical, RefreshCw, Settings, Timer, Undo2, X } from "lucide-react";
 import { keys, scopeKey, useBootstrap, useFolderTree } from "@/api/queries";
 import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib/folderTree";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
-import type { Card, ItemsPage, Scope, View } from "@/api/types";
+import type { ItemsPage, Scope, View } from "@/api/types";
 import { useSearchHighlight } from "@/lib/useHighlights";
 import { pageOf, useListContext, useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
@@ -19,7 +19,6 @@ import {
   resolveList,
   followsOrder,
   resolveOrder,
-  sessionLayoutStore,
   updateDevicePrefs,
   useDevicePrefs,
   type OrderPref,
@@ -29,12 +28,10 @@ import { announce } from "@/shell/toasts";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { useWide } from "@/lib/useMedia";
 import { ARTICLE_MIN, maxFor, useWidth } from "@/lib/useWidth";
-import { articleTo, listTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
-import { useHotkeys } from "@/lib/keys";
+import { listTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
 import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { undoLast, undoStore } from "@/lib/undo";
-import { openHelp } from "@/shell/HelpDialog";
 import { Button, buttonVariants } from "@/ui/button";
 import { cn } from "@/lib/cn";
 import { visibleFeeds } from "@/lib/visibleFeeds";
@@ -93,7 +90,6 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   const { title, above } = useScopeTitle(scope);
   const refresh = useRefreshAll();
   const refreshing = useRefreshing();
-  const prefs = useStore(prefsStore);
   const dp = useDevicePrefs();
   const navigate = useNavigate();
   const { canUndo } = useStore(undoStore);
@@ -117,9 +113,6 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   const mutedCount = boot.data?.counts.muted ?? 0;
   // The Muted pill appears when there is something muted, or when you are in it.
   const views = scope.view === "muted" || mutedCount > 0 ? [...VIEWS, { view: "muted" as View, label: "Muted" }] : VIEWS;
-  const hint = (k: string) => (prefs.shortcuts ? <kbd className="ml-auto rounded border border-line px-1.5 font-mono text-xs text-fg2">{k}</kbd> : null);
-  // `r` (refresh) is bound once for every screen, in the app shell.
-  useHotkeys({ prevFeed: () => go(prev), nextFeed: () => go(next) }, { singleKeys: prefs.shortcuts });
   return (
     <header className="pt-safe shrink-0 border-b border-line bg-bg px-4 pb-2">
       {/* The title row is 25rem wide and left-aligned, so the controls sit in the same place in every layout (a grid
@@ -185,21 +178,14 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
                 <DropdownMenu.Item className={menuItem} onSelect={() => go(prev)}>
                   <ChevronLeft className="size-5" aria-hidden="true" />
                   Previous {noun}
-                  {hint("[")}
                 </DropdownMenu.Item>
               ) : null}
               {next ? (
                 <DropdownMenu.Item className={menuItem} onSelect={() => go(next)}>
                   <ChevronRight className="size-5" aria-hidden="true" />
                   Next {noun}
-                  {hint("]")}
                 </DropdownMenu.Item>
               ) : null}
-              <DropdownMenu.Separator className="my-1 h-px bg-line" />
-              <DropdownMenu.Item className={menuItem} onSelect={openHelp}>
-                <Keyboard className="size-5" aria-hidden="true" />
-                Keyboard shortcuts
-              </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
@@ -231,8 +217,7 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
               variant="ghost"
               size="icon"
               aria-label={`Previous ${noun}`}
-              aria-keyshortcuts="["
-              title={`Previous ${noun}${prefs.shortcuts ? " ([)" : ""}`}
+              title={`Previous ${noun}`}
               disabled={!prev}
               onClick={() => go(prev)}
             >
@@ -242,8 +227,7 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
               variant="ghost"
               size="icon"
               aria-label={`Next ${noun}`}
-              aria-keyshortcuts="]"
-              title={`Next ${noun}${prefs.shortcuts ? " (])" : ""}`}
+              title={`Next ${noun}`}
               disabled={!next}
               onClick={() => go(next)}
             >
@@ -275,14 +259,12 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
 
 function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?: string; hasFrom: boolean }) {
   const wide = useWide();
-  const navigate = useNavigate();
   const { layout } = useResolvedLayout(scope);
   const dp = useDevicePrefs();
   // On a wide screen an open article always has its list beside it, whatever the layout: switching layouts with an
   // article open keeps both on screen (a grid layout such as Cards becomes a single column in the pane). A grid
   // list or a page layout (the Gazette) with nothing open is the one case that is not a pane: it fills the width.
   const fills = !!layout.grid || !!pageOf(layout, scope);
-  const paneMode = wide && (!fills || !!articleId);
   const listOnly = wide && fills && !articleId;
   const listKey = scopeKey(scope);
   // An article opened from a search draws the words of that search (on a phone no list is mounted to do it).
@@ -297,25 +279,12 @@ function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?:
   if (cachedFallback !== null && (kept?.key !== listKey || kept.v !== cachedFallback)) setKept({ key: listKey, v: cachedFallback });
   const fallback = scope.q ? (cachedFallback ?? (kept?.key === listKey ? kept.v : false)) : false;
   useSearchHighlight(scope.q, { fallback, typing: scope.typing });
-  const onKeyMove = useMemo(
-    () =>
-      paneMode
-        ? (item: Card) => navigate(articleTo(item.id, scope), { replace: !!articleId, state: { via: "key" } })
-        : undefined,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [paneMode, articleId, listKey, navigate],
-  );
-
-  // In the reader pane the list stays live beside the article: its keys (mark all, above/below, select,
-  // gg/G, Enter, c) keep working, and it drives j/k/m/s/o for the article, which is its selected row.
   const list = (
     <ListPane
       key={listKey}
       scope={scope}
       activeId={articleId}
-      articleOpen={paneMode && !!articleId}
       header={(controls) => <ScopeHeader scope={scope} controls={controls} />}
-      onKeyMove={onKeyMove}
     />
   );
 
@@ -422,7 +391,7 @@ export function ReaderRoute() {
   const view = list?.params.view;
   const spKey = sp.toString();
   const base = useMemo(() => baseScope(view, new URLSearchParams(spKey), isArticle), [view, spKey, isArticle]);
-  const order = resolveOrder(dp, useListContext(base), useStore(sessionLayoutStore));
+  const order = resolveOrder(dp, useListContext(base));
   const scope = useMemo(() => readerScope(base, order), [base, order]);
   const boot = useBootstrap();
   const tree = useFolderTree();

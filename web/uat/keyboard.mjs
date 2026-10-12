@@ -11,9 +11,8 @@
 //       one Tab stop: from a row reached with the arrow keys deep in the list, a few Tab presses leave it.
 //   K2  Escape: every menu and dialog tried opens from the keyboard, keeps focus inside while it is a modal dialog,
 //       closes on Escape, and gives focus back to the control that opened it.
-//   K3  The shortcuts of web/src/lib/keys.ts (the `?` overlay): j k Enter x m s { } Shift+A z g g Shift+G [ ] c o v f u
-//       Esc r / ? and the g chords each do what the overlay says; typing in a field does not trigger them. The ones
-//       that change state are undone with z or pressed twice, so the seeded instance ends as it began.
+//   K3  There are no single-key shortcuts: letter and symbol keys do nothing on a list and are typed in a field.
+//       The arrow keys still move focus between rows, and a separator still takes them.
 // At 390x844 as a touch device:
 //   K4  Every swipe or long-press action has an alternative that needs no gesture: a row's Star button and its
 //       More actions menu (mark read or unread, star), the article's Back to list button, and the Refresh all feeds
@@ -237,7 +236,6 @@ const rowState = (page) =>
   page.evaluate(() =>
     [...document.querySelectorAll("article[data-item-id]")].map((a) => [a.dataset.itemId, a.querySelector(".kp-unread-dot")?.dataset.unread ?? "?", a.dataset.selected === "true", a.querySelector('button[aria-pressed]')?.getAttribute("aria-pressed") ?? "?"]),
   );
-const selectedId = async (page) => (await rowState(page)).find((r) => r[2])?.[0] ?? null;
 const until = (page, fn, arg, ms = 4000) => page.waitForFunction(fn, arg, { timeout: ms, polling: 100 }).then(() => true, () => false);
 const pathOf = (page) => new URL(page.url()).pathname + new URL(page.url()).search;
 
@@ -257,7 +255,7 @@ async function desktop(cookies) {
     failedRequests.push(`${req.method()} ${new URL(req.url()).pathname}: ${why}`);
   });
   await load(page, "/l/all");
-  // The layout the shortcuts are exercised in: Editorial, whose rows carry the unread dot and a Star button.
+  // The layout the keys are exercised in: Editorial, whose rows carry the unread dot and a Star button.
   const layoutBtn = page.locator('button[aria-label^="List options, "]').first();
   if ((await layoutBtn.getAttribute("aria-label")) !== "List options, Editorial layout") {
     await layoutBtn.click();
@@ -500,183 +498,40 @@ async function k2(page) {
       if (!closed) await page.reload();
     } else pass(where, "opens, keeps focus, Escape closes and focus returns");
   }
-  // The shortcut overlay, opened by a key rather than a control: Escape returns focus to what had it.
-  await load(page, "/l/all");
-  await press(page, "j");
-  await page.waitForTimeout(300);
-  const before = await focusOf(page);
-  await press(page, "?");
-  const shown = await until(page, () => !!document.querySelector('[role="dialog"]'));
-  await press(page, "Escape");
-  const gone = await until(page, () => !document.querySelector('[role="dialog"]'));
-  await page.waitForTimeout(300);
-  const after2 = await focusOf(page);
-  check(shown && gone && !!before && after2?.id === before.id, "K2 shortcut overlay", "? opens it, Escape closes it and focus returns to the row", `shown=${shown} closed=${gone} focus before=${before?.key} after=${after2?.key}`);
 }
 
-// K3: the documented shortcuts.
+// K3: there are no single-key shortcuts. Letters and symbols do nothing on a list (nothing is selected, marked,
+// starred, opened or navigated, and no dialog appears), and typing in the search box types. Arrow keys on a row link
+// still move focus between rows, and a separator still takes the arrow keys.
 async function k3(page) {
   const where = (k) => `K3 ${k}`;
   await load(page, "/l/all");
   const start = await rowState(page);
   if (start.length < 4) return fail("K3", `only ${start.length} rows loaded, need 4 (let the seeded feeds fetch)`);
+  const path0 = pathOf(page);
+  await page.evaluate(() => document.activeElement?.blur?.());
+  await press(page, ..."jkmsxofvucrz/?[]{}".split(""), "Shift+A", "Shift+G", "g", "g", "g", "a");
+  await page.waitForTimeout(400);
+  const after = await rowState(page);
+  const dialog = await page.evaluate(() => !!document.querySelector('[role="dialog"]'));
+  check(JSON.stringify(after) === JSON.stringify(start) && pathOf(page) === path0 && !dialog, where("letters"), "letter and symbol keys change nothing on a list", `rows changed=${JSON.stringify(after) !== JSON.stringify(start)} path ${path0} -> ${pathOf(page)} dialog=${dialog}`);
 
-  // j and k
-  // The selection follows the key a render later: wait for it to be somewhere new.
-  const moved = async (key, from) => {
-    await press(page, key);
-    await until(page, (was) => document.querySelector('article[data-selected="true"]')?.dataset.itemId !== was, from, 3000);
-    return selectedId(page);
-  };
-  const a = await moved("j", null);
-  const b = await moved("j", a);
-  const c = await moved("k", b);
-  check(a === start[0][0] && b === start[1][0] && c === a, where("j / k"), "j selects the first row, then the next; k goes back", `selected ${a}, ${b}, ${c}; expected rows ${start[0][0]}, ${start[1][0]}, ${start[0][0]}`);
+  // Arrow keys on a row link still move focus (and only focus) from row to row.
+  const first = page.locator("main article a[href^='/i/']").first();
+  await first.focus();
+  const f0 = await focusOf(page);
+  await press(page, "ArrowDown");
+  await page.waitForTimeout(300);
   const f1 = await focusOf(page);
-  check(!!f1 && f1.key.includes("/i/"), where("j (focus)"), "keyboard focus follows the selected row", `focus is on ${f1?.key}`);
+  check(!!f0 && !!f1 && f1.id !== f0.id && pathOf(page) === path0, where("arrows"), "ArrowDown moves focus to the next row without opening it", `focus ${f0?.key} -> ${f1?.key}, path ${pathOf(page)}`);
 
-  // x, m, s on the selected row
-  const selA = await selectedId(page);
-  await press(page, "x");
-  const ticked = await until(page, () => window.__kk.said.some((t) => /1 selected/.test(t)));
-  const selB = await selectedId(page);
-  await press(page, "x");
-  const cleared = await until(page, () => window.__kk.said.some((t) => /Selection cleared/.test(t)));
-  await page.waitForTimeout(300);
-  check(ticked && cleared, where("x"), 'ticks and clears the row ("1 selected", "Selection cleared")', `ticked=${ticked} cleared=${cleared}; selected ${selA} then ${selB}; the live regions said ${JSON.stringify(await page.evaluate(() => window.__kk.said.slice(-4)))}`);
-  const s0 = (await rowState(page)).find((r) => r[2]);
-  await press(page, "m");
-  const flipped = await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread !== was, [s0[0], s0[1]]);
-  await press(page, "m");
-  const back = await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread === was, [s0[0], s0[1]]);
-  check(flipped && back, where("m"), "toggles read and unread", `flipped=${flipped} back=${back}`);
-  await press(page, "s");
-  const starred = await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] button[aria-pressed]`)?.getAttribute("aria-pressed") !== was, [s0[0], s0[3]]);
-  await press(page, "s");
-  const unstarred = await until(page, ([id, was]) => document.querySelector(`article[data-item-id="${id}"] button[aria-pressed]`)?.getAttribute("aria-pressed") === was, [s0[0], s0[3]]);
-  check(starred && unstarred, where("s"), "stars and unstars", `starred=${starred} unstarred=${unstarred}`);
-
-  // Bulk marking, each undone with z: { } Shift+A.
-  const bulk = async (label, keys, expect) => {
-    const before = await rowState(page);
-    await press(page, ...keys);
-    const changed = await until(page, ([ids, want]) => ids.every((id) => document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread === want), expect(before));
-    await press(page, "z");
-    const restored = await until(page, (snap) => snap.every(([id, u]) => (document.querySelector(`article[data-item-id="${id}"] .kp-unread-dot`)?.dataset.unread ?? u) === u), before.map((r) => [r[0], r[1]]), 6000);
-    const after = restored ? [] : (await rowState(page)).filter((r) => before.some((b) => b[0] === r[0] && b[1] !== r[1]));
-    check(changed && restored, where(label), "marks read, and z restores it", `marked=${changed} undone=${restored} rows=${before.length} not restored=${after.length} (${after.slice(0, 3).map((r) => r[0] + ":" + r[1]).join(", ")}) toasts=${JSON.stringify(await page.locator("[role=status]").allInnerTexts())}`);
-    // A mark that changed nothing on screen passes at once while its z still waits for the server, and the app
-    // ignores a z pressed during that wait: let it finish before the next step presses z.
-    await until(page, () => ![...document.querySelectorAll("[role=status]")].some((e) => /Undoing/.test(e.textContent ?? "")), undefined, 12000);
-  };
-  await load(page, "/l/all");
-  await press(page, "j", "j");
-  await page.waitForTimeout(300);
-  await bulk("}", ["}"], (s) => [s.slice(2).filter((r) => r[1] === "true").map((r) => r[0]), "false"]);
-  await bulk("{", ["{"], (s) => [s.slice(0, 1).filter((r) => r[1] === "true").map((r) => r[0]), "false"]);
-  await bulk("Shift+A", ["Shift+A"], (s) => [s.filter((r) => r[1] === "true").map((r) => r[0]), "false"]);
-
-  // g g and Shift+G scroll the list
-  await load(page, "/l/all");
-  await press(page, "Shift+G");
-  const lower = await until(page, () => [...document.querySelectorAll("*")].some((e) => e.scrollTop > 400 && /auto|scroll/.test(getComputedStyle(e).overflowY)));
-  await press(page, "g", "g");
-  const top = await until(page, () => [...document.querySelectorAll("*")].every((e) => e.scrollTop === 0 || !/auto|scroll/.test(getComputedStyle(e).overflowY)));
-  check(lower && top, where("Shift+G / g g"), "jump to the bottom and the top", `bottom=${lower} top=${top}`);
-
-  // [ and ] change feed
-  await load(page, "/l/unread?feed=2");
-  await press(page, "]");
-  const next = await until(page, () => !location.search.includes("feed=2") && location.search.includes("feed="));
-  const nextPath = pathOf(page);
-  await page.waitForTimeout(500); // the next feed's list has taken over the keys
-  await press(page, "[");
-  const prev = await until(page, () => location.search.includes("feed=2"));
-  check(next && prev, where("[ / ]"), `next feed (${nextPath}) and back`, `next=${next} (${nextPath}) back=${prev}`);
-
-  // c toggles Compact
-  await load(page, "/l/all");
-  await press(page, "c");
-  const compactOn = await until(page, () => /List options, Compact layout/.test(document.querySelector('button[aria-label^="List options, "]')?.getAttribute("aria-label") ?? ""));
-  await press(page, "c");
-  const compactOff = await until(page, () => /List options, Editorial layout/.test(document.querySelector('button[aria-label^="List options, "]')?.getAttribute("aria-label") ?? ""));
-  check(compactOn && compactOff, where("c"), "switches to Compact and back", `compact=${compactOn} back=${compactOff}`);
-
-  // o and v open the original in a new tab
-  await load(page, "/l/all");
-  await press(page, "j");
-  for (const key of ["o", "v"]) {
-    const popup = page.context().waitForEvent("page", { timeout: 4000 }).then((p) => p, () => null);
-    await press(page, key);
-    const p2 = await popup;
-    check(!!p2, where(key), "opens the original in a new tab", "no new tab opened");
-    await p2?.close().catch(() => {});
-    await page.bringToFront();
-  }
-
-  // Enter opens the article; f toggles full text; u and Escape go back and focus returns to the list
-  await load(page, "/l/all");
-  await press(page, "j", "Enter");
-  const opened = await until(page, () => location.pathname.startsWith("/i/"));
-  await page.locator("h1").first().waitFor({ timeout: 8000 }).catch(() => {});
-  check(opened, where("Enter"), "opens the selected article", `still at ${pathOf(page)}`);
-  const ft = page.getByRole("button", { name: "Full text" }).first();
-  await ft.waitFor({ timeout: 8000 }).catch(() => {});
-  if (await ft.count()) {
-    const was = await ft.getAttribute("aria-pressed");
-    await page.locator("article h1, h1").first().focus().catch(() => {});
-    await page.evaluate(() => document.activeElement?.blur?.());
-    await press(page, "f");
-    const toggled = await until(page, (w) => document.querySelector('button[aria-pressed]')?.isConnected && [...document.querySelectorAll('button[aria-pressed]')].some((b) => /Full text/i.test(b.getAttribute("aria-label") ?? b.textContent) && b.getAttribute("aria-pressed") !== w), was, 5000);
-    check(toggled, where("f"), "toggles full text", `Full text stayed aria-pressed=${was}`);
-    if (toggled) await press(page, "f");
-  } else fail(where("f"), "no Full text button on the open article");
-  // Beside the list (a wide screen) the article stays open and focus returns to the list's row.
-  for (const key of ["u", "Escape"]) {
-    if (!pathOf(page).startsWith("/i/")) {
-      await load(page, "/l/all");
-      await press(page, "j", "Enter");
-      await until(page, () => location.pathname.startsWith("/i/"));
-    }
-    await page.locator("article[aria-labelledby='article-title'] h1, #article-title").first().focus().catch(() => {});
-    await page.evaluate(() => document.activeElement?.blur?.());
-    await press(page, key);
-    const inList = await until(page, () => !!document.activeElement?.closest("article[data-item-id]"), null, 3000);
-    const f = await focusOf(page);
-    check(inList, where(`${key} (back to the list)`), "focus returns to the list's row", `focus is on ${f ? f.key : "nothing"} at ${pathOf(page)}`);
-  }
-
-  // r refreshes: a refresh request leaves
-  await load(page, "/l/all");
-  const refresh = page.waitForRequest((r) => r.method() === "POST" && /refresh/i.test(r.url()), { timeout: 4000 }).then(() => true, () => false);
-  await press(page, "r");
-  check(await refresh, where("r"), "asks the server to refresh", "no refresh request after r");
-
-  // The g chords and / and ?
-  for (const [keys, want] of [
-    [["g", "i"], "/l/unread"],
-    [["g", "a"], "/l/all"],
-    [["g", "s"], "/l/starred"],
-    [["g", "f"], "/feeds"],
-    [["g", ","], "/settings"],
-  ]) {
-    await load(page, want === "/l/all" ? "/feeds" : "/l/all");
-    await press(page, ...keys);
-    const got = await until(page, (w) => location.pathname === w || location.pathname.startsWith(w + "/"), want);
-    check(got, where(keys.join(" ")), `goes to ${want}`, `at ${pathOf(page)}`);
-  }
-  await load(page, "/l/all");
-  await press(page, "/");
-  const search = await until(page, () => location.pathname === "/search" && document.activeElement?.matches('input,[role="searchbox"],[role="combobox"]'));
-  check(search, where("/"), "opens Search with the caret in the box", `at ${pathOf(page)}, focus ${(await focusOf(page))?.key}`);
-  // Typing is not a shortcut
-  await page.keyboard.type("jkms");
+  // Typing is not a shortcut: the search box takes the letters.
+  await load(page, "/search");
+  await page.getByRole("searchbox").first().focus();
+  await page.keyboard.type("jkms/?");
   const typed = await page.evaluate(() => document.activeElement?.value ?? "");
-  check(typed.includes("jkms"), where("typing"), "letters typed in the search box stay there", `the box holds "${typed}"`);
+  check(typed === "jkms/?", where("typing"), "letters typed in the search box stay there", `the box holds "${typed}"`);
   await load(page, "/l/all");
-  await press(page, "?");
-  check(await until(page, () => !!document.querySelector('[role="dialog"]')), where("?"), "opens the shortcut overlay", "no dialog after ?");
-  await press(page, "Escape");
 
   // The sidebar's resize handle is a focusable separator: arrow keys must move it.
   const sep = page.getByRole("separator", { name: "Resize sidebar" });

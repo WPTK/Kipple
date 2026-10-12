@@ -5,7 +5,7 @@ import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { RowTabStop } from "@/layouts/rowTabStop";
-import { DEFAULT_PREFS, prefsStore, updatePrefs } from "@/lib/prefs";
+import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
 import { clearToasts } from "@/shell/toasts";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { clearListMemory, keepMounted, MutedStrip, windowReach } from "./ListPane";
@@ -71,7 +71,6 @@ describe("the article list is one Tab stop", () => {
   it("moves focus, and only focus, between row links with the arrow keys", async () => {
     const { scroller, ids, api } = await list();
     const [a, b] = ids();
-    act(() => updatePrefs({ shortcuts: false })); // the arrows work with single-key shortcuts off
     linkOf(scroller, a!).focus();
     const path = window.location.pathname;
     fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
@@ -104,11 +103,12 @@ describe("the article list is one Tab stop", () => {
     await waitFor(() => expect(stops(scroller)).toEqual([third]));
   });
 
-  it("brings Shift+Tab back to the selected row from the control after the list", async () => {
+  it("brings Shift+Tab back to the row last focused with the arrow keys, from the control after the list", async () => {
     const { scroller, ids } = await list();
     const user = userEvent.setup();
     const b = ids()[1]!;
-    await user.keyboard("jj"); // select the second row (j moves the selection and focus)
+    act(() => scroller.querySelector<HTMLElement>(`[data-item-id="${ids()[0]}"] a`)!.focus());
+    await user.keyboard("{ArrowDown}"); // focus the second row
     await waitFor(() => expect(rowOfFocus()).toBe(b));
     for (let i = 0; i < 5 && scroller.contains(document.activeElement); i++) await user.tab();
     expect(scroller.contains(document.activeElement)).toBe(false);

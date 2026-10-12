@@ -14,7 +14,6 @@ import {
   followsOrder,
   inheritedList,
   overrideTarget,
-  sessionLayoutStore,
   updateDevicePrefs,
   useDevicePrefs,
   type LayoutContext,
@@ -63,7 +62,6 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
   const viewFallback = useFallbackLabel(ctx, "view");
   const say = (l: LayoutId) => announce(`${LAYOUT_LABELS[l]} layout`);
   const makeDefault = (l: LayoutId) => {
-    sessionLayoutStore.set(null);
     updateDevicePrefs({ layout: l });
     announce(`${LAYOUT_LABELS[l]} is now the default layout on this device`);
   };
@@ -91,8 +89,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
             aria-label={target ? `Layout of this ${noun}` : "Layout"}
             value={target ? (own?.layout ?? "default") : dp.layout}
             onValueChange={(v) => {
-              sessionLayoutStore.set(null);
-              if (!target) {
+                        if (!target) {
                 updateDevicePrefs({ layout: v as LayoutId });
                 say(v as LayoutId);
               } else if (v === "default") setListOverride(target.kind, target.id, "layout", null);

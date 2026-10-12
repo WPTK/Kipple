@@ -31,10 +31,8 @@ export interface RowProps {
   item: Card;
   /** Feed for the icon; undefined for archived or unknown feeds. */
   feed: Feed | undefined;
-  /** Highlighted by keyboard selection, or open in the reader pane. */
+  /** Highlighted as the selected row, or open in the reader pane. */
   selected: boolean;
-  /** Ticked with `x` for a batch action. */
-  checked: boolean;
   /** Where the row's primary link goes (the article route). */
   to: To;
   onOpen: (item: Card) => void;
@@ -58,8 +56,6 @@ export interface PageProps {
   selectedId: string | undefined;
   /** The story that last had focus, the list's one Tab stop (rowTabStop.ts); else the layout picks the selected one. */
   tabStopId?: string;
-  /** Stories ticked with `x` for a batch action. */
-  checked: ReadonlySet<string>;
   onOpen: (item: Card) => void;
 }
 

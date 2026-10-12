@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { CheckBadge, PublishedTime, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
+import { PublishedTime, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex } from "./rowTabStop";
@@ -11,7 +11,7 @@ import { useRowTabIndex } from "./rowTabStop";
  * to Compact (which always shows one). Phone: dot, title, time. A wide list pane also shows the source
  * name as a column (table-like on desktop). 44 px on touch; 28 to 36 px with a mouse, by density step.
  */
-function HeadlineRow({ item, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
+function HeadlineRow({ item, selected, to, onOpen, onToggleStar, actions }: RowProps) {
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
   return (
@@ -23,7 +23,6 @@ function HeadlineRow({ item, selected, checked, to, onOpen, onToggleStar, action
         selected ? "bg-selection" : "hover:bg-surface",
       )}
     >
-      <CheckBadge checked={checked} />
       <UnreadDot unread={unread} />
       <span className="hidden w-40 shrink-0 truncate text-xs text-fg2 @[32rem]:inline">{item.source}</span>
       <h3 className={cn("min-w-0 flex-1 truncate text-sm", unread ? "font-bold text-fg" : "font-normal text-fg2")}>
