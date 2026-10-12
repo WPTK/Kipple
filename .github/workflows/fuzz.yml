@@ -6,8 +6,8 @@ name: Fuzz
 # so there is one list of targets and one failure rule. A scheduled run only starts from the default branch.
 #
 # Two tiers: the merge-blocking one is ci.yml (every committed and f.Add seed runs as an ordinary test under -race, on
-# every pull request); this is the deep one. Its targets are split over four runners (same total compute, a quarter of
-# the wall time), and each runner restores the previous run's mutation corpus, so a week's coverage builds on the last
+# every pull request); this is the deep one. Its targets are split over the matrix's runners (same total compute, a
+# fraction of the wall time), and each runner restores the previous run's mutation corpus, so a week's coverage builds on the last
 # instead of starting cold. A failing target no longer hides the ones after it.
 on:
   schedule:
@@ -29,9 +29,10 @@ concurrency:
 
 jobs:
   fuzz:
-    name: fuzz (shard ${{ matrix.shard }}/4)
+    name: fuzz (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # A normal run takes about ten minutes; the cap is for a manual run with a long `seconds` (about eight targets per shard).
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -45,11 +46,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Go keeps the interesting inputs a fuzz run finds in "go env GOCACHE"/fuzz; restore the newest of this shard's
-      # earlier runs and save the grown one (setup-go's own cache key is the go.sum hash, which a corpus must not use).
+      # Go keeps the interesting inputs a fuzz run finds in "go env GOCACHE"/fuzz. Restore the newest corpus of this shard and
+      # save the grown one below even when a target failed (the other targets' coverage is still worth keeping). setup-go
+      # caches the same directory under a go.sum key and saves it once; this restore runs after it, so the newer corpus wins.
       - id: fuzzdir
         run: echo "dir=$(go env GOCACHE)/fuzz" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.fuzzdir.outputs.dir }}
           key: fuzz-corpus-${{ matrix.shard }}-${{ github.run_id }}
@@ -60,8 +62,14 @@ jobs:
         shell: pwsh
         env:
           SECONDS_PER_TARGET: ${{ inputs.seconds || '60' }}
-          SHARD: ${{ matrix.shard }}/4
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: scripts/fuzz.ps1 -Seconds ([int]$env:SECONDS_PER_TARGET) -Shard $env:SHARD -ContinueOnFailure
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ !cancelled() }}
+        with:
+          path: ${{ steps.fuzzdir.outputs.dir }}
+          key: fuzz-corpus-${{ matrix.shard }}-${{ github.run_id }}
 
       # A failing input is written next to the package as an untracked file; keep it so it can be committed as a
       # regression seed once the bug is fixed.

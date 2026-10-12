@@ -18,9 +18,10 @@ env:
   GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
 
 concurrency:
-  group: ci-${{ github.ref }}
-  # A newer push to a pull request supersedes the old run; a push to main (or a release calling this workflow) always
-  # finishes, so every merged commit keeps its own result ("CI green on the exact head").
+  # One group per pull request (a newer push supersedes the old run). Every other run gets a group of its own: a group
+  # holds one pending run, so a shared one would drop a queued commit on main, and "CI green on the exact head" needs
+  # each merged commit to keep its own result.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

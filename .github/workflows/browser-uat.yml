@@ -23,9 +23,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: browser-uat-${{ github.ref }}
-  # A newer push to a pull request supersedes the old run; a push to main (or a release calling this workflow) always
-  # finishes, so every merged commit keeps its own result ("CI green on the exact head").
+  # One group per pull request (a newer push supersedes the old run). Every other run gets a group of its own: a group
+  # holds one pending run, so a shared one would drop a queued commit on main, and "CI green on the exact head" needs
+  # each merged commit to keep its own result.
+  group: browser-uat-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -53,10 +54,11 @@ jobs:
           code=true
           engines=all
           if [ "$EVENT_NAME" = pull_request ]; then
-            # WebKit and Firefox differ from Chromium only in what the browser does with the page, so a pull request that
-            # touches nothing the browser loads (the web app, the embedding, the image) runs Chromium alone; main, a manual
-            # run and any diff that cannot be read run all three. A server change is still exercised end to end in Chromium.
-            if files="$(git diff --name-only HEAD^1 HEAD)" && ! grep -qE '^(web/|internal/web/|Dockerfile$|\.github/workflows/browser-uat\.yml$)' <<< "$files"; then
+            # WebKit and Firefox exist to catch what only another engine does with a page or a response, and a server
+            # change can cause that (a download saved as an error body was one). So Chromium runs alone only for a pull
+            # request that cannot change what a browser receives: every changed file is a test, tooling, a doc or a
+            # changelog entry. Main, a manual run and any diff that cannot be read run all three.
+            if files="$(git diff --name-only HEAD^1 HEAD)" && [ -n "$files" ] && ! grep -qvE '^(docs/|changes/|scripts/|tools/|\.github/(ISSUE_TEMPLATE|pull_request_template)|.*_test\.go$|.*\.test\.(ts|tsx|mjs)$)' <<< "$files"; then
               engines=chromium
             fi
             if mkdir -p "$RULES" && git show HEAD^1:scripts/ci-changes.sh > "$RULES/ci-changes.sh" && git show HEAD^1:scripts/ci-prose.txt > "$RULES/ci-prose.txt" && out="$(bash "$RULES/ci-changes.sh" "$EVENT_NAME")"; then

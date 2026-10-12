@@ -24,21 +24,26 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
+if ($Shard) {
+  $index, $count = [int[]]($Shard -split '/')
+  if ($index -gt $count) { throw "-Shard ${Shard}: the index is above the count" }
+}
+
 $targets = @()
 foreach ($pkg in (go list ./...)) {
   foreach ($line in (go test -list 'Fuzz.*' $pkg 2>$null)) {
     if ($line -match '^Fuzz\w+$') { $targets += [pscustomobject]@{ Package = $pkg; Name = $line } }
   }
 }
+if ($Filter) { $targets = @($targets | Where-Object { "$($_.Package) $($_.Name)" -like "*$Filter*" }) }
 if ($Shard) {
   # Round-robin over the sorted list: balanced, and a target keeps its shard (and so its cached corpus) until a target
-  # is added or removed before it.
-  $index, $count = [int[]]($Shard -split '/')
-  if ($index -gt $count) { throw "-Shard ${Shard}: the index is above the count" }
+  # is added or removed before it. After -Filter, so the two combine the way they read.
   $sorted = @($targets | Sort-Object Package, Name)
   $targets = @(for ($i = $index - 1; $i -lt $sorted.Count; $i += $count) { $sorted[$i] })
 }
-if ($Filter) { $targets = $targets | Where-Object { "$($_.Package) $($_.Name)" -like "*$Filter*" } }
+# A run that selects nothing must not look like a clean one.
+if ($targets.Count -eq 0) { throw "no fuzz targets selected (filter '$Filter', shard '$Shard')" }
 
 Write-Host "$($targets.Count) fuzz targets, $Seconds s each:"
 $targets | ForEach-Object { Write-Host ("  {0,-28} {1}" -f $_.Name, ($_.Package -replace '^.*/kipple/', '')) }
