@@ -11,7 +11,7 @@
 //   F3  The same in All, where the live update of the mute takes the row out while the editor is still open: focus
 //       stays in the list.
 //   F2  (desktop, Editorial) Open an article in the reading pane, move focus to the next row with the Down arrow, then
-//       put focus on the page and press Shift+A. The rows leave, the row the list remembers among them, and focus
+//       put focus on the page and use Mark all as read. The rows leave, the row the list remembers among them, and focus
 //       stays on the page instead of jumping into the list, so Space and Page Down still scroll the article. z then
 //       puts the rows back.
 // Afterwards it deletes the filter it made with unmute=unread and marks the articles it used unread again. It only
@@ -123,7 +123,7 @@ await t.eachViewport(async (page, vp) => {
       await first.locator("a").first().click();
       await page.waitForURL(/\/i\/\d+/, { timeout: 10000 });
       // Down arrow moves focus to the next row without opening it: the open article stays in the list, the row the
-      // list remembers as focused leaves with Shift+A.
+      // list remembers as focused leaves with Mark all as read.
       await page.keyboard.press("ArrowDown");
       await page.waitForTimeout(300);
       const body = page.locator("article[aria-labelledby='article-title']").first();
@@ -133,16 +133,17 @@ await t.eachViewport(async (page, vp) => {
       // leaves also leaves focus on the page.
       await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
       const was = await focusOf(page);
-      await page.keyboard.press("Shift+A");
+      await page.getByRole("button", { name: "List actions" }).click();
+      await page.getByRole("menuitem", { name: /Mark all as read/ }).click();
       const gone = await page.waitForFunction(() => document.querySelectorAll("[data-item-id]").length === 0 || ![...document.querySelectorAll(".kp-unread-dot")].some((d) => d.dataset.unread === "true"), undefined, { timeout: 8000 }).then(() => true, () => false);
       await page.waitForTimeout(800);
       const at = await focusOf(page);
       check(gone && !at.startsWith("row ") && at !== "list", `${tag} F2 focus`, `focus stays out of the list (${was} before, ${at} after)`, `marked=${gone}; focus moved from ${was} to ${at}`);
       await t.shot(page, `${tag}-F2`);
-      await page.keyboard.press("z");
+      await page.getByRole("button", { name: "Undo" }).first().click();
       await page.waitForTimeout(1500);
       const back = (await unreadOf(page, feed)).length;
-      check(back > 0, `${tag} F2 undo`, `z marks them unread again (${back})`, `nothing unread in the feed after z (page: ${await textOf(page.locator("[role=status]"))})`);
+      check(back > 0, `${tag} F2 undo`, `Undo marks them unread again (${back})`, `nothing unread in the feed after Undo (page: ${await textOf(page.locator("[role=status]"))})`);
     });
   } finally {
     for (const id of (await filterIds(page)).filter((id) => !before.has(id))) {
