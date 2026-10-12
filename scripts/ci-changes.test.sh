@@ -57,11 +57,16 @@ ok engines-non-pr all "$(run --engines push)"
 ok engines-git-diff-fails all "$(run --engines pull_request nonexistent-ref HEAD)"
 echo x >> docs/a.md && commit docs
 ok git-docs-only false "$(run pull_request HEAD~1 HEAD)"
+ok engines-git-docs-only chromium "$(run --engines pull_request HEAD~1 HEAD)"
+ok engines-git-default-range chromium "$(run --engines pull_request)"
 echo x >> main.go && commit code
 ok git-code true "$(run pull_request HEAD~1 HEAD)"
+ok engines-git-code all "$(run --engines pull_request HEAD~1 HEAD)"
+ok engines-git-mixed all "$(run --engines pull_request HEAD~2 HEAD)"
 ok git-mixed true "$(run pull_request HEAD~2 HEAD)"
 git mv docs/a.md main2.go && commit rename-docs-to-code
 ok git-rename-docs-to-code true "$(run pull_request HEAD~1 HEAD)"
+ok engines-git-rename-docs-to-code all "$(run --engines pull_request HEAD~1 HEAD)"
 git mv main2.go docs/a.md && commit rename-back
 git mv docs/a.md docs/b.md && commit rename-in-docs
 ok git-rename-in-docs false "$(run pull_request HEAD~1 HEAD)"
