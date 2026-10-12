@@ -18,8 +18,11 @@ env:
   GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # One group per pull request (a newer push supersedes the old run). Every other run gets a group of its own: a group
+  # holds one pending run, so a shared one would drop a queued commit on main, and "CI green on the exact head" needs
+  # each merged commit to keep its own result.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Decides whether the expensive checks run. A pull request that changes only prose nothing reads (scripts/ci-prose.txt

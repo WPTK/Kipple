@@ -56,8 +56,9 @@ round. Standing rule: fix everything a review finds, no silent "not fixing" list
 ## 7. Test
 
 - **Unit/property tests:** `go test -race` (CI only — no `-race` locally, no gcc on this box), Vitest.
-- **Fuzz:** `scripts/fuzz.ps1`, run by hand before every release, not in CI; a failure keeps its regression
-  seed in `testdata/fuzz/`.
+- **Fuzz:** two tiers. Every seed (committed and `f.Add`) runs as an ordinary test under `-race` on each pull request;
+  mutation fuzzing is `scripts/fuzz.ps1`, run by hand before every release and weekly in CI (the `Fuzz` workflow, four
+  shards that each restore the previous run's corpus). A failure keeps its regression seed in `testdata/fuzz/`.
 - **Contract tests:** replay recorded Reader API request sequences (unit-level, in CI).
 - **End-to-end UAT:** `docs/maintainers/uat-plan.md` Suites 1-5 (scripted Playwright+axe, agent-driven scenarios,
   owner-only device checks, migration rehearsal, restore drill, Reader API regression replay against a real

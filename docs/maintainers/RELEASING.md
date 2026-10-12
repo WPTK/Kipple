@@ -69,16 +69,17 @@ bump): `0.9.0-beta.1` (the bug fixes plus those features), then `1.0.0-rc.N`, th
    before, and re-run them only if code changed after the last run. `scripts/maintainers/release-gates.ps1 [-Ref <sha>]` runs everything except
    Suite 1 and Suite 4, one at a time (timing tests flake under load), on a detached worktree of a printed full sha and prints a
    pass/fail table.
-   **Fuzz, by hand:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them). It must finish clean. The weekly
-   `Fuzz` workflow runs the same script on the default branch, but until it has run green for several weeks the
+   **Fuzz, by hand:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them; `-Shard 2/4` runs one slice and `-ContinueOnFailure` reports every failing
+   target instead of stopping at the first). It must finish clean. The weekly
+   `Fuzz` workflow runs the same script on the default branch in four shards, but until it has run green for several weeks the
    manual run stays the gate.
    A failure writes `testdata\fuzz\<Target>\<hash>` in the package: fix the bug, keep that file as a regression seed.
    **UAT Suite 1, also by hand:** in `web/`, `npm run seed` (it builds the web app when `web/dist` is missing or stale, then stays in the
    foreground), then in a second terminal, once the feeds have fetched (about a minute), `npm run uat` and the single-purpose
    flows (`npm run uat:folders`, `uat:feeds`, `uat:states`, `uat:keyboard`, `uat:offline`, `uat:downloads`, and `uat:images`, or all of them with `npm run uat:all`)
    against that seeded local instance (never the live one; see `uat-plan.md`, Suite 1). The `Browser UAT` workflow runs the
-   same on every pull request that changes code (Chromium, and WebKit for the flows that support it); read its result, and
-   run it by hand only to reproduce a failure. The run must finish with exit code 0, or every remaining finding must be in
+   same on every pull request that changes code (Chromium, WebKit and Firefox; Chromium alone when the change is only docs, tests or
+   the tools module); read its result, and run it by hand only to reproduce a failure. The run must finish with exit code 0, or every remaining finding must be in
    `web/uat/waivers.json` with the owner's reason.
    **Walk every screen in a real browser, by hand, for the second tier.** The scripted flows check what someone thought to
    script; the walk finds what nobody did. On the seeded instance, at the mobile preset (375 px wide, touch) and on desktop

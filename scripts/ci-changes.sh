@@ -10,7 +10,13 @@
 #                                        .gitignore or web/.gitignore (inputs of the tooling tests); anything else,
 #                                        and every failure, prints true.
 #   ci-changes.sh --scripts-classify     Reads changed paths from stdin; prints true or false (same rule).
-#   ci-changes.sh --list                 Reads paths from stdin and prints the ones that are prose (scripts/ci-prune-prose.sh).
+#   ci-changes.sh --engines EVENT [DIFF_ARGS...]
+#                                        For Browser UAT (browser-uat.yml): prints `chromium` only on a pull request whose
+#                                        changed paths are all things no browser receives (docs, changelog entries, the
+#                                        tools/ module, test files); anything else, and every failure, prints `all` (the
+#                                        three engines, because a server change can differ per engine).
+#   ci-changes.sh --engines-classify     Reads changed paths from stdin; prints chromium or all (same rule).
+#   ci-changes.sh --list                Reads paths from stdin and prints the ones that are prose (scripts/ci-prune-prose.sh).
 # `false` means every changed path is listed in ci-prose.txt beside this script. Anything unexpected (git fails, the
 # list is missing, no paths) prints `true`: running too much costs minutes, running too little skips a required check.
 set -uo pipefail
@@ -77,9 +83,34 @@ classify_scripts() {
   [ "$n" -gt 0 ] && echo false || echo true
 }
 
+# classify_engines: chromium when every path is one no browser receives. A name git quotes starts with ": it counts as
+# something a browser could receive, as in is_prose.
+classify_engines() {
+  local f n=0
+  while IFS= read -r f || [ -n "$f" ]; do
+    [ -n "$f" ] || continue
+    n=$((n + 1))
+    case "$f" in
+      docs/* | changes/* | tools/* | *_test.go | *.test.ts | *.test.tsx | *.test.mjs | *.test.sh | *.Tests.ps1) ;;
+      *) echo all; return ;;
+    esac
+  done
+  [ "$n" -gt 0 ] && echo chromium || echo all
+}
+
 case "${1:-}" in
   --classify) classify; exit 0 ;;
   --scripts-classify) classify_scripts; exit 0 ;;
+  --engines-classify) classify_engines; exit 0 ;;
+  --engines)
+    shift
+    [ "${1:-}" = pull_request ] || { echo all; exit 0; }
+    shift
+    [ "$#" -gt 0 ] || set -- HEAD^1 HEAD
+    if ! files="$(git -c core.quotePath=false diff --no-renames --name-only "$@" 2>/dev/null)"; then echo all; exit 0; fi
+    printf '%s\n' "$files" | classify_engines
+    exit 0
+    ;;
   --scripts)
     shift
     [ "${1:-}" = pull_request ] || { echo true; exit 0; }

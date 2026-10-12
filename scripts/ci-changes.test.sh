@@ -32,6 +32,18 @@ ok path-with-space false "$(cls 'docs/my notes.md')"
 ok empty-list true "$(cls '')"
 ok no-trailing-newline false "$(cls 'docs/a.md')"
 
+eng() { printf '%s' "$1" | bash "$cc" --engines-classify; }
+ok engines-docs-and-tests chromium "$(eng $'docs/design.md\nchanges/x.fixed.md\ninternal/api/api_test.go\nweb/src/a.test.tsx\ntools/go.mod')"
+ok engines-test-scripts chromium "$(eng $'scripts/ci-changes.test.sh\nscripts/fuzz.Tests.ps1\nscripts/x.test.mjs')"
+ok engines-server-code all "$(eng $'internal/api/api.go\ninternal/api/api_test.go')"
+ok engines-web-app all "$(eng 'web/src/App.tsx')"
+ok engines-script-is-code all "$(eng 'scripts/gen-notices.mjs')"
+ok engines-workflow all "$(eng '.github/workflows/ci.yml')"
+ok engines-uat-flow all "$(eng 'web/uat/feeds.mjs')"
+ok engines-dockerfile all "$(eng 'Dockerfile')"
+ok engines-quoted-name all "$(eng '"docs/caf\303\251.md"')"
+ok engines-empty all "$(eng '')"
+
 # Through git: a throwaway repository.
 repo="$tmp/repo"
 git init -q "$repo" && cd "$repo" || exit 1
@@ -41,13 +53,20 @@ commit() { git add -A && git commit -qm "$1"; }
 run() { bash "$cc" "$@"; }
 
 ok non-pr-event true "$(run push)"
+ok engines-non-pr all "$(run --engines push)"
+ok engines-git-diff-fails all "$(run --engines pull_request nonexistent-ref HEAD)"
 echo x >> docs/a.md && commit docs
 ok git-docs-only false "$(run pull_request HEAD~1 HEAD)"
+ok engines-git-docs-only chromium "$(run --engines pull_request HEAD~1 HEAD)"
+ok engines-git-default-range chromium "$(run --engines pull_request)"
 echo x >> main.go && commit code
 ok git-code true "$(run pull_request HEAD~1 HEAD)"
+ok engines-git-code all "$(run --engines pull_request HEAD~1 HEAD)"
+ok engines-git-mixed all "$(run --engines pull_request HEAD~2 HEAD)"
 ok git-mixed true "$(run pull_request HEAD~2 HEAD)"
 git mv docs/a.md main2.go && commit rename-docs-to-code
 ok git-rename-docs-to-code true "$(run pull_request HEAD~1 HEAD)"
+ok engines-git-rename-docs-to-code all "$(run --engines pull_request HEAD~1 HEAD)"
 git mv main2.go docs/a.md && commit rename-back
 git mv docs/a.md docs/b.md && commit rename-in-docs
 ok git-rename-in-docs false "$(run pull_request HEAD~1 HEAD)"

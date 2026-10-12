@@ -12,7 +12,9 @@ name: Browser UAT
 #
 # No outside network: the seed's feeds are served by web/scripts/fixture-feeds.mjs on loopback. The prose-only skip is
 # the one ci.yml uses (scripts/ci-changes.sh against the base commit's rules, fail-open): the job still reports, with
-# its steps skipped.
+# its steps skipped. A pull request runs Chromium alone when it changes only docs, changelog entries, the tools/ module or
+# test files (ci-changes.sh --engines); WebKit and Firefox exist for what another engine does with a server response, so
+# any other change, and every push to main and manual run, runs all three.
 on:
   push:
     branches: [main]
@@ -23,8 +25,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: browser-uat-${{ github.ref }}
-  cancel-in-progress: true
+  # One group per pull request (a newer push supersedes the old run). Every other run gets a group of its own: a group
+  # holds one pending run, so a shared one would drop a queued commit on main, and "CI green on the exact head" needs
+  # each merged commit to keep its own result.
+  group: browser-uat-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   uat:
@@ -49,15 +54,20 @@ jobs:
           RULES: ${{ runner.temp }}/base-rules
         run: |
           code=true
+          engines=all
           if [ "$EVENT_NAME" = pull_request ]; then
             if mkdir -p "$RULES" && git show HEAD^1:scripts/ci-changes.sh > "$RULES/ci-changes.sh" && git show HEAD^1:scripts/ci-prose.txt > "$RULES/ci-prose.txt" && out="$(bash "$RULES/ci-changes.sh" "$EVENT_NAME")"; then
               if [ "$out" = false ]; then code=false; fi
+              # Chromium alone only when the rules say no browser can receive anything different (scripts/ci-changes.sh
+              # --engines); a base without that mode prints something else, which is all three engines.
+              if [ "$(bash "$RULES/ci-changes.sh" --engines "$EVENT_NAME")" = chromium ]; then engines=chromium; fi
             else
               echo "::warning::the base commit has no usable scripts/ci-changes.sh; running the browser checks"
             fi
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "code=$code"
+          echo "engines=$engines" >> "$GITHUB_OUTPUT"
+          echo "code=$code engines=$engines"
 
       - if: steps.gate.outputs.code != 'false'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -79,9 +89,12 @@ jobs:
       - name: Install the web dependencies and the browsers
         if: steps.gate.outputs.code != 'false'
         working-directory: web
+        env:
+          ENGINES: ${{ steps.gate.outputs.engines == 'all' && 'chromium webkit firefox' || 'chromium' }}
         run: |
           npm ci --ignore-scripts
-          npx playwright install --with-deps chromium webkit firefox
+          # shellcheck disable=SC2086 # one engine name per word
+          npx playwright install --with-deps $ENGINES
 
       # `npm run seed` builds web/dist when it is missing, builds Kipple, starts it and adds the fixture feeds.
       - name: Start the fixture feeds and a seeded instance on loopback
@@ -115,14 +128,14 @@ jobs:
       # Playwright's WebKit is the WebKit engine, not Safari, but it sends the fetch metadata and download behaviour
       # that Chromium does not, which is where the saved-error-as-a-file bug showed.
       - name: Flows (WebKit)
-        if: steps.gate.outputs.code != 'false' && !cancelled()
+        if: steps.gate.outputs.code != 'false' && steps.gate.outputs.engines == 'all' && !cancelled()
         working-directory: web
         run: node uat/all.mjs --engine webkit
 
       # Firefox has no static routing API in its service workers, so it keeps the worker's fetch handler for writes;
       # this runs the reading-time flow there to prove the beacon still gets through.
       - name: Flows (Firefox)
-        if: steps.gate.outputs.code != 'false' && !cancelled()
+        if: steps.gate.outputs.code != 'false' && steps.gate.outputs.engines == 'all' && !cancelled()
         working-directory: web
         run: node uat/all.mjs --engine firefox
 
