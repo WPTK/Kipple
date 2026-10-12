@@ -125,7 +125,7 @@ function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void) {
       default:
         return;
     }
-    // Handled here: the app's own shortcuts (Enter opens, Home goes to the top of the list) must not see it.
+    // Handled here, so the browser's own key action (scrolling, following the link) does not also run.
     e.preventDefault();
     if (to) {
       setActive(to.dataset.treeKey ?? null);

@@ -85,15 +85,22 @@ describe("the article list is one Tab stop", () => {
     expect(stops(scroller)).toEqual([a]);
   });
 
-  it("leaves the arrows to a row's other controls, and to modified presses", async () => {
+  it("moves between rows from a row's star and menu buttons too, and leaves modified presses alone", async () => {
     const { scroller, ids } = await list();
-    const [a] = ids();
-    const star = within(scroller.querySelector<HTMLElement>(`[data-item-id="${a}"]`)!).getAllByRole("button")[0]!;
+    const [a, b, c] = ids();
+    const rowOf = (id: string) => scroller.querySelector<HTMLElement>(`[data-item-id="${id}"]`)!;
+    const star = within(rowOf(a!)).getAllByRole("button")[0]!;
     star.focus();
-    expect(fireEvent.keyDown(star, { key: "ArrowDown" })).toBe(true); // not prevented: the button keeps its own keys
-    linkOf(scroller, a!).focus();
+    expect(fireEvent.keyDown(star, { key: "ArrowDown" })).toBe(false); // taken: focus goes to the next row
+    await waitFor(() => expect(rowOfFocus()).toBe(b));
+    const menu = within(rowOf(b!)).getAllByRole("button").at(-1)!;
+    menu.focus();
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    await waitFor(() => expect(rowOfFocus()).toBe(c));
+    expect(screen.queryByRole("menu")).toBeNull(); // ArrowDown did not open the row's menu
+    linkOf(scroller, c!).focus();
     expect(fireEvent.keyDown(document.activeElement!, { key: "ArrowDown", shiftKey: true })).toBe(true);
-    expect(document.activeElement).toBe(linkOf(scroller, a!));
+    expect(document.activeElement).toBe(linkOf(scroller, c!));
   });
 
   it("follows the row that has focus, however it got there", async () => {

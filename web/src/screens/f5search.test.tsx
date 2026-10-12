@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
@@ -34,6 +34,22 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("Search: Escape", () => {
+  it("goes back to the screen before, but not while the box has focus", async () => {
+    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(items()), "GET /api/saved-searches": () => json({ saved_searches: [] }) });
+    go("/l/unread");
+    await screen.findByText("Cats");
+    navigateTo("/search");
+    const box = await screen.findByRole("searchbox");
+    box.focus();
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(window.location.pathname).toBe("/search"); // the box takes this one and lets go of focus
+    expect(box).not.toHaveFocus();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await waitFor(() => expect(window.location.pathname).toBe("/l/unread"));
+  });
 });
 
 describe("Search: arriving from another screen", () => {

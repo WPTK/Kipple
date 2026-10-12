@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { BookmarkPlus, CheckCheck, X } from "lucide-react";
 import { savedScopeOf, scopeFromSearchParams, useSavedSearches } from "@/api/savedSearches";
 import { useBootstrap, useFolderTree } from "@/api/queries";
@@ -85,6 +85,23 @@ export function SearchScreen() {
 
   // Where focus lands on arrival (the shell does the focusing, see AppShell): the box on a page load or reload
   // (data-load-focus), the heading for every in-app arrival.
+
+  // Escape on the Search screen goes back, as it does on an open article. Not while typing (the box takes the first
+  // Escape and lets go of focus), not in a menu or dialog (those take it first), not during IME composition.
+  const navigate = useNavigate();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing) return;
+      if (e.target instanceof HTMLElement && (e.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) return;
+      if (document.querySelector('[role="dialog"],[role="menu"],[role="listbox"]')) return;
+      const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+      if (idx <= 0) return;
+      e.preventDefault();
+      navigate(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navigate]);
 
   const submit = () => {
     pushed.current = text;

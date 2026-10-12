@@ -12,7 +12,7 @@
 //   K2  Escape: every menu and dialog tried opens from the keyboard, keeps focus inside while it is a modal dialog,
 //       closes on Escape, and gives focus back to the control that opened it.
 //   K3  There are no single-key shortcuts: letter and symbol keys do nothing on a list and are typed in a field.
-//       The arrow keys still move focus between rows, and a separator still takes them.
+//       The arrow keys move focus between rows from any control in a row, and a separator still takes them.
 // At 390x844 as a touch device:
 //   K4  Every swipe or long-press action has an alternative that needs no gesture: a row's Star button and its
 //       More actions menu (mark read or unread, star), the article's Back to list button, and the Refresh all feeds
@@ -313,7 +313,7 @@ async function k1(page, articlePath) {
 }
 
 /** Run `fn` (arrow keys through the list) and check that it opened nothing and marked nothing read: the arrows
- * move focus only, unlike j and k, which open the article they reach beside the reader pane. */
+ * move focus only: they open nothing and mark nothing read. */
 async function onlyFocusMoves(page, where, fn) {
   const sent = [];
   const onRequest = (req) => {
@@ -524,6 +524,16 @@ async function k3(page) {
   await page.waitForTimeout(300);
   const f1 = await focusOf(page);
   check(!!f0 && !!f1 && f1.id !== f0.id && pathOf(page) === path0, where("arrows"), "ArrowDown moves focus to the next row without opening it", `focus ${f0?.key} -> ${f1?.key}, path ${pathOf(page)}`);
+
+  // From a row's other controls too (Safari's Tab skips links, so the star may be all a keyboard user reaches).
+  await load(page, "/l/all");
+  const star = page.locator("main article").first().locator("button").first();
+  await star.focus();
+  const s0 = await focusOf(page);
+  await press(page, "ArrowDown");
+  await page.waitForTimeout(300);
+  const s1 = await focusOf(page);
+  check(!!s0 && !!s1 && s1.id !== s0.id && !(await page.evaluate(() => !!document.querySelector('[role="menu"]'))), where("arrows from star"), "ArrowDown from a row's star button reaches the next row", `focus ${s0?.key} -> ${s1?.key}`);
 
   // Typing is not a shortcut: the search box takes the letters.
   await load(page, "/search");

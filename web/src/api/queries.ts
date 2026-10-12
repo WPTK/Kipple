@@ -180,7 +180,7 @@ function unreadShift(qc: QueryClient, ids: string[], read: boolean): Map<string,
 export function useOpenItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, via }: { id: string; via: "tap" | "key" | "nav" }) => {
+    mutationFn: async ({ id, via }: { id: string; via: "tap" | "nav" }) => {
       await supersede({ read: [id] });
       try {
         return await api<OpenResponse>(`/api/items/${id}/open`, { method: "POST", body: { via } });
