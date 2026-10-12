@@ -100,11 +100,6 @@ describe("layout override resolution", () => {
     expect(overrideTarget(layoutContext({ view: "unread", folder: "13" }, feeds, tree))).toEqual({ kind: "folder", id: "13" });
   });
 
-  it("the c toggle beats every override", () => {
-    setListOverride("feed", "2", "layout", "cards");
-    expect(resolveLayout(devicePrefsStore.get(), { feedId: "2" }, "compact")).toBe("compact");
-  });
-
   it("clearing an override falls back", () => {
     setListOverride("feed", "2", "layout", "cards");
     setListOverride("feed", "2", "layout", null);
@@ -160,16 +155,15 @@ describe("the Gazette's order and name (#39)", () => {
     setListOverride("folder", "12", "order", "oldest");
     setListOverride("feed", "4", "order", "oldest");
     expect(resolveOrder(p(), ctx4)).toBe("oldest");
-    // The Gazette from a folder above, from the device default, or from the `c` toggle of this session.
+    // The Gazette from a folder above, from the or from the device default.
     setListOverride("folder", "13", "layout", "gazette");
     expect(resolveOrder(p(), ctx4)).toBe("newest");
     setListOverride("folder", "13", "layout", null);
     updateDevicePrefs({ layout: "gazette" });
     expect(resolveOrder(p(), ctx4)).toBe("newest");
-    updateDevicePrefs({ layout: "magazine" });
-    expect(resolveOrder(p(), ctx4, "gazette")).toBe("newest");
     // The settings are kept for the other layouts.
-    expect(resolveOrder(p(), ctx4, "compact")).toBe("oldest");
+    updateDevicePrefs({ layout: "compact" });
+    expect(resolveOrder(p(), ctx4)).toBe("oldest");
   });
 
   it("keeps a valid name and blanks one the profile would refuse", () => {

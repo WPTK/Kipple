@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { CheckBadge, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
+import { RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex } from "./rowTabStop";
@@ -12,7 +12,7 @@ import { useRowTabIndex } from "./rowTabStop";
  * full-strength text, never color alone; read rows dim to the secondary color. (The layout id stays
  * "magazine" so saved choices keep working; only the name shown to people changed.)
  */
-function EditorialRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
+function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions }: RowProps) {
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
   return (
@@ -24,7 +24,6 @@ function EditorialRow({ item, feed, selected, checked, to, onOpen, onToggleStar,
         selected ? "bg-selection" : "hover:bg-surface",
       )}
     >
-      <CheckBadge checked={checked} />
       <div className="flex flex-col gap-3 @[34rem]:flex-row @[34rem]:gap-5">
         {item.image ? (
           <img

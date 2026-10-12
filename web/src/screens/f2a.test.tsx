@@ -5,11 +5,9 @@ import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
-import { resetDevicePrefs, sessionLayoutStore, setListOverride, updateDevicePrefs, devicePrefsStore, type LayoutId } from "@/lib/devicePrefs";
-import { updatePrefs } from "@/lib/prefs";
+import { resetDevicePrefs, setListOverride, updateDevicePrefs, devicePrefsStore, type LayoutId } from "@/lib/devicePrefs";
 import { resetUndo } from "@/lib/undo";
 import { rowMenuStore } from "@/gestures/rowMenu";
-import { helpStore } from "@/shell/HelpDialog";
 import { clearToasts } from "@/shell/toasts";
 import { clearListMemory } from "./ListPane";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
@@ -110,8 +108,6 @@ beforeEach(() => {
   liveStore.set(initialLive);
   resetDevicePrefs();
   resetUndo();
-  helpStore.set(false);
-  updatePrefs({ shortcuts: true });
   // The first-run tip is once per device; tests that are not about it have seen it.
   updateDevicePrefs({ peekSeen: true });
   vi.stubGlobal("EventSource", NoES);
@@ -258,17 +254,6 @@ describe("layouts", () => {
     }
   });
 
-  it("c switches to Compact and back", async () => {
-    routes();
-    const { container } = go("/l/unread");
-    await screen.findByText("Article number 1");
-    const user = userEvent.setup();
-    await user.keyboard("c");
-    await waitFor(() => expect(container.querySelector(".row-compact")).not.toBeNull());
-    await user.keyboard("c");
-    await waitFor(() => expect(container.querySelector(".row-compact")).toBeNull());
-    expect(sessionLayoutStore.get()).toBeNull();
-  });
 });
 
 describe("order", () => {
@@ -284,18 +269,28 @@ describe("order", () => {
   });
 });
 
+async function markRowRead(user: ReturnType<typeof userEvent.setup>, n: number) {
+  await user.click(within(document.querySelector(`[data-item-id="${1000 + n}"]`) as HTMLElement).getByRole("button", { name: "More actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Mark as read" }));
+}
+
+async function markAllFromMenu(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "List actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: /Mark all as read/ }));
+}
+
 describe("undo toast", () => {
   it("merges repeated marks into one toast, and Undo reverses all of them through the API", async () => {
     const { calls } = routes();
     go("/l/unread");
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    await user.keyboard("jm");
+    await markRowRead(user, 1);
     const status = screen.getByTestId("undo-region");
     expect(status).toHaveAttribute("role", "status");
     await waitFor(() => expect(status).toHaveTextContent("Marked read"));
-    await user.keyboard("jjm"); // 1001 -> 1002 is already read; 1003 then
-    await user.keyboard("jm");
+    await markRowRead(user, 3); // 1002 is already read
+    await markRowRead(user, 4);
     await waitFor(() => expect(status).toHaveTextContent(/2 articles marked read|3 articles marked read/));
     const before = calls.filter((c) => c.url.pathname === "/api/items/mark-read").length;
     await user.click(within(status).getByRole("button", { name: "Undo" }));
@@ -306,16 +301,6 @@ describe("undo toast", () => {
     expect(status).toHaveTextContent("");
   });
 
-  it("z undoes the last action without the toast", async () => {
-    const { calls } = routes();
-    go("/l/unread");
-    await screen.findByText("Article number 1");
-    const user = userEvent.setup();
-    await user.keyboard("jm");
-    await waitFor(() => expect(screen.getByTestId("undo-region")).toHaveTextContent("Marked read"));
-    await user.keyboard("z");
-    await waitFor(() => expect(bodyOf(calls.filter((c) => c.url.pathname === "/api/items/mark-read").pop()).read).toBe(false));
-  });
 });
 
 describe("row swipe (touch, iOS Mail directions)", () => {
@@ -495,28 +480,13 @@ describe("mark above and below, and mark all", () => {
     expect(bodyOf(calls.filter((c) => c.url.pathname === "/api/items/mark-read")[1])).toEqual({ ids: ["1004", "1005"], read: false, reason: "bulk", undo: true });
   });
 
-  it("Shift+A marks the whole list, bounded by what was loaded", async () => {
-    const { calls } = routes({ "GET /api/items": () => json(pageOf(items(), null, "1200")), "POST /api/items/mark-read": () => json({ changed: ["1001", "1004", "1005"], restored: [], count: 3, undoable: true }) });
-    go("/l/unread?feed=1");
-    await screen.findByText("Article number 3");
-    await userEvent.setup().keyboard("{Shift>}A{/Shift}");
-    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
-    expect(bodyOf(calls.find((c) => c.url.pathname === "/api/items/mark-read"))).toEqual({
-      scope: { view: "unread", feed_id: "1" },
-      max_id: "1200",
-      read: true,
-      reason: "bulk",
-    });
-    expect(screen.getByTestId("undo-region")).toHaveTextContent("Marked 3 as read");
-  });
-
   it("oldest-first: mark all sends the server's as_of, not the first page's highest id", async () => {
     // Oldest first, and a backdated new item: the page maximum (1005) is not the bound.
     const { calls } = routes({ "GET /api/items": () => json(pageOf(items().reverse(), null, "1777")), "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [], count: 1, undoable: true }) });
     updateDevicePrefs({ order: "oldest" });
     go("/l/unread");
     await screen.findByText("Article number 3");
-    await userEvent.setup().keyboard("{Shift>}A{/Shift}");
+    await markAllFromMenu(userEvent.setup());
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
     expect(bodyOf(calls.find((c) => c.url.pathname === "/api/items/mark-read")).max_id).toBe("1777");
   });
@@ -525,7 +495,7 @@ describe("mark above and below, and mark all", () => {
     const { calls } = routes({ "POST /api/items/mark-read": () => json({ changed: [], restored: [], count: 0, undoable: true }) });
     go("/l/unread");
     await screen.findByText("Article number 3");
-    await userEvent.setup().keyboard("{Shift>}A{/Shift}");
+    await markAllFromMenu(userEvent.setup());
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
@@ -536,7 +506,7 @@ describe("mark above and below, and mark all", () => {
     go("/l/unread");
     await screen.findByText("Article number 3");
     const user = userEvent.setup();
-    await user.keyboard("{Shift>}A{/Shift}");
+    await markAllFromMenu(user);
     await user.click(await within(screen.getByTestId("undo-region")).findByRole("button", { name: "Undo" }));
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read").length).toBe(2));
     expect(bodyOf(calls.filter((c) => c.url.pathname === "/api/items/mark-read")[1])).toEqual({ ids: ["1001", "1004"], ledger_ids: ["77", "78"], read: false, reason: "bulk", undo: true });
@@ -548,7 +518,7 @@ describe("mark above and below, and mark all", () => {
     go("/l/unread");
     await screen.findByText("Article number 3");
     const user = userEvent.setup();
-    await user.keyboard("{Shift>}A{/Shift}");
+    await markAllFromMenu(user);
     await user.click(await within(screen.getByTestId("undo-region")).findByRole("button", { name: "Undo" }));
     await waitFor(() => expect(n).toBe(2));
     await screen.findByText(/Couldn.t undo/);
@@ -560,85 +530,8 @@ describe("mark above and below, and mark all", () => {
     routes({ "POST /api/items/mark-read": () => json({ changed: [], restored: [], count: 20000, undoable: false }) });
     go("/l/unread");
     await screen.findByText("Article number 3");
-    await userEvent.setup().keyboard("{Shift>}A{/Shift}");
+    await markAllFromMenu(userEvent.setup());
     await waitFor(() => expect(screen.queryByRole("button", { name: "Undo" })).toBeNull());
-  });
-});
-
-describe("keymap", () => {
-  it("does nothing while typing in a field", async () => {
-    routes();
-    go("/search");
-    const box = await screen.findByRole("searchbox", { name: "Search articles" });
-    await userEvent.setup().type(box, "jjc?zA");
-    expect(box).toHaveValue("jjc?zA");
-    expect(helpStore.get()).toBe(false);
-    expect(document.querySelector(".row-compact")).toBeNull();
-  });
-
-  it("the single-key setting turns letters off but ? still opens the overlay", async () => {
-    const { calls } = routes();
-    updatePrefs({ shortcuts: false });
-    go("/l/unread");
-    await screen.findByText("Article number 1");
-    const user = userEvent.setup();
-    await user.keyboard("jm");
-    await user.keyboard("{Shift>}A{/Shift}");
-    expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(false);
-    await user.keyboard("?");
-    expect(await screen.findByRole("dialog", { name: "Keyboard shortcuts" })).toBeInTheDocument();
-  });
-
-  it("the ? overlay is searchable and closes with Escape", async () => {
-    routes();
-    go("/l/unread");
-    await screen.findByText("Article number 1");
-    const user = userEvent.setup();
-    await user.keyboard("?");
-    const dlg = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
-    expect(within(dlg).getByText("Undo the last action (60 seconds, 2 minutes for bulk)")).toBeInTheDocument();
-    await user.type(within(dlg).getByRole("searchbox", { name: "Search shortcuts" }), "undo");
-    expect(within(dlg).getByText(/Undo the last action/)).toBeInTheDocument();
-    expect(within(dlg).queryByText("Toggle full text")).toBeNull();
-    await user.clear(within(dlg).getByRole("searchbox", { name: "Search shortcuts" }));
-    await user.type(within(dlg).getByRole("searchbox", { name: "Search shortcuts" }), "zzzz");
-    expect(within(dlg).getByText(/No shortcut matches/)).toBeInTheDocument();
-    expect(await axe(dlg)).toHaveNoViolations();
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  });
-
-  it("g then i/a/s go to the views, ] goes to the next feed", async () => {
-    routes();
-    go("/l/unread");
-    await screen.findByText("Article number 1");
-    const user = userEvent.setup();
-    await user.keyboard("ga");
-    await waitFor(() => expect(window.location.pathname).toBe("/l/all"));
-    await user.keyboard("gs");
-    await waitFor(() => expect(window.location.pathname).toBe("/l/starred"));
-    await user.keyboard("gi");
-    await waitFor(() => expect(window.location.pathname).toBe("/l/unread"));
-  });
-
-  it("x selects rows and m acts on the selection", async () => {
-    const { calls } = routes();
-    go("/l/unread");
-    await screen.findByText("Article number 1");
-    const user = userEvent.setup();
-    await user.keyboard("jx");
-    await user.keyboard("jjx");
-    await user.keyboard("m");
-    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
-    expect(bodyOf(calls.find((c) => c.url.pathname === "/api/items/mark-read")).ids.sort()).toEqual(["1001", "1003"]);
-  });
-
-  it("r refreshes", async () => {
-    const { calls } = routes();
-    go("/l/unread");
-    await screen.findByText("Article number 1");
-    await userEvent.setup().keyboard("r");
-    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/refresh")).toBe(true));
   });
 });
 
@@ -756,7 +649,7 @@ describe("article gestures", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/l/unread"));
   });
 
-  it("prev and next buttons and j/k still work", async () => {
+  it("prev and next buttons work", async () => {
     routes();
     go("/i/1002?from=unread");
     await screen.findByTestId("article-body");

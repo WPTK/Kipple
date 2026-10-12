@@ -1,22 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { NavLink, Outlet, useLocation } from "react-router";
 import { BarChart3, BellOff, Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
-import { useRefreshAll } from "@/api/refresh";
 import { useStatsEnabled } from "@/lib/statsSender";
-import { useHotkeys } from "@/lib/keys";
 import { useSyncHighlights } from "@/lib/useHighlights";
 import { SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, DEFAULT_DEVICE_PREFS, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
-import { prefsStore } from "@/lib/prefs";
-import { useStore } from "@/lib/store";
 import { useWide } from "@/lib/useMedia";
-import { listTo } from "@/lib/routes";
 import { cn } from "@/lib/cn";
 import { navItemClass } from "@/ui/navItem";
 import { FeedTree } from "@/screens/FeedTree";
-import { undoLast } from "@/lib/undo";
-import { HelpDialog, openHelp } from "./HelpDialog";
 import { WhatsNewHost } from "./WhatsNew";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { ARTICLE_MIN, LIST_MIN_FOR_SIDEBAR, maxFor, useViewportWidth } from "@/lib/useWidth";
@@ -202,32 +195,9 @@ function WarningsBanner() {
  */
 export function AppShell() {
   const wide = useWide();
-  const navigate = useNavigate();
   const { pathname } = useLocation();
-  const prefs = useStore(prefsStore);
   useServerEvents(true);
   useSyncHighlights();
-  const refresh = useRefreshAll();
-
-  useHotkeys(
-    {
-      refresh: () => refresh.mutate(),
-      goUnread: () => navigate(listTo({ view: "unread" })),
-      goAll: () => navigate(listTo({ view: "all" })),
-      goStarred: () => navigate(listTo({ view: "starred" })),
-      goFeeds: () => navigate("/feeds"),
-      goSettings: () => navigate("/settings"),
-      // Already searching: back to the box, keeping the query and the saved search (navigating would drop both).
-      search: () => {
-        const box = pathname === "/search" ? document.querySelector<HTMLInputElement>("[data-search-input]") : null;
-        if (box) box.focus();
-        else navigate("/search", { state: { focusSearchBox: true } }); // pressed to type: arrive in the box
-      },
-      help: openHelp,
-      undo: () => void undoLast(),
-    },
-    { singleKeys: prefs.shortcuts },
-  );
 
   // Move focus to the screen heading when the screen (not just the article) changes.
   const mainRef = useRef<HTMLElement>(null);
@@ -279,7 +249,6 @@ export function AppShell() {
       <Toasts inset={wide ? "none" : inArticle ? "toolbar" : "tabbar"}>
         <UndoToast />
       </Toasts>
-      <HelpDialog />
       <WhatsNewHost />
       <FilterEditorHost />
       <FeedEditorHost />

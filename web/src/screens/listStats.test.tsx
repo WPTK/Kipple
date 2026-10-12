@@ -127,24 +127,4 @@ describe("list surface stats events", () => {
     expect(beacon).not.toHaveBeenCalled();
   });
 
-  it("records open_original from the o hotkey (and v) when stats are on", async () => {
-    const { beacon, open, user } = await ready({});
-    await user.keyboard("jo");
-    expect(open).toHaveBeenCalledTimes(1);
-    await user.keyboard("v");
-    expect(open).toHaveBeenCalledTimes(2);
-    await waitFor(async () => expect(await beaconed(beacon, "open_original")).toHaveLength(2));
-    expect(await beaconed(beacon, "open_original")).toEqual([
-      { kind: "open_original", item_id: 1001 },
-      { kind: "open_original", item_id: 1001 },
-    ]);
-  });
-
-  it("records nothing from the o hotkey when stats are off", async () => {
-    const { beacon, open, user } = await ready({ "stats.enabled": false });
-    await user.keyboard("jo");
-    expect(open).toHaveBeenCalledTimes(1);
-    await settle();
-    expect(beacon).not.toHaveBeenCalled();
-  });
 });

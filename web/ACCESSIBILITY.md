@@ -46,7 +46,7 @@ Status is what the code does today. Anything not verified on a real device is li
 - [x] Every swipe has a button and a key; long-press is never required; no drag-only interaction (folders, feeds and favorites reorder by dragging OR with the grip's arrow keys OR with Move up and Move down buttons; bulk move and delete use checkboxes). The sidebar and list width handles are keyboard-operable separators (arrows, Shift, Home, End).
 - [x] Segmented controls are native radio groups drawn as pressed buttons; a focused radio never shows its native circle, and the control keeps its place when the page above reflows.
 - [x] Undo toast (15 s) for read, unread, swipe-star and bulk marks. Destructive or irreversible actions confirm instead: deleting feeds (with the starred count), filters or saved searches, device copy, forget or reset, clearing the image cache, a large auto-read catch-up, and settings that warn.
-- [x] Full keyboard map with a searchable `?` overlay; single-key shortcuts can be switched off (WCAG 2.1.4) and default to off on a touch-first device.
+- [x] No single-key shortcuts (WCAG 2.1.4 holds by construction); every action is a control reachable with Tab, the arrow keys move focus within the list and the sidebar trees, and `Esc` closes menus and dialogs.
 - [x] Mark as read while scrolling is off by default and never counts as a read for stats.
 
 ## Cognitive

@@ -150,7 +150,7 @@ Keyboard and gestures (`npm run uat:keyboard`, `web/uat/keyboard.mjs`, `--browse
 instance): at 1280x800 with the keyboard only, K1 walks Tab through every main screen (every visible control is
 reached, the focused one shows an indicator, no trap forward or back), K2 opens menus and dialogs from the keyboard and
 checks that focus stays inside a modal dialog, Escape closes it and focus returns to what opened it, and K3 presses
-each shortcut of `web/src/lib/keys.ts` (state changes are undone with `z` or pressed twice). At 390x844 as a touch
+that letter and symbol keys do nothing (there are no single-key shortcuts), arrow keys move focus between rows and the search box takes typed letters. At 390x844 as a touch
 device K4 checks that each swipe or long-press action has a button or menu: Star, the row's More actions menu (mark
 read or unread), Back to list, Refresh all feeds, and Move to folder for reordering. Exit code 0 clean, 1 findings, 2
 setup error. WebKit leaves links out of the Tab order unless the reader turns on Safari's "Press Tab to highlight each
@@ -232,9 +232,8 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
   real content, images load through the proxy.
 - TC-R2: Switch density (Dense/Snug/Standard/Relaxed/Airy) → list and reading text both change, live preview
   matches the applied result.
-- TC-R3: Every keyboard shortcut (j/k/s/o/r/m/c/z/Shift+A/`/`, and the rest of the `?` overlay,
-  `web/src/lib/keys.ts`) does what the overlay and `docs/maintainers/ui-decisions.md` specify,
-  including the Unread-view dim-then-remove behavior and the 15s undo toast.
+- TC-R3: Letter and symbol keys do nothing (there are no single-key shortcuts). Tab, the arrow keys,
+  Enter and Escape behave as `docs/maintainers/ui-decisions.md` specifies.
 - TC-R4: Theme picker — default short list plus "More themes"; each of the 20 schemes is legible (spot-check
   Signal's danger color and the Carbon/Fountain distinction called out in the UI decisions).
 - TC-R5: Follow system switches to the configured day and night picks when the OS switches between light and

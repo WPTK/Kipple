@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
-import { initPrefs, updatePrefs } from "@/lib/prefs";
+import { initPrefs } from "@/lib/prefs";
 import { closeFilterEditor, filterEditorStore } from "@/lib/similar";
 import { feedEditorStore } from "@/lib/feedEditor";
 import { initTheme } from "@/theme/theme";
@@ -214,18 +214,6 @@ describe("Article view", () => {
     expect(window.history.length).toBe(before);
   });
 
-  it("j and k move through the list order", async () => {
-    routes();
-    go("/i/1002?from=unread");
-    await screen.findByTestId("article-body");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Previous article" })).toBeEnabled());
-    const user = userEvent.setup();
-    await user.keyboard("k");
-    await waitFor(() => expect(window.location.pathname).toBe("/i/1001"));
-    await user.keyboard("j");
-    await waitFor(() => expect(window.location.pathname).toBe("/i/1002"));
-  });
-
   it("full text toggle posts mode 1 and swaps the content", async () => {
     const { calls } = routes({
       "POST /api/items/1001/fulltext": () => json({ mode: 1, effective: 1, status: "ok", content_html: "<p>The whole article</p>", word_count: 900, error: null }),
@@ -238,15 +226,15 @@ describe("Article view", () => {
     expect(JSON.parse(String(calls.find((c) => c.url.pathname.endsWith("/fulltext"))?.init?.body))).toEqual({ mode: 1 });
   });
 
-  it("does not react to letter keys when single-key shortcuts are off", async () => {
-    routes();
-    updatePrefs({ shortcuts: false });
+  it("letter and symbol keys do nothing: there are no single-key shortcuts", async () => {
+    const { calls } = routes();
     go("/i/1002?from=unread");
     await screen.findByTestId("article-body");
     const user = userEvent.setup();
-    await user.keyboard("k");
+    await user.keyboard("kjmsofuzr/?[[]{Shift>}A{/Shift}");
     expect(window.location.pathname).toBe("/i/1002");
-    updatePrefs({ shortcuts: true });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(calls.filter((c) => c.method !== "GET" && !c.url.pathname.endsWith("/open")).map((c) => c.url.pathname)).toEqual([]); // opening the article is the only write
   });
 });
 

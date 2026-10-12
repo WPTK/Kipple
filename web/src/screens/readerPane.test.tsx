@@ -1,12 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { onlineManager } from "@tanstack/react-query";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
-import { updatePrefs } from "@/lib/prefs";
 import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
 import { clearListMemory } from "./ListPane";
@@ -51,7 +50,6 @@ function media(...on: string[]) {
 }
 const rowOf = (n: number) => document.querySelector(`[data-item-id="${1000 + n}"]`);
 const rowLink = (n: number) => rowOf(n)?.querySelector("a") as HTMLElement;
-const bodyOf = (call: { init?: RequestInit } | undefined) => JSON.parse(String(call?.init?.body));
 
 beforeEach(() => {
   vi.stubGlobal("EventSource", NoES);
@@ -61,7 +59,6 @@ beforeEach(() => {
   liveStore.set(initialLive);
   resetDevicePrefs();
   resetUndo();
-  updatePrefs({ shortcuts: true });
   updateDevicePrefs({ peekSeen: true, layout: "inbox" });
   media("min-width: 900px");
 });
@@ -108,10 +105,8 @@ describe("addresses from the feed", () => {
     go("/l/unread");
     await screen.findByText("Article number 2");
     const user = userEvent.setup();
-    await user.keyboard("j"); // selects and opens row 1 beside the list
+    await user.click(rowLink(1)); // opens row 1 beside the list
     await screen.findByTestId("article-body");
-    await user.keyboard("o"); // open original (the list drives it in the pane)
-    await user.keyboard("v"); // open in the background
     await user.click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Open original" }));
     expect(open).not.toHaveBeenCalled();
@@ -120,9 +115,10 @@ describe("addresses from the feed", () => {
     expect(source).not.toHaveAttribute("href");
 
     // An ordinary address still opens.
-    await user.keyboard("j");
+    await user.click(rowLink(2));
     await waitFor(() => expect(window.location.pathname).toBe("/i/1002"));
-    await user.keyboard("o");
+    await user.click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Open original" }));
     expect(open).toHaveBeenCalledWith("https://example.com/a/2", "_blank", "noopener,noreferrer");
   });
 });
@@ -133,9 +129,10 @@ describe("reader pane: one persistent list", () => {
     go("/l/unread");
     await screen.findByText("Article number 5");
     const user = userEvent.setup();
-    await user.keyboard("j"); // select row 1, opens it in the pane (replace)
+    await user.click(rowLink(1)); // opens row 1 in the pane
     await screen.findByTestId("article-body");
-    await user.keyboard("}"); // mark below as read: rows 2-5 leave the Unread list
+    await user.click(within(rowOf(1) as HTMLElement).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mark below as read" })); // rows 2-5 leave the Unread list
     await waitFor(() => expect(rowOf(5)).toBeNull());
     // Go to the list route and back into an article: the list must not come back to life.
     await user.click(rowLink(1));
@@ -160,7 +157,8 @@ describe("reader pane: one persistent list", () => {
     go("/l/unread");
     await screen.findByText("Article number 5");
     const user = userEvent.setup();
-    await user.keyboard("j}");
+    await user.click(within(rowOf(1) as HTMLElement).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mark below as read" }));
     await waitFor(() => expect(screen.queryByText("Article number 5")).toBeNull());
     await user.click(screen.getByText("Article number 1"));
     await screen.findByTestId("article-body");
@@ -170,28 +168,7 @@ describe("reader pane: one persistent list", () => {
   });
 });
 
-describe("reader pane: keys", () => {
-  it("list keys stay active with an article open (Shift+A marks the list read)", async () => {
-    const { calls } = routes();
-    go("/i/1001?from=unread");
-    await screen.findByTestId("article-body");
-    await screen.findByText("Article number 3");
-    await userEvent.setup().keyboard("{Shift>}A{/Shift}");
-    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read" && bodyOf(c).scope)).toBe(true));
-  });
-
-  it("j moves exactly one article (list and article keys do not both fire)", async () => {
-    const { calls } = routes();
-    go("/i/1001?from=unread");
-    await screen.findByTestId("article-body");
-    await screen.findByText("Article number 3");
-    await userEvent.setup().keyboard("j");
-    await waitFor(() => expect(window.location.pathname).toBe("/i/1002"));
-    await new Promise((r) => setTimeout(r, 100));
-    expect(window.location.pathname).toBe("/i/1002");
-    expect(calls.filter((c) => c.url.pathname === "/api/items/1003/open")).toHaveLength(0);
-  });
-
+describe("reader pane: Escape", () => {
   it("Esc returns focus to the list row of the open article", async () => {
     routes();
     go("/i/1002?from=unread");
@@ -202,22 +179,6 @@ describe("reader pane: keys", () => {
     expect(window.location.pathname).toBe("/i/1002");
   });
 
-  it("u does the same", async () => {
-    routes();
-    go("/i/1001?from=unread");
-    await screen.findByTestId("article-body");
-    await waitFor(() => expect(rowOf(1)).not.toBeNull());
-    await userEvent.setup().keyboard("u");
-    await waitFor(() => expect(document.activeElement?.closest('[data-item-id="1001"]')).not.toBeNull());
-  });
-
-  it("f still toggles full text in the pane", async () => {
-    const { calls } = routes({ "POST /api/items/1001/fulltext": () => json({ mode: 1, effective: 1, status: "ok", content_html: "<p>x</p>", word_count: 1, error: null }) });
-    go("/i/1001?from=unread");
-    await screen.findByTestId("article-body");
-    await userEvent.setup().keyboard("f");
-    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/1001/fulltext")).toBe(true));
-  });
 });
 
 describe("reader pane: sort order", () => {
@@ -237,24 +198,6 @@ describe("reader pane: sort order", () => {
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items" && c.url.searchParams.get("order") === "oldest")).toBe(true));
-  });
-});
-
-describe("refresh key", () => {
-  it("r refreshes once from the list", async () => {
-    const { calls } = routes();
-    go("/l/unread");
-    await screen.findByText("Article number 1");
-    await userEvent.setup().keyboard("r");
-    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/refresh")).toHaveLength(1));
-  });
-
-  it("r refreshes from Settings too, as the shortcut overlay says (Everywhere)", async () => {
-    const { calls } = routes({ "GET /api/settings": () => json({ settings: [], values: {} }) });
-    go("/settings");
-    await screen.findByRole("heading", { name: "Settings" });
-    await userEvent.setup().keyboard("r");
-    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/refresh")).toBe(true));
   });
 });
 
@@ -312,18 +255,5 @@ describe("an article that fails to load", () => {
     go("/i/1001");
     await screen.findByText("Loading article");
     expect(screen.getByRole("button", { name: "Back to list" })).toBeInTheDocument();
-  });
-});
-
-describe("CapsLock", () => {
-  it("g a with CapsLock on goes to All and does not mark the list read", async () => {
-    const { calls } = routes();
-    go("/l/unread");
-    await screen.findByText("Article number 1");
-    // CapsLock: key is upper case, shiftKey is false.
-    fireEvent.keyDown(window, { key: "G", shiftKey: false });
-    fireEvent.keyDown(window, { key: "A", shiftKey: false });
-    await waitFor(() => expect(window.location.pathname).toBe("/l/all"));
-    expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(false);
   });
 });

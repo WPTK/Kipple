@@ -1,12 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { Virtualizer } from "@tanstack/virtual-core";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { resetDevicePrefs, setListOverride, updateDevicePrefs } from "@/lib/devicePrefs";
-import { updatePrefs } from "@/lib/prefs";
 import { resetUndo } from "@/lib/undo";
 import { gestureLock } from "@/gestures/lock";
 import { rowMenuStore } from "@/gestures/rowMenu";
@@ -21,7 +19,6 @@ class NoES {
 
 const BASE = 1_790_000_000;
 const items = () => [1, 2, 3, 4, 5].map((n) => card(n, { published_at: BASE - n * 3600, sort_at: BASE - n * 3600 }));
-const bodyOf = (call: { init?: RequestInit } | undefined) => JSON.parse(String(call?.init?.body));
 
 function routes(extra: Parameters<typeof mockFetch>[0] = {}) {
   return mockFetch({
@@ -64,7 +61,6 @@ beforeEach(() => {
   liveStore.set(initialLive);
   resetDevicePrefs();
   resetUndo();
-  updatePrefs({ shortcuts: true });
   updateDevicePrefs({ peekSeen: true });
   gestureLock.rowSwipe = false;
 });
@@ -134,28 +130,4 @@ describe("review fixes", () => {
     }
   });
 
-  it("a held key does not repeat an action, but j still repeats", async () => {
-    const { calls } = routes();
-    go("/l/unread");
-    await screen.findByText("Article number 1");
-    await userEvent.setup().keyboard("j");
-    const before = calls.filter((c) => c.url.pathname === "/api/items/mark-read").length;
-    fireEvent.keyDown(document.body, { key: "m", repeat: true });
-    fireEvent.keyDown(document.body, { key: "m", repeat: true });
-    await new Promise((r) => setTimeout(r, 30));
-    expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read").length).toBe(before);
-    fireEvent.keyDown(document.body, { key: "m" });
-    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read").length).toBe(before + 1));
-  });
-
-  it("} with rows ticked marks below the last ticked row", async () => {
-    const { calls } = routes();
-    go("/l/unread");
-    await screen.findByText("Article number 1");
-    const user = userEvent.setup();
-    await user.keyboard("jxjxk"); // tick rows 1001 and 1002, move the cursor back to 1001
-    await user.keyboard("}");
-    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
-    expect(bodyOf(calls.find((c) => c.url.pathname === "/api/items/mark-read")).bound.anchor.id).toBe("1002");
-  });
 });

@@ -341,10 +341,8 @@ function AccessibilitySection({ scrollHelp }: { scrollHelp: string | undefined }
 /* ---------- The seven group pages ---------- */
 
 function AppearancePage() {
-  const p = useStore(prefsStore);
   const dp = useDevicePrefs();
   const settings = useSettings();
-  const switchId = useId();
   const scrollHelp = settings.data?.settings.find((s) => s.key === "ui.mark_read_on_scroll")?.description;
   return (
     <>
@@ -411,22 +409,6 @@ function AppearancePage() {
         <Link to="/feeds" className="inline-flex min-h-11 items-center self-start text-sm text-link underline underline-offset-2">
           Manage feeds and folders
         </Link>
-      </Section>
-
-      <Section title="Keyboard">
-        <label htmlFor={switchId} className="flex min-h-11 items-start gap-3 text-sm">
-          <input
-            id={switchId}
-            type="checkbox"
-            checked={p.shortcuts}
-            onChange={(e) => updatePrefs({ shortcuts: e.target.checked })}
-            className="mt-0.5 size-5 shrink-0 accent-[var(--kp-accent)]"
-          />
-          <span>
-            Single-key shortcuts
-            <span className="block text-xs text-fg2">j and k move, s stars, m marks read, o opens the original. Off by default on a phone or tablet with no keyboard; turn it off if letter keys clash with assistive technology.</span>
-          </span>
-        </label>
       </Section>
 
       <ServerPart groups={[{ id: "reading", title: "Reading" }]} />

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import App, { makeQueryClient } from "@/App";
@@ -40,6 +40,8 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+const rowOf = (n: number) => document.querySelector(`[data-item-id="${1000 + n}"]`) as HTMLElement;
+
 describe("row memoization", () => {
   it("marking one row read re-renders only that row", async () => {
     const cards = Array.from({ length: 5 }, (_, i) => card(i + 1));
@@ -52,12 +54,13 @@ describe("row memoization", () => {
     render(<App client={makeQueryClient({ retry: false })} />);
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    await user.keyboard("j");
+    await user.click(within(rowOf(1)).getByRole("button", { name: "More actions" }));
+    const markRead = await screen.findByRole("menuitem", { name: "Mark as read" });
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
     renders.clear();
-    await user.keyboard("m");
+    await user.click(markRead);
     await waitFor(() => expect(renders.get("1001")).toBeGreaterThan(0));
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
@@ -78,14 +81,11 @@ describe("range actions after the list changed", () => {
     render(<App client={makeQueryClient({ retry: false })} />);
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    await user.keyboard("j");
-    await user.keyboard("m"); // changes the cached list: row 1001 is now read
+    await user.click(within(rowOf(1)).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mark as read" })); // changes the cached list: row 1001 is now read
     await waitFor(() => expect(calls.filter((c) => c.method === "POST")).toHaveLength(1));
-    await user.keyboard("j");
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 50));
-    });
-    await user.keyboard("{{}"); // mark above the selected row
+    await user.click(within(rowOf(2)).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mark above as read" }));
     const bulk = () => calls.filter((c) => c.method === "POST" && String(c.init?.body).includes("\"bound\""));
     await waitFor(() => expect(bulk().length).toBeGreaterThan(0));
     const body = JSON.parse(String(bulk()[0]?.init?.body));

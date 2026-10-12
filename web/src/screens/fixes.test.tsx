@@ -99,7 +99,9 @@ describe("row collapse in the Unread view", () => {
     await screen.findByText("Article number 1");
     // Mark-all hides at once: the row is "leaving" for only COLLAPSE_MS (180 ms). A real-time waitFor poll can miss that short
     // window when the machine is loaded (both timers fire in one starved slice), so the clock is faked from here
-    // and stepped by hand: 50 ms steps can never skip over the 180 ms leaving state.
+    // and stepped by hand: 50 ms steps can never skip over the 180 ms leaving state. The menu is opened first, on real timers.
+    await userEvent.setup().click(screen.getByRole("button", { name: "List actions" }));
+    const markAll = await screen.findByRole("menuitem", { name: /Mark all as read/ });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       const step = async (ms: number) => {
@@ -111,7 +113,7 @@ describe("row collapse in the Unread view", () => {
       const leaving = () => container.querySelector('.kp-row[data-leaving="true"]');
       // fireEvent, not userEvent: user-event's async wrapper waits on a real setTimeout, which is faked here.
       await act(async () => {
-        fireEvent.keyDown(document.body, { key: "A", code: "KeyA", shiftKey: true });
+        fireEvent.click(markAll);
       });
       let waited = 0;
       while (!leaving() && waited < 5000) {
@@ -128,44 +130,5 @@ describe("row collapse in the Unread view", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-});
-
-describe("selection when the selected row leaves the Unread list", () => {
-  it("moves to the next row, so j carries on from there instead of jumping to the top", async () => {
-    mockFetch({
-      "GET /api/bootstrap": () => json(bootstrap),
-      "GET /api/items": () => json(pageOf([card(1), card(2), card(3)])),
-      "POST /api/items/mark-read": (_u, init) => json({ changed: JSON.parse(String(init?.body)).ids, restored: [] }),
-    });
-    const { container } = go("/l/unread");
-    await screen.findByText("Article number 1");
-    const selected = () => container.querySelector("[data-item-id][data-selected]")?.getAttribute("data-item-id");
-    act(() => void fireEvent.keyDown(document.body, { key: "j" }));
-    await waitFor(() => expect(selected()).toBe("1001"));
-    act(() => void fireEvent.keyDown(document.body, { key: "m" }));
-    // The row leaves after LEAVE_MS and the collapse; the selection moves to the row that took its place.
-    await waitFor(() => expect(screen.queryByText("Article number 1")).toBeNull());
-    await waitFor(() => expect(selected()).toBe("1002"));
-    act(() => void fireEvent.keyDown(document.body, { key: "j" }));
-    await waitFor(() => expect(selected()).toBe("1003"));
-    act(() => void fireEvent.keyDown(document.body, { key: "k" }));
-    await waitFor(() => expect(selected()).toBe("1002"));
-  }, 10000);
-});
-
-describe("previous and next feed controls", () => {
-  it("shows labelled buttons with key hints on a feed list and navigates", async () => {
-    const two = {
-      ...bootstrap,
-      feeds: [bootstrap.feeds[0]!, { ...bootstrap.feeds[0]!, id: "2", title: "Second" }],
-    };
-    mockFetch({ "GET /api/bootstrap": () => json(two), "GET /api/items": () => json(pageOf([card(1)])) });
-    go("/l/unread?feed=1");
-    const next = await screen.findByRole("button", { name: "Next feed" });
-    expect(next).toHaveAttribute("title", expect.stringContaining("]"));
-    expect(screen.getByRole("button", { name: "Previous feed" })).toBeDisabled();
-    await userEvent.setup().click(next);
-    await waitFor(() => expect(window.location.search).toContain("feed=2"));
   });
 });

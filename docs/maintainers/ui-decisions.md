@@ -39,11 +39,11 @@ were resolved in round 2 and what shipped; each is annotated below.
 - Must be iOS compliant in the least annoying way (nothing starting in the left ~24 px; no fighting Safari's
   back gesture; every gesture has a button).
 - Haptics not needed; visual snap plus **undo toast** is approved.
-- **Row swipe: full swipe with undo. Swipe left = mark read, swipe right = mark unread.** (Star: TODO, resolved: a row button, a swipe, `s` and the row menu.)
+- **Row swipe: full swipe with undo. Swipe left = mark read, swipe right = mark unread.** (Star: a row button, a swipe and the row menu.)
 - **Article swipe: swipe back to the previous screen** (the article list you came from, not always the feed
-  list), i.e. drill-in navigation stack. Keep next/previous **buttons** and **j/k**.
-- Keys: j/k next/previous, s star, o open original, r refresh, m mark read (plus common conventions, TODO
-  keymap; resolved, the KEYMAP in `web/src/lib/keys.ts`).
+  list), i.e. drill-in navigation stack. Keep next/previous **buttons**.
+- Keys: **no single-key shortcuts** (owner decision, final). Keyboard use is Tab order, the list's one Tab stop,
+  arrow keys moving focus between rows, Enter and Space to activate, Escape to close and return focus.
 - First-run **peek animation** teaches swipe reveal.
 - Mark-read-on-scroll: keep as a setting, **off by default**.
 
@@ -134,8 +134,8 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
   folders above it over its title.
   The OPML import report shows the paths the server sends, which are `/`-joined like Reader API labels; a folder the
   file merged into one with the same full path is shown as both chains joined with ` › `.
-- In the sidebar trees the item is the only tab stop: the chevron and the star are pointer targets there, and **P**
-  adds the focused item to the favorites or takes it out (listed in the shortcuts overlay under Sidebar).
+- In the sidebar trees the item is the only tab stop: the chevron and the star are pointer targets there. From the
+  keyboard, favorites are added and taken out on the Feeds screen.
 - A subfolder's or feed's layout menu names where its layout comes from: "Inherited from Tech (Cards)".
 - Deleting a folder says how many subfolders are deleted with it and that its feeds move to the default folder.
 - OPML import has an opt-in switch, off by default: "Move feeds that already exist into the file's folders".
@@ -143,14 +143,13 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
 ### Gestures and keys
 - **Swipe directions match iOS Mail everywhere** (this supersedes round 1's "read left, unread right"):
   swipe right (leading) = toggle read/unread; swipe left (trailing) = star, plus a "More" action opening the
-  row menu. Full swipe commits with undo. Star also has a row button, `s`, and the long-press menu.
-- Undo toast lasts **15 seconds** from when the change is saved (merged toast). `z` undoes the newest change, up to 20
+  row menu. Full swipe commits with undo. Star also has a row button and the long-press menu.
+- Undo toast lasts **15 seconds** from when the change is saved (merged toast). The Undo button undoes the newest change, up to 20
   changes back within 60 s (bulk marks 2 minutes), waiting for one that is still saving; the full model is
   docs/design.md §7.11.
-- Single-key shortcuts: global on/off setting. `c`: toggle the Compact layout (match the layout system).
-  `m` in Unread view: row dims in place (shipped differently: a row marked read on purpose dims,
+  Marking read in the Unread view: row dims in place (shipped differently: a row marked read on purpose dims,
   then leaves the Unread list after 1.5 s with the undo toast up; the open article leaves when you
-  move off it; a swiped row leaves at once; undo or mark unread cancels it). `Shift+A` marks only items present when the list loaded. Mark
+  move off it; a swiped row leaves at once; undo or mark unread cancels it). Mark all marks only items present when the list loaded. Mark
   above/below approved (anchor excluded, disabled for relevance-sorted search).
 
 ### Backend features

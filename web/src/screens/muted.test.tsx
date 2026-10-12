@@ -359,7 +359,7 @@ describe("Mute similar… from the open article", () => {
   // The muted article leaves the list it was opened from; Next and Previous go on from where it was.
   it.each(["phone", "wide"] as const)("%s: Previous and Next still work after the article leaves its list", async (layout) => {
     if (layout === "wide") wide();
-    prefsStore.set({ ...DEFAULT_PREFS, shortcuts: true });
+    prefsStore.set({ ...DEFAULT_PREFS });
     const open = (n: number) => () => json({ session_key: "k", item: detail(n, { read: true }) });
     routes({
       "GET /api/items": () => json(pageOf([card(1), card(2), card(3)])),
@@ -382,10 +382,9 @@ describe("Mute similar… from the open article", () => {
     expect(cached).toEqual(["1001", "1003"]);
     expect(screen.getByRole("button", { name: "Previous article" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Next article" })).toBeEnabled();
-    if (layout === "wide") await user.keyboard("j");
-    else await user.click(screen.getByRole("button", { name: "Next article" }));
+    await user.click(screen.getByRole("button", { name: "Next article" }));
     await waitFor(() => expect(window.location.pathname).toBe("/i/1003"));
-    await user.keyboard("k");
+    await user.click(screen.getByRole("button", { name: "Previous article" }));
     await waitFor(() => expect(window.location.pathname).toBe("/i/1001"));
   });
 });
@@ -393,8 +392,8 @@ describe("Mute similar… from the open article", () => {
 describe("Mute similar… and undo", () => {
   // The mute happened where this tab did not hear of it (another device, or while the live connection was down), so
   // only the server knows: it answers the undo with the article it left muted, and the article stays read and gone.
-  it("z after an article marked read with m was muted elsewhere leaves it read and out of Unread", async () => {
-    prefsStore.set({ ...DEFAULT_PREFS, shortcuts: true });
+  it("Undo after an article marked read was muted elsewhere leaves it read and out of Unread", async () => {
+    prefsStore.set({ ...DEFAULT_PREFS });
     const { calls } = routes({
       "POST /api/items/mark-read": (_u, init) => {
         const b = JSON.parse(String(init?.body)) as { ids: string[]; undo?: boolean };
@@ -404,10 +403,10 @@ describe("Mute similar… and undo", () => {
     go("/l/unread");
     const user = userEvent.setup();
     await screen.findByText("Article number 1");
-    await user.keyboard("j");
-    await user.keyboard("m");
+    await user.click(screen.getAllByRole("button", { name: "More actions" })[0] as HTMLElement);
+    await user.click(await screen.findByRole("menuitem", { name: "Mark as read" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read" && body(c).read === true)).toBe(true));
-    await user.keyboard("z");
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
     // Marking unread is also the un-mute: the undo says it is one, and the server skips an article muted since.
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read" && body(c).read === false).map(body)).toEqual([expect.objectContaining({ ids: ["1001"], undo: true })]));
     await waitFor(() => expect(screen.queryByText("Article number 1")).toBeNull());

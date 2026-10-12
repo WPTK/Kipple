@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { CheckBadge, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
+import { RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex } from "./rowTabStop";
@@ -10,7 +10,7 @@ import { useRowTabIndex } from "./rowTabStop";
  * image. The star shows only when starred (or on hover/focus); everything else
  * is in the row menu. Rows are min 44 px on touch (see .row-compact).
  */
-function CompactRow({ item, feed, selected, checked, to, onOpen, onToggleStar, actions }: RowProps) {
+function CompactRow({ item, feed, selected, to, onOpen, onToggleStar, actions }: RowProps) {
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
   return (
@@ -22,7 +22,6 @@ function CompactRow({ item, feed, selected, checked, to, onOpen, onToggleStar, a
         selected ? "bg-selection" : "hover:bg-surface",
       )}
     >
-      <CheckBadge checked={checked} />
       <UnreadDot unread={unread} />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-1">
         <SourceTimeMeta item={item} icon={feed?.icon} />

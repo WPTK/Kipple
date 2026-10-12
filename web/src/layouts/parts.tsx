@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DropdownMenu } from "radix-ui";
-import { BellOff, Check, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, MoveUp, Pencil, Rss, RotateCcw, Share2, Star } from "lucide-react";
+import { BellOff, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, MoveUp, Pencil, Rss, RotateCcw, Share2, Star } from "lucide-react";
 import type { Card } from "@/api/types";
 import { closeRowMenu, rowMenuStore } from "@/gestures/rowMenu";
 import { cn } from "@/lib/cn";
@@ -17,15 +17,6 @@ export function UnreadDot({ unread, className }: { unread: boolean; className?: 
 export function SourceIcon({ src, className }: { src: string | null | undefined; className?: string }) {
   if (!src) return null;
   return <img src={src} alt="" width={16} height={16} loading="lazy" className={cn("size-4 shrink-0 rounded-sm", className)} />;
-}
-
-export function CheckBadge({ checked, className }: { checked: boolean; className?: string }) {
-  if (!checked) return null;
-  return (
-    <span aria-hidden="true" className={cn("absolute top-1 left-1 z-10 grid size-5 place-items-center rounded-full bg-accent text-bg", className)}>
-      <Check className="size-3.5" />
-    </span>
-  );
 }
 
 export function StarButton({ item, onToggleStar, className }: { item: Card; onToggleStar: (i: Card) => void; className?: string }) {

@@ -14,7 +14,7 @@ import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
 import { themeStore } from "@/theme/theme";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
-import { LEAVE_MS, NO_RANGE_IN_PAGES, clearListMemory, resetScrollReadForTests } from "./ListPane";
+import { clearListMemory, resetScrollReadForTests } from "./ListPane";
 
 // The Gazette as the list screen draws it: the fetch, the paper's name, reading in place, keys and loading more.
 
@@ -57,7 +57,6 @@ beforeEach(() => {
   liveStore.set(initialLive);
   resetDevicePrefs();
   resetUndo();
-  updatePrefs({ shortcuts: true });
   updateDevicePrefs({ peekSeen: true, layout: "gazette" });
   vi.stubGlobal("EventSource", NoES);
 });
@@ -125,65 +124,6 @@ describe("Gazette on the list screen", () => {
     go("/l/unread");
     expect(await screen.findByRole("heading", { name: "Morning Notes" })).toBeInTheDocument();
     expect(screen.getByText("That's Morning Notes.")).toBeInTheDocument();
-  });
-
-  it("j and k follow the reading order, and a story marked read stays where it is", async () => {
-    routes();
-    const { container } = go("/l/unread");
-    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
-    const order = storyIds(container);
-    const list = screen.getByTestId("list-scroll");
-    const press = (key: string) => act(() => void fireEvent.keyDown(list, { key }));
-    press("j");
-    press("j");
-    await waitFor(() => expect(container.querySelector("[data-selected]")?.getAttribute("data-item-id")).toBe(order[1]));
-    press("k");
-    await waitFor(() => expect(container.querySelector("[data-selected]")?.getAttribute("data-item-id")).toBe(order[0]));
-    press("m");
-    const story = () => container.querySelector(`article[data-item-id="${order[0]}"]`);
-    await waitFor(() => expect(story()).toHaveAttribute("data-read", "true"));
-    // In the Unread list a row marked read leaves after LEAVE_MS; a story of the paper fades in place instead.
-    await act(() => new Promise((r) => setTimeout(r, LEAVE_MS + 300)));
-    expect(story()).not.toBeNull();
-    expect(storyIds(container)).toEqual(order);
-  });
-
-  it("mark above and below are off: the page is not in date order", async () => {
-    const { calls } = routes();
-    const { container } = go("/l/unread");
-    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
-    const list = screen.getByTestId("list-scroll");
-    const press = (key: string) => act(() => void fireEvent.keyDown(list, { key }));
-    press("j");
-    await waitFor(() => expect(container.querySelector("[data-selected]")).not.toBeNull());
-    press("{");
-    press("}");
-    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent(NO_RANGE_IN_PAGES));
-    expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
-    expect(storyIds(container).every((id) => !container.querySelector(`article[data-item-id="${id}"]`)?.hasAttribute("data-read"))).toBe(true);
-  });
-
-  it("a story ticked with x shows its tick", async () => {
-    routes();
-    const { container } = go("/l/unread");
-    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
-    const order = storyIds(container);
-    const list = screen.getByTestId("list-scroll");
-    act(() => void fireEvent.keyDown(list, { key: "j" }));
-    act(() => void fireEvent.keyDown(list, { key: "x" }));
-    const story = await waitFor(() => {
-      const s = container.querySelector(`article[data-item-id="${order[0]}"]`);
-      expect(s).toHaveAttribute("data-checked", "true");
-      return s!;
-    });
-    expect(story.querySelector("svg.lucide-check")).not.toBeNull();
-    // Mark above and below mark nothing here, so they leave the tick alone too.
-    act(() => void fireEvent.keyDown(list, { key: "{" }));
-    act(() => void fireEvent.keyDown(list, { key: "}" }));
-    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent(NO_RANGE_IN_PAGES));
-    expect(story).toHaveAttribute("data-checked", "true");
-    act(() => void fireEvent.keyDown(list, { key: "x" }));
-    await waitFor(() => expect(story).not.toHaveAttribute("data-checked"));
   });
 
   it("a search shows rows, not a paper", async () => {
@@ -389,18 +329,18 @@ describe("mark as read while scrolling in the Gazette", () => {
     }
   });
 
-  it("switching to the Gazette with `c` and back starts from what is on screen", async () => {
+  it("switching from the Gazette to rows and back starts from what is on screen", async () => {
     const { calls } = routes(() => pageOf(many(1, 20)));
     go("/l/unread");
     await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
     resized();
     const list = screen.getByTestId("list-scroll");
-    act(() => void fireEvent.keyDown(list, { key: "c" }));
+    act(() => updateDevicePrefs({ layout: "compact" }));
     await waitFor(() => expect(screen.queryByRole("heading", { name: DEFAULT_PAPER_NAME })).toBeNull());
     act(() => {
       list.scrollTop = 1500; // where the rows left the list
     });
-    act(() => void fireEvent.keyDown(list, { key: "c" }));
+    act(() => updateDevicePrefs({ layout: "gazette" }));
     await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
     resized();
     // A scroll event with no movement by the reader: the stories seen at the top before the switch are not passed.
@@ -409,7 +349,7 @@ describe("mark as read while scrolling in the Gazette", () => {
     expect(marked(calls)).toHaveLength(0);
   });
 
-  it("switching from the Gazette to rows with `c` after scrolling marks nothing the rows put above the top", async () => {
+  it("switching from the Gazette to rows after scrolling marks nothing the rows put above the top", async () => {
     const { calls } = routes(() => pageOf(many(1, 20)));
     go("/l/unread");
     await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
@@ -422,7 +362,7 @@ describe("mark as read while scrolling in the Gazette", () => {
     act(() => {
       list.scrollTop = 1500; // the rows are laid out differently: the seen stories' rows land above the top
     });
-    act(() => void fireEvent.keyDown(list, { key: "c" }));
+    act(() => updateDevicePrefs({ layout: "compact" }));
     await waitFor(() => expect(screen.queryByRole("heading", { name: DEFAULT_PAPER_NAME })).toBeNull());
     await settle();
     expect(marked(calls)).toHaveLength(0);

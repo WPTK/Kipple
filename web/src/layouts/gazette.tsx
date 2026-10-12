@@ -8,7 +8,7 @@ import { useFavorites } from "@/lib/favorites";
 import { articleTo } from "@/lib/routes";
 import { planGazette, type Block, type GazettePlan, type PagePlan, type Slot } from "./gazettePlan";
 import { magazine } from "./magazine";
-import { CheckBadge, PublishedTime, rowLabel } from "./parts";
+import { PublishedTime, rowLabel } from "./parts";
 import type { ListLayout, PageProps } from "./types";
 
 // The Gazette's pages (docs/maintainers/ui-decisions.md, "The Gazette"). It draws what planGazette returns, in that order: a page
@@ -39,7 +39,6 @@ export interface GazetteProps {
   /** The story that last had focus: the paper's one Tab stop when it is still there. */
   focusedId?: string;
   /** Stories ticked with `x`: each shows a tick. */
-  checked?: ReadonlySet<string>;
 }
 
 /** The name to print: the given one trimmed, or the default when blank. */
@@ -53,7 +52,7 @@ export function closingLine(name: string): string {
 const longDate = (d: Date) => d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 const shortDate = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
-export function Gazette({ plan, items, name: given, date, screen, to, onOpen, selectedId, focusedId, checked }: GazetteProps) {
+export function Gazette({ plan, items, name: given, date, screen, to, onOpen, selectedId, focusedId }: GazetteProps) {
   const phone = screen === "phone";
   const name = paperName(given);
   const last = plan.pages.length - 1;
@@ -74,7 +73,6 @@ export function Gazette({ plan, items, name: given, date, screen, to, onOpen, se
           onOpen={onOpen}
           selectedId={selectedId}
           tabStopId={tabStopId}
-          checked={checked}
           ruled={i > 0}
         />
       ))}
@@ -105,7 +103,7 @@ interface PagePlanProps extends Omit<GazetteProps, "plan" | "screen"> {
   ruled: boolean;
 }
 
-function GazettePage({ page, items, name, date, phone, to, onOpen, selectedId, tabStopId, checked, ruled }: PagePlanProps) {
+function GazettePage({ page, items, name, date, phone, to, onOpen, selectedId, tabStopId, ruled }: PagePlanProps) {
   const front = page.kind === "front";
   return (
     // A plain section with no accessible name, so a long paper does not add one landmark per page; its h2 is what
@@ -114,7 +112,7 @@ function GazettePage({ page, items, name, date, phone, to, onOpen, selectedId, t
       {front ? <Masthead name={name} date={date} phone={phone} /> : <Folio name={name} date={date} number={page.number} phone={phone} />}
       <div className="flex flex-col gap-6">
         {page.blocks.map((b, i) => (
-          <GazetteBlock key={i} block={b} items={items} to={to} onOpen={onOpen} phone={phone} selectedId={selectedId} tabStopId={tabStopId} checked={checked} />
+          <GazetteBlock key={i} block={b} items={items} to={to} onOpen={onOpen} phone={phone} selectedId={selectedId} tabStopId={tabStopId} />
         ))}
       </div>
     </section>
@@ -160,10 +158,9 @@ interface BlockProps {
   onOpen: (item: Card) => void;
   phone: boolean;
   selectedId: string | undefined;
-  checked: ReadonlySet<string> | undefined;
 }
 
-function GazetteBlock({ block, items, to, onOpen, phone, selectedId, tabStopId, checked }: BlockProps) {
+function GazetteBlock({ block, items, to, onOpen, phone, selectedId, tabStopId }: BlockProps) {
   const columns = phone ? 1 : block.columns;
   const byColumn: Slot[][] = Array.from({ length: columns }, () => []);
   for (const s of block.slots) if (items.has(s.id)) byColumn[Math.min(s.column, columns - 1)]!.push(s);
@@ -191,7 +188,6 @@ function GazetteBlock({ block, items, to, onOpen, phone, selectedId, tabStopId, 
                 phone={phone}
                 selected={s.id === selectedId}
                 tabStop={s.id === tabStopId}
-                checked={!!checked?.has(s.id)}
               />
             ))}
           </div>
@@ -211,7 +207,6 @@ interface StoryProps {
   selected: boolean;
   /** This story's link is the paper's one Tab stop. */
   tabStop: boolean;
-  checked: boolean;
 }
 
 /** Headline sizes by slot: a picture lead about 26 px, a headline lead about 40 px (smaller on a phone). */
@@ -229,7 +224,7 @@ function headlineClass(slot: Slot, phone: boolean): string {
   }
 }
 
-function Story({ slot, item, heading: H, to, onOpen, phone, selected, tabStop, checked }: StoryProps) {
+function Story({ slot, item, heading: H, to, onOpen, phone, selected, tabStop }: StoryProps) {
   const lead = slot.kind === "lead" || slot.kind === "co-lead";
   const picture = !!item.image && (slot.kind === "photo" || (lead && slot.picture));
   const brief = slot.kind === "brief";
@@ -241,12 +236,10 @@ function Story({ slot, item, heading: H, to, onOpen, phone, selected, tabStop, c
       data-slot={slot.kind}
       data-read={item.read || undefined}
       data-selected={selected || undefined}
-      data-checked={checked || undefined}
       // The selection is an outline outside the story's box, so selecting one never moves the page; a tick (`x`) sits
       // on its corner for the same reason.
       className={cn("relative flex min-w-0 flex-col gap-1.5", brief && "border-b border-line pb-2", selected && "outline-2 outline-offset-4 outline-accent")}
     >
-      <CheckBadge checked={checked} className="-top-2.5 -left-2.5" />
       {picture ? (
         // The box holds the picture's place, so a picture that fails to load leaves an empty box, not a gap.
         <div className={cn("w-full bg-surface", slot.kind === "photo" ? "aspect-[4/3]" : "aspect-video")}>
@@ -296,7 +289,7 @@ export const PHONE_BELOW = 600;
  * was opened. Until the planner has a front page (it waits for the lead window, or the end of the list) it says the
  * front page is being laid out; the list screen keeps loading meanwhile.
  */
-function GazetteList({ items, scope, more, width, selectedId, tabStopId, checked, onOpen }: PageProps) {
+function GazetteList({ items, scope, more, width, selectedId, tabStopId, onOpen }: PageProps) {
   const boot = useBootstrap();
   const { favorites } = useFavorites();
   const { paperName: name } = useDevicePrefs();
@@ -319,7 +312,7 @@ function GazetteList({ items, scope, more, width, selectedId, tabStopId, checked
       </p>
     );
   }
-  return <Gazette plan={plan} items={byId} name={name} date={date} screen={screen} to={(c) => articleTo(c.id, scope)} onOpen={onOpen} selectedId={selectedId} focusedId={tabStopId} checked={checked} />;
+  return <Gazette plan={plan} items={byId} name={name} date={date} screen={screen} to={(c) => articleTo(c.id, scope)} onOpen={onOpen} selectedId={selectedId} focusedId={tabStopId} />;
 }
 
 /** In a search, which a paper cannot be planned from, the Gazette shows Editorial rows. */

@@ -211,7 +211,7 @@ Checked by `npm run uat -- --browsers all` and `npm run uat:keyboard -- --browse
 instance, headless, on Windows. Each run covers every screen in a light and a dark theme at desktop (1280 px), tablet
 (768 px) and phone (390 px) widths: no console errors, no failed API calls, no WCAG 2.2 AA violations (axe-core), no
 sideways scroll, no stray `undefined` or `NaN`, and the font choice reachable. The keyboard run checks Tab order, focus
-indicators, Escape and focus return in menus and dialogs, and the shortcuts in the `?` overlay.
+indicators, Escape and focus return in menus and dialogs, and that letter keys do nothing.
 
 | Engine | Version tested | Stands for | Screens (Suite 1) | Keyboard run | Notes |
 |---|---|---|---|---|---|
@@ -223,8 +223,7 @@ Known engine behavior (not Kipple defects, nothing to fix in the page):
 
 - **Safari and Tab.** Safari leaves links out of the Tab order unless "Press Tab to highlight each item on a webpage"
   is on in Safari's Advanced settings (or you use Option+Tab). Buttons and fields are reached either way. The sidebar
-  and list rows are links, so with the default Safari setting use the shortcuts (`j`, `k`, `Enter`, `g` then `i`, `a`,
-  `s`, `f`, `,`) or turn that setting on.
+  and list rows are links, so with the default Safari setting turn that setting on to reach them from the keyboard.
 - **Firefox and the system color scheme.** Playwright cannot hold an emulated dark mode in Firefox on a page sent with
   `Cross-Origin-Opener-Policy`, which Kipple always sets, so the Firefox runs flip the browser's own preference
   instead. A real Firefox follows the system setting as any browser does.
@@ -259,7 +258,7 @@ These may change in any release, including a patch release:
 - The database schema. Read or write the database only through Kipple, its backups and its CLI.
 - The HTTP API that the web app uses (everything under `/api/` except `/api/greader.php`). It belongs to the web app
   that is shipped in the same image.
-- The user interface: layout, wording, themes, fonts, keyboard shortcuts and screens.
+- The user interface: layout, wording, themes, fonts, keyboard behaviour and screens.
 - Log lines and their fields. Do not build alerts on their exact text.
 - The contents of `/data/imgcache`, the nightly snapshot's file name, and other files marked transient in
   [deploy.md](deploy.md#where-things-live).

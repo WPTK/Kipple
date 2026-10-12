@@ -201,7 +201,7 @@ var clientDefs = map[string]clientDef{
 	"client.unread_badge":       {oneOf("count", "dot", "off"), "count"},
 	"client.text_size":          {floatOneOf(0.875, 1, 1.125, 1.25, 1.5), 1.0},
 	"client.adjust_separately":  {boolVal, false},
-	"client.shortcuts":          {boolVal, nil},
+	"client.shortcuts":          {boolVal, nil}, // retired: no client reads or writes it; still accepted so a stored profile stays valid
 	"client.spacing":            {oneOf("snug", "normal", "roomy"), "normal"},
 	"client.motion":             {oneOf("system", "on", "off"), "system"},
 	"client.font_everywhere":    {boolVal, false},

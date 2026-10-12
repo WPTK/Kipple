@@ -61,7 +61,7 @@ export const indentCls = (depth: number) => (depth < 4 ? "pl-3" : "pl-1");
  * by construction. When the focused item leaves the screen (taken out of Favorites, collapsed away, moved or deleted
  * elsewhere) the focus goes to the item now in its place, never to the page.
  */
-function useTreeKeys(collapsedIds: readonly string[], toggleFav: (t: "folder" | "feed", id: string) => void, onGone?: () => void) {
+function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void) {
   const [active, setActive] = useState<string | null>(null);
   const ref = useRef<HTMLUListElement>(null);
   const hadFocus = useRef(false);
@@ -122,12 +122,6 @@ function useTreeKeys(collapsedIds: readonly string[], toggleFav: (t: "folder" | 
       case "Enter":
         item.querySelector<HTMLAnchorElement>("a")?.click();
         break;
-      case "p":
-      case "P": {
-        const [t, id] = (item.dataset.fav ?? "").split(":");
-        if ((t === "folder" || t === "feed") && id) toggleFav(t, id);
-        break;
-      }
       default:
         return;
     }
@@ -261,10 +255,10 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
   const boot = useBootstrap();
   const dp = useDevicePrefs();
   const favs = useFavorites();
-  const { ref: allRef, tabStop: allTabStop, onKeyDown: allKeyDown, onFocus: allFocus, onBlur: allBlur } = useTreeKeys(dp.collapsedFolders, favs.toggle);
+  const { ref: allRef, tabStop: allTabStop, onKeyDown: allKeyDown, onFocus: allFocus, onBlur: allBlur } = useTreeKeys(dp.collapsedFolders);
   // With Favorites gone, the focus goes to the Feeds tree's tab stop.
   const toFeeds = () => allRef.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus();
-  const { ref: favRef, tabStop: favTabStop, onKeyDown: favKeyDown, onFocus: favFocus, onBlur: favBlur } = useTreeKeys(dp.collapsedFolders, favs.toggle, toFeeds);
+  const { ref: favRef, tabStop: favTabStop, onKeyDown: favKeyDown, onFocus: favFocus, onBlur: favBlur } = useTreeKeys(dp.collapsedFolders, toFeeds);
   const headingId = useId();
   // Built once per bootstrap, not on every render.
   const lib = useMemo(() => {
