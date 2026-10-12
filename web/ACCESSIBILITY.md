@@ -5,7 +5,7 @@ Status is what the code does today. Anything not verified on a real device is li
 
 ## Structure and focus
 
-- [x] Landmarks: `nav` (tab bar or sidebar), `main`, one `h1` per screen, articles as `<article>`, real buttons and links. axe runs on login, list, article, settings, feeds, add-feed, feed editor and health, and on search, filters, devices, muted, saved searches, the shortcut overlay and article embeds.
+- [x] Landmarks: `nav` (tab bar or sidebar), `main`, one `h1` per screen, articles as `<article>`, real buttons and links. axe runs on login, list, article, settings, feeds, add-feed, feed editor and health, and on search, filters, devices, muted, saved searches and article embeds.
 - [x] Skip link; focus moves to the screen heading on navigation and to the article title when an article opens full screen (in the wide reader pane focus stays on its list row); Radix dialogs and popovers trap and restore focus.
 - [x] Visible focus ring (2 px, 3 px in high-contrast and in Signal, Inkwell and Teletype; system `Highlight` in forced colors) on everything via `:focus-visible`.
 - [x] Live regions: persistent regions (polite for announcements such as "n new articles", "Reading aloud", "Saved", and for the undo toast; assertive `role="alert"` for errors), never one per item; toasts pause on hover and focus, info toasts last 8 s and errors stay until dismissed. Toast colors are checked in every theme by `npm run contrast`.

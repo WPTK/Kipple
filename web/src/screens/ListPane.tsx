@@ -665,18 +665,24 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
     };
   }, [markOnScroll, qc, virtualizer, pagedScroll, lookAtStories]);
 
-  // The arrow keys move focus between row links, and only focus: unlike j and k they select nothing and open nothing
-  // (beside the reader pane j opens the article it reaches), so looking through the list marks nothing read. They work
-  // with single-key shortcuts off: the list is one Tab stop, so they are how the keyboard reaches the other rows. On a
-  // row's other controls the arrows keep their own meaning (a menu button opens its menu); elsewhere they scroll.
+  // ArrowUp and ArrowDown move focus between rows from any control in a row (its link, star or menu button), and only
+  // focus: they select nothing and open nothing, so looking through the list marks nothing read. The list is one Tab
+  // stop (and Safari's Tab skips links), so the arrows are how the keyboard reaches the other rows. Taken in the
+  // capture phase so a closed menu button does not turn ArrowDown into "open the menu" (Enter and Space still do).
+  // Left alone: text fields, an open menu button, and anything inside an open menu or dialog (those are not in a row).
   const onRowArrow = (e: React.KeyboardEvent) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
-    const row = e.target instanceof HTMLElement ? e.target.closest<HTMLElement>("[data-item-id]") : null;
-    if (!row || e.target !== row.querySelector("a")) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isDefaultPrevented()) return;
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    const row = target?.closest<HTMLElement>("[data-item-id]") ?? null;
+    if (!target || !row) return;
+    if (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+    if (target.getAttribute("aria-expanded") === "true") return;
+    if (target.closest('[role="menu"],[role="dialog"]')) return;
     const order = Page ? pageOrder(parentRef.current, allItems) : items;
     const item = order[order.findIndex((i) => i.id === row.dataset.itemId) + (e.key === "ArrowDown" ? 1 : -1)];
     e.preventDefault();
+    e.stopPropagation();
     if (!item) return;
     setFocusId(item.id);
     pageRestored.current = true; // moving by key is the reader moving the page
@@ -1195,7 +1201,7 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
           aria-busy={q.isPending || q.isFetchingNextPage}
           className="@container h-full overflow-y-auto overscroll-y-contain"
           tabIndex={-1}
-          onKeyDown={onRowArrow}
+          onKeyDownCapture={onRowArrow}
           onFocus={onListFocus}
         >
           <div

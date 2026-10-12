@@ -81,7 +81,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   useEffect(() => {
     if (!item.data || opened.current === id) return;
     opened.current = id;
-    const via = (location.state as { via?: "tap" | "key" | "nav" } | null)?.via ?? "tap";
+    const via = (location.state as { via?: "tap" | "nav" } | null)?.via ?? "tap";
     open.mutate({ id, via });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, item.data?.id]);
@@ -102,28 +102,28 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const linkTarget = resolveLinkTarget(dp.linkTarget);
   const html = useMemo(() => (content === undefined ? "" : sanitizeArticleHtml(content, linkTarget)), [content, linkTarget]);
 
-  const go = (target: string | undefined, via: "key" | "nav") => {
+  const go = (target: string | undefined) => {
     if (!target) return;
     // Prev/next replaces the history entry so back is always one step to the list.
     if (!pane) rememberListPlace(scope, target); // a list beside the article follows it itself
-    navigate(articleTo(target, scope), { replace: true, state: { via } });
+    navigate(articleTo(target, scope), { replace: true, state: { via: "nav" } });
   };
-  const next = (via: "key" | "nav") => {
-    if (nextId) return go(nextId, via);
+  const next = () => {
+    if (nextId) return go(nextId);
     if (canPage && list.hasNextPage) {
       void list.fetchNextPage().then((r) => {
         const all = flattenItems(r.data).map((i) => i.id);
         // An article that left the list goes on to the first one the new page brought.
         const known = new Set(order);
         const n = all.includes(id) ? all[all.indexOf(id) + 1] : all.find((x) => !known.has(x));
-        if (n) go(n, via);
+        if (n) go(n);
         else toast("End of list");
       });
       return;
     }
     if (canPage) toast("End of list");
   };
-  const prev = (via: "key" | "nav") => go(prevId, via);
+  const prev = () => go(prevId);
 
   const back = () => {
     const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
@@ -315,8 +315,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           paging={paging}
           canPrev={!!prevId}
           canNext={canPage}
-          onPrev={() => prev("nav")}
-          onNext={() => next("nav")}
+          onPrev={() => prev()}
+          onNext={() => next()}
           onStar={toggleStar}
           onRead={toggleRead}
           onFulltext={toggleFulltext}
@@ -401,8 +401,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           paging={paging}
           canPrev={!!prevId}
           canNext={canPage}
-          onPrev={() => prev("nav")}
-          onNext={() => next("nav")}
+          onPrev={() => prev()}
+          onNext={() => next()}
           onStar={toggleStar}
           onRead={toggleRead}
           onFulltext={toggleFulltext}

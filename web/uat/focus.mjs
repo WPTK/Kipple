@@ -11,9 +11,9 @@
 //   F3  The same in All, where the live update of the mute takes the row out while the editor is still open: focus
 //       stays in the list.
 //   F2  (desktop, Editorial) Open an article in the reading pane, move focus to the next row with the Down arrow, then
-//       put focus on the page and use Mark all as read. The rows leave, the row the list remembers among them, and focus
-//       stays on the page instead of jumping into the list, so Space and Page Down still scroll the article. z then
-//       puts the rows back.
+//       mark all as read from the List actions menu. The rows leave, the row the list remembers among them, and focus
+//       does not jump into the list: a click on the article puts focus on the page, and Space still scrolls the
+//       article. Undo then puts the rows back.
 // Afterwards it deletes the filter it made with unmute=unread and marks the articles it used unread again. It only
 // runs against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0 clean,
 // 1 findings, 2 setup error. First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
@@ -129,16 +129,28 @@ await t.eachViewport(async (page, vp) => {
       const body = page.locator("article[aria-labelledby='article-title']").first();
       await body.waitFor({ timeout: 10000 });
       await body.click({ position: { x: 40, y: 120 } });
-      // Focus on the page itself (as after a toast or a menu that went away): the hardest case, since a row that
-      // leaves also leaves focus on the page.
-      await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
-      const was = await focusOf(page);
       await page.getByRole("button", { name: "List actions" }).click();
       await page.getByRole("menuitem", { name: /Mark all as read/ }).click();
       const gone = await page.waitForFunction(() => document.querySelectorAll("[data-item-id]").length === 0 || ![...document.querySelectorAll(".kp-unread-dot")].some((d) => d.dataset.unread === "true"), undefined, { timeout: 8000 }).then(() => true, () => false);
       await page.waitForTimeout(800);
+      // Focus on the page itself (a click on the article, as after a toast or a menu that went away): the rows that
+      // left must not pull it into the list, and Space must scroll the article, not move through the list.
+      await body.click({ position: { x: 40, y: 120 } });
+      await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+      const scrollerOf = () => page.evaluate(() => {
+        let el = document.querySelector("article[aria-labelledby='article-title']");
+        while (el && !(el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
+        if (!el) return null;
+        el.dataset.uatScroller = "1";
+        return { top: el.scrollTop, room: el.scrollHeight - el.clientHeight };
+      });
+      const before = await scrollerOf();
+      await page.keyboard.press("Space");
+      await page.waitForTimeout(600);
+      const after = await page.evaluate(() => document.querySelector("[data-uat-scroller]")?.scrollTop ?? null);
       const at = await focusOf(page);
-      check(gone && !at.startsWith("row ") && at !== "list", `${tag} F2 focus`, `focus stays out of the list (${was} before, ${at} after)`, `marked=${gone}; focus moved from ${was} to ${at}`);
+      check(gone && !at.startsWith("row ") && at !== "list", `${tag} F2 focus`, `focus stays out of the list (${at} after)`, `marked=${gone}; focus is ${at}`);
+      check(before === null || before.room < 40 || (after !== null && after > before.top), `${tag} F2 space`, "Space scrolls the article", `scrollTop ${before?.top} -> ${after} (room ${before?.room})`);
       await t.shot(page, `${tag}-F2`);
       await page.getByRole("button", { name: "Undo" }).first().click();
       await page.waitForTimeout(1500);
