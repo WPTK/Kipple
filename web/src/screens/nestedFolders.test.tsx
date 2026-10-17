@@ -110,6 +110,8 @@ describe("the sidebar folder tree", () => {
     expect(within(mac).getAllByRole("link")[0]).toHaveAttribute("href", "/l?folder=4");
     // Tech holds no feed itself but shows: its subtree does. Its badge is the subtree's.
     expect(within(tech).getAllByTestId("unread-count")[0]).toHaveTextContent("3");
+    // The name leads with the visible text and adds what the badge hides (WCAG 2.5.3), and holds only the row, not its subfolders.
+    expect(tech).toHaveAccessibleName("Tech, 3 unread");
     expect(within(tree).queryByText("Empty")).toBeNull();
     expect(await axe(tree.closest("nav") as HTMLElement)).toHaveNoViolations();
   });
