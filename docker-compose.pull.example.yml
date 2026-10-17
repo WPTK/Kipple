@@ -1,5 +1,5 @@
 # Pull and run: the published, signed image from GHCR.
-# Save this as docker-compose.yml, run `docker compose up -d`, and open http://127.0.0.1:1919
+# Save this as docker-compose.yml, run `docker compose up -d kipple`, and open http://127.0.0.1:1919
 # to create your account. No .env is needed: everything is set in the browser.
 #
 # Set the image tag below to the newest version on https://github.com/WPTK/Kipple/releases.
