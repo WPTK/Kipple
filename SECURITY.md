@@ -11,6 +11,10 @@ on the repository (github.com/WPTK/Kipple), open the **Security** tab and choose
 or commit, reproduction steps, and impact. If that button is not offered, open an issue that only asks for a
 private contact, with no details of the problem.
 
+## Running Kipple safely
+
+Publish it on `127.0.0.1`, put HTTPS in front, set a password and keep backups private. The [threat model](docs/threat-model.md) and the [deploy guide](docs/deploy.md) have the details.
+
 ## Supported versions
 
 Only the latest 1.x release receives security fixes. Upgrade to it to get a fix: within 1.x an upgrade is a normal one
@@ -38,7 +42,8 @@ Out of scope:
   interface.
 - Your reverse proxy, tunnel, Cloudflare Access setup or operating system.
 - Builds from source and other ways of running Kipple, which are best effort.
-- Multi-user concerns. Kipple has one account by design, and it has no Fever API.
+- Multi-user concerns. Kipple has one account by design.
+- Other sync protocols. Only the Google Reader API is offered.
 
 ## Automated checks
 

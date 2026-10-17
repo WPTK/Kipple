@@ -32,26 +32,27 @@ A self-hosted RSS reader. That I want to use.
   </tr>
 </table>
 
-Kipple is in beta and in daily use. [CHANGELOG.md](CHANGELOG.md) lists what changed in each release.
+Kipple 1.0 is a release candidate. [CHANGELOG.md](CHANGELOG.md) lists what changed in each release.
 
 ## What you get
 
-- Five ways to browse a feed: large lead images with an excerpt, a grid of photo cards, a plain list without pictures,
-  email-style rows, or one line per title. Set it per device or per feed.
+- Six layouts: Editorial (large lead images with an excerpt), Cards (a grid of photo cards), Gazette (a newspaper-style
+  front page), Inbox (email-style rows), Compact (a plain list without pictures) and Headlines (one line per title).
+  Set it per device, per folder or per feed.
 - 20 color themes, with separate picks for day and night, and 11 bundled reading fonts.
 - Nested folders for organizing feeds.
 - Import feeds from your old reader and export them any time (OPML).
 - Search, saved searches, and keyword filters that mute, star, highlight or mark articles read.
 - Choose how many articles each feed keeps, from 50 to unlimited. Starred articles are never deleted.
-- Runs as a phone app, installed from your browser. Articles you have opened still read offline.
-- Syncs with RSS apps on your phone or computer.
+- Runs as a phone app, installed from your browser (needs HTTPS; see the [reverse proxy guide](docs/reverse-proxy.md)). Articles you have opened still read offline.
+- Syncs with apps that speak the Google Reader API, on your phone or computer.
 - Reading statistics and a yearly Wrapped summary, stored only in your own database.
-- Backup and restore are built in.
-- Designed for a single-user environment.
+- Backup and restore are built in: export a backup from Settings, or copy the nightly snapshot off the machine. Keep backups private; they contain password hashes and feed logins.
+- One account per instance.
 
 ## Install
 
-Replace `<version>` with the newest version on the [releases page](https://github.com/WPTK/Kipple/releases).
+Replace `<version>` with the exact tag of the newest version on the [releases page](https://github.com/WPTK/Kipple/releases), for example `1.0.0-rc.1`. There is no `latest` tag before a stable release.
 
 ```
 docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data ghcr.io/wptk/kipple:<version>
@@ -64,10 +65,18 @@ Open <http://127.0.0.1:1919>. The first screen creates your account, or restores
 setup wizard after the account asks for your time zone, a theme, an OPML import from your old reader, a few starter
 feeds, and the address your other devices will use. Every step after the account can be skipped.
 
+Kipple is on your own machine, not the one you browse from? Open the address through an SSH tunnel first:
+`ssh -L 1919:127.0.0.1:1919 you@your-server`, then open <http://127.0.0.1:1919> on your own computer.
+
 Until you create the account, anyone who can reach the port can. The command above publishes the port on `127.0.0.1`
 only, so only this machine can. Widen it after you have an account.
 
-The [deploy guide](docs/deploy.md) covers the compose file, reaching Kipple from your phone or over HTTPS, backups,
+To reach Kipple from other devices, put it behind HTTPS (see the [reverse proxy guide](docs/reverse-proxy.md)) or on a
+private network such as Tailscale. Do not publish it on the open internet over plain http. For a safe setup: publish on
+`127.0.0.1`, put HTTPS in front, set a password and keep backups private (see [threat-model.md](docs/threat-model.md)).
+
+The [deploy guide](docs/deploy.md) starts with a quick start for the compose file. It also covers reaching Kipple from
+your phone or over HTTPS, backups,
 upgrades, verifying the image signature and building from source.
 
 ## Sync with other apps
@@ -77,7 +86,8 @@ compatible account with:
 
 - Server: your Kipple address plus `/api/greader.php`
 - User name: the one you chose during setup
-- Password: the API password. The last setup step shows it, and Settings, Account & Devices can make a new one.
+- Password: the API password, a second password used only by sync apps, so your web password never leaves the browser.
+  Make one in the last setup step or under Settings, Account & Devices, Generate API password. Kipple shows it once.
 
 ## What Kipple leaves out
 
@@ -96,9 +106,10 @@ Kipple leaves these out on purpose.
 
 ## Documentation
 
-- [Deploy guide](docs/deploy.md): install options, ports, backups, restore, upgrades, Cloudflare Access.
+- [Deploy guide](docs/deploy.md): quick start, install options, ports, backups, restore, upgrades, Cloudflare Access.
 - [Reverse proxy](docs/reverse-proxy.md): HTTPS with Caddy, nginx or Traefik.
 - [Troubleshooting](docs/troubleshooting.md)
+- [Threat model](docs/threat-model.md): what Kipple protects and how to run it safely.
 - [Compatibility](docs/compatibility.md): what stays the same across 1.x, and the Reader API in detail.
 - [Design](docs/design.md): how Kipple works inside.
 - [Performance](docs/performance.md): 500 feeds and 150,000 articles, measured.

@@ -1446,7 +1446,7 @@ Reader routes never call `r.ParseForm`.
 
 ### 6.3 Auth and tokens
 
-- **ClientLogin (POST, or GET for FeedMe).**
+- **ClientLogin (POST, or GET for some Reader API clients).**
   - `Email` and `Passwd` come from the body or the query. `Email` must match `account.username` case-insensitively. A NULL `api_password_hash` means the API is disabled and every attempt fails. An empty `Passwd` fails at once without hashing.
   - **Verification** (`internal/auth.Verifier`, shared with the web login):
     1. If `hmac.Equal(HMAC(secret, "login|"+kind+"|"+hash+"|"+Passwd), memo[kind])` (`kind` is `api` or `web`, `hash` the stored PHC string), succeed without hashing.
@@ -2617,7 +2617,7 @@ CI runs `go test -race -shuffle=on -timeout 15m` over every package, split acros
   12. `edit-tag` with `T=x` plus a valid header (accepted)
   13. `mark-all-as-read s=feed/N ts=` with 10, 13 and 16 digits (items and ledger updated up to the cutoff; nothing newer)
   14. the same sequence mounted at the root `/reader/api/0/` and under a doubled `/api/greader.php/api/greader.php` prefix
-- *Unread and FeedMe smoke tests:* `GET /api/greader.php` returns `OK`; `ids n=100000`; `tag/list?types=1`; `stream/contents?…&ot=0`; `user-info` without `output`; an unknown endpoint returns `200 []`.
+- *Reader API client smoke tests:* `GET /api/greader.php` returns `OK`; `ids n=100000`; `tag/list?types=1`; `stream/contents?…&ot=0`; `user-info` without `output`; an unknown endpoint returns `200 []`.
 - *Auth matrix:*
   - no header → 401 with both headers;
   - a wrong token → 401;
