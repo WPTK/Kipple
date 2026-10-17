@@ -53,7 +53,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
 import { accessControlUrl, unloadRefusal } from "./common.mjs";
-import { activeScheme, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
+import { activeScheme, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, menuOverBar, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
 
 /** The smallest touch target, in CSS px (S8). WCAG 2.2 asks for 24; Kipple keeps to the 44 of the Apple and Material guides. */
 const TAP_MIN = 44;
@@ -332,17 +332,6 @@ async function runAxe(page, include) {
 
 // The list header's options button names the layout in effect ("List options, Cards layout"); its menu also holds
 // the order and, on a feed or folder, the view.
-// How far an open menu's bottom edge is below the top of the bottom tab bar (positive: it covers the bar); null with no
-// menu or no bar at the bottom (the desktop sidebar is the same landmark).
-const menuOverBar = (page) =>
-  page.evaluate(() => {
-    const menu = document.querySelector('[role="menu"]');
-    const bar = document.querySelector('nav[aria-label="Primary"]');
-    if (!menu || !bar) return null;
-    const top = bar.getBoundingClientRect().top;
-    return top > window.innerHeight / 2 ? Math.round(menu.getBoundingClientRect().bottom - top) : null;
-  });
-
 const optionsLabel = (layout) => `List options, ${layout} layout`;
 
 async function setLayout(page, layout) {
@@ -834,7 +823,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
       if (screen.id === "list-options" && vp.mobile) {
         // The menu stops above the tab bar, upright and in landscape.
         const check = async (where) => {
-          const over = await menuOverBar(page);
+          const over = await page.evaluate(menuOverBar);
           if (over !== null && over > 0) s4.push({ rule: "menu-over-tab-bar", message: `the List options menu covers the tab bar by ${over}px ${where}` });
         };
         await check(`at ${vp.width} x ${vp.height}`);
