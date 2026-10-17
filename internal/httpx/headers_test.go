@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/reach"
 )
 
@@ -116,6 +117,14 @@ func TestHSTSAndUpgradeOnlyWhenEffectivelyHTTPS(t *testing.T) {
 	}
 	host := func(h string) func(*http.Request) { return func(r *http.Request) { r.Host = h } }
 	untrustedHTTPS := func(r *http.Request) { r.Header.Set("X-Forwarded-Proto", "https") }
+	// HTTPS only by the public-URL rule: Secure cookie and upgrade-insecure-requests, but no HSTS (it covers every port).
+	publicOnly := map[string]bool{
+		"untrusted proxy, https public URL host":                                  true,
+		"public URL host, no port (a proxy forwarding the original Host)":         true,
+		"public URL host with :443":                                               true,
+		"public URL port matches, other case":                                     true,
+		"a trusted proxy without X-Forwarded-Proto: the public host rule applies": true,
+	}
 	for _, c := range []struct {
 		name      string
 		publicURL string
@@ -139,9 +148,14 @@ func TestHSTSAndUpgradeOnlyWhenEffectivelyHTTPS(t *testing.T) {
 		{"no public URL, plain http", "", nil, []func(*http.Request){host("192.168.1.20:1919")}, false},
 	} {
 		live := reach.Fixed(reach.State{PublicURL: c.publicURL, PublicHost: reach.Host(c.publicURL), Trusted: c.trusted})
-		rec := serve(t, Options{Scheme: live.Scheme}, typed("text/html", "x"), c.mod...)
+		trustedNow := c.trusted
+		rec := serve(t, Options{Scheme: live.Scheme, HSTS: func(r *http.Request) bool { return auth.EffectiveScheme(r, trustedNow) == "https" }}, typed("text/html", "x"), c.mod...)
 		if c.want {
-			require.Equal(t, "max-age=31536000", rec.Header().Get("Strict-Transport-Security"), c.name)
+			if publicOnly[c.name] {
+				require.Empty(t, rec.Header().Get("Strict-Transport-Security"), c.name+": HSTS only for TLS or a trusted proxy")
+			} else {
+				require.Equal(t, "max-age=31536000", rec.Header().Get("Strict-Transport-Security"), c.name)
+			}
 			require.Contains(t, rec.Header().Get("Content-Security-Policy"), "upgrade-insecure-requests", c.name)
 		} else {
 			require.Empty(t, rec.Header().Get("Strict-Transport-Security"), c.name)
