@@ -2,9 +2,7 @@
 # Save this as docker-compose.yml, run `docker compose up -d`, and open http://127.0.0.1:1919
 # to create your account. No .env is needed: everything is set in the browser.
 #
-# A prerelease is tagged only with its exact version, and `latest` moves only on a stable release, so
-# name the version you want (the newest is on https://github.com/WPTK/Kipple/releases). Once a stable
-# release exists, `ghcr.io/wptk/kipple:latest` works too.
+# Set the image tag below to the newest version on https://github.com/WPTK/Kipple/releases.
 #
 # The port is published on this machine only. Use "1919:1919" to reach Kipple from your LAN, or your
 # Tailscale address ("100.x.y.z:1919:1919"). A named volume is ready to use; a bind mount at /data
