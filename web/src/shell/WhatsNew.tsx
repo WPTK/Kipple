@@ -11,17 +11,33 @@ import { Button } from "@/ui/button";
 
 /** Set by About's "What's new" button: show the latest releases on request (nothing is remembered from that). */
 const whatsNewRequest = createStore(0);
-export const openWhatsNew = (): void => whatsNewRequest.set((n) => n + 1);
+/** The button that asked, so closing the dialog can give focus back to it (the dialog has no Trigger of its own). */
+let opener: HTMLElement | null = null;
+export const openWhatsNew = (from?: HTMLElement): void => {
+  opener = from ?? null;
+  whatsNewRequest.set((n) => n + 1);
+};
+
+/** Where focus goes when the dialog closes: the button that opened it, else the screen's heading, else the page. */
+function returnFocus(from: HTMLElement | null): void {
+  const target = from?.isConnected ? from : (document.querySelector<HTMLElement>("[data-route-heading]") ?? document.getElementById("main"));
+  target?.focus({ preventScroll: true });
+}
 
 const MANUAL_RELEASES = 3;
 
 /** The panel: the sections of the releases it is given, newest first. A real dialog (focus trapped, Esc closes). */
-function WhatsNewDialog({ releases, onClose }: { releases: Release[]; onClose: () => void }) {
+function WhatsNewDialog({ releases, onClose, returnTo }: { releases: Release[]; onClose: () => void; returnTo: HTMLElement | null }) {
   return (
     <Dialog.Root open onOpenChange={(o) => (o ? undefined : onClose())}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
-        <Dialog.Content className="fixed inset-x-4 top-[8vh] z-50 mx-auto max-h-[84dvh] max-w-lg overflow-y-auto rounded-2xl border border-line bg-bg p-5 text-fg shadow-xl">
+        <Dialog.Content
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            returnFocus(returnTo);
+          }}
+          className="fixed inset-x-4 top-[8vh] z-50 mx-auto max-h-[84dvh] max-w-lg overflow-y-auto rounded-2xl border border-line bg-bg p-5 text-fg shadow-xl">
           <Dialog.Title className="text-lg font-bold">What's new in Kipple</Dialog.Title>
           <Dialog.Description className="mb-3 text-sm text-fg2">
             {releases.length === 1 ? "What changed in this version." : "What changed since you last looked."}
@@ -104,6 +120,7 @@ export function WhatsNewHost() {
     return (
       <WhatsNewDialog
         releases={shown}
+        returnTo={null}
         onClose={() => {
           setShown(null);
           markSeen();
@@ -111,6 +128,6 @@ export function WhatsNewHost() {
       />
     );
   }
-  if (manual) return <WhatsNewDialog releases={manual} onClose={() => setManual(null)} />;
+  if (manual) return <WhatsNewDialog releases={manual} returnTo={opener} onClose={() => setManual(null)} />;
   return null;
 }

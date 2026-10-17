@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { Suspense, useMemo, useState } from "react";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { useQueryClient } from "@tanstack/react-query";
@@ -255,6 +256,7 @@ function ErrorLine({ f }: { f: HealthFeed }) {
 
 /** Feed health: every feed, sortable and filterable, with the actions that fix common problems. */
 export function HealthScreen() {
+  useDocumentTitle("Feed health");
   const h = useHealth();
   const boot = useBootstrap();
   const wide = useWide();

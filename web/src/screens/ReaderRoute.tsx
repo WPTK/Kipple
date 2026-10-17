@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, Navigate, useMatch, useNavigate, useSearchParams } from "react-router";
@@ -248,6 +249,9 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
 
 function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?: string; hasFrom: boolean }) {
   const wide = useWide();
+  // With an article open the article names the page (it sets its own title).
+  const scopeTitle = useScopeTitle(scope).title;
+  useDocumentTitle(articleId ? undefined : scopeTitle);
   const { layout } = useResolvedLayout(scope);
   const dp = useDevicePrefs();
   // On a wide screen an open article always has its list beside it, whatever the layout: switching layouts with an

@@ -172,12 +172,14 @@ describe("Step 1: account", () => {
     const { container } = go("/");
     const user = userEvent.setup();
     await headingIs("Create your account");
+    expect(document.title).toBe("Step 1 of 7: Create your account - Kipple");
     expect(await axe(container)).toHaveNoViolations();
     await user.type(screen.getByLabelText("User name"), "reader");
     await user.type(screen.getByLabelText("Password"), "correct horse");
     await user.type(screen.getByLabelText("Password again"), "correct horse");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     await headingIs("Choose your time zone");
+    expect(document.title).toBe("Step 2 of 7: Choose your time zone - Kipple");
     expect(bodyOf(callTo(calls, "POST", "/api/setup/account")[0] as never)).toEqual({ username: "reader", password: "correct horse" });
     expect(window.location.pathname).toBe("/welcome/timezone");
     // Kept in memory for step 7.

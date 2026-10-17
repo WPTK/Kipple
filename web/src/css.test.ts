@@ -36,12 +36,17 @@ describe("hit-row tap target", () => {
 });
 
 describe("hit-pad tap target", () => {
-  it("grows a text link to a 44px box on coarse pointers, without moving the text", () => {
-    expect(css).toMatch(/@media \(pointer: coarse\) \{\s*\.hit-pad \{ position: relative; \}/);
-    const r = rules().find((x) => x.sel === ".hit-pad::before");
-    expect(r?.body).toMatch(/width:\s*max\(100%, 44px\);/);
-    expect(r?.body).toMatch(/height:\s*max\(100%, 44px\);/);
-    expect(r?.body).toMatch(/position:\s*absolute;/);
+  it("grows a text link to a 24px box with a mouse and 44px on coarse pointers, without moving the text", () => {
+    const all = rules().filter((x) => x.sel === ".hit-pad::before");
+    expect(all).toHaveLength(2);
+    const [base, coarse] = all;
+    expect(base?.body).toMatch(/width:\s*max\(100%, 24px\);/);
+    expect(base?.body).toMatch(/height:\s*max\(100%, 24px\);/);
+    expect(base?.body).toMatch(/position:\s*absolute;/);
+    expect(css).toMatch(/\.hit-pad \{ position: relative; \}/);
+    expect(css).toMatch(/@media \(pointer: coarse\) \{\s*\.hit-pad::before/);
+    expect(coarse?.body).toMatch(/width:\s*max\(100%, 44px\);/);
+    expect(coarse?.body).toMatch(/height:\s*max\(100%, 44px\);/);
   });
 });
 
@@ -74,5 +79,11 @@ describe("status-bar cover", () => {
   it("is in the page before the app root, hidden from assistive technology", () => {
     const html = readFileSync("index.html", "utf8");
     expect(html).toMatch(/<div id="kp-top-cover" aria-hidden="true"><\/div>\s*<div id="root">/);
+  });
+});
+
+describe("forced colors", () => {
+  it("the selected card's muted lines follow HighlightText", () => {
+    expect(css).toMatch(/label:has\(input:checked\) \* \{ color: HighlightText; \}/);
   });
 });

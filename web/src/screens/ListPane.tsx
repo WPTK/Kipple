@@ -1465,11 +1465,14 @@ export function StatusBlock({
   title,
   body,
   role,
+  asH1,
   children,
 }: {
   title: string;
   body: string;
   role: "status" | "alert";
+  /** A screen of its own (nothing else names it): the title is the page's h1 rather than an h2 under one. */
+  asH1?: boolean;
   children?: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -1479,7 +1482,13 @@ export function StatusBlock({
   }, [role]);
   return (
     <div ref={ref} tabIndex={-1} role={role} className="mx-auto flex max-w-sm flex-col items-center gap-3 px-6 py-16 text-center outline-none">
-      <h2 className="text-lg font-semibold">{title}</h2>
+      {asH1 ? (
+        <h1 className="text-lg font-semibold">
+          {title}
+        </h1>
+      ) : (
+        <h2 className="text-lg font-semibold">{title}</h2>
+      )}
       <p className="text-sm text-fg2">{body}</p>
       {children}
     </div>

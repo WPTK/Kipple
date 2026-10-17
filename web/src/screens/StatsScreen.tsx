@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
 import { ChevronRight } from "lucide-react";
@@ -723,6 +724,7 @@ function FeedDetail({ feed, range }: { feed: string; range: ScreenRange }) {
 // ---- Screen -----------------------------------------------------------------------------------------------------
 
 export function StatsScreen() {
+  useDocumentTitle("Stats");
   const on = useStatsEnabled();
   const wrapped = useWrappedEnabled();
   const [range, setRange] = useState<ScreenRange>(loadScreenRange);

@@ -5,8 +5,8 @@ Status is what the code does today. Anything not verified on a real device is li
 
 ## Structure and focus
 
-- [x] Landmarks: `nav` (tab bar or sidebar), `main`, one `h1` per screen, articles as `<article>`, real buttons and links. axe runs on login, list, article, settings, feeds, add-feed, feed editor and health, and on search, filters, devices, muted, saved searches and article embeds.
-- [x] Skip link; focus moves to the screen heading on navigation and to the article title when an article opens full screen (in the wide reader pane focus stays on its list row); Radix dialogs and popovers trap and restore focus.
+- [x] Landmarks: `nav` (tab bar or sidebar), `main`, an `h1` on every screen (in the wide reader the list heading and the article title are both `h1`), articles as `<article>`, real buttons and links. axe runs on login, list, article, settings, feeds, add-feed, feed editor and health, and on search, filters, devices, muted, saved searches and article embeds.
+- [x] Skip link; every screen sets the tab title to "<screen heading> - Kipple" (`useDocumentTitle`: lists, Search, Feeds, Feed health, Stats, Wrapped, each Settings section as "<section> - Settings", an open article by its title, "Page not found", and each setup step as "Step N of 7: <step>"); focus moves to the screen heading on navigation (a lazily loaded screen such as Feeds may leave it on `main` until it has loaded) and to the article title when an article opens full screen (in the wide reader pane focus stays on its list row); Radix dialogs and popovers trap and restore focus (What's new, which has no trigger element, returns it to the About button that opened it, else the screen heading).
 - [x] Visible focus ring (2 px, 3 px in high-contrast and in Signal, Inkwell and Teletype; system `Highlight` in forced colors) on everything via `:focus-visible`.
 - [x] Live regions: persistent regions (polite for announcements such as "n new articles", "Reading aloud", "Saved", and for the undo toast; assertive `role="alert"` for errors), never one per item; toasts pause on hover and focus, info toasts last 8 s and errors stay until dismissed. Toast colors are checked in every theme by `npm run contrast`.
 - [x] Form errors are `role="alert"` next to the field and linked with `aria-describedby`.
@@ -27,7 +27,7 @@ Status is what the code does today. Anything not verified on a real device is li
 - [x] "On a schedule" theme: "Night starts" and "Day starts" are native time inputs with visible labels; the switch changes only colors, so every state keeps its non-color cue below.
 - [x] Never color alone: unread = dot plus bold title; read = normal weight and dimmed; starred = filled star plus `aria-pressed`; feed status = icon plus text label; errors = icon plus text; the paragraph being read aloud has a start bar as well as a background.
 - [x] `prefers-contrast: more`: full-strength borders and secondary text, thicker focus ring, underlined links.
-- [x] `forced-colors: active`: system colors for focus, checked controls and the unread dot; nothing meaningful sits in a background image.
+- [x] `forced-colors: active`: system colors for focus, checked controls and the unread dot; the selected theme card uses `HighlightText` for all of its lines; nothing meaningful sits in a background image.
 
 ## Text and spacing
 
@@ -42,7 +42,7 @@ Status is what the code does today. Anything not verified on a real device is li
 
 ## Pointer and keyboard
 
-- [x] 44 px minimum targets on touch; "Larger buttons" raises controls to 56 px. Exceptions with a mouse (a fine pointer): row controls (star, More) and dense headline rows are 32 px (rows 28 to 36 px), and the Remove button on a filter term chip is 32 px at every pointer type. All are above WCAG 2.5.8's 24 px minimum; only the chip button falls short of 44 px on touch.
+- [x] 44 px minimum targets on touch; "Larger buttons" raises controls to 56 px. Links in a line of text (the article's source link) get a 24 px target with a mouse through `hit-pad`. Exceptions with a mouse (a fine pointer): row controls (star, More) and dense headline rows are 32 px (rows 28 to 36 px), and the Remove button on a filter term chip is 32 px at every pointer type. All are above WCAG 2.5.8's 24 px minimum; only the chip button falls short of 44 px on touch.
 - [x] Every swipe has a button and a key; long-press is never required; no drag-only interaction (folders, feeds and favorites reorder by dragging OR with the grip's arrow keys OR with Move up and Move down buttons; bulk move and delete use checkboxes). The sidebar and list width handles are keyboard-operable separators (arrows, Shift, Home, End).
 - [x] Segmented controls are native radio groups drawn as pressed buttons; a focused radio never shows its native circle, and the control keeps its place when the page above reflows.
 - [x] Undo toast (15 s) for read, unread, swipe-star and bulk marks. Destructive or irreversible actions confirm instead: deleting feeds (with the starred count), filters or saved searches, device copy, forget or reset, clearing the image cache, a large auto-read catch-up, and settings that warn.

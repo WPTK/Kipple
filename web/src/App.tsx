@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router";
@@ -39,9 +40,10 @@ export const BOOT_RECHECK_MAX_MS = 2 * 60_000;
 
 /** A path nothing answers (a mistyped address, an old link): say so instead of silently showing Unread. */
 function NotFound() {
+  useDocumentTitle("Page not found");
   const { pathname } = useLocation();
   return (
-    <StatusBlock role="alert" title="Page not found" body={`Kipple has nothing at ${pathname}.`}>
+    <StatusBlock asH1 role="alert" title="Page not found" body={`Kipple has nothing at ${pathname}.`}>
       <Link to="/l/unread" className={buttonVariants({ variant: "solid" })}>
         Go to Unread
       </Link>

@@ -132,6 +132,28 @@ describe("Settings > About", () => {
     expect(screen.getByText("A wizard for a first run.")).toBeInTheDocument();
     expect(screen.getByText("A fix from the old version.")).toBeInTheDocument();
   });
+
+  it("closing What's new gives focus back to the button that opened it", async () => {
+    routes();
+    go("/settings/about");
+    const user = userEvent.setup();
+    const button = await screen.findByRole("button", { name: "What's new" });
+    await user.click(button);
+    await screen.findByRole("dialog", { name: "What's new in Kipple" });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(button).toHaveFocus());
+  });
+
+  it("closing it with the Close button does the same", async () => {
+    routes();
+    go("/settings/about");
+    const user = userEvent.setup();
+    const button = await screen.findByRole("button", { name: "What's new" });
+    await user.click(button);
+    await user.click(await screen.findByRole("button", { name: "Close" }));
+    await waitFor(() => expect(button).toHaveFocus());
+  });
 });
 
 describe("the update banner", () => {

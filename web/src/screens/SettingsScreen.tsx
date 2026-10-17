@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useMatch, useNavigate } from "react-router";
 import { BarChart3, ChevronLeft, ChevronRight, Filter, Info, Palette, Rss, SlidersHorizontal, UserRound, type LucideIcon } from "lucide-react";
@@ -611,6 +612,8 @@ export function SettingsScreen() {
   };
 
   const drilled = !wide && current;
+  // The tab names the page on screen: the group when one is shown (wide always shows one), else the list.
+  useDocumentTitle(shown && (wide || current) ? `${shown.label} - Settings` : "Settings");
   const page = (group: SettingsGroup) => <GroupPage group={group} wide={wide} focusHeading={wide && cameFrom !== undefined && cameFrom !== group.id} />;
 
   return (
