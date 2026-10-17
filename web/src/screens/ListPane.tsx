@@ -237,8 +237,7 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
   const { layout } = useResolvedLayout(scope);
   // A page layout (the Gazette) draws the whole loaded list itself: no virtualized rows, and no row ever leaves it.
   const Page = pageOf(layout, scope);
-  const pagedRef = useRef(!!Page);
-  pagedRef.current = !!Page;
+  const pagedRef = useLatestRef(!!Page);
   // Only the pending-new slices: run progress and fetch ticks must not re-render every row.
   const pendingByFeed = useStoreSelector(liveStore, (s) => s.pendingByFeed);
   const pendingIds = useStoreSelector(liveStore, (s) => s.pendingIds);
@@ -281,8 +280,7 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
   // "Only items present when the list loaded": the highest id the list knew about.
   // The server's own `as_of` for the first page (ids follow arrival, not sort order, so the page maximum is wrong).
   const currentAsOf = q.data?.pages[0]?.as_of;
-  const asOf = useRef<string | undefined>(undefined);
-  asOf.current = currentAsOf;
+  const asOf = useLatestRef<string | undefined>(currentAsOf);
 
   const saved = memory.get(key);
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
@@ -418,6 +416,7 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
   const pageSeen = useRef(new Set<string>());
   const pagePassed = useRef(new Set<string>());
   const markOnScrollPage = prefs.markReadOnScroll && scope.view !== "starred" && !!Page; // never a search: no Page there
+  // Written in render on purpose (see markOnScrollRef below): an effect cleanup reads the new value of the setting.
   const markOnScrollPageRef = useRef(markOnScrollPage);
   markOnScrollPageRef.current = markOnScrollPage;
   /** The page's layout (layoutOf) the seen and passed sets were built over; null before the first rebuild. */
@@ -594,10 +593,12 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
   // the list are marked read once scrolling settles. Goes through mark-read with reason "scroll": no stats,
   // no undo toast, and never on Starred or search.
   const markOnScroll = prefs.markReadOnScroll && scope.view !== "starred" && !scope.q;
+  // Written in render on purpose, unlike the other latest-value refs here: the effect below reads it in its cleanup, which
+  // runs before any layout effect of the render that switched the setting, and needs the NEW value (see "turning the
+  // setting off"). The only reader is that effect and its timer, so a discarded render cannot leave it wrong for long.
   const markOnScrollRef = useRef(markOnScroll);
   markOnScrollRef.current = markOnScroll;
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
+  const rowsRef = useLatestRef(rows);
   const sentByScroll = useRef(memoryFor(key).sentByScroll);
   // Rows actually rendered in the visible window at some point (not the overscan rows outside it), so a
   // restored/jumped-to offset that puts rows "above the start index" without them ever having been on screen
@@ -616,8 +617,7 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
   }, [virtualItems, virtualizer]);
   // A page layout has no virtual range: its stories are judged by their own boxes (pageSeen and pagePassed above),
   // so a story beside one still on screen, in another column, is judged alone.
-  const pageItemsRef = useRef(allItems);
-  pageItemsRef.current = allItems;
+  const pageItemsRef = useLatestRef(allItems);
   const pagedScroll = !!Page;
   // A layout effect, so its cleanup on unmount (a phone opening a story) still finds the stories' boxes and marks
   // what was scrolled past in the last moments, as rows do.
@@ -700,8 +700,7 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
 
   // ---- actions -----------------------------------------------------------
 
-  const colsRef = useRef(cols);
-  colsRef.current = cols;
+  const colsRef = useLatestRef(cols);
   const pendingAnchor = useRef<ScrollAnchor | null>(null);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => {
@@ -710,10 +709,8 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
   }, []);
 
   // Read at commit time by hide(), which runs from timers.
-  const allItemsRef = useRef(allItems);
-  allItemsRef.current = allItems;
-  const selectionRef = useRef({ selectedId, activeId });
-  selectionRef.current = { selectedId, activeId };
+  const allItemsRef = useLatestRef(allItems);
+  const selectionRef = useLatestRef({ selectedId, activeId });
 
   /** Take rows out of the list: collapse them, then remove; the still-visible rows stay put on screen. */
   const hide = useCallback((ids: string[]): (() => void) => {
@@ -834,10 +831,8 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
   // unread again, cancels this and brings the row back.
   const intent = useStore(readIntent);
   const pendingLeave = useRef(new Map<string, { timer?: ReturnType<typeof setTimeout>; waiting: boolean; undoHide?: () => void }>());
-  const activeRef = useRef(activeId);
-  activeRef.current = activeId;
-  const idsRef = useRef<ReadonlySet<string>>(new Set());
-  idsRef.current = loadedIdSet;
+  const activeRef = useLatestRef(activeId);
+  const idsRef = useLatestRef<ReadonlySet<string>>(loadedIdSet);
   useEffect(() => {
     const pend = pendingLeave.current;
     if (!unreadView) return;
@@ -1152,8 +1147,7 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
   const empty = !q.isPending && allItems.length === 0;
   const controls: ListControls = { markAllRead, count: items.length, fallback, empty };
   const headerNode = typeof header === "function" ? header(controls) : header;
-  const controlsRef = useRef(onControls);
-  controlsRef.current = onControls;
+  const controlsRef = useLatestRef(onControls);
   useEffect(() => {
     controlsRef.current?.({ markAllRead, count: items.length, fallback, empty });
   }, [markAllRead, items.length, fallback, empty]);
