@@ -3,10 +3,7 @@ package httpx
 
 import (
 	"net/http"
-	"net/netip"
 	"strings"
-
-	"github.com/WPTK/kipple/internal/auth"
 )
 
 // Options configures Secure.
@@ -15,10 +12,10 @@ type Options struct {
 	// cheap (an atomic read): it runs on every HTML response. Nil means "all", the
 	// strictest policy.
 	ImgMode func() string
-	// TrustedProxies returns the peers whose X-Forwarded-Proto is believed when
-	// deciding whether the effective scheme is https (HSTS, upgrade-insecure-requests).
-	// It must be cheap (an atomic read). Nil trusts none.
-	TrustedProxies func() []netip.Prefix
+	// Scheme returns the scheme the browser used for r ("https" or "http",
+	// reach.State.Scheme), which decides HSTS and upgrade-insecure-requests. It
+	// must be cheap (an atomic read). Nil is "https" only for a TLS connection.
+	Scheme func(r *http.Request) string
 }
 
 const (
@@ -86,7 +83,10 @@ func Secure(h http.Handler, opt Options) http.Handler {
 		hd.Set("Referrer-Policy", "no-referrer")
 		hd.Set("X-Content-Type-Options", "nosniff")
 		hd.Set("X-Frame-Options", "DENY")
-		secure := auth.EffectiveScheme(r, trusted(opt)) == "https"
+		secure := r.TLS != nil
+		if opt.Scheme != nil {
+			secure = opt.Scheme(r) == "https"
+		}
 		if secure {
 			hd.Set("Strict-Transport-Security", "max-age=31536000")
 		}
@@ -190,12 +190,4 @@ func (s *secureWriter) decorate(code int) {
 	default:
 		h.Set("Content-Security-Policy", cspFrameOnly)
 	}
-}
-
-// trusted is opt.TrustedProxies(), or none.
-func trusted(opt Options) []netip.Prefix {
-	if opt.TrustedProxies == nil {
-		return nil
-	}
-	return opt.TrustedProxies()
 }

@@ -11,6 +11,12 @@ import (
 
 var errWouldBlock = errors.New("would block")
 
+// openNoFollow: Windows has no O_NOFOLLOW, and no root restore to guard.
+const openNoFollow = 0
+
+// hardLinked: not checked on Windows (see openNoFollow).
+func hardLinked(os.FileInfo) bool { return false }
+
 func tryLock(f *os.File) error {
 	ol := new(windows.Overlapped)
 	err := windows.LockFileEx(windows.Handle(f.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, ol)

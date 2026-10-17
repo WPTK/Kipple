@@ -36,13 +36,13 @@ func TestEnsureAccountCreatesOnceAndNeverModifies(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok)
 
-	cfg := config.Config{Username: "owner", Password: "web-pw"}
+	cfg := config.Config{Username: "owner", Password: "web-password"}
 	require.NoError(t, ensureAccount(ctx, db, cfg, quiet))
 	acc, ok, err := db.Account(ctx)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "owner", acc.Username)
-	require.True(t, auth.CheckPassword("web-pw", acc.PasswordHash))
+	require.True(t, auth.CheckPassword("web-password", acc.PasswordHash))
 	require.Empty(t, acc.APIPasswordHash, "the Reader API stays disabled without an API password")
 	require.Len(t, acc.Secret, 64)
 
@@ -62,7 +62,7 @@ func TestEnsureAccountCreatesOnceAndNeverModifies(t *testing.T) {
 
 func TestEnsureAccountRejectsBadUsername(t *testing.T) {
 	db := openDB(t)
-	err := ensureAccount(context.Background(), db, config.Config{Username: "owner smith", Password: "web-pw"}, quiet)
+	err := ensureAccount(context.Background(), db, config.Config{Username: "owner smith", Password: "web-password"}, quiet)
 	require.Error(t, err)
 }
 
@@ -72,7 +72,7 @@ func TestSetAPIPassword(t *testing.T) {
 	_, err := setAPIPassword(ctx, db)
 	require.Error(t, err, "needs an account first")
 
-	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner", Password: "web-pw", APIPassword: "old-api-passphrase"}, quiet))
+	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner", Password: "web-password", APIPassword: "old-api-passphrase"}, quiet))
 	before, _, _ := db.Account(ctx)
 	pw, err := setAPIPassword(ctx, db)
 	require.NoError(t, err)
@@ -93,10 +93,10 @@ func TestEnsureAccountValidatesEnvPasswords(t *testing.T) {
 		want string
 	}{
 		{"example placeholder", config.Config{Username: "owner", Password: "change-me"}, "KIPPLE_PASSWORD is the example value"},
-		{"web too short", config.Config{Username: "owner", Password: "four"}, "KIPPLE_PASSWORD must be 5 to 256"},
-		{"web too long", config.Config{Username: "owner", Password: strings.Repeat("x", 257)}, "KIPPLE_PASSWORD must be 5 to 256"},
-		{"api too short", config.Config{Username: "owner", Password: "web-pw", APIPassword: "fifteen-chars-x"}, "KIPPLE_API_PASSWORD must be 16 to 256"},
-		{"api placeholder", config.Config{Username: "owner", Password: "web-pw", APIPassword: "change-me"}, "KIPPLE_API_PASSWORD is the example value"},
+		{"web too short", config.Config{Username: "owner", Password: "four"}, "KIPPLE_PASSWORD must be 8 to 256"},
+		{"web too long", config.Config{Username: "owner", Password: strings.Repeat("x", 257)}, "KIPPLE_PASSWORD must be 8 to 256"},
+		{"api too short", config.Config{Username: "owner", Password: "web-password", APIPassword: "fifteen-chars-x"}, "KIPPLE_API_PASSWORD must be 16 to 256"},
+		{"api placeholder", config.Config{Username: "owner", Password: "web-password", APIPassword: "change-me"}, "KIPPLE_API_PASSWORD is the example value"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := openDB(t)
@@ -111,7 +111,7 @@ func TestEnsureAccountValidatesEnvPasswords(t *testing.T) {
 	// leftover short KIPPLE_API_PASSWORD: the start goes on with the API disabled,
 	// and says so loudly, instead of refusing (which took the web UI down too).
 	db := openDB(t)
-	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner", Password: "web-pw"}, quiet))
+	require.NoError(t, ensureAccount(ctx, db, config.Config{Username: "owner", Password: "web-password"}, quiet))
 	var buf bytes.Buffer
 	loud := slog.New(slog.NewTextHandler(&buf, nil))
 	require.NoError(t, ensureAccount(ctx, db, config.Config{APIPassword: "short"}, loud))

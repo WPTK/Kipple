@@ -333,6 +333,49 @@ func TestCrossOriginRejected(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+// An https public URL makes its own host https even behind a proxy that is not
+// trusted (the cookie never goes out over plain http to that name); any other
+// host, a LAN address over http, keeps a cookie without Secure so it still signs in.
+func TestCookieSecureOnHTTPSPublicURLHost(t *testing.T) {
+	t.Parallel()
+	const pub = "https://rss.example.com"
+	h := newHarness(t, func(o *Options) { o.Reach = reach.Fixed(reach.State{PublicURL: pub, PublicHost: reach.Host(pub)}) })
+	login := func(mod ...func(*http.Request)) *http.Cookie {
+		rec := h.do("POST", "/api/auth/login", loginBody(testPass), mod...)
+		require.Equal(t, http.StatusNoContent, rec.Code)
+		return rec.Result().Cookies()[0]
+	}
+	onPublic := func(r *http.Request) {
+		r.Host = "rss.example.com"
+		r.Header.Set("X-Forwarded-Proto", "https") // from a peer that is not trusted
+	}
+	c := login(onPublic)
+	require.True(t, c.Secure, "the https public URL's host")
+	require.False(t, login(func(r *http.Request) { r.Host = "192.168.1.20:1919" }).Secure, "a LAN address over plain http")
+	require.False(t, login(func(r *http.Request) { r.Host = "rss.example.com:1919" }).Secure, "the public name on Kipple's own port")
+
+	// The Origin check reads the same scheme: the browser on the public URL sends https.
+	viaPublic := func(origin string) func(*http.Request) {
+		return func(r *http.Request) {
+			onPublic(r)
+			r.Header.Del("Sec-Fetch-Site")
+			r.Header.Set("Origin", origin)
+		}
+	}
+	require.Equal(t, http.StatusAccepted, h.do("POST", "/api/refresh", "", withCookie(c), viaPublic("https://rss.example.com")).Code)
+	require.Equal(t, http.StatusForbidden, h.do("POST", "/api/refresh", "", withCookie(c), viaPublic("http://rss.example.com")).Code)
+
+	rec := h.do("POST", "/api/auth/logout", "", withCookie(c), onPublic)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.True(t, rec.Result().Cookies()[0].Secure, "logout clears with the same attributes")
+
+	// An http public URL changes nothing.
+	h = newHarness(t, func(o *Options) {
+		o.Reach = reach.Fixed(reach.State{PublicURL: "http://rss.example.com", PublicHost: "rss.example.com"})
+	})
+	require.False(t, login(onPublic).Secure)
+}
+
 func TestOriginUsesEffectiveScheme(t *testing.T) {
 	t.Parallel()
 	trusted := netip.MustParsePrefix("192.0.2.20/32")

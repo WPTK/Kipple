@@ -333,6 +333,14 @@ Settings, Account & Devices, Address and access, add the address it connects fro
 **Public URL** to the public address. Both apply at once, without a restart. (For a scripted first start,
 `KIPPLE_TRUSTED_PROXY_IPS` and `KIPPLE_PUBLIC_URL` seed the two settings; see .env.example.)
 
+A request is HTTPS for Kipple when it arrives over TLS, when a trusted proxy says so with `X-Forwarded-Proto: https`,
+or when it is for the exact origin of an `https://` Public URL: its host name with no port, or with the Public URL's
+own port (443 when it names none). A proxy that passes the original `Host` through is covered by that. A trusted
+proxy that says `X-Forwarded-Proto: http` is believed. HTTPS gets the `Secure` flag on the sign-in cookie and
+`Strict-Transport-Security`; plain http gets neither, so a LAN address such as `http://192.168.1.20:1919`, or the
+public name on Kipple's own port (`http://rss.example.com:1919`, as Tailscale Serve or local DNS may reach it), keeps
+working next to the public one.
+
 The trusted proxies are a list of single addresses and CIDR ranges (`192.0.2.10`, `198.51.100.0/24`,
 `2001:db8::/32`), empty by default. Only a connection from a listed address is believed about who the
 client is: for such a peer the client is the rightmost `X-Forwarded-For` hop that is not itself listed (each proxy appends
@@ -552,7 +560,7 @@ From a script or a pipe (one line on standard input; mind shell history and the 
 
     printf '%s\n' "$NEW" | docker exec -i kipple /kipple password --stdin
 
-Rules: 5 to 256 characters. It signs out every web session **and revokes every Reader API token**
+Rules: 8 to 256 characters (a shorter password set earlier still signs in until you change it). It signs out every web session **and revokes every Reader API token**
 (it rotates the account secret), so afterwards: sign in again in the browser, and re-enter the
 API password in your sync apps (that password itself is unchanged; if you have lost
 it too, `docker exec kipple /kipple api-password` sets a new one). The failed-login pacing is in

@@ -10,7 +10,7 @@ import (
 
 var xssSeeds = []string{
 	"", "<p>hi</p>", `<script>alert(1)</script>`, `<img src=x onerror=alert(1)>`, `<a href="javascript:alert(1)">x</a>`,
-	`<a href="  JaVa&#x09;Script:alert(1)">x</a>`, `<svg onload=alert(1)>`, `<iframe src="https://www.youtube.com/embed/abc"></iframe>`,
+	`<a href="  JaVa&#x09;Script:alert(1)">x</a>`, `<svg onload=alert(1)>`, `<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe>`,
 	`<video src="http://x/y.mp4" autoplay onplay=x></video>`, `<a href="#fn1">1</a><a id=fn1>`, `<style>@import 'x'</style>`,
 	`<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>`, `<div style="background:url(javascript:x)">`,
 	`<a href="data:text/html,<script>x</script>">x</a>`, `<form action=javascript:x><button>`, `<base href="//evil/">`,

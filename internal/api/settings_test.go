@@ -16,6 +16,7 @@ import (
 	"github.com/WPTK/kipple/internal/auth"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/greader"
+	"github.com/WPTK/kipple/internal/store"
 )
 
 // realVerifier accepts testPass against the seeded "web-hash" and checks any
@@ -489,8 +490,8 @@ func TestPasswordLengthBounds(t *testing.T) {
 		name, pw string
 		want     int
 	}{
-		{"four is too short", "abcd", http.StatusBadRequest},
-		{"five is the minimum", "abcde", http.StatusNoContent},
+		{"seven is too short", "abcdefg", http.StatusBadRequest},
+		{"eight is the minimum", "abcdefgh", http.StatusNoContent},
 		{"256 is the maximum", string(repeatByte('x', 256)), http.StatusNoContent},
 		{"257 is too long", string(repeatByte('x', 257)), http.StatusBadRequest},
 	} {
@@ -500,6 +501,24 @@ func TestPasswordLengthBounds(t *testing.T) {
 			require.Equal(t, tc.want, code)
 		})
 	}
+}
+
+// The minimum applies to a new password only: one set when the minimum was
+// lower still signs in, and proves the account for a change to a longer one.
+func TestShortExistingPasswordStillSignsIn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, realVerifier)
+	const short = "abcde"
+	hash, err := auth.HashPassword(short)
+	require.NoError(t, err)
+	require.NoError(t, h.db.SetPasswordHash(context.Background(), hash, store.AuthStandard, ""))
+	rec := h.do("POST", "/api/auth/login", loginBody(short))
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	c := rec.Result().Cookies()[0]
+	code, _, _ := h.api(c, "POST", "/api/account/password", jsonStr(map[string]string{"current": short, "new": short}))
+	require.Equal(t, http.StatusBadRequest, code, "it cannot be set again")
+	code, _, _ = h.api(c, "POST", "/api/account/password", jsonStr(map[string]string{"current": short, "new": "abcdefgh"}))
+	require.Equal(t, http.StatusNoContent, code)
 }
 
 // The CSP reads imgproxy.mode from an atomic cache that a PATCH refreshes.
