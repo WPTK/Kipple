@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, authStore, busyMessage, chooseSignOut, errorMessage } from "@/api/client";
 import { applyRetention, changePassword, exportBackup, fetchMe, generateApiPassword, removePassword, type BackupInfo } from "@/api/admin";
@@ -217,13 +217,32 @@ function BackupDialog({ ready, onClose }: { ready: BackupInfo | null; onClose: (
   const [cur, setCur] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Cancel, Escape or leaving the page stops the polling (the server finishes the build on its own).
+  const ctrl = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const c = new AbortController();
+    ctrl.current = c;
+    return () => c.abort();
+  }, []);
+  // When the password step turns into the download step, its controls go away: focus the download link and say so.
+  const link = useRef<HTMLAnchorElement>(null);
+  const built = useRef(false);
+  useEffect(() => {
+    if (!info || !built.current) return;
+    link.current?.focus();
+    announce("Backup ready to download");
+  }, [info]);
   const build = async () => {
     if (busy || !cur) return;
+    const signal = ctrl.current?.signal;
     setBusy(true);
     setError(null);
     try {
-      setInfo(await exportBackup({ current: cur }));
+      const ans = await exportBackup({ current: cur, signal });
+      built.current = true;
+      setInfo(ans);
     } catch (e) {
+      if (signal?.aborted) return;
       setError(accountError(e));
     } finally {
       setBusy(false);
@@ -239,7 +258,8 @@ function BackupDialog({ ready, onClose }: { ready: BackupInfo | null; onClose: (
         footer={
           <>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="solid" disabled={!cur || busy} onClick={() => void build()}>
+            {/* aria-disabled while busy, not disabled: a disabled button drops the keyboard's place in the dialog. */}
+            <Button variant="solid" disabled={!cur} aria-disabled={busy || undefined} onClick={() => void build()}>
               {busy ? "Preparing backup" : "Export"}
             </Button>
           </>
@@ -272,7 +292,7 @@ function BackupDialog({ ready, onClose }: { ready: BackupInfo | null; onClose: (
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <a href={info.url} download={info.filename} onClick={() => setTimeout(onClose, 500)} className={cn(buttonVariants({ variant: "solid" }))}>
+          <a ref={link} href={info.url} download={info.filename} onClick={() => setTimeout(onClose, 500)} className={cn(buttonVariants({ variant: "solid" }))}>
             Download {info.filename}
           </a>
         </>

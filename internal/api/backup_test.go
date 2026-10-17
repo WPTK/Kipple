@@ -263,3 +263,61 @@ func TestOpenModeBackupNeedsNoPassword(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	require.Equal(t, "open_refused", decode(t, rec)["error"])
 }
+
+// On an account without a web password, a token signed with the right key but
+// for another application or issuer is a failed proof and is counted; a
+// request with no token at all presents nothing and is not.
+func TestPasswordlessBackupTokenCounting(t *testing.T) {
+	t.Parallel()
+	for name, edit := range map[string]func(map[string]any){
+		"wrong aud": func(c map[string]any) { c["aud"] = []string{"other"} },
+		"wrong iss": func(c map[string]any) { c["iss"] = "https://evil.cloudflareaccess.com" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t, withAccess(t))
+			h.dropPassword()
+			k, _ := accessKeys(t)
+			rec := h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil)))
+			require.Equal(t, http.StatusNoContent, rec.Code)
+			c := sessionCookie(t, rec)
+			for i := 0; i < 10; i++ {
+				rec = h.do("POST", "/api/backup", ``, withCookie(c), withJWT(h.jwt(k, edit)))
+				require.Equal(t, http.StatusForbidden, rec.Code, "attempt %d: %s", i, rec.Body.String())
+			}
+			require.Positive(t, h.paced.Load(), "the refused tokens were counted")
+		})
+	}
+	t.Run("no token", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, withAccess(t))
+		h.dropPassword()
+		k, _ := accessKeys(t)
+		rec := h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil)))
+		require.Equal(t, http.StatusNoContent, rec.Code)
+		c := sessionCookie(t, rec)
+		for i := 0; i < 15; i++ {
+			rec = h.do("POST", "/api/backup", ``, withCookie(c))
+			require.Equal(t, http.StatusForbidden, rec.Code, "attempt %d", i)
+		}
+		require.Zero(t, h.paced.Load(), "nothing presented, nothing counted")
+		rec = h.do("POST", "/api/backup", ``, withCookie(c), withJWT(h.jwt(k, nil)))
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	})
+}
+
+func TestBackupOversizedBodyAndReaderAuth(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.backupSetup(t)
+	big := `{"current":"` + strings.Repeat("a", maxBodyBytes) + `"}`
+	code, out, _ := h.api(c, "POST", "/api/backup", big)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Equal(t, "bad_request", out["error"])
+	require.Zero(t, h.paced.Load(), "refused before the password check")
+
+	// A Reader API token is not a web session.
+	rec := h.do("POST", "/api/backup", backupConfirm, func(r *http.Request) { r.Header.Set("Authorization", "GoogleLogin auth="+testUser+"/abcdef") })
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	require.NotContains(t, rec.Body.String(), `"token"`)
+}

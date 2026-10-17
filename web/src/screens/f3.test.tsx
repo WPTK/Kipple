@@ -1111,7 +1111,29 @@ describe("Account and backup", () => {
     // The manifest stamps created_at as RFC 3339 text, not Unix seconds (#92).
     expect(within(dlg).getByText("Made").nextElementSibling).toHaveTextContent(/2026/);
     expect(dlg).not.toHaveTextContent("Invalid Date");
-    expect(within(dlg).getByRole("link", { name: /kipple-backup-20260925-101500\.zip/ })).toHaveAttribute("href", "/api/backup/t");
+    const link = within(dlg).getByRole("link", { name: /kipple-backup-20260925-101500\.zip/ });
+    expect(link).toHaveAttribute("href", "/api/backup/t");
+    // The password step's controls are gone: focus moves to the download link, not to the page.
+    await waitFor(() => expect(link).toHaveFocus());
+  });
+
+  it("keeps focus on Export while the backup builds, and Cancel stops following the job", async () => {
+    const { calls } = base({
+      "POST /api/backup": () => json({ job_id: "j9", status: "building" }, 202),
+      "GET /api/backup/jobs/j9": () => json({ status: "building" }),
+    });
+    go("/settings/account");
+    const user = userEvent.setup();
+    const ask = await confirmExport(user);
+    const btn = within(ask).getByRole("button", { name: "Preparing backup" });
+    expect(btn).toHaveAttribute("aria-disabled", "true");
+    expect(btn).not.toBeDisabled();
+    expect(btn).toHaveFocus();
+    const post = calls.find((c) => c.url.pathname === "/api/backup");
+    expect(post?.init?.signal?.aborted).toBe(false);
+    await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Export backup" })).toBeNull());
+    expect(post?.init?.signal?.aborted).toBe(true);
   });
 
   it("waits for a background export job, then shows the same confirmation", async () => {
