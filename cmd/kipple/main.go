@@ -407,7 +407,13 @@ func rootHandler(readerFront func(http.Handler) http.Handler, mux http.Handler, 
 	if hostGate != nil {
 		h = hostGate(h)
 	}
-	return httpx.Compress(httpx.Secure(h, httpx.Options{ImgMode: imgMode, Scheme: scheme}))
+	return httpx.Compress(httpx.Secure(h, httpx.Options{ImgMode: imgMode, Scheme: scheme, HSTS: func(r *http.Request) bool {
+		var t []netip.Prefix
+		if trusted != nil {
+			t = trusted()
+		}
+		return auth.EffectiveScheme(r, t) == "https"
+	}}))
 }
 
 // serveDrainWait bounds the wait for ListenAndServe to report after a shutdown.

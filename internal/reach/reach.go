@@ -259,7 +259,7 @@ func (l *Live) Scheme(r *http.Request) string { return l.Get().Scheme(r) }
 // front is not a trusted one. Anything else stays "http": a LAN address, the
 // same name on Kipple's own port (http://rss.example.com:1919, as Tailscale
 // Serve or local DNS reach it), and a request a trusted proxy marks as http.
-// The Secure cookie flag, HSTS, upgrade-insecure-requests and the Origin check
+// The Secure cookie flag, upgrade-insecure-requests and the Origin check
 // all follow it.
 func (st *State) Scheme(r *http.Request) string {
 	if auth.EffectiveScheme(r, st.Trusted) == "https" {
