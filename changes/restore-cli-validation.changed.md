@@ -1,0 +1,1 @@
+`kipple restore` now checks a backup the same way the web restore does: a database holding a table, index, trigger or view that Kipple never creates, or a changed one, is refused before anything runs on it, and nothing in the data directory changes. This applies to a backup zip and to a bare database file.

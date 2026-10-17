@@ -41,28 +41,7 @@ func checkStaged(ctx context.Context, path, kippleVersion string) (DBInfo, Backu
 		}
 		return DBInfo{}, BackupAccount{}, &BadUploadError{err}
 	}
-	var appID, version int
-	if err := db.QueryRowContext(ctx, "PRAGMA application_id").Scan(&appID); err != nil {
-		return bad(fmt.Errorf("kipple.db is not a readable database: %w", err))
-	}
-	if appID != store.ApplicationID {
-		return bad(errors.New("kipple.db is not a Kipple database"))
-	}
-	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		return bad(err)
-	}
-	switch {
-	case version > store.LatestVersion():
-		return bad(&NewerError{})
-	case version < 1:
-		return bad(errors.New("kipple.db is empty"))
-	}
-	// Before anything else runs on it: the integrity checks below write to the
-	// search index.
-	if err := CheckSchema(ctx, db, version); err != nil {
-		return bad(err)
-	}
-	info, err := inspect(ctx, db, true)
+	info, err := checkUntrusted(ctx, db)
 	if err != nil {
 		return bad(err)
 	}
@@ -71,6 +50,49 @@ func checkStaged(ctx context.Context, path, kippleVersion string) (DBInfo, Backu
 		return bad(err)
 	}
 	return info, acct, nil
+}
+
+// CheckRestore verifies a database file that `kipple restore` is about to
+// install, with the same checks the web restore applies to an upload: opened
+// with trusted_schema off, its schema compared with Kipple's own (CheckSchema)
+// before anything else runs on it, then the full integrity checks. It reads
+// the counts the command prints.
+func CheckRestore(ctx context.Context, path string) (DBInfo, error) {
+	db, err := openUntrusted(path)
+	if err != nil {
+		return DBInfo{}, err
+	}
+	defer db.Close()
+	return checkUntrusted(ctx, db)
+}
+
+// checkUntrusted is the check both restores share: a Kipple database of a
+// version this binary knows, holding nothing a fresh database of that version
+// does not, passing the full integrity checks. db must have been opened with
+// openUntrusted.
+func checkUntrusted(ctx context.Context, db *sql.DB) (DBInfo, error) {
+	var appID, version int
+	if err := db.QueryRowContext(ctx, "PRAGMA application_id").Scan(&appID); err != nil {
+		return DBInfo{}, fmt.Errorf("not a readable SQLite database: %w", err)
+	}
+	if appID != store.ApplicationID {
+		return DBInfo{}, errors.New("not a Kipple database (application_id mismatch)")
+	}
+	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return DBInfo{}, err
+	}
+	switch {
+	case version > store.LatestVersion():
+		return DBInfo{}, &NewerError{}
+	case version < 1:
+		return DBInfo{}, errors.New("not a Kipple database (it is empty)")
+	}
+	// Before anything else runs on it: the integrity checks below write to the
+	// search index.
+	if err := CheckSchema(ctx, db, version); err != nil {
+		return DBInfo{}, err
+	}
+	return inspect(ctx, db, true)
 }
 
 // CheckSchema compares the schema of db (at version) with a fresh database of

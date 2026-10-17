@@ -1,0 +1,1 @@
+Adding a page with "Allow addresses on my own network" ticked: when the page links to a feed on another site, that feed no longer gets the exception. It is subscribed without it, and a link to a private address on another site is refused, the same as when a feed's address is edited to another site.
