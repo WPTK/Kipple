@@ -237,6 +237,19 @@ func feedRef(v string) (store.FeedRef, bool) {
 	return store.FeedRef{URL: rest}, true
 }
 
+// subscribeTarget is the address in an ac=subscribe s= value: the part after feed/, or the whole value
+// when it has no prefix, as quickadd takes it. Another stream id (user/...) is no address: "".
+func subscribeTarget(v string) string {
+	v = strings.TrimSpace(v)
+	if rest, ok := strings.CutPrefix(v, "feed/"); ok {
+		return rest
+	}
+	if strings.HasPrefix(v, "user/") {
+		return ""
+	}
+	return v
+}
+
 // feedRefsTitled is feedRefs for s= values that come with one t= title each: the
 // titles are paired with the s= values as sent, before unusable ones are dropped,
 // so a skipped s= never shifts a title onto the next feed. titles is nil when the
@@ -327,8 +340,8 @@ func (c *call) subscriptionEdit() {
 			return
 		}
 		for i, s := range ss {
-			rest, ok := strings.CutPrefix(strings.TrimSpace(s), "feed/")
-			if !ok || rest == "" {
+			rest := subscribeTarget(s)
+			if rest == "" {
 				continue
 			}
 			var title string
@@ -459,7 +472,7 @@ func (c *call) renameTag() {
 	ctx := c.r.Context()
 	s := c.p.Get("s")
 	rawS := firstOrEmpty(c.p.AllRaw("s"))
-	dest, ok, err := c.folderName(ctx, c.p.All("dest"), c.p.AllRaw("dest"))
+	dest, ok, err := c.folderName(ctx, bareLabels(c.p.All("dest")), bareLabels(c.p.AllRaw("dest")))
 	if err != nil {
 		c.serverError("rename-tag", err)
 		return
@@ -491,6 +504,19 @@ func (c *call) renameTag() {
 		}
 	}
 	c.ok()
+}
+
+// bareLabels gives a value that is a plain folder name (no user/ prefix, not blank) the user/-/label/
+// prefix, so rename-tag takes dest=Name as well as dest=user/-/label/Name. Any other value is left alone.
+func bareLabels(values []string) []string {
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = v
+		if strings.TrimSpace(v) != "" && !strings.HasPrefix(v, "user/") {
+			out[i] = labelPrefix + v
+		}
+	}
+	return out
 }
 
 func firstOrEmpty(l []string) string {
