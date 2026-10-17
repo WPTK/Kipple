@@ -168,7 +168,9 @@ database that `kipple restore` accepts as it is. The export zip is the same data
 
 ## Export a backup (the button)
 
-Settings, Account & Devices, Export backup. The app calls `POST /api/backup`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
+Settings, Account & Devices, Export backup. The app asks for your web password first (an account without one confirms
+the same way it does for a new API password: a Cloudflare Access sign-in, or nothing in open mode). It then calls
+`POST /api/backup` with `{"current": "<web password>"}`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
 then starts the download of `GET /api/backup/<token>`, which saves as
 `kipple-backup-YYYYMMDD-HHMMSS.zip`. Save it somewhere other than the server (another machine, an external drive, cloud storage).
 
@@ -177,7 +179,8 @@ then starts the download of `GET /api/backup/<token>`, which saves as
   `RESTORE.txt`. It is roughly a third of the database size.
 - **The file is sensitive.** It contains the web and API password hashes, the account secret
   that signs Reader tokens and image links, hashed session ids, and any feed logins (HTTP Basic
-  `user:password`, stored in plain text). Keep it private.
+  `user:password`, stored in plain text). Anyone with the file can use the Reader API as you until you set a new API
+  password. Store it privately, where nobody else can open it.
 - `kipple.db` in the zip is the whole database (everything in the left column of the table above, also the `sys.*`
   flags); `settings.json` leaves the `sys.*` flags out and is only a readable copy.
 - The link is single use and expires after 5 minutes. If the transfer breaks, export again.

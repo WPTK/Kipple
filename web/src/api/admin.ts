@@ -328,10 +328,12 @@ const FAILED_STATUS: Record<string, number> = { no_space: 507, too_large: 413, b
  * five seconds, else 202 {job_id}: then GET /api/backup/jobs/{id} is polled until it is ready or failed. The job
  * outlives the request, so a slow proxy or a closed tab does not cancel it. Failures throw an ApiError with the
  * same status the synchronous path uses (507 no_space, 413 too_large, 409 busy).
+ * `current` is the web password, which the server asks for first (the file holds the account's credentials); an
+ * account without one sends nothing, as for the API password.
  */
-export async function exportBackup(opts: { intervalMs?: number; maxMs?: number; signal?: AbortSignal } = {}): Promise<BackupInfo> {
-  const { intervalMs = 2000, maxMs = 12 * 60_000, signal } = opts;
-  let ans = await api<BackupAnswer>("/api/backup", { method: "POST", signal });
+export async function exportBackup(opts: { current?: string; intervalMs?: number; maxMs?: number; signal?: AbortSignal } = {}): Promise<BackupInfo> {
+  const { current, intervalMs = 2000, maxMs = 12 * 60_000, signal } = opts;
+  let ans = await api<BackupAnswer>("/api/backup", { method: "POST", signal, ...(current === undefined ? {} : { body: { current } }) });
   const started = Date.now();
   const jobId = ans.status === "building" && "job_id" in ans ? ans.job_id : undefined;
   while (jobId && ans.status === "building") {
