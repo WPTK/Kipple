@@ -16,7 +16,8 @@ import (
 // player needs. Only the two allowlisted hosts ever reach this.
 const EmbedSandbox = "allow-scripts allow-same-origin allow-presentation allow-popups"
 
-var vimeoEmbed = regexp.MustCompile(`^https://player\.vimeo\.com/video/[0-9]+([?&/#][^\s"'<>]*)?$`)
+// vimeoEmbed is a Vimeo player: /video/ and a numeric id, then embedTail.
+var vimeoEmbed = regexp.MustCompile(`^https://player\.vimeo\.com/video/[0-9]{1,20}` + embedTail)
 
 // IframesToLinks is the ingest pre-pass that runs before bluemonday (design
 // 4.4): a YouTube or Vimeo iframe is kept for the policy to vet, any other

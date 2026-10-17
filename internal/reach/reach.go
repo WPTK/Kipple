@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -245,6 +246,58 @@ func (l *Live) PublicURL() string { return l.Get().PublicURL }
 
 // Trusted is the trusted proxies in force.
 func (l *Live) Trusted() []netip.Prefix { return l.Get().Trusted }
+
+// Scheme is the scheme in force for r (State.Scheme).
+func (l *Live) Scheme(r *http.Request) string { return l.Get().Scheme(r) }
+
+// Scheme is the scheme the browser used for r, as far as Kipple can be sure:
+// "https" when auth.EffectiveScheme says so (a TLS connection, or a trusted
+// proxy's X-Forwarded-Proto), or when r is for the exact origin of an https
+// public URL: its host, with no port or the public URL's own port (443 when it
+// names none). That origin is only reached through whatever serves the public
+// URL, so an https public URL is the owner saying so even when the proxy in
+// front is not a trusted one. Anything else stays "http": a LAN address, the
+// same name on Kipple's own port (http://rss.example.com:1919, as Tailscale
+// Serve or local DNS reach it), and a request a trusted proxy marks as http.
+// The Secure cookie flag, HSTS, upgrade-insecure-requests and the Origin check
+// all follow it.
+func (st *State) Scheme(r *http.Request) string {
+	if auth.EffectiveScheme(r, st.Trusted) == "https" {
+		return "https"
+	}
+	if auth.PeerTrusted(r, st.Trusted) && r.Header.Get("X-Forwarded-Proto") != "" {
+		return "http" // a trusted proxy said what the scheme is
+	}
+	if st.publicOrigin(r.Host) {
+		return "https"
+	}
+	return "http"
+}
+
+// publicOrigin reports whether hostHeader names the origin of an https public
+// URL: its host, and either no port or the public URL's port.
+func (st *State) publicOrigin(hostHeader string) bool {
+	if st.PublicHost == "" {
+		return false
+	}
+	u, err := url.Parse(st.PublicURL)
+	if err != nil || !strings.EqualFold(u.Scheme, "https") {
+		return false
+	}
+	h, ok := setup.NormalizeHost(hostHeader)
+	if !ok || h != st.PublicHost {
+		return false
+	}
+	want := u.Port()
+	if want == "" {
+		want = "443"
+	}
+	got := ""
+	if i := strings.LastIndexByte(hostHeader, ':'); i >= 0 && !strings.Contains(hostHeader[i:], "]") {
+		got = hostHeader[i+1:]
+	}
+	return got == "" || got == want
+}
 
 // Access is the Access verifier in force, nil when validation is off.
 func (l *Live) Access() *access.Verifier { return l.Get().Access }

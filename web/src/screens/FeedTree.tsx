@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { ChevronDown, ChevronRight, Folder as FolderIcon } from "lucide-react";
 import { useBootstrap } from "@/api/queries";
 import type { Feed, Folder } from "@/api/types";
-import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
+import { updateDevicePrefs, useDevicePrefs, type UnreadBadge } from "@/lib/devicePrefs";
 import { useFavorites } from "@/lib/favorites";
 import { childrenOf, folderPath, folderTree, subtreeFeeds, type FolderTree } from "@/lib/folderTree";
 import { openListTo } from "@/lib/routes";
@@ -11,7 +11,7 @@ import { visibleFeeds } from "@/lib/visibleFeeds";
 import { cn } from "@/lib/cn";
 import { FavStar } from "@/ui/FavStar";
 import { SavedSearchesNav } from "./SavedSearchesNav";
-import { UnreadCount } from "@/ui/UnreadCount";
+import { UnreadCount, unreadName } from "@/ui/UnreadCount";
 
 export const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 
@@ -155,6 +155,8 @@ interface TreeCtx {
   /** Whether a folder's subtree holds a visible feed (only those folders show). */
   shown: (folder: string) => boolean;
   collapsedIds: readonly string[];
+  /** The device setting that decides what the unread badge shows, and so what the item's name says. */
+  unreadBadge: UnreadBadge;
   favs: ReturnType<typeof useFavorites>;
   onNavigate?: () => void;
   /** The prefix of keys and element ids under one root (a favorite repeats folders and feeds the tree also shows). */
@@ -179,22 +181,25 @@ function folderKeys(ctx: Omit<TreeCtx, "prefix" | "tabStop">, prefix: string, fo
   for (const f of c.own) out.push(`${prefix}feed-${f.id}`);
 }
 
+// The li is role="presentation", not "none": WebKit only accepts presentation (besides treeitem and group) between a tree
+// and its items, and otherwise drops the whole tree. The trailing space in the title keeps "Feed" and its count apart in the
+// text a checker reads ("Feed 12", not "Feed12"); it is inside the title because a space in the zero-width spacer is skipped.
 function FeedItem({ f, level, ctx, fav }: { f: Feed; level: number; ctx: TreeCtx; fav?: boolean }) {
   const key = `${ctx.prefix}feed-${f.id}`;
   return (
-    <li
-      role="treeitem"
-      aria-level={level}
-      aria-labelledby={`${key}-link`}
-      tabIndex={ctx.tabStop === key ? 0 : -1}
-      data-tree-key={key}
-      data-fav={`feed:${f.id}`}
-      className="group/row rounded-lg focus-visible:outline-2 focus-visible:outline-accent"
-    >
-      <div className="flex items-center">
-        <Link id={`${key}-link`} tabIndex={-1} to={openListTo({ feed: f.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 text-sm", !fav && "pl-3")}>
+    <li role="presentation">
+      <div
+        role="treeitem"
+        aria-level={level}
+        aria-label={unreadName(f.title, f.unread, ctx.unreadBadge)}
+        tabIndex={ctx.tabStop === key ? 0 : -1}
+        data-tree-key={key}
+        data-fav={`feed:${f.id}`}
+        className="group/row flex items-center rounded-lg focus-visible:outline-2 focus-visible:outline-accent"
+      >
+        <Link tabIndex={-1} to={openListTo({ feed: f.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 text-sm", !fav && "pl-3")}>
           <FeedIcon feed={f} />
-          <span className="truncate">{f.title}</span>
+          <span className="truncate">{f.title}{" "}</span>
           <span className="ml-auto" />
           <UnreadCount n={f.unread} />
         </Link>
@@ -211,22 +216,24 @@ function FolderItem({ fo, level, ctx, fav }: { fo: Folder; level: number; ctx: T
   const { subs, own, branch, collapsed } = contents(ctx, fo.id);
   const name = fav ? folderPath(ctx.tree, fo.id) : fo.name;
   return (
-    <li
-      role="treeitem"
-      aria-level={level}
-      aria-expanded={branch ? !collapsed : undefined}
-      aria-labelledby={`${key}-link`}
-      tabIndex={ctx.tabStop === key ? 0 : -1}
-      data-tree-key={key}
-      data-folder-id={fo.id}
-      data-fav={`folder:${fo.id}`}
-      className="rounded-lg focus-visible:outline-2 focus-visible:outline-accent"
-    >
-      <div className="group/row flex items-center">
+    <li role="presentation">
+      {/* The treeitem is the row alone, and the subfolders sit beside it in the group it owns: a name that held the whole subtree could not contain the row's visible text (WCAG 2.5.3). */}
+      <div
+        role="treeitem"
+        aria-level={level}
+        aria-expanded={branch ? !collapsed : undefined}
+        aria-owns={branch && !collapsed ? groupId : undefined}
+        aria-label={unreadName(name, fo.unread, ctx.unreadBadge)}
+        tabIndex={ctx.tabStop === key ? 0 : -1}
+        data-tree-key={key}
+        data-folder-id={fo.id}
+        data-fav={`folder:${fo.id}`}
+        className="group/row flex items-center rounded-lg focus-visible:outline-2 focus-visible:outline-accent"
+      >
         {branch ? <CollapseToggle folder={fo} collapsed={collapsed} listId={groupId} collapsedIds={ctx.collapsedIds} tabIndex={-1} /> : null}
-        <Link id={`${key}-link`} tabIndex={-1} to={openListTo({ folder: fo.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 pl-1 text-sm font-semibold")}>
+        <Link tabIndex={-1} to={openListTo({ folder: fo.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 pl-1 text-sm font-semibold")}>
           {fav ? <FolderIcon aria-hidden="true" className="size-4 shrink-0 text-fg2" /> : null}
-          <span className="truncate">{name}</span>
+          <span className="truncate">{name}{" "}</span>
           <span className="ml-auto" />
           {/* A collapsed folder still shows what is inside it. */}
           <UnreadCount n={fo.unread} />
@@ -286,7 +293,7 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
     );
   }
   const { tree, byFolder, shownIds, feedById } = lib;
-  const base = { tree, feedsOf: (id: string) => byFolder.get(id) ?? [], shown: (id: string) => shownIds.has(id), collapsedIds: dp.collapsedFolders, favs, onNavigate };
+  const base = { tree, feedsOf: (id: string) => byFolder.get(id) ?? [], shown: (id: string) => shownIds.has(id), collapsedIds: dp.collapsedFolders, unreadBadge: dp.unreadBadge, favs, onNavigate };
 
   const favList = favs.favorites.filter((fav) => (fav.t === "folder" ? tree.byId.has(fav.id) : feedById.has(fav.id)));
   const favPrefix = (fav: { t: string; id: string }) => `fav-${fav.t}-${fav.id}-`;

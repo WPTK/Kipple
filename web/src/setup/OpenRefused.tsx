@@ -9,7 +9,7 @@ import { openReasonText, type OpenReason } from "./api";
  * how to get in, because the server's short answer only makes sense to someone who has read the design.
  */
 export function OpenRefusedScreen({ reason, onRetry, busy }: { reason: OpenReason | null; onRetry?: () => void; busy?: boolean }) {
-  useDocumentTitle("Kipple can't let you in from here");
+  useDocumentTitle("Kipple can't let you in from here", true);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });

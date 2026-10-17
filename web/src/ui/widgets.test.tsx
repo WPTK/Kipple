@@ -7,7 +7,7 @@ import { Segmented } from "./segmented";
 import { Switch } from "./kit";
 import { maxFor } from "@/lib/useWidth";
 import { ResizeHandle, dragWidth, keyWidth } from "./ResizeHandle";
-import { UnreadCount, badgeKind, badgeText } from "./UnreadCount";
+import { UnreadCount, badgeKind, badgeText, unreadName } from "./UnreadCount";
 
 beforeEach(() => {
   localStorage.clear();
@@ -154,6 +154,14 @@ describe("Unread badge", () => {
     expect(badgeKind(5, "off")).toBeNull();
     expect(badgeKind(5, "dot")).toBe("dot");
     expect(badgeKind(5, "count")).toBe("count");
+  });
+
+  it("names a row by its visible text first, then the unread state", () => {
+    expect(unreadName("Hacker News", 12, "count")).toBe("Hacker News, 12 unread");
+    expect(unreadName("Hacker News", 400, "count")).toBe("Hacker News, 99+ unread");
+    expect(unreadName("Hacker News", 12, "dot")).toBe("Hacker News, unread");
+    expect(unreadName("Hacker News", 12, "off")).toBe("Hacker News");
+    expect(unreadName("Hacker News", 0, "count")).toBe("Hacker News");
   });
 
   it("renders the setting", () => {

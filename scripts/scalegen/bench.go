@@ -703,7 +703,8 @@ func benchBackup(o benchOpts, m *metrics, s *server, run int) error {
 	}
 	sp := s.sample()
 	t := time.Now()
-	code, b, _, err := s.req("POST", "/api/backup", nil, "application/json", nil)
+	// The export asks for the current web password first.
+	code, b, _, err := s.req("POST", "/api/backup", []byte(`{"current":"`+benchPassword+`"}`), "application/json", nil)
 	if err != nil {
 		return err
 	}

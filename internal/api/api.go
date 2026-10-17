@@ -460,7 +460,7 @@ func (s *Server) sameOrigin(r *http.Request) bool {
 	return c == "web" || c == "pwa"
 }
 
-func (s *Server) scheme(r *http.Request) string { return auth.EffectiveScheme(r, s.reach.Trusted()) }
+func (s *Server) scheme(r *http.Request) string { return s.reach.Scheme(r) }
 
 // sessionOK validates the cookie, sliding the session (and re-issuing the
 // cookie) at most hourly. An error is a failed lookup, not a missing session.
@@ -494,8 +494,9 @@ func newCookieValue() (string, error) {
 }
 
 // setCookie issues the session cookie: HttpOnly, SameSite=Lax, Path=/,
-// persistent (WebKit drops session cookies in Home Screen apps), Secure only
-// when the effective scheme is https.
+// persistent (WebKit drops session cookies in Home Screen apps), Secure when
+// the scheme is https (reach.State.Scheme: TLS, a trusted proxy, or the host of
+// an https public URL), so a LAN visit over plain http still signs in.
 func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, value string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: cookieName, Value: value, Path: "/", MaxAge: int(sessionTTL / time.Second),

@@ -90,11 +90,11 @@ describe("Passwordless account (Cloudflare Access)", () => {
     await user.click(await screen.findByRole("button", { name: "Set web password" }));
     const dlg = await screen.findByRole("dialog", { name: "Set web password" });
     expect(within(dlg).queryByLabelText("Current password")).toBeNull();
-    await user.type(within(dlg).getByLabelText("New password"), "abcdef");
-    await user.type(within(dlg).getByLabelText("New password again"), "abcdef");
+    await user.type(within(dlg).getByLabelText("New password"), "abcdefgh");
+    await user.type(within(dlg).getByLabelText("New password again"), "abcdefgh");
     await user.click(within(dlg).getByRole("button", { name: "Set password" }));
     await vi.waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/account/password")).toBe(true));
-    expect(body(calls.find((c) => c.url.pathname === "/api/account/password") as never)).toEqual({ current: "", new: "abcdef" });
+    expect(body(calls.find((c) => c.url.pathname === "/api/account/password") as never)).toEqual({ current: "", new: "abcdefgh" });
   });
 
   it("generates an API password without a web password field", async () => {
@@ -107,6 +107,27 @@ describe("Passwordless account (Cloudflare Access)", () => {
     await user.click(within(dlg).getByRole("button", { name: "Generate" }));
     const shown = await screen.findByRole("dialog", { name: "Your new API password" });
     expect(within(shown).getByTestId("api-password")).toHaveTextContent("fresh-api-password-xyz");
+  });
+
+  it("exports a backup without asking for a web password when there is none", async () => {
+    const ready = {
+      token: "t",
+      url: "/api/backup/t",
+      filename: "kipple-backup-x.zip",
+      bytes: 10,
+      expires_at: 0,
+      expires_in: 300,
+      warning: "Keep it private.",
+      contents: { kipple_version: "1", schema_version: 1, created_at: "2026-09-25T10:15:00Z", feeds: 1, items: 2, starred: 0, db_bytes: 5 },
+    };
+    const { calls } = base({ password_set: false, access_enabled: true, access_email: "owner@example.com" }, { "POST /api/backup": () => json(ready) });
+    go("/settings/account");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Export backup" }));
+    const dlg = await screen.findByRole("dialog", { name: "Download backup" });
+    expect(within(dlg).queryByLabelText("Your web password")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Export backup" })).toBeNull();
+    expect(calls.find((c) => c.url.pathname === "/api/backup")?.init?.body).toBeUndefined();
   });
 });
 

@@ -60,12 +60,12 @@ var corpus = []struct {
 	{"link import", `<link rel="stylesheet" href="https://evil.example/x.css"><link rel="import" href="https://evil.example/x.html">`, []string{"<link", "evil.example"}},
 	{"style import", `<style>@import url(https://evil.example/x.css);</style><p>x</p>`, []string{"<style", "@import", "evil.example"}},
 	{"srcdoc", `<iframe srcdoc="<script>alert(1)</script>"></iframe>`, []string{"srcdoc", "<script"}},
-	{"srcdoc on allowed iframe", `<iframe src="https://www.youtube.com/embed/abc" srcdoc="<script>alert(1)</script>"></iframe>`, []string{"srcdoc", "<script"}},
+	{"srcdoc on allowed iframe", `<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" srcdoc="<script>alert(1)</script>"></iframe>`, []string{"srcdoc", "<script"}},
 	{"iframe javascript", `<iframe src="javascript:alert(1)"></iframe>`, []string{"javascript:"}},
-	{"iframe other host", `<iframe src="https://evil.example/embed/abc"></iframe>`, []string{"<iframe"}},
-	{"iframe youtube lookalike", `<iframe src="https://www.youtube.com.evil.example/embed/abc"></iframe>`, []string{"<iframe"}},
-	{"iframe youtube userinfo", `<iframe src="https://www.youtube.com@evil.example/embed/abc"></iframe>`, []string{"<iframe"}},
-	{"iframe sandbox widened", `<iframe src="https://www.youtube.com/embed/abc" sandbox="allow-top-navigation allow-scripts allow-forms"></iframe>`, []string{"allow-top-navigation", "allow-forms"}},
+	{"iframe other host", `<iframe src="https://evil.example/embed/dQw4w9WgXcQ"></iframe>`, []string{"<iframe"}},
+	{"iframe youtube lookalike", `<iframe src="https://www.youtube.com.evil.example/embed/dQw4w9WgXcQ"></iframe>`, []string{"<iframe"}},
+	{"iframe youtube userinfo", `<iframe src="https://www.youtube.com@evil.example/embed/dQw4w9WgXcQ"></iframe>`, []string{"<iframe"}},
+	{"iframe sandbox widened", `<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" sandbox="allow-top-navigation allow-scripts allow-forms"></iframe>`, []string{"allow-top-navigation", "allow-forms"}},
 	{"object", `<object data="https://evil.example/x.swf"></object>`, []string{"<object", "evil.example"}},
 	{"embed", `<embed src="https://evil.example/x.swf">`, []string{"<embed", "evil.example"}},
 	{"applet", `<applet code="x.class" archive="https://evil.example/x.jar"></applet>`, []string{"<applet", "evil.example"}},
@@ -219,7 +219,7 @@ func TestSanitizerCorpus(t *testing.T) {
 // Benign content survives, so the corpus is not passing by deleting everything.
 func TestSanitizerCorpusKeepsBenignMarkup(t *testing.T) {
 	out, _ := Content(`<p>Hello <a href="https://example.com/a" title="t">link</a> <img src="https://example.com/i.png" alt="i"></p>`+
-		`<iframe src="https://www.youtube.com/embed/abc123" sandbox="allow-scripts"></iframe><a href="#fn1">1</a>`, "https://example.com/")
+		`<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" sandbox="allow-scripts"></iframe><a href="#fn1">1</a>`, "https://example.com/")
 	for _, want := range []string{`href="https://example.com/a"`, `src="https://example.com/i.png"`, `href="#fn1"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("%s missing from %q", want, out)

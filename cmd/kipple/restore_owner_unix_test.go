@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -34,6 +35,51 @@ func TestFixOwnershipWhenRunningAsRoot(t *testing.T) {
 	require.Equal(t, os.Getuid(), uid, "files go to the data directory's owner")
 	_ = gid
 	require.Contains(t, out.String(), "running as root")
+}
+
+// chownPlain hands over a plain file or directory, and never what a link
+// planted under the name points to. (Run unprivileged, the owner given is the
+// caller's own, so the change itself is allowed and is a no-op.)
+func TestChownPlainRefusesLinks(t *testing.T) {
+	dir := t.TempDir()
+	uid, gid := os.Getuid(), os.Getgid()
+	file := filepath.Join(dir, "kipple.db")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0o600))
+	require.NoError(t, chownPlain(file, uid, gid))
+	sub := filepath.Join(dir, "backup")
+	require.NoError(t, os.Mkdir(sub, 0o700))
+	require.NoError(t, chownPlain(sub, uid, gid))
+
+	target := filepath.Join(t.TempDir(), "elsewhere")
+	require.NoError(t, os.WriteFile(target, []byte("x"), 0o600))
+	link := filepath.Join(dir, "kipple.lock")
+	require.NoError(t, os.Symlink(target, link))
+	require.ErrorIs(t, chownPlain(link, uid, gid), errNotPlain)
+	dirLink := filepath.Join(dir, "backup-link")
+	require.NoError(t, os.Symlink(sub, dirLink))
+	require.ErrorIs(t, chownPlain(dirLink, uid, gid), errNotPlain)
+
+	hard := filepath.Join(dir, "hard")
+	require.NoError(t, os.Link(target, hard))
+	require.ErrorIs(t, chownPlain(hard, uid, gid), errNotPlain)
+
+	fifo := filepath.Join(dir, "fifo")
+	require.NoError(t, syscall.Mkfifo(fifo, 0o600))
+	require.ErrorIs(t, chownPlain(fifo, uid, gid), errNotPlain)
+
+	require.True(t, os.IsNotExist(chownPlain(filepath.Join(dir, "missing"), uid, gid)), "a missing path stays a not-exist error")
+
+	// fixOwnership reports a refused path and carries on with the rest.
+	oldE := geteuid
+	t.Cleanup(func() { geteuid = oldE })
+	geteuid = func() int { return 0 }
+	if os.Getuid() == 0 {
+		t.Skip("the data dir is root-owned here, so there is nobody to hand files to")
+	}
+	var out bytes.Buffer
+	fixOwnership(&out, dir, link, file)
+	require.Contains(t, out.String(), "could not give "+link)
+	require.NotContains(t, out.String(), "could not give "+file)
 }
 
 // Run as root, restore also hands kipple.lock and a backup/ directory it

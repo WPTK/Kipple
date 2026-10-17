@@ -174,7 +174,7 @@ func TestServeHTMLXSSRegression(t *testing.T) {
 // stable.
 func TestContentThenServe(t *testing.T) {
 	raw := `<p>Read <a href="/more?utm_source=rss&id=3">more</a><script>x()</script></p>` +
-		`<iframe src="https://www.youtube.com/embed/abc123"></iframe><iframe src="https://evil.example/w">t</iframe>` +
+		`<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe><iframe src="https://evil.example/w">t</iframe>` +
 		`<video src="http://cdn.example/v.mp4" autoplay controls></video>`
 	stored, _ := Content(raw, "https://a.example/post/")
 	served := ServeHTML(stored, testOpts)

@@ -383,6 +383,18 @@ func TestSetupModeAnswersThePublicURLHost(t *testing.T) {
 	}
 }
 
+// Open mode over plain http on the LAN keeps working when the public URL is
+// https: the LAN address is not the public URL's host, so its cookie has no
+// Secure flag (a browser would drop one sent over http).
+func TestOpenModeLANHTTPCookieWithHTTPSPublicURL(t *testing.T) {
+	t.Parallel()
+	const pub = "https://reader.example.net"
+	h := newSetupHarness(t, func(o *Options) { o.Reach = reach.Fixed(reach.State{PublicURL: pub, PublicHost: reach.Host(pub)}) })
+	sess := h.openAccount(nil)
+	require.False(t, sess.Secure)
+	require.Equal(t, http.StatusOK, h.req("GET", "/api/auth/me", "", withCookies(sess)).Code)
+}
+
 // The public URL's host opens in open mode once an authenticated write sets it,
 // like a listed name.
 func TestOpenModeAnswersThePublicURLHost(t *testing.T) {

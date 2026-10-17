@@ -176,8 +176,17 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   }, [leaveRef]);
 
   // Focus the article when it opens (narrow) so screen readers land on it.
-  // The tab names the article once it has loaded.
-  useDocumentTitle(item.data ? item.data.title || "Untitled" : undefined);
+  // The tab mirrors what the screen shows as its heading: the article's title, or the loading and failure screens'.
+  const gone = item.error instanceof ApiError && item.error.status === 404;
+  useDocumentTitle(
+    item.isPending
+      ? "Loading article"
+      : item.isError || !item.data
+        ? gone
+          ? "This article is no longer available"
+          : "Couldn't open this article"
+        : item.data.title || "Untitled",
+  );
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (item.data && !pane) headingRef.current?.focus({ preventScroll: true });
@@ -269,9 +278,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     );
   }
   if (item.isError || !item.data) {
+    // The failure is the page's h1 in both layouts: beside the article the list's name is an h2 (ScopeHeader), so nothing else is one.
     // A 404 is final: retention trimmed the article, or it was deleted, or the id was never one. Retrying cannot help,
     // so that answer says so and offers the list; only other failures (network, 5xx) offer Try again.
-    const gone = item.error instanceof ApiError && item.error.status === 404;
     // The original is on the web: with the browser offline it cannot open either, so it is offered only online (the
     // server alone being unreachable, #78, still leaves it).
     const originalUrl = !gone && browserOnline ? safeHttpUrl(cachedCard?.url) : undefined;
@@ -281,6 +290,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <StatusBlock
             role="alert"
+            asH1
             title={gone ? "This article is no longer available" : "Couldn't open this article"}
             body={
               gone

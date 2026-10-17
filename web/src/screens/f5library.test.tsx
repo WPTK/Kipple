@@ -691,7 +691,7 @@ describe("The unsaved default device (id empty)", () => {
     expect(screen.queryByRole("button", { name: "Use this device's settings as the default for new devices" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reset this device to defaults" })).toBeNull();
     expect(screen.queryByRole("textbox", { name: "This device's name" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Copy settings from/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Copy its settings here/ })).toBeNull();
     // A local change is kept and still sends nothing. The layout is in another group: back to the list, then in.
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Back to Settings" }));

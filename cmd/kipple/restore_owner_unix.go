@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,7 +13,7 @@ import (
 // Seams for tests.
 var (
 	geteuid = os.Geteuid
-	chown   = os.Chown
+	chown   = chownPlain
 )
 
 // fixOwnership guards against restoring as root. The server runs as the
@@ -37,4 +38,37 @@ func fixOwnership(out io.Writer, dataDir string, paths ...string) {
 			fmt.Fprintf(out, "Warning: could not give %s to the data directory's owner (%v); serve may be unable to open it. Fix it with chown.\n", p, err)
 		}
 	}
+}
+
+// errNotPlain is a path chownPlain will not hand over.
+var errNotPlain = errors.New("not a plain file or directory (a link or special file is left alone)")
+
+// chownPlain changes the owner of the file or directory at p itself, never of
+// what a link there points to: the data directory belongs to another user, who
+// could have put a symbolic or hard link to a system file under one of the
+// names restore hands over. It opens p without following a symbolic link and
+// checks and changes the opened file, so the name cannot be swapped in between.
+func chownPlain(p string, uid, gid int) error {
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		if fi, lerr := os.Lstat(p); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return errNotPlain
+		}
+		return err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	switch {
+	case !ok:
+		return errNotPlain
+	case fi.IsDir():
+	case fi.Mode().IsRegular() && st.Nlink == 1:
+	default:
+		return errNotPlain
+	}
+	return f.Chown(uid, gid)
 }

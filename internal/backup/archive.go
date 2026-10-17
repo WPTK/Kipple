@@ -69,5 +69,8 @@ first.
 Either way every web session is signed out, and images and icons are
 downloaded again when they are first shown.
 
-This file contains your password hashes and any feed logins. Keep it private.
+This file contains credentials. It holds your web and Reader API password
+hashes, the account secret that signs Reader API sign-ins (anyone with this
+file can use the Reader API as you until you set a new API password), and any
+feed logins in plain text. Store it privately, where nobody else can open it.
 `
