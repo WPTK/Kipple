@@ -1,11 +1,11 @@
 # The build-from-source variant: it builds the image from this checkout, with resource limits and
 # the full hardening. To pull the published image instead, use docker-compose.pull.example.yml.
 #
-# Works standalone: copy this to docker-compose.yml (as README.md's Quickstart does), build and
+# Works standalone: copy this to docker-compose.yml (as "Build from source" in docs/deploy.md does), build and
 # start it and open http://127.0.0.1:1919 to create your account. No .env
 # is needed: everything is set in the browser. If you're instead adding Kipple as one service
 # inside a larger existing compose project, copy just this service block in and merge the
-# top-level `volumes:` entry — see CLAUDE.md "Deploy" for that workflow specifically.
+# top-level `volumes:` entry (docs/deploy.md has the details).
 #
 # Name the service explicitly when starting it: never a bare `docker compose up -d` / `down`
 # against a compose file with other services in it.

@@ -119,12 +119,14 @@ backup folder. Fix or remove the variable and start again. Going back to the pre
 that snapshot ([Roll back an upgrade that migrated the schema](#roll-back-an-upgrade-that-migrated-the-schema)).
 Checklist, for a rebuild to be a copy and paste:
 
-1. The data volume, as an export zip (Settings > Account > Export backup, saved off the server) or a tarball of the
+1. The data volume, as an export zip (Settings > Account & Devices > Export backup, saved off the server) or a tarball of the
    volume (below).
 2. The compose file and the `.env`, with the image tag you ran (`docker inspect kipple --format '{{.Config.Image}}'`
    or `docker exec kipple /kipple version`).
 3. Your reverse proxy or tunnel configuration, and any Cloudflare Access application settings.
 4. For a bind mount, the host directory must be owned by uid 65532 on a new machine, for a fresh start or a restore.
+   A bind mount (a host directory at `/data`) must be owned by uid 65532 (`chown 65532:65532 <dir>`); if the log says
+   `data dir lock ... permission denied`, that is what it means. A named volume needs nothing.
 
 ### Back up the volume itself
 
@@ -153,7 +155,7 @@ database that `kipple restore` accepts as it is. The export zip is the same data
 
 ## Export a backup (the button)
 
-Settings > Account > Export backup. The app calls `POST /api/backup`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
+Settings > Account & Devices > Export backup. The app calls `POST /api/backup`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
 then starts the download of `GET /api/backup/<token>`, which saves as
 `kipple-backup-YYYYMMDD-HHMMSS.zip`. Save it somewhere other than the server (another machine, an external drive, cloud storage).
 
@@ -207,7 +209,7 @@ a container that is waiting for you to create its account is healthy.
 
 See it:
 
-    docker ps --filter name=kipple                       # STATUS shows (healthy) / (unhealthy) / (health: starting)
+    docker ps --filter name=^kipple$                       # STATUS shows (healthy) / (unhealthy) / (health: starting)
     docker inspect -f '{{.State.Health.Status}} {{.State.Health.FailingStreak}}' kipple
     docker inspect -f '{{json .State.Health.Log}}' kipple  # last 5 probe results and messages
     docker exec kipple /kipple healthcheck; echo $?      # run the probe by hand
@@ -289,9 +291,8 @@ recommended feeds, an optional Reader API password). The same first screen offer
   creating the account. The wizard offers "No password, through Cloudflare Access" only on a request that came through
   Access and carries a verified token.
 
-After the account step the wizard continues as an ordinary signed-in session. Each step saves as it goes, so a reload
-or "Skip for now" loses nothing. Settings > Account & Devices > Run setup again repeats the steps after the account for
-any account (it never touches the account).
+After the account step the wizard continues as an ordinary signed-in session. Each step saves when you press Continue; a reload keeps every saved step.
+Settings > Account & Devices > Run setup again repeats the steps after the account for any account (it never touches the account).
 
 ## Ports
 
@@ -403,7 +404,7 @@ open-mode Kipple only on the interface of your local network or your tailnet (th
 machine that is not reachable from the internet. For the same reason Tailscale devices reach a container as ordinary
 private peers. A plain binary on the same machine as the browser sees the real address and needs nothing special.
 
-Changing your mind: **Settings > Set web password** (or `kipple password` on the host) gives the account a password and
+Changing your mind: **Settings > Account & Devices > Set web password** (or `kipple password` on the host) gives the account a password and
 returns it to normal mode; either signs every other session out. Going from a password account to open mode is not in
 the Settings screen (it is `POST /api/account/password` with `{"current": ..., "open": true}`, which needs the current
 password and passes the same gate); choose open mode in the wizard on a new install. The Reader API is unaffected in
@@ -412,9 +413,10 @@ open mode: sync apps still sign in with the API password, which is then the only
 ## Time zone
 
 The time zone is one setting, `tz` (Settings > Account & Devices, and wizard step 2). It is the zone for daily reading
-statistics, the nightly 04:10 maintenance and the weekly snapshot, backup file names and, from the next start, log
-timestamps. It is read live, so a change takes effect at the next statistics write, summary request and nightly tick,
-with no restart. The default for a new install is UTC, and the wizard preselects your browser's zone.
+statistics, the nightly 04:10 maintenance and the weekly snapshot, backup file names and log timestamps. Log timestamps follow
+the zone from the next start, and within that start the first lines are still UTC (they end in `Z`) before later ones are
+local. Everything else is read live, so a change takes effect at the next statistics write, summary request and nightly
+tick, with no restart. The default for a new install is UTC, and the wizard preselects your browser's zone.
 
 The `TZ` environment variable (IANA name) only gives a new install its first value: on a start where no `tz` setting
 exists yet, Kipple stores `TZ` as the setting. After that `TZ` is not read for the zone, so changing or removing it does
@@ -440,7 +442,7 @@ paste into an issue. Nothing on it contacts GitHub or anything else: Kipple neve
 On the host: `docker exec kipple /kipple version` prints the version alone; `docker exec kipple /kipple version -v`
 adds the commit, build date, Go version, platform, schema and web build id. The image digest is not knowable from
 inside (it is computed after the build); read it from the host with
-`docker inspect --format '{{index .RepoDigests 0}}' kipple`. The release notes of each version name its digest. After an
+`docker image inspect --format '{{index .RepoDigests 0}}' "$(docker inspect -f '{{.Image}}' kipple)"`. The release notes of each version name its digest. After an
 upgrade Kipple shows what changed once ("What's new"), and an open browser tab that is running an older build shows
 "Kipple was updated. Reload".
 
@@ -490,8 +492,8 @@ Go or Node).
     git clone https://github.com/WPTK/Kipple.git
     cd Kipple
     cp docker-compose.example.yml docker-compose.yml
-    docker compose build
-    docker compose up -d
+    docker compose build kipple
+    docker compose up -d kipple
 
 Then open <http://127.0.0.1:1919> and create your account, as in "First run" above. There is no `.env` to create;
 [.env.example](../.env.example) lists the optional overrides, and the compose file reads it when it exists (Docker
@@ -561,13 +563,13 @@ seed the setting instead:
 
     KIPPLE_ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com
     KIPPLE_ACCESS_AUD=<Application Audience (AUD) tag>
-The log says `Cloudflare Access token validation on` with the issuer, and Settings > Account shows the Access email you are
+The log says `Cloudflare Access token validation on` with the issuer, and Settings > Account & Devices shows the Access email you are
 signed in with. Kipple checks the RS256 signature against `https://<team domain>/cdn-cgi/access/certs` (cached for
 an hour and refreshed in the background), the issuer, the audience and the expiry; a verified token never replaces
 the session cookie. The Reader API keeps its own API password either way, and its path (`/api/greader.php`) is
 normally left outside Access (a bypass), since sync apps cannot sign in to Access.
 
-With validation on, the web password becomes optional: Settings > Account > Remove web password (offered only when
+With validation on, the web password becomes optional: Settings > Account & Devices > Remove web password (offered only when
 you are signed in through a verified Access token, and it asks for the current password). An account without a
 password signs in only on requests that carry a verified token, so the LAN or a published port cannot sign in.
 Anyone your Access policy admits can, so keep the policy to your own email. The setup wizard offers the same choice
@@ -576,7 +578,7 @@ request carries a verified token. Open mode (see "Open mode" above)
 is a different thing: it has no Access involved and refuses requests that came through Access.
 
 While the account has no web password, Settings refuses to change or turn off Cloudflare Access (`access_in_use`):
-set a password first (Settings > Account > Set web password), then change Access. If Access ends up off with no
+set a password first (Settings > Account & Devices > Set web password), then change Access. If Access ends up off with no
 password anyway (a restored backup), web sign-in is impossible, the startup log warns about it, and
 `kipple password` (see "Reset the web password" above) sets one.
 
@@ -591,7 +593,7 @@ of [What to back up](#what-to-back-up).
 ### Restore in the setup wizard
 
 Start Kipple on an empty data volume and open it. The first screen offers "Create an account" or "Restore from a
-backup". Pick the export zip (Settings > Account > Export backup on the old server); the upload shows a progress bar.
+backup". Pick the export zip (Settings > Account & Devices > Export backup on the old server); the upload shows a progress bar.
 Then Kipple checks the file before anything changes, while the page waits: the manifest and every checksum, the
 integrity checks, and that the database holds exactly what a Kipple of its version creates, nothing more or less. It
 then shows the Kipple version that made the backup,
@@ -857,7 +859,7 @@ SQLite reuses space freed by trimming for new articles, but it does not shrink t
 feeds. A size that stops growing is normal, and `kipple.db-wal` next to it is a transient write log that Kipple
 checkpoints regularly. If you want the file smaller:
 
-1. Export a backup (Settings > Account > Export backup), or copy the nightly snapshot. Both are written with
+1. Export a backup (Settings > Account & Devices > Export backup), or copy the nightly snapshot. Both are written with
    `VACUUM INTO`, so they are compacted copies.
 2. Restore that copy with `kipple restore` (see [Restore a backup](#restore-a-backup)).
 

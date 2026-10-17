@@ -611,23 +611,23 @@ claimed, working instance, and note every place a real newcomer would get stuck.
   anonymously with no registry login, so the run also proves the package is public. Before the first image exists, and for
   run E, use a source build of the tag under test. Say which one each run used.
 - **Isolation.** Use a container name, compose project name (`-p`), volume and port that cannot collide with anything else
-  on the host (the README examples publish `127.0.0.1:1919`; pick another left-hand port if 1919 is taken). Use throwaway
-  passwords. Tear everything down afterwards (`down -v` for the project, remove the image). The owner's live instance
+  on the host (the examples publish `127.0.0.1:1919`; pick another left-hand port if 1919 is taken). Use throwaway
+  passwords. Tear everything down afterwards (`docker compose -p <p> rm -s -f kipple`, `docker volume rm <p>_kipple_data`, `docker network rm <p>_default`, then remove the image; never a bare `down`). The owner's live instance
   never takes part.
 
-**Run A: pull-and-run on amd64, following the README literally.** Copy the README's compose file (or its one-line
+**Run A: pull-and-run on amd64, following the README literally.** Copy `docker-compose.pull.example.yml` (or the README's one-line
 `docker run`) exactly as printed, with only the isolation changes above.
 
 | # | Do | Expected | Log |
 |---|---|---|---|
-| A1 | Start it as the README says (`up -d` on the compose file, or the one-liner). | The image pulls anonymously; the container reaches `(healthy)` within about a minute even though nothing is set up. | Pull time, `docker ps` health, image digest (`docker inspect --format '{{index .RepoDigests 0}}' <container>`). |
+| A1 | Start it as the README and deploy guide say (`docker compose up -d kipple` on the compose file, or the one-liner). | The image pulls anonymously; the container reaches `(healthy)` within about a minute even though nothing is set up. | Pull time, `docker ps` health, image digest (`docker image inspect --format '{{index .RepoDigests 0}}' "$(docker inspect -f '{{.Image}}' <container>)"`). |
 | A2 | `docker logs <container>`. | One `no account yet: open Kipple in a browser to create it` line (the only one), and no setup code, banner or link anywhere. | Whether it was clear what to do next. |
 | A3 | Open `http://127.0.0.1:<port>` in a browser. | The wizard's first screen is **Create your account** (Step 1 of 7). No setup code is asked for. | Anything confusing in the wording. |
 | A4 | Before creating the account, from a second browser or `curl`: `GET /api/bootstrap`, then `POST /api/auth/login` with any body (same-origin headers). | `401` and `409 setup_required`. `docker logs` shows no feed fetch: nothing runs until an account exists. | |
 | A5 | Restart the container and open the address again. | The same account form: there is nothing to look up. Again exactly one `no account yet` line in `docker logs`. | |
 | A6 | Send two account requests at the same moment (two browsers, or two `curl` calls with `Sec-Fetch-Site: same-origin` and `X-Kipple-Client: web`). | Exactly one `201` with a session cookie; the other `409 already_set_up` and no cookie. | |
 | A7 | Step 1: create the account with a password (try one that is too short first). | The short one is refused with a reason; a valid one signs you in and moves to the time zone step. | |
-| A8 | Step 2, time zone. | Preselected from the browser's zone (UTC with a note if the server does not know it); searchable; Continue saves it. `docker exec <container> /kipple version -v` and Settings > About agree with the tag and show the zone. | The zone shown. |
+| A8 | Step 2, time zone. | Preselected from the browser's zone (UTC with a note if the server does not know it); searchable; Continue saves it. `docker exec <container> /kipple version -v` and Settings > About agree with the tag; Settings > About (not the CLI) also shows the zone. | The zone shown. |
 | A9 | Steps 3 to 5: pick a theme, import a small OPML file (or skip), tick a few recommended feeds. | Each saves as you go; imported and subscribed feeds start fetching; "Skip" on each step works and lands on the next. | Feeds added, time to the first article. |
 | A9b | Step 6, the address: open Kipple at its IP address, then at a DNS name if you have one; try `http://nas.local:1919`. | At the IP address the field starts empty; at a DNS name it is suggested; at a `.local` or single-word name nothing is suggested, and typing one saves (it is used for icons but open mode still answers it only when listed); Continue saves, Skip saves nothing. | The suggestion shown. |
 | A10 | Step 7: generate the Reader API password and connect a Reader API client with the server address the wizard shows, the user name and that password. | The password is shown once with a copy button; the app signs in and lists the feeds. | Client and version. |
@@ -646,19 +646,19 @@ claimed, working instance, and note every place a real newcomer would get stuck.
 | B4 | Send a request with an unexpected `Host`, for example `curl -H 'Host: evil.example' http://127.0.0.1:<port>/`; put a reverse proxy (or any request carrying `X-Forwarded-For`) in front and open the app through it. | The unexpected `Host` gets `421 Misdirected Request` naming Allowed host names in Settings. The proxied request is refused as `forwarded`. With the default `127.0.0.1:` mapping another machine cannot reach the port at all. |
 | B5 | Settings > Account & Devices > Set web password. | Gives the account a password and signs every other session out; a reload shows the sign-in screen. |
 
-**Run C: verify.** `cosign verify ghcr.io/wptk/kipple:<version> ...` exactly as the README prints it succeeds and names the
+**Run C: verify.** `cosign verify ghcr.io/wptk/kipple:<version> ...` exactly as the deploy guide prints it succeeds and names the
 release workflow of this repository; the digest equals the one in the GitHub Release's notes and in A1.
 
 **Run D: arm64.** Repeat Run A (A1 to A11, briefly) on an arm64 machine or VM with the same published tag. Expected: the
 same tag pulls a `linux/arm64` variant and `kipple version -v` reports `linux/arm64`.
 
 **Run E: build from source (the shorter "For developers" check).** On a Linux host with Git and Docker only, follow the
-README's "Build from source": clone, `cp docker-compose.example.yml docker-compose.yml`, build, `up -d`, then A2, A3, A7 and
+deploy guide's "Build from source" (`docs/deploy.md`): clone, `cp docker-compose.example.yml docker-compose.yml`, `docker compose build kipple`, `docker compose up -d kipple`, then A2, A3, A7 and
 A11, and create no `.env` at any point. Expected: the build succeeds with no Go or Node installed; the port is 1919;
-the version reads `dev` unless `KIPPLE_VERSION` was passed, which the README says.
+the version reads `dev` unless `KIPPLE_VERSION` was passed, which the deploy guide says.
 
-**Also check, on any run:** the container runs read-only as uid 65532 (`docker inspect`); a named volume (as in the
-README) works without a `chown`, while a bind mount without one fails with a permissions error that the README's
+**Also check, on any run:** the container runs as uid 65532 (`docker inspect`), and read-only with capabilities dropped and a memory cap on the compose-file and hardened `docker run` paths (the README's one-line command does not set those); a named volume (as in the
+README and deploy guide) works without a `chown`, while a bind mount without one fails with a permissions error that the deploy guide's
 `chown 65532:65532` line fixes.
 
 **Status.** Executed 2026-10-03 against a published prerelease image on the owner's Linux server (Docker Engine, amd64), with throwaway
@@ -674,9 +674,9 @@ the wizard script (`npm run uat:wizard`) covers them against a source build.
 - **B** (open mode, over the API): no acknowledgement gets 400 `ack_required`; with it the account is created; an unexpected
   `Host` gets 421; a forwarded header gets 403; a request from the Docker bridge is admitted silently (204).
 - **C** `gh attestation verify` on the image succeeds and names this repository's `release.yml` at the release tag; `cosign`
-  itself was not installed, so the README's exact `cosign verify` line was not run.
-- **Also:** the container runs read-only as uid 65532 with all capabilities dropped; a bind mount without the `chown`
-  fails with `data dir lock ... permission denied`, as the README says.
+  itself was not installed, so the deploy guide's exact `cosign verify` line was not run.
+- **Also:** the container runs read-only as uid 65532 with all capabilities dropped (compose file); a bind mount without the `chown`
+  fails with `data dir lock ... permission denied`, as the deploy guide says.
 - **Not run:** Run D (arm64; no arm64 machine), Run E (the tag was built from source with Docker alone for the deploy, and
   reports the release tag), the Reader API client connection (A10) and the manual browser steps above.
 - **Findings:** none. One note: the `no account yet` line says the container "listens on :1919", which is the in-container
