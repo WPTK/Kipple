@@ -5,12 +5,17 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
 // SettingWhatsNewSeen is the newest version whose "What's new" the reader has been shown (account-wide).
 const SettingWhatsNewSeen = "ui.whats_new_seen"
+
+// releaseVersion is a release version as the web app orders them (web/src/lib/semver.ts): a bare commit id or
+// "dev" is not one and is never recorded as seen.
+var releaseVersion = regexp.MustCompile(`^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`)
 
 // Account auth modes (account.auth_mode, migration 0010). AuthStandard is a web
 // password, or none with Cloudflare Access (design §7.0); AuthOpen is no
@@ -66,7 +71,7 @@ func (d *DB) Account(ctx context.Context) (a Account, ok bool, err error) {
 // account created from the environment is stamped as set up in the same
 // transaction, so scripted deploys never see onboarding. A new account also
 // starts out as having seen this version's "What's new" (ui.whats_new_seen), so
-// only an upgrade ever shows it; a development build records nothing.
+// only an upgrade ever shows it; a build whose version is not a release (development, a bare commit id) records nothing.
 func (d *DB) CreateAccount(ctx context.Context, a Account) (created bool, err error) {
 	mode, via := a.AuthMode, a.CreatedVia
 	if mode == "" {
@@ -93,7 +98,7 @@ func (d *DB) CreateAccount(ctx context.Context, a Account) (created bool, err er
 		if !created {
 			return nil
 		}
-		if v := strings.TrimSpace(d.version); v != "" && v != "dev" {
+		if v := strings.TrimSpace(d.version); releaseVersion.MatchString(v) && len(v) <= 64 {
 			if err := setSettingsTx(ctx, tx, map[string]any{SettingWhatsNewSeen: v}); err != nil {
 				return err
 			}

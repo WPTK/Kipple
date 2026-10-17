@@ -224,7 +224,9 @@ try {
     // the wizard just added) shows no "What's new". The dialog check has teeth when web/dist was built with the same
     // VERSION as the server (a development bundle never shows it); the recorded version is checked either way.
     const about = await page.evaluate(async () => (await fetch("/api/about")).json());
-    check("A whats-new", settings.values?.["ui.whats_new_seen"] === about.version, `ui.whats_new_seen is ${JSON.stringify(settings.values?.["ui.whats_new_seen"])}, expected ${about.version}`);
+    // A development build ("dev", or a bare commit id with --bin) records nothing.
+    const wantSeen = /^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(about.version) ? about.version : "";
+    check("A whats-new", (settings.values?.["ui.whats_new_seen"] ?? "") === wantSeen, `ui.whats_new_seen is ${JSON.stringify(settings.values?.["ui.whats_new_seen"])}, expected ${JSON.stringify(wantSeen)}`);
     await page.reload();
     await page.getByRole("main").waitFor({ timeout: 10_000 });
     await page.waitForTimeout(1500);

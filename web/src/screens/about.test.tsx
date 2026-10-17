@@ -211,10 +211,10 @@ describe("What's new after an upgrade", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("does not show on a brand-new install, whose feeds the setup wizard added", async () => {
+  it("does not show for an account that already has the running version on record, with feeds", async () => {
     BUNDLE.version = "v0.5.0";
     const r = routes({
-      "GET /api/bootstrap": () => json(withSeen("v0.5.0")), // the server records the running version when it creates the account
+      "GET /api/bootstrap": () => json(withSeen("v0.5.0")), // a new account is created with this on record (the server's contract; internal/store tests it)
       "PATCH /api/settings": () => json(settingsBody),
     });
     go("/");
