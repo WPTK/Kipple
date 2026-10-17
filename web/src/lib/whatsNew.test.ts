@@ -125,19 +125,23 @@ describe("releasesToShow", () => {
 
 describe("whatsNewDue", () => {
   it("skips a development bundle and anything that is not a version", () => {
-    expect(whatsNewDue("0.3.0", "dev", true)).toBe("no");
-    expect(whatsNewDue("", "dev", false)).toBe("no");
+    expect(whatsNewDue("0.3.0", "dev")).toBe(false);
+    expect(whatsNewDue("", "dev")).toBe(false);
   });
 
-  it("marks a first run silently and shows it to a library that had no record", () => {
-    expect(whatsNewDue("", "0.5.0", false)).toBe("mark");
-    expect(whatsNewDue("", "0.5.0", true)).toBe("show");
+  it("is not due for a new account, which starts with the running version on record, whatever feeds it has", () => {
+    expect(whatsNewDue("0.5.0", "0.5.0")).toBe(false);
+    expect(whatsNewDue("v0.5.0", "0.5.0")).toBe(false);
   });
 
-  it("shows after an upgrade, once", () => {
-    expect(whatsNewDue("0.4.0", "0.5.0", true)).toBe("show");
-    expect(whatsNewDue("0.5.0", "0.5.0", true)).toBe("no");
-    expect(whatsNewDue("0.6.0", "0.5.0", true)).toBe("no");
-    expect(whatsNewDue("garbage", "0.5.0", true)).toBe("no");
+  it("is due for an account with no record at all (it predates the setting)", () => {
+    expect(whatsNewDue("", "0.5.0")).toBe(true);
+  });
+
+  it("is due after an upgrade, once", () => {
+    expect(whatsNewDue("0.4.0", "0.5.0")).toBe(true);
+    expect(whatsNewDue("0.5.0", "0.5.0")).toBe(false);
+    expect(whatsNewDue("0.6.0", "0.5.0")).toBe(false);
+    expect(whatsNewDue("garbage", "0.5.0")).toBe(false);
   });
 });

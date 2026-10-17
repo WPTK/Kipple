@@ -58,8 +58,9 @@ function WhatsNewDialog({ releases, onClose }: { releases: Release[]; onClose: (
 /**
  * Shows "What's new" once after an upgrade and remembers that in the account's ui.whats_new_seen (global, not per
  * device: one reader should not have to dismiss it on every device). Mounted once in the app shell. It decides from the
- * network bootstrap only (a stored copy may predate the upgrade), never runs for a development bundle, and treats an
- * install with no feeds as a first run rather than an upgrade. Also opens on request from the About screen.
+ * network bootstrap only (a stored copy may predate the upgrade) and never runs for a development bundle. A new account
+ * is created with the running version already on record (server side), so a first run is never shown it. Also opens on
+ * request from the About screen.
  */
 export function WhatsNewHost() {
   const boot = useBootstrap();
@@ -72,17 +73,12 @@ export function WhatsNewHost() {
   const data = boot.data && !boot.data.fromCache ? boot.data : undefined;
   const seenRaw = data?.settings[WHATS_NEW_SEEN];
   const seen = typeof seenRaw === "string" ? seenRaw : "";
-  const hasFeeds = (data?.feeds.length ?? 0) > 0;
-  const due = data ? whatsNewDue(seen, BUNDLE.version, hasFeeds) : "no";
+  const due = data ? whatsNewDue(seen, BUNDLE.version) : false;
   const markSeen = () => patch.mutate({ [WHATS_NEW_SEEN]: BUNDLE.version });
 
   useEffect(() => {
-    if (started.current || due === "no") return;
+    if (started.current || !due) return;
     started.current = true;
-    if (due === "mark") {
-      patch.mutate({ [WHATS_NEW_SEEN]: BUNDLE.version });
-      return;
-    }
     void loadReleases().then(
       (all) => {
         const list = releasesToShow(all, seen, BUNDLE.version);
