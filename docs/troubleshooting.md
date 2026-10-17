@@ -124,13 +124,13 @@ a trusted `X-Forwarded-Proto: https`, makes every action fail with 403 while the
 ## A Reader API client will not connect
 
 - The server address is your Kipple address plus `/api/greader.php`, for example `https://rss.example.com/api/greader.php`.
-  The user name is the account's. The password is the **Reader API password**, not the web password. Make or replace it in
-  Settings > Account & Devices, or with `docker exec -it kipple /kipple api-password`.
+  The user name is the account's. The password is the **API password**, not the web password. Make or replace it in
+  Settings, Account & Devices, or with `docker exec -it kipple /kipple api-password`.
 - Open `<address>/api/greader.php/check/compatibility` in a browser: `PASS` means the path reaches Kipple. If you get a
   login page from another service, a proxy or Cloudflare Access is intercepting it. Only `/api/greader.php` needs to
   skip an access layer, since sync apps cannot sign in to one.
 - An authentication error after a password reset or a restore: resetting the web password revokes every Reader API
-  token, so re-enter the Reader API password in the app.
+  token, so re-enter the API password in the app.
 - Use `https://` when the app connects through a proxy or tunnel, and `http://` plus the port on a LAN.
 - To see what a client sends, set `KIPPLE_LOG_LEVEL=debug` and `KIPPLE_LOG_GREADER_FORMS=1` for a while (passwords and
   tokens are always redacted).
@@ -163,5 +163,5 @@ still up. Everything else about restoring, including a new empty volume and undo
     docker exec -it kipple /kipple password
 
 It works while the server runs, signs out every web session and revokes every Reader API token, so enter the Reader API
-password again in your sync apps afterwards. A lost Reader API password has its own command,
+password again in your sync apps afterwards. A lost API password has its own command,
 `docker exec kipple /kipple api-password`. Details: [deploy.md](deploy.md#reset-the-web-password).
