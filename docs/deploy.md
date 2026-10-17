@@ -168,7 +168,9 @@ database that `kipple restore` accepts as it is. The export zip is the same data
 
 ## Export a backup (the button)
 
-Settings, Account & Devices, Export backup. The app calls `POST /api/backup`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
+Settings, Account & Devices, Export backup. The app asks for your web password first (an account without one confirms
+the same way it does for a new API password: a Cloudflare Access sign-in, or nothing in open mode). It then calls
+`POST /api/backup` with `{"current": "<web password>"}`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
 then starts the download of `GET /api/backup/<token>`, which saves as
 `kipple-backup-YYYYMMDD-HHMMSS.zip`. Save it somewhere other than the server (another machine, an external drive, cloud storage).
 
@@ -177,7 +179,8 @@ then starts the download of `GET /api/backup/<token>`, which saves as
   `RESTORE.txt`. It is roughly a third of the database size.
 - **The file is sensitive.** It contains the web and API password hashes, the account secret
   that signs Reader tokens and image links, hashed session ids, and any feed logins (HTTP Basic
-  `user:password`, stored in plain text). Keep it private.
+  `user:password`, stored in plain text). Anyone with the file can use the Reader API as you until you set a new API
+  password. Store it privately, where nobody else can open it.
 - `kipple.db` in the zip is the whole database (everything in the left column of the table above, also the `sys.*`
   flags); `settings.json` leaves the `sys.*` flags out and is only a readable copy.
 - The link is single use and expires after 5 minutes. If the transfer breaks, export again.
@@ -277,7 +280,8 @@ recommended feeds, an optional API password). The same first screen offers "Rest
   your account, then widen the port if you want to. A host firewall is not protection here: a Docker-published port
   bypasses `ufw`. For a headless install that has to listen on a network before you can open a browser, create the
   account from the environment instead (below). If you find Kipple already set up when you did not do it, stop the
-  container, delete its data volume and start again.
+  container, delete its data volume and start again. Someone else may have owned that instance, so also change any feed
+  login or other secret you had put into it, at the source.
 - **What guards the request.** The Host gate answers 421 to a name Kipple does not recognize (so a web page in your
   browser cannot reach the form by DNS rebinding), the request must be same-origin and carry `X-Kipple-Client`, and
   only one account is created at a time. There is no per-address counting, so a noisy neighbour behind the same Docker
@@ -358,7 +362,7 @@ Fix a shared address by listing the proxy, not by raising a limit.
 ## Open mode (no password)
 
 The wizard's account step offers **No password at all**. It is for a Kipple that only you can reach: this computer, your
-local network and your tailnet. A request is allowed by where it comes from, and there is no setting to tune it. The screen warns that anyone who can reach the address can read and change
+local network and your tailnet. A request is allowed by where it comes from, and there is no setting to tune it. On Docker Desktop, publish the port only on `127.0.0.1` (see **The Docker caveat**, below). The screen warns that anyone who can reach the address can read and change
 everything. It needs a ticked acknowledgement, and it stores the account with no password hash and `auth_mode = open`.
 Sign-in then happens by itself when the app opens: it asks the server for a session, and the server grants one only if
 the request passes the **open gate**:

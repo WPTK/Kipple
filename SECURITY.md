@@ -37,7 +37,7 @@ In scope: the Kipple server and web app as shipped in the published Docker image
 Out of scope:
 
 - Anything that needs access you already have: the Docker host, the data volume, a backup zip you did not keep private
-  (it holds password hashes and feed logins), or your own `.env`.
+  (it holds password hashes, the account secret and feed logins, and works as a Reader API credential), or your own `.env`.
 - A Kipple you chose to expose in a way its documentation warns against, such as open mode (no password) on a public
   interface.
 - Your reverse proxy, tunnel, Cloudflare Access setup or operating system.
