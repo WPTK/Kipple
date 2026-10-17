@@ -384,7 +384,12 @@ async function closeMenu(page, button) {
     .catch(() => {
       throw new Error(`Escape does not close the menu of ${button}`);
     });
-  const back = await page.locator(button).first().evaluate(isFocused);
+  // Radix gives focus back once the menu has unmounted, a task after it is hidden, so wait for it rather than look once.
+  const btn = await page.locator(button).first().elementHandle();
+  const back = await page.waitForFunction(isFocused, btn, { timeout: 2000, polling: 50 }).then(
+    () => true,
+    () => false,
+  );
   if (!back) throw new Error(`after Escape, focus is not back on ${button}`);
 }
 
