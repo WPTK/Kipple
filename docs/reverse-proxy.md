@@ -21,8 +21,8 @@ a listed address:
 - The client is the rightmost `X-Forwarded-For` hop that is not itself a listed proxy. Each proxy appends the address
   it received the connection from, so entries further left were written by someone the chain does not vouch for.
 - With no `X-Forwarded-For`, `CF-Connecting-IP` is the client (Cloudflare Tunnel).
-- `X-Forwarded-Proto: https` makes the request count as HTTPS (the `Secure` cookie flag, and the scheme in the
-  same-origin check).
+- `X-Forwarded-Proto: https` makes the request count as HTTPS (the `Secure` cookie flag, HSTS, and the scheme in the
+  same-origin check). A request for the host of an `https://` **Public URL** counts as HTTPS too, from any proxy.
 
 That client address keys the web sign-in and Reader API login budgets (see "Ports" in [deploy.md](deploy.md#ports)). So
 a proxy **must**:

@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/WPTK/kipple/internal/reach"
 )
 
 func serve(t *testing.T, opt Options, h http.HandlerFunc, mod ...func(*http.Request)) *httptest.ResponseRecorder {
@@ -105,25 +107,44 @@ func TestNotModifiedGetsNoContentPolicy(t *testing.T) {
 }
 
 func TestHSTSAndUpgradeOnlyWhenEffectivelyHTTPS(t *testing.T) {
-	proxy := netip.MustParsePrefix("192.0.2.5/32")
-	opt := Options{TrustedProxies: func() []netip.Prefix { return []netip.Prefix{proxy} }}
+	trusted := []netip.Prefix{netip.MustParsePrefix("192.0.2.5/32")}
 	fromProxy := func(proto string) func(*http.Request) {
 		return func(r *http.Request) {
 			r.RemoteAddr = "192.0.2.5:4444"
 			r.Header.Set("X-Forwarded-Proto", proto)
 		}
 	}
-	rec := serve(t, opt, typed("text/html", "x"), fromProxy("https"))
-	require.Equal(t, "max-age=31536000", rec.Header().Get("Strict-Transport-Security"))
-	require.Contains(t, rec.Header().Get("Content-Security-Policy"), "upgrade-insecure-requests")
-
-	rec = serve(t, opt, typed("text/html", "x"), fromProxy("http"))
+	host := func(h string) func(*http.Request) { return func(r *http.Request) { r.Host = h } }
+	untrustedHTTPS := func(r *http.Request) { r.Header.Set("X-Forwarded-Proto", "https") }
+	for _, c := range []struct {
+		name      string
+		publicURL string
+		trusted   []netip.Prefix
+		mod       []func(*http.Request)
+		want      bool
+	}{
+		{"trusted proxy says https", "", trusted, []func(*http.Request){fromProxy("https")}, true},
+		{"trusted proxy says http", "", trusted, []func(*http.Request){fromProxy("http")}, false},
+		{"an untrusted peer cannot claim https", "", trusted, []func(*http.Request){untrustedHTTPS}, false},
+		{"untrusted proxy, https public URL host", "https://rss.example.com", nil, []func(*http.Request){untrustedHTTPS, host("rss.example.com")}, true},
+		{"public URL host with a port and other case", "https://rss.example.com:8443", nil, []func(*http.Request){host("RSS.example.com.:8443")}, true},
+		{"LAN address over http, https public URL", "https://rss.example.com", nil, []func(*http.Request){host("192.168.1.20:1919")}, false},
+		{"http public URL", "http://rss.example.com", nil, []func(*http.Request){untrustedHTTPS, host("rss.example.com")}, false},
+		{"no public URL, plain http", "", nil, []func(*http.Request){host("192.168.1.20:1919")}, false},
+	} {
+		live := reach.Fixed(reach.State{PublicURL: c.publicURL, PublicHost: reach.Host(c.publicURL), Trusted: c.trusted})
+		rec := serve(t, Options{Scheme: live.Scheme}, typed("text/html", "x"), c.mod...)
+		if c.want {
+			require.Equal(t, "max-age=31536000", rec.Header().Get("Strict-Transport-Security"), c.name)
+			require.Contains(t, rec.Header().Get("Content-Security-Policy"), "upgrade-insecure-requests", c.name)
+		} else {
+			require.Empty(t, rec.Header().Get("Strict-Transport-Security"), c.name)
+			require.NotContains(t, rec.Header().Get("Content-Security-Policy"), "upgrade-insecure-requests", c.name)
+		}
+	}
+	// With no Scheme, only a TLS connection is https.
+	rec := serve(t, Options{}, typed("text/html", "x"), untrustedHTTPS)
 	require.Empty(t, rec.Header().Get("Strict-Transport-Security"))
-
-	// an untrusted peer cannot claim https
-	rec = serve(t, opt, typed("text/html", "x"), func(r *http.Request) { r.Header.Set("X-Forwarded-Proto", "https") })
-	require.Empty(t, rec.Header().Get("Strict-Transport-Security"))
-	require.NotContains(t, rec.Header().Get("Content-Security-Policy"), "upgrade-insecure-requests")
 }
 
 func TestCORPOnAPIAndImages(t *testing.T) {

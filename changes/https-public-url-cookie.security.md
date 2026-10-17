@@ -1,0 +1,1 @@
+Harden the sign-in cookie and HSTS behind a reverse proxy: a request for the host of an https public URL now counts as HTTPS even when the proxy is not under Trusted proxies, so the cookie is marked Secure and Strict-Transport-Security is sent. Plain http on a LAN address keeps working as before.

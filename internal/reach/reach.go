@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -245,6 +246,29 @@ func (l *Live) PublicURL() string { return l.Get().PublicURL }
 
 // Trusted is the trusted proxies in force.
 func (l *Live) Trusted() []netip.Prefix { return l.Get().Trusted }
+
+// Scheme is the scheme in force for r (State.Scheme).
+func (l *Live) Scheme(r *http.Request) string { return l.Get().Scheme(r) }
+
+// Scheme is the scheme the browser used for r, as far as Kipple can be sure:
+// "https" when auth.EffectiveScheme says so (a TLS connection, or a trusted
+// proxy's X-Forwarded-Proto), or when r is for the public URL's host and the
+// public URL is https. That host is only reached through whatever serves the
+// public URL, so an https public URL is the owner saying so even when the proxy
+// in front is not a trusted one. Any other host (a LAN address over plain http)
+// stays "http". The Secure cookie flag, HSTS, upgrade-insecure-requests and
+// the Origin check all follow it.
+func (st *State) Scheme(r *http.Request) string {
+	if auth.EffectiveScheme(r, st.Trusted) == "https" {
+		return "https"
+	}
+	if st.PublicHost != "" && len(st.PublicURL) > 8 && strings.EqualFold(st.PublicURL[:8], "https://") {
+		if h, ok := setup.NormalizeHost(r.Host); ok && h == st.PublicHost {
+			return "https"
+		}
+	}
+	return "http"
+}
 
 // Access is the Access verifier in force, nil when validation is off.
 func (l *Live) Access() *access.Verifier { return l.Get().Access }

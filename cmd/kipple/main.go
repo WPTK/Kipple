@@ -310,7 +310,7 @@ func runServe() error {
 		startWork()
 	}
 
-	srv := newServer(cfg.Addr, rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, reachLive.Trusted, openGate.TailscaleServeRequest, logger, uiAPI.HostGate))
+	srv := newServer(cfg.Addr, rootHandler(readerAPI.Front, mux, uiAPI.ImgMode, reachLive.Trusted, reachLive.Scheme, openGate.TailscaleServeRequest, logger, uiAPI.HostGate))
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -401,12 +401,13 @@ var startBackground = func(s *sched.Scheduler, m *maint.Maint, icons *favicon.Fi
 // hostGate (the UI API's HostGate, design 5.2) runs inside httpx.Secure, so a
 // refused request still carries the security headers; nil installs none.
 func rootHandler(readerFront func(http.Handler) http.Handler, mux http.Handler, imgMode func() string,
-	trusted func() []netip.Prefix, tailscaleServe func(*http.Request) bool, logger *slog.Logger, hostGate func(http.Handler) http.Handler) http.Handler {
+	trusted func() []netip.Prefix, scheme func(*http.Request) string, tailscaleServe func(*http.Request) bool,
+	logger *slog.Logger, hostGate func(http.Handler) http.Handler) http.Handler {
 	h := auth.WarnUntrustedProxyHeaders(readerFront(mux), trusted, tailscaleServe, logger, nil)
 	if hostGate != nil {
 		h = hostGate(h)
 	}
-	return httpx.Compress(httpx.Secure(h, httpx.Options{ImgMode: imgMode, TrustedProxies: trusted}))
+	return httpx.Compress(httpx.Secure(h, httpx.Options{ImgMode: imgMode, Scheme: scheme}))
 }
 
 // serveDrainWait bounds the wait for ListenAndServe to report after a shutdown.

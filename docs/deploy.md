@@ -329,6 +329,13 @@ Settings, Account & Devices, Address and access, add the address it connects fro
 **Public URL** to the public address. Both apply at once, without a restart. (For a scripted first start,
 `KIPPLE_TRUSTED_PROXY_IPS` and `KIPPLE_PUBLIC_URL` seed the two settings; see .env.example.)
 
+A request is HTTPS for Kipple when it arrives over TLS, when a trusted proxy says so with `X-Forwarded-Proto: https`,
+or when it is for the host of an `https://` Public URL. HTTPS gets the `Secure` flag on the sign-in cookie and
+`Strict-Transport-Security`; plain http gets neither, so a LAN address such as `http://192.168.1.20:1919` keeps
+working next to the public one. Do not open the Public URL's host name over plain http (for example through
+local DNS): the browser would refuse its `Secure` cookie and you could not sign in there. Use the LAN address
+instead.
+
 The trusted proxies are a list of single addresses and CIDR ranges (`192.0.2.10`, `198.51.100.0/24`,
 `2001:db8::/32`), empty by default. Only a connection from a listed address is believed about who the
 client is: for such a peer the client is the rightmost `X-Forwarded-For` hop that is not itself listed (each proxy appends
