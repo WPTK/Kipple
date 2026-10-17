@@ -16,6 +16,7 @@ import { ListOverrideFields, useListOverrideDraft } from "./feeds/ListOverrideFi
 import { DeviceSaveStatus } from "@/shell/SaveStatus";
 import { syncStore } from "@/lib/deviceSync";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
+import { wide } from "@/test/media";
 
 // Issue #38: per-feed and per-folder order and opening view, the reading-time filter, and "Only show matching".
 
@@ -109,6 +110,7 @@ describe("the view a feed or folder opens in", () => {
 
 describe("per-feed order", () => {
   it("a feed's own order sorts its list; other lists keep the device order", async () => {
+    wide();
     setListOverride("feed", "1", "order", "oldest");
     const { calls } = routes();
     const r = go("/l/unread?feed=1");
@@ -131,6 +133,7 @@ describe("per-feed order", () => {
   });
 
   it("the header toggle on a feed list sets the feed's order, and toggling back clears it", async () => {
+    wide();
     const { calls } = routes();
     go("/l/unread?feed=1");
     await screen.findByText("Article number 1");
@@ -144,6 +147,7 @@ describe("per-feed order", () => {
   });
 
   it("the header toggle on the Unread list sets the device order", async () => {
+    wide();
     routes();
     go("/l/unread");
     await screen.findByText("Article number 1");
