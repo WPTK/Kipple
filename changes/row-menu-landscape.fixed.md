@@ -1,0 +1,1 @@
+Opening a list row's More menu (or long-pressing the row) on a short screen, such as a phone held sideways, no longer pushes the menu off the top of the screen: the menu now fits the room above the tab bar and scrolls, so Star, Mark as read and the other actions can all be reached. (#431)
