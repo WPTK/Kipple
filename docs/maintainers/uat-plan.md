@@ -197,8 +197,8 @@ folders a stopped run left behind are removed first. Same address and credential
 
 Downloads (`npm run uat:downloads`, `web/uat/downloads.mjs`, same instance, credentials and exit codes), at 1280x800 and
 375x812: Feeds, Feed actions, Export OPML saves an OPML document, not a JSON error (D1); Settings, Statistics, Export…,
-Download saves a CSV with a header row (D2); Settings, Account & Devices, Export backup, then the download link saves a
-zip (D3).
+Download saves a CSV with a header row (D2); Settings, Account & Devices, Export backup, the web password, then the
+download link saves a zip (D3).
 
 Images (`npm run uat:images`, `web/uat/images.mjs`, same instance, credentials and exit codes), at 1280x800 and 375x812,
 against a feed the flow serves itself on a loopback port: an SVG named as one and an SVG that is not each show "Image
@@ -631,7 +631,7 @@ claimed, working instance, and note every place a real newcomer would get stuck.
 | A9 | Steps 3 to 5: pick a theme, import a small OPML file (or skip), tick a few recommended feeds. | Each saves as you go; imported and subscribed feeds start fetching; "Skip" on each step works and lands on the next. | Feeds added, time to the first article. |
 | A9b | Step 6, the address: open Kipple at its IP address, then at a DNS name if you have one; try `http://nas.local:1919`. | At the IP address the field starts empty; at a DNS name it is suggested; at a `.local` or single-word name nothing is suggested, and typing one saves (it is used for icons but open mode still answers it only when listed); Continue saves, Skip saves nothing. | The suggestion shown. |
 | A10 | Step 7: generate the Reader API password and connect a Reader API client with the server address the wizard shows, the user name and that password. | The password is shown once with a copy button; the app signs in and lists the feeds. | Client and version. |
-| A11 | Finish, sign out and in again, Settings, Account & Devices, **Export backup** and save the zip, then `docker exec <container> /kipple healthcheck; echo $?`. | Lands on the feed list; the password works; the backup downloads; the health check exits 0. | Backup size, and the version and schema in its manifest. |
+| A11 | Finish, sign out and in again, Settings, Account & Devices, **Export backup**, enter the web password and save the zip, then `docker exec <container> /kipple healthcheck; echo $?`. | Lands on the feed list; the password works; the backup downloads; the health check exits 0. | Backup size, and the version and schema in its manifest. |
 | A12 | On a second throwaway volume, reload the page between steps 2 and 5 (or use Settings, Account & Devices, Run setup again). | The wizard resumes where it was; what was saved is kept. | |
 | A13 | After completion `POST /api/setup/account` again (a browser tab or `curl`). | `404`: the setup route is gone. | |
 | A14 | Stop and start the container. | It comes back in normal mode with its data, and no setup screen. | |
@@ -669,7 +669,7 @@ the wizard script (`npm run uat:wizard`) covers them against a source build.
 - **A1** pulled anonymously and the digest equals the release notes; healthy in about 25 s. **A2** exactly one `no account
   yet` line. **A4** `GET /api/bootstrap` 401, login 409 `setup_required`, `/healthz` 200. **A5** restart: the same one line,
   setup still open. **A6** two simultaneous claims: one 201 with a cookie, one 409 `already_set_up` with none. **A7** a
-  4-character password refused (400, with the reason); 5 characters is the minimum and is accepted. **A13** the setup route
+  7-character password refused (400, with the reason); 8 characters is the minimum and is accepted. **A13** the setup route
   answers 404 afterwards. **A14** restart with an account: normal mode, no `no account yet` line, healthy.
 - **B** (open mode, over the API): no acknowledgement gets 400 `ack_required`; with it the account is created; an unexpected
   `Host` gets 421; a forwarded header gets 403; a request from the Docker bridge is admitted silently (204).

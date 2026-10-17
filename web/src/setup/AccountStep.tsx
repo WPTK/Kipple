@@ -2,7 +2,7 @@ import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
 import { Field, Notice, inputCls } from "@/ui/kit";
-import { accountFailure, createAccount, openReasonText, passwordProblem, type AccountBody, type SetupOptions } from "./api";
+import { MIN_PASSWORD_LEN, accountFailure, createAccount, openReasonText, passwordProblem, type AccountBody, type SetupOptions } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import { setupSecret } from "./session";
 import { stepById } from "./steps";
@@ -201,7 +201,7 @@ export function AccountStep({
             <p>The usual choice. Anyone who wants in needs it.</p>
             {choice === "password" ? (
               <div className="flex flex-col gap-3 text-fg">
-                <Field label="Password" help="At least 5 characters. Longer is better; a few words in a row works well." error={fieldError?.field === "password" ? fieldError.message : pwBad}>
+                <Field label="Password" help={`At least ${MIN_PASSWORD_LEN} characters. Longer is better; a few words in a row works well.`} error={fieldError?.field === "password" ? fieldError.message : pwBad}>
                   {(a) => (
                     <input
                       {...a}

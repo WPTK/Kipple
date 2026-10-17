@@ -1,0 +1,1 @@
+Harden the YouTube and Vimeo embed check: an embedded player is kept only when its address is the player itself (a YouTube video id or a numeric Vimeo id, then an optional query); any other address becomes a plain link. Stored articles are cleaned once more under the new rule after the upgrade. (#450)

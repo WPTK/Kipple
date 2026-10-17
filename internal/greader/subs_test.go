@@ -772,3 +772,48 @@ func TestReaderFolderNameLimitsAreOKNoOps(t *testing.T) {
 	require.Equal(t, 1, q[int](h, "SELECT count(*) FROM folders WHERE name = 'News'"))
 	require.Zero(t, q[int](h, "SELECT count(*) FROM folders WHERE length(name) > 100"))
 }
+
+func TestEditSubscribeAcceptsAddressWithoutFeedPrefix(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	w := h.post(rd+"subscription/edit", "T="+h.tok+"&ac=subscribe&s="+url.QueryEscape("https://one.example/rss")+
+		"&s=feed/"+url.QueryEscape("https://two.example/rss")+"&t=One&t=Two&a=user/-/label/Reading")
+	require.Equal(t, "OK", w.Body.String())
+	subs := subsOf(t, h)
+	require.Len(t, subs, 2)
+	require.Equal(t, "One", subs[0]["title"])
+	require.Equal(t, "https://one.example/rss", subs[0]["url"])
+	require.Equal(t, []string{"Reading"}, labelsOf(subs[0]))
+	require.Equal(t, "Two", subs[1]["title"])
+
+	// The bare form finds the feed the prefixed form made.
+	h.post(rd+"subscription/edit", "ac=subscribe&s="+url.QueryEscape("https://two.example/rss"))
+	require.Len(t, subsOf(t, h), 2)
+
+	// Another kind of stream id is no address: nothing is created.
+	before := folderCount(h)
+	w = h.post(rd+"subscription/edit", "ac=subscribe&s="+url.QueryEscape("user/-/label/Reading")+
+		"&s="+url.QueryEscape("user/-/state/com.google/starred"))
+	require.Equal(t, "OK", w.Body.String())
+	require.Len(t, subsOf(t, h), 2)
+	require.Equal(t, before, folderCount(h))
+}
+
+func TestRenameTagAcceptsBareDestLabel(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	a := h.addFeed("https://a.example/f", "A", "Old Name")
+
+	w := h.post(rd+"rename-tag", "T="+h.tok+"&s=user/-/label/Old Name&dest=Plain")
+	require.Equal(t, "OK", w.Body.String())
+	require.Equal(t, []string{"Plain"}, labelsOf(findSub(subsOf(t, h), feedID(a))))
+
+	// A nested bare name resolves like the prefixed form.
+	h.post(rd+"rename-tag", "s=user/-/label/Plain&dest="+url.QueryEscape("Top/Inner"))
+	require.Equal(t, []string{"Top/Inner"}, labelsOf(findSub(subsOf(t, h), feedID(a))))
+
+	// A dest that is another kind of id, or blank, changes nothing.
+	h.post(rd+"rename-tag", "s=user/-/label/Top/Inner&dest="+url.QueryEscape("user/-/state/com.google/starred"))
+	h.post(rd+"rename-tag", "s=user/-/label/Top/Inner&dest="+url.QueryEscape("  "))
+	require.Equal(t, []string{"Top/Inner"}, labelsOf(findSub(subsOf(t, h), feedID(a))))
+}

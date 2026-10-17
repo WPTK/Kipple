@@ -344,6 +344,8 @@ a.sr-only-live:focus {
   -webkit-line-clamp: var(--snippet-lines);
   line-clamp: var(--snippet-lines);
   overflow: hidden;
+  /* A long address with no spaces wraps instead of running past a narrow column (WCAG 1.4.10). */
+  overflow-wrap: anywhere;
 }
 
 /* Contrast preference (automatic, no setting): real borders, full-strength secondary text, a thicker

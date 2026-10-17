@@ -39,10 +39,10 @@ func TestBackupJobLifecycle(t *testing.T) {
 	// The build outlasts the sync window: 202 with a job id, and the client
 	// hanging up does not cancel it.
 	ctx, cancel := context.WithCancel(context.Background())
-	rec := h.do("POST", "/api/backup", "", withCookie(c), func(r *http.Request) { *r = *r.WithContext(ctx) })
+	rec := h.do("POST", "/api/backup", backupConfirm, withCookie(c), func(r *http.Request) { *r = *r.WithContext(ctx) })
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
 	_ = rec
-	code, body, _ := h.api(c, "POST", "/api/backup", "")
+	code, body, _ := h.api(c, "POST", "/api/backup", backupConfirm)
 	require.Equal(t, http.StatusConflict, code, "one export at a time: %v", body)
 	cancel()
 
@@ -99,7 +99,7 @@ func TestBackupJobFailure(t *testing.T) {
 	h := slowBackupHarness(t, gate, &space)
 	c := h.backupSetup(t)
 
-	rec := h.do("POST", "/api/backup", "", withCookie(c))
+	rec := h.do("POST", "/api/backup", backupConfirm, withCookie(c))
 	require.Equal(t, 202, rec.Code)
 	i := strings.Index(rec.Body.String(), `"job_id":"`)
 	job := rec.Body.String()[i+len(`"job_id":"`):]
@@ -120,7 +120,7 @@ func TestBackupSyncFastPath(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	c := h.backupSetup(t)
-	code, body, _ := h.api(c, "POST", "/api/backup", "")
+	code, body, _ := h.api(c, "POST", "/api/backup", backupConfirm)
 	require.Equal(t, 200, code, "%v", body)
 	require.Equal(t, "ready", body["status"])
 	require.NotEmpty(t, body["token"])

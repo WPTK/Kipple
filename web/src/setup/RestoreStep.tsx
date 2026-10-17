@@ -3,7 +3,7 @@ import { ApiError } from "@/api/client";
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
 import { Field, Notice, inputCls } from "@/ui/kit";
-import { passwordProblem } from "./api";
+import { MIN_PASSWORD_LEN, passwordProblem } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import {
   cancelRestore,
@@ -377,7 +377,7 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
                 ) : null}
                 <Field
                   label={passwordNeeded ? "New password" : "Set a new password (optional)"}
-                  help={passwordNeeded ? "At least 5 characters." : "Leave empty to keep the password in the backup."}
+                  help={passwordNeeded ? `At least ${MIN_PASSWORD_LEN} characters.` : "Leave empty to keep the password in the backup."}
                   error={pwError}
                 >
                   {(a) => (

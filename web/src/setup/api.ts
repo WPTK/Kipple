@@ -107,7 +107,7 @@ export function accountFailure(e: unknown): AccountFailure {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
     if (e.status === 0) return { kind: "form", message: "Kipple couldn't reach the server." };
     if (e.code === "bad_username") return { kind: "field", field: "username", message: "The user name can be 1 to 64 letters, digits, dots, dashes or underscores." };
-    if (e.code === "bad_new_password") return { kind: "field", field: "password", message: msg ? capital(msg) + "." : "The password must be 5 to 256 characters." };
+    if (e.code === "bad_new_password") return { kind: "field", field: "password", message: msg ? capital(msg) + "." : `The password must be ${MIN_PASSWORD_LEN} to 256 characters.` };
     if (e.code === "ack_required") return { kind: "field", field: "open", message: "Tick the box to confirm you understand." };
     if (e.code === "access_required")
       return { kind: "form", message: "Signing in without a password through Cloudflare Access needs Access to be set up on the server and Kipple opened through it. Choose another option, or open Kipple through its Access address." };
@@ -129,11 +129,14 @@ export function byteLength(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 
-/** Why a password won't do, or null. The same rules as the server: 5 to 256 bytes, not the example value. */
+/** The shortest new web password, in bytes (the server's auth.MinPasswordLen). */
+export const MIN_PASSWORD_LEN = 8;
+
+/** Why a password won't do, or null. The same rules as the server: 8 to 256 bytes, not the example value. */
 export function passwordProblem(pw: string): string | null {
   if (pw === "change-me") return "That is the example password from the setup files. Choose your own.";
   const n = byteLength(pw);
-  if (n < 5) return "Use at least 5 characters.";
+  if (n < MIN_PASSWORD_LEN) return `Use at least ${MIN_PASSWORD_LEN} characters.`;
   if (n > 256) return "That's too long. Use at most 256 characters.";
   return null;
 }

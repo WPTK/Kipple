@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -62,4 +63,21 @@ func TestSameSite(t *testing.T) {
 	} {
 		require.Equal(t, c.want, SameSite(c.a, c.b), "%s -> %s", c.a, c.b)
 	}
+}
+
+// A wildcard-DNS name spells the address it resolves to, so two names under one such service are
+// two hosts: a grant for one never covers another.
+func TestWildcardDNSNamesMatchOnlyThemselves(t *testing.T) {
+	for _, s := range wildcardDNSSuffixes {
+		a, b := "10-0-0-5."+s, "169-254-169-254."+s
+		require.True(t, SameSite(a, strings.ToUpper(a)+"."), s)
+		require.False(t, SameSite(a, b), s)
+		require.False(t, SameSite(a, "www."+a), s)
+		require.False(t, SameSite(s, a), s)
+		require.True(t, SameOrSubdomain(a, a), s)
+		require.False(t, SameOrSubdomain(a, "x."+a), s)
+		require.False(t, FeedHostVariant(a, "www."+a), s)
+		require.False(t, FeedHostVariant("www."+a, a), s)
+	}
+	require.True(t, SameSite("a.nip.io.example.com", "b.nip.io.example.com"), "only names under the service itself")
 }

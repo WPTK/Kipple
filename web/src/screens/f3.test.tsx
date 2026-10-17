@@ -296,7 +296,39 @@ describe("Add feed", () => {
     await user.click(within(dlg).getByRole("button", { name: "Add selected feed" }));
     await screen.findByRole("dialog", { name: "Feed added" });
     expect(screen.getByText(/12 articles/)).toBeInTheDocument();
-    expect(posts).toHaveLength(2);
+    // The pick goes back with the address entered: the server scopes the private-network switch to that site.
+    expect(posts).toEqual([{ url: "https://site.test" }, { url: "https://site.test/b.xml", discovered_from: "https://site.test" }]);
+  });
+
+  it("sends the address first entered with a pick from a second list", async () => {
+    const posts: unknown[] = [];
+    base({
+      "POST /api/feeds": (_u, init) => {
+        const b = JSON.parse(String(init?.body)) as { url: string };
+        posts.push(b);
+        if (b.url === "https://site.test")
+          return json({ status: "choose", candidates: [{ url: "https://site.test/a.xml", title: "Posts", type: "rss" }, { url: "https://hub.test/", title: "Hub", type: "rss" }] });
+        if (b.url === "https://hub.test/")
+          return json({ status: "choose", candidates: [{ url: "https://hub.test/x.xml", title: "X", type: "rss" }, { url: "https://hub.test/y.xml", title: "Y", type: "rss" }] });
+        return json({ status: "ok", feed: feedDetail({ title: "Y" }), fetch: { outcome: "ok", new_items: 1 } });
+      },
+    });
+    go("/feeds");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add feed" }));
+    const dlg = await screen.findByRole("dialog", { name: "Add feed" });
+    await user.type(within(dlg).getByLabelText("Feed or website address"), "https://site.test");
+    await user.click(within(dlg).getByRole("button", { name: "Add feed" }));
+    await user.click(await within(dlg).findByRole("radio", { name: /Hub/ }));
+    await user.click(within(dlg).getByRole("button", { name: "Add selected feed" }));
+    await user.click(await within(dlg).findByRole("radio", { name: /^Y/ }));
+    await user.click(within(dlg).getByRole("button", { name: "Add selected feed" }));
+    await screen.findByRole("dialog", { name: "Feed added" });
+    expect(posts).toEqual([
+      { url: "https://site.test" },
+      { url: "https://hub.test/", discovered_from: "https://site.test" },
+      { url: "https://hub.test/y.xml", discovered_from: "https://site.test" },
+    ]);
   });
 
   it("leaves a blank title to the feed and shows the name the feed gives itself", async () => {
@@ -1040,13 +1072,13 @@ describe("Account and backup", () => {
     const dlg = await screen.findByRole("dialog", { name: "Change web password" });
     await user.type(within(dlg).getByLabelText("Current password"), "old");
     await user.type(within(dlg).getByLabelText("New password"), "abc");
-    expect(within(dlg).getByText("Use at least 5 characters.")).toBeInTheDocument();
+    expect(within(dlg).getByText("Use at least 8 characters.")).toBeInTheDocument();
     expect(within(dlg).getByRole("button", { name: "Change password" })).toBeDisabled();
-    await user.type(within(dlg).getByLabelText("New password"), "def");
-    await user.type(within(dlg).getByLabelText("New password again"), "abcdeX");
+    await user.type(within(dlg).getByLabelText("New password"), "defgh");
+    await user.type(within(dlg).getByLabelText("New password again"), "abcdefghX");
     expect(within(dlg).getByText("The passwords don't match.")).toBeInTheDocument();
     await user.clear(within(dlg).getByLabelText("New password again"));
-    await user.type(within(dlg).getByLabelText("New password again"), "abcdef");
+    await user.type(within(dlg).getByLabelText("New password again"), "abcdefgh");
     await user.click(within(dlg).getByRole("button", { name: "Change password" }));
     expect(await within(dlg).findByRole("alert")).toHaveTextContent("current password isn't right");
     expect(calls.some((c) => c.url.pathname === "/api/account/password")).toBe(true);
@@ -1059,14 +1091,37 @@ describe("Account and backup", () => {
     await user.click(await screen.findByRole("button", { name: "Change web password" }));
     const dlg = await screen.findByRole("dialog", { name: "Change web password" });
     await user.type(within(dlg).getByLabelText("Current password"), "old");
-    await user.type(within(dlg).getByLabelText("New password"), "abcdef");
-    await user.type(within(dlg).getByLabelText("New password again"), "abcdef");
+    await user.type(within(dlg).getByLabelText("New password"), "abcdefgh");
+    await user.type(within(dlg).getByLabelText("New password again"), "abcdefgh");
     await user.click(within(dlg).getByRole("button", { name: "Change password" }));
     expect(await within(dlg).findByRole("alert")).toHaveTextContent("Sign-in is paused for about 5 seconds: Kipple is busy, or there were several wrong passwords from this address. A correct password is refused until then.");
   });
 
+  /** Opens the export dialog and confirms it with the web password. */
+  async function confirmExport(user = userEvent.setup(), password = "my web password") {
+    await user.click(await screen.findByRole("button", { name: "Export backup" }));
+    const ask = await screen.findByRole("dialog", { name: "Export backup" });
+    expect(within(ask).getByRole("button", { name: "Export" })).toBeDisabled();
+    await user.type(within(ask).getByLabelText("Your web password"), password);
+    await user.click(within(ask).getByRole("button", { name: "Export" }));
+    return ask;
+  }
+
+  it("asks for the web password before an export and sends it", async () => {
+    const { calls } = base({ "POST /api/backup": () => json({ error: "bad_password" }, 403) });
+    go("/settings/account");
+    const user = userEvent.setup();
+    const ask = await confirmExport(user, "wrong one");
+    expect(await within(ask).findByRole("alert")).toHaveTextContent("current password isn't right");
+    expect(body(calls.find((c) => c.url.pathname === "/api/backup") as never)).toEqual({ current: "wrong one" });
+    // The dialog stays open for another try, with nothing downloaded.
+    expect(screen.queryByRole("dialog", { name: "Download backup" })).toBeNull();
+    await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Export backup" })).toBeNull());
+  });
+
   it("confirms an export with its warning and contents, then offers the download link", async () => {
-    base({
+    const { calls } = base({
       "POST /api/backup": () =>
         json({
           token: "t",
@@ -1080,15 +1135,37 @@ describe("Account and backup", () => {
         }),
     });
     go("/settings/account");
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Export backup" }));
+    await confirmExport();
     const dlg = await screen.findByRole("dialog", { name: "Download backup" });
+    expect(body(calls.find((c) => c.url.pathname === "/api/backup") as never)).toEqual({ current: "my web password" });
     expect(within(dlg).getByText(/password hashes and secrets/)).toBeInTheDocument();
     expect(within(dlg).getByText(/30000 \(42 starred\)/)).toBeInTheDocument();
     // The manifest stamps created_at as RFC 3339 text, not Unix seconds (#92).
     expect(within(dlg).getByText("Made").nextElementSibling).toHaveTextContent(/2026/);
     expect(dlg).not.toHaveTextContent("Invalid Date");
-    expect(within(dlg).getByRole("link", { name: /kipple-backup-20260925-101500\.zip/ })).toHaveAttribute("href", "/api/backup/t");
+    const link = within(dlg).getByRole("link", { name: /kipple-backup-20260925-101500\.zip/ });
+    expect(link).toHaveAttribute("href", "/api/backup/t");
+    // The password step's controls are gone: focus moves to the download link, not to the page.
+    await waitFor(() => expect(link).toHaveFocus());
+  });
+
+  it("keeps focus on Export while the backup builds, and Cancel stops following the job", async () => {
+    const { calls } = base({
+      "POST /api/backup": () => json({ job_id: "j9", status: "building" }, 202),
+      "GET /api/backup/jobs/j9": () => json({ status: "building" }),
+    });
+    go("/settings/account");
+    const user = userEvent.setup();
+    const ask = await confirmExport(user);
+    const btn = within(ask).getByRole("button", { name: "Preparing backup" });
+    expect(btn).toHaveAttribute("aria-disabled", "true");
+    expect(btn).not.toBeDisabled();
+    expect(btn).toHaveFocus();
+    const post = calls.find((c) => c.url.pathname === "/api/backup");
+    expect(post?.init?.signal?.aborted).toBe(false);
+    await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Export backup" })).toBeNull());
+    expect(post?.init?.signal?.aborted).toBe(true);
   });
 
   it("waits for a background export job, then shows the same confirmation", async () => {
@@ -1124,7 +1201,7 @@ describe("Account and backup", () => {
   ])("explains backup error %s", async (status, payload, re) => {
     base({ "POST /api/backup": () => json(payload, status as number) });
     go("/settings/account");
-    await userEvent.click(await screen.findByRole("button", { name: "Export backup" }));
+    await confirmExport();
     await waitFor(() => expect(screen.getAllByRole("alert").some((a) => re.test(a.textContent ?? ""))).toBe(true));
   });
 });

@@ -162,7 +162,7 @@ func TestEnsureAccountHonoursTheIgnoreFile(t *testing.T) {
 	ctx := context.Background()
 	db := openDB(t)
 	dir := t.TempDir()
-	cfg := config.Config{Username: "owner", Password: "web-pw", DataDir: dir}
+	cfg := config.Config{Username: "owner", Password: "web-password", DataDir: dir}
 
 	require.NoError(t, setup.SetIgnoreEnvAccount(dir, true))
 	require.NoError(t, ensureAccount(ctx, db, cfg, quiet))

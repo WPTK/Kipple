@@ -198,7 +198,7 @@ describe("Step 1: account", () => {
     await user.clear(screen.getByLabelText("User name"));
     await user.type(screen.getByLabelText("User name"), "reader");
     await user.type(screen.getByLabelText("Password"), "abcd");
-    expect(screen.getByText("Use at least 5 characters.")).toBeInTheDocument();
+    expect(screen.getByText("Use at least 8 characters.")).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Password"));
     await user.type(screen.getByLabelText("Password"), "change-me");
     expect(screen.getByText(/example password/)).toBeInTheDocument();
@@ -1437,12 +1437,12 @@ describe("step 1: accessibility and small things", () => {
     go("/");
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText("Password"), "ab");
-    expect(screen.queryByText("Use at least 5 characters.")).toBeNull();
+    expect(screen.queryByText("Use at least 8 characters.")).toBeNull();
     await user.type(screen.getByLabelText("Password again"), "x");
     expect(screen.queryByText("The two passwords don't match.")).toBeNull();
     await user.tab();
     expect(await screen.findByText("The two passwords don't match.")).toBeInTheDocument();
-    expect(screen.getByText("Use at least 5 characters.")).toBeInTheDocument();
+    expect(screen.getByText("Use at least 8 characters.")).toBeInTheDocument();
   });
 });
 

@@ -585,13 +585,15 @@ func WarnUntrustedProxyHeaders(next http.Handler, trusted func() []netip.Prefix,
 	})
 }
 
-// Web and Reader API password length limits, in bytes (the owner chose 5; the upper
-// bound keeps the hashing input sane). The account endpoints and
-// `kipple password` share them. A chosen (not generated) Reader API password
+// Web and Reader API password length limits, in bytes (the upper bound keeps the
+// hashing input sane). MinPasswordLen applies only when a web password is set
+// (the wizard, a restore, the account endpoint, KIPPLE_PASSWORD and
+// `kipple password`); sign-in never checks it, so a shorter password set
+// earlier keeps working until it is changed. A chosen (not generated) Reader API password
 // must be at least MinAPIPasswordLen: it guards the public ClientLogin, where
 // the only brake is a per-client rate budget. Generated ones are 24 characters.
 const (
-	MinPasswordLen    = 5
+	MinPasswordLen    = 8
 	MaxPasswordLen    = 256
 	MinAPIPasswordLen = 16
 )

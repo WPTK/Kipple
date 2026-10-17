@@ -87,8 +87,10 @@ function useNeighbours(scope: Scope): { prev?: Scope; next?: Scope } {
 const menuItem =
   "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-selection";
 
-export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: ListControls }) {
+export function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: ListControls; beside?: boolean }) {
   const { title, above } = useScopeTitle(scope);
+  // Beside an open article (wide) the article's title is the page's h1, so the list's name is the h2 above it.
+  const Heading = beside ? "h2" : "h1";
   const refresh = useRefreshAll();
   const refreshing = useRefreshing();
   const dp = useDevicePrefs();
@@ -122,10 +124,10 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
           too narrow for 6.5rem and the controls together (a narrow list pane, a large text size) do the controls drop to
           a line of their own. */}
       <div className="flex w-fit min-w-[min(100%,25rem)] max-w-full flex-wrap items-center gap-x-0.5 pt-2">
-        <h1 className="min-w-[6.5rem] max-w-full flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}>
+        <Heading className="min-w-[6.5rem] max-w-full flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}>
           {above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
           {title}
-        </h1>
+        </Heading>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
         {/* A layout that is always newest first has no order to toggle (the list options menu says why). On a phone
             the order lives only in the Layout menu, which leaves the title room in a one-row header. */}
@@ -277,7 +279,7 @@ function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?:
       key={listKey}
       scope={scope}
       activeId={articleId}
-      header={(controls) => <ScopeHeader scope={scope} controls={controls} />}
+      header={(controls) => <ScopeHeader scope={scope} controls={controls} beside={wide && !!articleId} />}
     />
   );
 

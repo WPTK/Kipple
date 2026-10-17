@@ -68,8 +68,8 @@ describe("zone list", () => {
 describe("password rules", () => {
   it("counts bytes and refuses the example value", () => {
     expect(byteLength("é")).toBe(2);
-    expect(passwordProblem("abcd")).toMatch(/at least 5/);
-    expect(passwordProblem("abcde")).toBeNull();
+    expect(passwordProblem("abcdefg")).toMatch(/at least 8/);
+    expect(passwordProblem("abcdefgh")).toBeNull();
     expect(passwordProblem("change-me")).toMatch(/example/);
     expect(passwordProblem("x".repeat(257))).toMatch(/too long/);
     expect(passwordProblem("é".repeat(128))).toBeNull();
