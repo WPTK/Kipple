@@ -544,7 +544,7 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
     requestAnimationFrame(() => focusRow(parentRef.current, saved.selectedId as string));
   }, [items.length, saved?.selectedId, rowIndexOf, virtualizer, saved]);
 
-  // The reader pane (or j/k in it) changed the open item: keep it in view.
+  // The reader pane (or the arrow keys in it) changed the open item: keep it in view.
   const lastActive = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!activeId || lastActive.current === activeId) return;
@@ -721,7 +721,7 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
       const el = parentRef.current;
       pendingAnchor.current = el && el.scrollTop > 0 ? captureAnchor(el, ids) : null;
       // The selected row is leaving (marked read in Unread): the selection moves to the row that takes its place, or
-      // the one before it at the end, so j/k carry on from there and m, s, o, x and Enter still have a row to act on.
+      // the one before it at the end, so focus lands on that row when you return to the list.
       const all = allItemsRef.current;
       const gone = memoryFor(key).hidden;
       const stays = (i: Card) => !gone.has(i.id) && !ids.includes(i.id);

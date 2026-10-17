@@ -94,7 +94,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
             aria-label={target ? `Layout of this ${noun}` : "Layout"}
             value={target ? (own?.layout ?? "default") : dp.layout}
             onValueChange={(v) => {
-                        if (!target) {
+            if (!target) {
                 updateDevicePrefs({ layout: v as LayoutId });
                 say(v as LayoutId);
               } else if (v === "default") setListOverride(target.kind, target.id, "layout", null);
