@@ -18,7 +18,14 @@ var (
 	policy     *bluemonday.Policy
 )
 
-var youtubeEmbed = regexp.MustCompile(`^https://(www\.)?(youtube\.com|youtube-nocookie\.com)/embed/[A-Za-z0-9_-]+([?&/#][^\s"'<>]*)?$`)
+// embedTail is what may follow an embed's id: nothing, or a query or fragment
+// (start time, playlist, privacy hash). Never more path: the id ends the path,
+// so a source cannot climb out of the player ("/embed/x/../../elsewhere").
+const embedTail = `([?#][^\s"'<>\\]*)?$`
+
+// youtubeEmbed is a YouTube player: /embed/ and an 11-character video id (the
+// shape of every YouTube id, and of the "videoseries" and "live_stream" players).
+var youtubeEmbed = regexp.MustCompile(`^https://(www\.)?(youtube\.com|youtube-nocookie\.com)/embed/[A-Za-z0-9_-]{11}` + embedTail)
 
 // embedSrc is every iframe source the policy keeps: YouTube and Vimeo players.
 var embedSrc = regexp.MustCompile("(?:" + youtubeEmbed.String() + ")|(?:" + vimeoEmbed.String() + ")")
@@ -176,7 +183,7 @@ func WordCount(text string) int {
 // PolicyVersion names the feed policy and pipeline above. Stored article HTML is cleaned again, once,
 // when a database was last cleaned under a different version (a restored backup, or this number raised
 // after the policy changed), so old rows never keep a weaker policy than new ones.
-const PolicyVersion = 1
+const PolicyVersion = 2
 
 // Resanitize cleans stored article HTML again with the current policy. HTML the pipeline already
 // produced comes back unchanged.
