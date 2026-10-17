@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DropdownMenu } from "radix-ui";
 import { Check, LayoutGrid, Star } from "lucide-react";
 import type { Scope } from "@/api/types";
@@ -60,8 +60,21 @@ export function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
  */
 export function LayoutMenu({ scope }: { scope: Scope }) {
   const dp = useDevicePrefs();
-  // Room kept clear at the bottom: the tab bar and the home-indicator zone, measured when the menu opens.
+  // Room kept clear at the bottom: the tab bar and the home-indicator zone, measured while the menu is open.
+  const [open, setOpen] = useState(false);
   const [bottomPad, setBottomPad] = useState(8);
+  // Measured on open and again when the window or the visual viewport resizes (rotation, the address bar).
+  useEffect(() => {
+    if (!open) return;
+    const measure = () => setBottomPad(tabBarClearance());
+    measure();
+    window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+    };
+  }, [open]);
   const setListOverride = useSetListOverride();
   const { layout, ctx } = useResolvedLayout(scope);
   const target = overrideTarget(ctx);
@@ -77,7 +90,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
   };
 
   return (
-    <DropdownMenu.Root onOpenChange={(open) => open && setBottomPad(tabBarClearance())}>
+    <DropdownMenu.Root onOpenChange={setOpen}>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"

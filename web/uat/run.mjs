@@ -332,6 +332,17 @@ async function runAxe(page, include) {
 
 // The list header's options button names the layout in effect ("List options, Cards layout"); its menu also holds
 // the order and, on a feed or folder, the view.
+// How far an open menu's bottom edge is below the top of the bottom tab bar (positive: it covers the bar); null with no
+// menu or no bar at the bottom (the desktop sidebar is the same landmark).
+const menuOverBar = (page) =>
+  page.evaluate(() => {
+    const menu = document.querySelector('[role="menu"]');
+    const bar = document.querySelector('nav[aria-label="Primary"]');
+    if (!menu || !bar) return null;
+    const top = bar.getBoundingClientRect().top;
+    return top > window.innerHeight / 2 ? Math.round(menu.getBoundingClientRect().bottom - top) : null;
+  });
+
 const optionsLabel = (layout) => `List options, ${layout} layout`;
 
 async function setLayout(page, layout) {
@@ -820,6 +831,21 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         throw new Error(`expected the ${theme.scheme} scheme, the page shows ${scheme} (does the account default to a fixed theme?)`);
 
       const s4 = [];
+      if (screen.id === "list-options" && vp.mobile) {
+        // The menu stops above the tab bar, upright and in landscape.
+        const check = async (where) => {
+          const over = await menuOverBar(page);
+          if (over !== null && over > 0) s4.push({ rule: "menu-over-tab-bar", message: `the List options menu covers the tab bar by ${over}px ${where}` });
+        };
+        await check(`at ${vp.width} x ${vp.height}`);
+        if (vp.id === "phone") {
+          await page.setViewportSize({ width: 852, height: 393 });
+          await page.waitForTimeout(400);
+          await check("at 852 x 393");
+          await page.setViewportSize({ width: vp.width, height: vp.height });
+          await page.waitForTimeout(400);
+        }
+      }
       if (vp.id !== "desktop") {
         const o = await page.evaluate(overflowProbe, FEED);
         if (o.scrollWidth > o.vw + 1) s4.push({ rule: "page-scroll-x", message: `page scrolls sideways: scrollWidth ${o.scrollWidth} > ${o.vw}` });

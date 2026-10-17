@@ -7,7 +7,7 @@ import { createStore, useStore } from "./store";
 export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines", "gazette"] as const;
 export type LayoutId = (typeof LAYOUT_IDS)[number];
 // The ids are what devices have stored, so they never change; only the labels do. "magazine" is shown as
-// Editorial and "headlines" as Email - Compact (title-only rows in the email style).
+// Editorial; "headlines" is Headlines (title-only rows).
 export const LAYOUT_LABELS: Record<LayoutId, string> = {
   magazine: "Editorial",
   cards: "Cards",

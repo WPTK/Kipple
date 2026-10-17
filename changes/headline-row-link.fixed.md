@@ -1,1 +1,0 @@
-Headlines rows: the title link is now a block that truncates inside its row, so its tap area is the visible title rather than the unclipped text width (which the UAT touch-target check misreported as 7 px wide).

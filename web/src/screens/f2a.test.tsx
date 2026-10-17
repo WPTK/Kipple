@@ -208,7 +208,7 @@ describe("layouts", () => {
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "List options, Editorial layout" }));
-    // One list under "This feed": the radio is the override, the star beside each layout is the device default.
+    // One list, for this feed: the radio is the override, the star beside each layout is the device default.
     expect(screen.getByText(/for this feed on this device/)).toBeInTheDocument();
     await user.click(screen.getByRole("menuitemradio", { name: /Headlines/ }));
     expect(devicePrefsStore.get().overrides.feed["1"]).toEqual({ layout: "headlines" });
