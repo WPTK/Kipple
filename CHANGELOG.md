@@ -15,6 +15,7 @@ Changes not yet in a release are one file each in [`changes/`](changes/); they a
 - Folders with no feeds are kept everywhere: deleting every feed in a folder no longer deletes the folder (it used to), and the bulk delete dialog no longer mentions folders, matching an OPML import that moves feeds out. A folder is deleted only by deleting the folder, which also deletes its filters. (#373)
 - Reader API: a folder label with a slash from a sync app nests below an existing folder, and a label with an empty level (such as `News/`) is refused when it would create a folder; the Reader API notes in the compatibility page now say so. (#242, #243)
 - Keyboard: the single-key shortcuts (j and k, s, m, o, x, z, c, r, the g chords, the bracket and brace keys, Shift+A, / and ?), the shortcuts overlay and the Settings option for them are gone. Every action has a visible control, so nothing depends on remembering a key. Selecting several articles with x and acting on them together is gone with no replacement; mark all, mark above and below and the list's Mark all as read menu item cover bulk reads. Tab, Enter and Space work as before; ArrowUp and ArrowDown move between article rows from any control in a row (so a keyboard that skips links in Tab, as Safari does by default, still reaches every row) and in the sidebar trees; Esc closes a menu or dialog, leaves an open article and goes back from the Search screen (not while the search box has focus, where the first Esc leaves the box).
+- The Email - Compact layout is now called Headlines; your saved layout choices are unchanged.
 
 ### Fixed
 
@@ -24,6 +25,16 @@ Changes not yet in a release are one file each in [`changes/`](changes/); they a
 - Deleting a single feed: the dialog now says "Its articles", "this feed" and "This feed holds N starred articles" instead of the plural wording. (#396)
 - Reading time and scroll depth are now recorded when you leave an article by reloading the page or typing another address; before, Chromium-based browsers dropped the stats beacon because the service worker was asked about it as the page unloaded, so the time was lost. (#393)
 - A toast no longer covers the buttons of a bottom bar: on Feeds and Feed Health the "Folder created" or Undo toast now stands above the selection bar (Select all, Move to folder, Delete) instead of on top of it. (#397)
+- Settings, Devices: this device is listed first, and each device shows a phone, tablet or computer icon from its platform instead of always a phone.
+- The list options menu on a phone no longer covers the bottom tab bar and the home-indicator area: it stops above them, scrolls when it is taller than the space left (in landscape too), and shows a scrollbar so you can tell. Its labels are also tidier: the Gazette and Inbox descriptions no longer repeat the Order section or each other, "Use device default" and "Use the standard view" are worded apart, and on a feed or folder a note says the choices are for that feed on this device.
+- The empty Muted view no longer repeats the sentence above the list, and "Add a filter in Settings" is now a link to the filters page.
+- Number fields in Settings no longer show the browser's own up/down spinner inside the field next to the minus and plus buttons.
+- On phones 400 to 560 px wide, the Feeds and Feed health titles stay readable: the Edit, Select and Add feed buttons show only their icons until there is room for their labels.
+- The list header stays one row on a phone, so it no longer jumps in height when a list has a long title such as All articles or Uncategorized: the title truncates instead, the newest/oldest toggle lives only in the Layout menu there, and Previous and Next feed or folder appear once, beside the Show pills, and no longer also in the List actions menu.
+- Stats on a phone no longer scrolls the whole page past the tab bar, leaving a blank band under it; only the report scrolls.
+- On a phone the tab bar highlights Feeds, not Unread, while you read a feed's or folder's list opened from Feeds, and also on Feed health; Feed health gains a Back to Feeds button.
+- The article title and its body text now share one column width, so the title no longer starts to the right of the text when you read in landscape.
+- Settings: the saved searches help text now says where they appear (under Saved searches in the sidebar, and on the Feeds screen on a phone) and no longer describes keyboard-only reordering.
 
 ## [0.9.0-beta.1] - 2026-10-11
 
