@@ -277,7 +277,8 @@ recommended feeds, an optional API password). The same first screen offers "Rest
   your account, then widen the port if you want to. A host firewall is not protection here: a Docker-published port
   bypasses `ufw`. For a headless install that has to listen on a network before you can open a browser, create the
   account from the environment instead (below). If you find Kipple already set up when you did not do it, stop the
-  container, delete its data volume and start again.
+  container, delete its data volume and start again. Someone else may have owned that instance, so also change any feed
+  login or other secret you had put into it, at the source.
 - **What guards the request.** The Host gate answers 421 to a name Kipple does not recognize (so a web page in your
   browser cannot reach the form by DNS rebinding), the request must be same-origin and carry `X-Kipple-Client`, and
   only one account is created at a time. There is no per-address counting, so a noisy neighbour behind the same Docker
@@ -358,7 +359,7 @@ Fix a shared address by listing the proxy, not by raising a limit.
 ## Open mode (no password)
 
 The wizard's account step offers **No password at all**. It is for a Kipple that only you can reach: this computer, your
-local network and your tailnet. A request is allowed by where it comes from, and there is no setting to tune it. The screen warns that anyone who can reach the address can read and change
+local network and your tailnet. A request is allowed by where it comes from, and there is no setting to tune it. On Docker Desktop, publish the port only on `127.0.0.1` (see **The Docker caveat**, below). The screen warns that anyone who can reach the address can read and change
 everything. It needs a ticked acknowledgement, and it stores the account with no password hash and `auth_mode = open`.
 Sign-in then happens by itself when the app opens: it asks the server for a session, and the server grants one only if
 the request passes the **open gate**:
