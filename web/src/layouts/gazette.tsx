@@ -34,11 +34,10 @@ export interface GazetteProps {
   /** Where a story's link goes (the article route). */
   to: (item: Card) => To;
   onOpen: (item: Card) => void;
-  /** The story selected with j/k or open in the reader pane: it is outlined. */
+  /** The story selected (arrow keys) or open in the reader pane: it is outlined. */
   selectedId?: string;
   /** The story that last had focus: the paper's one Tab stop when it is still there. */
   focusedId?: string;
-  /** Stories ticked with `x`: each shows a tick. */
 }
 
 /** The name to print: the given one trimmed, or the default when blank. */
@@ -240,8 +239,7 @@ function Story({ slot: planned, item, heading: H, to, onOpen, phone, selected, t
       data-slot={slot.kind}
       data-read={item.read || undefined}
       data-selected={selected || undefined}
-      // The selection is an outline outside the story's box, so selecting one never moves the page; a tick (`x`) sits
-      // on its corner for the same reason.
+      // The selection is an outline outside the story's box, so selecting one never moves the page.
       className={cn("relative flex min-w-0 flex-col gap-1.5", brief && "border-b border-line pb-2", selected && "outline-2 outline-offset-4 outline-accent")}
     >
       {picture ? (
