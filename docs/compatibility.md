@@ -47,7 +47,8 @@ on which client is calling.
 - **Responses.** JSON is `application/json; charset=utf-8` whatever `output` says; JSON values are never `null` (except
   `LSID` in a JSON sign-in). Writes answer `200 text/plain` `OK`. Item ids in `itemRefs` are decimal strings; in
   `items[].id` they are `tag:google.com,2005:reader/item/` plus 16 hex digits. A response of 1400 bytes or more is
-  gzip-compressed when the request sends `Accept-Encoding: gzip` (with `Vary: Accept-Encoding` and a weak `ETag`).
+  gzip-compressed when the request sends `Accept-Encoding: gzip`, with `Vary: Accept-Encoding`. Only `subscription/list`
+  and `tag/list` carry an `ETag` (see [Endpoint notes](#endpoint-notes)); no other response has one, compressed or not.
 - **Browser clients (CORS).** Every path answers `Access-Control-Allow-Origin: *` and exposes `ETag`, `Retry-After`
   and the bad-token headers. An `OPTIONS` preflight answers `204` without authentication, allowing `GET`, `POST` and
   the `Authorization`, `Content-Type` and `If-None-Match` headers. Credentials (cookies) are never involved; send the
@@ -165,6 +166,21 @@ might not expect:
 - **`mark-all-as-read` on the `unread` or `kept-unread` stream** marks every unread item in it read, the same as the
   reading list. One reference server does this for `unread`; the other treats both as a no-op. Kipple follows the first. Only unread items are ever marked,
   so these streams hold exactly the items the request is about, and doing nothing would drop the user's action.
+- **`ETag` and `If-None-Match`** exist only on `subscription/list` and `tag/list`. The tag is a hash of the body, sent
+  as a strong tag (`"…"`), or as a weak one (`W/"…"`) when that response is gzip-compressed. `If-None-Match` is read as a
+  comma-separated list, each entry compared with any `W/` dropped; a match answers `304` with no body. The `*` form is
+  not understood: it answers `200` with the body. A request without a valid token gets `401`, never `304`.
+- **`mark-all-as-read` with a `ts` that cannot be used** marks the whole stream, on purpose (a missing, `0`, negative,
+  non-digit or overflowing `ts` counts as no `ts`; see [design.md](design.md#6-google-reader-api-mapping)). That
+  includes seconds with a decimal point such as `1792251201.502403`, which are not digits only. A client should send
+  whole numbers, or it marks items that arrived after its last sync.
+- **Lenient inputs.** `subscription/edit` with `ac=subscribe` accepts an `s` without the `feed/` prefix, as `quickadd`
+  does (an `s` that starts with `user/` is not an address and is skipped). `rename-tag` accepts a bare folder name as
+  `dest` (`dest=Archive` means `dest=user/-/label/Archive`); `s` still needs the full `user/-/label/` id. Clients should
+  keep sending the standard forms; the other endpoints (`ac=edit`, `ac=unsubscribe`) read only `feed/<id or url>`.
+- **`ClientLogin` does not trim.** `Email` and `Passwd` are used as sent, so a space around either is part of it and the
+  sign-in fails with `401` (a password may contain spaces). `Email` is compared without regard to case; `Passwd` is
+  exact. Only the parameter names `Email` and `Passwd` are read.
 - **The token** is the same value from `ClientLogin` and `token`, and it is not 57 characters long. `T` is compared
   after trimming surrounding whitespace, so the `token` body may be sent back as it came.
 - **`subscription/list`** has no `firstitemmsec` or `sortid`, and categories carry `id` and `label` but no `type`
@@ -212,7 +228,7 @@ instance, headless, on Windows. Each run covers every screen in a light and a da
 sideways scroll, no stray `undefined` or `NaN`, and the font choice reachable. The keyboard run checks Tab order, focus
 indicators, Escape and focus return in menus and dialogs, and that letter keys do nothing.
 
-| Engine | Version tested | Stands for | Screens (Suite 1) | Keyboard run | Notes |
+| Engine | Version tested (at release time) | Stands for | Screens (Suite 1) | Keyboard run | Notes |
 |---|---|---|---|---|---|
 | Chromium | 153.0.8010.12 | Chrome, Edge, Brave, Opera | clean | clean | The default run. |
 | Firefox | 155.0 | Firefox | clean | clean | No mobile emulation in Firefox, so its tablet and phone runs are touch devices at that width. |
@@ -237,7 +253,7 @@ pull to refresh, and Move to folder for reordering feeds.
 
 ### Sync clients
 
-Kipple speaks the Google Reader API at `/api/greader.php`. Add a Google Reader compatible account and enter the full server URL, `/api/greader.php` included; a client that drops the path and uses only the host cannot sign in through a tunnel that protects the rest of the site. Sign in with the API password from Settings, Account & Devices (Generate API password). The request sequences the protocol uses are replayed against each release by the contract tests in CI; no client is promised beyond what those tests cover.
+Kipple speaks the Google Reader API at `/api/greader.php`. Add a Google Reader compatible account and enter the full server URL, `/api/greader.php` included; if Kipple sits behind Cloudflare Access, bypass `/api/greader.php` (see [deploy.md](deploy.md#cloudflare-access-optional)); that bypass does not cover the root forms such as `/accounts/ClientLogin`, so a client that drops the path cannot sign in there. Sign in with the API password from Settings, Account & Devices (Generate API password). The request sequences the protocol uses are replayed against each release by the contract tests in CI; no client is promised beyond what those tests cover.
 
 ### Still checked by a person
 
@@ -281,5 +297,9 @@ contacts any server to check for updates.
   pre-migration snapshot, checks the free disk space first, and refuses to start rather than migrate with too little
   room. See [deploy.md](deploy.md#disk-space-during-an-upgrade).
 - Migrations apply in order from whichever schema your database has. Read the release notes of every release you skip.
-- **Downgrade means restoring the pre-migration snapshot.** There are no down migrations, and an older Kipple refuses a
-  database that a newer one has migrated. See [deploy.md](deploy.md#roll-back-an-upgrade-that-migrated-the-schema).
+- **Downgrade means restoring the pre-migration snapshot only when the upgrade changed the schema.** There are no down
+  migrations, and an older Kipple refuses a database that a newer one has migrated. A release that does not change the
+  schema writes no snapshot and migrates nothing, so the older release opens the same database as it is: 1.0.0-rc.1 and
+  0.9.0-beta.1 both use schema 19, and going back from rc.1 to beta.1 needs no restore (`kipple version -v` prints the
+  schema number of a build). To roll back an upgrade that did change it, see
+  [deploy.md](deploy.md#roll-back-an-upgrade-that-migrated-the-schema).

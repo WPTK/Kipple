@@ -60,8 +60,33 @@ describe("the document title", () => {
 
   it("names the article by its title", async () => {
     go("/i/1");
-    const h = await screen.findByRole("heading", { level: 1, name: /.+/ });
-    await waitFor(() => expect(document.title).toBe(`${h.textContent} - Kipple`));
+    const h = await screen.findByRole("heading", { level: 1, name: detail(1).title });
+    await waitFor(() => expect(document.title).toBe(`${detail(1).title} - Kipple`));
+    expect(h).toHaveTextContent(detail(1).title);
+  });
+
+  it("keeps the suffix on an article whose title names Kipple", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf([card(1)])),
+      "GET /api/items/1": () => json(detail(1, { title: "Kipple 1.0 released" })),
+    });
+    go("/i/1");
+    await screen.findByRole("heading", { level: 1, name: "Kipple 1.0 released" });
+    await waitFor(() => expect(document.title).toBe("Kipple 1.0 released - Kipple"));
+  });
+
+  it("names an article that could not be opened, with an h1", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf([card(1)])),
+      "GET /api/items/7": () => json({ error: "boom" }, 500),
+    });
+    go("/i/7");
+    await screen.findByRole("heading", { level: 1, name: "Couldn't open this article" });
+    expect(document.title).toBe("Couldn't open this article - Kipple");
+    // The failure heading takes focus when it appears.
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveFocus());
   });
 
   it("names the not-found page, with an h1", async () => {

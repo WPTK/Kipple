@@ -47,7 +47,7 @@ Kipple 1.0 is a release candidate. [CHANGELOG.md](CHANGELOG.md) lists what chang
 - Runs as a phone app, installed from your browser (needs HTTPS; see the [reverse proxy guide](docs/reverse-proxy.md)). Articles you have opened still read offline.
 - Syncs with apps that speak the Google Reader API, on your phone or computer.
 - Reading statistics and a yearly Wrapped summary, stored only in your own database.
-- Backup and restore are built in: export a backup from Settings, or copy the nightly snapshot off the machine. Keep backups private; they contain password hashes and feed logins.
+- Backup and restore are built in: export a backup from Settings, or copy the nightly snapshot off the machine. Keep backups private; they contain credentials (password hashes, the account secret and feed logins).
 - One account per instance.
 
 ## Install

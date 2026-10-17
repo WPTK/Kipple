@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "@/api/client";
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { Button } from "@/ui/button";
 import { INSTANCE_KEY, isOpenRefused, openRefusedReason, signInOpen, type OpenReason, type SetupOptions } from "./api";
 import { AccountStep } from "./AccountStep";
@@ -137,6 +138,8 @@ export function OpenSignIn() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The refused screen names its own tab; the two error screens below are named here, before any early return.
+  useDocumentTitle(refused !== undefined ? undefined : noCookie ? "Kipple needs cookies to keep you signed in" : failed ? "Kipple couldn't sign you in" : undefined, true);
   if (refused !== undefined) {
     return (
       <OpenRefusedScreen

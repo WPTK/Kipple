@@ -21,9 +21,10 @@ func isIPHost(h string) bool {
 
 // SameOrSubdomain reports whether host is base or a subdomain of it: the rule
 // net/http uses to keep Authorization on a redirect (shouldCopyHeaderOnRedirect).
-// An IP literal matches only itself, and so does a single-label name: a LAN
-// host such as "news" or "app" is also a public TLD, and anyone can register
-// evil.news and point it at a private address. Comparison ignores case and a
+// An IP literal matches only itself, and so do a single-label name and a
+// wildcard-DNS name (wildcardDNSSuffixes). A single-label LAN host such as
+// "news" or "app" is also a public TLD, and anyone can register evil.news and
+// point it at a private address. Comparison ignores case and a
 // trailing dot.
 func SameOrSubdomain(base, host string) bool {
 	base, host = normHost(base), normHost(host)
@@ -33,7 +34,7 @@ func SameOrSubdomain(base, host string) bool {
 	if base == host {
 		return true
 	}
-	if isIPHost(base) || isIPHost(host) || !strings.Contains(base, ".") {
+	if isIPHost(base) || isIPHost(host) || !strings.Contains(base, ".") || wildcardDNS(base) || wildcardDNS(host) {
 		return false
 	}
 	return strings.HasSuffix(host, "."+base)
@@ -42,13 +43,13 @@ func SameOrSubdomain(base, host string) bool {
 // FeedHostVariant reports whether host may use the per-feed network exceptions
 // of a feed on feedHost (full-text extraction, image proxying): the same host, a
 // subdomain of it, or its bare/www. twin (www.example.com and example.com). IP
-// literals and single-label names match only themselves.
+// literals, single-label names and wildcard-DNS names match only themselves.
 func FeedHostVariant(feedHost, host string) bool {
 	if SameOrSubdomain(feedHost, host) {
 		return true
 	}
 	f, h := normHost(feedHost), normHost(host)
-	if f == "" || isIPHost(f) || isIPHost(h) || !strings.Contains(f, ".") {
+	if f == "" || isIPHost(f) || isIPHost(h) || !strings.Contains(f, ".") || wildcardDNS(f) || wildcardDNS(h) {
 		return false // no www. twin of a single-label name either (www.app is a public name)
 	}
 	return strings.TrimPrefix(f, "www.") == strings.TrimPrefix(h, "www.")
@@ -59,8 +60,8 @@ func FeedHostVariant(feedHost, host string) bool {
 // credentials) may follow it: the same host, the same registrable domain
 // (example.com -> www.example.com, feeds.example.co.uk -> example.co.uk), or a
 // single-label LAN name gaining or losing one of the reserved local suffixes in
-// localSuffixes (nas -> nas.lan, nas.home.arpa -> nas). An IP literal matches
-// only itself.
+// localSuffixes (nas -> nas.lan, nas.home.arpa -> nas). An IP literal or a
+// wildcard-DNS name (wildcardDNSSuffixes) matches only itself.
 //
 // The bare-name rule is deliberately limited to those suffixes: "nas" ->
 // "nas.attacker.example" is not the same site, because anyone can register a
@@ -74,7 +75,7 @@ func SameSite(a, b string) bool {
 	if a == b {
 		return true
 	}
-	if isIPHost(a) || isIPHost(b) {
+	if isIPHost(a) || isIPHost(b) || wildcardDNS(a) || wildcardDNS(b) {
 		return false
 	}
 	if bareQualified(a, b) || bareQualified(b, a) {
@@ -83,6 +84,22 @@ func SameSite(a, b string) bool {
 	ra, erra := publicsuffix.EffectiveTLDPlusOne(a)
 	rb, errb := publicsuffix.EffectiveTLDPlusOne(b)
 	return erra == nil && errb == nil && ra == rb
+}
+
+// wildcardDNSSuffixes are public services whose names spell the address they resolve to
+// (10-0-0-5.nip.io is 10.0.0.5, 169-254-169-254.nip.io is 169.254.169.254): two names under one of
+// them are two unrelated hosts, not one site, so every host rule here matches such a name only
+// exactly, like an IP literal.
+var wildcardDNSSuffixes = []string{"nip.io", "sslip.io", "xip.io", "traefik.me", "localtest.me", "lvh.me", "local.gd"}
+
+// wildcardDNS reports whether h (normalized) is a name under one of wildcardDNSSuffixes.
+func wildcardDNS(h string) bool {
+	for _, s := range wildcardDNSSuffixes {
+		if h == s || strings.HasSuffix(h, "."+s) {
+			return true
+		}
+	}
+	return false
 }
 
 // localSuffixes are the search domains a single-label LAN name may gain or lose
