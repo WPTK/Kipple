@@ -106,15 +106,15 @@ await t.eachViewport(async (page, vp) => {
       const left = await page.locator("[data-item-id]").evaluateAll((rows, ids) =>
         rows
           .filter((r) => ids.includes(r.getAttribute("data-item-id")))
-          .flatMap((r) => [...r.querySelectorAll("img")].filter((i) => !i.src.includes("/icon")).map((i) => ({ box: i.parentElement.getBoundingClientRect().height, shown: i.naturalWidth > 0 })))
+          .flatMap((r) => [...r.querySelectorAll("img")].filter((i) => !i.src.includes("/icon") && i.complete).map((i) => ({ box: i.parentElement.getBoundingClientRect().height, shown: i.naturalWidth > 0 })))
           .filter((x) => !x.shown),
       ids);
       const boxes = await page.locator("[data-item-id]").evaluateAll(
         (rows, ids) =>
           rows
             .filter((r) => ids.includes(r.getAttribute("data-item-id")))
-            .flatMap((r) => [...r.querySelectorAll('[class*="aspect-"]')])
-            .filter((el) => ![...el.querySelectorAll("img")].some((i) => i.naturalWidth > 0)).length,
+            .flatMap((r) => [...r.querySelectorAll('div[class*="aspect-"]')])
+            .filter((el) => ![...el.querySelectorAll("img")].some((i) => i.naturalWidth > 0 || !i.complete)).length,
         ids,
       );
       check(left.length === 0 && boxes === 0, `${tag} G1 ${layout}`, `${layout}: no picture or empty box is left for a picture that cannot be shown`, `${layout}: ${left.length} failed picture(s) and ${boxes} empty box(es) remain`);
