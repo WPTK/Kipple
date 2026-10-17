@@ -8,6 +8,23 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [1.0.0-rc.1] - 2026-10-17
+
+### Changed
+
+- Folders with no feeds are kept everywhere: deleting every feed in a folder no longer deletes the folder (it used to), and the bulk delete dialog no longer mentions folders, matching an OPML import that moves feeds out. A folder is deleted only by deleting the folder, which also deletes its filters. (#373)
+- Reader API: a folder label with a slash from a sync app nests below an existing folder, and a label with an empty level (such as `News/`) is refused when it would create a folder; the Reader API notes in the compatibility page now say so. (#242, #243)
+- Keyboard: the single-key shortcuts (j and k, s, m, o, x, z, c, r, the g chords, the bracket and brace keys, Shift+A, / and ?), the shortcuts overlay and the Settings option for them are gone. Every action has a visible control, so nothing depends on remembering a key. Selecting several articles with x and acting on them together is gone with no replacement; mark all, mark above and below and the list's Mark all as read menu item cover bulk reads. Tab, Enter and Space work as before; ArrowUp and ArrowDown move between article rows from any control in a row (so a keyboard that skips links in Tab, as Safari does by default, still reaches every row) and in the sidebar trees; Esc closes a menu or dialog, leaves an open article and goes back from the Search screen (not while the search box has focus, where the first Esc leaves the box).
+
+### Fixed
+
+- Gazette no longer keeps an empty grey box where a story's picture cannot be shown (a format the image proxy refuses, or a file that is gone); it drops the box as Editorial, Cards and Inbox do, and every layout now shares that rule. (#398)
+- In the article list, Shift+Tab from the toolbar lands on the open article after you move between articles with the reader's Previous and Next buttons, not on a row you focused earlier. (#390)
+- Muted view: the intro says Restore brings an article back as it was before it was muted (read or unread), matching what Restore does. (#394)
+- Deleting a single feed: the dialog now says "Its articles", "this feed" and "This feed holds N starred articles" instead of the plural wording. (#396)
+- Reading time and scroll depth are now recorded when you leave an article by reloading the page or typing another address; before, Chromium-based browsers dropped the stats beacon because the service worker was asked about it as the page unloaded, so the time was lost. (#393)
+- A toast no longer covers the buttons of a bottom bar: on Feeds and Feed Health the "Folder created" or Undo toast now stands above the selection bar (Select all, Move to folder, Delete) instead of on top of it. (#397)
+
 ## [0.9.0-beta.1] - 2026-10-11
 
 ### Added
@@ -1008,7 +1025,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v0.9.0-beta.1...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.0.0-rc.1...HEAD
+[1.0.0-rc.1]: https://github.com/WPTK/Kipple/compare/v0.9.0-beta.1...v1.0.0-rc.1
 [0.9.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.8...v0.9.0-beta.1
 [0.8.0-beta.8]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.7...v0.8.0-beta.8
 [0.8.0-beta.7]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.6...v0.8.0-beta.7

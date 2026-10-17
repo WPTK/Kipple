@@ -1,1 +1,0 @@
-In the article list, Shift+Tab from the toolbar lands on the open article after you move between articles with the reader's Previous and Next buttons, not on a row you focused earlier. (#390)
