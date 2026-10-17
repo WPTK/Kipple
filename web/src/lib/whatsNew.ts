@@ -20,14 +20,14 @@ export function releasesToShow(releases: Release[], seen: string, current: strin
 }
 
 /**
- * Whether the panel is due at all, which is decided before the changelog is even loaded. An install that has never
- * had a feed (a first run: the setup wizard, the first-run screen) is not an upgrade: it is marked as seen silently.
+ * Whether the panel is due at all, which is decided before the changelog is even loaded: the running version is a
+ * release and is newer than the one on record. A new account is created with the running version on record (the
+ * server does that), so a first run never has anything to show; an account with no record at all (one that predates
+ * the setting) is treated as upgrading and shown the current release.
  */
-export type WhatsNewDue = "show" | "mark" | "no";
-
-export function whatsNewDue(seen: string, current: string, hasFeeds: boolean): WhatsNewDue {
-  if (!parseSemver(current)) return "no";
-  if (!seen) return hasFeeds ? "show" : "mark";
+export function whatsNewDue(seen: string, current: string): boolean {
+  if (!parseSemver(current)) return false;
+  if (!seen) return true;
   const c = compareVersions(seen, current);
-  return c !== null && c < 0 ? "show" : "no";
+  return c !== null && c < 0;
 }
