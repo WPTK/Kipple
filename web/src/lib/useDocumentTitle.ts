@@ -2,10 +2,11 @@ import { useEffect } from "react";
 
 export const APP_TITLE = "Kipple";
 
-/** The tab title for a screen: "<heading> - Kipple". Without a heading it is just "Kipple". */
+/** The tab title for a screen: "<heading> - Kipple". Without a heading it is just "Kipple"; a heading that already names Kipple stands alone. */
 export function documentTitle(heading?: string): string {
   const h = heading?.trim();
-  return h ? `${h} - ${APP_TITLE}` : APP_TITLE;
+  if (!h) return APP_TITLE;
+  return h.includes(APP_TITLE) ? h : `${h} - ${APP_TITLE}`;
 }
 
 /**

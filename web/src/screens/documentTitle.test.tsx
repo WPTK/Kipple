@@ -4,6 +4,7 @@ import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
+import { navigateTo } from "@/test/nav";
 
 // WCAG 2.4.2: every screen names the page ("<heading> - Kipple"), so the tab, history and window switcher differ.
 
@@ -60,8 +61,33 @@ describe("the document title", () => {
 
   it("names the article by its title", async () => {
     go("/i/1");
-    const h = await screen.findByRole("heading", { level: 1, name: /.+/ });
-    await waitFor(() => expect(document.title).toBe(`${h.textContent} - Kipple`));
+    const h = await screen.findByRole("heading", { level: 1, name: detail(1).title });
+    await waitFor(() => expect(document.title).toBe(`${detail(1).title} - Kipple`));
+    expect(h).toHaveTextContent(detail(1).title);
+  });
+
+  it("a lazily loaded screen gets focus on its heading when it appears, and keeps it off later re-renders", async () => {
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    navigateTo("/feeds");
+    const h = await screen.findByRole("heading", { level: 1, name: "Feeds" });
+    await waitFor(() => expect(h).toHaveFocus());
+    // Focus the user has moved on is left alone.
+    const link = screen.getAllByRole("link")[0]!;
+    link.focus();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(link).toHaveFocus();
+  });
+
+  it("names an article that could not be opened, with an h1", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf([card(1)])),
+      "GET /api/items/7": () => json({ error: "boom" }, 500),
+    });
+    go("/i/7");
+    await screen.findByRole("heading", { level: 1, name: "Couldn't open this article" });
+    expect(document.title).toBe("Couldn't open this article - Kipple");
   });
 
   it("names the not-found page, with an h1", async () => {

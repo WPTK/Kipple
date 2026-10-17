@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { LoginScreen } from "@/screens/LoginScreen";
 import { Button } from "@/ui/button";
@@ -18,6 +19,10 @@ const OpenSignIn = lazyScreen(() => import("./SetupFlow").then((m) => ({ default
  */
 export function SignedOut() {
   const inst = useQuery({ queryKey: INSTANCE_KEY, queryFn: ({ signal }) => fetchInstance(signal), retry: false, staleTime: 0, gcTime: 0 });
+  // The tab names the one screen of this component that has no screen of its own (the others set theirs).
+  const status = inst.error instanceof ApiError ? inst.error.status : -1;
+  const unreachable = !inst.isPending && (inst.isError || !inst.data) && !(status === 401 || status === 404 || inst.error instanceof SyntaxError);
+  useDocumentTitle(unreachable ? "Kipple couldn't load" : undefined);
   if (inst.isPending) {
     return (
       <div className="flex h-full items-center justify-center" role="status">
@@ -29,7 +34,6 @@ export function SignedOut() {
     // Only an answer that says "this server has no such route" (or refuses it) means an older Kipple: the form, as it
     // always was. Anything else (offline, a server error, a proxy refusing the address) says so; a password form there
     // would send a no-password Kipple's owner to a screen that cannot let them in.
-    const status = inst.error instanceof ApiError ? inst.error.status : -1;
     // A 200 that is not JSON (a proxy or an older server answering with its page) is the same "no such route".
     if (status === 401 || status === 404 || inst.error instanceof SyntaxError) return <LoginScreen />;
     return (

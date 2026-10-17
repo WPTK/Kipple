@@ -443,7 +443,7 @@ describe("sidebar", () => {
     const side = screen.getByRole("separator", { name: "Resize sidebar" });
     expect(side).toHaveAttribute("aria-valuemax", "320");
     expect(side).toHaveAttribute("aria-valuenow", "320");
-    expect((side.parentElement as HTMLElement).style.width).toBe("320px");
+    expect((side.closest("nav")?.parentElement as HTMLElement).style.width).toBe("320px");
   });
 
   it("the list handle never offers more than leaves the article 320 px, and its value is the width on screen", async () => {
