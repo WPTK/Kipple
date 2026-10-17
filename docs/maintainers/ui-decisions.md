@@ -50,9 +50,9 @@ were resolved in round 2 and what shipped; each is annotated below.
 ## Layout
 
 - **Magazine is the default**; compact list and cards also ship. the owner likes the proposed layouts and wants
-  other options explored, notably an **email-style ("Inbox") layout** (TODO research, resolved: Inbox shipped; the five layouts are
-  Editorial (id `magazine`, this decision's "Magazine"), Cards, Compact, Inbox and Email - Compact (id
-  `headlines`)).
+  other options explored, notably an **email-style ("Inbox") layout** (TODO research, resolved: Inbox shipped; the layouts are
+  Editorial (id `magazine`, this decision's "Magazine"), Cards, Compact, Inbox, Email - Compact (id
+  `headlines`) and the Gazette, six in all).
 - Lead images: **proxied and cached** by Kipple (sites dislike hotlinking), with a **bounded cache** that
   cannot grow out of hand (size cap setting with LRU eviction on the data volume). This replaces the
   design's "no disk cache in phase 2".
@@ -141,6 +141,10 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
 - OPML import has an opt-in switch, off by default: "Move feeds that already exist into the file's folders".
 
 ### Gestures and keys
+- **Open question: Escape after opening an article beside the list.** Escape returns focus to the article's row and
+  leaves the address on the article; on a narrow screen it goes back to the list. Whether the address should also
+  return to the list on a wide screen is undecided (asked in `docs/maintainers/uat-plan.md`, "Open questions for the
+  owner"). Record the answer here.
 - **Swipe directions match iOS Mail everywhere** (this supersedes round 1's "read left, unread right"):
   swipe right (leading) = toggle read/unread; swipe left (trailing) = star, plus a "More" action opening the
   row menu. Full swipe commits with undo. Star also has a row button and the long-press menu.

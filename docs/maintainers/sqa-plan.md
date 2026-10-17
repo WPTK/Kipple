@@ -60,9 +60,9 @@ round. Standing rule: fix everything a review finds, no silent "not fixing" list
   mutation fuzzing is `scripts/fuzz.ps1`, run by hand before every release and weekly in CI (the `Fuzz` workflow, four
   shards that each restore the previous run's corpus). A failure keeps its regression seed in `testdata/fuzz/`.
 - **Contract tests:** replay recorded Reader API request sequences (unit-level, in CI).
-- **End-to-end UAT:** `docs/maintainers/uat-plan.md` Suites 1-5 (scripted Playwright+axe, agent-driven scenarios,
+- **End-to-end UAT:** `docs/maintainers/uat-plan.md` Suites 1-6 (scripted Playwright+axe, agent-driven scenarios,
   owner-only device checks, migration rehearsal, restore drill, Reader API regression replay against a real
-  deployed build, fresh-machine Docker walkthrough). Planned for phase 5 and not yet executed; the Suite 1
+  deployed build, fresh-machine Docker walkthrough, phone-size shakedown). Planned for phase 5 and not yet executed; the Suite 1
   script is not built yet.
 - **Security scanning:** govulncheck (on every dependency change), staticcheck, gosec (fails only on
   high/high), gitleaks, Trivy (image scan) — all in CI.

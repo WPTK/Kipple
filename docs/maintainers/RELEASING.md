@@ -89,8 +89,14 @@ bump): `0.9.0-beta.1` (the bug fixes plus those features), then `1.0.0-rc.N`, th
    section, and the sign-in and setup screens. Then every download, saving the file and opening it: Export OPML, the
    statistics export (CSV), the backup (zip) and any export a new screen added. A saved file that is an error message, a
    control that opens something when it should select it, and a list left behind after a delete are found only this way.
+   Then the phone-size shakedown (`uat-plan.md`, Suite 6) at the six iPhone sizes in both orientations. Run the browser
+   passes alone on the machine, and re-run any failure by itself on a fresh seed before calling it a bug (`uat-plan.md`,
+   "Harness pitfalls"); what cannot run from the development machine is listed there as owner items.
    Note what was driven, and the browser, in the release notes of the step 6 commit or the PR; anything found is fixed
    (and gets a flow in `web/uat/`) before the tag.
+   Independent steps before the tag (docs, site, history, the restore drill, Suite 2, static gates) may run at once on
+   separate instances; the tag, the release workflow, the deploy and Suite 5 are strictly in that order
+   (`uat-plan.md`, "Running suites in parallel").
 4. **CHANGELOG.md:** `node scripts/changelog.mjs preview` shows what is pending; add a one-paragraph
    `changes/_intro.md` if the release needs an intro. `node scripts/changelog.mjs release X.Y.Z` (`--dry-run` first) folds
    the `changes/` fragments into a new `## [X.Y.Z] - date` section, updates the compare links, deletes the

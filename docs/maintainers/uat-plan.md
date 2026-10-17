@@ -61,7 +61,7 @@ is MIT, so that wording is replaced here rather than quietly dropped: `@playwrig
 and `axe-core` MPL-2.0 (weak, file-level copyleft: obligations attach only to modified axe-core files, and Kipple
 neither modifies nor ships it). Both are dev-only and never in the image; `axe-core` was already a dev dependency
 for the Vitest accessibility tests. Navigates every
-screen (feed list in each of the 5 layouts, article view, search, settings (the group list and each of its six groups), stats, Wrapped) and asserts:
+screen (feed list in each of the 6 layouts, article view, search, settings (the group list and each of its six groups), stats, Wrapped) and asserts:
 
 | ID | Check | Expected |
 |---|---|---|
@@ -228,12 +228,13 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
 - TC-F5: Unsubscribe a feed with starred items → starred items remain reachable in the hidden archive.
 
 **Reading UI**
-- TC-R1: Each of the 5 layouts (Magazine/Editorial, Cards, Compact, Inbox, Headlines) renders correctly with
+- TC-R1: Each of the 6 layouts (Editorial, Cards, Compact, Inbox, Email - Compact, Gazette) renders correctly with
   real content, images load through the proxy.
 - TC-R2: Switch density (Dense/Snug/Standard/Relaxed/Airy) → list and reading text both change, live preview
   matches the applied result.
 - TC-R3: Letter and symbol keys do nothing (there are no single-key shortcuts). Tab, the arrow keys,
-  Enter and Escape behave as `docs/maintainers/ui-decisions.md` specifies.
+  Enter and Escape behave as `docs/maintainers/ui-decisions.md` specifies. One case that file does not settle is
+  under "Open questions for the owner" below: Escape after opening an article on a wide screen.
 - TC-R4: Theme picker — default short list plus "More themes"; each of the 20 schemes is legible (spot-check
   Signal's danger color and the Carbon/Fountain distinction called out in the UI decisions).
 - TC-R5: Follow system switches to the configured day and night picks when the OS switches between light and
@@ -717,6 +718,142 @@ throwaway value.
   one-line note in the Quickstart is enough.
 - Torn down afterwards (`down -v`, image removed); the live container was untouched. Suite 5 must be run again once the
   setup-wizard work changes the Quickstart.
+
+## Suite 6 — Phone-size shakedown
+
+A visual and structural pass over every screen at the iPhone sizes people actually own, run in WebKit against a seeded
+instance. It finds what the scripted flows do not assert: text that does not fit, a menu that runs off the screen, a
+control too small to hit. It reads what is on the screen; it does not replace Suite 3 (a real device, a real thumb).
+
+**Sizes** (CSS pixels, portrait unless noted): iPhone 17 and 17 Pro 402 x 874, 17 Pro Max 440 x 956, 16e 393 x 852,
+Air 420 x 912, an SE-size phone 375 x 667, and iPhone 17 in landscape 874 x 402. Use a touch device profile with the
+WebKit engine, not a narrowed desktop window. Run every size in portrait and landscape.
+
+**Per size, on every route** (Unread, Starred, a feed's list, a folder's list, an article, Search and a saved search,
+Feeds in normal and Select mode, Health, Stats, Wrapped, each Settings group, the sign-in screen), with every menu,
+sheet and dialog the screen offers opened in turn:
+
+- Clipped or truncated text and icons: a title, label, button or count cut off by its box, an icon half shown or
+  overlapping text. A long title may wrap or end in an ellipsis; it may not be cut mid-glyph or push a control away.
+- Menus and sheets: nothing runs off an edge, nothing covers the tab bar unless it is a modal that can be dismissed,
+  and the whole menu can be reached by scrolling.
+- Tap targets: every button, link, switch and row action is at least 44 x 44 px, or has 44 px of hit area around it.
+- Duplicates and dead ends: the same action offered twice on one screen under one label, and any screen with no way
+  back or onward (no back button, no tab, no close).
+- Tab bar: the highlighted tab matches where you are, including on a feed's list, Health and a screen opened from a
+  menu.
+- Sidebar and menu organisation: the order of items makes sense, related items sit together, nothing that exists on
+  desktop is unreachable on a phone, and nothing is listed twice.
+- Horizontal scroll: the document never scrolls sideways in either orientation. Inner scrollers (a table, a code block)
+  may.
+- Loading, empty and error states: with no unread items, with a feed that has no items, with the network cut. Each
+  says what is going on and offers a next step; none shows a blank page, a spinner that never ends, or text such as
+  `undefined`, `NaN` or `[object Object]`.
+- Landscape: the same, plus that the article's title and body share a left edge and the tab bar does not eat the page.
+
+**How to run it.** Start the seeded instance (`npm run seed` in `web/`, then `node uat/wait-ready.mjs`), then drive each
+size with a throwaway script that reads the instance URL and sign-in from environment variables (`KIPPLE_UAT_URL` and
+the seed's throwaway account), writes screenshots and a findings list to a scratch directory outside the repository,
+and runs the in-page checks above (overflow, target size, text clipped by its box, duplicate labels, reachability). The
+assertable part already lives in the flow `web/uat/phone-shell.mjs` (`npm run uat:phone-shell`: Stats stays inside the
+window, the Feeds title is whole, the list header does not grow with a long feed title, the article's edges line up in
+landscape, the tab highlight); extend that flow when a shakedown finding can be stated as an assertion. A sweep script
+is a reading aid that produces screenshots and candidates; a person or agent looks at each one. The sweep opens an
+article (marking it read) and may tick feeds in Select mode; it must never confirm Move or Delete. Lookups of menus and
+buttons go by accessible name, so a miss is logged as skipped, not as a pass.
+
+**How to triage.** Look at the screenshot for each candidate before calling it a finding: a measurement can be wrong
+(an element hidden by design, a pane that has not been drawn yet). Group findings by screen and give each a severity
+from the table below (a menu that cannot be dismissed or a screen that is a dead end is P1; clipped text that is still
+readable is P3). Fix by root cause, so one shared component fixed once clears every size. Re-run the whole sweep after
+fixes; a fix at one size often moves another. Anything that can be asserted becomes a check in `phone-shell.mjs` before
+the fix is merged.
+
+## Harness pitfalls
+
+Things that have produced false failures or false passes in browser runs. Check these before calling something a bug.
+
+- **WebKit does not load lazy images that are off-screen.** Count only images whose `complete` is true; an unloaded
+  below-the-fold image is not a broken proxy.
+- **The layout's image element can itself carry the aspect-ratio class.** When checking that an image keeps its shape,
+  inspect the wrapper `div`s only, never the `img` as well, or every layout reads as wrong.
+- **External navigation strands a phone run.** Opening "Read the original" or any outside link leaves the app, and on a
+  phone profile there is no second tab to close. Return to the app address after any step that can leave it, and do
+  not follow outside links when the step does not need to.
+- **Wait for the app to be ready before checking.** The page loads before the library does: wait for the primary
+  navigation and the heading of the screen under test, and on a seeded instance run `node uat/wait-ready.mjs` first
+  (the sample feeds arrive over the first minute).
+- **Heavy browser runs must not share the machine with other heavy work.** A WebKit or Chromium sweep running beside a
+  Go test run, a fuzz run or a second browser run is slow enough to trip timeouts and timing checks. Those failures
+  disappear when the run is alone. See "Running suites in parallel" for what may overlap.
+- **A failing flow is not a bug until it fails alone.** Re-run it by itself on a freshly seeded instance (new data
+  directory, nothing else running). Only a failure that survives that is a finding.
+- **A feed on a loopback or private address is refused** when added by address (quick add and add by URL), as a
+  private-network protection. A test that serves its own fixture feeds must use the add-feed option that allows a
+  private network.
+- **Each run gets its own data directory and port**, taken from variables or arguments, never from a fixed number
+  shared with another run: two runs on one port silently test each other.
+
+## Agent hygiene
+
+- Stop a process you started by its PID, kept when you started it. Never stop processes by port number, port range,
+  name pattern or "everything listening" in a range: another run's instance may be listening there, and stopping it
+  destroys that run's work.
+- Record each PID at launch (a file in your scratch directory is enough) and stop exactly those at the end, even when
+  the run failed. Remove the scratch data directory last.
+- Keep scratch scripts, logs, screenshots and data directories outside the repository, in a directory named for the run.
+- Report what was started and stopped. Do not leave an instance running for the next person to find.
+
+## Checks that cannot run from the development machine
+
+These need a real client, a real network edge or a person, so an agent on the development machine cannot do them. Each is
+an owner item: the agent lists it as "blocked, owner" with the reason, and does not mark it passed.
+
+- **Real Reader API sync clients** (Suite 2 A1 to A3, and the client row of the release checklist): only the replay of
+  recorded request sequences runs here, not a client's own behavior.
+- **Cloudflare Access, the positive case** (TC-C1 with a valid identity): the negative case (a request without a valid
+  token is refused) runs locally; a request carrying a token the real edge issued does not.
+- **A live service-worker update**: that a deployed new build replaces the old one in an open, installed app needs two
+  real builds served over HTTPS and a browser that kept the first.
+- **Real-device Safari and Firefox**: engine emulation catches layout and script differences; installing the PWA,
+  swipe gestures, the share sheet and focus when backgrounded are Suite 3.
+- **Screen readers**: scripted axe scans find missing names and roles but not whether the reading order and announcements
+  make sense. A pass with a real screen reader is a person's job.
+- **Feeds that need the public internet or a real hosted account** (the starter-feed liveness check, a large imported
+  list, an import that reports "N new articles"): run only where that access exists.
+
+## Running suites in parallel
+
+Run independently what does not touch the same instance or the same machine resource, and serially what depends on the
+previous step. A long serial wait costs time; overload costs false failures (see "Harness pitfalls").
+
+**Independent, so they may run at the same time** (each on its own instance, data directory and port, started and
+stopped by PID):
+
+- Documentation checks, the website build, the history and changelog checks, and the restore drill (Suite 4).
+- Suite 2 (agent-driven scenarios), which drives an API and an interface lightly.
+- Static gates: lint, type checks, `govulncheck`, the changelog check.
+
+**Heavy, so alone or nearly so:** the browser UAT (Suite 1 and the phone-size shakedown). Run it with nothing else heavy
+running; run the Chromium and WebKit passes one after the other, and never next to the Go test runs or fuzz.
+
+**Strictly serial** (each step needs the one before it):
+
+1. The tag, on the commit whose CI is green.
+2. The release workflow that builds and publishes from the tag.
+3. The deploy of that published image.
+4. Suite 5 (fresh-machine walkthrough) and the post-deploy checks, which test what was deployed.
+
+Before the tag, spread the work over agents as the "Working economy" section of `CLAUDE.md` describes: independent
+read-only work fans out, one writer per instance, an author stops at "pushed", and the main session owns the CI wait.
+
+## Open questions for the owner
+
+- **Escape after opening an article on a wide screen.** Pressing Escape moves focus back to the article's row in the
+  list; it does not change the address, which stays on the article's page. On a narrow screen, where the article is the
+  whole screen, Escape goes back to the list. `docs/maintainers/ui-decisions.md` says only "Escape to close and return
+  focus", so whether the address should also return to the list on a wide screen is undecided. Until answered, the
+  current behavior is the expectation and TC-R3 does not fail on it.
 
 ## Defect severity (borrowed scale)
 
