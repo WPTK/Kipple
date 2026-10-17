@@ -107,7 +107,7 @@ export function accountFailure(e: unknown): AccountFailure {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
     if (e.status === 0) return { kind: "form", message: "Kipple couldn't reach the server." };
     if (e.code === "bad_username") return { kind: "field", field: "username", message: "The user name can be 1 to 64 letters, digits, dots, dashes or underscores." };
-    if (e.code === "bad_new_password") return { kind: "field", field: "password", message: msg ? capital(msg) + "." : "The password must be 5 to 256 characters." };
+    if (e.code === "bad_new_password") return { kind: "field", field: "password", message: msg ? capital(msg) + "." : `The password must be ${MIN_PASSWORD_LEN} to 256 characters.` };
     if (e.code === "ack_required") return { kind: "field", field: "open", message: "Tick the box to confirm you understand." };
     if (e.code === "access_required")
       return { kind: "form", message: "Signing in without a password through Cloudflare Access needs Access to be set up on the server and Kipple opened through it. Choose another option, or open Kipple through its Access address." };

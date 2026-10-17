@@ -352,6 +352,7 @@ func TestCookieSecureOnHTTPSPublicURLHost(t *testing.T) {
 	c := login(onPublic)
 	require.True(t, c.Secure, "the https public URL's host")
 	require.False(t, login(func(r *http.Request) { r.Host = "192.168.1.20:1919" }).Secure, "a LAN address over plain http")
+	require.False(t, login(func(r *http.Request) { r.Host = "rss.example.com:1919" }).Secure, "the public name on Kipple's own port")
 
 	// The Origin check reads the same scheme: the browser on the public URL sends https.
 	viaPublic := func(origin string) func(*http.Request) {

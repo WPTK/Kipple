@@ -1746,9 +1746,10 @@ Everything under `/api/` except the Reader paths and `POST /api/auth/login` requ
 - It is HttpOnly, `SameSite=Lax`, `Path=/`, persistent with `Max-Age` 90 days and sliding (`last_seen_at` updated at most hourly).
 - **Web login pacing.** `POST /api/auth/login` and the two account endpoints that verify `current` share one `auth.FailureTracker` per client (Reader API ClientLogin uses the same type with its own instance): the first five failures are free, then each attempt waits 2 s, doubling per further failure to a 60 s cap; a verified success clears the client and the count fades only after an hour with no failure. One hash in flight per client, at most four attempts waiting up to ten seconds. An attempt that cannot get a turn answers `503 busy` + `Retry-After: 5` and counts nothing (never 429). The promise is exactly this: with the trusted proxies correct each visitor is its own key, so a stranger cannot slow the owner's key's pacing; all keys share one password-hashing slot (5 s wait, also used by the public ClientLogin), so enough distinct addresses (an IPv6 /48 is 65,536 keys) can keep it full and give the owner `503 busy` even on their own key; people who truly share one key (an unlisted proxy, Docker Desktop's gateway, carrier NAT) share a budget, and even one persistent guesser there can keep the waiting room full so the owner's attempt answers `503 busy` until it stops. An attempt whose own wait is over the 10 s bound is answered at once with `Retry-After` set to the remaining wait. There is no lockout and no per-device exception. A busy verifier, a malformed body, an empty password, and on a passwordless account no usable token or `access_unavailable` (§7.0) are not failures; a wrong password, a refused token and a password sent to a passwordless account are. Client IP rules are those of §6.3.
 - It is `Secure` when the effective scheme is https (`reach.State.Scheme`): real TLS, `X-Forwarded-Proto: https` from a
-  trusted proxy IP, or a request for the host of an https public URL (that name is reached only through what serves the
-  public URL, so it counts as https even behind a proxy that is not listed). Any other host, such as a LAN address over
-  plain http, gets no `Secure`, so it can still sign in.
+  trusted proxy IP, or a request for the exact origin of an https public URL: its host with no port or the public URL's
+  own port (443 by default), unless a trusted proxy's `X-Forwarded-Proto` says otherwise. That origin is reached only
+  through what serves the public URL, so it counts as https even behind a proxy that is not listed. Anything else, such
+  as a LAN address or the public name on Kipple's own port over plain http, gets no `Secure`, so it can still sign in.
 - It is persistent, not a session cookie, because WebKit bug 272325 drops session cookies in Home Screen apps.
 
 **Same-origin enforcement** (`internal/api/api.go`: `authed`, `needsOriginCheck`, `sameOrigin`; every cookie-authenticated request whose method is not GET/HEAD, **and `POST /api/auth/login`** (which has no cookie yet; all three rules, so the login form must send `X-Kipple-Client`); the job poll `GET /api/backup/jobs/{id}` gets all three because it returns the download token; other GETs, the downloads included, get none, see Downloads below):
@@ -2131,7 +2132,7 @@ are chosen when the response starts, from its `Content-Type`, so there is no rou
 - `https:` is added to `img-src` only while `imgproxy.mode` is `http_only` (https images then load from their host). With the default `all`, `img-src` is `'self' data: blob:`.
   The mode is read from an atomic cache (`api.Server.ImgMode`) that `PATCH /api/settings` refreshes.
 - `upgrade-insecure-requests` and `Strict-Transport-Security: max-age=31536000` are sent only when the effective scheme
-  is https (TLS, a trusted proxy's `X-Forwarded-Proto`, or the host of an https public URL; see the session cookie in §7).
+  is https (TLS, a trusted proxy's `X-Forwarded-Proto`, or the exact origin of an https public URL; see the session cookie in §7).
   Over plain http (a LAN visit) the upgrade would break the page.
 - All responses: `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`. HTML also
   gets `Permissions-Policy` (camera, microphone, geolocation and others off; `autoplay`, `fullscreen` and

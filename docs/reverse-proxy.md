@@ -22,7 +22,8 @@ a listed address:
   it received the connection from, so entries further left were written by someone the chain does not vouch for.
 - With no `X-Forwarded-For`, `CF-Connecting-IP` is the client (Cloudflare Tunnel).
 - `X-Forwarded-Proto: https` makes the request count as HTTPS (the `Secure` cookie flag, HSTS, and the scheme in the
-  same-origin check). A request for the host of an `https://` **Public URL** counts as HTTPS too, from any proxy.
+  same-origin check). A request for the exact origin of an `https://` **Public URL** (its host with no port, or the
+  Public URL's own port) counts as HTTPS too, from any proxy, unless a trusted proxy sends `X-Forwarded-Proto: http`.
 
 That client address keys the web sign-in and Reader API login budgets (see "Ports" in [deploy.md](deploy.md#ports)). So
 a proxy **must**:

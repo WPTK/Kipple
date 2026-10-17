@@ -1,1 +1,1 @@
-Harden the web password rule: a new web password (in the setup wizard, a restore, Settings, `KIPPLE_PASSWORD` or `kipple password`) must now be at least 8 characters, up from 5. A shorter password you already have keeps working for sign-in until you change it.
+Harden the web password rule: a new web password (in the setup wizard, a restore, Settings, `KIPPLE_PASSWORD` or `kipple password`) must now be at least 8 characters, up from 5. A shorter password you already have keeps working for sign-in until you change it. (#450)

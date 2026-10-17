@@ -29,10 +29,24 @@ func TestAcquireRefusesWhatIsNotAPlainFile(t *testing.T) {
 	require.ErrorContains(t, err, "symbolic link")
 	require.NoFileExists(t, filepath.Join(dir, "missing"), "a dangling link is not created through")
 
+	// A hard link is refused when running as root (the threat), and accepted
+	// otherwise (a hard-linked snapshot of the data directory still serves).
 	hard := filepath.Join(dir, "hard.lock")
 	require.NoError(t, os.Link(target, hard))
+	oldE := geteuid
+	t.Cleanup(func() { geteuid = oldE })
+	geteuid = func() int { return 0 }
 	_, err = Acquire(hard)
 	require.ErrorIs(t, err, errNotPlain)
+	b, err := os.ReadFile(target)
+	require.NoError(t, err)
+	require.Equal(t, "keep me\n", string(b), "refused before anything is written")
+	geteuid = func() int { return 1000 }
+	l, err := Acquire(hard)
+	require.NoError(t, err, "unprivileged, a hard-linked lock file is fine")
+	require.NoError(t, l.Release())
+	require.NoError(t, os.WriteFile(target, []byte("keep me\n"), 0o600)) // Acquire wrote its pid through the link
+	geteuid = oldE
 
 	fifo := filepath.Join(dir, "fifo.lock")
 	require.NoError(t, syscall.Mkfifo(fifo, 0o600))
@@ -44,7 +58,7 @@ func TestAcquireRefusesWhatIsNotAPlainFile(t *testing.T) {
 	_, err = Acquire(sub)
 	require.Error(t, err)
 
-	b, err := os.ReadFile(target)
+	b, err = os.ReadFile(target)
 	require.NoError(t, err)
 	require.Equal(t, "keep me\n", string(b), "the target is untouched")
 }
