@@ -442,6 +442,39 @@ func rebuilt(t *testing.T, b []byte, change string) []byte {
 	return goodZip(nb, map[string][]byte{OPMLFile: ents[OPMLFile]})
 }
 
+// CheckRestore (the restore command's check) refuses what the upload check
+// refuses, and passes a backup's own database with its counts.
+func TestCheckRestoreChecksTheSchema(t *testing.T) {
+	t.Parallel()
+	ents := zipEntries(t, hostBackup(t))
+	ctx := context.Background()
+
+	good := filepath.Join(t.TempDir(), "good.db")
+	require.NoError(t, os.WriteFile(good, ents[DBFile], 0o600))
+	want, err := Inspect(ctx, good, true)
+	require.NoError(t, err)
+	info, err := CheckRestore(ctx, good)
+	require.NoError(t, err)
+	require.Equal(t, want, info)
+
+	for name, change := range map[string]string{
+		"trigger":         "CREATE TRIGGER evil AFTER DELETE ON sessions BEGIN DELETE FROM items; END",
+		"view":            "CREATE VIEW evil AS SELECT 1",
+		"changed trigger": "DROP TRIGGER folders_keep_default; CREATE TRIGGER folders_keep_default BEFORE DELETE ON folders BEGIN DELETE FROM items; END",
+	} {
+		p := filepath.Join(t.TempDir(), "x.db")
+		require.NoError(t, os.WriteFile(p, ents[DBFile], 0o600))
+		db, err := openFile(p)
+		require.NoError(t, err)
+		_, err = db.Exec(change)
+		require.NoError(t, err)
+		require.NoError(t, db.Close())
+		_, err = CheckRestore(ctx, p)
+		require.Error(t, err, name)
+		require.Regexp(t, `which Kipple never creates|a changed trigger`, err.Error(), name)
+	}
+}
+
 func TestUploadRefusesAnExtraOrChangedSchemaObject(t *testing.T) {
 	t.Parallel()
 	b := hostBackup(t)

@@ -203,7 +203,7 @@ func restore(ctx context.Context, o restoreOptions) error {
 			created += "; its -wal was applied"
 		}
 	}
-	info, err := backup.Inspect(ctx, tmp, true)
+	info, err := backup.CheckRestore(ctx, tmp)
 	if err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
