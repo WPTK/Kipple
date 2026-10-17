@@ -233,10 +233,11 @@ try {
     check("A whats-new", (await page.getByRole("dialog", { name: "What's new in Kipple" }).count()) === 0, "What's new appeared on the first load after setup");
     check("A account", errors.length === 0, `console or page errors: ${errors.join(" | ")}`);
     // A backup of this library, for Run D, made the way the settings page makes one: POST /api/backup answers 200 with
-    // the download, or 202 with a job to follow until it is ready.
-    const made = await page.evaluate(async () => {
+    // the download, or 202 with a job to follow until it is ready. The export asks for the web password first.
+    const made = await page.evaluate(async (current) => {
       const opts = { headers: { "X-Kipple-Client": "web" } };
-      let ans = await (await fetch("/api/backup", { method: "POST", ...opts })).json();
+      const post = { method: "POST", headers: { ...opts.headers, "Content-Type": "application/json" }, body: JSON.stringify({ current }) };
+      let ans = await (await fetch("/api/backup", post)).json();
       for (let i = 0; ans.status === "building" && ans.job_id && i < 300; i++) {
         await new Promise((r) => setTimeout(r, 1000));
         ans = await (await fetch(`/api/backup/jobs/${ans.job_id}`, opts)).json();
@@ -248,7 +249,7 @@ try {
       let bin = "";
       for (const b of bytes) bin += String.fromCharCode(b);
       return { zip: btoa(bin) };
-    });
+    }, "a long enough password");
     if (made.zip) backupZip = Buffer.from(made.zip, "base64");
     else fail("A backup", `making the backup for Run D failed: ${made.error}`);
     await ctx.close();

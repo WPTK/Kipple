@@ -1065,8 +1065,31 @@ describe("Account and backup", () => {
     expect(await within(dlg).findByRole("alert")).toHaveTextContent("Sign-in is paused for about 5 seconds: Kipple is busy, or there were several wrong passwords from this address. A correct password is refused until then.");
   });
 
+  /** Opens the export dialog and confirms it with the web password. */
+  async function confirmExport(user = userEvent.setup(), password = "my web password") {
+    await user.click(await screen.findByRole("button", { name: "Export backup" }));
+    const ask = await screen.findByRole("dialog", { name: "Export backup" });
+    expect(within(ask).getByRole("button", { name: "Export" })).toBeDisabled();
+    await user.type(within(ask).getByLabelText("Your web password"), password);
+    await user.click(within(ask).getByRole("button", { name: "Export" }));
+    return ask;
+  }
+
+  it("asks for the web password before an export and sends it", async () => {
+    const { calls } = base({ "POST /api/backup": () => json({ error: "bad_password" }, 403) });
+    go("/settings/account");
+    const user = userEvent.setup();
+    const ask = await confirmExport(user, "wrong one");
+    expect(await within(ask).findByRole("alert")).toHaveTextContent("current password isn't right");
+    expect(body(calls.find((c) => c.url.pathname === "/api/backup") as never)).toEqual({ current: "wrong one" });
+    // The dialog stays open for another try, with nothing downloaded.
+    expect(screen.queryByRole("dialog", { name: "Download backup" })).toBeNull();
+    await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Export backup" })).toBeNull());
+  });
+
   it("confirms an export with its warning and contents, then offers the download link", async () => {
-    base({
+    const { calls } = base({
       "POST /api/backup": () =>
         json({
           token: "t",
@@ -1080,9 +1103,9 @@ describe("Account and backup", () => {
         }),
     });
     go("/settings/account");
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Export backup" }));
+    await confirmExport();
     const dlg = await screen.findByRole("dialog", { name: "Download backup" });
+    expect(body(calls.find((c) => c.url.pathname === "/api/backup") as never)).toEqual({ current: "my web password" });
     expect(within(dlg).getByText(/password hashes and secrets/)).toBeInTheDocument();
     expect(within(dlg).getByText(/30000 \(42 starred\)/)).toBeInTheDocument();
     // The manifest stamps created_at as RFC 3339 text, not Unix seconds (#92).
@@ -1124,7 +1147,7 @@ describe("Account and backup", () => {
   ])("explains backup error %s", async (status, payload, re) => {
     base({ "POST /api/backup": () => json(payload, status as number) });
     go("/settings/account");
-    await userEvent.click(await screen.findByRole("button", { name: "Export backup" }));
+    await confirmExport();
     await waitFor(() => expect(screen.getAllByRole("alert").some((a) => re.test(a.textContent ?? ""))).toBe(true));
   });
 });

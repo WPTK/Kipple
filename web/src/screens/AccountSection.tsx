@@ -207,8 +207,61 @@ function ApiPasswordDialog({ username, hasPassword, onClose }: { username: strin
   );
 }
 
-/** Build the export, show what is in it, then let the browser's save dialog take over. */
-function BackupDialog({ info, onClose }: { info: BackupInfo; onClose: () => void }) {
+/**
+ * Build the export, show what is in it, then let the browser's save dialog take over. Without `ready` it first asks
+ * for the web password (the file holds the account's credentials) and builds the export itself; an account without
+ * a web password has nothing to type, so its export is built before the dialog opens, as for the API password.
+ */
+function BackupDialog({ ready, onClose }: { ready: BackupInfo | null; onClose: () => void }) {
+  const [info, setInfo] = useState(ready);
+  const [cur, setCur] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const build = async () => {
+    if (busy || !cur) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setInfo(await exportBackup({ current: cur }));
+    } catch (e) {
+      setError(accountError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!info) {
+    return (
+      <Modal
+        open
+        onOpenChange={(o) => !o && onClose()}
+        title="Export backup"
+        description="The backup holds your account's passwords and sign-in secrets, so Kipple asks for your web password first."
+        footer={
+          <>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="solid" disabled={!cur || busy} onClick={() => void build()}>
+              {busy ? "Preparing backup" : "Export"}
+            </Button>
+          </>
+        }
+      >
+        {error ? <Notice tone="error">{error}</Notice> : null}
+        <Field label="Your web password">
+          {(a) => (
+            <input
+              {...a}
+              type="password"
+              autoComplete="current-password"
+              value={cur}
+              onChange={(e) => setCur(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void build()}
+              className={inputCls}
+            />
+          )}
+        </Field>
+      </Modal>
+    );
+  }
   const c = info.contents;
   return (
     <Modal
@@ -254,7 +307,7 @@ function BackupDialog({ info, onClose }: { info: BackupInfo; onClose: () => void
 export function AccountActions() {
   const boot = useBootstrap();
   const qc = useQueryClient();
-  const [dialog, setDialog] = useState<"password" | "remove" | "api" | null>(null);
+  const [dialog, setDialog] = useState<"password" | "remove" | "api" | "backup" | null>(null);
   const user = boot.data?.user;
   // Live account state (never the offline copy): the password and Access controls follow it. Until it answers, and
   // when it fails (offline), the bootstrap's password_set stands in and no Access sign-in is assumed. An older server
@@ -281,6 +334,11 @@ export function AccountActions() {
 
   const doBackup = async () => {
     if (busy) return;
+    if (hasPassword) {
+      setBackupError(null);
+      setDialog("backup");
+      return;
+    }
     setBusy("backup");
     setBackupError(null);
     try {
@@ -377,7 +435,8 @@ export function AccountActions() {
       {dialog === "password" ? <ChangePasswordDialog hasPassword={hasPassword} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
       {dialog === "remove" && accessEmail ? <RemovePasswordDialog email={accessEmail} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
       {dialog === "api" ? <ApiPasswordDialog username={user?.username ?? ""} hasPassword={hasPassword} onClose={() => setDialog(null)} /> : null}
-      {backup ? <BackupDialog info={backup} onClose={() => setBackup(null)} /> : null}
+      {dialog === "backup" ? <BackupDialog ready={null} onClose={() => setDialog(null)} /> : null}
+      {backup ? <BackupDialog ready={backup} onClose={() => setBackup(null)} /> : null}
     </>
   );
 }

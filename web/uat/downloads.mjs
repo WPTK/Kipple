@@ -7,7 +7,8 @@
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and clicks:
 //   D1  Feeds, Feed actions, Export OPML: the saved file is an OPML document (not JSON) and not named *.json;
 //   D2  Settings, Statistics, Export…, Download: the saved file is CSV with a header row (not a JSON error);
-//   D3  Settings, Account & Devices, Export backup, the download link: the saved file is a zip (starts "PK").
+//   D3  Settings, Account & Devices, Export backup, the web password, the download link: the saved file is a zip
+//       (starts "PK").
 // D3 starts a backup export (POST /api/backup), which replaces any unclaimed one, and downloading it spends it and
 // deletes the file, so nothing is left behind. It therefore only runs against a loopback address with the seed's
 // credentials unless --allow-remote is given.
@@ -44,7 +45,7 @@ const { values: opt } = (() => {
   }
 })();
 if (opt.help) {
-  console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split(/\r?\n/).slice(0, 18).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
+  console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split(/\r?\n/).slice(0, 19).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
   process.exit(0);
 }
 const origin = new URL(opt.url).origin;
@@ -105,6 +106,10 @@ async function run(browser, vp) {
     // D3
     await page.goto("/settings/account", { waitUntil: "load" });
     await page.getByRole("button", { name: "Export backup" }).click();
+    // The export asks for the web password first.
+    const ask = page.getByRole("dialog", { name: "Export backup" });
+    await ask.getByLabel("Your web password").fill(opt.password);
+    await ask.getByRole("button", { name: "Export", exact: true }).click();
     const bk = page.getByRole("dialog", { name: "Download backup" });
     const link = bk.getByRole("link", { name: /kipple-backup-.*\.zip/ });
     await link.waitFor({ timeout: 60000 });

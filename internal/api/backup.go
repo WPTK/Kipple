@@ -26,7 +26,21 @@ const (
 // within the sync window (5 s by default) the answer is the ready payload, 200,
 // as before; otherwise 202 {job_id, status:"building"} and the client polls
 // GET /api/backup/jobs/{id}.
+//
+// The body is `{current}`: the file holds the account's credentials, so the
+// current web password is proved first, exactly as the API password change
+// does (an account without one proves itself the same way it does there; open
+// mode has nothing to prove and may send no body).
 func (s *Server) backupCreate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Current string `json:"current"`
+	}
+	if !decodeBody(w, r, &body, true) {
+		return
+	}
+	if _, ok := s.checkCurrent(w, r, body.Current, false); !ok {
+		return
+	}
 	job, err := s.backups.Start()
 	if errors.Is(err, backup.ErrBusy) {
 		w.Header().Set("Retry-After", "10")
