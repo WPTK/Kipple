@@ -258,6 +258,7 @@ describe("layouts", () => {
 
 describe("order", () => {
   it("newest first is the default and the toggle asks the server for oldest", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width: 900px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
     const { calls } = routes({ "GET /api/items": (url) => json(pageOf(url.searchParams.get("order") === "oldest" ? items().reverse() : items())) });
     go("/l/unread");
     await screen.findByText("Article number 1");

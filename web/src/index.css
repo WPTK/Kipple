@@ -58,7 +58,7 @@
 
   /* Reading density, Standard (T3). Overridden below. */
   --kp-lh: 1.6;
-  --kp-measure: 66ch;
+  --kp-measure: 35rem;
   --kp-pgap: 1em;
   --kp-hgap: 1.6em;
   --kp-ls: 0em;
@@ -90,11 +90,11 @@
 }
 
 /* Reading density: Dense, Snug, Standard, Relaxed, Airy (T1-T5). */
-[data-reading-density="dense"] { --kp-lh: 1.4; --kp-measure: 78ch; --kp-pgap: 0.6em; --kp-hgap: 1.2em; --kp-ls: 0em; }
-[data-reading-density="snug"] { --kp-lh: 1.5; --kp-measure: 72ch; --kp-pgap: 0.8em; --kp-hgap: 1.4em; --kp-ls: 0em; }
-[data-reading-density="standard"] { --kp-lh: 1.6; --kp-measure: 66ch; --kp-pgap: 1em; --kp-hgap: 1.6em; --kp-ls: 0em; }
-[data-reading-density="relaxed"] { --kp-lh: 1.7; --kp-measure: 62ch; --kp-pgap: 1.25em; --kp-hgap: 1.8em; --kp-ls: 0.005em; }
-[data-reading-density="airy"] { --kp-lh: 1.8; --kp-measure: 58ch; --kp-pgap: 1.5em; --kp-hgap: 2em; --kp-ls: 0.01em; }
+[data-reading-density="dense"] { --kp-lh: 1.4; --kp-measure: 41rem; --kp-pgap: 0.6em; --kp-hgap: 1.2em; --kp-ls: 0em; }
+[data-reading-density="snug"] { --kp-lh: 1.5; --kp-measure: 38rem; --kp-pgap: 0.8em; --kp-hgap: 1.4em; --kp-ls: 0em; }
+[data-reading-density="standard"] { --kp-lh: 1.6; --kp-measure: 35rem; --kp-pgap: 1em; --kp-hgap: 1.6em; --kp-ls: 0em; }
+[data-reading-density="relaxed"] { --kp-lh: 1.7; --kp-measure: 33rem; --kp-pgap: 1.25em; --kp-hgap: 1.8em; --kp-ls: 0.005em; }
+[data-reading-density="airy"] { --kp-lh: 1.8; --kp-measure: 31rem; --kp-pgap: 1.5em; --kp-hgap: 2em; --kp-ls: 0.01em; }
 
 /* List density: Dense, Snug, Standard, Relaxed, Airy (D1-D5). Row heights are
    max(--row-min, content), never fixed, so wrapped text grows the row. */

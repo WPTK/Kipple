@@ -109,6 +109,7 @@ describe("the view a feed or folder opens in", () => {
 
 describe("per-feed order", () => {
   it("a feed's own order sorts its list; other lists keep the device order", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width: 900px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
     setListOverride("feed", "1", "order", "oldest");
     const { calls } = routes();
     const r = go("/l/unread?feed=1");
@@ -131,6 +132,7 @@ describe("per-feed order", () => {
   });
 
   it("the header toggle on a feed list sets the feed's order, and toggling back clears it", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width: 900px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
     const { calls } = routes();
     go("/l/unread?feed=1");
     await screen.findByText("Article number 1");
@@ -144,6 +146,7 @@ describe("per-feed order", () => {
   });
 
   it("the header toggle on the Unread list sets the device order", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width: 900px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
     routes();
     go("/l/unread");
     await screen.findByText("Article number 1");

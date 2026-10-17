@@ -89,6 +89,7 @@ describe("Gazette fetch order", () => {
   });
 
   it("the same settings in another layout still ask for oldest first", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width: 900px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
     updateDevicePrefs({ order: "oldest", layout: "magazine" });
     const { calls } = routes();
     go("/l/unread");

@@ -837,7 +837,7 @@ export function StatsScreen() {
           </div>
         ) : null}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">{body}</div>
+      <div className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-6">{body}</div>
       <StatsExportDialog open={exporting} onOpenChange={setExporting} defaultRange={apiRange(range)} />
       <FeedSheet feed={feed} range={range} onClose={() => setFeed(null)} />
     </div>

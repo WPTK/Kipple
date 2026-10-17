@@ -116,17 +116,17 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   return (
     <header className="pt-safe shrink-0 border-b border-line bg-bg px-4 pb-2">
       {/* The title row is 25rem wide and left-aligned, so the controls sit in the same place in every layout (a grid
-          layout has no reader pane, and used to push them to the far right). It grows past that only as far as a long
-          title needs, and where the pane is too narrow for title and controls together the controls drop to a line
-          of their own rather than squeeze the title to an ellipsis. */}
-      <div className="flex w-fit min-w-[min(100%,25rem)] max-w-full flex-wrap items-center gap-x-0.5 pt-2">
-        <h1 className="min-w-0 max-w-full grow truncate text-xl font-bold" tabIndex={-1} data-route-heading aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}>
+          layout has no reader pane, and used to push them to the far right). It is always one row, so the header is
+          the same height in every list: the title truncates and the controls keep their size. */}
+      <div className="flex w-fit min-w-[min(100%,25rem)] max-w-full items-center gap-x-0.5 pt-2">
+        <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}>
           {above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
           {title}
         </h1>
-        <div className="ml-auto flex items-center gap-0.5">
-        {/* A layout that is always newest first has no order to toggle (the list options menu says why). */}
-        {followsOrder(layout.id) ? (
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        {/* A layout that is always newest first has no order to toggle (the list options menu says why). On a phone
+            the order lives only in the Layout menu, which leaves the title room in a one-row header. */}
+        {wide && followsOrder(layout.id) ? (
           <Button
             variant="ghost"
             size="icon"
@@ -173,19 +173,6 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
                 <Undo2 className="size-5" aria-hidden="true" />
                 Undo
               </DropdownMenu.Item>
-              {prev || next ? <DropdownMenu.Separator className="my-1 h-px bg-line" /> : null}
-              {prev ? (
-                <DropdownMenu.Item className={menuItem} onSelect={() => go(prev)}>
-                  <ChevronLeft className="size-5" aria-hidden="true" />
-                  Previous {noun}
-                </DropdownMenu.Item>
-              ) : null}
-              {next ? (
-                <DropdownMenu.Item className={menuItem} onSelect={() => go(next)}>
-                  <ChevronRight className="size-5" aria-hidden="true" />
-                  Next {noun}
-                </DropdownMenu.Item>
-              ) : null}
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
