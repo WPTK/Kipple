@@ -22,7 +22,7 @@ export function SignedOut() {
   // The tab names the one screen of this component that has no screen of its own (the others set theirs).
   const status = inst.error instanceof ApiError ? inst.error.status : -1;
   const unreachable = !inst.isPending && (inst.isError || !inst.data) && !(status === 401 || status === 404 || inst.error instanceof SyntaxError);
-  useDocumentTitle(unreachable ? "Kipple couldn't load" : undefined);
+  useDocumentTitle(unreachable ? "Kipple couldn't load" : undefined, true);
   if (inst.isPending) {
     return (
       <div className="flex h-full items-center justify-center" role="status">

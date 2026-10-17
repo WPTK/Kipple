@@ -139,7 +139,7 @@ export function OpenSignIn() {
   }, []);
 
   // The refused screen names its own tab; the two error screens below are named here, before any early return.
-  useDocumentTitle(refused !== undefined ? undefined : noCookie ? "Kipple needs cookies to keep you signed in" : failed ? "Kipple couldn't sign you in" : undefined);
+  useDocumentTitle(refused !== undefined ? undefined : noCookie ? "Kipple needs cookies to keep you signed in" : failed ? "Kipple couldn't sign you in" : undefined, true);
   if (refused !== undefined) {
     return (
       <OpenRefusedScreen

@@ -2,11 +2,15 @@ import { useEffect } from "react";
 
 export const APP_TITLE = "Kipple";
 
-/** The tab title for a screen: "<heading> - Kipple". Without a heading it is just "Kipple"; a heading that already names Kipple stands alone. */
-export function documentTitle(heading?: string): string {
+/**
+ * The tab title for a screen: "<heading> - Kipple". Without a heading it is just "Kipple". A screen whose own heading
+ * already starts with the app name ("Sign in to Kipple") passes `standalone` so the name is not said twice; article
+ * titles, feed names and the like never do, so they always carry the suffix.
+ */
+export function documentTitle(heading?: string, standalone = false): string {
   const h = heading?.trim();
   if (!h) return APP_TITLE;
-  return h.includes(APP_TITLE) ? h : `${h} - ${APP_TITLE}`;
+  return standalone ? h : `${h} - ${APP_TITLE}`;
 }
 
 /**
@@ -15,12 +19,12 @@ export function documentTitle(heading?: string): string {
  * "Kipple". The title goes back to "Kipple" when the screen leaves, so a screen that forgets the call never shows the
  * previous one's name.
  */
-export function useDocumentTitle(heading?: string): void {
+export function useDocumentTitle(heading?: string, standalone = false): void {
   useEffect(() => {
     if (heading === undefined) return;
-    document.title = documentTitle(heading);
+    document.title = documentTitle(heading, standalone);
     return () => {
       document.title = APP_TITLE;
     };
-  }, [heading]);
+  }, [heading, standalone]);
 }

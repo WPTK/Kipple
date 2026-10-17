@@ -19,8 +19,12 @@ describe("documentTitle", () => {
     expect(documentTitle()).toBe("Kipple");
     expect(documentTitle("  ")).toBe("Kipple");
   });
-  it("does not repeat the app name when the heading has it", () => {
-    expect(documentTitle("Sign in to Kipple")).toBe("Sign in to Kipple");
+  it("does not repeat the app name for a standalone heading", () => {
+    expect(documentTitle("Sign in to Kipple", true)).toBe("Sign in to Kipple");
+  });
+  it("keeps the suffix for any other heading, even one that mentions Kipple", () => {
+    expect(documentTitle("Kipple 1.0 released")).toBe("Kipple 1.0 released - Kipple");
+    expect(documentTitle("Your Kipple's address")).toBe("Your Kipple's address - Kipple");
   });
 });
 

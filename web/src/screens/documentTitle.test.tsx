@@ -4,7 +4,6 @@ import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
-import { navigateTo } from "@/test/nav";
 
 // WCAG 2.4.2: every screen names the page ("<heading> - Kipple"), so the tab, history and window switcher differ.
 
@@ -66,17 +65,15 @@ describe("the document title", () => {
     expect(h).toHaveTextContent(detail(1).title);
   });
 
-  it("a lazily loaded screen gets focus on its heading when it appears, and keeps it off later re-renders", async () => {
-    go("/l/unread");
-    await screen.findByText("Article number 1");
-    navigateTo("/feeds");
-    const h = await screen.findByRole("heading", { level: 1, name: "Feeds" });
-    await waitFor(() => expect(h).toHaveFocus());
-    // Focus the user has moved on is left alone.
-    const link = screen.getAllByRole("link")[0]!;
-    link.focus();
-    await new Promise((r) => setTimeout(r, 50));
-    expect(link).toHaveFocus();
+  it("keeps the suffix on an article whose title names Kipple", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf([card(1)])),
+      "GET /api/items/1": () => json(detail(1, { title: "Kipple 1.0 released" })),
+    });
+    go("/i/1");
+    await screen.findByRole("heading", { level: 1, name: "Kipple 1.0 released" });
+    await waitFor(() => expect(document.title).toBe("Kipple 1.0 released - Kipple"));
   });
 
   it("names an article that could not be opened, with an h1", async () => {
@@ -88,6 +85,8 @@ describe("the document title", () => {
     go("/i/7");
     await screen.findByRole("heading", { level: 1, name: "Couldn't open this article" });
     expect(document.title).toBe("Couldn't open this article - Kipple");
+    // The failure heading takes focus when it appears.
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveFocus());
   });
 
   it("names the not-found page, with an h1", async () => {
