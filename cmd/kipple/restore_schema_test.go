@@ -93,7 +93,8 @@ func TestRestoreRefusesASchemaKippleNeverCreates(t *testing.T) {
 			for _, src := range []string{zipped, bare} {
 				_, err := doRestore(dir, src, true)
 				require.Error(t, err, src)
-				require.Regexp(t, `never creates|has a changed`, err.Error())
+				require.Regexp(t, `the database (holds .* never creates|has a changed)`, err.Error())
+				require.NotContains(t, err.Error(), "kipple.db", "the copy's name is not the user's file")
 				require.Equal(t, 5, countItems(t, dir), "the live database is untouched")
 				require.Equal(t, 1, countSessions(t, dir), "its sessions too")
 				require.NoFileExists(t, filepath.Join(dir, "restore-tmp.db"))

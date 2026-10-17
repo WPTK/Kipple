@@ -254,30 +254,10 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 		s.writeExisting(w, r, id)
 		return
 	}
-	// The private-network grant covers the site the user entered. A feed the page links to on another
-	// site does not inherit it, as when a feed's address is edited (keepExceptions): it must be a
-	// public address, and it is subscribed without the grant.
-	if allowPrivate {
-		_, _, targetHost, err := store.ValidateFeedURL(target, true)
-		if err == nil && !fetch.SameSite(feedHost, targetHost) {
-			opts.AllowPrivateNet = false
-			_, _, _, err = store.ValidateFeedURL(target, false)
-		}
-		if err != nil {
-			var bad *store.InvalidURLError
-			if errors.As(err, &bad) && bad.Private {
-				writeErrorMsg(w, http.StatusBadRequest, "private_address", msgPrivateAddress)
-				return
-			}
-			writeErrorMsg(w, http.StatusBadRequest, "invalid_url", err.Error())
-			return
-		}
-	}
 	// The feed may answer through a redirect to one the user already has: that is checked on the
 	// address that answered, not the one typed or linked, before anything is created.
 	if owner, err := s.redirectOwner(ctx, found, ua, retryUA, func(h string) (http.RoundTripper, bool) {
-		priv := allowPrivate && fetch.SameSite(feedHost, h)
-		return fetch.ScopedTransport(s.opt.Guard, h, priv, false, false), priv
+		return fetch.ScopedTransport(s.opt.Guard, h, allowPrivate, false, false), allowPrivate
 	}); err != nil {
 		s.serverError(w, "add feed", err)
 		return
