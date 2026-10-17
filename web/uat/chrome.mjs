@@ -43,11 +43,12 @@ const overlap = (a, b) => a && b && a.x < b.x + b.width && b.x < a.x + a.width &
 
 await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
+  const run = `${tag}-${Date.now()}`;
   await step(`${tag} C1`, async () => {
     await page.goto("/feeds", { waitUntil: "load" });
     await page.getByRole("button", { name: "Feed actions" }).click();
     await page.getByRole("menuitem", { name: "New folder" }).click();
-    await page.getByLabel("Name").fill("UAT toast folder");
+    await page.getByLabel("Name").fill(`UAT toast folder ${run}`);
     await page.getByRole("button", { name: "Create" }).click();
     const toast = page.getByTestId("toast-region").getByText("Folder created");
     await toast.waitFor({ timeout: 10000 });
@@ -73,9 +74,11 @@ await t.eachViewport(async (page, vp) => {
     const end = Date.now() + 30000;
     let ready = false;
     let imgs = "";
+    let ids = [];
     while (!ready && Date.now() < end) {
       const r = await page.request.get(`/api/items?view=all&feed=${feedId}`, { headers: { Accept: "application/json" } });
       const items = r.ok() ? ((await r.json()).items ?? []) : [];
+      ids = items.map((i) => String(i.id));
       ready = items.length >= 8 && items.some((i) => i.title === "UAT bmp lead" && i.image);
       if (!ready && items.length >= 8) imgs = JSON.stringify(items.slice(0, 2).map((i) => i.image));
       if (!ready) await page.waitForTimeout(500);
@@ -100,13 +103,20 @@ await t.eachViewport(async (page, vp) => {
         { timeout: 10000 },
       ).catch(() => {});
       await page.waitForTimeout(1500);
-      const left = await page.locator("[data-item-id]").evaluateAll((rows) =>
+      const left = await page.locator("[data-item-id]").evaluateAll((rows, ids) =>
         rows
-          .filter((r) => r.textContent?.includes("UAT"))
+          .filter((r) => ids.includes(r.getAttribute("data-item-id")))
           .flatMap((r) => [...r.querySelectorAll("img")].filter((i) => !i.src.includes("/icon")).map((i) => ({ box: i.parentElement.getBoundingClientRect().height, shown: i.naturalWidth > 0 })))
           .filter((x) => !x.shown),
+      ids);
+      const boxes = await page.locator("[data-item-id]").evaluateAll(
+        (rows, ids) =>
+          rows
+            .filter((r) => ids.includes(r.getAttribute("data-item-id")))
+            .flatMap((r) => [...r.querySelectorAll('[class*="aspect-"]')])
+            .filter((el) => ![...el.querySelectorAll("img")].some((i) => i.naturalWidth > 0)).length,
+        ids,
       );
-      const boxes = await page.locator("[data-item-id]", { hasText: "UAT" }).locator('[class*="aspect-"]').count();
       check(left.length === 0 && boxes === 0, `${tag} G1 ${layout}`, `${layout}: no picture or empty box is left for a picture that cannot be shown`, `${layout}: ${left.length} failed picture(s) and ${boxes} empty box(es) remain`);
       if (layout === "Gazette") await t.shot(page, `${tag}-gazette-no-box`);
     }

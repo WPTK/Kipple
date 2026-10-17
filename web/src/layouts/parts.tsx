@@ -19,17 +19,31 @@ export function SourceIcon({ src, className }: { src: string | null | undefined;
   return <img src={src} alt="" width={16} height={16} loading="lazy" className={cn("size-4 shrink-0 rounded-sm", className)} />;
 }
 
-/** Whether a list row's lead picture could not be shown, and the handler that says so. A new `src` is tried again. */
+/** Whether a list row's lead picture could not be shown, and the handler that says so. */
 export interface ImageFailure {
   failed: boolean;
   onError: () => void;
 }
 
-export function useImageFailure(src: string | null | undefined): ImageFailure {
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  return { failed: !!src && failedSrc === src, onError: () => setFailedSrc(src ?? null) };
-}
+// Addresses that failed to load, kept across remounts: a list that comes back (from an article) lays a failed picture
+// out without its box from the first render, so the scroll position it restores is not moved when the picture fails
+// again. Capped; the oldest is forgotten first.
+const FAILED_MAX = 500;
+const failedImages = new Set<string>();
 
+export function useImageFailure(src: string | null | undefined): ImageFailure {
+  const [, bump] = useState(0);
+  return {
+    failed: !!src && failedImages.has(src),
+    onError: () => {
+      if (!src) return;
+      failedImages.delete(src);
+      failedImages.add(src);
+      if (failedImages.size > FAILED_MAX) failedImages.delete(failedImages.values().next().value!);
+      bump((n) => n + 1);
+    },
+  };
+}
 /**
  * A list row's lead picture. When it cannot be shown (the image proxy refuses the format, the file is gone) the
  * picture and its `frame` (the box that holds its place) are removed together, so no layout keeps an empty box.

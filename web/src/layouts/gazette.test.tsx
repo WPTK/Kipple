@@ -151,7 +151,8 @@ describe("Gazette pages", () => {
   });
 
   it("lays a story whose picture failed out as a story without a picture", () => {
-    const { container } = draw(cards, p);
+    // A picture that failed is remembered by address, so each failing test uses its own.
+    const { container } = draw(cards.map((c) => (c.image ? { ...c, image: `${IMG}?t1` } : c)), p);
     const lead = container.querySelector<HTMLElement>('article[data-slot="lead"]')!;
     expect(lead.querySelector("h3")!.className).toContain("text-[1.625rem]");
     fireEvent.error(lead.querySelector("img")!);
@@ -160,7 +161,7 @@ describe("Gazette pages", () => {
 
   it("lays a photo whose picture failed out as an ordinary story with its standfirst", () => {
     // No favorites and several pictures: a busy front page with a row of photos under a text lead.
-    const busy = Array.from({ length: 40 }, (_, i) => card(i + 1, { image: i % 4 === 0 ? IMG : null }));
+    const busy = Array.from({ length: 40 }, (_, i) => card(i + 1, { image: i % 4 === 0 ? `${IMG}?t2` : null }));
     const bp = plan(busy);
     const { container } = draw(busy, bp);
     const photo = container.querySelector<HTMLElement>('article[data-slot="photo"]')!;
@@ -178,7 +179,7 @@ describe("Gazette pages", () => {
   });
 
   it("lays a co-lead whose picture failed out as a headline lead", () => {
-    const two = Array.from({ length: 40 }, (_, i) => card(i + 1, { image: i < 2 ? IMG : null, feed_id: i % 2 ? "2" : "1" }));
+    const two = Array.from({ length: 40 }, (_, i) => card(i + 1, { image: i < 2 ? `${IMG}?t3` : null, feed_id: i % 2 ? "2" : "1" }));
     const tp = plan(two, { favorites: [{ t: "feed", id: "1" }, { t: "feed", id: "2" }] });
     expect(tp.pages[0]!.type).toBe("co-leads");
     const { container } = draw(two, tp);
