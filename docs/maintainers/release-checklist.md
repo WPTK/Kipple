@@ -22,6 +22,7 @@ records. `docs/maintainers/uat-plan.md` describes the suites.
 | 13 | Known-issues list is in the release notes | agent | |
 | 14 | 1.0.0 release commit: README and `docs/deploy.md` say that the `latest` image tag works | agent | |
 | 15 | Every screen and every download walked in a real browser on the rc build, at the mobile preset and on desktop (`docs/maintainers/RELEASING.md`, step 3), and the `Browser UAT` workflow green on the tagged commit | agent | |
+| 16 | Phone-size shakedown (`docs/maintainers/uat-plan.md`, Suite 6) at the six iPhone sizes, portrait and landscape, no open P0/P1 | agent | |
 
 Owner's sign-off, one yes after reading the table above: **Kipple 1.0.0 may be released.**
 
