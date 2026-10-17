@@ -1,3 +1,4 @@
+import { useFocusActions } from "./focusActions";
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -222,30 +223,9 @@ type Sel = ReadonlySet<string>;
 const folderActionsId = (folder: string) => `folder-actions-${folder}`;
 const FEED_ACTIONS_ID = "feed-actions";
 
-/**
- * After a move or a delete, put the focus on a folder row's actions button. The row re-mounts (moved) or the dialog's
- * own focus return lands on a button that is about to go (deleted), so this keeps trying for a moment, without taking
- * the focus from anything the person moved it to since.
- */
-function focusFolderActions(folder: string) {
-  focusActionsButton(folderActionsId(folder));
-}
-
-/** The same for any actions button (the header's Feed actions too), by element id: a dialog opened from a menu item returns the focus there. */
-function focusActionsButton(id: string) {
-  let tries = 0;
-  const tick = () => {
-    const el = document.getElementById(id);
-    const now = document.activeElement;
-    const adrift = !now || now === document.body || !now.isConnected || (now instanceof HTMLElement && now.dataset.folderActions !== undefined);
-    if (el && now !== el && adrift) el.focus();
-    if (++tries < 20) setTimeout(tick, 50);
-  };
-  setTimeout(tick, 0);
-}
-
 /** Feeds: where you open a folder or feed, and where feeds and folders are added, edited, ordered, favorited and removed. */
 export function FeedsScreen() {
+  const focusActions = useFocusActions();
   const boot = useBootstrap();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -854,7 +834,7 @@ export function FeedsScreen() {
           <OpmlImportDialog
             onClose={() => {
               setImporting(false);
-              focusActionsButton(FEED_ACTIONS_ID);
+              focusActions(FEED_ACTIONS_ID);
             }}
           />
         ) : null}
@@ -881,9 +861,9 @@ export function FeedsScreen() {
             // The menu item the dialog opened from is gone by now: put the focus back on that menu's button.
             const from = folderDialog.kind === "new" ? folderDialog.parent : folderDialog.folder.id;
             setFolderDialog(null);
-            if (focusFolder) focusFolderActions(focusFolder);
-            else if (from) focusFolderActions(from);
-            else focusActionsButton(FEED_ACTIONS_ID);
+            if (focusFolder) focusActions(folderActionsId(focusFolder));
+            else if (from) focusActions(folderActionsId(from));
+            else focusActions(FEED_ACTIONS_ID);
           }}
         />
       ) : null}

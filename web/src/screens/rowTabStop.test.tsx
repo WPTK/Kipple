@@ -7,7 +7,7 @@ import { initialLive, liveStore } from "@/api/events";
 import { RowTabStop } from "@/layouts/rowTabStop";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
 import { clearToasts } from "@/shell/toasts";
-import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
+import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 import { clearListMemory, keepMounted, MutedStrip, windowReach } from "./ListPane";
 
 // The article list is one Tab stop (web/src/layouts/rowTabStop.ts, #369): a list that loads more rows as focus moves
@@ -110,6 +110,36 @@ describe("the article list is one Tab stop", () => {
     await waitFor(() => expect(stops(scroller)).toEqual([third]));
   });
 
+  it("goes back to the open article when the reader changes it, not to a row focused before", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("min-width: 900px"),
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }));
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf(Array.from({ length: 5 }, (_, i) => card(i + 1)))),
+      "GET /api/items/1001": () => json(detail(1)),
+      "GET /api/items/1002": () => json(detail(2)),
+      "POST /api/items/1001/open": () => json({ session_key: "k", item: detail(1, { read: true }) }),
+      "POST /api/items/1002/open": () => json({ session_key: "k", item: detail(2, { read: true }) }),
+      "POST /api/items/mark-read": () => json({ changed: [], restored: [] }),
+    });
+    window.history.replaceState({ idx: 0 }, "", "/i/1001?from=unread");
+    render(<App client={makeQueryClient({ retry: false })} />);
+    const scroller = await screen.findByTestId("list-scroll");
+    await waitFor(() => expect(stops(scroller)).toEqual(["1001"]));
+    act(() => linkOf(scroller, "1001").focus()); // a row focused earlier
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next article" })).toBeEnabled());
+    await userEvent.setup().click(screen.getByRole("button", { name: "Next article" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1002"));
+    await waitFor(() => expect(stops(scroller)).toEqual(["1002"]));
+  });
   it("brings Shift+Tab back to the row last focused with the arrow keys, from the control after the list", async () => {
     const { scroller, ids } = await list();
     const user = userEvent.setup();

@@ -549,6 +549,7 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
   useEffect(() => {
     if (!activeId || lastActive.current === activeId) return;
     lastActive.current = activeId;
+    setFocusId(undefined); // the open article is the Tab stop again, not a row focused before it changed
     if (pagedRef.current) return storyIntoView(parentRef.current, activeId);
     const i = rowIndexOf(activeId);
     if (i >= 0) virtualizer.scrollToIndex(i, { align: "auto" });
