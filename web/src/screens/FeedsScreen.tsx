@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useFocusActions } from "./focusActions";
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { lazyScreen } from "@/lib/lazyScreen";
@@ -225,6 +226,7 @@ const FEED_ACTIONS_ID = "feed-actions";
 
 /** Feeds: where you open a folder or feed, and where feeds and folders are added, edited, ordered, favorited and removed. */
 export function FeedsScreen() {
+  useDocumentTitle("Feeds");
   const focusActions = useFocusActions();
   const boot = useBootstrap();
   const navigate = useNavigate();

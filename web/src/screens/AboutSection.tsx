@@ -59,7 +59,7 @@ export function AboutSection() {
       </dl>
       <div className="flex flex-wrap gap-2">
         <Button variant="solid" onClick={() => void copyDebug()}>Copy debug info</Button>
-        <Button onClick={openWhatsNew}>
+        <Button onClick={(e) => openWhatsNew(e.currentTarget)}>
           What's new
         </Button>
       </div>

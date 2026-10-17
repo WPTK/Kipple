@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { BookmarkPlus, CheckCheck, X } from "lucide-react";
@@ -26,6 +27,7 @@ export const SEARCH_DEBOUNCE_MS = 250;
  * that is still being typed shows a wider set than the exact one the server would mark.
  */
 export function SearchScreen() {
+  useDocumentTitle("Search");
   const [sp, setSp] = useSearchParams();
   const urlQ = sp.get("q") ?? "";
   const ssId = sp.get("ss");

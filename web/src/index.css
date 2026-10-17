@@ -222,17 +222,21 @@ body {
 }
 
 /* The same for a link or control that sits in a line of text: the text keeps its size and place, and a transparent
-   44 px box centred on it takes the touch. Only on a touch screen, so a mouse's hover and click area stay the text. */
+   box centred on it takes the pointer: 24 px with a mouse (WCAG 2.5.8), 44 px on a touch screen. */
+.hit-pad { position: relative; }
+.hit-pad::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 24px);
+  height: max(100%, 24px);
+  transform: translate(-50%, -50%);
+}
 @media (pointer: coarse) {
-  .hit-pad { position: relative; }
   .hit-pad::before {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
     width: max(100%, 44px);
     height: max(100%, 44px);
-    transform: translate(-50%, -50%);
   }
 }
 
@@ -362,6 +366,8 @@ a.sr-only-live:focus {
   .kp-unread-dot[data-unread="true"] { forced-color-adjust: none; background: CanvasText; }
   [aria-current="page"], [aria-checked="true"], label:has(input:checked) { outline: 2px solid Highlight; }
   label:has(input:checked) { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  /* The card's lines carry their own muted color (text-fg2); on Highlight they must follow HighlightText too. */
+  label:has(input:checked) * { color: HighlightText; }
   button, select, input, textarea { border: 1px solid ButtonText; }
   .swipe-panel { border: 1px solid CanvasText; }
   mark.kp-hl { forced-color-adjust: none; background: Mark; color: MarkText; border-bottom-color: MarkText; }

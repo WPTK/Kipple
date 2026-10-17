@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useId, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, busyMessage, SESSION_EXPIRED, sessionLostStore, setSignedIn } from "@/api/client";
@@ -11,6 +12,7 @@ import { Button } from "@/ui/button";
  * accepts that only for an account without a web password, reached through a verified Cloudflare Access sign-in.
  */
 export function LoginScreen() {
+  useDocumentTitle("Sign in");
   const qc = useQueryClient();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");

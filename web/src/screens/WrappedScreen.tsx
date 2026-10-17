@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useWrappedSummary } from "@/api/stats";
@@ -279,6 +280,7 @@ export function WrappedShareDialog({ m, open, onOpenChange }: { m: WrappedModel;
 }
 
 export function WrappedScreen() {
+  useDocumentTitle("Your year");
   const state = useWrappedState();
   const today = todayString();
   const [year, setYear] = useState(currentYear(today));

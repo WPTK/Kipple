@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { DropdownMenu } from "radix-ui";
@@ -175,6 +176,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   }, [leaveRef]);
 
   // Focus the article when it opens (narrow) so screen readers land on it.
+  // The tab names the article once it has loaded.
+  useDocumentTitle(item.data ? item.data.title || "Untitled" : undefined);
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (item.data && !pane) headingRef.current?.focus({ preventScroll: true });

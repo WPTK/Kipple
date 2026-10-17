@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
@@ -22,6 +23,7 @@ export function WizardFrame({
   skipAllBusy?: boolean;
   children: ReactNode;
 }) {
+  useDocumentTitle(step.n > 0 ? `Step ${step.n} of ${STEP_COUNT}: ${step.title}` : step.title);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
