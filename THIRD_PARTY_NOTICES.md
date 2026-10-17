@@ -141,12 +141,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | github.com/mmcdole/goxpp/v2 | v2.0.0 | MIT |
 | github.com/ncruces/go-strftime | v1.0.0 | MIT |
 | github.com/remyoudompheng/bigfft | v0.0.0-20230129092748-24d4a6f8daec | BSD-3-Clause |
-| golang.org/x/crypto | v0.57.0 | BSD-3-Clause |
-| golang.org/x/image | v0.46.0 | BSD-3-Clause |
-| golang.org/x/net | v0.60.0 | BSD-3-Clause |
-| golang.org/x/sys | v0.48.0 | BSD-3-Clause |
-| golang.org/x/term | v0.46.0 | BSD-3-Clause |
-| golang.org/x/text | v0.42.0 | BSD-3-Clause |
+| golang.org/x/crypto | v0.58.0 | BSD-3-Clause |
+| golang.org/x/image | v0.47.0 | BSD-3-Clause |
+| golang.org/x/net | v0.61.0 | BSD-3-Clause |
+| golang.org/x/sys | v0.49.0 | BSD-3-Clause |
+| golang.org/x/term | v0.47.0 | BSD-3-Clause |
+| golang.org/x/text | v0.43.0 | BSD-3-Clause |
 | modernc.org/libc | v1.77.1 | BSD-3-Clause |
 | modernc.org/mathutil | v1.7.1 | BSD-3-Clause |
 | modernc.org/memory | v1.12.1 | BSD-3-Clause |
@@ -262,12 +262,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 - **github.com/mmcdole/goxpp/v2** v2.0.0: Copyright (c) 2016 mmcdole
 - **github.com/ncruces/go-strftime** v1.0.0: Copyright (c) 2022 Nuno Cruces
 - **github.com/remyoudompheng/bigfft** v0.0.0-20230129092748-24d4a6f8daec: Copyright (c) 2012 The Go Authors. All rights reserved.
-- **golang.org/x/crypto** v0.57.0: Copyright 2009 The Go Authors.
-- **golang.org/x/image** v0.46.0: Copyright 2009 The Go Authors.
-- **golang.org/x/net** v0.60.0: Copyright 2009 The Go Authors.
-- **golang.org/x/sys** v0.48.0: Copyright 2009 The Go Authors.
-- **golang.org/x/term** v0.46.0: Copyright 2009 The Go Authors.
-- **golang.org/x/text** v0.42.0: Copyright 2009 The Go Authors.
+- **golang.org/x/crypto** v0.58.0: Copyright 2009 The Go Authors.
+- **golang.org/x/image** v0.47.0: Copyright 2009 The Go Authors.
+- **golang.org/x/net** v0.61.0: Copyright 2009 The Go Authors.
+- **golang.org/x/sys** v0.49.0: Copyright 2009 The Go Authors.
+- **golang.org/x/term** v0.47.0: Copyright 2009 The Go Authors.
+- **golang.org/x/text** v0.43.0: Copyright 2009 The Go Authors.
 - **modernc.org/libc** v1.77.1: Copyright (c) 2017 The Libc Authors. All rights reserved.
 - **modernc.org/mathutil** v1.7.1: Copyright (c) 2014 The mathutil Authors. All rights reserved.
 - **modernc.org/memory** v1.12.1: Copyright (c) 2017 The Memory Authors. All rights reserved.; Copyright (c) 2009 The Go Authors. All rights reserved.; Copyright (c) 2011, Evan Shaw <edsrzf@gmail.com>
