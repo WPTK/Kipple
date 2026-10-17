@@ -137,8 +137,8 @@ Checklist, for a rebuild to be a copy and paste:
 2. The compose file and the `.env`, with the image tag you ran (`docker inspect kipple --format '{{.Config.Image}}'`
    or `docker exec kipple /kipple version`).
 3. Your reverse proxy or tunnel configuration, and any Cloudflare Access application settings.
-4. For a bind mount, the host directory must be owned by uid 65532 on a new machine, for a fresh start or a restore.
-   A bind mount (a host directory at `/data`) must be owned by uid 65532 (`chown 65532:65532 <dir>`); if the log says
+4. For a bind mount, on a new machine, for a fresh start or a restore:
+   a bind mount (a host directory at `/data`) must be owned by uid 65532 (`chown 65532:65532 <dir>`); if the log says
    `data dir lock ... permission denied`, that is what it means. A named volume needs nothing.
 
 ### Back up the volume itself
@@ -336,10 +336,12 @@ Settings, Account & Devices, Address and access, add the address it connects fro
 A request is HTTPS for Kipple when it arrives over TLS, when a trusted proxy says so with `X-Forwarded-Proto: https`,
 or when it is for the exact origin of an `https://` Public URL: its host name with no port, or with the Public URL's
 own port (443 when it names none). A proxy that passes the original `Host` through is covered by that. A trusted
-proxy that says `X-Forwarded-Proto: http` is believed. HTTPS gets the `Secure` flag on the sign-in cookie and
-`Strict-Transport-Security`; plain http gets neither, so a LAN address such as `http://192.168.1.20:1919`, or the
-public name on Kipple's own port (`http://rss.example.com:1919`, as Tailscale Serve or local DNS may reach it), keeps
-working next to the public one.
+proxy that says `X-Forwarded-Proto: http` is believed. HTTPS gets the `Secure` flag on the sign-in cookie; only TLS or a trusted
+proxy's `X-Forwarded-Proto: https` also gets `Strict-Transport-Security`, because browsers apply it to every port of a
+host. Plain http gets neither, so a LAN address such as `http://192.168.1.20:1919`, or the public name on Kipple's own
+port (`http://rss.example.com:1919`, as Tailscale Serve or local DNS may reach it), keeps working next to the public
+one. If you reach the public name over plain http through a local proxy, add that proxy to Trusted proxies so it can
+say `X-Forwarded-Proto: http`.
 
 The trusted proxies are a list of single addresses and CIDR ranges (`192.0.2.10`, `198.51.100.0/24`,
 `2001:db8::/32`), empty by default. Only a connection from a listed address is believed about who the

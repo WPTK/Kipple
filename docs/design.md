@@ -2131,8 +2131,9 @@ are chosen when the response starts, from its `Content-Type`, so there is no rou
 
 - `https:` is added to `img-src` only while `imgproxy.mode` is `http_only` (https images then load from their host). With the default `all`, `img-src` is `'self' data: blob:`.
   The mode is read from an atomic cache (`api.Server.ImgMode`) that `PATCH /api/settings` refreshes.
-- `upgrade-insecure-requests` and `Strict-Transport-Security: max-age=31536000` are sent only when the effective scheme
-  is https (TLS, a trusted proxy's `X-Forwarded-Proto`, or the exact origin of an https public URL; see the session cookie in §7).
+- `upgrade-insecure-requests` is sent only when the effective scheme is https (TLS, a trusted proxy's
+  `X-Forwarded-Proto`, or the exact origin of an https public URL; see the session cookie in §7), and
+  `Strict-Transport-Security: max-age=31536000` only for TLS or a trusted proxy's https (HSTS covers every port of a host).
   Over plain http (a LAN visit) the upgrade would break the page.
 - All responses: `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`. HTML also
   gets `Permissions-Policy` (camera, microphone, geolocation and others off; `autoplay`, `fullscreen` and
