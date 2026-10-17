@@ -319,7 +319,7 @@ export function Stepper({
               commit(text);
             }
           }}
-          className={cn(inputCls, "w-24 text-center tabular-nums")}
+          className={cn(inputCls, "w-24 text-center tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none")}
         />
         <Button size="icon" aria-label={`Increase ${label}`} disabled={max !== undefined && current >= max} onClick={() => bump(1)}>
           <span aria-hidden="true">+</span>

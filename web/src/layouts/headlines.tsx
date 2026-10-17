@@ -6,7 +6,7 @@ import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex } from "./rowTabStop";
 
 /**
- * Email - Compact (layout id "headlines"): one line per article, title only, like a compact mail list.
+ * Headlines (layout id "headlines"): one line per article, title only, like a compact mail list.
  * No favicon at all, on phone or desktop — text density only, so it stays the clearly terser option next
  * to Compact (which always shows one). Phone: dot, title, time. A wide list pane also shows the source
  * name as a column (table-like on desktop). 44 px on touch; 28 to 36 px with a mouse, by density step.
@@ -31,7 +31,7 @@ function HeadlineRow({ item, selected, to, onOpen, onToggleStar, actions }: RowP
           to={to}
           onClick={() => onOpen(item)}
           aria-keyshortcuts="ArrowDown ArrowUp"
-          className="row-link"
+          className="row-link block truncate"
           aria-label={rowLabel(item)}
         >
           <Hl text={item.title || "Untitled"} field="title" feedId={item.feed_id} />
@@ -48,7 +48,7 @@ function HeadlineRow({ item, selected, to, onOpen, onToggleStar, actions }: RowP
 
 export const headlines: ListLayout = {
   id: "headlines",
-  label: "Email - Compact",
+  label: "Headlines",
   Row: HeadlineRow,
   estimateRow: () => 44,
   paneRem: 22,

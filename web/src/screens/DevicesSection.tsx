@@ -1,8 +1,8 @@
 import { useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Smartphone } from "lucide-react";
+import { Monitor, Smartphone, Tablet } from "lucide-react";
 import { ApiError, errorMessage } from "@/api/client";
-import { describeUserAgent, deleteDevice, devicesKey, renameDevice, useDevices, type DeviceRow } from "@/api/devices";
+import { describeUserAgent, deleteDevice, deviceKind, devicesKey, renameDevice, useDevices, type DeviceRow } from "@/api/devices";
 import { clearListOverrides, useDevicePrefs } from "@/lib/devicePrefs";
 import { copySettingsFrom, makeThisDeviceDefault, syncStore } from "@/lib/deviceSync";
 import { useStore } from "@/lib/store";
@@ -10,6 +10,8 @@ import { whenLabel } from "@/lib/format";
 import { announce, toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
+
+const KIND_ICON = { phone: Smartphone, tablet: Tablet, computer: Monitor };
 
 const label = (d: DeviceRow): string => d.name || describeUserAgent(d.user_agent, d.client);
 
@@ -122,7 +124,8 @@ export function DevicesSection() {
   const unsaved = useStore(syncStore).status === "unsaved";
   const overrides = useDevicePrefs().overrides;
   const lists = Object.keys(overrides.feed).length + Object.keys(overrides.folder).length;
-  const list = devices.data ?? [];
+  // This device first, then the others in the order the server gave.
+  const list = [...(devices.data ?? [])].sort((a, b) => Number(b.current) - Number(a.current));
   const me = unsaved ? undefined : list.find((d) => d.current);
   const others = list.filter((d) => !d.current);
 
@@ -179,10 +182,12 @@ export function DevicesSection() {
       {me ? <ThisDeviceName key={me.id} device={me} /> : null}
       {list.length ? (
         <ul aria-label="Your devices" className="flex flex-col gap-2">
-          {list.map((d) => (
+          {list.map((d) => {
+            const Icon = KIND_ICON[deviceKind(d.user_agent)];
+            return (
             <li key={d.id} className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-3">
               <div className="flex items-start gap-3">
-                <Smartphone aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-fg2" />
+                <Icon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-fg2" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">
                     {label(d)}
@@ -208,7 +213,8 @@ export function DevicesSection() {
                 </div>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       ) : null}
       {others.length === 0 && me ? <p className="text-xs text-fg2">This is the only device so far. Open Kipple on another browser or your phone and it will show up here.</p> : null}

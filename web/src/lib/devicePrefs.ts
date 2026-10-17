@@ -13,7 +13,7 @@ export const LAYOUT_LABELS: Record<LayoutId, string> = {
   cards: "Cards",
   compact: "Compact",
   inbox: "Inbox",
-  headlines: "Email - Compact",
+  headlines: "Headlines",
   gazette: "Gazette",
 };
 
@@ -25,9 +25,9 @@ export const LAYOUT_HINTS: Record<LayoutId, string> = {
   magazine: "Big lead picture, large titles",
   cards: "A grid of picture cards",
   compact: "Source over title, no pictures",
-  inbox: "Email-style rows with a preview",
+  inbox: "Source, title and a preview",
   headlines: "One line per article, titles only",
-  gazette: "Newspaper, always newest first",
+  gazette: "Newspaper-style pages",
 };
 
 /** The longest name the Gazette can be given (`client.paper_name`). */

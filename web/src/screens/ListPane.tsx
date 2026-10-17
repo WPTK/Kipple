@@ -3,7 +3,7 @@ import { useLatestRef } from "@/lib/useLatestRef";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { defaultRangeExtractor, useVirtualizer, type Range, type VirtualItem } from "@tanstack/react-virtual";
 import { remeasureMounted } from "@/lib/remeasure";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
 import { ApiError, SESSION_EXPIRED, errorMessage } from "@/api/client";
 import { offlineStore } from "@/lib/offlineState";
@@ -149,7 +149,7 @@ export function emptyCopy(scope: Scope, pendingNew = 0): { title: string; body: 
     const narrowed = scope.feed || scope.folder;
     return { title: `No results for "${scope.q}"`, body: narrowed ? "Try fewer words, or search the whole library." : "Try fewer words." };
   }
-  if (scope.view === "muted") return { title: "Nothing muted", body: "Articles that your filters mute are kept here, so you can restore any of them. Add a filter in Settings." };
+  if (scope.view === "muted") return { title: "Nothing muted", body: "No filter has muted an article yet." };
   if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here. Retention never removes starred articles." };
   if (scope.view === "unread") {
     return pendingNew > 0
@@ -1080,7 +1080,15 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
         );
       }
       const c = emptyCopy(scope, pendingNew);
-      return <StatusBlock role="status" title={c.title} body={c.body} />;
+      return (
+        <StatusBlock role="status" title={c.title} body={c.body}>
+          {scope.view === "muted" && !scope.q ? (
+            <Link to="/settings/filters" className="text-sm text-link underline underline-offset-2">
+              Add a filter in Settings
+            </Link>
+          ) : null}
+        </StatusBlock>
+      );
     }
     if (Page) {
       return (

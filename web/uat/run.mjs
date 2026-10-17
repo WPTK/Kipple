@@ -169,7 +169,7 @@ const LAYOUTS = [
   { id: "cards", label: "Cards" },
   { id: "compact", label: "Compact" },
   { id: "inbox", label: "Inbox" },
-  { id: "headlines", label: "Email - Compact" },
+  { id: "headlines", label: "Headlines" },
 ];
 // The query the Search screen runs (a word every seeded feed has).
 const SEARCH_Q = "the";
@@ -340,7 +340,7 @@ async function setLayout(page, layout) {
   if ((await btn.getAttribute("aria-label")) === optionsLabel(layout.label)) return;
   await btn.click();
   // Only the Layout group's radios (the menu also has Order radios). A radio's name is the label plus its hint; anchor
-  // it so "Compact" does not match "Email - Compact".
+  // it so "Compact" does not match a longer name.
   const esc = escapeRe(layout.label);
   await page
     .getByRole("group", { name: "Layout" })

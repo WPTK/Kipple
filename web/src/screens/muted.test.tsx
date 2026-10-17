@@ -218,6 +218,7 @@ describe("the Muted list", () => {
     routes({ "GET /api/items": () => json(pageOf([])) }, withMuted(0));
     go("/l/muted");
     expect(await screen.findByText("Nothing muted")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add a filter in Settings" })).toHaveAttribute("href", "/settings/filters");
   });
 
   it("a muted article opened shows Muted by its rule with Restore and Edit rule", async () => {

@@ -92,7 +92,7 @@ describe("the view a feed or folder opens in", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^List options,/ }));
     const group = screen.getByRole("group", { name: "View this feed opens in" });
-    expect(within(group).getByRole("menuitemradio", { name: "Use the default (Unread)" })).toBeChecked();
+    expect(within(group).getByRole("menuitemradio", { name: "Use the standard view (Unread)" })).toBeChecked();
     await user.click(within(group).getByRole("menuitemradio", { name: "All" }));
     expect(devicePrefsStore.get().overrides.feed["1"]).toEqual({ view: "all" });
   });
@@ -206,7 +206,7 @@ describe("the feed and folder editors", () => {
     renderFields("feed", "1");
     expect(within(screen.getByLabelText("Order on this device")).getByRole("option", { name: "Inherited from News (Oldest first)" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("Layout on this device")).getByRole("option", { name: "Use device default (Cards)" })).toBeInTheDocument();
-    expect(within(screen.getByLabelText("Opens in")).getByRole("option", { name: "Use the default (Unread)" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Opens in")).getByRole("option", { name: "Use the standard view (Unread)" })).toBeInTheDocument();
   });
 
   it("a write drops the overrides of feeds and folders the library no longer has", async () => {
