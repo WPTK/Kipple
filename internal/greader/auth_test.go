@@ -86,7 +86,7 @@ func TestAuthMatrix(t *testing.T) {
 	w = h.get(rd + "user-info?output=json")
 	require.Equal(t, 200, w.Code)
 	require.JSONEq(t, `{"userId":"1","userName":"owner","userProfileId":"1","userEmail":"owner"}`, w.Body.String())
-	w = h.get(rd + "user-info") // FeedMe/Unread call it without output
+	w = h.get(rd + "user-info") // Reader API clients call it without output
 	require.Equal(t, 200, w.Code)
 }
 

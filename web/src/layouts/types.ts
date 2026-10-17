@@ -52,7 +52,7 @@ export interface PageProps {
   more: boolean;
   /** The list's measured width in px (0 before it is measured). */
   width: number;
-  /** The article selected with j/k or open in the reader pane. */
+  /** The article selected (arrow keys) or open in the reader pane. */
   selectedId: string | undefined;
   /** The story that last had focus, the list's one Tab stop (rowTabStop.ts); else the layout picks the selected one. */
   tabStopId?: string;
@@ -64,7 +64,7 @@ export interface ListLayout {
   label: string;
   /**
    * A layout that arranges the whole list at once. The list screen then hands it every loaded article instead of
-   * virtualizing rows, and keeps the data, keys, loading and empty states. j/k follow the page's DOM order, which a
+   * virtualizing rows, and keeps the data, keys, loading and empty states. ArrowUp/ArrowDown follow the page's DOM order (pageOrder), which a
    * page layout must keep equal to its reading order. A search still shows `Row`: a page is planned from a
    * newest-first list, and a search is ordered by relevance or by the reader's choice.
    */

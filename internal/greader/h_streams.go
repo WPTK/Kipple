@@ -100,7 +100,7 @@ func (c *call) streamItemContents() {
 	c.writeContents(stateReadingList, "", ids, c.p.Get("r") == "o")
 }
 
-// streamContents is GET stream/contents[/<stream>] for FeedMe/Readrops-style
+// streamContents is GET stream/contents[/<stream>] for Readrops-style
 // clients: the ids filter with n capped at 1000, then the contents.
 func (c *call) streamContents() {
 	sid := c.p.Get("s")
