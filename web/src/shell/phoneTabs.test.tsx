@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import App, { makeQueryClient } from "@/App";
@@ -65,11 +66,13 @@ describe("the reading column", () => {
 });
 
 describe("the list header on a phone", () => {
-  it("keeps the order toggle in the Layout menu only, and Previous/Next feed out of List actions", async () => {
+  it("has no order toggle (it lives in the Layout menu), and List actions has no Previous/Next feed", async () => {
     window.history.replaceState({ idx: 0 }, "", "/l/unread?feed=1");
     render(<App client={makeQueryClient({ retry: false })} />);
-    await screen.findByRole("button", { name: "List actions" });
+    const actions = await screen.findByRole("button", { name: "List actions" });
     expect(screen.queryByRole("button", { name: "Oldest first" })).toBeNull();
-    expect(screen.queryAllByRole("button", { name: /^(Previous|Next) (feed|folder)$/ }).length).toBeLessThanOrEqual(2);
+    await userEvent.setup().click(actions);
+    await screen.findByRole("menuitem", { name: /Mark all as read/ });
+    expect(screen.queryAllByRole("menuitem", { name: /^(Previous|Next) / })).toHaveLength(0);
   });
 });

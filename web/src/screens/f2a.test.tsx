@@ -11,6 +11,7 @@ import { rowMenuStore } from "@/gestures/rowMenu";
 import { clearToasts } from "@/shell/toasts";
 import { clearListMemory } from "./ListPane";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
+import { wide } from "@/test/media";
 
 class NoES {
   addEventListener() {}
@@ -258,7 +259,7 @@ describe("layouts", () => {
 
 describe("order", () => {
   it("newest first is the default and the toggle asks the server for oldest", async () => {
-  vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width: 900px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
+    wide();
     const { calls } = routes({ "GET /api/items": (url) => json(pageOf(url.searchParams.get("order") === "oldest" ? items().reverse() : items())) });
     go("/l/unread");
     await screen.findByText("Article number 1");

@@ -116,10 +116,12 @@ export function ScopeHeader({ scope, controls }: { scope: Scope; controls?: List
   return (
     <header className="pt-safe shrink-0 border-b border-line bg-bg px-4 pb-2">
       {/* The title row is 25rem wide and left-aligned, so the controls sit in the same place in every layout (a grid
-          layout has no reader pane, and used to push them to the far right). It is always one row, so the header is
-          the same height in every list: the title truncates and the controls keep their size. */}
-      <div className="flex w-fit min-w-[min(100%,25rem)] max-w-full items-center gap-x-0.5 pt-2">
-        <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}>
+          layout has no reader pane, and used to push them to the far right). The title keeps at least 6.5rem and truncates
+          beyond that, so at normal text size on a phone the header is one row in every list; only where the pane is
+          too narrow for 6.5rem and the controls together (a narrow list pane, a large text size) do the controls drop to
+          a line of their own. */}
+      <div className="flex w-fit min-w-[min(100%,25rem)] max-w-full flex-wrap items-center gap-x-0.5 pt-2">
+        <h1 className="min-w-[6.5rem] max-w-full flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}>
           {above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
           {title}
         </h1>
