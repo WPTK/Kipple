@@ -1,6 +1,6 @@
 {
   "comment": "Every web/uat/*.mjs is either a flow below or listed in excluded with the reason. `node uat/all.mjs --check` fails otherwise, so a new flow cannot be silently left out of CI. Order matters: flows that mark articles read (keyboard) come last.",
-  "chromium": ["run.mjs", "offline.mjs", "folders.mjs", "feeds.mjs", "states.mjs", "downloads.mjs", "images.mjs", "mute.mjs", "focus.mjs", "saved-searches.mjs", "stats.mjs", "keyboard.mjs"],
+  "chromium": ["run.mjs", "offline.mjs", "folders.mjs", "feeds.mjs", "states.mjs", "downloads.mjs", "images.mjs", "chrome.mjs", "mute.mjs", "focus.mjs", "saved-searches.mjs", "stats.mjs", "keyboard.mjs"],
   "webkit": ["feeds.mjs", "states.mjs", "downloads.mjs", "images.mjs", "stats.mjs"],
   "firefox": ["stats.mjs"],
   "excluded": {

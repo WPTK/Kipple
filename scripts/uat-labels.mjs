@@ -11,7 +11,7 @@
 // `aria-label=` / `ariaLabel=` value is taken ("Select ${title}" gives the fragment "Select "). A removed fragment that
 // no longer appears in any aria-label in web/src now is "gone"; if a gone fragment (3 or more characters once trimmed)
 // still appears in a web/uat/*.mjs file, the run fails and names the file and line. Put `uat-labels: ignore` in a
-// comment on a UAT line to exempt it (for a word that only happens to match). Limits: only values written on the same
+// comment on a UAT line to exempt it (for a word that only happens to match). A label a shared component receives as a prop is seen when the prop is spelled `ariaLabel` (`<BottomBar ariaLabel="Selected feeds">`); that spelling is the marker, any other prop name is not read. Limits: only values written on the same
 // line as the attribute are seen; labels built elsewhere (a helper that returns the string) are not.
 //
 // Exit codes: 0 clean, 1 a gone label is still used by the UAT scripts, 2 usage or git error.

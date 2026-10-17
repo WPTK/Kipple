@@ -1,3 +1,4 @@
+import { useFocusActions } from "./focusActions";
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -42,6 +43,7 @@ import { StatusChip } from "./StatusChip";
 import { SavedSearchesNav } from "./SavedSearchesNav";
 import { CollapseToggle } from "./FeedTree";
 import { DeleteDialog, DeleteFolderDialog, MoveDialog } from "./feeds/BulkActions";
+import { BottomBar } from "@/ui/BottomBar";
 
 // The dialogs load when first opened, not with the Feeds screen.
 const AddFeedDialog = lazyScreen(() => import("./feeds/AddFeedDialog").then((m) => ({ default: m.AddFeedDialog })));
@@ -221,30 +223,9 @@ type Sel = ReadonlySet<string>;
 const folderActionsId = (folder: string) => `folder-actions-${folder}`;
 const FEED_ACTIONS_ID = "feed-actions";
 
-/**
- * After a move or a delete, put the focus on a folder row's actions button. The row re-mounts (moved) or the dialog's
- * own focus return lands on a button that is about to go (deleted), so this keeps trying for a moment, without taking
- * the focus from anything the person moved it to since.
- */
-function focusFolderActions(folder: string) {
-  focusActionsButton(folderActionsId(folder));
-}
-
-/** The same for any actions button (the header's Feed actions too), by element id: a dialog opened from a menu item returns the focus there. */
-function focusActionsButton(id: string) {
-  let tries = 0;
-  const tick = () => {
-    const el = document.getElementById(id);
-    const now = document.activeElement;
-    const adrift = !now || now === document.body || !now.isConnected || (now instanceof HTMLElement && now.dataset.folderActions !== undefined);
-    if (el && now !== el && adrift) el.focus();
-    if (++tries < 20) setTimeout(tick, 50);
-  };
-  setTimeout(tick, 0);
-}
-
 /** Feeds: where you open a folder or feed, and where feeds and folders are added, edited, ordered, favorited and removed. */
 export function FeedsScreen() {
+  const focusActions = useFocusActions();
   const boot = useBootstrap();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -832,7 +813,7 @@ export function FeedsScreen() {
         ) : null}
       </div>
       {selecting ? (
-        <div role="region" aria-label="Selected feeds" className="pb-safe flex shrink-0 flex-wrap items-center gap-2 border-t border-line bg-surface px-4 py-2">
+        <BottomBar ariaLabel="Selected feeds">
           <span className="mr-auto text-sm font-semibold" aria-live="polite">
             {selected.length} selected
           </span>
@@ -845,7 +826,7 @@ export function FeedsScreen() {
           <Button variant="solid" onClick={() => setBulk("delete")} disabled={selected.length === 0}>
             Delete
           </Button>
-        </div>
+        </BottomBar>
       ) : null}
       <Suspense fallback={null}>
         {adding ? <AddFeedDialog onClose={() => setAdding(false)} onOpenFeed={(id) => { setAdding(false); navigate(openListTo({ feed: id })); }} /> : null}
@@ -853,7 +834,7 @@ export function FeedsScreen() {
           <OpmlImportDialog
             onClose={() => {
               setImporting(false);
-              focusActionsButton(FEED_ACTIONS_ID);
+              focusActions(FEED_ACTIONS_ID);
             }}
           />
         ) : null}
@@ -880,9 +861,9 @@ export function FeedsScreen() {
             // The menu item the dialog opened from is gone by now: put the focus back on that menu's button.
             const from = folderDialog.kind === "new" ? folderDialog.parent : folderDialog.folder.id;
             setFolderDialog(null);
-            if (focusFolder) focusFolderActions(focusFolder);
-            else if (from) focusFolderActions(from);
-            else focusActionsButton(FEED_ACTIONS_ID);
+            if (focusFolder) focusActions(folderActionsId(focusFolder));
+            else if (from) focusActions(folderActionsId(from));
+            else focusActions(FEED_ACTIONS_ID);
           }}
         />
       ) : null}

@@ -1,7 +1,6 @@
 # Compatibility and deprecation promise
 
-This page says what stays the same across Kipple 1.x, what may change, and how a removal is announced. It follows the
-shape of Go's compatibility promise: a named surface is promised, everything else is explicitly not. It also lists the
+This page says what stays the same across Kipple 1.x, what may change, and how a removal is announced. It also lists the
 Reader API that sync clients use, endpoint by endpoint, and how to run the test suite that checks it.
 
 Kipple uses [Semantic Versioning](https://semver.org/). Within 1.x, a release changes the covered surface below only
@@ -219,20 +218,17 @@ indicators, Escape and focus return in menus and dialogs, and that letter keys d
 | Firefox | 155.0 | Firefox | clean | clean | No mobile emulation in Firefox, so its tablet and phone runs are touch devices at that width. |
 | WebKit | 26.6 | Safari on macOS and iOS | clean | clean | Playwright's build of the engine, not Safari itself. Links are not in the Tab order by default, see below. |
 
-Known engine behavior (not Kipple defects, nothing to fix in the page):
+Notes on browser behavior:
 
 - **Safari and Tab.** Safari leaves links out of the Tab order unless "Press Tab to highlight each item on a webpage"
   is on in Safari's Advanced settings (or you use Option+Tab). Buttons and fields are reached either way. The sidebar
   and list rows are links, so with the default Safari setting turn that setting on to reach them from the keyboard.
-- **Firefox and the system color scheme.** Playwright cannot hold an emulated dark mode in Firefox on a page sent with
-  `Cross-Origin-Opener-Policy`, which Kipple always sets, so the Firefox runs flip the browser's own preference
-  instead. A real Firefox follows the system setting as any browser does.
 
 ### Phones
 
 | Device | How it was checked | Result |
 |---|---|---|
-| iPhone, installed from Safari (Add to Home Screen) | By hand by the maintainer on a beta build: install, relaunch and stay signed in, swipe to mark read and to star or open More, the share sheet, and whether reading time is recorded in the installed app. | Passed. Not repeated by a script: a script cannot swipe or install. |
+| iPhone, installed from Safari (Add to Home Screen) | By hand: install, relaunch and stay signed in, swipe to mark read and to star or open More, the share sheet, and whether reading time is recorded in the installed app. | Passed. Not repeated by a script: a script cannot swipe or install. |
 | Phone widths in the desktop browsers above | Suite 1 at 390 px as a touch device, and the keyboard run's gesture check. | Clean. |
 
 Every swipe or long-press action also has a button or menu, so none is gesture-only: the row's Star button and its
