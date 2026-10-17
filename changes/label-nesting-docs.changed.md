@@ -1,0 +1,1 @@
+Reader API: a folder label with a slash from a sync app nests below an existing folder, and a label with an empty level (such as `News/`) is refused when it would create a folder; the Reader API notes in the compatibility page now say so. (#242, #243)

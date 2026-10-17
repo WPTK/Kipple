@@ -12,7 +12,7 @@ subcommand is `docker exec kipple /kipple <command>` on the running container, o
 `docker compose run --rm -T --no-deps kipple <command>` on a stopped service (it starts a throwaway
 container on the same volume, publishes no port and ignores the restart policy).
 
-**Commands that pipe a file in (`... < file`) need a POSIX shell or cmd, not PowerShell.** PowerShell refuses the line
+**The commands are written for a POSIX shell (`VAR=x command`, `printf`, command substitution), and the ones that pipe a file in (`... < file`) need a POSIX shell or cmd, not PowerShell.** PowerShell refuses the line
 with `ParserError: The '<' operator is reserved for future use` before anything runs. From a PowerShell prompt, wrap the
 whole line: `cmd /c "docker exec -i kipple /kipple import - < feeds.opml"` (cmd passes the bytes through unchanged; do
 not use a PowerShell pipe, which can re-encode them).
@@ -195,8 +195,6 @@ you ask for "move feeds that already exist into the file's folders" (`kipple imp
 
 New feeds are fetched on the scheduler's next tick. `docker exec kipple /kipple version` prints the running build.
 
-Health: `curl -s http://127.0.0.1:1919/healthz` answers `ok` (use your published port; see "Ports" below).
-
 ## Health check and container hardening
 
 The image carries a `HEALTHCHECK` (every 30 s, 5 s timeout, 40 s start period, 3 retries) that runs
@@ -217,7 +215,7 @@ See it:
 Docker only reports health; it does not restart an unhealthy container by itself (plain compose ignores
 it). Use it for `docker ps`, monitoring and `depends_on: condition: service_healthy`.
 
-`docker-compose.example.yml` also shows these runtime options (all verified by running the image with them):
+`docker-compose.example.yml` also shows these runtime options:
 
 | Option | What it does |
 |---|---|
@@ -257,8 +255,7 @@ recommended feeds, an optional Reader API password). The same first screen offer
 - **Who can create the account.** Whoever gets there first. An unclaimed Kipple is simply "no account yet": the one
   request that creates the account succeeds for exactly one caller, and any other that arrives at the same moment is
   told Kipple was just set up (409) and is not signed in; one that arrives after the winner has finished gets 404, because
-  the route is gone by then. That is how Jellyfin, Gitea and Home Assistant set
-  themselves up too.
+  the route is gone by then.
 - **Keep the port on this machine until you have created your account.** Anyone who can reach an unclaimed Kipple can
   claim it, and whoever owns the account can also change a feed's network settings (which feeds may reach private
   addresses). The examples and the README's one-line command publish the port on `127.0.0.1` for that reason: create
@@ -347,9 +344,7 @@ Fix a shared address by listing the proxy, not by raising a limit.
 ## Open mode (no password)
 
 The wizard's account step offers **No password at all**. It is for a Kipple that only you can reach: this computer, your
-local network and your tailnet. The rule is modeled on Sonarr's and Radarr's "Disabled for Local Addresses" (it is stricter: no
-`fec0::/10`, the Tailscale narrowing below, and every forwarding header refused): a request is allowed by where it comes
-from, and there is no setting to tune it. The screen shows the warning verbatim in substance: anyone who can reach the address can read and change
+local network and your tailnet. A request is allowed by where it comes from, and there is no setting to tune it. The screen warns that anyone who can reach the address can read and change
 everything. It needs a ticked acknowledgement, and it stores the account with no password hash and `auth_mode = open`.
 Sign-in then happens by itself when the app opens: it asks the server for a session, and the server grants one only if
 the request passes the **open gate**:
@@ -451,14 +446,11 @@ upgrade Kipple shows what changed once ("What's new"), and an open browser tab t
 
 ## The published image
 
-A tag push publishes a signed, multi-arch (`linux/amd64`, `linux/arm64`) image at
-`ghcr.io/wptk/kipple:<version>` (`docker-compose.pull.example.yml` in the repository is the ready file). Stable releases
-also move `latest` and the `X.Y` and `X` tags; **a prerelease is tagged only with its exact version**, so until the first
-stable release name the version. Verify a pull with cosign (below, and in each release's notes);
-the signature identity is the release workflow of this repository. Upgrade by changing the tag and
-`docker compose pull kipple && docker compose up -d kipple` (name the service). It is built from the same source
-as a source build (a different build: single-architecture there, no provenance), so `kipple restore`, rollbacks and everything else in this file apply unchanged; for a rollback
-across a migration, start the previous tag's image only after restoring the pre-migration snapshot (see below).
+The image is signed and built for `linux/amd64` and `linux/arm64`: `ghcr.io/wptk/kipple:<version>`, with the newest
+version on the [releases page](https://github.com/WPTK/Kipple/releases) (`docker-compose.pull.example.yml` in the
+repository is the ready file). Verify a pull with cosign (below, and in each release's notes). Upgrade by changing the tag and
+`docker compose pull kipple && docker compose up -d kipple` (name the service). To go back across a migration, start the
+previous tag's image only after restoring the pre-migration snapshot (see below).
 
 To check the build provenance and read the software bill of materials (needs the GitHub CLI and Docker):
 
@@ -769,8 +761,7 @@ directory at `/data`) needs `chown 65532:65532` on that directory first.
 The account comes from the backup: sign in with the web password and use the Reader API password
 that were current when the backup was taken. `KIPPLE_USERNAME`, `KIPPLE_PASSWORD` and
 `KIPPLE_API_PASSWORD` in `.env` are ignored because the account already exists. The restore prints
-"There was no previous database to keep." on an empty volume. The Reader API answered ClientLogin
-and `unread-count` with the backup's password on the rehearsal; if a Reader API client reports an
+"There was no previous database to keep." on an empty volume. If a Reader API client reports an
 authentication error, sign in again in the app with that password. If the backed-up account had no web
 password (removed through Cloudflare Access), sign in through Access (the backup keeps its Access setting), or set
 one first with `kipple password` (it works on the stopped service:
@@ -801,15 +792,14 @@ keeps restarting) and nothing is changed on the volume. `docker logs kipple` sho
 versions names the Kipple that wrote the database and what to do:
 
     kipple: store: store: database schema version 11 is newer than this binary (10); refusing to start. The last Kipple
-    that started on this database is v0.7.0. To run Kipple v0.6.0 (schema 10), restore
+    that started on this database is vB. To run Kipple vA (schema 10), restore
     pre-migration-10-11-1759700000000000000.db from the backup folder (docs/deploy.md, Rolling back). Otherwise run
-    v0.7.0 or newer.
+    vB or newer.
 
-(The numbers are examples. A database that never recorded its version has no "last Kipple" sentence. When no
+(The numbers and versions are examples. A database that never recorded its version has no "last Kipple" sentence. When no
 matching snapshot is in the backup folder the refusal describes the one to look for. After an upgrade that failed
 partway, the last Kipple on record can be the version you are starting; the refusal then says to run a Kipple whose
-schema is the database's or newer.) A binary that does not record versions prints only
-`database schema version N is newer than this binary (M); refusing to start`. Either way, stop it and find the snapshot. The upgrade's first start logs it as one JSON line, for example
+schema is the database's or newer.) Stop it and find the snapshot. The upgrade's first start logs it as one JSON line, for example
 `{"time":"...","level":"INFO","msg":"store: wrote pre-migration snapshot","file":"pre-migration-10-11-1759700000000000000.db","from":10,"to":11}`
 (find it with `docker logs kipple 2>&1 | grep pre-migration`). A log level of `warn` or above hides that line, so a
 missing line does not mean no snapshot was written: the files are in `/data/backup` either way. Restore the snapshot named

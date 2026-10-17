@@ -32,8 +32,7 @@ A self-hosted RSS reader. That I want to use.
   </tr>
 </table>
 
-Kipple is in beta. It is in daily use, and 1.0 follows more testing. [CHANGELOG.md](CHANGELOG.md) lists what shipped in
-each release.
+Kipple is in beta and in daily use. [CHANGELOG.md](CHANGELOG.md) lists what changed in each release.
 
 ## What you get
 
@@ -52,8 +51,7 @@ each release.
 
 ## Install
 
-Pull the image and start it. Replace `<version>` with the newest tag on the
-[releases page](https://github.com/WPTK/Kipple/releases) (the `latest` tag exists from the first stable release).
+Replace `<version>` with the newest version on the [releases page](https://github.com/WPTK/Kipple/releases).
 
 ```
 docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data ghcr.io/wptk/kipple:<version>
@@ -80,7 +78,7 @@ compatible account with:
 
 ## What Kipple leaves out
 
-These are left out on purpose, and requests for them are closed.
+Kipple leaves these out on purpose.
 
 - Native support for podcasts, audio and video. A media link in an article still opens.
 - Webhooks and other integrations with outside services.
@@ -98,7 +96,8 @@ These are left out on purpose, and requests for them are closed.
 - [Deploy guide](docs/deploy.md): install options, ports, backups, restore, upgrades, Cloudflare Access.
 - [Reverse proxy](docs/reverse-proxy.md): HTTPS with Caddy, nginx or Traefik.
 - [Troubleshooting](docs/troubleshooting.md)
-- [Design](docs/design.md) and [UI decisions](docs/maintainers/ui-decisions.md): how it works and why.
+- [Compatibility](docs/compatibility.md): what stays the same across 1.x, and the Reader API in detail.
+- [Design](docs/design.md): how Kipple works inside.
 - [Performance](docs/performance.md): 500 feeds and 150,000 articles, measured.
 - [All docs](docs/README.md)
 
