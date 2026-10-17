@@ -57,6 +57,9 @@ Replace `<version>` with the newest version on the [releases page](https://githu
 docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data ghcr.io/wptk/kipple:<version>
 ```
 
+This one-line command is the short form: it does not run the container read-only, drop capabilities or cap memory.
+The hardened form, and the compose files that include it, are in [the deploy guide](docs/deploy.md).
+
 Open <http://127.0.0.1:1919>. The first screen creates your account, or restores a backup from another Kipple. The
 setup wizard after the account asks for your time zone, a theme, an OPML import from your old reader, a few starter
 feeds, and the address your other devices will use. Every step after the account can be skipped.
