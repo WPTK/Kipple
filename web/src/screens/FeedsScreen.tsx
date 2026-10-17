@@ -703,24 +703,24 @@ export function FeedsScreen() {
               "Saving"
             ) : null}
           </span>
-          {/* The text hides below 400px, so the name comes from aria-label, matching the text when shown. The name
+          {/* The text hides below 560px, so the name comes from aria-label, matching the text when shown. The name
               itself carries the state (Select/Edit, then Done), so there is no aria-pressed to announce it twice. */}
           {!selecting ? (
             <Button variant="ghost" onClick={() => setEditMode((e) => !e)} aria-label={editMode ? "Done editing" : "Edit"}>
               <Pencil aria-hidden="true" />
-              <span className="hidden min-[400px]:inline">{editMode ? "Done" : "Edit"}</span>
+              <span className="hidden min-[560px]:inline">{editMode ? "Done" : "Edit"}</span>
             </Button>
           ) : null}
           {realFeeds.length > 0 ? (
             <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
               {selecting ? <Check aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
-              <span className={selecting ? undefined : "hidden min-[400px]:inline"}>{selecting ? "Done" : "Select"}</span>
+              <span className={selecting ? undefined : "hidden min-[560px]:inline"}>{selecting ? "Done" : "Select"}</span>
             </Button>
           ) : null}
           {!selecting ? (
             <Button variant="ghost" onClick={() => setAdding(true)} aria-label="Add feed">
               <Plus aria-hidden="true" />
-              <span className="hidden min-[400px]:inline">Add feed</span>
+              <span className="hidden min-[560px]:inline">Add feed</span>
             </Button>
           ) : null}
           {!selecting ? (

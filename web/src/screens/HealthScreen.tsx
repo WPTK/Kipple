@@ -2,7 +2,8 @@ import { Suspense, useMemo, useState } from "react";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropdownMenu } from "radix-ui";
-import { ArrowDown, ArrowUp, Check, CheckSquare, MoreVertical } from "lucide-react";
+import { Link } from "react-router";
+import { ArrowDown, ArrowUp, Check, CheckSquare, ChevronLeft, MoreVertical } from "lucide-react";
 import {
   invalidateFeeds,
   patchFeed,
@@ -18,7 +19,7 @@ import { STATUS_RANK, statusInfo } from "@/lib/feedStatus";
 import { groupState, toggleGroup, toggleIn } from "@/lib/selection";
 import { bytesLabel, fullDate, whenLabel } from "@/lib/format";
 import { useWide } from "@/lib/useMedia";
-import { Button } from "@/ui/button";
+import { Button, buttonVariants } from "@/ui/button";
 import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
 import { StatusChip } from "./StatusChip";
@@ -319,12 +320,17 @@ export function HealthScreen() {
     <div className="ui-font flex h-full min-h-0 flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-2">
         <div className="flex items-center gap-1 pt-2">
+          {!wide ? (
+            <Link to="/feeds" aria-label="Back to Feeds" title="Back to Feeds" className={buttonVariants({ variant: "ghost", size: "icon" })}>
+              <ChevronLeft aria-hidden="true" />
+            </Link>
+          ) : null}
           <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
             Feed health
           </h1>
           <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
             {selecting ? <Check aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
-            <span className={selecting ? undefined : "hidden min-[400px]:inline"}>{selecting ? "Done" : "Select"}</span>
+            <span className={selecting ? undefined : "hidden min-[560px]:inline"}>{selecting ? "Done" : "Select"}</span>
           </Button>
         </div>
       </header>

@@ -14,6 +14,7 @@ import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
 import { themeStore } from "@/theme/theme";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
+import { wide } from "@/test/media";
 import { clearListMemory, resetScrollReadForTests } from "./ListPane";
 
 // The Gazette as the list screen draws it: the fetch, the paper's name, reading in place, keys and loading more.
@@ -67,6 +68,7 @@ afterEach(() => {
 
 describe("Gazette fetch order", () => {
   it("asks for newest first even when this device reads oldest first", async () => {
+    wide();
     updateDevicePrefs({ order: "oldest" });
     const { calls } = routes();
     go("/l/unread");
@@ -89,6 +91,7 @@ describe("Gazette fetch order", () => {
   });
 
   it("the same settings in another layout still ask for oldest first", async () => {
+    wide();
     updateDevicePrefs({ order: "oldest", layout: "magazine" });
     const { calls } = routes();
     go("/l/unread");

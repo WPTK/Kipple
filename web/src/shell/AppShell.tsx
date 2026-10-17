@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router";
+import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router";
 import { BarChart3, BellOff, Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
@@ -31,7 +31,13 @@ function UnreadBadge() {
 function TabBar() {
   const { pathname } = useLocation();
   const stats = useStatsEnabled();
-  const inReader = pathname.startsWith("/l/") || pathname.startsWith("/i/");
+  const [search] = useSearchParams();
+  // A list scoped to a feed or folder is reached from the Feeds tab (so is Feed Health); only the four whole lists
+  // (Unread, All, Starred, Muted) belong to the Unread tab.
+  const scoped = search.has("feed") || search.has("folder");
+  const inList = pathname.startsWith("/l/") || pathname === "/l";
+  const unreadTab = inList && !scoped;
+  const feedsTab = pathname === "/feeds" || pathname === "/health" || (inList && scoped);
   const cls = ({ isActive }: { isActive: boolean }) => cn(tab, isActive ? "text-accent" : "text-fg2");
   return (
     <nav
@@ -39,17 +45,18 @@ function TabBar() {
       className="pb-safe pt-2 pl-safe pr-safe flex shrink-0 border-t border-line bg-bg shadow-[0_-6px_10px_-8px_rgb(0_0_0/0.5)]"
       style={{ minHeight: "var(--tabbar-h)" }}
     >
-      <NavLink to="/l/unread" className={() => cn(tab, inReader ? "text-accent" : "text-fg2")} aria-current={inReader ? "page" : undefined}>
+      {/* Plain links: NavLink would only mark the tab whose own address is the current one. */}
+      <Link to="/l/unread" className={cn(tab, unreadTab ? "text-accent" : "text-fg2")} aria-current={unreadTab ? "page" : undefined}>
         <span className="flex items-center gap-1">
           <Inbox aria-hidden="true" className="size-6" />
           <UnreadBadge />
         </span>
         Unread
-      </NavLink>
-      <NavLink to="/feeds" className={cls}>
+      </Link>
+      <Link to="/feeds" className={cn(tab, feedsTab ? "text-accent" : "text-fg2")} aria-current={feedsTab ? "page" : undefined}>
         <List aria-hidden="true" className="size-6" />
         Feeds
-      </NavLink>
+      </Link>
       <NavLink to="/search" className={cls}>
         <Search aria-hidden="true" className="size-6" />
         Search

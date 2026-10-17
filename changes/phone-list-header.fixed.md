@@ -1,0 +1,1 @@
+The list header stays one row on a phone, so it no longer jumps in height when a list has a long title such as All articles or Uncategorized: the title truncates instead, the newest/oldest toggle lives only in the Layout menu there, and Previous and Next feed or folder appear once, beside the Show pills, and no longer also in the List actions menu.
