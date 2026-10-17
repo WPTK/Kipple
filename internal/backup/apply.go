@@ -41,28 +41,7 @@ func checkStaged(ctx context.Context, path, kippleVersion string) (DBInfo, Backu
 		}
 		return DBInfo{}, BackupAccount{}, &BadUploadError{err}
 	}
-	var appID, version int
-	if err := db.QueryRowContext(ctx, "PRAGMA application_id").Scan(&appID); err != nil {
-		return bad(fmt.Errorf("kipple.db is not a readable database: %w", err))
-	}
-	if appID != store.ApplicationID {
-		return bad(errors.New("kipple.db is not a Kipple database"))
-	}
-	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		return bad(err)
-	}
-	switch {
-	case version > store.LatestVersion():
-		return bad(&NewerError{})
-	case version < 1:
-		return bad(errors.New("kipple.db is empty"))
-	}
-	// Before anything else runs on it: the integrity checks below write to the
-	// search index.
-	if err := CheckSchema(ctx, db, version); err != nil {
-		return bad(err)
-	}
-	info, err := inspect(ctx, db, true)
+	info, err := checkUntrusted(ctx, db, DBFile)
 	if err != nil {
 		return bad(err)
 	}
@@ -71,6 +50,51 @@ func checkStaged(ctx context.Context, path, kippleVersion string) (DBInfo, Backu
 		return bad(err)
 	}
 	return info, acct, nil
+}
+
+// CheckRestore verifies a database file that `kipple restore` is about to
+// install, with the same checks the web restore applies to an upload: opened
+// with trusted_schema off, its schema compared with Kipple's own (CheckSchema)
+// before anything else runs on it, then the full integrity checks. It reads
+// the counts the command prints. The file is a copy under another name than
+// the one the user gave, so its errors call it "the database" (the command
+// names the backup itself).
+func CheckRestore(ctx context.Context, path string) (DBInfo, error) {
+	db, err := openUntrusted(path)
+	if err != nil {
+		return DBInfo{}, err
+	}
+	defer db.Close()
+	return checkUntrusted(ctx, db, "the database")
+}
+
+// checkUntrusted is the check both restores share: a Kipple database of a
+// version this binary knows, holding nothing a fresh database of that version
+// does not, passing the full integrity checks. db must have been opened with
+// openUntrusted; name is what its errors call the file.
+func checkUntrusted(ctx context.Context, db *sql.DB, name string) (DBInfo, error) {
+	var appID, version int
+	if err := db.QueryRowContext(ctx, "PRAGMA application_id").Scan(&appID); err != nil {
+		return DBInfo{}, fmt.Errorf("%s is not a readable database: %w", name, err)
+	}
+	if appID != store.ApplicationID {
+		return DBInfo{}, fmt.Errorf("%s is not a Kipple database", name)
+	}
+	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return DBInfo{}, err
+	}
+	switch {
+	case version > store.LatestVersion():
+		return DBInfo{}, &NewerError{}
+	case version < 1:
+		return DBInfo{}, fmt.Errorf("%s is empty", name)
+	}
+	// Before anything else runs on it: the integrity checks below write to the
+	// search index.
+	if err := checkSchema(ctx, db, version, name); err != nil {
+		return DBInfo{}, err
+	}
+	return inspect(ctx, db, true)
 }
 
 // CheckSchema compares the schema of db (at version) with a fresh database of
@@ -90,6 +114,11 @@ func checkStaged(ctx context.Context, path, kippleVersion string) (DBInfo, Backu
 // is read: reading one runs SQLite's own code on the object, which must then be
 // one Kipple made.
 func CheckSchema(ctx context.Context, db *sql.DB, version int) error {
+	return checkSchema(ctx, db, version, DBFile)
+}
+
+// checkSchema is CheckSchema with name, what its errors call the file.
+func checkSchema(ctx context.Context, db *sql.DB, version int, name string) error {
 	want, err := store.SchemaAt(ctx, version)
 	if err != nil {
 		return err
@@ -111,27 +140,27 @@ func CheckSchema(ctx context.Context, db *sql.DB, version int) error {
 		switch {
 		case !ok && sqliteInternal(o):
 		case !ok:
-			return fmt.Errorf("kipple.db holds the %s %q, which Kipple never creates", o.Type, o.Name)
+			return fmt.Errorf("%s holds the %s %q, which Kipple never creates", name, o.Type, o.Name)
 		case !strings.EqualFold(w.Table, o.Table):
-			return fmt.Errorf("kipple.db has the %s %q on the wrong table", o.Type, o.Name)
+			return fmt.Errorf("%s has the %s %q on the wrong table", name, o.Type, o.Name)
 		case !sqliteInternal(o) && store.NormalizeSQL(o.SQL) != store.NormalizeSQL(w.SQL):
-			return fmt.Errorf("kipple.db has a changed %s %q", o.Type, o.Name)
+			return fmt.Errorf("%s has a changed %s %q", name, o.Type, o.Name)
 		case !sqliteInternal(o) && (o.Type == "table" || o.Type == "index"):
 			shaped = append(shaped, o)
 		}
 	}
 	for _, w := range want {
 		if !seen[key(w)] && !sqliteInternal(w) {
-			return fmt.Errorf("kipple.db lacks the %s %q", w.Type, w.Name)
+			return fmt.Errorf("%s lacks the %s %q", name, w.Type, w.Name)
 		}
 	}
 	for _, o := range shaped {
 		got, err := store.Shape(ctx, db, o)
 		if err != nil {
-			return fmt.Errorf("kipple.db: read the %s %q: %w", o.Type, o.Name, err)
+			return fmt.Errorf("%s: read the %s %q: %w", name, o.Type, o.Name, err)
 		}
 		if got != ref[key(o)].Shape {
-			return fmt.Errorf("kipple.db has a changed %s %q", o.Type, o.Name)
+			return fmt.Errorf("%s has a changed %s %q", name, o.Type, o.Name)
 		}
 	}
 	return nil

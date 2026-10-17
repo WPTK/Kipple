@@ -1,5 +1,17 @@
 # Kipple: deploy, backups and recovery
 
+## Quick start
+
+1. Install Docker with Compose 2.24 or newer.
+2. Download [`docker-compose.pull.example.yml`](../docker-compose.pull.example.yml), save it as `docker-compose.yml`,
+   set the image tag to the newest version on the [releases page](https://github.com/WPTK/Kipple/releases), and run
+   `docker compose up -d kipple`.
+3. Open <http://127.0.0.1:1919> on that machine and create your account. If Kipple runs on another machine, tunnel
+   first: `ssh -L 1919:127.0.0.1:1919 you@your-server`, then open the same address on your own computer.
+4. Only after you have an account, widen the port (see [Ports](#ports)).
+
+The rest of this page is the operations manual: backups, upgrades, proxies and recovery.
+
 Commands here run on the machine that runs Kipple, in the directory of your compose file
 ([`docker-compose.pull.example.yml`](../docker-compose.pull.example.yml), or
 [`docker-compose.example.yml`](../docker-compose.example.yml) to build from source). Anything that is yours to
@@ -19,6 +31,7 @@ not use a PowerShell pipe, which can re-encode them).
 
 ## Contents
 
+- [Quick start](#quick-start)
 - [System requirements](#system-requirements)
 - [Where things live](#where-things-live), [what to back up](#what-to-back-up), [back up the volume](#back-up-the-volume-itself), [back up on a schedule](#back-up-on-a-schedule)
 - [Export a backup](#export-a-backup-the-button)
@@ -119,7 +132,7 @@ backup folder. Fix or remove the variable and start again. Going back to the pre
 that snapshot ([Roll back an upgrade that migrated the schema](#roll-back-an-upgrade-that-migrated-the-schema)).
 Checklist, for a rebuild to be a copy and paste:
 
-1. The data volume, as an export zip (Settings > Account & Devices > Export backup, saved off the server) or a tarball of the
+1. The data volume, as an export zip (Settings, Account & Devices, Export backup, saved off the server) or a tarball of the
    volume (below).
 2. The compose file and the `.env`, with the image tag you ran (`docker inspect kipple --format '{{.Config.Image}}'`
    or `docker exec kipple /kipple version`).
@@ -155,14 +168,14 @@ database that `kipple restore` accepts as it is. The export zip is the same data
 
 ## Export a backup (the button)
 
-Settings > Account & Devices > Export backup. The app calls `POST /api/backup`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
+Settings, Account & Devices, Export backup. The app calls `POST /api/backup`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
 then starts the download of `GET /api/backup/<token>`, which saves as
 `kipple-backup-YYYYMMDD-HHMMSS.zip`. Save it somewhere other than the server (another machine, an external drive, cloud storage).
 
 - The zip holds `kipple.db` (a consistent snapshot), `feeds.opml` (imports into any reader),
   `settings.json` (readable copy), `manifest.json` (versions, counts, SHA-256 of every file) and
   `RESTORE.txt`. It is roughly a third of the database size.
-- **The file is sensitive.** It contains the web and Reader API password hashes, the account secret
+- **The file is sensitive.** It contains the web and API password hashes, the account secret
   that signs Reader tokens and image links, hashed session ids, and any feed logins (HTTP Basic
   `user:password`, stored in plain text). Keep it private.
 - `kipple.db` in the zip is the whole database (everything in the left column of the table above, also the `sys.*`
@@ -241,7 +254,7 @@ build-from-source file, which also reads an optional `.env`.
 A Kipple with no account starts in **setup mode**. It is the normal server, but the browser shows the setup wizard
 instead of a sign-in screen, and its first step is the form that creates your account. Open the address and create your
 account, then the wizard takes you the rest of the way (time zone, theme, OPML import,
-recommended feeds, an optional Reader API password). The same first screen offers "Restore from a backup" instead
+recommended feeds, an optional API password). The same first screen offers "Restore from a backup" instead
 ([Restore in the setup wizard](#restore-in-the-setup-wizard)). The steps of the account path, in order, each skippable after the account:
 
 1. **Account**: a user name, then a password (or one of the two ways to go without, under "Open mode" below).
@@ -250,7 +263,7 @@ recommended feeds, an optional Reader API password). The same first screen offer
 4. **Import** an OPML file from your old reader.
 5. **Recommended feeds**, a few to start with.
 6. **Address**: the public URL your other devices open Kipple at.
-7. **Done**, with an optional Reader API password for sync apps. Make one any time in Settings, Account & Devices, or
+7. **Done**, with an optional API password for sync apps. Make one any time in Settings, Account & Devices, or
    with `docker exec -it kipple /kipple api-password`. A sync app's server address is your Kipple address plus
    `/api/greader.php`, and the user name is the one you chose.
 
@@ -292,7 +305,7 @@ recommended feeds, an optional Reader API password). The same first screen offer
   Access and carries a verified token.
 
 After the account step the wizard continues as an ordinary signed-in session. Each step saves when you press Continue; a reload keeps every saved step.
-Settings > Account & Devices > Run setup again repeats the steps after the account for any account (it never touches the account).
+Settings, Account & Devices, Run setup again repeats the steps after the account for any account (it never touches the account).
 
 ## Ports
 
@@ -404,7 +417,7 @@ open-mode Kipple only on the interface of your local network or your tailnet (th
 machine that is not reachable from the internet. For the same reason Tailscale devices reach a container as ordinary
 private peers. A plain binary on the same machine as the browser sees the real address and needs nothing special.
 
-Changing your mind: **Settings > Account & Devices > Set web password** (or `kipple password` on the host) gives the account a password and
+Changing your mind: **Settings, Account & Devices, Set web password** (or `kipple password` on the host) gives the account a password and
 returns it to normal mode; either signs every other session out. Going from a password account to open mode is not in
 the Settings screen (it is `POST /api/account/password` with `{"current": ..., "open": true}`, which needs the current
 password and passes the same gate); choose open mode in the wizard on a new install. The Reader API is unaffected in
@@ -412,7 +425,7 @@ open mode: sync apps still sign in with the API password, which is then the only
 
 ## Time zone
 
-The time zone is one setting, `tz` (Settings > Account & Devices, and wizard step 2). It is the zone for daily reading
+The time zone is one setting, `tz` (Settings, Account & Devices, and wizard step 2). It is the zone for daily reading
 statistics, the nightly 04:10 maintenance and the weekly snapshot, backup file names and log timestamps. Log timestamps follow
 the zone from the next start, and within that start the first lines are still UTC (they end in `Z`) before later ones are
 local. Everything else is read live, so a change takes effect at the next statistics write, summary request and nightly
@@ -537,14 +550,14 @@ From a script or a pipe (one line on standard input; mind shell history and the 
 
 Rules: 5 to 256 characters. It signs out every web session **and revokes every Reader API token**
 (it rotates the account secret), so afterwards: sign in again in the browser, and re-enter the
-Reader API password in your sync apps (that password itself is unchanged; if you have lost
+API password in your sync apps (that password itself is unchanged; if you have lost
 it too, `docker exec kipple /kipple api-password` sets a new one). The failed-login pacing is in
 memory: it clears after an hour with no failure or on a restart. If `KIPPLE_PASSWORD` is still in
 your `.env`, remove it: it is read only when the account is first created. On an account in open mode
 (no password) this sets a password and returns it to normal sign-in ("Open mode" above). If the account does not exist
 yet, the command says so and points to the setup wizard.
 
-When you can still sign in, change either password in Settings > Account & Devices instead; the CLI is the recovery path.
+When you can still sign in, change either password in Settings, Account & Devices instead; the CLI is the recovery path.
 It is also how to give the account a password again after it was removed through Cloudflare Access and Access
 validation was then turned off (see "Cloudflare Access (optional)" below).
 
@@ -563,13 +576,13 @@ seed the setting instead:
 
     KIPPLE_ACCESS_TEAM_DOMAIN=yourteam.cloudflareaccess.com
     KIPPLE_ACCESS_AUD=<Application Audience (AUD) tag>
-The log says `Cloudflare Access token validation on` with the issuer, and Settings > Account & Devices shows the Access email you are
+The log says `Cloudflare Access token validation on` with the issuer, and Settings, Account & Devices shows the Access email you are
 signed in with. Kipple checks the RS256 signature against `https://<team domain>/cdn-cgi/access/certs` (cached for
 an hour and refreshed in the background), the issuer, the audience and the expiry; a verified token never replaces
 the session cookie. The Reader API keeps its own API password either way, and its path (`/api/greader.php`) is
 normally left outside Access (a bypass), since sync apps cannot sign in to Access.
 
-With validation on, the web password becomes optional: Settings > Account & Devices > Remove web password (offered only when
+With validation on, the web password becomes optional: Settings, Account & Devices, Remove web password (offered only when
 you are signed in through a verified Access token, and it asks for the current password). An account without a
 password signs in only on requests that carry a verified token, so the LAN or a published port cannot sign in.
 Anyone your Access policy admits can, so keep the policy to your own email. The setup wizard offers the same choice
@@ -578,7 +591,7 @@ request carries a verified token. Open mode (see "Open mode" above)
 is a different thing: it has no Access involved and refuses requests that came through Access.
 
 While the account has no web password, Settings refuses to change or turn off Cloudflare Access (`access_in_use`):
-set a password first (Settings > Account & Devices > Set web password), then change Access. If Access ends up off with no
+set a password first (Settings, Account & Devices, Set web password), then change Access. If Access ends up off with no
 password anyway (a restored backup), web sign-in is impossible, the startup log warns about it, and
 `kipple password` (see "Reset the web password" above) sets one.
 
@@ -593,7 +606,7 @@ of [What to back up](#what-to-back-up).
 ### Restore in the setup wizard
 
 Start Kipple on an empty data volume and open it. The first screen offers "Create an account" or "Restore from a
-backup". Pick the export zip (Settings > Account & Devices > Export backup on the old server); the upload shows a progress bar.
+backup". Pick the export zip (Settings, Account & Devices, Export backup on the old server); the upload shows a progress bar.
 Then Kipple checks the file before anything changes, while the page waits: the manifest and every checksum, the
 integrity checks, and that the database holds exactly what a Kipple of its version creates, nothing more or less. It
 then shows the Kipple version that made the backup,
@@ -647,7 +660,7 @@ Things to know:
 
 ### Reset Kipple and start over
 
-Settings > Account & Devices > Reset Kipple returns Kipple to setup mode, where you create a new account or restore a
+Settings, Account & Devices, Reset Kipple returns Kipple to setup mode, where you create a new account or restore a
 backup in the wizard. It is the browser twin of `kipple restore` over an existing library, and it is a restore of an
 empty database: the dialog says what is erased (all feeds, folders, history, settings and the account), asks for your web
 password (an account without one needs the sign-in it uses for changing its password instead) and for you to type
@@ -760,7 +773,7 @@ directory at `/data`) needs `chown 65532:65532` on that directory first.
     # 3. Start it.
     docker compose up -d kipple && docker logs --tail 20 kipple
 
-The account comes from the backup: sign in with the web password and use the Reader API password
+The account comes from the backup: sign in with the web password and use the API password
 that were current when the backup was taken. `KIPPLE_USERNAME`, `KIPPLE_PASSWORD` and
 `KIPPLE_API_PASSWORD` in `.env` are ignored because the account already exists. The restore prints
 "There was no previous database to keep." on an empty volume. If a Reader API client reports an
@@ -859,7 +872,7 @@ SQLite reuses space freed by trimming for new articles, but it does not shrink t
 feeds. A size that stops growing is normal, and `kipple.db-wal` next to it is a transient write log that Kipple
 checkpoints regularly. If you want the file smaller:
 
-1. Export a backup (Settings > Account & Devices > Export backup), or copy the nightly snapshot. Both are written with
+1. Export a backup (Settings, Account & Devices, Export backup), or copy the nightly snapshot. Both are written with
    `VACUUM INTO`, so they are compacted copies.
 2. Restore that copy with `kipple restore` (see [Restore a backup](#restore-a-backup)).
 
