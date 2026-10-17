@@ -3,10 +3,12 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/stretchr/testify/require"
 )
 
@@ -55,7 +57,7 @@ func requireElsewhere(t *testing.T, code int, body map[string]any, link string) 
 	require.Equal(t, "private_address", body["error"], body)
 	msg, _ := body["message"].(string)
 	require.Contains(t, msg, "The page links its feed on another site, at a private address ("+link+").")
-	require.Contains(t, msg, "To add that feed, enter its own address and turn the switch on.")
+	require.Contains(t, msg, `To use that feed, enter its own address, turn on "Allow addresses on my own network"`)
 	require.Contains(t, []int{400, 422}, code)
 }
 
@@ -173,6 +175,7 @@ func TestEditLinkedFeedOnAnotherSiteAtPrivateAddressIsRefused(t *testing.T) {
 	code, body, _ := h.api(c, "PATCH", "/api/feeds/"+sid(id), jsonStr(map[string]any{"url": gs.url("localhost", "/"), "allow_private_net": true}))
 	require.Equal(t, 422, code, body)
 	requireElsewhere(t, code, body, gs.url("127.0.0.1", "/feed"))
+	require.Contains(t, body["message"], "under Unsafe options below and save again.")
 	require.Zero(t, gs.feeds.Load())
 	require.Equal(t, "https://old.example/feed", h.feedRow(id, "url").String)
 	require.Equal(t, "0", h.feedRow(id, "allow_private_net").String)
@@ -189,4 +192,82 @@ func TestEditLinkedFeedOnAnotherSiteLeavesTheExceptionBehind(t *testing.T) {
 	require.Equal(t, gs.url("localhost", "/feed"), h.feedRow(id, "url").String)
 	require.Equal(t, "0", h.feedRow(id, "allow_private_net").String)
 	require.Equal(t, "0", h.feedRow(id, "allow_insecure_tls").String)
+}
+
+// redirectSite serves a page at / that links /feed, and /feed redirects to to(port); requests to
+// /secret are counted.
+func redirectSite(t *testing.T, to func(port string) string) (port string, secret *atomic.Int64) {
+	t.Helper()
+	secret = &atomic.Int64{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<html><head><link rel="alternate" type="application/rss+xml" href="` + linkOf(r) + `"></head></html>`))
+		case "/feed":
+			http.Redirect(w, r, to(port), http.StatusFound)
+		case "/secret":
+			secret.Add(1)
+			w.Header().Set("Content-Type", "application/rss+xml")
+			_, _ = w.Write([]byte(rssBody))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	port = srv.URL[strings.LastIndex(srv.URL, ":"):]
+	return port, secret
+}
+
+// linkOf is the page's feed link: ?link= when given, else /feed on the page's own host.
+func linkOf(r *http.Request) string {
+	if l := r.URL.Query().Get("link"); l != "" {
+		return l
+	}
+	return "/feed"
+}
+
+// A feed linked on the page's own site that redirects to a private address on another site: the switch
+// is on, so the message says where the redirect goes rather than to turn the switch on.
+func TestAddLinkedFeedRedirectingToAPrivateAddressElsewhereSaysSo(t *testing.T) {
+	t.Parallel()
+	port, secret := redirectSite(t, func(port string) string { return "http://127.0.0.1" + port + "/secret" })
+	h := newHarness(t)
+	c := h.login()
+	code, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": "http://localhost" + port + "/", "allow_private_net": true}))
+	require.Equal(t, 422, code, body)
+	require.Equal(t, "private_address", body["error"])
+	require.Contains(t, body["message"], "That address (http://localhost"+port+"/feed) redirects to a private address (http://127.0.0.1"+port+"/secret).")
+	require.Contains(t, body["message"], "not one it redirects to")
+	require.Zero(t, secret.Load())
+}
+
+// namePublicGuard treats the name localhost as a public address and 127.0.0.1 as a private one, so a
+// test can have a public site: without the exception a request to 127.0.0.1 is refused as the dial guard
+// refuses one.
+func namePublicGuard(allowPrivate, _, _ bool) http.RoundTripper {
+	return roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if !allowPrivate && r.URL.Hostname() == "127.0.0.1" {
+			return nil, &fetch.BlockedError{IP: netip.MustParseAddr("127.0.0.1")}
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// A public feed on another site that redirects to a private address: the message is about the redirect,
+// not about entering the linked feed's address (that would not help: the redirect goes elsewhere).
+func TestAddLinkedPublicFeedRedirectingToAPrivateAddressSaysSo(t *testing.T) {
+	t.Parallel()
+	port, secret := redirectSite(t, func(port string) string { return "http://127.0.0.1" + port + "/secret" })
+	h := newHarness(t, func(o *Options) { o.Guard = namePublicGuard })
+	c := h.login()
+	link := "http://localhost" + port + "/feed"
+	code, body, _ := h.api(c, "POST", "/api/feeds", jsonStr(map[string]any{"url": "http://127.0.0.1" + port + "/?link=" + link, "allow_private_net": true}))
+	require.Equal(t, 422, code, body)
+	require.Equal(t, "private_address", body["error"])
+	require.Contains(t, body["message"], "That address ("+link+") redirects to a private address (http://127.0.0.1"+port+"/secret).")
+	require.NotContains(t, body["message"], "links its feed on another site")
+	require.Zero(t, secret.Load())
 }

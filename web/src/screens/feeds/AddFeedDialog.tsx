@@ -76,7 +76,10 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
       });
       invalidateFeeds(qc);
       if (r.status === "choose") {
-        setStep({ kind: "choose", candidates: r.candidates, from: target.trim() });
+        // A pick that is itself a page with several feeds keeps the address first entered: the switch is for
+        // that site, never for one a page chose. The server cannot verify discovered_from (it keeps no state
+        // between requests), so this is the client's part of the rule.
+        setStep({ kind: "choose", candidates: r.candidates, from: discoveredFrom ?? target.trim() });
         setPick(r.candidates[0]?.url ?? "");
       } else {
         setStep({ kind: "done", feed: r.feed, existed: r.status === "exists", fetch: r.status === "ok" ? r.fetch : undefined });
