@@ -497,7 +497,7 @@ What changed since 2026-09-27:
 
 Defects:
 
-- **B2-1 (P2)** Backup dialog "Made: Invalid Date". Steps: Settings > Account & Devices > Export backup. Observed:
+- **B2-1 (P2)** Backup dialog "Made: Invalid Date". Steps: Settings, Account & Devices, Export backup. Observed:
   the summary's "Made" row says "Invalid Date". Expected: the time the backup was taken. Cause seen in the code:
   `manifest.created_at` is an RFC 3339 string and `AccountSection.tsx` passes it to `fullDate()`, which expects Unix
   seconds. Suite 1's S5 check never opens this dialog, so it cannot catch it.
@@ -631,8 +631,8 @@ claimed, working instance, and note every place a real newcomer would get stuck.
 | A9 | Steps 3 to 5: pick a theme, import a small OPML file (or skip), tick a few recommended feeds. | Each saves as you go; imported and subscribed feeds start fetching; "Skip" on each step works and lands on the next. | Feeds added, time to the first article. |
 | A9b | Step 6, the address: open Kipple at its IP address, then at a DNS name if you have one; try `http://nas.local:1919`. | At the IP address the field starts empty; at a DNS name it is suggested; at a `.local` or single-word name nothing is suggested, and typing one saves (it is used for icons but open mode still answers it only when listed); Continue saves, Skip saves nothing. | The suggestion shown. |
 | A10 | Step 7: generate the Reader API password and connect a Reader API client with the server address the wizard shows, the user name and that password. | The password is shown once with a copy button; the app signs in and lists the feeds. | Client and version. |
-| A11 | Finish, sign out and in again, Settings > Account & Devices > **Export backup** and save the zip, then `docker exec <container> /kipple healthcheck; echo $?`. | Lands on the feed list; the password works; the backup downloads; the health check exits 0. | Backup size, and the version and schema in its manifest. |
-| A12 | On a second throwaway volume, reload the page between steps 2 and 5 (or use Settings > Account & Devices > Run setup again). | The wizard resumes where it was; what was saved is kept. | |
+| A11 | Finish, sign out and in again, Settings, Account & Devices, **Export backup** and save the zip, then `docker exec <container> /kipple healthcheck; echo $?`. | Lands on the feed list; the password works; the backup downloads; the health check exits 0. | Backup size, and the version and schema in its manifest. |
+| A12 | On a second throwaway volume, reload the page between steps 2 and 5 (or use Settings, Account & Devices, Run setup again). | The wizard resumes where it was; what was saved is kept. | |
 | A13 | After completion `POST /api/setup/account` again (a browser tab or `curl`). | `404`: the setup route is gone. | |
 | A14 | Stop and start the container. | It comes back in normal mode with its data, and no setup screen. | |
 
@@ -644,7 +644,7 @@ claimed, working instance, and note every place a real newcomer would get stuck.
 | B2 | Note that there is no extra checkbox (this run is in Docker). | Only the acknowledgement is asked: nothing about a local-network switch, because open mode has no such setting. Tick it and continue; the account is created. |
 | B3 | Finish the wizard, close the browser, reopen the address. | It opens straight into the app with no sign-in screen (a session is minted silently). Settings has no "Sign out". |
 | B4 | Send a request with an unexpected `Host`, for example `curl -H 'Host: evil.example' http://127.0.0.1:<port>/`; put a reverse proxy (or any request carrying `X-Forwarded-For`) in front and open the app through it. | The unexpected `Host` gets `421 Misdirected Request` naming Allowed host names in Settings. The proxied request is refused as `forwarded`. With the default `127.0.0.1:` mapping another machine cannot reach the port at all. |
-| B5 | Settings > Account & Devices > Set web password. | Gives the account a password and signs every other session out; a reload shows the sign-in screen. |
+| B5 | Settings, Account & Devices, Set web password. | Gives the account a password and signs every other session out; a reload shows the sign-in screen. |
 
 **Run C: verify.** `cosign verify ghcr.io/wptk/kipple:<version> ...` exactly as the deploy guide prints it succeeds and names the
 release workflow of this repository; the digest equals the one in the GitHub Release's notes and in A1.
