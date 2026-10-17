@@ -135,6 +135,11 @@ func TestExportZipContentsAndIntegrity(t *testing.T) {
 		files[f.Name] = b
 	}
 	require.ElementsMatch(t, []string{DBFile, OPMLFile, SettingsFile, ReadmeFile, ManifestFile}, keys(files))
+	// The note inside the zip says it is a credential, not just a copy of the library.
+	readme := string(files[ReadmeFile])
+	require.Contains(t, readme, "This file contains credentials.")
+	require.Contains(t, readme, "use the Reader API as")
+	require.Contains(t, readme, "Store it privately")
 
 	var mf Manifest
 	require.NoError(t, json.Unmarshal(files[ManifestFile], &mf))

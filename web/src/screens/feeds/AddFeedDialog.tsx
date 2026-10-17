@@ -10,7 +10,8 @@ import { announce } from "@/shell/toasts";
 
 type Step =
   | { kind: "form" }
-  | { kind: "choose"; candidates: Candidate[] }
+  // from: the address entered, sent back with the pick (the server scopes the private-network switch to its site).
+  | { kind: "choose"; candidates: Candidate[]; from: string }
   | { kind: "done"; feed: FeedDetail; existed: boolean; fetch?: FetchOutcome };
 
 /** Fallbacks for the add errors the server explains in its own message (it knows the cause). */
@@ -62,7 +63,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
   const titleChars = [...title.trim()].length;
   const titleTooLong = titleChars > MAX_TITLE_CHARS;
 
-  const run = async (target: string) => {
+  const run = async (target: string, discoveredFrom?: string) => {
     setBusy(true);
     setError(null);
     try {
@@ -71,10 +72,14 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
         ...(title.trim() ? { title: title.trim() } : {}),
         ...(folder ? { folder_id: folder } : {}),
         ...(privateNet ? { allow_private_net: true } : {}),
+        ...(discoveredFrom ? { discovered_from: discoveredFrom } : {}),
       });
       invalidateFeeds(qc);
       if (r.status === "choose") {
-        setStep({ kind: "choose", candidates: r.candidates });
+        // A pick that is itself a page with several feeds keeps the address first entered: the switch is for
+        // that site, never for one a page chose. The server cannot verify discovered_from (it keeps no state
+        // between requests), so this is the client's part of the rule.
+        setStep({ kind: "choose", candidates: r.candidates, from: discoveredFrom ?? target.trim() });
         setPick(r.candidates[0]?.url ?? "");
       } else {
         setStep({ kind: "done", feed: r.feed, existed: r.status === "exists", fetch: r.status === "ok" ? r.fetch : undefined });
@@ -137,7 +142,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
         step.kind === "choose" ? (
           <>
             <Button onClick={() => setStep({ kind: "form" })}>Back</Button>
-            <Button variant="solid" disabled={busy || !pick} onClick={() => void run(pick)}>
+            <Button variant="solid" disabled={busy || !pick} onClick={() => void run(pick, step.from)}>
               Add selected feed
             </Button>
           </>
