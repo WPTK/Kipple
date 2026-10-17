@@ -12,6 +12,7 @@ import { Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { useSetupActions } from "@/setup/actions";
+import { MIN_PASSWORD_LEN } from "@/setup/api";
 import { ResetSection } from "./ResetSection";
 
 /** Message for a failed account or backup call. */
@@ -26,7 +27,7 @@ export function accountError(e: unknown): string {
     if (e.code === "access_not_configured")
       // The server words it for the case: removing a password, or an account without one.
       return msg ? `${msg.charAt(0).toUpperCase()}${msg.slice(1)}.` : "Cloudflare Access validation isn't set up on the server.";
-    if (e.code === "bad_new_password") return msg || "The new password must be 5 to 256 characters.";
+    if (e.code === "bad_new_password") return msg || `The new password must be ${MIN_PASSWORD_LEN} to 256 characters.`;
     // A sign-in or password check that could not get its turn (a busy verifier, or many people on one address): nothing was checked.
     if (e.status === 503 && e.code === "busy") return busyMessage(e);
     if (e.status === 409 && e.code === "busy") {
@@ -48,9 +49,9 @@ function ChangePasswordDialog({ hasPassword, onDone, onClose }: { hasPassword: b
   const [again, setAgain] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const tooShort = next.length > 0 && next.length < 5;
+  const tooShort = next.length > 0 && next.length < MIN_PASSWORD_LEN;
   const mismatch = again.length > 0 && again !== next;
-  const ok = (cur || !hasPassword) && next.length >= 5 && next.length <= 256 && next === again;
+  const ok = (cur || !hasPassword) && next.length >= MIN_PASSWORD_LEN && next.length <= 256 && next === again;
   const submit = async () => {
     setBusy(true);
     setError(null);
@@ -84,7 +85,7 @@ function ChangePasswordDialog({ hasPassword, onDone, onClose }: { hasPassword: b
       {hasPassword ? (
         <Field label="Current password">{(a) => <input {...a} type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} className={inputCls} />}</Field>
       ) : null}
-      <Field label="New password" help="5 to 256 characters." error={tooShort ? "Use at least 5 characters." : null}>
+      <Field label="New password" help={`${MIN_PASSWORD_LEN} to 256 characters.`} error={tooShort ? `Use at least ${MIN_PASSWORD_LEN} characters.` : null}>
         {(a) => <input {...a} type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} className={inputCls} />}
       </Field>
       <Field label="New password again" error={mismatch ? "The passwords don't match." : null}>

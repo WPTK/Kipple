@@ -129,11 +129,14 @@ export function byteLength(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 
-/** Why a password won't do, or null. The same rules as the server: 5 to 256 bytes, not the example value. */
+/** The shortest new web password, in bytes (the server's auth.MinPasswordLen). */
+export const MIN_PASSWORD_LEN = 8;
+
+/** Why a password won't do, or null. The same rules as the server: 8 to 256 bytes, not the example value. */
 export function passwordProblem(pw: string): string | null {
   if (pw === "change-me") return "That is the example password from the setup files. Choose your own.";
   const n = byteLength(pw);
-  if (n < 5) return "Use at least 5 characters.";
+  if (n < MIN_PASSWORD_LEN) return `Use at least ${MIN_PASSWORD_LEN} characters.`;
   if (n > 256) return "That's too long. Use at most 256 characters.";
   return null;
 }

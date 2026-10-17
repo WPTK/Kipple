@@ -669,7 +669,7 @@ the wizard script (`npm run uat:wizard`) covers them against a source build.
 - **A1** pulled anonymously and the digest equals the release notes; healthy in about 25 s. **A2** exactly one `no account
   yet` line. **A4** `GET /api/bootstrap` 401, login 409 `setup_required`, `/healthz` 200. **A5** restart: the same one line,
   setup still open. **A6** two simultaneous claims: one 201 with a cookie, one 409 `already_set_up` with none. **A7** a
-  4-character password refused (400, with the reason); 5 characters is the minimum and is accepted. **A13** the setup route
+  7-character password refused (400, with the reason); 8 characters is the minimum and is accepted. **A13** the setup route
   answers 404 afterwards. **A14** restart with an account: normal mode, no `no account yet` line, healthy.
 - **B** (open mode, over the API): no acknowledgement gets 400 `ack_required`; with it the account is created; an unexpected
   `Host` gets 421; a forwarded header gets 403; a request from the Docker bridge is admitted silently (204).

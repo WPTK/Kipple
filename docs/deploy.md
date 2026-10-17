@@ -555,7 +555,7 @@ From a script or a pipe (one line on standard input; mind shell history and the 
 
     printf '%s\n' "$NEW" | docker exec -i kipple /kipple password --stdin
 
-Rules: 5 to 256 characters. It signs out every web session **and revokes every Reader API token**
+Rules: 8 to 256 characters (a shorter password set earlier still signs in until you change it). It signs out every web session **and revokes every Reader API token**
 (it rotates the account secret), so afterwards: sign in again in the browser, and re-enter the
 API password in your sync apps (that password itself is unchanged; if you have lost
 it too, `docker exec kipple /kipple api-password` sets a new one). The failed-login pacing is in

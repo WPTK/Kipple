@@ -90,11 +90,11 @@ describe("Passwordless account (Cloudflare Access)", () => {
     await user.click(await screen.findByRole("button", { name: "Set web password" }));
     const dlg = await screen.findByRole("dialog", { name: "Set web password" });
     expect(within(dlg).queryByLabelText("Current password")).toBeNull();
-    await user.type(within(dlg).getByLabelText("New password"), "abcdef");
-    await user.type(within(dlg).getByLabelText("New password again"), "abcdef");
+    await user.type(within(dlg).getByLabelText("New password"), "abcdefgh");
+    await user.type(within(dlg).getByLabelText("New password again"), "abcdefgh");
     await user.click(within(dlg).getByRole("button", { name: "Set password" }));
     await vi.waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/account/password")).toBe(true));
-    expect(body(calls.find((c) => c.url.pathname === "/api/account/password") as never)).toEqual({ current: "", new: "abcdef" });
+    expect(body(calls.find((c) => c.url.pathname === "/api/account/password") as never)).toEqual({ current: "", new: "abcdefgh" });
   });
 
   it("generates an API password without a web password field", async () => {

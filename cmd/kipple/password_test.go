@@ -51,12 +51,12 @@ func TestResetPasswordLengthLimits(t *testing.T) {
 	db := openLive(t, dir)
 	ctx := context.Background()
 	before, _, _ := db.Account(ctx)
-	for _, pw := range []string{"", "1234", strings.Repeat("x", 257)} {
-		require.ErrorContains(t, resetPassword(ctx, db, pw), "5 to 256", "%d chars", len(pw))
+	for _, pw := range []string{"", "1234", "1234567", strings.Repeat("x", 257)} {
+		require.ErrorContains(t, resetPassword(ctx, db, pw), "8 to 256", "%d chars", len(pw))
 	}
 	after, _, _ := db.Account(ctx)
 	require.Equal(t, before, after, "a refused password changes nothing")
-	require.NoError(t, resetPassword(ctx, db, "12345"))
+	require.NoError(t, resetPassword(ctx, db, "12345678"))
 	require.NoError(t, resetPassword(ctx, db, strings.Repeat("x", 256)))
 }
 

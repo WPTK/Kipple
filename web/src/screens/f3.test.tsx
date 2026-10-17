@@ -1040,13 +1040,13 @@ describe("Account and backup", () => {
     const dlg = await screen.findByRole("dialog", { name: "Change web password" });
     await user.type(within(dlg).getByLabelText("Current password"), "old");
     await user.type(within(dlg).getByLabelText("New password"), "abc");
-    expect(within(dlg).getByText("Use at least 5 characters.")).toBeInTheDocument();
+    expect(within(dlg).getByText("Use at least 8 characters.")).toBeInTheDocument();
     expect(within(dlg).getByRole("button", { name: "Change password" })).toBeDisabled();
-    await user.type(within(dlg).getByLabelText("New password"), "def");
-    await user.type(within(dlg).getByLabelText("New password again"), "abcdeX");
+    await user.type(within(dlg).getByLabelText("New password"), "defgh");
+    await user.type(within(dlg).getByLabelText("New password again"), "abcdefghX");
     expect(within(dlg).getByText("The passwords don't match.")).toBeInTheDocument();
     await user.clear(within(dlg).getByLabelText("New password again"));
-    await user.type(within(dlg).getByLabelText("New password again"), "abcdef");
+    await user.type(within(dlg).getByLabelText("New password again"), "abcdefgh");
     await user.click(within(dlg).getByRole("button", { name: "Change password" }));
     expect(await within(dlg).findByRole("alert")).toHaveTextContent("current password isn't right");
     expect(calls.some((c) => c.url.pathname === "/api/account/password")).toBe(true);
@@ -1059,8 +1059,8 @@ describe("Account and backup", () => {
     await user.click(await screen.findByRole("button", { name: "Change web password" }));
     const dlg = await screen.findByRole("dialog", { name: "Change web password" });
     await user.type(within(dlg).getByLabelText("Current password"), "old");
-    await user.type(within(dlg).getByLabelText("New password"), "abcdef");
-    await user.type(within(dlg).getByLabelText("New password again"), "abcdef");
+    await user.type(within(dlg).getByLabelText("New password"), "abcdefgh");
+    await user.type(within(dlg).getByLabelText("New password again"), "abcdefgh");
     await user.click(within(dlg).getByRole("button", { name: "Change password" }));
     expect(await within(dlg).findByRole("alert")).toHaveTextContent("Sign-in is paused for about 5 seconds: Kipple is busy, or there were several wrong passwords from this address. A correct password is refused until then.");
   });
