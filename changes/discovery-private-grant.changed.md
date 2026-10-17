@@ -1,0 +1,1 @@
+Adding a feed: "Allow addresses on my own network" now covers only the site of the address you enter. When a page links its feed on another site, that feed is added without the switch, or refused with a message saying to enter its own address when it is on a private network; the same holds for a feed picked from a page's list and for a page address entered in the feed editor.

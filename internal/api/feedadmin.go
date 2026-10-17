@@ -168,7 +168,7 @@ func outcomeOf(rep sched.Reply) fetchOutcome {
 // ---- POST /api/feeds ----
 
 func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
-	m, ok := readObject(w, r, "url", "folder_id", "title", "allow_private_net")
+	m, ok := readObject(w, r, "url", "folder_id", "title", "allow_private_net", "discovered_from")
 	if !ok {
 		return
 	}
@@ -208,15 +208,42 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 		}
 		opts.Title = t
 	}
-	opts.AllowPrivateNet = allowPrivate
-	norm, _, feedHost, err := store.ValidateFeedURL(rawURL, allowPrivate)
-	if err != nil {
-		var bad *store.InvalidURLError
-		if errors.As(err, &bad) && bad.Private {
-			writeErrorMsg(w, http.StatusBadRequest, "private_address", msgPrivateAddress)
+	// The private-network exception is for the address the user entered and the rest of its site
+	// (fetch.SameSite), never for a feed a page links on another site: that is the page's choice, not
+	// the user's. discovered_from is the address entered when the dialog sends a feed picked from the
+	// list a page gave (status "choose"), so the pick is held to the same rule as a single linked feed.
+	enteredHost := ""
+	if raw, present := m["discovered_from"]; present && !isNull(raw) {
+		from, ok := rawString(raw)
+		var err error
+		if ok {
+			_, _, enteredHost, err = store.ValidateFeedURL(from, true)
+		}
+		if !ok || err != nil {
+			writeErrorMsg(w, http.StatusBadRequest, "bad_request", "discovered_from must be the address you entered")
 			return
 		}
+	}
+	norm, _, feedHost, err := store.ValidateFeedURL(rawURL, true)
+	if err != nil {
 		writeErrorMsg(w, http.StatusBadRequest, "invalid_url", err.Error())
+		return
+	}
+	if enteredHost == "" {
+		enteredHost = feedHost
+	}
+	privateFor := func(host string) bool { return allowPrivate && fetch.SameSite(enteredHost, host) }
+	// refusePrivate refuses link, a private address the request may not reach: one entered says how to
+	// allow it; one a page links on another site says to enter it.
+	refusePrivate := func(status int, link string) {
+		msg := msgPrivateAddress
+		if h, _ := feedurl.Host(link); !fetch.SameSite(enteredHost, h) {
+			msg = msgPrivateElsewhere(link)
+		}
+		writeErrorMsg(w, status, "private_address", msg)
+	}
+	if _, _, _, err := store.ValidateFeedURL(norm, privateFor(feedHost)); err != nil {
+		refusePrivate(http.StatusBadRequest, norm) // the only refusal left once the address passed above
 		return
 	}
 	ctx := r.Context()
@@ -235,10 +262,14 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	if ua == "" {
 		ua = s.outgoingUA()
 	}
-	found, err := discover.Find(dctx, fetch.ScopedTransport(s.opt.Guard, feedHost, allowPrivate, false, false), ua, retryUA, norm, allowPrivate)
+	found, err := discover.Find(dctx, fetch.ScopedTransport(s.opt.Guard, feedHost, privateFor(feedHost), false, false), ua, retryUA, norm, privateFor(feedHost))
 	cancel()
 	if err != nil {
 		code, msg := discoveryError(err)
+		if code == "private_address" {
+			refusePrivate(http.StatusUnprocessableEntity, norm)
+			return
+		}
 		writeErrorMsg(w, http.StatusUnprocessableEntity, code, msg)
 		return
 	}
@@ -254,19 +285,36 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 		s.writeExisting(w, r, id)
 		return
 	}
+	_, _, targetHost, err := store.ValidateFeedURL(target, true)
+	if err != nil {
+		s.serverError(w, "add feed", err) // discovery returns only addresses that passed this check
+		return
+	}
+	if _, _, _, err := store.ValidateFeedURL(target, privateFor(targetHost)); err != nil {
+		refusePrivate(http.StatusUnprocessableEntity, target) // a linked literal private address the grant does not reach
+		return
+	}
 	// The feed may answer through a redirect to one the user already has: that is checked on the
-	// address that answered, not the one typed or linked, before anything is created.
-	if owner, err := s.redirectOwner(ctx, found, ua, retryUA, func(h string) (http.RoundTripper, bool) {
-		return fetch.ScopedTransport(s.opt.Guard, h, allowPrivate, false, false), allowPrivate
-	}); err != nil {
+	// address that answered, not the one typed or linked, before anything is created. The probe of a
+	// linked feed runs with what the saved feed may reach, so it also finds a linked name the guard
+	// refuses (one on another site that resolves to a private address).
+	owner, refused, err := s.redirectOwner(ctx, found, ua, retryUA, func(h string) (http.RoundTripper, bool) {
+		priv := privateFor(h)
+		return fetch.ScopedTransport(s.opt.Guard, h, priv, false, false), priv
+	})
+	switch {
+	case err != nil:
 		s.serverError(w, "add feed", err)
 		return
-	} else if owner != 0 {
+	case refused:
+		refusePrivate(http.StatusUnprocessableEntity, target)
+		return
+	case owner != 0:
 		s.writeFeedExists(w, r, owner, redirectTail(found.IsFeed))
 		return
 	}
 
-	opts.URL = target
+	opts.URL, opts.AllowPrivateNet = target, privateFor(targetHost)
 	res, err := s.db.Subscribe(ctx, opts)
 	var bad *store.InvalidURLError
 	switch {
@@ -320,6 +368,19 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 const msgPrivateAddress = "That address is on a private network (this computer or your local network). Kipple does not " +
 	"fetch from private addresses unless you allow it for the feed. If this feed is on your own network, turn on " +
 	"\"Allow addresses on my own network\" and add it again."
+
+// msgPrivateElsewhere refuses link, a feed a page links on another site at a private address: the switch
+// covers only the site of the address entered, so that feed has to be entered itself.
+func msgPrivateElsewhere(link string) string {
+	return "The page links its feed on another site, at a private address (" + link + "). \"Allow addresses on my own " +
+		"network\" covers only the site of the address you enter. To add that feed, enter its own address and turn the switch on."
+}
+
+// linkedHost is the host of the one feed a page links (found has exactly one candidate).
+func linkedHost(found discover.Result) string {
+	h, _ := feedurl.Host(found.Candidates[0].URL)
+	return h
+}
 
 // msgPrivateAddressEdit is the same refusal for the feed editor, where the switch is under Unsafe options.
 const msgPrivateAddressEdit = "That address is on a private network (this computer or your local network). Kipple does not " +
@@ -382,35 +443,41 @@ func redirectTail(typed bool) string {
 // where that feed answers, probed here with the transport and redirect policy its first fetch will use
 // (scope builds it for the linked feed's host, with whether that host may be a private address: what the
 // saved feed may reach there, which differs from the page's when the link is on another site). A probe
-// that fails leaves it unknown, and the fetch that follows reports the problem. Add and the feed editor
-// both ask this, so a duplicate is refused the same way in both.
+// that fails leaves it unknown, and the fetch that follows reports the problem, except a private address
+// the saved feed may not reach (a literal one, or a name the guard refuses): that is reported in refused,
+// so the caller can say so instead of saving a feed that cannot be fetched. Add and the feed editor both
+// ask this, so a duplicate is refused the same way in both.
 func (s *Server) redirectOwner(ctx context.Context, found discover.Result, ua, retryUA string,
-	scope func(host string) (http.RoundTripper, bool)) (int64, error) {
+	scope func(host string) (http.RoundTripper, bool)) (owner int64, refused bool, err error) {
 	final := found.Final
 	if !found.IsFeed {
 		if len(found.Candidates) != 1 {
-			return 0, nil
+			return 0, false, nil
 		}
 		target := found.Candidates[0].URL
 		if _, _, h, err := store.ValidateFeedURL(target, true); err == nil {
 			rt, private := scope(h)
-			if _, _, _, err := store.ValidateFeedURL(target, private); err == nil {
-				pctx, cancel := context.WithTimeout(ctx, discoverWait)
-				defer cancel()
-				if probe, perr := discover.Find(pctx, rt, ua, retryUA, target, private); perr == nil {
-					final = probe.Final
-				}
+			if _, _, _, err := store.ValidateFeedURL(target, private); err != nil {
+				return 0, true, nil
+			}
+			pctx, cancel := context.WithTimeout(ctx, discoverWait)
+			defer cancel()
+			probe, perr := discover.Find(pctx, rt, ua, retryUA, target, private)
+			if perr == nil {
+				final = probe.Final
+			} else if class, _ := fetch.Classify(perr); class == fetch.ClassSSRF {
+				return 0, true, nil
 			}
 		}
 	}
 	if final == "" {
-		return 0, nil
+		return 0, false, nil
 	}
 	id, exists, err := s.db.FindFeedID(ctx, final)
 	if err != nil || !exists {
-		return 0, err
+		return 0, false, err
 	}
-	return id, nil
+	return id, false, nil
 }
 
 // existingFeedMessage says which feed the user already has: its title and, when it is in a folder, the
@@ -683,6 +750,20 @@ func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPa
 		return "", ""
 	}
 	private, insecure := keepExceptions(host)
+	// The feed a page links keeps those exceptions only on its own terms: one the patch sets is for the
+	// address typed and its site, as on Add; one kept from the feed is for the old address's site.
+	linkedExceptions := func(h string) (private, insecure bool) {
+		private, insecure = keepExceptions(h)
+		if !fetch.SameSite(host, h) {
+			if _, set := p.Cols["allow_private_net"]; set {
+				private = false
+			}
+			if _, set := p.Cols["allow_insecure_tls"]; set {
+				insecure = false
+			}
+		}
+		return private, insecure
+	}
 	if norm, _, _, err = store.ValidateFeedURL(*p.URL, private); err != nil {
 		return "", ""
 	}
@@ -709,18 +790,30 @@ func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPa
 				return "url_exists", s.existingFeedMessage(ctx, other, "The page you entered links it.")
 			}
 		}
-		owner, oerr := s.redirectOwner(ctx, found, ua, retryUA, func(h string) (http.RoundTripper, bool) {
-			// The feed that would be saved is the linked one: the exceptions it keeps are decided by
-			// its site against the old address (as above for the page), not by the page's.
-			priv, ins := keepExceptions(h)
+		owner, refused, oerr := s.redirectOwner(ctx, found, ua, retryUA, func(h string) (http.RoundTripper, bool) {
+			priv, ins := linkedExceptions(h)
 			return fetch.ScopedTransport(s.opt.Guard, h, priv, ins, flag("disable_http2", fd.DisableHTTP2)), priv
 		})
+		if oerr == nil && refused {
+			if lh := linkedHost(found); !fetch.SameSite(host, lh) {
+				return "private_address", msgPrivateElsewhere(found.Candidates[0].URL)
+			}
+			return "private_address", msgPrivateAddressEdit
+		}
 		if oerr == nil && owner != 0 && owner != id {
 			return "url_exists", s.existingFeedMessage(ctx, owner, redirectTail(found.IsFeed))
 		}
 		if !found.IsFeed {
 			u := found.Candidates[0].URL
 			p.URL = &u
+			// An exception the patch sets is saved only if the linked feed keeps it (linkedExceptions);
+			// one it does not set is reset by the store when the feed moves to another site.
+			priv, ins := linkedExceptions(linkedHost(found))
+			for key, keep := range map[string]bool{"allow_private_net": priv, "allow_insecure_tls": ins} {
+				if _, set := p.Cols[key]; set && !keep {
+					p.Cols[key] = false
+				}
+			}
 		}
 		return "", ""
 	case err != nil || found.IsFeed || len(found.Candidates) == 0:

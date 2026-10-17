@@ -136,7 +136,7 @@ export type AddFeedResult =
   | { status: "choose"; candidates: Candidate[] }
   | { status: "ok"; feed: FeedDetail; fetch?: FetchOutcome };
 
-export const addFeed = (body: { url: string; title?: string; folder_id?: string; allow_private_net?: boolean }) =>
+export const addFeed = (body: { url: string; title?: string; folder_id?: string; allow_private_net?: boolean; discovered_from?: string }) =>
   api<AddFeedResult>("/api/feeds", { method: "POST", body });
 
 export const patchFeed = (id: string, body: Record<string, unknown>) =>

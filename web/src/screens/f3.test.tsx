@@ -296,7 +296,8 @@ describe("Add feed", () => {
     await user.click(within(dlg).getByRole("button", { name: "Add selected feed" }));
     await screen.findByRole("dialog", { name: "Feed added" });
     expect(screen.getByText(/12 articles/)).toBeInTheDocument();
-    expect(posts).toHaveLength(2);
+    // The pick goes back with the address entered: the server scopes the private-network switch to that site.
+    expect(posts).toEqual([{ url: "https://site.test" }, { url: "https://site.test/b.xml", discovered_from: "https://site.test" }]);
   });
 
   it("leaves a blank title to the feed and shows the name the feed gives itself", async () => {
