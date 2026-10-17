@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
+import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex } from "./rowTabStop";
@@ -15,6 +15,7 @@ import { useRowTabIndex } from "./rowTabStop";
 function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions }: RowProps) {
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
+  const failure = useImageFailure(item.image);
   return (
     <article
       data-item-id={item.id}
@@ -26,19 +27,10 @@ function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions 
     >
       <div className="flex flex-col gap-3 @[34rem]:flex-row @[34rem]:gap-5">
         {item.image ? (
-          <img
+          <ListImage
             src={item.image}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            className={cn(
-              "aspect-video w-full rounded-xl bg-surface object-cover @[34rem]:w-2/5 @[34rem]:self-start",
-              item.read && "opacity-60",
-            )}
-            onError={(e) => {
-              // Broken image: collapse to the text-only variant, no broken icon.
-              e.currentTarget.style.display = "none";
-            }}
+            failure={failure}
+            className={cn("aspect-video w-full rounded-xl bg-surface object-cover @[34rem]:w-2/5 @[34rem]:self-start", item.read && "opacity-60")}
           />
         ) : null}
         <div className="flex min-w-0 flex-1 flex-col gap-[calc(var(--row-gap)*2)]">

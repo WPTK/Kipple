@@ -19,6 +19,30 @@ export function SourceIcon({ src, className }: { src: string | null | undefined;
   return <img src={src} alt="" width={16} height={16} loading="lazy" className={cn("size-4 shrink-0 rounded-sm", className)} />;
 }
 
+/** Whether a list row's lead picture could not be shown, and the handler that says so. A new `src` is tried again. */
+export interface ImageFailure {
+  failed: boolean;
+  onError: () => void;
+}
+
+export function useImageFailure(src: string | null | undefined): ImageFailure {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  return { failed: !!src && failedSrc === src, onError: () => setFailedSrc(src ?? null) };
+}
+
+/**
+ * A list row's lead picture. When it cannot be shown (the image proxy refuses the format, the file is gone) the
+ * picture and its `frame` (the box that holds its place) are removed together, so no layout keeps an empty box.
+ * The one place that rule lives; every layout draws its picture through here and reads the same `failure` (from
+ * useImageFailure) to lay the rest of the row out as a row without a picture. (The article itself says "Image not
+ * shown" in place of an image; a list row just drops it.)
+ */
+export function ListImage({ src, failure, className, frame }: { src: string; failure: ImageFailure; className?: string; frame?: { className?: string } }) {
+  if (failure.failed) return null;
+  const img = <img src={src} alt="" loading="lazy" decoding="async" className={className} onError={failure.onError} />;
+  return frame ? <div className={frame.className}>{img}</div> : img;
+}
+
 export function StarButton({ item, onToggleStar, className }: { item: Card; onToggleStar: (i: Card) => void; className?: string }) {
   const tabIndex = useRowTabIndex();
   return (

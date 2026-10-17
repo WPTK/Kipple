@@ -70,7 +70,7 @@ export function Toasts({ children, inset = "tabbar" }: { children?: ReactNode; i
       className="pointer-events-none fixed inset-x-0 z-50 flex flex-col items-center gap-2 px-4"
       data-testid="toast-region"
       data-inset={inset}
-      style={{ bottom: `calc(${INSET[inset]} + env(safe-area-inset-bottom) + 0.5rem)` }}
+      style={{ bottom: `calc(${INSET[inset]} + var(--bottom-bar-h, 0px) + env(safe-area-inset-bottom) + 0.5rem)` }}
     >
       {list.map((t) => (
         <ToastView key={t.id} t={t} />
