@@ -1,1 +1,0 @@
-Harden `kipple restore` run as root: the data-directory lock file and the files it hands back to the data directory's owner must be plain files. A symbolic link or special file under one of those names, or a hard link when running as root, is refused and never followed. (#450)

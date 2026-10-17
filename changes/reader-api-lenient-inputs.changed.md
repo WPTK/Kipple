@@ -1,1 +1,0 @@
-Reader API: `subscription/edit` with `ac=subscribe` now accepts an `s` without the `feed/` prefix (as `quickadd` does), and `rename-tag` accepts a bare folder name as `dest`; both used to be ignored with `OK`.

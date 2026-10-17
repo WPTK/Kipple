@@ -1,1 +1,0 @@
-Compatibility notes: only `subscription/list` and `tag/list` carry an `ETag` (not every compressed response), a downgrade needs the pre-migration snapshot only when the upgrade changed the schema, and the Reader API edge behaviours (a malformed `ts` on `mark-all-as-read`, `If-None-Match: *`, unprefixed `s` and `dest`, `ClientLogin` not trimming) are written down.
