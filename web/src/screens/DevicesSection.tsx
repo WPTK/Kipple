@@ -203,7 +203,7 @@ export function DevicesSection() {
               {d.current ? null : (
                 <div className="flex flex-wrap gap-2">
                   {unsaved ? null : (
-                    <Button onClick={() => setConfirm({ kind: "copy", from: d })} aria-label={`Copy settings from ${label(d)}`}>
+                    <Button onClick={() => setConfirm({ kind: "copy", from: d })} aria-label={`Copy its settings here, from ${label(d)}`}>
                       Copy its settings here
                     </Button>
                   )}

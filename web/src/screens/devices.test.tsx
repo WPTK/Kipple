@@ -124,7 +124,7 @@ describe("Settings > Devices", () => {
     });
     go();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Copy settings from Safari on iPhone" }));
+    await user.click(await screen.findByRole("button", { name: "Copy its settings here, from Safari on iPhone" }));
     const dlg = within(await screen.findByRole("dialog", { name: "Copy settings here?" }));
     expect(dlg.getByText(/replaces this device's own settings/)).toBeInTheDocument();
     expect(calls.some((c) => c.method === "POST")).toBe(false); // nothing until confirmed

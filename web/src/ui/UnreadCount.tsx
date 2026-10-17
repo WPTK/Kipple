@@ -11,6 +11,18 @@ export function badgeKind(n: number, mode: UnreadBadge): "count" | "dot" | null 
 }
 
 /**
+ * The name of a row that carries an unread badge, for a control whose name is set by hand (a tree item, which cannot
+ * take its name from content because the favorite star inside it would be part of it). It keeps the visible text in
+ * the same order and adds the word the badge hides from sighted users: "Feed name, 12 unread" (WCAG 2.5.3, Label in
+ * Name). A dot says "unread" without a number, and no badge adds nothing.
+ */
+export function unreadName(name: string, n: number, mode: UnreadBadge): string {
+  const kind = badgeKind(n, mode);
+  if (kind === "count") return `${name}, ${badgeText(n)} unread`;
+  return kind === "dot" ? `${name}, unread` : name;
+}
+
+/**
  * The unread badge on the tab bar and in the sidebar. The device setting "Unread badge" (Count, Dot only, Off)
  * decides what shows. The unread state is never color alone: the dot has a screen reader label and the count
  * is text.

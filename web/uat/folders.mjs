@@ -77,6 +77,34 @@ async function shot(page, name) {
   if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, `${name}.png`), fullPage: false }).catch(() => {});
 }
 
+/**
+ * axe-core's label-content-name-mismatch (WCAG 2.5.3) on the sidebar tree, run by name because 4.13 tags it
+ * experimental (the tag run in axeRun skips it) and from 4.14 it is a normal rule. The tree is made taller than the
+ * sidebar's scroll area (40 copies of a real feed row are added in the page, and removed again) because axe reads rows
+ * scrolled out of that area differently from rows in view. Before 4.14 the rule's old substring check flags every row,
+ * so it is skipped there.
+ */
+async function nameInLabelRun(page, where) {
+  if (!(await page.evaluate(() => typeof window.axe === "object"))) await page.evaluate(AXE);
+  const version = await page.evaluate(() => window.axe.version);
+  const [maj, min] = version.split(".").map(Number);
+  if (maj < 4 || (maj === 4 && min < 14)) return console.log(`skip ${where} label-in-name: axe-core ${version} is older than 4.14, whose rule would flag every row`);
+  const res = await page.evaluate(async () => {
+    const tree = document.querySelector('nav [role="tree"]');
+    const group = tree.querySelector('[role="group"]');
+    const copies = Array.from({ length: 40 }, () => group.appendChild(group.querySelector("li").cloneNode(true)));
+    let area = tree;
+    while (area && area.scrollHeight <= area.clientHeight + 1) area = area.parentElement;
+    const box = area?.getBoundingClientRect();
+    const clipped = [...tree.querySelectorAll('[role="treeitem"]')].filter((el) => box && el.getBoundingClientRect().bottom > box.bottom).length;
+    const r = await window.axe.run(document, { runOnly: { type: "rule", values: ["label-content-name-mismatch"] }, rules: { "label-content-name-mismatch": { enabled: true } } });
+    for (const li of copies) li.remove();
+    return { clipped, found: r.violations.flatMap((v) => v.nodes.map((n) => n.target.join(" "))), checked: r.passes.reduce((n, p) => n + p.nodes.length, 0) };
+  });
+  check(res.clipped > 0, `${where} label-in-name rows`, `${res.clipped} tree rows scrolled out of the sidebar`, "no row was scrolled out, so the check proves nothing");
+  check(res.found.length === 0 && res.checked > 0, `${where} label-in-name`, `${res.checked} elements checked, no mismatch (axe-core ${version})`, `${res.found.slice(0, 3).join(" | ")} (${res.checked} passed)`);
+}
+
 async function axeRun(page, where) {
   if (!(await page.evaluate(() => typeof window.axe === "object"))) await page.evaluate(AXE);
   const res = await page.evaluate(() =>
@@ -195,6 +223,7 @@ async function run(browser, vp) {
       const tree = page.getByRole("navigation", { name: "Primary" }).getByRole("tree", { name: "Feeds" });
       const levels = await tree.getByRole("treeitem").evaluateAll((els, names) => els.filter((e) => names.some((n) => e.querySelector("a")?.textContent?.startsWith(n))).map((e) => e.getAttribute("aria-level")), [P, C, G]);
       check(levels.join() === "1,2,3", `${tag} N3 sidebar`, "a tree with three levels", `levels ${levels.join()}`);
+      await nameInLabelRun(page, `${tag} N3`);
     }
     await page.goto(`/l/unread?folder=${gid}`, { waitUntil: "load" });
     const heading = page.getByRole("heading", { level: 1, name: `${P}${SEP}${C}${SEP}${G}` });
