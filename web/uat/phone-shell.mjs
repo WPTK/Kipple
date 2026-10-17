@@ -9,7 +9,8 @@
 //   F1  the Feeds title is not truncated at 402 and 440 wide;
 //   H1  the list header is as tall for Unread as for a feed with a very long title, at 393, 402 and 440 wide;
 //   R1  in landscape the article's title and body start at the same left edge;
-//   T1  the tab bar marks Feeds on a feed's list and on Feed health, and Unread on the Unread list.
+//   T1  the tab bar marks Feeds on a feed's list and on Feed health, and Unread on the Unread list;
+//   M1  at 874x402 the opened row More menu lies inside the screen, above the tab bar (#431).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { start } from "./common.mjs";
@@ -91,6 +92,25 @@ await t.eachViewport(async (page, vp) => {
     const m = await page.evaluate(() => ({ title: document.querySelector("#article-title").getBoundingClientRect().left, body: document.querySelector(".article-body")?.getBoundingClientRect().left ?? null }));
     check(m.body !== null && Math.abs(m.title - m.body) <= 1, `${tag} R1`, `title and body start at ${Math.round(m.title)} px`, `the title starts at ${Math.round(m.title)} px and the body at ${m.body === null ? "(no body)" : Math.round(m.body)} px`);
     await t.shot(page, `${tag}-landscape-reader`);
+  });
+
+  await step(`${tag} M1`, async () => {
+    await size(874, 402);
+    await open("/l/all");
+    const row = page.locator("main article[data-item-id]").first();
+    await row.waitFor({ timeout: 15000 });
+    await row.getByRole("button", { name: "More actions" }).click();
+    const menu = page.getByRole("menu");
+    await menu.waitFor({ timeout: 5000 });
+    await page.waitForTimeout(500);
+    const m = await page.evaluate(() => {
+      const r = document.querySelector('[role="menu"]').getBoundingClientRect();
+      const bar = document.querySelector('nav[aria-label="Primary"]')?.getBoundingClientRect().top;
+      return { top: r.top, bottom: r.bottom, limit: bar !== undefined && bar > window.innerHeight / 2 ? bar : window.innerHeight };
+    });
+    check(m.top >= 0 && m.bottom <= m.limit + 0.5, `${tag} M1`, `the row menu spans ${Math.round(m.top)}-${Math.round(m.bottom)} px, inside 0-${Math.round(m.limit)}`, `the row menu spans ${Math.round(m.top)}-${Math.round(m.bottom)} px, outside 0-${Math.round(m.limit)} (clipped)`);
+    await t.shot(page, `${tag}-landscape-row-menu`);
+    await page.keyboard.press("Escape");
   });
 });
 
