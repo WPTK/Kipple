@@ -61,7 +61,8 @@ let bin = opt.bin;
 if (!bin) {
   bin = join(tmp, process.platform === "win32" ? "kipple.exe" : "kipple");
   console.log("building Kipple ...");
-  const b = spawnSync("go", ["build", "-o", bin, "./cmd/kipple"], { cwd: root, stdio: "inherit" });
+  // A release version, so the server behaves like a published one (a development build records no "What's new" state).
+  const b = spawnSync("go", ["build", "-ldflags", `-X main.version=${process.env.VERSION?.trim() || "v0.0.0-uat"}`, "-o", bin, "./cmd/kipple"], { cwd: root, stdio: "inherit" });
   if (b.status !== 0) setupError("go build failed");
 }
 if (opt.screenshots) mkdirSync(opt.screenshots, { recursive: true });
@@ -219,6 +220,15 @@ try {
     check("A setup routes", (await call(sp, "/api/setup/account", { username: "intruder", password: "intruder-password" })) === 404, "/api/setup/account still answers after setup");
     const me = await page.evaluate(async () => (await fetch("/api/auth/me")).json());
     check("A account", me.setup_pending === false, "setup is still pending after Finish");
+    // A brand-new install is not an upgrade: the account was created at this version, so the next load (with the feeds
+    // the wizard just added) shows no "What's new". The dialog check has teeth when web/dist was built with the same
+    // VERSION as the server (a development bundle never shows it); the recorded version is checked either way.
+    const about = await page.evaluate(async () => (await fetch("/api/about")).json());
+    check("A whats-new", settings.values?.["ui.whats_new_seen"] === about.version, `ui.whats_new_seen is ${JSON.stringify(settings.values?.["ui.whats_new_seen"])}, expected ${about.version}`);
+    await page.reload();
+    await page.getByRole("main").waitFor({ timeout: 10_000 });
+    await page.waitForTimeout(1500);
+    check("A whats-new", (await page.getByRole("dialog", { name: "What's new in Kipple" }).count()) === 0, "What's new appeared on the first load after setup");
     check("A account", errors.length === 0, `console or page errors: ${errors.join(" | ")}`);
     // A backup of this library, for Run D, made the way the settings page makes one: POST /api/backup answers 200 with
     // the download, or 202 with a job to follow until it is ready.

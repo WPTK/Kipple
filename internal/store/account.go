@@ -6,7 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 )
+
+// SettingWhatsNewSeen is the newest version whose "What's new" the reader has been shown (account-wide).
+const SettingWhatsNewSeen = "ui.whats_new_seen"
 
 // Account auth modes (account.auth_mode, migration 0010). AuthStandard is a web
 // password, or none with Cloudflare Access (design §7.0); AuthOpen is no
@@ -60,7 +64,9 @@ func (d *DB) Account(ctx context.Context) (a Account, ok bool, err error) {
 // inserted one; an existing account is never modified. Two concurrent calls
 // have exactly one winner (ON CONFLICT DO NOTHING under the single writer). An
 // account created from the environment is stamped as set up in the same
-// transaction, so scripted deploys never see onboarding.
+// transaction, so scripted deploys never see onboarding. A new account also
+// starts out as having seen this version's "What's new" (ui.whats_new_seen), so
+// only an upgrade ever shows it; a development build records nothing.
 func (d *DB) CreateAccount(ctx context.Context, a Account) (created bool, err error) {
 	mode, via := a.AuthMode, a.CreatedVia
 	if mode == "" {
@@ -86,6 +92,11 @@ func (d *DB) CreateAccount(ctx context.Context, a Account) (created bool, err er
 		created = n > 0
 		if !created {
 			return nil
+		}
+		if v := strings.TrimSpace(d.version); v != "" && v != "dev" {
+			if err := setSettingsTx(ctx, tx, map[string]any{SettingWhatsNewSeen: v}); err != nil {
+				return err
+			}
 		}
 		if via == CreatedViaEnv {
 			return stampSetupCompletedTx(ctx, tx, d.clock.Now().Unix())

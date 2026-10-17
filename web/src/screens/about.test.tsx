@@ -211,17 +211,23 @@ describe("What's new after an upgrade", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("marks a first run (no feeds yet) as seen without showing anything", async () => {
+  it("does not show on a brand-new install, whose feeds the setup wizard added", async () => {
     BUNDLE.version = "v0.5.0";
     const r = routes({
-      "GET /api/bootstrap": () => json(withSeen("", [])),
+      "GET /api/bootstrap": () => json(withSeen("v0.5.0")), // the server records the running version when it creates the account
       "PATCH /api/settings": () => json(settingsBody),
     });
     go("/");
-    await waitFor(() => {
-      const patch = r.calls.find((c) => c.method === "PATCH" && c.url.pathname === "/api/settings");
-      expect(JSON.parse(String(patch?.init?.body))).toEqual({ "ui.whats_new_seen": "v0.5.0" });
-    });
+    await screen.findByRole("main");
+    expect(bootstrap.feeds.length).toBeGreaterThan(0);
     expect(screen.queryByRole("dialog", { name: "What's new in Kipple" })).toBeNull();
+    expect(r.calls.some((c) => c.method === "PATCH")).toBe(false);
+  });
+
+  it("shows the current release to an account that has no record (it predates the setting)", async () => {
+    BUNDLE.version = "v0.5.0";
+    routes({ "GET /api/bootstrap": () => json(withSeen("")) });
+    go("/");
+    expect(await screen.findByRole("dialog", { name: "What's new in Kipple" })).toBeInTheDocument();
   });
 });
