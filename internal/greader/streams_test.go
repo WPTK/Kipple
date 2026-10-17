@@ -682,7 +682,7 @@ func TestStreamContents(t *testing.T) {
 	w = h.get(rd + "stream/contents/feed/https://b.example/f")
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 	require.Len(t, env.Items, 1)
-	// FeedMe smoke: ot=0 and s via query.
+	// Reader API client smoke: ot=0 and s via query.
 	w = h.get(rd + "stream/contents?s=feed/" + strconv.FormatInt(fa, 10) + "&ot=0&n=2")
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 	require.Len(t, env.Items, 2)
@@ -692,7 +692,7 @@ func TestStreamContents(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"items":[]`)
 }
 
-func TestSmokeUnreadAndFeedMeRequests(t *testing.T) {
+func TestSmokeUnreadAndClientRequests(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	f := h.addFeed("https://a.example/f", "A", "")

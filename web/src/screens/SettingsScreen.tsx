@@ -129,7 +129,7 @@ function AutoReadPanel({ days }: { days: number }) {
             aria-invalid={valid ? undefined : true}
             className={`${inputCls} w-40`}
           />
-          <span className="text-xs text-fg2">Leave empty to use the saved value. Trying a number only counts; it is never saved, and articles are only marked using the saved setting.</span>
+          <span className="text-xs text-fg2">Leave empty to use the saved value. Type a number of days to see how many articles it would mark read. Nothing is saved, and articles are only marked using the saved setting.</span>
         </label>
       </Disclosure>
     </div>
@@ -375,7 +375,7 @@ function AppearancePage() {
         />
         <Segmented<LinkTarget>
           legend="Open links in"
-          hint="Same tab lets a link that an installed app claims (ESPN, YouTube) open in the app cleanly, and Back returns here. It is the default on iPhone and iPad. Undo is not available after you leave Kipple."
+          hint="Same tab lets a link that an installed app claims open in the app cleanly, and Back returns here. It is the default on iPhone and iPad. Undo is not available after you leave Kipple."
           value={resolveLinkTarget(dp.linkTarget)}
           onChange={(linkTarget) => updateDevicePrefs({ linkTarget })}
           options={[

@@ -544,7 +544,7 @@ type unreadCountJSON struct {
 	NewestItemTimestampUsec string `json:"newestItemTimestampUsec"`
 }
 
-// unreadCount is GET unread-count (FeedMe-class clients).
+// unreadCount is GET unread-count (Reader API clients).
 func (c *call) unreadCount() {
 	rows, err := c.a.db.UnreadCounts(c.r.Context(), c.a.holdCut())
 	if err != nil {

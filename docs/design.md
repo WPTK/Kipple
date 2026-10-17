@@ -1427,7 +1427,7 @@ DELETE FROM trimmed_items WHERE id IN (SELECT value FROM json_each(:rids)) AND i
 Reader routes never call `r.ParseForm`.
 
 1. Parse `Content-Type` with `mime.ParseMediaType`, ignoring parameters (`; charset=utf-8`) and treating an unparseable header as absent.
-   - `multipart/form-data` (Readrops ClientLogin) goes through `r.MultipartReader`.
+   - `multipart/form-data` (a Reader API client's ClientLogin) goes through `r.MultipartReader`.
    - `subscription/import` reads the raw body as OPML.
    - For every other POST, whatever the media type (including absent, `text/plain`, `application/octet-stream`), the body is parsed as urlencoded. The cap is 4 MiB (`maxBody`) when the `Authorization` header already authenticated the request. ClientLogin and any POST that has no valid header (so must authenticate with T in the body) are capped at 64 KiB (`maxLoginBody`). `subscription/import` reads its raw OPML body with the same 4 MiB cap. A body over its cap answers `413` and is never parsed truncated. More than 20000 pairs (`maxPairs`) in the body or the query answers `400`. A 1000-id edit-tag is about 60 KB.
 2. Split on `&` only. Split each pair on the **first** `=`: some clients leave `=`, `;`, `,` and `$` unencoded in values. A pair with no `=` becomes `key → ""`.
