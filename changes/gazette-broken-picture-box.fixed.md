@@ -1,0 +1,1 @@
+Gazette no longer keeps an empty grey box where a story's picture cannot be shown (a format the image proxy refuses, or a file that is gone); it drops the box as Editorial, Cards and Inbox do, and every layout now shares that rule. (#398)

@@ -1,0 +1,1 @@
+A toast no longer covers the buttons of a bottom bar: on Feeds and Feed Health the "Folder created" or Undo toast now stands above the selection bar (Select all, Move to folder, Delete) instead of on top of it. (#397)
