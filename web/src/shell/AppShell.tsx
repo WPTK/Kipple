@@ -87,7 +87,7 @@ function Sidebar() {
   const item = navItemClass;
   return (
     <div ref={box} className="relative h-full shrink-0" style={{ width }}>
-      <nav aria-label="Primary" className="pt-safe pl-safe flex h-full flex-col border-r border-line bg-surface px-2">
+      <nav aria-label="Primary" className="pt-safe pl-safe relative flex h-full flex-col border-r border-line bg-surface px-2">
         <div className="flex shrink-0 flex-col gap-1">
           <p className="px-3 py-3 text-lg font-bold">Kipple</p>
           <NavLink to="/l/unread" end className={item}>
@@ -134,18 +134,18 @@ function Sidebar() {
             Settings
           </NavLink>
         </div>
+        <ResizeHandle
+          label="Resize sidebar"
+          value={width}
+          min={SIDEBAR_WIDTH_MIN}
+          max={limit}
+          onPreview={(px) => {
+            if (box.current) box.current.style.width = `${px ?? width}px`;
+          }}
+          onChange={(sidebarWidth) => updateDevicePrefs({ sidebarWidth })}
+          onReset={() => updateDevicePrefs({ sidebarWidth: DEFAULT_DEVICE_PREFS.sidebarWidth })}
+        />
       </nav>
-      <ResizeHandle
-        label="Resize sidebar"
-        value={width}
-        min={SIDEBAR_WIDTH_MIN}
-        max={limit}
-        onPreview={(px) => {
-          if (box.current) box.current.style.width = `${px ?? width}px`;
-        }}
-        onChange={(sidebarWidth) => updateDevicePrefs({ sidebarWidth })}
-        onReset={() => updateDevicePrefs({ sidebarWidth: DEFAULT_DEVICE_PREFS.sidebarWidth })}
-      />
     </div>
   );
 }
@@ -222,8 +222,32 @@ export function AppShell() {
       return;
     }
     if (section === "i") return; // the article focuses its own title
-    const target = mainRef.current?.querySelector<HTMLElement>("[data-route-focus]") ?? mainRef.current?.querySelector<HTMLElement>("[data-route-heading]");
-    (target ?? mainRef.current)?.focus({ preventScroll: true });
+    const find = () => mainRef.current?.querySelector<HTMLElement>("[data-route-focus]") ?? mainRef.current?.querySelector<HTMLElement>("[data-route-heading]");
+    const target = find();
+    if (target) {
+      target.focus({ preventScroll: true });
+      return;
+    }
+    // A lazy screen still loading has no heading yet: main takes focus now, and the heading takes it when it mounts, if
+    // focus is still on main (or lost to the body). Once that has happened, or focus has gone anywhere else, or a
+    // moment has passed, the watch ends, so a later re-render of the screen never pulls focus back.
+    const main = mainRef.current;
+    main?.focus({ preventScroll: true });
+    if (!main) return;
+    const stop = () => {
+      watch.disconnect();
+      clearTimeout(timer);
+    };
+    const watch = new MutationObserver(() => {
+      const heading = find();
+      if (!heading) return;
+      const at = document.activeElement;
+      if (at === main || at === document.body || at === null) heading.focus({ preventScroll: true });
+      stop();
+    });
+    const timer = setTimeout(stop, 10_000);
+    watch.observe(main, { childList: true, subtree: true });
+    return stop;
   }, [section, pathname]);
 
   const inArticle = pathname.startsWith("/i/");

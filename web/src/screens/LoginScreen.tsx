@@ -12,7 +12,7 @@ import { Button } from "@/ui/button";
  * accepts that only for an account without a web password, reached through a verified Cloudflare Access sign-in.
  */
 export function LoginScreen() {
-  useDocumentTitle("Sign in");
+  useDocumentTitle("Sign in to Kipple", true);
   const qc = useQueryClient();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
