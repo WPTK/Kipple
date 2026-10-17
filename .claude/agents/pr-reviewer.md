@@ -19,7 +19,7 @@ Effort: high. You review a diff and report. You change nothing.
   (`git rev-parse`). Never use `FETCH_HEAD`: other sessions overwrite it. To read the head tree, make a detached
   worktree (`git worktree add --detach <temp dir> <head-sha>`) and remove it when done
   (`git worktree remove --force <temp dir>`), also when you stop early.
-- No Haiku, no model switching.
+- Not on Haiku: you review. No model switching.
 
 ## What to check
 

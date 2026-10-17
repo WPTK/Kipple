@@ -1,7 +1,7 @@
 # Kipple
 
 Self-hosted RSS reader for the owner. Replaces the reader the owner used before, on the owner's Kipple server. Single user. The global
-CLAUDE.md of the dev machine (where the owner and Claude work) also loads here and its rules apply (never Haiku,
+CLAUDE.md of the dev machine (where the owner and Claude work) also loads here and its rules apply (Haiku only as a read-only helper,
 docker via PowerShell, 127.0.0.1 not localhost, name compose services explicitly).
 
 The dev machine and the Kipple server are two different machines, and neither is how other people will run Kipple: they
@@ -11,14 +11,11 @@ live in one place, `docs/maintainers/RELEASING.md`.
 
 ## Design rules (no band-aids)
 
-Before adding a flag, fallback, warning, retry, cache or special case, name the root cause and look for the change that
-makes the case impossible. For anything non-trivial, design it twice (two radically different designs) and say why
-one won. Prefer deleting to adding; a docs caveat usually means the behaviour is wrong. One source of truth: no state
-copied in several places, no flag pairs that allow invalid combinations. Removing or renaming something is expand,
-migrate, contract, and the contract must finish. Before calling code a band-aid, find out what it was for (git blame,
-the issue, the tests). Do not over-decompose either: prefer deeper modules with simple interfaces. With one user a
-removal is announced in the changelog, not in runtime code. Every PR description states the root cause, what the change
-removes and adds (`git diff --shortstat`), and, if it adds a workaround, why no root fix was possible.
+The global coding principles apply (root cause first, delete over add, one source of truth, expand/migrate/contract).
+Kipple adds: for anything non-trivial, design it twice (two radically different designs) and say why one won. A docs
+caveat usually means the behaviour is wrong. No flag pairs that allow invalid combinations; the contract step must
+finish. Before calling code a band-aid, find out what it was for (git blame, the issue, the tests). Prefer deeper modules
+with simple interfaces. With one user a removal is announced in the changelog, not in runtime code.
 
 - Write for a stranger. User-facing text (UI, docs, errors, release notes' top paragraph) describes the product as it
   is, with no earlier versions, old ports or past decisions; history lives in CHANGELOG.md and the decision records.
@@ -93,37 +90,22 @@ exact commands, backup, verification and GHCR steps are in `docs/maintainers/REL
 
 ## Unattended work
 
-- May do without asking: branches and worktrees, commits, PRs, merge to `main` when CI is green on the exact head (one PR
-  at a time, base merged in, never force-pushed), issues and labels, subagents (never Haiku), the history repo, and
-  website PRs for version text and screenshots.
+The global unattended-work rules apply (branches, PRs, merge on green CI, a denied command stops that item). Also without
+asking: the history repo and website PRs for version text and screenshots.
+
 - Needs the owner's word in chat: pushing a tag, creating a GitHub release, copying data off the Kipple server,
   deploying, anything touching the Kipple server's containers or compose file (including a rollback drill).
-- A denied command stops that item: keep the exact command in a scratch note and carry on elsewhere; never route around it.
 
 ## Working economy (token use)
 
-Most of the cost is context re-read on every turn, so keep each context small.
+The global working-economy and subagent rules apply. Kipple specifics:
 
-- **Models:** pass the model explicitly on every subagent. Opus only for review of a diff, root-causing and design
-  decisions; Sonnet for edits that fix already-diagnosed findings, docs, release steps, scripts and checks. Never Haiku.
-- **Subagents:** use one only when the work is independent, large, or must not fill this context. Give it the files and
-  the question, a model, and a stop condition. Do not spawn a verifier for a fact one command can check. There is no
-  limit on how many agents run at once. An author stops at "pushed" and never waits on CI; the main session owns CI
-  waiting with one blocking `gh pr checks <n> --watch --fail-fast` (or `scripts/maintainers/pr-ready.ps1`) per PR. A reviewer works
-  alone and finishes before it hands back.
-- **Do not re-verify what CI already proved.** A release or docs-only commit needs the CI run on that commit and nothing
-  more. Fuzz, UAT suites and a delta review run once, on the commit being tagged, and only if code changed since the
-  last run.
-- **Batch small PRs:** related tiny changes (docs, `changes/` entries, wording, config tweaks) go in one PR on one branch:
-  one high review, one CI wait, one merge, and the description lists each item. Code fixes with different root causes stay
-  separate. The auto-fix monitor (`bind_pr` + `set_monitor`) is for PRs that touch code, workflows or dependencies; a
-  docs-only or `changes/`-only PR gets one `gh pr checks <n> --watch --fail-fast` (CI skips the build and test steps
-  when every changed file is listed in `scripts/ci-prose.txt`, so that wait is short).
-- **Keep output small:** prefer the scripts that print one-line verdicts (`release-gates`, `pr-ready`); pipe test, CI,
-  npm and changelog-preview output through `head`/`tail`/`grep`, read docs by line range, search before reading.
-  Cheap checks first: `git diff --shortstat`, `gh pr checks <n>` or a script verdict before opening any file or log;
-  read only the failing step's log tail, never a whole large test file when grep or a line range answers it. Do not
-  re-read a file just edited.
-- **Sessions:** one task or release per session; start a new one after a release or when the context passes about
-  300K tokens instead of carrying a week of history. Put state in memory and the history repo, not in the chat.
-- **Replies:** short and plain, result first, the decision the owner must make second.
+- **Models and agents:** the global "Which agent" rules apply. Kipple's `pr-author` and `pr-reviewer` stay for the PR
+  flow. CI waiting is one blocking `gh pr checks <n> --watch --fail-fast` (or `scripts/maintainers/pr-ready.ps1`) per PR.
+- **CI already proved it:** a release or docs-only commit needs the CI run on that commit and nothing more. Fuzz, UAT
+  suites and a delta review run once, on the commit being tagged, and only if code changed since the last run.
+- **Batch small PRs:** `changes/` entries, docs and wording go in one PR. The auto-fix monitor (`bind_pr` +
+  `set_monitor`) is for PRs that touch code, workflows or dependencies; a docs-only or `changes/`-only PR gets one
+  `gh pr checks <n> --watch --fail-fast` (CI skips build and test when every changed file is in `scripts/ci-prose.txt`).
+- **Short output:** prefer the one-line-verdict scripts (`release-gates`, `pr-ready`).
+- **Sessions and state:** one release per session; state goes in memory and the history repo.
