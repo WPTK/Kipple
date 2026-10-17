@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { DropdownMenu } from "radix-ui";
 import { Check, LayoutGrid, Star } from "lucide-react";
 import type { Scope } from "@/api/types";
@@ -24,6 +25,13 @@ import {
 import { cn } from "@/lib/cn";
 import { announce } from "@/shell/toasts";
 
+/** How far the menu keeps off the bottom edge: 8 px, or past the primary tab bar (its safe-area padding included) when it shows. */
+function tabBarClearance(): number {
+  const top = document.querySelector('nav[aria-label="Primary"]')?.getBoundingClientRect().top;
+  // The wide layout's sidebar is the same landmark but runs down the side, so only a bar in the lower half counts.
+  return top !== undefined && top > window.innerHeight / 2 ? window.innerHeight - top + 8 : 8;
+}
+
 const item =
   "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-selection";
 const heading = "px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase";
@@ -40,7 +48,7 @@ export function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
   const up = inheritedList(dp, ctx, field);
   const value = FIELD_LABELS[field][up.value] ?? "";
   if (up.from) return `Inherited from ${folderPath(tree, up.from.id)} (${value})`;
-  return field === "view" ? `Use the default (${value})` : `Use device default (${value})`;
+  return field === "view" ? `Use the standard view (${value})` : `Use device default (${value})`;
 }
 
 /**
@@ -52,6 +60,21 @@ export function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
  */
 export function LayoutMenu({ scope }: { scope: Scope }) {
   const dp = useDevicePrefs();
+  // Room kept clear at the bottom: the tab bar and the home-indicator zone, measured while the menu is open.
+  const [open, setOpen] = useState(false);
+  const [bottomPad, setBottomPad] = useState(8);
+  // Measured on open and again when the window or the visual viewport resizes (rotation, the address bar).
+  useEffect(() => {
+    if (!open) return;
+    const measure = () => setBottomPad(tabBarClearance());
+    measure();
+    window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+    };
+  }, [open]);
   const setListOverride = useSetListOverride();
   const { layout, ctx } = useResolvedLayout(scope);
   const target = overrideTarget(ctx);
@@ -67,7 +90,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
   };
 
   return (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root onOpenChange={setOpen}>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
@@ -81,10 +104,11 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
         <DropdownMenu.Content
           align="start"
           sideOffset={4}
-          collisionPadding={8}
-          className="z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border border-line bg-bg p-1 text-fg shadow-xl"
+          collisionPadding={{ top: 8, left: 8, right: 8, bottom: bottomPad }}
+          className="z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-fg2 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl"
         >
-          <DropdownMenu.Label className={heading}>{target ? `This ${noun}` : "Layout"}</DropdownMenu.Label>
+          {target ? <p className="px-3 pt-2 text-xs text-fg2">These choices are for this {noun} on this device.</p> : null}
+          <DropdownMenu.Label className={heading}>Layout</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
             aria-label={target ? `Layout of this ${noun}` : "Layout"}
             value={target ? (own?.layout ?? "default") : dp.layout}

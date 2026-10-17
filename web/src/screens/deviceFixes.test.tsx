@@ -861,14 +861,14 @@ describe("share", () => {
 });
 
 describe("layout names", () => {
-  it("labels the layouts Editorial and Email - Compact, ids unchanged", async () => {
+  it("labels the layouts Editorial and Headlines, ids unchanged", async () => {
     routes();
     media(WIDE);
     go("/l/unread");
     await screen.findByText("Article number 1");
     expect(screen.getByRole("button", { name: "List options, Editorial layout" })).toBeInTheDocument();
     act(() => updateDevicePrefs({ layout: "headlines" }));
-    expect(await screen.findByRole("button", { name: "List options, Email - Compact layout" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "List options, Headlines layout" })).toBeInTheDocument();
     expect(devicePrefsStore.get().layout).toBe("headlines");
   });
 });

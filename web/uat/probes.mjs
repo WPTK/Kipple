@@ -322,3 +322,12 @@ export function tapProbe({ feed, min, root }) {
   }
   return { small: out, measured, covered };
 }
+// How far an open menu's bottom edge is below the top of the bottom tab bar (positive: it covers the bar); null with no
+// menu or no bar at the bottom (the desktop sidebar is the same landmark). Runs in the page.
+export function menuOverBar() {
+  const menu = document.querySelector('[role="menu"]');
+  const bar = document.querySelector('nav[aria-label="Primary"]');
+  if (!menu || !bar) return null;
+  const top = bar.getBoundingClientRect().top;
+  return top > window.innerHeight / 2 ? Math.round(menu.getBoundingClientRect().bottom - top) : null;
+}

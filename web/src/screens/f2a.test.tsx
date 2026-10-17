@@ -209,14 +209,14 @@ describe("layouts", () => {
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "List options, Editorial layout" }));
-    // One list under "This feed": the radio is the override, the star beside each layout is the device default.
-    expect(screen.getByText("This feed")).toBeInTheDocument();
-    await user.click(screen.getByRole("menuitemradio", { name: /Email - Compact/ }));
+    // One list, for this feed: the radio is the override, the star beside each layout is the device default.
+    expect(screen.getByText(/for this feed on this device/)).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitemradio", { name: /Headlines/ }));
     expect(devicePrefsStore.get().overrides.feed["1"]).toEqual({ layout: "headlines" });
     expect(devicePrefsStore.get().layout).toBe("magazine"); // the device default did not move
     await waitFor(() => expect(document.querySelector(".row-headline")).not.toBeNull());
     // Use device default clears it.
-    await user.click(screen.getByRole("button", { name: "List options, Email - Compact layout" }));
+    await user.click(screen.getByRole("button", { name: "List options, Headlines layout" }));
     await user.click(within(screen.getByRole("group", { name: "Layout of this feed" })).getByRole("menuitemradio", { name: /Use device default/ }));
     expect(devicePrefsStore.get().overrides.feed["1"]).toBeUndefined();
     await waitFor(() => expect(document.querySelector(".row-headline")).toBeNull());

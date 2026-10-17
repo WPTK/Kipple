@@ -92,6 +92,14 @@ describe("Settings > Devices", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("lists this device first even when the API returns it last", async () => {
+    routes({ "GET /api/devices": () => json({ devices: [phone, tablet, me] }) });
+    go();
+    const items = within(await screen.findByRole("list", { name: "Your devices" })).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("This device");
+    expect(items[1]).toHaveTextContent("Safari on iPhone");
+  });
+
   it("renames this device with PUT /api/device/name", async () => {
     const { calls } = routes({
       "GET /api/devices": () => json({ devices: [me] }),

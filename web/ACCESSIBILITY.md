@@ -52,7 +52,7 @@ Status is what the code does today. Anything not verified on a real device is li
 ## Cognitive
 
 - [x] Plain language: sentence case, no "please", no exclamation points; errors say what happened and what to do.
-- [x] "Titles only in lists" (Accessibility; it switches the device to the Email - Compact layout) reduces clutter; per-feed and per-folder layout overrides.
+- [x] "Titles only in lists" (Accessibility; it switches the device to the Headlines layout) reduces clutter; per-feed and per-folder layout overrides.
 - [x] Predictable navigation; new items arrive behind a pill and never reorder under you.
 
 ## Read aloud

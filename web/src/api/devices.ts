@@ -38,3 +38,11 @@ export function describeUserAgent(ua: string, client?: string): string {
   const base = browser && os ? `${browser} on ${os}` : browser || os || "Unknown device";
   return client === "pwa" ? `${base} (installed app)` : base;
 }
+
+/** What kind of device a user agent is, for its icon: an iPhone or Android phone, an iPad or Android tablet, else a computer. */
+export function deviceKind(ua: string): "phone" | "tablet" | "computer" {
+  if (/iPad/.test(ua)) return "tablet";
+  if (/iPhone|iPod/.test(ua)) return "phone";
+  if (/Android/.test(ua)) return /Mobile/.test(ua) ? "phone" : "tablet";
+  return "computer";
+}

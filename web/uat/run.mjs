@@ -53,7 +53,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
 import { accessControlUrl, unloadRefusal } from "./common.mjs";
-import { activeScheme, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
+import { activeScheme, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, menuOverBar, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
 
 /** The smallest touch target, in CSS px (S8). WCAG 2.2 asks for 24; Kipple keeps to the 44 of the Apple and Material guides. */
 const TAP_MIN = 44;
@@ -169,7 +169,7 @@ const LAYOUTS = [
   { id: "cards", label: "Cards" },
   { id: "compact", label: "Compact" },
   { id: "inbox", label: "Inbox" },
-  { id: "headlines", label: "Email - Compact" },
+  { id: "headlines", label: "Headlines" },
 ];
 // The query the Search screen runs (a word every seeded feed has).
 const SEARCH_Q = "the";
@@ -340,7 +340,7 @@ async function setLayout(page, layout) {
   if ((await btn.getAttribute("aria-label")) === optionsLabel(layout.label)) return;
   await btn.click();
   // Only the Layout group's radios (the menu also has Order radios). A radio's name is the label plus its hint; anchor
-  // it so "Compact" does not match "Email - Compact".
+  // it so "Compact" does not match a longer name.
   const esc = escapeRe(layout.label);
   await page
     .getByRole("group", { name: "Layout" })
@@ -820,6 +820,21 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         throw new Error(`expected the ${theme.scheme} scheme, the page shows ${scheme} (does the account default to a fixed theme?)`);
 
       const s4 = [];
+      if (screen.id === "list-options" && vp.mobile) {
+        // The menu stops above the tab bar, upright and in landscape.
+        const check = async (where) => {
+          const over = await page.evaluate(menuOverBar);
+          if (over !== null && over > 0) s4.push({ rule: "menu-over-tab-bar", message: `the List options menu covers the tab bar by ${over}px ${where}` });
+        };
+        await check(`at ${vp.width} x ${vp.height}`);
+        if (vp.id === "phone") {
+          await page.setViewportSize({ width: 852, height: 393 });
+          await page.waitForTimeout(400);
+          await check("at 852 x 393");
+          await page.setViewportSize({ width: vp.width, height: vp.height });
+          await page.waitForTimeout(400);
+        }
+      }
       if (vp.id !== "desktop") {
         const o = await page.evaluate(overflowProbe, FEED);
         if (o.scrollWidth > o.vw + 1) s4.push({ rule: "page-scroll-x", message: `page scrolls sideways: scrollWidth ${o.scrollWidth} > ${o.vw}` });

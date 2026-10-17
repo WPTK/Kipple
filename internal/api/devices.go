@@ -165,7 +165,7 @@ func boundedInt(lo, hi int) func(any) (any, string) { return intIn(lo, hi) }
 
 // clientDefs are the appearance and behavior keys the web client used to keep in
 // localStorage (kipple.device.v1 and kipple.prefs.v1), by name. Layout ids stay
-// magazine/headlines internally (their labels are Editorial and Email - Compact).
+// magazine/headlines internally (their labels are Editorial and Headlines).
 var clientDefs = map[string]clientDef{
 	"client.layout": {oneOf(layoutIDs...), "magazine"},
 	"client.list_overrides": {func(v any) (any, string) {
