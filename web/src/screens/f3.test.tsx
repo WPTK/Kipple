@@ -296,7 +296,39 @@ describe("Add feed", () => {
     await user.click(within(dlg).getByRole("button", { name: "Add selected feed" }));
     await screen.findByRole("dialog", { name: "Feed added" });
     expect(screen.getByText(/12 articles/)).toBeInTheDocument();
-    expect(posts).toHaveLength(2);
+    // The pick goes back with the address entered: the server scopes the private-network switch to that site.
+    expect(posts).toEqual([{ url: "https://site.test" }, { url: "https://site.test/b.xml", discovered_from: "https://site.test" }]);
+  });
+
+  it("sends the address first entered with a pick from a second list", async () => {
+    const posts: unknown[] = [];
+    base({
+      "POST /api/feeds": (_u, init) => {
+        const b = JSON.parse(String(init?.body)) as { url: string };
+        posts.push(b);
+        if (b.url === "https://site.test")
+          return json({ status: "choose", candidates: [{ url: "https://site.test/a.xml", title: "Posts", type: "rss" }, { url: "https://hub.test/", title: "Hub", type: "rss" }] });
+        if (b.url === "https://hub.test/")
+          return json({ status: "choose", candidates: [{ url: "https://hub.test/x.xml", title: "X", type: "rss" }, { url: "https://hub.test/y.xml", title: "Y", type: "rss" }] });
+        return json({ status: "ok", feed: feedDetail({ title: "Y" }), fetch: { outcome: "ok", new_items: 1 } });
+      },
+    });
+    go("/feeds");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add feed" }));
+    const dlg = await screen.findByRole("dialog", { name: "Add feed" });
+    await user.type(within(dlg).getByLabelText("Feed or website address"), "https://site.test");
+    await user.click(within(dlg).getByRole("button", { name: "Add feed" }));
+    await user.click(await within(dlg).findByRole("radio", { name: /Hub/ }));
+    await user.click(within(dlg).getByRole("button", { name: "Add selected feed" }));
+    await user.click(await within(dlg).findByRole("radio", { name: /^Y/ }));
+    await user.click(within(dlg).getByRole("button", { name: "Add selected feed" }));
+    await screen.findByRole("dialog", { name: "Feed added" });
+    expect(posts).toEqual([
+      { url: "https://site.test" },
+      { url: "https://hub.test/", discovered_from: "https://site.test" },
+      { url: "https://hub.test/y.xml", discovered_from: "https://site.test" },
+    ]);
   });
 
   it("leaves a blank title to the feed and shows the name the feed gives itself", async () => {
