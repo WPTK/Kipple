@@ -215,7 +215,7 @@ See it:
 Docker only reports health; it does not restart an unhealthy container by itself (plain compose ignores
 it). Use it for `docker ps`, monitoring and `depends_on: condition: service_healthy`.
 
-`docker-compose.example.yml` also shows these runtime options :
+`docker-compose.example.yml` also shows these runtime options:
 
 | Option | What it does |
 |---|---|
