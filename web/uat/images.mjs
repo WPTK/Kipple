@@ -6,8 +6,9 @@
 //
 // The flow serves its own feed on a loopback port: one article with an SVG whose address says so (never sent to the
 // browser), an SVG whose address does not (refused by the image proxy once its bytes are seen), a 1x1 SVG tracking
-// pixel, a GIF and an image whose source answers 500. For each width (desktop 1280x800, phone 375x812) it opens the
-// article and checks:
+// pixel, a GIF and an image whose source answers 500, plus the two other articles named below. It needs nothing from the
+// seed's feeds, so it runs against the public set as well as the fixture feeds CI uses. For each width (desktop
+// 1280x800, phone 375x812) it opens the article and checks:
 //   I1  each SVG is an "Image not shown" cue with its alt text, no image is left in its place, and the cue keeps the
 //       box the image declared;
 //   I2  the cue's "Open original" link goes to the article's own address and opens in a new tab;
@@ -21,7 +22,7 @@ import { createServer } from "node:http";
 import { URL } from "node:url";
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 19);
+const t = await start(import.meta.url, 20);
 const { check, step } = t;
 
 // A 1x1 GIF: a raster image the proxy passes.
@@ -50,7 +51,9 @@ const server = createServer((req, res) => {
   if (path === "/feed.xml") {
     const item =
       `<item><title>UAT images article</title><link>${base}/page/1</link><guid isPermaLink="false">uat-images-1</guid><pubDate>${new Date().toUTCString()}</pubDate><description>${esc(article())}</description></item>` +
-      `<item><title>UAT thirty pictures</title><link>${base}/page/2</link><guid isPermaLink="false">uat-images-2</guid><pubDate>${new Date(Date.now() - 60000).toUTCString()}</pubDate><description>${esc(lazyArticle())}</description></item>`;
+      `<item><title>UAT thirty pictures</title><link>${base}/page/2</link><guid isPermaLink="false">uat-images-2</guid><pubDate>${new Date(Date.now() - 60000).toUTCString()}</pubDate><description>${esc(lazyArticle())}</description></item>` +
+      // The other article I4 opens on the desktop: the flow's own, so it does not depend on which feeds the seed added.
+      `<item><title>UAT plain article</title><link>${base}/page/3</link><guid isPermaLink="false">uat-images-3</guid><pubDate>${new Date(Date.now() - 120000).toUTCString()}</pubDate><description>${esc("<p>No pictures here.</p>")}</description></item>`;
     res.writeHead(200, { "Content-Type": "application/rss+xml; charset=utf-8" }).end(`<?xml version="1.0"?><rss version="2.0"><channel><title>UAT images</title><link>${base}/</link><description>t</description>${item}</channel></rss>`);
   } else if (path === "/chart.svg" || path === "/badge" || path === "/pixel.svg") {
     res.writeHead(200, { "Content-Type": "image/svg+xml" }).end(SVG);
@@ -122,7 +125,7 @@ await t.eachViewport(async (page, vp) => {
     // I4: back to the list and the same article again, from the app's cache, into a new body.
     // On the desktop the list stays beside the article; another article first, so the reopen is a new render.
     if (vp.mobile) await page.goBack();
-    else await page.getByText(/The story of/).first().click();
+    else await page.getByText("UAT plain article").first().click();
     await row.click();
     await verify("I4 reopened");
 
