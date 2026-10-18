@@ -173,6 +173,8 @@ export function SearchScreen() {
             }}
             onKeyDown={(e) => {
               if (e.key === "Escape") inputRef.current?.blur();
+              // Down from the field goes into the results, as it moves between rows in the list itself.
+              else if (e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.nativeEvent.isComposing && controls?.focusStop()) e.preventDefault();
             }}
             className="mt-2 min-h-11 w-full rounded-lg border border-line bg-surface px-3 text-base text-fg placeholder:text-fg2"
           />

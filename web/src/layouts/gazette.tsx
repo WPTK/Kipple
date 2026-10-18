@@ -8,6 +8,7 @@ import { useFavorites } from "@/lib/favorites";
 import { articleTo } from "@/lib/routes";
 import { planGazette, type Block, type GazettePlan, type PagePlan, type Slot } from "./gazettePlan";
 import { magazine } from "./magazine";
+import { ROW_KEYSHORTCUTS } from "./rowTabStop";
 import { ListImage, useImageFailure, PublishedTime, rowLabel } from "./parts";
 import type { ListLayout, PageProps } from "./types";
 
@@ -256,7 +257,7 @@ function Story({ slot: planned, item, heading: H, to, onOpen, phone, selected, t
           tabIndex={tabStop ? undefined : -1}
           onClick={() => onOpen(item)}
           aria-label={rowLabel(item)}
-          aria-keyshortcuts="ArrowDown ArrowUp"
+          aria-keyshortcuts={ROW_KEYSHORTCUTS}
           className="row-link hover:underline"
         >
           {item.title || "Untitled"}

@@ -3,7 +3,7 @@ import { cn } from "@/lib/cn";
 import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
-import { useRowTabIndex } from "./rowTabStop";
+import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 
 /**
  * Cards: a real card shell (raised surface, border, shadow, an inset lead image with its
@@ -22,7 +22,7 @@ function CardRow({ item, feed, selected, to, onOpen, onToggleStar, actions }: Ro
       data-item-id={item.id}
       data-selected={selected || undefined}
       className={cn(
-        "row-host relative flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-md",
+        "row-host relative flex h-full flex-col overflow-hidden rounded-2xl [--row-radius:var(--radius-2xl)] border border-line bg-surface shadow-md",
         selected && "bg-selection outline-2 outline-accent",
       )}
     >
@@ -36,7 +36,7 @@ function CardRow({ item, feed, selected, to, onOpen, onToggleStar, actions }: Ro
             tabIndex={tabIndex}
             to={to}
             onClick={() => onOpen(item)}
-            aria-keyshortcuts="ArrowDown ArrowUp"
+            aria-keyshortcuts={ROW_KEYSHORTCUTS}
             className="row-link"
             aria-label={rowLabel(item)}
           >

@@ -164,6 +164,8 @@ body {
   content: "";
   position: absolute;
   inset: 0;
+  /* A rounded row (a card) clips its corners: the ring follows them instead (--row-radius is the row's radius). */
+  border-radius: var(--row-radius, 0);
 }
 .row-link:focus-visible {
   outline: none;

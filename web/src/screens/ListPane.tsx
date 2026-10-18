@@ -17,7 +17,7 @@ import { prefersReducedMotion } from "@/gestures/tracking";
 import { COLLAPSE_MS, captureAnchor, compensate, type ScrollAnchor } from "@/lib/collapse";
 import { usePullToRefresh } from "@/gestures/usePullToRefresh";
 import { pageOf, useResolvedLayout } from "@/layouts";
-import { RowTabStop, useRowTabIndex } from "@/layouts/rowTabStop";
+import { ROW_KEYSHORTCUTS, RowTabStop, useRowTabIndex } from "@/layouts/rowTabStop";
 import type { ListLayout, RowMenuActions } from "@/layouts";
 import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { prefsStore } from "@/lib/prefs";
@@ -171,6 +171,8 @@ export interface ListControls {
   fallback: boolean;
   /** The list finished loading and has no articles at all. */
   empty: boolean;
+  /** Focus the list's Tab stop row; false when there is none. */
+  focusStop: () => boolean;
 }
 
 /** What a search that came back 422 says: the server's own message, or a plain one. */
@@ -184,9 +186,8 @@ interface Props {
   scope: Scope;
   /** Item open in the reader pane (or route), highlighted in the list. */
   activeId?: string;
-  header?: ReactNode | ((c: ListControls) => ReactNode);
-  /** Called when what a header could offer changes (the loaded count, the fallback flag, mark all). The Search screen keeps its own header. */
-  onControls?: (c: ListControls) => void;
+  /** Called when what the header (outside the list, which is remounted per scope) can offer changes: the loaded count, the fallback flag, mark all; null once this list is gone. */
+  onControls?: (c: ListControls | null) => void;
 }
 
 type VRow = Row<Card> | { kind: "group"; key: string; items: Card[] };
@@ -226,7 +227,7 @@ const isTouch = (): boolean => {
   }
 };
 
-export function ListPane({ scope, activeId, header, onControls }: Props) {
+export function ListPane({ scope, activeId, onControls }: Props) {
   const key = scopeKey(scope);
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -286,8 +287,14 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
   const selected = activeId ?? selectedId;
   // The list is one Tab stop (rowTabStop.ts): the row that last had focus, else the selected row, else the first. Its
-  // row is always rendered, so Tab into the list finds it wherever the list is scrolled.
+  // row is always rendered, so Tab into the list finds it wherever the list is scrolled. Opening another article (Next
+  // in the reader, say) makes it the selected row again: Shift+Tab from the reader comes back to the open article.
   const [focusId, setFocusId] = useState<string | undefined>(undefined);
+  const [stopFor, setStopFor] = useState(activeId);
+  if (stopFor !== activeId) {
+    setStopFor(activeId);
+    setFocusId(undefined);
+  }
   const shown = (id: string | undefined, of: readonly Card[]) => (id && of.some((i) => i.id === id) ? id : undefined);
   const tabStopId = shown(focusId, items) ?? shown(selected, items) ?? items[0]?.id;
   const stopIndex = useMemo(
@@ -666,13 +673,15 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
     };
   }, [markOnScroll, qc, virtualizer, pagedScroll, lookAtStories]);
 
-  // ArrowUp and ArrowDown move focus between rows from any control in a row (its link, star or menu button), and only
-  // focus: they select nothing and open nothing, so looking through the list marks nothing read. The list is one Tab
-  // stop (and Safari's Tab skips links), so the arrows are how the keyboard reaches the other rows. Taken in the
-  // capture phase so a closed menu button does not turn ArrowDown into "open the menu" (Enter and Space still do).
-  // Left alone: text fields, an open menu button, and anything inside an open menu or dialog (those are not in a row).
-  const onRowArrow = (e: React.KeyboardEvent) => {
-    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  // ArrowUp and ArrowDown move focus between rows from any control in a row (its link, star or menu button), Home and
+  // End to the first and last loaded row, PageUp and PageDown by a screenful of rows; they only move focus: they select
+  // nothing and open nothing, so looking through the list marks nothing read. The list is one Tab stop (and Safari's
+  // Tab skips links), so these keys are how the keyboard reaches the other rows. Space on a row's link opens it, as Enter
+  // does (a link alone would scroll the page). Taken in the capture phase so a closed menu button does not turn
+  // ArrowDown into "open the menu" (Enter and Space still do). Left alone: text fields, an open menu button, and
+  // anything inside an open menu or dialog (those are not in a row).
+  const onRowKey = (e: React.KeyboardEvent) => {
+    if (!ROW_KEYS.has(e.key)) return;
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isDefaultPrevented()) return;
     const target = e.target instanceof HTMLElement ? e.target : null;
     const row = target?.closest<HTMLElement>("[data-item-id]") ?? null;
@@ -680,11 +689,26 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
     if (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
     if (target.getAttribute("aria-expanded") === "true") return;
     if (target.closest('[role="menu"],[role="dialog"]')) return;
+    if (e.key === " ") {
+      if (target.tagName !== "A") return; // a row's buttons take Space themselves
+      e.preventDefault();
+      target.click();
+      return;
+    }
     const order = Page ? pageOrder(parentRef.current, allItems) : items;
-    const item = order[order.findIndex((i) => i.id === row.dataset.itemId) + (e.key === "ArrowDown" ? 1 : -1)];
+    const at = order.findIndex((i) => i.id === row.dataset.itemId);
+    const page = Math.max(1, Math.floor((parentRef.current?.clientHeight ?? 0) / Math.max(1, row.offsetHeight))) * cols;
+    const last = order.length - 1;
+    const to =
+      e.key === "ArrowDown" ? at + 1
+      : e.key === "ArrowUp" ? at - 1
+      : e.key === "Home" ? 0
+      : e.key === "End" ? last
+      : Math.min(last, Math.max(0, at + (e.key === "PageDown" ? page : -page)));
+    const item = order[to];
     e.preventDefault();
     e.stopPropagation();
-    if (!item) return;
+    if (!item || to === at) return;
     setFocusId(item.id);
     pageRestored.current = true; // moving by key is the reader moving the page
     if (Page) storyIntoView(parentRef.current, item.id);
@@ -1154,16 +1178,21 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
   const showPull = holding || pull.distance >= 16;
   // Known to have nothing (not merely still loading): a search with no results has nothing to save or mark.
   const empty = !q.isPending && allItems.length === 0;
-  const controls: ListControls = { markAllRead, count: items.length, fallback, empty };
-  const headerNode = typeof header === "function" ? header(controls) : header;
   const controlsRef = useLatestRef(onControls);
+  const stopRef = useLatestRef(tabStopId);
+  const focusStop = useCallback(() => {
+    const id = stopRef.current;
+    if (id) focusRow(parentRef.current, id);
+    return !!id && !!parentRef.current?.contains(document.activeElement);
+  }, [stopRef]);
   useEffect(() => {
-    controlsRef.current?.({ markAllRead, count: items.length, fallback, empty });
-  }, [markAllRead, items.length, fallback, empty]);
+    controlsRef.current?.({ markAllRead, count: items.length, fallback, empty, focusStop });
+  }, [markAllRead, items.length, fallback, empty, focusStop]);
+  // A header outside the list must not keep acting on a list that is gone (a list remounted under the same scope).
+  useEffect(() => () => controlsRef.current?.(null), [controlsRef]);
 
   return (
     <section aria-label="Articles" className="flex h-full min-h-0 flex-col">
-      {headerNode}
       {fallback ? (
         <p role="status" data-testid="fallback-banner" className="border-b border-line bg-surface px-4 py-2 text-sm text-fg2">
           No exact matches: showing partial matches
@@ -1204,7 +1233,7 @@ export function ListPane({ scope, activeId, header, onControls }: Props) {
           aria-busy={q.isPending || q.isFetchingNextPage}
           className="@container h-full overflow-y-auto overscroll-y-contain"
           tabIndex={-1}
-          onKeyDownCapture={onRowArrow}
+          onKeyDownCapture={onRowKey}
           onFocus={onListFocus}
         >
           <div
@@ -1343,6 +1372,9 @@ export function keepMounted(range: Range, stopIndex: number): number[] {
 export function windowReach(range: { endIndex: number } | null | undefined, count: number): number {
   return range ? Math.min(count - 1, range.endIndex + OVERSCAN) : 0;
 }
+
+/** The keys a list row takes (onRowKey): the ones its link advertises, and Space. */
+const ROW_KEYS = new Set([...ROW_KEYSHORTCUTS.split(" "), " "]);
 
 /** Put keyboard focus back on a list row (Esc or u in the reader pane); the list itself when the row is not rendered. */
 export function focusListRow(id: string): void {

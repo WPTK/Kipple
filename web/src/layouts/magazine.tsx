@@ -3,7 +3,7 @@ import { cn } from "@/lib/cn";
 import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
-import { useRowTabIndex } from "./rowTabStop";
+import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 
 /**
  * Editorial: image-forward. A large 16:9 lead image over the source line, a big title and a longer excerpt,
@@ -40,7 +40,7 @@ function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions 
               tabIndex={tabIndex}
               to={to}
               onClick={() => onOpen(item)}
-              aria-keyshortcuts="ArrowDown ArrowUp"
+              aria-keyshortcuts={ROW_KEYSHORTCUTS}
               className="row-link"
               aria-label={rowLabel(item)}
             >

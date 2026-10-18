@@ -8,6 +8,9 @@ import { createContext, useContext } from "react";
  */
 export const RowTabStop = createContext(true);
 
+/** The keys that move focus between rows (ListPane's onRowKey), as a row's link advertises them in aria-keyshortcuts. */
+export const ROW_KEYSHORTCUTS = "ArrowDown ArrowUp Home End PageDown PageUp";
+
 /** The tabIndex of a control in a list row: left alone in the current row, -1 in the others. */
 export function useRowTabIndex(): -1 | undefined {
   return useContext(RowTabStop) ? undefined : -1;

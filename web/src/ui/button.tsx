@@ -25,6 +25,12 @@ export const buttonVariants = cva(
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {}
 
-export function Button({ className, variant, size, type = "button", ...props }: ButtonProps) {
-  return <button type={type} className={cn(buttonVariants({ variant, size }), className)} {...props} />;
+/**
+ * `aria-disabled` is how a control that has (or may have) keyboard focus is switched off: a native `disabled` button
+ * drops focus to the page the moment it turns off, so Enter again does nothing. It stays focusable and is announced
+ * as unavailable, and activating it does nothing (here, for every caller).
+ */
+export function Button({ className, variant, size, type = "button", onClick, ...props }: ButtonProps) {
+  const off = props["aria-disabled"] === true || props["aria-disabled"] === "true";
+  return <button type={type} className={cn(buttonVariants({ variant, size }), className)} onClick={off ? (e) => e.preventDefault() : onClick} {...props} />;
 }
