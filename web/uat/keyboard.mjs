@@ -568,7 +568,7 @@ async function phone(cookies) {
   await load(page, "/l/all");
   const where = (k) => `K4 ${k}`;
   const row = page.locator("main article[data-item-id]").first();
-  const star = row.getByRole("button", { name: "Star", exact: true });
+  const star = row.getByRole("button", { name: /^Star: / });
   check((await star.count()) >= 1 && (await star.first().evaluate((e) => e.checkVisibility() && e.getBoundingClientRect().width >= 24)), where("swipe left: star"), "a Star button on the row", "no visible Star button (24 px or more) on a row");
   const more = row.getByRole("button", { name: "More actions" });
   if (await more.count()) {
