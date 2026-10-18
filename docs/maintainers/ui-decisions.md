@@ -43,7 +43,8 @@ were resolved in round 2 and what shipped; each is annotated below.
 - **Article swipe: swipe back to the previous screen** (the article list you came from, not always the feed
   list), i.e. drill-in navigation stack. Keep next/previous **buttons**.
 - Keys: **no single-key shortcuts** (owner decision, final). Keyboard use is Tab order, the list's one Tab stop,
-  arrow keys moving focus between rows, Enter and Space to activate, Escape to close and return focus.
+  arrow keys moving focus between rows (Home, End, PageUp and PageDown too), Enter and Space to activate, Escape to
+  close and return focus. A control that turns off while it may have focus is aria-disabled, never disabled.
 - First-run **peek animation** teaches swipe reveal.
 - Mark-read-on-scroll: keep as a setting, **off by default**.
 
@@ -119,8 +120,8 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
 
 ### Folders (nested, #209)
 - The sidebar shows folders as a **tree** (WAI-ARIA navigation tree: one tab stop, arrow keys move, Right/Left expand
-  and collapse or step into and out of a folder, Enter opens the list). Each level indents 12 px, less past the
-  fourth so deep trees fit a phone. A folder's subfolders come before its own feeds. A branch with no feed anywhere
+  and collapse or step into and out of a folder, Enter or Space opens the list, with focus left on the tree and the
+  new list announced). Each level indents 12 px, less past the fourth so deep trees fit a phone. A folder's subfolders come before its own feeds. A branch with no feed anywhere
   inside is hidden, as an empty folder always was. Collapsed folders are remembered per device.
 - Every folder badge counts its **whole subtree**, the same number its list shows.
 - A favorited folder shows its subtree in Favorites.

@@ -3,7 +3,7 @@ import { cn } from "@/lib/cn";
 import { ListImage, useImageFailure, PublishedTime, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
-import { useRowTabIndex } from "./rowTabStop";
+import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 
 /**
  * Inbox (email style): the feed is the sender (bold while unread), the title
@@ -39,7 +39,7 @@ function InboxRow({ item, selected, to, onOpen, onToggleStar, actions, showThumb
             tabIndex={tabIndex}
             to={to}
             onClick={() => onOpen(item)}
-            aria-keyshortcuts="ArrowDown ArrowUp"
+            aria-keyshortcuts={ROW_KEYSHORTCUTS}
             className="row-link"
             aria-label={rowLabel(item)}
           >

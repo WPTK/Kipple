@@ -763,7 +763,7 @@ export function FeedsScreen() {
         </div>
         <p className="pb-1 text-xs text-fg2">
           {selecting
-            ? `Tap feeds to select them, then move or delete them.${finePointer ? " Shift-click selects a range." : ""}`
+            ? `Tap feeds to select them, then move or delete them.${finePointer ? " Shift-click selects a range; with the keyboard, Space selects the focused feed." : ""}`
             : editMode
               ? "Drag a feed or folder to reorder it. Changes are saved as you drop."
               : "Tap the arrow beside a folder to collapse it, or its menu to rename, move or delete it. Tap Edit to reorder feeds or change one."}

@@ -65,7 +65,7 @@ describe("the article list is one Tab stop", () => {
     const { scroller, ids } = await list();
     expect(ids().length).toBeGreaterThan(3);
     expect(stops(scroller)).toEqual([ids()[0]]);
-    expect(linkOf(scroller, ids()[0]!).getAttribute("aria-keyshortcuts")).toBe("ArrowDown ArrowUp");
+    expect(linkOf(scroller, ids()[0]!).getAttribute("aria-keyshortcuts")).toBe("ArrowDown ArrowUp Home End PageDown PageUp");
   });
 
   it("moves focus, and only focus, between row links with the arrow keys", async () => {

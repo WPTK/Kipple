@@ -18,7 +18,7 @@ import { ApplyProgress, FeedEditorHost, FilterEditorHost } from "./FilterHost";
 import { OfflineNotice } from "./OfflineNotice";
 import { DeviceSaveStatus } from "./SaveStatus";
 import { UndoToast } from "./UndoToast";
-import { LiveRegion, Toasts } from "./toasts";
+import { LiveRegion, Toasts, announce } from "./toasts";
 
 const tab = "flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-xs font-medium";
 
@@ -212,7 +212,8 @@ export function AppShell() {
   const section = pathname.split("/")[1] ?? "";
   // This is the one writer of arrival focus. A screen names its target instead of calling focus() itself, which
   // this effect would overwrite since child effects run first: data-load-focus for a page load or reload,
-  // data-route-focus for an in-app arrival (else the heading, which also announces the new screen). A lazy screen
+  // data-route-focus for an in-app arrival (else the heading, which also announces the new screen), and none while
+  // focus is in a data-keep-focus widget outside the screen. A lazy screen
   // still loading here has neither target nor heading yet.
   useEffect(() => {
     if (first.current) {
@@ -223,16 +224,26 @@ export function AppShell() {
     }
     if (section === "i") return; // the article focuses its own title
     const find = () => mainRef.current?.querySelector<HTMLElement>("[data-route-focus]") ?? mainRef.current?.querySelector<HTMLElement>("[data-route-heading]");
+    // Focus on an item of a widget outside the screen that is walked to open one screen after another
+    // (data-keep-focus: a sidebar tree item, focused from the keyboard) stays there: the new screen is announced
+    // instead of focused, and the next item is one key away.
+    const from = document.activeElement;
+    const keep = from instanceof HTMLElement && from.isConnected && from.hasAttribute("data-keep-focus") && !mainRef.current?.contains(from);
+    const arrive = (target: HTMLElement) => {
+      if (!keep) return target.focus({ preventScroll: true });
+      const heading = mainRef.current?.querySelector<HTMLElement>("[data-route-heading]") ?? target;
+      announce(heading.getAttribute("aria-label") || heading.textContent?.trim() || document.title);
+    };
     const target = find();
     if (target) {
-      target.focus({ preventScroll: true });
+      arrive(target);
       return;
     }
     // A lazy screen still loading has no heading yet: main takes focus now, and the heading takes it when it mounts, if
     // focus is still on main (or lost to the body). Once that has happened, or focus has gone anywhere else, or a
     // moment has passed, the watch ends, so a later re-render of the screen never pulls focus back.
     const main = mainRef.current;
-    main?.focus({ preventScroll: true });
+    if (!keep) main?.focus({ preventScroll: true });
     if (!main) return;
     const stop = () => {
       watch.disconnect();
@@ -242,7 +253,7 @@ export function AppShell() {
       const heading = find();
       if (!heading) return;
       const at = document.activeElement;
-      if (at === main || at === document.body || at === null) heading.focus({ preventScroll: true });
+      if (keep || at === main || at === document.body || at === null) arrive(heading);
       stop();
     });
     const timer = setTimeout(stop, 10_000);

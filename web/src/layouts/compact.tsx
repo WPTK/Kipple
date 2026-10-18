@@ -3,7 +3,7 @@ import { cn } from "@/lib/cn";
 import { RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
-import { useRowTabIndex } from "./rowTabStop";
+import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 
 /**
  * Compact: unread dot, a small source and time line over a 1-2 line title, no
@@ -30,7 +30,7 @@ function CompactRow({ item, feed, selected, to, onOpen, onToggleStar, actions }:
             tabIndex={tabIndex}
             to={to}
             onClick={() => onOpen(item)}
-            aria-keyshortcuts="ArrowDown ArrowUp"
+            aria-keyshortcuts={ROW_KEYSHORTCUTS}
             className="row-link"
             aria-label={rowLabel(item)}
           >

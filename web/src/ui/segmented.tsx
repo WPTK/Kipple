@@ -92,20 +92,27 @@ export function Segmented<T extends string | number>({ legend, hint, value, opti
                   inputs.current[i] = el;
                 }}
                 onChange={() => pick(o.value)}
-                onKeyDown={
-                  explicit
-                    ? (e) => {
-                        const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-                        if (d) {
-                          e.preventDefault();
-                          inputs.current[(i + d + options.length) % options.length]?.focus();
-                        } else if (e.key === "Enter") {
-                          e.preventDefault();
-                          if (!on) pick(o.value);
-                        }
-                      }
-                    : undefined
-                }
+                onKeyDown={(e) => {
+                  // Home and End go to the first and last choice; the arrows do the rest natively (explicit: below).
+                  if (e.key === "Home" || e.key === "End") {
+                    const open = options.map((x, j) => (x.disabled ? -1 : j)).filter((j) => j >= 0);
+                    const j = e.key === "Home" ? open[0] : open.at(-1);
+                    e.preventDefault();
+                    if (j === undefined) return;
+                    inputs.current[j]?.focus();
+                    if (!explicit && options[j]!.value !== value) pick(options[j]!.value);
+                    return;
+                  }
+                  if (!explicit) return;
+                  const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+                  if (d) {
+                    e.preventDefault();
+                    inputs.current[(i + d + options.length) % options.length]?.focus();
+                  } else if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (!on) pick(o.value);
+                  }
+                }}
                 className="sr-only-live"
               />
               {o.label}
