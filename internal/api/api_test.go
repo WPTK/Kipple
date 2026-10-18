@@ -120,7 +120,7 @@ func (f *fakeSched) HostHolds() map[string]time.Time {
 }
 
 type harness struct {
-	t     *testing.T
+	t     testing.TB
 	db    *store.DB
 	srv   *Server
 	hub   *events.Hub
@@ -133,7 +133,7 @@ type harness struct {
 	seeded int64
 }
 
-func newHarness(t *testing.T, tune ...func(*Options)) *harness {
+func newHarness(t testing.TB, tune ...func(*Options)) *harness {
 	t.Helper()
 	clk := clock.NewFake(time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC))
 	db, err := store.Open(context.Background(), store.Options{Path: filepath.Join(t.TempDir(), "kipple.db"), Clock: clk})
