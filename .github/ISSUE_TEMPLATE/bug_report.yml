@@ -42,6 +42,19 @@ body:
         - Other (describe below)
     validations:
       required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: Your best guess; the maintainer may change it.
+      options:
+        - "P0 Blocker: data loss, security bypass, can't complete a core flow"
+        - "P1 High: wrong behavior a normal session would hit"
+        - "P2 Medium: edge case or cosmetic-but-real bug"
+        - "P3 Low: polish"
+        - "P4 Lowest: trivial polish, nits, wording"
+    validations:
+      required: true
   - type: textarea
     id: what
     attributes:
