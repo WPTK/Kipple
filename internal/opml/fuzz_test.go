@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,6 +35,13 @@ func fuzzSeeds(f *testing.F) {
 			`<outline text="Bad&#127;"><outline text="Kid"><outline xmlUrl="https://b.test/f"/></outline></outline></body></opml>`,
 	}...) {
 		f.Add(s)
+	}
+	// Generated hostile samples (scripts/maintainers/new-opml-set.ps1 -Sample).
+	files, _ := filepath.Glob(filepath.Join("testdata", "hostile", "*.opml"))
+	for _, name := range files {
+		if b, err := os.ReadFile(name); err == nil {
+			f.Add(string(b))
+		}
 	}
 }
 

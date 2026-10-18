@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0"><head><title>Hostile</title></head><body>
+<outline type="rss" text="Private 1" xmlUrl="http://127.0.0.1/f.xml"/>
+<outline type="rss" text="Private 2" xmlUrl="http://localhost/f.xml"/>
+<outline type="rss" text="Private 3" xmlUrl="http://10.0.0.1/f.xml"/>
+<outline type="rss" text="Private 4" xmlUrl="http://192.168.1.1/f.xml"/>
+<outline type="rss" text="Private 5" xmlUrl="http://169.254.169.254/latest/meta-data/"/>
+<outline type="rss" text="Private 6" xmlUrl="http://[::1]/f.xml"/>
+<outline type="rss" text="Private 7" xmlUrl="http://0x7f.1/f.xml"/>
+<outline type="rss" text="Private 8" xmlUrl="http://2130706433/f.xml"/>
+<outline type="rss" text="Private 9" xmlUrl="http://127.0.0.1.nip.io/f.xml"/>
+<outline type="rss" text="Private 10" xmlUrl="http://rss.example.com./f.xml"/>
+</body></opml>

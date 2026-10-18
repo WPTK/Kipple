@@ -102,3 +102,15 @@ Both are separate jobs at the end of `.github/workflows/ci.yml`.
 Pester 5.5 or later (`Install-PSResource Pester -Scope CurrentUser`). Native commands are mocked: no network, no push.
 Lint: `pwsh scripts/ci-local.ps1 -Lint` (PSScriptAnalyzer with `scripts/PSScriptAnalyzerSettings.psd1`; findings of
 severity Warning or Error fail it; fix them rather than suppress them).
+
+### maintainers/new-opml-set.ps1
+
+    pwsh scripts/maintainers/new-opml-set.ps1 [-Seed 1] [-OutDir .hunt/opml] [-Sample]
+
+Writes a seeded, reproducible set of large and hostile OPML files: `huge-flat` (10,000 feeds), `huge-nested`
+(5,000 feeds in 500 folders, 1 to 12 levels), `huge-nested-200`, `wide-folder` (3,000 feeds) and about 30
+`hostile/` cases (duplicate URLs, bad schemes, encodings, XXE, truncation and more). All hosts are synthetic. The
+default output dir `.hunt/` is gitignored; `-Sample` writes only small hostile files, which is what
+`internal/opml/testdata/hostile` holds and `go test ./internal/opml` replays as fuzz seeds. Prints one `OK:` or
+`FAIL:` line. Run by hand for load, import and fuzz work; it is not part of CI or the release gates.
+If this breaks: `Get-HostileSet` builds each case; `new-opml-set.Tests.ps1` checks counts and determinism.

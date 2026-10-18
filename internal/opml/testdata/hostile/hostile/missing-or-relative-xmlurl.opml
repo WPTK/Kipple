@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0"><head><title>Hostile</title></head><body>
+<outline type="rss" text="None"/>
+<outline type="rss" text="Empty" xmlUrl=""/>
+<outline type="rss" text="Relative" xmlUrl="/feed.xml"/>
+<outline type="rss" text="Relative2" xmlUrl="../feed.xml"/>
+<outline type="rss" text="Scheme-less" xmlUrl="rss.example.com/feed.xml"/>
+<outline type="rss" text="Proto-relative" xmlUrl="//rss.example.com/feed.xml"/>
+<outline type="rss" text="Space" xmlUrl="  https://rss.example.com/sp.xml  "/>
+</body></opml>

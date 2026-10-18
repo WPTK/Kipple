@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0"><head><title>Hostile</title></head><body>
+<outline type="rss" text="Scheme 1" xmlUrl="file:///etc/passwd"/>
+<outline type="rss" text="Scheme 2" xmlUrl="javascript:alert(1)"/>
+<outline type="rss" text="Scheme 3" xmlUrl="data:text/xml,x"/>
+<outline type="rss" text="Scheme 4" xmlUrl="ftp://rss.example.com/f.xml"/>
+<outline type="rss" text="Scheme 5" xmlUrl="gopher://rss.example.com/f"/>
+<outline type="rss" text="Scheme 6" xmlUrl="view-source:https://rss.example.com/f"/>
+<outline type="rss" text="Scheme 7" xmlUrl="jar:file:///x.jar!/f"/>
+</body></opml>

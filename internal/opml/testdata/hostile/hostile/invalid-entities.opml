@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0"><head><title>Hostile</title></head><body>
+<outline type="rss" text="Bogus &bogus; entity" xmlUrl="https://rss.example.com/i1.xml"/>
+<outline type="rss" text="Bare & ampersand" xmlUrl="https://rss.example.com/i2.xml"/>
+<outline type="rss" text="Nul &#0; ref" xmlUrl="https://rss.example.com/i3.xml"/>
+<outline type="rss" text="Surrogate &#xD800; ref" xmlUrl="https://rss.example.com/i4.xml"/>
+<outline type="rss" text="Ctrl &#1; ref" xmlUrl="https://rss.example.com/i5.xml"/>
+</body></opml>
