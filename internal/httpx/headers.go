@@ -16,6 +16,10 @@ type Options struct {
 	// reach.State.Scheme), which decides HSTS and upgrade-insecure-requests. It
 	// must be cheap (an atomic read). Nil is "https" only for a TLS connection.
 	Scheme func(r *http.Request) string
+	// HSTS reports whether r reached Kipple over HTTPS itself (TLS, or a trusted proxy's say-so), the only
+	// case where Strict-Transport-Security is safe to send: browsers apply it to every port of the host.
+	// Nil means a TLS connection.
+	HSTS func(r *http.Request) bool
 }
 
 const (
@@ -87,7 +91,11 @@ func Secure(h http.Handler, opt Options) http.Handler {
 		if opt.Scheme != nil {
 			secure = opt.Scheme(r) == "https"
 		}
-		if secure {
+		hsts := r.TLS != nil
+		if opt.HSTS != nil {
+			hsts = opt.HSTS(r)
+		}
+		if hsts {
 			hd.Set("Strict-Transport-Security", "max-age=31536000")
 		}
 		// The Reader API is meant for other origins (it answers CORS, and a client shows its iconUrl

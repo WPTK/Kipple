@@ -11,7 +11,7 @@
 
 services:
   kipple:
-    image: ghcr.io/wptk/kipple:1.0.0-rc.1
+    image: ghcr.io/wptk/kipple:1.0.0-rc.2
     # A fixed name, so `docker logs kipple` and `docker exec kipple /kipple ...` work
     # (without it Compose names the container <project>-kipple-1).
     container_name: kipple
