@@ -104,7 +104,7 @@ jobs:
           nohup node scripts/fixture-feeds.mjs --port 1994 > "$RUNNER_TEMP/fixture.log" 2>&1 &
           nohup npm run seed > "$RUNNER_TEMP/seed.log" 2>&1 &
           seed=$!
-          for i in $(seq 1 300); do
+          for _ in $(seq 1 300); do
             if ! kill -0 "$seed" 2>/dev/null; then
               echo "::error::the seed stopped before the instance was ready; its log ends:"
               tail -n 40 "$RUNNER_TEMP/seed.log"
