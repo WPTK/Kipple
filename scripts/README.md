@@ -95,6 +95,9 @@ pure function of a seed, so the same command gives the same files.
 - `go run ./scripts/scalegen gen -preset NAME` builds a scale library in `.hunt/scale/NAME`: `articles-1k`, `articles-10k`,
   `articles-100k`, `feeds-100`, `feeds-1000`, `feeds-10000`, `starred-heavy`, `long-history`. Flags you pass
   (`-feeds`, `-items`, `-stats-days`, `-starred-pct`, `-stats-mult`, `-dir`) override the preset.
+- `go run ./scripts/crashtest [-rounds 200] [-dir DIR] [-max-ms 1500] [-seed 1]` kills a database writer at random moments
+  and reopens the file each time: integrity_check ok, journal mode wal, no foreign key violated, every committed batch
+  intact and whole. It prints `PASS` or one `FAIL` line per failed round and exits 1 on a failure.
 
 ## Node tools
 
