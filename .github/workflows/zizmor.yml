@@ -1,7 +1,8 @@
 name: zizmor
 
-# Static analysis of the workflows themselves (injection, over-broad permissions, unpinned actions, credential
-# persistence). It fails the PR when it finds something, and it is checked under the "CI green on the exact head" rule.
+# Static analysis of the workflows themselves. zizmor looks for security problems (injection, over-broad permissions,
+# unpinned actions, credential persistence); actionlint looks for mistakes (bad expressions, wrong job or step
+# references, shellcheck findings in run: steps). Either fails the PR when it finds something, and it is checked under the "CI green on the exact head" rule.
 # Accepted findings carry an inline `# zizmor: ignore[rule]` on the line, with the reason in a comment beside it. SARIF upload is off so it needs no
 # security-events permission.
 on:
@@ -13,6 +14,12 @@ on:
 
 permissions:
   contents: read
+
+env:
+  ACTIONLINT_VERSION: 1.7.12
+  # SHA-256 of actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz, from the release's
+  # actionlint_<version>_checksums.txt. Update both together when bumping.
+  ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
 
 concurrency:
   group: zizmor-${{ github.ref }}
@@ -32,3 +39,20 @@ jobs:
           version: 1.30.1
           inputs: .github
           advanced-security: false
+
+  # Binary, not tools/go.mod: that module shares one go.yaml.in/yaml/v4 version across the Go linters, and actionlint
+  # does not build against the one they need. shellcheck comes preinstalled on the runner and actionlint uses it.
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        run: |
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -sSfL -o "$tarball" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/$tarball"
+          echo "${ACTIONLINT_SHA256}  $tarball" | sha256sum -c -
+          tar -xzf "$tarball" actionlint
+          ./actionlint -color
