@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/WPTK/kipple/internal/testseed"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,13 @@ func FuzzDecodeBody(f *testing.F) {
 	} {
 		f.Add([]byte(s), "")
 		f.Add([]byte(s), "shift_jis")
+	}
+	for _, cs := range testseed.Lines("testdata/seeds/charsets.txt") {
+		f.Add([]byte(`<?xml version="1.0"?><rss/>`), cs)
+		f.Add([]byte("café ÿþ"), cs)
+	}
+	for _, h := range testseed.Lines("../testseed/testdata/headers.txt") {
+		f.Add([]byte(`<?xml version="1.0"?><rss/>`), h)
 	}
 	f.Fuzz(func(t *testing.T, body []byte, cs string) {
 		d := DecodeBody(bytes.Clone(body), cs) // DecodeBody may modify its input; the engine's bytes stay intact
@@ -49,6 +57,11 @@ func FuzzParseFeed(f *testing.F) {
 	f.Add([]byte(`{"version":"https://jsonfeed.org/version/1.1","items":[{"id":"1","content_html":"<script>x</script>"}]}`))
 	for _, doc := range hostileFeedSeeds() {
 		f.Add(doc)
+	}
+	for _, tok := range testseed.Lines("testdata/seeds/tokens-xml.txt") {
+		f.Add([]byte(tok))
+		f.Add([]byte(`<rss version="2.0"><channel><title>t</title><item>` + tok + `</item></channel></rss>`))
+		f.Add([]byte(`<feed xmlns="http://www.w3.org/2005/Atom"><title>t</title><entry>` + tok + `</entry></feed>`))
 	}
 	f.Fuzz(func(t *testing.T, body []byte) {
 		for _, mode := range []string{"", DedupLink, DedupLinkTitle} {

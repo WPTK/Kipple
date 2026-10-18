@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/WPTK/kipple/internal/testseed"
 	"golang.org/x/net/html"
 )
 
@@ -17,6 +18,10 @@ var xssSeeds = []string{
 	`<object data="x"></object><embed src=x>`, `<a href="https://fragment.kipple.invalid/0/0">x</a>`,
 	`<noscript><p title="</noscript><img src=x onerror=alert(1)>">`, "<a href=\"\x00javascript:x\">",
 }
+
+// payloadSeeds are the original hunt payloads in testdata/seeds (XSS, mXSS, SVG, MathML, srcset, data: and blob: URLs,
+// CSS, meta refresh, nested frames, embed-host bypasses). They run as ordinary seeds in every `go test`.
+func payloadSeeds() []string { return testseed.Lines("testdata/seeds/payloads.txt") }
 
 var jsScheme = regexp.MustCompile(`(?i)^[\x00-\x20]*j[\x00-\x20]*a[\x00-\x20]*v[\x00-\x20]*a[\x00-\x20]*s[\x00-\x20]*c[\x00-\x20]*r[\x00-\x20]*i[\x00-\x20]*p[\x00-\x20]*t[\x00-\x20]*:`)
 
@@ -52,10 +57,16 @@ func assertSafeHTML(t *testing.T, label, in, out string) {
 	}
 }
 
+func TestPayloadSeedsLoaded(t *testing.T) {
+	if n := len(payloadSeeds()); n < 200 {
+		t.Fatalf("only %d payload seeds loaded from testdata/seeds/payloads.txt", n)
+	}
+}
+
 // FuzzContent: the ingest pipeline never panics and its output is safe HTML;
 // re-sanitizing it does not introduce anything unsafe.
 func FuzzContent(f *testing.F) {
-	for _, s := range xssSeeds {
+	for _, s := range append(xssSeeds, payloadSeeds()...) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, src string) {
@@ -70,7 +81,7 @@ func FuzzContent(f *testing.F) {
 // FuzzServeHTML: the serve-time pass over stored (already sanitized) HTML, and
 // over hostile HTML too, never panics, stays safe and is idempotent.
 func FuzzServeHTML(f *testing.F) {
-	for _, s := range xssSeeds {
+	for _, s := range append(xssSeeds, payloadSeeds()...) {
 		f.Add(s)
 		c, _ := Content(s, "https://example.com/")
 		f.Add(c)
@@ -96,6 +107,9 @@ func FuzzServeHTML(f *testing.F) {
 // ResolveURL only ever returns an absolute http(s) URL or nothing.
 func FuzzURLHelpers(f *testing.F) {
 	for _, s := range []string{"", "/a", "//h/a", "javascript:x", "https://a/b?utm_source=x&id=1#f", "http://[::1", "\x00", "mailto:a@b"} {
+		f.Add(s, "https://example.com/base/")
+	}
+	for _, s := range testseed.Lines("../testseed/testdata/urls.txt") {
 		f.Add(s, "https://example.com/base/")
 	}
 	f.Fuzz(func(t *testing.T, ref, base string) {

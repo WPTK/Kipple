@@ -1,9 +1,11 @@
 package filter
 
 import (
+	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"github.com/WPTK/kipple/internal/testseed"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,6 +16,11 @@ import (
 func FuzzRegexRule(f *testing.F) {
 	for _, s := range []string{`a+b`, `(a+)+$`, `^\[ad\]`, `(?i)news`, `a*`, `(a)\1`, `[[:alpha:]]{3}`, `\p{Han}+`, `(?s).*x`, `a{1000}`, `\C`, `(`, ``} {
 		f.Add(s, "aaaa [AD] news 中文 aaaab", false)
+	}
+	long := strings.Repeat("a", 64) + "!"
+	for _, s := range testseed.Lines("testdata/seeds/redos.txt") {
+		f.Add(s, long, false)
+		f.Add(s, "aaaa [AD] news 中文 aaaab", true)
 	}
 	f.Fuzz(func(t *testing.T, pattern, hay string, cs bool) {
 		r := NewRule(ScopeGlobal, KindRegex, ActionMute, pattern)

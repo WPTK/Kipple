@@ -3,6 +3,7 @@ package feedurl
 import (
 	"testing"
 
+	"github.com/WPTK/kipple/internal/testseed"
 	"github.com/stretchr/testify/require"
 )
 
@@ -107,6 +108,9 @@ func FuzzKeyAndNormalizeMatchesKeyOfNormalize(f *testing.F) {
 		"http://h:80/p", "  http://h/p  ", "http://h/%zz", "http://h/a b?c d#e f", "ftp://h/x", "http:///x", "",
 		"http://h?#", "http://h/p?#x", "HTTP://H:8080/P?Q=%41",
 	} {
+		f.Add(s)
+	}
+	for _, s := range testseed.Lines("../testseed/testdata/urls.txt") {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, raw string) {

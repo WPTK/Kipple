@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/WPTK/kipple/internal/testseed"
 	"github.com/stretchr/testify/require"
 )
 
@@ -163,6 +164,9 @@ func FuzzBuildFTSQuery(f *testing.F) {
 		"NEAR(a b)", "a OR b", "(", "))((", "^a", "a:b:c", "\x00\x01", "\xff\xfe", "机器学习 -x", strings.Repeat("(", 600),
 		strings.Repeat(`"a `, 200), "*", "**a", `a"b`, "{title}: x", "a AND b", "col:x", "rank:1", "-title:a -author:b c",
 	} {
+		f.Add(s)
+	}
+	for _, s := range testseed.Lines("testdata/seeds/fts5.txt") {
 		f.Add(s)
 	}
 	db, err := Open(context.Background(), Options{Path: filepath.Join(f.TempDir(), "kipple.db")})
