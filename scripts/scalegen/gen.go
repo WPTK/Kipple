@@ -306,9 +306,16 @@ func generate(ctx context.Context, o genOpts) error {
 	}
 	progress("planned %d items", len(items))
 
-	const batch = 1000
-	for lo := 0; lo < len(items); lo += batch {
-		hi := min(lo+batch, len(items))
+	// Each write transaction is bounded by the words it indexes (the items' full-text triggers are the cost: about 97% of
+	// this step, measured under -race, against 3% for building the articles), so it stays far inside the store's 10 s write
+	// timeout on any machine and for any article mix. The rows are built before the transaction, which only inserts.
+	const maxRows, maxWords = 1000, 20_000
+	var rows [][2][]any // the items row and the item_content row
+	words, batches := 0, 0
+	flush := func() error {
+		if len(rows) == 0 {
+			return nil
+		}
 		err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 			ins, err := tx.PrepareContext(ctx, `INSERT INTO items (id, feed_id, read, starred, read_at, starred_at, state_changed_at,
 				published_at, updated_at, sort_at, word_count, uid, content_hash, text_hash, url, title, author, image_url)
@@ -322,82 +329,98 @@ func generate(ctx context.Context, o genOpts) error {
 				return err
 			}
 			defer cins.Close()
-			for _, it := range items[lo:hi] {
-				ir := rand.New(rand.NewSource(o.seed*1_000_003 + int64(it.idx))) // #nosec G404 -- fixture data
-				z := rand.NewZipf(ir, 1.07, 1, uint64(len(tg.words)-1))
-				var words int
-				switch x := ir.Float64(); {
-				case x < 0.5:
-					words = 30 + ir.Intn(170)
-				case x < 0.9:
-					words = 300 + ir.Intn(600)
-				default:
-					words = 1000 + ir.Intn(2500)
-				}
-				plant := ""
-				if rareAt[it.idx] {
-					plant = rareTerm
-				} else if ir.Intn(midEvery) == 0 {
-					plant = midTerm
-				}
-				html, text, n := tg.article(ir, z, words, plant)
-				title := tg.title(ir, z)
-				p := plans[it.feed]
-				var img any
-				if ir.Float64() < 0.7 {
-					img = fmt.Sprintf("https://example.com/img/%d.jpg", it.id)
-				}
-				var readAt, starAt, changed any
-				if it.read {
-					v := min(it.pub+int64(ir.Intn(86400*3)), now)
-					readAt, changed = v, v
-				}
-				if it.starred {
-					v := min(it.pub+int64(ir.Intn(86400*5)), now)
-					starAt, changed = v, v
-				}
-				if _, err := ins.ExecContext(ctx, it.id, p.id, boolI(it.read), boolI(it.starred), readAt, starAt, changed,
-					it.pub, nil, it.pub, n, "g:"+fetch.H(fmt.Sprintf("n-%d-%d", it.feed+1, it.seq)),
-					fetch.ContentHash(title, fmt.Sprintf("https://example.com/%d/%d", p.id, it.id), "", html), fetch.TextHash(title, text),
-					fmt.Sprintf("https://example.com/%d/%d", p.id, it.id), title, "", img); err != nil {
+			for _, row := range rows {
+				if _, err := ins.ExecContext(ctx, row[0]...); err != nil {
 					return err
 				}
-				if _, err := cins.ExecContext(ctx, it.id, html, text); err != nil {
+				if _, err := cins.ExecContext(ctx, row[1]...); err != nil {
 					return err
 				}
 			}
 			return nil
 		})
-		if err != nil {
-			return err
+		rows, words = rows[:0], 0
+		if batches++; batches%25 == 0 {
+			progress("%d batches of items", batches)
 		}
-		if (lo/batch)%25 == 24 {
-			progress("%d/%d items", hi, len(items))
+		return err
+	}
+	for _, it := range items {
+		ir := rand.New(rand.NewSource(o.seed*1_000_003 + int64(it.idx))) // #nosec G404 -- fixture data
+		z := rand.NewZipf(ir, 1.07, 1, uint64(len(tg.words)-1))
+		var n int
+		switch x := ir.Float64(); {
+		case x < 0.5:
+			n = 30 + ir.Intn(170)
+		case x < 0.9:
+			n = 300 + ir.Intn(600)
+		default:
+			n = 1000 + ir.Intn(2500)
 		}
+		plant := ""
+		if rareAt[it.idx] {
+			plant = rareTerm
+		} else if ir.Intn(midEvery) == 0 {
+			plant = midTerm
+		}
+		html, text, wc := tg.article(ir, z, n, plant)
+		title := tg.title(ir, z)
+		p := plans[it.feed]
+		var img any
+		if ir.Float64() < 0.7 {
+			img = fmt.Sprintf("https://example.com/img/%d.jpg", it.id)
+		}
+		var readAt, starAt, changed any
+		if it.read {
+			v := min(it.pub+int64(ir.Intn(86400*3)), now)
+			readAt, changed = v, v
+		}
+		if it.starred {
+			v := min(it.pub+int64(ir.Intn(86400*5)), now)
+			starAt, changed = v, v
+		}
+		url := fmt.Sprintf("https://example.com/%d/%d", p.id, it.id)
+		rows = append(rows, [2][]any{
+			{it.id, p.id, boolI(it.read), boolI(it.starred), readAt, starAt, changed, it.pub, nil, it.pub, wc,
+				"g:" + fetch.H(fmt.Sprintf("n-%d-%d", it.feed+1, it.seq)), fetch.ContentHash(title, url, "", html), fetch.TextHash(title, text),
+				url, title, "", img},
+			{it.id, html, text},
+		})
+		if words += wc; words >= maxWords || len(rows) >= maxRows {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+	}
+	if err := flush(); err != nil {
+		return err
 	}
 	progress("items done")
 
 	// Trimmed-item ledger with restorable content (retention.restore_days): 4% of the item count.
 	nTrim := len(items) / 25
-	if err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		for i := 0; i < nTrim; i++ {
-			p := plans[r.Intn(len(plans))]
-			id := int64(i+1) * 1000 // far below every item id (those are microsecond timestamps)
-			pub := now - 400*86400 - int64(i)
-			if _, err := tx.ExecContext(ctx, `INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at) VALUES (?,?,?,?,?,?)`,
-				id, p.id, fmt.Sprintf("t-%d", i), r.Intn(2), now-int64(r.Intn(80*86400)), now-int64(r.Intn(80*86400))); err != nil {
-				return err
+	// 500 rows per transaction, like every write here: inside the write timeout whatever the library's size.
+	for lo := 0; lo < nTrim; lo += 500 {
+		if err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			for i := lo; i < min(lo+500, nTrim); i++ {
+				p := plans[r.Intn(len(plans))]
+				id := int64(i+1) * 1000 // far below every item id (those are microsecond timestamps)
+				pub := now - 400*86400 - int64(i)
+				if _, err := tx.ExecContext(ctx, `INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at) VALUES (?,?,?,?,?,?)`,
+					id, p.id, fmt.Sprintf("t-%d", i), r.Intn(2), now-int64(r.Intn(80*86400)), now-int64(r.Intn(80*86400))); err != nil {
+					return err
+				}
+				if _, err := tx.ExecContext(ctx, `INSERT INTO trimmed_content (id, published_at, sort_at, word_count, content_hash, text_hash,
+					url, title, author, content_html, content_text) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+					id, pub, pub, 120, hash(fmt.Sprint(i)), hash(fmt.Sprint(i, "t")), "https://example.com/t/"+fmt.Sprint(i),
+					"Trimmed "+fmt.Sprint(i), "Author", "<p>"+fmt.Sprint(i)+"</p>", fmt.Sprint(i)); err != nil {
+					return err
+				}
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO trimmed_content (id, published_at, sort_at, word_count, content_hash, text_hash,
-				url, title, author, content_html, content_text) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-				id, pub, pub, 120, hash(fmt.Sprint(i)), hash(fmt.Sprint(i, "t")), "https://example.com/t/"+fmt.Sprint(i),
-				"Trimmed "+fmt.Sprint(i), "Author", "<p>"+fmt.Sprint(i)+"</p>", fmt.Sprint(i)); err != nil {
-				return err
-			}
+			return nil
+		}); err != nil {
+			return err
 		}
-		return nil
-	}); err != nil {
-		return err
 	}
 	// fetch_log: 50 rows per feed (the retention floor), 100 feeds per transaction so a library of
 	// thousands of feeds stays inside the write timeout.
@@ -425,45 +448,48 @@ func generate(ctx context.Context, o genOpts) error {
 	}{{"open", .40}, {"read_time", .35}, {"scroll", .15}, {"open_original", .05}, {"star", .03}, {"unstar", .01}, {"share", .01}}
 	clients := []string{"web", "web", "web", "pwa", "api", "api", "api"}
 	nStats := 0
-	if err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		st, err := tx.PrepareContext(ctx, `INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, inferred,
+	// One transaction per 30 days of history, so a ten-year history is many short writes, not one long one.
+	for top := o.days; top >= 1; top -= 30 {
+		if err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			st, err := tx.PrepareContext(ctx, `INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, inferred,
 			item_id, feed_id, feed_title, folder_id, folder_name, item_title, item_url, value, session_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-		if err != nil {
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+			for d := top; d >= max(1, top-29); d-- {
+				day := time.Unix(now, 0).UTC().AddDate(0, 0, -d)
+				n := int(float64(40+r.Intn(160)) * o.statsMult)
+				for e := 0; e < n; e++ {
+					ts := time.Date(day.Year(), day.Month(), day.Day(), 6+r.Intn(17), r.Intn(60), r.Intn(60), 0, time.UTC)
+					x, kind := r.Float64(), "open"
+					for _, k := range kinds {
+						if x -= k.w; x < 0 {
+							kind = k.k
+							break
+						}
+					}
+					it := items[r.Intn(len(items))]
+					var val any
+					switch kind {
+					case "read_time":
+						val = 5 + r.Intn(300)
+					case "scroll":
+						val = 10 + r.Intn(91)
+					}
+					if _, err := st.ExecContext(ctx, ts.Unix(), ts.Format("2006-01-02"), ts.Hour(), int(ts.Weekday()), kind,
+						clients[r.Intn(len(clients))], 0, it.id, plans[it.feed].id, plans[it.feed].title, nil, nil,
+						"Item "+fmt.Sprint(it.idx), "https://example.com/"+fmt.Sprint(it.id), val,
+						fmt.Sprintf("s%d-%d", d, e/12)); err != nil {
+						return err
+					}
+					nStats++
+				}
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
-		defer st.Close()
-		for d := o.days; d >= 1; d-- {
-			day := time.Unix(now, 0).UTC().AddDate(0, 0, -d)
-			n := int(float64(40+r.Intn(160)) * o.statsMult)
-			for e := 0; e < n; e++ {
-				ts := time.Date(day.Year(), day.Month(), day.Day(), 6+r.Intn(17), r.Intn(60), r.Intn(60), 0, time.UTC)
-				x, kind := r.Float64(), "open"
-				for _, k := range kinds {
-					if x -= k.w; x < 0 {
-						kind = k.k
-						break
-					}
-				}
-				it := items[r.Intn(len(items))]
-				var val any
-				switch kind {
-				case "read_time":
-					val = 5 + r.Intn(300)
-				case "scroll":
-					val = 10 + r.Intn(91)
-				}
-				if _, err := st.ExecContext(ctx, ts.Unix(), ts.Format("2006-01-02"), ts.Hour(), int(ts.Weekday()), kind,
-					clients[r.Intn(len(clients))], 0, it.id, plans[it.feed].id, plans[it.feed].title, nil, nil,
-					"Item "+fmt.Sprint(it.idx), "https://example.com/"+fmt.Sprint(it.id), val,
-					fmt.Sprintf("s%d-%d", d, e/12)); err != nil {
-					return err
-				}
-				nStats++
-			}
-		}
-		return nil
-	}); err != nil {
-		return err
 	}
 	progress("%d stats events", nStats)
 
