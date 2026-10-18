@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/WPTK/kipple/internal/store"
+	"github.com/WPTK/kipple/internal/testseed"
 )
 
 func fuzzSeeds(f *testing.F) {
@@ -35,6 +37,13 @@ func fuzzSeeds(f *testing.F) {
 	}...) {
 		f.Add(s)
 	}
+	// Generated hostile samples (scripts/maintainers/new-opml-set.ps1 -Sample).
+	files, _ := filepath.Glob(filepath.Join("testdata", "hostile", "*.opml"))
+	for _, name := range files {
+		if b, err := os.ReadFile(name); err == nil {
+			f.Add(string(b))
+		}
+	}
 }
 
 // hostileOPMLSeeds are documents written to stress the importer: entity and DTD tricks, nesting far past the
@@ -59,6 +68,11 @@ func hostileOPMLSeeds() []string {
 // parent, and every feed's folder is a listed chain.
 func FuzzParse(f *testing.F) {
 	fuzzSeeds(f)
+	for _, tok := range testseed.Lines("testdata/seeds/tokens.txt") {
+		f.Add(tok)
+		f.Add(`<opml version="2.0"><body>` + tok + `</body></opml>`)
+		f.Add(`<opml version="2.0"><body><outline text="F">` + tok + `</outline></body></opml>`)
+	}
 	f.Fuzz(func(t *testing.T, s string) {
 		doc, err := Parse(strings.NewReader(s))
 		if err != nil {

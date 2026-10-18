@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0"><head><title>Hostile</title></head><body>
+<outline type="rss" text="Dup 1" xmlUrl="https://rss.example.com/feed.xml"/>
+<outline type="rss" text="Dup 2" xmlUrl="https://RSS.EXAMPLE.COM/feed.xml"/>
+<outline type="rss" text="Dup 3" xmlUrl="https://rss.example.com/feed.xml/"/>
+<outline type="rss" text="Dup 4" xmlUrl="https://www.rss.example.com/feed.xml"/>
+<outline type="rss" text="Dup 5" xmlUrl="http://rss.example.com/feed.xml"/>
+<outline type="rss" text="Dup 6" xmlUrl="https://rss.example.com/feed.xml?utm_source=a&amp;utm_medium=b"/>
+<outline type="rss" text="Dup 7" xmlUrl="https://rss.example.com/feed.xml#top"/>
+<outline type="rss" text="Dup 8" xmlUrl="https://rss.example.com:443/feed.xml"/>
+<outline type="rss" text="Dup 9" xmlUrl="https://rss.example.com/Feed.xml"/>
+<outline type="rss" text="Dup 10" xmlUrl="https://rss.example.com/feed.xml?"/>
+</body></opml>

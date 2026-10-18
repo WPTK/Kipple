@@ -1,0 +1,111 @@
+# XML and OPML tokens for FuzzParse (the fuzz target also tries each wrapped in an OPML body). One per line.
+<?xml version="1.0"?>
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<?xml version="1.1"?>
+<?xml version="1.0" encoding="UTF-16"?>
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<?xml version="1.0" encoding="x-bogus"?>
+<?xml-stylesheet type="text/xsl" href="x.xsl"?>
+<?php echo 1 ?>
+<!DOCTYPE opml>
+<!DOCTYPE opml SYSTEM "http://127.0.0.1:1/opml.dtd">
+<!DOCTYPE opml [<!ENTITY a "b">]>
+<!DOCTYPE opml [<!ENTITY % p "q"> %p;]>
+<!ENTITY x SYSTEM "file:///etc/hosts">
+<![CDATA[x]]>
+<![CDATA[]]>
+<![CDATA[
+<!-- c -->
+<!-- -- -->
+<!-->
+<opml>
+<opml version="1.0">
+<opml version="1.1">
+<opml version="2.0">
+<opml version="">
+<opml xmlns="http://opml.org/spec2" version="2.0">
+<opml xmlns:k="urn:kipple" version="2.0">
+<head><title>t</title><dateCreated>Mon, 01 Jan 2024 00:00:00 GMT</dateCreated><ownerName>n</ownerName><ownerEmail>a@example.test</ownerEmail></head>
+<head/>
+<body>
+<body/>
+</body>
+</opml>
+<outline/>
+<outline>
+</outline>
+<outline text=""/>
+<outline text="a"/>
+<outline title="a"/>
+<outline text="a" title="b"/>
+<outline text="a" title="b" xmlUrl="https://example.test/f"/>
+<outline type="rss" xmlUrl="https://example.test/f"/>
+<outline type="rss" text="t" xmlUrl="https://example.test/f" htmlUrl="https://example.test/"/>
+<outline type="atom" xmlUrl="https://example.test/a"/>
+<outline type="link" url="https://example.test/"/>
+<outline type="include" url="https://example.test/other.opml"/>
+<outline type="rss" xmlUrl=""/>
+<outline type="rss" xmlUrl="relative/feed.xml"/>
+<outline type="rss" xmlUrl="//example.test/f"/>
+<outline type="rss" xmlUrl="file:///etc/passwd"/>
+<outline type="rss" xmlUrl="javascript:alert(1)"/>
+<outline type="rss" xmlUrl="http://127.0.0.1/f"/>
+<outline type="rss" xmlUrl="http://user:pw@example.test/f"/>
+<outline type="rss" xmlUrl="HTTPS://EXAMPLE.TEST:443/F/"/>
+<outline type="rss" xmlUrl="https://example.test/f" xmlUrl="https://example.test/g"/>
+<outline type="rss" XMLURL="https://example.test/f"/>
+<outline type="rss" xmlurl="https://example.test/f"/>
+<outline xmlUrl="https://example.test/f"><outline text="child"/></outline>
+<outline text="a"><outline text="a"><outline text="a"/></outline></outline>
+<outline text="a/b"/>
+<outline text="a&#x2F;b"/>
+<outline text=" "/>
+<outline text="&#x200B;"/>
+<outline text="&#x202E;rtl"/>
+<outline text="e&#x301;"/>
+<outline text="&#xD800;"/>
+<outline text="&#0;"/>
+<outline text="&#x10FFFF;"/>
+<outline text="&amp;amp;"/>
+<outline text="&lt;b&gt;"/>
+<outline text="&unknown;"/>
+<outline text="a&#10;b&#9;c&#13;d"/>
+<outline category="/a/b,c"/>
+<outline category=",,,"/>
+<outline category=""/>
+<outline category="/"/>
+<outline k:folder="x" k:refresh="60" k:retention="50"/>
+<outline kipple:refresh="-1"/>
+<outline kipple:refresh="99999999999999999999"/>
+<outline isComment="true" isBreakpoint="false"/>
+<outline created="Mon, 01 Jan 2024 00:00:00 GMT"/>
+<outline description="d" language="en" version="RSS2"/>
+<outline text='single'/>
+<outline text=unquoted/>
+<outline text="unterminated/>
+<outline text="a" text="b"/>
+<outline =""/>
+<outline "a"/>
+<outline <outline/>
+</outline></outline></outline>
+<outline><outline><outline><outline><outline><outline><outline><outline><outline><outline><outline><outline>
+<x:outline xmlns:x="urn:x" text="ns"/>
+<:outline/>
+<outline:/>
+</>
+<>
+<
+>
+&
+&;
+&#;
+&#x;
+&amp
+]]>
+--
+"
+'
+=
+/
+\
+%

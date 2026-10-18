@@ -1,6 +1,7 @@
 package greader
 
 import (
+	"github.com/WPTK/kipple/internal/testseed"
 	"net/http"
 	"net/url"
 	"strings"
@@ -15,6 +16,15 @@ func FuzzReadParams(f *testing.F) {
 	f.Add("", "--b\r\nContent-Disposition: form-data; name=\"s\"\r\n\r\nv\r\n--b--\r\n", 1)
 	f.Add("s=feed/http://x/y?a=b&c", "s=user/-/label/R&", 0)
 	f.Add("%", strings.Repeat("a=b&", 1000), 2)
+	for _, l := range testseed.Lines("testdata/seeds/params.txt") {
+		f.Add(l, "", 0)
+		f.Add("", l, 0)
+		f.Add("", l, 1)
+		f.Add("T=x&"+l, l, 2)
+	}
+	for _, l := range testseed.Lines("../testseed/testdata/headers.txt") {
+		f.Add("", l, 3)
+	}
 	f.Fuzz(func(t *testing.T, query, body string, ctIdx int) {
 		if _, err := url.Parse("/x?" + query); err != nil || strings.ContainsAny(query, " \r\n") {
 			return // not a valid request target

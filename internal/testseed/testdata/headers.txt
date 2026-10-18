@@ -1,0 +1,239 @@
+# HTTP header names, and header-line shapes, for fuzz targets that read request or response headers.
+Accept
+Accept-Charset
+Accept-Encoding
+Accept-Language
+Accept-Ranges
+Age
+Allow
+Authorization
+Cache-Control
+Connection
+Content-Disposition
+Content-Encoding
+Content-Language
+Content-Length
+Content-Location
+Content-Range
+Content-Security-Policy
+Content-Type
+Cookie
+Date
+ETag
+Expect
+Expires
+Forwarded
+From
+Host
+If-Match
+If-Modified-Since
+If-None-Match
+If-Range
+If-Unmodified-Since
+Keep-Alive
+Last-Modified
+Link
+Location
+Max-Forwards
+Origin
+Pragma
+Proxy-Authorization
+Proxy-Connection
+Range
+Referer
+Referrer-Policy
+Refresh
+Retry-After
+Sec-Fetch-Dest
+Sec-Fetch-Mode
+Sec-Fetch-Site
+Sec-Fetch-User
+Sec-WebSocket-Key
+Server
+Set-Cookie
+Strict-Transport-Security
+TE
+Trailer
+Transfer-Encoding
+Upgrade
+Upgrade-Insecure-Requests
+User-Agent
+Vary
+Via
+Warning
+WWW-Authenticate
+X-Content-Type-Options
+X-Forwarded-For
+X-Forwarded-Host
+X-Forwarded-Port
+X-Forwarded-Proto
+X-Forwarded-Server
+X-Frame-Options
+X-Http-Method-Override
+X-Original-URL
+X-Real-IP
+X-Rewrite-URL
+X-Requested-With
+X-Pad
+x-forwarded-host
+X-FORWARDED-HOST
+X-Forwarded-Host: evil.test
+X-Forwarded-Host: example.test, evil.test
+X-Forwarded-Host: [::1]
+X-Forwarded-For: 127.0.0.1
+X-Forwarded-For: 127.0.0.1, 10.0.0.1, ::1
+X-Forwarded-For: unknown
+X-Forwarded-Proto: https
+X-Forwarded-Proto: http, https
+X-Forwarded-Proto: javascript
+Forwarded: for=127.0.0.1;proto=https;host=evil.test
+Forwarded: for="[::1]:80";by=10.0.0.1
+Forwarded: for=_hidden;host=
+Host: example.test
+Host: example.test:80
+Host: example.test:443
+Host: 127.0.0.1:1919
+Host: [::1]:1919
+Host: evil.test
+Host:
+Origin: null
+Origin: https://example.test
+Origin: https://example.test:443
+Origin: http://example.test
+Origin: https://evil.test
+Origin: https://example.test.evil.test
+Origin: https://evil.test/example.test
+Origin: file://
+Origin: chrome-extension://abc
+Referer: https://example.test/
+Referer: https://evil.test/?https://example.test/
+Sec-Fetch-Site: same-origin
+Sec-Fetch-Site: same-site
+Sec-Fetch-Site: cross-site
+Sec-Fetch-Site: none
+Sec-Fetch-Mode: navigate
+Sec-Fetch-Mode: cors
+Sec-Fetch-Mode: no-cors
+Sec-Fetch-Dest: document
+Sec-Fetch-Dest: iframe
+Sec-Fetch-Dest: image
+Sec-Fetch-Dest: empty
+Content-Type: application/x-www-form-urlencoded
+Content-Type: multipart/form-data; boundary=b
+Content-Type: multipart/form-data; boundary=
+Content-Type: multipart/form-data
+Content-Type: text/plain
+Content-Type: application/json
+Content-Type: application/xml
+Content-Type: text/xml; charset=utf-8
+Content-Type: application/rss+xml; charset=iso-8859-1
+Content-Type: application/atom+xml
+Content-Type: application/feed+json
+Content-Type: application/octet-stream
+Content-Type: text/html; charset=utf-7
+Content-Type: ;
+Content-Type: /
+Content-Type: text/
+Content-Type: text/xml; charset="utf-8
+Content-Type: text/xml; charset=utf-8; charset=latin1
+Content-Length: 0
+Content-Length: -1
+Content-Length: 99999999999999999999
+Content-Length: 1, 2
+Content-Length: abc
+Transfer-Encoding: chunked
+Transfer-Encoding: chunked, chunked
+Transfer-Encoding: identity
+Content-Encoding: gzip
+Content-Encoding: deflate
+Content-Encoding: br
+Content-Encoding: zstd
+Content-Encoding: identity
+Content-Encoding: gzip, gzip
+Content-Encoding: x-unknown
+Accept-Encoding: gzip, deflate, br
+Accept-Encoding: *
+Accept-Encoding: gzip;q=0
+Accept: */*
+Accept: application/rss+xml, application/atom+xml;q=0.9, */*;q=0.1
+Accept: text/html;q=abc
+Range: bytes=0-
+Range: bytes=-1
+Range: bytes=0-0,1-1,2-2
+Range: bytes=99999999999999999999-
+If-None-Match: *
+If-None-Match: "a", "b"
+If-None-Match: W/"a"
+If-None-Match: a
+If-Modified-Since: Mon, 01 Jan 2024 00:00:00 GMT
+If-Modified-Since: yesterday
+If-Modified-Since: 0
+Cache-Control: no-cache
+Cache-Control: max-age=0
+Cache-Control: max-age=-1
+Cache-Control: max-age=99999999999999999999
+Cache-Control: no-store, must-revalidate
+Cache-Control: s-maxage=60, public
+Retry-After: 120
+Retry-After: -1
+Retry-After: 0
+Retry-After: 99999999999999999999
+Retry-After: Mon, 01 Jan 2024 00:00:00 GMT
+Retry-After: soon
+Retry-After:
+Refresh: 0; url=https://example.test/
+Refresh: 0; url=javascript:alert(1)
+Link: <https://example.test/feed>; rel="alternate"; type="application/rss+xml"
+Link: <https://example.test/feed>; rel=hub, <https://example.test/>; rel=self
+Link: <>; rel=x
+Link: <javascript:alert(1)>; rel=alternate
+Location: /relative
+Location: //example.test/x
+Location: https://example.test/x
+Location: http://127.0.0.1/x
+Location: javascript:alert(1)
+Location:
+Content-Disposition: attachment; filename="a.opml"
+Content-Disposition: attachment; filename*=UTF-8''%e2%80%ae.opml
+Content-Disposition: inline
+Content-Disposition: attachment; filename="a"b"
+Content-Disposition: form-data; name="s"
+Content-Disposition: form-data; name="s"; filename="x"
+Authorization: Basic dTpw
+Authorization: Basic !!!
+Authorization: Bearer x
+Authorization: GoogleLogin auth=token
+Authorization: GoogleLogin auth=
+Authorization: GoogleLogin
+Authorization: GoogleLogin auth=a auth=b
+Authorization: googlelogin AUTH=token
+Cookie: a=b
+Cookie: a=b; a=c
+Cookie: a
+Cookie: =b
+Cookie: a=b=c
+Cookie: kipple_session=
+Set-Cookie: a=b; Path=/; HttpOnly; Secure; SameSite=Lax
+Set-Cookie: a=b; Domain=.example.test
+Set-Cookie: a=b; Max-Age=-1
+User-Agent:
+User-Agent: Mozilla/5.0
+Upgrade: websocket
+Connection: close
+Connection: upgrade
+Connection: keep-alive, Upgrade
+Expect: 100-continue
+Max-Forwards: 0
+Via: 1.1 proxy
+X-HTTP-Method-Override: DELETE
+X-Original-URL: /admin
+X-Requested-With: XMLHttpRequest
+A: b
+:
+: x
+x:
+x : y
+x:y:z
+Header-With-Underscore_Name: x
+Bad Header: x
+Tab	Header: x

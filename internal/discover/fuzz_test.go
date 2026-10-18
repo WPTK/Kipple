@@ -1,6 +1,7 @@
 package discover
 
 import (
+	"github.com/WPTK/kipple/internal/testseed"
 	"net/url"
 	"strings"
 	"testing"
@@ -16,6 +17,14 @@ func FuzzLinks(f *testing.F) {
 		strings.Repeat(`<link rel=alternate type=application/rss+xml href=/f>`, 100),
 	} {
 		f.Add(s, "https://example.com/page")
+	}
+	for _, tok := range testseed.Lines("testdata/seeds/html-tokens.txt") {
+		f.Add(tok, "https://example.com/page")
+		f.Add("<html><head>"+tok+"</head><body></body></html>", "https://example.com/page")
+	}
+	for _, u := range testseed.Lines("../testseed/testdata/urls.txt") {
+		f.Add(`<link rel="alternate" type="application/rss+xml" href="`+u+`">`, "https://example.com/page")
+		f.Add(`<link rel="alternate" type="application/rss+xml" href="/f">`, u)
 	}
 	f.Fuzz(func(t *testing.T, body, base string) {
 		cs := candidates([]byte(body), base, "https://example.com/self", false)

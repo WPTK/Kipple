@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0"><head><title>Hostile</title></head><body>
+<outline type="rss" text="Both" xmlUrl="https://rss.example.com/both.xml">
+<outline type="rss" text="Child" xmlUrl="https://rss.example.com/child.xml"/>
+</outline>
+</body></opml>

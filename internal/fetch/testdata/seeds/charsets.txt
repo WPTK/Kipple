@@ -1,0 +1,62 @@
+# Charset names and Content-Type or header fragments for FuzzDecodeBody's charset argument.
+utf-8
+UTF-8
+utf8
+utf-16
+utf-16le
+utf-16be
+utf-32
+utf-7
+ucs-2
+iso-8859-1
+iso-8859-15
+latin1
+latin-1
+windows-1252
+windows-1251
+cp1252
+us-ascii
+ascii
+ansi_x3.4-1968
+shift_jis
+shift-jis
+sjis
+euc-jp
+euc-kr
+gb2312
+gbk
+gb18030
+big5
+koi8-r
+koi8-u
+macintosh
+x-mac-roman
+iso-2022-jp
+iso-2022-kr
+x-user-defined
+replacement
+hz-gb-2312
+x-bogus
+bogus
+none
+null
+"
+'utf-8'
+"utf-8"
+utf-8;
+utf-8; charset=latin1
+utf-8,latin1
+utf_8
+UTF8
+utf-8
+ utf-8
+utf-8\x00
+text/xml; charset=utf-8
+application/rss+xml; charset=iso-8859-1
+application/atom+xml;charset="shift_jis"
+text/html; charset=
+charset=
+Content-Type: text/xml; charset=utf-8
+Content-Encoding: gzip
+Content-Length: -1
+Transfer-Encoding: chunked

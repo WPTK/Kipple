@@ -1,0 +1,140 @@
+# XML, RSS, Atom and JSON Feed tokens for FuzzParseFeed (the target also tries each inside an RSS item and an Atom entry).
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="windows-1252"?>
+<?xml version="1.0" encoding="UTF-16"?>
+<?xml version="1.0" encoding="utf-32"?>
+<?xml version="1.0" encoding="x-bogus"?>
+<?xml version="2.0"?>
+<?xml-stylesheet href="x.css"?>
+<!DOCTYPE rss PUBLIC "-//Netscape Communications//DTD RSS 0.91//EN" "http://my.netscape.com/publish/formats/rss-0.91.dtd">
+<!DOCTYPE rss [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]>
+<!DOCTYPE rss [<!ENTITY x SYSTEM "file:///etc/hosts">]>
+<!DOCTYPE feed [<!ENTITY % p SYSTEM "http://127.0.0.1:1/p.dtd">%p;]>
+<![CDATA[x]]>
+<![CDATA[<b>bold</b>]]>
+<![CDATA[]]]]><![CDATA[>]]>
+<!-- c -->
+<rss>
+<rss version="0.90">
+<rss version="0.91">
+<rss version="0.92">
+<rss version="0.93">
+<rss version="0.94">
+<rss version="1.0">
+<rss version="2.0">
+<rss version="9.9">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:slash="http://purl.org/rss/1.0/modules/slash/" xmlns:feedburner="http://rssnamespace.org/feedburner/ext/1.0" xmlns:wfw="http://wellformedweb.org/CommentAPI/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://my.netscape.com/rdf/simple/0.9/">
+<feed xmlns="http://www.w3.org/2005/Atom">
+<feed xmlns="http://purl.org/atom/ns#" version="0.3">
+<feed xmlns="http://www.w3.org/2005/Atom" xml:base="https://example.test/base/" xml:lang="en">
+<feed xmlns="urn:not-atom">
+<channel>
+</channel>
+<item>
+<item/>
+<entry>
+<entry/>
+<title>t</title>
+<title type="html">&lt;b&gt;t&lt;/b&gt;</title>
+<title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">t</div></title>
+<title type="text">t</title>
+<title/>
+<title></title>
+<link>https://example.test/p</link>
+<link/>
+<link href="https://example.test/p"/>
+<link rel="alternate" type="text/html" href="https://example.test/p"/>
+<link rel="self" href="https://example.test/f"/>
+<link rel="enclosure" href="https://example.test/e.mp3" length="1" type="audio/mpeg"/>
+<link rel="replies" href="https://example.test/c"/>
+<link rel="next" href="https://example.test/f?page=2"/>
+<link href="javascript:alert(1)"/>
+<link href="//example.test/p"/>
+<link href="relative"/>
+<link href=""/>
+<atom:link href="https://example.test/f" rel="self" type="application/rss+xml"/>
+<guid>g</guid>
+<guid isPermaLink="true">https://example.test/p</guid>
+<guid isPermaLink="false">g</guid>
+<guid isPermaLink="maybe">g</guid>
+<guid/>
+<id>urn:uuid:00000000-0000-0000-0000-000000000000</id>
+<id/>
+<pubDate>Mon, 01 Jan 2024 00:00:00 +0000</pubDate>
+<pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
+<pubDate>Mon, 01 Jan 2024 00:00:00 EST</pubDate>
+<pubDate>01 Jan 2024</pubDate>
+<pubDate>2024-01-01</pubDate>
+<pubDate>2024-01-01T00:00:00Z</pubDate>
+<pubDate>2024-01-01T00:00:00+25:00</pubDate>
+<pubDate>1704067200</pubDate>
+<pubDate>-1</pubDate>
+<pubDate>0</pubDate>
+<pubDate>99999999999999999999</pubDate>
+<pubDate>Mon, 01 Jan 9999 00:00:00 +0000</pubDate>
+<pubDate>Mon, 01 Jan 0000 00:00:00 +0000</pubDate>
+<pubDate>Funday, 32 Smarch 2024</pubDate>
+<pubDate/>
+<updated>2024-01-01T00:00:00Z</updated>
+<published>2024-01-01T00:00:00Z</published>
+<lastBuildDate>Mon, 01 Jan 2024 00:00:00 GMT</lastBuildDate>
+<dc:date>2024-01-01T00:00:00Z</dc:date>
+<dc:creator>c</dc:creator>
+<dc:identifier>i</dc:identifier>
+<author>a@example.test (A)</author>
+<author><name>a</name><email>a@example.test</email><uri>https://example.test/a</uri></author>
+<description>d</description>
+<description><![CDATA[<p>d</p>]]></description>
+<description>&lt;script&gt;alert(1)&lt;/script&gt;</description>
+<summary type="html">&lt;p&gt;s&lt;/p&gt;</summary>
+<content type="html">&lt;p&gt;c&lt;/p&gt;</content>
+<content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>c</p></div></content>
+<content type="text/plain">c</content>
+<content type="image/png">AAAA</content>
+<content src="https://example.test/c.html"/>
+<content:encoded><![CDATA[<p>c</p>]]></content:encoded>
+<media:content url="https://example.test/m.jpg" type="image/jpeg" width="1" height="1" medium="image"/>
+<media:thumbnail url="https://example.test/t.jpg" width="-1" height="999999999999"/>
+<media:group><media:content url="https://example.test/m.mp4"/></media:group>
+<media:description>d</media:description>
+<enclosure url="https://example.test/e.jpg" length="0" type="image/jpeg"/>
+<enclosure url="" length="-1" type=""/>
+<enclosure url="https://example.test/e.mp3" length="99999999999999999999" type="audio/mpeg"/>
+<enclosure/>
+<itunes:image href="https://example.test/i.jpg"/>
+<itunes:duration>99:99:99</itunes:duration>
+<category>c</category>
+<category term="t" label="l" scheme="https://example.test/s"/>
+<category domain="d">c</category>
+<source url="https://example.test/s.xml">s</source>
+<comments>https://example.test/c</comments>
+<slash:comments>-1</slash:comments>
+<ttl>0</ttl>
+<ttl>-5</ttl>
+<ttl>99999999999</ttl>
+<sy:updatePeriod>hourly</sy:updatePeriod>
+<language>en-us</language>
+<image><url>https://example.test/i.png</url><title>t</title><link>https://example.test/</link></image>
+<icon>https://example.test/i.ico</icon>
+<logo>https://example.test/l.png</logo>
+<generator>g</generator>
+<rights>r</rights>
+<x:a xmlns:x="urn:x"><x:b>c</x:b></x:a>
+<unknown attr="x"/>
+</rss>
+</feed>
+</rdf:RDF>
+{}
+[]
+null
+{"version":"https://jsonfeed.org/version/1","items":[]}
+{"version":"https://jsonfeed.org/version/1.1","title":"t","items":[{"id":"1"}]}
+{"version":"https://jsonfeed.org/version/1.1","items":[{"id":"1","content_html":"<p>x</p>","content_text":"x","date_published":"2024-01-01T00:00:00Z","url":"https://example.test/p","tags":["a"],"authors":[{"name":"a"}],"attachments":[{"url":"https://example.test/a.mp3","mime_type":"audio/mpeg","size_in_bytes":1}]}]}
+{"version":"https://jsonfeed.org/version/1.1","items":[{"id":1},{"id":null},{"id":[]},{"id":{}}]}
+{"version":"https://jsonfeed.org/version/1.1","items":[{"id":"1","date_published":"not a date"},{"id":"2","date_published":99999999999},{"id":"3","tags":"notalist"}]}
+{"version":"https://jsonfeed.org/version/1.1","items":{"id":"1"}}
+{"version":"https://jsonfeed.org/version/1.1","items":[{"id":"\u0000"},{"id":"\ud800"}]}
+{"version":"https://jsonfeed.org/version/1.1","items":[{"id":"1","url":"javascript:alert(1)","image":"data:image/png;base64,AAAA","banner_image":"//example.test/b.png"}]}
+{"version":"https://jsonfeed.org/version/1.1","feed_url":"https://example.test/f.json","next_url":"https://example.test/f.json?page=2","items":[]}

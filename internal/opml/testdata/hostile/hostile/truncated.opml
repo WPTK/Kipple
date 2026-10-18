@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0"><head><title>Hostile</title></head><body>
+<outline type="rss" text="Feed 1" title="Feed 1" xmlUrl="https://rss.example.com/f/1.xml" htmlUrl="https://rss.example.com/s/1/"/>
+<outline type="rss" text="Feed 2" title="Feed 2" xmlUrl="https://rss.example.com/f/2.xml" htmlUrl="https://rss.example.com/s/2/"/>
+<outline type="rss" text="Feed 3" title="Feed 3" xmlUrl="https://rss.example.com/f/3.xml" htmlUrl="https://rss.example.com/s/3/"/>
+<outline type="rss" text="Feed 4" title="Feed 4" xmlUrl="https://rss.example.com/f/4.xml" htmlUrl="https://rss.example.com/s/4/"/>
+<outline type="rss" text="Feed 5" title="Feed 5" xmlUrl="https://rss.example.com/f/5.xml" htmlUrl="https://rss.example.com/s/5/"/>
+<outline type="rss" text="Feed 6" title="Feed 6" xmlUrl="https://rss.example.com/f/6.xml" htmlUrl="https://rss.example.com/s/6/"/>
+<outline type="rss" text="Feed 7" title="Feed 7" xmlUrl="https://rss.example.com/f/7.xml" htmlUrl="https://rss.example.com/s/7/"/>
+<outline type="rss" text="Feed 8" title="Feed 8" xmlUrl="https://rss.example.com/f/8.xml" htmlUrl="https://rss.example.com/s/8/"/>
+<outline type="rss" text="Feed 9" title="Feed 9" xmlUrl="https://rss.example.com/f/9.xml" htmlUrl="https://rss.example.com/s/9/"/>
+<outline type="rss" text="Feed 10" title="Feed 10" xmlUrl="https://rss.example.com/f/10.xml" htmlUrl="https://rss.example.com/s/10/"/>
+<outline type="rss" text="Feed 11" title="Feed 11" xmlUrl="https://rss.example.com/f/11.xml" htmlUrl="https://rss.example.com/s/11/"/>
+<outline type="rss" text="Feed 12" title="Feed 12" xmlUrl="https://rss.example.com/f/12.xml" htmlUrl="https://rss.exam

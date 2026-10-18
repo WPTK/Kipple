@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<opml version="1.0"><head><title>v1</title></head><body>
+<outline text="One" type="link" url="https://rss.example.com/one/"/>
+<opml version="2.0"><body><outline type="rss" text="Two" xmlUrl="https://rss.example.com/two.xml"/></body></opml>
+<outline text="Three" xmlUrl="https://rss.example.com/three.xml"/></body></opml>

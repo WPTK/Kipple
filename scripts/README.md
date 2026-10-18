@@ -78,6 +78,24 @@ MERGED and every `Closes #n` issue is CLOSED.
 If this breaks: it depends on the `gh pr view --json` fields listed in the script help, the compare API's `status` field
 and `gh pr merge --match-head-commit`. The decision logic is `Get-PrVerdict`.
 
+## Bug-hunt tools (dev machine)
+
+Everything these write goes to `.hunt/` (gitignored); nothing from the owner's own data may be committed. Each generator is a
+pure function of a seed, so the same command gives the same files.
+
+- `scripts/fuzz.ps1 -Minutes N [-Parallel P]` is the long fuzz mode: it re-runs every target against its committed
+  `testdata/fuzz` reproducers (verdict `REPRO` on a regression), then fuzzes each target N minutes with `-parallel P`
+  (default half the cores) and prints one `PASS`/`FAIL` line per target. The Go build and fuzz caches live in
+  `.hunt/fuzz/gocache` (the first run builds cold), and each failing input is copied to `.hunt/fuzz/crashers/<Target>/`.
+  Without `-Minutes` it behaves as before (`-Seconds` per target).
+- `go run ./scripts/huntgen restore|docs|seeds` writes mutated SQLite files for `kipple restore` (`.hunt/restore`), generated
+  OPML, Atom and RSS documents (`.hunt/docs`) and the small committed seeds (`internal/hunt/testdata/restore/*.seed`).
+  The generators are in `internal/hunt` (`RestoreCases`, `RestoreFromSeed`, `OPMLFromSeed`, `AtomFromSeed`, `RSSFromSeed`)
+  with `FuzzCheckRestoreStructured`, `FuzzCheckRestoreRaw`, `FuzzParseStructured` and `FuzzParseFeedStructured`.
+- `go run ./scripts/scalegen gen -preset NAME` builds a scale library in `.hunt/scale/NAME`: `articles-1k`, `articles-10k`,
+  `articles-100k`, `feeds-100`, `feeds-1000`, `feeds-10000`, `starred-heavy`, `long-history`. Flags you pass
+  (`-feeds`, `-items`, `-stats-days`, `-starred-pct`, `-stats-mult`, `-dir`) override the preset.
+
 ## Node tools
 
 `changelog.mjs`, `audit-report.mjs`, `check-links.mjs` and `uat-labels.mjs` each have a `*.test.mjs` beside them
@@ -85,6 +103,21 @@ and `gh pr merge --match-head-commit`. The decision logic is `Get-PrVerdict`.
 `aria-label` removed or changed in `web/src` is still used by `web/uat/*.mjs` (see docs/maintainers/uat-plan.md). If it breaks: it
 reads `git diff -U0 <range> -- web/src` and only sees labels written on the same line as the attribute
 (`extractFragments`).
+
+## Go tools for test assets
+
+Standalone Go programs (`go run ./scripts/<name>`), each with a `main_test.go` (`go test ./scripts/<name>`). They use
+synthetic content only and are not part of CI. Big outputs go under the gitignored `.hunt/` directory.
+
+| Tool | What it does |
+|---|---|
+| `huntfeeds` | Writes a seeded set of weird synthetic feeds: a 10,000-entry feed, a 50 MB feed, huge content, thousands of enclosures, deeply nested HTML, duplicate and reused GUIDs, odd dates, mixed Atom/RSS namespaces, RSS 0.9x, RDF 1.0, JSON Feed, HTML served as a feed and a feed inside HTML. `go run ./scripts/huntfeeds -out .hunt/feeds [-seed 1] [-small]`; the same seed gives byte-identical files. |
+| `badfeed` | A feed server that misbehaves on purpose, on loopback IP addresses only: slow drip, truncated bodies, redirect chains and loops, 304 variants, huge bodies, wrong encodings, gzip/deflate (also corrupt and bombs), chunked, 5xx bursts, 429 with Retry-After, wrong Content-Type, and a self-signed HTTPS port. `go run ./scripts/badfeed [-addr 127.0.0.1:1940] [-tls-addr 127.0.0.1:1941]`; the routes are in `routes()`. |
+
+The fuzz seed lists live beside the code they feed: `testdata/seeds/*.txt` in `internal/{sanitize,opml,fetch,discover,filter,greader,store}`
+and `internal/testseed/testdata/` for the URL, host and header lists several packages share. `internal/testseed` loads
+them (one seed per line, `#` comments, a leading `"` means a Go string literal) and each `Fuzz*` target adds them with
+`f.Add`, so every plain `go test` runs them. If a seed makes a target fail, keep it out of the list and record it.
 
 ## CI
 
@@ -95,6 +128,17 @@ tests copy the last two; `scripts/ci-changes.sh --scripts`, run from the base co
 only on an explicit `false`, so a failed gate runs it.
 Both are separate jobs at the end of `.github/workflows/ci.yml`.
 
+### hunt-tools-check.ps1
+
+    pwsh scripts/maintainers/hunt-tools-check.ps1 [-Detailed] [-Race]
+
+Checks that the tools the 1.1 bug hunt uses (Go linters, k6, nuclei, Playwright and its browsers, Lighthouse, ZAP, Java and
+the rest) are installed, and prints one line: `OK: N tools present` or `MISSING: a, b (fix: ...)`. `-Detailed` adds one
+version line per tool; `-Race` also runs the cgo check (`go test -race`). It changes nothing and is not part of CI.
+
+If this breaks: the tool list is the `$script:HuntTools` table at the top of the script (name, command, fix hint); the
+logic is `Invoke-HuntToolCheck`, tested with a fake runner in `hunt-tools-check.Tests.ps1`.
+
 ## Tests for the tools
 
     pwsh -NoProfile -Command "Invoke-Pester scripts/maintainers"
@@ -102,3 +146,15 @@ Both are separate jobs at the end of `.github/workflows/ci.yml`.
 Pester 5.5 or later (`Install-PSResource Pester -Scope CurrentUser`). Native commands are mocked: no network, no push.
 Lint: `pwsh scripts/ci-local.ps1 -Lint` (PSScriptAnalyzer with `scripts/PSScriptAnalyzerSettings.psd1`; findings of
 severity Warning or Error fail it; fix them rather than suppress them).
+
+### maintainers/new-opml-set.ps1
+
+    pwsh scripts/maintainers/new-opml-set.ps1 [-Seed 1] [-OutDir .hunt/opml] [-Sample]
+
+Writes a seeded, reproducible set of large and hostile OPML files: `huge-flat` (10,000 feeds), `huge-nested`
+(5,000 feeds in 500 folders, 1 to 12 levels), `huge-nested-200`, `wide-folder` (3,000 feeds) and about 30
+`hostile/` cases (duplicate URLs, bad schemes, encodings, XXE, truncation and more). All hosts are synthetic. The
+default output dir `.hunt/` is gitignored; `-Sample` writes only small hostile files, which is what
+`internal/opml/testdata/hostile` holds and `go test ./internal/opml` replays as fuzz seeds. Prints one `OK:` or
+`FAIL:` line. Run by hand for load, import and fuzz work; it is not part of CI or the release gates.
+If this breaks: `Get-HostileSet` builds each case; `new-opml-set.Tests.ps1` checks counts and determinism.
