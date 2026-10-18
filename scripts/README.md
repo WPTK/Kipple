@@ -128,6 +128,17 @@ tests copy the last two; `scripts/ci-changes.sh --scripts`, run from the base co
 only on an explicit `false`, so a failed gate runs it.
 Both are separate jobs at the end of `.github/workflows/ci.yml`.
 
+### hunt-tools-check.ps1
+
+    pwsh scripts/maintainers/hunt-tools-check.ps1 [-Detailed] [-Race]
+
+Checks that the tools the 1.1 bug hunt uses (Go linters, k6, nuclei, Playwright and its browsers, Lighthouse, ZAP, Java and
+the rest) are installed, and prints one line: `OK: N tools present` or `MISSING: a, b (fix: ...)`. `-Detailed` adds one
+version line per tool; `-Race` also runs the cgo check (`go test -race`). It changes nothing and is not part of CI.
+
+If this breaks: the tool list is the `$script:HuntTools` table at the top of the script (name, command, fix hint); the
+logic is `Invoke-HuntToolCheck`, tested with a fake runner in `hunt-tools-check.Tests.ps1`.
+
 ## Tests for the tools
 
     pwsh -NoProfile -Command "Invoke-Pester scripts/maintainers"
