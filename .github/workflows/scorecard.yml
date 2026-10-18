@@ -19,6 +19,7 @@ concurrency:
 jobs:
   analysis:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       security-events: write # upload the SARIF results
       id-token: write # publish_results: sign and publish to the Scorecard API

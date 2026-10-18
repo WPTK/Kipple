@@ -37,6 +37,7 @@ jobs:
   gate:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       tag: ${{ steps.check.outputs.tag }}
       version: ${{ steps.check.outputs.version }}
@@ -94,6 +95,7 @@ jobs:
   build:
     needs: [gate, ci]
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -176,6 +178,7 @@ jobs:
   scan:
     needs: [gate, build]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: read
@@ -200,6 +203,7 @@ jobs:
   smoke:
     needs: [gate, build]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: read
@@ -253,6 +257,7 @@ jobs:
   publish:
     needs: [gate, build, scan, smoke]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       packages: write
@@ -449,6 +454,7 @@ jobs:
     needs: [gate, build, publish]
     if: needs.gate.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     concurrency:
       group: release-floating-tags
       cancel-in-progress: false
@@ -493,6 +499,7 @@ jobs:
   repoint:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     concurrency:
       group: release-floating-tags
       cancel-in-progress: false

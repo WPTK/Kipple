@@ -27,6 +27,7 @@ concurrency:
 jobs:
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -103,6 +104,7 @@ jobs:
     needs: audit
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       issues: write
