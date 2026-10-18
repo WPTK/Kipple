@@ -691,10 +691,13 @@ export function FeedsScreen() {
   return (
     <div className="ui-font mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-2">
-        <div className="flex items-center gap-1 pt-2">
-          <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
+        {/* As in the list header: the title keeps at least 6.5rem, and where the title and the controls do not fit on
+            one row (a narrow phone at a large text size) the controls drop to a row of their own. */}
+        <div className="flex flex-wrap items-center gap-1 pt-2">
+          <h1 className="min-w-[min(100%,6.5rem)] flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
             Feeds
           </h1>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
           <span role="status" aria-live="polite" className="mr-1 inline-flex items-center gap-1 text-xs text-fg2" data-testid="saved-note">
             {saved === "saved" ? (
               <>
@@ -760,6 +763,7 @@ export function FeedsScreen() {
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
           ) : null}
+          </div>
         </div>
         <p className="pb-1 text-xs text-fg2">
           {selecting

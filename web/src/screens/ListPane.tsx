@@ -1236,7 +1236,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
           onKeyDownCapture={onRowKey}
           onFocus={onListFocus}
         >
+          {/* Room at the end for a toast on screen (toasts.tsx sets the height), so the last row can come out from under it. */}
           <div
+            className="pb-[var(--kp-toast-h,0px)]"
             style={
               pullOffset > 0 && !reduced
                 ? { transform: `translateY(${pullOffset}px)`, transition: pull.dragging ? "none" : "transform 200ms cubic-bezier(0.2, 0, 0, 1)" }

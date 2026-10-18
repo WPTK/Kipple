@@ -24,6 +24,7 @@ import {
 } from "./deviceSync";
 import { DEVICE_PREFS_KEY, LEGACY_DEVICE_PREFS_KEY, devicePrefsStore, resetDevicePrefs, setListOverride, updateDevicePrefs } from "./devicePrefs";
 import { DEFAULT_PREFS, PREFS_KEY, prefsStore, updatePrefs } from "./prefs";
+import { offlineStore, setOnline } from "./offlineState";
 
 const local = (): LocalState => ({ theme: themeStore.get(), prefs: prefsStore.get(), dp: devicePrefsStore.get() });
 
@@ -357,6 +358,33 @@ describe("saving", () => {
     expect(patches).toHaveLength(1);
     fail = false;
     await retrySave();
+    expect(patches).toHaveLength(2);
+    expect(syncStore.get().status).toBe("idle");
+    expect(pendingChanges()).toEqual({});
+  });
+
+  it("offline is not a failed save: the change waits, no error, and goes once the server answers again (#479)", async () => {
+    localStorage.setItem(SYNC_FLAG_KEY, "1");
+    let down = true;
+    const patches: unknown[] = [];
+    mockFetch({
+      "PATCH /api/device": (_u, init) => {
+        patches.push(JSON.parse(String(init?.body)));
+        if (down) throw new TypeError("Failed to fetch");
+        return json(device({ merged: { ...DEFAULTS, "client.peek_seen": true } }));
+      },
+    });
+    hydrateDevice(device());
+    updateDevicePrefs({ peekSeen: true });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(syncStore.get().status).toBe("offline");
+    expect(offlineStore.get().online).toBe(false);
+    expect(JSON.parse(localStorage.getItem(SYNC_DIRTY_KEY) ?? "{}")).toEqual({ "client.peek_seen": true });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(patches).toHaveLength(1); // no retry loop while offline
+    down = false;
+    setOnline(true); // any answer from the server, or the browser's online event
+    await vi.advanceTimersByTimeAsync(0);
     expect(patches).toHaveLength(2);
     expect(syncStore.get().status).toBe("idle");
     expect(pendingChanges()).toEqual({});
