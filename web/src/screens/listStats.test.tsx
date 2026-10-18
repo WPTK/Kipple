@@ -57,7 +57,7 @@ async function ready(settings: Record<string, unknown>, nav: Record<string, unkn
   go("/l/unread");
   await screen.findByText("Article number 1");
   // The bootstrap answer is what turns the hook on.
-  await waitFor(() => expect(screen.getAllByRole("button", { name: "More actions" }).length).toBeGreaterThan(0));
+  await waitFor(() => expect(screen.getAllByRole("button", { name: /^More actions: / }).length).toBeGreaterThan(0));
   await settle();
   const row = document.querySelector('[data-item-id="1001"]') as HTMLElement;
   return { beacon, open, row, user: userEvent.setup() };
@@ -89,7 +89,7 @@ afterEach(() => {
 describe("list surface stats events", () => {
   it("records open_original from the row menu when stats are on", async () => {
     const { beacon, open, row, user } = await ready({});
-    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(within(row).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Open original" }));
     expect(open).toHaveBeenCalled();
     await waitFor(async () => expect(await beaconed(beacon, "open_original")).toEqual([{ kind: "open_original", item_id: 1001 }]));
@@ -97,7 +97,7 @@ describe("list surface stats events", () => {
 
   it("records nothing from the row menu when stats are off", async () => {
     const { beacon, open, row, user } = await ready({ "stats.enabled": false });
-    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(within(row).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Open original" }));
     expect(open).toHaveBeenCalled();
     await settle();
@@ -107,12 +107,12 @@ describe("list surface stats events", () => {
   it("records share from the row menu when the sheet resolves, and not when it is cancelled", async () => {
     const share = vi.fn().mockRejectedValueOnce(new DOMException("dismissed", "AbortError")).mockResolvedValueOnce(undefined);
     const { beacon, row, user } = await ready({}, { share });
-    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(within(row).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: /^Share/ }));
     await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
     await settle();
     expect(await beaconed(beacon, "share")).toEqual([]);
-    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(within(row).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: /^Share/ }));
     await waitFor(async () => expect(await beaconed(beacon, "share")).toEqual([{ kind: "share", item_id: 1001 }]));
   });
@@ -120,7 +120,7 @@ describe("list surface stats events", () => {
   it("records nothing for a share when stats are off", async () => {
     const share = vi.fn().mockResolvedValue(undefined);
     const { beacon, row, user } = await ready({ "stats.enabled": false }, { share });
-    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(within(row).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: /^Share/ }));
     await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
     await settle();

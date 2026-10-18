@@ -131,7 +131,7 @@ describe("reader pane: one persistent list", () => {
     const user = userEvent.setup();
     await user.click(rowLink(1)); // opens row 1 in the pane
     await screen.findByTestId("article-body");
-    await user.click(within(rowOf(1) as HTMLElement).getByRole("button", { name: "More actions" }));
+    await user.click(within(rowOf(1) as HTMLElement).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Mark below as read" })); // rows 2-5 leave the Unread list
     await waitFor(() => expect(rowOf(5)).toBeNull());
     // Go to the list route and back into an article: the list must not come back to life.
@@ -157,7 +157,7 @@ describe("reader pane: one persistent list", () => {
     go("/l/unread");
     await screen.findByText("Article number 5");
     const user = userEvent.setup();
-    await user.click(within(rowOf(1) as HTMLElement).getByRole("button", { name: "More actions" }));
+    await user.click(within(rowOf(1) as HTMLElement).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Mark below as read" }));
     await waitFor(() => expect(screen.queryByText("Article number 5")).toBeNull());
     await user.click(screen.getByText("Article number 1"));

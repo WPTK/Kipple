@@ -9,6 +9,7 @@ import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
 import { enhanceEmbeds, handleArticleClick, watchImages } from "@/lib/articleDom";
 import { useItemActions } from "@/lib/itemActions";
+import { retireUndoToastFor } from "@/lib/undo";
 import { articleTo, listTo } from "@/lib/routes";
 import { sanitizeArticleHtml } from "@/lib/safeHtml";
 import { resolveLinkTarget } from "@/lib/links";
@@ -105,6 +106,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
 
   const go = (target: string | undefined) => {
     if (!target) return;
+    // A "Marked unread" left up would name no article once the next one is open.
+    retireUndoToastFor([id]);
     // Prev/next replaces the history entry so back is always one step to the list.
     if (!pane) rememberListPlace(scope, target); // a list beside the article follows it itself
     navigate(articleTo(target, scope), { replace: true, state: { via: "nav" } });

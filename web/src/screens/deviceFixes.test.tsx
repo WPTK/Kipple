@@ -158,7 +158,7 @@ describe("toasts", () => {
 describe("read state in the Unread list", () => {
   const menuFor = async (user: ReturnType<typeof userEvent.setup>, n: number) => {
     const row = document.querySelector(`[data-item-id="${1000 + n}"]`) as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(within(row).getByRole("button", { name: /^More actions: / }));
   };
 
   it("labels the row menu and the article button by their action", async () => {
@@ -352,7 +352,7 @@ describe("sidebar", () => {
     await screen.findByText("Article number 1");
     const nav = screen.getByRole("navigation", { name: "Primary" });
     const user = userEvent.setup();
-    await user.click(within(nav).getByRole("button", { name: "Favorite News" }));
+    await user.click(within(nav).getByRole("button", { name: /^(Add|Remove) News (to|from) favorites$/ }));
     const fav = await within(nav).findByRole("region", { name: "Favorites" });
     expect(within(fav).getByRole("link", { name: /Alpha/ })).toBeInTheDocument();
     await user.click(within(fav).getByRole("button", { name: "Collapse News" }));
@@ -373,8 +373,8 @@ describe("sidebar", () => {
     const nav = screen.getByRole("navigation", { name: "Primary" });
     const user = userEvent.setup();
     expect(within(nav).queryByRole("region", { name: "Favorites" })).toBeNull();
-    await user.click(within(nav).getByRole("button", { name: "Favorite Delta" }));
-    await user.click(within(nav).getByRole("button", { name: "Favorite News" }));
+    await user.click(within(nav).getByRole("button", { name: /^(Add|Remove) Delta (to|from) favorites$/ }));
+    await user.click(within(nav).getByRole("button", { name: /^(Add|Remove) News (to|from) favorites$/ }));
     const fav = await within(nav).findByRole("region", { name: "Favorites" });
     // A favorited folder lists its feeds beneath it (the folder starts expanded).
     expect(within(fav).getAllByRole("link").map((l) => l.textContent)).toEqual(["Delta", "News", "Alpha", "Bravo", "Charlie"].map((t) => expect.stringContaining(t)));
@@ -382,7 +382,7 @@ describe("sidebar", () => {
       { t: "feed", id: "4" },
       { t: "folder", id: "1" },
     ]);
-    await user.click(within(fav).getByRole("button", { name: "Favorite Delta" }));
+    await user.click(within(fav).getByRole("button", { name: /^(Add|Remove) Delta (to|from) favorites$/ }));
     await waitFor(() => expect(lastFavoritesSent(calls)).toEqual([{ t: "folder", id: "1" }]));
   });
 
@@ -392,7 +392,7 @@ describe("sidebar", () => {
     go("/l/unread");
     await screen.findByText("Article number 1");
     const nav = screen.getByRole("navigation", { name: "Primary" });
-    await userEvent.setup().click(within(nav).getByRole("button", { name: "Favorite Bravo" }));
+    await userEvent.setup().click(within(nav).getByRole("button", { name: /^(Add|Remove) Bravo (to|from) favorites$/ }));
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH" && c.url.pathname === "/api/settings")).toBe(true));
     const patch = calls.find((c) => c.method === "PATCH");
     expect(JSON.parse(String(patch?.init?.body))).toEqual({ "library.favorites": [{ t: "feed", id: "2" }] });
@@ -405,7 +405,7 @@ describe("sidebar", () => {
     go("/l/unread");
     await screen.findByText("Article number 1");
     const nav = screen.getByRole("navigation", { name: "Primary" });
-    await userEvent.setup().click(within(nav).getByRole("button", { name: "Favorite Bravo" }));
+    await userEvent.setup().click(within(nav).getByRole("button", { name: /^(Add|Remove) Bravo (to|from) favorites$/ }));
     await waitFor(() => expect(lastFavoritesSent(calls)).toEqual([{ t: "feed", id: "2" }]));
     await waitFor(() => expect(within(nav).queryByRole("region", { name: "Favorites" })).toBeNull());
   });
@@ -598,8 +598,8 @@ describe("manage feeds", () => {
     go("/feeds");
     await screen.findByText("Alpha");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Favorite Delta" }));
-    await user.click(screen.getByRole("button", { name: "Favorite News" }));
+    await user.click(screen.getByRole("button", { name: /^(Add|Remove) Delta (to|from) favorites$/ }));
+    await user.click(screen.getByRole("button", { name: /^(Add|Remove) News (to|from) favorites$/ }));
     await user.click(screen.getByRole("button", { name: "Edit" }));
     const fav = await screen.findByRole("region", { name: "Favorites" });
     expect(within(fav).getAllByRole("link").map((l) => l.textContent)).toEqual([expect.stringContaining("Delta"), expect.stringContaining("News")]);
@@ -613,7 +613,7 @@ describe("manage feeds", () => {
     go("/feeds");
     await screen.findByText("Alpha");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Favorite News" }));
+    await user.click(screen.getByRole("button", { name: /^(Add|Remove) News (to|from) favorites$/ }));
     const fav = await screen.findByRole("region", { name: "Favorites" });
     expect(within(fav).getByRole("link", { name: "Alpha" })).toBeInTheDocument();
     await user.click(within(fav).getByRole("button", { name: "Collapse News" }));

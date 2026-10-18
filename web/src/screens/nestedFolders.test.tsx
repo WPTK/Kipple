@@ -288,8 +288,8 @@ describe("nested folder review fixes", () => {
     expect(first).toHaveAttribute("tabindex", "0");
     first.focus();
     // The star is not a tab stop inside the tree: Tab leaves the tree.
-    expect(within(first).getByRole("button", { name: "Favorite Apple Daily" })).toHaveAttribute("tabindex", "-1");
-    await user.click(within(first).getByRole("button", { name: "Favorite Apple Daily" }));
+    expect(within(first).getByRole("button", { name: /^(Add|Remove) Apple Daily (to|from) favorites$/ })).toHaveAttribute("tabindex", "-1");
+    await user.click(within(first).getByRole("button", { name: /^(Add|Remove) Apple Daily (to|from) favorites$/ }));
     await waitFor(() => expect(within(favTree).getAllByRole("treeitem")).toHaveLength(1));
     const left = within(favTree).getAllByRole("treeitem")[0]!;
     await waitFor(() => expect(document.activeElement).toBe(left));
@@ -307,7 +307,7 @@ describe("nested folder review fixes", () => {
     const favTree = await within(nav).findByRole("tree", { name: "Favorites" });
     const only = within(favTree).getAllByRole("treeitem")[0]!;
     only.focus();
-    await userEvent.setup().click(within(only).getByRole("button", { name: /^Favorite / }));
+    await userEvent.setup().click(within(only).getByRole("button", { name: / favorites$/ }));
     await waitFor(() => expect(within(nav).queryByRole("tree", { name: "Favorites" })).toBeNull());
     const feeds = within(nav).getByRole("tree", { name: "Feeds" });
     await waitFor(() => expect(feeds.contains(document.activeElement)).toBe(true));

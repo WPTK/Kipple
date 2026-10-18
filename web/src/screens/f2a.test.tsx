@@ -167,7 +167,7 @@ describe("layouts", () => {
       await screen.findByText("Article number 1");
       hallmarks[id](container);
       // Unread state is in the accessible name (and the dot and weight), never color alone.
-      expect(screen.getByRole("link", { name: /^Unread, Article number 1/ })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /^Article number 1, unread/ })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /^Article number 2/ })).toBeInTheDocument();
       expect(await axe(container)).toHaveNoViolations();
     });
@@ -272,7 +272,7 @@ describe("order", () => {
 });
 
 async function markRowRead(user: ReturnType<typeof userEvent.setup>, n: number) {
-  await user.click(within(document.querySelector(`[data-item-id="${1000 + n}"]`) as HTMLElement).getByRole("button", { name: "More actions" }));
+  await user.click(within(document.querySelector(`[data-item-id="${1000 + n}"]`) as HTMLElement).getByRole("button", { name: /^More actions: / }));
   await user.click(await screen.findByRole("menuitem", { name: "Mark as read" }));
 }
 
@@ -442,7 +442,7 @@ describe("mark above and below, and mark all", () => {
     await screen.findByText("Article number 3");
     const user = userEvent.setup();
     const row = document.querySelector('[data-item-id="1003"]') as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(within(row).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Mark above as read" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
     const body = bodyOf(calls.find((c) => c.url.pathname === "/api/items/mark-read"));
@@ -462,7 +462,7 @@ describe("mark above and below, and mark all", () => {
     go("/l/unread");
     await screen.findByText("Article number 3");
     const user = userEvent.setup();
-    await user.click(within(document.querySelector('[data-item-id="1003"]') as HTMLElement).getByRole("button", { name: "More actions" }));
+    await user.click(within(document.querySelector('[data-item-id="1003"]') as HTMLElement).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Mark below as read" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read")).toBe(true));
     const b = bodyOf(calls.find((c) => c.url.pathname === "/api/items/mark-read"));
@@ -475,7 +475,7 @@ describe("mark above and below, and mark all", () => {
     go("/l/unread");
     await screen.findByText("Article number 3");
     const user = userEvent.setup();
-    await user.click(within(document.querySelector('[data-item-id="1003"]') as HTMLElement).getByRole("button", { name: "More actions" }));
+    await user.click(within(document.querySelector('[data-item-id="1003"]') as HTMLElement).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Mark below as read" }));
     await user.click(await within(screen.getByTestId("undo-region")).findByRole("button", { name: "Undo" }));
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read").length).toBe(2));

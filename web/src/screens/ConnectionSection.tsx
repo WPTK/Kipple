@@ -226,7 +226,7 @@ function AccessField({ meta }: { meta: SettingMeta }) {
         {meta.label}
       </legend>
       <p className="text-xs text-fg2">{meta.description}</p>
-      <p className="text-sm" role="status">
+      <p className="text-sm">
         {on ? (
           <>
             On: Kipple checks the Access token of <span className="font-mono break-all">{saved.team}</span>.

@@ -35,7 +35,7 @@ export function WizardFrame({
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-fg2">Kipple setup</p>
             {onSkipAll ? (
-              <Button variant="link" className="min-h-11" disabled={skipAllBusy} onClick={onSkipAll}>
+              <Button variant="link" className="min-h-11" aria-disabled={skipAllBusy || undefined} onClick={skipAllBusy ? undefined : onSkipAll}>
                 Skip the rest of setup
               </Button>
             ) : null}

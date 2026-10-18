@@ -99,10 +99,10 @@ describe("Unread list (Magazine)", () => {
     expect(screen.getByRole("main")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
     expect(screen.getByText("Today")).toBeInTheDocument();
-    // Unread rows announce "Unread" in their accessible name; read rows do not.
-    expect(screen.getByRole("link", { name: /^Unread, Article number 1/ })).toBeInTheDocument();
+    // Unread rows end their accessible name with "unread" (the title comes first); read rows do not.
+    expect(screen.getByRole("link", { name: /^Article number 1, unread/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^Article number 2/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Unstar" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /^Star: Article number 3/ })).toHaveAttribute("aria-pressed", "true");
     expect(await axe(container)).toHaveNoViolations();
   });
 
@@ -122,7 +122,7 @@ describe("Unread list (Magazine)", () => {
     go("/l/unread");
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    const stars = screen.getAllByRole("button", { name: "Star" });
+    const stars = screen.getAllByRole("button", { name: /^Star: / });
     await user.click(stars[0]!);
     await waitFor(() => expect(calls.some((c) => c.method === "PUT" && c.url.pathname === "/api/items/1001/star")).toBe(true));
     expect(JSON.parse(String(calls.find((c) => c.method === "PUT")?.init?.body))).toEqual({ starred: true });

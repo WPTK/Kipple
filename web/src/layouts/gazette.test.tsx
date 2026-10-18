@@ -135,7 +135,7 @@ describe("Gazette pages", () => {
   it("names unread stories as unread", () => {
     const { container } = draw(cards, p);
     const unread = container.querySelector(`article[data-item-id="${cards[0]!.id}"]`)!;
-    expect(within(unread as HTMLElement).getByRole("link").getAttribute("aria-label")).toMatch(/^Unread, /);
+    expect(within(unread as HTMLElement).getByRole("link").getAttribute("aria-label")).toMatch(/, unread$/);
     expect(unread.querySelector("h3")!.classList).toContain("text-fg");
   });
 
@@ -206,7 +206,7 @@ describe("Gazette pages", () => {
   it("opens a story through its link", async () => {
     const onOpen = vi.fn();
     draw(cards, p, "wide", onOpen);
-    const link = screen.getByRole("link", { name: `Unread, ${cards[0]!.title}, Example Feed` });
+    const link = screen.getByRole("link", { name: `${cards[0]!.title}, unread` });
     expect(link.getAttribute("href")).toBe(`/item/${cards[0]!.id}`);
     await userEvent.click(link);
     expect(onOpen).toHaveBeenCalledWith(cards[0]);

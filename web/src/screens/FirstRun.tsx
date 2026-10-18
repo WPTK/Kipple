@@ -19,7 +19,7 @@ export function FirstRun({ onAdd, onImport }: { onAdd: () => void; onImport: () 
     }
   };
   return (
-    <div role="status" className="mx-auto flex max-w-sm flex-col items-center gap-3 px-6 py-16 text-center">
+    <div className="mx-auto flex max-w-sm flex-col items-center gap-3 px-6 py-16 text-center">
       <h2 className="text-lg font-semibold">No feeds yet</h2>
       <p className="text-sm text-fg2">Add a feed by its address, import an OPML file from another reader, or start from a few recommended feeds.</p>
       <div className="flex flex-wrap justify-center gap-2">

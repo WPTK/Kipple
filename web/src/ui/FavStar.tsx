@@ -8,8 +8,7 @@ export function FavStar({ on, name, onToggle, className, tabIndex }: { on: boole
     <button
       type="button"
       tabIndex={tabIndex}
-      aria-pressed={on}
-      aria-label={`Favorite ${name}`}
+      aria-label={on ? `Remove ${name} from favorites` : `Add ${name} to favorites`}
       title={on ? `Remove ${name} from favorites` : `Add ${name} to favorites`}
       onClick={(e) => {
         e.preventDefault();

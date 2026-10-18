@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, errorMessage } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
@@ -63,6 +63,8 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
   const titleChars = [...title.trim()].length;
   const titleTooLong = titleChars > MAX_TITLE_CHARS;
 
+  const address = useRef<HTMLInputElement>(null);
+  const choices = useRef<HTMLFieldSetElement>(null);
   const run = async (target: string, discoveredFrom?: string) => {
     setBusy(true);
     setError(null);
@@ -88,6 +90,9 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
     } catch (e) {
       setError(addError(e));
       if (e instanceof ApiError && e.code === "private_address") setPrivateOffered(true);
+      // Focus goes back where the keyboard was (the busy button let it go): the address field, whose error it is, or the
+      // feed that was picked.
+      (address.current ?? choices.current?.querySelector<HTMLInputElement>("input:checked"))?.focus();
     } finally {
       setBusy(false);
     }
@@ -141,7 +146,14 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
       footer={
         step.kind === "choose" ? (
           <>
-            <Button onClick={() => setStep({ kind: "form" })}>Back</Button>
+            <Button
+              onClick={() => {
+                setError(null);
+                setStep({ kind: "form" });
+              }}
+            >
+              Back
+            </Button>
             <Button variant="solid" disabled={busy || !pick} onClick={() => void run(pick, step.from)}>
               Add selected feed
             </Button>
@@ -157,9 +169,9 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
         )
       }
     >
-      {error ? <Notice tone="error">{error}</Notice> : null}
+      {error && step.kind === "choose" ? <Notice tone="error">{error}</Notice> : null}
       {step.kind === "choose" ? (
-        <fieldset className="flex flex-col gap-2">
+        <fieldset ref={choices} className="flex flex-col gap-2">
           <legend className="mb-1 text-sm font-semibold">This site has more than one feed. Choose one.</legend>
           {step.candidates.map((c) => (
             <label key={c.url} className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-line bg-surface p-3 has-[:checked]:border-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent">
@@ -180,9 +192,9 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
           }}
           className="flex flex-col gap-4"
         >
-          <Field label="Feed or website address">
+          <Field label="Feed or website address" error={error}>
             {/* type="text": the browser's URL check would refuse example.com, which Kipple accepts. */}
-            {(a) => <input {...a} type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoFocus placeholder="example.com or https://example.com/feed.xml" value={url} onChange={(e) => setUrl(e.target.value)} className={inputCls} />}
+            {(a) => <input {...a} ref={address} type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoFocus placeholder="example.com or https://example.com/feed.xml" value={url} onChange={(e) => setUrl(e.target.value)} className={inputCls} />}
           </Field>
           {privateOffered ? (
             <Switch

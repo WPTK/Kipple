@@ -195,7 +195,7 @@ describe("the Muted list", () => {
     go("/l/muted");
     const user = userEvent.setup();
     const row = (await screen.findByText("Muted article 2")).closest("[data-item-id]") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(within(row).getByRole("button", { name: /^More actions: / }));
     expect(await screen.findByRole("menuitem", { name: "Restore" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Mark above as read" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Mark as unread" })).toBeNull();
@@ -284,7 +284,7 @@ describe("Mute similar…", () => {
     go("/l/unread");
     const user = userEvent.setup();
     const row = (await screen.findByText("Article number 1")).closest("[data-item-id]") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(within(row).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Mute similar…" }));
     const dialog = within(await screen.findByRole("dialog", { name: "New filter" }));
     expect(dialog.getByRole("radio", { name: /^A feed/ })).toBeChecked();
@@ -332,7 +332,7 @@ describe("Mute similar… saves and says what it did to the article", () => {
     go("/l/unread");
     const user = userEvent.setup();
     const row = (await screen.findByText("Article number 1")).closest("[data-item-id]") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(within(row).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Mute similar…" }));
     const dialog = within(await screen.findByRole("dialog", { name: "New filter" }));
     await user.click(dialog.getByRole("button", { name: "Author Ada" }));
@@ -404,7 +404,7 @@ describe("Mute similar… and undo", () => {
     go("/l/unread");
     const user = userEvent.setup();
     await screen.findByText("Article number 1");
-    await user.click(screen.getAllByRole("button", { name: "More actions" })[0] as HTMLElement);
+    await user.click(screen.getAllByRole("button", { name: /^More actions: / })[0] as HTMLElement);
     await user.click(await screen.findByRole("menuitem", { name: "Mark as read" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items/mark-read" && body(c).read === true)).toBe(true));
     await user.click(await screen.findByRole("button", { name: "Undo" }));
@@ -478,7 +478,7 @@ describe("Manage this feed", () => {
     go("/l/unread");
     const user = userEvent.setup();
     const row = (await screen.findByText("Article number 1")).closest("[data-item-id]") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(within(row).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Manage this feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Edit feed", description: "Example Feed" });
     expect(await within(dlg).findByLabelText("Feed address")).toHaveValue("https://example.com/feed.xml");
@@ -490,7 +490,7 @@ describe("Manage this feed", () => {
     go("/l/muted");
     const user = userEvent.setup();
     const row = (await screen.findByText("Muted article 1")).closest("[data-item-id]") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "More actions" }));
+    await user.click(within(row).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Manage this feed" }));
     expect(await screen.findByText("This feed no longer exists.")).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Edit feed" })).toBeNull();
