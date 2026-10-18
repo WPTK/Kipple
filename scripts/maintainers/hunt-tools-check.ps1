@@ -147,7 +147,7 @@ function Invoke-HuntToolCheck {
 
 if ($MyInvocation.InvocationName -ne '.') {
   $result = Invoke-HuntToolCheck -Race:$Race
-  if ($Detailed) { $result.Lines | ForEach-Object { Write-Host $_ } }
-  Write-Host $result.Verdict
+  if ($Detailed) { $result.Lines | ForEach-Object { Write-Output $_ } }
+  Write-Output $result.Verdict
   exit ($result.Ok ? 0 : 1)
 }

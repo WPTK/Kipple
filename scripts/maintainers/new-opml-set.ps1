@@ -51,7 +51,7 @@ function Get-OpmlHead {
   "<?xml version=`"1.0`" encoding=`"UTF-8`"?>`n<opml version=`"$Version`"><head><title>$Title</title></head><body>"
 }
 
-function New-FlatOpml {
+function Build-FlatOpml {
   param([int]$Count)
   $sb = [System.Text.StringBuilder]::new()
   [void]$sb.Append((Get-OpmlHead 'Huge flat')).Append("`n")
@@ -60,7 +60,7 @@ function New-FlatOpml {
   $sb.ToString()
 }
 
-function New-WideFolderOpml {
+function Build-WideFolderOpml {
   param([int]$Count)
   $sb = [System.Text.StringBuilder]::new()
   [void]$sb.Append((Get-OpmlHead 'Wide folder')).Append("`n")
@@ -70,7 +70,7 @@ function New-WideFolderOpml {
   $sb.ToString()
 }
 
-function New-NestedOpml {
+function Build-NestedOpml {
   # A random tree of $Folders folders, no deeper than $MaxDepth (the first MaxDepth form a chain so the
   # deepest level is always reached), with $Feeds feeds spread over them.
   param([System.Random]$Rng, [int]$Folders, [int]$Feeds, [int]$MaxDepth)
@@ -109,7 +109,7 @@ function New-NestedOpml {
   $sb.ToString()
 }
 
-function New-Nested200Opml {
+function Build-Nested200Opml {
   $sb = [System.Text.StringBuilder]::new()
   [void]$sb.Append((Get-OpmlHead 'Nested 200')).Append("`n")
   foreach ($d in 1..200) {
@@ -225,10 +225,10 @@ function Write-OpmlSet {
   if (-not $Sample) {
     $rng = [System.Random]::new($Seed)
     $big = [ordered]@{
-      'huge-flat.opml'       = @{ Text = (New-FlatOpml 10000); Feeds = 10000 }
-      'huge-nested.opml'     = @{ Text = (New-NestedOpml -Rng $rng -Folders 500 -Feeds 5000 -MaxDepth 12); Feeds = 5000 }
-      'huge-nested-200.opml' = @{ Text = (New-Nested200Opml); Feeds = 40 }
-      'wide-folder.opml'     = @{ Text = (New-WideFolderOpml 3000); Feeds = 3000 }
+      'huge-flat.opml'       = @{ Text = (Build-FlatOpml 10000); Feeds = 10000 }
+      'huge-nested.opml'     = @{ Text = (Build-NestedOpml -Rng $rng -Folders 500 -Feeds 5000 -MaxDepth 12); Feeds = 5000 }
+      'huge-nested-200.opml' = @{ Text = (Build-Nested200Opml); Feeds = 40 }
+      'wide-folder.opml'     = @{ Text = (Build-WideFolderOpml 3000); Feeds = 3000 }
     }
     foreach ($k in $big.Keys) {
       [System.IO.File]::WriteAllBytes((Join-Path $OutDir $k), $utf8.GetBytes($big[$k].Text))
