@@ -39,10 +39,7 @@ func main() {
 	child := flag.String("child", "", "internal: run as the writer on this database file")
 	flag.Parse()
 	if *child != "" {
-		if err := writer(*child); err != nil {
-			fmt.Fprintln(os.Stderr, "writer:", err)
-			os.Exit(1)
-		}
+		writer(*child)
 		return
 	}
 	if err := parent(*rounds, *dir, *maxMS, *seed); err != nil {
@@ -55,11 +52,15 @@ func open(path string) (*store.DB, error) {
 	return store.Open(context.Background(), store.Options{Path: path, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 }
 
-// writer commits batches until it is killed. It prints "ack <first> <last>" after each commit.
-func writer(path string) error {
+// writer commits batches until it is killed (it only returns by exiting with status 1 on an error). It prints "ack <first> <last>" after each commit.
+func writer(path string) {
+	die := func(err error) {
+		fmt.Fprintln(os.Stderr, "writer:", err)
+		os.Exit(1)
+	}
 	db, err := open(path)
 	if err != nil {
-		return err
+		die(err)
 	}
 	ctx := context.Background()
 	nonce := time.Now().UnixNano() // process ids are reused, so names carry a per-run value
@@ -95,14 +96,14 @@ func writer(path string) error {
 			return nil
 		})
 		if err != nil {
-			return err
+			die(err)
 		}
 		fmt.Fprintf(out, "ack %d %d\n", first, last)
 		_ = out.Flush()
 		time.Sleep(time.Duration(rng.Intn(20)) * time.Millisecond) // paced so a run stays small and the kill lands between and inside commits
 		if n%7 == 3 {
 			if _, err := db.CheckpointPassive(ctx); err != nil {
-				return err
+				die(err)
 			}
 		}
 	}
