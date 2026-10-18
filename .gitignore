@@ -53,3 +53,6 @@ web/coverage/
 # The owner's own server helpers and scrub terms (host names, aliases, paths); never committed
 /scripts/local/
 /.scrub-terms.local
+
+# Bug-hunt output (generated test files, fuzz corpus, findings); never committed
+.hunt/
