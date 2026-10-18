@@ -28,8 +28,8 @@ const (
 )
 
 var weirdText = []string{
-	"Plain", "café", "\U0001F600 emoji \U0001F9D1‍\U0001F4BB", "שלום ‮rtl", "é́́ combining",
-	"zero​width‍⁠", "<b>markup</b>", "a & b < c", "tab\there", "", " ", "'quote\"",
+	"Plain", "caf\u00e9", "\U0001F600 emoji \U0001F9D1\u200d\U0001F4BB", "\u05e9\u05dc\u05d5\u05dd \u202ertl", "e\u0301\u0301 combining",
+	"zero\u200bwidth\u200d\u2060", "<b>markup</b>", "a & b < c", "tab\there", "", " ", "'quote\"",
 }
 
 var weirdURLs = []string{
