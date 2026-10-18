@@ -8,6 +8,32 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [1.0.0-rc.2] - 2026-10-17
+
+### Changed
+
+- Adding a feed: "Allow addresses on my own network" now covers only the site of the address you enter. When a page links its feed on another site, that feed is added without the switch, or refused with a message saying to enter its own address when it is on a private network; the same holds for a feed picked from a page's list and for a page address entered in the feed editor. A feed that redirects to a private address the switch does not cover is refused with a message that names the redirect. Names under wildcard-DNS services that spell an address (such as nip.io or sslip.io) count as one site only for the exact same name.
+- Settings: the what-if number of days under mark-all-read now says what it does and that nothing is saved, and the Open links in hint no longer names specific apps.
+- Reader API: `subscription/edit` with `ac=subscribe` now accepts an `s` without the `feed/` prefix (as `quickadd` does), and `rename-tag` accepts a bare folder name as `dest`; both used to be ignored with `OK`.
+- `kipple restore` now checks a backup the same way the web restore does: a database holding a table, index, trigger or view that Kipple never creates, or a changed one, is refused before anything runs on it, and nothing in the data directory changes. This applies to a backup zip and to a bare database file. (#440)
+
+### Fixed
+
+- Accessibility: a loading or failed article names its tab, the failed article is an h1 on a phone, the sign-in and sign-in error screens name their tab, the open article is the one h1 beside the list in the wide reader, Manage feeds puts focus on its heading once it has loaded, the sidebar's resize handle sits inside the sidebar landmark, and long addresses in list snippets wrap at narrow widths.
+- Accessibility audit fixes: every screen now sets the browser tab title to its own heading ("Feeds - Kipple", "Step 2 of 7: Choose your time zone - Kipple", an open article by its title), closing What's new returns focus to the button that opened it, the selected theme card stays readable in Windows High Contrast, the "Page not found" screen has a page heading, and the article's source link has a 24 px target with a mouse.
+- Compatibility notes: only `subscription/list` and `tag/list` carry an `ETag` (not every compressed response), a downgrade needs the pre-migration snapshot only when the upgrade changed the schema, and the Reader API edge behaviours (a malformed `ts` on `mark-all-as-read`, `If-None-Match: *`, unprefixed `s` and `dest`, `ClientLogin` not trimming) are written down.
+- The sidebar's folder and feed rows, and the Copy its settings here buttons on the Devices page, now have an accessible name that starts with their visible text (WCAG 2.5.3, Label in Name): a feed reads as "Hacker News, 12 unread" and a folder as "Tech, 3 unread" (a dot only reads "Tech, unread"). A folder's row is now its own tree item, with its subfolders in the group it owns, so its name no longer has to cover them. Keyboard use is unchanged. The keyboard focus ring on a folder now wraps only its own row (not its subfolders), and the favorite star shows while the row has the focus.
+- Opening a list row's More menu (or long-pressing the row) on a short screen, such as a phone held sideways, no longer pushes the menu off the top of the screen: the menu now fits the room above the tab bar and scrolls, so Star, Mark as read and the other actions can all be reached. (#431)
+- The What's new dialog no longer appears on a brand-new install: a new account starts out as having seen the version it was created on, so only an upgrade shows what changed. (#435)
+
+### Security
+
+- Exporting a backup asks for your password: Settings, Account & Devices, Export backup now asks for your web password before it builds the file, the same way generating an API password does (an account without a web password confirms with its Cloudflare Access sign-in; open mode asks for nothing). `POST /api/backup` takes `{"current": "<web password>"}`. The `RESTORE.txt` note in the zip and the export dialog now say that the file contains credentials, including what a Reader app needs to sign in, and should be stored privately. (#448)
+- Harden the YouTube and Vimeo embed check: an embedded player is kept only when its address is the player itself (a YouTube video id or a numeric Vimeo id, then an optional query); any other address becomes a plain link. Stored articles are cleaned once more under the new rule after the upgrade. (#450)
+- Harden the sign-in cookie and HSTS behind a reverse proxy: a request for the exact origin of an https public URL (its host with no port, or the public URL's own port) now counts as HTTPS even when the proxy is not under Trusted proxies, so the cookie is marked Secure and Strict-Transport-Security is sent. Plain http on a LAN address, or on Kipple's own port, keeps working as before. (#450)
+- Harden `kipple restore` run as root: the data-directory lock file and the files it hands back to the data directory's owner must be plain files. A symbolic link or special file under one of those names, or a hard link when running as root, is refused and never followed. (#450)
+- Harden the web password rule: a new web password (in the setup wizard, a restore, Settings, `KIPPLE_PASSWORD` or `kipple password`) must now be at least 8 characters, up from 5. A shorter password you already have keeps working for sign-in until you change it. (#450)
+
 ## [1.0.0-rc.1] - 2026-10-17
 
 ### Changed
@@ -1036,7 +1062,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.0.0-rc.2...HEAD
+[1.0.0-rc.2]: https://github.com/WPTK/Kipple/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/WPTK/Kipple/compare/v0.9.0-beta.1...v1.0.0-rc.1
 [0.9.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.8...v0.9.0-beta.1
 [0.8.0-beta.8]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.7...v0.8.0-beta.8

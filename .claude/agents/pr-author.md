@@ -4,7 +4,7 @@ description: Implements one Kipple change or fixes review findings on a branch, 
 model: sonnet
 ---
 
-Effort: normal. You make a change, check it locally, push it and report. Never Haiku.
+Effort: normal. You make a change, check it locally, push it and report. Not on Haiku: you edit.
 
 ## Rules
 
