@@ -86,6 +86,21 @@ and `gh pr merge --match-head-commit`. The decision logic is `Get-PrVerdict`.
 reads `git diff -U0 <range> -- web/src` and only sees labels written on the same line as the attribute
 (`extractFragments`).
 
+## Go tools for test assets
+
+Standalone Go programs (`go run ./scripts/<name>`), each with a `main_test.go` (`go test ./scripts/<name>`). They use
+synthetic content only and are not part of CI. Big outputs go under the gitignored `.hunt/` directory.
+
+| Tool | What it does |
+|---|---|
+| `huntfeeds` | Writes a seeded set of weird synthetic feeds: a 10,000-entry feed, a 50 MB feed, huge content, thousands of enclosures, deeply nested HTML, duplicate and reused GUIDs, odd dates, mixed Atom/RSS namespaces, RSS 0.9x, RDF 1.0, JSON Feed, HTML served as a feed and a feed inside HTML. `go run ./scripts/huntfeeds -out .hunt/feeds [-seed 1] [-small]`; the same seed gives byte-identical files. |
+| `badfeed` | A feed server that misbehaves on purpose, on loopback IP addresses only: slow drip, truncated bodies, redirect chains and loops, 304 variants, huge bodies, wrong encodings, gzip/deflate (also corrupt and bombs), chunked, 5xx bursts, 429 with Retry-After, wrong Content-Type, and a self-signed HTTPS port. `go run ./scripts/badfeed [-addr 127.0.0.1:1940] [-tls-addr 127.0.0.1:1941]`; the routes are in `routes()`. |
+
+The fuzz seed lists live beside the code they feed: `testdata/seeds/*.txt` in `internal/{sanitize,opml,fetch,discover,filter,greader,store}`
+and `internal/testseed/testdata/` for the URL, host and header lists several packages share. `internal/testseed` loads
+them (one seed per line, `#` comments, a leading `"` means a Go string literal) and each `Fuzz*` target adds them with
+`f.Add`, so every plain `go test` runs them. If a seed makes a target fail, keep it out of the list and record it.
+
 ## CI
 
 The label guard (`uat-labels`) runs on every pull request (a 5 second text check, so it has no gate). The `tooling`

@@ -1,0 +1,137 @@
+# HTML tags and attributes for FuzzLinks (feed discovery from a page's head and body). A leading double quote means a Go string literal.
+<html>
+<head>
+</head>
+<body>
+</body>
+<title>t</title>
+<base href="https://example.test/sub/">
+<base href="//example.test/">
+<base href="javascript:x">
+<base href="">
+<base>
+<base target="_blank">
+<link rel="alternate" type="application/rss+xml" href="/feed">
+<link rel="alternate" type="application/atom+xml" href="/atom">
+<link rel="alternate" type="application/feed+json" href="/feed.json">
+<link rel="alternate" type="application/json" href="/feed.json">
+<link rel="alternate" type="application/rdf+xml" href="/rdf">
+<link rel="alternate" type="application/xml" href="/x.xml">
+<link rel="alternate" type="text/xml" href="/x.xml">
+<link rel="alternate" type="text/html" href="/page">
+<link rel="alternate" type="application/rss+xml;charset=utf-8" href="/feed">
+<link rel="alternate" type="APPLICATION/RSS+XML" href="/feed">
+<link rel="alternate" type="application/rss+xml" title="T" href="/feed">
+<link rel="alternate" type="application/rss+xml" title="" href="/feed">
+<link rel="alternate" type="application/rss+xml" href="">
+<link rel="alternate" type="application/rss+xml" href=" /feed ">
+<link rel="alternate" type="application/rss+xml" href="feed">
+<link rel="alternate" type="application/rss+xml" href="../feed">
+<link rel="alternate" type="application/rss+xml" href="./feed">
+<link rel="alternate" type="application/rss+xml" href="?feed=rss2">
+<link rel="alternate" type="application/rss+xml" href="#feed">
+<link rel="alternate" type="application/rss+xml" href="//other.test/feed">
+<link rel="alternate" type="application/rss+xml" href="http://127.0.0.1/feed">
+<link rel="alternate" type="application/rss+xml" href="http://[::1]/feed">
+<link rel="alternate" type="application/rss+xml" href="http://[::1/feed">
+<link rel="alternate" type="application/rss+xml" href="file:///etc/passwd">
+<link rel="alternate" type="application/rss+xml" href="javascript:alert(1)">
+<link rel="alternate" type="application/rss+xml" href="data:application/rss+xml,<rss/>">
+<link rel="alternate" type="application/rss+xml" href="feed:https://example.test/feed">
+<link rel="alternate" type="application/rss+xml" href="https://example.test/feed" href="https://other.test/feed">
+<link rel="ALTERNATE" type="application/rss+xml" href="/feed">
+<link rel="alternate stylesheet" type="application/rss+xml" href="/feed">
+<link rel="  alternate  " type="application/rss+xml" href="/feed">
+<link rel="alternate,feed" type="application/rss+xml" href="/feed">
+<link rel="feed" href="/feed">
+<link rel="feed alternate" href="/feed">
+<link rel="self" type="application/rss+xml" href="/feed">
+<link rel="hub" href="https://hub.example.test/">
+<link rel="stylesheet" href="/x.css">
+<link rel="icon" href="/favicon.ico">
+<link rel="canonical" href="https://example.test/">
+<link rel="alternate" hreflang="de" href="/de">
+<link rel="alternate" type="application/rss+xml" href="/feed" />
+<link rel=alternate type=application/rss+xml href=/feed>
+<link rel='alternate' type='application/rss+xml' href='/feed'>
+<link rel="alternate" type="application/rss+xml" href="/feed
+<link rel="alternate" type="application/rss+xml" href=/feed/>
+<link/rel=alternate/type=application/rss+xml/href=/feed>
+<LINK REL="ALTERNATE" TYPE="APPLICATION/RSS+XML" HREF="/FEED">
+<link
+<link rel
+<link rel=
+<link rel="alternate" type="application/rss+xml" href="/feed"><link rel="alternate" type="application/rss+xml" href="/feed">
+<a href="/feed">feed</a>
+<a href="/rss">RSS</a>
+<a href="/atom.xml">Atom</a>
+<a href="/feed.xml">XML</a>
+<a href="/index.rdf">RDF</a>
+<a href="/feed.json">JSON</a>
+<a href="feed/">feed</a>
+<a href="/?feed=rss2">feed</a>
+<a href="/feeds/posts/default">feed</a>
+<a href="https://example.test/feed" type="application/rss+xml">feed</a>
+<a href="javascript:alert(1)">feed</a>
+<a href="mailto:a@example.test">mail</a>
+<a>no href</a>
+<a href>x</a>
+<a href="">x</a>
+<a href="#">x</a>
+<a href="/feed" rel="nofollow">x</a>
+<a href="/feed" download>x</a>
+<a href="/feed" target="_blank" ping="https://evil.test/p">x</a>
+<a href="/feed"><img src="rss.png" alt="RSS"></a>
+<a href="/feed"><svg><title>RSS</title></svg></a>
+<a href="/feed"><span class="rss"></span></a>
+<img src="/rss.png" alt="RSS feed">
+<meta http-equiv="refresh" content="0;url=/feed">
+<meta http-equiv="refresh" content="0;url=javascript:alert(1)">
+<meta http-equiv="refresh" content="0;url=http://127.0.0.1/">
+<meta http-equiv="refresh" content="99999999999;url=/feed">
+<meta http-equiv="refresh" content="-1;url=/feed">
+<meta http-equiv="refresh" content="">
+<meta http-equiv="refresh">
+<meta charset="utf-8">
+<meta charset="utf-7">
+<meta charset="x-bogus">
+<meta http-equiv="Content-Type" content="text/html; charset=shift_jis">
+<meta name="generator" content="WordPress 6.0">
+<meta name="robots" content="noindex">
+<meta property="og:url" content="https://example.test/">
+<script>document.write('<link rel="alternate" type="application/rss+xml" href="/js-feed">')</script>
+<script type="application/ld+json">{"@type":"WebSite","url":"https://example.test/"}</script>
+<script src="/x.js"></script>
+<style>link{display:none}</style>
+<noscript><link rel="alternate" type="application/rss+xml" href="/noscript-feed"></noscript>
+<template><link rel="alternate" type="application/rss+xml" href="/template-feed"></template>
+<textarea><link rel="alternate" type="application/rss+xml" href="/textarea-feed"></textarea>
+<title><link rel="alternate" type="application/rss+xml" href="/title-feed"></title>
+<!-- <link rel="alternate" type="application/rss+xml" href="/commented-feed"> -->
+<!--><link rel="alternate" type="application/rss+xml" href="/odd-comment-feed">-->
+<![CDATA[<link rel="alternate" type="application/rss+xml" href="/cdata-feed">]]>
+<svg><link rel="alternate" type="application/rss+xml" href="/svg-feed"></svg>
+<math><link rel="alternate" type="application/rss+xml" href="/math-feed"></math>
+<iframe src="/frame.html"><link rel="alternate" type="application/rss+xml" href="/iframe-feed"></iframe>
+<object data="/x"><link rel="alternate" type="application/rss+xml" href="/object-feed"></object>
+<form action="/search"><input name="q"></form>
+<div id="x" class="y" data-feed="/data-feed" style="display:none">x</div>
+<p>text &amp; &lt;link rel="alternate" type="application/rss+xml" href="/escaped-feed"&gt;</p>
+<<link rel="alternate" type="application/rss+xml" href="/double-lt">
+<link<link rel="alternate" type="application/rss+xml" href="/nested">
+<link rel="alternate" type="application/rss+xml" href="/feed" onerror=alert(1)>
+<link rel="alternate" type="application/rss+xml" href="/feed" xmlns:a="urn:a" a:href="/other">
+"<link rel=\"alternate\" type=\"application/rss+xml\" href=\"/f\x00eed\">"
+"<link rel=\"alternate\" type=\"application/rss+xml\" href=\"/f\x0aeed\">"
+"<link rel=\"alternate\" type=\"application/rss+xml\" href=\"/\xff\xfe\">"
+"﻿<link rel=\"alternate\" type=\"application/rss+xml\" href=\"/bom\">"
+"<link rel=\"alternate\" type=\"application/rss+xml\" href=\"/‮feed\">"
+<link rel="alternate" type="application/rss+xml" href="/日本語/フィード">
+<link rel="alternate" type="application/rss+xml" href="https://例え.テスト/feed">
+<link rel="alternate" type="application/rss+xml" href="https://xn--r8jz45g.xn--zckzah/feed">
+<link rel="alternate" type="application/rss+xml" href="https://user:pw@example.test/feed">
+<link rel="alternate" type="application/rss+xml" href="https://example.test:99999/feed">
+<link rel="alternate" type="application/rss+xml" href="https://example.test/feed%00">
+<link rel="alternate" type="application/rss+xml" href="https://example.test/a b/feed">
+<link rel="alternate" type="application/rss+xml" href="https://2130706433/feed">
+<link rel="alternate" type="application/rss+xml" href="https://127.0.0.1.nip.io/feed">

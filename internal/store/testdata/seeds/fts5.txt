@@ -1,0 +1,194 @@
+# FTS5 query operators and syntax errors for FuzzBuildFTSQuery. A leading double quote means a Go string literal.
+NEAR
+NEAR(
+NEAR()
+NEAR(a)
+NEAR(a b)
+NEAR(a b, 5)
+NEAR(a b, -1)
+NEAR(a b, x)
+NEAR("a b" c)
+NEAR(NEAR(a b) c)
+a NEAR b
+a NEAR/3 b
+AND
+OR
+NOT
+a AND
+AND a
+a AND AND b
+a OR OR b
+a NOT
+NOT a
+a NOT b
+a NOT NOT b
+a AND b OR c NOT d
+a and b
+a Or b
+a Not b
+(a OR b) AND c
+((a))
+(a
+a)
+()
+(()
+())
+)(
+(a OR (b AND (c NOT d)))
+a OR (
+"
+""
+"""
+""""
+"a
+a"
+"a"b"
+"a" "b"
+"a b" c
+"a b
+"a * b"
+"a"*
+"*"
+""*
+a*
+*a
+**
+*
+a**
+a*b
+a *
+* a
+^
+^a
+^ a
+a ^
+^^a
+^"a b"
+^(a b)
+-
+--
+-a
+- a
+a -
+a -b
+a --b
+-"a b"
+-(a b)
++a
++
+a+b
+a:b
+a:
+:a
+::
+a::b
+title:a
+title:
+title:"a b"
+title:(a b)
+title: a
+-title:a
+author:a
+author:"
+content:a
+body:a
+text:x
+rank:1
+rowid:1
+rank
+bm25(items_fts)
+{title}: a
+{title author}: a
+{}: a
+{: a
+}: a
+{title}:
+-{title}: a
+col:x
+unknown:x
+title:a author:b
+title:a OR author:b
+title:a AND NOT author:b
+a,b
+a;b
+a.b
+a'b
+a''b
+a\b
+a/b
+a\"b
+a%b
+a_b
+a-b
+a-b-c
+a_b_c
+a.b.c
+a@b
+a#b
+a$b
+a&b
+a|b
+a!b
+a?b
+a~b
+a`b
+a=b
+a<b
+a>b
+a[b]
+a{b}
+tokenchars
+'
+"'"
+%
+[]
+{}
+\
+/
+//
+/*
+*/
+--
+;
+; DROP TABLE items;
+' OR 1=1 --
+"; DROP TABLE items; --"
+x MATCH y
+MATCH
+items_fts
+items_fts:a
+a AND (b OR (c AND (d OR (e AND (f OR g)))))
+"\x00"
+"a\x00b"
+"\x00\x00\x00"
+"\xff"
+"\xff\xfe\xfd"
+"\xc0\xaf"
+"a\xc3"
+"﻿a"
+"a​b"
+"‮a"
+"á"
+"\t"
+"a\tb"
+"a\nb"
+"a\r\nb"
+"\n"
+
+
+a  b
+ a
+日本語
+日本語 テスト
+機器学習 -x
+Ünïcödé
+ÀÉÎÕÜ
+ß
+İ
+ǅ
+ﬁ
+１２３
+٣
+😀
+😀 😀
+a😀b

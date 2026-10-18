@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/WPTK/kipple/internal/testseed"
 	"github.com/stretchr/testify/require"
 )
 
@@ -156,6 +157,11 @@ func FuzzHostGate(f *testing.F) {
 	for _, s := range []string{"127.0.0.1:1919", "[::1]:80", "evil.example.", "LOCALHOST", "xn--bcher-kva.example",
 		"[fe80::1%25eth0]", "a..b", "nas", "*.example.com", "", ":", "[", "1.2.3.4.nip.io"} {
 		f.Add(s, "*.example.com")
+	}
+	for _, s := range testseed.Lines("../testseed/testdata/hosts.txt") {
+		f.Add(s, "*.example.com")
+		f.Add("example.test", s)
+		f.Add(s, s)
 	}
 	f.Fuzz(func(t *testing.T, h, entry string) {
 		host, ok := NormalizeHost(h)
