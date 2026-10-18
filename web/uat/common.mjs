@@ -166,6 +166,25 @@ export async function start(metaUrl, helpLines) {
     if (!r.ok()) throw new Error(`OPML import failed: ${r.status()} ${await r.text()}`);
     return r.json();
   };
+  /**
+   * Adds a feed the flow serves on loopback (`title` should start "UAT feed " so cleanup removes it), refreshes, and
+   * polls its articles until `ready(items)` holds (30 s). Returns `{ feedId, items }`, or `{ error }` saying what failed.
+   */
+  const addLocalFeed = async (page, url, title, ready) => {
+    const add = await page.request.post("/api/feeds", { headers: WRITE, data: { url, title, allow_private_net: true } });
+    if (!add.ok()) return { error: `the feed was not added: ${add.status()} ${await add.text()}` };
+    const feedId = (await add.json()).id ?? (await boot(page)).feeds.find((f) => f.title === title)?.id;
+    await page.request.post("/api/refresh", { headers: WRITE, data: {} });
+    let items = [];
+    const end = Date.now() + 30000;
+    while (Date.now() < end) {
+      const r = await page.request.get(`/api/items?view=all&feed=${feedId}`, { headers: { Accept: "application/json" } });
+      items = r.ok() ? ((await r.json()).items ?? []) : [];
+      if (ready(items)) return { feedId, items };
+      await page.waitForTimeout(500);
+    }
+    return { error: "the feed's articles never arrived (was it fetched?)", items };
+  };
   /** An OPML document: `tree` is a list of { folder, feeds: [n...], children: [...] }. */
   const opml = (tree) => {
     const walk = (nodes) =>
@@ -284,7 +303,7 @@ export async function start(metaUrl, helpLines) {
   };
 
   return {
-    textOf, step, opt, origin, WRITE, check, fail, pass, shot, boot, settle, importOpml, opml, eachViewport, setupError,
+    textOf, step, opt, origin, WRITE, check, fail, pass, shot, boot, settle, importOpml, addLocalFeed, opml, eachViewport, setupError,
     async finish(what) {
       await browser.close();
       if (reruns.length) {

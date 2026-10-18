@@ -88,15 +88,21 @@ describe("forced colors", () => {
   });
 });
 
+/** A rule's selector without the comment above it (the rules() text keeps everything since the last brace). */
+const last = (sel: string): string => sel.split("*/").at(-1)!.trim();
+
 describe("long words", () => {
   it("the article body breaks a long word only where it would overflow, so table cells keep their words whole (#477)", () => {
-    // A rule's selector text carries the comment above it, so match its end.
-    const r = rules().find((x) => x.sel.endsWith("\n.article-body"));
+    const r = rules().find((x) => last(x.sel) === ".article-body");
     expect(r?.body).toMatch(/overflow-wrap:\s*break-word;/);
     expect(r?.body).not.toMatch(/overflow-wrap:\s*anywhere/);
   });
 
+  it("a one-column (layout) table wraps its text instead of scrolling the article", () => {
+    expect(rules().find((x) => last(x.sel) === ".article-body table:not(:has(tr > :nth-child(2))) td")?.body).toMatch(/overflow-wrap:\s*anywhere;/);
+  });
+
   it("a list title's long word wraps in every layout (#478)", () => {
-    expect(rules().find((x) => x.sel.endsWith("\n.row-link"))?.body).toMatch(/overflow-wrap:\s*anywhere;/);
+    expect(rules().find((x) => last(x.sel) === ".row-link")?.body).toMatch(/overflow-wrap:\s*anywhere;/);
   });
 });

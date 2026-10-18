@@ -167,7 +167,8 @@ body {
   /* A rounded row (a card) clips its corners: the ring follows them instead (--row-radius is the row's radius). */
   border-radius: var(--row-radius, 0);
 }
-/* Every layout's title is this link: a long unbroken word (an address, a hashtag) wraps instead of being cut off. */
+/* Every layout's title is this link: a long unbroken word (an address, a hashtag) wraps instead of running past the
+   row. The one-line layouts (Headlines, Inbox) truncate the title, so there it ends in an ellipsis. */
 .row-link { overflow-wrap: anywhere; }
 .row-link:focus-visible {
   outline: none;
@@ -331,6 +332,9 @@ a.sr-only-live:focus {
 .article-body pre, .article-body code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
 .article-body pre { background: var(--kp-surface); padding: 0.75em 1em; border-radius: 0.5rem; overflow-x: auto; }
 .article-body table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+/* A one-column table is page layout (a newsletter's wrapper), not data: its text wraps like a paragraph, a long
+   address included, so the whole article never scrolls sideways. */
+.article-body table:not(:has(tr > :nth-child(2))) td { overflow-wrap: anywhere; }
 .article-body th, .article-body td { border: 1px solid var(--kp-border); padding: 0.35em 0.6em; }
 .article-body ul, .article-body ol { padding-inline-start: 1.5em; }
 .article-body hr { border: 0; border-top: 1px solid var(--kp-border); margin-block: var(--kp-hgap); }
