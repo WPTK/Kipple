@@ -54,7 +54,7 @@ describe("row memoization", () => {
     render(<App client={makeQueryClient({ retry: false })} />);
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    await user.click(within(rowOf(1)).getByRole("button", { name: "More actions" }));
+    await user.click(within(rowOf(1)).getByRole("button", { name: /^More actions: / }));
     const markRead = await screen.findByRole("menuitem", { name: "Mark as read" });
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
@@ -81,10 +81,10 @@ describe("range actions after the list changed", () => {
     render(<App client={makeQueryClient({ retry: false })} />);
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    await user.click(within(rowOf(1)).getByRole("button", { name: "More actions" }));
+    await user.click(within(rowOf(1)).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Mark as read" })); // changes the cached list: row 1001 is now read
     await waitFor(() => expect(calls.filter((c) => c.method === "POST")).toHaveLength(1));
-    await user.click(within(rowOf(2)).getByRole("button", { name: "More actions" }));
+    await user.click(within(rowOf(2)).getByRole("button", { name: /^More actions: / }));
     await user.click(await screen.findByRole("menuitem", { name: "Mark above as read" }));
     const bulk = () => calls.filter((c) => c.method === "POST" && String(c.init?.body).includes("\"bound\""));
     await waitFor(() => expect(bulk().length).toBeGreaterThan(0));

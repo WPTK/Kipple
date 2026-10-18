@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 import { useBootstrap } from "@/api/queries";
 import { announce, LiveRegion, toast, Toasts } from "@/shell/toasts";
@@ -25,6 +25,7 @@ export function Welcome() {
   const boot = useBootstrap();
   const actions = useSetupActions();
   const [ending, setEnding] = useState(false);
+  const endingNow = useRef(false);
 
   const over = boot.data !== undefined && boot.data.user.setup_pending !== true;
   // Setup ended somewhere else (another tab or device, or Skip here): drop what this page kept for it, the password
@@ -37,7 +38,7 @@ export function Welcome() {
   }, [over]);
 
   // Nothing pending (finished already, or a bookmark): the reader.
-  if (boot.data && boot.data.user.setup_pending !== true) return <Navigate to="/l/unread" replace />;
+  if (boot.data && boot.data.user.setup_pending !== true) return <Navigate to="/l/unread" replace state={{ arrival: true }} />;
   const redirect = welcomeGuard(segment);
   if (redirect) return <Navigate to={redirect} replace />;
   const id = segment as StepId;
@@ -46,12 +47,15 @@ export function Welcome() {
   const next = () => go(nextWelcome(id)?.id ?? null);
   const back = () => go(prevWelcome(id)?.id ?? null);
   const end = async () => {
+    if (endingNow.current) return;
+    endingNow.current = true;
     setEnding(true);
     try {
       await actions.finish();
       announce("Setup finished");
     } catch (e) {
       toast(errorMessage(e), "error");
+      endingNow.current = false;
       setEnding(false);
     }
   };

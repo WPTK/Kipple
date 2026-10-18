@@ -484,6 +484,10 @@ describe("routing into and out of /welcome", () => {
     await userEvent.setup().click(await screen.findByRole("button", { name: "Skip the rest of setup" }));
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(1);
+    // The reader is an arrival, not a page load: focus is on its heading, not left on the page (#499).
+    await waitFor(() => expect(document.activeElement?.hasAttribute("data-route-heading")).toBe(true));
+    // The empty states are not live regions, so nothing is read twice on arrival.
+    expect(document.querySelectorAll('[role="status"] h2')).toHaveLength(0);
   });
 
   it("stays on the step and says so when ending setup fails", async () => {
@@ -1180,6 +1184,10 @@ describe("Skip the rest of setup from step 2 keeps the time zone", () => {
     await userEvent.setup().click(await screen.findByRole("button", { name: "Skip the rest of setup" }));
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(1);
+    // The reader is an arrival, not a page load: focus is on its heading, not left on the page (#499).
+    await waitFor(() => expect(document.activeElement?.hasAttribute("data-route-heading")).toBe(true));
+    // The empty states are not live regions, so nothing is read twice on arrival.
+    expect(document.querySelectorAll('[role="status"] h2')).toHaveLength(0);
   });
 });
 
@@ -1339,7 +1347,7 @@ describe("a step that is saving cannot be left", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Saving" })).toBeDisabled());
     expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Skip the rest of setup" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip the rest of setup" })).toHaveAttribute("aria-disabled", "true"); // keeps focus
   });
 
   it("feeds: Back, Skip and Skip the rest are disabled while Add saves", async () => {
@@ -1351,7 +1359,7 @@ describe("a step that is saving cannot be left", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Adding" })).toBeDisabled());
     expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Skip the rest of setup" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip the rest of setup" })).toHaveAttribute("aria-disabled", "true"); // keeps focus
   });
 
   it("import: Back, Skip and Skip the rest are disabled while the file uploads", async () => {
@@ -1370,7 +1378,7 @@ describe("a step that is saving cannot be left", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Importing" })).toBeDisabled());
     expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Skip the rest of setup" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip the rest of setup" })).toHaveAttribute("aria-disabled", "true"); // keeps focus
   });
 
   it("import: refuses a file over the server's 8 MB limit before uploading it", async () => {

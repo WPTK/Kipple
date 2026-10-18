@@ -291,7 +291,7 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
   if (boot.isError || !lib) return <p className="px-3 py-2 text-sm text-danger" role="alert">Couldn't load feeds.</p>;
   if (lib.feeds.length === 0) {
     return (
-      <div role="status" className="px-3 py-8 text-center">
+      <div className="px-3 py-8 text-center">
         <h2 className="text-lg font-semibold">No feeds yet</h2>
         <p className="mt-1 text-sm text-fg2">Add a feed by its address, or import an OPML file from another reader.</p>
       </div>

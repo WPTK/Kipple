@@ -978,10 +978,10 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const pull = usePullToRefresh(parentRef, { enabled: !scope.q, onRefresh: startRefresh });
   // Hold the spinner until the run has finished (or a second after the request settles with nothing running).
   useEffect(() => {
-    if (!holding || refreshAll.isPending || refreshing) return;
+    if (!holding || refreshing) return;
     const h = setTimeout(() => setHolding(false), 1000);
     return () => clearTimeout(h);
-  }, [holding, refreshAll.isPending, refreshing]);
+  }, [holding, refreshing]);
 
   // ---- first-run peek ----------------------------------------------------
 

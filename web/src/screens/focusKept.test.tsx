@@ -146,7 +146,8 @@ describe("the list header keeps focus", () => {
     const user = userEvent.setup();
     screen.getByRole("button", { name: "Refresh all feeds" }).focus();
     await user.keyboard("{Enter}");
-    const btn = screen.getByRole("button", { name: "Refresh all feeds" });
+    // From the tap it says Refreshing (#482) and is switched off while the request runs, still focused.
+    const btn = await screen.findByRole("button", { name: "Refreshing" });
     await waitFor(() => expect(btn).toHaveAttribute("aria-disabled", "true"));
     expect(btn).toHaveFocus();
     release();

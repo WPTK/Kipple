@@ -1,5 +1,5 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { useId, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, busyMessage, SESSION_EXPIRED, sessionLostStore, setSignedIn } from "@/api/client";
 import { reloadToSignIn } from "@/lib/reload";
@@ -17,17 +17,23 @@ export function LoginScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** The error is about what was typed (a 401): both fields are marked invalid and the password takes focus. */
+  const [badCredentials, setBadCredentials] = useState(false);
+  const passwordRef = useRef<HTMLInputElement>(null);
   /** The sign-in in front of Kipple (the access proxy) expired: only a reload through it helps, not a password. */
   const [expired, setExpired] = useState(false);
   const [busy, setBusy] = useState(false);
   const lost = useStore(sessionLostStore);
   const uid = useId();
   const pid = useId();
+  const eid = useId();
+  const fieldError = { "aria-describedby": error ? eid : undefined, "aria-invalid": badCredentials || undefined };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    setBadCredentials(false);
     setExpired(false);
     try {
       await api("/api/auth/login", { method: "POST", body: { username, password } });
@@ -49,13 +55,16 @@ export function LoginScreen() {
         setError("Kipple has no account yet. Taking you to set it up.");
         void qc.invalidateQueries({ queryKey: INSTANCE_KEY }).then(() => setError("Kipple has no account yet. Reload the page to set it up."));
       } else if (err instanceof ApiError && err.status === 503 && err.code === "busy") setError(busyMessage(err));
-      else if (err instanceof ApiError && err.status === 401)
+      else if (err instanceof ApiError && err.status === 401) {
+        setBadCredentials(true);
+        passwordRef.current?.focus();
         setError(
           password
             ? "That username or password didn't match."
             : // The server does not say which: no password typed, a wrong username, or no Access sign-in.
               "That didn't work. Enter your password, or, for an account without one, check the username and open Kipple through Cloudflare Access.",
         );
+      }
       else if (err instanceof ApiError && err.code === "access_unavailable")
         setError("Kipple can't check your Cloudflare Access sign-in right now. Try again in a moment.");
       else if (err instanceof ApiError && err.status === 0) setError("Kipple couldn't reach the server.");
@@ -77,7 +86,7 @@ export function LoginScreen() {
           </p>
         ) : null}
         {error ? (
-          <div role="alert" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-danger">
+          <div id={eid} role="alert" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-danger">
             <p>{error}</p>
             {expired ? (
               <Button type="button" className="mt-2" onClick={() => reloadToSignIn()}>
@@ -100,7 +109,8 @@ export function LoginScreen() {
             required
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="min-h-11 rounded-lg border border-line bg-surface px-3 text-base text-fg"
+            {...fieldError}
+            className="min-h-11 rounded-lg border border-line bg-surface px-3 text-base text-fg aria-[invalid=true]:border-danger"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -109,12 +119,14 @@ export function LoginScreen() {
           </label>
           <input
             id={pid}
+            ref={passwordRef}
             name="password"
             type="password"
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="min-h-11 rounded-lg border border-line bg-surface px-3 text-base text-fg"
+            {...fieldError}
+            className="min-h-11 rounded-lg border border-line bg-surface px-3 text-base text-fg aria-[invalid=true]:border-danger"
           />
         </div>
         <Button type="submit" variant="solid" className="w-full" disabled={busy}>

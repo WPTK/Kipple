@@ -66,7 +66,7 @@ export function StarButton({ item, onToggleStar, className }: { item: Card; onTo
       tabIndex={tabIndex}
       onClick={() => onToggleStar(item)}
       aria-pressed={item.starred}
-      aria-label={item.starred ? "Unstar" : "Star"}
+      aria-label={rowControlName("Star", item)}
       className={cn(
         "hit-row pointer-events-auto relative z-10 inline-flex items-center justify-center rounded-lg",
         item.starred ? "text-star" : "text-fg2 opacity-70 hover:opacity-100",
@@ -112,7 +112,7 @@ export function RowMenu({
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label="More actions"
+          aria-label={rowControlName("More actions", item)}
           tabIndex={tabIndex}
           className={cn(
             "hit-row pointer-events-auto relative z-10 inline-flex items-center justify-center rounded-lg text-fg2 hover:text-fg",
@@ -198,10 +198,16 @@ export function RowMenu({
   );
 }
 
-/** Accessible name of a row's link: "Unread, <title>, <source>". */
+/**
+ * The name of a row's link: the title first (so heading and type-ahead navigation find it), then "unread" for an
+ * unread one. The source is not repeated: it is the visible text just before the title.
+ */
 export function rowLabel(item: Card): string {
-  return `${item.read ? "" : "Unread, "}${item.title || "Untitled"}, ${item.source}`;
+  return `${item.title || "Untitled"}${item.read ? "" : ", unread"}`;
 }
+
+/** A row control's name: the action, then the article it acts on, so a list of buttons or a voice command can tell rows apart. */
+export const rowControlName = (action: string, item: Card): string => `${action}: ${item.title || "Untitled"}`;
 
 /** The publish time as a machine-readable <time> (ISO date) with the relative text. One place for every layout. */
 export function PublishedTime({ item, className }: { item: Card; className?: string }) {

@@ -288,6 +288,12 @@ export async function undoToast(): Promise<void> {
   if (toastGroup) await attempt(toastGroup);
 }
 
+/** Take the toast down if it is only about these articles (the reader moving on from one); Undo itself stays. */
+export function retireUndoToastFor(ids: readonly string[]): void {
+  const shown = visible();
+  if (shown && shown.ids.every((id) => ids.includes(id))) dismissUndoToast();
+}
+
 export function dismissUndoToast(): void {
   toastGroup = null;
   armTimer();

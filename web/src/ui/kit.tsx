@@ -196,7 +196,8 @@ export function Switch({
         </span>
         <span className="min-w-0">
           <span className="font-semibold">{label}</span>
-          <span className="ml-2 text-xs text-fg2">{checked ? "On" : "Off"}</span>
+          {/* Shown, not spoken: the switch announces its own state, and this text would run onto its name. */}
+          <span aria-hidden="true" className="ml-2 text-xs text-fg2">{checked ? "On" : "Off"}</span>
         </span>
       </label>
       {help ? (

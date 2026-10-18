@@ -4,7 +4,7 @@
 //   npm run contrast -- --markdown  print the tables used in src/theme/README.md
 // Needs Node >= 22.18 (built-in TypeScript type stripping).
 import { readFileSync } from "node:fs";
-import { HEAT_MIX, TEXT2_SELECTION_KNOWN_GAPS, contrast, deltaE, mixHex } from "../src/theme/contrast.ts";
+import { HEAT_MIX, contrast, deltaE, mixHex } from "../src/theme/contrast.ts";
 
 const schemes = JSON.parse(readFileSync(new URL("../src/theme/schemes.json", import.meta.url), "utf8"));
 const md = process.argv.includes("--markdown");
@@ -19,11 +19,7 @@ const CVD_CLEAR = 15;
 const HEAT_MIN = 1.5;
 const heatRows = [];
 const failures = [];
-const gaps = [];
 const rows = [];
-for (const id of TEXT2_SELECTION_KNOWN_GAPS) {
-  if (!schemes.some((s) => s.id === id)) failures.push(`TEXT2_SELECTION_KNOWN_GAPS lists "${id}", which is not a scheme id`);
-}
 const cvdRows = [];
 
 for (const s of schemes) {
@@ -49,12 +45,9 @@ for (const s of schemes) {
   for (const [k, min] of Object.entries(need)) {
     if (r[k] < min) failures.push(`${s.name}: ${k} ${r[k].toFixed(2)} < ${min}`);
   }
-  // Secondary text on the selection color (a selected row's meta line, a selected option's hint): 4.5:1, except the
-  // listed known gaps, which are reported until fixed and must be unlisted once they pass.
+  // Secondary text on the selection color (a selected row's meta line, a selected option's hint): 4.5:1.
   const text2sel = contrast(t.text2, t.selection);
-  const knownGap = TEXT2_SELECTION_KNOWN_GAPS.includes(s.id);
-  if (text2sel < TEXT_MIN) (knownGap ? gaps : failures).push(`${s.name}: text2 on selection ${text2sel.toFixed(2)} < ${TEXT_MIN}`);
-  else if (knownGap) failures.push(`${s.name}: text2 on selection passes (${text2sel.toFixed(2)}); remove it from TEXT2_SELECTION_KNOWN_GAPS`);
+  if (text2sel < TEXT_MIN) failures.push(`${s.name}: text2 on selection ${text2sel.toFixed(2)} < ${TEXT_MIN}`);
   // Toasts (undo, help, errors): text on the accent-tinted surface (--kp-toast-bg in index.css: 18% accent into
   // the surface), and the accent and danger borders against the page.
   const toastBg = mixHex(t.accent, t.surface, 18);
@@ -121,9 +114,8 @@ if (md) {
 } else {
   console.log(`${schemes.length} schemes checked. Carbon vs Fountain delta E:`, Object.entries(pair).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(", "));
 }
-if (gaps.length && !md) console.log("\nKNOWN GAPS (TEXT2_SELECTION_KNOWN_GAPS in src/theme/contrast.ts):\n" + gaps.join("\n") + "\n");
 if (failures.length) {
   console.error("\nFAILURES:\n" + failures.join("\n"));
   process.exit(1);
 }
-if (!md) console.log(`All contrast and separation thresholds met${gaps.length ? ", except the known gaps listed above" : ""}.`);
+if (!md) console.log(`All contrast and separation thresholds met.`);

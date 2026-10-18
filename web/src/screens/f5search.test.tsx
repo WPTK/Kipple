@@ -287,7 +287,7 @@ describe("Search: marking results read", () => {
     go("/search?q=cat");
     await screen.findByText("Cats");
     const user = userEvent.setup();
-    await user.click(screen.getAllByRole("button", { name: "More actions" })[0] as HTMLElement);
+    await user.click(screen.getAllByRole("button", { name: /^More actions: / })[0] as HTMLElement);
     expect(await screen.findByRole("menuitem", { name: /Mark above as read/ })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("menuitem", { name: /Mark below as read/ })).toHaveAttribute("aria-disabled", "true");
   });

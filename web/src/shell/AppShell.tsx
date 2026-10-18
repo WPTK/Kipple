@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router";
+import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router";
 import { BarChart3, BellOff, Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
@@ -25,7 +25,7 @@ const tab = "flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 p
 /** The Unread tab's badge: count (capped at 99+), a dot, or nothing, by the device's "Unread badge" setting. */
 function UnreadBadge() {
   const boot = useBootstrap();
-  return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" />;
+  return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" noun="" />;
 }
 
 function TabBar() {
@@ -94,7 +94,7 @@ function Sidebar() {
             <Inbox aria-hidden="true" className="size-5" />
             Unread
             <span className="ml-auto" />
-            <UnreadCount n={c?.unread ?? 0} />
+            <UnreadCount n={c?.unread ?? 0} noun="" />
           </NavLink>
           <NavLink to="/l/all" className={item}>
             <List aria-hidden="true" className="size-5" />
@@ -202,7 +202,8 @@ function WarningsBanner() {
  */
 export function AppShell() {
   const wide = useWide();
-  const { pathname } = useLocation();
+  const { pathname, search, hash, state } = useLocation();
+  const navigate = useNavigate();
   useServerEvents(true);
   useSyncHighlights();
 
@@ -215,12 +216,19 @@ export function AppShell() {
   // data-route-focus for an in-app arrival (else the heading, which also announces the new screen), and none while
   // focus is in a data-keep-focus widget outside the screen. A lazy screen
   // still loading here has neither target nor heading yet.
+  // A screen that hands over to the app (the end of setup) navigates with state { arrival: true }: the shell's first
+  // screen is then an arrival, not the page load.
+  const handedOver = (state as { arrival?: boolean } | null)?.arrival === true;
   useEffect(() => {
     if (first.current) {
-      // The page load: focus stays where the browser put it unless the screen named a target.
       first.current = false;
-      mainRef.current?.querySelector<HTMLElement>("[data-load-focus]")?.focus({ preventScroll: true });
-      return;
+      // Read once: left in the history entry, a reload of it would count as an arrival too.
+      if (handedOver) navigate({ pathname, search, hash }, { replace: true, state: null });
+      if (!handedOver) {
+        // The page load: focus stays where the browser put it unless the screen named a target.
+        mainRef.current?.querySelector<HTMLElement>("[data-load-focus]")?.focus({ preventScroll: true });
+        return;
+      }
     }
     if (section === "i") return; // the article focuses its own title
     const find = () => mainRef.current?.querySelector<HTMLElement>("[data-route-focus]") ?? mainRef.current?.querySelector<HTMLElement>("[data-route-heading]");
@@ -259,6 +267,7 @@ export function AppShell() {
     const timer = setTimeout(stop, 10_000);
     watch.observe(main, { childList: true, subtree: true });
     return stop;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- read once, at the shell's first screen
   }, [section, pathname]);
 
   const inArticle = pathname.startsWith("/i/");

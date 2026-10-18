@@ -59,9 +59,8 @@ simulated deficiency, and Carbon and Fountain stay apart. `npm run contrast -- -
 below. The script also requires 4.5:1 for text, text2, link and danger on the surface, for text on the selection color
 and for text2 on the selection color (a selected row's meta line, a selected option's hint; issue #48 found Midnight at 4.05:1,
 fixed with text2 `#9a9a9a` to `#a6a6a6`, and the check moved Graphite `#a3a3a0` to `#b8b8b5`, Carbon `#a3a8ae` to
-`#a7acb2` and Lamplight `#b89a72` to `#bda078`). Cocoa Mid (4.00) still misses it and needs a design call rather than a
-nudge; it is listed in `TEXT2_SELECTION_KNOWN_GAPS` (`contrast.ts`) and reported as a known gap, and the script fails on a
-listed id that is not a scheme or that passes, so the list cannot rot. It also checks text on the toast tint (18% accent into the surface) with accent and danger borders at 3:1, text on the
+`#a7acb2` and Lamplight `#b89a72` to `#bda078`). Cocoa Mid is the one dark scheme whose selection is darker than its page (`#3f3024`): its page is
+mid-tone, so a lighter selection could not carry text2 at 4.5:1 (issue #491). It also checks text on the toast tint (18% accent into the surface) with accent and danger borders at 3:1, text on the
 highlight tint (20% star into the background) with the star underline at 3:1, and for Carbon and Fountain a background
 delta E of 25 and an accent delta E of 40. `theme.test.ts` asserts the WCAG, toast, highlight, Signal and
 Carbon/Fountain checks; the per-deficiency color-blind check is `npm run contrast` only.
@@ -81,7 +80,7 @@ Carbon/Fountain checks; the per-deficiency color-blind check is `npm run contras
 | Tissue | light | color | #f9e9e7 | #f1dbd8 | #3a2424 | #6e4a4a | #e3c3bf | #9b2f5e | #8a2856 | #9b2f5e | #8a4f00 | #b3261e | #f0c9cc | #f9e9e7 |
 | Graphite | dark | dark | #121212 | #1c1c1e | #e8e8e6 | #b8b8b5 | #2c2c2e | #7cb7ff | #8ec1ff | #7cb7ff | #f2c14e | #ff8a80 | #2b4a6f | #121212 |
 | Midnight | dark | dark | #000000 | #0b0b0c | #e0e0e0 | #a6a6a6 | #232325 | #6db0ff | #7db9ff | #6db0ff | #f2c14e | #ff8a80 | #1f3b5c | #000000 |
-| Cocoa Mid | dark | dark | #58463a | #665244 | #f6eee3 | #e0d2c0 | #7a6552 | #f0b36a | #ffd0a0 | #f0b36a | #f5c85a | #ffc4b8 | #75604d | #58463a |
+| Cocoa Mid | dark | dark | #58463a | #665244 | #f6eee3 | #e0d2c0 | #7a6552 | #f0b36a | #ffd0a0 | #f0b36a | #f5c85a | #ffc4b8 | #3f3024 | #58463a |
 | Fountain | dark | dark | #13284f | #1b3565 | #f3ead2 | #c6c9d6 | #2f4a80 | #f2a65a | #ffc888 | #f2a65a | #ffe27a | #ff9aa8 | #2f5296 | #13284f |
 | Foolscap | light | accessibility | #f8f0d6 | #efe6c8 | #2d2a24 | #5a5548 | #dcd2b0 | #24598a | #1f5283 | #24598a | #8f5200 | #a52a20 | #e5d9a8 | #f8f0d6 |
 | Tracing | light | accessibility | #f7f8fa | #edeff3 | #1a1d21 | #565c66 | #d5d9e0 | #0a5ba8 | #0a5ba8 | #0a5ba8 | #9a4a00 | #a3195b | #cde0f5 | #f7f8fa |

@@ -171,7 +171,7 @@ describe("the article list is one Tab stop", () => {
     const [a, b] = ids();
     const row = scroller.querySelector<HTMLElement>(`[data-item-id="${a}"]`)!;
     // From the keyboard: Tab onto the row's More actions button, open its menu, choose Mark as read.
-    act(() => within(row).getByRole("button", { name: "More actions" }).focus());
+    act(() => within(row).getByRole("button", { name: /^More actions: / }).focus());
     await user.keyboard("{Enter}");
     await user.click(await screen.findByRole("menuitem", { name: "Mark as read" }));
     await waitFor(() => expect(ids()).not.toContain(a));

@@ -170,7 +170,9 @@ describe("Unread badge", () => {
     act(() => updateDevicePrefs({ unreadBadge: "dot" }));
     rerender(<UnreadCount n={999} />);
     expect(screen.queryByTestId("unread-count")).toBeNull();
-    expect(screen.getByTestId("unread-dot")).toHaveTextContent("Unread"); // labelled for a screen reader
+    expect(screen.getByTestId("unread-dot")).toHaveTextContent("unread"); // labelled for a screen reader
+    rerender(<UnreadCount n={999} noun="" />);
+    expect(screen.getByTestId("unread-dot")).toHaveTextContent("articles waiting"); // beside the word Unread: still says there is something
     act(() => updateDevicePrefs({ unreadBadge: "off" }));
     rerender(<UnreadCount n={999} />);
     expect(screen.queryByTestId("unread-dot")).toBeNull();

@@ -27,14 +27,14 @@ export function unreadName(name: string, n: number, mode: UnreadBadge): string {
  * decides what shows. The unread state is never color alone: the dot has a screen reader label and the count
  * is text.
  */
-export function UnreadCount({ n, tone = "quiet", className }: { n: number; tone?: "accent" | "quiet"; className?: string }) {
+export function UnreadCount({ n, tone = "quiet", className, noun = "unread" }: { n: number; tone?: "accent" | "quiet"; className?: string; /** Read after the number (the badge sits in a flex row, so it is its own word); empty beside a label that already says Unread. */ noun?: string }) {
   const { unreadBadge } = useDevicePrefs();
   const kind = badgeKind(n, unreadBadge);
   if (!kind) return null;
   if (kind === "dot") {
     return (
       <span data-testid="unread-dot" className={cn("inline-block size-2 shrink-0 rounded-full bg-unread", className)}>
-        <span className="sr-only-live">Unread</span>
+        <span className="sr-only-live">{noun || "articles waiting"}</span>
       </span>
     );
   }
@@ -47,8 +47,8 @@ export function UnreadCount({ n, tone = "quiet", className }: { n: number; tone?
         className,
       )}
     >
-      <span className="sr-only-live">Unread </span>
       {badgeText(n)}
+      {noun ? <span className="sr-only-live"> {noun}</span> : null}
     </span>
   );
 }
