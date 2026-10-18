@@ -3,7 +3,7 @@ import { cn } from "@/lib/cn";
 import { PublishedTime, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
-import { useRowTabIndex } from "./rowTabStop";
+import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 
 /**
  * Headlines (layout id "headlines"): one line per article, title only, like a compact mail list.
@@ -30,7 +30,7 @@ function HeadlineRow({ item, selected, to, onOpen, onToggleStar, actions }: RowP
           tabIndex={tabIndex}
           to={to}
           onClick={() => onOpen(item)}
-          aria-keyshortcuts="ArrowDown ArrowUp"
+          aria-keyshortcuts={ROW_KEYSHORTCUTS}
           className="row-link block truncate"
           aria-label={rowLabel(item)}
         >

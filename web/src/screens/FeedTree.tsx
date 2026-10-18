@@ -56,7 +56,7 @@ export const indentCls = (depth: number) => (depth < 4 ? "pl-3" : "pl-1");
 
 /**
  * Keyboard for a navigation tree (WAI-ARIA tree pattern): one tab stop, Up and Down move, Right expands or goes to the
- * first child, Left collapses or goes to the parent, Home and End, Enter opens the item's list, P adds the item to
+ * first child, Left collapses or goes to the parent, Home and End, Enter or Space opens the item's list (focus stays in the tree), P adds the item to
  * the favorites or takes it out. Items are the rendered `[role=treeitem]` elements, so collapsed branches are skipped
  * by construction. When the focused item leaves the screen (taken out of Favorites, collapsed away, moved or deleted
  * elsewhere) the focus goes to the item now in its place, never to the page.
@@ -120,8 +120,11 @@ function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void) {
         else to = list.slice(0, at).findLast((x) => Number(x.getAttribute("aria-level")) === level - 1);
         break;
       case "Enter":
+      case " ": {
+        // A tree item is data-keep-focus: opening its list leaves focus on it, so the next feed is one arrow away.
         item.querySelector<HTMLAnchorElement>("a")?.click();
         break;
+      }
       default:
         return;
     }
@@ -190,6 +193,7 @@ function FeedItem({ f, level, ctx, fav }: { f: Feed; level: number; ctx: TreeCtx
     <li role="presentation">
       <div
         role="treeitem"
+        data-keep-focus
         aria-level={level}
         aria-label={unreadName(f.title, f.unread, ctx.unreadBadge)}
         tabIndex={ctx.tabStop === key ? 0 : -1}
@@ -220,6 +224,7 @@ function FolderItem({ fo, level, ctx, fav }: { fo: Folder; level: number; ctx: T
       {/* The treeitem is the row alone, and the subfolders sit beside it in the group it owns: a name that held the whole subtree could not contain the row's visible text (WCAG 2.5.3). */}
       <div
         role="treeitem"
+        data-keep-focus
         aria-level={level}
         aria-expanded={branch ? !collapsed : undefined}
         aria-owns={branch && !collapsed ? groupId : undefined}

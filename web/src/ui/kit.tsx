@@ -58,6 +58,18 @@ function focusPlaces(el: HTMLElement | null): HTMLElement[] {
   return el ? [el, ...out] : out;
 }
 
+/**
+ * A sheet opens with focus on its first control. One whose fields are still loading (a Skeleton in the body) would put
+ * it on the footer's Cancel instead, ahead of the fields: the sheet itself takes focus then (its title is read), and
+ * Tab goes to the first field once it is there.
+ */
+function holdWhileLoading(e: Event) {
+  const sheet = e.currentTarget instanceof HTMLElement ? e.currentTarget : null;
+  if (!sheet?.querySelector("[data-sheet-body] [data-skeleton]")) return;
+  e.preventDefault();
+  sheet.focus({ preventScroll: true });
+}
+
 /** A modal sheet: bottom-aligned on phones, centered on wide screens. Radix traps focus and restores it. */
 export function Modal({
   open,
@@ -87,12 +99,13 @@ export function Modal({
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
         <Dialog.Content
           {...returnFocus}
+          onOpenAutoFocus={holdWhileLoading}
           className={cn(
-            "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full flex-col rounded-t-2xl border border-line bg-bg text-fg shadow-xl min-[640px]:inset-y-auto min-[640px]:top-[6vh] min-[640px]:bottom-auto min-[640px]:rounded-2xl",
+            "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full flex-col rounded-t-2xl outline-none border border-line bg-bg text-fg shadow-xl min-[640px]:inset-y-auto min-[640px]:top-[6vh] min-[640px]:bottom-auto min-[640px]:rounded-2xl",
             size === "lg" ? "max-w-2xl min-[640px]:top-[3vh]" : "max-w-lg",
           )}
         >
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-3">
+          <div data-sheet-body className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-3">
             <Dialog.Title className="text-lg font-bold">{title}</Dialog.Title>
             {description ? <Dialog.Description className="mt-1 mb-3 text-sm text-fg2">{description}</Dialog.Description> : <Dialog.Description className="sr-only-live">{title}</Dialog.Description>}
             <div className="flex flex-col gap-4">{children}</div>
@@ -367,7 +380,7 @@ export function Notice({ tone = "info", children, role }: { tone?: "info" | "war
 
 export function Skeleton({ rows = 4, label = "Loading" }: { rows?: number; label?: string }) {
   return (
-    <div role="status" aria-busy="true" className="flex flex-col gap-3 p-4">
+    <div role="status" aria-busy="true" data-skeleton className="flex flex-col gap-3 p-4">
       <span className="sr-only-live">{label}</span>
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} aria-hidden="true" className="h-12 animate-pulse rounded-xl bg-surface" />

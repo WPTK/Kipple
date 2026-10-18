@@ -150,7 +150,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
           size="icon"
           aria-label={refreshing ? "Refreshing" : "Refresh all feeds"}
           onClick={() => refresh.mutate()}
-          disabled={refresh.isPending}
+          aria-disabled={refresh.isPending || undefined}
         >
           <RefreshCw aria-hidden="true" className={cn(refreshing && "animate-spin")} />
         </Button>
@@ -274,13 +274,17 @@ function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?:
   if (cachedFallback !== null && (kept?.key !== listKey || kept.v !== cachedFallback)) setKept({ key: listKey, v: cachedFallback });
   const fallback = scope.q ? (cachedFallback ?? (kept?.key === listKey ? kept.v : false)) : false;
   useSearchHighlight(scope.q, { fallback, typing: scope.typing });
+  // The header belongs to the list column, not to one list: another order, view, length or feed remounts the list
+  // (keyed by its scope) but not the header, so the control that was pressed keeps focus. The list reports what Mark
+  // all acts on, and null when it goes.
+  const [controls, setControls] = useState<ListControls | null>(null);
   const list = (
-    <ListPane
-      key={listKey}
-      scope={scope}
-      activeId={articleId}
-      header={(controls) => <ScopeHeader scope={scope} controls={controls} beside={wide && !!articleId} />}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      <ScopeHeader scope={scope} controls={controls ?? undefined} beside={wide && !!articleId} />
+      <div className="min-h-0 flex-1">
+        <ListPane key={listKey} scope={scope} activeId={articleId} onControls={setControls} />
+      </div>
+    </div>
   );
 
   if (!wide) return articleId ? <ArticlePane key={articleId} id={articleId} scope={scope} hasFrom={hasFrom} pane={false} /> : list;

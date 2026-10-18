@@ -88,6 +88,20 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, item.data?.id]);
 
+  // The article as shown: none while it loads or after it failed (a failed refetch keeps stale data, still an error).
+  const failed = !item.isPending && (item.isError || !item.data);
+  const a = item.isPending || failed ? undefined : item.data;
+
+  // Beside the list, Next and Previous leave focus on the button that was pressed, so the article that arrived is
+  // announced (full screen, its title takes focus and is read instead). One that failed announces its own error.
+  const told = useRef<string | null>(null);
+  useEffect(() => {
+    if (!pane || !a || told.current === id) return;
+    told.current = id;
+    if ((location.state as { via?: string } | null)?.via === "nav") announce(a.title || "Untitled");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, a?.id, pane]);
+
   // Effective full-text with nothing stored yet: ask the server to extract (design 7.5).
   const ft = item.data?.fulltext;
   const asked = useRef<string | null>(null);
@@ -261,26 +275,36 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     return () => clearMarks(root);
   }, [html, bodyGroups, item.data?.trimmed]);
 
-  if (item.isPending) {
+  const ftOn = a?.fulltext.effective === 1;
+  // The wide pane is not remounted per article (that would drop focus from the toolbar on Next), so the
+  // mutation outlives the article it was started for: busy only means busy for this one.
+  const ftBusy = fulltext.isPending && fulltext.variables?.id === id;
+  // The toolbar is the pane's, not the article's: beside the list it stays mounted while the next article loads or
+  // fails, so the button that was pressed keeps focus, and Next still works from an article that could not open.
+  const toolbar = (top: boolean) => (
+    <Toolbar
+      top={top}
+      a={a}
+      ftOn={ftOn}
+      ftBusy={ftBusy}
+      paging={paging}
+      canPrev={!!prevId}
+      canNext={canPage}
+      onPrev={() => prev()}
+      onNext={() => next()}
+      onStar={toggleStar}
+      onRead={toggleRead}
+      onFulltext={toggleFulltext}
+      onOriginal={openOriginal}
+      onShare={share}
+      onMuteSimilar={muteSimilar}
+      onManageFeed={manageFeed}
+    />
+  );
+
+  if (!a) {
     // The way back is there from the first frame: on a phone (an installed app has no browser Back) a slow load
     // must never be a screen with no exit.
-    return (
-      <div className="flex h-full flex-col">
-        {!pane && <TopBar onBack={back} />}
-        <div className="p-6" aria-busy="true" role="status">
-          <span className="sr-only-live">Loading article</span>
-          <div aria-hidden="true" className="mx-auto max-w-[46rem] space-y-3">
-            <div className="h-7 w-4/5 rounded bg-surface" />
-            <div className="h-4 w-1/3 rounded bg-surface" />
-            <div className="h-4 w-full rounded bg-surface" />
-            <div className="h-4 w-full rounded bg-surface" />
-            <div className="h-4 w-2/3 rounded bg-surface" />
-          </div>
-        </div>
-      </div>
-    );
-  }
-  if (item.isError || !item.data) {
     // The failure is the page's h1 in both layouts: beside the article the list's name is an h2 (ScopeHeader), so nothing else is one.
     // A 404 is final: retention trimmed the article, or it was deleted, or the id was never one. Retrying cannot help,
     // so that answer says so and offers the list; only other failures (network, 5xx) offer Try again.
@@ -290,58 +314,47 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     return (
       <div className="flex h-full flex-col">
         {!pane && <TopBar onBack={back} />}
-        <div className="flex min-h-0 flex-1 items-center justify-center">
-          <StatusBlock
-            role="alert"
-            asH1
-            title={gone ? "This article is no longer available" : "Couldn't open this article"}
-            body={
-              gone
-                ? "It may have been removed by a feed's retention limit or deleted."
-                : originalUrl
-                  ? "The article couldn't be loaded. You can read the original instead."
-                  : "The article couldn't be loaded."
-            }
-          >
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {gone ? pane ? null : <Button onClick={back}>Back to the list</Button> : <Button onClick={() => void item.refetch()}>Try again</Button>}
-              {originalUrl ? <Button variant="ghost" onClick={() => openOriginalAndRecord({ id, url: originalUrl })}>Read the original</Button> : null}
+        {pane && toolbar(true)}
+        {failed ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center">
+            <StatusBlock
+              role="alert"
+              asH1
+              title={gone ? "This article is no longer available" : "Couldn't open this article"}
+              body={
+                gone
+                  ? "It may have been removed by a feed's retention limit or deleted."
+                  : originalUrl
+                    ? "The article couldn't be loaded. You can read the original instead."
+                    : "The article couldn't be loaded."
+              }
+            >
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {gone ? pane ? null : <Button onClick={back}>Back to the list</Button> : <Button onClick={() => void item.refetch()}>Try again</Button>}
+                {originalUrl ? <Button variant="ghost" onClick={() => openOriginalAndRecord({ id, url: originalUrl })}>Read the original</Button> : null}
+              </div>
+            </StatusBlock>
+          </div>
+        ) : (
+          <div className="p-6" aria-busy="true" role="status">
+            <span className="sr-only-live">Loading article</span>
+            <div aria-hidden="true" className="mx-auto max-w-[46rem] space-y-3">
+              <div className="h-7 w-4/5 rounded bg-surface" />
+              <div className="h-4 w-1/3 rounded bg-surface" />
+              <div className="h-4 w-full rounded bg-surface" />
+              <div className="h-4 w-full rounded bg-surface" />
+              <div className="h-4 w-2/3 rounded bg-surface" />
             </div>
-          </StatusBlock>
-        </div>
+          </div>
+        )}
       </div>
     );
   }
 
-  const a = item.data;
-  const ftOn = a.fulltext.effective === 1;
-  // The wide pane is not remounted per article (that would drop focus from the toolbar on Next), so the
-  // mutation outlives the article it was started for: busy only means busy for this one.
-  const ftBusy = fulltext.isPending && fulltext.variables?.id === id;
-
   return (
     <div ref={frameRef} className="flex h-full min-h-0 flex-col bg-bg">
       {!pane && <TopBar onBack={back} />}
-      {pane && (
-        <Toolbar
-          top
-          a={a}
-          ftOn={ftOn}
-          ftBusy={ftBusy}
-          paging={paging}
-          canPrev={!!prevId}
-          canNext={canPage}
-          onPrev={() => prev()}
-          onNext={() => next()}
-          onStar={toggleStar}
-          onRead={toggleRead}
-          onFulltext={toggleFulltext}
-          onOriginal={openOriginal}
-          onShare={share}
-          onMuteSimilar={muteSimilar}
-          onManageFeed={manageFeed}
-        />
-      )}
+      {pane && toolbar(true)}
       <div ref={scrollerRef} className="swipe-back-area min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <article className="px-4 pt-4 pb-10 md:px-6" aria-labelledby="article-title" style={{ "--kp-col": columnWidth(dp.articleWidth) } as CSSProperties}>
           <header className="mx-auto mb-5 max-w-[min(var(--kp-col),100%)]">
@@ -409,25 +422,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           )}
         </article>
       </div>
-      {!pane && (
-        <Toolbar
-          a={a}
-          ftOn={ftOn}
-          ftBusy={ftBusy}
-          paging={paging}
-          canPrev={!!prevId}
-          canNext={canPage}
-          onPrev={() => prev()}
-          onNext={() => next()}
-          onStar={toggleStar}
-          onRead={toggleRead}
-          onFulltext={toggleFulltext}
-          onOriginal={openOriginal}
-          onShare={share}
-          onMuteSimilar={muteSimilar}
-          onManageFeed={manageFeed}
-        />
-      )}
+      {!pane && toolbar(false)}
     </div>
   );
 }
@@ -454,7 +449,8 @@ function TopBar({ onBack }: { onBack: () => void }) {
 }
 
 interface ToolbarProps {
-  a: NonNullable<ReturnType<typeof useItem>["data"]>;
+  /** The open article; none while the next one loads or after it failed (beside the list the toolbar stays). */
+  a: ReturnType<typeof useItem>["data"];
   ftOn: boolean;
   ftBusy: boolean;
   /** There is a list to page through (an article opened with no list, such as a shared link, has none: no Next or Previous). */
@@ -476,6 +472,8 @@ interface ToolbarProps {
 const moreItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
 
 function Toolbar(p: ToolbarProps) {
+  // With no article (the next one loading) More actions is switched off but keeps focus, and its menu does not open.
+  const [more, setMore] = useState(false);
   return (
     <div
       role="toolbar"
@@ -487,10 +485,10 @@ function Toolbar(p: ToolbarProps) {
     >
       {p.paging ? (
         <>
-          <Button variant="ghost" size="icon" onClick={p.onPrev} disabled={!p.canPrev} aria-label="Previous article">
+          <Button variant="ghost" size="icon" onClick={p.onPrev} aria-disabled={!p.canPrev || undefined} aria-label="Previous article">
             {p.top ? <ChevronUp aria-hidden="true" /> : <ChevronLeft aria-hidden="true" />}
           </Button>
-          <Button variant="ghost" size="icon" onClick={p.onNext} disabled={!p.canNext} aria-label="Next article">
+          <Button variant="ghost" size="icon" onClick={p.onNext} aria-disabled={!p.canNext || undefined} aria-label="Next article">
             {p.top ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
           </Button>
         </>
@@ -499,26 +497,28 @@ function Toolbar(p: ToolbarProps) {
         variant="ghost"
         size="icon"
         onClick={p.onStar}
-        aria-pressed={p.a.starred}
-        aria-label={p.a.starred ? "Unstar" : "Star"}
-        className={p.a.starred ? "text-star" : undefined}
+        aria-disabled={!p.a || undefined}
+        aria-pressed={!!p.a?.starred}
+        aria-label={p.a?.starred ? "Unstar" : "Star"}
+        className={p.a?.starred ? "text-star" : undefined}
       >
-        <Star aria-hidden="true" fill={p.a.starred ? "currentColor" : "none"} />
+        <Star aria-hidden="true" fill={p.a?.starred ? "currentColor" : "none"} />
       </Button>
       <Button
         variant="ghost"
         size="icon"
         onClick={p.onRead}
-        aria-label={p.a.read ? "Mark as unread" : "Mark as read"}
-        title={p.a.read ? "Mark as unread" : "Mark as read"}
+        aria-disabled={!p.a || undefined}
+        aria-label={p.a?.read ? "Mark as unread" : "Mark as read"}
+        title={p.a?.read ? "Mark as unread" : "Mark as read"}
       >
-        {p.a.read ? <Mail aria-hidden="true" /> : <MailOpen aria-hidden="true" />}
+        {p.a?.read ? <Mail aria-hidden="true" /> : <MailOpen aria-hidden="true" />}
       </Button>
       <Button
         variant="ghost"
         size="icon"
         onClick={p.onFulltext}
-        disabled={p.ftBusy}
+        aria-disabled={p.ftBusy || !p.a || undefined}
         aria-pressed={p.ftOn}
         aria-label="Full text"
         className={p.ftOn ? "bg-selection" : undefined}
@@ -526,9 +526,9 @@ function Toolbar(p: ToolbarProps) {
         <FileText aria-hidden="true" />
       </Button>
       {/* The rarely used actions (Share included) share one 44 px target, so seven targets (308 px) fit the narrowest phone and a narrow pane with Aa. */}
-      <DropdownMenu.Root>
+      <DropdownMenu.Root open={more && !!p.a} onOpenChange={(o) => setMore(o && !!p.a)}>
         <DropdownMenu.Trigger asChild>
-          <Button variant="ghost" size="icon" aria-label="More actions" title="More actions">
+          <Button variant="ghost" size="icon" aria-label="More actions" title="More actions" aria-disabled={!p.a || undefined}>
             <MoreHorizontal aria-hidden="true" />
           </Button>
         </DropdownMenu.Trigger>

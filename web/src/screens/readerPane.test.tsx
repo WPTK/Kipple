@@ -68,7 +68,7 @@ afterEach(() => {
 });
 
 describe("reader pane: per-article state", () => {
-  it("a full-text request still running for one article does not disable the button on the next", async () => {
+  it("a full-text request still running for one article does not switch off the button on the next", async () => {
     let release!: () => void;
     const held = new Promise<void>((r) => (release = r));
     routes({
@@ -82,11 +82,12 @@ describe("reader pane: per-article state", () => {
     const user = userEvent.setup();
     const ft = () => screen.getByRole("button", { name: "Full text" });
     await user.click(ft());
-    await waitFor(() => expect(ft()).toBeDisabled());
+    await waitFor(() => expect(ft()).toHaveAttribute("aria-disabled", "true"));
+    expect(ft()).toHaveFocus(); // switched off while busy, but never native disabled: focus stays (#492)
     await user.click(screen.getByRole("button", { name: "Next article" }));
     await waitFor(() => expect(window.location.pathname).toBe("/i/1002"));
     await screen.findByRole("heading", { level: 1, name: "Article number 2" });
-    expect(ft()).toBeEnabled();
+    expect(ft()).not.toHaveAttribute("aria-disabled");
     release();
   });
 });
