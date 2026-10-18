@@ -306,9 +306,59 @@ func generate(ctx context.Context, o genOpts) error {
 	}
 	progress("planned %d items", len(items))
 
+	// The articles are built before each write transaction, which then only inserts: building them (text, hashes) is
+	// the slow part, and inside the transaction it could outlast the store's write timeout under the race detector.
+	type itemRow struct {
+		item       []any
+		html, text string
+		id         int64
+	}
 	const batch = 1000
 	for lo := 0; lo < len(items); lo += batch {
 		hi := min(lo+batch, len(items))
+		rows := make([]itemRow, 0, hi-lo)
+		for _, it := range items[lo:hi] {
+			ir := rand.New(rand.NewSource(o.seed*1_000_003 + int64(it.idx))) // #nosec G404 -- fixture data
+			z := rand.NewZipf(ir, 1.07, 1, uint64(len(tg.words)-1))
+			var words int
+			switch x := ir.Float64(); {
+			case x < 0.5:
+				words = 30 + ir.Intn(170)
+			case x < 0.9:
+				words = 300 + ir.Intn(600)
+			default:
+				words = 1000 + ir.Intn(2500)
+			}
+			plant := ""
+			if rareAt[it.idx] {
+				plant = rareTerm
+			} else if ir.Intn(midEvery) == 0 {
+				plant = midTerm
+			}
+			html, text, n := tg.article(ir, z, words, plant)
+			title := tg.title(ir, z)
+			p := plans[it.feed]
+			var img any
+			if ir.Float64() < 0.7 {
+				img = fmt.Sprintf("https://example.com/img/%d.jpg", it.id)
+			}
+			var readAt, starAt, changed any
+			if it.read {
+				v := min(it.pub+int64(ir.Intn(86400*3)), now)
+				readAt, changed = v, v
+			}
+			if it.starred {
+				v := min(it.pub+int64(ir.Intn(86400*5)), now)
+				starAt, changed = v, v
+			}
+			rows = append(rows, itemRow{
+				item: []any{it.id, p.id, boolI(it.read), boolI(it.starred), readAt, starAt, changed,
+					it.pub, nil, it.pub, n, "g:" + fetch.H(fmt.Sprintf("n-%d-%d", it.feed+1, it.seq)),
+					fetch.ContentHash(title, fmt.Sprintf("https://example.com/%d/%d", p.id, it.id), "", html), fetch.TextHash(title, text),
+					fmt.Sprintf("https://example.com/%d/%d", p.id, it.id), title, "", img},
+				html: html, text: text, id: it.id,
+			})
+		}
 		err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 			ins, err := tx.PrepareContext(ctx, `INSERT INTO items (id, feed_id, read, starred, read_at, starred_at, state_changed_at,
 				published_at, updated_at, sort_at, word_count, uid, content_hash, text_hash, url, title, author, image_url)
@@ -322,47 +372,11 @@ func generate(ctx context.Context, o genOpts) error {
 				return err
 			}
 			defer cins.Close()
-			for _, it := range items[lo:hi] {
-				ir := rand.New(rand.NewSource(o.seed*1_000_003 + int64(it.idx))) // #nosec G404 -- fixture data
-				z := rand.NewZipf(ir, 1.07, 1, uint64(len(tg.words)-1))
-				var words int
-				switch x := ir.Float64(); {
-				case x < 0.5:
-					words = 30 + ir.Intn(170)
-				case x < 0.9:
-					words = 300 + ir.Intn(600)
-				default:
-					words = 1000 + ir.Intn(2500)
-				}
-				plant := ""
-				if rareAt[it.idx] {
-					plant = rareTerm
-				} else if ir.Intn(midEvery) == 0 {
-					plant = midTerm
-				}
-				html, text, n := tg.article(ir, z, words, plant)
-				title := tg.title(ir, z)
-				p := plans[it.feed]
-				var img any
-				if ir.Float64() < 0.7 {
-					img = fmt.Sprintf("https://example.com/img/%d.jpg", it.id)
-				}
-				var readAt, starAt, changed any
-				if it.read {
-					v := min(it.pub+int64(ir.Intn(86400*3)), now)
-					readAt, changed = v, v
-				}
-				if it.starred {
-					v := min(it.pub+int64(ir.Intn(86400*5)), now)
-					starAt, changed = v, v
-				}
-				if _, err := ins.ExecContext(ctx, it.id, p.id, boolI(it.read), boolI(it.starred), readAt, starAt, changed,
-					it.pub, nil, it.pub, n, "g:"+fetch.H(fmt.Sprintf("n-%d-%d", it.feed+1, it.seq)),
-					fetch.ContentHash(title, fmt.Sprintf("https://example.com/%d/%d", p.id, it.id), "", html), fetch.TextHash(title, text),
-					fmt.Sprintf("https://example.com/%d/%d", p.id, it.id), title, "", img); err != nil {
+			for _, row := range rows {
+				if _, err := ins.ExecContext(ctx, row.item...); err != nil {
 					return err
 				}
-				if _, err := cins.ExecContext(ctx, it.id, html, text); err != nil {
+				if _, err := cins.ExecContext(ctx, row.id, row.html, row.text); err != nil {
 					return err
 				}
 			}
