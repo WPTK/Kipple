@@ -36,6 +36,9 @@ type genOpts struct {
 	schema   int // 0 = latest; otherwise rewind the finished database to this schema version (6, 10 or 11)
 	feedBase string
 	days     int // days of stats history
+	// starredPct is the share of items starred, in percent; statsMult scales the stats events per day (1 = 40 to 200).
+	starredPct float64
+	statsMult  float64
 }
 
 type itemPlan struct {
@@ -56,7 +59,8 @@ type feedPlan struct {
 }
 
 func runGen(args []string) error {
-	var o genOpts
+	o := genOpts{starredPct: 1.5, statsMult: 1}
+	var preset string
 	fs := flag.NewFlagSet("gen", flag.ExitOnError)
 	fs.StringVar(&o.dir, "dir", "", "data directory to create (kipple.db is written inside)")
 	fs.IntVar(&o.feeds, "feeds", 500, "number of feeds")
@@ -65,8 +69,18 @@ func runGen(args []string) error {
 	fs.IntVar(&o.schema, "schema", 0, "rewind the finished database to this schema version: 11 (the previous one), 10 or 6 (older shapes); 0 keeps the latest")
 	fs.StringVar(&o.feedBase, "feed-base", "http://127.0.0.1:1932", "base URL of `scalegen feeds`; feed N is <base>/feed/N.xml")
 	fs.IntVar(&o.days, "stats-days", 400, "days of reading-statistics history")
+	fs.Float64Var(&o.starredPct, "starred-pct", 1.5, "percent of items starred")
+	fs.Float64Var(&o.statsMult, "stats-mult", 1, "multiplier on the reading-statistics events per day")
+	fs.StringVar(&preset, "preset", "", "a named shape for the bug hunt ("+presetNames()+"); flags you set override it; -dir defaults to .hunt/scale/<preset>")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if preset != "" {
+		set := map[string]bool{}
+		fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+		if err := applyPreset(&o, preset, set); err != nil {
+			return err
+		}
 	}
 	if o.dir == "" {
 		return fmt.Errorf("gen: -dir is required")
@@ -278,7 +292,7 @@ func generate(ctx context.Context, o genOpts) error {
 				readP = 0.92
 			}
 			items = append(items, itemPlan{id: id, feed: fi, seq: s, pub: pub,
-				read: r.Float64() < readP, starred: r.Float64() < 0.015})
+				read: r.Float64() < readP, starred: r.Float64() < o.starredPct/100})
 			t -= r.ExpFloat64() * mean
 		}
 	}
@@ -381,18 +395,26 @@ func generate(ctx context.Context, o genOpts) error {
 				return err
 			}
 		}
-		// fetch_log: 50 rows per feed (the retention floor).
-		for _, p := range plans {
-			for k := 0; k < 50; k++ {
-				if _, err := tx.ExecContext(ctx, `INSERT INTO fetch_log (feed_id, trigger, started_at, duration_ms, outcome, http_status, new_items, bytes)
-					VALUES (?, 'scheduled', ?, ?, 'ok', 200, ?, ?)`, p.id, now-int64(k)*1800, 80+r.Intn(400), r.Intn(3), 20000+r.Intn(60000)); err != nil {
-					return err
-				}
-			}
-		}
 		return nil
 	}); err != nil {
 		return err
+	}
+	// fetch_log: 50 rows per feed (the retention floor), 100 feeds per transaction so a library of
+	// thousands of feeds stays inside the write timeout.
+	for lo := 0; lo < len(plans); lo += 100 {
+		if err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+			for _, p := range plans[lo:min(lo+100, len(plans))] {
+				for k := 0; k < 50; k++ {
+					if _, err := tx.ExecContext(ctx, `INSERT INTO fetch_log (feed_id, trigger, started_at, duration_ms, outcome, http_status, new_items, bytes)
+						VALUES (?, 'scheduled', ?, ?, 'ok', 200, ?, ?)`, p.id, now-int64(k)*1800, 80+r.Intn(400), r.Intn(3), 20000+r.Intn(60000)); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
 	}
 	progress("ledger and fetch log")
 
@@ -412,7 +434,7 @@ func generate(ctx context.Context, o genOpts) error {
 		defer st.Close()
 		for d := o.days; d >= 1; d-- {
 			day := time.Unix(now, 0).UTC().AddDate(0, 0, -d)
-			n := 40 + r.Intn(160)
+			n := int(float64(40+r.Intn(160)) * o.statsMult)
 			for e := 0; e < n; e++ {
 				ts := time.Date(day.Year(), day.Month(), day.Day(), 6+r.Intn(17), r.Intn(60), r.Intn(60), 0, time.UTC)
 				x, kind := r.Float64(), "open"

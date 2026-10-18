@@ -54,5 +54,5 @@ web/coverage/
 /scripts/local/
 /.scrub-terms.local
 
-# Local bug-hunt outputs (generated, large, may hold private data)
+# Bug-hunt output (generated test files, fuzz corpus, findings); never committed
 .hunt/

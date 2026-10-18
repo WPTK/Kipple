@@ -54,3 +54,39 @@ Describe 'the script' {
     ($out -join ' ') | Should -Match 'index is above the count'
   }
 }
+
+Describe 'long mode helpers' {
+  It 'defaults -parallel to half the cores, at least one, and caps a request at the cores' {
+    Get-FuzzParallel -Cores 16 | Should -Be 8
+    Get-FuzzParallel -Cores 1 | Should -Be 1
+    Get-FuzzParallel -Cores 3 | Should -Be 1
+    Get-FuzzParallel -Requested 4 -Cores 16 | Should -Be 4
+    Get-FuzzParallel -Requested 64 -Cores 16 | Should -Be 16
+  }
+  It 'builds the go test arguments for a target' {
+    $t = [pscustomobject]@{ Package = 'example/pkg'; Name = 'FuzzX' }
+    (Get-FuzzArgument -Target $t -FuzzTime '5m' -ParallelCount 4) -join ' ' | Should -Be 'test -run ^$ -fuzz ^FuzzX$ -fuzztime 5m -parallel 4 example/pkg'
+    (Get-FuzzArgument -Target $t -FuzzTime '60s') -join ' ' | Should -Be 'test -run ^$ -fuzz ^FuzzX$ -fuzztime 60s example/pkg'
+  }
+  It 'prints one line per verdict with the short package path' {
+    $t = [pscustomobject]@{ Package = 'github.com/WPTK/kipple/internal/opml'; Name = 'FuzzParse' }
+    $line = Format-FuzzVerdict -Result FAIL -Target $t -Detail 'input: x'
+    $line | Should -Match '^FAIL\s+FuzzParse\s+internal/opml\s+input: x$'
+    ($line -split "`n").Count | Should -Be 1
+  }
+  It 'refuses -Minutes together with -Seconds, and -Parallel without -Minutes' {
+    $out = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -List -Minutes 1 -Seconds 5 2>&1
+    $LASTEXITCODE | Should -Not -Be 0
+    ($out -join ' ') | Should -Match 'cannot be combined'
+    $out = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -List -Parallel 2 2>&1
+    $LASTEXITCODE | Should -Not -Be 0
+    ($out -join ' ') | Should -Match 'only applies to long mode'
+  }
+  # Opt in with KIPPLE_SLOW_TESTS=1: the first run builds a cold Go cache under .hunt/fuzz (minutes).
+  It 'runs a real target in long mode, reports PASS, and keeps its cache under .hunt/fuzz' -Tag 'slow' -Skip:(-not $env:KIPPLE_SLOW_TESTS) {
+    $out = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -Minutes 1 -Parallel 1 -Filter FuzzParseStructured 2>&1
+    $LASTEXITCODE | Should -Be 0
+    ($out -join "`n") | Should -Match '(?m)^PASS\s+FuzzParseStructured'
+    Test-Path (Join-Path (Split-Path -Parent $PSScriptRoot) '.hunt/fuzz/gocache/fuzz') | Should -BeTrue
+  }
+}

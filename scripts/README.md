@@ -78,6 +78,24 @@ MERGED and every `Closes #n` issue is CLOSED.
 If this breaks: it depends on the `gh pr view --json` fields listed in the script help, the compare API's `status` field
 and `gh pr merge --match-head-commit`. The decision logic is `Get-PrVerdict`.
 
+## Bug-hunt tools (dev machine)
+
+Everything these write goes to `.hunt/` (gitignored); nothing from the owner's own data may be committed. Each generator is a
+pure function of a seed, so the same command gives the same files.
+
+- `scripts/fuzz.ps1 -Minutes N [-Parallel P]` is the long fuzz mode: it re-runs every target against its committed
+  `testdata/fuzz` reproducers (verdict `REPRO` on a regression), then fuzzes each target N minutes with `-parallel P`
+  (default half the cores) and prints one `PASS`/`FAIL` line per target. The Go build and fuzz caches live in
+  `.hunt/fuzz/gocache` (the first run builds cold), and each failing input is copied to `.hunt/fuzz/crashers/<Target>/`.
+  Without `-Minutes` it behaves as before (`-Seconds` per target).
+- `go run ./scripts/huntgen restore|docs|seeds` writes mutated SQLite files for `kipple restore` (`.hunt/restore`), generated
+  OPML, Atom and RSS documents (`.hunt/docs`) and the small committed seeds (`internal/hunt/testdata/restore/*.seed`).
+  The generators are in `internal/hunt` (`RestoreCases`, `RestoreFromSeed`, `OPMLFromSeed`, `AtomFromSeed`, `RSSFromSeed`)
+  with `FuzzCheckRestoreStructured`, `FuzzCheckRestoreRaw`, `FuzzParseStructured` and `FuzzParseFeedStructured`.
+- `go run ./scripts/scalegen gen -preset NAME` builds a scale library in `.hunt/scale/NAME`: `articles-1k`, `articles-10k`,
+  `articles-100k`, `feeds-100`, `feeds-1000`, `feeds-10000`, `starred-heavy`, `long-history`. Flags you pass
+  (`-feeds`, `-items`, `-stats-days`, `-starred-pct`, `-stats-mult`, `-dir`) override the preset.
+
 ## Node tools
 
 `changelog.mjs`, `audit-report.mjs`, `check-links.mjs` and `uat-labels.mjs` each have a `*.test.mjs` beside them
