@@ -167,6 +167,8 @@ body {
   /* A rounded row (a card) clips its corners: the ring follows them instead (--row-radius is the row's radius). */
   border-radius: var(--row-radius, 0);
 }
+/* Every layout's title is this link: a long unbroken word (an address, a hashtag) wraps instead of being cut off. */
+.row-link { overflow-wrap: anywhere; }
 .row-link:focus-visible {
   outline: none;
 }
@@ -303,7 +305,9 @@ a.sr-only-live:focus {
   letter-spacing: var(--kp-ls);
   max-width: min(var(--kp-col, min(var(--kp-measure), 46rem)), 100%);
   margin-inline: auto;
-  overflow-wrap: anywhere;
+  /* A long address breaks only where it would run past the column. break-word, not anywhere: anywhere also shrinks
+     the narrowest width a table cell can take, so cells broke words letter by letter instead of the table scrolling. */
+  overflow-wrap: break-word;
 }
 
 .article-body > * + * { margin-block-start: 0; }

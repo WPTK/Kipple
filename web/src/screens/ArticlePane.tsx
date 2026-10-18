@@ -369,7 +369,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
                 {a.source || a.feed.title}
               </a>
             </p>
-            <h1 id="article-title" ref={headingRef} tabIndex={-1} className="mt-1 text-2xl leading-tight font-bold outline-none [font-family:var(--kp-reading-font)]">
+            <h1 id="article-title" ref={headingRef} tabIndex={-1} className="mt-1 text-2xl leading-tight font-bold [overflow-wrap:anywhere] outline-none [font-family:var(--kp-reading-font)]">
               <Hl text={a.title || "Untitled"} field="title" feedId={a.feed_id} />
             </h1>
             <p className="mt-2 text-sm text-fg2">

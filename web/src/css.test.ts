@@ -87,3 +87,16 @@ describe("forced colors", () => {
     expect(css).toMatch(/label:has\(input:checked\) \* \{ color: HighlightText; \}/);
   });
 });
+
+describe("long words", () => {
+  it("the article body breaks a long word only where it would overflow, so table cells keep their words whole (#477)", () => {
+    // A rule's selector text carries the comment above it, so match its end.
+    const r = rules().find((x) => x.sel.endsWith("\n.article-body"));
+    expect(r?.body).toMatch(/overflow-wrap:\s*break-word;/);
+    expect(r?.body).not.toMatch(/overflow-wrap:\s*anywhere/);
+  });
+
+  it("a list title's long word wraps in every layout (#478)", () => {
+    expect(rules().find((x) => x.sel.endsWith("\n.row-link"))?.body).toMatch(/overflow-wrap:\s*anywhere;/);
+  });
+});
