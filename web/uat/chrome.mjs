@@ -67,23 +67,12 @@ await t.eachViewport(async (page, vp) => {
   });
 
   await step(`${tag} G1`, async () => {
-    const add = await page.request.post("/api/feeds", { headers: t.WRITE, data: { url: `${base}/feed.xml`, title: "UAT feed chrome", allow_private_net: true } });
-    if (!add.ok()) return t.fail(`${tag} G1 setup`, `the feed was not added: ${add.status()} ${await add.text()}`);
-    const feedId = (await add.json()).id ?? (await t.boot(page)).feeds.find((f) => f.title === "UAT feed chrome")?.id;
-    await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
-    const end = Date.now() + 30000;
-    let ready = false;
-    let imgs = "";
-    let ids = [];
-    while (!ready && Date.now() < end) {
-      const r = await page.request.get(`/api/items?view=all&feed=${feedId}`, { headers: { Accept: "application/json" } });
-      const items = r.ok() ? ((await r.json()).items ?? []) : [];
-      ids = items.map((i) => String(i.id));
-      ready = items.length >= 8 && items.some((i) => i.title === "UAT bmp lead" && i.image);
-      if (!ready && items.length >= 8) imgs = JSON.stringify(items.slice(0, 2).map((i) => i.image));
-      if (!ready) await page.waitForTimeout(500);
+    const added = await t.addLocalFeed(page, `${base}/feed.xml`, "UAT feed chrome", (items) => items.length >= 8 && items.some((i) => i.title === "UAT bmp lead" && i.image));
+    if (added.error) {
+      const imgs = JSON.stringify((added.items ?? []).slice(0, 2).map((i) => i.image));
+      return t.fail(`${tag} G1 setup`, `the feed's articles never arrived with a lead picture (images: ${imgs})`);
     }
-    if (!ready) return t.fail(`${tag} G1 setup`, `the feed's articles never arrived with a lead picture (images: ${imgs})`);
+    const ids = added.items.map((i) => String(i.id));
     await page.goto("/l/all", { waitUntil: "load" });
     const layoutBtn = page.locator('button[aria-label^="List options, "]').first();
     await layoutBtn.waitFor({ timeout: 15000 });

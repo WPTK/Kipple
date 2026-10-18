@@ -1,0 +1,1 @@
+A table in an article keeps its words whole and scrolls sideways when it is wider than the column (a one-column layout table still wraps like text), and a title with a long unbroken word (an address, a hashtag) wraps in the article list and the reader instead of running past the edge; the one-line Headlines and Inbox layouts end it with an ellipsis. (#477, #478)

@@ -71,18 +71,8 @@ base = `http://127.0.0.1:${server.address().port}`;
 await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
   await step(`${tag} I`, async () => {
-    const add = await page.request.post("/api/feeds", { headers: t.WRITE, data: { url: `${base}/feed.xml`, title: "UAT feed images", allow_private_net: true } });
-    if (!add.ok()) return t.fail(`${tag} I setup`, `the feed was not added: ${add.status()} ${await add.text()}`);
-    const feedId = (await add.json()).id ?? (await t.boot(page)).feeds.find((f) => f.title === "UAT feed images")?.id;
-    await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
-    let itemId;
-    const end = Date.now() + 30000;
-    while (!itemId && Date.now() < end) {
-      const r = await page.request.get(`/api/items?view=all&feed=${feedId}`, { headers: { Accept: "application/json" } });
-      itemId = r.ok() ? (await r.json()).items?.find((i) => i.title === "UAT images article")?.id : undefined;
-      if (!itemId) await page.waitForTimeout(500);
-    }
-    if (!itemId) return t.fail(`${tag} I setup`, "the feed's article never arrived (was it fetched?)");
+    const added = await t.addLocalFeed(page, `${base}/feed.xml`, "UAT feed images", (items) => items.some((i) => i.title === "UAT images article"));
+    if (added.error) return t.fail(`${tag} I setup`, added.error);
 
     const body = page.getByTestId("article-body");
     const cues = body.locator(".kp-img-off");
