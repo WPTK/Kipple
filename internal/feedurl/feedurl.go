@@ -74,6 +74,13 @@ func Host(raw string) (string, error) {
 // with the URL; the feed's HTTP authentication setting is the one place for them.
 var ErrUserinfo = errors.New("feedurl: the URL contains a user name or password; set them as the feed's HTTP authentication instead")
 
+// MaxLen is the longest feed URL Kipple keeps, in bytes (the image proxy's cap). Longer is refused with ErrTooLong
+// wherever a URL is parsed, so no way in (add, edit, import, sync API, redirect) stores one.
+const MaxLen = 4096
+
+// ErrTooLong is returned for a URL longer than MaxLen.
+var ErrTooLong = errors.New("feedurl: the URL is longer than 4096 characters")
+
 // feedSchemes are the pseudo-schemes that wrap a feed address in links meant for feed readers and
 // podcast apps: feed://host/path, feed:https://host/path, pcast://, itpc://, podcast://, rss://.
 var feedSchemes = map[string]bool{"feed": true, "rss": true, "pcast": true, "itpc": true, "podcast": true}
@@ -189,6 +196,9 @@ func hasScheme(s string) bool {
 }
 
 func parse(raw string) (*url.URL, error) {
+	if len(raw) > MaxLen {
+		return nil, ErrTooLong
+	}
 	u, err := url.Parse(clean(raw))
 	if err != nil {
 		return nil, err

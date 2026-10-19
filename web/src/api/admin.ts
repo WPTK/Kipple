@@ -189,6 +189,8 @@ export const invalidateFeeds = (qc: QueryClient) => {
 export interface OpmlResult {
   folders_created: number;
   feeds_added: number;
+  /** Feed outlines whose address an earlier outline of the file already had. */
+  feeds_repeated?: number;
   feeds_existing: { url: string; feed_id: string }[];
   folders_merged_case: { kept: string; merged: string }[];
   memberships_dropped: { url: string; kept: string; dropped: string[] }[];
@@ -204,7 +206,8 @@ export interface OpmlResult {
   skipped?: { url: string; reason: string }[];
   /** "<feed url>: <what was wrong>" for kipple:* attributes with bad values. */
   invalid_attrs?: string[];
-  /** "<feed url>: kipple:allow_private_net | kipple:allow_insecure_tls": valid but never applied by an import. */
+  /** "<feed url>: kipple:allow_private_net | kipple:allow_insecure_tls | private_address": valid but never applied by
+   * an import; a feed on a private address has one private_address entry. */
   ignored_attrs?: string[];
   run_id?: string;
 }

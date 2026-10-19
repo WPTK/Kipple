@@ -40,7 +40,8 @@ export function MoveDialog({
   onDone: () => void;
 }) {
   const qc = useQueryClient();
-  const [dest, setDest] = useState(folders.find((f) => !feeds.every((x) => x.folder_id === f.id))?.id ?? folders[0]?.id ?? "");
+  // No folder is chosen at first: one tap on Move must not file the feeds somewhere the person did not pick.
+  const [dest, setDest] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run = async () => {
@@ -79,7 +80,7 @@ export function MoveDialog({
       }
     >
       {error ? <Notice tone="error">{error}</Notice> : null}
-      <Field label="Move to folder">{(a) => <FolderSelect {...a} value={dest} onChange={setDest} />}</Field>
+      <Field label="Move to folder">{(a) => <FolderSelect {...a} value={dest} onChange={setDest} none="Choose a folder" />}</Field>
     </Modal>
   );
 }

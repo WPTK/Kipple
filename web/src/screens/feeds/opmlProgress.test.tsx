@@ -1,0 +1,77 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ApiError } from "@/api/client";
+import type { OpmlResult } from "@/api/admin";
+import { initialLive, liveStore } from "@/api/events";
+import { keys } from "@/api/queries";
+import type { Bootstrap, Feed, Folder } from "@/api/types";
+import { bootstrap } from "@/test/mockApi";
+import { OpmlResultSummary, opmlError } from "./OpmlDialog";
+import { MoveDialog } from "./BulkActions";
+
+// What an import says when it is refused (issues #487, #467), the fetch progress after it (issue #464), and the bulk
+// move's starting choice (issue #487).
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  liveStore.set(initialLive);
+});
+
+const result: OpmlResult = { folders_created: 0, feeds_added: 3, feeds_existing: [], folders_merged_case: [], memberships_dropped: [], run_id: "7" };
+
+describe("an import that is refused", () => {
+  it("says the server's reason for an empty file, a file with no feeds and an undefined entity", () => {
+    expect(opmlError(new ApiError(400, "empty_opml", { error: "empty_opml", message: "that file is empty" }))).toBe("Kipple can't import that file: that file is empty.");
+    expect(opmlError(new ApiError(400, "opml_entity", { error: "opml_entity", message: "&x; on line 1 is not an entity XML or HTML defines" }))).toBe(
+      "Kipple can't import that file: &x; on line 1 is not an entity XML or HTML defines.",
+    );
+    expect(opmlError(new ApiError(400, "not_opml"))).toMatch(/^That is not an OPML file/);
+  });
+});
+
+describe("the fetch after an import", () => {
+  it("shows a bar while the new feeds are fetched, then how it ended", () => {
+    render(<OpmlResultSummary result={result} />);
+    // Shown from the import's answer, before any event arrives.
+    expect(screen.getByText("Fetching the new feeds: 0 of 3")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Fetching the new feeds" })).toHaveAttribute("max", "3");
+
+    act(() => liveStore.set((s) => ({ ...s, runs: { "7": { ...s.runs["7"]!, done: 2 } } })));
+    expect(screen.getByText("Fetching the new feeds: 2 of 3")).toBeInTheDocument();
+
+    act(() => liveStore.set((s) => ({ ...s, runs: {}, finished: { "7": { kind: "import", errors: 1, at: Date.now() } } })));
+    expect(screen.getByText("Kipple fetched the new feeds. 1 couldn't be fetched; each says why on its row in Manage feeds.")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+});
+
+describe("the bulk move", () => {
+  it("opens with no folder chosen, so one tap on Move files nothing", () => {
+    const folders: Folder[] = [
+      { id: "1", name: "Uncategorized", position: 0, is_default: true, unread: 0 },
+      { id: "2", name: "News", position: 1, is_default: false, unread: 0 },
+    ];
+    const qc = new QueryClient();
+    qc.setQueryData<Bootstrap>(keys.bootstrap, { ...bootstrap, folders });
+    const feeds = [{ ...bootstrap.feeds[0]!, id: "5", folder_id: "1" } as Feed];
+    render(
+      <QueryClientProvider client={qc}>
+        <MoveDialog feeds={feeds} folders={folders} allFeeds={feeds} onClose={() => undefined} onDone={() => undefined} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole("combobox", { name: "Move to folder" })).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Move" })).toBeDisabled();
+  });
+});
+
+describe("a run whose end was never heard", () => {
+  it("still says the fetch is over once the run is gone", () => {
+    render(<OpmlResultSummary result={result} />);
+    expect(screen.getByText("Fetching the new feeds: 0 of 3")).toBeInTheDocument();
+    // The status poll drops a run the stream never reported finishing.
+    act(() => liveStore.set((s) => ({ ...s, runs: {} })));
+    expect(screen.getByText(/^Kipple fetched the new feeds\. A feed that can't be fetched says why/)).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+});

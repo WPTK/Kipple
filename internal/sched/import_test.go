@@ -1,6 +1,9 @@
 package sched
 
 import (
+	"fmt"
+	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -43,4 +46,35 @@ func TestImportRunEventsSayImport(t *testing.T) {
 	ev := r.events("fetch.done")[0]
 	require.Equal(t, "import", ev["trigger"])
 	require.NotZero(t, ev["new_items"])
+}
+
+// A big import does not start every fetch at once (issue #464): the run queues its feeds and starts one only when a
+// worker is free, so no more than Workers fetches are ever in flight.
+func TestImportRunIsHeldToTheWorkerCap(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, Options{Workers: 3, PerHost: 100})
+	var cur, peak atomic.Int32
+	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
+		n := cur.Add(1)
+		for {
+			m := peak.Load()
+			if n <= m || peak.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+		cur.Add(-1)
+		serveOK(p, w, req)
+	})
+	later := func(f *store.NewFeed) { f.NextFetchAt = base.Add(9 * time.Hour).Unix() }
+	ids := make([]int64, 0, 40)
+	for i := 0; i < 40; i++ {
+		ids = append(ids, r.add(fmt.Sprintf("%s/f%d", srv.URL, i), later))
+	}
+	_, err := r.s.StartImport(ids)
+	require.NoError(t, err)
+	r.waitEvents("run.done", 1)
+	require.Equal(t, 40, srv.total(), "every new feed was fetched")
+	require.LessOrEqual(t, int(peak.Load()), 3, "never more fetches at once than workers")
+	require.Equal(t, 3, int(peak.Load()), "and the workers are used")
 }

@@ -478,7 +478,8 @@ func TestImportValidatesURLUserAgentAndFolderNames(t *testing.T) {
 	require.Contains(t, reasons["http://bob:pw@creds.test/rss"], "user name or password", "userinfo is still refused")
 	require.NotContains(t, reasons, "http://127.0.0.1/rss", "a private address is imported, not skipped")
 	require.Contains(t, r.IgnoredAttrs, "http://127.0.0.1/rss: private_address")
-	require.Contains(t, r.IgnoredAttrs, "http://192.168.1.5:8080/rss: kipple:allow_private_net")
+	require.Equal(t, []string{"http://127.0.0.1/rss: private_address", "http://192.168.1.5:8080/rss: private_address"}, r.IgnoredAttrs,
+		"one line per feed on a private address, its allow_private_net included (issue #485)")
 	var priv int
 	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE url IN ('http://127.0.0.1/rss', 'http://192.168.1.5:8080/rss') AND allow_private_net = 0").Scan(&priv))
 	require.Equal(t, 2, priv, "imported with the exception off")
