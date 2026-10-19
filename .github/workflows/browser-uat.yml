@@ -86,13 +86,28 @@ jobs:
         if: steps.gate.outputs.code != 'false'
         run: node web/uat/all.mjs --check
 
-      - name: Install the web dependencies and the browsers
+      - name: Install the web dependencies
+        id: deps
+        if: steps.gate.outputs.code != 'false'
+        working-directory: web
+        run: |
+          npm ci --ignore-scripts
+          echo "playwright=$(node -p "require('playwright-core/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # The browser builds are fixed by the Playwright version, so a cache keyed on it and the engine set saves the
+      # download. The system libraries still come from apt below (--with-deps), which skips browsers already present.
+      - if: steps.gate.outputs.code != 'false'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.deps.outputs.playwright }}-${{ steps.gate.outputs.engines }}
+
+      - name: Install the browsers
         if: steps.gate.outputs.code != 'false'
         working-directory: web
         env:
           ENGINES: ${{ steps.gate.outputs.engines == 'all' && 'chromium webkit firefox' || 'chromium' }}
         run: |
-          npm ci --ignore-scripts
           # shellcheck disable=SC2086 # one engine name per word
           npx playwright install --with-deps $ENGINES
 
