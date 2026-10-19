@@ -362,3 +362,46 @@ func TestProxyTooWideAcceptsCloudflareRanges(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ps, len(v4)+len(v6))
 }
+
+// A stored hash is read back from the database, so a hand-edited or restored row must be refused, never panic
+// (argon2.IDKey panics on zero rounds) and never be read loosely (trailing text after a number). The salt and tag
+// are real ones, so only the field under test can be the reason for the refusal.
+func TestCheckPasswordRefusesBadHash(t *testing.T) {
+	good, err := HashPassword("pw")
+	require.NoError(t, err)
+	require.True(t, CheckPassword("pw", good))
+	parts := strings.Split(good, "$") // "", argon2id, v=19, cost, salt, tag
+	rebuild := func(version, cost, salt, tag string) string {
+		return "$argon2id$" + version + "$" + cost + "$" + salt + "$" + tag
+	}
+	for name, phc := range map[string]string{
+		"zero rounds":         rebuild(parts[2], "m=8,t=0,p=1", parts[4], parts[5]),
+		"zero threads":        rebuild(parts[2], "m=8,t=1,p=0", parts[4], parts[5]),
+		"too many rounds":     rebuild(parts[2], "m=8,t=9,p=1", parts[4], parts[5]),
+		"too many threads":    rebuild(parts[2], "m=8,t=1,p=5", parts[4], parts[5]),
+		"threads overflow":    rebuild(parts[2], "m=8,t=1,p=256", parts[4], parts[5]),
+		"too much memory":     rebuild(parts[2], "m=262145,t=1,p=1", parts[4], parts[5]),
+		"memory overflow":     rebuild(parts[2], "m=4294967296,t=1,p=1", parts[4], parts[5]),
+		"memory under 8p":     rebuild(parts[2], "m=7,t=1,p=1", parts[4], parts[5]),
+		"zero memory":         rebuild(parts[2], "m=0,t=1,p=1", parts[4], parts[5]),
+		"trailing text":       rebuild(parts[2], "m=19456,t=2,p=1A5", parts[4], parts[5]),
+		"trailing in t":       rebuild(parts[2], "m=19456,t=2x,p=1", parts[4], parts[5]),
+		"plus sign":           rebuild(parts[2], "m=+19456,t=2,p=1", parts[4], parts[5]),
+		"minus sign":          rebuild(parts[2], "m=-8,t=2,p=1", parts[4], parts[5]),
+		"extra field":         rebuild(parts[2], "m=19456,t=2,p=1,x=1", parts[4], parts[5]),
+		"missing field":       rebuild(parts[2], "m=19456,t=2", parts[4], parts[5]),
+		"fields out of order": rebuild(parts[2], "t=2,m=19456,p=1", parts[4], parts[5]),
+		"space":               rebuild(parts[2], "m=19456, t=2,p=1", parts[4], parts[5]),
+		"empty number":        rebuild(parts[2], "m=,t=2,p=1", parts[4], parts[5]),
+		"empty cost":          rebuild(parts[2], "", parts[4], parts[5]),
+		"version trailing":    rebuild("v=19junk", parts[3], parts[4], parts[5]),
+		"version padded":      rebuild("v=019", parts[3], parts[4], parts[5]),
+		"version old":         rebuild("v=16", parts[3], parts[4], parts[5]),
+		"short salt":          rebuild(parts[2], parts[3], "AAAAAA", parts[5]),
+		"short tag":           rebuild(parts[2], parts[3], parts[4], "AA"),
+		"long tag":            rebuild(parts[2], parts[3], parts[4], strings.Repeat("A", 4000)),
+		"text before first $": "0" + good,
+	} {
+		require.NotPanics(t, func() { require.False(t, CheckPassword("pw", phc), name) }, name)
+	}
+}
