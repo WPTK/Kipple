@@ -8,7 +8,7 @@
 //   F1  Select, then tap a feed's title (not only its checkbox): the feed is ticked, the count says 1 selected and
 //       the address is still /feeds, so selecting never opens a feed; Done leaves select mode;
 //   F2  bulk delete of disposable feeds in a folder with a subfolder: the dialog says nothing about folders, the one
-//       progress bar keeps one fixed total while it runs, and every folder is still there afterwards, with the library
+//       progress bar is a moving bar with no count (the server deletes the whole set in one call), and every folder is still there afterwards, with the library
 //       otherwise untouched; (a single feed's dialog speaks of "its articles" and "this feed", several feeds of "their articles");
 //   F3  New folder and Rename folder both save on Enter in the name field;
 //   F4  Import OPML refuses a file that is not OPML, by its look (JSON named .json), on the server when it is
@@ -74,7 +74,7 @@ await t.eachViewport(async (page, vp) => {
       new MutationObserver(() => {
         const bars = document.querySelectorAll("progress");
         seen.most = Math.max(seen.most, bars.length);
-        bars.forEach((p) => seen.max.add(p.max));
+        bars.forEach((p) => seen.max.add(p.hasAttribute("value") ? "counted" : "moving"));
       }).observe(document.body, { subtree: true, childList: true, attributes: true });
     });
   const deleteSelected = async (n) => {
@@ -95,7 +95,7 @@ await t.eachViewport(async (page, vp) => {
   check(!/folder/i.test(r.text), `${tag} F2 one`, "the dialog says nothing about folders", `the dialog says "${r.text.slice(0, 160)}"`);
   let s = await t.settle(page, (b) => !b.feeds.some((f) => f.title === titleOf(1)));
   check(s.ok && s.b.folders.some((f) => f.name === root) && s.b.folders.some((f) => f.name === child), `${tag} F2 kept`, "both folders stay", "a folder with feeds below it went");
-  check(r.spy.max.join() === "1" && r.spy.most <= 1, `${tag} F2 bar one`, "one progress bar with total 1", `bars: ${r.spy.max.length ? `totals ${r.spy.max.join(",")}` : "none shown"}, at most ${r.spy.most} at once`);
+  check(r.spy.max.join() === "moving" && r.spy.most <= 1, `${tag} F2 bar one`, "one moving progress bar, with no count", `bars: ${r.spy.max.length ? `totals ${r.spy.max.join(",")}` : "none shown"}, at most ${r.spy.most} at once`);
 
   // The last two: the subfolder and then the root are left with no feeds, and both stay.
   const done = page.getByRole("button", { name: "Done", exact: true });
@@ -103,7 +103,7 @@ await t.eachViewport(async (page, vp) => {
   await pick(2, 3);
   r = await deleteSelected(2);
   check(/Their articles are removed/.test(r.text) && /these feeds/.test(r.text) && !/folder/i.test(r.text), `${tag} F2 copy two`, "several feeds are described in the plural, with nothing about folders", `the dialog says "${r.text.slice(0, 200)}"`);
-  check(r.spy.max.join() === "2" && r.spy.most === 1, `${tag} F2 bar two`, "one progress bar with a fixed total of 2", `bars: ${r.spy.max.length ? `totals ${r.spy.max.join(",")}` : "none shown"}, at most ${r.spy.most} at once`);
+  check(r.spy.max.join() === "moving" && r.spy.most === 1, `${tag} F2 bar two`, "one moving progress bar, with no count", `bars: ${r.spy.max.length ? `totals ${r.spy.max.join(",")}` : "none shown"}, at most ${r.spy.most} at once`);
   s = await t.settle(page, (b) => !b.feeds.some((f) => f.title.startsWith("UAT feed ")));
   check(s.ok, `${tag} F2 deleted`, "the feeds are gone", "a disposable feed is still there");
   check(s.b.folders.some((f) => f.name === root) && s.b.folders.some((f) => f.name === child), `${tag} F2 folders kept`, "both folders with no feeds are still there", "a folder the delete left with no feeds was deleted");

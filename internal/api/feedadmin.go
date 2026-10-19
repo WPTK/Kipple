@@ -1358,3 +1358,83 @@ func (s *Server) reorder(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"changed_feeds": idStrings(res.Feeds), "changed_folders": idStrings(res.Folders)})
 }
+
+// maxBulkDelete bounds one POST /api/feeds/delete (the id list, not the data it removes).
+const maxBulkDelete = 20000
+
+// POST /api/feeds/delete {ids, delete_starred}: delete many feeds as one server-side commitment. The whole set is
+// marked in one transaction, then removed here without the request's cancellation: closing the tab part-way
+// cannot leave the library half deleted (see store.DeleteFeeds). Answers {"deleted": n}; ids that are already gone
+// are not counted.
+func (s *Server) deleteFeeds(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs           []json.RawMessage `json:"ids"`
+		DeleteStarred bool              `json:"delete_starred"`
+	}
+	if !decodeBody(w, r, &body, false) {
+		return
+	}
+	if len(body.IDs) == 0 || len(body.IDs) > maxBulkDelete {
+		writeErrorMsg(w, http.StatusBadRequest, "bad_request", "give between 1 and "+strconv.Itoa(maxBulkDelete)+" feed ids")
+		return
+	}
+	ids := make([]int64, 0, len(body.IDs))
+	seen := make(map[int64]bool, len(body.IDs))
+	for _, raw := range body.IDs {
+		id, ok := parseID(raw)
+		if !ok {
+			writeErrorMsg(w, http.StatusBadRequest, "bad_request", "ids is a list of feed ids")
+			return
+		}
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	marked, err := s.db.MarkFeedsDeleting(r.Context(), ids, body.DeleteStarred)
+	if errors.Is(err, store.ErrArchiveHasStarred) {
+		writeErrorMsg(w, http.StatusConflict, "archive_has_starred", "the archive feed holds starred items; set delete_starred to really delete them")
+		return
+	}
+	if err != nil {
+		s.serverError(w, "delete feeds", err)
+		return
+	}
+	// The feeds are gone from every list now. Purging their items can take minutes for thousands of feeds, longer than a
+	// request may last, so the server finishes it on its own; a stop in the middle is finished by the next start.
+	s.announceFeedsChanged(marked)
+	s.noteCounts()
+	if len(marked) > 0 && s.bgStart() {
+		go func() {
+			defer s.apply.wg.Done()
+			ctx, cancel := context.WithTimeout(s.apply.ctx, time.Hour)
+			defer cancel()
+			if _, err := s.db.FinishFeedDeletes(ctx, marked, body.DeleteStarred); err != nil && ctx.Err() == nil {
+				s.log.Warn("finishing a bulk feed delete", "err", err)
+			}
+			s.noteCounts()
+		}()
+	} else if len(marked) > 0 {
+		s.log.Warn("api: bulk feed delete: shutting down, the purge of the marked feeds finishes at the next start", "feeds", len(marked))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": len(marked)})
+}
+
+// bulkAnnounceMax is the most feeds announced one event each: a client's event buffer holds 64 (events.subBuffer), so
+// a larger set is one resync instead.
+const bulkAnnounceMax = 32
+
+// announceFeedsChanged tells every client that the feeds in ids changed: one event each, or a single resync for a set
+// larger than the hub's batch (the clients refetch anyway, and a burst would overflow their buffers).
+func (s *Server) announceFeedsChanged(ids []int64) {
+	if s.opt.Hub == nil {
+		return
+	}
+	if len(ids) > bulkAnnounceMax {
+		s.opt.Hub.Publish("resync", map[string]any{})
+		return
+	}
+	for _, id := range ids {
+		s.publishFeedChanged(id)
+	}
+}

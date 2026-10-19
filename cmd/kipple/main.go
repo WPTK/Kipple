@@ -161,13 +161,6 @@ func runServe() error {
 	}
 	// db.Close (WAL checkpoint, pools) runs last, after the scheduler has drained.
 	defer closeWithin(&budget, logger, "closing store", 0, db.Close)
-	// A feed delete the last run did not finish (it was marked first, then purged in batches): finish it now.
-	if ids, err := db.ResumeFeedDeletes(context.Background()); err != nil {
-		logger.Warn("resuming interrupted feed deletes", "err", err)
-	} else if len(ids) > 0 {
-		logger.Info("finished interrupted feed deletes", "feeds", len(ids))
-	}
-
 	// The database is open and at this binary's schema: remember which release did that (the message of a later
 	// refused downgrade and the About screen use it). A failure must never keep Kipple from starting.
 	if err := db.RecordVersion(context.Background(), version); err != nil {
@@ -191,6 +184,27 @@ func runServe() error {
 	// one safe moment: log timestamps follow the time zone setting as of this start;
 	// a later change of the setting reaches them after a restart.
 	setLocal(store.Zone(context.Background(), db.Reader()))
+	// A feed delete the last run did not finish (it was marked first, then purged in batches): finish it in the
+	// background, so a large one never keeps Kipple from serving. The marked feeds are hidden and never fetched meanwhile.
+	// Started after the process time zone is set (the log and the store's clock read it), stopped within the shutdown budget before the store closes.
+	resumeCtx, stopResume := context.WithCancel(context.Background())
+	resumed := make(chan struct{})
+	go func() {
+		defer close(resumed)
+		if ids, err := db.ResumeFeedDeletes(resumeCtx); err != nil {
+			if resumeCtx.Err() == nil {
+				logger.Warn("resuming interrupted feed deletes", "err", err)
+			}
+		} else if len(ids) > 0 {
+			logger.Info("finished interrupted feed deletes", "feeds", len(ids))
+		}
+	}()
+	defer closeWithin(&budget, logger, "finishing interrupted feed deletes", 0, func() error {
+		stopResume()
+		<-resumed
+		return nil
+	})
+
 	// The background work (fetching, maintenance, icons) starts only once an
 	// account exists: at once when there is one, else when the claim creates it.
 	var startWork func()

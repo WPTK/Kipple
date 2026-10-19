@@ -171,8 +171,7 @@ describe("managing nested folders", () => {
 
   it("a folder can be deleted with its feeds, only after typing its name, and the folder is deleted last", async () => {
     const { calls } = routes({
-      "DELETE /api/feeds/2": () => new Response(null, { status: 204 }),
-      "DELETE /api/feeds/3": () => new Response(null, { status: 204 }),
+      "POST /api/feeds/delete": (_u: URL, init?: RequestInit) => json({ deleted: JSON.parse(String(init?.body)).ids.length }),
       "DELETE /api/folders/2": () => new Response(null, { status: 204 }),
     });
     media(WIDE);
@@ -188,14 +187,14 @@ describe("managing nested folders", () => {
     expect(go2).toBeEnabled();
     await user.click(go2);
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url.pathname === "/api/folders/2")).toBe(true));
-    expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname)).toEqual(["/api/feeds/2", "/api/feeds/3", "/api/folders/2"]);
+    expect(calls.filter((c) => c.method === "DELETE" || c.url.pathname === "/api/feeds/delete").map((c) => c.url.pathname)).toEqual(["/api/feeds/delete", "/api/folders/2"]);
+    expect(JSON.parse(String(calls.find((c) => c.url.pathname === "/api/feeds/delete")?.init?.body)).ids).toEqual(["2", "3"]);
   });
 
   it("if the folder step fails after the feeds went, a retry deletes only the folder", async () => {
     let folderTries = 0;
     const { calls } = routes({
-      "DELETE /api/feeds/2": () => new Response(null, { status: 204 }),
-      "DELETE /api/feeds/3": () => new Response(null, { status: 204 }),
+      "POST /api/feeds/delete": (_u: URL, init?: RequestInit) => json({ deleted: JSON.parse(String(init?.body)).ids.length }),
       "DELETE /api/folders/2": () => (++folderTries === 1 ? json({ error: "internal", message: "database is busy" }, 500) : new Response(null, { status: 204 })),
     });
     media(WIDE);
@@ -209,7 +208,7 @@ describe("managing nested folders", () => {
     await user.click(within(dialog).getByRole("button", { name: "Delete folder and 2 feeds" }));
     await user.click(await within(dialog).findByRole("button", { name: "Delete the folder" }));
     await waitFor(() => expect(folderTries).toBe(2));
-    expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname)).toEqual(["/api/feeds/2", "/api/feeds/3", "/api/folders/2", "/api/folders/2"]);
+    expect(calls.filter((c) => c.method === "DELETE" || c.url.pathname === "/api/feeds/delete").map((c) => c.url.pathname)).toEqual(["/api/feeds/delete", "/api/folders/2", "/api/folders/2"]);
   });
 
   it("Move to… offers only valid places, labelled by path, and saves the move", async () => {

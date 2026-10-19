@@ -11,13 +11,11 @@ afterEach(() => vi.unstubAllGlobals());
 const feed = (id: string): Feed => ({ id, title: `Feed ${id}`, folder_id: "1", status: "ok", unread: 0 }) as Feed;
 
 describe("the bulk delete dialog", () => {
-  it("keeps its total fixed while the live selection shrinks as feeds are deleted", async () => {
+  it("keeps its total fixed while the live selection changes, and deletes the whole set in one call", async () => {
     let release: () => void = () => undefined;
     const held = new Promise<void>((r) => (release = r));
-    mockFetch({
-      "DELETE /api/feeds/1": () => new Response(null, { status: 204 }),
-      "DELETE /api/feeds/2": async () => (await held, new Response(null, { status: 204 })),
-      "DELETE /api/feeds/3": () => new Response(null, { status: 204 }),
+    const { calls } = mockFetch({
+      "POST /api/feeds/delete": async () => (await held, new Response(JSON.stringify({ deleted: 3 }), { status: 200, headers: { "Content-Type": "application/json" } })),
     });
     const ui = (feeds: Feed[]) => (
       <QueryClientProvider client={new QueryClient()}>
@@ -27,13 +25,14 @@ describe("the bulk delete dialog", () => {
     const all = [feed("1"), feed("2"), feed("3")];
     const { rerender } = render(ui(all));
     await userEvent.setup().click(screen.getByRole("button", { name: "Delete 3 feeds" }));
-    const bar = await screen.findByRole("progressbar", { name: "Deleting feeds" });
-    await waitFor(() => expect(bar).toHaveAttribute("value", "1"));
-    // The first feed is gone, so the screen's selection now holds two.
+    await screen.findByRole("progressbar", { name: "Deleting feeds" });
+    expect(screen.getByText(/Deleting 3 feeds\. This keeps going on the server if you close this page/)).toBeInTheDocument();
+    // The screen's selection changes underneath; the dialog still deletes what it showed.
     rerender(ui(all.slice(1)));
     expect(screen.getByRole("dialog", { name: "Delete 3 feeds?" })).toBeInTheDocument();
-    expect(bar).toHaveAttribute("max", "3");
     release();
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/feeds/delete")).toHaveLength(1));
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ ids: ["1", "2", "3"], delete_starred: false });
   });
 });
 

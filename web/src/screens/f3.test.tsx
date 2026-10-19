@@ -953,12 +953,11 @@ describe("Feed health", () => {
     starred_count: 0,
   }));
 
-  it("selects feeds and bulk-deletes them, one bad feed does not stop the rest", async () => {
+  it("selects feeds and bulk-deletes them in one call; a failed call keeps the dialog open to try again", async () => {
     const { calls } = base({
       "GET /api/health/feeds": () => json(HEALTH),
       "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
-      "DELETE /api/feeds/1": () => new Response(null, { status: 204 }),
-      "DELETE /api/feeds/2": () => json({ error: "server_error", message: "boom" }, 500),
+      "POST /api/feeds/delete": () => json({ error: "server_error", message: "boom" }, 500),
     });
     go("/health");
     const user = userEvent.setup();
@@ -970,16 +969,15 @@ describe("Feed health", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const dlg = await screen.findByRole("dialog", { name: "Delete 2 feeds?" });
     await user.click(within(dlg).getByRole("button", { name: "Delete 2 feeds" }));
-    await screen.findByRole("dialog", { name: "Some feeds were not deleted" });
-    expect(screen.getByText("1 deleted, 1 failed.")).toBeInTheDocument();
-    expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname)).toEqual(["/api/feeds/1", "/api/feeds/2"]);
+    expect(await within(dlg).findByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/feeds/delete").map((c) => JSON.parse(String(c.init?.body)).ids)).toEqual([["1", "2"]]);
   });
 
   it("a search that hides ticked feeds drops them from the count and from what a bulk action touches", async () => {
     const { calls } = base({
       "GET /api/health/feeds": () => json(HEALTH),
       "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
-      "DELETE /api/feeds/1": () => new Response(null, { status: 204 }),
+      "POST /api/feeds/delete": (_u: URL, init?: RequestInit) => json({ deleted: JSON.parse(String(init?.body)).ids.length }),
     });
     go("/health");
     const user = userEvent.setup();
@@ -993,15 +991,15 @@ describe("Feed health", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const dlg = await screen.findByRole("dialog", { name: "Delete 1 feed?" });
     await user.click(within(dlg).getByRole("button", { name: "Delete 1 feed" }));
-    await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
-    expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname)).toEqual(["/api/feeds/1"]);
+    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/feeds/delete")).toBe(true));
+    expect(calls.filter((c) => c.url.pathname === "/api/feeds/delete").map((c) => JSON.parse(String(c.init?.body)).ids)).toEqual([["1"]]);
   });
 
   it("after a bulk Delete Select mode ends and a feed ticked but hidden by the search is not left ticked (#96)", async () => {
     base({
       "GET /api/health/feeds": () => json(HEALTH),
       "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
-      "DELETE /api/feeds/1": () => new Response(null, { status: 204 }),
+      "POST /api/feeds/delete": (_u: URL, init?: RequestInit) => json({ deleted: JSON.parse(String(init?.body)).ids.length }),
     });
     go("/health");
     const user = userEvent.setup();

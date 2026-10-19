@@ -678,12 +678,11 @@ describe("manage feeds", () => {
     expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
   });
 
-  it("bulk delete confirms the count and the starred total, offers deleting starred too, and reports each failure", async () => {
-    const del: string[] = [];
+  it("bulk delete confirms the count and the starred total, offers deleting starred too, and says what a failed call may have done", async () => {
+    const sent: unknown[] = [];
     routes(
       {
-        "DELETE /api/feeds/1": (u) => (del.push("1" + u.search), new Response(null, { status: 204 })),
-        "DELETE /api/feeds/2": () => json({ error: "internal", message: "database is busy" }, 500),
+        "POST /api/feeds/delete": (_u, init) => (sent.push(JSON.parse(String(init?.body))), json({ error: "internal", message: "database is busy" }, 500)),
       },
       boot3,
     );
@@ -698,17 +697,15 @@ describe("manage feeds", () => {
     expect(within(dlg).getByText(/hold 3 starred articles in total/)).toBeInTheDocument(); // 2 + 1
     await user.click(within(dlg).getByRole("switch", { name: /Delete starred articles too/ }));
     await user.click(within(dlg).getByRole("button", { name: "Delete 2 feeds" }));
-    const report = await screen.findByRole("dialog", { name: "Some feeds were not deleted" });
-    expect(within(report).getByText(/1 deleted, 1 failed/)).toBeInTheDocument();
-    expect(within(report).getByText(/Bravo/)).toBeInTheDocument();
-    expect(within(report).getByText(/The server returned an error/)).toBeInTheDocument();
-    expect(del).toEqual(["1?delete_starred=1"]);
+    expect(await within(dlg).findByText(/The server returned an error/)).toBeInTheDocument();
+    expect(within(dlg).getByText(/Some of the feeds may be gone already/)).toBeInTheDocument();
+    expect(within(dlg).getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(sent).toEqual([{ ids: ["1", "2"], delete_starred: true }]); // one call for the whole set
   });
 
   it("bulk delete never deletes a folder, even one it leaves with no feeds", async () => {
     const del: string[] = [];
-    const ok = (id: string) => () => (del.push(id), new Response(null, { status: 204 }));
-    routes({ "DELETE /api/feeds/4": ok("feed 4"), "DELETE /api/feeds/1": ok("feed 1"), "DELETE /api/feeds/2": ok("feed 2"), "DELETE /api/feeds/3": ok("feed 3") }, boot3);
+    routes({ "POST /api/feeds/delete": (_u, init) => (del.push(...JSON.parse(String(init?.body)).ids.map((id: string) => "feed " + id)), json({ deleted: 4 })) }, boot3);
     go("/feeds");
     await screen.findByText("Alpha");
     const user = userEvent.setup();
