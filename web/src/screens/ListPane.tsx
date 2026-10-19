@@ -36,7 +36,7 @@ import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { openFeedEditor } from "@/lib/feedEditor";
 import { useWidth } from "@/lib/useWidth";
 import { visibleFeeds } from "@/lib/visibleFeeds";
-import { isFailing, statusInfo } from "@/lib/feedStatus";
+import { statusInfo } from "@/lib/feedStatus";
 import { listPlace, rememberListTop } from "@/lib/listPlace";
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
@@ -172,9 +172,12 @@ export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed): { title: s
   }
   if (scope.view === "muted") return { title: "Nothing muted", body: "No filter has muted an article yet." };
   if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here. Retention never removes starred articles." };
-  if (feed && isFailing(feed.status)) {
-    const why = feed.last_error ? ` Last error: ${feed.last_error}` : "";
-    return { title: feed.status === "dead" ? "This feed is gone" : "Kipple can't fetch this feed", body: `${statusInfo(feed.status).hint}${why}`, health: true };
+  // The server sends last_error only while the feed is failing. New articles waiting mean a fetch has worked since.
+  if (feed?.last_error && !(scope.view === "unread" && pendingNew > 0)) {
+    const title = feed.status === "dead" ? "This feed is gone" : feed.status === "erroring" ? "The last fetch of this feed failed" : "Kipple can't fetch this feed";
+    // The title already says the last fetch failed; the body says what happens next and why.
+    const next = feed.status === "erroring" ? "Kipple will retry with longer waits." : statusInfo(feed.status).hint;
+    return { title, body: `${next} Last error: ${feed.last_error}`, health: true };
   }
   if (scope.view === "unread") {
     return pendingNew > 0

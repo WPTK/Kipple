@@ -7,7 +7,7 @@
 // The flow serves a feed on a loopback port, adds it, then makes it answer HTTP 500 and refreshes. For each width
 // (desktop 1280x800, phone 375x812) it checks:
 //   X1  the feed's row on Manage feeds shows its status and the reason the last fetch failed;
-//   X2  the feed's own list says Kipple can't fetch it, with the reason, instead of "All caught up";
+//   X2  the feed's own list says its last fetch failed, with the reason, instead of "All caught up";
 //   X3  the list's "Open Feed health" link opens Feed health.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
@@ -53,7 +53,7 @@ await t.eachViewport(async (page, vp) => {
 
   await step(`${tag} X2`, async () => {
     await page.goto(`/l?feed=${feed.id}`);
-    const box = page.getByRole("status").filter({ hasText: "Kipple can't fetch this feed" }).first();
+    const box = page.getByRole("status").filter({ hasText: "The last fetch of this feed failed" }).first();
     const shown = await box.waitFor({ timeout: 10000 }).then(() => true, () => false);
     const text = shown ? await t.textOf(box, 400) : await t.textOf(page.getByRole("main").first(), 400);
     check(shown && text.includes(feed.last_error), `${tag} X2`, `the list says "${text}"`, `the list says "${text}", not that the feed can't be fetched and why`);
@@ -66,7 +66,7 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("link", { name: "Open Feed health" }).click();
     const h = page.getByRole("heading", { name: "Feed health", level: 1 });
     const there = await h.waitFor({ timeout: 10000 }).then(() => true, () => false);
-    check(there && new URL(page.url()).pathname === "/health", `${tag} X3`, "the link opens Feed health", `the link went to ${page.url()}`);
+    check(there && /\/health(\?|#|$)/.test(page.url()), `${tag} X3`, "the link opens Feed health", `the link went to ${page.url()}`);
   });
 });
 

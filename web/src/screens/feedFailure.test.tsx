@@ -38,24 +38,26 @@ afterEach(() => {
 describe("a failing feed", () => {
   it("says it can't be fetched, and why, instead of All caught up", () => {
     expect(emptyCopy({ view: "unread", feed: "1" }, 0, failing)).toEqual({
-      title: "Kipple can't fetch this feed",
-      body: "The last fetch failed. Kipple will retry with longer waits. Last error: lookup feeds.example.test: no such host",
+      title: "The last fetch of this feed failed",
+      body: "Kipple will retry with longer waits. Last error: lookup feeds.example.test: no such host",
       health: true,
     });
     expect(emptyCopy({ view: "all", feed: "1" }, 0, { ...failing, status: "dead", last_error: "HTTP 410" }).title).toBe("This feed is gone");
-    // Without a reason the status hint still explains it.
-    expect(emptyCopy({ view: "unread", feed: "1" }, 0, { ...failing, last_error: null }).body).toBe("The last fetch failed. Kipple will retry with longer waits.");
+    expect(emptyCopy({ view: "all", feed: "1" }, 0, { ...failing, status: "failing" }).title).toBe("Kipple can't fetch this feed");
+    // New articles waiting mean a fetch worked since: the list says so, not the old failure.
+    expect(emptyCopy({ view: "unread", feed: "1" }, 2, failing).body).toBe("2 new articles arrived. Load them above to continue reading.");
   });
 
   it("keeps the usual copy for a working feed, a search and the starred list", () => {
     expect(emptyCopy({ view: "unread", feed: "1" }, 0, { ...failing, status: "ok", last_error: null }).title).toBe("All caught up");
+    expect(emptyCopy({ view: "unread", feed: "1" }, 0, { ...failing, status: "throttled", last_error: null }).title).toBe("All caught up");
     expect(emptyCopy({ view: "unread", feed: "1", q: "zzz" }, 0, failing).title).toBe('No results for "zzz"');
     expect(emptyCopy({ view: "starred", feed: "1" }, 0, failing).title).toBe("No starred articles");
   });
 
   it("shows the reason and a way to Feed health in the feed's empty list", async () => {
     go("/l?feed=1");
-    const box = (await screen.findByText("Kipple can't fetch this feed")).closest("[role=status]") as HTMLElement;
+    const box = (await screen.findByText("The last fetch of this feed failed")).closest("[role=status]") as HTMLElement;
     expect(box).toHaveTextContent("Last error: lookup feeds.example.test: no such host");
     expect(within(box).getByRole("link", { name: "Open Feed health" })).toHaveAttribute("href", "/health");
     expect(screen.queryByText("All caught up")).not.toBeInTheDocument();
