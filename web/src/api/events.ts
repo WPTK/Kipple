@@ -8,7 +8,7 @@ import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type
 import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
-import { folderTree, rollUp, subtreeOf } from "@/lib/folderTree";
+import { feedsInFolder, folderTree, rollUp } from "@/lib/folderTree";
 import {
   SERVER_EVENT_TYPES,
   type Bootstrap,
@@ -133,12 +133,6 @@ const isManualTrigger = (trigger: string | undefined): boolean => trigger === "m
 
 type FolderRef = { id: string; name: string; parent_id?: string | null };
 
-/** The feeds a folder list shows: those in the folder or any of its subfolders. */
-function feedsInFolder(folder: string, feeds: readonly { id: string; folder_id: string }[], folders: readonly FolderRef[]): string[] {
-  const inside = subtreeOf(folderTree(folders), folder);
-  return feeds.filter((f) => inside.has(f.folder_id)).map((f) => f.id);
-}
-
 /**
  * New items that would appear in this list: the feeds the scope includes (a feed, the feeds of a folder
  * and its subfolders, or all). Starred and search lists never show a pill (their membership is not "new
@@ -163,7 +157,7 @@ export function pendingFor(
   if (scope.feed) return count(scope.feed);
   let n = 0;
   if (scope.folder) {
-    for (const id of feedsInFolder(scope.folder, feeds, folders)) n += count(id);
+    for (const f of feedsInFolder(scope.folder, feeds, folders)) n += count(f.id);
     return n;
   }
   for (const id of Object.keys(pending)) n += count(id);
@@ -179,7 +173,7 @@ export function clearPending(
 ): Record<string, number> {
   if (pendingFor(pending, scope, feeds, folders) === 0) return pending;
   if (scope.feed) return omit(pending, [scope.feed]);
-  if (scope.folder) return omit(pending, feedsInFolder(scope.folder, feeds, folders));
+  if (scope.folder) return omit(pending, feedsInFolder(scope.folder, feeds, folders).map((f) => f.id));
   return {};
 }
 const omit = <T,>(o: Record<string, T>, ids: string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => !ids.includes(k))) as Record<string, T>;
