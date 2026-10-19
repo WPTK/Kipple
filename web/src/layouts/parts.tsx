@@ -203,7 +203,7 @@ export function RowMenu({
  * as generated text after the title (`content: ", " attr(data-row-unread)`), so the word lives only here: a link named
  * by its content has no aria-label to compare with the visible text (issue #513, web/uat/row-name.mjs).
  */
-export const UNREAD_WORD = "unread";
+const UNREAD_WORD = "unread";
 
 /** What every layout's row link takes: the row-link class (the whole row is its hit area), any layout classes, and the unread flag. */
 export function rowLinkProps(item: Card, className = ""): { className: string; "data-row-unread": string | undefined } {

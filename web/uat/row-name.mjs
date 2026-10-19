@@ -6,12 +6,19 @@
 //
 // The flow serves its own feed on a loopback port: two articles whose titles are far longer than a phone's row and
 // carry the search word ("the") past the point where a one-line layout cuts the title, one left unread and one read.
-// For each width (375 phone, 768 tablet, 1280 desktop) and each layout it opens the search for that word and checks:
+// For each width (375 phone, 768 tablet, 1280 desktop) and each layout it opens the list that shows the layout's rows and checks:
 //   N1  axe's label-content-name-mismatch finds nothing in the results (a link whose aria-label had to contain the
 //       visible text failed it when a mark past the edge dropped out of the visible text);
 //   N2  the link's accessible name, as the browser computes it (the aria snapshot), is the title for a read row and
 //       "<title>, unread" for an unread one, and the link's text is the title alone;
 //   N3  the generated ", unread" takes no room: nothing in the page scrolls sideways.
+// The layout is the device's default (/l/all has no feed or folder override to set), and the search draws the default.
+// Each pass says which layout it checks before it checks anything: on /l/all from the list options button ("List
+// options, <layout> layout"); the search page has no such button, so there from the device default the app has stored
+// (the one value its list reads; an unset one is Editorial, "magazine"), which must be the layout the pass set.
+// The Gazette draws pages instead of rows, except in a search (a search shows it as Editorial rows), so its stories are
+// checked on /l/all, where the Gazette's Story renders; every other layout is checked on the search.
+// The layout the device started with is put back when a width is done, so later flows find the layout they expect.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { readFileSync } from "node:fs";
@@ -25,7 +32,17 @@ const AXE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
 const t = await start(import.meta.url, 20);
 const { check, step } = t;
 
-const LAYOUTS = ["Editorial", "Cards", "Compact", "Inbox", "Headlines"];
+const SEARCH = "/search?q=the";
+// A layout and the page that draws it as its own rows (see the header).
+const LAYOUTS = [
+  { label: "Editorial", id: "magazine", path: SEARCH },
+  { label: "Cards", id: "cards", path: SEARCH },
+  { label: "Compact", id: "compact", path: SEARCH },
+  { label: "Inbox", id: "inbox", path: SEARCH },
+  { label: "Headlines", id: "headlines", path: SEARCH },
+  { label: "Gazette", id: "gazette", path: "/l/all" },
+];
+const FEED_TITLE = "UAT feed row name";
 const WIDTHS = { desktop: [768, 1280], phone: [375] };
 const UNREAD = "UAT row name: the long unread title that goes on and on and on, past the edge of the row, about the harness and the brain – and the end";
 const READ = "UAT row name: the long read title that goes on and on and on, past the edge of the row, about the harness and the brain – and the end";
@@ -53,21 +70,41 @@ async function setLayout(page, label) {
   if (await page.getByRole("menu").isVisible().catch(() => false)) await page.keyboard.press("Escape");
 }
 
+/** The layout in effect, from the list options button. */
+async function layoutOf(page) {
+  const btn = page.locator('button[aria-label^="List options, "]').first();
+  await btn.waitFor({ timeout: 15000 });
+  return ((await btn.getAttribute("aria-label")) ?? "").replace(/^List options, /, "").replace(/ layout$/, "");
+}
+
 try {
   await t.eachViewport(async (page, vp) => {
   await step(`${vp.id} N`, async () => {
-    const added = await t.addLocalFeed(page, `${base}/feed.xml`, "UAT feed row name", (items) => items.length >= 2);
+    // A feed of this flow's own that an earlier run left behind (cleanup normally removes it) would make the add fail.
+    for (const f of (await t.boot(page)).feeds.filter((x) => x.title === FEED_TITLE)) await page.request.delete(`/api/feeds/${f.id}`, { headers: t.WRITE });
+    const added = await t.addLocalFeed(page, `${base}/feed.xml`, FEED_TITLE, (items) => items.length >= 2);
     if (added.error) return t.fail(`${vp.id} N setup`, added.error);
     // The second article is read, the first stays unread.
     const read = added.items.find((i) => i.title === READ);
-    await page.request.post("/api/items/mark-read", { headers: t.WRITE, data: { ids: [read.id], read: true } });
+    if (!read) return t.fail(`${vp.id} N setup`, `the read article was not among the feed's items: ${added.items.map((i) => JSON.stringify(i.title)).join(", ")}`);
+    const marked = await page.request.post("/api/items/mark-read", { headers: t.WRITE, data: { ids: [read.id], read: true } });
+    if (!marked.ok()) return t.fail(`${vp.id} N setup`, `the article was not marked read: ${marked.status()}`);
+    await page.goto("/l/all", { waitUntil: "load" });
+    const startedWith = await layoutOf(page);
+    try {
     for (const width of WIDTHS[vp.id]) {
-      await page.setViewportSize({ width, height: 812 });
-      for (const layout of LAYOUTS) {
+      // Only when the width differs from the context's own: in Firefox a touch context that is resized (even to its own size) stops opening menus on click.
+      if (page.viewportSize()?.width !== width) await page.setViewportSize({ width, height: 812 });
+      for (const { label: layout, id, path } of LAYOUTS) {
         const tag = `${vp.id} ${width} ${layout}`;
         await page.goto("/l/all", { waitUntil: "load" });
         await setLayout(page, layout);
-        await page.goto("/search?q=the", { waitUntil: "load" });
+        await page.goto(path, { waitUntil: "load" });
+        const shown =
+          path === SEARCH
+            ? await page.evaluate(() => { try { return JSON.parse(localStorage.getItem("kipple.device.v2") ?? "{}").layout ?? "magazine"; } catch { return undefined; } })
+            : await layoutOf(page);
+        check(shown === (path === SEARCH ? id : layout), `${tag} layout`, `the page checked is drawn as ${layout}`, `it is drawn as ${JSON.stringify(shown)}`);
         const unread = page.locator("a.row-link", { hasText: "long unread title" }).first();
         const readLink = page.locator("a.row-link", { hasText: "long read title" }).first();
         await unread.waitFor({ timeout: 15000 });
@@ -99,6 +136,11 @@ try {
         await page.keyboard.press("ArrowUp");
         await t.shot(page, tag.replace(/ /g, "-"));
       }
+    }
+    } finally {
+      // The next flows start from the layout this one found.
+      await page.goto("/l/all", { waitUntil: "load" });
+      await setLayout(page, startedWith).catch((e) => t.fail(`${vp.id} N restore`, `the ${startedWith} layout was not put back: ${String(e.message).split("\n")[0]}`));
     }
   });
 });
