@@ -1,0 +1,1 @@
+Reloading the page or reopening the app brings each article list back to the article that was at its top, instead of the top of the list; a list left at its top starts there, and an article that has since left the list starts it at the top. (#481)
