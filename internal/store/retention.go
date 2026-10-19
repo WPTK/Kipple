@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -186,13 +187,14 @@ func (d *DB) TrimOnlyBudget(ctx context.Context, feedID int64, trigger string, b
 		if b.Total > 0 && batches > 0 && time.Since(wall) >= b.Total {
 			return total, true, nil
 		}
+		hiddenFrom := d.hidden.get(feedID)
 		var newLogID int64
 		bctx, cancel := ctx, context.CancelFunc(func() {})
 		if b.PerBatch > 0 {
 			bctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), b.PerBatch)
 		}
 		trimmed, err := d.batch(bctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
-			trimmed, m, err := trimFeedBatch(ctx, tx, feedID, started.Unix(), maxInt64, trimBatch, -1)
+			trimmed, m, err := trimFeedBatch(ctx, tx, feedID, started.Unix(), hiddenFrom, trimBatch, -1)
 			if err != nil {
 				return 0, err
 			}
@@ -225,6 +227,7 @@ func (d *DB) TrimOnlyBudget(ctx context.Context, feedID int64, trigger string, b
 			afterTrimBatch()
 		}
 		if !more {
+			d.hidden.done(feedID, hiddenFrom)
 			return total, false, nil
 		}
 	}
@@ -428,4 +431,48 @@ func capFetchLog(ctx context.Context, tx *sql.Tx, feedID, now int64) error {
 	  AND id NOT IN (SELECT id FROM fetch_log WHERE feed_id = ?1 AND outcome = 'error' ORDER BY id DESC LIMIT 10)`,
 		feedID, now)
 	return err
+}
+
+// hiddenBacklog carries "the ids from here on were never shown" (commitState.neverShownFrom) from a fetch
+// commit whose trim filled its batch to the trim jobs that finish it. A trim job knows nothing of the commit,
+// so without it a first document of more than one batch would count the rest of its backlog as trimmed unread.
+// It is memory only: after a restart a trim that is still owed counts what it trims, and the count is a
+// diagnostic. The oldest boundary of the commits that left work wins; a trim that finds nothing more to do
+// forgets the boundary it used.
+type hiddenBacklog struct {
+	mu   sync.Mutex
+	from map[int64]int64
+}
+
+func (h *hiddenBacklog) note(feedID, from int64) {
+	if from == maxInt64 {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.from == nil {
+		h.from = map[int64]int64{}
+	}
+	if old, ok := h.from[feedID]; !ok || from < old {
+		h.from[feedID] = from
+	}
+}
+
+// get is the boundary for the feed's next trim (maxInt64: nothing was hidden).
+func (h *hiddenBacklog) get(feedID int64) int64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if from, ok := h.from[feedID]; ok {
+		return from
+	}
+	return maxInt64
+}
+
+// done forgets the boundary a finished trim used, unless a commit has lowered it since.
+func (h *hiddenBacklog) done(feedID, used int64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.from[feedID] == used {
+		delete(h.from, feedID)
+	}
 }

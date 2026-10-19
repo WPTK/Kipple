@@ -181,6 +181,10 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 			break // the URL changed under the fetch: stop here and report what did commit
 		}
 	}
+	if st.trimMore {
+		// The trim job that finishes the backlog does not know what this commit hid.
+		d.hidden.note(res.Snap.ID, st.neverShownFrom())
+	}
 	return info(), nil
 }
 
