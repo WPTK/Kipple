@@ -11,6 +11,7 @@
 //   L3  the two feeds with the same title show their address on their rows and in the delete confirmation;
 //   L3b (desktop, where the sidebar shows) the sidebar tells the two feeds apart by the text of their items and by their names;
 //   L4  the empty default folder is not shown, except in Edit, where it says what it is for.
+//   L5  (desktop) ArrowDown on the last drawn sidebar row draws the next step and focuses the row after it.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { deadFeed, start } from "./common.mjs";
@@ -111,6 +112,22 @@ await t.eachViewport(async (page, vp) => {
     const hint = (await main.getByText("Empty. Feeds added without a folder go here.").count()) > 0;
     check(hidden && inEdit && hint, `${tag} L4`, `"${name}" hidden, shown in Edit with its hint`, `"${name}": hidden outside Edit ${hidden}, shown in Edit ${inEdit}, hint ${hint}`);
     await page.getByRole("button", { name: "Done editing" }).click();
+  });
+  await step(`${tag} L5`, async () => {
+    if (vp.mobile) return;
+    await page.goto("/feeds");
+    const tree = page.getByRole("navigation", { name: "Primary" }).getByRole("tree", { name: "Feeds" });
+    const items = tree.getByRole("treeitem");
+    await items.first().waitFor({ timeout: 15000 });
+    const before = await items.count();
+    const lastKey = await items.last().getAttribute("data-tree-key");
+    await items.last().focus();
+    await page.keyboard.press("ArrowDown");
+    const end = Date.now() + 10000;
+    while (Date.now() < end && (await items.count()) <= before) await page.waitForTimeout(100);
+    const at = await tree.locator(":focus").getAttribute("data-tree-key");
+    const all = await items.evaluateAll((els) => els.map((e) => e.getAttribute("data-tree-key")));
+    check(before < all.length && at === all[before], `${tag} L5`, `focus moved from ${lastKey} to ${at}, the row after it`, `focus is on ${at}; the row after ${lastKey} is ${all[before]}`);
   });
 });
 

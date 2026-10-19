@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_FOLDER_DEPTH, chainOf, childrenOf, depthOf, feedOrder, folderPath, folderTree, heightOf, parentChoices, parentOf, parentPath, rollUp, subtreeFeeds, subtreeOf } from "./folderTree";
+import { MAX_FOLDER_DEPTH, chainOf, childrenOf, depthOf, feedOrder, folderPath, folderTree, heightOf, parentChoices, parentOf, parentPath, rollUp, subtreeFeeds, subtreeOf, walkRows } from "./folderTree";
 
 // Uncategorized (default); Tech > (Apple > Mac, News); Sports > News. Listed in pre-order, as the bootstrap does.
 const folders = [
@@ -96,5 +96,24 @@ describe("folderTree", () => {
   it("feedOrder lists each folder's subfolders before its own feeds", () => {
     const feeds: Record<string, string[]> = { "1": ["u"], "2": ["t"], "3": ["a"], "4": ["m"], "6": ["s"] };
     expect(feedOrder(t, (id) => feeds[id] ?? [])).toEqual(["u", "m", "a", "t", "s"]);
+  });
+});
+
+describe("walkRows", () => {
+  const own: Record<string, { id: string }[]> = { "2": [{ id: "a" }], "3": [{ id: "b" }], "6": [{ id: "c" }] };
+  const rules = (collapsed: string[]) => ({ subfolders: (id: string) => childrenOf(t, id), feeds: (id: string) => own[id] ?? [], open: (id: string) => !collapsed.includes(id) });
+  const rows = (roots: string[], collapsed: string[] = []) => {
+    const out: string[] = [];
+    walkRows(roots, rules(collapsed), (kind, id) => out.push(`${kind}:${id}`));
+    return out;
+  };
+
+  it("visits a folder, then its subfolders with their contents, then its own feeds", () => {
+    expect(rows(["2"])).toEqual(["folder:2", "folder:3", "folder:4", "feed:b", "folder:5", "feed:a"]);
+  });
+
+  it("stops at a collapsed folder, and does not descend into it", () => {
+    expect(rows(["2", "6"], ["3"])).toEqual(["folder:2", "folder:3", "folder:5", "feed:a", "folder:6", "folder:7", "feed:c"]);
+    expect(rows(["2"], ["2"])).toEqual(["folder:2"]);
   });
 });
