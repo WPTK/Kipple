@@ -86,12 +86,13 @@ export function AccountStep({
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [ack, setAck] = useState(false);
-  const [fieldError, setFieldError] = useState<{ field: "username" | "password" | "open"; message: string } | null>(null);
+  const [fieldError, setFieldError] = useState<{ field: "username" | "password" | "again" | "open"; message: string } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const userInput = useRef<HTMLInputElement>(null);
   const pwInput = useRef<HTMLInputElement>(null);
+  const againInput = useRef<HTMLInputElement>(null);
 
   const open = openAvailability(state.open);
   const usernameBad = left.username && username !== "" && !USERNAME.test(username) ? "Use 1 to 64 letters, digits, dots, dashes or underscores." : null;
@@ -112,8 +113,16 @@ export function AccountStep({
         setFieldError({ field: "username", message: username === "" ? "Enter a user name." : "Use 1 to 64 letters, digits, dots, dashes or underscores." });
         userInput.current?.focus();
       } else if (choice === "password") {
-        setFieldError({ field: "password", message: password === "" ? "Enter a password." : (passwordProblem(password) ?? "The two passwords don't match.") });
-        pwInput.current?.focus();
+        const problem = password === "" ? "Enter a password." : passwordProblem(password);
+        if (problem) {
+          setFieldError({ field: "password", message: problem });
+          pwInput.current?.focus();
+        } else {
+          // A mismatch is already announced by the "Password again" field (submitting marks it left); a second alert
+          // would read it twice. An empty one has no live check, so it gets its own word.
+          if (again === "") setFieldError({ field: "again", message: "Enter the password again." });
+          againInput.current?.focus();
+        }
       } else if (choice === "open" && !ack) setFieldError({ field: "open", message: "Tick the box to confirm you understand." });
       return;
     }
@@ -219,8 +228,8 @@ export function AccountStep({
                     />
                   )}
                 </Field>
-                <Field label="Password again" error={mismatch}>
-                  {(a) => <input {...a} name="new-password-again" type="password" autoComplete="new-password" value={again} onBlur={() => leave("again")} onChange={(e) => setAgain(e.target.value)} className={inputCls} />}
+                <Field label="Password again" error={fieldError?.field === "again" ? fieldError.message : mismatch}>
+                  {(a) => <input {...a} ref={againInput} name="new-password-again" type="password" autoComplete="new-password" value={again} onBlur={() => leave("again")} onChange={(e) => { setAgain(e.target.value); setFieldError(null); }} className={inputCls} />}
                 </Field>
               </div>
             ) : null}
