@@ -694,20 +694,28 @@ export function FeedsScreen() {
         {/* As in the list header: the title keeps at least 6.5rem, and where the title and the controls do not fit on
             one row (a narrow phone at a large text size) the controls drop to a row of their own. */}
         <div className="flex flex-wrap items-center gap-1 pt-2">
-          <h1 className="min-w-[min(100%,6.5rem)] flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
-            Feeds
-          </h1>
+          {/* The Saving/Saved note sits over the title row's empty end, so it never moves the controls when it comes and goes. */}
+          <div className="relative min-w-[min(100%,6.5rem)] flex-1">
+            <h1 className="truncate text-xl font-bold" tabIndex={-1} data-route-heading>
+              Feeds
+            </h1>
+            <span
+              role="status"
+              aria-live="polite"
+              className="absolute top-1/2 right-1 inline-flex -translate-y-1/2 items-center gap-1 bg-bg pl-1 text-xs text-fg2"
+              data-testid="saved-note"
+            >
+              {saved === "saved" ? (
+                <>
+                  <Check className="size-4" aria-hidden="true" />
+                  Saved
+                </>
+              ) : saved === "saving" ? (
+                "Saving"
+              ) : null}
+            </span>
+          </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
-          <span role="status" aria-live="polite" className="mr-1 inline-flex items-center gap-1 text-xs text-fg2" data-testid="saved-note">
-            {saved === "saved" ? (
-              <>
-                <Check className="size-4" aria-hidden="true" />
-                Saved
-              </>
-            ) : saved === "saving" ? (
-              "Saving"
-            ) : null}
-          </span>
           {/* The text hides below 560px, so the name comes from aria-label, matching the text when shown. The name
               itself carries the state (Select/Edit, then Done), so there is no aria-pressed to announce it twice. */}
           {!selecting ? (

@@ -474,9 +474,13 @@ function ensureSubscribed(): void {
   }
   // Back online, as the app's requests tell it (any answer from the server), not only the browser's online event: a
   // save that waited for the network, or failed, goes again.
+  let wasOnline = offlineStore.get().online;
   offlineStore.subscribe(() => {
+    const online = offlineStore.get().online;
+    const back = online && !wasOnline; // the moment it comes back, not every other change of the store
+    wasOnline = online;
     const s = syncStore.get().status;
-    if (offlineStore.get().online && (s === "offline" || s === "error")) void flush();
+    if (back && (s === "offline" || s === "error")) void flush();
   });
 }
 

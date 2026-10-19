@@ -63,6 +63,8 @@ await t.eachViewport(async (page, vp) => {
       const status = await patchDevice(page, { "client.text_size": 1.5 });
       if (status !== 200) return t.fail(`${tag} C1 setup`, `text size not set (${status})`);
       await page.setViewportSize({ width: 320, height: 568 });
+      // Put back in a finally: a step that stops half-way must not leave the later ones on a tiny screen at Largest.
+      try {
       for (const path of ["/feeds", "/search", "/stats", feedList]) {
         await open(path);
         const m = await page.evaluate(() => {
@@ -86,8 +88,10 @@ await t.eachViewport(async (page, vp) => {
         check(m.past.length === 0, `${where} controls`, "no header control runs past the screen", `past the right edge: ${m.past.join(", ")}`);
         await t.shot(page, `${tag}-largest-${path.split("?")[0].replace(/\//g, "-")}`);
       }
-      await patchDevice(page, { "client.text_size": 1 });
-      await page.setViewportSize({ width: vp.width, height: vp.height });
+      } finally {
+        await patchDevice(page, { "client.text_size": 1 });
+        await page.setViewportSize({ width: vp.width, height: vp.height });
+      }
     });
   }
 

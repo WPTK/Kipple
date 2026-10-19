@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { createStore, useStore } from "@/lib/store";
 
@@ -65,28 +65,8 @@ export const TOAST_SURFACE =
 /** Toast region. Toasts stay 8 s (15 s with an action, errors until dismissed) and hold while hovered or focused. Announcements go through LiveRegion. */
 export function Toasts({ children, inset = "tabbar" }: { children?: ReactNode; inset?: ToastInset }) {
   const list = useStore(toasts);
-  const ref = useRef<HTMLDivElement>(null);
-  // The space the toasts take over the bottom of the screen, as --kp-toast-h on the root: the article list ends with
-  // that much room, so its last row can be scrolled clear of a toast instead of staying under it.
-  useEffect(() => {
-    const el = ref.current;
-    const root = document.documentElement;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const set = () => {
-      const h = el.getBoundingClientRect().height;
-      root.style.setProperty("--kp-toast-h", h > 0 ? `calc(${Math.ceil(h)}px + 0.5rem)` : "0px");
-    };
-    const ro = new ResizeObserver(set);
-    ro.observe(el);
-    set();
-    return () => {
-      ro.disconnect();
-      root.style.removeProperty("--kp-toast-h");
-    };
-  }, []);
   return (
     <div
-      ref={ref}
       className="pointer-events-none fixed inset-x-0 z-50 flex flex-col items-center gap-2 px-4"
       data-testid="toast-region"
       data-inset={inset}

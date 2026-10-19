@@ -20,14 +20,15 @@ import { DeviceSaveStatus } from "./SaveStatus";
 import { UndoToast } from "./UndoToast";
 import { LiveRegion, Toasts, announce } from "./toasts";
 
-// Five equal tabs that always fit: the label follows the text size up to 3.75% of the screen width (12 px at 320 wide,
-// the size at the default text size), so Largest on a narrow phone still shows every name whole.
-const tab = "flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[length:min(0.75rem,3.75vw)] font-medium";
+// Five equal tabs that always fit: the label follows the text size up to 4% of the screen width, the most a fifth of
+// the bar holds "Settings" in (12.8 px at 320 wide, 15 px at 375, 17 px at 430). A larger label could only be cut off,
+// as phone tab bars cap theirs; the icons above keep growing with the text size.
+const tab = "flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[length:min(0.75rem,4vw)] font-medium";
 
 /** The Unread tab's badge: count (capped at 99+), a dot, or nothing, by the device's "Unread badge" setting. */
 function UnreadBadge() {
   const boot = useBootstrap();
-  return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" noun="" className="absolute -top-1 left-[55%] px-[0.4em] text-[length:min(0.6875rem,3.4vw)]" />;
+  return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" noun="" className="absolute -top-1 -right-[10px]" />;
 }
 
 function TabBar() {
@@ -49,7 +50,7 @@ function TabBar() {
     >
       {/* Plain links: NavLink would only mark the tab whose own address is the current one. */}
       <Link to="/l/unread" className={cn(tab, unreadTab ? "text-accent" : "text-fg2")} aria-current={unreadTab ? "page" : undefined}>
-        {/* The badge sits on the icon's corner, so this tab is no wider than the others. */}
+        {/* The badge sits on the icon's corner and grows over the icon, so this tab is no wider than the others. */}
         <span className="relative flex">
           <Inbox aria-hidden="true" className="size-6" />
           <UnreadBadge />

@@ -24,7 +24,7 @@ import {
 } from "./deviceSync";
 import { DEVICE_PREFS_KEY, LEGACY_DEVICE_PREFS_KEY, devicePrefsStore, resetDevicePrefs, setListOverride, updateDevicePrefs } from "./devicePrefs";
 import { DEFAULT_PREFS, PREFS_KEY, prefsStore, updatePrefs } from "./prefs";
-import { offlineStore, setOnline } from "./offlineState";
+import { offlineStore, setOnline, setPending } from "./offlineState";
 
 const local = (): LocalState => ({ theme: themeStore.get(), prefs: prefsStore.get(), dp: devicePrefsStore.get() });
 
@@ -388,6 +388,29 @@ describe("saving", () => {
     expect(patches).toHaveLength(2);
     expect(syncStore.get().status).toBe("idle");
     expect(pendingChanges()).toEqual({});
+  });
+
+  it("a failed save is sent again when the connection comes back, not on other changes of the offline state", async () => {
+    localStorage.setItem(SYNC_FLAG_KEY, "1");
+    const patches: unknown[] = [];
+    mockFetch({
+      "PATCH /api/device": (_u, init) => {
+        patches.push(JSON.parse(String(init?.body)));
+        return new Response("nope", { status: 500 });
+      },
+    });
+    hydrateDevice(device());
+    updatePrefs({ font: "inter" });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(syncStore.get().status).toBe("error");
+    setPending(3); // the offline queue's count changing is not the network coming back
+    setPending(0);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(patches).toHaveLength(1);
+    setOnline(false);
+    setOnline(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(patches).toHaveLength(2);
   });
 
   it("a rejected key keeps its local value, is not sent again, and the rest still is", async () => {

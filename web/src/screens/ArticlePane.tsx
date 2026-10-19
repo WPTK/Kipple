@@ -360,7 +360,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           <header className="mx-auto mb-5 max-w-[min(var(--kp-col),100%)]">
             <p className="text-sm text-fg2">
               {/* Plain text, not a pill: the toolbar's read toggle is the one control, so nothing here looks tappable. */}
-              <span data-testid="read-state" className={cn("font-medium", a.read ? "text-fg2" : "text-accent")}>
+              <span data-testid="read-state" className={cn(a.read ? "font-medium text-fg2" : "font-semibold text-fg")}>
                 {a.read ? "Read" : "Unread"}
               </span>
               <span aria-hidden="true">{" · "}</span>
