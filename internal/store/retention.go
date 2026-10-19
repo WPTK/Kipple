@@ -176,6 +176,13 @@ type TrimBudget struct {
 // queues another trim job). A ctx that ends between batches returns its error with
 // more set when a batch already ran.
 func (d *DB) TrimOnlyBudget(ctx context.Context, feedID int64, trigger string, b TrimBudget) (total int64, more bool, err error) {
+	return d.trimBacklog(ctx, feedID, trigger, b, maxInt64)
+}
+
+// trimBacklog is TrimOnlyBudget with the boundary for the trimmed-unread notice: neverShownFrom is the first id
+// that was never shown (commitState.neverShownFrom; maxInt64 when every item was). A fetch commit that left a
+// backlog passes its own, so the batches that finish it count the same items its own batch did.
+func (d *DB) trimBacklog(ctx context.Context, feedID int64, trigger string, b TrimBudget, neverShownFrom int64) (total int64, more bool, err error) {
 	started := d.clock.Now()
 	wall := time.Now()
 	var logID int64
@@ -192,7 +199,7 @@ func (d *DB) TrimOnlyBudget(ctx context.Context, feedID int64, trigger string, b
 			bctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), b.PerBatch)
 		}
 		trimmed, err := d.batch(bctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
-			trimmed, m, err := trimFeedBatch(ctx, tx, feedID, started.Unix(), maxInt64, trimBatch, -1)
+			trimmed, m, err := trimFeedBatch(ctx, tx, feedID, started.Unix(), neverShownFrom, trimBatch, -1)
 			if err != nil {
 				return 0, err
 			}
