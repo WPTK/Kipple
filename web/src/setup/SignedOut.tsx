@@ -18,7 +18,7 @@ const OpenSignIn = lazyScreen(() => import("./SetupFlow").then((m) => ({ default
  * shown then, as it always was.
  */
 export function SignedOut() {
-  const inst = useQuery({ queryKey: INSTANCE_KEY, queryFn: ({ signal }) => fetchInstance(signal), retry: false, staleTime: 10_000, gcTime: 0 });
+  const inst = useQuery({ queryKey: INSTANCE_KEY, queryFn: ({ signal }) => fetchInstance(signal), retry: false, staleTime: 0, gcTime: 0 });
   // The tab names the one screen of this component that has no screen of its own (the others set theirs).
   const status = inst.error instanceof ApiError ? inst.error.status : -1;
   const unreachable = !inst.isPending && (inst.isError || !inst.data) && !(status === 401 || status === 404 || inst.error instanceof SyntaxError);

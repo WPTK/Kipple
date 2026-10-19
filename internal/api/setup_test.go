@@ -98,13 +98,15 @@ func withCookies(cs ...*http.Cookie) func(*http.Request) {
 	}
 }
 
+// cookieNamed is the cookie of that name the answer leaves the browser with: the last one it sets.
 func cookieNamed(rec *httptest.ResponseRecorder, name string) *http.Cookie {
+	var last *http.Cookie
 	for _, c := range rec.Result().Cookies() {
 		if c.Name == name {
-			return c
+			last = c
 		}
 	}
-	return nil
+	return last
 }
 
 // createAccount posts the account form (no setup code: the first request wins).
@@ -148,8 +150,9 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 	require.NotNil(t, sess, "the claim signs this browser in with the normal session cookie")
 	require.Equal(t, 90*24*3600, sess.MaxAge)
 	for _, c := range rec.Result().Cookies() {
-		require.Equal(t, cookieName, c.Name, "no other cookie: there is no setup session")
+		require.Contains(t, []string{cookieName, markerName}, c.Name, "no other cookie: there is no setup session")
 	}
+	require.NotNil(t, cookieNamed(rec, markerName), "the session marker comes with the session")
 
 	acct, ok, err := h.db.Account(context.Background())
 	require.NoError(t, err)
@@ -452,6 +455,12 @@ func TestSetupOpenMode(t *testing.T) {
 	rec = h.req("GET", "/api/auth/me", "", withCookies(lanSess), peer("203.0.113.9:5000"))
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	require.Equal(t, "peer", decode(t, rec)["reason"])
+	// GET /api/instance applies the same gate: the session is live, but from there it is not signed in.
+	signedIn := func(mod ...func(*http.Request)) any {
+		return decode(t, h.req("GET", "/api/instance", "", append([]func(*http.Request){withCookies(lanSess)}, mod...)...))["signed_in"]
+	}
+	require.Equal(t, true, signedIn(peer("192.168.1.20:5000")))
+	require.Equal(t, false, signedIn(peer("203.0.113.9:5000")))
 	// And a session taken elsewhere, used through a proxy, is refused too.
 	require.Equal(t, http.StatusForbidden, h.req("GET", "/api/bootstrap", "", withCookies(first), hdr("X-Forwarded-For", "203.0.113.9")).Code)
 	// A same-machine proxy that sends no forwarding headers but rewrites Host

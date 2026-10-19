@@ -267,9 +267,12 @@ func TestCookieAttributesHTTPSProxied(t *testing.T) {
 		r.Header.Set("X-Forwarded-Proto", "https")
 	})
 	require.Equal(t, http.StatusNoContent, rec.Code)
-	cleared := rec.Result().Cookies()[0]
-	require.Equal(t, -1, cleared.MaxAge)
-	require.True(t, cleared.Secure)
+	for _, name := range []string{cookieName, markerName} {
+		cleared := cookieNamed(rec, name)
+		require.NotNil(t, cleared, name)
+		require.Equal(t, -1, cleared.MaxAge, name)
+		require.True(t, cleared.Secure, name)
+	}
 	// the session is gone
 	rec = h.do("GET", "/api/status", "", withCookie(c))
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -812,17 +815,148 @@ func TestEventStreamRefusedWhenTheHubIsFull(t *testing.T) {
 	}
 }
 
-// A signed-out browser learns it is signed out from a 200, so the app never sends the request that answers 401
-// (the 401 is logged to the console by the browser itself).
+// GET /api/instance answers whoever asks and says whether the request is signed in, so a signed-out browser learns
+// that from a 200 and never sends the request that answers 401 (the browser logs those to the console itself).
+// instanceAsk asks it with the given cookies and returns signed_in and the answer.
+func (h *harness) instanceAsk(cookies ...*http.Cookie) (any, *httptest.ResponseRecorder) {
+	h.t.Helper()
+	rec := h.do("GET", "/api/instance", "", func(r *http.Request) {
+		for _, c := range cookies {
+			r.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+		}
+	})
+	require.Equal(h.t, http.StatusOK, rec.Code)
+	require.Equal(h.t, "private, no-store", rec.Header().Get("Cache-Control"), "a per-browser answer is never stored")
+	return decode(h.t, rec)["signed_in"], rec
+}
+
+var marker = &http.Cookie{Name: markerName, Value: "1"}
+
+// requireMarkerCleared checks that the answer clears the marker and leaves the session cookie alone: a stale
+// request answering after a new sign-in must not sign that one out.
+func requireMarkerCleared(t *testing.T, rec *httptest.ResponseRecorder, msg string) {
+	t.Helper()
+	m := cookieNamed(rec, markerName)
+	require.NotNil(t, m, msg)
+	require.Equal(t, -1, m.MaxAge, msg)
+	require.Nil(t, cookieNamed(rec, cookieName), msg)
+}
+
 func TestInstanceSaysWhetherTheRequestIsSignedIn(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	signedIn := func(opts ...func(*http.Request)) any {
-		rec := h.do("GET", "/api/instance", "", opts...)
-		require.Equal(t, http.StatusOK, rec.Code)
-		return decode(t, rec)["signed_in"]
+	in, rec := h.instanceAsk()
+	require.Equal(t, false, in, "no cookie")
+	require.Empty(t, rec.Result().Cookies(), "nothing to bring in line")
+
+	in, rec = h.instanceAsk(&http.Cookie{Name: cookieName, Value: "forged"}, marker)
+	require.Equal(t, false, in, "a cookie the server does not know")
+	requireMarkerCleared(t, rec, "forged")
+
+	in, rec = h.instanceAsk(marker)
+	require.Equal(t, false, in, "a marker alone is only a hint")
+	requireMarkerCleared(t, rec, "marker alone")
+
+	sess := h.login()
+	in, rec = h.instanceAsk(sess)
+	require.Equal(t, true, in)
+	m := cookieNamed(rec, markerName)
+	require.NotNil(t, m, "a session made before the marker existed gets one")
+	require.Equal(t, "1", m.Value)
+	require.Equal(t, int(sessionTTL/time.Second), m.MaxAge)
+	require.False(t, m.HttpOnly, "the app's script reads it")
+	require.Equal(t, http.SameSiteLaxMode, m.SameSite)
+	require.Equal(t, "/", m.Path)
+	require.Nil(t, cookieNamed(rec, cookieName), "the session is not renewed within the hour")
+
+	in, rec = h.instanceAsk(sess, marker)
+	require.Equal(t, true, in)
+	require.Empty(t, rec.Result().Cookies(), "both in line: nothing is sent")
+}
+
+// The marker is issued and cleared with the session cookie, with the same lifetime and rules.
+func TestSessionMarkerGoesWithTheSessionCookie(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	rec := h.do("POST", "/api/auth/login", loginBody(testPass))
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	sess, m := cookieNamed(rec, cookieName), cookieNamed(rec, markerName)
+	require.NotNil(t, m)
+	require.True(t, sess.HttpOnly)
+	require.False(t, m.HttpOnly)
+	for _, c := range []*http.Cookie{sess, m} {
+		require.Equal(t, int(sessionTTL/time.Second), c.MaxAge, c.Name)
+		require.Equal(t, "/", c.Path, c.Name)
+		require.Equal(t, http.SameSiteLaxMode, c.SameSite, c.Name)
+		require.False(t, c.Secure, c.Name)
 	}
-	require.Equal(t, false, signedIn(), "no cookie")
-	require.Equal(t, false, signedIn(withCookie(&http.Cookie{Name: cookieName, Value: "forged"})), "a cookie the server does not know")
-	require.Equal(t, true, signedIn(withCookie(h.login())))
+
+	rec = h.do("POST", "/api/auth/logout", "", withCookie(sess), withCookie(marker))
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	for _, name := range []string{cookieName, markerName} {
+		c := cookieNamed(rec, name)
+		require.NotNil(t, c, name)
+		require.Equal(t, -1, c.MaxAge, name)
+	}
+}
+
+// A use after an hour renews the session, and the renewed cookie and the marker are sent together.
+func TestInstanceRenewsTheSessionAndItsMarker(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	sess := h.login()
+	h.clk.Advance(2 * time.Hour)
+	in, rec := h.instanceAsk(sess, marker)
+	require.Equal(t, true, in)
+	renewed, m := cookieNamed(rec, cookieName), cookieNamed(rec, markerName)
+	require.NotNil(t, renewed, "renewed")
+	require.NotNil(t, m, "the marker is renewed with it")
+	require.Equal(t, sess.Value, renewed.Value)
+	require.Equal(t, int(sessionTTL/time.Second), renewed.MaxAge)
+	require.Equal(t, int(sessionTTL/time.Second), m.MaxAge)
+}
+
+func TestInstanceAfterTheSessionEnds(t *testing.T) {
+	t.Parallel()
+	t.Run("expired", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t)
+		sess := h.login()
+		h.clk.Advance(sessionTTL + time.Hour)
+		in, rec := h.instanceAsk(sess, marker)
+		require.Equal(t, false, in)
+		requireMarkerCleared(t, rec, "expired")
+	})
+	t.Run("signed out", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t)
+		sess := h.login()
+		require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/logout", "", withCookie(sess)).Code)
+		in, rec := h.instanceAsk(sess, marker) // a copy of the cookie, or a tab that missed the sign-out
+		require.Equal(t, false, in)
+		requireMarkerCleared(t, rec, "signed out")
+	})
+	t.Run("password changed elsewhere", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t)
+		here, other := h.login(), h.login()
+		code, _, _ := h.api(here, "POST", "/api/account/password", jsonStr(map[string]string{"current": testPass, "new": "a different pass"}))
+		require.Equal(t, http.StatusNoContent, code)
+		in, rec := h.instanceAsk(other, marker)
+		require.Equal(t, false, in, "the change signs out every other session")
+		requireMarkerCleared(t, rec, "revoked")
+		in, _ = h.instanceAsk(here, marker)
+		require.Equal(t, true, in, "the session that made the change stays")
+	})
+}
+
+// The signed-in API brings the marker in line too: a 401 for a session that ended clears it.
+func TestExpiredSessionAnswerClearsTheMarker(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	sess := h.login()
+	h.clk.Advance(sessionTTL + time.Hour)
+	rec := h.do("GET", "/api/bootstrap", "", withCookie(sess), withCookie(marker))
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	requireMarkerCleared(t, rec, "expired")
 }

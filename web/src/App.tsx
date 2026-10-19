@@ -84,8 +84,8 @@ function Gate() {
   const auth = useStore(authStore);
   const { online } = useStore(offlineStore);
   const qc = useQueryClient();
-  // Nothing that needs a session is asked for until the probe has said whether there is one: a signed-out launch
-  // sends no request that answers 401 (the browser logs those to the console).
+  // Nothing that needs a session is asked for until the session marker, or failing it a short probe, says there may
+  // be one: a signed-out launch sends no request that answers 401 (the browser logs those to the console).
   const probed = useSessionProbe();
   const boot = useBootstrap(auth === "in" || (auth === "unknown" && probed));
   const refused = useStore(openRefusedStore);
