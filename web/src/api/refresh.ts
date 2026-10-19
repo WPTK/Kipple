@@ -12,10 +12,10 @@ const REFRESH_ALL = ["refresh-all"];
 export function useRefreshAll() {
   return useMutation({
     mutationKey: REFRESH_ALL,
-    mutationFn: () => api<{ run_id: string; total: number; joined?: boolean }>("/api/refresh", { method: "POST" }),
+    mutationFn: () => api<{ run_id: string; total: number; joined?: boolean; event_id?: string }>("/api/refresh", { method: "POST" }),
     onSuccess: (r) => {
       // The run is shown from the answer, not from its run.start event (which can come later, or not while the stream is down).
-      seedRun({ id: String(r.run_id), kind: "manual", done: 0, total: r.total, new_items: 0, errors: 0 });
+      seedRun({ id: String(r.run_id), kind: "manual", done: 0, total: r.total, new_items: 0, errors: 0 }, r.event_id);
       announce("Refreshing");
     },
     // A failed connection with the browser offline, worded as the pull gesture words it.

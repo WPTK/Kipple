@@ -208,7 +208,10 @@ func (s *Server) runAutoReadRoute(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "auto-read run", err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, run)
+	writeJSON(w, http.StatusAccepted, struct {
+		*autoReadRun
+		EventID string `json:"event_id"`
+	}{run, s.eventID()}) // read after the run started
 }
 
 func (s *Server) startAutoRead(req autoReadReq, total int) (*autoReadRun, error) {

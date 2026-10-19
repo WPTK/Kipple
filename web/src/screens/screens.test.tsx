@@ -99,8 +99,7 @@ describe("Unread list (Magazine)", () => {
     expect(screen.getByRole("main")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
     expect(screen.getByText("Today")).toBeInTheDocument();
-    // Unread rows end their accessible name with "unread" (the title comes first); read rows do not.
-    expect(screen.getByRole("link", { name: /^Article number 1, unread/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Article number 1/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^Article number 2/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Star: Article number 3/ })).toHaveAttribute("aria-pressed", "true");
     expect(await axe(container)).toHaveNoViolations();

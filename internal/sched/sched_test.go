@@ -1161,7 +1161,8 @@ func TestStatusNeverBlocksShutdown(t *testing.T) {
 	s := New(db, fetch.NewClient(fetch.ClientOptions{}), events.New(), nil, quiet, Options{})
 	done := make(chan struct{})
 	var runs []RunStatus
-	go func() { defer close(done); runs, _ = s.Status() }()
+	var ok bool
+	go func() { defer close(done); runs, _, ok = s.Status() }()
 	select {
 	case <-done:
 		t.Fatal("Status returned before Stop with no dispatcher; it should wait")
@@ -1175,6 +1176,7 @@ func TestStatusNeverBlocksShutdown(t *testing.T) {
 	}
 	require.NotNil(t, runs)
 	require.Empty(t, runs)
+	require.False(t, ok, "a stopped dispatcher did not answer")
 
 	// and it gives up by itself if the dispatcher is wedged
 	old := statusWait
@@ -1182,8 +1184,9 @@ func TestStatusNeverBlocksShutdown(t *testing.T) {
 	t.Cleanup(func() { statusWait = old })
 	s2 := New(db, fetch.NewClient(fetch.ClientOptions{}), events.New(), nil, quiet, Options{})
 	start := time.Now()
-	runs, inflight := s2.Status()
+	runs, inflight, ok := s2.Status()
 	require.Less(t, time.Since(start), 2*time.Second)
+	require.False(t, ok, "a wedged dispatcher did not answer")
 	require.Empty(t, runs)
 	require.Zero(t, inflight)
 }

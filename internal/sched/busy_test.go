@@ -45,7 +45,7 @@ func TestBusyIsReliableWhenTheDispatcherIsLoaded(t *testing.T) {
 	wedged := make(chan struct{})
 	go r.s.inDispatcher(func() { close(wedged); <-unwedge })
 	<-wedged
-	runs, _ := r.s.Status()
+	runs, _, _ := r.s.Status()
 	require.Empty(t, runs, "the old signal: a loaded dispatcher reads as idle")
 	// From here a Busy that consults the dispatcher (as Status does) would wait an
 	// hour for its answer, so it can only answer in time by not asking at all.
@@ -112,7 +112,7 @@ func TestOverlappingRunsOfOneKindAreAllTracked(t *testing.T) {
 	waitFor(t, "all in flight", func() bool { return srv.count("/a1") == 1 && srv.count("/a2") == 1 && srv.count("/b") == 1 })
 
 	ids := func() (out []int64) {
-		runs, _ := r.s.Status()
+		runs, _, _ := r.s.Status()
 		for _, rs := range runs {
 			out = append(out, rs.ID)
 		}

@@ -166,8 +166,8 @@ describe("layouts", () => {
       const { container } = go("/l/unread");
       await screen.findByText("Article number 1");
       hallmarks[id](container);
-      // Unread state is in the accessible name (and the dot and weight), never color alone.
-      expect(screen.getByRole("link", { name: /^Article number 1, unread/ })).toBeInTheDocument();
+      // The rows are named by their titles (the unread word is generated text: layouts/rowName.test.tsx, uat/row-name.mjs).
+      expect(screen.getByRole("link", { name: /^Article number 1/ })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /^Article number 2/ })).toBeInTheDocument();
       expect(await axe(container)).toHaveNoViolations();
     });

@@ -93,7 +93,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	if unread > unreadWarnAt {
 		warnings = append(warnings, warning{"unread_cap", "Unread total is above 10,000: some sync apps only load the newest 10,000 unread ids."})
 	}
-	schedRuns, _ := s.opt.Sched.Status()
+	schedRuns, _, eventID := s.schedStatus()
 	runs := make([]any, 0, len(schedRuns)+1)
 	for _, run := range schedRuns {
 		runs = append(runs, run)
@@ -113,6 +113,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		"counts":         map[string]int64{"unread": unread, "starred": starred, "muted": muted},
 		"highlights":     highlights,
 		"runs":           runs,
+		"event_id":       eventID,
 		"warnings":       warnings,
 		"saved_searches": savedSearches,
 		"server_time":    now.Unix(),

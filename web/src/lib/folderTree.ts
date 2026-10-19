@@ -99,6 +99,12 @@ export function subtreeOf(t: FolderTree<F>, id: string): Set<string> {
 }
 
 /** How many levels the folder's subtree spans: 1 for a folder with no subfolders. */
+/** The feeds in a folder or in any folder inside it: the feeds a folder's list shows. */
+export function feedsInFolder<T extends { folder_id: string }>(folder: string, feeds: readonly T[], folders: readonly F[]): T[] {
+  const inside = subtreeOf(folderTree(folders), folder);
+  return feeds.filter((f) => inside.has(f.folder_id));
+}
+
 export function heightOf(t: FolderTree<F>, id: string): number {
   let h = 0;
   for (const c of childrenOf(t, id)) h = Math.max(h, heightOf(t, c));
