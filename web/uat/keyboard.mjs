@@ -103,16 +103,16 @@ function installHelpers() {
   /**
    * Whether a list row control's focus ring is cut off by a box that clips its overflow (the row's neighbours, the
    * swipe container, a line-clamped title), checked from the boxes: the ring's rectangle is the control's box, or for a
-   * ring drawn by an absolutely placed ::after (a row link's) its containing block's, grown by outline offset and width.
+   * ring drawn by an absolutely placed pseudo-element (a row link's ::before) its containing block's, grown by outline offset and width.
    * Only boxes inside the list's scroller count: the scroller clipping a row scrolled half out of view is not a fault.
    */
   const ringClipped = (e, s) => {
     const scroller = e.closest('[data-testid="list-scroll"]');
     if (!scroller || !e.closest("[data-item-id]")) return false;
-    const after = getComputedStyle(e, "::after");
+    const pseudo = [getComputedStyle(e, "::before"), getComputedStyle(e, "::after")].find((p) => ringOf(p) && p.position === "absolute");
     const own = ringOf(s);
-    const st = own ? s : after;
-    if (!own && !(ringOf(after) && after.position === "absolute")) return false;
+    const st = own ? s : pseudo;
+    if (!own && !pseudo) return false;
     const box = own ? e : e.offsetParent;
     if (!box) return false;
     const grow = parseFloat(st.outlineOffset) + parseFloat(st.outlineWidth);

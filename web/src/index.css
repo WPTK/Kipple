@@ -157,15 +157,25 @@ body {
   outline-width: 3px;
 }
 
-/* A list row's title link covers the whole row with its ::after (the row is the containing block), which makes the
+/* A list row's title link covers the whole row with its ::before (the row is the containing block), which makes the
    row the tap target and draws the focus ring around the row. The ring goes inside the row: outside it, the row's
    neighbours and the swipe container would clip it. The link's own ring would be cut by the title's line clamp. */
-.row-link::after {
+.row-link::before {
   content: "";
   position: absolute;
   inset: 0;
   /* A rounded row (a card) clips its corners: the ring follows them instead (--row-radius is the row's radius). */
   border-radius: var(--row-radius, 0);
+}
+/* An unread row's link is named "Title, unread" by this generated text: accessible-name computation includes it, the
+   link's text, a selection of it and find-in-page do not. It is not an aria-label: a label that must contain the visible
+   text fails axe label-content-name-mismatch when a search mark past a truncated title's edge drops out of the visible
+   text (#513). It is ::after because the hit area and focus ring above are ::before. Zero-size inline text, not an absolutely
+   positioned clip: a blockified pseudo gets a space before it in the name ("Title , unread"). */
+.row-link[data-row-unread]::after {
+  content: ", " attr(data-row-unread);
+  font-size: 0;
+  line-height: 0;
 }
 /* Every layout's title is this link: a long unbroken word (an address, a hashtag) wraps instead of running past the
    row. The one-line layouts (Headlines, Inbox) truncate the title, so there it ends in an ellipsis. */
@@ -173,13 +183,13 @@ body {
 .row-link:focus-visible {
   outline: none;
 }
-.row-link:focus-visible::after {
+.row-link:focus-visible::before {
   outline: 2px solid var(--kp-accent);
   outline-offset: -2px;
 }
-:root[data-theme="signal"] .row-link:focus-visible::after,
-:root[data-theme="inkwell"] .row-link:focus-visible::after,
-:root[data-theme="teletype"] .row-link:focus-visible::after {
+:root[data-theme="signal"] .row-link:focus-visible::before,
+:root[data-theme="inkwell"] .row-link:focus-visible::before,
+:root[data-theme="teletype"] .row-link:focus-visible::before {
   outline-width: 3px;
   outline-offset: -3px;
 }
@@ -364,7 +374,7 @@ a.sr-only-live:focus {
   :root[data-theme] { --kp-border: var(--kp-text); --kp-text2: var(--kp-text); }
   :focus-visible { outline-width: 3px; outline-offset: 3px; }
   .row-link:focus-visible { outline: none; }
-  .row-link:focus-visible::after { outline-width: 3px; outline-offset: -3px; }
+  .row-link:focus-visible::before { outline-width: 3px; outline-offset: -3px; }
   a { text-decoration: underline; }
   .clamp-snippet { color: var(--kp-text); }
 }
@@ -374,7 +384,7 @@ a.sr-only-live:focus {
 @media (forced-colors: active) {
   :focus-visible { outline: 3px solid Highlight; outline-offset: 2px; }
   .row-link:focus-visible { outline: none; }
-  .row-link:focus-visible::after { outline: 3px solid Highlight; outline-offset: -3px; }
+  .row-link:focus-visible::before { outline: 3px solid Highlight; outline-offset: -3px; }
   .kp-unread-dot[data-unread="true"] { forced-color-adjust: none; background: CanvasText; }
   [aria-current="page"], [aria-checked="true"], label:has(input:checked) { outline: 2px solid Highlight; }
   label:has(input:checked) { forced-color-adjust: none; background: Highlight; color: HighlightText; }
