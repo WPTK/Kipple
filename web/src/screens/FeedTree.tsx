@@ -12,6 +12,7 @@ import { cn } from "@/lib/cn";
 import { RevealMore, useReveal, type Reveal } from "@/lib/reveal";
 import { FavStar } from "@/ui/FavStar";
 import { SavedSearchesNav } from "./SavedSearchesNav";
+import { FeedRowName, feedLabel } from "./feeds/FeedRowName";
 import { UnreadCount, unreadName } from "@/ui/UnreadCount";
 
 export const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
@@ -219,7 +220,7 @@ function FeedItem({ f, level, ctx, fav }: { f: Feed; level: number; ctx: TreeCtx
         data-keep-focus
         data-reveal-key={key}
         aria-level={level}
-        aria-label={unreadName(f.title, f.unread, ctx.unreadBadge)}
+        aria-label={unreadName(feedLabel(f), f.unread, ctx.unreadBadge)}
         tabIndex={ctx.tabStop === key ? 0 : -1}
         data-tree-key={key}
         data-fav={`feed:${f.id}`}
@@ -227,11 +228,13 @@ function FeedItem({ f, level, ctx, fav }: { f: Feed; level: number; ctx: TreeCtx
       >
         <Link tabIndex={-1} to={openListTo({ feed: f.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 text-sm", !fav && "pl-3")}>
           <FeedIcon feed={f} />
-          <span className="truncate">{f.title}{" "}</span>
+          <span className="min-w-0">
+            <FeedRowName feed={f} />{" "}
+          </span>
           <span className="ml-auto" />
           <UnreadCount n={f.unread} />
         </Link>
-        <FavStar on={ctx.favs.has("feed", f.id)} name={f.title} onToggle={() => ctx.favs.toggle("feed", f.id)} className={fav ? undefined : reveal} tabIndex={-1} />
+        <FavStar on={ctx.favs.has("feed", f.id)} name={feedLabel(f)} onToggle={() => ctx.favs.toggle("feed", f.id)} className={fav ? undefined : reveal} tabIndex={-1} />
       </div>
     </li>
   );
