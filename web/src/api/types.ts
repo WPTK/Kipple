@@ -160,6 +160,8 @@ export interface Bootstrap {
   /** The saved searches, without counts (docs/design.md 7.1d). Absent on an older server. */
   saved_searches?: SavedSearch[];
   runs: RunStatus[];
+  /** The id of the last event the server had published when it read `runs` (an SSE `id:`); how new `runs` is. Absent on an older server. */
+  event_id?: string;
   warnings: Warning[];
   server_time: number;
   version: string;
@@ -169,6 +171,8 @@ export interface Bootstrap {
 
 export interface StatusResponse {
   runs: RunStatus[];
+  /** As `Bootstrap.event_id`: the last event published before the server read `runs`. */
+  event_id?: string;
   inflight: number;
   unread_total: number;
   /** How many articles are muted right now (absent on an older server). */

@@ -61,6 +61,141 @@ describe("seedRuns", () => {
   });
 });
 
+// Issue #536: an answer (bootstrap, /api/status, a 202 body) can reach the client after events it predates. Each one
+// carries `event_id`, the last event the server had published before it looked, and each run remembers the id of the
+// last event or answer about it, so an older answer is told from a newer one whichever path it came by.
+describe("answers older or newer than the stream (issue #536)", () => {
+  const run = (id: string, over: object = {}) => ({ id, kind: "import", done: 1, total: 5, new_items: 0, errors: 0, ...over });
+  const event = (ev: ServerEvent, id: number) => liveStore.set((s) => reduceEvent(s, ev, id));
+  const start = (id: string, at: number, kind = "import") => event({ type: "run.start", data: { run_id: id, kind, total: 5 } }, at);
+  const done = (id: string, at: number, extra: object = {}) => event({ type: "run.done", data: { run_id: id, new_items: 0, errors: 0, ...extra } } as ServerEvent, at);
+  const status = (event_id: string | undefined, runs: object[]) => mockFetch({ "GET /api/status": () => json({ runs, inflight: 0, unread_total: 0, ...(event_id ? { event_id } : {}) }) });
+
+  it("a status answer built before run.done does not bring the finished run back", async () => {
+    start("7", 10);
+    done("7", 20, { errors: 1, error: "x" });
+    status("15", [run("7")]);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs).toEqual({});
+    expect(liveStore.get().finished["7"]).toMatchObject({ errors: 1, error: "x", seq: 20 }); // the exact result is kept
+    expect(liveStore.get().finished["7"]?.inferred).toBeUndefined();
+  });
+
+  it("a status answer built before a run the 202 announced does not end that run", async () => {
+    seedRun(run("8", { kind: "manual", done: 0 }), "100"); // the 202 body: the run exists at event 100
+    status("90", []);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs["8"]).toBeDefined();
+    expect(liveStore.get().finished["8"]).toBeUndefined();
+    // An answer built after it: the run is over.
+    status("110", []);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs).toEqual({});
+    expect(liveStore.get().finished["8"]).toMatchObject({ inferred: true, kind: "manual" });
+  });
+
+  it("a status answer built before the stream's later progress leaves the live numbers alone", async () => {
+    start("9", 10);
+    event({ type: "run.progress", data: { run_id: "9", done: 4, total: 5, new_items: 0, errors: 0 } }, 30);
+    status("20", [run("9", { done: 1 })]);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs["9"]?.done).toBe(4);
+    status("40", [run("9", { done: 5 })]); // a newer answer (the stream is down) is taken
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs["9"]?.done).toBe(5);
+  });
+
+  it("a bootstrap built before run.done does not bring the run back, however many runs finished since", () => {
+    for (let i = 0; i < FINISHED_KEEP_MAX + 5; i++) {
+      start(String(i), 100 + 2 * i);
+      done(String(i), 101 + 2 * i);
+    }
+    expect(Object.keys(liveStore.get().finished)).toHaveLength(FINISHED_KEEP_MAX); // run 0 is no longer remembered
+    expect(liveStore.get().finished["0"]).toBeUndefined();
+    seedRuns([run("0")], "100"); // built while run 0 was going
+    expect(liveStore.get().runs).toEqual({});
+    seedRun(run("1"), "103");
+    expect(liveStore.get().runs).toEqual({});
+    // A bootstrap built after all of them introduces a run that really is going.
+    seedRuns([run("900")], "500");
+    expect(Object.keys(liveStore.get().runs)).toEqual(["900"]);
+  });
+
+  it("a run forgotten for age is guarded the same way", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-19T12:00:00Z"));
+    start("1", 10);
+    done("1", 20);
+    vi.advanceTimersByTime(FINISHED_KEEP_MS + 1000);
+    start("2", 30);
+    done("2", 40); // makes room: run 1's result is dropped now
+    expect(liveStore.get().finished["1"]).toBeUndefined();
+    seedRuns([run("1")], "15");
+    expect(liveStore.get().runs).toEqual({});
+    vi.useRealTimers();
+  });
+
+  it("run.done after a poll ended the run keeps the run's kind, and announces by it", async () => {
+    const toasts = await import("@/shell/toasts");
+    const spy = vi.spyOn(toasts, "announce");
+    const qc = new QueryClient();
+    handleServerEvent(qc, { type: "run.start", data: { run_id: "7", kind: "import", total: 5 } }, 10);
+    status("15", []);
+    await pollStatus(qc);
+    expect(liveStore.get().finished["7"]).toMatchObject({ kind: "import", inferred: true });
+    handleServerEvent(qc, { type: "run.done", data: { run_id: "7", new_items: 20, errors: 0 } }, 20);
+    expect(liveStore.get().finished["7"]).toMatchObject({ kind: "import", errors: 0, seq: 20 });
+    expect(liveStore.get().finished["7"]?.inferred).toBeUndefined();
+    expect(spy).not.toHaveBeenCalled(); // an import's items arrive silently
+    // A manual run is announced by its kind too.
+    handleServerEvent(qc, { type: "run.start", data: { run_id: "8", kind: "manual", total: 5 } }, 30);
+    status("35", []);
+    await pollStatus(qc);
+    handleServerEvent(qc, { type: "run.done", data: { run_id: "8", new_items: 0, errors: 0 } }, 40);
+    expect(spy).toHaveBeenCalledWith("No new articles");
+    spy.mockRestore();
+  });
+
+  it("an end only inferred from a poll is marked as inferred and carries no result", async () => {
+    start("5", 10, "auto_read");
+    event({ type: "run.progress", data: { run_id: "5", done: 3, total: 9, new_items: 0, errors: 1, changed: 3 } }, 12);
+    status("20", []);
+    await pollStatus(new QueryClient());
+    const f = liveStore.get().finished["5"]!;
+    expect(f).toMatchObject({ inferred: true, kind: "auto_read", errors: 1, seq: 20 });
+    expect(f.changed).toBeUndefined();
+    expect(f.error).toBeUndefined();
+  });
+
+  it("an end only inferred is undone by a newer answer or event that shows the run going (a poll made while the server was busy)", async () => {
+    start("5", 10);
+    status("20", []);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().finished["5"]?.inferred).toBe(true);
+    status("30", [run("5", { done: 2 })]);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs["5"]?.done).toBe(2);
+    expect(liveStore.get().finished["5"]).toBeUndefined();
+    // And the real end still replaces it.
+    done("5", 40, { changed: 7 });
+    expect(liveStore.get().finished["5"]).toMatchObject({ changed: 7, seq: 40 });
+  });
+
+  it("an exact end is not undone by any answer", () => {
+    start("5", 10);
+    done("5", 20);
+    seedRuns([run("5")], "9999");
+    expect(liveStore.get().runs).toEqual({});
+  });
+
+  it("an answer without event_id is the oldest: it introduces a run but never ends or updates one the stream described", async () => {
+    start("5", 10);
+    status(undefined, []);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs["5"]).toBeDefined();
+  });
+});
+
 describe("reduceEvent", () => {
   it("tracks run progress and clears it on run.done", () => {
     let s = reduceEvent(initialLive, { type: "run.start", data: { run_id: "9", kind: "refresh", total: 4 } });

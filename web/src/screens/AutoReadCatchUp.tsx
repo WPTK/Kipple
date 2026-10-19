@@ -76,7 +76,11 @@ export function AutoReadCatchUp({
       const exact = fin?.changed !== undefined;
       const changed = fin?.changed ?? before.changed ?? before.done;
       const marked = changed > 0 ? `${exact ? "Marked" : "Marked at least"} ${n(changed)} older article${changed === 1 ? "" : "s"} as read.` : "Nothing was left to mark.";
-      setNote(fin?.error ? `${changed > 0 ? `${marked} ` : ""}The catch-up stopped early because of an error. Preview again to see what is left.` : marked);
+      if (fin?.inferred) {
+        // A status poll stopped listing the run and no run.done was heard: Kipple does not know whether it finished, so a
+        // clean "nothing was left to mark" (or a count with no caveat) would be a guess.
+        setNote(`${changed > 0 ? `${marked} ` : ""}The catch-up has ended, but Kipple didn't hear how it went. Preview again to see what is left.`);
+      } else setNote(fin?.error ? `${changed > 0 ? `${marked} ` : ""}The catch-up stopped early because of an error. Preview again to see what is left.` : marked);
       setPreview(null);
     }
   }, [active]);
@@ -103,7 +107,7 @@ export function AutoReadCatchUp({
     try {
       const r = await runAutoRead({ ...body, expect_total: shown.total, ...(confirmed ? { confirm: true } : {}) });
       // Show it running now: the stream's run.start may be far away (or the stream down).
-      seedRun({ id: String(r.id), kind: "auto_read", done: r.done, total: r.total, changed: r.changed, new_items: r.new_items, errors: r.errors });
+      seedRun({ id: String(r.id), kind: "auto_read", done: r.done, total: r.total, changed: r.changed, new_items: r.new_items, errors: r.errors }, r.event_id);
       setConfirm(false);
       setGrew(null);
       announce("Marking old articles as read");

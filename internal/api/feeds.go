@@ -12,8 +12,22 @@ import (
 	"github.com/WPTK/kipple/internal/store"
 )
 
+// eventID is the id of the latest event the hub has published, as a string (ids are strings in every JSON body), or
+// "0" without a hub. An answer that lists runs (bootstrap, /api/status) reads it BEFORE it reads them, and one that
+// names a run it just started (the 202 of refresh, import, auto-read) reads it AFTER it started it. Either way every
+// run event with an id up to this one has already changed the state the answer shows (a run is added, advanced or
+// removed before its event is published), so a client can tell whether the answer is older or newer than an event it
+// has seen: an answer lists no run that ended at or before its event_id, and lacks none that started at or before it.
+func (s *Server) eventID() string {
+	if s.opt.Hub == nil {
+		return "0"
+	}
+	return strconv.FormatUint(s.opt.Hub.LastID(), 10)
+}
+
 // status is GET /api/status: the SSE fallback.
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
+	eventID := s.eventID()
 	schedRuns, inflight := s.opt.Sched.Status()
 	unread, err := s.db.UnreadTotal(r.Context())
 	if err != nil {
@@ -36,7 +50,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	if ar := s.autoReadStatus(); ar != nil {
 		runs = append(runs, ar)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "inflight": inflight, "unread_total": unread, "muted": muted})
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "event_id": eventID, "inflight": inflight, "unread_total": unread, "muted": muted})
 }
 
 // healthFeed is store.FeedHealth plus derived fields.
@@ -142,7 +156,7 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "refresh", err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"run_id": fmt.Sprint(info.RunID), "total": info.Total, "joined": info.Joined})
+	writeJSON(w, http.StatusAccepted, map[string]any{"run_id": fmt.Sprint(info.RunID), "total": info.Total, "joined": info.Joined, "event_id": s.eventID()})
 }
 
 // feedIcon is GET /api/feeds/{id}/icon. The ?h=<hash> in bootstrap's URL only

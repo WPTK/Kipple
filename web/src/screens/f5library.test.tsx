@@ -6,7 +6,7 @@ import { QueryClient } from "@tanstack/react-query";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import type { SettingMeta } from "@/api/admin";
-import { handleServerEvent, initialLive, liveStore, resetSavedSearchCounts, SAVED_COUNTS_MIN_MS } from "@/api/events";
+import { handleServerEvent, initialLive, liveStore, pollStatus, resetSavedSearchCounts, SAVED_COUNTS_MIN_MS } from "@/api/events";
 import { COUNTS_RETRY, invalidateSavedSearches, savedSearchCountsKey, savedSearchesKey, searchRoute, unreadLabel } from "@/api/savedSearches";
 import type { SavedSearch } from "@/api/types";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
@@ -855,6 +855,31 @@ describe("Auto-read catch-up (review 3)", () => {
       handleServerEvent(qc, { type: "run.done", data: { run_id: "90", kind: "auto_read", new_items: 0, errors: 0, changed: 1200, scanned: 1200 } });
     });
     expect(await screen.findByText("Marked 1,200 older articles as read.")).toBeInTheDocument();
+  });
+
+  // Issue #536 (round 2): a status poll that stops listing the run ends it without a run.done, so there is no
+  // count of what it marked and no word on whether it failed: the note must not read as a clean finish.
+  it("does not report a clean finish for a run a status poll stopped listing", async () => {
+    base({
+      "POST /api/library/auto-read/preview": () => json(preview40),
+      "POST /api/library/auto-read/run": () => json(RUN, 202),
+      "GET /api/status": () => json({ unread_total: 3, runs: [], event_id: "900" }),
+    });
+    go("/settings/sync");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
+    await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
+    const qc = new QueryClient();
+    act(() => {
+      handleServerEvent(qc, { type: "run.start", data: { run_id: "90", kind: "auto_read", total: 40 } }, 800);
+      handleServerEvent(qc, { type: "run.progress", data: { run_id: "90", done: 10, total: 40, new_items: 0, errors: 0, changed: 10 } }, 810);
+    });
+    expect(await screen.findByTestId("auto-read-progress")).toHaveTextContent("10 marked");
+    await act(async () => {
+      await pollStatus(qc);
+    });
+    expect(await screen.findByText(/^Marked at least 10 older articles as read. The catch-up has ended, but Kipple didn't hear how it went./)).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing was left to mark/)).toBeNull();
   });
 
   it("shows the run at once from the 202 body, with no stream event: Preview is disabled and progress shows", async () => {

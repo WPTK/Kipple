@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -418,7 +419,7 @@ func TestStatusMeHealthRefresh(t *testing.T) {
 
 	rec = h.do("POST", "/api/refresh", "", withCookie(c))
 	require.Equal(t, http.StatusAccepted, rec.Code)
-	require.JSONEq(t, `{"run_id":"42","total":3,"joined":false}`, rec.Body.String())
+	require.JSONEq(t, `{"run_id":"42","total":3,"joined":false,"event_id":"`+strconv.FormatUint(h.hub.LastID(), 10)+`"}`, rec.Body.String())
 
 	ctx := context.Background()
 	id, err := h.db.AddFeed(ctx, store.NewFeed{URL: "https://a.example/feed.xml"})
@@ -470,12 +471,14 @@ func TestOPMLImportExport(t *testing.T) {
 	rec := h.do("POST", "/api/opml?mark_read_older_than_days=7", doc, withCookie(c))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var res struct {
-		FeedsAdded int `json:"feeds_added"`
-		RunID      any `json:"run_id"`
+		FeedsAdded int    `json:"feeds_added"`
+		RunID      any    `json:"run_id"`
+		EventID    string `json:"event_id"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
 	require.Equal(t, 1, res.FeedsAdded)
 	require.Equal(t, "43", res.RunID)
+	require.Equal(t, strconv.FormatUint(h.hub.LastID(), 10), res.EventID, "the import answer names the event it follows (issue #536)")
 	require.Len(t, h.sched.imported, 1)
 
 	// second import: existing feed, no new run

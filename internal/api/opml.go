@@ -65,8 +65,9 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, struct {
 		opml.Result
-		RunID any `json:"run_id"`
-	}{res, s.afterImport(res)})
+		RunID   any    `json:"run_id"`
+		EventID string `json:"event_id"`
+	}{Result: res, RunID: s.afterImport(res), EventID: s.eventID()}) // the id is read after the import run started
 }
 
 // afterImport is what follows every import (OPML, recommended feeds): the
