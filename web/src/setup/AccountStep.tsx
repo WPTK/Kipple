@@ -86,7 +86,7 @@ export function AccountStep({
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [ack, setAck] = useState(false);
-  const [fieldError, setFieldError] = useState<{ field: "username" | "password" | "open"; message: string } | null>(null);
+  const [fieldError, setFieldError] = useState<{ field: "username" | "password" | "again" | "open"; message: string } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -118,7 +118,9 @@ export function AccountStep({
           setFieldError({ field: "password", message: problem });
           pwInput.current?.focus();
         } else {
-          // A mismatch is already announced by the "Password again" field; a second alert would read it twice.
+          // A mismatch is already announced by the "Password again" field (submitting marks it left); a second alert
+          // would read it twice. An empty one has no live check, so it gets its own word.
+          if (again === "") setFieldError({ field: "again", message: "Enter the password again." });
           againInput.current?.focus();
         }
       } else if (choice === "open" && !ack) setFieldError({ field: "open", message: "Tick the box to confirm you understand." });
@@ -226,8 +228,8 @@ export function AccountStep({
                     />
                   )}
                 </Field>
-                <Field label="Password again" error={mismatch}>
-                  {(a) => <input {...a} ref={againInput} name="new-password-again" type="password" autoComplete="new-password" value={again} onBlur={() => leave("again")} onChange={(e) => setAgain(e.target.value)} className={inputCls} />}
+                <Field label="Password again" error={fieldError?.field === "again" ? fieldError.message : mismatch}>
+                  {(a) => <input {...a} ref={againInput} name="new-password-again" type="password" autoComplete="new-password" value={again} onBlur={() => leave("again")} onChange={(e) => { setAgain(e.target.value); setFieldError(null); }} className={inputCls} />}
                 </Field>
               </div>
             ) : null}
