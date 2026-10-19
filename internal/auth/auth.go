@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,35 +45,75 @@ func HashPassword(pw string) (string, error) {
 		argon2.Version, memoryKiB, timeCost, threads, enc.EncodeToString(salt), enc.EncodeToString(key)), nil
 }
 
-// CheckPassword verifies pw against a PHC string produced by HashPassword.
-func CheckPassword(pw, phc string) bool {
+// Limits on a stored hash. HashPassword writes the constants above; anything a row holds beyond these is a hand-edited
+// or restored row, refused instead of panicking in argon2.IDKey (zero rounds) or holding the one hashing slot for minutes.
+const (
+	maxMemoryKiB = 1 << 18 // 256 MiB
+	maxTimeCost  = 8
+	maxThreads   = 4
+	minSaltLen   = saltLen / 2
+	minKeyLen    = keyLen / 2 // a one-byte tag would match a wrong password 1 time in 256
+	maxFieldLen  = 64
+)
+
+// storedHash is a parsed PHC string, every field already inside the limits above.
+type storedHash struct {
+	memory, time uint32
+	threads      uint8
+	salt, key    []byte
+}
+
+// parseDigits reads "<key>=<decimal digits>" as HashPassword writes it: no sign, space, trailing text or leading zero.
+func parseDigits(field, key string) (uint64, bool) {
+	digits, found := strings.CutPrefix(field, key+"=")
+	if !found || (len(digits) > 1 && digits[0] == '0') {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(digits, 10, 32)
+	return n, err == nil
+}
+
+// parseHash reads "$argon2id$v=19$m=<KiB>,t=<rounds>,p=<threads>$<salt>$<tag>" as HashPassword writes it.
+func parseHash(phc string) (h storedHash, ok bool) {
 	parts := strings.Split(phc, "$")
-	if len(parts) != 6 || parts[1] != "argon2id" {
-		return false
+	if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" {
+		return h, false
 	}
-	var version int
-	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil || version != argon2.Version {
-		return false
+	if v, ok := parseDigits(parts[2], "v"); !ok || v != argon2.Version {
+		return h, false
 	}
-	var m, t uint32
-	var p uint8
-	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &p); err != nil {
-		return false
+	cost := strings.Split(parts[3], ",")
+	if len(cost) != 3 {
+		return h, false
 	}
-	if m > 1<<20 || t > 16 || p == 0 || p > 16 { // refuse absurd stored parameters
-		return false
+	m, okM := parseDigits(cost[0], "m")
+	t, okT := parseDigits(cost[1], "t")
+	p, okP := parseDigits(cost[2], "p")
+	if !okM || !okT || !okP || p < 1 || p > maxThreads || t < 1 || t > maxTimeCost || m < 8*p || m > maxMemoryKiB {
+		return h, false
 	}
 	enc := base64.RawStdEncoding
 	salt, err := enc.DecodeString(parts[4])
-	if err != nil {
+	if err != nil || len(salt) < minSaltLen || len(salt) > maxFieldLen {
+		return h, false
+	}
+	key, err := enc.DecodeString(parts[5])
+	if err != nil || len(key) < minKeyLen || len(key) > maxFieldLen {
+		return h, false
+	}
+	return storedHash{memory: uint32(m), time: uint32(t), threads: uint8(p), salt: salt, key: key}, true
+}
+
+// CheckPassword verifies pw against a PHC string produced by HashPassword. A stored hash that is not well formed
+// never verifies (and is logged, since the owner would otherwise see only a wrong password).
+func CheckPassword(pw, phc string) bool {
+	h, ok := parseHash(phc)
+	if !ok {
+		slog.Warn("auth: the stored password hash is malformed or outside the accepted limits; it cannot verify")
 		return false
 	}
-	want, err := enc.DecodeString(parts[5])
-	if err != nil || len(want) == 0 {
-		return false
-	}
-	got := argon2.IDKey([]byte(pw), salt, t, m, p, uint32(len(want)))
-	return subtle.ConstantTimeCompare(got, want) == 1
+	got := argon2.IDKey([]byte(pw), h.salt, h.time, h.memory, h.threads, uint32(len(h.key)))
+	return subtle.ConstantTimeCompare(got, h.key) == 1
 }
 
 // Verifier verifies passwords with at most one argon2id run at a time and a
