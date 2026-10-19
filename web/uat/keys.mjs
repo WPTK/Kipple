@@ -218,7 +218,7 @@ await t.eachViewport(async (page, vp) => {
         const ring = await page.evaluate(() => {
           const a = document.activeElement;
           if (!a?.classList.contains("row-link")) return null;
-          const s = getComputedStyle(a, "::after");
+          const s = getComputedStyle(a, "::before");
           const host = getComputedStyle(a.closest("[data-item-id]"));
           return { outline: s.outlineStyle, radius: s.borderTopLeftRadius, host: host.borderTopLeftRadius };
         });

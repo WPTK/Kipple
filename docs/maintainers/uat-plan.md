@@ -208,6 +208,13 @@ pixel gets no cue, and an image whose source answers 500 stays an image (I3); ba
 again, from the app's cache, shows the cues again (I4); a second article of 30 lazy images below the fold sends no
 image request and no check until it is scrolled, then they load (I5).
 
+Row link names (`npm run uat:row-name`, `web/uat/row-name.mjs`, same instance, credentials and exit codes), at 375, 768 and
+1280 px wide, in every list layout, against a feed the flow serves itself: two articles with titles far longer than a
+phone's row and the search word past the point a one-line layout cuts them, one unread and one read. In the search
+results axe's label-content-name-mismatch finds nothing (N1); the browser's own accessible name for the unread row's link
+is the title, then ", unread", for the read one the title alone, and the link's text is the title alone (N2); the page
+does not scroll sideways (N3).
+
 **Label guard (no browser).** The screens above find controls by accessible name, so renaming an `aria-label` in
 `web/src` breaks every screen that looks for the old one without failing any other check. `node scripts/uat-labels.mjs
 [<git range>]` (default `origin/main...HEAD`) reads the diff of `web/src`, takes the static text of each removed or

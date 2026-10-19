@@ -202,7 +202,7 @@ describe("names that tell rows apart (#500)", () => {
     await screen.findByText("Article number 2");
     expect(screen.getByRole("button", { name: "Star: Article number 2" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "More actions: Article number 2" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Article number 2, unread" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Article number 2" })).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Primary" });
     // The badge is its own flex item: a browser reads "Unread 60" (web/uat/announce.mjs); jsdom joins it as "Unread3".
     expect(within(nav).getByRole("link", { name: /^Unread\s?3$/ })).toBeInTheDocument();

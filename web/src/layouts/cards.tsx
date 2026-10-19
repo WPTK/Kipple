@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
+import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
@@ -37,8 +37,7 @@ function CardRow({ item, feed, selected, to, onOpen, onToggleStar, actions }: Ro
             to={to}
             onClick={() => onOpen(item)}
             aria-keyshortcuts={ROW_KEYSHORTCUTS}
-            className="row-link"
-            aria-label={rowLabel(item)}
+            {...rowLinkProps(item)}
           >
             <Hl text={item.title || "Untitled"} field="title" feedId={item.feed_id} />
           </Link>
