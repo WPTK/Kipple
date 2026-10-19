@@ -34,6 +34,8 @@ import { clickRow, groupState, toggleGroup } from "@/lib/selection";
 import { cn } from "@/lib/cn";
 import { listTo, openListTo } from "@/lib/routes";
 import { visibleFeeds } from "@/lib/visibleFeeds";
+import { FeedRowName, feedLabel } from "./feeds/FeedRowName";
+import { RevealMore, useReveal } from "@/lib/reveal";
 import { FavStar } from "@/ui/FavStar";
 import { MutedCount } from "@/ui/UnreadCount";
 import { Button } from "@/ui/button";
@@ -274,6 +276,26 @@ export function FeedsScreen() {
   const visibleOrder = useMemo(() => feedOrder(ftree, (id) => tree.feeds[id] ?? []), [ftree, tree]);
   // Each folder's feeds over its subtree (its Select checkbox), built once per tree, not per row and drag move.
   const subtreeIds = useMemo(() => subtreeFeeds(ftree, (id) => tree.feeds[id] ?? []), [ftree, tree]);
+  // The empty default folder only shows while editing, where it takes dropped feeds (issue #469).
+  const topLevel = useMemo(
+    () => childrenOf(ftree, null).filter((id) => editMode || !ftree.byId.get(id)?.is_default || (byFolder[id]?.length ?? 0) > 0),
+    [ftree, byFolder, editMode],
+  );
+  // Every folder and feed row in screen order (collapsed folders hide theirs outside Edit and Select): a library of
+  // thousands of feeds draws them a step at a time (issue #463).
+  const rowKeys = useMemo(() => {
+    const out: string[] = [];
+    const walk = (id: string) => {
+      out.push(`folder:${id}`);
+      if (!selecting && !editMode && dp.collapsedFolders.includes(id)) return;
+      for (const s of childrenOf(ftree, id)) walk(s);
+      for (const f of byFolder[id] ?? []) out.push(`feed:${f.id}`);
+    };
+    for (const id of topLevel) walk(id);
+    return out;
+  }, [ftree, byFolder, topLevel, selecting, editMode, dp.collapsedFolders]);
+  const reveal = useReveal(rowKeys);
+  // Feeds that share a title show their address under it (issue #484).
 
   const markSaved = () => {
     setSaved("saved");
@@ -353,10 +375,18 @@ export function FeedsScreen() {
   };
   const favKey = (f: Favorite) => `${f.t}:${f.id}`;
 
+  // A drop after the last drawn row of a list that is not all drawn yet lands there, before its first row not drawn,
+  // not after the whole list.
+  const endOf = (ids: readonly string[], kind: "feed" | "folder", moving: string) => ids.find((id) => id !== moving && reveal.past(`${kind}:${id}`)) ?? null;
   const drop = (from: DragSource, to: DropTarget) => {
-    if (from.kind === "folder") void applyTree(planFolderDrop(tree, from.id, { parent: to.group || null, before: to.before }));
-    else if (from.kind === "feed") void applyTree(planFeedDrop(tree, from.id, { folder: to.group, before: to.before }));
-    else {
+    if (from.kind === "folder") {
+      const before = to.before ?? endOf(childrenOf(ftree, to.group || null), "folder", from.id);
+      void applyTree(planFolderDrop(tree, from.id, { parent: to.group || null, before }));
+      reveal.ensure(`folder:${from.id}`);
+    } else if (from.kind === "feed") {
+      void applyTree(planFeedDrop(tree, from.id, { folder: to.group, before: to.before ?? endOf(tree.feeds[to.group] ?? [], "feed", from.id) }));
+      reveal.ensure(`feed:${from.id}`);
+    } else {
       const keys2 = favs.favorites.map(favKey);
       const order = insertBefore(keys2, from.id, to.before);
       void applyFavs(order.map((k) => favs.favorites.find((f) => favKey(f) === k) as Favorite));
@@ -396,12 +426,14 @@ export function FeedsScreen() {
       const i = siblings.indexOf(src.id);
       if (i + delta < 0 || i + delta >= siblings.length) return;
       void applyTree(stepFolder(tree, src.id, delta));
+      reveal.ensure(`folder:${src.id}`);
       announce(`Moved ${ftree.byId.get(src.id)?.name ?? "folder"} to position ${i + delta + 1} of ${siblings.length}`);
     } else if (src.kind === "feed") {
       const list = tree.feeds[src.group] ?? [];
       const i = list.indexOf(src.id);
       if (i + delta < 0 || i + delta >= list.length) return;
       void applyTree({ ...tree, feeds: { ...tree.feeds, [src.group]: arrayMove(list, i, i + delta) } });
+      reveal.ensure(`feed:${src.id}`);
       announce(`Moved ${feeds.find((f) => f.id === src.id)?.title ?? "feed"} to position ${i + delta + 1} of ${list.length}`);
     } else {
       const list = favs.favorites;
@@ -470,7 +502,7 @@ export function FeedsScreen() {
   const feedRow = (f: Feed, i: number, list: Feed[], fo: Folder) => {
     const src: DragSource = { kind: "feed", id: f.id, group: fo.id };
     const before = dropAt?.kind === "feed" && dropAt.group === fo.id && dropAt.before === f.id && !isDragged("feed", f.id);
-    const atEnd = dropAt?.kind === "feed" && dropAt.group === fo.id && dropAt.before === null && list.filter((x) => x.id !== dragging?.id).at(-1)?.id === f.id;
+    const atEnd = dropAt?.kind === "feed" && dropAt.group === fo.id && dropAt.before === null && list.filter((x) => x.id !== dragging?.id && !reveal.past(`feed:${x.id}`)).at(-1)?.id === f.id;
     return (
       <li
         key={f.id}
@@ -483,14 +515,15 @@ export function FeedsScreen() {
           <label className={cn(row, "min-w-0 flex-1 cursor-pointer text-sm", sel.has(f.id) && "bg-selection")}>
             <input
               type="checkbox"
-              aria-label={`Select ${f.title}`}
+              aria-label={`Select ${feedLabel(f)}`}
+              data-reveal-key={`feed:${f.id}`}
               checked={sel.has(f.id)}
               onChange={() => undefined}
               onClick={(e) => onCheck(f.id, e.shiftKey)}
               className="size-5 shrink-0 accent-[var(--kp-accent)]"
             />
             <span className="min-w-0">
-              <span className="block truncate">{f.title}</span>
+              <FeedRowName feed={f} />
               <FeedRowStatus status={f.status} error={f.last_error} />
             </span>
             <Badge n={f.unread} />
@@ -498,9 +531,9 @@ export function FeedsScreen() {
         ) : (
           <>
             {editMode ? grip(src, f.title) : null}
-            <Link to={openListTo({ feed: f.id })} draggable={false} className={`${row} min-w-0 flex-1 text-sm`}>
+            <Link to={openListTo({ feed: f.id })} draggable={false} data-reveal-key={`feed:${f.id}`} className={`${row} min-w-0 flex-1 text-sm`}>
               <span className="min-w-0">
-                <span className="block truncate">{f.title}</span>
+                <FeedRowName feed={f} />
                 <FeedRowStatus status={f.status} error={f.last_error} />
               </span>
               <Badge n={f.unread} />
@@ -578,10 +611,10 @@ export function FeedsScreen() {
 
   // While a folder is dragged: the folders it may go inside (not itself, not below itself, not too deep).
   const canHold = useMemo(() => (dragging?.kind === "folder" ? new Set(parentChoices(ftree, dragging.id)) : null), [dragging, ftree]);
-  const topLevel = childrenOf(ftree, null);
 
   /** A folder row, then (unless collapsed) its subfolders and its own feeds. */
   const folderNode = (fo: Folder): React.ReactNode => {
+    if (!reveal.shown(`folder:${fo.id}`)) return null;
     const depth = depthOf(ftree, fo.id);
     const parent = parentOf(ftree, fo.id);
     const siblings = childrenOf(ftree, parent);
@@ -590,7 +623,7 @@ export function FeedsScreen() {
     const inSubtree = subtreeIds.get(fo.id) ?? [];
     const fsrc: DragSource = { kind: "folder", id: fo.id, group: parent ?? "" };
     const folderBefore = dropAt?.kind === "folder" && dropAt.before === fo.id && !isDragged("folder", fo.id);
-    const folderEnd = dropAt?.kind === "folder" && dropAt.before === null && dropAt.group === "" && parent === null && topLevel.filter((x) => x !== dragging?.id).at(-1) === fo.id;
+    const folderEnd = dropAt?.kind === "folder" && dropAt.before === null && dropAt.group === "" && parent === null && topLevel.filter((x) => x !== dragging?.id && !reveal.past(`folder:${x}`)).at(-1) === fo.id;
     const intoFolder =
       (dropAt?.kind === "feed" && dropAt.group === fo.id && inFolder.length === 0) || (dropAt?.kind === "folder" && dropAt.before === null && dropAt.group === fo.id);
     const state = groupState(inSubtree, sel);
@@ -616,6 +649,7 @@ export function FeedsScreen() {
               <input
                 type="checkbox"
                 aria-label={`Select all feeds in ${label}`}
+                data-reveal-key={`folder:${fo.id}`}
                 checked={state === "all"}
                 ref={(el) => {
                   if (el) el.indeterminate = state === "some";
@@ -632,7 +666,7 @@ export function FeedsScreen() {
           ) : (
             <>
               {editMode ? grip(fsrc, `folder ${label}`) : <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} />}
-              <Link to={openListTo({ folder: fo.id })} draggable={false} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
+              <Link to={openListTo({ folder: fo.id })} draggable={false} data-reveal-key={`folder:${fo.id}`} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
                 <span className="truncate">{fo.name}</span>
                 <Badge n={fo.unread} />
               </Link>
@@ -681,7 +715,8 @@ export function FeedsScreen() {
         {collapsed ? null : (
           <ul id={listId} className={depth < 4 ? "pl-6" : "pl-2"}>
             {subfolders.map((id) => folderNode(ftree.byId.get(id) as Folder))}
-            {inFolder.map((f, i) => feedRow(f, i, inFolder, fo))}
+            {inFolder.map((f, i) => (reveal.shown(`feed:${f.id}`) ? feedRow(f, i, inFolder, fo) : null))}
+            {editMode && fo.is_default && inFolder.length === 0 ? <li className="px-3 py-1 text-xs text-fg2">Empty. Feeds added without a folder go here.</li> : null}
           </ul>
         )}
       </li>
@@ -781,7 +816,7 @@ export function FeedsScreen() {
               : "Tap the arrow beside a folder to collapse it, or its menu to rename, move or delete it. Tap Edit to reorder feeds or change one."}
         </p>
       </header>
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+      <div ref={scroller} data-reveal-root="" className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {boot.isPending ? <Skeleton rows={5} label="Loading feeds" /> : null}
         {boot.isError ? <Notice tone="error">Couldn't load your feeds. Check your connection and try again.</Notice> : null}
         {boot.data && realFeeds.length === 0 ? <FirstRun onAdd={() => setAdding(true)} onImport={() => setImporting(true)} /> : null}
@@ -823,6 +858,7 @@ export function FeedsScreen() {
             ) : null}
             {selecting ? null : <SavedSearchesNav />}
             <ul className="flex flex-col gap-1">{topLevel.map((id) => folderNode(ftree.byId.get(id) as Folder))}</ul>
+            <RevealMore reveal={reveal} noun="feeds" />
           </>
         ) : null}
       </div>
@@ -875,6 +911,7 @@ export function FeedsScreen() {
             // The menu item the dialog opened from is gone by now: put the focus back on that menu's button.
             const from = folderDialog.kind === "new" ? folderDialog.parent : folderDialog.folder.id;
             setFolderDialog(null);
+            if (focusFolder ?? from) reveal.ensure(`folder:${focusFolder ?? from}`);
             if (focusFolder) focusActions(folderActionsId(focusFolder));
             else if (from) focusActions(folderActionsId(from));
             else focusActions(FEED_ACTIONS_ID);

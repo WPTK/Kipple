@@ -57,7 +57,7 @@ func TestValidateFeedURLReadsTypedAddresses(t *testing.T) {
 		_, _, _, err := ValidateFeedURL(raw, false)
 		var bad *InvalidURLError
 		require.ErrorAs(t, err, &bad, raw)
-		require.True(t, bad.Private, raw)
+		require.True(t, bad.Kind == URLPrivate, raw)
 	}
 }
 
