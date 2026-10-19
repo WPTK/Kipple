@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -56,4 +57,53 @@ func TestFilterDeleteGateWaitPastBudgetIsResumable(t *testing.T) {
 	require.Equal(t, true, out["done"])
 	require.Zero(t, h.count("SELECT count(*) FROM items WHERE muted_by IS NOT NULL"))
 	require.Zero(t, h.count("SELECT count(*) FROM filters"))
+}
+
+// A run is listed (bootstrap, /api/status) while it counts its candidates, so it ends with a run.done even when the
+// count is cancelled by an edit of the rule or by a shutdown: a client showing it would otherwise wait for an end that
+// never comes.
+func TestApplyThatFailsDuringItsCountPublishesRunDone(t *testing.T) {
+	cases := map[string]func(h *harness){
+		"cancelled by an edit": func(h *harness) {
+			h.srv.apply.mu.Lock()
+			cancel := h.srv.apply.cancelRun
+			h.srv.apply.mu.Unlock()
+			cancel(errApplyCancelled)
+		},
+		"shutdown": func(h *harness) { h.srv.apply.stop() },
+	}
+	for name, interrupt := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			c := h.login()
+			feed := h.addFeed("A", 0)
+			h.bulkItems(feed, 10)
+			sub := h.hub.Subscribe(h.hub.LastID())
+			defer sub.Close()
+			var listed string
+			testApplyCountHook = func() {
+				listed = idStr(h.srv.applyStatus().ID) // the run a client can already see
+				interrupt(h)
+			}
+			t.Cleanup(func() { testApplyCountHook = nil })
+			h.postFilter(c, map[string]any{"action": "mute", "terms": []string{"spam"}, "apply_existing": map[string]any{}})
+			require.Nil(t, h.srv.applyStatus())
+			deadline := time.After(5 * time.Second)
+			for {
+				select {
+				case ev := <-sub.C:
+					if ev.Type != "run.done" {
+						continue
+					}
+					var m map[string]any
+					require.NoError(t, json.Unmarshal(ev.Data, &m))
+					require.Equal(t, listed, m["run_id"])
+					require.Equal(t, "cancelled", m["error"])
+					return
+				case <-deadline:
+					t.Fatal("no run.done for the run that was listed")
+				}
+			}
+		})
+	}
 }

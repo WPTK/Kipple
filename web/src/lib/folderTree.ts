@@ -181,3 +181,28 @@ export function feedOrder(t: FolderTree<F>, feedsOf: (folder: string) => readonl
   walk(null);
   return out;
 }
+
+/** What a screen draws for a folder tree: the rules both the key list and the render follow. */
+export interface RowRules {
+  /** The folders drawn inside a folder, in order. */
+  subfolders: (folder: string) => readonly string[];
+  /** The feeds drawn in a folder, in order. */
+  feeds: (folder: string) => readonly { id: string }[];
+  /** Whether a folder shows its contents (false while collapsed). */
+  open: (folder: string) => boolean;
+}
+
+/**
+ * Visits the rows a folder tree draws, in screen order: each folder, then (when it is open) its subfolders, then its
+ * feeds. This is the one traversal; a screen builds its key list with it and renders by the same `rules`, so the two
+ * cannot drift apart.
+ */
+export function walkRows(roots: readonly string[], rules: RowRules, visit: (kind: "folder" | "feed", id: string) => void): void {
+  const walk = (id: string) => {
+    visit("folder", id);
+    if (!rules.open(id)) return;
+    for (const s of rules.subfolders(id)) walk(s);
+    for (const f of rules.feeds(id)) visit("feed", f.id);
+  };
+  for (const id of roots) walk(id);
+}

@@ -40,7 +40,7 @@ describe("the fetch after an import", () => {
     act(() => liveStore.set((s) => ({ ...s, runs: { "7": { ...s.runs["7"]!, done: 2 } } })));
     expect(screen.getByText("Fetching the new feeds: 2 of 3")).toBeInTheDocument();
 
-    act(() => liveStore.set((s) => ({ ...s, runs: {}, finished: { "7": { kind: "import", errors: 1, at: Date.now() } } })));
+    act(() => liveStore.set((s) => ({ ...s, runs: {}, finished: { "7": { kind: "import", errors: 1, seq: 9, at: Date.now() } } })));
     expect(screen.getByText("Kipple fetched the new feeds. 1 couldn't be fetched; each says why on its row in Manage feeds.")).toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
@@ -66,12 +66,26 @@ describe("the bulk move", () => {
 });
 
 describe("a run whose end was never heard", () => {
-  it("still says the fetch is over once the run is gone", () => {
+  const ended = /^The fetch of the new feeds has ended\. A feed that can't be fetched says why/;
+
+  it("still says the fetch is over once the run is gone, without saying it went well", () => {
     render(<OpmlResultSummary result={result} />);
     expect(screen.getByText("Fetching the new feeds: 0 of 3")).toBeInTheDocument();
     // The status poll drops a run the stream never reported finishing.
     act(() => liveStore.set((s) => ({ ...s, runs: {} })));
-    expect(screen.getByText(/^Kipple fetched the new feeds\. A feed that can't be fetched says why/)).toBeInTheDocument();
+    expect(screen.getByText(ended)).toBeInTheDocument();
+    expect(screen.queryByText(/Kipple fetched the new feeds/)).toBeNull();
     expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  // Issue #536 (round 2): a status poll that stops listing the run records an inferred end. It has no failure count
+  // to report, so it must not read as the exact "Kipple fetched the new feeds."
+  it("words a poll-inferred end as an end, not as a clean result", () => {
+    render(<OpmlResultSummary result={result} />);
+    act(() => {
+      liveStore.set((s) => ({ ...s, runs: {}, finished: { "7": { kind: "import", errors: 0, inferred: true, seq: 9, at: Date.now() } } }));
+    });
+    expect(screen.getByText(ended)).toBeInTheDocument();
+    expect(screen.queryByText(/Kipple fetched the new feeds/)).toBeNull();
   });
 });

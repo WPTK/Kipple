@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { liveStore, pollStatus, seedRun } from "@/api/events";
+import { liveStore, pollStatus, seedRun, type FinishedRun } from "@/api/events";
 import { ApiError, errorMessage } from "@/api/client";
 import { previewAutoRead, runAutoRead, type AutoReadPreview } from "@/api/autoRead";
 import { useStoreSelector } from "@/lib/store";
@@ -25,6 +25,18 @@ function catchUpError(e: unknown): string {
     if (e.status === 400) return typeof e.body?.message === "string" ? e.body.message : "That number of days isn't accepted.";
   }
   return errorMessage(e);
+}
+
+function finishedNote(fin: FinishedRun | undefined, seen: number): string {
+  const exact = fin?.changed !== undefined;
+  const changed = fin?.changed ?? seen;
+  const marked = changed > 0 ? `${exact ? "Marked" : "Marked at least"} ${n(changed)} older article${changed === 1 ? "" : "s"} as read.` : "Nothing was left to mark.";
+  if (fin?.inferred) {
+    // A status poll stopped listing the run and no run.done was heard: Kipple does not know whether it finished, so a
+    // clean "nothing was left to mark" (or a count with no caveat) would be a guess.
+    return `${changed > 0 ? `${marked} ` : ""}The catch-up has ended, but Kipple didn't hear how it went. Preview again to see what is left.`;
+  }
+  return fin?.error ? `${changed > 0 ? `${marked} ` : ""}The catch-up stopped early because of an error. Preview again to see what is left.` : marked;
 }
 
 /**
@@ -58,7 +70,10 @@ export function AutoReadCatchUp({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
+  // The run that just ended and the count its last progress showed. The note is worked out from what the live state
+  // knows about that run now, so a run.done that arrives after an inferred end replaces the vague note.
+  const [over, setOver] = useState<{ id: string; seen: number } | null>(null);
+  const fin = useStoreSelector(liveStore, (s) => (over ? s.finished?.[over.id] : undefined));
   const runs = useStoreSelector(liveStore, (s) => s.runs);
   const active = Object.values(runs).find((r) => r.kind === "auto_read");
   const body = { ...(feedId ? { feed_id: feedId } : {}), ...(days !== undefined ? { days } : {}) };
@@ -72,19 +87,16 @@ export function AutoReadCatchUp({
     const before = last.current;
     last.current = active;
     if (before && !active) {
-      const fin = liveStore.get().finished?.[before.id];
-      const exact = fin?.changed !== undefined;
-      const changed = fin?.changed ?? before.changed ?? before.done;
-      const marked = changed > 0 ? `${exact ? "Marked" : "Marked at least"} ${n(changed)} older article${changed === 1 ? "" : "s"} as read.` : "Nothing was left to mark.";
-      setNote(fin?.error ? `${changed > 0 ? `${marked} ` : ""}The catch-up stopped early because of an error. Preview again to see what is left.` : marked);
+      setOver({ id: before.id, seen: before.changed ?? before.done });
       setPreview(null);
     }
   }, [active]);
+  const note = over ? finishedNote(fin, over.seen) : null;
 
   const doPreview = async () => {
     setBusy(true);
     setError(null);
-    setNote(null);
+    setOver(null);
     try {
       const p = await previewAutoRead(body);
       setGrew(null);
@@ -103,7 +115,7 @@ export function AutoReadCatchUp({
     try {
       const r = await runAutoRead({ ...body, expect_total: shown.total, ...(confirmed ? { confirm: true } : {}) });
       // Show it running now: the stream's run.start may be far away (or the stream down).
-      seedRun({ id: String(r.id), kind: "auto_read", done: r.done, total: r.total, changed: r.changed, new_items: r.new_items, errors: r.errors });
+      seedRun({ id: String(r.id), kind: "auto_read", done: r.done, total: r.total, changed: r.changed, new_items: r.new_items, errors: r.errors }, r.event_id);
       setConfirm(false);
       setGrew(null);
       announce("Marking old articles as read");

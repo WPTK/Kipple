@@ -123,6 +123,19 @@ describe("feeds that share a title", () => {
     expect(within(main).getByRole("link", { name: /^same title ?b\.example\/rss/ })).toBeInTheDocument();
   });
 
+  it("tell them apart in the sidebar, by the text and the names (item and star)", async () => {
+    wide();
+    const same = [feed(1, { title: "Same title", address_hint: "a.example/feed" }), feed(2, { title: "same title ", address_hint: "b.example/rss" }), feed(3)];
+    go("/l/unread", same);
+    const tree = await screen.findByRole("tree", { name: "Feeds" });
+    const a = await within(tree).findByRole("treeitem", { name: "Same title, a.example/feed" });
+    const b = within(tree).getByRole("treeitem", { name: "same title , b.example/rss" });
+    expect(a).toHaveTextContent("a.example/feed");
+    expect(b).toHaveTextContent("b.example/rss");
+    expect(within(a).getByRole("button", { name: /Same title, a\.example\/feed/ })).toBeInTheDocument();
+    // A feed with a title of its own stays a single line.
+    expect(within(tree).getByRole("treeitem", { name: "Feed 3" })).not.toHaveTextContent("example");
+  });
   it("show their address in the delete confirmation", () => {
     const same = [feed(1, { title: "Same title", address_hint: "a.example/feed" }), feed(2, { title: "same title ", address_hint: "b.example/rss" }), feed(3)];
     mockFetch({});

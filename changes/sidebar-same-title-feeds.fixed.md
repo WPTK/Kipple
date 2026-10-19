@@ -1,0 +1,1 @@
+In the sidebar, feeds that share a title now show their address under the title and carry it in their names, as on Manage feeds, so you can tell them apart. (#516)
