@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/WPTK/kipple/internal/discover"
+	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/sched"
@@ -1391,25 +1392,45 @@ func (s *Server) deleteFeeds(w http.ResponseWriter, r *http.Request) {
 			ids = append(ids, id)
 		}
 	}
-	dctx, cancel := store.DeleteContext(r.Context())
-	defer cancel()
-	gone, err := s.db.DeleteFeeds(dctx, ids, body.DeleteStarred)
+	marked, err := s.db.MarkFeedsDeleting(r.Context(), ids, body.DeleteStarred)
 	if errors.Is(err, store.ErrArchiveHasStarred) {
 		writeErrorMsg(w, http.StatusConflict, "archive_has_starred", "the archive feed holds starred items; set delete_starred to really delete them")
 		return
 	}
-	// After a failure some feeds are marked and gone from every list without being in gone: announce the whole set.
-	announce := gone
-	if err != nil {
-		announce = ids
-	}
-	for _, id := range announce {
-		s.publishFeedChanged(id)
-	}
-	s.noteCounts()
 	if err != nil {
 		s.serverError(w, "delete feeds", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"deleted": len(gone)})
+	// The feeds are gone from every list now. Purging their items can take minutes for thousands of feeds, longer than a
+	// request may last, so the server finishes it on its own; a stop in the middle is finished by the next start.
+	s.announceFeedsChanged(marked)
+	s.noteCounts()
+	if len(marked) > 0 && s.bgStart() {
+		go func() {
+			defer s.apply.wg.Done()
+			ctx, cancel := context.WithTimeout(s.apply.ctx, time.Hour)
+			defer cancel()
+			if _, err := s.db.FinishFeedDeletes(ctx, marked, body.DeleteStarred); err != nil && ctx.Err() == nil {
+				s.log.Warn("finishing a bulk feed delete", "err", err)
+			}
+			s.announceFeedsChanged(marked)
+			s.noteCounts()
+		}()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": len(marked)})
+}
+
+// announceFeedsChanged tells every client that the feeds in ids changed: one event each, or a single resync for a set
+// larger than the hub's batch (the clients refetch anyway, and a burst would overflow their buffers).
+func (s *Server) announceFeedsChanged(ids []int64) {
+	if s.opt.Hub == nil {
+		return
+	}
+	if len(ids) > events.MaxStateIDs {
+		s.opt.Hub.Publish("resync", map[string]any{})
+		return
+	}
+	for _, id := range ids {
+		s.publishFeedChanged(id)
+	}
 }

@@ -63,11 +63,14 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("dialog").getByRole("button", { name: `Delete ${COUNT} feeds` }).click();
     await page.waitForTimeout(150);
     await page.goto("about:blank"); // the tab is closed: its request is cut off
+    // The lists hide a feed from the moment it is marked, so the proof that the server finished is the health list,
+    // which still shows a feed whose purge has not completed.
     let remaining = COUNT;
     const end = Date.now() + 90000;
     while (Date.now() < end) {
       await page.goto("/feeds", { waitUntil: "load" });
-      remaining = await left(page, b);
+      const health = await page.request.get("/api/health/feeds", { headers: { Accept: "application/json" } }).then((r) => r.text());
+      remaining = (await left(page, b)) + (health.match(/kipple:deleting:/g) ?? []).length;
       if (remaining === 0) break;
       await page.waitForTimeout(1000);
     }

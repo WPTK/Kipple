@@ -161,12 +161,25 @@ func runServe() error {
 	}
 	// db.Close (WAL checkpoint, pools) runs last, after the scheduler has drained.
 	defer closeWithin(&budget, logger, "closing store", 0, db.Close)
-	// A feed delete the last run did not finish (it was marked first, then purged in batches): finish it now.
-	if ids, err := db.ResumeFeedDeletes(context.Background()); err != nil {
-		logger.Warn("resuming interrupted feed deletes", "err", err)
-	} else if len(ids) > 0 {
-		logger.Info("finished interrupted feed deletes", "feeds", len(ids))
-	}
+	// A feed delete the last run did not finish (it was marked first, then purged in batches): finish it in the
+	// background, so a large one never keeps Kipple from serving. The marked feeds are hidden and never fetched meanwhile.
+	// Stopped (and waited for) before the store closes.
+	resumeCtx, stopResume := context.WithCancel(context.Background())
+	resumed := make(chan struct{})
+	go func() {
+		defer close(resumed)
+		if ids, err := db.ResumeFeedDeletes(resumeCtx); err != nil {
+			if resumeCtx.Err() == nil {
+				logger.Warn("resuming interrupted feed deletes", "err", err)
+			}
+		} else if len(ids) > 0 {
+			logger.Info("finished interrupted feed deletes", "feeds", len(ids))
+		}
+	}()
+	defer func() {
+		stopResume()
+		<-resumed
+	}()
 
 	// The database is open and at this binary's schema: remember which release did that (the message of a later
 	// refused downgrade and the About screen use it). A failure must never keep Kipple from starting.

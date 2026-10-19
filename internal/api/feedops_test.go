@@ -487,10 +487,11 @@ func TestBulkDeleteFeeds(t *testing.T) {
 	code, body, _ := h.api(c, "POST", "/api/feeds/delete", fmt.Sprintf(`{"ids":["%d",%d,"%d","99999"]}`, a, b, a))
 	require.Equal(t, 200, code)
 	require.EqualValues(t, 2, body["deleted"], "a repeated id and a missing one count for nothing")
-	require.Zero(t, h.count("SELECT count(*) FROM feeds WHERE id IN (?, ?)", a, b))
+	// The answer comes once the feeds are marked (gone from every list); the server finishes the purge on its own.
+	require.Eventually(t, func() bool { return h.count("SELECT count(*) FROM feeds WHERE id IN (?, ?)", a, b) == 0 }, 10*time.Second, 20*time.Millisecond)
 	require.Equal(t, 1, h.count("SELECT count(*) FROM feeds WHERE id = ?", keep))
 	require.Equal(t, 1, h.count("SELECT count(*) FROM items i JOIN feeds f ON f.id = i.feed_id WHERE f.disabled_reason = 'archive' AND i.starred = 1"))
-	require.ElementsMatch(t, []string{fmt.Sprintf(`{"feed_id":"%d"}`, a), fmt.Sprintf(`{"feed_id":"%d"}`, b)}, feedChanged(t, sub))
+	require.Subset(t, feedChanged(t, sub), []string{fmt.Sprintf(`{"feed_id":"%d"}`, a), fmt.Sprintf(`{"feed_id":"%d"}`, b)})
 
 	for _, bad := range []string{`{}`, `{"ids":[]}`, `{"ids":["x"]}`, `{"ids":[0]}`, `nope`} {
 		code, _, _ = h.api(c, "POST", "/api/feeds/delete", bad)

@@ -78,3 +78,27 @@ func TestDeleteFeedsRefusesTheArchiveWithStarredBeforeMarkingAnything(t *testing
 	require.NoError(t, err)
 	require.ElementsMatch(t, []int64{b, arch}, gone)
 }
+
+// The archive feed in the set goes last: starred items of a feed deleted before it make it non-empty, and then it
+// stays (it was never marked) instead of failing the call with feeds after it still marked.
+func TestDeleteFeedsKeepsTheArchiveThatTheSetFilled(t *testing.T) {
+	e := newEnv(t)
+	seed := e.loadFeed("http://seed.example/feed", 2)
+	e.exec("UPDATE items SET starred = 1 WHERE feed_id = ? AND title = 'title g0'", seed)
+	_, err := e.db.DeleteFeeds(e.ctx, []int64{seed}, false) // creates the archive, holding one starred item
+	require.NoError(t, err)
+	var arch int64
+	require.NoError(t, e.db.Reader().QueryRow("SELECT id FROM feeds WHERE disabled_reason = 'archive'").Scan(&arch))
+	e.exec("UPDATE items SET starred = 0 WHERE feed_id = ?", arch) // the archive is empty of starred items now
+
+	b := e.loadFeed("http://b.example/feed", 3)
+	e.exec("UPDATE items SET starred = 1 WHERE feed_id = ? AND title = 'title g0'", b)
+	c := e.loadFeed("http://c.example/feed", 3)
+
+	gone, err := e.db.DeleteFeeds(e.ctx, []int64{b, arch, c}, false)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []int64{b, c}, gone)
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ?", arch), "the archive stays, holding b's starred item")
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE feed_id = ? AND starred = 1", arch))
+	require.Zero(t, e.count("SELECT count(*) FROM feeds WHERE url LIKE 'kipple:deleting:%'"), "nothing is left marked")
+}

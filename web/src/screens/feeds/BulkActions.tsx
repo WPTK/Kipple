@@ -288,7 +288,9 @@ export function DeleteDialog({
         feeds.map((f) => f.id),
         true,
       );
-      toast(`Deleted ${deleted} feed${deleted === 1 ? "" : "s"}`);
+      // 0 is a retry that found the feeds already gone.
+      const n = deleted || count;
+      toast(`Deleted ${n} feed${n === 1 ? "" : "s"}`);
       onClose();
     } catch (e) {
       // The server may have finished anyway (a dropped connection): look again, and say so.
@@ -352,7 +354,7 @@ export function DeleteFolderDialog({
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
-  // The feeds are gone once the loop has run clean: a retry after the folder step failed must not run it again.
+  // The feeds are gone once the delete call has answered: a retry after the folder step failed must not run it again.
   const [feedsGone, setFeedsGone] = useState(false);
   const all = mode === "all";
   const ready = !all || typed.trim() === folder.name.trim();
