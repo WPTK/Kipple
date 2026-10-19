@@ -341,7 +341,8 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
       else out.push(`${favPrefix(fav)}feed-${fav.id}`);
     }
     return out;
-  }, [favList, base]);  const headingId = useId();
+  }, [favList, base]);
+  const headingId = useId();
   if (boot.isPending) return <p className="px-3 py-2 text-sm text-fg2" role="status">Loading feeds</p>;
   if (boot.isError || !lib) return <p className="px-3 py-2 text-sm text-danger" role="alert">Couldn't load feeds.</p>;
   if (lib.feeds.length === 0) {

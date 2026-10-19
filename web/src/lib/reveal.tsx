@@ -52,24 +52,29 @@ export function useReveal(keys: readonly string[]): Reveal {
     focusKey.current = null;
     document.querySelector<HTMLElement>(`[data-reveal-key="${CSS.escape(k)}"]`)?.focus();
   }, [limit]);
-  // A held row ends its hold once it was on screen and has been scrolled out of view.
+  // A held row ends its hold once it was on screen and the reader has scrolled up above every row the hold draws (the
+  // first of them is below the view), so the rows that go are none the reader is looking at and nothing on screen moves.
   useEffect(() => {
     if (kept === null || keptAt < limit || typeof IntersectionObserver !== "function") return;
-    const el = document.querySelector<HTMLElement>(`[data-reveal-key="${CSS.escape(kept)}"]`);
-    if (!el) return;
+    const at = (k: string) => document.querySelector<HTMLElement>(`[data-reveal-key="${CSS.escape(k)}"]`);
+    const el = at(kept);
+    const first = at(keys[limit] ?? kept);
+    if (!el || !first) return;
     let seen = false;
     const io = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
-          if (e.isIntersecting) seen = true;
-          else if (seen) setKept(null);
+          if (e.target === el && e.isIntersecting) seen = true;
+          const bottom = e.rootBounds?.bottom ?? window.innerHeight;
+          if (e.target === first && seen && !e.isIntersecting && e.boundingClientRect.top >= bottom) setKept(null);
         }
       },
       { root: el.closest<HTMLElement>("[data-reveal-root]") },
     );
     io.observe(el);
+    if (first !== el) io.observe(first);
     return () => io.disconnect();
-  }, [kept, keptAt, limit, drawn]);
+  }, [kept, keptAt, limit, keys]);
   return useMemo(() => {
     const shown = (key: string) => !shownSet || shownSet.has(key);
     const past = (key: string) => (index.get(key) ?? -1) >= drawn;

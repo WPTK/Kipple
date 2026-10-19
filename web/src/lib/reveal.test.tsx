@@ -41,9 +41,12 @@ class DrivenIO {
     return [];
   }
 }
-const see = (el: Element, isIntersecting: boolean) =>
+/** Reports `el` in view, or out of it above (`"above"`) or below (`"below"`) a view 600 px tall. */
+const see = (el: Element, where: "in" | "above" | "below") =>
   act(() => {
-    for (const w of observers.filter((o) => o.el === el)) w.cb([{ target: el, isIntersecting } as unknown as IntersectionObserverEntry], {} as IntersectionObserver);
+    const top = where === "in" ? 100 : where === "above" ? -200 : 700;
+    const entry = { target: el, isIntersecting: where === "in", boundingClientRect: { top }, rootBounds: { bottom: 600 } };
+    for (const w of observers.filter((o) => o.el === el)) w.cb([entry as unknown as IntersectionObserverEntry], {} as IntersectionObserver);
   });
 
 beforeEach(() => {
@@ -67,20 +70,27 @@ describe("the hold on a far row", () => {
   }
   const drawnCount = () => document.querySelectorAll("[data-reveal-key]").length;
 
-  it("draws the row and everything above it, and lets go once the row was seen and is scrolled out of view", () => {
+  it("draws the row and everything above it, and lets go once the row was seen and the reader is above every held row", () => {
     const out: { reveal?: Reveal } = {};
     render(<Rows k={keys} out={out} />);
     expect(drawnCount()).toBe(REVEAL_STEP);
     act(() => out.reveal!.ensure("feed:650"));
     expect(drawnCount()).toBe(651);
     const row = document.querySelector('[data-reveal-key="feed:650"]')!;
+    // The first row only the hold draws: once it is below the view, every row the hold draws is.
+    const first = document.querySelector(`[data-reveal-key="feed:${REVEAL_STEP}"]`)!;
 
-    // Not on screen yet: a first report of "not in view" is not the user leaving it.
-    see(row, false);
+    // Not on screen yet: the held rows being below the view is not the reader leaving them.
+    see(first, "below");
     expect(drawnCount()).toBe(651);
-    see(row, true);
+    see(row, "in");
+    see(first, "above");
     expect(drawnCount()).toBe(651);
-    see(row, false);
+    // Scrolled down past the row, or up only part of the way: the reader may be looking at held rows, so they stay.
+    see(row, "above");
+    see(row, "below");
+    expect(drawnCount()).toBe(651);
+    see(first, "below");
     expect(drawnCount()).toBe(REVEAL_STEP);
     expect(out.reveal!.left).toBe(700 - REVEAL_STEP);
   });

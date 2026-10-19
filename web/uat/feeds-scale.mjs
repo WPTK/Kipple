@@ -109,6 +109,7 @@ await t.eachViewport(async (page, vp) => {
     const at = await tree.locator(":focus").getAttribute("data-tree-key");
     const all = await items.evaluateAll((els) => els.map((e) => e.getAttribute("data-tree-key")));
     check(before < all.length && at === all[before], `${tag} L5`, `focus moved from ${lastKey} to ${at}, the row after it`, `focus is on ${at}; the row after ${lastKey} is ${all[before]}`);
-  });});
+  });
+});
 
 await t.finish("feeds scale");
