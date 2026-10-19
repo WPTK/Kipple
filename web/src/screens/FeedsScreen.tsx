@@ -1,3 +1,4 @@
+import { tapVerb } from "@/lib/pointer";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useFocusActions } from "./focusActions";
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -810,10 +811,10 @@ export function FeedsScreen() {
         </div>
         <p className="pb-1 text-xs text-fg2">
           {selecting
-            ? `Tap feeds to select them, then move or delete them.${finePointer ? " Shift-click selects a range; with the keyboard, Space selects the focused feed." : ""}`
+            ? `${tapVerb()} feeds to select them, then move or delete them.${finePointer ? " Shift-click selects a range; with the keyboard, Space selects the focused feed." : ""}`
             : editMode
               ? "Drag a feed or folder to reorder it. Changes are saved as you drop."
-              : "Tap the arrow beside a folder to collapse it, or its menu to rename, move or delete it. Tap Edit to reorder feeds or change one."}
+              : `${tapVerb()} the arrow beside a folder to collapse it, or its menu to rename, move or delete it. ${tapVerb()} Edit to reorder feeds or change one.`}
         </p>
       </header>
       <div ref={scroller} data-reveal-root="" className="min-h-0 flex-1 overflow-y-auto px-2 py-2">

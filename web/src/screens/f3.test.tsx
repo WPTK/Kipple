@@ -612,6 +612,14 @@ describe("Folders and OPML", () => {
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/reorder").map(body)).toEqual([{ folders: ["2", "1"] }]));
   });
 
+  it("the Manage feeds help says Click, not Tap, when the main pointer is a mouse", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("pointer: fine"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
+    mockFetch({ "GET /api/bootstrap": () => json(bootstrap) });
+    go("/feeds");
+    expect(await screen.findByText(/Click the arrow beside a folder to collapse it.*Click Edit to reorder/)).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it("Enter in the New folder name creates the folder, and the help text fits a touch screen", async () => {
     const { calls } = mockFetch({
       "GET /api/bootstrap": () => json(bootstrap),

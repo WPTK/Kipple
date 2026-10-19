@@ -92,6 +92,7 @@ export function AccountStep({
   const [busy, setBusy] = useState(false);
   const userInput = useRef<HTMLInputElement>(null);
   const pwInput = useRef<HTMLInputElement>(null);
+  const againInput = useRef<HTMLInputElement>(null);
 
   const open = openAvailability(state.open);
   const usernameBad = left.username && username !== "" && !USERNAME.test(username) ? "Use 1 to 64 letters, digits, dots, dashes or underscores." : null;
@@ -112,8 +113,14 @@ export function AccountStep({
         setFieldError({ field: "username", message: username === "" ? "Enter a user name." : "Use 1 to 64 letters, digits, dots, dashes or underscores." });
         userInput.current?.focus();
       } else if (choice === "password") {
-        setFieldError({ field: "password", message: password === "" ? "Enter a password." : (passwordProblem(password) ?? "The two passwords don't match.") });
-        pwInput.current?.focus();
+        const problem = password === "" ? "Enter a password." : passwordProblem(password);
+        if (problem) {
+          setFieldError({ field: "password", message: problem });
+          pwInput.current?.focus();
+        } else {
+          // A mismatch is already announced by the "Password again" field; a second alert would read it twice.
+          againInput.current?.focus();
+        }
       } else if (choice === "open" && !ack) setFieldError({ field: "open", message: "Tick the box to confirm you understand." });
       return;
     }
@@ -220,7 +227,7 @@ export function AccountStep({
                   )}
                 </Field>
                 <Field label="Password again" error={mismatch}>
-                  {(a) => <input {...a} name="new-password-again" type="password" autoComplete="new-password" value={again} onBlur={() => leave("again")} onChange={(e) => setAgain(e.target.value)} className={inputCls} />}
+                  {(a) => <input {...a} ref={againInput} name="new-password-again" type="password" autoComplete="new-password" value={again} onBlur={() => leave("again")} onChange={(e) => setAgain(e.target.value)} className={inputCls} />}
                 </Field>
               </div>
             ) : null}

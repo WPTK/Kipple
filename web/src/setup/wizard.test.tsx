@@ -204,6 +204,9 @@ describe("Step 1: account", () => {
     expect(screen.getByText("The two passwords don't match.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(callTo(calls, "POST", "/api/setup/account")).toHaveLength(0);
+    // Announced once, not by both the submit check and the field's own check.
+    expect(screen.getAllByText("The two passwords don't match.")).toHaveLength(1);
+    expect(screen.getByLabelText("Password again")).toHaveFocus();
   });
 
   it("shows the server's word on a bad password and keeps what was typed", async () => {
