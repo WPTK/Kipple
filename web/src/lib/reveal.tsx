@@ -45,8 +45,10 @@ export function useReveal(keys: readonly string[]): Reveal {
     shown: (key) => !shownSet || shownSet.has(key),
     left: Math.max(0, keys.length - drawn),
     more: (focus) => {
-      if (focus) focusKey.current = keys[drawn] ?? null;
-      setLimit(drawn + REVEAL_STEP);
+      const next = drawn + REVEAL_STEP;
+      // The focus request is answered when the limit changes; with no change it would stay armed for the next one.
+      if (focus && next !== limit) focusKey.current = keys[drawn] ?? null;
+      setLimit(next);
     },
     all: () => setLimit(Infinity),
     ensure: setKept,

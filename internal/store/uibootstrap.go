@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"net/url"
 	"strconv"
@@ -290,31 +292,35 @@ func addressHints(feeds []UIFeed, urls []string) {
 		short := make([]string, len(group))
 		seen := map[string]int{}
 		for j, i := range group {
-			short[j] = shortAddress(urls[i], false)
+			short[j] = shortAddress(urls[i])
 			seen[short[j]]++
 		}
+		// Host and path; a short tag of the whole address when two of them still match. The query is never shown: it
+		// can hold a token. (http and https addresses of one host and path are one feed, so the scheme never differs.)
 		for j, i := range group {
 			h := short[j]
 			if seen[h] > 1 {
-				h = shortAddress(urls[i], true)
+				h += " #" + addressTag(urls[i])
 			}
 			feeds[i].AddressHint = &h
 		}
 	}
 }
 
-// shortAddress is a feed address without its scheme, fragment or trailing slash, and without its query unless
-// withQuery is set. Feed addresses never hold credentials (ValidateFeedURL refuses them).
-func shortAddress(raw string, withQuery bool) string {
+// shortAddress is a feed address without its scheme, query, fragment or trailing slash. Feed addresses never hold
+// credentials (ValidateFeedURL refuses them), but a query may hold a token, so it is left out.
+func shortAddress(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
 		return raw
 	}
-	s := u.Host + strings.TrimSuffix(u.EscapedPath(), "/")
-	if withQuery && u.RawQuery != "" {
-		s += "?" + u.RawQuery
-	}
-	return s
+	return u.Host + strings.TrimSuffix(u.EscapedPath(), "/")
+}
+
+// addressTag is six hex digits of the address's hash: it tells two feeds apart without printing what differs.
+func addressTag(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:3])
 }
 
 // uiFeeds runs the feed list query with a WHERE condition.

@@ -13,8 +13,8 @@ func TestUIFeedAddressHint(t *testing.T) {
 	e := newEnv(t)
 	a := e.addFeed("https://a.example/feed/")
 	b := e.addFeed("http://b.example/rss?token=secret")
-	c := e.addFeed("https://c.example/x?tag=one")
-	d := e.addFeed("https://c.example/x?tag=two")
+	c := e.addFeed("https://c.example/x?token=one")
+	d := e.addFeed("https://c.example/x?token=two")
 	other := e.addFeed("https://other.example/feed")
 	e.exec("UPDATE feeds SET custom_title = 'News' WHERE id = ?", a)
 	e.exec("UPDATE feeds SET custom_title = ' news ' WHERE id = ?", b)
@@ -33,7 +33,9 @@ func TestUIFeedAddressHint(t *testing.T) {
 	}
 	require.Equal(t, "a.example/feed", hint(a))
 	require.Equal(t, "b.example/rss", hint(b), "no scheme, and no query when host and path tell them apart")
-	require.Equal(t, "c.example/x?tag=one", hint(c), "the query only where it is what tells them apart")
-	require.Equal(t, "c.example/x?tag=two", hint(d))
+	require.Regexp(t, "^c[.]example/x #[0-9a-f]{6}$", hint(c), "a tag, never the query, which can hold a token")
+	require.Regexp(t, "^c[.]example/x #[0-9a-f]{6}$", hint(d))
+	require.NotEqual(t, hint(c), hint(d))
+	require.NotContains(t, hint(c), "token")
 	require.Nil(t, got[other], "a title nobody else has carries no address")
 }
