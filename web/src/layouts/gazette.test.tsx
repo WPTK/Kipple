@@ -108,9 +108,9 @@ describe("Gazette pages", () => {
   });
 
   it("fades a read story in place: the picture dims, the text turns secondary, nothing that sets size changes", () => {
-    // Every class of every element in a story (the hidden "unread" text is out of flow, so it is left out), minus the text colors that tell read from unread.
+    // Every class of every element in a story, minus the text colors that tell read from unread.
     const shape = (root: Element) =>
-      [root, ...root.querySelectorAll("*:not(.sr-only)")].map((el) => [el.tagName, ...[...el.classList].filter((c) => c !== "text-fg" && c !== "text-fg2").sort()].join(" "));
+      [root, ...root.querySelectorAll("*")].map((el) => [el.tagName, ...[...el.classList].filter((c) => c !== "text-fg" && c !== "text-fg2").sort()].join(" "));
     const { container, rerender } = draw(cards, p);
     const before = new Map(cards.map((c) => [c.id, shape(container.querySelector(`article[data-item-id="${c.id}"]`)!)]));
     const read = cards.map((c) => ({ ...c, read: true }));
@@ -137,7 +137,7 @@ describe("Gazette pages", () => {
     const unread = container.querySelector(`article[data-item-id="${cards[0]!.id}"]`)!;
     const link = within(unread as HTMLElement).getByRole("link");
     expect(link.getAttribute("aria-label")).toBeNull(); // the name is the content, so axe never compares a label with the visible text (#513)
-    expect(link).toHaveAccessibleName(`${cards[0]!.title}, unread`);
+    expect(link.hasAttribute("data-row-unread")).toBe(true); // index.css turns it into ", unread" after the title; checked in a browser by uat/row-name.mjs
     expect(unread.querySelector("h3")!.classList).toContain("text-fg");
   });
 
@@ -208,7 +208,7 @@ describe("Gazette pages", () => {
   it("opens a story through its link", async () => {
     const onOpen = vi.fn();
     draw(cards, p, "wide", onOpen);
-    const link = screen.getByRole("link", { name: `${cards[0]!.title}, unread` });
+    const link = screen.getByRole("link", { name: cards[0]!.title });
     expect(link.getAttribute("href")).toBe(`/item/${cards[0]!.id}`);
     await userEvent.click(link);
     expect(onOpen).toHaveBeenCalledWith(cards[0]);

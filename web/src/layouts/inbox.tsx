@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { ListImage, useImageFailure, PublishedTime, RowMenu, StarButton, UnreadDot, UnreadHint } from "./parts";
+import { ListImage, useImageFailure, PublishedTime, RowMenu, StarButton, UnreadDot } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
@@ -40,10 +40,10 @@ function InboxRow({ item, selected, to, onOpen, onToggleStar, actions, showThumb
             to={to}
             onClick={() => onOpen(item)}
             aria-keyshortcuts={ROW_KEYSHORTCUTS}
+            data-row-unread={item.read ? undefined : ""}
             className="row-link"
           >
             <Hl text={item.title || "Untitled"} field="title" feedId={item.feed_id} />
-            <UnreadHint item={item} />
           </Link>
         </h3>
         {item.excerpt ? <p className="clamp-snippet text-sm leading-snug text-fg2"><Hl text={item.excerpt} field="content" feedId={item.feed_id} /></p> : null}

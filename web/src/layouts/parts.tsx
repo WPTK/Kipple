@@ -198,16 +198,6 @@ export function RowMenu({
   );
 }
 
-/**
- * The "unread" part of a row link's name, as hidden text inside the link after the title (so the name is the title,
- * then "unread", and heading and type-ahead navigation find the title first). It is content, not an aria-label: a
- * label replaces the name, and when the visible title has highlight marks beyond the truncation edge the browser-side
- * visible text loses those words and no longer sits inside the label (axe label-content-name-mismatch, issue #513).
- */
-export function UnreadHint({ item }: { item: Card }) {
-  return item.read ? null : <span className="sr-only">, unread</span>;
-}
-
 /** A row control's name: the action, then the article it acts on, so a list of buttons or a voice command can tell rows apart. */
 export const rowControlName = (action: string, item: Card): string => `${action}: ${item.title || "Untitled"}`;
 

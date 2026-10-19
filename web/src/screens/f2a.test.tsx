@@ -166,9 +166,9 @@ describe("layouts", () => {
       const { container } = go("/l/unread");
       await screen.findByText("Article number 1");
       hallmarks[id](container);
-      // Unread state is in the accessible name (and the dot and weight), never color alone.
-      expect(screen.getByRole("link", { name: /^Article number 1, unread/ })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /^Article number 2/ })).toBeInTheDocument();
+      // Unread state is in the accessible name (and the dot and weight), never color alone: the flag index.css turns into ", unread" (checked in a browser by uat/row-name.mjs).
+      expect(screen.getByRole("link", { name: /^Article number 1/ })).toHaveAttribute("data-row-unread");
+      expect(screen.getByRole("link", { name: /^Article number 2/ })).not.toHaveAttribute("data-row-unread");
       expect(await axe(container)).toHaveNoViolations();
     });
   }
