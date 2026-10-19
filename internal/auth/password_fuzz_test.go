@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 )
@@ -20,6 +19,7 @@ func FuzzCheckPassword(f *testing.F) {
 	f.Add("x", "$argon2id$v=19$m=1048577,t=1,p=1$AAAA$AAAA")
 	f.Add("x", "$argon2id$v=19$m=8,t=17,p=1$AAAA$AAAA")
 	f.Add("x", "$argon2id$v=19$m=8,t=1,p=0$AAAA$AAAA")
+	f.Add("x", "$argon2id$v=19$m=8,t=0,p=1$AAAA$AAAA")
 	f.Add("x", "$argon2id$v=19$m=8,t=1,p=255$AAAA$AAAA")
 	f.Add("x", "$argon2i$v=19$m=8,t=1,p=1$AAAA$AAAA")
 	f.Add("x", "$argon2id$v=18$m=8,t=1,p=1$AAAA$AAAA")
@@ -30,9 +30,7 @@ func FuzzCheckPassword(f *testing.F) {
 		}
 		parts := strings.Split(phc, "$")
 		if len(parts) == 6 {
-			var m, tc uint32
-			var p uint8
-			if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &tc, &p); err == nil && (m > 4096 || tc > 3 || p > 4) {
+			if m, tc, p, ok := parseCost(parts[3]); ok && (m > 4096 || tc > 3 || p > 4) {
 				return // a cost CheckPassword allows but a fuzz run cannot afford
 			}
 		}

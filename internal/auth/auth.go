@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,31 +45,53 @@ func HashPassword(pw string) (string, error) {
 		argon2.Version, memoryKiB, timeCost, threads, enc.EncodeToString(salt), enc.EncodeToString(key)), nil
 }
 
+// parseCost reads the "m=<KiB>,t=<rounds>,p=<threads>" field of a stored hash. Every value must be plain decimal
+// digits and inside the range argon2.IDKey accepts and a sign-in can afford (at least one round and one thread, at
+// most 16 each, at most 1 GiB), so a hand-edited or restored row is refused instead of panicking or hashing for minutes.
+func parseCost(field string) (m, t uint32, p uint8, ok bool) {
+	vals := strings.Split(field, ",")
+	if len(vals) != 3 {
+		return 0, 0, 0, false
+	}
+	var nums [3]uint64
+	for i, key := range [3]string{"m=", "t=", "p="} {
+		digits, found := strings.CutPrefix(vals[i], key)
+		if !found {
+			return 0, 0, 0, false
+		}
+		n, err := strconv.ParseUint(digits, 10, 32)
+		if err != nil {
+			return 0, 0, 0, false
+		}
+		nums[i] = n
+	}
+	if nums[0] > 1<<20 || nums[1] < 1 || nums[1] > 16 || nums[2] < 1 || nums[2] > 16 {
+		return 0, 0, 0, false
+	}
+	return uint32(nums[0]), uint32(nums[1]), uint8(nums[2]), true
+}
+
 // CheckPassword verifies pw against a PHC string produced by HashPassword.
 func CheckPassword(pw, phc string) bool {
 	parts := strings.Split(phc, "$")
-	if len(parts) != 6 || parts[1] != "argon2id" {
+	if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" {
 		return false
 	}
 	var version int
 	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil || version != argon2.Version {
 		return false
 	}
-	var m, t uint32
-	var p uint8
-	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &p); err != nil {
-		return false
-	}
-	if m > 1<<20 || t > 16 || p == 0 || p > 16 { // refuse absurd stored parameters
+	m, t, p, ok := parseCost(parts[3])
+	if !ok {
 		return false
 	}
 	enc := base64.RawStdEncoding
 	salt, err := enc.DecodeString(parts[4])
-	if err != nil {
+	if err != nil || len(salt) < saltLen/2 {
 		return false
 	}
 	want, err := enc.DecodeString(parts[5])
-	if err != nil || len(want) == 0 {
+	if err != nil || len(want) < keyLen/2 { // a one-byte tag would match a wrong password 1 time in 256
 		return false
 	}
 	got := argon2.IDKey([]byte(pw), salt, t, m, p, uint32(len(want)))

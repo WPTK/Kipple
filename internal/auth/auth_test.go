@@ -362,3 +362,32 @@ func TestProxyTooWideAcceptsCloudflareRanges(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ps, len(v4)+len(v6))
 }
+
+// A stored hash is read back from the database, so a hand-edited or restored row must be refused, never panic
+// (argon2.IDKey panics on zero rounds) and never be read loosely (trailing text after a number).
+func TestCheckPasswordRefusesBadCost(t *testing.T) {
+	const tail = "$AAAA$AAAA"
+	for _, cost := range []string{
+		"m=8,t=0,p=1", "m=8,t=1,p=0", "m=8,t=17,p=1", "m=8,t=1,p=17", "m=1048577,t=1,p=1",
+		"m=8,t=1,p=2A5", "m=8,t=1x,p=1", "m=+8,t=1,p=1", "m=-8,t=1,p=1", "m=8,t=1,p=1,x=1", "m=8,t=1", "t=1,m=8,p=1",
+		"m=8, t=1,p=1", "m=,t=1,p=1", "m=8,t=1,p=256", "m=4294967296,t=1,p=1", "",
+	} {
+		require.NotPanics(t, func() {
+			require.False(t, CheckPassword("x", "$argon2id$v=19$"+cost+tail), cost)
+		}, cost)
+	}
+	m, tc, p, ok := parseCost("m=19456,t=2,p=1")
+	require.True(t, ok)
+	require.Equal(t, [3]uint64{19456, 2, 1}, [3]uint64{uint64(m), uint64(tc), uint64(p)})
+}
+
+func TestCheckPasswordRefusesMalformedShape(t *testing.T) {
+	phc, err := HashPassword("pw")
+	require.NoError(t, err)
+	require.True(t, CheckPassword("pw", phc))
+	require.False(t, CheckPassword("pw", "0"+phc), "text before the first $")
+	parts := strings.Split(phc, "$")
+	for _, short := range []string{"$argon2id$v=19$m=19456,t=2,p=1$AAAA$" + parts[5], "$argon2id$v=19$m=19456,t=2,p=1$" + parts[4] + "$AA"} {
+		require.False(t, CheckPassword("pw", short), short)
+	}
+}
