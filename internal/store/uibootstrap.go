@@ -2,9 +2,13 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"net/url"
 	"strconv"
+	"strings"
 )
 
 // Image proxy defaults. The mode is "all" (every image loads through Kipple, like
@@ -256,21 +260,82 @@ type UIFeed struct {
 	// LastError is why the feed is failing (the same text Feed health shows), set
 	// only while the status is erroring, failing or dead; null otherwise.
 	LastError *string `json:"last_error"`
+	// AddressHint is the feed's address, short (no scheme, no query unless it is what tells them apart), when
+	// another listed feed has the same title (trimmed, any case): a row shows it so the two can be told apart.
+	// Null otherwise, so the bootstrap does not carry every feed's address.
+	AddressHint *string `json:"address_hint"`
 }
 
 // UIFeeds lists feeds in display order: the listed feeds (listedFeedSQL), so
 // never the archive feed.
 func (d *DB) UIFeeds(ctx context.Context, env StatusEnv) ([]UIFeed, error) {
-	return d.uiFeeds(ctx, env, listedFeedSQL)
+	feeds, urls, err := d.uiFeedsURLs(ctx, env, listedFeedSQL)
+	if err != nil {
+		return nil, err
+	}
+	addressHints(feeds, urls)
+	return feeds, nil
+}
+
+// addressHints sets AddressHint on the feeds whose title another feed also has (trimmed, any case): the host and
+// path of its address, with the query only where the host and path do not tell the feeds of that title apart.
+func addressHints(feeds []UIFeed, urls []string) {
+	byTitle := map[string][]int{}
+	for i, f := range feeds {
+		k := strings.ToLower(strings.TrimSpace(f.Title))
+		byTitle[k] = append(byTitle[k], i)
+	}
+	for _, group := range byTitle {
+		if len(group) < 2 {
+			continue
+		}
+		short := make([]string, len(group))
+		seen := map[string]int{}
+		for j, i := range group {
+			short[j] = shortAddress(urls[i])
+			seen[short[j]]++
+		}
+		// Host and path; a short tag of the whole address when two of them still match. The query is never shown: it
+		// can hold a token. (http and https addresses of one host and path are one feed, so the scheme never differs.)
+		for j, i := range group {
+			h := short[j]
+			if seen[h] > 1 {
+				h += " #" + addressTag(urls[i])
+			}
+			feeds[i].AddressHint = &h
+		}
+	}
+}
+
+// shortAddress is a feed address without its scheme, query, fragment or trailing slash. Feed addresses never hold
+// credentials (ValidateFeedURL refuses them), but a query may hold a token, so it is left out.
+func shortAddress(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	return u.Host + strings.TrimSuffix(u.EscapedPath(), "/")
+}
+
+// addressTag is six hex digits of the address's hash: it tells two feeds apart without printing what differs.
+func addressTag(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:3])
 }
 
 // uiFeeds runs the feed list query with a WHERE condition.
 func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...any) ([]UIFeed, error) {
+	feeds, _, err := d.uiFeedsURLs(ctx, env, where, args...)
+	return feeds, err
+}
+
+// uiFeedsURLs is uiFeeds with each feed's address, in the same order.
+func (d *DB) uiFeedsURLs(ctx context.Context, env StatusEnv, where string, args ...any) ([]UIFeed, []string, error) {
 	all := d.FulltextAll(ctx)
 	// `GROUP BY +feed_id` keeps the planner off idx_items_feed_sort, which would walk every item to group the few
 	// starred ones (about 670 ms at 200k items); it counts through the starred partial index instead.
 	rows, err := d.reader.QueryContext(ctx, `
-		SELECT f.id, f.folder_id, `+feedTitleSQL("f")+`, f.site_url, fi.hash,
+		SELECT f.id, f.folder_id, `+feedTitleSQL("f")+`, f.site_url, f.url, fi.hash,
 		       COALESCE(u.n, 0), f.enabled, f.disabled_reason, f.consecutive_failures, f.fulltext, f.retention, f.interval_minutes, f.auto_read_days,
 		       f.host, f.redirect_kind, f.redirect_to, COALESCE(f.last_new_items_at, f.created_at),
 		       COALESCE(s.n, 0), f.last_error
@@ -281,18 +346,20 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 		WHERE `+where+`
 		ORDER BY fo.position, fo.name, f.position, lower(`+feedTitleSQL("f")+`), f.id`, args...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
 	out := []UIFeed{}
+	urls := []string{}
 	for rows.Next() {
 		var f UIFeed
+		var feedURL string
 		var hash, reason, host, rKind, rTo, lastErr sql.NullString
 		var lastNew int64
 		var enabled, failures, fulltext int64
 		var retention, interval, autoRead sql.NullInt64
-		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval, &autoRead, &host, &rKind, &rTo, &lastNew, &f.StarredCount, &lastErr); err != nil {
-			return nil, err
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &feedURL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval, &autoRead, &host, &rKind, &rTo, &lastNew, &f.StarredCount, &lastErr); err != nil {
+			return nil, nil, err
 		}
 		if hash.Valid {
 			icon := "/api/feeds/" + strconv.FormatInt(f.ID, 10) + "/icon?h=" + hash.String
@@ -309,8 +376,9 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 		f.Retention, f.IntervalMinutes = intp(retention), intp(interval)
 		f.AutoReadDays = intp(autoRead)
 		out = append(out, f)
+		urls = append(urls, feedURL)
 	}
-	return out, rows.Err()
+	return out, urls, rows.Err()
 }
 
 // Counts returns the unread and starred item totals. Unread leaves out a feed
