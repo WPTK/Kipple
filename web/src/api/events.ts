@@ -58,6 +58,20 @@ export const initialLive: LiveState = {
 
 export const liveStore = createStore<LiveState>(initialLive);
 
+/**
+ * Take a run out of `runs` and remember it as finished (bounded by FINISHED_KEEP_MAX and FINISHED_KEEP_MS). The one way
+ * a run leaves the live state, so a late answer that still lists it (seedRun, seedRuns) can be told it is over.
+ */
+function markFinished(s: LiveState, id: string, done: Omit<FinishedRun, "at">): LiveState {
+  const { [id]: _gone, ...rest } = s.runs;
+  const now = Date.now();
+  const kept = Object.entries(s.finished ?? {})
+    .filter(([, f]) => now - f.at < FINISHED_KEEP_MS)
+    .sort((a, b) => b[1].at - a[1].at)
+    .slice(0, FINISHED_KEEP_MAX - 1);
+  return { ...s, runs: rest, finished: { ...Object.fromEntries(kept), [id]: { ...done, at: now } } };
+}
+
 /** Pure reducer for the parts of an SSE event that live outside the query cache. */
 export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
   switch (ev.type) {
@@ -76,22 +90,14 @@ export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
     }
     case "run.done": {
       const id = String(ev.data.run_id);
-      const { [id]: gone, ...rest } = s.runs;
-      const now = Date.now();
-      const kept = Object.entries(s.finished ?? {})
-        .filter(([, f]) => now - f.at < FINISHED_KEEP_MS)
-        .sort((a, b) => b[1].at - a[1].at)
-        .slice(0, FINISHED_KEEP_MAX - 1);
       const d = ev.data;
-      const done: FinishedRun = {
-        kind: d.kind ?? gone?.kind,
+      return markFinished(s, id, {
+        kind: d.kind ?? s.runs[id]?.kind,
         ...(d.changed !== undefined ? { changed: d.changed } : {}),
         ...(d.scanned !== undefined ? { scanned: d.scanned } : {}),
         errors: d.errors,
         ...(d.error ? { error: d.error } : {}),
-        at: now,
-      };
-      return { ...s, runs: rest, finished: { ...Object.fromEntries(kept), [id]: done } };
+      });
     }
     case "fetch.done": {
       if (!(ev.data.new_items > 0) || !isManualTrigger(ev.data.trigger)) return s;
@@ -348,7 +354,12 @@ export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
   for (const r of st.runs ?? []) runs[String(r.id)] = { ...r, id: String(r.id) };
   const before = liveStore.get().runs;
   const finished = Object.keys(before).filter((id) => !runs[id]);
-  liveStore.set((s) => ({ ...s, runs }));
+  liveStore.set((s) => {
+    // A run the server no longer reports is over: remember it, or a bootstrap answer already in flight brings it back.
+    let next = s;
+    for (const id of finished) next = markFinished(next, id, { kind: before[id]?.kind, errors: before[id]?.errors ?? 0 });
+    return { ...next, runs };
+  });
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) =>
     old ? { ...old, counts: { ...old.counts, unread: st.unread_total, ...(typeof st.muted === "number" ? { muted: st.muted } : {}) } } : old,
   );
@@ -367,20 +378,11 @@ export async function reconcile(qc: QueryClient): Promise<void> {
 }
 
 /**
- * Show a run the moment the server accepts it (the 202 body), without waiting for `run.start` (the stream can be down,
- * and polling is 60 s). Nothing is added for a run that already finished: its `run.done` may have come first.
+ * Add the runs the live state neither knows nor has seen finish. A known run keeps its live progress (the stream is
+ * newer than any answer), and a finished one stays gone: its `run.done` (or a poll that stopped listing it) may have
+ * come before an answer that was built while it was running.
  */
-export function seedRun(run: RunStatus): void {
-  liveStore.set((s) => (s.finished?.[run.id] || s.runs[run.id] ? s : { ...s, runs: { ...s.runs, [run.id]: run } }));
-}
-
-/**
- * Seed live runs from a freshly loaded bootstrap: each run not already known and not already finished. A known run is
- * left alone (the stream's progress is newer than the answer), and a finished one stays gone (a stale answer built
- * while it was running can land after its `run.done`).
- */
-export function seedRuns(runs: RunStatus[] | undefined): void {
-  if (!runs?.length) return;
+function addUnknownRuns(runs: RunStatus[]): void {
   liveStore.set((s) => {
     const add: Record<string, RunStatus> = {};
     for (const r of runs) {
@@ -389,6 +391,16 @@ export function seedRuns(runs: RunStatus[] | undefined): void {
     }
     return Object.keys(add).length ? { ...s, runs: { ...s.runs, ...add } } : s;
   });
+}
+
+/** Show a run the moment the server accepts it (the 202 body), without waiting for `run.start` (the stream can be down, and polling is 60 s). */
+export function seedRun(run: RunStatus): void {
+  addUnknownRuns([run]);
+}
+
+/** Seed live runs from a freshly loaded bootstrap (a run already going at load, or one the stream never announced). */
+export function seedRuns(runs: RunStatus[] | undefined): void {
+  if (runs?.length) addUnknownRuns(runs);
 }
 
 // ---- Hook ---------------------------------------------------------------------

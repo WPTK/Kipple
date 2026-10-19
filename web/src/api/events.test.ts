@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
-import { FINISHED_KEEP_MAX, FINISHED_KEEP_MS, isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, reduceEvent, seedRuns } from "./events";
+import { FINISHED_KEEP_MAX, FINISHED_KEEP_MS, isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, pollStatus, reduceEvent, seedRun, seedRuns } from "./events";
 import { keys, scopeKey } from "./queries";
 import { savedSearchesKey } from "./savedSearches";
 import { noteFilterTouched, resetFilterTouched } from "./filterEdits";
 import type { ItemsPage, ServerEvent } from "./types";
-import { bootstrap, card, detail, pageOf } from "@/test/mockApi";
+import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 
 beforeEach(() => liveStore.set(initialLive));
 
@@ -33,6 +33,31 @@ describe("seedRuns", () => {
     expect(liveStore.get().runs["1"]?.done).toBe(2);
     seedRuns([{ ...run("1"), done: 0 }]);
     expect(liveStore.get().runs["1"]?.done).toBe(2);
+  });
+
+  it("seeds a bootstrap that lists only new runs, and seedRun follows the same rule", () => {
+    liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "1", kind: "refresh", total: 3 } }));
+    seedRuns([run("5"), { ...run("6"), id: 6 as unknown as string }]);
+    expect(Object.keys(liveStore.get().runs).sort()).toEqual(["1", "5", "6"]);
+    liveStore.set((s) => reduceEvent(s, { type: "run.done", data: { run_id: "5", new_items: 0, errors: 0 } }));
+    seedRun(run("5"));
+    expect(liveStore.get().runs["5"]).toBeUndefined();
+  });
+
+  it("does not bring back a run a status poll stopped listing", async () => {
+    mockFetch({ "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 0 }) });
+    liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "7", kind: "import", total: 5 } }));
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs).toEqual({});
+    seedRuns([run("7")]);
+    expect(liveStore.get().runs).toEqual({});
+  });
+
+  it("still guards a run after 19 later runs finished (the kept window holds FINISHED_KEEP_MAX)", () => {
+    liveStore.set((s) => reduceEvent(s, { type: "run.done", data: { run_id: "0", new_items: 0, errors: 0 } }));
+    for (let i = 1; i < FINISHED_KEEP_MAX; i++) liveStore.set((s) => reduceEvent(s, { type: "run.done", data: { run_id: String(i), new_items: 0, errors: 0 } }));
+    seedRuns([run("0")]);
+    expect(liveStore.get().runs).toEqual({});
   });
 });
 
