@@ -67,6 +67,7 @@ func TestImportCountsAndSkipReasons(t *testing.T) {
 	require.Len(t, r.Skipped, 2)
 	require.Equal(t, 6, r.FeedsAdded+len(r.FeedsExisting)+len(r.Skipped)+r.FeedsRepeated, "every outline counted once")
 	require.Equal(t, "not a web address (it must start with http:// or https://)", r.Skipped[0].Reason)
+	require.Contains(t, r.Skipped[1].Reason, "longer than 4,096 characters")
 	require.Equal(t, feedurl.TooLongMessage, r.Skipped[1].Reason)
 	require.Less(t, len(r.Skipped[1].URL), 300, "the report cuts an overlong address")
 	var site string

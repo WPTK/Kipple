@@ -196,3 +196,9 @@ func TestMaxLenIsMeasuredAfterCleanup(t *testing.T) {
 		require.ErrorIs(t, err, ErrTooLong)
 	}
 }
+
+// The user-facing text names the number the limit is built from.
+func TestTooLongMessageNamesTheLimit(t *testing.T) {
+	require.Equal(t, 4096, MaxLen)
+	require.Contains(t, TooLongMessage, "4,096")
+}

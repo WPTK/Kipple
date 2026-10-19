@@ -40,6 +40,7 @@ func TestRedirectToOverlongAddressIsNoted(t *testing.T) {
 	require.Equal(t, OutcomeOK, res.Outcome, res.ErrMsg)
 	require.Equal(t, RedirectClear, res.Redirect.Action)
 	require.Contains(t, strings.Join(res.Notes, ";"), "redirect_not_recorded")
+	require.Equal(t, srv.URL+"/moved", res.FinalURL, "the long address is not kept as the final URL")
 }
 
 // A stored feed URL over the cap cannot come from any path that stores one (each goes through
@@ -49,13 +50,24 @@ func TestDecideRedirectOverlongStoredURLClears(t *testing.T) {
 	require.Equal(t, RedirectClear, d.Action)
 }
 
-// A feed stored before the length limit existed still fetches; the log says why no redirect is recorded.
-func TestOverlongStoredFeedURLIsNoted(t *testing.T) {
+// A feed stored before the length limit existed still fetches. With no redirect there is nothing to
+// say; when it redirects, the log says why no redirect is recorded.
+func TestOverlongStoredFeedURLIsNotedOnlyOnRedirect(t *testing.T) {
 	mux := http.NewServeMux()
 	long := "/feed/" + strings.Repeat("a", 5000)
 	mux.HandleFunc(long, serveRSS)
+	mux.HandleFunc("/feed/"+strings.Repeat("a", 5001), func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/short", http.StatusFound)
+	})
+	mux.HandleFunc("/short", serveRSS)
 	srv, c := feedServer(t, mux.ServeHTTP)
+
 	res := doFetch(t, c, snapFor(srv.URL+long))
 	require.Equal(t, OutcomeOK, res.Outcome, res.ErrMsg)
+	require.Empty(t, res.Notes, "no redirect, no note")
+
+	res = doFetch(t, c, snapFor(srv.URL+"/feed/"+strings.Repeat("a", 5001)))
+	require.Equal(t, OutcomeOK, res.Outcome, res.ErrMsg)
 	require.Contains(t, strings.Join(res.Notes, ";"), "redirect_not_recorded")
+	require.Equal(t, RedirectClear, res.Redirect.Action)
 }

@@ -361,14 +361,15 @@ func shortURL(s string) string {
 
 // httpURLOrEmpty keeps only absolute http(s) URLs (htmlUrl is rendered as a link) up to feedurl.MaxLen.
 func httpURLOrEmpty(s string) string {
-	if len(s) > feedurl.MaxLen {
-		return ""
-	}
 	u, err := url.Parse(strings.TrimSpace(s))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return ""
 	}
-	return u.String()
+	out := u.String() // the stored form, the one the length limit counts (as for a feed address)
+	if len(out) > feedurl.MaxLen {
+		return ""
+	}
+	return out
 }
 
 func prefixAll(u string, l []string) []string {

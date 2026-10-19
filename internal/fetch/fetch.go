@@ -254,17 +254,20 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		case err == nil:
 			res.FinalURL = fin
 		case errors.Is(err, feedurl.ErrTooLong):
-			// The feed still reads; the target is not recorded (DecideRedirect clears), so say why in the log.
-			res.FinalURL = fu.String()
-			res.Notes = append(res.Notes, fmt.Sprintf("redirect_not_recorded: the address redirected to is longer than %d characters", feedurl.MaxLen))
+			// The feed still reads; the target is not recorded, so the final URL stays the one asked for
+			// (DecideRedirect then clears) and the note says why. The long address never reaches fetch_log.
+			res.FinalURL = snap.URL
+			if fu.String() != snap.URL { // not merely a stored row that is itself over the limit
+				res.Notes = append(res.Notes, fmt.Sprintf("redirect_not_recorded: the address redirected to is longer than %d characters", feedurl.MaxLen))
+			}
 		default:
 			res.FinalURL = fu.String()
 		}
 	}
 	res.DocTTLS = snap.DocTTLS
 	res.TTLHintS = PublisherHintSeconds(snap.HonorTTL, int(snap.DocTTLS/60), resp.Header, now)
-	if len(snap.URL) > feedurl.MaxLen {
-		// A row stored before the length limit existed: it still fetches, but no redirect can be decided for it.
+	if len(snap.URL) > feedurl.MaxLen && res.FinalURL != snap.URL {
+		// A row stored before the length limit existed: it still fetches, but a redirect cannot be decided for it.
 		res.Notes = append(res.Notes, fmt.Sprintf("redirect_not_recorded: the feed's own address is longer than %d characters", feedurl.MaxLen))
 	}
 	res.Redirect = DecideRedirect(snap.URL, snap.Redirect, res.FinalURL, res.Hops)

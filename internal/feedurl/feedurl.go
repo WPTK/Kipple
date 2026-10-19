@@ -5,7 +5,6 @@ package feedurl
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
@@ -20,8 +19,14 @@ import (
 // strips the default port and the fragment, and keeps path and query verbatim.
 // The result is an absolute http(s) URL.
 func Normalize(raw string) (string, error) {
-	_, norm, err := parse(raw)
-	return norm, err
+	u, norm, err := parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if norm == "" {
+		norm = u.String()
+	}
+	return norm, nil
 }
 
 // KeyAndNormalize returns Normalize(raw) and Key(Normalize(raw)): the key is taken from the
@@ -79,15 +84,19 @@ var ErrUserinfo = errors.New("feedurl: the URL contains a user name or password;
 // no way in (add, edit, import, sync API, redirect) stores one and they all agree on which addresses fit.
 const MaxLen = 4096
 
-// maxCleanLen bounds what is worth parsing: percent-encoding at most triples a byte, so an address
-// that is longer than this after white space and a fragment are cut cannot fit MaxLen once
-// normalized. It only spares work on huge input; MaxLen is the real limit.
+// maxCleanLen is a loose bound that only spares work on huge input: percent-encoding at most triples
+// a byte, so an address longer than this after white space and a fragment are cut cannot fit. The real
+// limit is MaxLen, enforced on the normalized form.
 const maxCleanLen = 3 * MaxLen
 
+// plainlyShort is the longest cleaned input that cannot reach MaxLen once normalized (three times
+// its length plus room for a scheme), so parse need not build the string to measure it.
+const plainlyShort = (MaxLen - 16) / 3
+
 // TooLongMessage is the one wording for a refused length, shown to the person (the add dialog, the
-// OPML report). It names how the address is counted, because one that looks short can be over the
-// limit: Kipple stores it with letters outside A to Z, spaces and similar characters spelled out.
-var TooLongMessage = fmt.Sprintf("the address is longer than %d,%03d characters once written the way Kipple stores it, which spells out letters outside A to Z, spaces and similar characters in the path", MaxLen/1000, MaxLen%1000)
+// OPML report). The number comes first; the hint is there because an address that looks shorter can be
+// over the limit (spaces and letters outside A to Z are stored spelled out).
+const TooLongMessage = "the address is longer than 4,096 characters (spaces and letters outside A to Z take more room when it is stored)"
 
 // ErrTooLong is returned for a URL longer than MaxLen once normalized. Its text is for logs; a
 // person is shown TooLongMessage.
@@ -207,8 +216,9 @@ func hasScheme(s string) bool {
 	return true
 }
 
-// parse returns the cleaned-up URL and its string form, stringified once (the string is what the
-// length cap is measured on and what Normalize returns).
+// parse returns the cleaned-up URL and, when it had to build it to measure the length, its string
+// form ("" when the input is plainly short; Normalize then builds it once). The length cap is
+// measured on that string.
 func parse(raw string) (*url.URL, string, error) {
 	// Measure what survives cleaning (white space and the fragment are dropped), not the input.
 	kept := strings.TrimSpace(raw)
@@ -243,6 +253,9 @@ func parse(raw string) (*url.URL, string, error) {
 	u.Host = host
 	u.Fragment = ""
 	u.RawFragment = ""
+	if len(kept) <= plainlyShort {
+		return u, "", nil
+	}
 	norm := u.String()
 	if len(norm) > MaxLen {
 		return nil, "", ErrTooLong
