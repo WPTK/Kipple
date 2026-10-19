@@ -158,6 +158,46 @@ func (o outline) name() string {
 // with no element at all (empty, or JSON).
 var ErrNotOPML = errors.New("opml: not an OPML document")
 
+// EmptyError is Parse's refusal of a file that holds no feeds: a blank file (Blank), or a document with no feed in it,
+// whether it has folders or no outline at all.
+type EmptyError struct{ Blank bool }
+
+func (e *EmptyError) Error() string {
+	if e.Blank {
+		return "opml: the file is empty"
+	}
+	return "opml: the file has no feeds"
+}
+
+// Error makes a Refused an error, so a caller can wrap it with context and still match it with errors.As.
+func (r Refused) Error() string { return r.Message }
+
+// Refused is a Parse error that refuses the file's content, as every caller (web import, Reader API, command line,
+// restore wizard) reports it: a code, a plain-language message, and whether the file did not look like OPML at all.
+type Refused struct {
+	Code, Message string
+	NotOPML       bool // not an OPML file (an RSS feed, JSON, a web page): the restore wizard calls that not-a-backup
+}
+
+// AsRefused maps err to its Refused, and false for any other error (a read failure, damaged XML). It is the one place
+// the refusals are named.
+func AsRefused(err error) (Refused, bool) {
+	var entity *UndefinedEntityError
+	var empty *EmptyError
+	switch {
+	case errors.Is(err, ErrNotOPML):
+		return Refused{"not_opml", "that file is not an OPML file", true}, true
+	case errors.As(err, &entity):
+		return Refused{Code: "opml_entity", Message: strings.TrimPrefix(entity.Error(), "opml: ")}, true
+	case errors.As(err, &empty):
+		if empty.Blank {
+			return Refused{Code: "empty_opml", Message: "that file is empty"}, true
+		}
+		return Refused{Code: "empty_opml", Message: "that OPML file has no feeds in it"}, true
+	}
+	return Refused{}, false
+}
+
 // UndefinedEntityError is Parse's refusal of a file that names an entity neither XML nor HTML defines (`&x;`): the
 // decoder would keep it as literal text and it would become a folder or feed name. A DOCTYPE's own entities are never
 // expanded, so a reference to one is refused too.
@@ -260,17 +300,36 @@ func resolveEntities(b []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// Parse reads an OPML document. Every named outline without an xmlUrl is a
+// Parse reads an OPML file about to be imported or restored (web import, Reader API, command line, restore wizard) and
+// refuses what no import accepts: a blank file, and a document with no feeds, which would only make empty folders and
+// is not the export of a reader. It is the one entry point; the tests of the export round trip, whose empty library
+// has no feeds, use parse.
+func Parse(r io.Reader) (*Doc, error) {
+	doc, err := parse(r)
+	if err != nil {
+		return nil, err
+	}
+	if len(doc.Feeds) == 0 {
+		return nil, &EmptyError{}
+	}
+	return doc, nil
+}
+
+// parse reads an OPML document. Every named outline without an xmlUrl is a
 // folder and nests as it does in the file, down to store.MaxFolderDepth levels;
 // an unnamed wrapper is transparent.
-func Parse(r io.Reader) (*Doc, error) {
+func parse(r io.Reader) (*Doc, error) {
 	raw, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("opml: %w", err)
 	}
 	// Decode to UTF-8 first (BOM, XML declaration, ISO-8859-1, UTF-16...), which
 	// also rewrites the declaration so the XML decoder needs no CharsetReader.
-	body, err := resolveEntities(fetch.DecodeBody(raw, "").Body)
+	decoded := fetch.DecodeBody(raw, "").Body
+	if len(bytes.TrimSpace(bytes.TrimPrefix(decoded, []byte("\xef\xbb\xbf")))) == 0 { // after decoding: a blank UTF-16 file is blank too
+		return nil, &EmptyError{Blank: true}
+	}
+	body, err := resolveEntities(decoded)
 	if err != nil {
 		return nil, err
 	}
