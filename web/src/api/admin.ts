@@ -212,6 +212,8 @@ export interface OpmlResult {
    * an import; a feed on a private address has one private_address entry. */
   ignored_attrs?: string[];
   run_id?: string;
+  /** The last event the server had published when it started the import run (see `Bootstrap.event_id`). */
+  event_id?: string;
 }
 
 /**
