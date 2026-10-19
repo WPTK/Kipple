@@ -555,6 +555,12 @@ func TestImportDroppedReportIsBounded(t *testing.T) {
 	r := importString(t, db, b.String(), ImportOptions{})
 
 	require.Len(t, r.MembershipsDropped, maxDroppedFeeds)
+	first := r.MembershipsDropped[0]
+	require.Equal(t, "http://a.test/rss", first.URL)
+	require.Len(t, first.Dropped, maxDroppedPaths, "the first 20 distinct other folders")
+	require.True(t, strings.HasPrefix(first.Kept, "F0"))
+	require.True(t, strings.HasPrefix(first.Dropped[0], "F1"))
+	require.Equal(t, 2*(49-maxDroppedPaths), first.More, "each outline in a further folder is counted; a repeat in a listed folder is not")
 	require.Equal(t, 6, r.MembershipsDroppedMore, "the feed repeated under the long folders and the rest are counted")
 	for _, d := range r.MembershipsDropped {
 		require.LessOrEqual(t, len(d.Dropped), maxDroppedPaths)

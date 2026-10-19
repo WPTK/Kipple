@@ -38,6 +38,8 @@ type Dropped struct {
 	URL     string   `json:"url"`
 	Kept    string   `json:"kept"`
 	Dropped []string `json:"dropped"`
+	// More counts the repeats in further other folders that Dropped does not list (it holds at most maxDroppedPaths).
+	More int `json:"more"`
 }
 
 // Skipped is an outline that could not be imported.
@@ -188,7 +190,8 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		type firstSeen struct {
 			url     string
 			folder  []string
-			dropped []string
+			dropped [][]string // distinct other folders (chains shared with the Doc), at most maxDroppedPaths
+			more    int        // repeats in a further other folder, not listed
 		}
 		var emptiedFrom []int64 // folders MoveExisting took a feed out of, first time first
 		seen := map[string]*firstSeen{}
@@ -210,9 +213,11 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			}
 			if p, ok := seen[key]; ok {
 				res.FeedsRepeated++
-				if len(p.dropped) < maxDroppedPaths && !slices.Equal(f.Folder, p.folder) {
-					if short := shortPath(f.Folder); !slices.Contains(p.dropped, short) {
-						p.dropped = append(p.dropped, short)
+				if !slices.Equal(f.Folder, p.folder) && !slices.ContainsFunc(p.dropped, func(c []string) bool { return slices.Equal(c, f.Folder) }) {
+					if len(p.dropped) < maxDroppedPaths {
+						p.dropped = append(p.dropped, f.Folder)
+					} else {
+						p.more++
 					}
 				}
 				continue
@@ -316,7 +321,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			switch {
 			case len(p.dropped) == 0:
 			case len(res.MembershipsDropped) < maxDroppedFeeds:
-				res.MembershipsDropped = append(res.MembershipsDropped, Dropped{shortURL(p.url), shortPath(p.folder), p.dropped})
+				res.MembershipsDropped = append(res.MembershipsDropped, Dropped{shortURL(p.url), shortPath(p.folder), shortPaths(p.dropped), p.more})
 			default:
 				res.MembershipsDroppedMore++
 			}
@@ -339,6 +344,14 @@ const (
 
 // shortPath is a folder path as a report lists it, cut like an address.
 func shortPath(chain []string) string { return shortURL(Path(chain)) }
+
+func shortPaths(chains [][]string) []string {
+	out := make([]string, len(chains))
+	for i, c := range chains {
+		out[i] = shortPath(c)
+	}
+	return out
+}
 
 // chainKey is an unambiguous map key for a folder chain (a name may hold any character).
 func chainKey(chain []string) string {

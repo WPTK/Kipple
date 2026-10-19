@@ -193,7 +193,7 @@ export interface OpmlResult {
   feeds_repeated?: number;
   feeds_existing: { url: string; feed_id: string }[];
   folders_merged_case: { kept: string; merged: string }[];
-  memberships_dropped: { url: string; kept: string; dropped: string[] }[];
+  memberships_dropped: { url: string; kept: string; dropped: string[]; more?: number }[];
   /** Feeds repeated across folders beyond the ones `memberships_dropped` lists. */
   memberships_dropped_more?: number;
   /** Feeds that already existed and were moved into the file's folders (with `moveExisting`). */
