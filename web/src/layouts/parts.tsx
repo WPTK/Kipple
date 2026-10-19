@@ -199,11 +199,13 @@ export function RowMenu({
 }
 
 /**
- * The name of a row's link: the title first (so heading and type-ahead navigation find it), then "unread" for an
- * unread one. The source is not repeated: it is the visible text just before the title.
+ * The "unread" part of a row link's name, as hidden text inside the link after the title (so the name is the title,
+ * then "unread", and heading and type-ahead navigation find the title first). It is content, not an aria-label: a
+ * label replaces the name, and when the visible title has highlight marks beyond the truncation edge the browser-side
+ * visible text loses those words and no longer sits inside the label (axe label-content-name-mismatch, issue #513).
  */
-export function rowLabel(item: Card): string {
-  return `${item.title || "Untitled"}${item.read ? "" : ", unread"}`;
+export function UnreadHint({ item }: { item: Card }) {
+  return item.read ? null : <span className="sr-only">, unread</span>;
 }
 
 /** A row control's name: the action, then the article it acts on, so a list of buttons or a voice command can tell rows apart. */

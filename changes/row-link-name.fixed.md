@@ -1,0 +1,1 @@
+A list row's link is named by its title, with "unread" as hidden text after it, instead of an aria-label that repeated the title; on a narrow screen a title cut short with a search word marked in it no longer disagrees with its own accessible name. (#513)

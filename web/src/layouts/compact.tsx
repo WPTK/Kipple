@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLabel } from "./parts";
+import { RowMenu, SourceTimeMeta, StarButton, UnreadDot, UnreadHint } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
@@ -32,9 +32,9 @@ function CompactRow({ item, feed, selected, to, onOpen, onToggleStar, actions }:
             onClick={() => onOpen(item)}
             aria-keyshortcuts={ROW_KEYSHORTCUTS}
             className="row-link"
-            aria-label={rowLabel(item)}
           >
             <Hl text={item.title || "Untitled"} field="title" feedId={item.feed_id} />
+            <UnreadHint item={item} />
           </Link>
         </h3>
       </div>
