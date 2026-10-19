@@ -358,7 +358,9 @@ func TestChunkedCommitOverFiveHundred(t *testing.T) {
 	e.exec("DELETE FROM trimmed_items")
 	info = e.fetchBody(id, rss(numbered(620)...))
 	require.EqualValues(t, 520, info.Trimmed)
-	require.Zero(t, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
+	// One rule for "was this item shown" (#316): the two earlier chunks (500 items) were committed, so visible,
+	// before the last chunk's trim; the 20 the last chunk inserted and trimmed never were.
+	require.Equal(t, 500, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
 }
 
 func TestFirstSuccessAndInitialRead(t *testing.T) {

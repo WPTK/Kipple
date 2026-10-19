@@ -58,18 +58,19 @@ type CommitInfo struct {
 }
 
 type commitState struct {
-	migrated   bool
-	retitled   bool
-	before     int // items in the feed before the fetch
-	firstNewID int64
-	firstID    int64
-	lastID     int64
-	newIDs     []int64
-	unreadNew  []int64 // new ids counted in feed_daily_new (see addFeedDailyNew)
-	// chunkCounted is where the current chunk's ids start in unreadNew: the last chunk's trim takes
-	// back only those (dropTrimmedDailyNew).
-	chunkCounted int
-	day          string // the local date the commit counts them on, fixed by its first chunk
+	migrated bool
+	retitled bool
+	before   int // items in the feed before the fetch
+	// chunkFirstID is the first id the current chunk inserted (maxInt64 until it inserts one). It is the one rule for
+	// "was this item shown": only the last chunk's items are hidden when its trim runs, since an earlier chunk had
+	// committed and its items were listed (and could be opened) before the next chunk started. The trim notice
+	// (trimmed_unread_count) and the read rate's correction (dropTrimmedDailyNew) both read it.
+	chunkFirstID int64
+	firstID      int64
+	lastID       int64
+	newIDs       []int64
+	unreadNew    []int64 // new ids counted in feed_daily_new (see addFeedDailyNew)
+	day          string  // the local date the commit counts them on, fixed by its first chunk
 	updated      int
 	rekeyed      int
 	initRead     int
@@ -127,7 +128,7 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 		}
 	}
 
-	st := &commitState{firstNewID: maxInt64}
+	st := &commitState{chunkFirstID: maxInt64}
 	defer func() {
 		if v := recover(); v != nil {
 			// A panic in a chunk skips the error path below (WithWrite has no
@@ -257,7 +258,7 @@ type existingRow struct {
 func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, last bool, st *commitState, pre *preEval) error {
 	feedID := res.Snap.ID
 	now := d.clock.Now().Unix()
-	st.chunkCounted = len(st.unreadNew)
+	st.chunkFirstID = maxInt64
 	// A URL edit that landed while this fetch was in flight makes its result
 	// stale: the validators, redirect state and schedule belong to the old URL.
 	// Drop this chunk and every later one (the trim, the bookkeeping and the log
@@ -310,7 +311,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 		total = st.before + len(st.newIDs)
 	}
 	var err error
-	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, st.firstNewID, trimBatch, total); err != nil {
+	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, st.chunkFirstID, trimBatch, total); err != nil {
 		return err
 	}
 	if err := dropTrimmedDailyNew(ctx, tx, feedID, st); err != nil {
@@ -568,8 +569,8 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				d.MarkFulltextPending(id)
 				st.held = append(st.held, heldItem{uid: it.UID, id: id})
 			}
-			if st.firstNewID == maxInt64 {
-				st.firstNewID = id
+			if st.chunkFirstID == maxInt64 {
+				st.chunkFirstID = id
 			}
 			if len(st.newIDs) == 0 {
 				st.firstID = id
@@ -894,14 +895,19 @@ const sqlItemBetween = `SELECT EXISTS (SELECT 1 FROM items WHERE id > ?1 AND id 
 	OR EXISTS (SELECT 1 FROM trimmed_items WHERE id > ?1 AND id < ?2 AND +feed_id = ?3)`
 
 // dropTrimmedDailyNew takes back, in the last chunk after the trim, the counted items this chunk both
-// inserted and trimmed, from the rows that hold them: they were never visible, so never opened or
+// inserted and trimmed (the ids from st.chunkFirstID on), from the rows that hold them: they were never visible, so never opened or
 // restored. Invariant: their ids stay unreachable. They keep a ledger row and a restore stub inside a
 // row's span, so a star or mark-unread by one of those ids (restoreTrimmed) and then an open would count
 // a read that is not among the new items; no list, stream or UI path returns them. Counted items of earlier chunks stay counted even when this trim removes them: they were
 // visible between the chunks and may have been opened. A row that would reach 0 is deleted
 // (new_items > 0). A row's ids are left as they are, which adds no read inside them.
 func dropTrimmedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, st *commitState) error {
-	mine := st.unreadNew[st.chunkCounted:]
+	var mine []int64
+	for _, id := range st.unreadNew {
+		if id >= st.chunkFirstID {
+			mine = append(mine, id)
+		}
+	}
 	if len(mine) == 0 || st.trimmed == 0 {
 		return nil
 	}

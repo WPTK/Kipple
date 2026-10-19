@@ -1,0 +1,1 @@
+The notice about unread items trimmed before you read them now also counts the unread items of a large update (more than 500 new items) that were listed while it was still being saved and then trimmed, the same items the reading statistics already keep as new. (#316)

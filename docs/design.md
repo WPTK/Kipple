@@ -323,7 +323,7 @@ BEGIN SELECT RAISE(ABORT, 'the default folder cannot be deleted'); END;
 -- holds starred items of unsubscribed feeds (url 'kipple:archive', never fetched, retention 0).
 -- initial_read_before: set by a UI OPML import option; new items published before it are inserted
 -- read on the first successful fetch, then it is cleared. trimmed_unread_count: unread items
--- trimmed since trimmed_unread_since, excluding items trimmed by the transaction that inserted them.
+-- trimmed since trimmed_unread_since, excluding items trimmed by the (last) transaction that inserted them.
 CREATE TABLE feeds (
   id                   INTEGER PRIMARY KEY AUTOINCREMENT,
   folder_id            INTEGER NOT NULL DEFAULT 1 REFERENCES folders(id) ON DELETE SET DEFAULT,
@@ -1194,7 +1194,7 @@ The `unchanged` and `not_modified` outcomes run the same transaction without the
 - A rule that scans the `category` field never fires on an item without categories, inverted or not: no stored categories means unknown, not "does not match" (an inverted category rule would otherwise mute every item fetched before migration 0004). The same holds in the preview and the retroactive apply.
 - `item_content.categories_json` is filled for every new item, filters or not: the feed's categories, trimmed, blank and case-insensitive repeats dropped, at most 20 of 100 runes each. `content_hash` does not include them and an update never rewrites them.
 
-On the **first fetch** of a new subscription, every item is inserted unread (or read, per `initial_read_before`), and the trim then applies N. Items trimmed in this same transaction are not added to `trimmed_unread_count`, because their ids are ≥ `first_new_id`.
+On the **first fetch** of a new subscription, every item is inserted unread (or read, per `initial_read_before`), and the trim then applies N. Items trimmed in the transaction that inserted them are not added to `trimmed_unread_count`, because their ids are ≥ `first_new_id`. A fetch of more than 500 items commits in chunks and the trim runs in the last one, so `first_new_id` is the first id that last chunk inserted: the earlier chunks were committed, and so visible, before the trim, and their unread items are counted. The read rate's trim correction (§8) uses the same boundary.
 
 A dedup-mode change through the UI or API sets `rekey_pending = 1` and nothing else. The re-key runs on the feed's next fetch (scheduled, refresh-all or per-feed), which is forced `Full` while `rekey_pending` is set. The editor shows "Duplicate detection is being re-applied to this feed." while it is pending. There is no confirm dialog.
 
@@ -1337,7 +1337,7 @@ Validated with 300 items in one feed, 5 of them starred, and N=50: 245 trimmed, 
 
 **Ranking.** `sort_at` DESC, then `id` DESC: the same order as the UI.
 
-- A backfilled or republished old-dated post can be trimmed in the same transaction that inserted it. It goes to the ledger (and a stub) but is not counted in `trimmed_unread_count`.
+- A backfilled or republished old-dated post can be trimmed in the same transaction that inserted it (for a chunked fetch, the last chunk's transaction). It goes to the ledger (and a stub) but is not counted in `trimmed_unread_count`.
 - A bogus future date is clamped to crawl + 24 h in `sort_at` (the ranking key). `published_at` keeps the feed's value.
 
 **Restore** (`store.restoreTrimmed(tx, ids, mode)`, where `mode` is `star` or `unread`; validated). It first selects the restorable ids: those trimmed within `restore_days` that also still have a stub. A stub the nightly purge has not yet removed but that is older than the window cannot be restored, so a restore never depends on when the purge last ran. The statements below then run over `:rids`, that selection:

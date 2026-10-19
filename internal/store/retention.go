@@ -21,9 +21,10 @@ var trimBatch = 2000
 // (sort_at DESC, id DESC) real items and the newest muted ones under the muted allowance
 // (see mutedAllowance), tombstone everything else into trimmed_items (plus restore stubs when
 // restore_days > 0) and delete it. N comes from the feed override or retention.default; N = 0 skips.
-// firstNewID is the first id allocated by the surrounding fetch (MaxInt64 when
-// none): unread items trimmed at or past it are not counted in
-// trimmed_unread_count.
+// neverShownFrom is the first id of the surrounding fetch commit's last chunk (MaxInt64 when
+// none): the items of that chunk were never listed, so unread ones trimmed at or past it are not
+// counted in trimmed_unread_count. Items of earlier chunks were committed, so visible, before the
+// trim ran, and are counted.
 //
 // At most limit items go per call, the oldest (sort_at ASC, id ASC) of the trim
 // set first, so the transaction stays short on a feed with a huge backlog.
@@ -36,12 +37,12 @@ var trimBatch = 2000
 // total is the feed's item count as the caller knows it inside tx, or -1 when it does not.
 // A feed with at most N items has nothing to trim (the kept counts can only be smaller), so
 // then the count and the trim-set window, which read every row of the feed, are skipped.
-func trimFeedBatch(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64, limit, total int) (n int64, more bool, err error) {
-	n, err = trimFeedLimit(ctx, tx, feedID, now, firstNewID, limit, total)
+func trimFeedBatch(ctx context.Context, tx *sql.Tx, feedID, now, neverShownFrom int64, limit, total int) (n int64, more bool, err error) {
+	n, err = trimFeedLimit(ctx, tx, feedID, now, neverShownFrom, limit, total)
 	return n, err == nil && n >= int64(limit), err
 }
 
-func trimFeedLimit(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int64, limit, total int) (int64, error) {
+func trimFeedLimit(ctx context.Context, tx *sql.Tx, feedID, now, neverShownFrom int64, limit, total int) (int64, error) {
 	var override sql.NullInt64
 	if err := tx.QueryRowContext(ctx, "SELECT retention FROM feeds WHERE id = ?", feedID).Scan(&override); err != nil {
 		return 0, fmt.Errorf("retention: read feed: %w", err)
@@ -93,7 +94,7 @@ func trimFeedLimit(ctx context.Context, tx *sql.Tx, feedID, now, firstNewID int6
 		return 0, nil
 	}
 
-	for i, args := range [][]any{{now}, {set.RestoreDays}, {feedID, firstNewID, now}} {
+	for i, args := range [][]any{{now}, {set.RestoreDays}, {feedID, neverShownFrom, now}} {
 		if _, err := tx.ExecContext(ctx, trimSetSQL[i], args...); err != nil {
 			return 0, fmt.Errorf("retention: %w", err)
 		}

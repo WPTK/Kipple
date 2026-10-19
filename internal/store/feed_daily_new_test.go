@@ -171,6 +171,9 @@ func TestFeedDailyNewTrimCorrectionAcrossChunks(t *testing.T) {
 	// The last chunk's 30 trimmed items were never visible: taken back. The first two chunks' 490 were
 	// visible between the chunks and may have been opened: they stay counted, and in the row.
 	require.Equal(t, 580, e.newsDaily(id, base), "counted on the first chunk's day, less the last chunk's 30 trimmed")
+	// The trim notice reads the same boundary: the 490 of the first two chunks are shown-then-trimmed unread items,
+	// the last chunk's 30 are not (#316).
+	require.Equal(t, 490, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feed_daily_new WHERE feed_id = ?", id))
 	early := e.ids(`SELECT id FROM trimmed_items WHERE feed_id = ? ORDER BY id LIMIT 1`, id)[0]
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feed_daily_new WHERE feed_id = ? AND ? BETWEEN first_item AND last_item", id, early))
