@@ -1,10 +1,27 @@
 package store
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/stretchr/testify/require"
 )
+
+// An address under the limit as typed whose stored form is over it is refused with the user-facing
+// text, and one that fits is kept.
+func TestValidateFeedURLLengthIsMeasuredOnTheStoredForm(t *testing.T) {
+	over := "https://h.example/" + strings.Repeat("é", 700) // 1,400 bytes typed, 4,200 stored
+	require.Less(t, len(over), feedurl.MaxLen)
+	_, _, _, err := ValidateFeedURL(over, false)
+	var bad *InvalidURLError
+	require.ErrorAs(t, err, &bad)
+	require.Equal(t, URLTooLong, bad.Kind)
+	require.Contains(t, bad.Reason, "longer than 4,096 characters")
+
+	_, _, _, err = ValidateFeedURL("https://h.example/"+strings.Repeat("é", 600), false)
+	require.NoError(t, err)
+}
 
 // ValidateFeedURL is the one syntax check for every way a feed URL enters the
 // database (Reader subscribe and quickadd, web add, URL edit, OPML import). It

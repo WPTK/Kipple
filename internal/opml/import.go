@@ -374,7 +374,7 @@ func skipReason(err error) string {
 		case store.URLUserinfo:
 			return "the address holds a user name or password; add this feed on its own and set its HTTP authentication"
 		case store.URLTooLong:
-			return "the address is longer than 4,096 characters"
+			return feedurl.TooLongMessage
 		}
 	}
 	return "not a web address (it must start with http:// or https://)"
@@ -395,14 +395,15 @@ func shortURL(s string) string {
 
 // httpURLOrEmpty keeps only absolute http(s) URLs (htmlUrl is rendered as a link) up to feedurl.MaxLen.
 func httpURLOrEmpty(s string) string {
-	if len(s) > feedurl.MaxLen {
-		return ""
-	}
 	u, err := url.Parse(strings.TrimSpace(s))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return ""
 	}
-	return u.String()
+	out := u.String() // the stored form, the one the length limit counts (as for a feed address)
+	if len(out) > feedurl.MaxLen {
+		return ""
+	}
+	return out
 }
 
 func prefixAll(u string, l []string) []string {
