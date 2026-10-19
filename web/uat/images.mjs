@@ -29,6 +29,20 @@ const { check, step } = t;
 const GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#c33"/></svg>';
 
+/** Whether the image drew (`want` true) or failed (`want` false) once its load finished; false if it had not finished within 10 s, null if the image is gone. */
+const settled = (img, want) =>
+  img
+    .evaluate(
+      (el, drew) =>
+        new Promise((resolve) => {
+          const end = Date.now() + 10000;
+          const poll = () => (el.complete && el.currentSrc ? resolve((el.naturalWidth > 0) === drew) : Date.now() > end ? resolve(false) : setTimeout(poll, 50));
+          poll();
+        }),
+      want,
+    )
+    .catch(() => null);
+
 let base = "";
 const article = () =>
   `<p>An article with pictures.</p>` +
@@ -104,10 +118,12 @@ await t.eachViewport(async (page, vp) => {
     check(href === `${base}/page/1` && target === "_blank", `${tag} I2 link`, "Open original goes to the article and opens a new tab", `href ${href}, target ${target}`);
 
     const photo = body.locator('img[alt="A photo"]');
-    const shown = await photo.evaluate((i) => i.complete && i.naturalWidth > 0).catch(() => false);
+    // The pictures are lazy: the browser starts a fetch only when one nears the screen, and at the phone preset the
+    // article is long enough that it has not begun when the last cue appears. So wait for the picture to settle.
+    const shown = await settled(photo, true);
     check(shown, `${tag} I3 gif`, "the GIF is shown", "the GIF did not load");
     check((await body.locator('img[width="1"]').count()) === 1, `${tag} I3 pixel`, "the tracking pixel gets no cue", "the tracking pixel was replaced");
-    const flaky = await body.locator('img[alt="Flaky"]').evaluate((i) => i.complete && i.naturalWidth === 0).catch(() => null);
+    const flaky = await settled(body.locator('img[alt="Flaky"]'), false);
     check(flaky === true, `${tag} I3 transient`, "an image whose source is down stays an image (it may load next time), with no cue", `the failing image is ${flaky === null ? "gone" : "not failed"}`);
     await cues.first().scrollIntoViewIfNeeded();
     await t.shot(page, `${tag}-image-not-shown`);
