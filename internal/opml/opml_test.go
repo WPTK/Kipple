@@ -538,7 +538,9 @@ func TestImportSkipsNonHTTPSchemesAndNeverGrantsExceptions(t *testing.T) {
 }
 
 func TestImportDroppedReportIsBounded(t *testing.T) {
-	t.Parallel()
+	// Not parallel: the caps are global.
+	defer func(p, f int) { maxDroppedPaths, maxDroppedFeeds = p, f }(maxDroppedPaths, maxDroppedFeeds)
+	maxDroppedPaths, maxDroppedFeeds = 5, 10
 	db := openDB(t)
 	long := strings.Repeat("é", 5000)
 	var b strings.Builder

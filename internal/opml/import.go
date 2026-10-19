@@ -337,7 +337,8 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 // The report of feeds listed in several folders is bounded, so a hostile file (one feed repeated under
 // thousands of folders with long names) cannot make it huge: each path is cut, each feed lists its first
 // distinct other folders, and the report names a limited number of feeds (MembershipsDroppedMore counts the rest).
-const (
+// Variables so a test can shrink them.
+var (
 	maxDroppedPaths = 20
 	maxDroppedFeeds = 1000
 )
