@@ -12,7 +12,8 @@
 //       otherwise untouched; (a single feed's dialog speaks of "its articles" and "this feed", several feeds of "their articles");
 //   F3  New folder and Rename folder both save on Enter in the name field;
 //   F4  Import OPML refuses a file that is not OPML, by its look (JSON named .json), on the server when it is
-//       an RSS feed or when it is JSON named .opml, says so in plain words and adds nothing.
+//       an RSS feed or JSON named .opml (not OPML) or an OPML cut short (damaged), says so in plain words and adds
+//       nothing.
 // Disposable feeds point at an address that never resolves, so nothing is fetched. A run that stopped half-way is
 // cleaned up by the next one. It only runs against a loopback address with the seed's credentials unless
 // --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
@@ -160,7 +161,8 @@ await t.eachViewport(async (page, vp) => {
   };
   await refuse("export.json", "application/json", '{"error":"origin"}', /doesn't look like an OPML file/, "look");
   await refuse("feed.xml", "text/xml", '<rss version="2.0"><channel/></rss>', /That is not an OPML file/, "server");
-  await refuse("export.opml", "text/x-opml", '{"error":"origin"}', /damaged or cut short/, "damaged");
+  await refuse("export.opml", "text/x-opml", '{"error":"origin"}', /That is not an OPML file/, "json");
+  await refuse("cut.opml", "text/x-opml", '<opml version="2.0"><body><outline text="a"', /damaged or cut short/, "damaged");
   check((await t.boot(page)).feeds.length === feedsBefore, `${tag} F4 nothing`, "nothing was imported", "a refused file changed the library");
   });
 });

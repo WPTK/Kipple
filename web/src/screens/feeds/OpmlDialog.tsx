@@ -1,7 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, errorMessage } from "@/api/client";
 import { importOpml, invalidateFeeds, type OpmlResult } from "@/api/admin";
+import { liveStore, seedRun } from "@/api/events";
+import { useStoreSelector } from "@/lib/store";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
 import { announce } from "@/shell/toasts";
@@ -14,7 +16,7 @@ export function opmlError(e: unknown): string {
   if (e instanceof ApiError) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
     if (e.status === 413) return "That file is too large to import.";
-    if (e.code === "empty_opml") return "That OPML file has no feeds in it.";
+    if ((e.code === "empty_opml" || e.code === "opml_entity") && msg) return `Kipple can't import that file: ${msg}.`;
     if (e.code === "not_opml") return "That is not an OPML file. Choose the .opml or .xml file exported from your other reader.";
     if (e.code === "bad_opml") return "That OPML file is damaged or cut short, so Kipple couldn't read it. Export it again from your other reader.";
     if (e.status === 400 || e.status === 422) return msg ? `Kipple couldn't read that file: ${msg}` : "Kipple couldn't read that file. Choose an OPML file exported from another reader.";
@@ -41,14 +43,55 @@ export async function opmlFileProblem(file: File): Promise<string | null> {
   return "That doesn't look like an OPML file. Choose the .opml or .xml file exported from your other reader.";
 }
 
-/** "<url>: kipple:allow_private_net" or "<url>: private_address" from the import report, in plain words. */
-export function attrNote(s: string): string {
+/** The switch in a feed's settings that lets Kipple fetch it from your own network (FeedEditor). */
+const PRIVATE_SWITCH = "Allow addresses on my own network";
+
+/**
+ * "<url>: kipple:allow_private_net", "<url>: private_address" or "<url>: kipple:allow_insecure_tls" from the import
+ * report: the address, and what was not applied, in plain words.
+ */
+export function attrNote(s: string): { url: string; note: string } {
   const at = s.lastIndexOf(": ");
   const url = at >= 0 ? s.slice(0, at) : s;
   const attr = at >= 0 ? s.slice(at + 2) : "";
-  if (attr === "private_address") return `${url}: this feed is on a private-network address, so it was imported with private-network access off. Turn it on for the feed to fetch it`;
-  const what = attr.endsWith("allow_private_net") ? "allowing private-network addresses" : attr.endsWith("allow_insecure_tls") ? "skipping certificate checks" : attr || "a setting";
-  return `${url}: ${what} was ignored`;
+  if (attr === "private_address") return { url, note: `on your own network, so Kipple won't fetch it until you turn on "${PRIVATE_SWITCH}" in its settings` };
+  if (attr.endsWith("allow_private_net")) return { url, note: `the file allowed addresses on your own network; turn on "${PRIVATE_SWITCH}" in its settings if it needs that` };
+  if (attr.endsWith("allow_insecure_tls")) return { url, note: "the file skipped certificate checks; Kipple checks them" };
+  return { url, note: `${attr || "a setting"} was not applied` };
+}
+
+/**
+ * How the fetch of the new feeds is going: a bar while the import run goes, then how it ended. The run is shown from
+ * the import's answer at once, so this works while the live stream is down; without either it says the fetch started.
+ */
+function ImportProgress({ runId, total }: { runId: string; total: number }) {
+  useEffect(() => seedRun({ id: runId, kind: "import", done: 0, total, new_items: 0, errors: 0 }), [runId, total]);
+  const run = useStoreSelector(liveStore, (s) => s.runs[runId]);
+  const finished = useStoreSelector(liveStore, (s) => s.finished?.[runId]);
+  // A run that was on screen and is gone without a result ended while the stream was down (the status poll dropped it).
+  const [seen, setSeen] = useState(false);
+  if (run && !seen) setSeen(true);
+  if (run) {
+    return (
+      <div className="flex flex-col gap-1 text-sm text-fg2">
+        <p>
+          Fetching the new feeds: {run.done.toLocaleString()} of {run.total.toLocaleString()}
+        </p>
+        <progress className="h-2 w-full accent-[var(--kp-accent)]" value={run.done} max={Math.max(1, run.total)} aria-label="Fetching the new feeds" />
+      </div>
+    );
+  }
+  if (finished) {
+    return (
+      <p className="text-sm text-fg2">
+        {finished.errors > 0
+          ? `Kipple fetched the new feeds. ${finished.errors.toLocaleString()} couldn't be fetched; each says why on its row in Manage feeds.`
+          : "Kipple fetched the new feeds."}
+      </p>
+    );
+  }
+  if (seen) return <p className="text-sm text-fg2">Kipple fetched the new feeds. A feed that can't be fetched says why on its row in Manage feeds.</p>;
+  return <p className="text-sm text-fg2">Kipple is fetching the new feeds now. A feed that can't be fetched says why on its row in Manage feeds.</p>;
 }
 
 /** What an import did, in plain words: the counts, and everything that was skipped, merged or not applied. */
@@ -71,6 +114,13 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
       <li>
         {result.folders_created} folder{result.folders_created === 1 ? "" : "s"} created
       </li>
+      {result.feeds_repeated ? (
+        <li>
+          {result.feeds_repeated === 1
+            ? "1 feed was listed again under the same address; the repeat was left out"
+            : `${result.feeds_repeated} feeds were listed again under the same address; the repeats were left out`}
+        </li>
+      ) : null}
       {existing - moved > 0 ? (
         <li>
           {existing - moved === 1 ? "1 feed was already in Kipple and was left as it is" : `${existing - moved} feeds were already in Kipple and were left as they are`}
@@ -121,8 +171,8 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
         </p>
         <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
           {skipped.map((s, i) => (
-            <li key={i} className="break-all">
-              {s.url || "(no address)"}: {s.reason}
+            <li key={i} className="break-words">
+              <span className="break-all">{s.url || "(no address)"}</span>: {s.reason}
             </li>
           ))}
         </ul>
@@ -131,13 +181,16 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
     {ignored.length ? (
       <div className="text-sm">
         <p className="font-semibold">Some settings in the file were not applied</p>
-        <p className="text-fg2">For safety, an import never lets a file allow private-network addresses or skip certificate checks. Set those on the feed itself if you need them.</p>
+        <p className="text-fg2">For safety, an import never lets a file reach addresses on your own network or skip certificate checks. Set those on the feed itself if you need them.</p>
         <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
-          {ignored.map((s, i) => (
-            <li key={i} className="break-all">
-              {attrNote(s)}
-            </li>
-          ))}
+          {ignored.map((s, i) => {
+            const { url, note } = attrNote(s);
+            return (
+              <li key={i} className="break-words">
+                <span className="break-all">{url}</span>: {note}
+              </li>
+            );
+          })}
         </ul>
       </div>
     ) : null}
@@ -153,7 +206,7 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
         </ul>
       </div>
     ) : null}
-    {result.run_id ? <p className="text-sm text-fg2">Kipple is fetching the new feeds now. A feed that can't be fetched says why on its row in Manage feeds.</p> : null}
+    {result.run_id ? <ImportProgress runId={result.run_id} total={result.feeds_added} /> : null}
     </>
   );
 }

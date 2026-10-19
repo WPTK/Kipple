@@ -10,7 +10,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -46,8 +48,12 @@ type Skipped struct {
 
 // Result is the import report (POST /api/opml shape, design §7).
 type Result struct {
-	FoldersCreated    int          `json:"folders_created"`
-	FeedsAdded        int          `json:"feeds_added"`
+	FoldersCreated int `json:"folders_created"`
+	FeedsAdded     int `json:"feeds_added"`
+	// FeedsRepeated counts the feed outlines whose address an earlier outline of the file already had (in the same
+	// folder or another; MembershipsDropped names the other folders). Every feed outline is counted once: added,
+	// existing, skipped or repeated.
+	FeedsRepeated     int          `json:"feeds_repeated"`
 	FeedsExisting     []Existing   `json:"feeds_existing"`
 	FoldersMergedCase []MergedCase `json:"folders_merged_case"`
 	// FoldersRefused are folders not created (too deep, a name the folder writer refuses); their
@@ -66,7 +72,9 @@ type Result struct {
 	InvalidAttrs       []string  `json:"invalid_attrs"`
 	// IgnoredAttrs are valid but security-sensitive kipple:* attributes that an
 	// import never applies (allow_private_net, allow_insecure_tls), and feeds
-	// on a literal private address, imported with allow_private_net off.
+	// on a literal private address, imported with allow_private_net off. A feed
+	// on a private address has one "private_address" entry, which covers its
+	// allow_private_net.
 	IgnoredAttrs []string `json:"ignored_attrs"`
 	// NewFeedIDs are the inserted feeds in document order (for sched.StartImport).
 	NewFeedIDs []int64 `json:"-"`
@@ -190,7 +198,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			// (a self-export or migration must not silently drop LAN feeds).
 			norm, key, host, err := store.ValidateFeedURL(f.URL, true)
 			if err != nil {
-				res.Skipped = append(res.Skipped, Skipped{f.URL, err.Error()})
+				res.Skipped = append(res.Skipped, Skipped{shortURL(f.URL), skipReason(err)})
 				continue
 			}
 			privateAddr := false
@@ -198,6 +206,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				privateAddr = true
 			}
 			if p, ok := seen[key]; ok {
+				res.FeedsRepeated++
 				if chainKey(f.Folder) != chainKey(p.folder) {
 					p.dropped = append(p.dropped, Path(f.Folder))
 				}
@@ -242,12 +251,14 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			a := f.Attrs
 			res.InvalidAttrs = append(res.InvalidAttrs, prefixAll(norm, f.BadAttrs)...)
 			// An imported file must not weaken the SSRF/TLS guards of a feed.
-			if a.AllowPrivateNet != nil {
+			if a.AllowPrivateNet != nil && *a.AllowPrivateNet && !privateAddr {
 				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": kipple:allow_private_net")
-				a.AllowPrivateNet = nil
 			}
+			a.AllowPrivateNet = nil
 			if a.AllowInsecureTLS != nil {
-				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": kipple:allow_insecure_tls")
+				if *a.AllowInsecureTLS {
+					res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": kipple:allow_insecure_tls")
+				}
 				a.AllowInsecureTLS = nil
 			}
 			if privateAddr {
@@ -320,8 +331,39 @@ func chainKey(chain []string) string {
 	return b.String()
 }
 
-// httpURLOrEmpty keeps only absolute http(s) URLs (htmlUrl is rendered as a link).
+// skipReason says why an outline's address was not imported, in words for an import (the store's reasons ask a
+// person adding one feed to type another address).
+func skipReason(err error) string {
+	var bad *store.InvalidURLError
+	if errors.As(err, &bad) {
+		switch bad.Kind {
+		case store.URLUserinfo:
+			return "the address holds a user name or password; add this feed on its own and set its HTTP authentication"
+		case store.URLTooLong:
+			return "the address is longer than 4,096 characters"
+		}
+	}
+	return "not a web address (it must start with http:// or https://)"
+}
+
+// shortURL is an address as a report lists it: an overlong one is cut, so a hostile file cannot make the report huge.
+func shortURL(s string) string {
+	const keep = 200
+	if len(s) <= keep {
+		return s
+	}
+	cut := keep
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
+// httpURLOrEmpty keeps only absolute http(s) URLs (htmlUrl is rendered as a link) up to feedurl.MaxLen.
 func httpURLOrEmpty(s string) string {
+	if len(s) > feedurl.MaxLen {
+		return ""
+	}
 	u, err := url.Parse(strings.TrimSpace(s))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return ""
