@@ -19,7 +19,6 @@
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { Buffer } from "node:buffer";
 import { createServer } from "node:http";
-import { setTimeout as sleep } from "node:timers/promises";
 import { URL } from "node:url";
 import { start } from "./common.mjs";
 
@@ -30,16 +29,40 @@ const { check, step } = t;
 const GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#c33"/></svg>';
 
-/** Whether the image drew (`want` true) or failed (`want` false) once its load finished; false if it had not finished within 10 s, null if the image is gone. */
-const settled = async (img, want) => {
-  const end = Date.now() + 10000;
-  for (;;) {
-    const drew = await img.evaluate((el) => (el.complete && el.currentSrc ? el.naturalWidth > 0 : null)).catch(() => undefined);
-    if (drew === undefined) return null;
-    if (drew !== null) return drew === want;
-    if (Date.now() > end) return false;
-    await sleep(100);
+/**
+ * What became of one article image once the browser had finished with it: "loaded" (it drew), "failed" (its fetch
+ * ended and it has no picture), "timeout" (the load did not finish within 10 s: it never started, or never ended) or
+ * "gone" (the element is not in the article). It scrolls the image into view first, because lazy loading starts on
+ * nearness to the viewport, then waits for the browser's finished state (`complete` with a `currentSrc`). Every step
+ * has the same 10 s budget, so a detached element cannot stall for Playwright's 30 s default. It returns the first
+ * finished state, which is final here: this flow's server answers the failing image with a fixed 500 and the GIF with a
+ * fixed 200, so a finished load is never followed by a retry that could change the outcome.
+ */
+const finished = async (page, img) => {
+  const timeout = 10000;
+  let handle;
+  try {
+    await img.scrollIntoViewIfNeeded({ timeout });
+    handle = await img.elementHandle({ timeout });
+  } catch {
+    return "gone";
   }
+  try {
+    const state = await page.waitForFunction(
+      (el) => (!el.isConnected ? "gone" : el.complete && el.currentSrc ? (el.naturalWidth > 0 ? "loaded" : "failed") : false),
+      handle,
+      { timeout },
+    );
+    return await state.jsonValue();
+  } catch {
+    return "timeout";
+  }
+};
+const WHY = {
+  timeout: "its load never finished within 10 s (never started, or never ended)",
+  failed: "its fetch failed",
+  loaded: "it loaded",
+  gone: "the image is not in the article",
 };
 
 let base = "";
@@ -118,12 +141,13 @@ await t.eachViewport(async (page, vp) => {
 
     const photo = body.locator('img[alt="A photo"]');
     // The pictures are lazy: the browser starts a fetch only when one nears the screen, and at the phone preset the
-    // article is long enough that it has not begun when the last cue appears. So wait for the picture to settle.
-    const shown = await settled(photo, true);
-    check(shown, `${tag} I3 gif`, "the GIF is shown", "the GIF did not load");
+    // article is long enough that it has not begun when the last cue appears. So bring each into view and wait for
+    // the browser to finish with it.
+    const shown = await finished(page, photo);
+    check(shown === "loaded", `${tag} I3 gif`, "the GIF is shown", `the GIF did not load: ${WHY[shown]}`);
     check((await body.locator('img[width="1"]').count()) === 1, `${tag} I3 pixel`, "the tracking pixel gets no cue", "the tracking pixel was replaced");
-    const flaky = await settled(body.locator('img[alt="Flaky"]'), false);
-    check(flaky === true, `${tag} I3 transient`, "an image whose source is down stays an image (it may load next time), with no cue", `the failing image is ${flaky === null ? "gone" : "not failed"}`);
+    const flaky = await finished(page, body.locator('img[alt="Flaky"]'));
+    check(flaky === "failed", `${tag} I3 transient`, "an image whose source is down stays an image (it may load next time), with no cue", `the failing image is not a failed image: ${WHY[flaky]}`);
     await cues.first().scrollIntoViewIfNeeded();
     await t.shot(page, `${tag}-image-not-shown`);
 
