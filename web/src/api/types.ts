@@ -70,6 +70,8 @@ export interface Feed {
   folder_id: string;
   title: string;
   site_url: string;
+  /** The feed's short address, sent only when another feed has the same title (null otherwise): rows show it. */
+  address_hint?: string | null;
   icon: string | null;
   unread: number;
   status: string;

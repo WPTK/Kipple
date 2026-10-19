@@ -233,6 +233,7 @@ function FeedsToDelete({
         {feeds.map((f) => (
           <li key={f.id} className="truncate">
             {f.title}
+            {f.address_hint ? <span className="text-xs"> ({f.address_hint})</span> : null}
           </li>
         ))}
       </ul>

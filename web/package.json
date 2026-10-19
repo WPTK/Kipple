@@ -37,6 +37,7 @@
     "uat:phone-chrome": "node uat/phone-chrome.mjs",
     "uat:scroll-restore": "node uat/scroll-restore.mjs",
     "uat:feed-failure": "node uat/feed-failure.mjs",
+    "uat:feeds-scale": "node uat/feeds-scale.mjs",
     "uat:opml-report": "node uat/opml-report.mjs"
   },
   "dependencies": {
