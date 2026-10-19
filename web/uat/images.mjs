@@ -19,6 +19,7 @@
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { Buffer } from "node:buffer";
 import { createServer } from "node:http";
+import { setTimeout as sleep } from "node:timers/promises";
 import { URL } from "node:url";
 import { start } from "./common.mjs";
 
@@ -30,18 +31,16 @@ const GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#c33"/></svg>';
 
 /** Whether the image drew (`want` true) or failed (`want` false) once its load finished; false if it had not finished within 10 s, null if the image is gone. */
-const settled = (img, want) =>
-  img
-    .evaluate(
-      (el, drew) =>
-        new Promise((resolve) => {
-          const end = Date.now() + 10000;
-          const poll = () => (el.complete && el.currentSrc ? resolve((el.naturalWidth > 0) === drew) : Date.now() > end ? resolve(false) : setTimeout(poll, 50));
-          poll();
-        }),
-      want,
-    )
-    .catch(() => null);
+const settled = async (img, want) => {
+  const end = Date.now() + 10000;
+  for (;;) {
+    const drew = await img.evaluate((el) => (el.complete && el.currentSrc ? el.naturalWidth > 0 : null)).catch(() => undefined);
+    if (drew === undefined) return null;
+    if (drew !== null) return drew === want;
+    if (Date.now() > end) return false;
+    await sleep(100);
+  }
+};
 
 let base = "";
 const article = () =>
