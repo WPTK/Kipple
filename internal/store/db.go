@@ -67,10 +67,6 @@ type DB struct {
 	maintActive atomic.Bool
 	maintGen    atomic.Uint64
 
-	// hidden remembers, per feed, the first id a fetch commit hid whose trim it left to a trim job
-	// (see hiddenBacklog).
-	hidden hiddenBacklog
-
 	// ftAll caches fetch.fulltext_all; SetSettings invalidates it.
 	ftAll boolCache
 	// filterGen counts filter writes; fcache holds the rule set compiled at one generation.

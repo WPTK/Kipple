@@ -844,25 +844,20 @@ func TestCommitCleansStoredValidatorsOnNotModified(t *testing.T) {
 	}
 }
 
-// The trim jobs that finish a first document's backlog carry the commit's boundary, so a document larger than one
-// trim batch counts none of its backlog as trimmed unread, however many jobs it takes (#527). Not parallel:
-// the batch size is global.
-func TestTrimJobsThatFinishAFirstDocumentCountNoBacklog(t *testing.T) {
+// A fetch commit finishes the backlog its own trim left, with its own boundary, so a document larger than one trim
+// batch counts none of the backlog nobody was shown as trimmed unread (#527). Not parallel: the batch size is global.
+func TestCommitFinishesItsTrimBacklogWithItsBoundary(t *testing.T) {
 	withTrimBatch(t, 100)
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 100 WHERE id = ?", id)
 	info := e.fetchBody(id, rss(numbered(450)...))
-	require.True(t, info.TrimPending)
-	for more := true; more; {
-		var err error
-		_, more, err = e.db.TrimOnlyBudget(e.ctx, id, fetch.TriggerRetention, TrimBudget{Total: time.Minute})
-		require.NoError(t, err)
-	}
+	require.EqualValues(t, 350, info.Trimmed)
+	require.False(t, info.TrimPending)
 	require.Equal(t, 100, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
 	require.Zero(t, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
 
-	// The boundary is forgotten once the backlog is done: a later retention change counts what it trims.
+	// A later trim job knows nothing of the commit: what it trims was shown, and is counted.
 	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
 	_, _, err := e.db.TrimOnlyBudget(e.ctx, id, fetch.TriggerRetention, TrimBudget{Total: time.Minute})
 	require.NoError(t, err)
