@@ -48,6 +48,16 @@ type Feed struct {
 	cut bool
 }
 
+// Check is the refusal of a document with no feeds. Folders and no feeds would only make empty folders, and is not the
+// export of a reader. Import calls it first; a caller that only counts (the restore wizard) calls it itself. Parse
+// does not, so an exported empty library still parses.
+func (d *Doc) Check() error {
+	if len(d.Feeds) == 0 {
+		return &EmptyError{Folders: true}
+	}
+	return nil
+}
+
 // Doc is a parsed OPML document: its folder tree and its feeds.
 type Doc struct {
 	// Folders holds every named outline that is not a feed, pure containers and empty folders
@@ -158,6 +168,37 @@ func (o outline) name() string {
 // with no element at all (empty, or JSON).
 var ErrNotOPML = errors.New("opml: not an OPML document")
 
+// EmptyError is Parse's refusal of a file that holds no feeds: an empty file (Folders false), or one whose outlines
+// are folders only (Folders true), which would only make empty folders and is not the export of a reader.
+type EmptyError struct{ Folders bool }
+
+func (e *EmptyError) Error() string {
+	if e.Folders {
+		return "opml: the file has folders but no feeds"
+	}
+	return "opml: the file is empty"
+}
+
+// Refusal maps a Parse error that refuses the file's content to the code and plain-language message every caller
+// (web import, Reader API, command line, restore wizard) reports, and false for any other error. It is the one place
+// the refusals are named.
+func Refusal(err error) (code, message string, ok bool) {
+	var entity *UndefinedEntityError
+	var empty *EmptyError
+	switch {
+	case errors.Is(err, ErrNotOPML):
+		return "not_opml", "that file is not an OPML file", true
+	case errors.As(err, &entity):
+		return "opml_entity", strings.TrimPrefix(entity.Error(), "opml: "), true
+	case errors.As(err, &empty):
+		if empty.Folders {
+			return "empty_opml", "that OPML file has no feeds in it", true
+		}
+		return "empty_opml", "that file is empty", true
+	}
+	return "", "", false
+}
+
 // UndefinedEntityError is Parse's refusal of a file that names an entity neither XML nor HTML defines (`&x;`): the
 // decoder would keep it as literal text and it would become a folder or feed name. A DOCTYPE's own entities are never
 // expanded, so a reference to one is refused too.
@@ -267,6 +308,9 @@ func Parse(r io.Reader) (*Doc, error) {
 	raw, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("opml: %w", err)
+	}
+	if len(bytes.TrimSpace(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")))) == 0 {
+		return nil, &EmptyError{}
 	}
 	// Decode to UTF-8 first (BOM, XML declaration, ISO-8859-1, UTF-16...), which
 	// also rewrites the declaration so the XML decoder needs no CharsetReader.

@@ -400,6 +400,12 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 			return Upload{}, ended(ctx, err)
 		}
 		doc, err := opml.Parse(bytes.NewReader(b))
+		if err == nil {
+			err = doc.Check()
+		}
+		if code, msg, ok := opml.Refusal(err); ok && code != "not_opml" {
+			return Upload{}, &Refusal{"This OPML file was refused: " + msg + "."}
+		}
 		if err != nil {
 			return Upload{}, ErrNotBackup
 		}

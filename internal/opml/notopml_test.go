@@ -1,6 +1,8 @@
 package opml
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -14,6 +16,23 @@ func TestParseRefusesWellFormedNonOPML(t *testing.T) {
 	}
 	_, err := Parse(strings.NewReader(`<OPML version="2.0"><body/></OPML>`))
 	require.NoError(t, err)
+}
+
+// Import refuses a document with no feeds before it touches the database, and Refusal names every content refusal
+// the callers map (issue #518).
+func TestImportRefusesFoldersOnly(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	doc := parseString(t, `<opml><body><outline text="Empty"/></body></opml>`)
+	_, err := Import(context.Background(), db, doc, ImportOptions{})
+	code, msg, ok := Refusal(err)
+	require.True(t, ok)
+	require.Equal(t, "empty_opml", code)
+	require.Equal(t, "that OPML file has no feeds in it", msg)
+	_, _, ok = Refusal(errors.New("disk"))
+	require.False(t, ok)
+	_, _, ok = Refusal(nil)
+	require.False(t, ok)
 }
 
 // What real exporters write around the <opml> root must still parse.

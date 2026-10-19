@@ -1,0 +1,1 @@
+Every way in refuses the same OPML files: Reader API clients, the import command and the restore wizard now refuse a file with no feeds (folders only, or empty) and a file naming an entity nobody defines, the way the web import does, instead of creating empty folders or answering that the file is not a backup. (#518)

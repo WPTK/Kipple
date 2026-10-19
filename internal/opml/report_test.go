@@ -38,10 +38,19 @@ func TestParseEntities(t *testing.T) {
 	require.Equal(t, "https://a.test/f?a=1&b=2", d.Feeds[0].URL)
 }
 
-// A file with no element at all (empty, JSON) is not an OPML file, not a damaged one (issue #487).
+// A file with no element at all (JSON) is not an OPML file, not a damaged one (issue #487); a blank one is empty.
 func TestParseNoElement(t *testing.T) {
 	t.Parallel()
-	for _, doc := range []string{"", "   \n", `{"error":"not_found"}`} {
+	for _, doc := range []string{"", "   \n", "\xef\xbb\xbf"} {
+		_, err := Parse(strings.NewReader(doc))
+		var empty *EmptyError
+		require.ErrorAs(t, err, &empty, "%q", doc)
+		require.False(t, empty.Folders)
+		code, _, ok := Refusal(err)
+		require.True(t, ok)
+		require.Equal(t, "empty_opml", code)
+	}
+	for _, doc := range []string{`{"error":"not_found"}`} {
 		_, err := Parse(strings.NewReader(doc))
 		require.ErrorIs(t, err, ErrNotOPML, "%q", doc)
 	}

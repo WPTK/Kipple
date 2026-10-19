@@ -433,6 +433,11 @@ func (c *call) subscriptionImport() {
 		return
 	}
 	res, err := opml.Import(c.r.Context(), c.a.db, doc, opml.ImportOptions{})
+	if _, _, ok := opml.Refusal(err); ok {
+		c.a.log.Warn("greader: subscription/import: bad OPML", "err", err, "ua", c.r.UserAgent())
+		c.text(http.StatusBadRequest, "Bad OPML")
+		return
+	}
 	if err != nil {
 		c.serverError("import", err)
 		return

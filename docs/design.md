@@ -1713,7 +1713,7 @@ On an invalid URL the reply is `200 {"numResults":0,"query":url,"error":"<msg>"}
 
 **`POST subscription/import`**:
 
-1. Requires the `Authorization` header (the route is `raw`: T is not read, the body is not a form, so a T-only POST is 401). Parse the raw OPML body (4 MiB cap). An unparseable body answers `400 text/plain "Bad OPML"` and logs a WARN.
+1. Requires the `Authorization` header (the route is `raw`: T is not read, the body is not a form, so a T-only POST is 401). Parse the raw OPML body (4 MiB cap). An unparseable body, an empty one, a file of folders with no feeds and a file naming an undefined entity (the refusals of §7.6 item 12) each answer `400 text/plain "Bad OPML"` and log a WARN.
 2. Create the file's folder tree (§7.6). A folder that cannot be created (too deep, a refused name) is logged as a WARN; its feeds go into the nearest folder above it.
 3. Match each outline through `FindFeedByURL`. Matches keep their state and folder (`move_existing` is a web and CLI option only). New feeds get their OPML title in `custom_title` and their OPML position, with `next_fetch_at = now`.
 4. Send `wake` when any feed was added (no run, no synchronous HTTP; decision 33).
@@ -2106,6 +2106,7 @@ The React app does not refetch lists on events, except on `resync`. For `fetch.d
 9. The result also carries `folders_created`, `feeds_added`, `skipped` (outlines that could not be imported, with the reason worded for an import: a URL that fails `store.ValidateFeedURL`, the check every other path uses, which also refuses an address over 4,096 characters, `feedurl.MaxLen`; an overlong address is cut in the report) and `invalid_attrs`; `POST /api/opml` adds a `run_id`. The web dialog follows that run: a bar while the new feeds are fetched, then how many could not be. The run is held to the fetch workers and per-host slots like any run (§4.9), so a large import never starts all its fetches at once.
 10. Values are never split on commas, and the `category` attribute is ignored.
 11. The parser reads non-strict XML (a bare `&` in a URL query still reads). A named entity in a start tag that is not one of XML's five is decoded if HTML defines it (by its full name and semicolon, not by the prefix of an old name) and otherwise refuses the whole file, as does a numeric reference that is not a character (`opml.UndefinedEntityError`, `400 opml_entity`), so `&x;` never becomes a folder or feed name. A DOCTYPE's own entities are never expanded, so a reference to one is refused too.
+12. **One set of refusals.** `opml.Parse` refuses a blank file (`opml.EmptyError`), and `Doc.Check` (called first by `opml.Import`, and by the restore wizard's OPML count) refuses a document with no feeds, which would only make empty folders (`opml.EmptyError{Folders: true}`). `opml.Refusal` maps those two, `ErrNotOPML` and `UndefinedEntityError` to one code and message, so every caller reports the same rules: `POST /api/opml` answers `400 empty_opml`, `not_opml` or `opml_entity`; `subscription/import` answers `400 Bad OPML`; `kipple import` exits with the error before it opens the database; the restore wizard's upload names the reason instead of the not-a-backup error (an entity or empty-feeds refusal; anything not OPML stays not-a-backup). Choosing no recommended feeds is not a file and never reaches `Import`.
 
 **Export:**
 

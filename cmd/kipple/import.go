@@ -44,6 +44,9 @@ func runImport(args []string) error {
 		in = f
 	}
 	doc, err := opml.Parse(in)
+	if err == nil {
+		err = doc.Check()
+	}
 	if err != nil {
 		return err
 	}

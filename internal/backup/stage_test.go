@@ -315,6 +315,18 @@ func TestUploadKinds(t *testing.T) {
 	require.Equal(t, Upload{Kind: KindOPML, Feeds: 2}, up)
 	require.Equal(t, RestoreNone, r.State())
 
+	// An OPML file the import would refuse says why, not "not a backup" (issue #518).
+	for name, tc := range map[string]struct{ body, want string }{
+		"folders only": {`<opml><body><outline text="Empty"/></body></opml>`, "no feeds in it"},
+		"entity":       {`<opml><body><outline text="&x;"><outline xmlUrl="http://a.test/rss"/></outline></body></opml>`, "&x; on line 1"},
+	} {
+		_, err := upload(r, []byte(tc.body))
+		var ref *Refusal
+		require.ErrorAs(t, err, &ref, name)
+		require.NotErrorIs(t, err, ErrNotBackup, name)
+		require.Contains(t, err.Error(), tc.want, name)
+	}
+
 	// A bare database file is not accepted here, nor any other file.
 	db := openDB(t)
 	seed(t, db, 1)

@@ -102,6 +102,26 @@ func TestConformanceSubscriptionList(t *testing.T) {
 	require.Empty(t, r.body)
 }
 
+// subscription/import refuses what the web import refuses: a file of folders only, an empty file and an undefined
+// entity answer 400 and create nothing (issue #518).
+func TestSubscriptionImportRefusals(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := newConf(t, h)
+	for name, body := range map[string]string{
+		"folders only": `<opml><body><outline text="OnlyFolder"/></body></opml>`,
+		"empty":        ` `,
+		"entity":       `<opml><body><outline text="&x;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`,
+	} {
+		r := c.call(http.MethodPost, rd+"subscription/import", body, map[string]string{"Content-Type": "text/x-opml"})
+		require.Equal(t, 400, r.code, name)
+		require.Equal(t, "Bad OPML", r.body, name)
+	}
+	var n int
+	require.NoError(t, h.db.Reader().QueryRow("SELECT count(*) FROM folders WHERE name = 'OnlyFolder'").Scan(&n))
+	require.Zero(t, n)
+}
+
 func TestConformanceTagList(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
