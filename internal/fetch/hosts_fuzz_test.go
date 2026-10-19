@@ -17,7 +17,7 @@ import (
 // reason (one registrable domain or a reserved local suffix), never just a shared tail.
 func FuzzHostRules(f *testing.F) {
 	for _, s := range [][2]string{
-		{"example.com", "www.example.com"}, {"nas", "nas.lan"}, {"nas", "nas.attacker.example"},
+		{"example.com", "www.example.com"}, {"www.app", "app"}, {"app", "www.app"}, {"www.co.uk", "co.uk"}, {"www..com", ".com"}, {"nas", "nas.lan"}, {"nas", "nas.attacker.example"},
 		{"10-0-0-5.nip.io", "169-254-169-254.nip.io"}, {"nip.io", "x.nip.io"}, {"X.NIP.IO.", "x.nip.io"},
 		{"127.0.0.1", "[127.0.0.1]"}, {"::1", "[::1]"}, {"a.example.co.uk", "b.example.co.uk"},
 		{"co.uk", "example.co.uk"}, {"x.nip.io..", "y.nip.io"}, {"①.nip.io", "nip.io"},
@@ -37,11 +37,8 @@ func FuzzHostRules(f *testing.F) {
 		if same != SameSite(b, a) {
 			t.Fatalf("SameSite not symmetric: %q %q", a, b)
 		}
-		// FeedHostVariant is asymmetric only through SameOrSubdomain (a subdomain of the feed host), and through
-		// a www.<name> feed host whose bare twin is a single-label name (the single-label rule is not applied to
-		// the twin: "www.app" matches "app", though a single-label name should match only itself; issue #472).
-		single := !strings.Contains(na, ".") || !strings.Contains(nb, ".")
-		if !single && FeedHostVariant(a, b) != FeedHostVariant(b, a) && !SameOrSubdomain(a, b) && !SameOrSubdomain(b, a) {
+		// FeedHostVariant is asymmetric only through SameOrSubdomain (a subdomain of the feed host).
+		if FeedHostVariant(a, b) != FeedHostVariant(b, a) && !SameOrSubdomain(a, b) && !SameOrSubdomain(b, a) {
 			t.Fatalf("FeedHostVariant asymmetric without a subdomain: %q %q", a, b)
 		}
 		if na != "" && !SameSite(a, a) {
