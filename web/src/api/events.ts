@@ -8,7 +8,7 @@ import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type
 import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
-import { folderTree, rollUp, subtreeOf } from "@/lib/folderTree";
+import { feedsInFolder, folderTree, rollUp } from "@/lib/folderTree";
 import {
   SERVER_EVENT_TYPES,
   type Bootstrap,
@@ -28,6 +28,19 @@ export interface LiveState {
   /** Active fetch runs by run id. */
   runs: Record<string, RunStatus>;
   /**
+   * The event id each active run is current to: the stream event, the answer or the 202 that last described it (see
+   * `applyAnswer`). An answer built at an earlier event id is older than that and leaves the run alone.
+   */
+  seq: Record<string, number>;
+  /**
+   * The ids of the runs seen to end, for the life of the page (a few short strings). A late answer or event that
+   * still shows such a run is ignored, however long ago the end was and whatever `finished` has dropped since. Only
+   * an end that was inferred (no `run.done` heard) gives way to a newer sign of life.
+   */
+  ended: Record<string, true>;
+  /** The id of the newest stream event seen. A `resync` below it means the server's ids restarted (see `resetOrdering`). */
+  lastId: number;
+  /**
    * How recent runs ended, by run id: the `run.done` numbers (`changed`, `scanned`, `error`) that the last progress
    * event does not have (the server throttles those to one per 500 ms). Bounded and short lived.
    */
@@ -41,6 +54,13 @@ export interface FinishedRun {
   scanned?: number;
   errors: number;
   error?: string;
+  /**
+   * True when no `run.done` was heard: a status answer stopped listing the run. `errors` is then the last progress's
+   * and `changed`, `scanned` and `error` are unknown, so what it says is not an exact result. A `run.done` replaces it.
+   */
+  inferred?: boolean;
+  /** The event id the run was known to be over at: its `run.done`, or the answer that stopped listing it. */
+  seq: number;
   at: number;
 }
 
@@ -52,46 +72,117 @@ export const initialLive: LiveState = {
   pendingByFeed: {},
   pendingIds: {},
   runs: {},
+  seq: {},
+  ended: {},
+  lastId: 0,
   finished: {},
   transport: "connecting",
 };
 
 export const liveStore = createStore<LiveState>(initialLive);
 
-/** Pure reducer for the parts of an SSE event that live outside the query cache. */
-export function reduceEvent(s: LiveState, ev: ServerEvent): LiveState {
+/**
+ * An event id from the wire (the SSE `id:`, or the `event_id` of an answer) as a number. The server's ids are
+ * microsecond-based and stay under 2^53. Absent or unreadable is 0: the oldest, which ends and updates nothing.
+ */
+export function eventSeq(v: string | number | undefined | null): number {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Take a run out of `runs` and remember it as finished at event id `seq`. The one way a run leaves the live state.
+ * `ended` remembers that it ended, so a late answer that still lists it cannot bring it back. `finished` only holds
+ * the results for display: the newest FINISHED_KEEP_MAX younger than FINISHED_KEEP_MS.
+ */
+function markFinished(s: LiveState, id: string, done: Omit<FinishedRun, "at" | "seq">, seq: number): LiveState {
+  const { [id]: _gone, ...rest } = s.runs;
+  const { [id]: _v, ...restSeq } = s.seq;
+  const now = Date.now();
+  const others = Object.entries(s.finished).filter(([k]) => k !== id).sort((a, b) => b[1].at - a[1].at || b[1].seq - a[1].seq); // newest first (a tie on the clock goes to the later event id)
+  const kept = others.filter(([, f], i) => now - f.at < FINISHED_KEEP_MS && i < FINISHED_KEEP_MAX - 1);
+  return {
+    ...s,
+    runs: rest,
+    seq: restSeq,
+    ended: { ...s.ended, [id]: true },
+    finished: { ...Object.fromEntries(kept), [id]: { ...done, seq, at: now } },
+  };
+}
+
+/** Whether an event or answer at `at` may show run `id`: not once it ended, unless that was only inferred and `at` is newer. */
+function mayShow(s: LiveState, id: string, at: number): boolean {
+  if (!s.ended[id]) return true;
+  const f = s.finished[id];
+  return !!f?.inferred && at > f.seq;
+}
+
+/** Show `run` as active at `at` (the id of the event or answer it is from), forgetting an inferred end. */
+function showRun(s: LiveState, id: string, run: RunStatus, at: number): LiveState {
+  const { [id]: _inferred, ...finished } = s.finished;
+  const { [id]: _ended, ...ended } = s.ended;
+  return {
+    ...s,
+    runs: { ...s.runs, [id]: run },
+    seq: { ...s.seq, [id]: Math.max(at, s.seq[id] ?? 0) },
+    finished: s.finished[id] ? finished : s.finished,
+    ended: s.ended[id] ? ended : s.ended,
+  };
+}
+
+/**
+ * The server's event ids restarted (it was restarted with its clock stepped back): every id kept for ordering is
+ * from the old numbering and would hold back or let through the wrong things. Forget them. The `resync` that says so
+ * also refetches the bootstrap, which describes the runs now.
+ */
+function resetOrdering(s: LiveState, lastId: number): LiveState {
+  const finished = Object.fromEntries(Object.entries(s.finished).map(([k, f]) => [k, { ...f, seq: 0 }]));
+  return { ...s, seq: {}, ended: {}, finished, lastId };
+}
+
+/**
+ * Pure reducer for the parts of an SSE event that live outside the query cache. `id` is the event's own SSE id: the
+ * stream is ordered, so an event always applies, and its id says how new the run's state is (see `applyAnswer`).
+ */
+export function reduceEvent(s: LiveState, ev: ServerEvent, id?: number): LiveState {
+  const at = id ?? 0;
+  if (ev.type === "resync" && at > 0 && at < s.lastId) return reduceRun(resetOrdering(s, at), ev, at);
+  return reduceRun(at > s.lastId ? { ...s, lastId: at } : s, ev, at);
+}
+
+function reduceRun(s: LiveState, ev: ServerEvent, at: number): LiveState {
   switch (ev.type) {
     case "run.start": {
-      const id = String(ev.data.run_id);
+      const run = String(ev.data.run_id);
+      if (!mayShow(s, run, at)) return s;
       const filter = ev.data.filter_id !== undefined ? { filter_id: String(ev.data.filter_id) } : {};
-      return { ...s, runs: { ...s.runs, [id]: { id, kind: ev.data.kind, done: 0, total: ev.data.total, new_items: 0, errors: 0, ...filter } } };
+      return showRun(s, run, { id: run, kind: ev.data.kind, done: 0, total: ev.data.total, new_items: 0, errors: 0, ...filter }, at);
     }
     case "run.progress": {
-      const id = String(ev.data.run_id);
-      const cur = s.runs[id];
+      const run = String(ev.data.run_id);
+      if (!mayShow(s, run, at)) return s;
+      const cur = s.runs[run];
       // The kind comes from run.start (or bootstrap and /api/status) and nothing else: no field of a progress event
       // says what a run is. One we never saw start is "unknown", which is quiet (not a refresh spinner).
-      const kind = cur?.kind ?? "unknown";
-      return { ...s, runs: { ...s.runs, [id]: { ...(cur?.filter_id ? { filter_id: cur.filter_id } : {}), ...ev.data, id, kind } } };
+      const kind = cur?.kind ?? s.finished[run]?.kind ?? "unknown";
+      return showRun(s, run, { ...(cur?.filter_id ? { filter_id: cur.filter_id } : {}), ...ev.data, id: run, kind }, at);
     }
     case "run.done": {
-      const id = String(ev.data.run_id);
-      const { [id]: gone, ...rest } = s.runs;
-      const now = Date.now();
-      const kept = Object.entries(s.finished ?? {})
-        .filter(([, f]) => now - f.at < FINISHED_KEEP_MS)
-        .sort((a, b) => b[1].at - a[1].at)
-        .slice(0, FINISHED_KEEP_MAX - 1);
+      const run = String(ev.data.run_id);
       const d = ev.data;
-      const done: FinishedRun = {
-        kind: d.kind ?? gone?.kind,
-        ...(d.changed !== undefined ? { changed: d.changed } : {}),
-        ...(d.scanned !== undefined ? { scanned: d.scanned } : {}),
-        errors: d.errors,
-        ...(d.error ? { error: d.error } : {}),
-        at: now,
-      };
-      return { ...s, runs: rest, finished: { ...Object.fromEntries(kept), [id]: done } };
+      return markFinished(
+        s,
+        run,
+        {
+          // A poll may have ended the run already (its kind is then in `finished`): the kind is not lost with it.
+          kind: d.kind ?? s.runs[run]?.kind ?? s.finished[run]?.kind,
+          ...(d.changed !== undefined ? { changed: d.changed } : {}),
+          ...(d.scanned !== undefined ? { scanned: d.scanned } : {}),
+          errors: d.errors,
+          ...(d.error ? { error: d.error } : {}),
+        },
+        at,
+      );
     }
     case "fetch.done": {
       if (!(ev.data.new_items > 0) || !isManualTrigger(ev.data.trigger)) return s;
@@ -133,12 +224,6 @@ const isManualTrigger = (trigger: string | undefined): boolean => trigger === "m
 
 type FolderRef = { id: string; name: string; parent_id?: string | null };
 
-/** The feeds a folder list shows: those in the folder or any of its subfolders. */
-function feedsInFolder(folder: string, feeds: readonly { id: string; folder_id: string }[], folders: readonly FolderRef[]): string[] {
-  const inside = subtreeOf(folderTree(folders), folder);
-  return feeds.filter((f) => inside.has(f.folder_id)).map((f) => f.id);
-}
-
 /**
  * New items that would appear in this list: the feeds the scope includes (a feed, the feeds of a folder
  * and its subfolders, or all). Starred and search lists never show a pill (their membership is not "new
@@ -163,7 +248,7 @@ export function pendingFor(
   if (scope.feed) return count(scope.feed);
   let n = 0;
   if (scope.folder) {
-    for (const id of feedsInFolder(scope.folder, feeds, folders)) n += count(id);
+    for (const f of feedsInFolder(scope.folder, feeds, folders)) n += count(f.id);
     return n;
   }
   for (const id of Object.keys(pending)) n += count(id);
@@ -179,7 +264,7 @@ export function clearPending(
 ): Record<string, number> {
   if (pendingFor(pending, scope, feeds, folders) === 0) return pending;
   if (scope.feed) return omit(pending, [scope.feed]);
-  if (scope.folder) return omit(pending, feedsInFolder(scope.folder, feeds, folders));
+  if (scope.folder) return omit(pending, feedsInFolder(scope.folder, feeds, folders).map((f) => f.id));
   return {};
 }
 const omit = <T,>(o: Record<string, T>, ids: string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => !ids.includes(k))) as Record<string, T>;
@@ -247,10 +332,11 @@ let countsRefetch: ReturnType<typeof setTimeout> | undefined;
 
 export { SAVED_COUNTS_MIN_MS, refreshSavedSearchCounts, resetSavedSearchCounts };
 
-/** Everything one event does: reducer, query cache, live region. */
-export function handleServerEvent(qc: QueryClient, ev: ServerEvent): void {
-  const runKind = ev.type === "run.done" ? liveStore.get().runs[String(ev.data.run_id)]?.kind : undefined;
-  liveStore.set((s) => reduceEvent(s, ev));
+/** Everything one event does: reducer, query cache, live region. `id` is the event's SSE id (absent for one made locally). */
+export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number): void {
+  // The run's kind is in `finished` when a status poll already ended it.
+  const runKind = ev.type === "run.done" ? (liveStore.get().runs[String(ev.data.run_id)]?.kind ?? liveStore.get().finished[String(ev.data.run_id)]?.kind) : undefined;
+  liveStore.set((s) => reduceEvent(s, ev, id));
   switch (ev.type) {
     case "items.state": {
       const { ids, read, starred, muted } = ev.data;
@@ -339,20 +425,60 @@ export function pollInterval(active: boolean): number {
 }
 
 /**
- * Poll GET /api/status once and fold it into the cache and live state. The runs it reports replace the
- * live runs wholesale, so a run whose `run.done` was missed stops counting as active.
+ * Fold an answer about the active runs into the live state; the one place a bootstrap, a status poll or a 202 body
+ * (seedRun) touches `runs`. Such an answer can be older than what the stream already said: it was built, then sat
+ * in the network while events went by. Every answer carries `event_id`, the last event the server had published
+ * before it looked, so `asOf` says exactly what the answer knows. Every run has a `seq` of its own (the id of the
+ * last event or answer about it), and then:
+ *  - a run that ended stays ended (an inferred end gives way to an answer or event that is newer than the inference);
+ *  - a run the live state does not know is introduced (the `ended` set has every run seen to end);
+ *  - a `complete` answer (the status poll lists every active run) updates a known run that it is at least as new
+ *    as, and ends a known run it lacks, if the answer is at least as new as the run's state. A run that started or
+ *    moved after the answer was built is the stream's to describe. An answer without a usable `event_id` (the server
+ *    could not look at its runs) ends nothing.
+ * A run ended by absence has no `run.done` numbers: it is `inferred`, and says so. Returns the ids it ended.
+ */
+function applyAnswer(runs: RunStatus[], asOf: number, complete: boolean): string[] {
+  const ended: string[] = [];
+  liveStore.set((s) => {
+    let next = s;
+    const listed = new Set<string>();
+    for (const r of runs) {
+      const id = String(r.id);
+      listed.add(id);
+      const known = s.runs[id];
+      if (!mayShow(s, id, asOf)) continue;
+      if (known) {
+        if (complete && asOf > 0 && asOf >= (s.seq[id] ?? 0)) next = showRun(next, id, { ...r, id }, asOf);
+      } else {
+        next = showRun(next, id, { ...r, id }, asOf); // (an inferred end that this answer is newer than, or an unknown run)
+      }
+    }
+    // An answer with no usable event id (the server could not order it) ends nothing.
+    if (complete && asOf > 0) {
+      for (const [id, known] of Object.entries(s.runs)) {
+        if (listed.has(id) || asOf < (s.seq[id] ?? 0)) continue;
+        ended.push(id);
+        next = markFinished(next, id, { kind: known.kind, errors: known.errors, inferred: true }, asOf);
+      }
+    }
+    return next;
+  });
+  return ended;
+}
+
+/**
+ * Poll GET /api/status once and fold it into the cache and live state. A run the answer no longer lists is over, if the
+ * answer is newer than what the live state knows about it (a stale answer, or one built before a run the 202 body
+ * just announced, changes nothing).
  */
 export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
   const st = await api<StatusResponse>("/api/status");
-  const runs: Record<string, RunStatus> = {};
-  for (const r of st.runs ?? []) runs[String(r.id)] = { ...r, id: String(r.id) };
-  const before = liveStore.get().runs;
-  const finished = Object.keys(before).filter((id) => !runs[id]);
-  liveStore.set((s) => ({ ...s, runs }));
+  const ended = applyAnswer(st.runs ?? [], eventSeq(st.event_id), true);
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) =>
     old ? { ...old, counts: { ...old.counts, unread: st.unread_total, ...(typeof st.muted === "number" ? { muted: st.muted } : {}) } } : old,
   );
-  if (finished.length) void qc.invalidateQueries({ queryKey: keys.bootstrap });
+  if (ended.length) void qc.invalidateQueries({ queryKey: keys.bootstrap });
   return { ...st, runs: st.runs ?? [] };
 }
 
@@ -367,17 +493,16 @@ export async function reconcile(qc: QueryClient): Promise<void> {
 }
 
 /**
- * Show a run the moment the server accepts it (the 202 body), without waiting for `run.start` (the stream can be down,
- * and polling is 60 s). Nothing is added for a run that already finished: its `run.done` may have come first.
+ * Show a run the moment the server accepts it (the 202 body), without waiting for `run.start` (the stream can be
+ * down, and polling is 60 s). `eventId` is the 202's `event_id`. A run the live state knows keeps its live numbers.
  */
-export function seedRun(run: RunStatus): void {
-  liveStore.set((s) => (s.finished?.[run.id] || s.runs[run.id] ? s : { ...s, runs: { ...s.runs, [run.id]: run } }));
+export function seedRun(run: RunStatus, eventId?: string | number): void {
+  applyAnswer([run], eventSeq(eventId), false);
 }
 
-/** Seed live runs from a freshly loaded bootstrap when nothing is known yet (a run already going at load). */
-export function seedRuns(runs: RunStatus[] | undefined): void {
-  if (!runs?.length || Object.keys(liveStore.get().runs).length) return;
-  liveStore.set((s) => ({ ...s, runs: Object.fromEntries(runs.map((r) => [String(r.id), { ...r, id: String(r.id) }])) }));
+/** Seed live runs from a loaded bootstrap (a run already going at load, or one the stream never announced). */
+export function seedRuns(runs: RunStatus[] | undefined, eventId?: string | number): void {
+  if (runs?.length) applyAnswer(runs, eventSeq(eventId), false);
 }
 
 // ---- Hook ---------------------------------------------------------------------
@@ -472,7 +597,8 @@ export function useServerEvents(enabled: boolean): void {
     document.addEventListener("visibilitychange", onVisible);
     const stopSeed = qc.getQueryCache().subscribe((e) => {
       if (e.type === "updated" && e.action.type === "success" && e.query.queryKey[0] === "bootstrap") {
-        seedRuns((e.query.state.data as Bootstrap | undefined)?.runs);
+        const b = e.query.state.data as Bootstrap | undefined;
+        seedRuns(b?.runs, b?.event_id);
       }
     });
 
@@ -494,7 +620,7 @@ export function useServerEvents(enabled: boolean): void {
         connected();
         pet(src);
         const ev = parseServerEvent(type, m.data);
-        if (ev) handleServerEvent(qc, ev);
+        if (ev) handleServerEvent(qc, ev, eventSeq(m.lastEventId));
       };
       for (const t of SERVER_EVENT_TYPES) src.addEventListener(t, onMessage(t) as EventListener);
       src.onopen = () => {

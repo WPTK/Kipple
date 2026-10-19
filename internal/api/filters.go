@@ -587,6 +587,13 @@ func (s *Server) startApply(id int64, includeRead bool) (*applyRun, error) {
 		cancel(nil)
 		close(done)
 		s.apply.wg.Done()
+		// The run was listed (bootstrap, /api/status) while it counted, so a client may be showing it: it ends with a
+		// run.done like every run does, never by disappearing. The registration stays before the count because the
+		// busy check and cancelApply rely on it; the cost is this one event.
+		if s.opt.Hub != nil {
+			s.opt.Hub.Publish("run.done", map[string]any{"run_id": idStr(run.ID), "kind": runKindFilterApply, "filter_id": idStr(id),
+				"new_items": 0, "errors": 0, "changed": 0, "scanned": 0, "error": "cancelled"})
+		}
 		if errors.Is(cause, errApplyCancelled) {
 			return nil, errApplyCancelled
 		}

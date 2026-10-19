@@ -51,7 +51,8 @@ type Scheduler interface {
 	RefreshAll() (sched.RunInfo, error)
 	ApplyRetention(all bool) (sched.RunInfo, error)
 	StartImport(feedIDs []int64) (sched.RunInfo, error)
-	Status() ([]sched.RunStatus, int)
+	// Status is the active runs and the fetches in flight; ok is false when the dispatcher did not answer in time.
+	Status() (runs []sched.RunStatus, inflight int, ok bool)
 	// HostHolds is the per-host politeness deadlines still in the future.
 	HostHolds() map[string]time.Time
 	// Submit queues a per-feed priority job; Wake nudges a tick; Shutdown closes

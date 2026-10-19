@@ -63,10 +63,13 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "opml import", err)
 		return
 	}
+	runID := s.afterImport(res)
+	eventID := s.eventID() // read after the import run started
 	writeJSON(w, http.StatusOK, struct {
 		opml.Result
-		RunID any `json:"run_id"`
-	}{res, s.afterImport(res)})
+		RunID   any    `json:"run_id"`
+		EventID string `json:"event_id"`
+	}{Result: res, RunID: runID, EventID: eventID})
 }
 
 // afterImport is what follows every import (OPML, recommended feeds): the
