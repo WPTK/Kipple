@@ -45,7 +45,7 @@ func TestParseNoElement(t *testing.T) {
 		_, err := Parse(strings.NewReader(doc))
 		var empty *EmptyError
 		require.ErrorAs(t, err, &empty, "%q", doc)
-		require.False(t, empty.Folders)
+		require.True(t, empty.Blank)
 		ref, ok := AsRefused(err)
 		require.True(t, ok)
 		require.Equal(t, "empty_opml", ref.Code)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,43 @@ func hostileOPMLSeeds() []string {
 		`<opml><body><outline text="&lt;script&gt;alert(1)&lt;/script&gt;"><outline text="<b>x</b>" xmlUrl="javascript:alert(1)"/>` +
 			`<outline xmlUrl="data:text/html,x"/><outline xmlUrl="file:///etc/passwd"/></outline></body></opml>`,
 	}
+}
+
+// FuzzParseStrict: the public Parse refuses exactly what parse accepts with no feed in it, and nothing else it
+// accepts; every refusal it makes has a code the callers map (issue #518).
+func FuzzParseStrict(f *testing.F) {
+	fuzzSeeds(f)
+	for _, s := range []string{
+		"", "   \n", "\xef\xbb\xbf", "\xff\xfe \x00\n\x00", "\xfe\xff\x00 \x00\n", "\xef\xbb\xbf \n",
+		`<opml/>`, `<opml><body/></opml>`, `<opml><body><outline text="F"/></body></opml>`,
+		`<opml><body><outline text="F"><outline text="G"/></outline></body></opml>`,
+		`<opml><body><outline xmlUrl="https://a.test/f"/></body></opml>`,
+		`<rss/>`, `{"a":1}`, `<opml><body><outline text="&x;"/></body></opml>`,
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		lenient, lerr := parse(strings.NewReader(s))
+		doc, err := Parse(strings.NewReader(s))
+		switch {
+		case lerr != nil:
+			if err == nil {
+				t.Fatalf("parse refused %q but Parse accepted it", s)
+			}
+		case len(lenient.Feeds) == 0:
+			var empty *EmptyError
+			if !errors.As(err, &empty) {
+				t.Fatalf("Parse of a document with no feeds: %v", err)
+			}
+		default:
+			if err != nil || len(doc.Feeds) != len(lenient.Feeds) {
+				t.Fatalf("Parse differs from parse on a document with feeds: %v", err)
+			}
+		}
+		if ref, ok := AsRefused(err); ok && ref.Code == "" {
+			t.Fatalf("a refusal with no code: %v", err)
+		}
+	})
 }
 
 // FuzzParse: arbitrary OPML never panics; folder chains are unique (ASCII case folded

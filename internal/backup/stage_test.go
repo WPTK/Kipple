@@ -317,8 +317,8 @@ func TestUploadKinds(t *testing.T) {
 
 	// An OPML file the import would refuse says why, not "not a backup" (issue #518).
 	for name, tc := range map[string]struct{ body, want string }{
-		"folders only": {`<opml><body><outline text="Empty"/></body></opml>`, "no feeds in it"},
-		"entity":       {`<opml><body><outline text="&x;"><outline xmlUrl="http://a.test/rss"/></outline></body></opml>`, "&x; on line 1"},
+		"folders only": {`<opml><body><outline text="Empty"/></body></opml>`, "That OPML file has no feeds in it."},
+		"entity":       {`<opml><body><outline text="&x;"><outline xmlUrl="http://a.test/rss"/></outline></body></opml>`, "&x; on line 1 is not an entity XML or HTML defines."},
 	} {
 		_, err := upload(r, []byte(tc.body))
 		var ref *OPMLRefusedError

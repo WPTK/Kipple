@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -407,7 +408,7 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 		}
 		doc, err := opml.Parse(bytes.NewReader(b))
 		if ref, ok := opml.AsRefused(err); ok && !ref.NotOPML {
-			return Upload{}, &OPMLRefusedError{Code: ref.Code, Msg: "This OPML file was refused: " + ref.Message + "."}
+			return Upload{}, &OPMLRefusedError{Code: ref.Code, Msg: strings.ToUpper(ref.Message[:1]) + ref.Message[1:] + "."}
 		}
 		if err != nil {
 			return Upload{}, ErrNotBackup

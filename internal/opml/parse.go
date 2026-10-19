@@ -158,16 +158,19 @@ func (o outline) name() string {
 // with no element at all (empty, or JSON).
 var ErrNotOPML = errors.New("opml: not an OPML document")
 
-// EmptyError is Parse's refusal of a file that holds no feeds: a blank file (Folders false) or one whose outlines are
-// folders only (Folders true).
-type EmptyError struct{ Folders bool }
+// EmptyError is Parse's refusal of a file that holds no feeds: a blank file (Blank), or a document with no feed in it,
+// whether it has folders or no outline at all.
+type EmptyError struct{ Blank bool }
 
 func (e *EmptyError) Error() string {
-	if e.Folders {
-		return "opml: the file has folders but no feeds"
+	if e.Blank {
+		return "opml: the file is empty"
 	}
-	return "opml: the file is empty"
+	return "opml: the file has no feeds"
 }
+
+// Error makes a Refused an error, so a caller can wrap it with context and still match it with errors.As.
+func (r Refused) Error() string { return r.Message }
 
 // Refused is a Parse error that refuses the file's content, as every caller (web import, Reader API, command line,
 // restore wizard) reports it: a code, a plain-language message, and whether the file did not look like OPML at all.
@@ -187,10 +190,10 @@ func AsRefused(err error) (Refused, bool) {
 	case errors.As(err, &entity):
 		return Refused{Code: "opml_entity", Message: strings.TrimPrefix(entity.Error(), "opml: ")}, true
 	case errors.As(err, &empty):
-		if empty.Folders {
-			return Refused{Code: "empty_opml", Message: "that OPML file has no feeds in it"}, true
+		if empty.Blank {
+			return Refused{Code: "empty_opml", Message: "that file is empty"}, true
 		}
-		return Refused{Code: "empty_opml", Message: "that file is empty"}, true
+		return Refused{Code: "empty_opml", Message: "that OPML file has no feeds in it"}, true
 	}
 	return Refused{}, false
 }
@@ -307,7 +310,7 @@ func Parse(r io.Reader) (*Doc, error) {
 		return nil, err
 	}
 	if len(doc.Feeds) == 0 {
-		return nil, &EmptyError{Folders: true}
+		return nil, &EmptyError{}
 	}
 	return doc, nil
 }
@@ -324,7 +327,7 @@ func parse(r io.Reader) (*Doc, error) {
 	// also rewrites the declaration so the XML decoder needs no CharsetReader.
 	decoded := fetch.DecodeBody(raw, "").Body
 	if len(bytes.TrimSpace(bytes.TrimPrefix(decoded, []byte("\xef\xbb\xbf")))) == 0 { // after decoding: a blank UTF-16 file is blank too
-		return nil, &EmptyError{}
+		return nil, &EmptyError{Blank: true}
 	}
 	body, err := resolveEntities(decoded)
 	if err != nil {

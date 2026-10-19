@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/WPTK/kipple/internal/opml"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -51,7 +52,9 @@ func TestCLIImportRefusesWhatTheWebImportRefuses(t *testing.T) {
 	} {
 		f := filepath.Join(dir, "in.opml")
 		require.NoError(t, os.WriteFile(f, []byte(tc.body), 0o600))
-		require.EqualError(t, runImport([]string{f}), tc.want, name)
+		require.EqualError(t, runImport([]string{f}), f+": "+tc.want, name)
+		var ref opml.Refused
+		require.ErrorAs(t, runImport([]string{f}), &ref, name)
 	}
 	var n int
 	require.NoError(t, server.Reader().QueryRow("SELECT count(*) FROM folders WHERE name = 'Empty'").Scan(&n))

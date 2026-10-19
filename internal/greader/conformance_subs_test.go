@@ -111,6 +111,7 @@ func TestSubscriptionImportRefusals(t *testing.T) {
 	for name, tc := range map[string]struct{ body, want string }{
 		"folders only": {`<opml><body><outline text="OnlyFolder"/></body></opml>`, "Bad OPML: that OPML file has no feeds in it"},
 		"empty":        {` `, "Bad OPML: that file is empty"},
+		"not opml":     {`<rss version="2.0"><channel/></rss>`, "Bad OPML: that file is not an OPML file"},
 		"entity":       {`<opml><body><outline text="&x;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`, "Bad OPML: &x; on line 1 is not an entity XML or HTML defines"},
 	} {
 		r := c.call(http.MethodPost, rd+"subscription/import", tc.body, map[string]string{"Content-Type": "text/x-opml"})

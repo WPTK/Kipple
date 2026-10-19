@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -46,7 +45,11 @@ func runImport(args []string) error {
 	}
 	doc, err := opml.Parse(in)
 	if ref, ok := opml.AsRefused(err); ok {
-		return errors.New(ref.Message) // the words the web import shows, not the parser's internal text
+		name := fs.Arg(0)
+		if name == "-" {
+			name = "standard input"
+		}
+		return fmt.Errorf("%s: %w", name, ref) // the words the web import shows, not the parser's internal text
 	}
 	if err != nil {
 		return err
