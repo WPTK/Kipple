@@ -1358,3 +1358,58 @@ func (s *Server) reorder(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"changed_feeds": idStrings(res.Feeds), "changed_folders": idStrings(res.Folders)})
 }
+
+// maxBulkDelete bounds one POST /api/feeds/delete (the id list, not the data it removes).
+const maxBulkDelete = 20000
+
+// POST /api/feeds/delete {ids, delete_starred}: delete many feeds as one server-side commitment. The whole set is
+// marked in one transaction, then removed here without the request's cancellation: closing the tab part-way
+// cannot leave the library half deleted (see store.DeleteFeeds). Answers {"deleted": n}; ids that are already gone
+// are not counted.
+func (s *Server) deleteFeeds(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs           []json.RawMessage `json:"ids"`
+		DeleteStarred bool              `json:"delete_starred"`
+	}
+	if !decodeBody(w, r, &body, false) {
+		return
+	}
+	if len(body.IDs) == 0 || len(body.IDs) > maxBulkDelete {
+		writeErrorMsg(w, http.StatusBadRequest, "bad_request", "give between 1 and "+strconv.Itoa(maxBulkDelete)+" feed ids")
+		return
+	}
+	ids := make([]int64, 0, len(body.IDs))
+	seen := make(map[int64]bool, len(body.IDs))
+	for _, raw := range body.IDs {
+		id, ok := parseID(raw)
+		if !ok {
+			writeErrorMsg(w, http.StatusBadRequest, "bad_request", "ids is a list of feed ids")
+			return
+		}
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	dctx, cancel := store.DeleteContext(r.Context())
+	defer cancel()
+	gone, err := s.db.DeleteFeeds(dctx, ids, body.DeleteStarred)
+	if errors.Is(err, store.ErrArchiveHasStarred) {
+		writeErrorMsg(w, http.StatusConflict, "archive_has_starred", "the archive feed holds starred items; set delete_starred to really delete them")
+		return
+	}
+	// After a failure some feeds are marked and gone from every list without being in gone: announce the whole set.
+	announce := gone
+	if err != nil {
+		announce = ids
+	}
+	for _, id := range announce {
+		s.publishFeedChanged(id)
+	}
+	s.noteCounts()
+	if err != nil {
+		s.serverError(w, "delete feeds", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": len(gone)})
+}

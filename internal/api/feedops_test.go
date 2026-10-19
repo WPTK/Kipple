@@ -472,3 +472,29 @@ func TestFolderChangedEvents(t *testing.T) {
 	require.Equal(t, 409, code)
 	require.Empty(t, folderChanged(t, sub), "the default folder cannot go")
 }
+
+// Deleting many feeds is one request that finishes on the server even when the client has gone (issue #486).
+func TestBulkDeleteFeeds(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	a, b, keep := h.addFeed("A", 0), h.addFeed("B", 0), h.addFeed("Keep", 0)
+	h.addItem(a, seedItem{})
+	h.addItem(b, seedItem{Starred: true})
+	h.addItem(keep, seedItem{})
+	sub := h.events()
+
+	code, body, _ := h.api(c, "POST", "/api/feeds/delete", fmt.Sprintf(`{"ids":["%d",%d,"%d","99999"]}`, a, b, a))
+	require.Equal(t, 200, code)
+	require.EqualValues(t, 2, body["deleted"], "a repeated id and a missing one count for nothing")
+	require.Zero(t, h.count("SELECT count(*) FROM feeds WHERE id IN (?, ?)", a, b))
+	require.Equal(t, 1, h.count("SELECT count(*) FROM feeds WHERE id = ?", keep))
+	require.Equal(t, 1, h.count("SELECT count(*) FROM items i JOIN feeds f ON f.id = i.feed_id WHERE f.disabled_reason = 'archive' AND i.starred = 1"))
+	require.ElementsMatch(t, []string{fmt.Sprintf(`{"feed_id":"%d"}`, a), fmt.Sprintf(`{"feed_id":"%d"}`, b)}, feedChanged(t, sub))
+
+	for _, bad := range []string{`{}`, `{"ids":[]}`, `{"ids":["x"]}`, `{"ids":[0]}`, `nope`} {
+		code, _, _ = h.api(c, "POST", "/api/feeds/delete", bad)
+		require.Equal(t, 400, code, bad)
+	}
+	require.Equal(t, 1, h.count("SELECT count(*) FROM feeds WHERE id = ?", keep))
+}

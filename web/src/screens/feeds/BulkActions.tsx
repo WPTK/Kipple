@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { deleteFeed, deleteFolder, invalidateFeeds, patchFeed, reorder as reorderApi } from "@/api/admin";
+import { deleteFeeds, deleteFolder, invalidateFeeds, patchFeed, reorder as reorderApi } from "@/api/admin";
 import { errorMessage } from "@/api/client";
 import type { Feed, Folder } from "@/api/types";
 import { Button } from "@/ui/button";
@@ -239,22 +239,22 @@ function FeedsToDelete({
   );
 }
 
-/** The feeds a bulk delete could not delete, with the reason for each. */
-function DeleteFailures({ report }: { report: BulkReport }) {
+/** A delete is one server call, so there is no count to show: a moving bar and what is being done. */
+function DeleteWorking({ count }: { count: number }) {
   return (
-    <ul className="flex flex-col gap-2 text-sm" aria-label="Feeds that could not be deleted">
-      {report.failed.map((f, i) => (
-        <li key={i}>
-          <span className="font-semibold">{f.title}</span>: {f.message}
-        </li>
-      ))}
-    </ul>
+    <div role="status" className="flex flex-col gap-1 text-sm">
+      <span>
+        Deleting {count} feed{count === 1 ? "" : "s"}. This keeps going on the server if you close this page.
+      </span>
+      <progress className="h-2 w-full accent-[var(--kp-accent)]" aria-label="Deleting feeds" />
+    </div>
   );
 }
 
 /**
- * Delete the selected feeds one at a time (DELETE /api/feeds/{id}), with progress and a per-feed error list:
- * one bad feed does not stop the rest. Starred articles move to the Archive unless the switch says otherwise.
+ * Delete the selected feeds in one call (POST /api/feeds/delete): the server marks them all at once and finishes
+ * the job even if this page is closed, so a half-deleted library cannot happen. Starred articles move to the
+ * Archive unless the switch says otherwise.
  */
 export function DeleteDialog({
   feeds: selected,
@@ -270,19 +270,30 @@ export function DeleteDialog({
   const qc = useQueryClient();
   const { count, starred } = deleteSummary(feeds);
   const [alsoStarred, setAlsoStarred] = useState(false);
-  const { progress, report, setReport, busy, runEach } = useBulkRun(feeds);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const run = async () => {
-    const { succeeded: deleted, failed } = await runEach((f) => deleteFeed(f.id, alsoStarred).then(() => undefined));
-    invalidateFeeds(qc);
-    void qc.invalidateQueries({ queryKey: ["items"] });
-    onDone(deleted, failed.length === 0);
-    if (failed.length === 0) {
-      toast(`Deleted ${deleted.length} feed${deleted.length === 1 ? "" : "s"}`);
+    setBusy(true);
+    setError(null);
+    try {
+      const { deleted } = await deleteFeeds(
+        feeds.map((f) => f.id),
+        alsoStarred,
+      );
+      invalidateFeeds(qc);
+      void qc.invalidateQueries({ queryKey: ["items"] });
+      onDone(
+        feeds.map((f) => f.id),
+        true,
+      );
+      toast(`Deleted ${deleted} feed${deleted === 1 ? "" : "s"}`);
       onClose();
-    } else {
-      announce(`Deleted ${deleted.length}, ${failed.length} failed`);
-      setReport({ done: deleted.length, failed });
+    } catch (e) {
+      // The server may have finished anyway (a dropped connection): look again, and say so.
+      invalidateFeeds(qc);
+      setError(`${errorMessage(e)} Some of the feeds may be gone already; the list shows what is left.`);
+      setBusy(false);
     }
   };
 
@@ -290,33 +301,22 @@ export function DeleteDialog({
     <Modal
       open
       onOpenChange={(o) => !o && !busy && onClose()}
-      title={report ? "Some feeds were not deleted" : `Delete ${count} ${deleteCopy(count, starred).feeds}?`}
-      description={report ? `${report.done} deleted, ${report.failed.length} failed.` : deleteCopy(count, starred).consequence}
+      title={`Delete ${count} ${deleteCopy(count, starred).feeds}?`}
+      description={deleteCopy(count, starred).consequence}
       footer={
-        report ? (
-          <Button variant="solid" onClick={onClose}>
-            Close
+        <>
+          <Button onClick={onClose} disabled={busy}>
+            {error ? "Close" : "Cancel"}
           </Button>
-        ) : (
-          <>
-            <Button onClick={onClose} disabled={busy}>
-              Cancel
-            </Button>
-            <Button variant="solid" disabled={busy} onClick={() => void run()}>
-              {busy ? "Deleting…" : `Delete ${count} ${deleteCopy(count, starred).feeds}`}
-            </Button>
-          </>
-        )
+          <Button variant="solid" disabled={busy} onClick={() => void run()}>
+            {busy ? "Deleting…" : error ? "Try again" : `Delete ${count} ${deleteCopy(count, starred).feeds}`}
+          </Button>
+        </>
       }
     >
-      {report ? (
-        <DeleteFailures report={report} />
-      ) : (
-        <>
-          <FeedsToDelete feeds={feeds} starred={starred} alsoStarred={alsoStarred} onAlsoStarred={setAlsoStarred} disabled={busy} noneNote />
-          {busy ? <BulkProgress label="Deleting feeds" done={progress} total={count} /> : null}
-        </>
-      )}
+      {error ? <Notice tone="error">{error}</Notice> : null}
+      <FeedsToDelete feeds={feeds} starred={starred} alsoStarred={alsoStarred} onAlsoStarred={setAlsoStarred} disabled={busy} noneNote />
+      {busy ? <DeleteWorking count={count} /> : null}
     </Modal>
   );
 }
@@ -353,7 +353,6 @@ export function DeleteFolderDialog({
   const [working, setWorking] = useState(false);
   // The feeds are gone once the loop has run clean: a retry after the folder step failed must not run it again.
   const [feedsGone, setFeedsGone] = useState(false);
-  const { progress, report, setReport, runEach } = useBulkRun(feeds);
   const all = mode === "all";
   const ready = !all || typed.trim() === folder.name.trim();
   const plural = `${count} feed${count === 1 ? "" : "s"}`;
@@ -363,13 +362,10 @@ export function DeleteFolderDialog({
     setError(null);
     try {
       if (all && !feedsGone) {
-        const { succeeded, failed } = await runEach((f) => deleteFeed(f.id, alsoStarred).then(() => undefined));
-        if (failed.length > 0) {
-          invalidateFeeds(qc);
-          announce(`Deleted ${succeeded.length}, ${failed.length} failed. The folder was kept.`);
-          setReport({ done: succeeded.length, failed });
-          return;
-        }
+        await deleteFeeds(
+          feeds.map((f) => f.id),
+          alsoStarred,
+        );
         setFeedsGone(true);
       }
       await deleteFolder(folder.id);
@@ -389,14 +385,10 @@ export function DeleteFolderDialog({
     <Modal
       open
       onOpenChange={(o) => !o && !working && onClose()}
-      title={report ? "Some feeds were not deleted" : title}
-      description={report ? `${report.done} deleted, ${report.failed.length} failed. The folder was kept.` : mode === "keep" ? keepText : undefined}
+      title={title}
+      description={mode === "keep" ? keepText : undefined}
       footer={
-        report ? (
-          <Button variant="solid" onClick={() => onClose()}>
-            Close
-          </Button>
-        ) : (
+        (
           <>
             <Button onClick={() => onClose()} disabled={working}>
               Cancel
@@ -408,9 +400,7 @@ export function DeleteFolderDialog({
         )
       }
     >
-      {report ? (
-        <DeleteFailures report={report} />
-      ) : (
+      {
         <>
           {error ? <Notice tone="error">{error}</Notice> : null}
           {count > 0 ? (
@@ -433,11 +423,11 @@ export function DeleteFolderDialog({
               <Field label={`Type ${folder.name} to confirm`}>
                 {(a) => <input {...a} type="text" autoComplete="off" autoCapitalize="off" value={typed} onChange={(e) => setTyped(e.target.value)} className={inputCls} />}
               </Field>
-              {working ? <BulkProgress label="Deleting feeds" done={progress} total={count} /> : null}
+              {working ? <DeleteWorking count={count} /> : null}
             </>
           ) : null}
         </>
-      )}
+      }
     </Modal>
   );
 }

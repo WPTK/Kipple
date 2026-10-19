@@ -309,42 +309,95 @@ func sameNullInt(v any, cur sql.NullInt64) bool {
 }
 
 // DeleteFeed removes a feed. Unless deleteStarred is set, its starred items
-// move to the archive feed first (design §6.9). The feed is first marked for
-// deletion in one short transaction (never fetched again, see deletingURLPrefix),
-// then its items and ledger are deleted in bounded batches (purgeFeedItems), so
-// the final transaction stays short however large the feed; an interrupted
-// delete resumes on retry, and the feed is not refetched in between.
+// move to the archive feed first (design §6.9). It is DeleteFeeds for one id:
+// ErrFeedNotFound when the feed is not there.
 func (d *DB) DeleteFeed(ctx context.Context, id int64, deleteStarred bool) error {
-	now := d.clock.Now().Unix()
-	if err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		var n int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM feeds WHERE id = ?", id).Scan(&n); err != nil {
-			return err
-		}
-		if n == 0 {
-			return ErrFeedNotFound
-		}
-		return markFeedsDeleting(ctx, tx, []int64{id}, now)
-	}); err != nil {
-		return err
-	}
-	if err := d.purgeFeedItems(ctx, id, !deleteStarred); err != nil {
-		return err
-	}
-	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		var n int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM feeds WHERE id = ?", id).Scan(&n); err != nil {
-			return err
-		}
-		if n == 0 {
-			return ErrFeedNotFound
-		}
-		return removeFeed(ctx, tx, id, !deleteStarred)
-	})
-	if err == nil {
-		d.bumpFilters() // the feed's own filters cascade away with it
+	gone, err := d.DeleteFeeds(ctx, []int64{id}, deleteStarred)
+	if err == nil && len(gone) == 0 {
+		return ErrFeedNotFound
 	}
 	return err
+}
+
+// DeleteFeeds removes the feeds in ids as one commitment. In a single short
+// transaction every feed that exists is marked for deletion (never fetched
+// again, see deletingURLPrefix); a request that cannot be honoured (the archive
+// feed holds starred items and deleteStarred is not set) is refused before
+// anything is marked. Then each feed's items and ledger are deleted in bounded
+// batches (purgeFeedItems), so the final transaction of each stays short however
+// large the feed. Unless deleteStarred is set, starred items move to the archive
+// feed first (design §6.9). Once the marks are committed the set is decided:
+// a caller that goes away, or an interruption, leaves marked feeds that the
+// next start (ResumeFeedDeletes) or a repeat of the call finishes. Ids that are
+// gone are skipped; the ids actually removed are returned, also when a later
+// feed fails.
+func (d *DB) DeleteFeeds(ctx context.Context, ids []int64, deleteStarred bool) ([]int64, error) {
+	now := d.clock.Now().Unix()
+	var present []int64
+	if err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		present = present[:0]
+		for _, id := range ids {
+			var reason sql.NullString
+			switch err := tx.QueryRowContext(ctx, "SELECT disabled_reason FROM feeds WHERE id = ?", id).Scan(&reason); {
+			case errors.Is(err, sql.ErrNoRows):
+				continue
+			case err != nil:
+				return err
+			}
+			if !deleteStarred && reason.String == "archive" {
+				var starred int
+				if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id = ? AND starred = 1", id).Scan(&starred); err != nil {
+					return err
+				}
+				if starred > 0 {
+					return ErrArchiveHasStarred
+				}
+			}
+			present = append(present, id)
+		}
+		return markFeedsDeleting(ctx, tx, present, now)
+	}); err != nil {
+		return nil, err
+	}
+	var gone []int64
+	for _, id := range present {
+		ok, err := d.finishFeedDelete(ctx, id, deleteStarred)
+		if err != nil {
+			return gone, err
+		}
+		if ok {
+			gone = append(gone, id)
+		}
+	}
+	return gone, nil
+}
+
+// finishFeedDelete is steps 2 and 3 of a deletion for one marked feed: purge its
+// items, then remove the row. It reports false when the feed was already gone.
+func (d *DB) finishFeedDelete(ctx context.Context, id int64, deleteStarred bool) (bool, error) {
+	if err := d.purgeFeedItems(ctx, id, !deleteStarred); err != nil {
+		return false, err
+	}
+	removed := false
+	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		removed = false
+		var n int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM feeds WHERE id = ?", id).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			return nil
+		}
+		if err := removeFeed(ctx, tx, id, !deleteStarred); err != nil {
+			return err
+		}
+		removed = true
+		return nil
+	})
+	if err == nil && removed {
+		d.bumpFilters() // the feed's own filters cascade away with it
+	}
+	return removed && err == nil, err
 }
 
 // PurgeArchiveUnstarred deletes the archive feed's unstarred items and returns

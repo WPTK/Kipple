@@ -161,6 +161,13 @@ export const reorder = (body: ReorderBody) =>
 export const deleteFeed = (id: string, deleteStarred: boolean) =>
   api(`/api/feeds/${id}`, { method: "DELETE", params: deleteStarred ? { delete_starred: 1 } : undefined });
 
+/**
+ * Delete many feeds in one call. The server marks the whole set at once and finishes it even if this page is closed,
+ * so the library is never left half deleted. Resolves with how many were deleted (ids already gone count for nothing).
+ */
+export const deleteFeeds = (ids: string[], deleteStarred: boolean) =>
+  api<{ deleted: number }>("/api/feeds/delete", { method: "POST", body: { ids, delete_starred: deleteStarred } });
+
 export const refreshFeed = (id: string, full = false) =>
   api<FetchOutcome>(`/api/feeds/${id}/refresh`, { method: "POST", params: full ? { full: 1 } : undefined });
 
