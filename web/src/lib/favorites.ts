@@ -75,5 +75,5 @@ export function useFavorites(): FavoritesApi {
 
   const has = useCallback((t: Favorite["t"], id: string) => isFav(alive, t, id), [alive]);
   const toggle = useCallback((t: Favorite["t"], id: string) => void set(toggleFavorite(stored, t, id)), [set, stored]);
-  return { favorites: alive, has, toggle, set };
+  return useMemo(() => ({ favorites: alive, has, toggle, set }), [alive, has, toggle, set]);
 }
