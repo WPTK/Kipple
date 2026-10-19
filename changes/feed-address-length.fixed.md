@@ -1,0 +1,1 @@
+A feed address with many non-ASCII characters in its path is now measured at the length Kipple stores it (those characters are saved percent-encoded, up to three times longer), so one just under the 4,096-character limit as typed is refused at once, with a message that says the limit applies once encoded. (#519)

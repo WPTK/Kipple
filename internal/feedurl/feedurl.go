@@ -23,7 +23,14 @@ func Normalize(raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return u.String(), nil
+	norm := u.String()
+	// The cap is on the stored form: cleaning up percent-encodes non-ASCII characters (up to three
+	// bytes each), so a typed address under MaxLen can grow past it. Refusing here, on the first
+	// call, keeps Normalize and a later parse of its result in agreement.
+	if len(norm) > MaxLen {
+		return "", ErrTooLong
+	}
+	return norm, nil
 }
 
 // KeyAndNormalize returns Normalize(raw) and Key(Normalize(raw)): the key is taken from the
@@ -74,12 +81,13 @@ func Host(raw string) (string, error) {
 // with the URL; the feed's HTTP authentication setting is the one place for them.
 var ErrUserinfo = errors.New("feedurl: the URL contains a user name or password; set them as the feed's HTTP authentication instead")
 
-// MaxLen is the longest feed URL Kipple keeps, in bytes (the image proxy's cap). Longer is refused with ErrTooLong
+// MaxLen is the longest feed URL Kipple keeps, in bytes (the image proxy's cap), measured on the normalized form
+// (non-ASCII characters percent-encoded). Longer is refused with ErrTooLong
 // wherever a URL is parsed, so no way in (add, edit, import, sync API, redirect) stores one.
 const MaxLen = 4096
 
 // ErrTooLong is returned for a URL longer than MaxLen.
-var ErrTooLong = errors.New("feedurl: the URL is longer than 4096 characters")
+var ErrTooLong = errors.New("feedurl: the URL is longer than 4096 characters once encoded")
 
 // feedSchemes are the pseudo-schemes that wrap a feed address in links meant for feed readers and
 // podcast apps: feed://host/path, feed:https://host/path, pcast://, itpc://, podcast://, rss://.

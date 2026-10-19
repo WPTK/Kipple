@@ -1,6 +1,7 @@
 package feedurl
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/WPTK/kipple/internal/testseed"
@@ -107,6 +108,7 @@ func FuzzKeyAndNormalizeMatchesKeyOfNormalize(f *testing.F) {
 		"http://[fe80::1%25eth0]/feed", "http://[fe80::1%zz]/feed", "http://[::1%25]/x", "http://[fe80::1%25a b]/f",
 		"http://h:80/p", "  http://h/p  ", "http://h/%zz", "http://h/a b?c d#e f", "ftp://h/x", "http:///x", "",
 		"http://h?#", "http://h/p?#x", "HTTP://H:8080/P?Q=%41",
+		"http://h/" + strings.Repeat("é", 680), "http://h/" + strings.Repeat("é", 681),
 	} {
 		f.Add(s)
 	}
@@ -147,4 +149,37 @@ func TestUserinfoRejected(t *testing.T) {
 	}
 	_, err := Normalize("https://example.com/feed?u=bob@x")
 	require.NoError(t, err, "an @ in the query is not userinfo")
+}
+
+// The cap is on the normalized form: cleaning up percent-encodes non-ASCII path characters, so a
+// typed address under MaxLen can be refused, and Normalize must say so itself (not hand back a
+// string a second parse refuses). The cases sit on both sides of the boundary.
+func TestMaxLenIsMeasuredAfterCleanup(t *testing.T) {
+	const prefix = "https://h.example/"
+	// "é" is 2 bytes typed and 6 once encoded.
+	fits := prefix + strings.Repeat("é", (MaxLen-len(prefix))/6)
+	over := fits + "é"
+	for _, raw := range []string{fits, over} {
+		require.LessOrEqual(t, len(raw), MaxLen, "typed length stays under the cap")
+	}
+
+	norm, err := Normalize(fits)
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(norm), MaxLen)
+	_, err = Normalize(norm)
+	require.NoError(t, err, "the normalized form parses again")
+	_, _, err = KeyAndNormalize(fits)
+	require.NoError(t, err)
+
+	_, err = Normalize(over)
+	require.ErrorIs(t, err, ErrTooLong)
+	_, _, err = KeyAndNormalize(over)
+	require.ErrorIs(t, err, ErrTooLong)
+
+	// Exactly MaxLen is kept, one byte more is not (ASCII, so cleanup changes nothing).
+	exact := prefix + strings.Repeat("a", MaxLen-len(prefix))
+	_, err = Normalize(exact)
+	require.NoError(t, err)
+	_, err = Normalize(exact + "a")
+	require.ErrorIs(t, err, ErrTooLong)
 }

@@ -340,7 +340,7 @@ func skipReason(err error) string {
 		case store.URLUserinfo:
 			return "the address holds a user name or password; add this feed on its own and set its HTTP authentication"
 		case store.URLTooLong:
-			return "the address is longer than 4,096 characters"
+			return "the address is longer than 4,096 characters once encoded"
 		}
 	}
 	return "not a web address (it must start with http:// or https://)"
