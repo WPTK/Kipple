@@ -359,12 +359,11 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
         <article className="px-4 pt-4 pb-10 md:px-6" aria-labelledby="article-title" style={{ "--kp-col": columnWidth(dp.articleWidth) } as CSSProperties}>
           <header className="mx-auto mb-5 max-w-[min(var(--kp-col),100%)]">
             <p className="text-sm text-fg2">
-              <span
-                data-testid="read-state"
-                className={cn("mr-2 rounded-full border px-2 py-0.5 text-xs font-medium", a.read ? "border-line text-fg2" : "border-accent text-fg")}
-              >
+              {/* Plain text, not a pill: the toolbar's read toggle is the one control, so nothing here looks tappable. */}
+              <span data-testid="read-state" className={cn(a.read ? "font-medium text-fg2" : "font-semibold text-fg")}>
                 {a.read ? "Read" : "Unread"}
               </span>
+              <span aria-hidden="true">{" · "}</span>
               <a href={safeHttpUrl(a.feed.site_url)} target={linkTarget === "new" ? "_blank" : undefined} rel="noopener noreferrer" className="hit-pad hover:underline">
                 {a.source || a.feed.title}
               </a>

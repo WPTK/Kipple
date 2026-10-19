@@ -7,7 +7,7 @@ import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, Chevro
 import { keys, scopeKey, useBootstrap, useFolderTree } from "@/api/queries";
 import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib/folderTree";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
-import type { ItemsPage, Scope, View } from "@/api/types";
+import type { Bootstrap, ItemsPage, Scope, View } from "@/api/types";
 import { useSearchHighlight } from "@/lib/useHighlights";
 import { pageOf, useListContext, useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
@@ -32,7 +32,7 @@ import { ARTICLE_MIN, maxFor, useWidth } from "@/lib/useWidth";
 import { listTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
 import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
-import { undoLast, undoStore } from "@/lib/undo";
+import { NOTHING_TO_UNDO, undoLast, undoStore } from "@/lib/undo";
 import { Button, buttonVariants } from "@/ui/button";
 import { cn } from "@/lib/cn";
 import { visibleFeeds } from "@/lib/visibleFeeds";
@@ -84,6 +84,20 @@ function useNeighbours(scope: Scope): { prev?: Scope; next?: Scope } {
   }, [boot.data, scope.feed, scope.folder, scope.view, scope.length]);
 }
 
+/**
+ * Unread articles in a list, from the live counts: the whole library, a feed or a folder. Null where the counts do not
+ * say (a search, a reading-time filter, Starred or Muted), so Mark all as read stays on there.
+ */
+export function scopeUnread(scope: Scope, boot: Bootstrap | undefined): number | null {
+  if (!boot || scope.q || scope.length || scope.view === "starred" || scope.view === "muted") return null;
+  if (scope.feed) return boot.feeds.find((f) => f.id === scope.feed)?.unread ?? null;
+  if (scope.folder) return boot.folders.find((f) => f.id === scope.folder)?.unread ?? null;
+  return boot.counts.unread;
+}
+
+/** Why Mark all as read is off in a list with nothing unread. */
+export const NOTHING_UNREAD = "Nothing unread here";
+
 const menuItem =
   "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-selection";
 
@@ -116,6 +130,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
   const mutedCount = boot.data?.counts.muted ?? 0;
   // The Muted pill appears when there is something muted, or when you are in it.
   const views = scope.view === "muted" || mutedCount > 0 ? [...VIEWS, { view: "muted" as View, label: "Muted" }] : VIEWS;
+  const nothingUnread = scopeUnread(scope, boot.data) === 0;
   return (
     <header className="pt-safe shrink-0 border-b border-line bg-bg px-4 pb-2">
       {/* The title row is 25rem wide and left-aligned, so the controls sit in the same place in every layout (a grid
@@ -167,16 +182,24 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
-              <DropdownMenu.Item className={menuItem} disabled={!controls || scope.view === "muted" || !!scope.typing} onSelect={() => controls?.markAllRead()}>
+              <DropdownMenu.Item
+                className={menuItem}
+                disabled={!controls || scope.view === "muted" || !!scope.typing || nothingUnread}
+                onSelect={() => controls?.markAllRead()}
+              >
                 <CheckCheck className="size-5" aria-hidden="true" />
                 <span className="flex flex-col">
                   Mark all as read
-                  {scope.typing ? <span className="text-xs text-fg2">{FINISH_SEARCH}</span> : null}
+                  {scope.typing ? <span className="text-xs text-fg2">{FINISH_SEARCH}</span> : nothingUnread ? <span className="text-xs text-fg2">{NOTHING_UNREAD}</span> : null}
                 </span>
               </DropdownMenu.Item>
+              {/* Off says why: the undo history is this page's (a reload starts it empty, docs/design.md 7.11). */}
               <DropdownMenu.Item className={menuItem} disabled={!canUndo} onSelect={() => void undoLast()}>
                 <Undo2 className="size-5" aria-hidden="true" />
-                Undo
+                <span className="flex flex-col">
+                  Undo
+                  {canUndo ? null : <span className="text-xs text-fg2">{NOTHING_TO_UNDO}</span>}
+                </span>
               </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
@@ -184,7 +207,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
         </div>
       </div>
       <div className="mt-1 flex max-w-[25rem] items-center gap-1">
-      <nav aria-label="Show" className="flex gap-1">
+      <nav aria-label="Show" className="flex min-w-0 flex-wrap gap-1">
         {views.map((v) => {
           const active = v.view === scope.view;
           return (

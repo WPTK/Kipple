@@ -1,6 +1,7 @@
 import { api, ApiError } from "@/api/client";
 import type { DeviceView } from "@/api/types";
 import { announce } from "@/shell/toasts";
+import { offlineStore } from "./offlineState";
 import { isSchemeId } from "@/theme/schemes";
 import { themeStore } from "@/theme/theme";
 import { DEFAULT_THEME_SETTINGS, THEME_STORAGE_KEY, isClockTime, parseThemeSettings, saveThemeSettings } from "@/theme/settings";
@@ -28,7 +29,8 @@ import { createStore } from "./store";
 // Local changes are diffed against what the server last confirmed and sent as ONE PATCH
 // /api/device, debounced 500 ms. Because the patch is recomputed from the current local state at
 // send time, a burst of changes is batched and the latest value of every key wins. A failure keeps
-// the local value and shows "Couldn't save" with a Retry.
+// the local value and shows "Couldn't save" with a Retry; an unreachable server is not a failure: the changes
+// wait, with no message (the offline notice says the app is offline), and go when the server answers again.
 
 export type Profile = Record<string, unknown>;
 
@@ -182,8 +184,10 @@ export interface SyncState {
    * off: no profile to sync with (not hydrated, or the server sent none).
    * unsaved: the server answered with its unsaved default device (`id` empty: it could not register this browser,
    * docs/design.md 7.1c). Nothing can be written, so nothing is sent and the local values are all there is.
+   * offline: the server could not be reached. Not a failed save: the changes wait (they are kept across a reload)
+   * and are sent once a request gets an answer again. The offline notice already says the app is offline.
    */
-  status: "off" | "idle" | "saving" | "error" | "unsaved";
+  status: "off" | "idle" | "saving" | "error" | "unsaved" | "offline";
   /** The settings the server refused, sorted (they keep their local value). */
   refused: readonly string[];
 }
@@ -357,6 +361,8 @@ export function flush(): Promise<void> {
         // The server refused these values: they stay as they are on this device, and the rest is sent again.
         for (const k of keys) if (k in patch) refused[k] = stable(patch[k]);
         retryRest = true;
+      } else if (e instanceof ApiError && e.status === 0) {
+        setStatus("offline");
       } else {
         if (syncStore.get().status !== "error") announce("Couldn't save your settings");
         setStatus("error");
@@ -463,12 +469,19 @@ function ensureSubscribed(): void {
   devicePrefsStore.subscribe(onLocalChange);
   try {
     window.addEventListener("storage", onStorage);
-    window.addEventListener("online", () => {
-      if (syncStore.get().status === "error") void flush();
-    });
   } catch {
     /* no window */
   }
+  // Back online, as the app's requests tell it (any answer from the server), not only the browser's online event: a
+  // save that waited for the network, or failed, goes again.
+  let wasOnline = offlineStore.get().online;
+  offlineStore.subscribe(() => {
+    const online = offlineStore.get().online;
+    const back = online && !wasOnline; // the moment it comes back, not every other change of the store
+    wasOnline = online;
+    const s = syncStore.get().status;
+    if (back && (s === "offline" || s === "error")) void flush();
+  });
 }
 
 /**
