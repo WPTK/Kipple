@@ -5,7 +5,7 @@ import { useBootstrap } from "@/api/queries";
 import type { Feed, Folder } from "@/api/types";
 import { updateDevicePrefs, useDevicePrefs, type UnreadBadge } from "@/lib/devicePrefs";
 import { useFavorites } from "@/lib/favorites";
-import { childrenOf, folderPath, folderTree, subtreeFeeds, type FolderTree } from "@/lib/folderTree";
+import { childrenOf, folderPath, folderTree, subtreeFeeds, walkRows, type FolderTree, type RowRules } from "@/lib/folderTree";
 import { openListTo } from "@/lib/routes";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { cn } from "@/lib/cn";
@@ -68,8 +68,6 @@ function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void, revea
   const ref = useRef<HTMLUListElement>(null);
   const hadFocus = useRef(false);
   const lastIndex = useRef(0);
-  // An item past the drawn rows that Down or End asked for: focused once the next render has drawn it.
-  const want = useRef<number | "last" | null>(null);
   const items = () => [...(ref.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [])];
   // After every render, not on a dependency: what removes the focused item (a favorite taken out, a folder collapsed,
   // moved or deleted) is any change to what the tree shows. It settles at once: `active` is then on screen again.
@@ -82,16 +80,6 @@ function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void, revea
       if (hadFocus.current && adrift()) onGone?.();
       hadFocus.current = false;
       return;
-    }
-    if (want.current !== null) {
-      const list = items();
-      const to = want.current === "last" ? list.at(-1) : list[want.current];
-      want.current = null;
-      if (to) {
-        setActive(to.dataset.treeKey ?? null);
-        to.focus();
-        return;
-      }
     }
     if (!hadFocus.current || !active) return;
     if (ul.querySelector(`[data-tree-key="${CSS.escape(active)}"]`)) return;
@@ -115,10 +103,8 @@ function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void, revea
     switch (e.key) {
       case "ArrowDown":
         to = list[at + 1];
-        if (!to && reveal && reveal.left > 0) {
-          want.current = at + 1;
-          reveal.more();
-        }
+        // Past the drawn rows: the reveal draws the next step and focuses the first row it adds, asked for by its key.
+        if (!to && reveal && reveal.left > 0) reveal.more(true);
         break;
       case "ArrowUp":
         to = list[at - 1];
@@ -127,10 +113,8 @@ function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void, revea
         to = list[0];
         break;
       case "End":
-        if (reveal && reveal.left > 0) {
-          want.current = "last";
-          reveal.all();
-        } else to = list.at(-1);
+        if (reveal && reveal.left > 0) reveal.all(true);
+        else to = list.at(-1);
         break;
       case "ArrowRight":
         if (expanded === "false" && folder) updateDevicePrefs({ collapsedFolders: toggleCollapsed(collapsedIds, folder) });
@@ -168,7 +152,7 @@ function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void, revea
     if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node)) hadFocus.current = false;
   };
   /** The item that holds the tab stop: the last focused one while it is on screen and drawn, else the first. */
-  const tabStop = (visible: readonly string[]) => (active && visible.includes(active) && (!reveal || reveal.shown(active)) ? active : (visible[0] ?? ""));
+  const tabStop = (has: (key: string) => boolean, first: string) => (active && has(active) && (!reveal || reveal.shown(active)) ? active : first);
   return { ref, tabStop, onKeyDown, onFocus, onBlur };
 }
 
@@ -191,22 +175,27 @@ interface TreeCtx {
   drawn: (key: string) => boolean;
 }
 
+type Rules = Pick<TreeCtx, "tree" | "feedsOf" | "shown" | "collapsedIds">;
+
+/** What a folder draws inside it, by one set of rules for the render and for the key list (`rowKeys`). */
+const rulesOf = (ctx: Rules): RowRules => ({
+  subfolders: (id) => childrenOf(ctx.tree, id).filter(ctx.shown),
+  feeds: ctx.feedsOf,
+  open: (id) => !ctx.collapsedIds.includes(id),
+});
+
 /** What a folder shows inside it: its shown subfolders and its feeds; none while collapsed. */
-function contents(ctx: Pick<TreeCtx, "tree" | "feedsOf" | "shown" | "collapsedIds">, folder: string) {
-  const subs = childrenOf(ctx.tree, folder).filter(ctx.shown);
+function contents(ctx: Rules, folder: string) {
+  const rules = rulesOf(ctx);
+  const subs = rules.subfolders(folder);
   const own = ctx.feedsOf(folder);
-  return { subs, own, branch: subs.length > 0 || own.length > 0, collapsed: ctx.collapsedIds.includes(folder) };
+  return { subs, own, branch: subs.length > 0 || own.length > 0, collapsed: !rules.open(folder) };
 }
 
-/** The keys of the items a folder renders, in screen order (the same rules as FolderItem). */
-function folderKeys(ctx: Pick<TreeCtx, "tree" | "feedsOf" | "shown" | "collapsedIds">, prefix: string, folder: string, out: string[]) {
-  out.push(`${prefix}folder-${folder}`);
-  const c = contents(ctx, folder);
-  if (!c.branch || c.collapsed) return;
-  for (const s of c.subs) folderKeys(ctx, prefix, s, out);
-  for (const f of c.own) out.push(`${prefix}feed-${f.id}`);
+/** The keys of the items the folders under one root render, in screen order (the same traversal the screen draws by). */
+function rowKeys(ctx: Rules, prefix: string, roots: readonly string[], out: string[]) {
+  walkRows(roots, rulesOf(ctx), (kind, id) => out.push(`${prefix}${kind}-${id}`));
 }
-
 // The li is role="presentation", not "none": WebKit only accepts presentation (besides treeitem and group) between a tree
 // and its items, and otherwise drops the whole tree. The trailing space in the title keeps "Feed" and its count apart in the
 // text a checker reads ("Feed 12", not "Feed12"); it is inside the title because a space in the zero-width spacer is skipped.
@@ -288,6 +277,9 @@ function FolderItem({ fo, level, ctx, fav }: { fo: Folder; level: number; ctx: T
   );
 }
 
+/** The key prefix of a favorite's items (a favorite repeats folders and feeds the tree also shows). */
+const favPrefix = (fav: { t: string; id: string }) => `fav-${fav.t}-${fav.id}-`;
+
 /** The library the tree draws, built once per bootstrap, not on every render. */
 function useLibrary(data: ReturnType<typeof useBootstrap>["data"]) {
   return useMemo(() => {
@@ -315,19 +307,44 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
   const dp = useDevicePrefs();
   const favs = useFavorites();
   const lib = useLibrary(boot.data);
+  // What the tree draws and how: built once per library and collapsed set, not on every render (a focus move re-renders).
+  const base = useMemo(
+    () =>
+      lib && {
+        tree: lib.tree,
+        feedsOf: (id: string) => lib.byFolder.get(id) ?? [],
+        shown: (id: string) => lib.shownIds.has(id),
+        collapsedIds: dp.collapsedFolders,
+        unreadBadge: dp.unreadBadge,
+        favs,
+        onNavigate,
+      },
+    [lib, dp.collapsedFolders, dp.unreadBadge, favs, onNavigate],
+  );
+  const top = useMemo(() => (lib ? childrenOf(lib.tree, null).filter((id) => lib.shownIds.has(id)) : []), [lib]);
   // The Feeds tree's items in screen order: a library of thousands of feeds draws them a step at a time (issue #463).
   const allVisible = useMemo(() => {
     const out: string[] = [];
-    if (!lib) return out;
-    const ctx = { tree: lib.tree, feedsOf: (id: string) => lib.byFolder.get(id) ?? [], shown: (id: string) => lib.shownIds.has(id), collapsedIds: dp.collapsedFolders };
-    for (const id of childrenOf(lib.tree, null).filter((x) => lib.shownIds.has(x))) folderKeys(ctx, "", id, out);
+    if (base) rowKeys(base, "", top, out);
     return out;
-  }, [lib, dp.collapsedFolders]);
+  }, [base, top]);
   const reveal = useReveal(allVisible);
   const { ref: allRef, tabStop: allTabStop, onKeyDown: allKeyDown, onFocus: allFocus, onBlur: allBlur } = useTreeKeys(dp.collapsedFolders, undefined, reveal);
   // With Favorites gone, the focus goes to the Feeds tree's tab stop.
   const toFeeds = () => allRef.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus();
   const { ref: favRef, tabStop: favTabStop, onKeyDown: favKeyDown, onFocus: favFocus, onBlur: favBlur } = useTreeKeys(dp.collapsedFolders, toFeeds);
+  const favList = useMemo(
+    () => (lib ? favs.favorites.filter((fav) => (fav.t === "folder" ? lib.tree.byId.has(fav.id) : lib.feedById.has(fav.id))) : []),
+    [lib, favs.favorites],
+  );
+  const favVisible = useMemo(() => {
+    const out: string[] = [];
+    for (const fav of favList) {
+      if (fav.t === "folder" && base) rowKeys(base, favPrefix(fav), [fav.id], out);
+      else out.push(`${favPrefix(fav)}feed-${fav.id}`);
+    }
+    return out;
+  }, [favList, base]);
   const headingId = useId();
   if (boot.isPending) return <p className="px-3 py-2 text-sm text-fg2" role="status">Loading feeds</p>;
   if (boot.isError || !lib) return <p className="px-3 py-2 text-sm text-danger" role="alert">Couldn't load feeds.</p>;
@@ -339,19 +356,9 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
       </div>
     );
   }
-  const { tree, byFolder, shownIds, feedById } = lib;
-  const base = { tree, feedsOf: (id: string) => byFolder.get(id) ?? [], shown: (id: string) => shownIds.has(id), collapsedIds: dp.collapsedFolders, unreadBadge: dp.unreadBadge, favs, onNavigate };
-
-  const favList = favs.favorites.filter((fav) => (fav.t === "folder" ? tree.byId.has(fav.id) : feedById.has(fav.id)));
-  const favPrefix = (fav: { t: string; id: string }) => `fav-${fav.t}-${fav.id}-`;
-  const favVisible: string[] = [];
-  for (const fav of favList) {
-    if (fav.t === "folder") folderKeys(base, favPrefix(fav), fav.id, favVisible);
-    else favVisible.push(`${favPrefix(fav)}feed-${fav.id}`);
-  }
-  const favStop = favTabStop(favVisible);
-  const top = childrenOf(tree, null).filter((id) => shownIds.has(id));
-  const allCtx: TreeCtx = { ...base, prefix: "", tabStop: allTabStop(allVisible), drawn: reveal.shown };
+  const { tree, feedById } = lib;
+  const favStop = favTabStop((k) => favVisible.includes(k), favVisible[0] ?? "");
+  const allCtx: TreeCtx = { ...(base as NonNullable<typeof base>), prefix: "", tabStop: allTabStop(reveal.has, allVisible[0] ?? ""), drawn: reveal.shown };
 
   return (
     <>
@@ -368,7 +375,7 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
             onBlur={favBlur}
           >
             {favList.map((fav) => {
-              const ctx: TreeCtx = { ...base, prefix: favPrefix(fav), tabStop: favStop, drawn: () => true };
+              const ctx: TreeCtx = { ...allCtx, prefix: favPrefix(fav), tabStop: favStop, drawn: () => true };
               if (fav.t === "folder") return <FolderItem key={`folder:${fav.id}`} fo={tree.byId.get(fav.id) as Folder} level={1} ctx={ctx} fav />;
               return <FeedItem key={`feed:${fav.id}`} f={feedById.get(fav.id) as Feed} level={1} ctx={ctx} fav />;
             })}

@@ -28,7 +28,7 @@ import {
   type DropTarget,
   type Tree,
 } from "@/lib/dnd";
-import { MAX_FOLDER_DEPTH, childrenOf, depthOf, feedOrder, folderPath, folderTree, parentChoices, parentOf, rollUp, subtreeFeeds, subtreeOf, type FolderTree } from "@/lib/folderTree";
+import { MAX_FOLDER_DEPTH, childrenOf, depthOf, feedOrder, folderPath, folderTree, parentChoices, parentOf, rollUp, subtreeFeeds, subtreeOf, walkRows, type FolderTree, type RowRules } from "@/lib/folderTree";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { useFavorites } from "@/lib/favorites";
 import { clickRow, groupState, toggleGroup } from "@/lib/selection";
@@ -284,17 +284,22 @@ export function FeedsScreen() {
   );
   // Every folder and feed row in screen order (collapsed folders hide theirs outside Edit and Select): a library of
   // thousands of feeds draws them a step at a time (issue #463).
+  // Edit and Select need every feed on screen and reachable (a collapsed folder's chevron is replaced by the grip or
+  // checkbox in those modes, and Select all / shift-click range over every feed), so the saved collapsed state only
+  // applies outside them; it is not changed, and returns when the mode ends. The key list and the render share this rule.
+  const rules: RowRules = useMemo(
+    () => ({
+      subfolders: (id) => childrenOf(ftree, id),
+      feeds: (id) => byFolder[id] ?? [],
+      open: (id) => selecting || editMode || !dp.collapsedFolders.includes(id),
+    }),
+    [ftree, byFolder, selecting, editMode, dp.collapsedFolders],
+  );
   const rowKeys = useMemo(() => {
     const out: string[] = [];
-    const walk = (id: string) => {
-      out.push(`folder:${id}`);
-      if (!selecting && !editMode && dp.collapsedFolders.includes(id)) return;
-      for (const s of childrenOf(ftree, id)) walk(s);
-      for (const f of byFolder[id] ?? []) out.push(`feed:${f.id}`);
-    };
-    for (const id of topLevel) walk(id);
+    walkRows(topLevel, rules, (kind, id) => out.push(`${kind}:${id}`));
     return out;
-  }, [ftree, byFolder, topLevel, selecting, editMode, dp.collapsedFolders]);
+  }, [topLevel, rules]);
   const reveal = useReveal(rowKeys);
   // Feeds that share a title show their address under it (issue #484).
 
@@ -377,8 +382,8 @@ export function FeedsScreen() {
   const favKey = (f: Favorite) => `${f.t}:${f.id}`;
 
   // A drop after the last drawn row of a list that is not all drawn yet lands there, before its first row not drawn,
-  // not after the whole list.
-  const endOf = (ids: readonly string[], kind: "feed" | "folder", moving: string) => ids.find((id) => id !== moving && reveal.past(`${kind}:${id}`)) ?? null;
+  // not after the whole list (the reveal says which rows are drawn).
+  const endOf = (ids: readonly string[], kind: "feed" | "folder", moving: string) => reveal.firstPast(ids.filter((id) => id !== moving), (id) => `${kind}:${id}`);
   const drop = (from: DragSource, to: DropTarget) => {
     if (from.kind === "folder") {
       const before = to.before ?? endOf(childrenOf(ftree, to.group || null), "folder", from.id);
@@ -448,9 +453,26 @@ export function FeedsScreen() {
   const dnd = useRowDnd({ enabled: !selecting && editMode, onDrop: drop, scroller: () => scroller.current, onKeyMove: step });
   const dragging = dnd.state.source;
   const dropAt = dnd.state.target;
+  // The row a drop at the end of its list marks: the last drawn row of that list, found once per drop target, not per row.
+  const dropKind = dropAt?.kind;
+  const dropGroup = dropAt?.group;
+  const dropToEnd = dropAt?.before === null;
+  const draggedId = dragging?.id;
+  const endKey = useMemo(() => {
+    if (!dropToEnd) return null;
+    if (dropKind === "feed") {
+      const last = reveal.lastDrawn((byFolder[dropGroup ?? ""] ?? []).filter((x) => x.id !== draggedId), (x) => `feed:${x.id}`);
+      return last ? `feed:${last.id}` : null;
+    }
+    if (dropKind === "folder" && dropGroup === "") {
+      const last = reveal.lastDrawn(topLevel.filter((x) => x !== draggedId), (x) => `folder:${x}`);
+      return last ? `folder:${last}` : null;
+    }
+    return null;
+  }, [reveal, byFolder, topLevel, dropKind, dropGroup, dropToEnd, draggedId]);
 
   // ---- selection ----
-  const selected = realFeeds.filter((f) => sel.has(f.id));
+  const selected = useMemo(() => (sel.size === 0 ? [] : realFeeds.filter((f) => sel.has(f.id))), [realFeeds, sel]);
   const finePointer = typeof window.matchMedia === "function" && window.matchMedia("(any-pointer: fine)").matches;
   // Nothing left to select (every feed deleted): the action bar would only sit under "No feeds yet".
   if (selecting && boot.data && realFeeds.length === 0) {
@@ -503,7 +525,7 @@ export function FeedsScreen() {
   const feedRow = (f: Feed, i: number, list: Feed[], fo: Folder) => {
     const src: DragSource = { kind: "feed", id: f.id, group: fo.id };
     const before = dropAt?.kind === "feed" && dropAt.group === fo.id && dropAt.before === f.id && !isDragged("feed", f.id);
-    const atEnd = dropAt?.kind === "feed" && dropAt.group === fo.id && dropAt.before === null && list.filter((x) => x.id !== dragging?.id && !reveal.past(`feed:${x.id}`)).at(-1)?.id === f.id;
+    const atEnd = endKey === `feed:${f.id}`;
     return (
       <li
         key={f.id}
@@ -619,19 +641,16 @@ export function FeedsScreen() {
     const depth = depthOf(ftree, fo.id);
     const parent = parentOf(ftree, fo.id);
     const siblings = childrenOf(ftree, parent);
-    const subfolders = childrenOf(ftree, fo.id);
-    const inFolder = byFolder[fo.id] ?? [];
+    const subfolders = rules.subfolders(fo.id);
+    const inFolder = rules.feeds(fo.id) as Feed[];
     const inSubtree = subtreeIds.get(fo.id) ?? [];
     const fsrc: DragSource = { kind: "folder", id: fo.id, group: parent ?? "" };
     const folderBefore = dropAt?.kind === "folder" && dropAt.before === fo.id && !isDragged("folder", fo.id);
-    const folderEnd = dropAt?.kind === "folder" && dropAt.before === null && dropAt.group === "" && parent === null && topLevel.filter((x) => x !== dragging?.id && !reveal.past(`folder:${x}`)).at(-1) === fo.id;
+    const folderEnd = endKey === `folder:${fo.id}`;
     const intoFolder =
       (dropAt?.kind === "feed" && dropAt.group === fo.id && inFolder.length === 0) || (dropAt?.kind === "folder" && dropAt.before === null && dropAt.group === fo.id);
-    const state = groupState(inSubtree, sel);
-    // Edit and Select need every feed on screen and reachable (a collapsed folder's chevron is replaced by
-    // the grip or checkbox in those modes, and Select all / shift-click range over every feed), so the
-    // saved collapsed state only applies outside them; it is not changed, and returns when the mode ends.
-    const collapsed = !selecting && !editMode && dp.collapsedFolders.includes(fo.id);
+    const state = selecting ? groupState(inSubtree, sel) : "none";
+    const collapsed = !rules.open(fo.id);
     const listId = `manage-folder-${fo.id}-feeds`;
     const label = folderPath(ftree, fo.id);
     return (
