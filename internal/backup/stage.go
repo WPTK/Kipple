@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -73,6 +74,12 @@ const (
 type Refusal struct{ Msg string }
 
 func (e *Refusal) Error() string { return e.Msg }
+
+// OPMLRefusedError is an OPML file the import would refuse too (empty, no feeds, an undefined entity); Code is the
+// import's own code for it.
+type OPMLRefusedError struct{ Code, Msg string }
+
+func (e *OPMLRefusedError) Error() string { return e.Msg }
 
 // Refusals of the Restorer; the API maps each to a status.
 var (
@@ -400,6 +407,9 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 			return Upload{}, ended(ctx, err)
 		}
 		doc, err := opml.Parse(bytes.NewReader(b))
+		if ref, ok := opml.AsRefused(err); ok && !ref.NotOPML {
+			return Upload{}, &OPMLRefusedError{Code: ref.Code, Msg: strings.ToUpper(ref.Message[:1]) + ref.Message[1:] + "."}
+		}
 		if err != nil {
 			return Upload{}, ErrNotBackup
 		}

@@ -427,6 +427,11 @@ func (c *call) publishFeeds(ids []int64) {
 // Feeds are inserted due now and the scheduler is woken; nothing is fetched here.
 func (c *call) subscriptionImport() {
 	doc, err := opml.Parse(strings.NewReader(c.p.RawBody()))
+	if ref, ok := opml.AsRefused(err); ok { // a file Kipple refuses, with the reason in the body; not a damaged one
+		c.a.log.Warn("greader: subscription/import: OPML refused", "code", ref.Code, "ua", c.r.UserAgent())
+		c.text(http.StatusBadRequest, "Bad OPML: "+ref.Message)
+		return
+	}
 	if err != nil {
 		c.a.log.Warn("greader: subscription/import: bad OPML", "err", err, "ua", c.r.UserAgent())
 		c.text(http.StatusBadRequest, "Bad OPML")

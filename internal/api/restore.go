@@ -428,6 +428,7 @@ func restoreErrorInfo(err error) (status int, code, msg string) {
 		space *backup.UploadSpaceError
 		newer *backup.NewerError
 		bad   *backup.BadUploadError
+		ref   *backup.OPMLRefusedError
 	)
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -459,6 +460,8 @@ func restoreErrorInfo(err error) (status int, code, msg string) {
 		return http.StatusUnprocessableEntity, "newer_kipple", err.Error()
 	case errors.As(err, &bad):
 		return http.StatusBadRequest, "bad_backup", err.Error()
+	case errors.As(err, &ref):
+		return http.StatusBadRequest, ref.Code, err.Error()
 	}
 	return http.StatusInternalServerError, "", ""
 }
