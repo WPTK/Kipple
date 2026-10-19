@@ -58,10 +58,13 @@ type CommitInfo struct {
 }
 
 type commitState struct {
-	migrated   bool
-	retitled   bool
-	before     int   // items in the feed before the fetch
-	firstNewID int64 // first id the whole commit inserted (maxInt64 until it inserts one)
+	migrated bool
+	retitled bool
+	before   int // items in the feed before the fetch
+	// countsArrivals is set when the URL has had a successful fetch: the commit's unread new items are counted
+	// in feed_daily_new (unreadNew). A subscription's first document, or the first after a URL edit, counts none.
+	countsArrivals bool
+	firstNewID     int64 // first id the whole commit inserted (maxInt64 until it inserts one)
 	// chunkFirstID is the first id the current chunk inserted (maxInt64 until it inserts one).
 	chunkFirstID int64
 	firstID      int64
@@ -96,8 +99,8 @@ type heldItem struct {
 // counts its arrivals (the URL has had a successful fetch) that is the last chunk's first id, since an earlier chunk
 // had committed, so been listed and openable, before the trim. A commit that counts none (a subscription's first
 // document, or the first one after a URL edit) is a backlog nobody was shown, so all of it is hidden.
-func (st *commitState) neverShownFrom(countsArrivals bool) int64 {
-	if countsArrivals {
+func (st *commitState) neverShownFrom() int64 {
+	if st.countsArrivals {
 		return st.chunkFirstID
 	}
 	return st.firstNewID
@@ -138,7 +141,7 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 		}
 	}
 
-	st := &commitState{firstNewID: maxInt64, chunkFirstID: maxInt64}
+	st := &commitState{firstNewID: maxInt64, chunkFirstID: maxInt64, countsArrivals: res.Snap.URLSucceeded}
 	defer func() {
 		if v := recover(); v != nil {
 			// A panic in a chunk skips the error path below (WithWrite has no
@@ -321,7 +324,7 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 		total = st.before + len(st.newIDs)
 	}
 	var err error
-	shownFrom := st.neverShownFrom(res.Snap.URLSucceeded)
+	shownFrom := st.neverShownFrom()
 	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, shownFrom, trimBatch, total); err != nil {
 		return err
 	}
@@ -590,7 +593,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				st.firstID = id
 			}
 			st.lastID = id
-			if read == 0 && mutedBy == nil && res.Snap.URLSucceeded {
+			if read == 0 && mutedBy == nil && st.countsArrivals {
 				st.unreadNew = append(st.unreadNew, id)
 			}
 			// Every row this commit adds is counted here: trimFeedBatch skips on st.before+len(newIDs).
@@ -917,7 +920,7 @@ const sqlItemBetween = `SELECT EXISTS (SELECT 1 FROM items WHERE id > ?1 AND id 
 // opened. A row that would reach 0 is deleted (new_items > 0). A row's ids are left as they are, which adds no
 // read inside them.
 func dropTrimmedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, st *commitState, shownFrom int64) error {
-	// unreadNew ascends (ids are allocated in insert order), so the ids from shownFrom on are its tail.
+	// unreadNew ascends (IDAlloc only increases, and a commit inserts in order), so the ids from shownFrom on are its tail.
 	i := len(st.unreadNew)
 	for i > 0 && st.unreadNew[i-1] >= shownFrom {
 		i--
