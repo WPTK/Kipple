@@ -193,7 +193,7 @@ export async function start(metaUrl, helpLines) {
         .join("");
     return `<?xml version="1.0"?><opml version="2.0"><head><title>uat</title></head><body>${walk(tree)}</body></opml>`;
   };
-  /** Deletes the disposable library this run made: every feed at a dead address and every folder named "UAT ...". */
+  /** Deletes the disposable library this run made (every feed at a dead address, every folder named "UAT ...") and the devices other runs registered. */
   const cleanup = async (page) => {
     const b = await boot(page);
     for (const f of b.feeds.filter((x) => x.url?.includes("uat-feed-") || x.feed_url?.includes("uat-feed-") || x.title?.startsWith("UAT feed "))) {
@@ -201,6 +201,12 @@ export async function start(metaUrl, helpLines) {
     }
     for (const f of b.folders.filter((x) => x.name.startsWith("UAT ") && (x.parent_id ?? null) === null)) {
       await page.request.delete(`/api/folders/${f.id}`, { headers: WRITE }).catch(() => {});
+    }
+    // Every run signs in fresh and so registers a device; one instance serves every flow and engine, and the server
+    // keeps at most 50 recent devices, after which a new session gets an unsaved default and layout writes answer 404.
+    if (!opt["allow-remote"]) {
+      const list = await page.request.get("/api/devices", { headers: { Accept: "application/json" } }).then((r) => r.json(), () => ({}));
+      for (const d of (list.devices ?? []).filter((x) => !x.current)) await page.request.delete(`/api/devices/${d.id}`, { headers: WRITE }).catch(() => {});
     }
   };
 
