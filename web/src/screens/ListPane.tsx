@@ -36,7 +36,7 @@ import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { openFeedEditor } from "@/lib/feedEditor";
 import { useWidth } from "@/lib/useWidth";
 import { visibleFeeds } from "@/lib/visibleFeeds";
-import { failureCopy, showsFailure } from "@/lib/feedStatus";
+import { failureCopy, failureNoteFeeds, showsFailure } from "@/lib/feedStatus";
 import { FeedFailureNote } from "./FeedFailureNote";
 import { listPlace, rememberListTop } from "@/lib/listPlace";
 
@@ -346,10 +346,14 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // The list's measured width and root font size, for layouts whose rows change shape with width (Editorial).
   const sizeCtx = useRef({ width: 0, rem: 16 });
   sizeCtx.current.width = width;
+  const noteBoxRef = useRef<HTMLDivElement>(null);
+  const [noteH, setNoteH] = useState(0);
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: Page ? 0 : rows.length,
     getScrollElement: () => parentRef.current,
+    // The failing-feed note above the rows is part of the scrolling content.
+    scrollMargin: noteH,
     estimateSize: (i) => {
       const r = rows[i];
       if (!r || r.kind === "header") return 40;
@@ -1248,7 +1252,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
               key={v.key}
               data-index={v.index}
               ref={virtualizer.measureElement}
-              style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${v.start}px)` }}
+              style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${v.start - noteH}px)` }}
             >
               <div className="kp-row" data-leaving={r.kind === "item" && leaving.has(r.item.id) ? "true" : undefined}>
               {r.kind === "header" ? (
@@ -1285,6 +1289,22 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const showPull = holding || pull.distance >= 16;
   // Known to have nothing (not merely still loading): a search with no results has nothing to save or mark.
   const empty = !q.isPending && allItems.length === 0;
+  const noteFeeds = useMemo(
+    () => failureNoteFeeds({ scope, pendingNew, feeds: boot.data?.feeds, folders: boot.data?.folders, loaded: !q.isPending && !(q.isError && !q.data), empty }),
+    [scope, pendingNew, boot.data, q.isPending, q.isError, q.data, empty],
+  );
+  // The note's height, for the virtualizer: it measures again if the note resizes (a wider or narrower window).
+  const noted = noteFeeds.length > 0;
+  useLayoutEffect(() => {
+    const el = noteBoxRef.current;
+    if (!noted || !el) return setNoteH(0);
+    const measure = () => setNoteH(el.offsetHeight);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [noted]);
   const controlsRef = useLatestRef(onControls);
   const stopRef = useLatestRef(tabStopId);
   const focusStop = useCallback(() => {
@@ -1304,10 +1324,6 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         <p role="status" data-testid="fallback-banner" className="border-b border-line bg-surface px-4 py-2 text-sm text-fg2">
           No exact matches: showing partial matches
         </p>
-      ) : null}
-      {/* Only once the list has loaded: a feed's empty list says the same in its own box, and a note that appears over the skeleton would vanish again. */}
-      {!q.isPending && !(q.isError && !q.data) && !scope.q && (scope.view === "unread" || scope.view === "all") && !(scope.feed && empty) ? (
-        <FeedFailureNote scope={scope} feeds={boot.data?.feeds} folders={boot.data?.folders} pendingNew={pendingNew} />
       ) : null}
       {caption ? (
         <div role="status" className="mx-3 mb-1 flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg">
@@ -1357,6 +1373,12 @@ export function ListPane({ scope, activeId, onControls }: Props) {
                 : undefined
             }
           >
+            {/* The first thing in the scrolling content, so it scrolls away; the virtualizer is told its height (`scrollMargin`). */}
+            {noteFeeds.length > 0 ? (
+              <div ref={noteBoxRef} className="pb-2">
+                <FeedFailureNote failing={noteFeeds} inFolder={!scope.feed} />
+              </div>
+            ) : null}
             {body}
           </div>
         </div>
