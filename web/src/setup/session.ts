@@ -5,7 +5,6 @@ import { prefsStore, updatePrefs } from "@/lib/prefs";
 import { createStore } from "@/lib/store";
 import { updateTheme } from "@/theme/theme";
 import type { ThemeSettings } from "@/theme/settings";
-import type { StepId } from "./steps";
 
 /**
  * The web password typed in step 1, so that step 7 can create the API password without asking again. Never stored
@@ -104,12 +103,8 @@ export function markRerun(): void {
 }
 export const isRerun = (): boolean => rerunStore.get();
 
-let welcomeTarget: StepId | null = null;
-/** Where the app sends an account with setup pending: the first step, or the one "Run setup again" was asked to open. */
-export function setWelcomeTarget(id: StepId | null): void {
-  welcomeTarget = id;
-}
-export const welcomeEntry = (): string => `/welcome/${welcomeTarget ?? "timezone"}`;
+/** Where the app sends an account whose first-run setup is pending: the first step. */
+export const welcomeEntry = (): string => "/welcome/timezone";
 
 /** Setup is over, or the app signed out: forget everything above. */
 export function forgetWizardMemory(): void {
@@ -121,7 +116,6 @@ export function forgetWizardMemory(): void {
   themeSaved = null;
   fontBaseline = null;
   fontSaved = null;
-  welcomeTarget = null;
   try {
     sessionStorage.removeItem(RERUN_KEY);
   } catch {

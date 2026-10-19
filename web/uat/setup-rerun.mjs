@@ -5,12 +5,14 @@
 //   npm run uat:setup-rerun -- --url http://127.0.0.1:7091 --screenshots <dir> --browser webkit --headed
 //
 // For each width (desktop 1280x800, phone 375x812) it checks:
-//   R1  Settings, Account & Devices, Run setup again opens the time zone step, and the server still says setup is done;
+//   R1  Settings, Account & Devices, Run setup again opens the time zone step, the server still says setup is done, and a
+//       reload in the middle of the steps resumes them;
 //   R2  a second browser (another device) that signs in while the steps are open lands in the app, not in the steps;
 //   R3  searching the time zone list for "kolkata" and "kyiv" finds those zones, whichever spelling this browser lists;
 //   R4  "Skip the rest of setup" ends in the reader, and a reload stays there.
 // It changes no setting. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
+import { URL } from "node:url";
 import { start } from "./common.mjs";
 
 const t = await start(import.meta.url, 14);
@@ -27,6 +29,9 @@ await t.eachViewport(async (page, vp) => {
     check(new URL(page.url()).pathname === "/welcome/timezone", `${tag} R1 path`, "the time zone step is open", `the page is at ${page.url()}`);
     check(!(await pending(page)), `${tag} R1 server`, "the server still says setup is done", "the server now says setup is pending");
     await t.shot(page, `${tag}-setup-rerun-open`);
+    await page.reload({ waitUntil: "load" });
+    const back = await page.getByRole("heading", { name: "Choose your time zone" }).waitFor({ timeout: 10000 }).then(() => true, () => false);
+    check(back, `${tag} R1 reload`, "a reload in the middle of the steps resumes them", `after a reload the page is at ${page.url()}`);
   });
 
   await step(`${tag} R2`, async () => {

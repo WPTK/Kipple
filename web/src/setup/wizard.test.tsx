@@ -1117,8 +1117,20 @@ describe("Settings: run setup again", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Run setup again" }));
     await headingIs("Choose your time zone");
-    expect(callTo(calls, "POST", "/api/onboarding/restart")).toHaveLength(0);
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
     expect(window.location.pathname).toBe("/welcome/timezone");
+  });
+
+  it("ends the rerun when the person leaves the steps with Back", async () => {
+    server(done());
+    go("/settings/account");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Run setup again" }));
+    await headingIs("Choose your time zone");
+    expect(rerunStore.get()).toBe(true);
+    act(() => window.history.back());
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/account"));
+    await waitFor(() => expect(rerunStore.get()).toBe(false));
   });
 
   it("ends in the reader, and finishing leaves nothing open for the next visit", async () => {

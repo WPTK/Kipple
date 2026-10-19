@@ -183,13 +183,14 @@ func TestRemovedOpenLANRowIsIgnored(t *testing.T) {
 	require.NotContains(t, merged, "security.open_lan")
 }
 
-// A new account is pending setup until complete stamps it; complete is idempotent.
+// Without the stamp setup is pending until complete stamps it; complete is idempotent.
 func TestOnboardingStamp(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	ctx := context.Background()
 	_, err := e.db.CreateAccount(ctx, Account{Username: "owner", PasswordHash: "h", Secret: fixtureKey})
 	require.NoError(t, err)
+	e.exec("DELETE FROM settings WHERE key = ?", SettingSetupCompleted)
 	p, _ := e.db.SetupPending(ctx)
 	require.True(t, p)
 	require.NoError(t, e.db.CompleteOnboarding(ctx))

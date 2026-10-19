@@ -2,7 +2,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { keys, type BootstrapAnswer } from "@/api/queries";
 import { completeOnboarding } from "./api";
-import { forgetWizardMemory, markRerun, revertUnsavedTheme, setWelcomeTarget } from "./session";
+import { forgetWizardMemory, markRerun, revertUnsavedTheme } from "./session";
 import { welcomePath, type StepId } from "./steps";
 
 /** Records in the app's copy of the account that first-run setup is (or is not) pending, so the routing follows at once. */
@@ -29,7 +29,6 @@ export function useSetupActions() {
     /** Opens the first-run steps again (or at one of them) in this tab for an account that finished them. Nothing is changed on the server. */
     restart: (at: StepId = "timezone") => {
       markRerun();
-      setWelcomeTarget(at);
       void navigate(welcomePath(at));
     },
   };

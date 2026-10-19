@@ -33,6 +33,8 @@ const RENAMED: readonly (readonly [string, string])[] = [
   ["America/Nuuk", "America/Godthab"],
   ["America/Argentina/Buenos_Aires", "America/Buenos_Aires"],
   ["Atlantic/Faroe", "Atlantic/Faeroe"],
+  ["Africa/Asmara", "Africa/Asmera"],
+  ["America/Atikokan", "America/Coral_Harbour"],
   ["Pacific/Chuuk", "Pacific/Truk"],
   ["Pacific/Pohnpei", "Pacific/Ponape"],
   ["Pacific/Kanton", "Pacific/Enderbury"],
