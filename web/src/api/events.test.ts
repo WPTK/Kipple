@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
-import { FINISHED_KEEP_MAX, FINISHED_KEEP_MS, isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, reduceEvent } from "./events";
+import { FINISHED_KEEP_MAX, FINISHED_KEEP_MS, isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, reduceEvent, seedRuns } from "./events";
 import { keys, scopeKey } from "./queries";
 import { savedSearchesKey } from "./savedSearches";
 import { noteFilterTouched, resetFilterTouched } from "./filterEdits";
@@ -9,6 +9,32 @@ import type { ItemsPage, ServerEvent } from "./types";
 import { bootstrap, card, detail, pageOf } from "@/test/mockApi";
 
 beforeEach(() => liveStore.set(initialLive));
+
+describe("seedRuns", () => {
+  const run = (id: string) => ({ id, kind: "import", done: 1, total: 5, new_items: 0, errors: 0 });
+
+  it("does not bring back a run whose run.done already arrived (a stale bootstrap answer)", () => {
+    liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "7", kind: "import", total: 5 } }));
+    liveStore.set((s) => reduceEvent(s, { type: "run.done", data: { run_id: "7", new_items: 0, errors: 0 } }));
+    seedRuns([run("7")]);
+    expect(liveStore.get().runs).toEqual({});
+  });
+
+  it("seeds an unfinished run even when another run is already present", () => {
+    liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "1", kind: "refresh", total: 3 } }));
+    seedRuns([run("1"), run("2")]);
+    expect(Object.keys(liveStore.get().runs).sort()).toEqual(["1", "2"]);
+  });
+
+  it("leaves a known run's live progress alone and keeps a run the bootstrap lacks", () => {
+    liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "1", kind: "refresh", total: 3 } }));
+    liveStore.set((s) => reduceEvent(s, { type: "run.progress", data: { run_id: "1", done: 2, total: 3, new_items: 0, errors: 0 } }));
+    seedRuns([run("2")]);
+    expect(liveStore.get().runs["1"]?.done).toBe(2);
+    seedRuns([{ ...run("1"), done: 0 }]);
+    expect(liveStore.get().runs["1"]?.done).toBe(2);
+  });
+});
 
 describe("reduceEvent", () => {
   it("tracks run progress and clears it on run.done", () => {

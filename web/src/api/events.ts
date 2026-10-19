@@ -374,10 +374,21 @@ export function seedRun(run: RunStatus): void {
   liveStore.set((s) => (s.finished?.[run.id] || s.runs[run.id] ? s : { ...s, runs: { ...s.runs, [run.id]: run } }));
 }
 
-/** Seed live runs from a freshly loaded bootstrap when nothing is known yet (a run already going at load). */
+/**
+ * Seed live runs from a freshly loaded bootstrap: each run not already known and not already finished. A known run is
+ * left alone (the stream's progress is newer than the answer), and a finished one stays gone (a stale answer built
+ * while it was running can land after its `run.done`).
+ */
 export function seedRuns(runs: RunStatus[] | undefined): void {
-  if (!runs?.length || Object.keys(liveStore.get().runs).length) return;
-  liveStore.set((s) => ({ ...s, runs: Object.fromEntries(runs.map((r) => [String(r.id), { ...r, id: String(r.id) }])) }));
+  if (!runs?.length) return;
+  liveStore.set((s) => {
+    const add: Record<string, RunStatus> = {};
+    for (const r of runs) {
+      const id = String(r.id);
+      if (!s.finished?.[id] && !s.runs[id]) add[id] = { ...r, id };
+    }
+    return Object.keys(add).length ? { ...s, runs: { ...s.runs, ...add } } : s;
+  });
 }
 
 // ---- Hook ---------------------------------------------------------------------
