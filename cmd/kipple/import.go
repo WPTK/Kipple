@@ -44,6 +44,13 @@ func runImport(args []string) error {
 		in = f
 	}
 	doc, err := opml.Parse(in)
+	if ref, ok := opml.AsRefused(err); ok {
+		name := fs.Arg(0)
+		if name == "-" {
+			name = "standard input"
+		}
+		return fmt.Errorf("%s: %w", name, ref) // the words the web import shows, not the parser's internal text
+	}
 	if err != nil {
 		return err
 	}

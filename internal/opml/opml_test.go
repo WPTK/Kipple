@@ -27,7 +27,7 @@ func openDB(t *testing.T) *store.DB {
 
 func parseString(t *testing.T, s string) *Doc {
 	t.Helper()
-	d, err := Parse(strings.NewReader(s))
+	d, err := parse(strings.NewReader(s))
 	require.NoError(t, err)
 	return d
 }
@@ -318,7 +318,7 @@ func TestRoundTripRealFile(t *testing.T) {
 
 func roundTrip(t *testing.T, src []byte, wantFeeds, wantFolders int) {
 	t.Helper()
-	orig, err := Parse(bytes.NewReader(src))
+	orig, err := parse(bytes.NewReader(src))
 	require.NoError(t, err)
 	require.Len(t, orig.Feeds, wantFeeds)
 	require.Len(t, orig.Folders, wantFolders)
@@ -332,7 +332,7 @@ func roundTrip(t *testing.T, src []byte, wantFeeds, wantFolders int) {
 	require.Empty(t, r.Skipped)
 
 	out1 := export(t, db)
-	again, err := Parse(strings.NewReader(out1))
+	again, err := parse(strings.NewReader(out1))
 	require.NoError(t, err)
 	require.Equal(t, orig.Folders, again.Folders, "folder count and order")
 	require.Equal(t, len(orig.Feeds), len(again.Feeds))
@@ -407,7 +407,7 @@ func TestUnnamedWrapperUnderNamedContainerImports(t *testing.T) {
 func TestParseNonUTF8Charsets(t *testing.T) {
 	t.Parallel()
 	latin := "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><opml><body><outline text=\"Caf\xe9\" xmlUrl=\"http://l.test/rss\"/></body></opml>"
-	d, err := Parse(strings.NewReader(latin))
+	d, err := parse(strings.NewReader(latin))
 	require.NoError(t, err)
 	require.Equal(t, "Café", d.Feeds[0].Title)
 
@@ -416,7 +416,7 @@ func TestParseNonUTF8Charsets(t *testing.T) {
 	for _, c := range u16 {
 		buf = append(buf, byte(c), byte(c>>8))
 	}
-	d, err = Parse(bytes.NewReader(buf))
+	d, err = parse(bytes.NewReader(buf))
 	require.NoError(t, err)
 	require.Equal(t, "Café", d.Feeds[0].Title)
 	require.Equal(t, "http://u.test/rss", d.Feeds[0].URL)

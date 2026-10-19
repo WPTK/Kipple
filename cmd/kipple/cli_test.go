@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/WPTK/kipple/internal/opml"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -34,4 +35,28 @@ func TestCLIRefusesToCreateOrMigrateTheDatabase(t *testing.T) {
 	var n int
 	require.NoError(t, server.Reader().QueryRow("SELECT count(*) FROM feeds WHERE url = 'http://a.test/rss'").Scan(&n))
 	require.Equal(t, 1, n)
+}
+
+// The refusals of the web import hold for the command line too: a file of folders only, an empty file and a
+// file naming an undefined entity are refused, with the server running and nothing created (issue #518).
+func TestCLIImportRefusesWhatTheWebImportRefuses(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("KIPPLE_DATA", dir)
+	server, err := store.Open(context.Background(), store.Options{Path: filepath.Join(dir, "kipple.db"), Logger: quiet})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = server.Close() })
+	for name, tc := range map[string]struct{ body, want string }{
+		"folders only": {`<opml><body><outline text="Empty"/></body></opml>`, "that OPML file has no feeds in it"},
+		"empty":        {``, "that file is empty"},
+		"entity":       {`<opml><body><outline text="&x;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`, "&x; on line 1 is not an entity XML or HTML defines"},
+	} {
+		f := filepath.Join(dir, "in.opml")
+		require.NoError(t, os.WriteFile(f, []byte(tc.body), 0o600))
+		require.EqualError(t, runImport([]string{f}), f+": "+tc.want, name)
+		var ref opml.Refused
+		require.ErrorAs(t, runImport([]string{f}), &ref, name)
+	}
+	var n int
+	require.NoError(t, server.Reader().QueryRow("SELECT count(*) FROM folders WHERE name = 'Empty'").Scan(&n))
+	require.Zero(t, n)
 }

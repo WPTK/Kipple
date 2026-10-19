@@ -253,6 +253,16 @@ func TestRestoreUploadKindsAndErrors(t *testing.T) {
 	require.Equal(t, "not_a_backup", out["error"])
 	require.Equal(t, "This is not a Kipple backup zip or an OPML file.", out["message"])
 
+	// An OPML file the import would refuse is a 400 with the import's own code, not a 500 (issue #518).
+	out = h.upload([]byte(`<opml><body><outline text="Empty"/></body></opml>`))
+	require.EqualValues(t, http.StatusBadRequest, out["status"])
+	require.Equal(t, "empty_opml", out["error"])
+	require.Contains(t, out["message"], "no feeds in it")
+	out = h.upload([]byte(`<opml><body><outline text="&x;"><outline xmlUrl="http://a.test/rss"/></outline></body></opml>`))
+	require.EqualValues(t, http.StatusBadRequest, out["status"])
+	require.Equal(t, "opml_entity", out["error"])
+	require.Contains(t, out["message"], "&x; on line 1")
+
 	rec := h.req("POST", "/api/setup/restore/upload", "abc", func(r *http.Request) { r.ContentLength = -1 })
 	require.Equal(t, http.StatusLengthRequired, rec.Code)
 
