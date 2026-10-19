@@ -1,0 +1,1 @@
+First-run wording: the pull compose file now says to create your account before widening the port, and no longer implies Compose 2.24 is needed for it (only the build-from-source file needs it); a password mismatch in setup is announced once instead of twice; and the Manage feeds and filter-suggestion help says "Click" instead of "Tap" when you use a mouse. (#490)
