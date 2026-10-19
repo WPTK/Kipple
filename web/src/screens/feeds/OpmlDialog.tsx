@@ -64,8 +64,8 @@ export function attrNote(s: string): { url: string; note: string } {
  * How the fetch of the new feeds is going: a bar while the import run goes, then how it ended. The run is shown from
  * the import's answer at once, so this works while the live stream is down; without either it says the fetch started.
  */
-function ImportProgress({ runId, total }: { runId: string; total: number }) {
-  useEffect(() => seedRun({ id: runId, kind: "import", done: 0, total, new_items: 0, errors: 0 }), [runId, total]);
+function ImportProgress({ runId, total, eventId }: { runId: string; total: number; eventId?: string }) {
+  useEffect(() => seedRun({ id: runId, kind: "import", done: 0, total, new_items: 0, errors: 0 }, eventId), [runId, total, eventId]);
   const run = useStoreSelector(liveStore, (s) => s.runs[runId]);
   const finished = useStoreSelector(liveStore, (s) => s.finished?.[runId]);
   // A run that was on screen and is gone without a result ended while the stream was down (the status poll dropped it).
@@ -81,7 +81,8 @@ function ImportProgress({ runId, total }: { runId: string; total: number }) {
       </div>
     );
   }
-  if (finished) {
+  // A run a status poll stopped listing, with no result heard: it is over, but how it went is not known.
+  if (finished && !finished.inferred) {
     return (
       <p className="text-sm text-fg2">
         {finished.errors > 0
@@ -90,7 +91,7 @@ function ImportProgress({ runId, total }: { runId: string; total: number }) {
       </p>
     );
   }
-  if (seen) return <p className="text-sm text-fg2">Kipple fetched the new feeds. A feed that can't be fetched says why on its row in Manage feeds.</p>;
+  if (finished || seen) return <p className="text-sm text-fg2">The fetch of the new feeds has ended. A feed that can't be fetched says why on its row in Manage feeds.</p>;
   return <p className="text-sm text-fg2">Kipple is fetching the new feeds now. A feed that can't be fetched says why on its row in Manage feeds.</p>;
 }
 
@@ -206,7 +207,7 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
         </ul>
       </div>
     ) : null}
-    {result.run_id ? <ImportProgress runId={result.run_id} total={result.feeds_added} /> : null}
+    {result.run_id ? <ImportProgress runId={result.run_id} total={result.feeds_added} eventId={result.event_id} /> : null}
     </>
   );
 }

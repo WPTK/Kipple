@@ -235,7 +235,7 @@ describe("reconnect reconciliation", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     try {
       mockFetch({
-        "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 2 }),
+        "GET /api/status": () => json({ runs: [], event_id: "50", inflight: 0, unread_total: 2 }),
         "GET /api/bootstrap": () => json(bootstrap),
       });
       const qc = new QueryClient();
@@ -273,7 +273,7 @@ describe("reconnect reconciliation", () => {
   });
 
   it("re-checks status when the tab becomes visible with a run showing", async () => {
-    const { calls } = mockFetch({ "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 0 }), "GET /api/bootstrap": () => json(bootstrap) });
+    const { calls } = mockFetch({ "GET /api/status": () => json({ runs: [], event_id: "50", inflight: 0, unread_total: 0 }), "GET /api/bootstrap": () => json(bootstrap) });
     const { unmount } = setup();
     act(() => FakeES.all[0]!.emit("run.start", { run_id: "7", kind: "manual", total: 3 }));
     await act(async () => {
