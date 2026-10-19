@@ -33,6 +33,7 @@
     "uat:stats": "node uat/stats.mjs",
     "uat:chrome": "node uat/chrome.mjs",
     "uat:phone-shell": "node uat/phone-shell.mjs",
+    "uat:wrapping": "node uat/wrapping.mjs",
     "uat:scroll-restore": "node uat/scroll-restore.mjs"
   },
   "dependencies": {

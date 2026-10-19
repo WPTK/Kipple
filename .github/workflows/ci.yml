@@ -33,6 +33,7 @@ jobs:
   # printed exactly code=false, so a failed or empty gate runs everything.
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       code: ${{ steps.filter.outputs.code }}
       scripts: ${{ steps.filter.outputs.scripts }}
@@ -166,6 +167,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -209,6 +211,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     defaults:
@@ -252,6 +255,9 @@ jobs:
       # The required checks fail open to running everything, not to skipped.
       - if: needs.changes.outputs.code != 'false'
         run: node --test ../scripts/ci-gate.test.mjs
+      # Every job sets timeout-minutes, so a hang stops in minutes instead of at GitHub's six-hour default.
+      - if: needs.changes.outputs.code != 'false'
+        run: node --test ../scripts/workflow-timeouts.test.mjs
       # --ignore-scripts: no dependency install script runs; the build and tests call their tools directly.
       - if: needs.changes.outputs.code != 'false'
         run: npm ci --ignore-scripts
@@ -285,6 +291,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -312,6 +319,7 @@ jobs:
   uat-labels:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -335,6 +343,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.scripts != 'false' }}
     runs-on: windows-latest
+    timeout-minutes: 15
     env:
       PESTER_VERSION: 5.7.1
       PSSCRIPTANALYZER_VERSION: 1.25.0
