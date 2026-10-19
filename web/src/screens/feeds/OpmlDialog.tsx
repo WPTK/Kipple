@@ -101,7 +101,7 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
   const emptied = result.folders_emptied ?? [];
   const refused = result.folders_refused ?? [];
   const mergedPath = result.folders_merged_path ?? [];
-  const dropped = result.memberships_dropped.length;
+  const dropped = result.memberships_dropped.length + (result.memberships_dropped_more ?? 0);
   const skipped = result.skipped ?? [];
   const invalid = result.invalid_attrs ?? [];
   const ignored = result.ignored_attrs ?? [];

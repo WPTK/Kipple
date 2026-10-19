@@ -27,10 +27,9 @@ func (e *env) loadFeed(url string, n int) int64 {
 	return id
 }
 
-// A fetch commit trims at most trimBatch items, the oldest first, and leaves
-// the rest for a later trim; TrimOnly then finishes the job in batches with
-// one fetch_log row and the same ledger and unread accounting as a one-shot
-// trim.
+// A fetch commit trims at most trimBatch items in its own transaction, the oldest first, and finishes the rest in
+// batches of their own with one trim_only fetch_log row and the same ledger and unread accounting as a one-shot
+// trim; a later TrimOnly finds nothing.
 func TestTrimIsBoundedPerTransaction(t *testing.T) {
 	withTrimBatch(t, 100)
 	e := newEnv(t)
@@ -38,24 +37,18 @@ func TestTrimIsBoundedPerTransaction(t *testing.T) {
 	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
 
 	info := e.fetchBody(id, rss(numbered(1500)...))
-	require.EqualValues(t, 100, info.Trimmed, "the fetch commit trims one bounded batch")
-	require.Equal(t, 1400, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
-	require.Zero(t, e.count("SELECT count(*) FROM items WHERE title IN ('title g0', 'title g99')"), "oldest first")
-	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE title = 'title g100'"))
-
-	n, err := e.db.TrimOnly(e.ctx, id, fetch.TriggerRetention)
-	require.NoError(t, err)
-	require.EqualValues(t, 1350, n)
+	require.EqualValues(t, 1450, info.Trimmed, "the commit's batch and the batches that finish it")
+	require.False(t, info.TrimPending)
 	require.Equal(t, 50, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
-	require.Equal(t, 50, e.count("SELECT count(*) FROM items WHERE title >= 'title g1450' AND title <= 'title g1499' AND length(title) = 11"))
+	require.Equal(t, 50, e.count("SELECT count(*) FROM items WHERE title >= 'title g1450' AND title <= 'title g1499' AND length(title) = 11"), "oldest first")
 	require.Equal(t, 1450, e.count("SELECT count(*) FROM trimmed_items WHERE feed_id = ?", id))
 	require.Equal(t, 1450, e.count("SELECT count(*) FROM trimmed_content"))
 	require.Equal(t, 1450, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM fetch_log WHERE outcome = 'trim_only' AND trimmed_items = 1350"),
-		"one log row covers every batch")
+		"one log row covers every follow-up batch")
 	e.exec("INSERT INTO items_fts(items_fts) VALUES('integrity-check')")
 
-	n, err = e.db.TrimOnly(e.ctx, id, fetch.TriggerRetention)
+	n, err := e.db.TrimOnly(e.ctx, id, fetch.TriggerRetention)
 	require.NoError(t, err)
 	require.Zero(t, n)
 }

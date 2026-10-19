@@ -42,8 +42,8 @@ type CommitInfo struct {
 	// Retitled is set when the feed's display name (feedTitleSQL) changed: the first fetch naming a
 	// new feed, or the feed renaming itself while it has no custom name.
 	Retitled bool
-	// TrimPending is set when the retention trim filled its bounded batch, so the
-	// feed may still hold more than its cap; the scheduler queues a trim job for it.
+	// TrimPending is set when the retention trim filled its bounded batch and the batches that finish it in
+	// the commit stopped early, so the feed may still hold more than its cap; the scheduler queues a trim job for it.
 	TrimPending bool
 	// Stale is set when the feed's URL changed under the fetch and nothing (or,
 	// for a chunked commit, only the chunks before the change) was
@@ -181,6 +181,23 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 			break // the URL changed under the fetch: stop here and report what did commit
 		}
 	}
+	if st.trimMore && !st.stale {
+		// The commit trimmed one batch and more is over the cap: finish it here, in batches of their own like
+		// the chunks, with this commit's boundary, which a trim job knows nothing of. A batch that fails leaves
+		// it pending (CommitInfo.TrimPending) for the scheduler's trim job.
+		n, more, err := d.trimBacklog(ctx, res.Snap.ID, fetch.TriggerRetention, TrimBudget{PerBatch: perChunk}, st.neverShownFrom())
+		st.trimmed += n
+		st.trimMore = more || err != nil
+		// What the batches removed is read from the items themselves, so this is right however far they got.
+		cctx, cancel := context.WithTimeout(ctx, perChunk)
+		defer cancel()
+		if cerr := d.gated(cctx, func(ctx context.Context, tx *sql.Tx) error {
+			return dropTrimmedDailyNew(ctx, tx, res.Snap.ID, st, st.neverShownFrom())
+		}); cerr != nil {
+			// The fetch is committed; only the read rate keeps a few never-shown items, as a trim job would leave them.
+			d.log.Warn("store: read rate correction after trim", "feed", res.Snap.ID, "err", cerr)
+		}
+	}
 	return info(), nil
 }
 
@@ -314,8 +331,8 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	}
 
 	// --- last chunk: trim, bookkeeping, log ---
-	// One bounded batch; a larger backlog is reported (CommitInfo.TrimPending) for the
-	// scheduler to finish with trim jobs rather than holding the writer here.
+	// One bounded batch; a larger backlog is finished by CommitFetchTimeout in batches of their own (and reported,
+	// as CommitInfo.TrimPending, if they stop early) rather than holding the writer here.
 	// The feed's item count is known when this transaction read it (a single-chunk commit): inserts
 	// are the only rows a commit adds, and nothing else writes inside it. After earlier chunks
 	// committed, another writer (a restore) may have added rows in between, so the trim counts.
@@ -328,8 +345,12 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, shownFrom, trimBatch, total); err != nil {
 		return err
 	}
-	if err := dropTrimmedDailyNew(ctx, tx, feedID, st, shownFrom); err != nil {
-		return err
+	// With a backlog left, the correction waits for the batches that finish it (CommitFetchTimeout), which
+	// take the same items out of the same rows.
+	if !st.trimMore {
+		if err := dropTrimmedDailyNew(ctx, tx, feedID, st, shownFrom); err != nil {
+			return err
+		}
 	}
 
 	docSize := 0
