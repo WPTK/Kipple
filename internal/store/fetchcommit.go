@@ -188,6 +188,15 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 		n, more, err := d.trimBacklog(ctx, res.Snap.ID, fetch.TriggerRetention, TrimBudget{PerBatch: perChunk}, st.neverShownFrom())
 		st.trimmed += n
 		st.trimMore = more || err != nil
+		// What the batches removed is read from the items themselves, so this is right however far they got.
+		cctx, cancel := context.WithTimeout(ctx, perChunk)
+		defer cancel()
+		if cerr := d.gated(cctx, func(ctx context.Context, tx *sql.Tx) error {
+			return dropTrimmedDailyNew(ctx, tx, res.Snap.ID, st, st.neverShownFrom())
+		}); cerr != nil {
+			// The fetch is committed; only the read rate keeps a few never-shown items, as a trim job would leave them.
+			d.log.Warn("store: read rate correction after trim", "feed", res.Snap.ID, "err", cerr)
+		}
 	}
 	return info(), nil
 }
@@ -336,8 +345,12 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, shownFrom, trimBatch, total); err != nil {
 		return err
 	}
-	if err := dropTrimmedDailyNew(ctx, tx, feedID, st, shownFrom); err != nil {
-		return err
+	// With a backlog left, the correction waits for the batches that finish it (CommitFetchTimeout), which
+	// take the same items out of the same rows.
+	if !st.trimMore {
+		if err := dropTrimmedDailyNew(ctx, tx, feedID, st, shownFrom); err != nil {
+			return err
+		}
 	}
 
 	docSize := 0

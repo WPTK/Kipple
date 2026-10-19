@@ -863,3 +863,28 @@ func TestCommitFinishesItsTrimBacklogWithItsBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 50, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
 }
+
+// A commit that counts its arrivals and whose backlog is finished by follow-up batches keeps the earlier chunks'
+// items counted (they were listed) and not the last chunk's, in the notice and in the read rate (#527, #316).
+func TestFollowUpTrimBatchesShareTheCommitsBoundaryWhenItCountsArrivals(t *testing.T) {
+	withTrimBatch(t, 100)
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	all := make([]spec, 700)
+	for i := range all {
+		all[i] = spec{guid: fmt.Sprintf("g%d", i), age: time.Duration(len(all)-i) * time.Minute}
+	}
+	e.fetchBody(id, rss(all[:200]...))
+	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
+	before := e.count("SELECT coalesce(sum(new_items), 0) FROM feed_daily_new WHERE feed_id = ?", id)
+
+	info := e.fetchBody(id, rss(all...))
+	require.Equal(t, 500, info.New)
+	require.EqualValues(t, 650, info.Trimmed)
+	require.False(t, info.TrimPending)
+	// chunks hold g0-249, g250-499 and g500-699; the last chunk's g500-649 were trimmed unseen
+	require.Equal(t, 500, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
+	// the read rate counts the 500 arrivals and takes back the 150 of the last chunk that were trimmed unseen
+	require.Equal(t, before+500-150, e.count("SELECT coalesce(sum(new_items), 0) FROM feed_daily_new WHERE feed_id = ?", id))
+}
