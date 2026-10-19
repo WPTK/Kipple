@@ -8,7 +8,9 @@
 // (desktop 1280x800, phone 375x812) it checks:
 //   X1  the feed's row on Manage feeds shows its status and the reason the last fetch failed;
 //   X2  the feed's own list says its last fetch failed, with the reason, instead of "All caught up";
-//   X3  the list's "Open Feed health" link opens Feed health.
+//   X3  the list's "Open Feed health" link opens Feed health;
+//   X4  a second failing feed that still has an article shows a note above its list (reason and Feed health link),
+//       and so does its folder's list (issue #511).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
@@ -18,14 +20,17 @@ const t = await start(import.meta.url, 13);
 const { check, step } = t;
 
 const TITLE = "UAT feed failing";
+const TITLE2 = "UAT feed failing with articles";
 // Adding a feed checks that it answers, so it works until the flow breaks it.
 let broken = false;
 const server = createServer((req, res) => {
   if (broken) return res.writeHead(500, { "Content-Type": "text/plain" }).end("broken on purpose");
-  res.writeHead(200, { "Content-Type": "application/rss+xml" }).end(`<?xml version="1.0"?><rss version="2.0"><channel><title>UAT failing</title><link>http://127.0.0.1/</link><description>t</description></channel></rss>`);
+  const item = req.url?.includes("items") ? `<item><title>An older article</title><link>http://127.0.0.1/a</link><guid>uat-failing-1</guid><description>old</description></item>` : "";
+  res.writeHead(200, { "Content-Type": "application/rss+xml" }).end(`<?xml version="1.0"?><rss version="2.0"><channel><title>UAT failing</title><link>http://127.0.0.1/</link><description>t</description>${item}</channel></rss>`);
 });
 await new Promise((resolve, reject) => server.once("error", reject).listen(0, "127.0.0.1", resolve));
 const url = `http://127.0.0.1:${server.address().port}/feed.xml`;
+const url2 = `http://127.0.0.1:${server.address().port}/items.xml`;
 
 await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
@@ -67,6 +72,30 @@ await t.eachViewport(async (page, vp) => {
     const h = page.getByRole("heading", { name: "Feed health", level: 1 });
     const there = await h.waitFor({ timeout: 10000 }).then(() => true, () => false);
     check(there && /\/health(\?|#|$)/.test(page.url()), `${tag} X3`, "the link opens Feed health", `the link went to ${page.url()}`);
+  });
+
+  await step(`${tag} X4`, async () => {
+    broken = false;
+    const add = await page.request.post("/api/feeds", { headers: t.WRITE, data: { url: url2, title: TITLE2, allow_private_net: true } });
+    if (!add.ok()) return t.fail(`${tag} X4`, `the feed was not added: ${add.status()} ${await add.text()}`);
+    broken = true;
+    await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
+    const s = await t.settle(page, (b) => b.feeds.some((f) => f.title === TITLE2 && f.last_error), 30000);
+    const f2 = s.b.feeds.find((f) => f.title === TITLE2 && f.last_error);
+    if (!f2) return t.fail(`${tag} X4`, "the second feed never recorded a failed fetch");
+    for (const [what, path] of [["feed", `/l?view=all&feed=${f2.id}`], ["folder", `/l?view=all&folder=${f2.folder_id}`]]) {
+      await page.goto(path);
+      const note = page.getByTestId("feed-failure-note");
+      const shown = await note.waitFor({ timeout: 10000 }).then(() => true, () => false);
+      const text = shown ? await t.textOf(note, 400) : "";
+      check(shown && text.includes(f2.last_error) && text.includes("Open Feed health"), `${tag} X4`, `the ${what} list's note says "${text}"`, `the ${what} list has no note with the reason and the Feed health link`);
+      const row = await page.getByText("An older article").first().waitFor({ timeout: 10000 }).then(() => true, () => false);
+      check(row, `${tag} X4`, `the ${what} list still shows its article`, `the ${what} list lost its article`);
+      await t.shot(page, `${tag}-feed-failure-note-${what}`);
+    }
+    await page.getByTestId("feed-failure-note").getByRole("link", { name: "Open Feed health" }).click();
+    const there = await page.getByRole("heading", { name: "Feed health", level: 1 }).waitFor({ timeout: 10000 }).then(() => true, () => false);
+    check(there, `${tag} X4`, "the note's link opens Feed health", `the note's link went to ${page.url()}`);
   });
 });
 

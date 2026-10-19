@@ -26,3 +26,15 @@ export const statusInfo = (s: string): StatusInfo => T[s] ?? { label: s, tone: "
 
 /** Sort rank: worst first. */
 export const STATUS_RANK: Record<string, number> = { dead: 0, failing: 1, erroring: 2, redirecting: 3, throttled: 4, disabled: 5, silent: 6, ok: 7, archive: 8 };
+
+/**
+ * Why Kipple can't fetch a feed, in words: the one source for the empty list and the note above a list that still has
+ * articles. The server sends `last_error` only while the feed is failing; a feed without one has nothing to say.
+ */
+export function failureCopy(feed: { status: string; last_error?: string | null }): { title: string; body: string } | null {
+  if (!feed.last_error) return null;
+  const title = feed.status === "dead" ? "This feed is gone" : feed.status === "erroring" ? "The last fetch of this feed failed" : "Kipple can't fetch this feed";
+  // The title already says the last fetch failed; the body says what happens next and why.
+  const next = feed.status === "erroring" ? "Kipple will retry with longer waits." : statusInfo(feed.status).hint;
+  return { title, body: `${next} Last error: ${feed.last_error}` };
+}

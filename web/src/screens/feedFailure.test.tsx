@@ -4,7 +4,7 @@ import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
 import type { Feed } from "@/api/types";
-import { bootstrap, json, mockFetch, pageOf } from "@/test/mockApi";
+import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { emptyCopy } from "./ListPane";
 
 // A feed Kipple cannot fetch says so, with the reason, where the person meets it (issue #476).
@@ -16,10 +16,10 @@ class NoES {
 
 const failing: Feed = { ...bootstrap.feeds[0]!, unread: 0, status: "erroring", last_error: "lookup feeds.example.test: no such host" };
 
-function go(path: string, feed: Feed = failing) {
+function go(path: string, feed: Feed = failing, items: ReturnType<typeof card>[] = []) {
   mockFetch({
     "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [feed], counts: { unread: 0, starred: 0 } }),
-    "GET /api/items": () => json(pageOf([])),
+    "GET /api/items": () => json(pageOf(items)),
   });
   window.history.replaceState({ idx: 0 }, "", path);
   return render(<App client={makeQueryClient({ retry: false })} />);
@@ -68,5 +68,26 @@ describe("a failing feed", () => {
     const row = await screen.findByRole("link", { name: /Example Feed/ });
     expect(row).toHaveTextContent("Having trouble");
     expect(within(row).getByText("lookup feeds.example.test: no such host")).toHaveAttribute("title", "lookup feeds.example.test: no such host");
+  });
+
+  it("puts the reason and a Feed health link above a failing feed's list that still has articles", async () => {
+    go("/l?view=all&feed=1", failing, [card(1), card(2)]);
+    const note = await screen.findByTestId("feed-failure-note");
+    expect(note).toHaveTextContent("The last fetch of this feed failed.");
+    expect(note).toHaveTextContent("Last error: lookup feeds.example.test: no such host");
+    expect(within(note).getByRole("link", { name: "Open Feed health" })).toHaveAttribute("href", "/health");
+  });
+
+  it("stays out of a working feed's list", async () => {
+    go("/l?view=all&feed=1", { ...failing, status: "ok", last_error: null }, [card(1)]);
+    await screen.findByText(card(1).title);
+    expect(screen.queryByTestId("feed-failure-note")).not.toBeInTheDocument();
+  });
+
+  it("names the failing feeds in a folder's list", async () => {
+    go(`/l?view=all&folder=${failing.folder_id}`, failing, [card(1)]);
+    const note = await screen.findByTestId("feed-failure-note");
+    expect(note).toHaveTextContent("1 feed in this folder can't be fetched.");
+    expect(note).toHaveTextContent(`${failing.title}: lookup feeds.example.test: no such host`);
   });
 });
