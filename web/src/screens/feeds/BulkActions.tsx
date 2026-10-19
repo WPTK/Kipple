@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { deleteFeed, deleteFolder, invalidateFeeds, patchFeed, reorder as reorderApi } from "@/api/admin";
 import { errorMessage } from "@/api/client";
@@ -7,6 +7,7 @@ import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { folderPath, folderTree } from "@/lib/folderTree";
+import { sameTitleHints } from "@/lib/feedNames";
 import { announce, toast } from "@/shell/toasts";
 
 /** What a bulk delete tells the user before it starts: the count and the starred articles at stake. */
@@ -216,6 +217,8 @@ function FeedsToDelete({
   noneNote?: boolean;
 }) {
   const copy = deleteCopy(feeds.length, starred);
+  // Feeds that share a title show their address, so the list says which ones go (issue #484).
+  const hints = useMemo(() => sameTitleHints(feeds), [feeds]);
   return (
     <>
       {starred > 0 ? (
@@ -232,6 +235,7 @@ function FeedsToDelete({
         {feeds.map((f) => (
           <li key={f.id} className="truncate">
             {f.title}
+            {hints.has(f.id) ? <span className="text-xs"> ({hints.get(f.id)})</span> : null}
           </li>
         ))}
       </ul>

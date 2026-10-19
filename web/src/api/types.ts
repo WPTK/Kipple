@@ -70,6 +70,8 @@ export interface Feed {
   folder_id: string;
   title: string;
   site_url: string;
+  /** The feed's address. */
+  url: string;
   icon: string | null;
   unread: number;
   status: string;

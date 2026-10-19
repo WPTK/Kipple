@@ -238,6 +238,8 @@ type UIFeed struct {
 	FolderID int64   `json:"folder_id,string"`
 	Title    string  `json:"title"`
 	SiteURL  string  `json:"site_url"`
+	// URL is the feed's address: it tells apart feeds that share a title.
+	URL string `json:"url"`
 	Icon     *string `json:"icon"`
 	Unread   int64   `json:"unread"`
 	Status   string  `json:"status"`
@@ -270,7 +272,7 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 	// `GROUP BY +feed_id` keeps the planner off idx_items_feed_sort, which would walk every item to group the few
 	// starred ones (about 670 ms at 200k items); it counts through the starred partial index instead.
 	rows, err := d.reader.QueryContext(ctx, `
-		SELECT f.id, f.folder_id, `+feedTitleSQL("f")+`, f.site_url, fi.hash,
+		SELECT f.id, f.folder_id, `+feedTitleSQL("f")+`, f.site_url, f.url, fi.hash,
 		       COALESCE(u.n, 0), f.enabled, f.disabled_reason, f.consecutive_failures, f.fulltext, f.retention, f.interval_minutes, f.auto_read_days,
 		       f.host, f.redirect_kind, f.redirect_to, COALESCE(f.last_new_items_at, f.created_at),
 		       COALESCE(s.n, 0), f.last_error
@@ -291,7 +293,7 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 		var lastNew int64
 		var enabled, failures, fulltext int64
 		var retention, interval, autoRead sql.NullInt64
-		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval, &autoRead, &host, &rKind, &rTo, &lastNew, &f.StarredCount, &lastErr); err != nil {
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &f.URL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval, &autoRead, &host, &rKind, &rTo, &lastNew, &f.StarredCount, &lastErr); err != nil {
 			return nil, err
 		}
 		if hash.Valid {

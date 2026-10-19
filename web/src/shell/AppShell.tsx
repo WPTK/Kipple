@@ -123,7 +123,7 @@ function Sidebar() {
             Manage feeds
           </NavLink>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+        <div data-reveal-root="" className="min-h-0 flex-1 overflow-y-auto pb-2">
           <FeedTree />
         </div>
         <div className="flex shrink-0 flex-col gap-1 border-t border-line py-2">
