@@ -288,35 +288,36 @@ func TestWriteTransactionDoesNoFilterMatching(t *testing.T) {
 
 // ---- trim backlog ----
 
-// A fetch commit trims one bounded batch and says when it filled it.
+// A fetch commit finishes the backlog its own trim left, in batches of their own; it reports TrimPending only when
+// they stop early, so the scheduler's trim job takes over.
 func TestCommitReportsTrimPending(t *testing.T) {
 	withTrimBatch(t, 100)
 	e := newEnv(t)
 	id := e.loadFeed("http://a.example/feed", 450)
 	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
 
-	info := e.fetchBody(id, rss(numbered(450)...))
-	require.EqualValues(t, 100, info.Trimmed)
-	require.True(t, info.TrimPending, "300 more are over the cap")
-
-	_, err := e.db.TrimOnly(e.ctx, id, fetch.TriggerRetention)
+	ctx, cancel := context.WithCancel(e.ctx)
+	defer cancel()
+	afterTrimBatch = cancel // the follow-up stops as soon as its first batch commits
+	t.Cleanup(func() { afterTrimBatch = nil })
+	info, err := e.db.CommitFetch(ctx, e.okResult(e.snap(id), rss(numbered(450)...)))
 	require.NoError(t, err)
-	info = e.fetchBody(id, rss(numbered(450)...))
-	require.Zero(t, info.Trimmed)
-	require.False(t, info.TrimPending)
+	require.EqualValues(t, 200, info.Trimmed, "the commit's batch and one follow-up batch")
+	require.True(t, info.TrimPending, "200 more are over the cap")
+	afterTrimBatch = nil
 
-	// a trim that fits its batch exactly is reported as possibly unfinished; the
-	// follow-up job then finds nothing
+	n, more, err := e.db.TrimOnlyBudget(e.ctx, id, fetch.TriggerRetention, TrimBudget{Total: time.Minute})
+	require.NoError(t, err)
+	require.False(t, more)
+	require.EqualValues(t, 200, n)
+
+	// a trim that fits its batch exactly: the follow-up finds nothing more, so nothing is pending
 	e2 := newEnv(t)
 	id2 := e2.loadFeed("http://a.example/feed", 150)
 	e2.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id2)
 	info = e2.fetchBody(id2, rss(numbered(150)...))
 	require.EqualValues(t, 100, info.Trimmed)
-	require.True(t, info.TrimPending)
-	n, more, err := e2.db.TrimOnlyBudget(e2.ctx, id2, fetch.TriggerRetention, TrimBudget{Total: time.Minute})
-	require.NoError(t, err)
-	require.Zero(t, n)
-	require.False(t, more)
+	require.False(t, info.TrimPending)
 }
 
 // A trim job stops once its budget is spent and reports the rest; repeated jobs

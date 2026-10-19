@@ -1,0 +1,1 @@
+The "unread items trimmed" notice no longer counts the backlog of a first document that is larger than one trim batch: the fetch finishes its own trim, with its own boundary, instead of leaving it to a trim job. (#527)

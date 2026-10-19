@@ -843,3 +843,48 @@ func TestCommitCleansStoredValidatorsOnNotModified(t *testing.T) {
 		})
 	}
 }
+
+// A fetch commit finishes the backlog its own trim left, with its own boundary, so a document larger than one trim
+// batch counts none of the backlog nobody was shown as trimmed unread (#527). Not parallel: the batch size is global.
+func TestCommitFinishesItsTrimBacklogWithItsBoundary(t *testing.T) {
+	withTrimBatch(t, 100)
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 100 WHERE id = ?", id)
+	info := e.fetchBody(id, rss(numbered(450)...))
+	require.EqualValues(t, 350, info.Trimmed)
+	require.False(t, info.TrimPending)
+	require.Equal(t, 100, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+	require.Zero(t, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
+
+	// A later trim job knows nothing of the commit: what it trims was shown, and is counted.
+	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
+	_, _, err := e.db.TrimOnlyBudget(e.ctx, id, fetch.TriggerRetention, TrimBudget{Total: time.Minute})
+	require.NoError(t, err)
+	require.Equal(t, 50, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
+}
+
+// A commit that counts its arrivals and whose backlog is finished by follow-up batches keeps the earlier chunks'
+// items counted (they were listed) and not the last chunk's, in the notice and in the read rate (#527, #316).
+func TestFollowUpTrimBatchesShareTheCommitsBoundaryWhenItCountsArrivals(t *testing.T) {
+	withTrimBatch(t, 100)
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	all := make([]spec, 700)
+	for i := range all {
+		all[i] = spec{guid: fmt.Sprintf("g%d", i), age: time.Duration(len(all)-i) * time.Minute}
+	}
+	e.fetchBody(id, rss(all[:200]...))
+	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
+	before := e.count("SELECT coalesce(sum(new_items), 0) FROM feed_daily_new WHERE feed_id = ?", id)
+
+	info := e.fetchBody(id, rss(all...))
+	require.Equal(t, 500, info.New)
+	require.EqualValues(t, 650, info.Trimmed)
+	require.False(t, info.TrimPending)
+	// chunks hold g0-249, g250-499 and g500-699; the last chunk's g500-649 were trimmed unseen
+	require.Equal(t, 500, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
+	// the read rate counts the 500 arrivals and takes back the 150 of the last chunk that were trimmed unseen
+	require.Equal(t, before+500-150, e.count("SELECT coalesce(sum(new_items), 0) FROM feed_daily_new WHERE feed_id = ?", id))
+}
