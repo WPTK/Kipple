@@ -105,4 +105,10 @@ describe("long words", () => {
   it("a list title's long word wraps in every layout (#478)", () => {
     expect(rules().find((x) => last(x.sel) === ".row-link")?.body).toMatch(/overflow-wrap:\s*anywhere;/);
   });
+
+  it("a row link's hit area is its ::before and an unread row's name word is its ::after, drawn from data-row-unread (#513)", () => {
+    expect(rules().find((x) => last(x.sel) === ".row-link::before")?.body).toMatch(/position:\s*absolute;/);
+    expect(rules().find((x) => last(x.sel) === ".row-link[data-row-unread]::after")?.body).toMatch(/content:\s*", " attr\(data-row-unread\);/);
+    expect(rules().some((x) => last(x.sel) === ".row-link::after")).toBe(false);
+  });
 });

@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { PublishedTime, RowMenu, StarButton, UnreadDot, rowLabel } from "./parts";
+import { PublishedTime, RowMenu, StarButton, UnreadDot, rowLinkProps } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
@@ -31,8 +31,7 @@ function HeadlineRow({ item, selected, to, onOpen, onToggleStar, actions }: RowP
           to={to}
           onClick={() => onOpen(item)}
           aria-keyshortcuts={ROW_KEYSHORTCUTS}
-          className="row-link block truncate"
-          aria-label={rowLabel(item)}
+          {...rowLinkProps(item, "block truncate")}
         >
           <Hl text={item.title || "Untitled"} field="title" feedId={item.feed_id} />
         </Link>

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,6 +51,11 @@ type fakeSched struct {
 	wakes        int
 	down         chan struct{}
 	holds        map[string]time.Time
+
+	// What a test sets to act inside the call, as the real scheduler would: onStatus publishes while Status looks and
+	// says whether the dispatcher answered; onRun publishes a run's run.start inside RefreshAll and StartImport.
+	onStatus func() bool
+	onRun    func()
 }
 
 func (f *fakeSched) Submit(p sched.Priority) (<-chan sched.Reply, error) {
@@ -99,6 +105,9 @@ func (f *fakeSched) RefreshAll() (sched.RunInfo, error) {
 	if f.refreshErr != nil {
 		return sched.RunInfo{}, f.refreshErr
 	}
+	if f.onRun != nil {
+		f.onRun()
+	}
 	return sched.RunInfo{RunID: 42, Kind: "manual", Total: 3}, nil
 }
 
@@ -106,11 +115,17 @@ func (f *fakeSched) StartImport(ids []int64) (sched.RunInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.imported = append(f.imported, ids)
+	if f.onRun != nil {
+		f.onRun()
+	}
 	return sched.RunInfo{RunID: 43, Kind: "import", Total: len(ids)}, nil
 }
 
-func (f *fakeSched) Status() ([]sched.RunStatus, int) {
-	return []sched.RunStatus{{ID: 42, Kind: "manual", Done: 1, Total: 3}}, 2
+func (f *fakeSched) Status() ([]sched.RunStatus, int, bool) {
+	if f.onStatus != nil && !f.onStatus() {
+		return []sched.RunStatus{}, 0, false
+	}
+	return []sched.RunStatus{{ID: 42, Kind: "manual", Done: 1, Total: 3}}, 2, true
 }
 
 func (f *fakeSched) HostHolds() map[string]time.Time {
@@ -418,7 +433,7 @@ func TestStatusMeHealthRefresh(t *testing.T) {
 
 	rec = h.do("POST", "/api/refresh", "", withCookie(c))
 	require.Equal(t, http.StatusAccepted, rec.Code)
-	require.JSONEq(t, `{"run_id":"42","total":3,"joined":false}`, rec.Body.String())
+	require.JSONEq(t, `{"run_id":"42","total":3,"joined":false,"event_id":"`+strconv.FormatUint(h.hub.LastID(), 10)+`"}`, rec.Body.String())
 
 	ctx := context.Background()
 	id, err := h.db.AddFeed(ctx, store.NewFeed{URL: "https://a.example/feed.xml"})
@@ -470,12 +485,14 @@ func TestOPMLImportExport(t *testing.T) {
 	rec := h.do("POST", "/api/opml?mark_read_older_than_days=7", doc, withCookie(c))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var res struct {
-		FeedsAdded int `json:"feeds_added"`
-		RunID      any `json:"run_id"`
+		FeedsAdded int    `json:"feeds_added"`
+		RunID      any    `json:"run_id"`
+		EventID    string `json:"event_id"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
 	require.Equal(t, 1, res.FeedsAdded)
 	require.Equal(t, "43", res.RunID)
+	require.Equal(t, strconv.FormatUint(h.hub.LastID(), 10), res.EventID, "the import answer names the event it follows (issue #536)")
 	require.Len(t, h.sched.imported, 1)
 
 	// second import: existing feed, no new run

@@ -9,7 +9,7 @@ import { articleTo } from "@/lib/routes";
 import { planGazette, type Block, type GazettePlan, type PagePlan, type Slot } from "./gazettePlan";
 import { magazine } from "./magazine";
 import { ROW_KEYSHORTCUTS } from "./rowTabStop";
-import { ListImage, useImageFailure, PublishedTime, rowLabel } from "./parts";
+import { ListImage, useImageFailure, PublishedTime, rowLinkProps } from "./parts";
 import type { ListLayout, PageProps } from "./types";
 
 // The Gazette's pages (docs/maintainers/ui-decisions.md, "The Gazette"). It draws what planGazette returns, in that order: a page
@@ -256,9 +256,8 @@ function Story({ slot: planned, item, heading: H, to, onOpen, phone, selected, t
           to={to}
           tabIndex={tabStop ? undefined : -1}
           onClick={() => onOpen(item)}
-          aria-label={rowLabel(item)}
           aria-keyshortcuts={ROW_KEYSHORTCUTS}
-          className="row-link hover:underline"
+          {...rowLinkProps(item, "hover:underline")}
         >
           {item.title || "Untitled"}
         </Link>

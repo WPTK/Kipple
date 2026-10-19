@@ -492,8 +492,9 @@ var statusWait = 2 * time.Second
 // reads dispatcher-owned state on the dispatcher goroutine, but never blocks
 // past shutdown or statusWait: an HTTP handler stuck here would hold up
 // srv.Shutdown and SIGTERM. When the dispatcher cannot answer (stopped, stopping
-// or busy) it returns empty.
-func (s *Scheduler) Status() (runs []RunStatus, inflight int) {
+// or busy) it returns no runs and ok false: an empty list from a dispatcher that did
+// not answer is not "nothing is running", and a caller must not say so.
+func (s *Scheduler) Status() (runs []RunStatus, inflight int, ok bool) {
 	type snap struct {
 		runs     []RunStatus
 		inflight int
@@ -517,23 +518,23 @@ func (s *Scheduler) Status() (runs []RunStatus, inflight int) {
 	select {
 	case s.syncCh <- fn:
 	case <-s.shutdownCh:
-		return runs, 0
+		return runs, 0, false
 	case <-s.stopped:
-		return runs, 0
+		return runs, 0, false
 	case <-timer.C:
-		return runs, 0
+		return runs, 0, false
 	}
 	select {
 	case sn := <-out:
 		runs = append(runs, sn.runs...)
 		inflight = sn.inflight
 	case <-s.shutdownCh:
-		return runs, 0
+		return runs, 0, false
 	case <-timer.C:
-		return runs, 0
+		return runs, 0, false
 	}
 	sort.Slice(runs, func(i, j int) bool { return runs[i].ID < runs[j].ID })
-	return runs, inflight
+	return runs, inflight, true
 }
 
 // HostHolds snapshots the per-host politeness deadlines still in the future
