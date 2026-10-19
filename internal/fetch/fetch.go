@@ -323,7 +323,7 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 
 	// Validators, dropped together when Expires says the response is already stale ("0").
 	etag, lm := resp.Header.Get("ETag"), resp.Header.Get("Last-Modified")
-	if exp, ok := resp.Header["Expires"]; ok && len(exp) > 0 {
+	if exp := resp.Header.Values("Expires"); len(exp) > 0 {
 		if _, err := http.ParseTime(exp[0]); err != nil {
 			etag, lm = "", ""
 		}

@@ -405,3 +405,159 @@ func TestCheckPasswordRefusesBadHash(t *testing.T) {
 		require.NotPanics(t, func() { require.False(t, CheckPassword("pw", phc), name) }, name)
 	}
 }
+
+// Each limit on a stored hash, one step inside (accepted) and one step outside (refused), so a limit that moves by
+// one is caught. parseHash is read directly: a hash at the memory and round limits takes seconds to verify.
+func TestParseHashLimits(t *testing.T) {
+	b64 := func(n int) string { return strings.Repeat("A", n*4/3) } // n bytes, n a multiple of 3
+	phc := func(cost string, salt, tag int) string {
+		return "$argon2id$v=19$" + cost + "$" + b64(salt) + "$" + b64(tag)
+	}
+	for _, ok := range []string{
+		phc("m=8,t=1,p=1", 9, 18),       // the least memory for one thread, one round
+		phc("m=32,t=8,p=4", 9, 18),      // the most rounds and threads, the least memory for four
+		phc("m=262144,t=1,p=1", 63, 63), // the most memory, long salt and tag
+		"$argon2id$v=19$m=8,t=1,p=1$" + strings.Repeat("A", 11) + "$" + strings.Repeat("A", 22), // salt 8 and tag 16 bytes
+		"$argon2id$v=19$m=8,t=1,p=1$" + strings.Repeat("A", 86) + "$" + strings.Repeat("A", 86), // salt and tag 64 bytes
+	} {
+		_, good := parseHash(ok)
+		require.True(t, good, ok)
+	}
+	for name, bad := range map[string]string{
+		"rounds over":        phc("m=32,t=9,p=4", 9, 18),
+		"threads over":       phc("m=40,t=1,p=5", 9, 18),
+		"memory under 8p":    phc("m=31,t=1,p=4", 9, 18),
+		"memory over":        phc("m=262145,t=1,p=1", 9, 18),
+		"salt under 8 bytes": "$argon2id$v=19$m=8,t=1,p=1$" + strings.Repeat("A", 10) + "$" + b64(18),
+		"tag under 16 bytes": "$argon2id$v=19$m=8,t=1,p=1$" + b64(9) + "$" + strings.Repeat("A", 20),
+		"salt over 64 bytes": "$argon2id$v=19$m=8,t=1,p=1$" + strings.Repeat("A", 87) + "$" + b64(18),
+		"tag over 64 bytes":  "$argon2id$v=19$m=8,t=1,p=1$" + b64(9) + "$" + strings.Repeat("A", 87),
+		"zero":               phc("m=8,t=0,p=1", 9, 18),
+		"leading zero":       phc("m=08,t=1,p=1", 9, 18),
+	} {
+		_, good := parseHash(bad)
+		require.False(t, good, name)
+	}
+}
+
+// The default wait bound is 10 s, and a turn that comes exactly at the bound is waited for, not refused.
+func TestFailureTrackerWaitsUpToTheBound(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	f := NewFailureTracker()
+	bound := f.MaxWait
+	require.Equal(t, 10*time.Second, bound)
+	fakePacing(f, &now, nil)
+	for i := 0; i < 8; i++ {
+		fail(f, "a")
+	}
+	f.MaxWait = bound
+	now = now.Add(6 * time.Second)
+	require.Equal(t, bound, f.Wait("a"))
+	require.True(t, f.Acquire(context.Background(), "a"), "a wait of exactly the bound is held")
+	f.Finish("a", false)
+}
+
+// An attempt that gives up waiting leaves no count behind: once the attempt it waited for finishes, nothing is
+// tracked for the client.
+func TestFailureTrackerGiveUpReleasesItsPlace(t *testing.T) {
+	f := NewFailureTracker()
+	require.True(t, f.Acquire(t.Context(), "a"))
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	require.False(t, f.Acquire(ctx, "a"), "gives up while the first attempt runs")
+	f.Finish("a", false)
+	require.Empty(t, f.live)
+}
+
+// Over every byte value each password character comes up equally often, and only the biased tail is drawn again.
+func TestPasswordCharIsUniform(t *testing.T) {
+	hits := map[byte]int{}
+	refused := 0
+	for b := 0; b < 256; b++ {
+		c, ok := passwordChar(byte(b))
+		if !ok {
+			refused++
+			continue
+		}
+		hits[c]++
+	}
+	require.Len(t, hits, len(passwordAlphabet))
+	for c, n := range hits {
+		require.Equal(t, 256/len(passwordAlphabet), n, string(c))
+	}
+	require.Equal(t, 256%len(passwordAlphabet), refused)
+}
+
+// The failure count fades only once more than Window has passed: at exactly Window it still counts, a failure then
+// adds to it, and a full table drops only one entry of that age, not every one.
+func TestFailureTrackerWindowEdge(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := t0
+	f := NewFailureTracker()
+	fakePacing(f, &now, nil)
+	for i := 0; i < 5; i++ {
+		fail(f, "a")
+	}
+	now = t0.Add(f.Window)
+	require.Equal(t, 5, f.Count("a"))
+	require.True(t, fail(f, "a"))
+	require.Equal(t, 6, f.Count("a"), "the sixth failure adds to the five")
+
+	g := NewFailureTracker()
+	now = t0
+	g.Now = func() time.Time { return now }
+	for i := 0; i < maxTracked; i++ {
+		fail(g, fmt.Sprintf("ip-%d", i))
+	}
+	now = t0.Add(g.Window)
+	fail(g, "newcomer")
+	require.Len(t, g.m, maxTracked, "one entry made room, the others of the same age stay")
+}
+
+// The doubling stops at MaxDelay exactly, and a Delay above MaxDelay is held to it.
+func TestFailureTrackerDelayCap(t *testing.T) {
+	f := &FailureTracker{Threshold: 5, Delay: 2 * time.Second, MaxDelay: time.Minute}
+	for n, want := range map[int]time.Duration{5: 2 * time.Second, 6: 4 * time.Second, 9: 32 * time.Second, 10: time.Minute, 1000: time.Minute} {
+		require.Equal(t, want, f.delay(n), n)
+	}
+	f.Delay = 2 * time.Minute
+	require.Equal(t, time.Minute, f.delay(5))
+}
+
+// The warning interval is an hour to the second, and an expected proxy stays silent even when a warning is due.
+func TestWarnUntrustedProxyHeadersEdges(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	h := WarnUntrustedProxyHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		nil, func(r *http.Request) bool { return r.Header.Get("X-Test-Expected") != "" }, log, func() time.Time { return now })
+	send := func(expected bool) {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = "198.51.100.7:1"
+		r.Header.Set("X-Forwarded-For", "100.64.0.9")
+		if expected {
+			r.Header.Set("X-Test-Expected", "1")
+		}
+		h.ServeHTTP(httptest.NewRecorder(), r)
+	}
+	send(true)
+	require.Empty(t, buf.String(), "an expected proxy never warns, even the first time")
+	send(false)
+	require.Contains(t, buf.String(), "level=WARN")
+	buf.Reset()
+	now = now.Add(proxyWarnEvery)
+	send(true)
+	require.Empty(t, buf.String(), "an expected proxy never warns, even when a warning is due")
+	send(false)
+	require.Contains(t, buf.String(), "level=WARN", "an hour later it warns again")
+}
+
+// A TLS connection is https whatever the headers say.
+func TestEffectiveSchemeTLS(t *testing.T) {
+	r := httptest.NewRequest("GET", "https://rss.example.com/", nil)
+	r.Header.Set("X-Forwarded-Proto", "http")
+	require.NotNil(t, r.TLS)
+	require.Equal(t, "https", EffectiveScheme(r, nil))
+	r.TLS = nil
+	require.Equal(t, "http", EffectiveScheme(r, nil))
+}

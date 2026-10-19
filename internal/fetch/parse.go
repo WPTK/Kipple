@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -139,8 +140,8 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 	}
 
 	if rf, ok := gf.OriginalFeed().(*grss.Feed); ok {
-		if n, err := strconv.Atoi(strings.TrimSpace(rf.TTL)); err == nil && n > 0 {
-			out.TTLMinutes = n
+		if n, err := strconv.Atoi(strings.TrimSpace(rf.TTL)); err == nil {
+			out.TTLMinutes = max(n, 0)
 		}
 	}
 
@@ -232,14 +233,8 @@ func newestEntries(entries []*gofeed.Item, n int, now time.Time) []int {
 	for i := range order {
 		order[i] = i
 	}
-	sort.SliceStable(order, func(a, b int) bool {
-		if sortAt[order[a]] != sortAt[order[b]] {
-			return sortAt[order[a]] > sortAt[order[b]]
-		}
-		if date[order[a]] != date[order[b]] {
-			return date[order[a]] > date[order[b]]
-		}
-		return order[a] < order[b]
+	slices.SortFunc(order, func(a, b int) int {
+		return cmp.Or(cmp.Compare(sortAt[b], sortAt[a]), cmp.Compare(date[b], date[a]), cmp.Compare(a, b))
 	})
 	keep := order[:n]
 	sort.Ints(keep)
@@ -613,16 +608,7 @@ var leftEntity = regexp.MustCompile(`&(?:[a-zA-Z][a-zA-Z0-9]{1,31}|#[0-9]{1,7}|#
 // no character (0, a surrogate half, past U+10FFFF, or U+FFFD itself) is dropped rather than stored
 // as U+FFFD.
 func decodeReference(ref string) string {
-	if num, ok := strings.CutPrefix(ref[:len(ref)-1], "&#"); ok {
-		base := 10
-		if n, hex := strings.CutPrefix(strings.ToLower(num), "x"); hex {
-			num, base = n, 16
-		}
-		n, err := strconv.ParseUint(num, base, 32)
-		if err != nil || n == 0 || n > unicode.MaxRune || (n >= 0xD800 && n <= 0xDFFF) {
-			return ""
-		}
-	}
+	// HTML decodes a numeric reference to no character (0, a surrogate half, past U+10FFFF) as U+FFFD.
 	dec := stdhtml.UnescapeString(ref)
 	switch {
 	case dec == string(utf8.RuneError):
@@ -665,9 +651,10 @@ const (
 func isTag(r rune) bool { return r >= 0xE0000 && r <= 0xE007F }
 
 // needsBase reports a character that only shows attached to the one before it: a combining mark or a
-// variation selector. Without a base (at a word's start, or after a joiner) it is dropped.
+// variation selector (both ranges of variation selectors are nonspacing marks, Mn). Without a base (at a
+// word's start, or after a joiner) it is dropped.
 func needsBase(r rune) bool {
-	return unicode.In(r, unicode.Mn, unicode.Me) || (r >= 0xFE00 && r <= 0xFE0F) || (r >= 0xE0100 && r <= 0xE01EF)
+	return unicode.In(r, unicode.Mn, unicode.Me)
 }
 
 // normalizeName is CleanName without the length cut.
@@ -732,19 +719,20 @@ func CleanName(raw string) string {
 	return t
 }
 
-// clusterStart moves a cut point i in r back until it does not fall inside a combined character: not
-// before a combining mark, variation selector, emoji modifier or zero-width joiner, not right after a
-// zero-width joiner, and not between the two regional indicators of a flag.
+// clusterStart moves a cut point i in r (0 < i < len(r)) back until it does not fall inside a combined
+// character: not before a combining mark, variation selector, emoji modifier or zero-width joiner, not
+// right after a zero-width joiner, and not between the two regional indicators of a flag.
 func clusterStart(r []rune, i int) int {
 	extends := func(c rune) bool {
+		// The variation selectors are among the marks (Mn); the emoji modifiers and tag characters are not.
 		return unicode.In(c, unicode.Mn, unicode.Me, unicode.Mc) || c == zwj ||
-			(c >= 0xFE00 && c <= 0xFE0F) || (c >= 0x1F3FB && c <= 0x1F3FF) || (c >= 0xE0020 && c <= 0xE007F)
+			(c >= 0x1F3FB && c <= 0x1F3FF) || (c >= 0xE0020 && c <= 0xE007F)
 	}
-	for i > 0 && i < len(r) && (extends(r[i]) || r[i-1] == zwj) {
+	for i > 0 && (extends(r[i]) || r[i-1] == zwj) {
 		i--
 	}
 	regional := func(c rune) bool { return c >= 0x1F1E6 && c <= 0x1F1FF }
-	if i > 0 && i < len(r) && regional(r[i]) {
+	if regional(r[i]) {
 		n := 0
 		for j := i - 1; j >= 0 && regional(r[j]); j-- {
 			n++
@@ -765,9 +753,8 @@ func itemCategories(in []string) []string {
 		if c == "" {
 			continue
 		}
-		if r := []rune(c); len(r) > MaxCategoryRunes {
-			c = string(r[:MaxCategoryRunes])
-		}
+		r := []rune(c)
+		c = string(r[:min(len(r), MaxCategoryRunes)])
 		k := strings.ToLower(c)
 		if seen[k] {
 			continue

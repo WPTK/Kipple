@@ -1,11 +1,15 @@
 package reach
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net/http/httptest"
 	"net/netip"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -387,4 +391,123 @@ func TestConcurrentUpdatesAndReads(t *testing.T) {
 	again, err := Open(ctx, db, Options{NoPrefetch: true})
 	require.NoError(t, err)
 	require.Equal(t, again.Get().Stored, l.Get().Stored)
+}
+
+// The scheme follows TLS, a trusted proxy's X-Forwarded-Proto, and otherwise the exact origin of an https public
+// URL: its host with no port or its own port. Each case moves one thing across its edge.
+func TestStateScheme(t *testing.T) {
+	trusted := []netip.Prefix{netip.MustParsePrefix("192.0.2.10/32")}
+	public := &State{PublicURL: "https://rss.example.com", PublicHost: "rss.example.com", Trusted: trusted}
+	ported := &State{PublicURL: "https://rss.example.com:8443/kipple", PublicHost: "rss.example.com", Trusted: trusted}
+	plain := &State{PublicURL: "http://rss.example.com", PublicHost: "rss.example.com", Trusted: trusted}
+	v6 := &State{PublicURL: "https://[2001:db8::1]", PublicHost: "2001:db8::1"}
+	for _, c := range []struct {
+		name       string
+		st         *State
+		peer, host string
+		xfp        string
+		want       string
+	}{
+		{"public host", public, "198.51.100.7:1", "rss.example.com", "", "https"},
+		{"public host, any case", public, "198.51.100.7:1", "RSS.example.com", "", "https"},
+		{"public host, default port", public, "198.51.100.7:1", "rss.example.com:443", "", "https"},
+		{"public host, Kipple's port", public, "198.51.100.7:1", "rss.example.com:1919", "", "http"},
+		{"another host", public, "198.51.100.7:1", "other.example.com", "", "http"},
+		{"untrusted proxy's header is ignored", public, "198.51.100.7:1", "rss.example.com", "http", "https"},
+		{"trusted proxy says http", public, "192.0.2.10:1", "rss.example.com", "http", "http"},
+		{"trusted proxy says https", public, "192.0.2.10:1", "192.168.1.20:1919", "https", "https"},
+		{"trusted proxy says nothing", public, "192.0.2.10:1", "rss.example.com", "", "https"},
+		{"public URL's own port", ported, "198.51.100.7:1", "rss.example.com:8443", "", "https"},
+		{"443 is not the public URL's port", ported, "198.51.100.7:1", "rss.example.com:443", "", "http"},
+		{"no port, public URL with a port", ported, "198.51.100.7:1", "rss.example.com", "", "https"},
+		{"http public URL", plain, "198.51.100.7:1", "rss.example.com", "", "http"},
+		{"no public URL", &State{}, "198.51.100.7:1", "rss.example.com", "", "http"},
+		{"IPv6 public host", v6, "198.51.100.7:1", "[2001:db8::1]", "", "https"},
+		{"IPv6 public host, default port", v6, "198.51.100.7:1", "[2001:db8::1]:443", "", "https"},
+		{"IPv6 public host, another port", v6, "198.51.100.7:1", "[2001:db8::1]:1919", "", "http"},
+	} {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr, r.Host = c.peer, c.host
+		if c.xfp != "" {
+			r.Header.Set("X-Forwarded-Proto", c.xfp)
+		}
+		require.Equal(t, c.want, c.st.Scheme(r), c.name)
+	}
+}
+
+// The edges of the public URL rules: a space inside the URL, and '~' (the last ASCII character), which is refused as
+// a host character, not as a non-ASCII one.
+func TestPublicURLCharacterEdges(t *testing.T) {
+	require.ErrorContains(t, CheckPublicURL("https://rss.example.com/a b"), "spaces or control characters")
+	_, err := NormalizePublicURL("https://rss.example.com/a b")
+	require.ErrorContains(t, err, "spaces or control characters")
+	// Rewriting an internationalized host must not hide a space by encoding it.
+	_, err = NormalizePublicURL("https://bücher.example/a b")
+	require.ErrorContains(t, err, "spaces or control characters")
+	require.ErrorContains(t, CheckPublicURL("https://rss.example.com/ "), "spaces or control characters")
+	require.ErrorContains(t, CheckPublicURL("https://a~b.example"), "one name or IP address")
+	_, err = NormalizePublicURL("https://a~b.example")
+	require.ErrorContains(t, err, "one name or IP address")
+	for want, v := range map[string]string{
+		"must start with http":  "ftp://rss.example.com",
+		"has no host":           "https://:443",
+		"must not contain user": "https://u@rss.example.com",
+		"query or fragment":     "https://rss.example.com/?a=1",
+	} {
+		require.ErrorContains(t, CheckPublicURL(v), want, v)
+	}
+	require.ErrorContains(t, CheckPublicURL("https:rss.example.com"), "has no host", "an opaque URL has no host")
+	require.NoError(t, CheckPublicURL("http://rss.example.com"))
+}
+
+// An empty seed list stores nothing, so a later variable still gives the setting its first value.
+func TestEmptySeedListsStoreNothing(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	_, err := SeedSettings(ctx, db, Seed{AllowedHosts: []string{}, TrustedProxies: []netip.Prefix{}})
+	require.NoError(t, err)
+	stored, err := db.StoredSettings(ctx, store.ReachKeys)
+	require.NoError(t, err)
+	require.False(t, stored[store.SettingAllowedHosts])
+	require.False(t, stored[store.SettingTrustedProxies])
+}
+
+// Access validation follows the stored setting: the verifier logs through Open's logger, is kept while its team and
+// audience stay, is replaced when they change, and turning it off is logged once.
+func TestAccessFollowsTheSetting(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	l, err := Open(ctx, db, Options{Logger: log, NoPrefetch: true})
+	require.NoError(t, err)
+	require.Nil(t, l.Access())
+	require.NotContains(t, buf.String(), "validation off", "never on, so never turned off")
+
+	on := func(aud string) map[string]any {
+		return map[string]any{store.SettingCloudflareAccess: map[string]any{"team_domain": "myteam.cloudflareaccess.com", "aud": aud}}
+	}
+	write := func(set map[string]any) {
+		require.NoError(t, l.Update(set, nil, func() error { return db.SetSettings(ctx, set) }))
+	}
+	write(on("aud-1"))
+	first := l.Access()
+	require.NotNil(t, first)
+	write(on("aud-1"))
+	require.Same(t, first, l.Access(), "unchanged team and audience keep the verifier")
+	require.NotContains(t, buf.String(), "validation off")
+
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Cf-Access-Jwt-Assertion", "not-a-token")
+	_, err = l.Access().VerifyRequestCached(r)
+	require.Error(t, err)
+	require.Contains(t, buf.String(), "Cloudflare Access token refused", "the verifier logs through Open's logger")
+
+	write(on("aud-2"))
+	require.NotSame(t, first, l.Access(), "a new audience is a new verifier")
+	require.NotContains(t, buf.String(), "validation off")
+
+	write(map[string]any{store.SettingCloudflareAccess: nil})
+	require.Nil(t, l.Access())
+	require.Equal(t, 1, strings.Count(buf.String(), "validation off"))
 }

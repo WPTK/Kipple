@@ -64,9 +64,10 @@ type storedHash struct {
 }
 
 // parseDigits reads "<key>=<decimal digits>" as HashPassword writes it: no sign, space, trailing text or leading zero.
+// Zero itself is refused too: no field of a stored hash can be zero.
 func parseDigits(field, key string) (uint64, bool) {
 	digits, found := strings.CutPrefix(field, key+"=")
-	if !found || (len(digits) > 1 && digits[0] == '0') {
+	if !found || strings.HasPrefix(digits, "0") {
 		return 0, false
 	}
 	n, err := strconv.ParseUint(digits, 10, 32)
@@ -310,9 +311,6 @@ func NewFailureTracker() *FailureTracker {
 func (f *FailureTracker) Acquire(ctx context.Context, ip string) bool {
 	k := RateKey(ip)
 	maxWait := f.MaxWait
-	if maxWait <= 0 {
-		maxWait = 10 * time.Second
-	}
 	after := f.After
 	if after == nil {
 		after = time.After
@@ -454,12 +452,9 @@ func (f *FailureTracker) Wait(ip string) time.Duration {
 // delay is how long the client must wait after its n-th failure (n >= Threshold):
 // Delay, doubling per further failure, never above MaxDelay.
 func (f *FailureTracker) delay(n int) time.Duration {
-	d := f.Delay
-	for i := f.Threshold; i < n && d < f.MaxDelay; i++ {
-		d *= 2
-	}
-	if f.MaxDelay > 0 && d > f.MaxDelay {
-		d = f.MaxDelay
+	d := min(f.Delay, f.MaxDelay)
+	for i := f.Threshold; i < n && d != f.MaxDelay; i++ {
+		d = min(2*d, f.MaxDelay)
 	}
 	return d
 }
@@ -516,20 +511,28 @@ func GeneratePassword(n int) (string, error) {
 		return "", err
 	}
 	out := make([]byte, n)
-	// 256 is not a multiple of len(alphabet): reject the biased tail.
-	const limit = 256 - 256%len(passwordAlphabet)
 	for i := 0; i < n; {
-		b := buf[i]
-		if int(b) >= limit {
+		c, ok := passwordChar(buf[i])
+		if !ok {
 			if _, err := rand.Read(buf[i : i+1]); err != nil {
 				return "", err
 			}
 			continue
 		}
-		out[i] = passwordAlphabet[int(b)%len(passwordAlphabet)]
+		out[i] = c
 		i++
 	}
 	return string(out), nil
+}
+
+// passwordChar maps a random byte to a password character. 256 is not a multiple of len(passwordAlphabet), so the
+// bytes of the biased tail are refused (ok false) and drawn again: every character is equally likely.
+func passwordChar(b byte) (c byte, ok bool) {
+	const limit = 256 - 256%len(passwordAlphabet)
+	if int(b) >= limit {
+		return 0, false
+	}
+	return passwordAlphabet[int(b)%len(passwordAlphabet)], true
 }
 
 // EffectiveScheme is "https" when the connection is TLS, or when a trusted

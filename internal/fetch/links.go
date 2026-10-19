@@ -28,17 +28,15 @@ func LooksHTML(b []byte) bool {
 		s = strings.TrimSpace(s)
 		switch {
 		case strings.HasPrefix(s, "<!--"):
-			i := strings.Index(s, "-->")
-			if i < 0 {
+			var closed bool
+			if _, s, closed = strings.Cut(s, "-->"); !closed {
 				return false
 			}
-			s = s[i+3:]
 		case strings.HasPrefix(s, "<?xml"):
-			i := strings.Index(s, "?>")
-			if i < 0 {
+			var closed bool
+			if _, s, closed = strings.Cut(s, "?>"); !closed {
 				return false
 			}
-			s = s[i+2:]
 		default:
 			return strings.HasPrefix(s, "<!doctype html") || strings.HasPrefix(s, "<html") || strings.HasPrefix(s, "<head")
 		}

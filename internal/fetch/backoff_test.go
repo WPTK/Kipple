@@ -273,3 +273,43 @@ func TestClassifyTooLargeNamesTheRealLimit(t *testing.T) {
 		require.Equal(t, want, msg)
 	}
 }
+
+// A hint equal to the interval is no floor: a feed fetched a minute after its slot gets the next slot, not the one
+// after it.
+func TestSuccessHintEqualToTheIntervalIsNoFloor(t *testing.T) {
+	const interval = 1800
+	slot, _ := NextOnSuccess(t0, key(1), interval, 0)
+	late := slot.Add(time.Minute)
+	next, d := NextOnSuccess(late, key(1), interval, interval)
+	require.Equal(t, slot.Add(interval*time.Second), next)
+	require.EqualValues(t, interval-60, d)
+	next, _ = NextOnSuccess(late, key(1), interval, interval+1)
+	require.Equal(t, slot.Add(2*interval*time.Second), next, "one second more is a floor")
+}
+
+// An s-maxage of 0 is the shared-cache answer and wins over max-age; a negative Age counts as none, an unreadable
+// one too.
+func TestPublisherHintDirectiveEdges(t *testing.T) {
+	h := func(kv ...string) http.Header {
+		hh := http.Header{}
+		for i := 0; i < len(kv); i += 2 {
+			hh.Set(kv[i], kv[i+1])
+		}
+		return hh
+	}
+	require.EqualValues(t, 0, PublisherHintSeconds(true, 0, h("Cache-Control", "s-maxage=0, max-age=600"), t0))
+	require.EqualValues(t, 600, PublisherHintSeconds(true, 0, h("Cache-Control", "s-maxage=-1, max-age=600"), t0))
+	require.EqualValues(t, 600, PublisherHintSeconds(true, 0, h("Cache-Control", "max-age=600", "Age", "-50"), t0))
+	require.EqualValues(t, 600, PublisherHintSeconds(true, 0, h("Cache-Control", "max-age=600", "Age", "99999999999999999999"), t0))
+	require.EqualValues(t, 550, PublisherHintSeconds(true, 0, h("Cache-Control", "max-age=600", "Age", "50"), t0))
+	require.EqualValues(t, 60, PublisherHintSeconds(true, 1, h(), t0))
+}
+
+// Each consecutive failure doubles the delay from the interval, up to the cap.
+func TestFailureDelayDoubling(t *testing.T) {
+	for n, want := range map[int]int64{1: 1800, 2: 3600, 3: 7200, 6: 57600, 7: 86400, 8: 86400} {
+		require.EqualValues(t, want, FailureDelaySeconds(1800, n), n)
+	}
+	require.EqualValues(t, 86400, FailureDelaySeconds(86400, 1), "an interval equal to the cap")
+	require.EqualValues(t, 90000, FailureDelaySeconds(90000, 3), "an interval above the cap is the cap")
+}
