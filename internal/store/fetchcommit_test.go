@@ -358,7 +358,40 @@ func TestChunkedCommitOverFiveHundred(t *testing.T) {
 	e.exec("DELETE FROM trimmed_items")
 	info = e.fetchBody(id, rss(numbered(620)...))
 	require.EqualValues(t, 520, info.Trimmed)
+	// One rule for "was this item shown" (#316): the two earlier chunks (500 items) were committed, so visible,
+	// before the last chunk's trim; the 20 the last chunk inserted and trimmed never were.
+	require.Equal(t, 500, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
+}
+
+// The first document of a subscription is a backlog nobody was shown, in however many chunks it commits: the trim
+// notice counts none of it, as for a document of 500 items or fewer (#316).
+func TestFirstFetchTrimOfAChunkedDocumentIsNotCountedAsUnreadBacklog(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 100 WHERE id = ?", id)
+	info := e.fetchBody(id, rss(numbered(620)...))
+	require.EqualValues(t, 520, info.Trimmed)
 	require.Zero(t, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
+}
+
+// A last chunk that inserts nothing hides nothing: every unread item the trim removes was committed, so listed,
+// before it ran, and is counted (#316). Here the newest 200 items already exist, so the last chunk only updates.
+func TestChunkedCommitWhoseLastChunkInsertsNothingCountsEveryTrimmedUnread(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	all := make([]spec, 700)
+	for i := range all {
+		all[i] = spec{guid: fmt.Sprintf("g%d", i), age: time.Duration(len(all)-i) * time.Minute}
+	}
+	e.fetchBody(id, rss(all[500:]...))
+	e.exec("UPDATE feeds SET retention = 100 WHERE id = ?", id)
+	info := e.fetchBody(id, rss(all...))
+	require.Equal(t, 500, info.New)
+	require.EqualValues(t, 600, info.Trimmed)
+	require.Equal(t, 600, e.count("SELECT trimmed_unread_count FROM feeds WHERE id = ?", id))
 }
 
 func TestFirstSuccessAndInitialRead(t *testing.T) {
