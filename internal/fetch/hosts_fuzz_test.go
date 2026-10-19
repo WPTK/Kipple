@@ -37,11 +37,8 @@ func FuzzHostRules(f *testing.F) {
 		if same != SameSite(b, a) {
 			t.Fatalf("SameSite not symmetric: %q %q", a, b)
 		}
-		// FeedHostVariant is asymmetric only through SameOrSubdomain (a subdomain of the feed host), and through
-		// a www.<name> feed host whose bare twin is a single-label name (the single-label rule is not applied to
-		// the twin: "www.app" matches "app", though a single-label name should match only itself; issue #472).
-		single := !strings.Contains(na, ".") || !strings.Contains(nb, ".")
-		if !single && FeedHostVariant(a, b) != FeedHostVariant(b, a) && !SameOrSubdomain(a, b) && !SameOrSubdomain(b, a) {
+		// FeedHostVariant is asymmetric only through SameOrSubdomain (a subdomain of the feed host).
+		if FeedHostVariant(a, b) != FeedHostVariant(b, a) && !SameOrSubdomain(a, b) && !SameOrSubdomain(b, a) {
 			t.Fatalf("FeedHostVariant asymmetric without a subdomain: %q %q", a, b)
 		}
 		if na != "" && !SameSite(a, a) {

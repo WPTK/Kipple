@@ -49,10 +49,14 @@ func FeedHostVariant(feedHost, host string) bool {
 		return true
 	}
 	f, h := normHost(feedHost), normHost(host)
-	if f == "" || isIPHost(f) || isIPHost(h) || !strings.Contains(f, ".") || wildcardDNS(f) || wildcardDNS(h) {
-		return false // no www. twin of a single-label name either (www.app is a public name)
+	// The twin relation is "the same name once one leading www. is dropped", and that name must itself have a dot:
+	// www.app is a public name, not a twin of the single-label LAN name app. Stated on the trimmed name, the rule is
+	// symmetric in f and h.
+	name := strings.TrimPrefix(f, "www.")
+	if !strings.Contains(name, ".") || isIPHost(f) || isIPHost(h) || wildcardDNS(f) || wildcardDNS(h) {
+		return false
 	}
-	return strings.TrimPrefix(f, "www.") == strings.TrimPrefix(h, "www.")
+	return name == strings.TrimPrefix(h, "www.")
 }
 
 // SameSite reports whether a move from host a to host b stays with the same

@@ -31,6 +31,22 @@ func TestFeedHostVariant(t *testing.T) {
 	require.False(t, FeedHostVariant("app", "www.app"))
 }
 
+// A single-label name matches only itself, in both directions (#472): the www. twin of "app" is the public name
+// www.app, and the twin relation is symmetric for a name with a dot.
+func TestFeedHostVariantSingleLabelTwin(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"www.app", "app", false}, {"app", "www.app", false}, {"www.news", "NEWS.", false}, {"www.", "www", true},
+		{"www.example.com", "example.com", true}, {"example.com", "www.example.com", true},
+		{"www.example.com", "WWW.Example.com.", true}, {"www.www.example.com", "example.com", false}, // a subdomain is allowed only downward
+		{"www.example.com", "www.www.example.com", true}, {"www", "www", true}, {"www.www", "www", false},
+	} {
+		require.Equal(t, c.want, FeedHostVariant(c.a, c.b), "%q %q", c.a, c.b)
+	}
+}
+
 func TestSameSite(t *testing.T) {
 	for _, c := range []struct {
 		a, b string
