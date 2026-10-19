@@ -38,6 +38,8 @@ type Dropped struct {
 	URL     string   `json:"url"`
 	Kept    string   `json:"kept"`
 	Dropped []string `json:"dropped"`
+	// More counts the repeats in further other folders that Dropped does not list (it holds at most maxDroppedPaths).
+	More int `json:"more"`
 }
 
 // Skipped is an outline that could not be imported.
@@ -68,8 +70,11 @@ type Result struct {
 	// They are not deleted: deleting one would also delete its filters.
 	FoldersEmptied     []string  `json:"folders_emptied"`
 	MembershipsDropped []Dropped `json:"memberships_dropped"`
-	Skipped            []Skipped `json:"skipped"`
-	InvalidAttrs       []string  `json:"invalid_attrs"`
+	// MembershipsDroppedMore counts the feeds repeated across folders that MembershipsDropped does not list: it
+	// names at most maxDroppedFeeds of them.
+	MembershipsDroppedMore int       `json:"memberships_dropped_more"`
+	Skipped                []Skipped `json:"skipped"`
+	InvalidAttrs           []string  `json:"invalid_attrs"`
 	// IgnoredAttrs are valid but security-sensitive kipple:* attributes that an
 	// import never applies (allow_private_net, allow_insecure_tls), and feeds
 	// on a literal private address, imported with allow_private_net off. A feed
@@ -185,7 +190,8 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		type firstSeen struct {
 			url     string
 			folder  []string
-			dropped []string
+			dropped [][]string // distinct other folders (chains shared with the Doc), at most maxDroppedPaths
+			more    int        // repeats in a further other folder, not listed
 		}
 		var emptiedFrom []int64 // folders MoveExisting took a feed out of, first time first
 		seen := map[string]*firstSeen{}
@@ -207,8 +213,12 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			}
 			if p, ok := seen[key]; ok {
 				res.FeedsRepeated++
-				if chainKey(f.Folder) != chainKey(p.folder) {
-					p.dropped = append(p.dropped, Path(f.Folder))
+				if !slices.Equal(f.Folder, p.folder) && !slices.ContainsFunc(p.dropped, func(c []string) bool { return slices.Equal(c, f.Folder) }) {
+					if len(p.dropped) < maxDroppedPaths {
+						p.dropped = append(p.dropped, f.Folder)
+					} else {
+						p.more++
+					}
 				}
 				continue
 			}
@@ -308,8 +318,12 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			res.FoldersEmptied = append(res.FoldersEmptied, Path(names))
 		}
 		for _, p := range order {
-			if len(p.dropped) > 0 {
-				res.MembershipsDropped = append(res.MembershipsDropped, Dropped{p.url, Path(p.folder), p.dropped})
+			switch {
+			case len(p.dropped) == 0:
+			case len(res.MembershipsDropped) < maxDroppedFeeds:
+				res.MembershipsDropped = append(res.MembershipsDropped, Dropped{shortURL(p.url), shortPath(p.folder), shortPaths(p.dropped), p.more})
+			default:
+				res.MembershipsDroppedMore++
 			}
 		}
 		return nil
@@ -318,6 +332,26 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		return Result{}, err
 	}
 	return res, nil
+}
+
+// The report of feeds listed in several folders is bounded, so a hostile file (one feed repeated under
+// thousands of folders with long names) cannot make it huge: each path is cut, each feed lists its first
+// distinct other folders, and the report names a limited number of feeds (MembershipsDroppedMore counts the rest).
+// Variables so a test can shrink them.
+var (
+	maxDroppedPaths = 20
+	maxDroppedFeeds = 1000
+)
+
+// shortPath is a folder path as a report lists it, cut like an address.
+func shortPath(chain []string) string { return shortURL(Path(chain)) }
+
+func shortPaths(chains [][]string) []string {
+	out := make([]string, len(chains))
+	for i, c := range chains {
+		out[i] = shortPath(c)
+	}
+	return out
 }
 
 // chainKey is an unambiguous map key for a folder chain (a name may hold any character).

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,7 @@ func openDB(t *testing.T) *store.DB {
 
 func parseString(t *testing.T, s string) *Doc {
 	t.Helper()
-	d, err := Parse(strings.NewReader(s))
+	d, err := parse(strings.NewReader(s))
 	require.NoError(t, err)
 	return d
 }
@@ -317,7 +318,7 @@ func TestRoundTripRealFile(t *testing.T) {
 
 func roundTrip(t *testing.T, src []byte, wantFeeds, wantFolders int) {
 	t.Helper()
-	orig, err := Parse(bytes.NewReader(src))
+	orig, err := parse(bytes.NewReader(src))
 	require.NoError(t, err)
 	require.Len(t, orig.Feeds, wantFeeds)
 	require.Len(t, orig.Folders, wantFolders)
@@ -331,7 +332,7 @@ func roundTrip(t *testing.T, src []byte, wantFeeds, wantFolders int) {
 	require.Empty(t, r.Skipped)
 
 	out1 := export(t, db)
-	again, err := Parse(strings.NewReader(out1))
+	again, err := parse(strings.NewReader(out1))
 	require.NoError(t, err)
 	require.Equal(t, orig.Folders, again.Folders, "folder count and order")
 	require.Equal(t, len(orig.Feeds), len(again.Feeds))
@@ -406,7 +407,7 @@ func TestUnnamedWrapperUnderNamedContainerImports(t *testing.T) {
 func TestParseNonUTF8Charsets(t *testing.T) {
 	t.Parallel()
 	latin := "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><opml><body><outline text=\"Caf\xe9\" xmlUrl=\"http://l.test/rss\"/></body></opml>"
-	d, err := Parse(strings.NewReader(latin))
+	d, err := parse(strings.NewReader(latin))
 	require.NoError(t, err)
 	require.Equal(t, "Café", d.Feeds[0].Title)
 
@@ -415,7 +416,7 @@ func TestParseNonUTF8Charsets(t *testing.T) {
 	for _, c := range u16 {
 		buf = append(buf, byte(c), byte(c>>8))
 	}
-	d, err = Parse(bytes.NewReader(buf))
+	d, err = parse(bytes.NewReader(buf))
 	require.NoError(t, err)
 	require.Equal(t, "Café", d.Feeds[0].Title)
 	require.Equal(t, "http://u.test/rss", d.Feeds[0].URL)
@@ -534,4 +535,43 @@ func TestImportSkipsNonHTTPSchemesAndNeverGrantsExceptions(t *testing.T) {
 	var granted int
 	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE allow_private_net != 0 OR allow_insecure_tls != 0").Scan(&granted))
 	require.Zero(t, granted)
+}
+
+func TestImportDroppedReportIsBounded(t *testing.T) {
+	// Not parallel: the caps are global.
+	defer func(p, f int) { maxDroppedPaths, maxDroppedFeeds = p, f }(maxDroppedPaths, maxDroppedFeeds)
+	maxDroppedPaths, maxDroppedFeeds = 5, 10
+	db := openDB(t)
+	long := strings.Repeat("é", 5000)
+	var b strings.Builder
+	b.WriteString(`<opml><body>`)
+	// One feed repeated many times under the same other folder and under many long-named folders.
+	for i := 0; i < 50; i++ {
+		fmt.Fprintf(&b, `<outline text="F%d%s"><outline text="x" xmlUrl="http://a.test/rss"/><outline text="y" xmlUrl="http://a.test/rss"/></outline>`, i, long)
+	}
+	// More repeated feeds than the report lists.
+	for i := 0; i < maxDroppedFeeds+5; i++ {
+		fmt.Fprintf(&b, `<outline text="P"><outline text="x" xmlUrl="http://p%d.test/rss"/></outline><outline text="Q"><outline text="x" xmlUrl="http://p%d.test/rss"/></outline>`, i, i)
+	}
+	b.WriteString(`</body></opml>`)
+	r := importString(t, db, b.String(), ImportOptions{})
+
+	require.Len(t, r.MembershipsDropped, maxDroppedFeeds)
+	first := r.MembershipsDropped[0]
+	require.Equal(t, "http://a.test/rss", first.URL)
+	require.Len(t, first.Dropped, maxDroppedPaths, "the first 20 distinct other folders")
+	require.True(t, strings.HasPrefix(first.Kept, "F0"))
+	require.True(t, strings.HasPrefix(first.Dropped[0], "F1"))
+	require.Equal(t, 2*(49-maxDroppedPaths), first.More, "each outline in a further folder is counted; a repeat in a listed folder is not")
+	require.Equal(t, 6, r.MembershipsDroppedMore, "the feed repeated under the long folders and the rest are counted")
+	for _, d := range r.MembershipsDropped {
+		require.LessOrEqual(t, len(d.Dropped), maxDroppedPaths)
+		require.LessOrEqual(t, len(d.Kept), 210)
+		seen := map[string]bool{}
+		for _, p := range d.Dropped {
+			require.LessOrEqual(t, len(p), 210)
+			require.False(t, seen[p], "a folder is listed once per feed")
+			seen[p] = true
+		}
+	}
 }
