@@ -9,6 +9,7 @@
 //   L1  the Feeds screen opens with part of the library drawn and says how many feeds are not shown yet;
 //   L2  scrolling to the end of the list draws the rest;
 //   L3  the two feeds with the same title show their address on their rows and in the delete confirmation;
+//   L3b (desktop, where the sidebar shows) the sidebar tells the two feeds apart by the text of their items and by their names;
 //   L4  the empty default folder is not shown, except in Edit, where it says what it is for.
 //   L5  (desktop) ArrowDown on the last drawn sidebar row draws the next step and focuses the row after it.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
@@ -77,6 +78,24 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("button", { name: "Done", exact: true }).click();
   });
 
+  await step(`${tag} L3b`, async () => {
+    const tree = page.getByRole("navigation", { name: "Primary" }).getByRole("tree", { name: "Feeds" });
+    if (vp.mobile) {
+      check((await tree.count()) === 0, `${tag} L3b`, "no sidebar tree on the phone", "the sidebar tree shows on the phone");
+      return;
+    }
+    await page.goto("/feeds");
+    // The twins sit at the end of a long tree, past the rows drawn at first: End draws the rest.
+    await tree.getByRole("treeitem").first().focus();
+    await page.keyboard.press("End");
+    const items = tree.getByRole("treeitem", { name: new RegExp(`^${TWIN}`) });
+    await items.first().waitFor({ timeout: 15000 });
+    const names = await items.evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
+    const texts = await Promise.all((await items.all()).map((r) => t.textOf(r)));
+    const apart = TWINS.every((u) => names.some((n) => n?.includes(short(u))) && texts.some((x) => x.includes(short(u))));
+    check(names.length === 2 && apart, `${tag} L3b`, `the sidebar items are ${JSON.stringify(names)}`, `the sidebar items are named ${JSON.stringify(names)} and read ${JSON.stringify(texts)}`);
+    await t.shot(page, `${tag}-sidebar-twins`);
+  });
   await step(`${tag} L4`, async () => {
     const b = await t.boot(page);
     const def = b.folders.find((f) => f.is_default);
