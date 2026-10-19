@@ -24,6 +24,22 @@ describe("zone list", () => {
     expect(entries.find((e) => e.name === "America/Argentina/Buenos_Aires")?.label).toBe("America/Argentina/Buenos Aires (UTC-03:00)");
   });
 
+  it("finds a zone by its current name or the old one a browser may list it under", () => {
+    // Chromium lists Asia/Calcutta and Europe/Kiev; Firefox and Safari list Asia/Kolkata and Europe/Kyiv.
+    const old = zoneEntries(["Asia/Calcutta", "Europe/Kiev", "America/Godthab", "Asia/Saigon", "Asia/Katmandu"], at);
+    const found = (q: string) => searchZones(old, q).map((e) => e.name);
+    expect(found("kolkata")).toEqual(["Asia/Calcutta"]);
+    expect(found("calcutta")).toEqual(["Asia/Calcutta"]);
+    expect(found("kyiv")).toEqual(["Europe/Kiev"]);
+    expect(found("kiev")).toEqual(["Europe/Kiev"]);
+    expect(found("nuuk")).toEqual(["America/Godthab"]);
+    expect(found("ho chi minh")).toEqual(["Asia/Saigon"]);
+    expect(found("kathmandu")).toEqual(["Asia/Katmandu"]);
+    // The name that is saved is the one the browser lists, which the server accepts.
+    expect(old.find((e) => e.name === "Europe/Kiev")?.label).toMatch(/^Europe\/Kiev \(UTC/);
+    expect(names("calcutta")).toEqual(["Asia/Kolkata"]);
+  });
+
   it("searches by name, ignoring case and underscores", () => {
     expect(names("tokyo")).toEqual(["Asia/Tokyo"]);
     expect(names("buenos aires")).toEqual(["America/Argentina/Buenos_Aires"]);

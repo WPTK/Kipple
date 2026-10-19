@@ -1,6 +1,6 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router";
 import { ApiError, authStore, openRefusedStore, SESSION_EXPIRED } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
@@ -13,7 +13,7 @@ import { OpenList, ReaderRoute } from "@/screens/ReaderRoute";
 import { SearchScreen } from "@/screens/SearchScreen";
 import { AppShell } from "@/shell/AppShell";
 import { RoutedErrorBoundary } from "@/shell/ErrorBoundary";
-import { forgetWizardMemory, resetting, welcomeEntry } from "@/setup/session";
+import { forgetWizardMemory, rerunStore, resetting, revertUnsavedTheme, welcomeEntry } from "@/setup/session";
 import { RestoreWaiting } from "@/setup/RestoreWaiting";
 import { OpenRefusedScreen } from "@/setup/OpenRefused";
 import { SignedOut } from "@/setup/SignedOut";
@@ -87,6 +87,20 @@ function Gate() {
   const refused = useStore(openRefusedStore);
   const reset = useStore(resetting);
   const { pathname } = useLocation();
+  const rerun = useStore(rerunStore);
+  const inWizard = pathname === "/welcome" || pathname.startsWith("/welcome/");
+
+  // Leaving the steps of a rerun (the Back button) ends it: a previewed theme goes back and the wizard forgets what it held.
+  const reached = useRef(false);
+  useEffect(() => {
+    if (!rerun) reached.current = false;
+    else if (inWizard) reached.current = true;
+    else if (reached.current) {
+      reached.current = false;
+      revertUnsavedTheme();
+      forgetWizardMemory();
+    }
+  }, [rerun, inWizard]);
 
   // Signed out: drop everything cached so nothing from the last session shows.
   useEffect(() => {
@@ -190,9 +204,9 @@ function Gate() {
       </StatusBlock>
     );
   }
-  // First-run setup pending (a fresh account, or "Run setup again"): every screen but /welcome gives way to it. Not on a
+  // First-run setup pending (a fresh account): every screen but /welcome gives way to it. Not on a
   // stored copy of the bootstrap, which may still say so after setup was finished elsewhere.
-  if (boot.data?.user.setup_pending === true && !fromCache && pathname !== "/welcome" && !pathname.startsWith("/welcome/")) return <Navigate to={welcomeEntry()} replace />;
+  if (boot.data?.user.setup_pending === true && !fromCache && !inWizard) return <Navigate to={welcomeEntry()} replace />;
   return (
     <Routes>
       <Route path="welcome/*" element={<Lazy><Welcome /></Lazy>} />

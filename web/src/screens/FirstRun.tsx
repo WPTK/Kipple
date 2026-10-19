@@ -1,23 +1,11 @@
-import { useState } from "react";
 import { Plus, Sparkles, Upload } from "lucide-react";
-import { errorMessage } from "@/api/client";
 import { useSetupActions } from "@/setup/actions";
-import { toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 
 export function FirstRun({ onAdd, onImport }: { onAdd: () => void; onImport: () => void }) {
   const setup = useSetupActions();
-  const [busy, setBusy] = useState(false);
   // The recommended feeds are step 5 of setup: opening them starts setup again at that step (it changes nothing else).
-  const recommended = async () => {
-    setBusy(true);
-    try {
-      await setup.restart("feeds");
-    } catch (e) {
-      toast(errorMessage(e), "error");
-      setBusy(false);
-    }
-  };
+  const recommended = () => setup.restart("feeds");
   return (
     <div className="mx-auto flex max-w-sm flex-col items-center gap-3 px-6 py-16 text-center">
       <h2 className="text-lg font-semibold">No feeds yet</h2>
@@ -31,7 +19,7 @@ export function FirstRun({ onAdd, onImport }: { onAdd: () => void; onImport: () 
           <Upload aria-hidden="true" />
           Import OPML
         </Button>
-        <Button disabled={busy} onClick={() => void recommended()}>
+        <Button onClick={recommended}>
           <Sparkles aria-hidden="true" />
           Recommended feeds
         </Button>

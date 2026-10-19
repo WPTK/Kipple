@@ -19,6 +19,33 @@ export const FALLBACK_ZONES: readonly string[] = [
   "Pacific/Auckland", "Pacific/Fiji", "Pacific/Honolulu",
 ];
 
+/**
+ * Zones some browsers list under an old spelling (Chromium still says Asia/Calcutta and Europe/Kiev) and others under the
+ * current one. Each pair is the same zone: a search for either spelling finds the entry the browser lists.
+ */
+const RENAMED: readonly (readonly [string, string])[] = [
+  ["Asia/Kolkata", "Asia/Calcutta"],
+  ["Asia/Kathmandu", "Asia/Katmandu"],
+  ["Asia/Ho_Chi_Minh", "Asia/Saigon"],
+  ["Asia/Yangon", "Asia/Rangoon"],
+  ["Asia/Dhaka", "Asia/Dacca"],
+  ["Europe/Kyiv", "Europe/Kiev"],
+  ["America/Nuuk", "America/Godthab"],
+  ["America/Argentina/Buenos_Aires", "America/Buenos_Aires"],
+  ["Atlantic/Faroe", "Atlantic/Faeroe"],
+  ["Africa/Asmara", "Africa/Asmera"],
+  ["America/Atikokan", "America/Coral_Harbour"],
+  ["Pacific/Chuuk", "Pacific/Truk"],
+  ["Pacific/Pohnpei", "Pacific/Ponape"],
+  ["Pacific/Kanton", "Pacific/Enderbury"],
+  ["America/Indiana/Indianapolis", "America/Indianapolis"],
+];
+const spellings = new Map<string, string[]>();
+for (const [a, b] of RENAMED) {
+  spellings.set(a, [...(spellings.get(a) ?? []), b]);
+  spellings.set(b, [...(spellings.get(b) ?? []), a]);
+}
+
 /** The browser's own zone name, or "" when it cannot say. */
 export function browserZone(): string {
   try {
@@ -64,7 +91,7 @@ export interface ZoneEntry {
   offset: string;
   /** What the list shows: "Asia/Tokyo (UTC+09:00)". */
   label: string;
-  /** Lower-case text the search looks in: the name with spaces for underscores and slashes, and the offset written several ways. */
+  /** Lower-case text the search looks in: the name (and its other spelling, if it was renamed) with spaces for underscores and slashes, and the offset written several ways. */
   haystack: string;
 }
 
@@ -72,7 +99,8 @@ export function zoneEntries(names: string[] = zoneNames(), at: Date = new Date()
   return names.map((name) => {
     const offset = offsetLabel(name, at);
     const label = offset ? `${name.replaceAll("_", " ")} (${offset})` : name.replaceAll("_", " ");
-    return { name, offset, label, haystack: `${name} ${name.replace(/[_/]/g, " ")} ${offset} ${offsetAliases(offset)}`.toLowerCase() };
+    const names = [name, ...(spellings.get(name) ?? [])];
+    return { name, offset, label, haystack: `${names.join(" ")} ${names.map((n) => n.replace(/[_/]/g, " ")).join(" ")} ${offset} ${offsetAliases(offset)}`.toLowerCase() };
   });
 }
 

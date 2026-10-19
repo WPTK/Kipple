@@ -11,7 +11,7 @@ import { DEFAULT_THEME_SETTINGS } from "@/theme/settings";
 import { flush, resetDeviceSync, syncStore } from "@/lib/deviceSync";
 import { FONTS } from "@/lib/fonts";
 import { prefsStore, updatePrefs } from "@/lib/prefs";
-import { forgetWizardMemory, setupSecret } from "./session";
+import { forgetWizardMemory, markRerun, rerunStore, setupSecret } from "./session";
 import { resetOpenSignInGuard } from "./SetupFlow";
 
 // jsdom has no EventSource; the shell subscribes to one.
@@ -74,10 +74,6 @@ function server(w: World, extra: Record<string, Handler> = {}) {
     "GET /api/starter-feeds": () => json(w.starter),
     "POST /api/onboarding/complete": () => {
       w.pending = false;
-      return new Response(null, { status: 204 });
-    },
-    "POST /api/onboarding/restart": () => {
-      w.pending = true;
       return new Response(null, { status: 204 });
     },
     "GET /api/items": () => json(pageOf([card(1)])),
@@ -581,7 +577,7 @@ describe("Step 2: time zone", () => {
 
   it("keeps a zone set to UTC on purpose when setup is run again", async () => {
     browserZoneIs("Asia/Tokyo");
-    sessionStorage.setItem("kipple.setup.rerun", "1");
+    markRerun();
     const { calls } = server(signedIn({ tz: "UTC" }));
     go("/welcome/timezone");
     const sel = await screen.findByTestId("selected-zone");
@@ -1115,22 +1111,39 @@ describe("the whole run", () => {
 describe("Settings: run setup again", () => {
   const done = () => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, pending: false });
 
-  it("restarts the first-run steps and opens the time zone step", async () => {
+  it("opens the steps in this tab and tells the server nothing", async () => {
     const { calls } = server(done());
     go("/settings/account");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Run setup again" }));
     await headingIs("Choose your time zone");
-    expect(callTo(calls, "POST", "/api/onboarding/restart")).toHaveLength(1);
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
     expect(window.location.pathname).toBe("/welcome/timezone");
   });
 
-  it("says so when it cannot restart", async () => {
-    server(done(), { "POST /api/onboarding/restart": () => json({ error: "internal" }, 500) });
+  it("ends the rerun when the person leaves the steps with Back", async () => {
+    server(done());
     go("/settings/account");
-    await userEvent.setup().click(await screen.findByRole("button", { name: "Run setup again" }));
-    await waitFor(() => expect(screen.getAllByText("The server returned an error. Try again.").length).toBeGreaterThan(0));
-    expect(screen.getByRole("button", { name: "Run setup again" })).toBeEnabled();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Run setup again" }));
+    await headingIs("Choose your time zone");
+    expect(rerunStore.get()).toBe(true);
+    act(() => window.history.back());
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/account"));
+    await waitFor(() => expect(rerunStore.get()).toBe(false));
+  });
+
+  it("ends in the reader, and finishing leaves nothing open for the next visit", async () => {
+    const { calls } = server(done());
+    go("/settings/account");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Run setup again" }));
+    await headingIs("Choose your time zone");
+    expect(rerunStore.get()).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Skip the rest of setup" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(1);
+    expect(rerunStore.get()).toBe(false);
   });
 
   it("offers no Sign out without a password, where Kipple would sign the browser straight back in", async () => {
