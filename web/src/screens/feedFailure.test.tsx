@@ -6,6 +6,8 @@ import { liveStore, initialLive } from "@/api/events";
 import type { Feed } from "@/api/types";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { emptyCopy } from "./ListPane";
+import { failingFeedsIn } from "./FeedFailureNote";
+import { showsFailure } from "@/lib/feedStatus";
 
 // A feed Kipple cannot fetch says so, with the reason, where the person meets it (issue #476).
 
@@ -16,10 +18,10 @@ class NoES {
 
 const failing: Feed = { ...bootstrap.feeds[0]!, unread: 0, status: "erroring", last_error: "lookup feeds.example.test: no such host" };
 
-function go(path: string, feed: Feed = failing, items: ReturnType<typeof card>[] = []) {
+function go(path: string, feed: Feed = failing, items: ReturnType<typeof card>[] = [], extra: Feed[] = [], itemsHandler?: () => Response | Promise<Response>) {
   mockFetch({
-    "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [feed], counts: { unread: 0, starred: 0 } }),
-    "GET /api/items": () => json(pageOf(items)),
+    "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [feed, ...extra], counts: { unread: 0, starred: 0 } }),
+    "GET /api/items": itemsHandler ?? (() => json(pageOf(items))),
   });
   window.history.replaceState({ idx: 0 }, "", path);
   return render(<App client={makeQueryClient({ retry: false })} />);
@@ -71,7 +73,7 @@ describe("a failing feed", () => {
   });
 
   it("puts the reason and a Feed health link above a failing feed's list that still has articles", async () => {
-    go("/l?view=all&feed=1", failing, [card(1), card(2)]);
+    go("/l/all?feed=1", failing, [card(1), card(2)]);
     const note = await screen.findByTestId("feed-failure-note");
     expect(note).toHaveTextContent("The last fetch of this feed failed.");
     expect(note).toHaveTextContent("Last error: lookup feeds.example.test: no such host");
@@ -79,15 +81,83 @@ describe("a failing feed", () => {
   });
 
   it("stays out of a working feed's list", async () => {
-    go("/l?view=all&feed=1", { ...failing, status: "ok", last_error: null }, [card(1)]);
+    go("/l/all?feed=1", { ...failing, status: "ok", last_error: null }, [card(1)]);
     await screen.findByText(card(1).title);
     expect(screen.queryByTestId("feed-failure-note")).not.toBeInTheDocument();
   });
 
   it("names the failing feeds in a folder's list", async () => {
-    go(`/l?view=all&folder=${failing.folder_id}`, failing, [card(1)]);
+    go(`/l/all?folder=${failing.folder_id}`, failing, [card(1)]);
     const note = await screen.findByTestId("feed-failure-note");
-    expect(note).toHaveTextContent("1 feed in this folder can't be fetched.");
-    expect(note).toHaveTextContent(`${failing.title}: lookup feeds.example.test: no such host`);
+    expect(note).toHaveTextContent("1 feed in this folder has a fetch problem.");
+    expect(note).toHaveTextContent(`${failing.title} failed its last fetch: lookup feeds.example.test: no such host`);
+  });
+
+  it("is not a live region, and cuts the reason to two lines with the full text as its tooltip", async () => {
+    go("/l/all?feed=1", failing, [card(1)]);
+    const note = await screen.findByTestId("feed-failure-note");
+    expect(note.closest("[role=status],[aria-live]")).toBeNull();
+    const p = note.querySelector("p") as HTMLElement;
+    expect(p.className).toContain("line-clamp-2");
+    expect(p.getAttribute("title")).toContain("Last error: lookup feeds.example.test: no such host");
+  });
+
+  it("stays out of a search, Starred and Muted", async () => {
+    for (const path of ["/search?q=zzz&feed=1", "/l/starred?feed=1", "/l/muted?feed=1"]) {
+      const { unmount } = go(path, failing, [card(1)]);
+      await screen.findByText(card(1).title);
+      expect(screen.queryByTestId("feed-failure-note"), path).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("is not drawn while the list is loading, and not over a feed's empty list", async () => {
+    const first = go("/l/all?feed=1", failing, [], [], () => new Promise<Response>(() => {}));
+    await screen.findByLabelText("Articles");
+    expect(screen.queryByTestId("feed-failure-note")).not.toBeInTheDocument();
+    first.unmount();
+    go("/l/all?feed=1");
+    await screen.findByText("The last fetch of this feed failed");
+    expect(screen.queryByTestId("feed-failure-note")).not.toBeInTheDocument();
+  });
+
+  it("stays quiet in a feed's unread list when new articles are waiting", async () => {
+    liveStore.set({ ...initialLive, pendingByFeed: { "1": 2 } });
+    go("/l/unread?feed=1", failing, [card(1)]);
+    await screen.findByText(card(1).title);
+    expect(screen.queryByTestId("feed-failure-note")).not.toBeInTheDocument();
+  });
+});
+
+describe("which failures are current", () => {
+  const dead: Feed = { ...failing, id: "2", title: "Gone Feed", status: "dead", last_error: "HTTP 410" };
+  const fine: Feed = { ...failing, id: "3", title: "Fine Feed", status: "ok", last_error: null };
+  const all = [failing, dead, fine];
+  const folders = bootstrap.folders;
+
+  it("is one rule: an error, unless new articles wait in a feed's unread list", () => {
+    expect(showsFailure({ view: "unread", feed: "1" }, 0, failing)).toBe(true);
+    expect(showsFailure({ view: "unread", feed: "1" }, 2, failing)).toBe(false);
+    expect(showsFailure({ view: "all", feed: "1" }, 2, failing)).toBe(true);
+    expect(showsFailure({ view: "unread", folder: "1" }, 2, failing)).toBe(true);
+    expect(showsFailure({ view: "unread", feed: "3" }, 0, fine)).toBe(false);
+  });
+
+  it("counts and names only current failures in a folder, the worst first", () => {
+    const f = failingFeedsIn({ view: "all", folder: failing.folder_id }, 0, all, folders);
+    expect(f.map((x) => x.title)).toEqual(["Gone Feed", failing.title]);
+  });
+
+  it("a folder's note names the dead feed and says it is gone", async () => {
+    go(`/l/all?folder=${failing.folder_id}`, failing, [card(1)], [dead, fine]);
+    const note = await screen.findByTestId("feed-failure-note");
+    expect(note).toHaveTextContent("2 feeds in this folder have fetch problems.");
+    expect(note).toHaveTextContent("Gone Feed is gone: HTTP 410 (and 1 more)");
+  });
+
+  it("a folder whose feeds all recovered has no note", async () => {
+    go(`/l/all?folder=${failing.folder_id}`, fine, [card(1)]);
+    await screen.findByText(card(1).title);
+    expect(screen.queryByTestId("feed-failure-note")).not.toBeInTheDocument();
   });
 });

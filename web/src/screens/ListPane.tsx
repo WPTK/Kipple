@@ -36,7 +36,7 @@ import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { openFeedEditor } from "@/lib/feedEditor";
 import { useWidth } from "@/lib/useWidth";
 import { visibleFeeds } from "@/lib/visibleFeeds";
-import { failureCopy } from "@/lib/feedStatus";
+import { failureCopy, showsFailure } from "@/lib/feedStatus";
 import { FeedFailureNote } from "./FeedFailureNote";
 import { listPlace, rememberListTop } from "@/lib/listPlace";
 
@@ -174,8 +174,8 @@ export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed): { title: s
   if (scope.view === "muted") return { title: "Nothing muted", body: "No filter has muted an article yet." };
   if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here. Retention never removes starred articles." };
   // The server sends last_error only while the feed is failing. New articles waiting mean a fetch has worked since.
-  const failure = feed && !(scope.view === "unread" && pendingNew > 0) ? failureCopy(feed) : null;
-  if (failure) return { ...failure, health: true };
+  const failure = feed && showsFailure(scope, pendingNew, feed) ? failureCopy(feed) : null;
+  if (failure) return { title: failure.title, body: failure.body, health: true };
   if (scope.view === "unread") {
     return pendingNew > 0
       ? { title: "All caught up", body: `${pendingNew} new article${pendingNew === 1 ? "" : "s"} arrived. Load ${pendingNew === 1 ? "it" : "them"} above to continue reading.` }
@@ -1305,7 +1305,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
           No exact matches: showing partial matches
         </p>
       ) : null}
-      {!scope.q && (scope.view === "unread" || scope.view === "all") && !(scope.feed && empty) ? (
+      {/* Only once the list has loaded: a feed's empty list says the same in its own box, and a note that appears over the skeleton would vanish again. */}
+      {!q.isPending && !(q.isError && !q.data) && !scope.q && (scope.view === "unread" || scope.view === "all") && !(scope.feed && empty) ? (
         <FeedFailureNote scope={scope} feeds={boot.data?.feeds} folders={boot.data?.folders} pendingNew={pendingNew} />
       ) : null}
       {caption ? (
