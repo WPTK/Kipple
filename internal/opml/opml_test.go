@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -534,4 +535,35 @@ func TestImportSkipsNonHTTPSchemesAndNeverGrantsExceptions(t *testing.T) {
 	var granted int
 	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE allow_private_net != 0 OR allow_insecure_tls != 0").Scan(&granted))
 	require.Zero(t, granted)
+}
+
+func TestImportDroppedReportIsBounded(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	long := strings.Repeat("é", 5000)
+	var b strings.Builder
+	b.WriteString(`<opml><body>`)
+	// One feed repeated many times under the same other folder and under many long-named folders.
+	for i := 0; i < 50; i++ {
+		fmt.Fprintf(&b, `<outline text="F%d%s"><outline text="x" xmlUrl="http://a.test/rss"/><outline text="y" xmlUrl="http://a.test/rss"/></outline>`, i, long)
+	}
+	// More repeated feeds than the report lists.
+	for i := 0; i < maxDroppedFeeds+5; i++ {
+		fmt.Fprintf(&b, `<outline text="P"><outline text="x" xmlUrl="http://p%d.test/rss"/></outline><outline text="Q"><outline text="x" xmlUrl="http://p%d.test/rss"/></outline>`, i, i)
+	}
+	b.WriteString(`</body></opml>`)
+	r := importString(t, db, b.String(), ImportOptions{})
+
+	require.Len(t, r.MembershipsDropped, maxDroppedFeeds)
+	require.Equal(t, 6, r.MembershipsDroppedMore, "the feed repeated under the long folders and the rest are counted")
+	for _, d := range r.MembershipsDropped {
+		require.LessOrEqual(t, len(d.Dropped), maxDroppedPaths)
+		require.LessOrEqual(t, len(d.Kept), 210)
+		seen := map[string]bool{}
+		for _, p := range d.Dropped {
+			require.LessOrEqual(t, len(p), 210)
+			require.False(t, seen[p], "a folder is listed once per feed")
+			seen[p] = true
+		}
+	}
 }

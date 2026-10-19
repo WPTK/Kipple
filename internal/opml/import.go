@@ -68,8 +68,11 @@ type Result struct {
 	// They are not deleted: deleting one would also delete its filters.
 	FoldersEmptied     []string  `json:"folders_emptied"`
 	MembershipsDropped []Dropped `json:"memberships_dropped"`
-	Skipped            []Skipped `json:"skipped"`
-	InvalidAttrs       []string  `json:"invalid_attrs"`
+	// MembershipsDroppedMore counts the feeds repeated across folders that MembershipsDropped does not list: it
+	// names at most maxDroppedFeeds of them.
+	MembershipsDroppedMore int       `json:"memberships_dropped_more"`
+	Skipped                []Skipped `json:"skipped"`
+	InvalidAttrs           []string  `json:"invalid_attrs"`
 	// IgnoredAttrs are valid but security-sensitive kipple:* attributes that an
 	// import never applies (allow_private_net, allow_insecure_tls), and feeds
 	// on a literal private address, imported with allow_private_net off. A feed
@@ -207,8 +210,10 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			}
 			if p, ok := seen[key]; ok {
 				res.FeedsRepeated++
-				if chainKey(f.Folder) != chainKey(p.folder) {
-					p.dropped = append(p.dropped, Path(f.Folder))
+				if len(p.dropped) < maxDroppedPaths && !slices.Equal(f.Folder, p.folder) {
+					if short := shortPath(f.Folder); !slices.Contains(p.dropped, short) {
+						p.dropped = append(p.dropped, short)
+					}
 				}
 				continue
 			}
@@ -308,8 +313,12 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			res.FoldersEmptied = append(res.FoldersEmptied, Path(names))
 		}
 		for _, p := range order {
-			if len(p.dropped) > 0 {
-				res.MembershipsDropped = append(res.MembershipsDropped, Dropped{p.url, Path(p.folder), p.dropped})
+			switch {
+			case len(p.dropped) == 0:
+			case len(res.MembershipsDropped) < maxDroppedFeeds:
+				res.MembershipsDropped = append(res.MembershipsDropped, Dropped{shortURL(p.url), shortPath(p.folder), p.dropped})
+			default:
+				res.MembershipsDroppedMore++
 			}
 		}
 		return nil
@@ -319,6 +328,17 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 	}
 	return res, nil
 }
+
+// The report of feeds listed in several folders is bounded, so a hostile file (one feed repeated under
+// thousands of folders with long names) cannot make it huge: each path is cut, each feed lists its first
+// distinct other folders, and the report names a limited number of feeds (MembershipsDroppedMore counts the rest).
+const (
+	maxDroppedPaths = 20
+	maxDroppedFeeds = 1000
+)
+
+// shortPath is a folder path as a report lists it, cut like an address.
+func shortPath(chain []string) string { return shortURL(Path(chain)) }
 
 // chainKey is an unambiguous map key for a folder chain (a name may hold any character).
 func chainKey(chain []string) string {
