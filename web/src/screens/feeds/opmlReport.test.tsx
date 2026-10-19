@@ -11,6 +11,11 @@ afterEach(() => vi.unstubAllGlobals());
 const base: OpmlResult = { folders_created: 0, feeds_added: 0, feeds_existing: [], folders_merged_case: [], memberships_dropped: [] };
 
 describe("the OPML import report", () => {
+  it("counts the feeds beyond the listed ones as listed in more than one folder", () => {
+    render(<OpmlResultSummary result={{ ...base, memberships_dropped: [{ url: "https://a.example/feed", kept: "News", dropped: ["Tech"] }], memberships_dropped_more: 5 }} />);
+    expect(screen.getByText("6 feeds were listed in more than one folder. Each stays in the first.")).toBeInTheDocument();
+  });
+
   it("says which existing feeds moved, which folders were left with no feeds, and counts only the rest as left alone", () => {
     render(
       <OpmlResultSummary
