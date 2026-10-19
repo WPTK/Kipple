@@ -31,27 +31,32 @@ const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><r
 
 /**
  * What became of one article image once the browser had finished with it: "loaded" (it drew), "failed" (its fetch
- * ended and it has no picture), "timeout" (no finished load within 10 s: the fetch never started or never ended) or
- * "gone" (the image is not in the article). It scrolls the image into view first, because lazy loading starts on
- * nearness to the viewport. A load only counts once the page has received a response for the image's address
- * (`seen`, filled by the flow): `complete` with a `currentSrc` alone is not proof, since a lazy image whose fetch has
- * not begun can look finished in some browsers (see `watchImages`). Then the state is polled with one short read at a time, so there
- * is no handle to dispose. A closed page or any other error is thrown, not reported as a state. It is final here: the app replaces an image after its error event only when the image
- * proxy answers 415 (its one extra request is made to the same address after the error, and a 200 or 500 there leaves the image\n * as it is), and this flow's server answers the failing image with a fixed 500 and the GIF with a fixed 200, so the first\n * finished state is the settled one.
+ * ended and it has no picture), "unfetched" (no response for its address within 10 s: the fetch never started),
+ * "timeout" (a response came but the image did not finish within 10 s) or "gone" (the image is not in the article).
+ * It scrolls the image into view first, because lazy loading starts on nearness to the viewport. A load only counts
+ * once the page has received a response for the image's address (`seen`, filled by the flow): `complete` with a
+ * `currentSrc` alone is not proof, since a lazy image whose fetch has not begun can look finished in some browsers
+ * (see `watchImages`). Then the state is polled with one short read at a time, so there is no handle to dispose, and
+ * every read is bounded by the one 10 s deadline. A closed page or any other error is thrown, not reported as a state.
+ *
+ * The first finished state is the settled one here: the app replaces an image after its error event only when the
+ * image proxy answers 415 (its one extra request goes to the same address after the error, and a 200 or 500 there
+ * leaves the image as it is), and this flow's server answers the failing image with a fixed 500 and the GIF with a
+ * fixed 200.
  */
 const finished = async (page, img, seen) => {
-  const timeout = 10000;
-  const deadline = Date.now() + timeout;
+  const deadline = Date.now() + 10000;
+  const left = () => Math.max(1, deadline - Date.now());
   try {
     if ((await img.count()) === 0) return "gone";
-    await img.scrollIntoViewIfNeeded({ timeout });
-    const src = await img.evaluate((el) => el.src, undefined, { timeout });
+    await img.scrollIntoViewIfNeeded({ timeout: left() });
+    const src = await img.evaluate((el) => el.src, undefined, { timeout: left() });
     while (!seen.has(src)) {
-      if (Date.now() > deadline) return "timeout";
+      if (Date.now() > deadline) return "unfetched";
       await page.waitForTimeout(100);
     }
     for (;;) {
-      const state = await img.evaluate((el) => (!el.isConnected ? "gone" : el.complete && el.currentSrc ? (el.naturalWidth > 0 ? "loaded" : "failed") : ""), undefined, { timeout });
+      const state = await img.evaluate((el) => (!el.isConnected ? "gone" : el.complete && el.currentSrc ? (el.naturalWidth > 0 ? "loaded" : "failed") : ""), undefined, { timeout: left() });
       if (state) return state;
       if (Date.now() > deadline) return "timeout";
       await page.waitForTimeout(50);
@@ -63,7 +68,8 @@ const finished = async (page, img, seen) => {
   }
 };
 const WHY = {
-  timeout: "its load never finished within 10 s (never started, or never ended)",
+  unfetched: "the page got no response for it within 10 s (its fetch never started)",
+  timeout: "a response came but its load did not finish within 10 s",
   failed: "its fetch failed",
   loaded: "it loaded",
   gone: "the image is not in the article",
@@ -113,7 +119,8 @@ await t.eachViewport(async (page, vp) => {
   await step(`${tag} I`, async () => {
     // Every response the page gets, from before the article opens: a lazy image may be fetched before the flow looks.
     const seen = new Set();
-    page.on("response", (r) => seen.add(r.url()));
+    const onResponse = (r) => seen.add(r.url());
+    page.on("response", onResponse);
     const added = await t.addLocalFeed(page, `${base}/feed.xml`, "UAT feed images", (items) => items.some((i) => i.title === "UAT images article"));
     if (added.error) return t.fail(`${tag} I setup`, added.error);
 
@@ -182,6 +189,7 @@ await t.eachViewport(async (page, vp) => {
     const loaded = await finished(page, last, seen);
     check(loaded === "loaded" && !asked.includes("fetch"), `${tag} I5 scrolled`, "scrolled into view, the images load with no extra check", `${WHY[loaded]}, requests ${JSON.stringify(asked)}`);
     page.off("request", onRequest);
+    page.off("response", onResponse);
   });
 });
 
