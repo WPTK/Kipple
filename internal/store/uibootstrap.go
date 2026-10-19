@@ -253,6 +253,9 @@ type UIFeed struct {
 	// StarredCount is what the delete confirm dialog shows: starred items move to
 	// the archive feed unless the user chooses to delete them too.
 	StarredCount int64 `json:"starred_count"`
+	// LastError is why the feed is failing (the same text Feed health shows), set
+	// only while the status is erroring, failing or dead; null otherwise.
+	LastError *string `json:"last_error"`
 }
 
 // UIFeeds lists feeds in display order: the listed feeds (listedFeedSQL), so
@@ -270,7 +273,7 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 		SELECT f.id, f.folder_id, `+feedTitleSQL("f")+`, f.site_url, fi.hash,
 		       COALESCE(u.n, 0), f.enabled, f.disabled_reason, f.consecutive_failures, f.fulltext, f.retention, f.interval_minutes, f.auto_read_days,
 		       f.host, f.redirect_kind, f.redirect_to, COALESCE(f.last_new_items_at, f.created_at),
-		       COALESCE(s.n, 0)
+		       COALESCE(s.n, 0), f.last_error
 		FROM feeds f JOIN folders fo ON fo.id = f.folder_id
 		LEFT JOIN feed_icons fi ON fi.feed_id = f.id
 		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE read = 0 GROUP BY feed_id) u ON u.feed_id = f.id
@@ -284,11 +287,11 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 	out := []UIFeed{}
 	for rows.Next() {
 		var f UIFeed
-		var hash, reason, host, rKind, rTo sql.NullString
+		var hash, reason, host, rKind, rTo, lastErr sql.NullString
 		var lastNew int64
 		var enabled, failures, fulltext int64
 		var retention, interval, autoRead sql.NullInt64
-		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval, &autoRead, &host, &rKind, &rTo, &lastNew, &f.StarredCount); err != nil {
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval, &autoRead, &host, &rKind, &rTo, &lastNew, &f.StarredCount, &lastErr); err != nil {
 			return nil, err
 		}
 		if hash.Valid {
@@ -298,6 +301,9 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 		f.IsArchive = reason.Valid && reason.String == "archive"
 		f.Status = FeedStatus(StatusRow{DisabledReason: strp(reason), Enabled: enabled == 1, ConsecutiveFailures: failures,
 			RedirectKind: strp(rKind), RedirectTo: strp(rTo), LastNewItemsAt: lastNew}, env.HostUntil[host.String], env.Now)
+		if f.Status == StatusErroring || f.Status == StatusFailing || f.Status == StatusDead {
+			f.LastError = strp(lastErr)
+		}
 		f.Fulltext = fulltext == 1
 		f.FulltextEffective = EffectiveFulltext(nil, f.Fulltext, all) == 1
 		f.Retention, f.IntervalMinutes = intp(retention), intp(interval)

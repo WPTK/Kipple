@@ -40,7 +40,7 @@ import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
 import { FirstRun } from "./FirstRun";
-import { StatusChip } from "./StatusChip";
+import { FeedRowStatus } from "./StatusChip";
 import { SavedSearchesNav } from "./SavedSearchesNav";
 import { CollapseToggle } from "./FeedTree";
 import { DeleteDialog, DeleteFolderDialog, MoveDialog } from "./feeds/BulkActions";
@@ -491,7 +491,7 @@ export function FeedsScreen() {
             />
             <span className="min-w-0">
               <span className="block truncate">{f.title}</span>
-              {f.status !== "ok" ? <StatusChip status={f.status} /> : null}
+              <FeedRowStatus status={f.status} error={f.last_error} />
             </span>
             <Badge n={f.unread} />
           </label>
@@ -501,7 +501,7 @@ export function FeedsScreen() {
             <Link to={openListTo({ feed: f.id })} draggable={false} className={`${row} min-w-0 flex-1 text-sm`}>
               <span className="min-w-0">
                 <span className="block truncate">{f.title}</span>
-                {f.status !== "ok" ? <StatusChip status={f.status} /> : null}
+                <FeedRowStatus status={f.status} error={f.last_error} />
               </span>
               <Badge n={f.unread} />
             </Link>

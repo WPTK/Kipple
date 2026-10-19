@@ -24,5 +24,8 @@ const T: Record<string, StatusInfo> = {
 
 export const statusInfo = (s: string): StatusInfo => T[s] ?? { label: s, tone: "muted", hint: "" };
 
+/** A status whose last fetch failed: the feed list carries its reason (last_error). */
+export const isFailing = (s: string): boolean => s === "erroring" || s === "failing" || s === "dead";
+
 /** Sort rank: worst first. */
 export const STATUS_RANK: Record<string, number> = { dead: 0, failing: 1, erroring: 2, redirecting: 3, throttled: 4, disabled: 5, silent: 6, ok: 7, archive: 8 };

@@ -1,6 +1,21 @@
 import { CircleAlert, CircleCheck, CirclePause } from "lucide-react";
 import { statusInfo } from "@/lib/feedStatus";
 
+/** A Feeds screen row's status: the chip, and for a failing feed the reason it fails (cut to one line, whole in its tooltip). */
+export function FeedRowStatus({ status, error }: { status: string; error?: string | null }) {
+  if (status === "ok") return null;
+  return (
+    <>
+      <StatusChip status={status} />
+      {error ? (
+        <span className="block truncate text-xs text-fg2" title={error}>
+          {error}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 /** Icon and text together: status is never color alone. */
 export function StatusChip({ status }: { status: string }) {
   const s = statusInfo(status);
