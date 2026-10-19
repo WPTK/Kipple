@@ -48,3 +48,14 @@ func TestDecideRedirectOverlongStoredURLClears(t *testing.T) {
 	d := DecideRedirect("https://a.test/"+strings.Repeat("a", 5000), RedirectState{}, "https://b.test/f", []Hop{{Status: 301}})
 	require.Equal(t, RedirectClear, d.Action)
 }
+
+// A feed stored before the length limit existed still fetches; the log says why no redirect is recorded.
+func TestOverlongStoredFeedURLIsNoted(t *testing.T) {
+	mux := http.NewServeMux()
+	long := "/feed/" + strings.Repeat("a", 5000)
+	mux.HandleFunc(long, serveRSS)
+	srv, c := feedServer(t, mux.ServeHTTP)
+	res := doFetch(t, c, snapFor(srv.URL+long))
+	require.Equal(t, OutcomeOK, res.Outcome, res.ErrMsg)
+	require.Contains(t, strings.Join(res.Notes, ";"), "redirect_not_recorded")
+}

@@ -5,6 +5,7 @@ package feedurl
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
@@ -19,11 +20,8 @@ import (
 // strips the default port and the fragment, and keeps path and query verbatim.
 // The result is an absolute http(s) URL.
 func Normalize(raw string) (string, error) {
-	u, err := parse(raw)
-	if err != nil {
-		return "", err
-	}
-	return u.String(), nil
+	_, norm, err := parse(raw)
+	return norm, err
 }
 
 // KeyAndNormalize returns Normalize(raw) and Key(Normalize(raw)): the key is taken from the
@@ -53,7 +51,7 @@ func keyOf(u *url.URL) string {
 // Key is host[:port] + path + ("?" + query). The scheme is dropped so http and
 // https variants collide by design.
 func Key(raw string) (string, error) {
-	u, err := parse(raw)
+	u, _, err := parse(raw)
 	if err != nil {
 		return "", err
 	}
@@ -62,7 +60,7 @@ func Key(raw string) (string, error) {
 
 // Host returns the lowercase hostname (no port) of a URL.
 func Host(raw string) (string, error) {
-	u, err := parse(raw)
+	u, _, err := parse(raw)
 	if err != nil {
 		return "", err
 	}
@@ -81,17 +79,19 @@ var ErrUserinfo = errors.New("feedurl: the URL contains a user name or password;
 // no way in (add, edit, import, sync API, redirect) stores one and they all agree on which addresses fit.
 const MaxLen = 4096
 
-// maxRawLen is the longest input worth parsing: encoding at most triples a byte, so anything longer
-// cannot fit MaxLen once normalized. It only spares work on huge input; MaxLen is the real limit.
-const maxRawLen = 3 * MaxLen
+// maxCleanLen bounds what is worth parsing: percent-encoding at most triples a byte, so an address
+// that is longer than this after white space and a fragment are cut cannot fit MaxLen once
+// normalized. It only spares work on huge input; MaxLen is the real limit.
+const maxCleanLen = 3 * MaxLen
 
 // TooLongMessage is the one wording for a refused length, shown to the person (the add dialog, the
-// OPML report). The encoded form is mentioned because a short-looking address with many non-ASCII
-// characters can exceed the limit.
-const TooLongMessage = "the address is longer than 4,096 characters (letters outside A to Z count as their longer web-encoded form)"
+// OPML report). It names how the address is counted, because one that looks short can be over the
+// limit: Kipple stores it with letters outside A to Z, spaces and similar characters spelled out.
+var TooLongMessage = fmt.Sprintf("the address is longer than %d,%03d characters once written the way Kipple stores it, which spells out letters outside A to Z, spaces and similar characters in the path", MaxLen/1000, MaxLen%1000)
 
-// ErrTooLong is returned for a URL longer than MaxLen once normalized.
-var ErrTooLong = errors.New("feedurl: " + TooLongMessage)
+// ErrTooLong is returned for a URL longer than MaxLen once normalized. Its text is for logs; a
+// person is shown TooLongMessage.
+var ErrTooLong = errors.New("feedurl: address too long")
 
 // feedSchemes are the pseudo-schemes that wrap a feed address in links meant for feed readers and
 // podcast apps: feed://host/path, feed:https://host/path, pcast://, itpc://, podcast://, rss://.
@@ -207,20 +207,27 @@ func hasScheme(s string) bool {
 	return true
 }
 
-func parse(raw string) (*url.URL, error) {
-	if len(raw) > maxRawLen {
-		return nil, ErrTooLong
+// parse returns the cleaned-up URL and its string form, stringified once (the string is what the
+// length cap is measured on and what Normalize returns).
+func parse(raw string) (*url.URL, string, error) {
+	// Measure what survives cleaning (white space and the fragment are dropped), not the input.
+	kept := strings.TrimSpace(raw)
+	if i := strings.IndexByte(kept, '#'); i >= 0 {
+		kept = kept[:i]
+	}
+	if len(kept) > maxCleanLen {
+		return nil, "", ErrTooLong
 	}
 	u, err := url.Parse(clean(raw))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	u.Scheme = strings.ToLower(u.Scheme)
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-		return nil, errors.New("feedurl: not an absolute http(s) URL")
+		return nil, "", errors.New("feedurl: not an absolute http(s) URL")
 	}
 	if u.User != nil {
-		return nil, ErrUserinfo
+		return nil, "", ErrUserinfo
 	}
 	host := strings.ToLower(u.Hostname())
 	port := u.Port()
@@ -236,8 +243,9 @@ func parse(raw string) (*url.URL, error) {
 	u.Host = host
 	u.Fragment = ""
 	u.RawFragment = ""
-	if len(u.String()) > MaxLen {
-		return nil, ErrTooLong
+	norm := u.String()
+	if len(norm) > MaxLen {
+		return nil, "", ErrTooLong
 	}
-	return u, nil
+	return u, norm, nil
 }

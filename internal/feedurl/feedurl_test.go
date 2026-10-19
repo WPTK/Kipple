@@ -164,15 +164,17 @@ func TestMaxLenIsMeasuredAfterCleanup(t *testing.T) {
 	exact := prefix + strings.Repeat("a", MaxLen-len(prefix))
 	frag := exact + "#" + strings.Repeat("f", 200)
 	spaced := "  " + exact + "  "
+	hugeFrag := exact + "#" + strings.Repeat("f", 13000)
+	hugePad := strings.Repeat(" ", 13000) + exact + strings.Repeat(" ", 13000)
 	for _, raw := range []string{fits, over} {
 		require.LessOrEqual(t, len(raw), MaxLen, "typed length stays under the cap")
 	}
 	require.Greater(t, len(frag), MaxLen)
 	require.Greater(t, len(spaced), MaxLen)
 
-	for _, raw := range []string{fits, exact, frag, spaced} {
+	for _, raw := range []string{fits, exact, frag, spaced, hugeFrag, hugePad} {
 		norm, err := Normalize(raw)
-		require.NoError(t, err, raw[:30])
+		require.NoError(t, err, "%d bytes typed", len(raw))
 		require.LessOrEqual(t, len(norm), MaxLen)
 		_, err = Normalize(norm)
 		require.NoError(t, err, "the normalized form parses again")
