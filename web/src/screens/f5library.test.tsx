@@ -882,6 +882,33 @@ describe("Auto-read catch-up (review 3)", () => {
     expect(screen.queryByText(/Nothing was left to mark/)).toBeNull();
   });
 
+  it("replaces the vague note when the run.done arrives after the inferred end", async () => {
+    base({
+      "POST /api/library/auto-read/preview": () => json(preview40),
+      "POST /api/library/auto-read/run": () => json(RUN, 202),
+      "GET /api/status": () => json({ unread_total: 3, runs: [], event_id: "900" }),
+    });
+    go("/settings/sync");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
+    await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
+    const qc = new QueryClient();
+    act(() => {
+      handleServerEvent(qc, { type: "run.start", data: { run_id: "90", kind: "auto_read", total: 40 } }, 800);
+      handleServerEvent(qc, { type: "run.progress", data: { run_id: "90", done: 10, total: 40, new_items: 0, errors: 0, changed: 10 } }, 810);
+    });
+    await screen.findByTestId("auto-read-progress");
+    await act(async () => {
+      await pollStatus(qc);
+    });
+    await screen.findByText(/Kipple didn't hear how it went/);
+    act(() => {
+      handleServerEvent(qc, { type: "run.done", data: { run_id: "90", kind: "auto_read", new_items: 0, errors: 0, changed: 40, scanned: 40 } }, 905);
+    });
+    expect(await screen.findByText("Marked 40 older articles as read.")).toBeInTheDocument();
+    expect(screen.queryByText(/didn't hear how it went/)).toBeNull();
+  });
+
   it("shows the run at once from the 202 body, with no stream event: Preview is disabled and progress shows", async () => {
     base({ "POST /api/library/auto-read/preview": () => json(preview40), "POST /api/library/auto-read/run": () => json(RUN, 202) });
     go("/settings/sync");

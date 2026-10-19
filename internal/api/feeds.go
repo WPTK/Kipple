@@ -17,7 +17,9 @@ import (
 // names a run it just started (the 202 of refresh, import, auto-read) reads it AFTER it started it. Either way every
 // run event with an id up to this one has already changed the state the answer shows (a run is added, advanced or
 // removed before its event is published), so a client can tell whether the answer is older or newer than an event it
-// has seen: an answer lists no run that ended at or before its event_id, and lacks none that started at or before it.
+// has seen. A list answer lists no run that ended at or before its event_id and lacks none that started at or before
+// it. A 202 only names a run that started at or before its event_id: the run may have ended since, even at or before
+// that id, so a client keeps its own record of runs it saw end.
 func (s *Server) eventID() string {
 	if s.opt.Hub == nil {
 		return "0"
@@ -25,10 +27,21 @@ func (s *Server) eventID() string {
 	return strconv.FormatUint(s.opt.Hub.LastID(), 10)
 }
 
+// schedStatus is the scheduler's runs for an answer that lists runs, with the event_id to stamp on it. When the
+// dispatcher did not answer in time the runs are unknown, not none, so the id is "0": an answer with no ordering,
+// which a client never ends a run from.
+func (s *Server) schedStatus() (runs []sched.RunStatus, inflight int, eventID string) {
+	eventID = s.eventID() // before the runs are read (see eventID)
+	runs, inflight, ok := s.opt.Sched.Status()
+	if !ok {
+		eventID = "0"
+	}
+	return runs, inflight, eventID
+}
+
 // status is GET /api/status: the SSE fallback.
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
-	eventID := s.eventID()
-	schedRuns, inflight := s.opt.Sched.Status()
+	schedRuns, inflight, eventID := s.schedStatus()
 	unread, err := s.db.UnreadTotal(r.Context())
 	if err != nil {
 		s.serverError(w, "unread total", err)

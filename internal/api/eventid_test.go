@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"strconv"
 	"testing"
 	"time"
@@ -17,27 +18,70 @@ func eventIDOf(t *testing.T, out map[string]any) uint64 {
 	return n
 }
 
-// An answer that lists runs says which event it was read after (issue #536): a client compares that id with the run
-// events it has seen to tell an answer that predates them from one that does not. It is the hub's last event id.
-func TestStatusAndBootstrapSayWhichEventTheyFollow(t *testing.T) {
+// An answer that lists runs says which event it was read before (issue #536): every run event up to that id has
+// already changed what the answer lists. The id is read before the runs, so an event published while the scheduler
+// looks is newer than the answer, and a client must not treat the answer as knowing it.
+func TestStatusAndBootstrapNameAnEventBeforeTheyLookAtRuns(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	c := h.login()
 
-	_, st, _ := h.api(c, "GET", "/api/status", "")
-	require.Equal(t, h.hub.LastID(), eventIDOf(t, st))
-	_, bs, _ := h.api(c, "GET", "/api/bootstrap", "")
-	require.Equal(t, h.hub.LastID(), eventIDOf(t, bs))
+	var during uint64
+	h.sched.onStatus = func() bool {
+		h.hub.Publish("run.done", map[string]any{"run_id": "42", "kind": "manual", "new_items": 0, "errors": 0})
+		during = h.hub.LastID() // the event that arrived while Status was looking
+		return true
+	}
+	for _, path := range []string{"/api/status", "/api/bootstrap"} {
+		before := h.hub.LastID()
+		_, out, _ := h.api(c, "GET", path, "")
+		require.NotZero(t, during)
+		require.Equal(t, before, eventIDOf(t, out), "%s names the last event before it looked", path)
+		require.Less(t, eventIDOf(t, out), during, "%s: an event published during the call is newer than the answer", path)
+	}
+}
 
-	before := eventIDOf(t, st)
+// A scheduler that does not answer gives no runs, which is not "nothing is running": the answer carries event_id "0"
+// (no ordering), so a client never ends a run from it (issue #539).
+func TestStatusAndBootstrapWithoutAnAnswerFromTheSchedulerCarryNoOrdering(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
 	h.hub.Publish("run.done", map[string]any{"run_id": "42", "kind": "manual", "new_items": 0, "errors": 0})
-	_, st, _ = h.api(c, "GET", "/api/status", "")
-	require.Equal(t, before+1, eventIDOf(t, st), "an answer read after an event names that event or a later one")
-	_, bs, _ = h.api(c, "GET", "/api/bootstrap", "")
-	require.Equal(t, before+1, eventIDOf(t, bs))
+	require.NotZero(t, h.hub.LastID())
+	h.sched.onStatus = func() bool { return false }
+	for _, path := range []string{"/api/status", "/api/bootstrap"} {
+		code, out, _ := h.api(c, "GET", path, "")
+		require.Equal(t, 200, code)
+		require.Equal(t, "0", out["event_id"], path)
+	}
+}
 
+// A 202 that names a run it started reads the event id after the start: the id is at or above the run's own
+// run.start, so a client seeding from it is not older than the start.
+func TestRefreshAndImportAcceptedNameAnEventAtOrAfterTheirStart(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	var startID uint64
+	h.sched.onRun = func() {
+		h.hub.Publish("run.start", map[string]any{"run_id": "42", "kind": "manual", "total": 1})
+		startID = h.hub.LastID()
+	}
+
+	startID = 0
 	_, ref, _ := h.api(c, "POST", "/api/refresh", "")
-	require.Equal(t, h.hub.LastID(), eventIDOf(t, ref))
+	require.NotZero(t, startID)
+	require.GreaterOrEqual(t, eventIDOf(t, ref), startID, "refresh")
+
+	startID = 0
+	doc := `<?xml version="1.0"?><opml version="2.0"><head/><body><outline type="rss" text="Alpha" xmlUrl="https://a.example/feed.xml"/></body></opml>`
+	rec := h.do("POST", "/api/opml", doc, withCookie(c))
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	var imp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &imp))
+	require.NotZero(t, startID)
+	require.GreaterOrEqual(t, eventIDOf(t, imp), startID, "import")
 }
 
 // The 202 of the auto-read catch-up names an event at or after its run.start, so a client seeding the run from it is

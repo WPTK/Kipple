@@ -67,7 +67,7 @@ describe("live state in the list", () => {
     mockFetch({
       "GET /api/bootstrap": () => json(bootstrap),
       "GET /api/items": () => json(pageOf([card(1)])),
-      "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 3 }),
+      "GET /api/status": () => json({ runs: [], event_id: "50", inflight: 0, unread_total: 3 }),
     });
     go("/l/unread");
     await screen.findByText("Article number 1");

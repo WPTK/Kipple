@@ -45,7 +45,7 @@ describe("seedRuns", () => {
   });
 
   it("does not bring back a run a status poll stopped listing", async () => {
-    mockFetch({ "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 0 }) });
+    mockFetch({ "GET /api/status": () => json({ runs: [], event_id: "50", inflight: 0, unread_total: 0 }) });
     liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "7", kind: "import", total: 5 } }));
     await pollStatus(new QueryClient());
     expect(liveStore.get().runs).toEqual({});
@@ -121,7 +121,7 @@ describe("answers older or newer than the stream (issue #536)", () => {
     expect(Object.keys(liveStore.get().runs)).toEqual(["900"]);
   });
 
-  it("a run forgotten for age is guarded the same way", () => {
+  it("a run that ended long ago is still ended: the ended set outlives the finished results", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-19T12:00:00Z"));
     start("1", 10);
@@ -130,6 +130,7 @@ describe("answers older or newer than the stream (issue #536)", () => {
     start("2", 30);
     done("2", 40); // makes room: run 1's result is dropped now
     expect(liveStore.get().finished["1"]).toBeUndefined();
+    expect(liveStore.get().ended["1"]).toBe(true);
     seedRuns([run("1")], "15");
     expect(liveStore.get().runs).toEqual({});
     vi.useRealTimers();
@@ -188,11 +189,39 @@ describe("answers older or newer than the stream (issue #536)", () => {
     expect(liveStore.get().runs).toEqual({});
   });
 
-  it("an answer without event_id is the oldest: it introduces a run but never ends or updates one the stream described", async () => {
+  it("a 202 read after its run already ended (event_id at or above the run.done) does not bring the run back", () => {
     start("5", 10);
-    status(undefined, []);
+    done("5", 20);
+    seedRun(run("5"), "20");
+    expect(liveStore.get().runs).toEqual({});
+    seedRun(run("5"), "25");
+    expect(liveStore.get().runs).toEqual({});
+  });
+
+  it("a status answer the server could not order (event_id 0: the scheduler did not answer) ends no run", async () => {
+    start("5", 10);
+    status("0", []);
     await pollStatus(new QueryClient());
     expect(liveStore.get().runs["5"]).toBeDefined();
+    expect(liveStore.get().finished["5"]).toBeUndefined();
+    expect(liveStore.get().ended).toEqual({});
+  });
+
+  it("a resync with an id below the last one seen (the server's ids restarted) clears the ordering state; a later one does not", () => {
+    start("5", 100);
+    start("6", 101);
+    done("6", 102);
+    event({ type: "resync", data: {} }, 103);
+    expect(liveStore.get().ended["6"]).toBe(true);
+    expect(liveStore.get().seq["5"]).toBe(100);
+    event({ type: "resync", data: {} }, 7);
+    expect(liveStore.get().ended).toEqual({});
+    expect(liveStore.get().seq).toEqual({});
+    expect(liveStore.get().finished["6"]?.seq).toBe(0);
+    expect(liveStore.get().lastId).toBe(7);
+    // The new numbering orders again: a run that starts at 8 is shown, and an answer built at 9 describes it.
+    start("5", 8);
+    expect(liveStore.get().seq["5"]).toBe(8);
   });
 });
 

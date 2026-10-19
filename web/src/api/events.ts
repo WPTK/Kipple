@@ -33,10 +33,13 @@ export interface LiveState {
    */
   seq: Record<string, number>;
   /**
-   * The newest event id at which a finished run was dropped from `finished` (too many, or too old). An answer built
-   * before it could be listing exactly that run, so such an answer introduces no run.
+   * The ids of the runs seen to end, for the life of the page (a few short strings). A late answer or event that
+   * still shows such a run is ignored, however long ago the end was and whatever `finished` has dropped since. Only
+   * an end that was inferred (no `run.done` heard) gives way to a newer sign of life.
    */
-  forgotten: number;
+  ended: Record<string, true>;
+  /** The id of the newest stream event seen. A `resync` below it means the server's ids restarted (see `resetOrdering`). */
+  lastId: number;
   /**
    * How recent runs ended, by run id: the `run.done` numbers (`changed`, `scanned`, `error`) that the last progress
    * event does not have (the server throttles those to one per 500 ms). Bounded and short lived.
@@ -70,7 +73,8 @@ export const initialLive: LiveState = {
   pendingIds: {},
   runs: {},
   seq: {},
-  forgotten: 0,
+  ended: {},
+  lastId: 0,
   finished: {},
   transport: "connecting",
 };
@@ -87,10 +91,9 @@ export function eventSeq(v: string | number | undefined | null): number {
 }
 
 /**
- * Take a run out of `runs` and remember it as finished at event id `seq`. The one way a run leaves the live state, so
- * a late answer that still lists it can be told it is over. Only the newest FINISHED_KEEP_MAX results younger than
- * FINISHED_KEEP_MS are kept; the id of a dropped one raises `forgotten`, so forgetting a run never lets an answer
- * built before it ended bring the run back.
+ * Take a run out of `runs` and remember it as finished at event id `seq`. The one way a run leaves the live state.
+ * `ended` remembers that it ended, so a late answer that still lists it cannot bring it back. `finished` only holds
+ * the results for display: the newest FINISHED_KEEP_MAX younger than FINISHED_KEEP_MS.
  */
 function markFinished(s: LiveState, id: string, done: Omit<FinishedRun, "at" | "seq">, seq: number): LiveState {
   const { [id]: _gone, ...rest } = s.runs;
@@ -98,26 +101,43 @@ function markFinished(s: LiveState, id: string, done: Omit<FinishedRun, "at" | "
   const now = Date.now();
   const others = Object.entries(s.finished).filter(([k]) => k !== id).sort((a, b) => b[1].at - a[1].at || b[1].seq - a[1].seq); // newest first (a tie on the clock goes to the later event id)
   const kept = others.filter(([, f], i) => now - f.at < FINISHED_KEEP_MS && i < FINISHED_KEEP_MAX - 1);
-  const dropped = others.filter((e) => !kept.includes(e));
   return {
     ...s,
     runs: rest,
     seq: restSeq,
-    forgotten: dropped.reduce((m, [, f]) => Math.max(m, f.seq), s.forgotten),
+    ended: { ...s.ended, [id]: true },
     finished: { ...Object.fromEntries(kept), [id]: { ...done, seq, at: now } },
   };
 }
 
 /** Whether an event or answer at `at` may show run `id`: not once it ended, unless that was only inferred and `at` is newer. */
 function mayShow(s: LiveState, id: string, at: number): boolean {
+  if (!s.ended[id]) return true;
   const f = s.finished[id];
-  return !f || (!!f.inferred && at > f.seq);
+  return !!f?.inferred && at > f.seq;
 }
 
 /** Show `run` as active at `at` (the id of the event or answer it is from), forgetting an inferred end. */
 function showRun(s: LiveState, id: string, run: RunStatus, at: number): LiveState {
   const { [id]: _inferred, ...finished } = s.finished;
-  return { ...s, runs: { ...s.runs, [id]: run }, seq: { ...s.seq, [id]: Math.max(at, s.seq[id] ?? 0) }, finished: s.finished[id] ? finished : s.finished };
+  const { [id]: _ended, ...ended } = s.ended;
+  return {
+    ...s,
+    runs: { ...s.runs, [id]: run },
+    seq: { ...s.seq, [id]: Math.max(at, s.seq[id] ?? 0) },
+    finished: s.finished[id] ? finished : s.finished,
+    ended: s.ended[id] ? ended : s.ended,
+  };
+}
+
+/**
+ * The server's event ids restarted (it was restarted with its clock stepped back): every id kept for ordering is
+ * from the old numbering and would hold back or let through the wrong things. Forget them. The `resync` that says so
+ * also refetches the bootstrap, which describes the runs now.
+ */
+function resetOrdering(s: LiveState, lastId: number): LiveState {
+  const finished = Object.fromEntries(Object.entries(s.finished).map(([k, f]) => [k, { ...f, seq: 0 }]));
+  return { ...s, seq: {}, ended: {}, finished, lastId };
 }
 
 /**
@@ -126,6 +146,11 @@ function showRun(s: LiveState, id: string, run: RunStatus, at: number): LiveStat
  */
 export function reduceEvent(s: LiveState, ev: ServerEvent, id?: number): LiveState {
   const at = id ?? 0;
+  if (ev.type === "resync" && at > 0 && at < s.lastId) return reduceRun(resetOrdering(s, at), ev, at);
+  return reduceRun(at > s.lastId ? { ...s, lastId: at } : s, ev, at);
+}
+
+function reduceRun(s: LiveState, ev: ServerEvent, at: number): LiveState {
   switch (ev.type) {
     case "run.start": {
       const run = String(ev.data.run_id);
@@ -412,11 +437,11 @@ export function pollInterval(active: boolean): number {
  * before it looked, so `asOf` says exactly what the answer knows. Every run has a `seq` of its own (the id of the
  * last event or answer about it), and then:
  *  - a run that ended stays ended (an inferred end gives way to an answer or event that is newer than the inference);
- *  - a run the live state does not know is introduced, unless `asOf` is older than `forgotten` (the answer could
- *    be listing a run whose end was dropped from `finished`);
+ *  - a run the live state does not know is introduced (the `ended` set has every run seen to end);
  *  - a `complete` answer (the status poll lists every active run) updates a known run that it is at least as new
  *    as, and ends a known run it lacks, if the answer is at least as new as the run's state. A run that started or
- *    moved after the answer was built is the stream's to describe.
+ *    moved after the answer was built is the stream's to describe. An answer without a usable `event_id` (the server
+ *    could not look at its runs) ends nothing.
  * A run ended by absence has no `run.done` numbers: it is `inferred`, and says so. Returns the ids it ended.
  */
 function applyAnswer(runs: RunStatus[], asOf: number, complete: boolean): string[] {
@@ -430,12 +455,13 @@ function applyAnswer(runs: RunStatus[], asOf: number, complete: boolean): string
       const known = s.runs[id];
       if (!mayShow(s, id, asOf)) continue;
       if (known) {
-        if (complete && asOf >= (s.seq[id] ?? 0)) next = showRun(next, id, { ...r, id }, asOf);
-      } else if (s.finished[id] || asOf >= s.forgotten) {
+        if (complete && asOf > 0 && asOf >= (s.seq[id] ?? 0)) next = showRun(next, id, { ...r, id }, asOf);
+      } else {
         next = showRun(next, id, { ...r, id }, asOf); // (an inferred end that this answer is newer than, or an unknown run)
       }
     }
-    if (complete) {
+    // An answer with no usable event id (the server could not order it) ends nothing.
+    if (complete && asOf > 0) {
       for (const [id, known] of Object.entries(s.runs)) {
         if (listed.has(id) || asOf < (s.seq[id] ?? 0)) continue;
         ended.push(id);

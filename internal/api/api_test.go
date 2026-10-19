@@ -51,6 +51,11 @@ type fakeSched struct {
 	wakes        int
 	down         chan struct{}
 	holds        map[string]time.Time
+
+	// What a test sets to act inside the call, as the real scheduler would: onStatus publishes while Status looks and
+	// says whether the dispatcher answered; onRun publishes a run's run.start inside RefreshAll and StartImport.
+	onStatus func() bool
+	onRun    func()
 }
 
 func (f *fakeSched) Submit(p sched.Priority) (<-chan sched.Reply, error) {
@@ -100,6 +105,9 @@ func (f *fakeSched) RefreshAll() (sched.RunInfo, error) {
 	if f.refreshErr != nil {
 		return sched.RunInfo{}, f.refreshErr
 	}
+	if f.onRun != nil {
+		f.onRun()
+	}
 	return sched.RunInfo{RunID: 42, Kind: "manual", Total: 3}, nil
 }
 
@@ -107,11 +115,17 @@ func (f *fakeSched) StartImport(ids []int64) (sched.RunInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.imported = append(f.imported, ids)
+	if f.onRun != nil {
+		f.onRun()
+	}
 	return sched.RunInfo{RunID: 43, Kind: "import", Total: len(ids)}, nil
 }
 
-func (f *fakeSched) Status() ([]sched.RunStatus, int) {
-	return []sched.RunStatus{{ID: 42, Kind: "manual", Done: 1, Total: 3}}, 2
+func (f *fakeSched) Status() ([]sched.RunStatus, int, bool) {
+	if f.onStatus != nil && !f.onStatus() {
+		return []sched.RunStatus{}, 0, false
+	}
+	return []sched.RunStatus{{ID: 42, Kind: "manual", Done: 1, Total: 3}}, 2, true
 }
 
 func (f *fakeSched) HostHolds() map[string]time.Time {
