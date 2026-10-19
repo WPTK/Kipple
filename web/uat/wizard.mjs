@@ -148,7 +148,8 @@ try {
     const page = await ctx.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
-    page.on("console", (m) => m.type() === "error" && !/status of 40[134]|status of 429/.test(m.text()) && errors.push(m.text()));
+    // A 401 is not waived: a signed-out launch asks /api/instance first and sends nothing that answers 401 (issue #465).
+    page.on("console", (m) => m.type() === "error" && !/status of 40[34]|status of 429/.test(m.text()) && errors.push(m.text()));
 
     // While there is no account, the rest of the API refuses; a second browser looks on.
     const stranger = await browser.newContext();

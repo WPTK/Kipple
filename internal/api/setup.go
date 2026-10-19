@@ -46,6 +46,8 @@ func (s *Server) setupGone(w http.ResponseWriter) bool {
 // Cloudflare Access sign-in works here, and whether open mode would (reason is
 // the open gate's answer as things are, null when it would let this browser in),
 // and where this browser's restore stands (the states of GET /api/setup/restore).
+// signed_in says whether this request carries a live session. The app asks this first, so a browser that is signed
+// out learns it from a 200 and never sends the request that would answer 401.
 func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 	if s.opt.Setup.Pending() {
 		restore := backup.RestoreNone
@@ -60,7 +62,7 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 			return reason
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"setup": true, "auth": nil,
+			"setup": true, "auth": nil, "signed_in": false,
 			"access": map[string]bool{
 				"enabled":  s.reach.Access() != nil,
 				"verified": s.reach.Access() != nil && s.accessProof(r) == proofOK,
@@ -81,7 +83,12 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		authMode = setup.DisplayMode(acct)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"setup": false, "auth": authMode})
+	in, err := s.sessionOK(w, r)
+	if err != nil {
+		s.serverError(w, "instance", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"setup": false, "auth": authMode, "signed_in": in})
 }
 
 // setupAccount is POST /api/setup/account: creates the one account, if there is

@@ -135,6 +135,7 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 	require.Contains(t, rec.Header().Get("Cache-Control"), "no-store")
 	st := decode(t, rec)
 	require.Equal(t, true, st["setup"])
+	require.Equal(t, false, st["signed_in"])
 	require.Nil(t, st["auth"])
 	require.Equal(t, map[string]any{"enabled": false, "verified": false}, st["access"])
 	require.Equal(t, map[string]any{"reason": nil}, st["open"])
@@ -162,7 +163,8 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 	rec = h.createAccount(map[string]any{"username": "other", "password": setupPass})
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	require.JSONEq(t, `{"error":"not_found"}`, rec.Body.String())
-	require.JSONEq(t, `{"setup":false,"auth":"password"}`, h.req("GET", "/api/instance", "").Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":false}`, h.req("GET", "/api/instance", "").Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":true}`, h.req("GET", "/api/instance", "", withCookies(sess)).Body.String())
 
 	// The session is a normal one, and onboarding is pending until finished.
 	me := decode(t, h.req("GET", "/api/auth/me", "", withCookies(sess)))
@@ -224,7 +226,7 @@ func TestSetupRoutesAbsentWithAccount(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, rec.Code, p[1])
 	}
 	rec := h.do("GET", "/api/instance", "")
-	require.JSONEq(t, `{"setup":false,"auth":"password"}`, rec.Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":false}`, rec.Body.String())
 }
 
 func TestSetupAccountValidation(t *testing.T) {
@@ -410,7 +412,7 @@ func TestSetupOpenMode(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	require.JSONEq(t, `{"username":"reader","auth_mode":"open"}`, rec.Body.String())
 	first := cookieNamed(rec, cookieName)
-	require.JSONEq(t, `{"setup":false,"auth":"open"}`, h.req("GET", "/api/instance", "").Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"open","signed_in":false}`, h.req("GET", "/api/instance", "").Body.String())
 
 	// A stale login form gets 409, not a failed sign-in.
 	b, _ := json.Marshal(map[string]string{"username": "reader", "password": "anything"})
@@ -695,7 +697,7 @@ func TestSetupEndsWhenTheRowExistsWhateverTheAnswer(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rec.Code)
 	require.Equal(t, "already_set_up", decode(t, rec)["error"])
 	require.False(t, h.mgr.Pending())
-	require.JSONEq(t, `{"setup":false,"auth":"password"}`, h.req("GET", "/api/instance", "").Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":false}`, h.req("GET", "/api/instance", "").Body.String())
 	require.EqualValues(t, 1, h.started.Load(), "an account that appeared elsewhere still starts the background work")
 }
 

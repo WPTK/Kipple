@@ -794,3 +794,18 @@ func TestEventStreamRefusedWhenTheHubIsFull(t *testing.T) {
 		s.Close()
 	}
 }
+
+// A signed-out browser learns it is signed out from a 200, so the app never sends the request that answers 401
+// (the 401 is logged to the console by the browser itself).
+func TestInstanceSaysWhetherTheRequestIsSignedIn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	signedIn := func(opts ...func(*http.Request)) any {
+		rec := h.do("GET", "/api/instance", "", opts...)
+		require.Equal(t, http.StatusOK, rec.Code)
+		return decode(t, rec)["signed_in"]
+	}
+	require.Equal(t, false, signedIn(), "no cookie")
+	require.Equal(t, false, signedIn(withCookie(&http.Cookie{Name: cookieName, Value: "forged"})), "a cookie the server does not know")
+	require.Equal(t, true, signedIn(withCookie(h.login())))
+}

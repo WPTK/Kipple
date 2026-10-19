@@ -19,7 +19,10 @@ export interface SetupOptions {
 }
 
 /** GET /api/instance: the one fact the signed-out app needs to pick its first screen. */
-export type InstanceInfo = ({ setup: true; auth: null } & SetupOptions) | { setup: false; auth: null | "password" | "access" | "open" };
+export type InstanceInfo = (({ setup: true; auth: null } & SetupOptions) | { setup: false; auth: null | "password" | "access" | "open" }) & {
+  /** Whether this request carries a live session. */
+  signed_in: boolean;
+};
 
 export type Passwordless = "access" | "open";
 

@@ -68,8 +68,12 @@ type Handler = (url: URL, init: RequestInit | undefined) => Response | Promise<R
 export const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } });
 
-/** Route table keyed "METHOD /path". Unmatched requests fail the test loudly. */
+/**
+ * Route table keyed "METHOD /path". Unmatched requests fail the test loudly. The app asks GET /api/instance first, to
+ * learn whether it is signed in; unless a test routes it, the answer is "signed in".
+ */
 export function mockFetch(routes: Record<string, Handler>) {
+  routes = { "GET /api/instance": () => json({ setup: false, auth: "password", signed_in: true }), ...routes };
   const calls: { method: string; url: URL; init?: RequestInit }[] = [];
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://127.0.0.1");

@@ -1,0 +1,1 @@
+Opening Kipple while signed out (the sign-in page or the setup wizard) no longer sends a request that answers 401, so the browser console stays clean and Lighthouse best-practices no longer loses points for it. (#465)
