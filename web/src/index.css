@@ -173,7 +173,7 @@ body {
    text (#513). It is ::after because the hit area and focus ring above are ::before. Zero-size inline text, not an absolutely
    positioned clip: a blockified pseudo gets a space before it in the name ("Title , unread"). */
 .row-link[data-row-unread]::after {
-  content: ", unread";
+  content: ", " attr(data-row-unread);
   font-size: 0;
   line-height: 0;
 }

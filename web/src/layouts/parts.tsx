@@ -198,6 +198,18 @@ export function RowMenu({
   );
 }
 
+/**
+ * The word an unread row adds to its link's accessible name. It is the value of data-row-unread, and index.css draws it
+ * as generated text after the title (`content: ", " attr(data-row-unread)`), so the word lives only here: a link named
+ * by its content has no aria-label to compare with the visible text (issue #513, web/uat/row-name.mjs).
+ */
+export const UNREAD_WORD = "unread";
+
+/** What every layout's row link takes: the row-link class (the whole row is its hit area), any layout classes, and the unread flag. */
+export function rowLinkProps(item: Card, className = ""): { className: string; "data-row-unread": string | undefined } {
+  return { className: className ? `row-link ${className}` : "row-link", "data-row-unread": item.read ? undefined : UNREAD_WORD };
+}
+
 /** A row control's name: the action, then the article it acts on, so a list of buttons or a voice command can tell rows apart. */
 export const rowControlName = (action: string, item: Card): string => `${action}: ${item.title || "Untitled"}`;
 

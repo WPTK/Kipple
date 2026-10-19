@@ -132,12 +132,9 @@ describe("Gazette pages", () => {
     expect(domOrder(container)).toEqual(planOrder(p));
   });
 
-  it("names unread stories as unread", () => {
+  it("draws an unread story's headline in the primary text color", () => {
     const { container } = draw(cards, p);
     const unread = container.querySelector(`article[data-item-id="${cards[0]!.id}"]`)!;
-    const link = within(unread as HTMLElement).getByRole("link");
-    expect(link.getAttribute("aria-label")).toBeNull(); // the name is the content, so axe never compares a label with the visible text (#513)
-    expect(link.hasAttribute("data-row-unread")).toBe(true); // index.css turns it into ", unread" after the title; checked in a browser by uat/row-name.mjs
     expect(unread.querySelector("h3")!.classList).toContain("text-fg");
   });
 

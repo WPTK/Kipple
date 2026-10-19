@@ -53,7 +53,8 @@ async function setLayout(page, label) {
   if (await page.getByRole("menu").isVisible().catch(() => false)) await page.keyboard.press("Escape");
 }
 
-await t.eachViewport(async (page, vp) => {
+try {
+  await t.eachViewport(async (page, vp) => {
   await step(`${vp.id} N`, async () => {
     const added = await t.addLocalFeed(page, `${base}/feed.xml`, "UAT feed row name", (items) => items.length >= 2);
     if (added.error) return t.fail(`${vp.id} N setup`, added.error);
@@ -79,18 +80,30 @@ await t.eachViewport(async (page, vp) => {
         check(bad.length === 0, `${tag} N1 axe`, "no row link has a label that disagrees with its visible text", `${bad.length} link(s): ${bad.join(" | ")}`);
 
         const nameOf = async (link) => ((await link.ariaSnapshot()).match(/- '?link "((?:[^"\\]|\\.)*)"/) ?? [])[1]?.replace(/\\"/g, '"');
+        // The word is the flag's value (src/layouts/parts.tsx sets it, index.css draws it): read it from the page, so the
+        // flow and the app cannot drift.
+        const word = await unread.getAttribute("data-row-unread");
+        check(!!word, `${tag} N2 flag`, "an unread row's link carries the word that names it", `data-row-unread is ${JSON.stringify(word)}`);
+        check((await readLink.getAttribute("data-row-unread")) === null, `${tag} N2 read flag`, "a read row's link carries none", "a read row is flagged");
         const [un, rd] = [await nameOf(unread), await nameOf(readLink)];
-        check(un === `${UNREAD}, unread`, `${tag} N2 unread name`, "an unread row's link is named the title, then unread", `named ${JSON.stringify(un)}`);
+        check(un === `${UNREAD}, ${word}`, `${tag} N2 unread name`, "an unread row's link is named the title, then unread", `named ${JSON.stringify(un)}`);
         check(rd === READ, `${tag} N2 read name`, "a read row's link is named the title alone", `named ${JSON.stringify(rd)}`);
         const text = await unread.evaluate((a) => a.textContent);
         check(text === UNREAD, `${tag} N2 text`, "the link's text is the title alone", `text ${JSON.stringify(text)}`);
 
         const over = await page.evaluate(() => document.scrollingElement.scrollWidth - window.innerWidth);
         check(over <= 0, `${tag} N3 width`, "nothing scrolls sideways", `the page is ${over}px wider than the window`);
+        // For a person to look at (--screenshots): the unread row with its keyboard focus ring.
+        await unread.focus();
+        await page.keyboard.press("ArrowDown");
+        await page.keyboard.press("ArrowUp");
+        await t.shot(page, tag.replace(/ /g, "-"));
       }
     }
   });
 });
 
-server.close();
+} finally {
+  server.close();
+}
 await t.finish("row name");

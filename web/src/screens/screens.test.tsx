@@ -99,9 +99,8 @@ describe("Unread list (Magazine)", () => {
     expect(screen.getByRole("main")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
     expect(screen.getByText("Today")).toBeInTheDocument();
-    // Unread rows carry the flag that index.css turns into ", unread" after the title (a browser check: uat/row-name.mjs); read rows do not.
-    expect(screen.getByRole("link", { name: /^Article number 1/ })).toHaveAttribute("data-row-unread");
-    expect(screen.getByRole("link", { name: /^Article number 2/ })).not.toHaveAttribute("data-row-unread");
+    expect(screen.getByRole("link", { name: /^Article number 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Article number 2/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Star: Article number 3/ })).toHaveAttribute("aria-pressed", "true");
     expect(await axe(container)).toHaveNoViolations();
   });
