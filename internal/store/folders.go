@@ -590,7 +590,7 @@ func (d *DB) DeleteFolder(ctx context.Context, id int64) (moved []int64, err err
 			return err
 		}
 		if moved, err = queryIDs(ctx, tx, "UPDATE feeds SET folder_id = 1, updated_at = unixepoch() WHERE folder_id IN ("+
-			folderTreeSQL("?")+") RETURNING id", id); err != nil {
+			folderTreeSQL("?")+") AND url NOT LIKE '"+deletingURLPrefix+"%' RETURNING id", id); err != nil {
 			return err
 		}
 		for _, fid := range tree {

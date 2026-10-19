@@ -13,7 +13,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/WPTK/kipple/internal/discover"
-	"github.com/WPTK/kipple/internal/events"
 	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/sched"
@@ -1413,12 +1412,17 @@ func (s *Server) deleteFeeds(w http.ResponseWriter, r *http.Request) {
 			if _, err := s.db.FinishFeedDeletes(ctx, marked, body.DeleteStarred); err != nil && ctx.Err() == nil {
 				s.log.Warn("finishing a bulk feed delete", "err", err)
 			}
-			s.announceFeedsChanged(marked)
 			s.noteCounts()
 		}()
+	} else if len(marked) > 0 {
+		s.log.Warn("api: bulk feed delete: shutting down, the purge of the marked feeds finishes at the next start", "feeds", len(marked))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": len(marked)})
 }
+
+// bulkAnnounceMax is the most feeds announced one event each: a client's event buffer holds 64 (events.subBuffer), so
+// a larger set is one resync instead.
+const bulkAnnounceMax = 32
 
 // announceFeedsChanged tells every client that the feeds in ids changed: one event each, or a single resync for a set
 // larger than the hub's batch (the clients refetch anyway, and a burst would overflow their buffers).
@@ -1426,7 +1430,7 @@ func (s *Server) announceFeedsChanged(ids []int64) {
 	if s.opt.Hub == nil {
 		return
 	}
-	if len(ids) > events.MaxStateIDs {
+	if len(ids) > bulkAnnounceMax {
 		s.opt.Hub.Publish("resync", map[string]any{})
 		return
 	}

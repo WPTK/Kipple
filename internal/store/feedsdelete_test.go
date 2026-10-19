@@ -102,3 +102,20 @@ func TestDeleteFeedsKeepsTheArchiveThatTheSetFilled(t *testing.T) {
 	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE feed_id = ? AND starred = 1", arch))
 	require.Zero(t, e.count("SELECT count(*) FROM feeds WHERE url LIKE 'kipple:deleting:%'"), "nothing is left marked")
 }
+
+// Deleting a folder while its feeds are still being purged leaves the marked feeds where they are: moving each to the
+// default folder would write and announce every one of them for nothing.
+func TestDeleteFolderLeavesMarkedFeedsAlone(t *testing.T) {
+	e := newEnv(t)
+	fo, err := e.db.CreateFolder(e.ctx, "Gone", 0, 0)
+	require.NoError(t, err)
+	a := e.loadFeed("http://a.example/feed", 2)
+	b := e.loadFeed("http://b.example/feed", 2)
+	e.exec("UPDATE feeds SET folder_id = ? WHERE id IN (?, ?)", fo.ID, a, b)
+	_, err = e.db.MarkFeedsDeleting(e.ctx, []int64{a}, false)
+	require.NoError(t, err)
+
+	moved, err := e.db.DeleteFolder(e.ctx, fo.ID)
+	require.NoError(t, err)
+	require.Equal(t, []int64{b}, moved, "only the feed that is not being deleted moves")
+}
