@@ -60,7 +60,6 @@ export const createAccount = (body: AccountBody) => api<{ username: string; auth
 /** Open-mode sign-in. */
 export const signInOpen = () => api("/api/auth/open", { method: "POST", anon: true, signsIn: true });
 export const completeOnboarding = () => api("/api/onboarding/complete", { method: "POST" });
-export const restartOnboarding = () => api("/api/onboarding/restart", { method: "POST" });
 export const fetchStarterFeeds = (signal?: AbortSignal) => api<StarterList>("/api/starter-feeds", { signal });
 export const subscribeStarter = (ids: string[], folders: boolean) =>
   api<{ added: number; existing: number; run_id: string | null }>("/api/starter-feeds", { method: "POST", body: { ids, folders } });

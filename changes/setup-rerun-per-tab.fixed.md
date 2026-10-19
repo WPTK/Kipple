@@ -1,0 +1,1 @@
+The "Run setup again" button in Settings now opens the setup steps in that browser only and tells the server nothing, so no other device is sent to them and nobody is locked out of the app until the steps are finished; the time zone list also finds a zone by its current name when the browser lists it under an old one (Kolkata for Calcutta, Kyiv for Kiev). (#489, #488)

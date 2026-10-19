@@ -81,21 +81,28 @@ export function revertUnsavedTheme(): void {
 }
 
 const RERUN_KEY = "kipple.setup.rerun";
-/** "Run setup again" was used: the saved time zone is the person's choice, not a default to replace. */
-export function markRerun(): void {
-  try {
-    sessionStorage.setItem(RERUN_KEY, "1");
-  } catch {
-    /* no session storage: the step then treats a saved UTC as unchosen */
-  }
-}
-export function isRerun(): boolean {
+const readRerun = (): boolean => {
   try {
     return sessionStorage.getItem(RERUN_KEY) === "1";
   } catch {
     return false;
   }
+};
+/**
+ * The steps were opened again with "Run setup again" (or the recommended feeds) in this tab: the saved time zone is the
+ * person's choice, not a default to replace, and the wizard stays open although the server says setup is finished. The
+ * server is not told, so no other device is sent to the steps. Kept for the tab, so a reload resumes.
+ */
+export const rerunStore = createStore<boolean>(readRerun());
+export function markRerun(): void {
+  try {
+    sessionStorage.setItem(RERUN_KEY, "1");
+  } catch {
+    /* no session storage: the rerun then lasts until this page is reloaded */
+  }
+  rerunStore.set(true);
 }
+export const isRerun = (): boolean => rerunStore.get();
 
 let welcomeTarget: StepId | null = null;
 /** Where the app sends an account with setup pending: the first step, or the one "Run setup again" was asked to open. */
@@ -120,4 +127,5 @@ export function forgetWizardMemory(): void {
   } catch {
     /* nothing to remove */
   }
+  rerunStore.set(false);
 }

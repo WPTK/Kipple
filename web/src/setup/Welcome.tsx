@@ -4,7 +4,8 @@ import { useBootstrap } from "@/api/queries";
 import { announce, LiveRegion, toast, Toasts } from "@/shell/toasts";
 import { errorMessage } from "@/api/client";
 import { useSetupActions } from "./actions";
-import { forgetWizardMemory, revertUnsavedTheme } from "./session";
+import { useStore } from "@/lib/store";
+import { forgetWizardMemory, rerunStore, revertUnsavedTheme } from "./session";
 import { AddressStep } from "./AddressStep";
 import { FeedsStep } from "./FeedsStep";
 import { FinishStep } from "./FinishStep";
@@ -27,7 +28,8 @@ export function Welcome() {
   const [ending, setEnding] = useState(false);
   const endingNow = useRef(false);
 
-  const over = boot.data !== undefined && boot.data.user.setup_pending !== true;
+  const rerun = useStore(rerunStore);
+  const over = boot.data !== undefined && boot.data.user.setup_pending !== true && !rerun;
   // Setup ended somewhere else (another tab or device, or Skip here): drop what this page kept for it, the password
   // typed in step 1 above all, and put a previewed theme back.
   useEffect(() => {
@@ -38,7 +40,7 @@ export function Welcome() {
   }, [over]);
 
   // Nothing pending (finished already, or a bookmark): the reader.
-  if (boot.data && boot.data.user.setup_pending !== true) return <Navigate to="/l/unread" replace state={{ arrival: true }} />;
+  if (over) return <Navigate to="/l/unread" replace state={{ arrival: true }} />;
   const redirect = welcomeGuard(segment);
   if (redirect) return <Navigate to={redirect} replace />;
   const id = segment as StepId;

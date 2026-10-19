@@ -170,9 +170,7 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 	require.Equal(t, true, me["setup_pending"])
 	require.Equal(t, http.StatusNoContent, h.req("POST", "/api/onboarding/complete", "", withCookies(sess)).Code)
 	require.Equal(t, false, decode(t, h.req("GET", "/api/auth/me", "", withCookies(sess)))["setup_pending"])
-	require.Equal(t, http.StatusNoContent, h.req("POST", "/api/onboarding/restart", "", withCookies(sess)).Code)
-	require.Equal(t, true, decode(t, h.req("GET", "/api/auth/me", "", withCookies(sess)))["setup_pending"])
-	require.Equal(t, http.StatusUnauthorized, h.req("POST", "/api/onboarding/restart", "").Code)
+	require.Equal(t, http.StatusUnauthorized, h.req("POST", "/api/onboarding/complete", "").Code)
 	require.Equal(t, http.StatusForbidden, h.req("POST", "/api/onboarding/complete", "", withCookies(sess), hdr("Sec-Fetch-Site", "cross-site")).Code)
 
 	// And the password signs in.
@@ -549,7 +547,7 @@ func TestNoCORSHeadersAnywhere(t *testing.T) {
 	routes := [][2]string{
 		{"GET", "/api/instance"}, {"POST", "/api/setup/account"},
 		{"POST", "/api/auth/open"}, {"POST", "/api/auth/login"}, {"GET", "/api/auth/me"}, {"GET", "/api/bootstrap"},
-		{"POST", "/api/onboarding/complete"}, {"POST", "/api/onboarding/restart"}, {"GET", "/api/starter-feeds"},
+		{"POST", "/api/onboarding/complete"}, {"GET", "/api/starter-feeds"},
 		{"POST", "/api/starter-feeds"}, {"GET", "/api/settings"}, {"PATCH", "/api/settings"}, {"POST", "/api/account/password"},
 		{"GET", "/healthz"}, {"GET", "/"}, {"OPTIONS", "/api/setup/account"}, {"OPTIONS", "/api/auth/open"},
 	}

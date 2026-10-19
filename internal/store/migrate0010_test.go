@@ -183,16 +183,13 @@ func TestRemovedOpenLANRowIsIgnored(t *testing.T) {
 	require.NotContains(t, merged, "security.open_lan")
 }
 
-// Onboarding restart clears the stamp and nothing else; complete is idempotent.
+// A new account is pending setup until complete stamps it; complete is idempotent.
 func TestOnboardingStamp(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	ctx := context.Background()
 	_, err := e.db.CreateAccount(ctx, Account{Username: "owner", PasswordHash: "h", Secret: fixtureKey})
 	require.NoError(t, err)
-	before := e.count("SELECT count(*) FROM settings")
-	require.NoError(t, e.db.RestartOnboarding(ctx))
-	require.Equal(t, before-1, e.count("SELECT count(*) FROM settings"))
 	p, _ := e.db.SetupPending(ctx)
 	require.True(t, p)
 	require.NoError(t, e.db.CompleteOnboarding(ctx))
