@@ -2,7 +2,7 @@
 
 ## Quick start
 
-1. Install Docker with Compose 2.24 or newer.
+1. Install Docker with Compose.
 2. Download [`docker-compose.pull.example.yml`](../docker-compose.pull.example.yml), save it as `docker-compose.yml`,
    set the image tag to the newest version on the [releases page](https://github.com/WPTK/Kipple/releases), and run
    `docker compose up -d kipple`.
@@ -58,8 +58,8 @@ Something not working? See [troubleshooting.md](troubleshooting.md). Behind HTTP
 
 ## System requirements
 
-- A machine that runs Docker and Docker Compose 2.24 or newer (older Compose needs an empty `.env`; see
-  `docker-compose.example.yml`), on `linux/amd64` or `linux/arm64`. Building from source needs Docker and Git only.
+- A machine that runs Docker and Docker Compose, on `linux/amd64` or `linux/arm64`. Building from source needs Docker
+  (with Compose 2.24 or newer) and Git only.
 - Memory: Kipple is designed to stay under 100 MB resident, and the example compose file caps the container at 256 MB
   (`mem_limit: 256m`, with `GOMEMLIMIT=64MiB`).
 - Disk, on the volume that holds `/data`: the database, the nightly snapshot (about one more copy of the database), the
