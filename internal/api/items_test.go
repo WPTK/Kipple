@@ -1071,12 +1071,12 @@ func TestBootstrap(t *testing.T) {
 	require.Len(t, feeds, 2)
 	fa, fb := feeds[0].(map[string]any), feeds[1].(map[string]any)
 	require.Equal(t, map[string]any{
-		"id": sid(a), "folder_id": "1", "title": "A", "site_url": "https://x.example/", "url": "https://a.example/feed", "icon": "/api/feeds/" + sid(a) + "/icon?h=abc123",
-		"unread": float64(1), "status": "ok", "fulltext": false, "fulltext_effective": false, "retention": nil, "interval_minutes": nil, "auto_read_days": nil, "is_archive": false, "starred_count": float64(1), "last_error": nil,
+		"id": sid(a), "folder_id": "1", "title": "A", "site_url": "https://x.example/", "icon": "/api/feeds/" + sid(a) + "/icon?h=abc123",
+		"unread": float64(1), "status": "ok", "fulltext": false, "fulltext_effective": false, "retention": nil, "interval_minutes": nil, "auto_read_days": nil, "is_archive": false, "starred_count": float64(1), "last_error": nil, "address_hint": nil,
 	}, fa)
 	require.Equal(t, map[string]any{
-		"id": sid(b), "folder_id": sid(fo), "title": "Bee", "site_url": "https://x.example/", "url": "https://b.example/feed", "icon": nil,
-		"unread": float64(2), "status": "erroring", "fulltext": true, "fulltext_effective": true, "retention": float64(100), "interval_minutes": float64(60), "auto_read_days": nil, "is_archive": false, "starred_count": float64(0), "last_error": "HTTP 503",
+		"id": sid(b), "folder_id": sid(fo), "title": "Bee", "site_url": "https://x.example/", "icon": nil,
+		"unread": float64(2), "status": "erroring", "fulltext": true, "fulltext_effective": true, "retention": float64(100), "interval_minutes": float64(60), "auto_read_days": nil, "is_archive": false, "starred_count": float64(0), "last_error": "HTTP 503", "address_hint": nil,
 	}, fb)
 
 	require.Equal(t, []any{map[string]any{"id": "42", "kind": "manual", "done": float64(1), "total": float64(3), "new_items": float64(0), "errors": float64(0)}}, body["runs"])

@@ -14,6 +14,11 @@ export interface Reveal {
   more: (focus?: boolean) => void;
   /** Draw every row (End in a tree). */
   all: () => void;
+  /** Keep the row with this key drawn, with every row before it, once it is in the list and wherever it moves (a row
+   * just moved down a place or just created). */
+  ensure: (key: string) => void;
+  /** Whether the row with this key is in the list but not drawn yet (unlike a row in a collapsed folder). */
+  past: (key: string) => boolean;
 }
 
 /**
@@ -24,8 +29,12 @@ export interface Reveal {
  */
 export function useReveal(keys: readonly string[]): Reveal {
   const [limit, setLimit] = useState(() => (typeof IntersectionObserver === "function" ? REVEAL_STEP : Infinity));
+  const [kept, setKept] = useState<string | null>(null);
   const focusKey = useRef<string | null>(null);
-  const shownSet = useMemo(() => (limit >= keys.length ? null : new Set(keys.slice(0, limit))), [keys, limit]);
+  const index = useMemo(() => new Map(keys.map((k, i) => [k, i])), [keys]);
+  const keptAt = kept === null ? -1 : (index.get(kept) ?? -1);
+  const drawn = Math.max(limit, keptAt + 1);
+  const shownSet = useMemo(() => (drawn >= keys.length ? null : new Set(keys.slice(0, drawn))), [keys, drawn]);
   useLayoutEffect(() => {
     const k = focusKey.current;
     if (!k) return;
@@ -34,12 +43,14 @@ export function useReveal(keys: readonly string[]): Reveal {
   }, [limit]);
   return {
     shown: (key) => !shownSet || shownSet.has(key),
-    left: Math.max(0, keys.length - limit),
+    left: Math.max(0, keys.length - drawn),
     more: (focus) => {
-      if (focus) focusKey.current = keys[limit] ?? null;
-      setLimit((l) => l + REVEAL_STEP);
+      if (focus) focusKey.current = keys[drawn] ?? null;
+      setLimit(drawn + REVEAL_STEP);
     },
     all: () => setLimit(Infinity),
+    ensure: setKept,
+    past: (key) => (index.get(key) ?? -1) >= drawn,
   };
 }
 

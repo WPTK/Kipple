@@ -4,7 +4,7 @@
 //   npm run uat:feeds-scale            in another
 //   npm run uat:feeds-scale -- --url http://127.0.0.1:7091 --screenshots <dir> --browser webkit --headed
 //
-// The flow imports 340 feeds at dead addresses, two of them with the same title. For each width (desktop 1280x800,
+// The flow imports 340 feeds at dead addresses, two of them with the same title (the shared cleanup removes them). For each width (desktop 1280x800,
 // phone 375x812) it checks:
 //   L1  the Feeds screen opens with part of the library drawn and says how many feeds are not shown yet;
 //   L2  scrolling to the end of the list draws the rest;
@@ -77,9 +77,15 @@ await t.eachViewport(async (page, vp) => {
   });
 
   await step(`${tag} L4`, async () => {
-    const def = (await t.boot(page)).folders.find((f) => f.is_default);
+    const b = await t.boot(page);
+    const def = b.folders.find((f) => f.is_default);
     const name = def?.name ?? "Uncategorized";
     const row = main.getByRole("link", { name: new RegExp(`^${name}\\b`) });
+    if (b.feeds.some((f) => f.folder_id === def?.id)) {
+      // An earlier flow left a feed there: the folder is shown, and there is no empty state to check.
+      check((await row.count()) > 0, `${tag} L4`, `"${name}" holds a feed and is shown`, `"${name}" holds a feed but is not shown`);
+      return;
+    }
     const hidden = (await row.count()) === 0;
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     const inEdit = await row.first().waitFor({ timeout: 5000 }).then(() => true, () => false);

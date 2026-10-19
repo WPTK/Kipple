@@ -166,8 +166,8 @@ function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void, revea
     // Focus moved somewhere else on purpose. (An item that is removed while focused blurs with no related target.)
     if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node)) hadFocus.current = false;
   };
-  /** The item that holds the tab stop: the last focused one while it is on screen, else the first. */
-  const tabStop = (visible: readonly string[]) => (active && visible.includes(active) ? active : (visible[0] ?? ""));
+  /** The item that holds the tab stop: the last focused one while it is on screen and drawn, else the first. */
+  const tabStop = (visible: readonly string[]) => (active && visible.includes(active) && (!reveal || reveal.shown(active)) ? active : (visible[0] ?? ""));
   return { ref, tabStop, onKeyDown, onFocus, onBlur };
 }
 

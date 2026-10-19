@@ -46,7 +46,6 @@ export const bootstrap: Bootstrap = {
       folder_id: "1",
       title: "Example Feed",
       site_url: "https://example.com",
-      url: "https://example.com/feed.xml",
       icon: null,
       unread: 3,
       status: "ok",

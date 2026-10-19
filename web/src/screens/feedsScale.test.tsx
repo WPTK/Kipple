@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App, { makeQueryClient } from "@/App";
@@ -7,8 +7,7 @@ import { DeleteDialog } from "./feeds/BulkActions";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
 import type { Bootstrap, Feed, Folder } from "@/api/types";
-import { sameTitleHints, shortAddress } from "@/lib/feedNames";
-import { REVEAL_STEP } from "@/lib/reveal";
+import { REVEAL_STEP, useReveal } from "@/lib/reveal";
 import { bootstrap, json, mockFetch, pageOf } from "@/test/mockApi";
 import { wide } from "@/test/media";
 
@@ -50,7 +49,6 @@ const feed = (n: number, over: Partial<Feed> = {}): Feed => ({
   id: String(n),
   folder_id: "2",
   title: `Feed ${n}`,
-  url: `https://feeds.example/${n}.xml`,
   unread: 0,
   ...over,
 });
@@ -118,17 +116,15 @@ describe("a long library", () => {
 
 describe("feeds that share a title", () => {
   it("show their address on the Feeds screen", async () => {
-    const same = [feed(1, { title: "Same title", url: "https://a.example/feed" }), feed(2, { title: "same title ", url: "https://b.example/rss/" }), feed(3)];
+    const same = [feed(1, { title: "Same title", address_hint: "a.example/feed" }), feed(2, { title: "same title ", address_hint: "b.example/rss" }), feed(3)];
     go("/feeds", same);
     const main = await screen.findByRole("main");
     expect(await within(main).findByRole("link", { name: /^Same title ?a\.example\/feed/ })).toBeInTheDocument();
     expect(within(main).getByRole("link", { name: /^same title ?b\.example\/rss/ })).toBeInTheDocument();
-    // A title nobody else has gets no address.
-    expect(within(main).getByRole("link", { name: /^Feed 3/ })).not.toHaveTextContent("feeds.example");
   });
 
   it("show their address in the delete confirmation", () => {
-    const same = [feed(1, { title: "Same title", url: "https://a.example/feed" }), feed(2, { title: "same title ", url: "https://b.example/rss/" }), feed(3)];
+    const same = [feed(1, { title: "Same title", address_hint: "a.example/feed" }), feed(2, { title: "same title ", address_hint: "b.example/rss" }), feed(3)];
     mockFetch({});
     render(
       <QueryClientProvider client={new QueryClient()}>
@@ -138,18 +134,32 @@ describe("feeds that share a title", () => {
     const list = screen.getByRole("list", { name: "Feeds to delete" });
     expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Same title (a.example/feed)", "same title  (b.example/rss)", "Feed 3"]);
   });
+});
 
-  it("are found by title, trimmed and in any case", () => {
-    expect(shortAddress("https://a.example/feed/")).toBe("a.example/feed");
-    const hints = sameTitleHints([
-      { id: "1", title: "News", url: "http://a.example/x" },
-      { id: "2", title: " news", url: "https://b.example/y" },
-      { id: "3", title: "Other", url: "https://c.example/z" },
-    ]);
-    expect([...hints]).toEqual([
-      ["1", "a.example/x"],
-      ["2", "b.example/y"],
-    ]);
+describe("the reveal budget", () => {
+  const keys = Array.from({ length: 2 * REVEAL_STEP + 10 }, (_, i) => `feed:${i}`);
+
+  it("keeps a row drawn that moved or was made past the drawn rows, and says which rows are past them", () => {
+    vi.stubGlobal("IntersectionObserver", HeldIO);
+    const { result, rerender } = renderHook(({ k }) => useReveal(k), { initialProps: { k: keys } });
+    const last = `feed:${REVEAL_STEP - 1}`;
+    expect(result.current.shown(last)).toBe(true);
+    expect(result.current.past(`feed:${REVEAL_STEP}`)).toBe(true);
+    expect(result.current.past("folder:collapsed")).toBe(false);
+
+    // The last drawn row moves down a place: it stays drawn.
+    act(() => result.current.ensure(last));
+    const moved = [...keys.slice(0, REVEAL_STEP - 1), `feed:${REVEAL_STEP}`, last, ...keys.slice(REVEAL_STEP + 1)];
+    rerender({ k: moved });
+    expect(result.current.shown(last)).toBe(true);
+    expect(result.current.left).toBe(keys.length - REVEAL_STEP - 1);
+
+    // A folder made at the end is drawn once the list has it.
+    act(() => result.current.ensure("folder:new"));
+    expect(result.current.left).toBe(keys.length - REVEAL_STEP);
+    rerender({ k: [...moved, "folder:new"] });
+    expect(result.current.shown("folder:new")).toBe(true);
+    expect(result.current.left).toBe(0);
   });
 });
 
