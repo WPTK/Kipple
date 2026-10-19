@@ -15,24 +15,24 @@ func FuzzCheckPassword(f *testing.F) {
 	}
 	f.Add("correct-horse", valid)
 	f.Add("x", "")
-	f.Add("x", "$argon2id$v=19$m=8,t=1,p=1$AAAA$AAAA")
-	f.Add("x", "$argon2id$v=19$m=1048577,t=1,p=1$AAAA$AAAA")
-	f.Add("x", "$argon2id$v=19$m=8,t=17,p=1$AAAA$AAAA")
-	f.Add("x", "$argon2id$v=19$m=8,t=1,p=0$AAAA$AAAA")
-	f.Add("x", "$argon2id$v=19$m=8,t=0,p=1$AAAA$AAAA")
-	f.Add("x", "$argon2id$v=19$m=8,t=1,p=255$AAAA$AAAA")
-	f.Add("x", "$argon2i$v=19$m=8,t=1,p=1$AAAA$AAAA")
-	f.Add("x", "$argon2id$v=18$m=8,t=1,p=1$AAAA$AAAA")
+	salt, tag := "AAAAAAAAAAAAAAAAAAAAAA", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	for _, cost := range []string{
+		"m=8,t=1,p=1", "m=1048577,t=1,p=1", "m=8,t=0,p=1", "m=8,t=17,p=1", "m=8,t=1,p=0", "m=8,t=1,p=255", "m=0,t=1,p=1",
+		"m=8,t=1,p=2A5", "m=+8,t=1,p=1",
+	} {
+		f.Add("x", "$argon2id$v=19$"+cost+"$"+salt+"$"+tag)
+	}
+	f.Add("x", "$argon2i$v=19$m=8,t=1,p=1$"+salt+"$"+tag)
+	f.Add("x", "$argon2id$v=18$m=8,t=1,p=1$"+salt+"$"+tag)
+	f.Add("x", "$argon2id$v=19junk$m=8,t=1,p=1$"+salt+"$"+tag)
+	f.Add("x", "0$argon2id$v=19$m=8,t=1,p=1$"+salt+"$"+tag)
 	f.Add("x", strings.Repeat("$", 40))
 	f.Fuzz(func(t *testing.T, pw, phc string) {
 		if len(pw) > 256 || len(phc) > 512 {
 			return
 		}
-		parts := strings.Split(phc, "$")
-		if len(parts) == 6 {
-			if m, tc, p, ok := parseCost(parts[3]); ok && (m > 4096 || tc > 3 || p > 4) {
-				return // a cost CheckPassword allows but a fuzz run cannot afford
-			}
+		if h, ok := parseHash(phc); ok && (h.memory > 4096 || h.time > 3) {
+			return // a cost CheckPassword allows but a fuzz run cannot afford
 		}
 		ok := CheckPassword(pw, phc)
 		if ok && phc != valid {
