@@ -69,8 +69,8 @@ function ImportProgress({ runId, total }: { runId: string; total: number }) {
   const run = useStoreSelector(liveStore, (s) => s.runs[runId]);
   const finished = useStoreSelector(liveStore, (s) => s.finished?.[runId]);
   // A run that was on screen and is gone without a result ended while the stream was down (the status poll dropped it).
-  const seen = useRef(false);
-  if (run) seen.current = true;
+  const [seen, setSeen] = useState(false);
+  if (run && !seen) setSeen(true);
   if (run) {
     return (
       <div className="flex flex-col gap-1 text-sm text-fg2">
@@ -90,7 +90,7 @@ function ImportProgress({ runId, total }: { runId: string; total: number }) {
       </p>
     );
   }
-  if (seen.current) return <p className="text-sm text-fg2">Kipple fetched the new feeds. A feed that can't be fetched says why on its row in Manage feeds.</p>;
+  if (seen) return <p className="text-sm text-fg2">Kipple fetched the new feeds. A feed that can't be fetched says why on its row in Manage feeds.</p>;
   return <p className="text-sm text-fg2">Kipple is fetching the new feeds now. A feed that can't be fetched says why on its row in Manage feeds.</p>;
 }
 
