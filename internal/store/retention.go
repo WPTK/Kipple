@@ -21,10 +21,8 @@ var trimBatch = 2000
 // (sort_at DESC, id DESC) real items and the newest muted ones under the muted allowance
 // (see mutedAllowance), tombstone everything else into trimmed_items (plus restore stubs when
 // restore_days > 0) and delete it. N comes from the feed override or retention.default; N = 0 skips.
-// neverShownFrom is the first id of the surrounding fetch commit's last chunk (MaxInt64 when
-// none): the items of that chunk were never listed, so unread ones trimmed at or past it are not
-// counted in trimmed_unread_count. Items of earlier chunks were committed, so visible, before the
-// trim ran, and are counted.
+// neverShownFrom is the first id the surrounding fetch commit never showed (MaxInt64 when none; see
+// commitState.neverShownFrom): unread items trimmed at or past it are not counted in trimmed_unread_count.
 //
 // At most limit items go per call, the oldest (sort_at ASC, id ASC) of the trim
 // set first, so the transaction stays short on a feed with a huge backlog.

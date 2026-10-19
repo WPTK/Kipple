@@ -1120,7 +1120,7 @@ Then add the fetch_log note `redirect_migrated: <old> -> <new>` with `keep = 1`.
 
 **Parse-time behavior** (`internal/fetch/parse.go`). An entry that cannot be converted (malformed, or with nothing usable) is dropped and the fetch adds the note `skipped_malformed_items: k/n`. An enclosure-only entry (no guid, link, title or text) is kept: its first media URL (else its image) becomes the guid and its title is the file name. `feedburner:origLink`, when present, wins over the link for the item's `url` (the raw link still feeds the uid). When the initial-read window marks new items read, the fetch adds the note `initial_read: k`.
 
-**The transaction** (inside `WithWrite`; `first_new_id` = the first id allocated in this transaction, or MaxInt64 when none):
+**The transaction** (inside `WithWrite`; `never_shown_from` = the first id allocated in this transaction, or MaxInt64 when none; for a chunked commit see "first fetch" below):
 
 ```
 BEGIN IMMEDIATE
@@ -1156,7 +1156,7 @@ for each new item (oldest-first):
   INSERT INTO item_content(item_id, content_html, content_text, enclosures_json, categories_json)     -- FTS insert fires here
 UPDATE filters SET hits = hits + :n, last_hit_at = :now WHERE id = :rule     -- per matched rule whose action took effect, per chunk
 UPDATE trimmed_items SET last_seen_at = :now WHERE feed_id = :f AND uid IN (SELECT value FROM json_each(:seen_tomb))
-retention trim (§5), with :first_new_id
+retention trim (§5), with :never_shown_from
 churn check: IF new ≥ 10 AND new ≥ 0.8 × document size AND the feed had ≥ 20 items before
              → note 'guid_churn_suspected' (keep = 1; items stay unread; the health view offers "mark this fetch read")
 apply the §4.7 redirect decision (its own UPDATE of redirect_*, or the migration UPDATE)
@@ -1194,7 +1194,7 @@ The `unchanged` and `not_modified` outcomes run the same transaction without the
 - A rule that scans the `category` field never fires on an item without categories, inverted or not: no stored categories means unknown, not "does not match" (an inverted category rule would otherwise mute every item fetched before migration 0004). The same holds in the preview and the retroactive apply.
 - `item_content.categories_json` is filled for every new item, filters or not: the feed's categories, trimmed, blank and case-insensitive repeats dropped, at most 20 of 100 runes each. `content_hash` does not include them and an update never rewrites them.
 
-On the **first fetch** of a new subscription, every item is inserted unread (or read, per `initial_read_before`), and the trim then applies N. Items trimmed in the transaction that inserted them are not added to `trimmed_unread_count`, because their ids are ≥ `first_new_id`. A fetch of more than 500 items commits in chunks and the trim runs in the last one, so `first_new_id` is the first id that last chunk inserted: the earlier chunks were committed, and so visible, before the trim, and their unread items are counted. The read rate's trim correction (§8) uses the same boundary.
+On the **first fetch** of a new subscription, every item is inserted unread (or read, per `initial_read_before`), and the trim then applies N. Items trimmed in the transaction that inserted them are not added to `trimmed_unread_count`, because their ids are ≥ `never_shown_from`. A fetch of more than 500 items commits in chunks and the trim runs in the last one. Where the commit counts its arrivals for the read rate (the URL has had a successful fetch), `never_shown_from` is the first id the last chunk inserted: the earlier chunks were committed, and so listed, before the trim, and their unread items are counted, as the read rate keeps them. A subscription's first document (and the first after a URL edit) counts none, so all of it is hidden and no part of it is counted, in however many chunks. A trim job that finishes a large backlog later sees every item as shown (`MaxInt64`), as the read rate does.
 
 A dedup-mode change through the UI or API sets `rekey_pending = 1` and nothing else. The re-key runs on the feed's next fetch (scheduled, refresh-all or per-feed), which is forced `Full` while `rekey_pending` is set. The editor shows "Duplicate detection is being re-applied to this feed." while it is pending. There is no confirm dialog.
 
@@ -1316,10 +1316,10 @@ INSERT INTO trimmed_content (id, published_at, updated_at, sort_at, word_count, 
 ON CONFLICT (id) DO NOTHING;
 
 UPDATE feeds SET trimmed_unread_count = trimmed_unread_count +
-  (SELECT count(*) FROM temp.trim_set t CROSS JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < :first_new_id),
+  (SELECT count(*) FROM temp.trim_set t CROSS JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < :never_shown_from),
   trimmed_unread_since = COALESCE(trimmed_unread_since, :now)
 WHERE id = :feed
-  AND EXISTS (SELECT 1 FROM temp.trim_set t CROSS JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < :first_new_id);
+  AND EXISTS (SELECT 1 FROM temp.trim_set t CROSS JOIN items i ON i.id = t.id WHERE i.read = 0 AND i.id < :never_shown_from);
 
 DELETE FROM items WHERE id IN (SELECT id FROM temp.trim_set);
 ```
@@ -1396,7 +1396,7 @@ DELETE FROM trimmed_items WHERE id IN (SELECT value FROM json_each(:rids)) AND i
 | `edit-tag` | Always `200 OK`. Read flags update the ledger. Star and unread **restore** within the stub window |
 | `mark-all-as-read` | Updates in-scope ledger rows (not for starred). `OK` |
 | `unread-count` | Never counts ledger rows |
-| Health view | Shows `trimmed_unread_count` since `trimmed_unread_since`, with a reset button. This counter is immutable at trim time: mark-all never zeroes it, and first-fetch trims never inflate it |
+| Health view | Shows `trimmed_unread_count` since `trimmed_unread_since`, with a reset button. This counter is immutable at trim time: mark-all never zeroes it, and a first fetch (and a trim in the transaction that inserted the items) never inflates it |
 
 **Since migration 0004** the stub and the restore also carry `categories_json` (both statements above list it; the restore SQL in the last block does too). `items.muted_by` is not carried: a restore always brings an item back with `muted_by = NULL`. Muted items are trimmed under their own allowance (the rules above), never ahead of real items beyond it.
 
@@ -2559,7 +2559,7 @@ CI runs `go test -race -shuffle=on -timeout 15m` over every package, split acros
 - N ∈ {50, 250, 0}, with and without starred items and `retain_until` holds.
 - Ranking by `sort_at`: a backfilled old item is trimmed first and a future-dated item is clamped.
 - The ledger upsert (`ON CONFLICT` refreshes `read`), and stubs written when `restore_days > 0` but not when it is 0.
-- `trimmed_unread_count` excludes same-transaction inserts and is unchanged by mark-all.
+- `trimmed_unread_count` excludes the items the trimming transaction inserted (for a chunked commit that counts its arrivals, the last chunk's) and is unchanged by mark-all.
 - **Restore:**
   - `edit-tag a=starred` on a trimmed id → it appears in `ids s=starred` and in contents with the same id;
   - `r=read` → it appears in `ids xt=read`, has `retain_until` set, and survives the next trim;

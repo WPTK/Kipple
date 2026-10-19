@@ -58,13 +58,11 @@ type CommitInfo struct {
 }
 
 type commitState struct {
-	migrated bool
-	retitled bool
-	before   int // items in the feed before the fetch
-	// chunkFirstID is the first id the current chunk inserted (maxInt64 until it inserts one). It is the one rule for
-	// "was this item shown": only the last chunk's items are hidden when its trim runs, since an earlier chunk had
-	// committed and its items were listed (and could be opened) before the next chunk started. The trim notice
-	// (trimmed_unread_count) and the read rate's correction (dropTrimmedDailyNew) both read it.
+	migrated   bool
+	retitled   bool
+	before     int   // items in the feed before the fetch
+	firstNewID int64 // first id the whole commit inserted (maxInt64 until it inserts one)
+	// chunkFirstID is the first id the current chunk inserted (maxInt64 until it inserts one).
 	chunkFirstID int64
 	firstID      int64
 	lastID       int64
@@ -91,6 +89,18 @@ type commitState struct {
 type heldItem struct {
 	uid string
 	id  int64
+}
+
+// neverShownFrom is the one rule for "was this item shown", read by the last chunk's trim (the trimmed-unread notice)
+// and by the read rate's correction (dropTrimmedDailyNew): the ids from it on were never listed. When the commit
+// counts its arrivals (the URL has had a successful fetch) that is the last chunk's first id, since an earlier chunk
+// had committed, so been listed and openable, before the trim. A commit that counts none (a subscription's first
+// document, or the first one after a URL edit) is a backlog nobody was shown, so all of it is hidden.
+func (st *commitState) neverShownFrom(countsArrivals bool) int64 {
+	if countsArrivals {
+		return st.chunkFirstID
+	}
+	return st.firstNewID
 }
 
 func (st *commitState) note(s string, keep bool) {
@@ -128,7 +138,7 @@ func (d *DB) CommitFetchTimeout(ctx context.Context, res *fetch.Result, perChunk
 		}
 	}
 
-	st := &commitState{chunkFirstID: maxInt64}
+	st := &commitState{firstNewID: maxInt64, chunkFirstID: maxInt64}
 	defer func() {
 		if v := recover(); v != nil {
 			// A panic in a chunk skips the error path below (WithWrite has no
@@ -311,10 +321,11 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 		total = st.before + len(st.newIDs)
 	}
 	var err error
-	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, st.chunkFirstID, trimBatch, total); err != nil {
+	shownFrom := st.neverShownFrom(res.Snap.URLSucceeded)
+	if st.trimmed, st.trimMore, err = trimFeedBatch(ctx, tx, feedID, now, shownFrom, trimBatch, total); err != nil {
 		return err
 	}
-	if err := dropTrimmedDailyNew(ctx, tx, feedID, st); err != nil {
+	if err := dropTrimmedDailyNew(ctx, tx, feedID, st, shownFrom); err != nil {
 		return err
 	}
 
@@ -568,6 +579,9 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				// becomes visible. commitChunk clears the mark if this rolls back.
 				d.MarkFulltextPending(id)
 				st.held = append(st.held, heldItem{uid: it.UID, id: id})
+			}
+			if st.firstNewID == maxInt64 {
+				st.firstNewID = id
 			}
 			if st.chunkFirstID == maxInt64 {
 				st.chunkFirstID = id
@@ -895,19 +909,20 @@ const sqlItemBetween = `SELECT EXISTS (SELECT 1 FROM items WHERE id > ?1 AND id 
 	OR EXISTS (SELECT 1 FROM trimmed_items WHERE id > ?1 AND id < ?2 AND +feed_id = ?3)`
 
 // dropTrimmedDailyNew takes back, in the last chunk after the trim, the counted items this chunk both
-// inserted and trimmed (the ids from st.chunkFirstID on), from the rows that hold them: they were never visible, so never opened or
+// inserted and trimmed, from the rows that hold them: they were never visible (neverShownFrom), so never opened or
 // restored. Invariant: their ids stay unreachable. They keep a ledger row and a restore stub inside a
 // row's span, so a star or mark-unread by one of those ids (restoreTrimmed) and then an open would count
-// a read that is not among the new items; no list, stream or UI path returns them. Counted items of earlier chunks stay counted even when this trim removes them: they were
-// visible between the chunks and may have been opened. A row that would reach 0 is deleted
-// (new_items > 0). A row's ids are left as they are, which adds no read inside them.
-func dropTrimmedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, st *commitState) error {
-	var mine []int64
-	for _, id := range st.unreadNew {
-		if id >= st.chunkFirstID {
-			mine = append(mine, id)
-		}
+// a read that is not among the new items; no list, stream or UI path returns them. Counted items of earlier
+// chunks stay counted even when this trim removes them: they were visible between the chunks and may have been
+// opened. A row that would reach 0 is deleted (new_items > 0). A row's ids are left as they are, which adds no
+// read inside them.
+func dropTrimmedDailyNew(ctx context.Context, tx *sql.Tx, feedID int64, st *commitState, shownFrom int64) error {
+	// unreadNew ascends (ids are allocated in insert order), so the ids from shownFrom on are its tail.
+	i := len(st.unreadNew)
+	for i > 0 && st.unreadNew[i-1] >= shownFrom {
+		i--
 	}
+	mine := st.unreadNew[i:]
 	if len(mine) == 0 || st.trimmed == 0 {
 		return nil
 	}
