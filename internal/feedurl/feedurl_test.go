@@ -108,7 +108,8 @@ func FuzzKeyAndNormalizeMatchesKeyOfNormalize(f *testing.F) {
 		"http://[fe80::1%25eth0]/feed", "http://[fe80::1%zz]/feed", "http://[::1%25]/x", "http://[fe80::1%25a b]/f",
 		"http://h:80/p", "  http://h/p  ", "http://h/%zz", "http://h/a b?c d#e f", "ftp://h/x", "http:///x", "",
 		"http://h?#", "http://h/p?#x", "HTTP://H:8080/P?Q=%41",
-		"http://h/" + strings.Repeat("é", 680), "http://h/" + strings.Repeat("é", 681),
+		"http://h/" + strings.Repeat("é", (MaxLen-len("http://h/"))/6), "http://h/" + strings.Repeat("é", (MaxLen-len("http://h/"))/6+1),
+		"http://h/" + strings.Repeat("a", MaxLen-len("http://h/")) + "#" + strings.Repeat("f", 50),
 	} {
 		f.Add(s)
 	}
@@ -152,34 +153,44 @@ func TestUserinfoRejected(t *testing.T) {
 }
 
 // The cap is on the normalized form: cleaning up percent-encodes non-ASCII path characters, so a
-// typed address under MaxLen can be refused, and Normalize must say so itself (not hand back a
-// string a second parse refuses). The cases sit on both sides of the boundary.
+// typed address under MaxLen can be refused, while one over MaxLen as typed that normalizing
+// shortens (a fragment, white space) is kept. Every reader of an address agrees, on both sides of
+// the boundary.
 func TestMaxLenIsMeasuredAfterCleanup(t *testing.T) {
 	const prefix = "https://h.example/"
 	// "é" is 2 bytes typed and 6 once encoded.
 	fits := prefix + strings.Repeat("é", (MaxLen-len(prefix))/6)
 	over := fits + "é"
+	exact := prefix + strings.Repeat("a", MaxLen-len(prefix))
+	frag := exact + "#" + strings.Repeat("f", 200)
+	spaced := "  " + exact + "  "
 	for _, raw := range []string{fits, over} {
 		require.LessOrEqual(t, len(raw), MaxLen, "typed length stays under the cap")
 	}
+	require.Greater(t, len(frag), MaxLen)
+	require.Greater(t, len(spaced), MaxLen)
 
-	norm, err := Normalize(fits)
-	require.NoError(t, err)
-	require.LessOrEqual(t, len(norm), MaxLen)
-	_, err = Normalize(norm)
-	require.NoError(t, err, "the normalized form parses again")
-	_, _, err = KeyAndNormalize(fits)
-	require.NoError(t, err)
-
-	_, err = Normalize(over)
-	require.ErrorIs(t, err, ErrTooLong)
-	_, _, err = KeyAndNormalize(over)
-	require.ErrorIs(t, err, ErrTooLong)
-
-	// Exactly MaxLen is kept, one byte more is not (ASCII, so cleanup changes nothing).
-	exact := prefix + strings.Repeat("a", MaxLen-len(prefix))
-	_, err = Normalize(exact)
-	require.NoError(t, err)
-	_, err = Normalize(exact + "a")
-	require.ErrorIs(t, err, ErrTooLong)
+	for _, raw := range []string{fits, exact, frag, spaced} {
+		norm, err := Normalize(raw)
+		require.NoError(t, err, raw[:30])
+		require.LessOrEqual(t, len(norm), MaxLen)
+		_, err = Normalize(norm)
+		require.NoError(t, err, "the normalized form parses again")
+		_, _, err = KeyAndNormalize(raw)
+		require.NoError(t, err)
+		_, err = Key(raw)
+		require.NoError(t, err)
+		_, err = Host(raw)
+		require.NoError(t, err)
+	}
+	for _, raw := range []string{over, exact + "a", strings.Repeat("é", 3*MaxLen)} {
+		_, err := Normalize(raw)
+		require.ErrorIs(t, err, ErrTooLong)
+		_, _, err = KeyAndNormalize(raw)
+		require.ErrorIs(t, err, ErrTooLong)
+		_, err = Key(raw)
+		require.ErrorIs(t, err, ErrTooLong)
+		_, err = Host(raw)
+		require.ErrorIs(t, err, ErrTooLong)
+	}
 }

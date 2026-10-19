@@ -23,14 +23,7 @@ func Normalize(raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	norm := u.String()
-	// The cap is on the stored form: cleaning up percent-encodes non-ASCII characters (up to three
-	// bytes each), so a typed address under MaxLen can grow past it. Refusing here, on the first
-	// call, keeps Normalize and a later parse of its result in agreement.
-	if len(norm) > MaxLen {
-		return "", ErrTooLong
-	}
-	return norm, nil
+	return u.String(), nil
 }
 
 // KeyAndNormalize returns Normalize(raw) and Key(Normalize(raw)): the key is taken from the
@@ -81,13 +74,24 @@ func Host(raw string) (string, error) {
 // with the URL; the feed's HTTP authentication setting is the one place for them.
 var ErrUserinfo = errors.New("feedurl: the URL contains a user name or password; set them as the feed's HTTP authentication instead")
 
-// MaxLen is the longest feed URL Kipple keeps, in bytes (the image proxy's cap), measured on the normalized form
-// (non-ASCII characters percent-encoded). Longer is refused with ErrTooLong
-// wherever a URL is parsed, so no way in (add, edit, import, sync API, redirect) stores one.
+// MaxLen is the longest feed URL Kipple keeps, in bytes (the image proxy's cap). It is measured on the
+// normalized form, the one that is stored: a fragment and white space around the address are gone, and
+// a character outside ASCII is written percent-encoded (up to three bytes per byte). Every function here
+// that reads an address (Normalize, Key, KeyAndNormalize, Host) refuses a longer one with ErrTooLong, so
+// no way in (add, edit, import, sync API, redirect) stores one and they all agree on which addresses fit.
 const MaxLen = 4096
 
-// ErrTooLong is returned for a URL longer than MaxLen.
-var ErrTooLong = errors.New("feedurl: the URL is longer than 4096 characters once encoded")
+// maxRawLen is the longest input worth parsing: encoding at most triples a byte, so anything longer
+// cannot fit MaxLen once normalized. It only spares work on huge input; MaxLen is the real limit.
+const maxRawLen = 3 * MaxLen
+
+// TooLongMessage is the one wording for a refused length, shown to the person (the add dialog, the
+// OPML report). The encoded form is mentioned because a short-looking address with many non-ASCII
+// characters can exceed the limit.
+const TooLongMessage = "the address is longer than 4,096 characters (letters outside A to Z count as their longer web-encoded form)"
+
+// ErrTooLong is returned for a URL longer than MaxLen once normalized.
+var ErrTooLong = errors.New("feedurl: " + TooLongMessage)
 
 // feedSchemes are the pseudo-schemes that wrap a feed address in links meant for feed readers and
 // podcast apps: feed://host/path, feed:https://host/path, pcast://, itpc://, podcast://, rss://.
@@ -204,7 +208,7 @@ func hasScheme(s string) bool {
 }
 
 func parse(raw string) (*url.URL, error) {
-	if len(raw) > MaxLen {
+	if len(raw) > maxRawLen {
 		return nil, ErrTooLong
 	}
 	u, err := url.Parse(clean(raw))
@@ -232,5 +236,8 @@ func parse(raw string) (*url.URL, error) {
 	u.Host = host
 	u.Fragment = ""
 	u.RawFragment = ""
+	if len(u.String()) > MaxLen {
+		return nil, ErrTooLong
+	}
 	return u, nil
 }

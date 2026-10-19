@@ -249,9 +249,15 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 		// A redirect to user:pass@host must not put the credentials in fetch_log
 		// or feeds.url; without them the URL is also one feedurl accepts.
 		fu.User = nil
-		if fin, err := feedurl.Normalize(fu.String()); err == nil {
+		fin, err := feedurl.Normalize(fu.String())
+		switch {
+		case err == nil:
 			res.FinalURL = fin
-		} else {
+		case errors.Is(err, feedurl.ErrTooLong):
+			// The feed still reads; the target is not recorded (DecideRedirect clears), so say why in the log.
+			res.FinalURL = fu.String()
+			res.Notes = append(res.Notes, "redirect_not_recorded: the address redirected to is longer than 4,096 characters")
+		default:
 			res.FinalURL = fu.String()
 		}
 	}

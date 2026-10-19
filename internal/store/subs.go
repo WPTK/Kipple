@@ -257,7 +257,7 @@ func ValidateFeedURL(raw string, allowPrivate bool) (norm, key, host string, err
 		return "", "", "", &InvalidURLError{Reason: "the URL contains a user name or password; use the feed's HTTP authentication instead", Kind: URLUserinfo}
 	}
 	if errors.Is(nerr, feedurl.ErrTooLong) {
-		return "", "", "", &InvalidURLError{Reason: "that address is longer than 4,096 characters once encoded, too long to be a feed address", Kind: URLTooLong}
+		return "", "", "", &InvalidURLError{Reason: feedurl.TooLongMessage, Kind: URLTooLong}
 	}
 	if nerr != nil {
 		return "", "", "", &InvalidURLError{Reason: MsgNotWebAddress, Kind: URLNotWebAddress}
