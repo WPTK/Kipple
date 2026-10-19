@@ -24,11 +24,11 @@ func TestParseEntities(t *testing.T) {
 		hostileOPMLSeeds()[0],
 		hostileOPMLSeeds()[1],
 	} {
-		_, err := Parse(strings.NewReader(doc))
+		_, err := parse(strings.NewReader(doc))
 		var bad *UndefinedEntityError
 		require.True(t, errors.As(err, &bad), "%s: %v", doc, err)
 	}
-	_, err := Parse(strings.NewReader("<opml>\n<body>\n<outline text=\"a &zz; b\"/></body></opml>"))
+	_, err := parse(strings.NewReader("<opml>\n<body>\n<outline text=\"a &zz; b\"/></body></opml>"))
 	require.EqualError(t, err, "opml: &zz; on line 3 is not an entity XML or HTML defines")
 
 	d := parseString(t, `<opml><body><!-- &comment; -->
@@ -41,17 +41,17 @@ func TestParseEntities(t *testing.T) {
 // A file with no element at all (JSON) is not an OPML file, not a damaged one (issue #487); a blank one is empty.
 func TestParseNoElement(t *testing.T) {
 	t.Parallel()
-	for _, doc := range []string{"", "   \n", "\xef\xbb\xbf"} {
+	for _, doc := range []string{"", "   \n", "\xef\xbb\xbf", "\xff\xfe \x00\n\x00", "\xfe\xff\x00 \x00\n"} {
 		_, err := Parse(strings.NewReader(doc))
 		var empty *EmptyError
 		require.ErrorAs(t, err, &empty, "%q", doc)
 		require.False(t, empty.Folders)
-		code, _, ok := Refusal(err)
+		ref, ok := AsRefused(err)
 		require.True(t, ok)
-		require.Equal(t, "empty_opml", code)
+		require.Equal(t, "empty_opml", ref.Code)
 	}
 	for _, doc := range []string{`{"error":"not_found"}`} {
-		_, err := Parse(strings.NewReader(doc))
+		_, err := parse(strings.NewReader(doc))
 		require.ErrorIs(t, err, ErrNotOPML, "%q", doc)
 	}
 }

@@ -405,9 +405,9 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 		if _, err := io.ReadFull(src, b[len(head):]); err != nil {
 			return Upload{}, ended(ctx, err)
 		}
-		doc, err := opml.ParseForImport(bytes.NewReader(b))
-		if code, msg, ok := opml.Refusal(err); ok && !errors.Is(err, opml.ErrNotOPML) {
-			return Upload{}, &OPMLRefusedError{Code: code, Msg: "This OPML file was refused: " + msg + "."}
+		doc, err := opml.Parse(bytes.NewReader(b))
+		if ref, ok := opml.AsRefused(err); ok && !ref.NotOPML {
+			return Upload{}, &OPMLRefusedError{Code: ref.Code, Msg: "This OPML file was refused: " + ref.Message + "."}
 		}
 		if err != nil {
 			return Upload{}, ErrNotBackup

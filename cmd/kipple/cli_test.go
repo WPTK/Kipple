@@ -45,13 +45,13 @@ func TestCLIImportRefusesWhatTheWebImportRefuses(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = server.Close() })
 	for name, tc := range map[string]struct{ body, want string }{
-		"folders only": {`<opml><body><outline text="Empty"/></body></opml>`, "no feeds"},
-		"empty":        {``, "empty"},
-		"entity":       {`<opml><body><outline text="&x;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`, "&x;"},
+		"folders only": {`<opml><body><outline text="Empty"/></body></opml>`, "that OPML file has no feeds in it"},
+		"empty":        {``, "that file is empty"},
+		"entity":       {`<opml><body><outline text="&x;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`, "&x; on line 1 is not an entity XML or HTML defines"},
 	} {
 		f := filepath.Join(dir, "in.opml")
 		require.NoError(t, os.WriteFile(f, []byte(tc.body), 0o600))
-		require.ErrorContains(t, runImport([]string{f}), tc.want, name)
+		require.EqualError(t, runImport([]string{f}), tc.want, name)
 	}
 	var n int
 	require.NoError(t, server.Reader().QueryRow("SELECT count(*) FROM folders WHERE name = 'Empty'").Scan(&n))

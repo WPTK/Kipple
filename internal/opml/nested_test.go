@@ -163,7 +163,7 @@ func TestExportNestsTheTree(t *testing.T) {
 func TestExportSiblingsInPositionOrder(t *testing.T) {
 	t.Parallel()
 	db := openDB(t)
-	importString(t, db, `<opml><body><outline text="P"><outline text="B"/><outline text="A"><outline xmlUrl="https://a.test/f"/></outline></outline></body></opml>`, ImportOptions{})
+	importString(t, db, `<opml><body><outline text="P"><outline text="B"/><outline text="A"/></outline></body></opml>`, ImportOptions{})
 	ctx := context.Background()
 	var a, b int64
 	require.NoError(t, db.Reader().QueryRow("SELECT id FROM folder_paths WHERE path = 'P/A'").Scan(&a))
@@ -295,7 +295,7 @@ func TestImportReportsPathMerge(t *testing.T) {
 	require.Equal(t, "Music/AC/DC", folderOf(t, db, "https://dc.test/f"))
 
 	// A case-only difference from an existing folder is not a path merge.
-	r = importString(t, db, `<opml><body><outline text="music"><outline text="ac/dc"><outline xmlUrl="https://case.test/f"/></outline></outline></body></opml>`, ImportOptions{})
+	r = importString(t, db, `<opml><body><outline text="music"><outline text="ac/dc"/></outline></body></opml>`, ImportOptions{})
 	require.Empty(t, r.FoldersMergedPath)
 	require.Zero(t, r.FoldersCreated)
 }

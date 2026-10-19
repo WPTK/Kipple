@@ -49,9 +49,9 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
-	doc, err := opml.ParseForImport(bytes.NewReader(body))
-	if code, msg, ok := opml.Refusal(err); ok {
-		writeErrorMsg(w, http.StatusBadRequest, code, msg)
+	doc, err := opml.Parse(bytes.NewReader(body))
+	if ref, ok := opml.AsRefused(err); ok {
+		writeErrorMsg(w, http.StatusBadRequest, ref.Code, ref.Message)
 		return
 	}
 	if err != nil {

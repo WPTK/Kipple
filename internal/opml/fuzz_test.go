@@ -74,7 +74,7 @@ func FuzzParse(f *testing.F) {
 		f.Add(`<opml version="2.0"><body><outline text="F">` + tok + `</outline></body></opml>`)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		doc, err := Parse(strings.NewReader(s))
+		doc, err := parse(strings.NewReader(s))
 		if err != nil {
 			return
 		}
@@ -147,7 +147,7 @@ func FuzzImportExport(f *testing.F) {
 	}
 	const seedURL = "https://seed.test/feed"
 	seed := func(t *testing.T) {
-		d, err := Parse(strings.NewReader(`<opml><body><outline text="Music"><outline text="AC/DC"><outline xmlUrl="` + seedURL + `"/></outline></outline>` +
+		d, err := parse(strings.NewReader(`<opml><body><outline text="Music"><outline text="AC/DC"><outline xmlUrl="` + seedURL + `"/></outline></outline>` +
 			`<outline text="Tech"><outline text="News"/></outline></body></opml>`))
 		if err != nil {
 			t.Fatal(err)
@@ -183,7 +183,7 @@ func FuzzImportExport(f *testing.F) {
 		return m
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		doc, err := Parse(strings.NewReader(s))
+		doc, err := parse(strings.NewReader(s))
 		if err != nil {
 			return
 		}
@@ -278,7 +278,7 @@ func FuzzImportExport(f *testing.F) {
 
 		n := len(got)
 		out1 := exportOut(t)
-		again, err := Parse(strings.NewReader(out1))
+		again, err := parse(strings.NewReader(out1))
 		if err != nil {
 			t.Fatalf("export does not parse: %v\n%s", err, out1)
 		}

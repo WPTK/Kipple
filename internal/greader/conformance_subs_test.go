@@ -108,14 +108,14 @@ func TestSubscriptionImportRefusals(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	c := newConf(t, h)
-	for name, body := range map[string]string{
-		"folders only": `<opml><body><outline text="OnlyFolder"/></body></opml>`,
-		"empty":        ` `,
-		"entity":       `<opml><body><outline text="&x;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`,
+	for name, tc := range map[string]struct{ body, want string }{
+		"folders only": {`<opml><body><outline text="OnlyFolder"/></body></opml>`, "Bad OPML: that OPML file has no feeds in it"},
+		"empty":        {` `, "Bad OPML: that file is empty"},
+		"entity":       {`<opml><body><outline text="&x;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`, "Bad OPML: &x; on line 1 is not an entity XML or HTML defines"},
 	} {
-		r := c.call(http.MethodPost, rd+"subscription/import", body, map[string]string{"Content-Type": "text/x-opml"})
+		r := c.call(http.MethodPost, rd+"subscription/import", tc.body, map[string]string{"Content-Type": "text/x-opml"})
 		require.Equal(t, 400, r.code, name)
-		require.Equal(t, "Bad OPML", r.body, name)
+		require.Equal(t, tc.want, r.body, name)
 	}
 	var n int
 	require.NoError(t, h.db.Reader().QueryRow("SELECT count(*) FROM folders WHERE name = 'OnlyFolder'").Scan(&n))
