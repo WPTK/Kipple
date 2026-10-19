@@ -36,6 +36,7 @@ import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { openFeedEditor } from "@/lib/feedEditor";
 import { useWidth } from "@/lib/useWidth";
 import { visibleFeeds } from "@/lib/visibleFeeds";
+import { listPlace, rememberListTop } from "@/lib/listPlace";
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
 export const SCROLL_RETRY_MS = 30_000;
@@ -100,7 +101,24 @@ interface ListMemory {
 const MEMORY_CAP = 100;
 /** Rows rendered past each end of the visible window. */
 const OVERSCAN = 8;
+/** How far down a list a remembered place is looked for after a reload, in articles. */
+const PLACE_SEARCH_MAX = 1000;
+
+/** The article whose row is at the top of the scrolled list (rows are absolutely placed, so the highest one in view). */
+function topItemId(scroller: HTMLElement): string | null {
+  const top = scroller.getBoundingClientRect().top + 1;
+  let best: { id: string; y: number } | null = null;
+  for (const row of scroller.querySelectorAll<HTMLElement>("[data-item-id]")) {
+    const r = row.getBoundingClientRect();
+    if (r.bottom <= top) continue;
+    const id = row.dataset.itemId;
+    if (id && (!best || r.top < best.y)) best = { id, y: r.top };
+  }
+  return best?.id ?? null;
+}
 const memory = new Map<string, ListMemory>();
+/** The page load has shown its first list, which is the only one that goes back to a remembered place. */
+let pageRestoredPlace = false;
 const memoryFor = (key: string): ListMemory => {
   let m = memory.get(key);
   if (!m) {
@@ -135,6 +153,7 @@ export function rememberListPlace(scope: Scope, id: string): void {
 /** Forget remembered scroll and selection (tests). */
 export function clearListMemory(): void {
   memory.clear();
+  pageRestoredPlace = false;
 }
 
 /** Why mark above and below do nothing in a page layout (the Gazette). */
@@ -284,6 +303,21 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const asOf = useLatestRef<string | undefined>(currentAsOf);
 
   const saved = memory.get(key);
+  // The first list a page load shows (a reload, the app reopened, Back from an article opened by a reload) goes back to
+  // the article that was at its top (lib/listPlace); a list opened later in the visit starts at its top as before.
+  // Not a search (its results are not a place to come back to). With an article open beside it, that article is the
+  // place: its row is paged in and brought to the top. `id`: the article still to come back to, null once there, given
+  // up on, or the reader moved first. `index`: the row scrolled to, until the visible range has reached it. `moved`:
+  // the reader has moved the list, so its top is theirs to remember (the list's own scrolling on the way never is).
+  const placeable = !scope.q;
+  const [place] = useState(() => ({
+    id: placeable && !saved && !pageRestoredPlace ? (activeId ?? listPlace(key)) : null,
+    index: null as number | null,
+    moved: false,
+  }));
+  useEffect(() => {
+    pageRestoredPlace = true;
+  }, []);
   const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
   const selected = activeId ?? selectedId;
   // The list is one Tab stop (rowTabStop.ts): the row that last had focus, else the selected row, else the first. Its
@@ -392,14 +426,36 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   useEffect(() => {
     const el = parentRef.current;
     if (!el) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const onScroll = () => {
       const m = memoryFor(key);
       m.offset = el.scrollTop;
       m.offsetAsOf = asOf.current;
+      // And on the device, for the next page load: the article at the top, a few times a second at most, once the
+      // reader has moved the list (a restore landing on estimated row heights must not save a neighbour instead).
+      timer ??= setTimeout(() => {
+        timer = undefined;
+        if (place.moved && placeable) rememberListTop(key, el.scrollTop < 8 ? null : topItemId(el));
+      }, 400);
     };
+    // The reader moving the list (or the selection, from the keyboard anywhere) before the place came back wins. Only
+    // their own input counts: the list itself scrolls while rows are measured and pages arrive.
+    const byReader = () => {
+      place.id = null;
+      place.index = null;
+      place.moved = true;
+    };
+    const INPUT = ["wheel", "touchstart", "pointerdown"] as const;
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [key]);
+    for (const t of INPUT) el.addEventListener(t, byReader, { passive: true });
+    document.addEventListener("keydown", byReader, { passive: true });
+    return () => {
+      if (timer) clearTimeout(timer);
+      el.removeEventListener("scroll", onScroll);
+      for (const t of INPUT) el.removeEventListener(t, byReader);
+      document.removeEventListener("keydown", byReader);
+    };
+  }, [key, asOf, place, placeable]);
   useEffect(() => {
     memoryFor(key).selectedId = selectedId;
   }, [key, selectedId]);
@@ -534,6 +590,40 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     [lookAtStories],
   );
 
+  // Back to the remembered place after a reload: once its article is loaded, scroll it to the top. Pages are fetched
+  // until it turns up (at most PLACE_SEARCH_MAX articles); a list without it any more starts at the top and forgets it.
+  useLayoutEffect(() => {
+    const id = place.id;
+    const el = parentRef.current;
+    if (!id || !el) return;
+    if (Page) {
+      const story = el.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
+      if (story) {
+        place.id = null;
+        story.scrollIntoView?.({ block: "start" });
+        restoreTarget.current = el.scrollTop;
+        if (markOnScrollPageRef.current) rebuildSeen(el);
+        return;
+      }
+      // Loaded but not laid out yet: the pages come in a later render.
+      if (allItems.some((i) => i.id === id)) return;
+    } else {
+      const i = rowIndexOf(id);
+      if (i >= 0) {
+        place.id = null;
+        place.index = i;
+        virtualizer.scrollToIndex(i, { align: "start" });
+        return;
+      }
+    }
+    if (q.isPending || q.isFetching) return;
+    if (q.hasNextPage && !q.isFetchNextPageError && allItems.length < PLACE_SEARCH_MAX) void q.fetchNextPage();
+    else {
+      place.id = null;
+      rememberListTop(key, null);
+    }
+  });
+
   // Restore focus to the anchor row when returning to the list.
   const restoredFocus = useRef(false);
   useEffect(() => {
@@ -615,7 +705,13 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const seenIds = useRef(memoryFor(key).seenByScroll);
   useEffect(() => {
     const r = virtualizer.range;
-    if (!r) return;
+    // The top rows shown while the place is still coming back were not read there: the list is about to move past them.
+    // Nothing counts until the visible range has reached the row the restore scrolled to.
+    if (!r || place.id) return;
+    if (place.index !== null) {
+      if (place.index < r.startIndex || place.index > r.endIndex) return;
+      place.index = null;
+    }
     for (let i = r.startIndex; i <= r.endIndex; i++) {
       const row = rowsRef.current[i];
       if (!row) continue;

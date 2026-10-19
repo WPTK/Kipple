@@ -756,7 +756,8 @@ sheet and dialog the screen offers opened in turn:
 size with a throwaway script that reads the instance URL and sign-in from environment variables (`KIPPLE_UAT_URL` and
 the seed's throwaway account), writes screenshots and a findings list to a scratch directory outside the repository,
 and runs the in-page checks above (overflow, target size, text clipped by its box, duplicate labels, reachability). The
-assertable part already lives in the flow `web/uat/phone-shell.mjs` (`npm run uat:phone-shell`: Stats stays inside the
+assertable part already lives in the flows `web/uat/scroll-restore.mjs` (`npm run uat:scroll-restore`: a reload comes back to the
+same place in the list) and `web/uat/phone-shell.mjs` (`npm run uat:phone-shell`: Stats stays inside the
 window, the Feeds title is whole, the list header does not grow with a long feed title, the article's edges line up in
 landscape, the tab highlight), and `web/uat/wrapping.mjs` (`npm run uat:wrapping`: a wide table scrolls sideways with its
 words whole, a long unbroken word in a title wraps in the list and the reader), and `web/uat/phone-chrome.mjs`
