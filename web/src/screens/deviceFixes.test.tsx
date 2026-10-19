@@ -267,6 +267,8 @@ describe("read state in the Unread list", () => {
     const state = await screen.findByTestId("read-state");
     await waitFor(() => expect(state).toHaveTextContent("Read"));
     expect(screen.getByRole("button", { name: "Mark as unread" })).toBeInTheDocument();
+    // The state is plain text: no border or pill shape that would make it look like a second button (#425).
+    expect(state.className).not.toMatch(/\b(border|rounded-full)\b/);
   });
 });
 

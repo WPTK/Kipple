@@ -760,7 +760,9 @@ assertable part already lives in the flows `web/uat/scroll-restore.mjs` (`npm ru
 same place in the list) and `web/uat/phone-shell.mjs` (`npm run uat:phone-shell`: Stats stays inside the
 window, the Feeds title is whole, the list header does not grow with a long feed title, the article's edges line up in
 landscape, the tab highlight), and `web/uat/wrapping.mjs` (`npm run uat:wrapping`: a wide table scrolls sideways with its
-words whole, a long unbroken word in a title wraps in the list and the reader); extend these flows when a shakedown finding can be stated as an assertion. A sweep script
+words whole, a long unbroken word in a title wraps in the list and the reader), and `web/uat/phone-chrome.mjs`
+(`npm run uat:phone-chrome`: tabs and headers at the largest text size on a 320 px phone, no save error while offline, the
+undo toast, the list menu, the reader's read state); extend these flows when a shakedown finding can be stated as an assertion. A sweep script
 is a reading aid that produces screenshots and candidates; a person or agent looks at each one. The sweep opens an
 article (marking it read) and may tick feeds in Select mode; it must never confirm Move or Delete. Lookups of menus and
 buttons go by accessible name, so a miss is logged as skipped, not as a pass.
