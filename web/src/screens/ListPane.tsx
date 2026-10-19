@@ -85,6 +85,9 @@ interface ListMemory {
    * mount) means the list was refetched since (new arrivals, a resync, mark-all) and `offset` no longer
    * points at the rows it used to. */
   offsetAsOf?: string;
+  /** The failing-feed note's height above the rows when `offset` was recorded: the note may be gone or another height
+   * when the list comes back, and the rows must land where they were. */
+  offsetNoteH?: number;
   /** Row heights measured on the last visit, and what they were measured for (layout, columns, width bucket, text
    * size). `offset` was taken over these heights: without them the rows above it come back at their estimates, so
    * the same offset lands rows away from where the reader was (#94). */
@@ -174,7 +177,7 @@ export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed): { title: s
   if (scope.view === "muted") return { title: "Nothing muted", body: "No filter has muted an article yet." };
   if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here. Retention never removes starred articles." };
   // The server sends last_error only while the feed is failing. New articles waiting mean a fetch has worked since.
-  const failure = feed && showsFailure(scope, pendingNew, feed) ? failureCopy(feed) : null;
+  const failure = feed && showsFailure(scope.view, pendingNew, feed) ? failureCopy(feed) : null;
   if (failure) return { title: failure.title, body: failure.body, health: true };
   if (scope.view === "unread") {
     return pendingNew > 0
@@ -348,6 +351,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   sizeCtx.current.width = width;
   const noteBoxRef = useRef<HTMLDivElement>(null);
   const [noteH, setNoteH] = useState(0);
+  const noteHRef = useRef(0);
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: Page ? 0 : rows.length,
@@ -440,6 +444,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     const onScroll = () => {
       const m = memoryFor(key);
       m.offset = el.scrollTop;
+      m.offsetNoteH = noteHRef.current;
       m.offsetAsOf = asOf.current;
       // And on the device, for the next page load: the article at the top, a few times a second at most, once the
       // reader has moved the list (a restore landing on estimated row heights must not save a neighbour instead).
@@ -1289,22 +1294,48 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const showPull = holding || pull.distance >= 16;
   // Known to have nothing (not merely still loading): a search with no results has nothing to save or mark.
   const empty = !q.isPending && allItems.length === 0;
-  const noteFeeds = useMemo(
-    () => failureNoteFeeds({ scope, pendingNew, feeds: boot.data?.feeds, folders: boot.data?.folders, loaded: !q.isPending && !(q.isError && !q.data), empty }),
-    [scope, pendingNew, boot.data, q.isPending, q.isError, q.data, empty],
-  );
+  // Each feed is judged by the new articles waiting from it, the way the pill counts them (one rule with the feed's empty list).
+  const feeds = boot.data?.feeds;
+  const folders = boot.data?.folders;
+  const loaded = !q.isPending && !(q.isError && !q.data);
+  const { view, feed: scopeFeed, folder: scopeFolder, q: scopeQ, order: scopeOrder, length: scopeLength } = scope;
+  const noteFeeds = useMemo(() => {
+    const noteScope: Scope = { view, feed: scopeFeed, folder: scopeFolder, q: scopeQ, order: scopeOrder, length: scopeLength };
+    const pendingOf = (id: string) => pendingFor(pendingByFeed, { ...noteScope, feed: id, folder: undefined }, feeds ?? [], folders ?? [], { ids: loadedIds, pendingIds });
+    return failureNoteFeeds({ scope: noteScope, pendingOf, feeds, folders, loaded, empty });
+  }, [view, scopeFeed, scopeFolder, scopeQ, scopeOrder, scopeLength, pendingByFeed, pendingIds, loadedIds, feeds, folders, loaded, empty]);
   // The note's height, for the virtualizer: it measures again if the note resizes (a wider or narrower window).
   const noted = noteFeeds.length > 0;
+  // The offset is saved over the note and the rows together. The note may be gone, or another height, when the list comes
+  // back (the feed recovered, or the window changed), which would move the rows under the reader by the difference: on the
+  // first measurement of a list that comes back with its rows, the offset is corrected by that difference. A reader who
+  // had not scrolled past the note keeps the offset as it was.
+  const returning = useRef(!!saved?.offset);
+  const loadedRef = useLatestRef(loaded);
   useLayoutEffect(() => {
     const el = noteBoxRef.current;
+    const h = noted && el ? el.offsetHeight : 0;
+    if (returning.current) {
+      returning.current = false;
+      const m = memory.get(key);
+      const was = m?.offsetNoteH ?? 0;
+      if (loadedRef.current && m && parentRef.current && m.offset > was && h !== was) {
+        m.offset += h - was;
+        if (!Page || pageRestored.current) parentRef.current.scrollTop = m.offset;
+      }
+    }
+    noteHRef.current = h;
     if (!noted || !el) return setNoteH(0);
-    const measure = () => setNoteH(el.offsetHeight);
+    const measure = () => {
+      noteHRef.current = el.offsetHeight;
+      setNoteH(el.offsetHeight);
+    };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [noted]);
+  }, [noted, Page, key, loadedRef]);
   const controlsRef = useLatestRef(onControls);
   const stopRef = useLatestRef(tabStopId);
   const focusStop = useCallback(() => {
