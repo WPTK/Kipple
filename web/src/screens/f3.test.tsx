@@ -727,7 +727,7 @@ describe("Folders and OPML", () => {
     expect(lines).toContain(`http://10.0.0.5/feed: on your own network, so Kipple won't fetch it until you turn on "Allow addresses on my own network" in its settings`);
     expect(within(done).getByText(/kipple:interval must be a number/)).toBeInTheDocument();
     expect(within(done).getByText(/news into News/)).toBeInTheDocument();
-    expect(lines).toContain("2 feeds were listed again under the same address and were added once");
+    expect(lines).toContain("2 feeds were listed again under the same address; the repeats were left out");
   });
 
   it("does not restrict the picker to types iOS may not know, and checks the file itself", async () => {

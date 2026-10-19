@@ -9,7 +9,9 @@ import (
 	"html"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
@@ -168,8 +170,36 @@ func (e *UndefinedEntityError) Error() string {
 	return fmt.Sprintf("opml: &%s; on line %d is not an entity XML or HTML defines", e.Name, e.Line)
 }
 
-// entityRef is a named character reference.
-var entityRef = regexp.MustCompile(`&([A-Za-z][A-Za-z0-9]*);`)
+// entityRef is a character reference as the decoder reads one: an XML name (letters, digits, . _ : -) or a number.
+var entityRef = regexp.MustCompile(`&(#[A-Za-z0-9]+|[\pL_:][\pL\pN._:-]*);`)
+
+// referenceRunes is what the reference m ("&name;", "&#38;") stands for, and false when neither XML nor HTML defines it.
+// A name counts only when HTML defines it with its semicolon, not by the prefix of an old name.
+func referenceRunes(name string) (string, bool) {
+	if name[0] == '#' {
+		base, digits := 10, name[1:]
+		if digits[0] == 'x' || digits[0] == 'X' {
+			base, digits = 16, digits[1:]
+		}
+		n, err := strconv.ParseInt(digits, base, 32)
+		if err != nil || n == 0 || !utf8.ValidRune(rune(n)) {
+			return "", false
+		}
+		return string(rune(n)), true
+	}
+	full := "&" + name + ";"
+	decoded := html.UnescapeString(full)
+	if decoded == full {
+		return "", false
+	}
+	// html.UnescapeString also reads the old names that need no semicolon by their prefix ("&ampx;" is "&" and "x;").
+	for i := 2; i < len(name); i++ {
+		if head := html.UnescapeString("&" + name[:i]); head != "&"+name[:i] && decoded == head+name[i:]+";" {
+			return "", false
+		}
+	}
+	return decoded, true
+}
 
 // resolveEntities rewrites the named character references inside the start tags of b (where OPML keeps all its
 // data) that are not XML's own five as numeric references, so every HTML name decodes, and refuses a name neither XML
@@ -203,8 +233,8 @@ func resolveEntities(b []byte) ([]byte, error) {
 			case "amp", "lt", "gt", "quot", "apos":
 				return m
 			}
-			s := html.UnescapeString(string(m))
-			if s == string(m) {
+			s, ok := referenceRunes(name)
+			if !ok {
 				if bad == nil {
 					bad = &UndefinedEntityError{Name: name, Line: 1 + bytes.Count(b[:start], []byte("\n"))}
 				}

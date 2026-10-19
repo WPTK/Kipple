@@ -49,7 +49,7 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
-	if len(bytes.TrimSpace(body)) == 0 {
+	if len(bytes.TrimSpace(bytes.TrimPrefix(body, []byte("ï»¿")))) == 0 {
 		writeErrorMsg(w, http.StatusBadRequest, "empty_opml", "that file is empty")
 		return
 	}

@@ -117,8 +117,8 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
       {result.feeds_repeated ? (
         <li>
           {result.feeds_repeated === 1
-            ? "1 feed was listed again under the same address and was added once"
-            : `${result.feeds_repeated} feeds were listed again under the same address and were added once`}
+            ? "1 feed was listed again under the same address; the repeat was left out"
+            : `${result.feeds_repeated} feeds were listed again under the same address; the repeats were left out`}
         </li>
       ) : null}
       {existing - moved > 0 ? (

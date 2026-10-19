@@ -15,6 +15,12 @@ func TestParseEntities(t *testing.T) {
 	for _, doc := range []string{
 		`<opml><body><outline text="&x;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`,
 		`<opml><body><outline title="ok" xmlUrl="https://a.test/f?&x;"/></body></opml>`,
+		`<opml><body><outline text="&my-ent;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`,
+		`<opml><body><outline text="&_x;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`,
+		`<opml><body><outline text="&a.b;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`,
+		`<opml><body><outline text="&ampx;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`,
+		`<opml><body><outline text="&#99999999;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`,
+		`<opml><body><outline text="&#xZZ;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`,
 		hostileOPMLSeeds()[0],
 		hostileOPMLSeeds()[1],
 	} {
