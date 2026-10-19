@@ -124,10 +124,6 @@ func (s *Server) starterSubscribe(w http.ResponseWriter, r *http.Request) {
 			doc.Feeds = append(doc.Feeds, opml.Feed{URL: fd.URL, Title: fd.Title, SiteURL: fd.Site, Folder: folder})
 		}
 	}
-	if len(doc.Feeds) == 0 { // choosing nothing is not a file with nothing in it: there is nothing to import
-		writeJSON(w, http.StatusOK, map[string]any{"added": 0, "existing": 0, "run_id": nil})
-		return
-	}
 	res, err := opml.Import(r.Context(), s.db, doc, opml.ImportOptions{})
 	if err != nil {
 		s.serverError(w, "starter feeds", err)

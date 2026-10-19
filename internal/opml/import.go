@@ -84,9 +84,6 @@ type Result struct {
 // running scheduler picks them up as ordinary due feeds (design §4.9); callers
 // that own a scheduler may additionally start an import run over NewFeedIDs.
 func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Result, error) {
-	if err := doc.Check(); err != nil {
-		return Result{}, err
-	}
 	res := Result{
 		FeedsExisting:      []Existing{},
 		FoldersMergedCase:  append([]MergedCase{}, doc.FoldersMergedCase...),

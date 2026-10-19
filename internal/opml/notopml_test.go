@@ -1,7 +1,6 @@
 package opml
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -18,13 +17,14 @@ func TestParseRefusesWellFormedNonOPML(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// Import refuses a document with no feeds before it touches the database, and Refusal names every content refusal
-// the callers map (issue #518).
-func TestImportRefusesFoldersOnly(t *testing.T) {
+// ParseForImport refuses a document with no feeds, plain Parse does not, and Refusal names every content refusal the
+// callers map (issue #518).
+func TestParseForImportRefusesFoldersOnly(t *testing.T) {
 	t.Parallel()
-	db := openDB(t)
-	doc := parseString(t, `<opml><body><outline text="Empty"/></body></opml>`)
-	_, err := Import(context.Background(), db, doc, ImportOptions{})
+	const folders = `<opml><body><outline text="Empty"/></body></opml>`
+	_, err := Parse(strings.NewReader(folders))
+	require.NoError(t, err)
+	_, err = ParseForImport(strings.NewReader(folders))
 	code, msg, ok := Refusal(err)
 	require.True(t, ok)
 	require.Equal(t, "empty_opml", code)

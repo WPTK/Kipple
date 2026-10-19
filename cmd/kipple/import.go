@@ -43,10 +43,7 @@ func runImport(args []string) error {
 		defer f.Close()
 		in = f
 	}
-	doc, err := opml.Parse(in)
-	if err == nil {
-		err = doc.Check()
-	}
+	doc, err := opml.ParseForImport(in)
 	if err != nil {
 		return err
 	}

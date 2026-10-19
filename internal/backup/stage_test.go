@@ -321,7 +321,7 @@ func TestUploadKinds(t *testing.T) {
 		"entity":       {`<opml><body><outline text="&x;"><outline xmlUrl="http://a.test/rss"/></outline></body></opml>`, "&x; on line 1"},
 	} {
 		_, err := upload(r, []byte(tc.body))
-		var ref *Refusal
+		var ref *OPMLRefusedError
 		require.ErrorAs(t, err, &ref, name)
 		require.NotErrorIs(t, err, ErrNotBackup, name)
 		require.Contains(t, err.Error(), tc.want, name)

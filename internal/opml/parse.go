@@ -48,16 +48,6 @@ type Feed struct {
 	cut bool
 }
 
-// Check is the refusal of a document with no feeds. Folders and no feeds would only make empty folders, and is not the
-// export of a reader. Import calls it first; a caller that only counts (the restore wizard) calls it itself. Parse
-// does not, so an exported empty library still parses.
-func (d *Doc) Check() error {
-	if len(d.Feeds) == 0 {
-		return &EmptyError{Folders: true}
-	}
-	return nil
-}
-
 // Doc is a parsed OPML document: its folder tree and its feeds.
 type Doc struct {
 	// Folders holds every named outline that is not a feed, pure containers and empty folders
@@ -168,8 +158,9 @@ func (o outline) name() string {
 // with no element at all (empty, or JSON).
 var ErrNotOPML = errors.New("opml: not an OPML document")
 
-// EmptyError is Parse's refusal of a file that holds no feeds: an empty file (Folders false), or one whose outlines
-// are folders only (Folders true), which would only make empty folders and is not the export of a reader.
+// EmptyError is the refusal of a file that holds no feeds: a blank file (Folders false, Parse refuses it) or one whose
+// outlines are folders only (Folders true, ParseForImport refuses it), which would only make empty folders and is not
+// the export of a reader.
 type EmptyError struct{ Folders bool }
 
 func (e *EmptyError) Error() string {
@@ -492,3 +483,17 @@ func parseBool(s string) (*bool, bool) {
 
 // urlKey normalizes a feed URL to its scheme-less key, for in-document dedup.
 func urlKey(u string) (string, error) { return feedurl.Key(u) }
+
+// ParseForImport is Parse for a file about to be imported or restored (web import, Reader API, command line, the
+// restore wizard). It also refuses a document with no feeds, which would only make empty folders and is not the export
+// of a reader. Plain Parse does not, so an exported empty library still parses.
+func ParseForImport(r io.Reader) (*Doc, error) {
+	doc, err := Parse(r)
+	if err != nil {
+		return nil, err
+	}
+	if len(doc.Feeds) == 0 {
+		return nil, &EmptyError{Folders: true}
+	}
+	return doc, nil
+}

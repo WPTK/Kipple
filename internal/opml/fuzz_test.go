@@ -285,9 +285,6 @@ func FuzzImportExport(f *testing.F) {
 		if len(again.Feeds) != n || len(again.FoldersRefused) != 0 || len(again.FoldersMergedCase) != 0 {
 			t.Fatalf("export parses to %d feeds (want %d), refused %v, merged %v", len(again.Feeds), n, again.FoldersRefused, again.FoldersMergedCase)
 		}
-		if n == 0 {
-			return // an export with no feeds is not importable (Doc.Check)
-		}
 		reset(t)
 		res3, err := Import(ctx, db, again, ImportOptions{})
 		if err != nil {

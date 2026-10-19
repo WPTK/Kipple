@@ -74,6 +74,12 @@ type Refusal struct{ Msg string }
 
 func (e *Refusal) Error() string { return e.Msg }
 
+// OPMLRefusedError is an OPML file the import would refuse too (empty, no feeds, an undefined entity); Code is the
+// import's own code for it.
+type OPMLRefusedError struct{ Code, Msg string }
+
+func (e *OPMLRefusedError) Error() string { return e.Msg }
+
 // Refusals of the Restorer; the API maps each to a status.
 var (
 	ErrRestoreBusy = &Refusal{"Another restore upload is in progress. Cancel it first, then try again."}
@@ -399,12 +405,9 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 		if _, err := io.ReadFull(src, b[len(head):]); err != nil {
 			return Upload{}, ended(ctx, err)
 		}
-		doc, err := opml.Parse(bytes.NewReader(b))
-		if err == nil {
-			err = doc.Check()
-		}
-		if code, msg, ok := opml.Refusal(err); ok && code != "not_opml" {
-			return Upload{}, &Refusal{"This OPML file was refused: " + msg + "."}
+		doc, err := opml.ParseForImport(bytes.NewReader(b))
+		if code, msg, ok := opml.Refusal(err); ok && !errors.Is(err, opml.ErrNotOPML) {
+			return Upload{}, &OPMLRefusedError{Code: code, Msg: "This OPML file was refused: " + msg + "."}
 		}
 		if err != nil {
 			return Upload{}, ErrNotBackup

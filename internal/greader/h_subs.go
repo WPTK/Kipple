@@ -426,18 +426,13 @@ func (c *call) publishFeeds(ids []int64) {
 // subscriptionImport is POST subscription/import: raw OPML, no T, exactly 200.
 // Feeds are inserted due now and the scheduler is woken; nothing is fetched here.
 func (c *call) subscriptionImport() {
-	doc, err := opml.Parse(strings.NewReader(c.p.RawBody()))
+	doc, err := opml.ParseForImport(strings.NewReader(c.p.RawBody()))
 	if err != nil {
 		c.a.log.Warn("greader: subscription/import: bad OPML", "err", err, "ua", c.r.UserAgent())
 		c.text(http.StatusBadRequest, "Bad OPML")
 		return
 	}
 	res, err := opml.Import(c.r.Context(), c.a.db, doc, opml.ImportOptions{})
-	if _, _, ok := opml.Refusal(err); ok {
-		c.a.log.Warn("greader: subscription/import: bad OPML", "err", err, "ua", c.r.UserAgent())
-		c.text(http.StatusBadRequest, "Bad OPML")
-		return
-	}
 	if err != nil {
 		c.serverError("import", err)
 		return

@@ -49,7 +49,7 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
-	doc, err := opml.Parse(bytes.NewReader(body))
+	doc, err := opml.ParseForImport(bytes.NewReader(body))
 	if code, msg, ok := opml.Refusal(err); ok {
 		writeErrorMsg(w, http.StatusBadRequest, code, msg)
 		return
@@ -59,10 +59,6 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := opml.Import(r.Context(), s.db, doc, opts)
-	if code, msg, ok := opml.Refusal(err); ok {
-		writeErrorMsg(w, http.StatusBadRequest, code, msg)
-		return
-	}
 	if err != nil {
 		s.serverError(w, "opml import", err)
 		return
