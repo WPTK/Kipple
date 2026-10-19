@@ -7,7 +7,8 @@
 // Uses the seed's articles (All needs about three screens of them). For each width (desktop 1280x800, phone 375x812)
 // it checks:
 //   P1  All, scrolled down, then reloaded: the same article is at the top of the list again;
-//   P2  an article opened from there, the page reloaded on the article, then Back: the list is at that place;
+//   P2  an article opened from there and the page reloaded on it: on a phone, Back finds the list at that place; on the
+//       desktop, where the article stays open beside the list, its row is in view;
 //   P3  scrolled back to the top and reloaded: the list starts at the top;
 //   P4  Unread with mark as read on scroll on, scrolled and reloaded: back at the place, and the restore itself marks
 //       nothing read (the unread count is the same before and after).
@@ -45,12 +46,17 @@ const ready = async (page) => {
   await scroller(page).locator("[data-item-id]").first().waitFor({ timeout: 15000 });
   await page.waitForTimeout(300);
 };
-/** Scrolls the list down by about `px`, as a reader would (wheel), and lets the place be recorded. */
-const scrollDown = async (page, px) => {
-  const box = await scroller(page).boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  for (let done = 0; done < px; done += 400) {
-    await page.mouse.wheel(0, 400);
+/**
+ * Scrolls the list by `px` as a reader would, and lets the place be recorded: a wheel event first (the app remembers
+ * only what the reader moved), then the scroll, in steps. A real wheel is not available in every engine (mobile WebKit).
+ */
+const readerScroll = async (page, px) => {
+  const step = px < 0 ? -400 : 400;
+  for (let done = 0; Math.abs(done) < Math.abs(px); done += step) {
+    await scroller(page).evaluate((el, dy) => {
+      el.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: dy }));
+      el.scrollBy(0, dy);
+    }, step);
     await page.waitForTimeout(60);
   }
   await page.waitForTimeout(1200);
@@ -65,7 +71,7 @@ await t.eachViewport(async (page, vp) => {
   await step(`${tag} P1`, async () => {
     await page.goto("/l/all", { waitUntil: "load" });
     await ready(page);
-    await scrollDown(page, 3000);
+    await readerScroll(page, 3000);
     place = await topOf(page);
     if (!place.id || place.scrollTop < 500) return t.fail(`${tag} P1 setup`, `the list did not scroll far enough: ${JSON.stringify(place)}`);
     await page.reload({ waitUntil: "load" });
@@ -81,8 +87,20 @@ await t.eachViewport(async (page, vp) => {
     await page.getByTestId("article-body").waitFor({ timeout: 15000 });
     await page.reload({ waitUntil: "load" });
     await page.getByTestId("article-body").waitFor({ timeout: 15000 });
-    if (vp.mobile) await page.goBack({ waitUntil: "load" });
-    else await page.goto("/l/all", { waitUntil: "load" });
+    if (!vp.mobile) {
+      // Beside the list, the open article decides what the list shows: its row is in view.
+      await ready(page);
+      await page.waitForTimeout(1500);
+      const row = scroller(page).locator(`[data-item-id="${place.id}"]`).first();
+      const inView = await row.evaluate((r) => {
+        const s = r.closest('[data-testid="list-scroll"]').getBoundingClientRect();
+        const b = r.getBoundingClientRect();
+        return b.bottom > s.top && b.top < s.bottom;
+      }).catch(() => false);
+      check(inView, `${tag} P2`, "reloaded with an article open beside the list, its row is in view", "the open article's row is not in view after the reload");
+      return;
+    }
+    await page.goBack({ waitUntil: "load" });
     await ready(page);
     const back = await waitForTop(page, place.id);
     check(back.id === place.id, `${tag} P2`, "back from an article reloaded, the list is at its place", `top was ${place.id}, now ${back.id} (scrolled ${back.scrollTop})`);
@@ -91,9 +109,8 @@ await t.eachViewport(async (page, vp) => {
   await step(`${tag} P3`, async () => {
     await page.goto("/l/all", { waitUntil: "load" });
     await ready(page);
-    await scroller(page).evaluate((el) => el.scrollTo(0, 0));
-    await page.mouse.wheel(0, -400);
-    await page.waitForTimeout(1200);
+    const at = (await topOf(page)).scrollTop;
+    await readerScroll(page, -(at + 800));
     await page.reload({ waitUntil: "load" });
     await ready(page);
     await page.waitForTimeout(1500);
@@ -107,7 +124,7 @@ await t.eachViewport(async (page, vp) => {
     try {
       await page.goto("/l/unread", { waitUntil: "load" });
       await ready(page);
-      await scrollDown(page, 2400);
+      await readerScroll(page, 2400);
       const here = await topOf(page);
       await page.waitForTimeout(1500); // the marks of the scroll itself land
       const before = (await t.boot(page)).counts.unread;

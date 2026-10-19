@@ -1,8 +1,9 @@
 // Where the reader was in each list, kept on the device so a reload or a reopened app comes back to the same article
-// (#481). The in-page list memory (ListPane) handles going back from an article; this only fills in when the page has
-// no memory of the list. The place is the article at the top of the list, not a pixel offset: after a reload the rows
-// are measured again and new articles may have arrived above it, so only the article itself still points at the
-// right spot. An article that has since left the list (read in Unread, trimmed) means the list starts at the top.
+// (#481). The in-page list memory (ListPane) handles going back from an article; this is only for the first list a
+// page load shows. Searches are not kept. The place is the article at the top of the list, not a pixel offset: after
+// a reload the rows are measured again and new articles may have arrived above it, so only the article itself still
+// points at the right spot. An article that has since left the list (read in Unread, trimmed) means the list starts
+// at the top, and the place is forgotten.
 
 export const LIST_PLACE_KEY = "kipple.listPlace.v1";
 /** Lists remembered: the most recently scrolled ones. */
