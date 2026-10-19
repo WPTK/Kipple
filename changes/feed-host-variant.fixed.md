@@ -1,1 +1,1 @@
-A single-label network name such as `app` is no longer treated as the twin of `www.app` when a feed's network exceptions (full-text extraction, image proxying) follow it to its bare or `www.` twin; only names with a dot have a twin. (#472)
+A single-label network name such as `app` is no longer treated as the twin of `www.app` when a feed's network exceptions (full-text extraction, image proxying) follow it to its bare or `www.` twin; a public suffix such as `co.uk` has no twin either. (#472)

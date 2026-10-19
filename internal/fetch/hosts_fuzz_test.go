@@ -17,7 +17,7 @@ import (
 // reason (one registrable domain or a reserved local suffix), never just a shared tail.
 func FuzzHostRules(f *testing.F) {
 	for _, s := range [][2]string{
-		{"example.com", "www.example.com"}, {"nas", "nas.lan"}, {"nas", "nas.attacker.example"},
+		{"example.com", "www.example.com"}, {"www.app", "app"}, {"app", "www.app"}, {"www.co.uk", "co.uk"}, {"www..com", ".com"}, {"nas", "nas.lan"}, {"nas", "nas.attacker.example"},
 		{"10-0-0-5.nip.io", "169-254-169-254.nip.io"}, {"nip.io", "x.nip.io"}, {"X.NIP.IO.", "x.nip.io"},
 		{"127.0.0.1", "[127.0.0.1]"}, {"::1", "[::1]"}, {"a.example.co.uk", "b.example.co.uk"},
 		{"co.uk", "example.co.uk"}, {"x.nip.io..", "y.nip.io"}, {"①.nip.io", "nip.io"},
