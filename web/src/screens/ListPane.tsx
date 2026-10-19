@@ -36,6 +36,7 @@ import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { openFeedEditor } from "@/lib/feedEditor";
 import { useWidth } from "@/lib/useWidth";
 import { visibleFeeds } from "@/lib/visibleFeeds";
+import { statusInfo } from "@/lib/feedStatus";
 import { listPlace, rememberListTop } from "@/lib/listPlace";
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
@@ -162,7 +163,8 @@ const NO_RANGE_IN_PAGES = "Mark above and below are off in the Gazette: its page
 /** How long a row marked read on purpose stays in the Unread list (the undo toast lasts far longer). */
 export const LEAVE_MS = 1500;
 
-export function emptyCopy(scope: Scope, pendingNew = 0): { title: string; body: string } {
+/** What an empty list says. `feed` is the one feed a feed list shows: a failing feed says why instead of "All caught up" (issue #476). */
+export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed): { title: string; body: string; health?: boolean } {
   if (scope.q) {
     // Only a search narrowed to a feed or folder has a wider place to try (the chip on the Search screen widens it).
     const narrowed = scope.feed || scope.folder;
@@ -170,6 +172,13 @@ export function emptyCopy(scope: Scope, pendingNew = 0): { title: string; body: 
   }
   if (scope.view === "muted") return { title: "Nothing muted", body: "No filter has muted an article yet." };
   if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here. Retention never removes starred articles." };
+  // The server sends last_error only while the feed is failing. New articles waiting mean a fetch has worked since.
+  if (feed?.last_error && !(scope.view === "unread" && pendingNew > 0)) {
+    const title = feed.status === "dead" ? "This feed is gone" : feed.status === "erroring" ? "The last fetch of this feed failed" : "Kipple can't fetch this feed";
+    // The title already says the last fetch failed; the body says what happens next and why.
+    const next = feed.status === "erroring" ? "Kipple will retry with longer waits." : statusInfo(feed.status).hint;
+    return { title, body: `${next} Last error: ${feed.last_error}`, health: true };
+  }
   if (scope.view === "unread") {
     return pendingNew > 0
       ? { title: "All caught up", body: `${pendingNew} new article${pendingNew === 1 ? "" : "s"} arrived. Load ${pendingNew === 1 ? "it" : "them"} above to continue reading.` }
@@ -1199,9 +1208,14 @@ export function ListPane({ scope, activeId, onControls }: Props) {
           <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
         );
       }
-      const c = emptyCopy(scope, pendingNew);
+      const c = emptyCopy(scope, pendingNew, scope.feed ? feedById.get(scope.feed) : undefined);
       return (
         <StatusBlock role="status" title={c.title} body={c.body}>
+          {c.health ? (
+            <Link to="/health" className="text-sm text-link underline underline-offset-2">
+              Open Feed health
+            </Link>
+          ) : null}
           {scope.view === "muted" && !scope.q ? (
             <Link to="/settings/filters" className="text-sm text-link underline underline-offset-2">
               Add a filter in Settings

@@ -83,6 +83,8 @@ export interface Feed {
   auto_read_days?: number | null;
   is_archive: boolean;
   starred_count: number;
+  /** Why the feed is failing (what Feed health shows): the server sends it only while the status is erroring, failing or dead. */
+  last_error?: string | null;
 }
 
 export interface RunStatus {

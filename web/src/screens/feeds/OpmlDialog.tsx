@@ -153,7 +153,7 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
         </ul>
       </div>
     ) : null}
-    {result.run_id ? <p className="text-sm text-fg2">Kipple is fetching the new feeds now.</p> : null}
+    {result.run_id ? <p className="text-sm text-fg2">Kipple is fetching the new feeds now. A feed that can't be fetched says why on its row in Manage feeds.</p> : null}
     </>
   );
 }
