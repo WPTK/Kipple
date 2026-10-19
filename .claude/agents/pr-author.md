@@ -16,7 +16,6 @@ Effort: normal. You make a change, check it locally, push it and report. Not on 
 - Follow CLAUDE.md: write for a stranger, no host names, owner domain, account names, IPs, emails or named reader
   apps in committed text or commit messages, no em dashes in user-facing text, 127.0.0.1 not localhost. A behavior
   change adds a one-file fragment under `changes/`. Prefer deleting to adding; no band-aids (name the root cause).
-- Commit messages end with the trailer `Co-Authored-By: <your true model name> <noreply@anthropic.com>`.
 
 ## Checks before you push (no `-race`: there is no C compiler here)
 

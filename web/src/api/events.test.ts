@@ -1,14 +1,229 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
-import { FINISHED_KEEP_MAX, FINISHED_KEEP_MS, isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, reduceEvent } from "./events";
+import { FINISHED_KEEP_MAX, FINISHED_KEEP_MS, isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, pollStatus, reduceEvent, seedRun, seedRuns } from "./events";
 import { keys, scopeKey } from "./queries";
 import { savedSearchesKey } from "./savedSearches";
 import { noteFilterTouched, resetFilterTouched } from "./filterEdits";
 import type { ItemsPage, ServerEvent } from "./types";
-import { bootstrap, card, detail, pageOf } from "@/test/mockApi";
+import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 
 beforeEach(() => liveStore.set(initialLive));
+
+describe("seedRuns", () => {
+  const run = (id: string) => ({ id, kind: "import", done: 1, total: 5, new_items: 0, errors: 0 });
+
+  it("does not bring back a run whose run.done already arrived (a stale bootstrap answer)", () => {
+    liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "7", kind: "import", total: 5 } }));
+    liveStore.set((s) => reduceEvent(s, { type: "run.done", data: { run_id: "7", new_items: 0, errors: 0 } }));
+    seedRuns([run("7")]);
+    expect(liveStore.get().runs).toEqual({});
+  });
+
+  it("seeds an unfinished run even when another run is already present", () => {
+    liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "1", kind: "refresh", total: 3 } }));
+    seedRuns([run("1"), run("2")]);
+    expect(Object.keys(liveStore.get().runs).sort()).toEqual(["1", "2"]);
+  });
+
+  it("leaves a known run's live progress alone and keeps a run the bootstrap lacks", () => {
+    liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "1", kind: "refresh", total: 3 } }));
+    liveStore.set((s) => reduceEvent(s, { type: "run.progress", data: { run_id: "1", done: 2, total: 3, new_items: 0, errors: 0 } }));
+    seedRuns([run("2")]);
+    expect(liveStore.get().runs["1"]?.done).toBe(2);
+    seedRuns([{ ...run("1"), done: 0 }]);
+    expect(liveStore.get().runs["1"]?.done).toBe(2);
+  });
+
+  it("seeds a bootstrap that lists only new runs, and seedRun follows the same rule", () => {
+    liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "1", kind: "refresh", total: 3 } }));
+    seedRuns([run("5"), { ...run("6"), id: 6 as unknown as string }]);
+    expect(Object.keys(liveStore.get().runs).sort()).toEqual(["1", "5", "6"]);
+    liveStore.set((s) => reduceEvent(s, { type: "run.done", data: { run_id: "5", new_items: 0, errors: 0 } }));
+    seedRun(run("5"));
+    expect(liveStore.get().runs["5"]).toBeUndefined();
+  });
+
+  it("does not bring back a run a status poll stopped listing", async () => {
+    mockFetch({ "GET /api/status": () => json({ runs: [], event_id: "50", inflight: 0, unread_total: 0 }) });
+    liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "7", kind: "import", total: 5 } }));
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs).toEqual({});
+    seedRuns([run("7")]);
+    expect(liveStore.get().runs).toEqual({});
+  });
+
+  it("still guards a run after 19 later runs finished (the kept window holds FINISHED_KEEP_MAX)", () => {
+    liveStore.set((s) => reduceEvent(s, { type: "run.done", data: { run_id: "0", new_items: 0, errors: 0 } }));
+    for (let i = 1; i < FINISHED_KEEP_MAX; i++) liveStore.set((s) => reduceEvent(s, { type: "run.done", data: { run_id: String(i), new_items: 0, errors: 0 } }));
+    seedRuns([run("0")]);
+    expect(liveStore.get().runs).toEqual({});
+  });
+});
+
+// Issue #536: an answer (bootstrap, /api/status, a 202 body) can reach the client after events it predates. Each one
+// carries `event_id`, the last event the server had published before it looked, and each run remembers the id of the
+// last event or answer about it, so an older answer is told from a newer one whichever path it came by.
+describe("answers older or newer than the stream (issue #536)", () => {
+  const run = (id: string, over: object = {}) => ({ id, kind: "import", done: 1, total: 5, new_items: 0, errors: 0, ...over });
+  const event = (ev: ServerEvent, id: number) => liveStore.set((s) => reduceEvent(s, ev, id));
+  const start = (id: string, at: number, kind = "import") => event({ type: "run.start", data: { run_id: id, kind, total: 5 } }, at);
+  const done = (id: string, at: number, extra: object = {}) => event({ type: "run.done", data: { run_id: id, new_items: 0, errors: 0, ...extra } } as ServerEvent, at);
+  const status = (event_id: string | undefined, runs: object[]) => mockFetch({ "GET /api/status": () => json({ runs, inflight: 0, unread_total: 0, ...(event_id ? { event_id } : {}) }) });
+
+  it("a status answer built before run.done does not bring the finished run back", async () => {
+    start("7", 10);
+    done("7", 20, { errors: 1, error: "x" });
+    status("15", [run("7")]);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs).toEqual({});
+    expect(liveStore.get().finished["7"]).toMatchObject({ errors: 1, error: "x", seq: 20 }); // the exact result is kept
+    expect(liveStore.get().finished["7"]?.inferred).toBeUndefined();
+  });
+
+  it("a status answer built before a run the 202 announced does not end that run", async () => {
+    seedRun(run("8", { kind: "manual", done: 0 }), "100"); // the 202 body: the run exists at event 100
+    status("90", []);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs["8"]).toBeDefined();
+    expect(liveStore.get().finished["8"]).toBeUndefined();
+    // An answer built after it: the run is over.
+    status("110", []);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs).toEqual({});
+    expect(liveStore.get().finished["8"]).toMatchObject({ inferred: true, kind: "manual" });
+  });
+
+  it("a status answer built before the stream's later progress leaves the live numbers alone", async () => {
+    start("9", 10);
+    event({ type: "run.progress", data: { run_id: "9", done: 4, total: 5, new_items: 0, errors: 0 } }, 30);
+    status("20", [run("9", { done: 1 })]);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs["9"]?.done).toBe(4);
+    status("40", [run("9", { done: 5 })]); // a newer answer (the stream is down) is taken
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs["9"]?.done).toBe(5);
+  });
+
+  it("a bootstrap built before run.done does not bring the run back, however many runs finished since", () => {
+    for (let i = 0; i < FINISHED_KEEP_MAX + 5; i++) {
+      start(String(i), 100 + 2 * i);
+      done(String(i), 101 + 2 * i);
+    }
+    expect(Object.keys(liveStore.get().finished)).toHaveLength(FINISHED_KEEP_MAX); // run 0 is no longer remembered
+    expect(liveStore.get().finished["0"]).toBeUndefined();
+    seedRuns([run("0")], "100"); // built while run 0 was going
+    expect(liveStore.get().runs).toEqual({});
+    seedRun(run("1"), "103");
+    expect(liveStore.get().runs).toEqual({});
+    // A bootstrap built after all of them introduces a run that really is going.
+    seedRuns([run("900")], "500");
+    expect(Object.keys(liveStore.get().runs)).toEqual(["900"]);
+  });
+
+  it("a run that ended long ago is still ended: the ended set outlives the finished results", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-19T12:00:00Z"));
+    start("1", 10);
+    done("1", 20);
+    vi.advanceTimersByTime(FINISHED_KEEP_MS + 1000);
+    start("2", 30);
+    done("2", 40); // makes room: run 1's result is dropped now
+    expect(liveStore.get().finished["1"]).toBeUndefined();
+    expect(liveStore.get().ended["1"]).toBe(true);
+    seedRuns([run("1")], "15");
+    expect(liveStore.get().runs).toEqual({});
+    vi.useRealTimers();
+  });
+
+  it("run.done after a poll ended the run keeps the run's kind, and announces by it", async () => {
+    const toasts = await import("@/shell/toasts");
+    const spy = vi.spyOn(toasts, "announce");
+    const qc = new QueryClient();
+    handleServerEvent(qc, { type: "run.start", data: { run_id: "7", kind: "import", total: 5 } }, 10);
+    status("15", []);
+    await pollStatus(qc);
+    expect(liveStore.get().finished["7"]).toMatchObject({ kind: "import", inferred: true });
+    handleServerEvent(qc, { type: "run.done", data: { run_id: "7", new_items: 20, errors: 0 } }, 20);
+    expect(liveStore.get().finished["7"]).toMatchObject({ kind: "import", errors: 0, seq: 20 });
+    expect(liveStore.get().finished["7"]?.inferred).toBeUndefined();
+    expect(spy).not.toHaveBeenCalled(); // an import's items arrive silently
+    // A manual run is announced by its kind too.
+    handleServerEvent(qc, { type: "run.start", data: { run_id: "8", kind: "manual", total: 5 } }, 30);
+    status("35", []);
+    await pollStatus(qc);
+    handleServerEvent(qc, { type: "run.done", data: { run_id: "8", new_items: 0, errors: 0 } }, 40);
+    expect(spy).toHaveBeenCalledWith("No new articles");
+    spy.mockRestore();
+  });
+
+  it("an end only inferred from a poll is marked as inferred and carries no result", async () => {
+    start("5", 10, "auto_read");
+    event({ type: "run.progress", data: { run_id: "5", done: 3, total: 9, new_items: 0, errors: 1, changed: 3 } }, 12);
+    status("20", []);
+    await pollStatus(new QueryClient());
+    const f = liveStore.get().finished["5"]!;
+    expect(f).toMatchObject({ inferred: true, kind: "auto_read", errors: 1, seq: 20 });
+    expect(f.changed).toBeUndefined();
+    expect(f.error).toBeUndefined();
+  });
+
+  it("an end only inferred is undone by a newer answer or event that shows the run going (a poll made while the server was busy)", async () => {
+    start("5", 10);
+    status("20", []);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().finished["5"]?.inferred).toBe(true);
+    status("30", [run("5", { done: 2 })]);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs["5"]?.done).toBe(2);
+    expect(liveStore.get().finished["5"]).toBeUndefined();
+    // And the real end still replaces it.
+    done("5", 40, { changed: 7 });
+    expect(liveStore.get().finished["5"]).toMatchObject({ changed: 7, seq: 40 });
+  });
+
+  it("an exact end is not undone by any answer", () => {
+    start("5", 10);
+    done("5", 20);
+    seedRuns([run("5")], "9999");
+    expect(liveStore.get().runs).toEqual({});
+  });
+
+  it("a 202 read after its run already ended (event_id at or above the run.done) does not bring the run back", () => {
+    start("5", 10);
+    done("5", 20);
+    seedRun(run("5"), "20");
+    expect(liveStore.get().runs).toEqual({});
+    seedRun(run("5"), "25");
+    expect(liveStore.get().runs).toEqual({});
+  });
+
+  it("a status answer the server could not order (event_id 0: the scheduler did not answer) ends no run", async () => {
+    start("5", 10);
+    status("0", []);
+    await pollStatus(new QueryClient());
+    expect(liveStore.get().runs["5"]).toBeDefined();
+    expect(liveStore.get().finished["5"]).toBeUndefined();
+    expect(liveStore.get().ended).toEqual({});
+  });
+
+  it("a resync with an id below the last one seen (the server's ids restarted) clears the ordering state; a later one does not", () => {
+    start("5", 100);
+    start("6", 101);
+    done("6", 102);
+    event({ type: "resync", data: {} }, 103);
+    expect(liveStore.get().ended["6"]).toBe(true);
+    expect(liveStore.get().seq["5"]).toBe(100);
+    event({ type: "resync", data: {} }, 7);
+    expect(liveStore.get().ended).toEqual({});
+    expect(liveStore.get().seq).toEqual({});
+    expect(liveStore.get().finished["6"]?.seq).toBe(0);
+    expect(liveStore.get().lastId).toBe(7);
+    // The new numbering orders again: a run that starts at 8 is shown, and an answer built at 9 describes it.
+    start("5", 8);
+    expect(liveStore.get().seq["5"]).toBe(8);
+  });
+});
 
 describe("reduceEvent", () => {
   it("tracks run progress and clears it on run.done", () => {
