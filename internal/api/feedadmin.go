@@ -698,7 +698,7 @@ func (s *Server) patchFeed(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrFolderNotFound):
 		writeErrorMsg(w, http.StatusBadRequest, "folder_not_found", "no such folder")
 		return
-	case errors.As(err, &bad) && bad.Private:
+	case errors.As(err, &bad) && bad.Kind == store.URLPrivate:
 		writeErrorMsg(w, http.StatusBadRequest, "invalid_url", msgPrivateAddressEdit)
 		return
 	case errors.As(err, &bad):

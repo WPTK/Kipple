@@ -49,17 +49,26 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
-	doc, err := opml.Parse(bytes.NewReader(body))
-	if errors.Is(err, opml.ErrNotOPML) {
-		writeError(w, http.StatusBadRequest, "not_opml")
+	if len(bytes.TrimSpace(body)) == 0 {
+		writeErrorMsg(w, http.StatusBadRequest, "empty_opml", "that file is empty")
 		return
 	}
-	if err != nil {
+	doc, err := opml.Parse(bytes.NewReader(body))
+	var entity *opml.UndefinedEntityError
+	switch {
+	case errors.Is(err, opml.ErrNotOPML):
+		writeError(w, http.StatusBadRequest, "not_opml")
+		return
+	case errors.As(err, &entity):
+		writeErrorMsg(w, http.StatusBadRequest, "opml_entity", strings.TrimPrefix(entity.Error(), "opml: "))
+		return
+	case err != nil:
 		writeError(w, http.StatusBadRequest, "bad_opml")
 		return
 	}
-	if len(doc.Feeds) == 0 && len(doc.Folders) == 0 {
-		writeErrorMsg(w, http.StatusBadRequest, "empty_opml", "that OPML file has no feeds or folders in it")
+	// A file with folders and no feeds would only make empty folders: it is not the export of a reader.
+	if len(doc.Feeds) == 0 {
+		writeErrorMsg(w, http.StatusBadRequest, "empty_opml", "that OPML file has no feeds in it")
 		return
 	}
 	res, err := opml.Import(r.Context(), s.db, doc, opts)

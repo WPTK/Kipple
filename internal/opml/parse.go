@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"regexp"
 	"strings"
@@ -151,8 +152,83 @@ func (o outline) name() string {
 	return o.get("title")
 }
 
-// ErrNotOPML is Parse's refusal of well-formed XML (an RSS feed, a web page) whose root is not <opml>.
+// ErrNotOPML is Parse's refusal of well-formed XML (an RSS feed, a web page) whose root is not <opml>, and of a file
+// with no element at all (empty, or JSON).
 var ErrNotOPML = errors.New("opml: not an OPML document")
+
+// UndefinedEntityError is Parse's refusal of a file that names an entity neither XML nor HTML defines (`&x;`): the
+// decoder would keep it as literal text and it would become a folder or feed name. A DOCTYPE's own entities are never
+// expanded, so a reference to one is refused too.
+type UndefinedEntityError struct {
+	Name string // without the & and ;
+	Line int
+}
+
+func (e *UndefinedEntityError) Error() string {
+	return fmt.Sprintf("opml: &%s; on line %d is not an entity XML or HTML defines", e.Name, e.Line)
+}
+
+// entityRef is a named character reference.
+var entityRef = regexp.MustCompile(`&([A-Za-z][A-Za-z0-9]*);`)
+
+// resolveEntities rewrites the named character references inside the start tags of b (where OPML keeps all its
+// data) that are not XML's own five as numeric references, so every HTML name decodes, and refuses a name neither XML
+// nor HTML defines. Comments, the DOCTYPE and text are left alone. A file the tokenizer cannot read is returned as it
+// is, for the decoder to report.
+func resolveEntities(b []byte) ([]byte, error) {
+	dec := xml.NewDecoder(bytes.NewReader(b))
+	dec.Strict = false
+	dec.Entity = xml.HTMLEntity
+	dec.CharsetReader = func(label string, in io.Reader) (io.Reader, error) { return in, nil }
+	var out bytes.Buffer
+	last := int64(0)
+	for {
+		start := dec.InputOffset()
+		tok, err := dec.RawToken()
+		if err != nil {
+			break
+		}
+		if _, ok := tok.(xml.StartElement); !ok {
+			continue
+		}
+		end := dec.InputOffset()
+		seg := b[start:end]
+		if !bytes.Contains(seg, []byte("&")) {
+			continue
+		}
+		var bad *UndefinedEntityError
+		fixed := entityRef.ReplaceAllFunc(seg, func(m []byte) []byte {
+			name := string(m[1 : len(m)-1])
+			switch name {
+			case "amp", "lt", "gt", "quot", "apos":
+				return m
+			}
+			s := html.UnescapeString(string(m))
+			if s == string(m) {
+				if bad == nil {
+					bad = &UndefinedEntityError{Name: name, Line: 1 + bytes.Count(b[:start], []byte("\n"))}
+				}
+				return m
+			}
+			var r []byte
+			for _, c := range s {
+				r = fmt.Appendf(r, "&#%d;", c)
+			}
+			return r
+		})
+		if bad != nil {
+			return nil, bad
+		}
+		out.Write(b[last:start])
+		out.Write(fixed)
+		last = end
+	}
+	if last == 0 {
+		return b, nil
+	}
+	out.Write(b[last:])
+	return out.Bytes(), nil
+}
 
 // Parse reads an OPML document. Every named outline without an xmlUrl is a
 // folder and nests as it does in the file, down to store.MaxFolderDepth levels;
@@ -164,12 +240,19 @@ func Parse(r io.Reader) (*Doc, error) {
 	}
 	// Decode to UTF-8 first (BOM, XML declaration, ISO-8859-1, UTF-16...), which
 	// also rewrites the declaration so the XML decoder needs no CharsetReader.
-	dec := xml.NewDecoder(bytes.NewReader(fetch.DecodeBody(raw, "").Body))
+	body, err := resolveEntities(fetch.DecodeBody(raw, "").Body)
+	if err != nil {
+		return nil, err
+	}
+	// Non-strict, so the bare "&" of a hand-written URL query still reads.
+	dec := xml.NewDecoder(bytes.NewReader(body))
 	dec.Strict = false
 	dec.Entity = xml.HTMLEntity
 	dec.CharsetReader = func(label string, in io.Reader) (io.Reader, error) { return in, nil }
 	var d document
-	if err := dec.Decode(&d); err != nil {
+	if err := dec.Decode(&d); errors.Is(err, io.EOF) {
+		return nil, ErrNotOPML
+	} else if err != nil {
 		return nil, fmt.Errorf("opml: %w", err)
 	}
 	// The decoder accepts any well-formed XML or HTML; only an <opml> root is an OPML document.

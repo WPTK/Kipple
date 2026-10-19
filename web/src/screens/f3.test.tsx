@@ -704,7 +704,7 @@ describe("Folders and OPML", () => {
     base({
       "POST /api/opml": () =>
         json({
-          folders_created: 0, feeds_added: 1, feeds_existing: [], memberships_dropped: [],
+          folders_created: 0, feeds_added: 1, feeds_repeated: 2, feeds_existing: [], memberships_dropped: [],
           folders_merged_case: [{ kept: "News", merged: "news" }],
           skipped: [{ url: "ftp://bad", reason: "not a valid http(s) URL" }],
           invalid_attrs: ["https://x/feed: kipple:interval must be a number"],
@@ -720,12 +720,14 @@ describe("Folders and OPML", () => {
     await user.click(within(dlg).getByRole("button", { name: "Import" }));
     const done = await screen.findByRole("dialog", { name: "Import finished" });
     expect(within(done).getByText(/1 feed was skipped/)).toBeInTheDocument();
-    expect(within(done).getByText(/ftp:\/\/bad: not a valid/)).toBeInTheDocument();
-    expect(within(done).getByText(/https:\/\/x\/feed: allowing private-network addresses was ignored/)).toBeInTheDocument();
-    expect(within(done).getByText(/https:\/\/y\/feed: skipping certificate checks was ignored/)).toBeInTheDocument();
-    expect(within(done).getByText(/http:\/\/10\.0\.0\.5\/feed: this feed is on a private-network address.*Turn it on for the feed to fetch it/)).toBeInTheDocument();
+    const lines = within(done).getAllByRole("listitem").map((li) => li.textContent);
+    expect(lines).toContain("ftp://bad: not a valid http(s) URL");
+    expect(lines).toContain('https://x/feed: the file allowed addresses on your own network; turn on "Allow addresses on my own network" in its settings if it needs that');
+    expect(lines).toContain("https://y/feed: the file skipped certificate checks; Kipple checks them");
+    expect(lines).toContain(`http://10.0.0.5/feed: on your own network, so Kipple won't fetch it until you turn on "Allow addresses on my own network" in its settings`);
     expect(within(done).getByText(/kipple:interval must be a number/)).toBeInTheDocument();
     expect(within(done).getByText(/news into News/)).toBeInTheDocument();
+    expect(lines).toContain("2 feeds were listed again under the same address and were added once");
   });
 
   it("does not restrict the picker to types iOS may not know, and checks the file itself", async () => {

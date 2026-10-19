@@ -87,12 +87,22 @@ func (d *DB) BoolSetting(ctx context.Context, key string, def bool) bool {
 	return settingBool(ctx, d.reader, key, def)
 }
 
-// InvalidURLError is returned by Subscribe for a URL that cannot be a feed.
-// Private marks a literal private, loopback or otherwise blocked address.
+// InvalidURLError is returned by Subscribe for a URL that cannot be a feed. Reason is the sentence for a person
+// adding or editing one feed; Kind says what is wrong, for callers that word it their own way (an import report).
 type InvalidURLError struct {
-	Reason  string
-	Private bool
+	Reason string
+	Kind   URLProblem
 }
+
+// URLProblem is what makes a URL unusable as a feed address.
+type URLProblem int
+
+const (
+	URLNotWebAddress URLProblem = iota // not an absolute http(s) URL with a host
+	URLUserinfo                        // holds a user name or password
+	URLTooLong                         // longer than feedurl.MaxLen
+	URLPrivate                         // a literal private, loopback or otherwise blocked address
+)
 
 // The plain-language reasons ValidateFeedURL gives (the Reader API's quickadd error, the web dialog).
 const (
@@ -244,14 +254,17 @@ func subscribeFolder(ctx context.Context, tx *sql.Tx, label string) (id int64, r
 func ValidateFeedURL(raw string, allowPrivate bool) (norm, key, host string, err error) {
 	key, norm, nerr := feedurl.KeyAndNormalize(raw)
 	if errors.Is(nerr, feedurl.ErrUserinfo) {
-		return "", "", "", &InvalidURLError{Reason: "the URL contains a user name or password; use the feed's HTTP authentication instead"}
+		return "", "", "", &InvalidURLError{Reason: "the URL contains a user name or password; use the feed's HTTP authentication instead", Kind: URLUserinfo}
+	}
+	if errors.Is(nerr, feedurl.ErrTooLong) {
+		return "", "", "", &InvalidURLError{Reason: "that address is longer than 4,096 characters, too long to be a feed address", Kind: URLTooLong}
 	}
 	if nerr != nil {
-		return "", "", "", &InvalidURLError{Reason: MsgNotWebAddress}
+		return "", "", "", &InvalidURLError{Reason: MsgNotWebAddress, Kind: URLNotWebAddress}
 	}
 	host, _ = feedurl.Host(norm)
 	if ip, perr := netip.ParseAddr(host); perr == nil && !allowPrivate && fetch.Blocked(ip.Unmap()) {
-		return "", "", "", &InvalidURLError{Reason: MsgPrivateAddress, Private: true}
+		return "", "", "", &InvalidURLError{Reason: MsgPrivateAddress, Kind: URLPrivate}
 	}
 	return norm, key, host, nil
 }
