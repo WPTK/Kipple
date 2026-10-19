@@ -29,6 +29,52 @@ const { check, step } = t;
 const GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#c33"/></svg>';
 
+/**
+ * What became of one article image once the browser had finished with it: "loaded" (it drew), "failed" (its fetch
+ * ended and it has no picture), "unfetched" (no response for its address within 10 s: the fetch never started),
+ * "timeout" (a response came but the image did not finish within 10 s) or "gone" (the image is not in the article).
+ * It scrolls the image into view first, because lazy loading starts on nearness to the viewport. A load only counts
+ * once the page has received a response for the image's address (`seen`, filled by the flow): `complete` with a
+ * `currentSrc` alone is not proof, since a lazy image whose fetch has not begun can look finished in some browsers
+ * (see `watchImages`). Then the state is polled with one short read at a time, so there is no handle to dispose, and
+ * every read is bounded by the one 10 s deadline. A closed page or any other error is thrown, not reported as a state.
+ *
+ * The first finished state is the settled one here: the app replaces an image after its error event only when the
+ * image proxy answers 415 (its one extra request goes to the same address after the error, and a 200 or 500 there
+ * leaves the image as it is), and this flow's server answers the failing image with a fixed 500 and the GIF with a
+ * fixed 200.
+ */
+const finished = async (page, img, seen) => {
+  const deadline = Date.now() + 10000;
+  const left = () => Math.max(1, deadline - Date.now());
+  try {
+    if ((await img.count()) === 0) return "gone";
+    await img.scrollIntoViewIfNeeded({ timeout: left() });
+    const src = await img.evaluate((el) => el.src, undefined, { timeout: left() });
+    while (!seen.has(src)) {
+      if (Date.now() > deadline) return "unfetched";
+      await page.waitForTimeout(100);
+    }
+    for (;;) {
+      const state = await img.evaluate((el) => (!el.isConnected ? "gone" : el.complete && el.currentSrc ? (el.naturalWidth > 0 ? "loaded" : "failed") : ""), undefined, { timeout: left() });
+      if (state) return state;
+      if (Date.now() > deadline) return "timeout";
+      await page.waitForTimeout(50);
+    }
+  } catch (e) {
+    if ((await img.count().catch(() => 1)) === 0) return "gone";
+    if (e.name === "TimeoutError") return "timeout";
+    throw e;
+  }
+};
+const WHY = {
+  unfetched: "the page got no response for it within 10 s (its fetch never started)",
+  timeout: "a response came but its load did not finish within 10 s",
+  failed: "its fetch failed",
+  loaded: "it loaded",
+  gone: "the image is not in the article",
+};
+
 let base = "";
 const article = () =>
   `<p>An article with pictures.</p>` +
@@ -71,6 +117,10 @@ base = `http://127.0.0.1:${server.address().port}`;
 await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
   await step(`${tag} I`, async () => {
+    // Every response the page gets, from before the article opens: a lazy image may be fetched before the flow looks.
+    const seen = new Set();
+    const onResponse = (r) => seen.add(r.url());
+    page.on("response", onResponse);
     const added = await t.addLocalFeed(page, `${base}/feed.xml`, "UAT feed images", (items) => items.some((i) => i.title === "UAT images article"));
     if (added.error) return t.fail(`${tag} I setup`, added.error);
 
@@ -104,11 +154,14 @@ await t.eachViewport(async (page, vp) => {
     check(href === `${base}/page/1` && target === "_blank", `${tag} I2 link`, "Open original goes to the article and opens a new tab", `href ${href}, target ${target}`);
 
     const photo = body.locator('img[alt="A photo"]');
-    const shown = await photo.evaluate((i) => i.complete && i.naturalWidth > 0).catch(() => false);
-    check(shown, `${tag} I3 gif`, "the GIF is shown", "the GIF did not load");
+    // The pictures are lazy: the browser starts a fetch only when one nears the screen, and at the phone preset the
+    // article is long enough that it has not begun when the last cue appears. So bring the GIF and then the failing
+    // image into view, and wait for each one's response and for the browser to finish with it.
+    const shown = await finished(page, photo, seen);
+    check(shown === "loaded", `${tag} I3 gif`, "the GIF is shown", `the GIF did not load: ${WHY[shown]}`);
     check((await body.locator('img[width="1"]').count()) === 1, `${tag} I3 pixel`, "the tracking pixel gets no cue", "the tracking pixel was replaced");
-    const flaky = await body.locator('img[alt="Flaky"]').evaluate((i) => i.complete && i.naturalWidth === 0).catch(() => null);
-    check(flaky === true, `${tag} I3 transient`, "an image whose source is down stays an image (it may load next time), with no cue", `the failing image is ${flaky === null ? "gone" : "not failed"}`);
+    const flaky = await finished(page, body.locator('img[alt="Flaky"]'), seen);
+    check(flaky === "failed", `${tag} I3 transient`, "an image whose source is down stays an image (it may load next time), with no cue", `the failing image is not a failed image: ${WHY[flaky]}`);
     await cues.first().scrollIntoViewIfNeeded();
     await t.shot(page, `${tag}-image-not-shown`);
 
@@ -133,11 +186,10 @@ await t.eachViewport(async (page, vp) => {
     check(asked.length === 0, `${tag} I5 lazy`, "no image below the fold is requested or checked before scrolling", `${asked.length} requests: ${JSON.stringify(asked)}`);
     await body.getByText("Picture 30 ends the article.").scrollIntoViewIfNeeded();
     const last = body.locator('img[alt="Picture 30"]');
-    const loaded = await last
-      .evaluate((i) => (i.complete && i.naturalWidth > 0) || new Promise((ok) => i.addEventListener("load", () => ok(true), { once: true })))
-      .catch(() => false);
-    check(loaded === true && !asked.includes("fetch"), `${tag} I5 scrolled`, "scrolled into view, the images load with no extra check", `loaded ${loaded}, requests ${JSON.stringify(asked)}`);
+    const loaded = await finished(page, last, seen);
+    check(loaded === "loaded" && !asked.includes("fetch"), `${tag} I5 scrolled`, "scrolled into view, the images load with no extra check", `${WHY[loaded]}, requests ${JSON.stringify(asked)}`);
     page.off("request", onRequest);
+    page.off("response", onResponse);
   });
 });
 
