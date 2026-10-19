@@ -5,7 +5,6 @@ import { prefsStore, updatePrefs } from "@/lib/prefs";
 import { createStore } from "@/lib/store";
 import { updateTheme } from "@/theme/theme";
 import type { ThemeSettings } from "@/theme/settings";
-import type { StepId } from "./steps";
 
 /**
  * The web password typed in step 1, so that step 7 can create the API password without asking again. Never stored
@@ -81,28 +80,31 @@ export function revertUnsavedTheme(): void {
 }
 
 const RERUN_KEY = "kipple.setup.rerun";
-/** "Run setup again" was used: the saved time zone is the person's choice, not a default to replace. */
-export function markRerun(): void {
-  try {
-    sessionStorage.setItem(RERUN_KEY, "1");
-  } catch {
-    /* no session storage: the step then treats a saved UTC as unchosen */
-  }
-}
-export function isRerun(): boolean {
+const readRerun = (): boolean => {
   try {
     return sessionStorage.getItem(RERUN_KEY) === "1";
   } catch {
     return false;
   }
+};
+/**
+ * The steps were opened again with "Run setup again" (or the recommended feeds) in this tab: the saved time zone is the
+ * person's choice, not a default to replace, and the wizard stays open although the server says setup is finished. The
+ * server is not told, so no other device is sent to the steps. Kept for the tab, so a reload resumes.
+ */
+export const rerunStore = createStore<boolean>(readRerun());
+export function markRerun(): void {
+  try {
+    sessionStorage.setItem(RERUN_KEY, "1");
+  } catch {
+    /* no session storage: the rerun then lasts until this page is reloaded */
+  }
+  rerunStore.set(true);
 }
+export const isRerun = (): boolean => rerunStore.get();
 
-let welcomeTarget: StepId | null = null;
-/** Where the app sends an account with setup pending: the first step, or the one "Run setup again" was asked to open. */
-export function setWelcomeTarget(id: StepId | null): void {
-  welcomeTarget = id;
-}
-export const welcomeEntry = (): string => `/welcome/${welcomeTarget ?? "timezone"}`;
+/** Where the app sends an account whose first-run setup is pending: the first step. */
+export const welcomeEntry = (): string => "/welcome/timezone";
 
 /** Setup is over, or the app signed out: forget everything above. */
 export function forgetWizardMemory(): void {
@@ -114,10 +116,10 @@ export function forgetWizardMemory(): void {
   themeSaved = null;
   fontBaseline = null;
   fontSaved = null;
-  welcomeTarget = null;
   try {
     sessionStorage.removeItem(RERUN_KEY);
   } catch {
     /* nothing to remove */
   }
+  rerunStore.set(false);
 }

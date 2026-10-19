@@ -39,7 +39,8 @@
     "uat:feed-failure": "node uat/feed-failure.mjs",
     "uat:feeds-scale": "node uat/feeds-scale.mjs",
     "uat:opml-report": "node uat/opml-report.mjs",
-    "uat:bulk-delete": "node uat/bulk-delete.mjs"
+    "uat:bulk-delete": "node uat/bulk-delete.mjs",
+    "uat:setup-rerun": "node uat/setup-rerun.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

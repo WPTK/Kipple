@@ -309,7 +309,7 @@ recommended feeds, an optional API password). The same first screen offers "Rest
   Access and carries a verified token.
 
 After the account step the wizard continues as an ordinary signed-in session. Each step saves when you press Continue; a reload keeps every saved step.
-Settings, Account & Devices, Run setup again repeats the steps after the account for any account (it never touches the account).
+Settings, Account & Devices, Run setup again repeats, in that browser tab, the steps after the account for any account (it never touches the account).
 
 ## Ports
 

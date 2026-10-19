@@ -350,7 +350,7 @@ export function AccountActions() {
   };
   const setupActions = useSetupActions();
   const [backup, setBackup] = useState<BackupInfo | null>(null);
-  const [busy, setBusy] = useState<"backup" | "retention" | "setup" | null>(null);
+  const [busy, setBusy] = useState<"backup" | "retention" | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);
 
   const doBackup = async () => {
@@ -382,15 +382,7 @@ export function AccountActions() {
       setBusy(null);
     }
   };
-  const runSetupAgain = async () => {
-    setBusy("setup");
-    try {
-      await setupActions.restart();
-    } catch (e) {
-      toast(errorMessage(e), "error");
-      setBusy(null);
-    }
-  };
+  const runSetupAgain = () => setupActions.restart();
   const signOut = async () => {
     chooseSignOut(true);
     try {
@@ -441,7 +433,7 @@ export function AccountActions() {
         <p className="mt-1 text-xs text-fg2">Trims every feed to its "articles to keep" limit right away. Starred articles are never removed.</p>
       </div>
       <div>
-        <Button disabled={busy === "setup"} onClick={() => void runSetupAgain()}>
+        <Button onClick={runSetupAgain}>
           Run setup again
         </Button>
         <p className="mt-1 text-xs text-fg2">Walks through the first-run steps again: time zone, look, importing feeds, recommended feeds and the address. Your account and feeds stay as they are.</p>

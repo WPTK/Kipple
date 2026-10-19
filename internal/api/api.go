@@ -349,7 +349,6 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/account/password", s.authed(s.accountPassword))
 	handle("POST /api/account/api-password", s.authed(s.accountAPIPassword))
 	handle("POST /api/onboarding/complete", s.authed(s.onboardingComplete))
-	handle("POST /api/onboarding/restart", s.authed(s.onboardingRestart))
 	handle("GET /api/starter-feeds", s.authed(s.starterFeeds))
 	handle("POST /api/starter-feeds", s.authed(s.starterSubscribe))
 	handle("GET /api/reset", s.authed(s.resetInfo))

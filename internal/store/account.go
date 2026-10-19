@@ -183,13 +183,3 @@ func (d *DB) CompleteOnboarding(ctx context.Context) error {
 		return stampSetupCompletedTx(ctx, tx, d.clock.Now().Unix())
 	})
 }
-
-// RestartOnboarding clears sys.setup_completed_at ("Run setup again"), which
-// routes the signed-in app back to the onboarding steps. It touches nothing
-// else: not the account, not setup mode.
-func (d *DB) RestartOnboarding(ctx context.Context) error {
-	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, "DELETE FROM settings WHERE key = ?", SettingSetupCompleted)
-		return err
-	})
-}

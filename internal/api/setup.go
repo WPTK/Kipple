@@ -273,14 +273,3 @@ func (s *Server) onboardingComplete(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// onboardingRestart is POST /api/onboarding/restart ("Run setup again", owner
-// decision 4): it clears sys.setup_completed_at and nothing else.
-func (s *Server) onboardingRestart(w http.ResponseWriter, r *http.Request) {
-	if err := s.db.RestartOnboarding(r.Context()); err != nil {
-		s.serverError(w, "onboarding restart", err)
-		return
-	}
-	w.Header().Set("Cache-Control", "private, no-store")
-	w.WriteHeader(http.StatusNoContent)
-}
