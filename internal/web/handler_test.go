@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -274,4 +275,35 @@ func TestBuildIDReadsTheMetaTag(t *testing.T) {
 	require.Equal(t, "", buildIDOf(mk(`<head></head>`)), "no tag, no id")
 	require.Equal(t, "", buildIDOf(mk(`<meta name="kipple-build" content="a b">`)), "only plain characters")
 	require.Equal(t, "", buildIDOf(fstest.MapFS{}), "no index.html")
+}
+
+// robots.txt is a root file of the build (web/public), not the SPA fallback: a crawler or an audit that asks for it
+// must get plain text, never index.html answered with 200.
+func TestRobotsTxtIsServedAsText(t *testing.T) {
+	src, err := os.ReadFile("../../web/public/robots.txt")
+	require.NoError(t, err)
+	require.Equal(t, "User-agent: *\nDisallow: /\n", string(src), "a private, signed-in app asks every crawler to stay away")
+
+	h := newHandler(fstest.MapFS{"index.html": {Data: []byte("<html></html>")}, "robots.txt": {Data: src}}, func(b string) string { return b })
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/robots.txt", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain"), rec.Header().Get("Content-Type"))
+	require.Equal(t, string(src), rec.Body.String())
+}
+
+// The build ships source maps next to its scripts, so a stack trace in the browser's tools names the real file. A map
+// must come back as the map, not as index.html (the SPA fallback), which is what a broken map reference looks like.
+func TestSourceMapsAreServedWithTheirScripts(t *testing.T) {
+	dist := fstest.MapFS{
+		"index.html":            {Data: []byte("<html></html>")},
+		"assets/app-abc.js":     {Data: []byte("x\n//# sourceMappingURL=app-abc.js.map")},
+		"assets/app-abc.js.map": {Data: []byte(`{"version":3,"sources":["../src/main.tsx"],"mappings":""}`)},
+	}
+	h := newHandler(dist, func(b string) string { return b })
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/app-abc.js.map", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"version":3`)
+	require.Contains(t, rec.Header().Get("Cache-Control"), "immutable")
 }

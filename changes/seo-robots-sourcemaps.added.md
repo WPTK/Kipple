@@ -1,0 +1,1 @@
+Kipple now has a page description and a robots.txt that asks every crawler to stay away (it is a private reader behind a sign-in), and the web build ships source maps so a stack trace in the browser tools names the real source files. (#466)
