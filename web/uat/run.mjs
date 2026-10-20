@@ -55,7 +55,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
-import { accessControlUrl, onPageError, unloadRefusal } from "./common.mjs";
+import { accessControlUrl, onPageError, isSessionCookie, unloadRefusal } from "./common.mjs";
 import { activeScheme, lowestRowMenuButton, menuPlacement, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
 
 /** The smallest touch target, in CSS px (S8). WCAG 2.2 asks for 24; Kipple keeps to the 44 of the Apple and Material guides. */
@@ -659,7 +659,7 @@ async function signIn() {
     await collectFeedText(page.request);
 
     const cookies = (await ctx.storageState()).cookies;
-    if (!cookies.some((c) => c.name === "kipple_session")) throw new Error("signed in, but no kipple_session cookie");
+    if (!cookies.some((c) => isSessionCookie(c.name))) throw new Error("signed in, but the server set no session cookie");
     const device = cookies.find((c) => c.name === "kipple_device");
     if (!device) throw new Error("signed in, but the server issued no device cookie");
     mkdirSync(dirname(deviceFile), { recursive: true });

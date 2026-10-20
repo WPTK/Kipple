@@ -87,7 +87,7 @@ func TestDeviceCookieIssuedOnFirstBootstrap(t *testing.T) {
 func TestDeviceCookieSecureOverHTTPS(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	sess := h.login()
+	sess := h.loginHTTPS()
 	_, _, rec := h.api(sess, "GET", "/api/device", "", func(r *http.Request) { r.TLS = &tls.ConnectionState{} })
 	c := deviceCookieOf(rec)
 	require.NotNil(t, c)
