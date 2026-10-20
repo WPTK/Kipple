@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -9,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/WPTK/kipple/internal/fetch"
+	"github.com/WPTK/kipple/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -270,4 +273,24 @@ func TestAddLinkedPublicFeedRedirectingToAPrivateAddressSaysSo(t *testing.T) {
 	require.Contains(t, body["message"], "That address ("+link+") redirects to a private address (http://127.0.0.1"+port+"/secret).")
 	require.NotContains(t, body["message"], "links its feed on another site")
 	require.Zero(t, secret.Load())
+}
+
+// A feed row stored before the address cap (its address no longer parses) still has the host it was
+// stored with, and an edit to a page on that site compares against it, as the patch itself does: the
+// probe keeps the private-network exception and finds the feed the page links.
+func TestEditFeedWithAnOverCapAddressKeepsTheExceptionOnItsSite(t *testing.T) {
+	t.Parallel()
+	feed := newGrantSite(t)
+	gs := newGrantSite(t, feed.url("localhost", "/feed"))
+	h := newHarness(t)
+	c := h.login()
+	id := h.storeFeed(gs.url("localhost", "/old"), func(nf *store.NewFeed) { nf.AllowPrivateNet = true })
+	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, "UPDATE feeds SET url = ? WHERE id = ?", gs.url("localhost", "/"+strings.Repeat("a", 5000)), id)
+		return err
+	}))
+	code, body, _ := h.api(c, "PATCH", "/api/feeds/"+sid(id), jsonStr(map[string]any{"url": gs.url("localhost", "/")}))
+	require.Equal(t, 200, code, body)
+	require.Equal(t, feed.url("localhost", "/feed"), h.feedRow(id, "url").String)
+	require.Equal(t, "1", h.feedRow(id, "allow_private_net").String)
 }
