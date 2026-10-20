@@ -490,7 +490,7 @@ func (s *Server) sessionOK(w http.ResponseWriter, r *http.Request) (bool, error)
 	marked := merr == nil
 	c, err := r.Cookie(cookieName)
 	if err != nil || c.Value == "" {
-		if marked {
+		if hasMarker(r) {
 			s.clearMarker(w, r)
 		}
 		return false, nil
@@ -503,7 +503,7 @@ func (s *Server) sessionOK(w http.ResponseWriter, r *http.Request) (bool, error)
 	switch {
 	case st == store.SessionRenewed:
 		s.setCookie(w, r, c.Value)
-	case st == store.SessionNone && marked:
+	case st == store.SessionNone && hasMarker(r):
 		s.clearMarker(w, r)
 	case st != store.SessionNone && !marked:
 		s.setMarker(w, r)
@@ -553,8 +553,24 @@ func (s *Server) setMarker(w http.ResponseWriter, r *http.Request) {
 	s.sessionCookie(w, r, s.marker(r), "1", int(sessionTTL/time.Second))
 }
 
+// hasMarker says whether r carries a marker under either name. The scheme can change while a browser holds one (a
+// trusted proxy's address or the public URL changed), so a check for a stale marker looks for both.
+func hasMarker(r *http.Request) bool {
+	for _, name := range []string{hostMarkerName, markerName} {
+		if _, err := r.Cookie(name); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// clearMarker clears the marker under both names, whatever the scheme is now: one set while the scheme was the other
+// one goes too. The __Host- clear always carries Secure, Path=/ and no Domain, or the browser ignores it.
 func (s *Server) clearMarker(w http.ResponseWriter, r *http.Request) {
-	s.sessionCookie(w, r, s.marker(r), "", -1)
+	http.SetCookie(w, &http.Cookie{
+		Name: hostMarkerName, Value: "", Path: "/", MaxAge: -1, SameSite: http.SameSiteLaxMode, Secure: true,
+	})
+	s.sessionCookie(w, r, markerName, "", -1)
 }
 
 // sessionCookie writes the session cookie or its marker. They differ only in HttpOnly: the marker is for the

@@ -18,11 +18,12 @@ export const PROBE_MS = 2_000;
 /**
  * Whether this browser holds the session marker. It is a hint, never the truth: a launch that has it asks for the
  * bootstrap at once, and the server's answer decides (a 401 then means the session really ended, and clears it).
+ * It reads this page's cookies under this page's scheme's name unless given others.
  */
-export function hasSessionMarker(): boolean {
+export function hasSessionMarker(cookies?: string, protocol: string = location.protocol): boolean {
   try {
-    const name = markerCookie() + "=";
-    return document.cookie.split(";").some((c) => c.trim().startsWith(name));
+    const name = markerCookie(protocol) + "=";
+    return (cookies ?? document.cookie).split(";").some((c) => c.trim().startsWith(name));
   } catch {
     return false;
   }

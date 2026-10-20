@@ -44,11 +44,12 @@ describe("the session marker", () => {
   it("is __Host- prefixed over https, so one another subdomain set for the parent domain is not taken for it (#553)", () => {
     expect(markerCookie("https:")).toBe("__Host-kipple_signed_in");
     expect(markerCookie("http:")).toBe("kipple_signed_in");
-    // This page is http: a __Host- cookie (which a browser would not even keep here) is not the marker either.
-    setSessionMarker(false);
-    document.cookie = "__Host-kipple_signed_in=1; path=/";
-    expect(hasSessionMarker()).toBe(false);
-    document.cookie = "__Host-kipple_signed_in=; max-age=0; path=/";
+    // The cookie strings an https page and an http page would read. jsdom is http and would not keep a __Host- cookie,
+    // so the strings are given rather than set.
+    expect(hasSessionMarker("theme=paper; __Host-kipple_signed_in=1", "https:")).toBe(true);
+    expect(hasSessionMarker("kipple_signed_in=1", "https:")).toBe(false);
+    expect(hasSessionMarker("kipple_signed_in=1", "http:")).toBe(true);
+    expect(hasSessionMarker("__Host-kipple_signed_in=1", "http:")).toBe(false);
   });
 
   it("with it, a launch asks for the bootstrap at once and nothing else first", async () => {

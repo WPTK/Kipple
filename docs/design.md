@@ -1757,7 +1757,9 @@ Everything under `/api/` except the Reader paths and `POST /api/auth/login` requ
   `Domain`, so a page on another subdomain cannot set a marker for the whole parent domain, which the server's clear
   could never reach and which would send every launch to a `401`. Over plain http the browser refuses the prefix, so
   the bare name is used; a page and its server that disagree on the scheme (a proxy that hides it) only cost the
-  `GET /api/instance` question at each launch. It holds nothing secret and
+  `GET /api/instance` question at each launch. The scheme the server sees can change while a browser holds a marker
+  (a trusted proxy's address or the public URL changed), so every clear removes both names, the `__Host-` one always
+  with `Secure`, `Path=/` and no `Domain`, and a check for a stale marker looks for either. It holds nothing secret and
   is only a hint; the session cookie stays the truth. The app reads it at launch: with it, the app asks for the
   bootstrap at once; without it, it first asks `GET /api/instance` for `signed_in` (at most 2 s, then the bootstrap
   anyway, so a stalled or offline launch still reaches the stored copy). A signed-out launch sends no request that
