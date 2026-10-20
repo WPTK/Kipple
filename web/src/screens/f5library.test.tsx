@@ -696,7 +696,7 @@ describe("The unsaved default device (id empty)", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("link", { name: "Back to Settings" }));
     await user.click(await screen.findByRole("link", { name: /^Appearance & Reading/ }));
-    await user.click(await screen.findByRole("radio", { name: "Compact" }));
+    await user.click(await screen.findByRole("radio", { name: /^Compact/ }));
     await new Promise((r) => setTimeout(r, 700));
     expect(calls.filter((c) => c.url.pathname === "/api/device")).toHaveLength(0);
   });
