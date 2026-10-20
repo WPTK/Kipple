@@ -277,6 +277,9 @@ func (st *State) Scheme(r *http.Request) string {
 // publicOrigin reports whether hostHeader names the origin of an https public
 // URL: its host, and either no port or the public URL's port.
 func (st *State) publicOrigin(hostHeader string) bool {
+	if st.PublicHost == "" {
+		return false
+	}
 	u, err := url.Parse(st.PublicURL)
 	if err != nil || !strings.EqualFold(u.Scheme, "https") {
 		return false

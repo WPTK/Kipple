@@ -53,7 +53,7 @@ func TestLoginOwnLongWaitAnswersAtOnceWithTheRealRetryAfter(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		h.do("POST", "/api/auth/login", loginBody("wrong"))
 	}
-	h.srv.fails.MaxWait = 10 * time.Second // the real bound; the harness lifts it for the fake clock
+	h.srv.fails.SetMaxWait(10 * time.Second) // the real bound; the harness lifts it for the fake clock
 	paced := h.paced.Load()
 	rec := h.do("POST", "/api/auth/login", loginBody(testPass))
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
@@ -203,7 +203,7 @@ func TestLoginFloodOnASharedKeyMakesTheOwnerBusyNotLockedOut(t *testing.T) {
 	})
 	gw := peer("172.17.0.1:50000")
 	var wg sync.WaitGroup
-	// One attempt hashing, MaxWaiters (4) waiting behind it, and one more refused at once.
+	// One attempt hashing, maxWaiters (4) waiting behind it, and one more refused at once.
 	for i := 0; i < 6; i++ {
 		wg.Add(1)
 		go func() {

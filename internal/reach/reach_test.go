@@ -259,7 +259,7 @@ func TestNilAndFixed(t *testing.T) {
 	require.Equal(t, "", l.PublicURL())
 	require.Nil(t, l.Trusted())
 	require.Nil(t, l.Access())
-	f := Fixed(State{PublicURL: "https://rss.example.com"})
+	f := Fixed(State{PublicURL: "https://rss.example.com", PublicHost: "rss.example.com"})
 	require.Equal(t, "https://rss.example.com", f.PublicURL())
 }
 
@@ -401,6 +401,7 @@ func TestStateScheme(t *testing.T) {
 	ported := &State{PublicURL: "https://rss.example.com:8443/kipple", PublicHost: "rss.example.com", Trusted: trusted}
 	plain := &State{PublicURL: "http://rss.example.com", PublicHost: "rss.example.com", Trusted: trusted}
 	v6 := &State{PublicURL: "https://[2001:db8::1]", PublicHost: "2001:db8::1"}
+	noHost := &State{PublicURL: "https://rss.example.com", Trusted: trusted} // PublicHost was never derived
 	for _, c := range []struct {
 		name       string
 		st         *State
@@ -425,6 +426,10 @@ func TestStateScheme(t *testing.T) {
 		{"IPv6 public host", v6, "198.51.100.7:1", "[2001:db8::1]", "", "https"},
 		{"IPv6 public host, default port", v6, "198.51.100.7:1", "[2001:db8::1]:443", "", "https"},
 		{"IPv6 public host, another port", v6, "198.51.100.7:1", "[2001:db8::1]:1919", "", "http"},
+		{"https public URL without its host", noHost, "198.51.100.7:1", "rss.example.com", "", "http"},
+		{"https public URL without its host, no Host header", noHost, "198.51.100.7:1", "", "", "http"},
+		{"trusted proxy as IPv4-mapped peer says http", public, "[::ffff:192.0.2.10]:1", "rss.example.com", "http", "http"},
+		{"trusted proxy as IPv4-mapped peer says https", public, "[::ffff:192.0.2.10]:1", "192.168.1.20:1919", "https", "https"},
 	} {
 		r := httptest.NewRequest("GET", "/", nil)
 		r.RemoteAddr, r.Host = c.peer, c.host

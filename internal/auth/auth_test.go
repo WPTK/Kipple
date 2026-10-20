@@ -45,7 +45,7 @@ func TestVerifierRealArgon2WithMemo(t *testing.T) {
 // sleeping, and counts the waits.
 func fakePacing(f *FailureTracker, now *time.Time, waits *int) {
 	var mu sync.Mutex
-	f.MaxWait = time.Hour // the fake clock makes every wait instant
+	f.SetMaxWait(time.Hour) // the fake clock makes every wait instant
 	f.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return *now }
 	f.After = func(d time.Duration) <-chan time.Time {
 		mu.Lock()
@@ -123,7 +123,7 @@ func TestFailureTrackerEscalatingDelay(t *testing.T) {
 	require.Equal(t, 1, f.Count("d"))
 }
 
-// A wait longer than MaxWait is not held: Acquire says no at once and Wait says
+// A wait longer than the wait bound is not held: Acquire says no at once and Wait says
 // how long the client's own failures still ask for.
 func TestFailureTrackerLongWaitIsAnsweredAtOnce(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -132,7 +132,7 @@ func TestFailureTrackerLongWaitIsAnsweredAtOnce(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		fail(f, "a")
 	}
-	f.MaxWait = 10 * time.Second
+	f.SetMaxWait(10 * time.Second)
 	begin := time.Now()
 	require.False(t, f.Acquire(context.Background(), "a"), "16 s is over the 10 s bound")
 	require.Less(t, time.Since(begin), time.Second, "and it says so at once")
@@ -166,12 +166,12 @@ func TestFailureTrackerConcurrentAttemptsWait(t *testing.T) {
 	f.Finish("192.0.2.2", false)
 	require.Empty(t, f.live, "idle clients are forgotten")
 
-	// Bounded: MaxWait.
+	// Bounded: the wait bound.
 	g := NewFailureTracker()
-	g.MaxWait = 30 * time.Millisecond
+	g.SetMaxWait(30 * time.Millisecond)
 	require.True(t, g.Acquire(ctx, "198.51.100.1"))
 	begin := time.Now()
-	require.False(t, g.Acquire(ctx, "198.51.100.1"), "gives up after MaxWait")
+	require.False(t, g.Acquire(ctx, "198.51.100.1"), "gives up after the wait bound")
 	require.GreaterOrEqual(t, time.Since(begin), 25*time.Millisecond)
 	// Bounded: a cancelled request stops waiting.
 	cctx, cancel := context.WithCancel(ctx)
@@ -183,7 +183,7 @@ func TestFailureTrackerConcurrentAttemptsWait(t *testing.T) {
 	// attempt admitted at a time and at most MaxWaiters waiting; the rest are
 	// refused at once.
 	h := NewFailureTracker()
-	h.MaxWait = 5 * time.Second
+	h.SetMaxWait(5 * time.Second)
 	var cur, peak, admitted, refused atomic.Int32
 	release := make(chan struct{})
 	var wg sync.WaitGroup
@@ -208,11 +208,11 @@ func TestFailureTrackerConcurrentAttemptsWait(t *testing.T) {
 			h.Finish("2001:db8::1", true)
 		}()
 	}
-	require.Eventually(t, func() bool { return refused.Load() == 50-1-int32(h.MaxWaiters) }, 2*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return refused.Load() == 50-1-int32(h.maxWaiters) }, 2*time.Second, 5*time.Millisecond)
 	close(release)
 	wg.Wait()
 	require.EqualValues(t, 1, peak.Load(), "one attempt per client at a time")
-	require.EqualValues(t, 1+h.MaxWaiters, admitted.Load(), "the waiting ones ran in turn")
+	require.EqualValues(t, 1+h.maxWaiters, admitted.Load(), "the waiting ones ran in turn")
 }
 
 func TestRateKeyGroupsIPv6By64(t *testing.T) {
@@ -444,29 +444,76 @@ func TestParseHashLimits(t *testing.T) {
 func TestFailureTrackerWaitsUpToTheBound(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	f := NewFailureTracker()
-	bound := f.MaxWait
+	bound := f.maxWait
 	require.Equal(t, 10*time.Second, bound)
 	fakePacing(f, &now, nil)
 	for i := 0; i < 8; i++ {
 		fail(f, "a")
 	}
-	f.MaxWait = bound
+	f.SetMaxWait(bound)
 	now = now.Add(6 * time.Second)
 	require.Equal(t, bound, f.Wait("a"))
 	require.True(t, f.Acquire(context.Background(), "a"), "a wait of exactly the bound is held")
 	f.Finish("a", false)
 }
 
-// An attempt that gives up waiting leaves no count behind: once the attempt it waited for finishes, nothing is
-// tracked for the client.
+// An attempt that gives up waiting frees its place in the queue: afterwards a full queue of new attempts can still
+// wait, and each of them gets its turn.
 func TestFailureTrackerGiveUpReleasesItsPlace(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	f := NewFailureTracker()
-	require.True(t, f.Acquire(t.Context(), "a"))
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
-	defer cancel()
-	require.False(t, f.Acquire(ctx, "a"), "gives up while the first attempt runs")
-	f.Finish("a", false)
-	require.Empty(t, f.live)
+	var mu sync.Mutex
+	f.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	for i := 0; i < 5; i++ {
+		fail(f, "a")
+	}
+	// Every attempt now waits 2 s for its turn. The fake wait reports that it started and fires only when the test
+	// says so. Acquire asks for it under the tracker's lock and joins the queue before letting go, so a Count call
+	// made after the report returns only once that attempt is queued (or refused).
+	started := make(chan struct{}, 16)
+	fire := make(chan time.Time)
+	f.After = func(time.Duration) <-chan time.Time {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		return fire
+	}
+	queued := func() {
+		t.Helper()
+		<-started
+		f.Count("a")
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	gaveUp := make(chan bool)
+	go func() { gaveUp <- f.Acquire(ctx, "a") }()
+	queued()
+	cancel()
+	require.False(t, <-gaveUp, "the cancelled attempt gives up")
+
+	results := make(chan bool, f.maxWaiters)
+	for i := 0; i < f.maxWaiters; i++ {
+		go func() {
+			ok := f.Acquire(t.Context(), "a")
+			if ok {
+				f.Forget("a") // a verified success: the rest need not wait
+				f.Finish("a", false)
+			}
+			results <- ok
+		}()
+		queued()
+	}
+	require.False(t, f.Acquire(t.Context(), "a"), "one more than the queue holds is refused at once")
+	<-started
+
+	mu.Lock()
+	now = now.Add(2 * time.Second)
+	mu.Unlock()
+	close(fire)
+	for i := 0; i < f.maxWaiters; i++ {
+		require.True(t, <-results, "every attempt that queued after the one that gave up gets its turn")
+	}
 }
 
 // Over every byte value each password character comes up equally often, and only the biased tail is drawn again.
@@ -488,8 +535,8 @@ func TestPasswordCharIsUniform(t *testing.T) {
 	require.Equal(t, 256%len(passwordAlphabet), refused)
 }
 
-// The failure count fades only once more than Window has passed: at exactly Window it still counts, a failure then
-// adds to it, and a full table drops only one entry of that age, not every one.
+// The failure count fades only once more than the window has passed: at exactly the window it still counts, a failure
+// then adds to it, and on a full table the newcomer is counted while exactly one old client loses its count.
 func TestFailureTrackerWindowEdge(t *testing.T) {
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	now := t0
@@ -498,7 +545,7 @@ func TestFailureTrackerWindowEdge(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		fail(f, "a")
 	}
-	now = t0.Add(f.Window)
+	now = t0.Add(f.window)
 	require.Equal(t, 5, f.Count("a"))
 	require.True(t, fail(f, "a"))
 	require.Equal(t, 6, f.Count("a"), "the sixth failure adds to the five")
@@ -509,19 +556,24 @@ func TestFailureTrackerWindowEdge(t *testing.T) {
 	for i := 0; i < maxTracked; i++ {
 		fail(g, fmt.Sprintf("ip-%d", i))
 	}
-	now = t0.Add(g.Window)
+	now = t0.Add(g.window)
 	fail(g, "newcomer")
-	require.Len(t, g.m, maxTracked, "one entry made room, the others of the same age stay")
+	require.Equal(t, 1, g.Count("newcomer"))
+	lost := 0
+	for i := 0; i < maxTracked; i++ {
+		if g.Count(fmt.Sprintf("ip-%d", i)) == 0 {
+			lost++
+		}
+	}
+	require.Equal(t, 1, lost, "one old client made room, the others of the same age keep their count")
 }
 
-// The doubling stops at MaxDelay exactly, and a Delay above MaxDelay is held to it.
+// The delay doubles from 2 s and stops at the 60 s cap exactly.
 func TestFailureTrackerDelayCap(t *testing.T) {
-	f := &FailureTracker{Threshold: 5, Delay: 2 * time.Second, MaxDelay: time.Minute}
+	f := NewFailureTracker()
 	for n, want := range map[int]time.Duration{5: 2 * time.Second, 6: 4 * time.Second, 9: 32 * time.Second, 10: time.Minute, 1000: time.Minute} {
 		require.Equal(t, want, f.delay(n), n)
 	}
-	f.Delay = 2 * time.Minute
-	require.Equal(t, time.Minute, f.delay(5))
 }
 
 // The warning interval is an hour to the second, and an expected proxy stays silent even when a warning is due.

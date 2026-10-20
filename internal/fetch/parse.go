@@ -719,7 +719,7 @@ func CleanName(raw string) string {
 	return t
 }
 
-// clusterStart moves a cut point i in r (0 < i < len(r)) back until it does not fall inside a combined
+// clusterStart moves a cut point i in r (0 <= i <= len(r)) back until it does not fall inside a combined
 // character: not before a combining mark, variation selector, emoji modifier or zero-width joiner, not
 // right after a zero-width joiner, and not between the two regional indicators of a flag.
 func clusterStart(r []rune, i int) int {
@@ -728,11 +728,11 @@ func clusterStart(r []rune, i int) int {
 		return unicode.In(c, unicode.Mn, unicode.Me, unicode.Mc) || c == zwj ||
 			(c >= 0x1F3FB && c <= 0x1F3FF) || (c >= 0xE0020 && c <= 0xE007F)
 	}
-	for i > 0 && (extends(r[i]) || r[i-1] == zwj) {
+	for i > 0 && i < len(r) && (extends(r[i]) || r[i-1] == zwj) {
 		i--
 	}
 	regional := func(c rune) bool { return c >= 0x1F1E6 && c <= 0x1F1FF }
-	if regional(r[i]) {
+	if i < len(r) && regional(r[i]) {
 		n := 0
 		for j := i - 1; j >= 0 && regional(r[j]); j-- {
 			n++

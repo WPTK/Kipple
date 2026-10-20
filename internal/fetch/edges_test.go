@@ -3,8 +3,10 @@ package fetch
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,7 +117,7 @@ func TestDecodeBodyRepairEdges(t *testing.T) {
 	d := DecodeBody(nbsp, "")
 	require.True(t, d.Repaired)
 	require.Equal(t, "utf-8", d.Source)
-	require.Contains(t, string(d.Body), "a b")
+	require.Contains(t, string(d.Body), "a\u00A0b")
 
 	latin2 := []byte("<?xml version=\"1.0\" encoding=\"utf-8\"?><rss>\xb1</rss>") // ą in iso-8859-2
 	d = DecodeBody(latin2, "iso-8859-2")
@@ -133,15 +135,70 @@ func TestPhaseKeyIsIDPlusSalt(t *testing.T) {
 	require.Equal(t, uint64(0), PhaseKey(-3, 3))
 }
 
-// A zero option takes the design value, a set one is kept.
+// A zero option takes the design value and a set one is kept. Of the defaults only the 10 MiB body cap shows in a
+// quick fetch; the default timeouts are seconds long, so for them a zero is checked only as "not no time at all".
 func TestNewClientDefaults(t *testing.T) {
-	c := NewClient(ClientOptions{})
-	require.Equal(t, ClientOptions{DialTimeout: 10 * time.Second, TLSTimeout: 10 * time.Second, HeaderTimeout: 15 * time.Second,
-		ClientTimeout: 20 * time.Second, MaxResponseBody: maxBodyBytes}, c.opt)
-	set := ClientOptions{DialTimeout: 1, TLSTimeout: 2, HeaderTimeout: 3, ClientTimeout: 4, MaxResponseBody: 5}
-	require.Equal(t, set, NewClient(set).opt)
-	tr := c.transport(variant{})
-	require.Equal(t, 30*time.Second, tr.IdleConnTimeout)
+	srv, _ := feedServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/cap":
+			_, _ = w.Write([]byte(strings.Repeat("x", maxBodyBytes)))
+		case "/over":
+			_, _ = w.Write([]byte(strings.Repeat("x", maxBodyBytes+1)))
+		default:
+			serveRSS(w, r)
+		}
+	})
+	def := NewClient(ClientOptions{})
+	res := doFetch(t, def, snapFor(srv.URL))
+	require.Equal(t, OutcomeOK, res.Outcome, res.ErrMsg)
+	require.NotEqual(t, ClassTooLarge, doFetch(t, def, snapFor(srv.URL+"/cap")).ErrClass, "10 MiB is within the cap")
+	require.Equal(t, ClassTooLarge, doFetch(t, def, snapFor(srv.URL+"/over")).ErrClass, "one byte more is not")
+
+	// A listener that accepts and never says anything: every wait on it lasts until a timeout ends it.
+	silent, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	var mu sync.Mutex
+	var held []net.Conn
+	t.Cleanup(func() {
+		_ = silent.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range held {
+			_ = c.Close()
+		}
+	})
+	go func() {
+		for {
+			conn, err := silent.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			held = append(held, conn)
+			mu.Unlock()
+		}
+	}()
+	mute := "http://" + silent.Addr().String() + "/"
+	for name, c := range map[string]struct {
+		opt  ClientOptions
+		url  string
+		want string
+	}{
+		"dial timeout":   {ClientOptions{DialTimeout: 1}, "http://192.0.2.1/", ClassTimeout}, // never answers in time
+		"TLS timeout":    {ClientOptions{TLSTimeout: 1}, "https://" + silent.Addr().String() + "/", ClassTimeout},
+		"header timeout": {ClientOptions{HeaderTimeout: 1}, mute, ClassTimeout},
+		"client timeout": {ClientOptions{ClientTimeout: 1}, mute, ClassTimeout},
+		"body cap":       {ClientOptions{MaxResponseBody: 5}, srv.URL, ClassTooLarge},
+	} {
+		// A timeout that was not kept leaves the fetch to the caller, who cancels it after 5 s: cancelled, not timed out.
+		ctx, cancel := context.WithCancel(t.Context())
+		stop := time.AfterFunc(5*time.Second, cancel)
+		res := NewClient(c.opt).Fetch(ctx, snapFor(c.url), t0)
+		stop.Stop()
+		cancel()
+		require.False(t, res.Cancelled, name)
+		require.Equal(t, c.want, res.ErrClass, "%s: %s", name, res.ErrMsg)
+	}
 }
 
 // A failure is scheduled as the next one in the run: a feed with one failure behind it waits twice its interval.
@@ -189,13 +246,18 @@ func TestFinalURLIsNormalized(t *testing.T) {
 func TestCancelledDuringBody(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	sent := make(chan struct{})
 	srv, c := feedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(rssBody[:40]))
 		w.(http.Flusher).Flush()
-		time.AfterFunc(200*time.Millisecond, cancel) // the headers are in by then: the body read is what is cancelled
+		close(sent) // the headers and part of the body are out; the rest never comes
 		<-r.Context().Done()
 	})
+	go func() {
+		<-sent
+		cancel()
+	}()
 	res := c.Fetch(ctx, snapFor(srv.URL), t0)
 	require.True(t, res.Cancelled)
 	require.Empty(t, res.ErrClass)

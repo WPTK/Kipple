@@ -105,7 +105,7 @@ func TestImageOnlyEntryIsKept(t *testing.T) {
 // A numeric reference to no character is dropped, at each edge of the ranges that are characters.
 func TestDecodeReferenceEdges(t *testing.T) {
 	for ref, want := range map[string]string{
-		"&#0;": "", "&#1;": "\x01", "&#xD7FF;": "퟿", "&#xD800;": "", "&#xDFFF;": "", "&#xE000;": "",
+		"&#0;": "", "&#1;": "\x01", "&#xD7FF;": "\uD7FF", "&#xD800;": "", "&#xDFFF;": "", "&#xE000;": "\uE000",
 		"&#x10FFFF;": "\U0010FFFF", "&#x110000;": "", "&#9999999;": "", "&#xFFFD;": "", "&#x2019;": "’",
 		"&amp;": "&", "&notit;": "&notit;",
 	} {
@@ -136,7 +136,7 @@ func TestNameRuleRanges(t *testing.T) {
 }
 
 // A cut never splits a flag, counting regional indicators back to the very first character, at both ends of their
-// range; a run of marks is cut at its base, never before the first character.
+// range; a run of marks is cut at its base, never before the first character; either end of the text is kept.
 func TestClusterStartFlagsAndMarks(t *testing.T) {
 	flags := []rune("\U0001F1FA\U0001F1F8\U0001F1E6\U0001F1FF") // US, AZ
 	require.Equal(t, 0, clusterStart(flags, 1))
@@ -145,7 +145,12 @@ func TestClusterStartFlagsAndMarks(t *testing.T) {
 	require.Equal(t, 1, clusterStart([]rune{'a', 0x1F1E5, 0x1F1E6}, 1), "U+1F1E5 is not a regional indicator")
 	require.Equal(t, 2, clusterStart([]rune{'a', 0x1F1FF, 0x1F200}, 2), "U+1F200 is not one either")
 
-	marks := "a" + strings.Repeat("́", 300)
+	// Both ends of the text are boundaries: the start stays, and the end is never moved back or read past.
+	require.Equal(t, 0, clusterStart([]rune("\u0301a"), 0))
+	require.Equal(t, 2, clusterStart([]rune("a\u0301"), 2))
+	require.Equal(t, 1, clusterStart(flags[:1], 1))
+
+	marks := "a" + strings.Repeat("\u0301", 300)
 	require.NotPanics(t, func() { require.Equal(t, MaxTitleRunes, len([]rune(CleanName(marks)))) })
 }
 
