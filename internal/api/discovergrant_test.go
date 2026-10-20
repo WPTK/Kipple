@@ -286,6 +286,7 @@ func TestEditFeedWithAnOverCapAddressKeepsTheExceptionOnItsSite(t *testing.T) {
 	c := h.login()
 	id := h.storeFeed(gs.url("localhost", "/old"), func(nf *store.NewFeed) { nf.AllowPrivateNet = true })
 	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		// url_key stays as it was: this path reads only the url and the host column.
 		_, err := tx.ExecContext(ctx, "UPDATE feeds SET url = ? WHERE id = ?", gs.url("localhost", "/"+strings.Repeat("a", 5000)), id)
 		return err
 	}))

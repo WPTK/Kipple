@@ -1,1 +1,1 @@
-Editing a feed whose stored address is too long to read now judges the move to another site by the host stored with the feed, as saving does, instead of by a second reading of the address. (#537)
+Editing a feed saved with an over-long address no longer drops its private-network and certificate exceptions when you stay on the same site. (#537)
