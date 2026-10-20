@@ -41,6 +41,7 @@ import { LayoutMenu } from "./LayoutMenu";
 import { LengthMenu } from "./LengthMenu";
 import { ReadingMenu } from "./AppearanceControls";
 import { FINISH_SEARCH, ListPane, StatusBlock, type ListControls } from "./ListPane";
+import { MenuContent } from "@/ui/menu";
 
 const VIEWS: { view: View; label: string }[] = [
   { view: "unread", label: "Unread" },
@@ -181,7 +182,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
             </Button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
+            <MenuContent align="end" sideOffset={4} className="min-w-56">
               <DropdownMenu.Item
                 className={menuItem}
                 disabled={!controls || scope.view === "muted" || !!scope.typing || nothingUnread}
@@ -201,7 +202,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
                   {canUndo ? null : <span className="text-xs text-fg2">{NOTHING_TO_UNDO}</span>}
                 </span>
               </DropdownMenu.Item>
-            </DropdownMenu.Content>
+            </MenuContent>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
         </div>

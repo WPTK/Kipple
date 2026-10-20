@@ -5,6 +5,7 @@ import type { Scope } from "@/api/types";
 import { cn } from "@/lib/cn";
 import { READING_LENGTHS, READING_LENGTH_LABELS, isReadingLength } from "@/lib/readingLength";
 import { listTo } from "@/lib/routes";
+import { MenuContent } from "@/ui/menu";
 
 const item =
   "relative flex min-h-11 cursor-default items-center gap-3 rounded-lg pr-3 pl-9 text-sm outline-none select-none data-[highlighted]:bg-selection";
@@ -29,7 +30,7 @@ export function LengthMenu({ scope }: { scope: Scope }) {
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content align="start" sideOffset={4} collisionPadding={8} className="z-50 w-60 max-w-[calc(100vw-1rem)] rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
+        <MenuContent align="start" sideOffset={4} className="w-60 max-w-[calc(100vw-1rem)]">
           <DropdownMenu.Label className="px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase">Reading time</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
             value={scope.length ?? "any"}
@@ -45,7 +46,7 @@ export function LengthMenu({ scope }: { scope: Scope }) {
             ))}
           </DropdownMenu.RadioGroup>
           <p className="px-3 pt-1 pb-2 text-xs text-fg2">Very short articles count as 5 min or less. Articles with no text are left out while a length is picked.</p>
-        </DropdownMenu.Content>
+        </MenuContent>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );

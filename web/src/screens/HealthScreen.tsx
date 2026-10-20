@@ -26,6 +26,7 @@ import { announce, toast } from "@/shell/toasts";
 import { StatusChip } from "./StatusChip";
 import { DeleteDialog, ToggleDialog } from "./feeds/BulkActions";
 import { BottomBar } from "@/ui/BottomBar";
+import { MenuContent } from "@/ui/menu";
 
 const FeedEditor = lazyScreen(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
 
@@ -147,7 +148,7 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
         </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
+        <MenuContent align="end" sideOffset={4} className="min-w-56">
           <DropdownMenu.Item className={menuItem} onSelect={() => void run(async () => { const r = await refreshFeed(f.id); if (r.error) throw new Error(r.error); }, `Refreshed ${f.title}`)}>
             Refresh now
           </DropdownMenu.Item>
@@ -165,7 +166,7 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
               Reset trimmed-unread count
             </DropdownMenu.Item>
           ) : null}
-        </DropdownMenu.Content>
+        </MenuContent>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );

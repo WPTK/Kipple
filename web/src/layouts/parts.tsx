@@ -6,7 +6,7 @@ import { closeRowMenu, rowMenuStore } from "@/gestures/rowMenu";
 import { cn } from "@/lib/cn";
 import { relativeTime } from "@/lib/format";
 import { useStore } from "@/lib/store";
-import { menuScrollClass, useTabBarClearance } from "@/ui/menuClearance";
+import { MenuContent } from "@/ui/menu";
 import { canNativeShare } from "@/lib/share";
 import { useRowTabIndex } from "./rowTabStop";
 import type { RowMenuActions } from "./types";
@@ -101,7 +101,6 @@ export function RowMenu({
   const canShare = canNativeShare();
   const muted = item.muted_by !== null && item.muted_by !== undefined;
   const tabIndex = useRowTabIndex();
-  const bottomPad = useTabBarClearance(open);
   return (
     <DropdownMenu.Root open={open} onOpenChange={(o) => {
         if (o) {
@@ -124,11 +123,7 @@ export function RowMenu({
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={4}
-          collisionPadding={{ top: 8, left: 8, right: 8, bottom: bottomPad }}
-          className={cn(menuScrollClass, "z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl")}
+        <MenuContent align="end" sideOffset={4} className="min-w-56"
           // Read by focusOrigin (ui/kit): a dialog opened from this menu gives focus back only where this menu would.
           data-no-focus-return={hadFocus ? undefined : ""}
           onCloseAutoFocus={(e) => {
@@ -192,7 +187,7 @@ export function RowMenu({
             <Share2 className="size-5" aria-hidden="true" />
             {canShare ? "Share" : "Share (copies the link)"}
           </DropdownMenu.Item>
-        </DropdownMenu.Content>
+        </MenuContent>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );

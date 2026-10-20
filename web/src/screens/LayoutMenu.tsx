@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { DropdownMenu } from "radix-ui";
 import { Check, LayoutGrid, Star } from "lucide-react";
 import type { Scope } from "@/api/types";
@@ -24,7 +23,7 @@ import {
 } from "@/lib/devicePrefs";
 import { cn } from "@/lib/cn";
 import { announce } from "@/shell/toasts";
-import { menuScrollClass, useTabBarClearance } from "@/ui/menuClearance";
+import { MenuContent } from "@/ui/menu";
 
 const item =
   "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-selection";
@@ -54,8 +53,6 @@ export function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
  */
 export function LayoutMenu({ scope }: { scope: Scope }) {
   const dp = useDevicePrefs();
-  const [open, setOpen] = useState(false);
-  const bottomPad = useTabBarClearance(open);
   const setListOverride = useSetListOverride();
   const { layout, ctx } = useResolvedLayout(scope);
   const target = overrideTarget(ctx);
@@ -71,7 +68,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
   };
 
   return (
-    <DropdownMenu.Root onOpenChange={setOpen}>
+    <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
@@ -82,12 +79,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="start"
-          sideOffset={4}
-          collisionPadding={{ top: 8, left: 8, right: 8, bottom: bottomPad }}
-          className={cn(menuScrollClass, "z-50 w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-line bg-bg p-1 text-fg shadow-xl")}
-        >
+        <MenuContent align="start" sideOffset={4} className="w-72">
           {target ? <p className="px-3 pt-2 text-xs text-fg2">These choices are for this {noun} on this device.</p> : null}
           <DropdownMenu.Label className={heading}>Layout</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
@@ -164,7 +156,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
               <p className="px-3 pt-1 pb-2 text-xs text-fg2">The view this {noun} shows when you open it from your feeds.</p>
             </>
           ) : null}
-        </DropdownMenu.Content>
+        </MenuContent>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );

@@ -1,0 +1,1 @@
+On a touch screen every menu (list options, reading time, a row's actions, the reader's more menu, the Feeds and Health menus) opens as a bottom sheet over a dimmed page instead of a tall popover, so the list options menu is reached with a thumb and no longer covers most of the screen; with a mouse the menus are unchanged. (#423)
