@@ -21,9 +21,9 @@ function pointer(type: string, el: Element, pointerType: "touch" | "mouse", { id
   fireEvent(el, e);
 }
 
-function Demo({ onPick = () => {}, onPickSecond = () => {}, onClickCapture }: { onPick?: () => void; onPickSecond?: () => void; onClickCapture?: () => void }) {
+function Demo({ onPick = () => {}, onPickSecond = () => {}, onClickCapture, modal = true }: { onPick?: () => void; onPickSecond?: () => void; onClickCapture?: () => void; modal?: boolean }) {
   return (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root modal={modal}>
       <DropdownMenu.Trigger asChild>
         <button type="button" aria-label="List options">
           open
@@ -259,6 +259,27 @@ describe("MenuContent", () => {
     fireEvent.click(backdrop);
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     expect(under).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])("gives focus back to the button after a tap on the dimmed page (modal %s)", async (modal) => {
+    touch(true);
+    render(<Demo modal={modal} />);
+    const { trigger } = await openWith("touch");
+    const backdrop = document.querySelector("[data-menu-backdrop]")!;
+    pointer("pointerdown", backdrop, "touch", { id: 2 });
+    pointer("pointerup", backdrop, "touch", { id: 2 });
+    fireEvent.click(backdrop);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it("has a dimmed page that takes no touch scroll", async () => {
+    touch(true);
+    render(<Demo />);
+    await openWith("touch");
+    const cls = document.querySelector("[data-menu-backdrop]")!.className;
+    expect(cls).toContain("touch-none");
+    expect(cls).toContain("overscroll-none");
   });
 
   it("stays open when the click of the tap that opened it lands on the dimmed page", async () => {

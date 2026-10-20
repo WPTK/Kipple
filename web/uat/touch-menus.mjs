@@ -16,6 +16,9 @@
 //   P5  opening the sheet with a tap leaves it open and picks nothing under the finger (the tap's own click), also when
 //       the button sits where the sheet lands, so the lifted finger is right over one of its items;
 //   P6  a bare click on a choice (what TalkBack, Voice Control and Switch Access send) applies it;
+//   P7  focus returns to the button that opened the sheet after a tap on the dimmed page too (also for the row menu,
+//       which is not modal), and the dimmed page takes no touch scroll (touch-action none), so a drag that starts on it
+//       cannot scroll the page behind it;
 //   P4  a tap on a choice applies it, and in landscape, where the sheet is shorter than its content, the last choice of
 //       List options can be scrolled to.
 // The sheet's position is measured, not assumed, in every engine: a browser that reports no coarse pointer at the phone
@@ -147,10 +150,28 @@ await t.eachViewport(async (page, vp) => {
         await press(b[id]);
         await menu().waitFor({ timeout: 5000 });
         const before = page.url();
+        // Nothing on the dimmed page scrolls the page behind it: it takes no touch scroll (a drag that starts on it would
+        // chain to the document, and the app shell is fixed so only a real phone browser shows that, by its rubber band).
+        const lock = await page.evaluate(() => {
+          const b = getComputedStyle(document.querySelector("[data-menu-backdrop]"));
+          return { touch: b.touchAction };
+        });
+        check(lock.touch === "none", `P7 ${name} lock`, "the dimmed page takes no touch scroll", `the dimmed page has touch-action ${lock.touch}`);
         await page.touchscreen.tap(size[0] / 2, 12);
         await menu().waitFor({ state: "detached", timeout: 5000 });
         await page.waitForTimeout(300);
+        // The tap on the dimmed page is not the user going elsewhere: focus goes back to the button, as after Escape.
+        const backBy = await focusReturns(want);
+        check(backBy === want, `P7 ${name} return after tap`, `a tap on the dimmed page returns focus to "${want}"`, `focus is on "${backBy}"`);
         check(page.url() === before, `P3 ${name}`, "a tap on the dimmed page only closes the sheet", `the address changed to ${page.url()}`);
+
+        // A mouse click on the dimmed page (a tablet with a trackpad) is the same: the sheet is gone and focus is on its button.
+        await press(b[id]);
+        await menu().waitFor({ timeout: 5000 });
+        await page.mouse.click(size[0] / 2, 12);
+        await menu().waitFor({ state: "detached", timeout: 5000 });
+        const backMouse = await focusReturns(want);
+        check(backMouse === want, `P7 ${name} return after click`, `a click on the dimmed page returns focus to "${want}"`, `focus is on "${backMouse}"`);
 
         // The same over an article row that the dimmed page covers.
         await press(b[id]);

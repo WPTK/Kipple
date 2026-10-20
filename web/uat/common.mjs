@@ -84,6 +84,17 @@ export function unloadRefusal(page, origin) {
   };
 }
 
+/**
+ * Whether a `pageerror` is the browser's "ResizeObserver loop completed with undelivered notifications" notice. It is
+ * benign (an observer's callback changed a size that another observed box then reported in the same frame, so the
+ * browser delivered that report on the next frame) and the spec has browsers raise it on `window` as an ErrorEvent; WebKit
+ * hands it to Playwright as a `pageerror` (rotating a phone with a menu sheet open does it). Matched on the exact text
+ * only, so a ResizeObserver error with any other wording still counts. Product code is not changed for it.
+ */
+export function isResizeObserverNotice(err) {
+  return /^(?:\w+:\s*)?ResizeObserver loop completed with undelivered notifications\.?$/.test(String(err?.message ?? err).trim());
+}
+
 export async function start(metaUrl, helpLines) {
   const setupError = (m) => {
     console.error(m);
