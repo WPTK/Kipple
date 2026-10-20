@@ -5,7 +5,7 @@ import { authStore, setSignedIn } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { INSTANCE_KEY } from "@/setup/api";
 import { bootstrap, card, json, mockFetch, pageOf, setSessionMarker } from "@/test/mockApi";
-import { hasSessionMarker, PROBE_MS } from "./sessionProbe";
+import { hasSessionMarker, markerCookie, PROBE_MS } from "./sessionProbe";
 
 // A request that answers 401 is logged to the console by the browser, so a signed-out launch must not send one. A
 // launch with the session marker asks for the bootstrap at once; one without it first asks GET /api/instance (always
@@ -37,6 +37,16 @@ describe("the session marker", () => {
     expect(hasSessionMarker()).toBe(true);
     setSessionMarker(false);
     expect(hasSessionMarker()).toBe(false);
+  });
+
+  it("is __Host- prefixed over https, so one another subdomain set for the parent domain is not taken for it (#553)", () => {
+    expect(markerCookie("https:")).toBe("__Host-kipple_signed_in");
+    expect(markerCookie("http:")).toBe("kipple_signed_in");
+    // This page is http: a __Host- cookie (which a browser would not even keep here) is not the marker either.
+    setSessionMarker(false);
+    document.cookie = "__Host-kipple_signed_in=1; path=/";
+    expect(hasSessionMarker()).toBe(false);
+    document.cookie = "__Host-kipple_signed_in=; max-age=0; path=/";
   });
 
   it("with it, a launch asks for the bootstrap at once and nothing else first", async () => {

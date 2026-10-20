@@ -2,8 +2,14 @@ import { useEffect, useState } from "react";
 import { fetchInstance } from "@/setup/api";
 import { authStore, setSignedIn } from "./client";
 
-/** The session marker's cookie: the server sets and clears it with the session cookie (docs/design.md §7). */
-export const MARKER_COOKIE = "kipple_signed_in";
+/**
+ * The session marker's cookie: the server sets and clears it with the session cookie (docs/design.md §7). Over https
+ * it carries the __Host- prefix, so the browser refuses one that another subdomain set for the parent domain (which
+ * the server could never clear); over plain http the browser would refuse the prefix, so it is the bare name.
+ */
+export function markerCookie(protocol: string = location.protocol): string {
+  return protocol === "https:" ? "__Host-kipple_signed_in" : "kipple_signed_in";
+}
 
 /** How long a launch with no marker waits for GET /api/instance before it asks for the bootstrap anyway. */
 export const PROBE_MS = 2_000;
@@ -14,7 +20,8 @@ export const PROBE_MS = 2_000;
  */
 export function hasSessionMarker(): boolean {
   try {
-    return document.cookie.split(";").some((c) => c.trim().startsWith(MARKER_COOKIE + "="));
+    const name = markerCookie() + "=";
+    return document.cookie.split(";").some((c) => c.trim().startsWith(name));
   } catch {
     return false;
   }

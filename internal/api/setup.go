@@ -54,7 +54,7 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 		// With no account no session can be live: a session cookie or marker left from before a reset or a restore is
 		// dropped here, so the next launch does not ask for the bootstrap (and get a 401) on the strength of it.
 		_, cerr := r.Cookie(cookieName)
-		_, merr := r.Cookie(markerName)
+		_, merr := r.Cookie(s.marker(r))
 		if cerr == nil || merr == nil {
 			s.clearCookie(w, r)
 		}

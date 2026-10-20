@@ -38,8 +38,12 @@ const (
 	cookieName = "kipple_session"
 	// markerName is the session marker: a cookie script can read, set and cleared with the session cookie, so the
 	// app knows at launch, without a request, whether to expect a session. It holds no secret and is only a hint;
-	// the session cookie stays the truth (docs/design.md §7).
+	// the session cookie stays the truth (docs/design.md §7). Over https it is hostMarkerName instead.
 	markerName = "kipple_signed_in"
+	// hostMarkerName is the marker over https. The browser keeps a __Host- cookie only when it is Secure, has Path=/
+	// and no Domain, so a page on a sibling subdomain cannot set one for the whole parent domain: the only marker the
+	// app reads is this host's own, the one the server's clear reaches.
+	hostMarkerName = "__Host-" + markerName
 	// sessionTTL is the cookie Max-Age and the sliding session expiry. The plan
 	// (Cloudflare Access notes) says 90 days; design §7 says 30. The plan wins.
 	sessionTTL = 90 * 24 * time.Hour
@@ -482,7 +486,7 @@ func (s *Server) scheme(r *http.Request) string { return s.reach.Scheme(r) }
 // there, never the session cookie: a stale request that answers after a new
 // sign-in would otherwise sign that new session out.
 func (s *Server) sessionOK(w http.ResponseWriter, r *http.Request) (bool, error) {
-	_, merr := r.Cookie(markerName)
+	_, merr := r.Cookie(s.marker(r))
 	marked := merr == nil
 	c, err := r.Cookie(cookieName)
 	if err != nil || c.Value == "" {
@@ -536,12 +540,21 @@ func (s *Server) clearCookie(w http.ResponseWriter, r *http.Request) {
 	s.clearMarker(w, r)
 }
 
+// marker is the session marker's name for r: hostMarkerName over https, where the browser enforces what the prefix
+// promises, markerName over plain http, where it would refuse a __Host- cookie.
+func (s *Server) marker(r *http.Request) string {
+	if s.scheme(r) == "https" {
+		return hostMarkerName
+	}
+	return markerName
+}
+
 func (s *Server) setMarker(w http.ResponseWriter, r *http.Request) {
-	s.sessionCookie(w, r, markerName, "1", int(sessionTTL/time.Second))
+	s.sessionCookie(w, r, s.marker(r), "1", int(sessionTTL/time.Second))
 }
 
 func (s *Server) clearMarker(w http.ResponseWriter, r *http.Request) {
-	s.sessionCookie(w, r, markerName, "", -1)
+	s.sessionCookie(w, r, s.marker(r), "", -1)
 }
 
 // sessionCookie writes the session cookie or its marker. They differ only in HttpOnly: the marker is for the

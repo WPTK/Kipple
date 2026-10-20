@@ -267,7 +267,7 @@ func TestCookieAttributesHTTPSProxied(t *testing.T) {
 		r.Header.Set("X-Forwarded-Proto", "https")
 	})
 	require.Equal(t, http.StatusNoContent, rec.Code)
-	for _, name := range []string{cookieName, markerName} {
+	for _, name := range []string{cookieName, hostMarkerName} {
 		cleared := cookieNamed(rec, name)
 		require.NotNil(t, cleared, name)
 		require.Equal(t, -1, cleared.MaxAge, name)
@@ -898,6 +898,61 @@ func TestSessionMarkerGoesWithTheSessionCookie(t *testing.T) {
 		require.NotNil(t, c, name)
 		require.Equal(t, -1, c.MaxAge, name)
 	}
+}
+
+// Over https the marker is __Host- prefixed, so a bare kipple_signed_in set for the parent domain by a sibling
+// subdomain (which the server's clear can never reach) is not the marker: the app does not read it, and the server
+// neither reads nor clears it.
+func TestSessionMarkerOverHTTPSIsHostPrefixed(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	// What the app's fetch sends over https: a TLS connection, fetch metadata and Accept.
+	fetch := func(r *http.Request) {
+		r.TLS = &tls.ConnectionState{}
+		r.Header.Set("Accept", "application/json")
+		r.Header.Set("Sec-Fetch-Mode", "cors")
+		r.Header.Set("Sec-Fetch-Dest", "empty")
+	}
+	rec := h.do("POST", "/api/auth/login", loginBody(testPass), fetch, func(r *http.Request) { r.Header.Set("Origin", "https://"+r.Host) })
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	m := cookieNamed(rec, hostMarkerName)
+	require.NotNil(t, m)
+	require.Nil(t, cookieNamed(rec, markerName), "no bare marker over https")
+	// What the browser requires of a __Host- cookie, or it drops it.
+	require.True(t, m.Secure)
+	require.Equal(t, "/", m.Path)
+	require.Empty(t, m.Domain)
+	require.False(t, m.HttpOnly, "the app's script reads it")
+	sess := cookieNamed(rec, cookieName)
+
+	parent := &http.Cookie{Name: markerName, Value: "1"} // the browser sends it without saying it is the parent domain's
+	ask := func(cookies ...*http.Cookie) (any, *httptest.ResponseRecorder) {
+		rec := h.do("GET", "/api/instance", "", fetch, func(r *http.Request) {
+			for _, c := range cookies {
+				r.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+			}
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		return decode(t, rec)["signed_in"], rec
+	}
+
+	in, rec := ask(parent)
+	require.Equal(t, false, in)
+	require.Empty(t, rec.Result().Cookies(), "signed out with only a parent-domain marker: there is no marker of ours to clear")
+
+	in, rec = ask(sess, parent)
+	require.Equal(t, true, in)
+	set := cookieNamed(rec, hostMarkerName)
+	require.NotNil(t, set, "a live session with no __Host- marker (one made before it existed) gets one")
+	require.Equal(t, int(sessionTTL/time.Second), set.MaxAge)
+	require.Nil(t, cookieNamed(rec, markerName))
+
+	in, rec = ask(&http.Cookie{Name: hostMarkerName, Value: "1"})
+	require.Equal(t, false, in)
+	cleared := cookieNamed(rec, hostMarkerName)
+	require.NotNil(t, cleared, "our own marker with no session is cleared")
+	require.Equal(t, -1, cleared.MaxAge)
+	require.True(t, cleared.Secure)
 }
 
 // A use after an hour renews the session, and the renewed cookie and the marker are sent together.
