@@ -12,7 +12,9 @@ import { faultReason, faultStart } from "./faults.mjs";
 
 const ENGINES = { chromium, firefox, webkit };
 /** The session cookie the server sets at sign-in (internal/api). */
-const SESSION_COOKIE = "kipple_session";
+const SESSION_COOKIE_BARE = "kipple_session";
+/** The session cookie's name for an origin: `__Host-` prefixed over https, where the browser keeps only that one. */
+export const sessionCookieName = (origin) => (new URL(origin).protocol === "https:" ? `__Host-${SESSION_COOKIE_BARE}` : SESSION_COOKIE_BARE);
 export const SEP = " › ";
 export const VIEWPORTS = [
   { id: "desktop", width: 1280, height: 800, mobile: false },
@@ -138,6 +140,7 @@ export async function start(metaUrl, helpLines, options = {}) {
     process.exit(0);
   }
   const origin = new URL(opt.url).origin;
+  const SESSION_COOKIE = sessionCookieName(origin);
   const loopback = ["127.0.0.1", "[::1]"].includes(new URL(origin).hostname);
   if (!opt["allow-remote"] && (!loopback || opt.user !== "dev" || opt.password !== "dev-password-only-for-local-testing")) {
     setupError("only a loopback --url with the seed's account, unless --allow-remote (point it at a throwaway instance)");

@@ -1741,9 +1741,18 @@ On an invalid URL the reply is `200 {"numResults":0,"query":url,"error":"<msg>"}
 
 ## 7. Web UI API surface
 
-Everything under `/api/` except the Reader paths and `POST /api/auth/login` requires the `kipple_session` cookie, and so does `GET /img/{sig}/{flags}/{u}` (§7.4), though it is not under `/api/`. `GET /healthz` (plain text `ok`, `Cache-Control: private, no-store`) is unauthenticated. Any other `/api/*` path answers `401 {"error":"auth"}` without a session and `404 {"error":"not_found"}` with one, never the SPA; `/api/greader.php*` reaching a UI route is a plain 404 (the Reader API has its own handler, §6). Details of the cookie:
+Everything under `/api/` except the Reader paths and `POST /api/auth/login` requires the session cookie (`__Host-kipple_session` over https, `kipple_session` over plain http; see Name below), and so does `GET /img/{sig}/{flags}/{u}` (§7.4), though it is not under `/api/`. `GET /healthz` (plain text `ok`, `Cache-Control: private, no-store`) is unauthenticated. Any other `/api/*` path answers `401 {"error":"auth"}` without a session and `404 {"error":"not_found"}` with one, never the SPA; `/api/greader.php*` reaching a UI route is a plain 404 (the Reader API has its own handler, §6). Details of the cookie:
 
 - It is HttpOnly, `SameSite=Lax`, `Path=/`, persistent with `Max-Age` 90 days and sliding (`last_seen_at` updated at most hourly).
+- **Name.** Over https it is `__Host-kipple_session`: the browser keeps a `__Host-` cookie only when it is `Secure`, has
+  `Path=/` and no `Domain`, so a page on another subdomain cannot set a session cookie for the whole parent domain
+  (a cookie the server's host-only clear could never remove, which could make every launch answer `401`, or plant a value
+  of the attacker's choosing). Over plain http the browser refuses the prefix, so the bare name `kipple_session` is used.
+  The server reads only the name of the scheme it sees, so a bare cookie sent over https is not a session: a browser
+  signed in before the prefix existed signs in once more. Sign-in (and the first-run claim) clears the cookie under the
+  other name, sign-out ends the session behind either name, and every clear removes both names, the `__Host-` one always
+  with `Secure`, `Path=/` and no `Domain`, since the browser ignores a `__Host-` clear without them. The same rule
+  names the session marker below.
 - **Web login pacing.** `POST /api/auth/login` and the two account endpoints that verify `current` share one `auth.FailureTracker` per client (Reader API ClientLogin uses the same type with its own instance): the first five failures are free, then each attempt waits 2 s, doubling per further failure to a 60 s cap; a verified success clears the client and the count fades only after an hour with no failure. One hash in flight per client, at most four attempts waiting up to ten seconds. An attempt that cannot get a turn answers `503 busy` + `Retry-After: 5` and counts nothing (never 429). The promise is exactly this: with the trusted proxies correct each visitor is its own key, so a stranger cannot slow the owner's key's pacing; all keys share one password-hashing slot (5 s wait, also used by the public ClientLogin), so enough distinct addresses (an IPv6 /48 is 65,536 keys) can keep it full and give the owner `503 busy` even on their own key; people who truly share one key (an unlisted proxy, Docker Desktop's gateway, carrier NAT) share a budget, and even one persistent guesser there can keep the waiting room full so the owner's attempt answers `503 busy` until it stops. An attempt whose own wait is over the 10 s bound is answered at once with `Retry-After` set to the remaining wait. There is no lockout and no per-device exception. A busy verifier, a malformed body, an empty password, and on a passwordless account no usable token or `access_unavailable` (§7.0) are not failures; a wrong password, a refused token and a password sent to a passwordless account are. Client IP rules are those of §6.3.
 - It is `Secure` when the effective scheme is https (`reach.State.Scheme`): real TLS, `X-Forwarded-Proto: https` from a
   trusted proxy IP, or a request for the exact origin of an https public URL: its host with no port or the public URL's
@@ -1751,7 +1760,7 @@ Everything under `/api/` except the Reader paths and `POST /api/auth/login` requ
   through what serves the public URL, so it counts as https even behind a proxy that is not listed. Anything else, such
   as a LAN address or the public name on Kipple's own port over plain http, gets no `Secure`, so it can still sign in.
 - It is persistent, not a session cookie, because WebKit bug 272325 drops session cookies in Home Screen apps.
-- **Session marker.** Every answer that sets or renews `kipple_session` also sets `kipple_signed_in=1`, with the same
+- **Session marker.** Every answer that sets or renews the session cookie also sets `kipple_signed_in=1`, with the same
   `Max-Age`, `Path`, `SameSite` and `Secure` rules but readable by script (not HttpOnly). Over https it is named
   `__Host-kipple_signed_in`: the browser keeps a `__Host-` cookie only when it is `Secure`, has `Path=/` and no
   `Domain`, so a page on another subdomain cannot set a marker for the whole parent domain, which the server's clear
