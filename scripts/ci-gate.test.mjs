@@ -115,9 +115,10 @@ test('the required go check passes only when every go-test leg passed or the gat
 });
 
 // The aggregate's verdict for every result a needed job can have (success, failure, cancelled, skipped), run through
-// bash as the runner runs it.
+// bash as the runner runs it. The script goes in on stdin with the values set in it: on Windows the `bash` on PATH can be
+// the WSL launcher, which passes neither the environment nor its arguments through unchanged, but does pass stdin.
 test('the go aggregate fails a cancelled, failed or wrongly skipped leg', () => {
-  const passes = (RESULT, CODE) => spawnSync('bash', ['-c', AGG], { env: { ...process.env, RESULT, CODE } }).status === 0;
+  const passes = (RESULT, CODE) => spawnSync('bash', [], { input: `RESULT='${RESULT}' CODE='${CODE}'\n${AGG}\n` }).status === 0;
   for (const code of ['true', 'false', '']) assert.ok(passes('success', code), `success with code=${code} passes`);
   assert.ok(passes('skipped', 'false'), 'skipped by the prose-only gate passes');
   for (const code of ['true', '']) assert.ok(!passes('skipped', code), `skipped with code=${code} fails`);
