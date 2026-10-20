@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import { useRefreshAll } from "@/api/refresh";
 import { applyCounts } from "@/api/events";
-import { ApiError, api, authStore } from "@/api/client";
+import { ApiError, api, authStore, signingOutStore } from "@/api/client";
 import { applyRead, applyStar, flattenItems, keys, useBootstrap, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { OfflineNotice } from "@/shell/OfflineNotice";
@@ -39,6 +39,7 @@ function fresh() {
   resetOfflineForTests();
   resetPrefetchForTests();
   authStore.set("in");
+  signingOutStore.set(false);
   offlineStore.set({ online: true, pending: 0, updateReady: false, sessionExpired: false });
 }
 beforeEach(fresh);
@@ -146,6 +147,48 @@ describe("the offline queue", () => {
       expect(calls.map((c) => c.url.pathname)).toEqual(["/api/items/1/star"]);
     } finally {
       stop();
+    }
+  });
+
+  it("is not sent during a sign-out, when the server may have ended the session already", async () => {
+    await queueStar("1", true);
+    const { calls } = mockFetch({ "PUT /api/items/1/star": () => json({ starred: true, restored: false }) });
+    signingOutStore.set(true);
+    await flushQueue();
+    expect(calls).toHaveLength(0);
+    expect(offlineStore.get().pending).toBe(1);
+  });
+
+  it("a sign-out that begins mid-flush keeps what was not sent yet, drops nothing, and a failed sign-out sends it", async () => {
+    for (const id of ["1", "2", "3"]) await queueStar(id, true);
+    let answerFirst!: () => void;
+    const firstHeld = new Promise<void>((r) => (answerFirst = r));
+    const star = () => json({ starred: true, restored: false });
+    const { calls } = mockFetch({
+      "PUT /api/items/1/star": async () => {
+        await firstHeld;
+        return star();
+      },
+      "PUT /api/items/2/star": star,
+      "PUT /api/items/3/star": star,
+    });
+    const toast = vi.spyOn(toasts, "toast");
+    const stop = initOffline(new QueryClient());
+    try {
+      await waitFor(() => expect(calls).toHaveLength(1)); // the launch flush is sending the first change
+      signingOutStore.set(true); // Sign out pressed
+      answerFirst(); // the first change was already on its way and is saved
+      await waitFor(() => expect(offlineStore.get().pending).toBe(2));
+      expect(calls.map((c) => c.url.pathname)).toEqual(["/api/items/1/star"]);
+      expect(toast).not.toHaveBeenCalled();
+      // The sign-out fails: the hold lifts and the rest is sent.
+      signingOutStore.set(false);
+      await waitFor(() => expect(offlineStore.get().pending).toBe(0));
+      expect(calls.map((c) => c.url.pathname)).toEqual(["/api/items/1/star", "/api/items/2/star", "/api/items/3/star"]);
+      expect(toast).not.toHaveBeenCalled();
+    } finally {
+      stop();
+      toast.mockRestore();
     }
   });
 

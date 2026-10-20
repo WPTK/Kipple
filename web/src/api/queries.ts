@@ -6,7 +6,7 @@ import {
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
-import { api, ApiError, errorMessage } from "./client";
+import { api, ApiError, errorMessage, signingOutStore } from "./client";
 import type {
   Bootstrap,
   Card,
@@ -28,6 +28,7 @@ import {
   supersede,
 } from "@/lib/offline";
 import { serverRebuilt } from "@/lib/buildInfo";
+import { useStore } from "@/lib/store";
 import { chainOf, folderTree, type FolderTree } from "@/lib/folderTree";
 import { useMemo } from "react";
 import { setUpdateReady } from "@/lib/offlineState";
@@ -48,8 +49,14 @@ export function changeError(e: unknown): string {
  */
 export type BootstrapAnswer = Bootstrap & { fromCache?: true };
 
+/**
+ * The bootstrap. It is never asked for while a sign-out you chose is under way, whoever holds it: the sign-out clears
+ * the cache, and a holder that renders again before the sign-in screen would otherwise ask the server, which has
+ * ended the session, and get a 401.
+ */
 export function useBootstrap(enabled = true) {
   const qc = useQueryClient();
+  const signingOut = useStore(signingOutStore);
   return useQuery({
     queryKey: keys.bootstrap,
     queryFn: async ({ signal }): Promise<BootstrapAnswer> => {
@@ -61,7 +68,7 @@ export function useBootstrap(enabled = true) {
       const shown = await countsForAnswer(b, !meta.cached, { shown: qc.getQueryData<Bootstrap>(keys.bootstrap), busy: qc.isMutating() > 0 });
       return meta.cached ? { ...shown, fromCache: true } : shown;
     },
-    enabled,
+    enabled: enabled && !signingOut,
     retry: (n, e) => (e as { status?: number }).status !== 401 && !failedWhileOffline(e) && n < 2,
     staleTime: 60_000,
   });
