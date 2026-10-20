@@ -160,7 +160,7 @@ describe("stale scroll offset over refetched data", () => {
     // can't tell a restored offset from a reset one; spying on it directly proves whether the list asked to
     // scroll back to the top.
     const scrollTo = vi.spyOn(Element.prototype, "scrollTo");
-    await user.click(within(screen.getByRole("navigation", { name: "Primary" })).getByRole("link", { name: /Unread/ }));
+    await user.click(within(screen.getByRole("navigation", { name: "Primary" })).getByRole("link", { name: /Articles/ }));
     // First paint still serves the stale cached page (as_of "100", matching what the offset was saved against),
     // so the pixel offset is restored optimistically: the list comes back scrolled down, not at the top.
     await screen.findByTestId("list-scroll");
@@ -191,7 +191,7 @@ describe("stale scroll offset over refetched data", () => {
     await user.click(screen.getByRole("link", { name: /Feeds/ }));
     // Back with nothing changed: the offset is valid, so it is restored and the check must switch itself off.
     const scrollTo = vi.spyOn(Element.prototype, "scrollTo");
-    await user.click(within(screen.getByRole("navigation", { name: "Primary" })).getByRole("link", { name: /Unread/ }));
+    await user.click(within(screen.getByRole("navigation", { name: "Primary" })).getByRole("link", { name: /Articles/ }));
     await screen.findByTestId("list-scroll");
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
@@ -301,7 +301,7 @@ describe("coming back to a long list (#94)", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("link", { name: /Feeds/ }));
     if (whileAway) act(whileAway);
-    await user.click(within(screen.getByRole("navigation", { name: "Primary" })).getByRole("link", { name: /Unread/ }));
+    await user.click(within(screen.getByRole("navigation", { name: "Primary" })).getByRole("link", { name: /Articles/ }));
     await screen.findByTestId("list-scroll");
     // Longer than the virtualizer's 150 ms "is scrolling" window.
     await act(async () => {

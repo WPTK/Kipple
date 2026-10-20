@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router";
-import { BarChart3, BellOff, Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
+import { BarChart3, BellOff, Inbox, List, Newspaper, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
 import { useRecordTrail } from "@/lib/navTrail";
@@ -28,9 +28,11 @@ import { LiveRegion, Toasts, announce } from "./toasts";
 // On a short screen (a phone held sideways) the icon sits beside its name instead of above it, which takes the bar from
 // 56 px to 44 px: the list keeps the height (#420).
 const tab = "flex min-h-11 min-w-0 flex-1 items-center justify-center px-1 text-[length:min(0.75rem,4vw)] font-medium";
-const tabLayout = (short: boolean) => (short ? "flex-row gap-2" : "flex-col gap-0.5");
+// On a short screen the icon sits beside the name, in a tab about a fifth of 568 px wide: at Largest text the longest name
+// ("Articles") needs the room, so the gap and the side padding are as small as they can be and still read as a row.
+const tabLayout = (short: boolean) => (short ? "flex-row gap-1 px-0.5" : "flex-col gap-0.5");
 
-/** The Unread tab's badge: count (capped at 99+), a dot, or nothing, by the device's "Unread badge" setting. */
+/** The Articles tab's badge (the unread count): count (capped at 99+), a dot, or nothing, by the device's "Unread badge" setting. */
 function UnreadBadge() {
   const boot = useBootstrap();
   return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" noun="" className="absolute -top-1 -right-[10px]" />;
@@ -41,10 +43,10 @@ function TabBar() {
   const stats = useStatsEnabled();
   const [search] = useSearchParams();
   // A list scoped to a feed or folder is reached from the Feeds tab (so is Feed Health); only the four whole lists
-  // (Unread, All, Starred, Muted) belong to the Unread tab.
+  // (Unread, All, Starred, Muted) belong to the Articles tab, which opens on Unread and has the others as its pills.
   const scoped = search.has("feed") || search.has("folder");
   const inList = pathname.startsWith("/l/") || pathname === "/l";
-  const unreadTab = inList && !scoped;
+  const articlesTab = inList && !scoped;
   const feedsTab = pathname === "/feeds" || pathname === "/health" || (inList && scoped);
   const short = useShort();
   const t = cn(tab, tabLayout(short));
@@ -57,13 +59,13 @@ function TabBar() {
       style={{ minHeight: "calc(var(--tabbar-h) + env(safe-area-inset-bottom))" }}
     >
       {/* Plain links: NavLink would only mark the tab whose own address is the current one. */}
-      <Link to="/l/unread" className={cn(t, unreadTab ? "text-accent" : "text-fg2")} aria-current={unreadTab ? "page" : undefined}>
+      <Link to="/l/unread" className={cn(t, articlesTab ? "text-accent" : "text-fg2")} aria-current={articlesTab ? "page" : undefined}>
         {/* The badge sits on the icon's corner and grows over the icon, so this tab is no wider than the others. */}
         <span className="relative flex">
-          <Inbox aria-hidden="true" className="size-6" />
+          <Newspaper aria-hidden="true" className="size-6" />
           <UnreadBadge />
         </span>
-        Unread
+        Articles
       </Link>
       <Link to="/feeds" className={cn(t, feedsTab ? "text-accent" : "text-fg2")} aria-current={feedsTab ? "page" : undefined}>
         <List aria-hidden="true" className="size-6" />
