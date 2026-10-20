@@ -545,23 +545,37 @@ func (s *Server) sessionValue(r *http.Request) (*http.Cookie, error) {
 	return r.Cookie(s.sessionName(r))
 }
 
-// endHeldSessions ends the session behind every session cookie r holds, under either name, or under the other name
-// only. A browser can send the same name twice (a copy set for the parent domain beside the host's own), and r.Cookie
-// returns just the first, so this walks them all. Sign-out ends all it holds: the browser ends with no session cookie
-// of either name, so no row it held stays live for the rest of its 90 days. Sign-in ends those under the other name,
-// which its answer also clears from the browser: a copy left from the scheme the server saw before is not kept alive
-// by a row nothing can use. Ending a session the request already holds a cookie for gives nobody anything new.
-func (s *Server) endHeldSessions(r *http.Request, otherNameOnly bool) error {
-	keep := s.sessionName(r)
+// maxHeldSessions caps how many distinct session cookie values one request ends: a browser holds a handful at most
+// (the host's own, a leftover from the other scheme, a planted parent-domain copy), and the write stays one small
+// transaction however many a client sends.
+const maxHeldSessions = 16
+
+// heldSessionIDs is the id of the session behind every distinct value of a session cookie r holds, under either name,
+// at most maxHeldSessions. A browser can send the same name twice (a copy set for the parent domain beside the host's
+// own), and r.Cookie returns just the first, so this walks them all.
+func heldSessionIDs(r *http.Request) []string {
+	var ids []string
+	seen := map[string]bool{}
 	for _, c := range r.Cookies() {
-		if (c.Name != cookieName && c.Name != hostCookieName) || c.Value == "" || (otherNameOnly && c.Name == keep) {
+		if (c.Name != cookieName && c.Name != hostCookieName) || c.Value == "" || seen[c.Value] {
 			continue
 		}
-		if err := s.db.DeleteSession(r.Context(), sessionID(c.Value)); err != nil {
-			return err
+		if len(ids) == maxHeldSessions {
+			break
 		}
+		seen[c.Value] = true
+		ids = append(ids, sessionID(c.Value))
 	}
-	return nil
+	return ids
+}
+
+// endHeldSessions ends, in one write, the session behind every session cookie r holds, under either name. Sign-out
+// does it so the browser ends with no session cookie of either name and no row it held stays live for the rest of its
+// 90 days. Sign-in does it too, after the new session exists: its answer replaces or clears every name the browser
+// held, so a row it held would be stranded. Ending a session the request already holds a cookie for gives nobody
+// anything new.
+func (s *Server) endHeldSessions(r *http.Request) error {
+	return s.db.DeleteSessions(r.Context(), heldSessionIDs(r))
 }
 
 // setCookie issues the session cookie: HttpOnly, SameSite=Lax, Path=/,

@@ -183,7 +183,7 @@ func (t *try) end() {
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	// The cookie is cleared only once every session it holds is gone: clearing it while a row stays would say
 	// "signed out" while a copy of the cookie still works. See endHeldSessions for which sessions that is.
-	if err := s.endHeldSessions(r, false); err != nil {
+	if err := s.endHeldSessions(r); err != nil {
 		s.serverError(w, "delete session", err)
 		return
 	}

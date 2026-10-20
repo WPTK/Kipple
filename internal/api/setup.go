@@ -242,14 +242,17 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request) bool {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return false
 	}
-	if err := s.endHeldSessions(r, true); err != nil {
-		s.serverError(w, "delete session", err)
-		return false
-	}
 	now := s.now()
 	if err := s.db.CreateSession(r.Context(), sessionID(val), now.Unix(), now.Add(sessionTTL).Unix(), r.UserAgent(), s.clientIP(r)); err != nil {
 		s.serverError(w, "create session", err) // 503 maintenance during a search-index rebuild
 		return false
+	}
+	// Every session the browser held a cookie for ends, the one under this scheme's name too: the new cookie replaces
+	// it in the browser, so its row would be stranded for 90 days. After the new session exists, so a failed
+	// CreateSession leaves the browser as it was. A failure here costs nothing: the sign-in has worked, and the rows
+	// expire.
+	if err := s.endHeldSessions(r); err != nil {
+		s.log.Warn("api: end previous sessions", "err", err)
 	}
 	s.setCookie(w, r, val)
 	return true

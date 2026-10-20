@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -104,8 +105,8 @@ func TestParentDomainBareCookieCannotPoseAsTheSession(t *testing.T) {
 
 	// With the real cookie too, the request is the real session's: the planted cookie is not read.
 	require.Equal(t, http.StatusOK, h.do("GET", "/api/status", "", overScheme("https"), holding(real, forged)).Code)
-	// A sign-out ends the session behind every session cookie the request holds, even one sent before the real one
-	// (r.Cookie would return only that first one), and no session it holds no cookie for.
+	// A sign-out ends the session behind every session cookie the request holds, under either name, and no session it
+	// holds no cookie for. (Two cookies of one name are tested in TestSameNameCookiesAreAllWalked.)
 	rec := h.do("POST", "/api/auth/logout", "", overScheme("https"), holding(planted, real))
 	require.Equal(t, http.StatusNoContent, rec.Code)
 	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/status", "", overScheme("https"), holding(real)).Code)
@@ -179,4 +180,69 @@ func TestSetupSessionOverHTTPSIsHostPrefixed(t *testing.T) {
 	require.NotNil(t, c)
 	require.True(t, c.Secure)
 	require.Nil(t, cookieNamed(rec, cookieName))
+}
+
+// A browser can send two cookies of one name: a copy set for the parent domain beside the host's own. r.Cookie returns
+// only the first, so ending the sessions behind them has to walk them all: with a forged bare cookie first and a real
+// leftover second, the real row must still end, at sign-out and at sign-in.
+func TestSameNameCookiesAreAllWalked(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	forged := &http.Cookie{Name: cookieName, Value: "attacker-chosen-value"}
+
+	// Sign-out: authenticated by the __Host- cookie, holding two bare cookies, the forged one first.
+	real, leftover := h.loginHTTPS(), h.login()
+	rec := h.do("POST", "/api/auth/logout", "", overScheme("https"), holding(real, forged, leftover))
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/status", "", overScheme("http"), holding(leftover)).Code,
+		"the real bare row ends though a forged bare cookie came first")
+
+	// Sign-in: the same two bare cookies, and no session cookie under the scheme's name.
+	leftover = h.login()
+	rec = h.do("POST", "/api/auth/login", loginBody(testPass), overScheme("https"), holding(forged, leftover))
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/status", "", overScheme("http"), holding(leftover)).Code)
+}
+
+// Sign-in ends the session behind the cookie of the scheme's own name too: the answer replaces that cookie in the
+// browser, so its row would be stranded for 90 days. The new session works.
+func TestSignInEndsTheSameNameSession(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	old := h.loginHTTPS()
+	rec := h.do("POST", "/api/auth/login", loginBody(testPass), overScheme("https"), holding(old))
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	fresh := cookieNamed(rec, hostCookieName)
+	require.NotNil(t, fresh)
+	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/status", "", overScheme("https"), holding(old)).Code)
+	require.Equal(t, http.StatusOK, h.do("GET", "/api/status", "", overScheme("https"), holding(fresh)).Code)
+
+	// A sign-in that fails (a wrong password) ends nothing.
+	keep := h.loginHTTPS()
+	rec = h.do("POST", "/api/auth/login", loginBody("wrong"), overScheme("https"), holding(keep))
+	require.GreaterOrEqual(t, rec.Code, 400)
+	require.Equal(t, http.StatusOK, h.do("GET", "/api/status", "", overScheme("https"), holding(keep)).Code)
+}
+
+// Hundreds of planted cookies cost one small write: repeated values count once and no more than maxHeldSessions
+// distinct ones are processed.
+func TestManyPlantedCookiesStayCheap(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	real := h.loginHTTPS()
+	cookies := []*http.Cookie{real}
+	for i := 0; i < 300; i++ {
+		cookies = append(cookies, &http.Cookie{Name: cookieName, Value: "planted-" + strconv.Itoa(i%150)})
+	}
+	r := httptest.NewRequest("POST", "/api/auth/logout", nil)
+	for _, c := range cookies {
+		r.AddCookie(c)
+	}
+	require.Len(t, heldSessionIDs(r), maxHeldSessions)
+
+	start := time.Now()
+	rec := h.do("POST", "/api/auth/logout", "", overScheme("https"), holding(cookies...))
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Less(t, time.Since(start), 2*time.Second)
+	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/status", "", overScheme("https"), holding(real)).Code)
 }
