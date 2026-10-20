@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode"
 
+	"golang.org/x/net/idna"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -80,8 +81,9 @@ var ErrUserinfo = errors.New("feedurl: the URL contains a user name or password;
 // MaxLen is the longest feed URL Kipple keeps, in bytes (the image proxy's cap). It is measured on the
 // normalized form, the one that is stored: a fragment and white space around the address are gone, and
 // a character outside ASCII is written percent-encoded (up to three bytes per byte). Every function here
-// that reads an address (Normalize, Key, KeyAndNormalize, Host) refuses a longer one with ErrTooLong, so
-// no way in (add, edit, import, sync API, redirect) stores one and they all agree on which addresses fit.
+// that reads an address (Normalize, Key, KeyAndNormalize, Host) refuses a longer one with ErrTooLong, and a
+// host name DNS cannot carry with ErrHostTooLong, so no way in (add, edit, import, sync API, redirect)
+// stores one and they all agree on which addresses fit.
 const MaxLen = 4096
 
 // maxCleanLen is a loose bound that only spares work on huge input: percent-encoding at most triples
@@ -101,6 +103,42 @@ const TooLongMessage = "the address is longer than 4,096 characters (spaces and 
 // ErrTooLong is returned for a URL longer than MaxLen once normalized. Its text is for logs; a
 // person is shown TooLongMessage.
 var ErrTooLong = errors.New("feedurl: address too long")
+
+// Host names are held to what DNS can carry (RFC 1035): at most 253 characters, and 63 between two dots,
+// counted in the ASCII form a name outside A to Z is looked up by. A longer one can never be fetched (the
+// resolver refuses it), so every function here refuses it with ErrHostTooLong instead of storing it.
+const (
+	maxHostLen  = 253
+	maxLabelLen = 63
+)
+
+// HostTooLongMessage is the one wording for a refused host name, shown to the person (the add dialog, the OPML report).
+const HostTooLongMessage = "the server name in the address is too long to be real (at most 253 characters, and 63 between dots)"
+
+// ErrHostTooLong is returned for a host name longer than DNS allows. Its text is for logs; a person is shown
+// HostTooLongMessage.
+var ErrHostTooLong = errors.New("feedurl: host name too long")
+
+// hostFits reports whether host (lowercase, without a port or brackets) is an IP address or a name DNS can carry.
+func hostFits(host string) bool {
+	if _, err := netip.ParseAddr(host); err == nil {
+		return true
+	}
+	ascii := host
+	if a, err := idna.Punycode.ToASCII(host); err == nil {
+		ascii = a
+	}
+	ascii = strings.TrimSuffix(ascii, ".") // a fully qualified name's root dot is not a character of the name
+	if len(ascii) > maxHostLen {
+		return false
+	}
+	for _, l := range strings.Split(ascii, ".") {
+		if len(l) > maxLabelLen {
+			return false
+		}
+	}
+	return true
+}
 
 // feedSchemes are the pseudo-schemes that wrap a feed address in links meant for feed readers and
 // podcast apps: feed://host/path, feed:https://host/path, pcast://, itpc://, podcast://, rss://.
@@ -240,6 +278,9 @@ func parse(raw string) (*url.URL, string, error) {
 		return nil, "", ErrUserinfo
 	}
 	host := strings.ToLower(u.Hostname())
+	if !hostFits(host) {
+		return nil, "", ErrHostTooLong
+	}
 	port := u.Port()
 	if (u.Scheme == "http" && port == "80") || (u.Scheme == "https" && port == "443") {
 		port = ""

@@ -101,6 +101,7 @@ const (
 	URLNotWebAddress URLProblem = iota // not an absolute http(s) URL with a host
 	URLUserinfo                        // holds a user name or password
 	URLTooLong                         // longer than feedurl.MaxLen
+	URLHostTooLong                     // a host name longer than DNS allows
 	URLPrivate                         // a literal private, loopback or otherwise blocked address
 )
 
@@ -258,6 +259,9 @@ func ValidateFeedURL(raw string, allowPrivate bool) (norm, key, host string, err
 	}
 	if errors.Is(nerr, feedurl.ErrTooLong) {
 		return "", "", "", &InvalidURLError{Reason: feedurl.TooLongMessage, Kind: URLTooLong}
+	}
+	if errors.Is(nerr, feedurl.ErrHostTooLong) {
+		return "", "", "", &InvalidURLError{Reason: feedurl.HostTooLongMessage, Kind: URLHostTooLong}
 	}
 	if nerr != nil {
 		return "", "", "", &InvalidURLError{Reason: MsgNotWebAddress, Kind: URLNotWebAddress}

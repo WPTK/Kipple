@@ -375,6 +375,8 @@ func skipReason(err error) string {
 			return "the address holds a user name or password; add this feed on its own and set its HTTP authentication"
 		case store.URLTooLong:
 			return feedurl.TooLongMessage
+		case store.URLHostTooLong:
+			return feedurl.HostTooLongMessage
 		}
 	}
 	return "not a web address (it must start with http:// or https://)"

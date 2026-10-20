@@ -202,3 +202,38 @@ func TestTooLongMessageNamesTheLimit(t *testing.T) {
 	require.Equal(t, 4096, MaxLen)
 	require.Contains(t, TooLongMessage, "4,096")
 }
+
+// A host name DNS cannot carry is refused by every reader of an address (issue #470): over 253 characters, or a part
+// between dots over 63, counted in the ASCII form a name outside A to Z is looked up by. IP addresses and a fully
+// qualified name's root dot are not affected.
+func TestHostLongerThanDNSAllowsIsRefused(t *testing.T) {
+	t.Parallel()
+	label := func(n int) string { return strings.Repeat("h", n) }
+	for _, raw := range []string{
+		"https://" + label(64) + ".example.com/f.xml",
+		"https://" + label(300) + ".example.com/f.xml",
+		"https://" + strings.Repeat(label(60)+".", 4) + "example.com/f.xml", // 255 characters, each part fits
+		"https://" + strings.Repeat("é", 60) + ".example.com/f.xml",         // xn-- form 66 characters
+		"https://" + strings.Repeat(label(62)+".", 3) + label(61) + ".com/", // 254 characters
+		"feed:" + label(64) + ".example.com/f.xml",
+	} {
+		for name, read := range map[string]func(string) (string, error){"Normalize": Normalize, "Key": Key, "Host": Host} {
+			_, err := read(raw)
+			require.ErrorIs(t, err, ErrHostTooLong, "%s(%.40s...)", name, raw)
+		}
+		_, _, err := KeyAndNormalize(raw)
+		require.ErrorIs(t, err, ErrHostTooLong)
+	}
+	for _, raw := range []string{
+		"https://" + label(63) + ".example.com/f.xml",
+		"https://" + strings.Repeat(label(61)+".", 3) + "example.com/f.xml",  // 197 characters
+		"https://" + strings.Repeat(label(62)+".", 3) + label(60) + ".com/",  // exactly 253
+		"https://" + strings.Repeat(label(62)+".", 3) + label(60) + ".com./", // and its root dot
+		"https://" + strings.Repeat("é", 40) + ".example.com/f.xml",          // 80 bytes as typed, 46 as xn--
+		"http://[2001:db8::1]:8080/f.xml",
+		"http://192.0.2.1/f.xml",
+	} {
+		_, err := Normalize(raw)
+		require.NoError(t, err, "%.60s", raw)
+	}
+}
