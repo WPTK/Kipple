@@ -88,6 +88,8 @@ interface ListMemory {
   /** The failing-feed note's height above the rows when `offset` was recorded: the note may be gone or another height
    * when the list comes back, and the rows must land where they were. */
   offsetNoteH?: number;
+  /** What the rows' heights were measured for when `offset` was taken (`sizes.sig` below). */
+  offsetSig?: string;
   /** Row heights measured on the last visit, and what they were measured for (layout, columns, width bucket, text
    * size). `offset` was taken over these heights: without them the rows above it come back at their estimates, so
    * the same offset lands rows away from where the reader was (#94). */
@@ -355,6 +357,11 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const noteBoxRef = useRef<HTMLDivElement>(null);
   const [noteH, setNoteH] = useState(0);
   const noteHRef = useRef(0);
+  // The heights from the last visit go with its offset only if the offset was taken over them. A list that unmounts as
+  // another mounts in its place (the phone and desktop layouts swapping at a turn) saves its heights only after the
+  // new one has read them, so the heights can still be from an earlier visit at another width while the offset is
+  // the latest: those heights are dropped, and the rows are measured again and put back on the article (listTop).
+  const savedSizes = saved?.sizes && saved.sizes.sig === saved.offsetSig ? saved.sizes : undefined;
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: Page ? 0 : rows.length,
@@ -373,7 +380,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     // A page layout restores its own offset once its pages are laid out (below); a jump here would land short.
     initialOffset: Page ? 0 : (saved?.offset ?? 0),
     // The heights from the last visit, so the restored offset points at the rows it was taken over.
-    initialMeasurementsCache: saved?.sizes?.items,
+    initialMeasurementsCache: savedSizes?.items,
   });
 
   // `as_of` is a global watermark (it moves whenever any feed anywhere gets new items), and `staleTime:
@@ -407,7 +414,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const textSize = prefs.textSize;
   const sizeSig = `${layout.id}|${cols}|${widthBucket}|${textSize}`;
   // What the heights the virtualizer holds were measured for: the ones restored from the last visit, at first.
-  const measuredSig = useRef(saved?.sizes?.sig);
+  const measuredSig = useRef(savedSizes?.sig);
   const unmeasured = width === 0;
   // The article at the top of the list, as the reader left it, and the list width it was taken at. Rows that change
   // shape (a turned phone, a resized window, another text size, while here or while away) keep the list's pixel offset
@@ -465,6 +472,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     const onScroll = () => {
       const m = memoryFor(key);
       m.offset = el.scrollTop;
+      m.offsetSig = measuredSig.current;
       m.offsetNoteH = noteHRef.current;
       m.offsetAsOf = asOf.current;
       // And on the device, for the next page load: the article at the top, a few times a second at most, once the

@@ -437,6 +437,39 @@ describe("rows that change shape under the reader (a turned phone)", () => {
     expect(marked.filter((id) => cards.findIndex((c) => c.id === id) >= topIndex)).toEqual([]);
   });
 
+  it("comes back to the same article when the list it replaces saves its heights only after the new one mounted", async () => {
+    const cards = Array.from({ length: 40 }, (_, i) => card(i + 1));
+    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(pageOf(cards, null, "100")) });
+    const listOf = (r: ReturnType<typeof render>) => r.container.querySelector<HTMLElement>('[data-testid="list-scroll"]')!;
+    // One app's list, mounted three times (the same data, so each comes back to its offset).
+    const qc = makeQueryClient({ retry: false });
+    window.history.replaceState({ idx: 0 }, "", "/l/unread");
+    // The desktop list: read down, then leave (its heights are saved for this width).
+    const first = render(<App client={qc} />);
+    await screen.findByText("Article number 1");
+    scrollTo(listOf(first), 10 * row);
+    await wait(50);
+    first.unmount();
+    // Turned: the phone list takes its place, comes back to the article and is scrolled a little further.
+    row = 120;
+    width = 812;
+    const turned = render(<App client={qc} />);
+    await within(turned.container).findAllByText(/Article number/);
+    await wait(250);
+    scrollTo(listOf(turned), listOf(turned).scrollTop + 2 * row);
+    await wait(50);
+    const top = topArticle(listOf(turned));
+    expect(top).toBeDefined();
+    // Turned back: the desktop list mounts before the phone list has gone, as when the layouts swap.
+    row = 232;
+    width = 375;
+    const back = render(<App client={qc} />);
+    turned.unmount();
+    await within(back.container).findAllByText(/Article number/);
+    await wait(250);
+    expect(topArticle(listOf(back))).toBe(top);
+  });
+
   it("comes back to the same article when the turned rows start on a fraction of a pixel", async () => {
     const cards = Array.from({ length: 40 }, (_, i) => card(i + 1));
     mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(pageOf(cards, null, "100")) });
