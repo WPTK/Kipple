@@ -31,6 +31,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium } from "@playwright/test";
 import { installPageHelpers, tapProbe } from "./probes.mjs";
+import { onPageError } from "./common.mjs";
 
 const require = createRequire(import.meta.url);
 const webDir = fileURLToPath(new URL("../", import.meta.url));
@@ -147,7 +148,7 @@ try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, timezoneId: "Asia/Tokyo", colorScheme: "light" });
     const page = await ctx.newPage();
     const errors = [];
-    page.on("pageerror", (e) => errors.push(String(e)));
+    onPageError(page, (e) => errors.push(String(e)));
     // A 401 is not waived: a signed-out launch asks /api/instance first and sends nothing that answers 401 (issue #465).
     page.on("console", (m) => m.type() === "error" && !/status of 40[34]|status of 429/.test(m.text()) && errors.push(m.text()));
 
@@ -241,7 +242,7 @@ try {
       const out = await browser.newContext({ viewport: { width: 390, height: 844 } });
       const op = await out.newPage();
       const strict = [];
-      op.on("pageerror", (e) => strict.push(String(e)));
+      onPageError(op, (e) => strict.push(String(e)));
       op.on("console", (m) => m.type() === "error" && strict.push(m.text()));
       const api = [];
       op.on("response", (r) => {
@@ -299,7 +300,7 @@ try {
     const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true, colorScheme: "dark" });
     const page = await ctx.newPage();
     const errors = [];
-    page.on("pageerror", (e) => errors.push(String(e)));
+    onPageError(page, (e) => errors.push(String(e)));
     await page.goto(origin);
     await onStep(page, "B", "Create your account", 1);
     await page.getByLabel("User name").fill("opener");
@@ -374,7 +375,7 @@ try {
     const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, timezoneId: "Asia/Tokyo" });
     const page = await ctx.newPage();
     const errors = [];
-    page.on("pageerror", (e) => errors.push(String(e)));
+    onPageError(page, (e) => errors.push(String(e)));
     // GET /api/instance cannot be reached: the screen says so and offers Try again, and never a password form.
     await page.route("**/api/instance", (r) => r.abort());
     await page.goto(origin);
@@ -413,7 +414,7 @@ try {
     const pp = await phone.newPage();
     const dp = await desk.newPage();
     const errors = [];
-    for (const p of [pp, dp]) p.on("pageerror", (e) => errors.push(String(e)));
+    for (const p of [pp, dp]) onPageError(p, (e) => errors.push(String(e)));
 
     // The phone uploads a backup and leaves it unconfirmed.
     await pp.goto(origin);

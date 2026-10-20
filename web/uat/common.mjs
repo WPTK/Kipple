@@ -95,6 +95,16 @@ export function isResizeObserverNotice(err) {
   return /^(?:\w+:\s*)?ResizeObserver loop completed with undelivered notifications\.?$/.test(String(err?.message ?? err).trim());
 }
 
+/**
+ * `page.on("pageerror", handler)` without the benign ResizeObserver notice. Every flow that counts page errors listens
+ * through this, so a new flow gets the filter by default.
+ */
+export function onPageError(page, handler) {
+  page.on("pageerror", (err) => {
+    if (!isResizeObserverNotice(err)) handler(err);
+  });
+}
+
 export async function start(metaUrl, helpLines) {
   const setupError = (m) => {
     console.error(m);

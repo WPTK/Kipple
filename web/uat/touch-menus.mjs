@@ -13,14 +13,14 @@
 //   P2  focus is inside the sheet when it opens, Escape closes it and focus returns to the button that opened it;
 //   P3  a tap on the dimmed page closes the sheet and does not reach the page under it: over the header, and over an
 //       article row (the address does not change; required upright, where the sheet always leaves a row uncovered);
+//   P4  a tap on a choice applies it, and in landscape, where the sheet is shorter than its content, the last choice of
+//       List options can be scrolled to;
 //   P5  opening the sheet with a tap leaves it open and picks nothing under the finger (the tap's own click), also when
 //       the button sits where the sheet lands, so the lifted finger is right over one of its items;
 //   P6  a bare click on a choice (what TalkBack, Voice Control and Switch Access send) applies it;
 //   P7  focus returns to the button that opened the sheet after a tap on the dimmed page too (also for the row menu,
 //       which is not modal), and the dimmed page takes no touch scroll (touch-action none), so a drag that starts on it
-//       cannot scroll the page behind it;
-//   P4  a tap on a choice applies it, and in landscape, where the sheet is shorter than its content, the last choice of
-//       List options can be scrolled to.
+//       cannot scroll the page behind it.
 // The sheet's position is measured, not assumed, in every engine: a browser that reports no coarse pointer at the phone
 // width (Firefox has no emulation of one) gets the popover there, and the flow checks that instead (P0): a popover that
 // stops above the tab bar.

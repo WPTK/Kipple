@@ -55,7 +55,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
-import { accessControlUrl, isResizeObserverNotice, unloadRefusal } from "./common.mjs";
+import { accessControlUrl, onPageError, unloadRefusal } from "./common.mjs";
 import { activeScheme, lowestRowMenuButton, menuPlacement, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
 
 /** The smallest touch target, in CSS px (S8). WCAG 2.2 asks for 24; Kipple keeps to the 44 of the Apple and Material guides. */
@@ -750,8 +750,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
   let prev = null;
   const bucket = { console: [], api: [], other: [], refused: [] };
   const isUnloadRefusal = unloadRefusal(page, origin);
-  page.on("pageerror", (err) => {
-    if (isResizeObserverNotice(err)) return; // benign, see isResizeObserverNotice
+  onPageError(page, (err) => {
     if (isUnloadRefusal(err)) bucket.refused.push(accessControlUrl(err).pathname);
     else bucket.console.push({ kind: "pageerror", text: String(err.stack || err).slice(0, 600) });
   });
