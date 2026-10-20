@@ -122,10 +122,14 @@ await t.eachViewport(async (page, vp) => {
     const pb = page.getByRole("progressbar", { name: "Fetching imported feeds" });
     check((await pb.getAttribute("aria-valuemax").catch(() => null)) === String(COUNT), `${tag} O5 bar`, "the progressbar counts the new feeds", "no progressbar with the feed count");
     await t.shot(page, `${tag}-opml-report-import-bar`);
-    // With the stream back, the page learns the run is over and the bar goes.
+    // The held requests (the live stream and the status poll) hang until the page lets them go. Release them and
+    // tell the page it is visible again, which is when it asks /api/status about runs it is still showing: the bar,
+    // on screen now, must go once the server says the fetch is over (if it is still going, the stream's watchdog and the
+    // status poll bring the end). No reload, so the bar cannot vanish for another reason.
+    const shown = await bar.isVisible();
     await page.unroute(held);
-    await page.reload({ waitUntil: "load" });
-    const gone = await bar.waitFor({ state: "detached", timeout: 120000 }).then(() => true, () => false);
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    const gone = shown && (await bar.waitFor({ state: "detached", timeout: 120000 }).then(() => true, () => false));
     check(gone, `${tag} O5 end`, "the bar goes once the fetch is over", `the bar is still there: "${await t.textOf(bar)}"`);
   });
 });

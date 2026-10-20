@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -89,7 +90,12 @@ func TestImportRunIsHeldToTheWorkerCap(t *testing.T) {
 func TestImportOf500FeedsIsQueuedAndReported(t *testing.T) {
 	t.Parallel()
 	r := newRig(t, Options{Workers: 8, PerHost: 100})
+	// The handler holds every fetch until release closes; closing it at cleanup too means a failed require below
+	// ends the test instead of leaving the server and the scheduler blocked until the package times out.
 	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseAll := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseAll)
 	var cur, peak atomic.Int32
 	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
 		n := cur.Add(1)
@@ -127,7 +133,7 @@ func TestImportOf500FeedsIsQueuedAndReported(t *testing.T) {
 	require.Equal(t, 0, runs[0].Done)
 	require.Equal(t, 8, inflight, "the other 492 wait in the queue")
 
-	close(release)
+	releaseAll()
 	r.waitEvents("run.done", 1)
 	require.LessOrEqual(t, int(peak.Load()), 8, "never more fetches at once than workers")
 	require.Equal(t, 500, srv.total(), "every new feed was fetched once")
