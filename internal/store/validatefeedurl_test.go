@@ -104,3 +104,13 @@ func TestValidateFeedURLDoesNotResolveNames(t *testing.T) {
 		require.NoError(t, err, raw)
 	}
 }
+
+// A host name DNS cannot carry is refused with its own kind and message (issue #470), not as "not a web address".
+func TestValidateFeedURLRefusesAHostTooLong(t *testing.T) {
+	t.Parallel()
+	_, _, _, err := ValidateFeedURL("https://"+strings.Repeat("h", 300)+".example.com/f.xml", true)
+	var bad *InvalidURLError
+	require.ErrorAs(t, err, &bad)
+	require.Equal(t, URLHostTooLong, bad.Kind)
+	require.Equal(t, feedurl.HostTooLongMessage, bad.Reason)
+}

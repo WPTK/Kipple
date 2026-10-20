@@ -260,6 +260,13 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 			if fu.String() != snap.URL { // not merely a stored row that is itself over the limit
 				res.Notes = append(res.Notes, fmt.Sprintf("redirect_not_recorded: the address redirected to is longer than %d characters", feedurl.MaxLen))
 			}
+		case errors.Is(err, feedurl.ErrHostTooLong):
+			// The same for a server name longer than DNS allows (only a resolver that answers for it gets this far):
+			// it could never be stored as the feed's address, so it is not kept as the final URL either.
+			res.FinalURL = snap.URL
+			if fu.String() != snap.URL { // not merely a feed saved with such a name before the rule existed
+				res.Notes = append(res.Notes, "redirect_not_recorded: the server name redirected to is longer than DNS allows")
+			}
 		default:
 			res.FinalURL = fu.String()
 		}

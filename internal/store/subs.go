@@ -101,6 +101,7 @@ const (
 	URLNotWebAddress URLProblem = iota // not an absolute http(s) URL with a host
 	URLUserinfo                        // holds a user name or password
 	URLTooLong                         // longer than feedurl.MaxLen
+	URLHostTooLong                     // a host name longer than DNS allows
 	URLPrivate                         // a literal private, loopback or otherwise blocked address
 )
 
@@ -258,6 +259,9 @@ func ValidateFeedURL(raw string, allowPrivate bool) (norm, key, host string, err
 	}
 	if errors.Is(nerr, feedurl.ErrTooLong) {
 		return "", "", "", &InvalidURLError{Reason: feedurl.TooLongMessage, Kind: URLTooLong}
+	}
+	if errors.Is(nerr, feedurl.ErrHostTooLong) {
+		return "", "", "", &InvalidURLError{Reason: feedurl.HostTooLongMessage, Kind: URLHostTooLong}
 	}
 	if nerr != nil {
 		return "", "", "", &InvalidURLError{Reason: MsgNotWebAddress, Kind: URLNotWebAddress}
@@ -823,7 +827,7 @@ func (d *DB) UnreadCounts(ctx context.Context, holdCut int64) ([]UnreadRow, erro
 
 // FindFeedID is FindFeedByURL on the reader pool; an unparseable URL is "not found".
 func (d *DB) FindFeedID(ctx context.Context, u string) (int64, bool, error) {
-	if _, err := feedurl.Key(u); err != nil {
+	if _, err := feedurl.StoredKey(u); err != nil {
 		return 0, false, nil
 	}
 	return FindFeedByURL(ctx, d.reader, u)
