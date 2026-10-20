@@ -27,11 +27,13 @@
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 22);
+const t = await start(import.meta.url, 22, { serviceWorkers: "block" });
 const { check, step } = t;
 
 await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
+  // A control that is not there fails its step in seconds (a step stops at its first error) instead of waiting out Playwright's 30 s.
+  page.setDefaultTimeout(8000);
   const open = async (path) => {
     await page.goto(path, { waitUntil: "load" });
     await page.locator("main h1, main h2").first().waitFor({ timeout: 15000 });
@@ -238,7 +240,7 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("main").getByRole("link", { name: /^Appearance/ }).first().click();
     await page.waitForURL((u) => u.pathname === "/settings/appearance", { timeout: 5000 });
     await page.getByRole("main").getByRole("heading").first().waitFor({ timeout: 5000 });
-    await chevron().click();
+    await chevron().click({ timeout: 5000 });
     await page.waitForURL((u) => u.pathname === "/settings", { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(400);
     check(pathOf() === "/settings", `${tag} B2 list`, "the chevron in a group opened from the Settings list goes back to the list", `it went to ${pathOf()}`);
@@ -248,12 +250,12 @@ await t.eachViewport(async (page, vp) => {
     const isSummary = (u) => u.pathname === "/api/stats/summary";
     await page.route(isSummary, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ enabled: false }) }));
     await open("/stats");
-    await page.getByRole("main").getByRole("link", { name: "Settings > Statistics" }).click();
+    await page.getByRole("main").getByRole("link", { name: "Settings > Statistics" }).click({ timeout: 5000 });
     await page.waitForURL((u) => u.pathname === "/settings/statistics", { timeout: 5000 });
     const back = chevron();
     await back.waitFor({ timeout: 5000 });
     const label = (await back.getAttribute("aria-label")) ?? "";
-    await back.click();
+    await back.click({ timeout: 5000 });
     await page.waitForTimeout(600);
     const landed = pathOf() === "/settings" ? "Settings" : pathOf() === "/stats" ? "Stats" : pathOf();
     check(label === `Back to ${landed}`, `${tag} B2 label`, `the chevron lands where its label says (${label})`, `the label says "${label}" and it landed on ${landed}`);
