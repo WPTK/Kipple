@@ -46,8 +46,18 @@ func (s *Server) setupGone(w http.ResponseWriter) bool {
 // Cloudflare Access sign-in works here, and whether open mode would (reason is
 // the open gate's answer as things are, null when it would let this browser in),
 // and where this browser's restore stands (the states of GET /api/setup/restore).
+// signed_in says whether this request may use the signed-in API (signedIn: a live session and, in open mode, the
+// open gate). The app asks it when it has no session marker, so a browser that is signed out learns that from a 200
+// and never sends a request that would answer 401.
 func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 	if s.opt.Setup.Pending() {
+		// With no account no session can be live: a session cookie or marker left from before a reset or a restore is
+		// dropped here, so the next launch does not ask for the bootstrap (and get a 401) on the strength of it.
+		_, cerr := r.Cookie(cookieName)
+		_, merr := r.Cookie(markerName)
+		if cerr == nil || merr == nil {
+			s.clearCookie(w, r)
+		}
 		restore := backup.RestoreNone
 		if s.restore != nil {
 			restore = s.restore.Status(restoreKey(r)).State
@@ -60,7 +70,7 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 			return reason
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"setup": true, "auth": nil,
+			"setup": true, "auth": nil, "signed_in": false,
 			"access": map[string]bool{
 				"enabled":  s.reach.Access() != nil,
 				"verified": s.reach.Access() != nil && s.accessProof(r) == proofOK,
@@ -81,7 +91,12 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		authMode = setup.DisplayMode(acct)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"setup": false, "auth": authMode})
+	in, refusal, err := s.signedIn(w, r)
+	if err != nil {
+		s.serverError(w, "instance", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"setup": false, "auth": authMode, "signed_in": in && refusal == ""})
 }
 
 // setupAccount is POST /api/setup/account: creates the one account, if there is

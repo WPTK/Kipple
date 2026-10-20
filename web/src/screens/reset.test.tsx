@@ -119,7 +119,7 @@ describe("the page that waits for a reset", () => {
       "GET /api/bootstrap": () => json({ error: "auth" }, 401),
       "GET /api/instance": () => {
         if (down) throw new TypeError("Failed to fetch");
-        return setup ? json({ setup: true, auth: null, access: { enabled: false, verified: false }, open: { reason: null }, restore: "none" }) : json({ setup: false, auth: "password" });
+        return setup ? json({ setup: true, auth: null, signed_in: false, access: { enabled: false, verified: false }, open: { reason: null }, restore: "none" }) : json({ setup: false, auth: "password", signed_in: true });
       },
     });
     authStore.set("in");

@@ -1,0 +1,1 @@
+Opening Kipple while signed out (the sign-in page or the setup wizard) no longer sends a request that answers 401, so the browser console stays clean. Changes saved offline are sent only once Kipple knows you are signed in, so on a signed-out launch they wait for your next sign-in instead of being refused. (#465)

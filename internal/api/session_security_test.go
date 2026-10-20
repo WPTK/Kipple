@@ -73,7 +73,9 @@ func TestLogoutThatCannotDeleteTheSessionFailsAndKeepsTheCookie(t *testing.T) {
 
 	rec := h.do("POST", "/api/auth/logout", "", withCookie(a))
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
-	require.Empty(t, rec.Result().Cookies(), "no cookie is cleared")
+	for _, c := range rec.Result().Cookies() {
+		require.Positive(t, c.MaxAge, "no cookie is cleared: %s", c.Name)
+	}
 	code, _, _ := h.api(a, "GET", "/api/status", "")
 	require.Equal(t, http.StatusOK, code, "still signed in, so the sign-out can be tried again")
 }

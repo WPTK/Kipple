@@ -98,13 +98,15 @@ func withCookies(cs ...*http.Cookie) func(*http.Request) {
 	}
 }
 
+// cookieNamed is the cookie of that name the answer leaves the browser with: the last one it sets.
 func cookieNamed(rec *httptest.ResponseRecorder, name string) *http.Cookie {
+	var last *http.Cookie
 	for _, c := range rec.Result().Cookies() {
 		if c.Name == name {
-			return c
+			last = c
 		}
 	}
-	return nil
+	return last
 }
 
 // createAccount posts the account form (no setup code: the first request wins).
@@ -135,10 +137,22 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 	require.Contains(t, rec.Header().Get("Cache-Control"), "no-store")
 	st := decode(t, rec)
 	require.Equal(t, true, st["setup"])
+	require.Equal(t, false, st["signed_in"])
 	require.Nil(t, st["auth"])
 	require.Equal(t, map[string]any{"enabled": false, "verified": false}, st["access"])
 	require.Equal(t, map[string]any{"reason": nil}, st["open"])
 	require.Zero(t, h.started.Load())
+	require.Nil(t, cookieNamed(rec, markerName), "a visit with no cookies is not told to clear any")
+
+	// A session cookie and marker left from before a reset: with no account they cannot be live, so both are cleared
+	// and the next launch does not ask for the bootstrap on the strength of the marker.
+	rec = h.req("GET", "/api/instance", "", withCookies(&http.Cookie{Name: cookieName, Value: "stale"}, &http.Cookie{Name: markerName, Value: "1"}))
+	require.Equal(t, false, decode(t, rec)["signed_in"])
+	for _, name := range []string{cookieName, markerName} {
+		c := cookieNamed(rec, name)
+		require.NotNil(t, c, name)
+		require.Less(t, c.MaxAge, 0, name)
+	}
 
 	rec = h.createAccount(map[string]any{"username": "reader", "password": setupPass})
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
@@ -147,8 +161,9 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 	require.NotNil(t, sess, "the claim signs this browser in with the normal session cookie")
 	require.Equal(t, 90*24*3600, sess.MaxAge)
 	for _, c := range rec.Result().Cookies() {
-		require.Equal(t, cookieName, c.Name, "no other cookie: there is no setup session")
+		require.Contains(t, []string{cookieName, markerName}, c.Name, "no other cookie: there is no setup session")
 	}
+	require.NotNil(t, cookieNamed(rec, markerName), "the session marker comes with the session")
 
 	acct, ok, err := h.db.Account(context.Background())
 	require.NoError(t, err)
@@ -162,7 +177,8 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 	rec = h.createAccount(map[string]any{"username": "other", "password": setupPass})
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	require.JSONEq(t, `{"error":"not_found"}`, rec.Body.String())
-	require.JSONEq(t, `{"setup":false,"auth":"password"}`, h.req("GET", "/api/instance", "").Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":false}`, h.req("GET", "/api/instance", "").Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":true}`, h.req("GET", "/api/instance", "", withCookies(sess)).Body.String())
 
 	// The session is a normal one, and onboarding is pending until finished.
 	me := decode(t, h.req("GET", "/api/auth/me", "", withCookies(sess)))
@@ -224,7 +240,7 @@ func TestSetupRoutesAbsentWithAccount(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, rec.Code, p[1])
 	}
 	rec := h.do("GET", "/api/instance", "")
-	require.JSONEq(t, `{"setup":false,"auth":"password"}`, rec.Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":false}`, rec.Body.String())
 }
 
 func TestSetupAccountValidation(t *testing.T) {
@@ -410,7 +426,7 @@ func TestSetupOpenMode(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	require.JSONEq(t, `{"username":"reader","auth_mode":"open"}`, rec.Body.String())
 	first := cookieNamed(rec, cookieName)
-	require.JSONEq(t, `{"setup":false,"auth":"open"}`, h.req("GET", "/api/instance", "").Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"open","signed_in":false}`, h.req("GET", "/api/instance", "").Body.String())
 
 	// A stale login form gets 409, not a failed sign-in.
 	b, _ := json.Marshal(map[string]string{"username": "reader", "password": "anything"})
@@ -450,6 +466,12 @@ func TestSetupOpenMode(t *testing.T) {
 	rec = h.req("GET", "/api/auth/me", "", withCookies(lanSess), peer("203.0.113.9:5000"))
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	require.Equal(t, "peer", decode(t, rec)["reason"])
+	// GET /api/instance applies the same gate: the session is live, but from there it is not signed in.
+	signedIn := func(mod ...func(*http.Request)) any {
+		return decode(t, h.req("GET", "/api/instance", "", append([]func(*http.Request){withCookies(lanSess)}, mod...)...))["signed_in"]
+	}
+	require.Equal(t, true, signedIn(peer("192.168.1.20:5000")))
+	require.Equal(t, false, signedIn(peer("203.0.113.9:5000")))
 	// And a session taken elsewhere, used through a proxy, is refused too.
 	require.Equal(t, http.StatusForbidden, h.req("GET", "/api/bootstrap", "", withCookies(first), hdr("X-Forwarded-For", "203.0.113.9")).Code)
 	// A same-machine proxy that sends no forwarding headers but rewrites Host
@@ -695,7 +717,7 @@ func TestSetupEndsWhenTheRowExistsWhateverTheAnswer(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rec.Code)
 	require.Equal(t, "already_set_up", decode(t, rec)["error"])
 	require.False(t, h.mgr.Pending())
-	require.JSONEq(t, `{"setup":false,"auth":"password"}`, h.req("GET", "/api/instance", "").Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":false}`, h.req("GET", "/api/instance", "").Body.String())
 	require.EqualValues(t, 1, h.started.Load(), "an account that appeared elsewhere still starts the background work")
 }
 

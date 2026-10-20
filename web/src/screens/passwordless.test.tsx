@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
-import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
+import { bootstrap, card, json, mockFetch, pageOf, setSessionMarker } from "@/test/mockApi";
 
 // jsdom has no EventSource; the shell subscribes to one.
 class NoES {
@@ -133,9 +133,9 @@ describe("Passwordless account (Cloudflare Access)", () => {
 
 describe("Login without a password", () => {
   it("submits an empty password and explains a refusal", async () => {
+    setSessionMarker(false);
     const { calls } = mockFetch({
-      "GET /api/bootstrap": () => json({ error: "auth" }, 401),
-      "GET /api/instance": () => json({ setup: false, auth: "password" }),
+      "GET /api/instance": () => json({ setup: false, auth: "access", signed_in: false }),
       "POST /api/auth/login": () => json({ error: "auth" }, 401),
     });
     go("/");
@@ -149,9 +149,9 @@ describe("Login without a password", () => {
 
 describe("Sign-in busy", () => {
   it("says Kipple is busy when the sign-in could not get its turn, not that the password is wrong", async () => {
+    setSessionMarker(false);
     mockFetch({
-      "GET /api/bootstrap": () => json({ error: "auth" }, 401),
-      "GET /api/instance": () => json({ setup: false, auth: "password" }),
+      "GET /api/instance": () => json({ setup: false, auth: "password", signed_in: false }),
       "POST /api/auth/login": () => json({ error: "busy" }, 503, { "Retry-After": "5" }),
     });
     go("/");
@@ -165,9 +165,9 @@ describe("Sign-in busy", () => {
 
 describe("Access keys unavailable", () => {
   it("says the Access sign-in cannot be checked, not that the password is wrong", async () => {
+    setSessionMarker(false);
     mockFetch({
-      "GET /api/bootstrap": () => json({ error: "auth" }, 401),
-      "GET /api/instance": () => json({ setup: false, auth: "password" }),
+      "GET /api/instance": () => json({ setup: false, auth: "access", signed_in: false }),
       "POST /api/auth/login": () => json({ error: "access_unavailable" }, 503),
     });
     go("/");
