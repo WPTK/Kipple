@@ -15,6 +15,7 @@ import { clearToasts } from "@/shell/toasts";
 import { themeStore } from "@/theme/theme";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { wide } from "@/test/media";
+import { rememberListTop } from "@/lib/listPlace";
 import { clearListMemory, resetScrollReadForTests } from "./ListPane";
 
 // The Gazette as the list screen draws it: the fetch, the paper's name, reading in place, keys and loading more.
@@ -489,6 +490,30 @@ describe("mark as read while scrolling in the Gazette", () => {
     await frame();
     await settle();
     expect(marked(calls)).toHaveLength(0);
+  });
+
+  it("after a reload that returns to the remembered place, scrolling on marks the stories it passes (#560)", async () => {
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    // The page was left with story 6 at the top; the reload has to bring it back there.
+    rememberListTop("unread", String(card(7).id));
+    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function (this: Element) {
+      const i = [...document.querySelectorAll("article[data-item-id]")].indexOf(this);
+      const s = screen.getByTestId("list-scroll");
+      s.scrollTop = i * story;
+      s.dispatchEvent(new Event("scroll"));
+    });
+    const { container } = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const order = storyIds(container);
+    await waitFor(() => expect(screen.getByTestId("list-scroll").scrollTop).toBe(order.indexOf(String(card(7).id)) * story));
+    resized();
+    const back = screen.getByTestId("list-scroll").scrollTop;
+    // Two screens on: the stories that were on screen at the place are above the top now.
+    scrollTo(back + 1000);
+    await frame();
+    await waitFor(() => expect(marked(calls)).toHaveLength(1), { timeout: 3000 });
+    const first = order.indexOf(String(card(7).id));
+    expect(new Set(marked(calls)[0]?.ids)).toEqual(new Set(order.slice(first, first + 8)));
   });
 });
 

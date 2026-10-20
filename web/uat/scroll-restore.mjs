@@ -11,7 +11,9 @@
 //       desktop, where the article stays open beside the list, its row is in view;
 //   P3  scrolled back to the top and reloaded: the list starts at the top;
 //   P4  Unread with mark as read on scroll on, scrolled and reloaded: back at the place, and the restore itself marks
-//       nothing read (the unread count is the same before and after).
+//       nothing read (the unread count is the same before and after);
+//   P5  the Gazette with mark as read on scroll on, reloaded back to its remembered place: scrolling on from there still
+//       marks the stories it passes.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { start } from "./common.mjs";
@@ -137,6 +139,61 @@ await t.eachViewport(async (page, vp) => {
       check(after === before, `${tag} P4 marks`, "the restore marks nothing read", `unread went from ${before} to ${after}`);
     } finally {
       await patch({ "ui.mark_read_on_scroll": null });
+    }
+  });
+
+  await step(`${tag} P5`, async () => {
+    const on = await patch({ "ui.mark_read_on_scroll": true, "client.layout": "gazette" });
+    if (on !== 200) return t.fail(`${tag} P5 setup`, `mark as read on scroll and the Gazette not set (${on})`);
+    /** The ids of All that are read, from the server's pages. */
+    const readIds = async () => {
+      const read = new Set();
+      let cursor = null;
+      do {
+        const q = new URLSearchParams({ view: "all", limit: "100", ...(cursor ? { cursor } : {}) });
+        const body = await (await page.request.get(`/api/items?${q}`, { headers: { Accept: "application/json" } })).json();
+        for (const i of body.items ?? []) if (i.read) read.add(i.id);
+        cursor = body.next_cursor;
+      } while (cursor && read.size < 2000);
+      return read;
+    };
+    /** Marks every read article of All unread, so the scroll below has unread stories to pass. */
+    const markAllUnread = async () => {
+      const stale = [...(await readIds())];
+      for (let i = 0; i < stale.length; i += 100) {
+        await page.evaluate(
+          (x) => fetch("/api/items/mark-read", { method: "POST", headers: { "Content-Type": "application/json", "X-Kipple-Client": "web" }, body: JSON.stringify({ ids: x, read: false }) }),
+          stale.slice(i, i + 100),
+        );
+      }
+    };
+    try {
+      // A first visit leaves a place well down the Gazette ...
+      await page.goto("/l/all", { waitUntil: "load" });
+      await markAllUnread();
+      await page.evaluate(() => localStorage.removeItem("kipple.listPlace.v1"));
+      await page.reload({ waitUntil: "load" });
+      await ready(page);
+      await readerScroll(page, 800);
+      const left = await topOf(page);
+      if (!left.id || left.scrollTop < 400) return t.fail(`${tag} P5 setup`, `the Gazette did not scroll far enough: ${JSON.stringify(left)}`);
+      // ... and a later visit, with that place kept, comes back to it with everything unread again.
+      await page.goto("/l/all", { waitUntil: "load" });
+      await markAllUnread();
+      await page.reload({ waitUntil: "load" });
+      await ready(page);
+      const back = await topOf(page);
+      check(back.scrollTop > 0, `${tag} P5 place`, "the Gazette comes back to its place, not the top", `the Gazette starts scrolled ${back.scrollTop} px`);
+      // A place near the end of a short Gazette leaves nothing to scroll over, and then nothing can be passed.
+      const room = await scroller(page).evaluate((el) => Math.round(el.scrollHeight - el.clientHeight - el.scrollTop));
+      if (room < 600) return t.fail(`${tag} P5 setup`, `only ${room} px are left to scroll from the restored place`);
+      const opened = await readIds();
+      await readerScroll(page, room - 100);
+      const here = await topOf(page);
+      const marked = [...(await readIds())].filter((x) => !opened.has(x));
+      check(here.scrollTop > back.scrollTop + 400 && marked.length > 0, `${tag} P5`, "after the restore, scrolling on marks the stories it passes", `scrolled from ${back.scrollTop} to ${here.scrollTop} px and ${marked.length} story(ies) were marked read`);
+    } finally {
+      await patch({ "ui.mark_read_on_scroll": null, "client.layout": null });
     }
   });
 });

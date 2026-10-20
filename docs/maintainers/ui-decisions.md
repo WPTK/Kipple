@@ -65,6 +65,10 @@ were resolved in round 2 and what shipped; each is annotated below.
   list of radio cards (`RadioCard` in `web/src/ui/kit.tsx`; `RadioRow` for a short plain choice). `checkbox.test.tsx` also fails a hand-written
   `<input type="checkbox">` or `<input type="radio">` outside the exempt list rows, the segmented control and the theme swatches;
   `web/uat/controls.mjs` measures the card (K7).
+- **A toggle's state never rests on color alone** (#563). A button with `aria-pressed` also changes its glyph or shows a mark: the
+  star fills, Oldest first swaps its arrow, a suggestion chip gains a check, Full text swaps the plain page for a page with a check
+  mark. Its name stays the same (the state is `aria-pressed`, not a renamed label). A tint may back the glyph up; it is never
+  the only cue.
 
 ## Layout
 

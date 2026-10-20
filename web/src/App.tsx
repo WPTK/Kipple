@@ -5,7 +5,7 @@ import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react
 import { ApiError, authStore, openRefusedStore, SESSION_EXPIRED, signingOutStore } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
-import { failedWhileOffline, prefetchUnread } from "@/lib/offline";
+import { prefetchUnread, retryRead } from "@/lib/offline";
 import { offlineStore } from "@/lib/offlineState";
 import { reloadToSignIn } from "@/lib/reload";
 import { useStore } from "@/lib/store";
@@ -68,8 +68,7 @@ export function makeQueryClient(opts: { retry?: boolean } = {}): QueryClient {
     defaultOptions: {
       queries: {
         networkMode: "always",
-        retry: (n, e) =>
-          opts.retry !== false && !(e instanceof ApiError && (e.status === 401 || e.status === 404)) && !failedWhileOffline(e) && n < 2,
+        retry: (n, e) => opts.retry !== false && retryRead(n, e),
         refetchOnWindowFocus: false,
         // TanStack Query turns this off by default under "always"; keep it, so a screen that failed offline loads
         // again by itself when the network is back (lib/offline.ts starts the online state from the browser's).

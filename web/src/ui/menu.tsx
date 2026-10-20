@@ -72,7 +72,9 @@ function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutsi
       <div
         aria-hidden="true"
         data-menu-backdrop=""
-        className="pointer-events-auto fixed inset-0 z-40 bg-black/50"
+        // touch-none and overscroll-none: a drag that starts on the dimmed page must not scroll the page behind it (the
+        // row's menu is not modal and locks no scroll of its own).
+        className="pointer-events-auto fixed inset-0 z-40 touch-none overscroll-none bg-black/50"
         // Only a press that began on it: the click of the press that opened the menu (a tap, or a mouse whose button
         // comes up over the dimmed page) also lands here. A click handler is also what makes iOS deliver a tap's click
         // to an element that is not a link or a button.

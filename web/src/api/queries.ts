@@ -6,7 +6,7 @@ import {
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
-import { api, ApiError, errorMessage, signingOutStore } from "./client";
+import { api, errorMessage, signingOutStore } from "./client";
 import type {
   Bootstrap,
   Card,
@@ -19,12 +19,12 @@ import type {
 } from "./types";
 import {
   countsForAnswer,
-  failedWhileOffline,
   isOffline,
   overlayPending,
   queueRead,
   queueStar,
   QueueWriteError,
+  retryRead,
   supersede,
 } from "@/lib/offline";
 import { serverRebuilt } from "@/lib/buildInfo";
@@ -69,7 +69,7 @@ export function useBootstrap(enabled = true) {
       return meta.cached ? { ...shown, fromCache: true } : shown;
     },
     enabled: enabled && !signingOut,
-    retry: (n, e) => (e as { status?: number }).status !== 401 && !failedWhileOffline(e) && n < 2,
+    retry: retryRead,
     staleTime: 60_000,
   });
 }
@@ -93,8 +93,7 @@ export function useItems(scope: Scope, enabled = true) {
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     enabled,
     // A search the server refuses (422 too broad) or a cursor it no longer takes (400) will not get better by asking again.
-    retry: (n, e) =>
-      !(e instanceof ApiError && (e.status === 422 || e.status === 400 || e.status === 401 || e.status === 404)) && !failedWhileOffline(e) && n < 2,
+    retry: retryRead,
     // A list is a snapshot: rows read in place stay visible (dimmed) until the
     // user refreshes or leaves. SSE never refetches it behind the user's back.
     staleTime: Infinity,

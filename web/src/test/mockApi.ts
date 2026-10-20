@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 import type { Bootstrap, Card, ItemDetail, ItemsPage } from "@/api/types";
-import { MARKER_COOKIE } from "@/api/sessionProbe";
+import { markerCookie } from "@/api/sessionProbe";
 
 export function card(n: number, over: Partial<Card> = {}): Card {
   return {
@@ -75,7 +75,7 @@ export const json = (body: unknown, status = 200, headers: Record<string, string
  * then asks GET /api/instance first: route that with the answer the server sends in that mode.
  */
 export function setSessionMarker(on: boolean) {
-  document.cookie = on ? `${MARKER_COOKIE}=1; path=/` : `${MARKER_COOKIE}=; max-age=0; path=/`;
+  document.cookie = on ? `${markerCookie()}=1; path=/` : `${markerCookie()}=; max-age=0; path=/`;
 }
 
 /** Route table keyed "METHOD /path". Unmatched requests fail the test loudly. */
