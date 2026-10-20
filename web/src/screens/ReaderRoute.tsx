@@ -146,7 +146,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
       aria-label="Show"
       value={scope.view}
       onChange={(e) => navigate(listTo({ ...scope, view: e.target.value as View }), { replace: true })}
-      className={cn(inputCls, "min-h-11 w-auto shrink-0 py-0 text-sm font-medium")}
+      className={cn(inputCls, "min-h-11 w-auto shrink-0 py-0 text-base font-medium")}
     >
       {views.map((v) => (
         <option key={v.view} value={v.view}>

@@ -17,8 +17,13 @@
 //       choosing it asks the server for a refresh and the menu button spins while it runs;
 //   B1  Your year, a Settings group and Feed health each go back with a chevron before the title (a control with no
 //       text of its own, named Back to ..., at least 44 px) that goes to the parent, and no text link says Back to Stats;
+//   B2  from the Settings list into a group the chevron goes back to the list with focus on the row just left; from
+//       Stats (off) through its Settings link the chevron lands on the screen its label names, and the system Back
+//       does not return to the group;
 //   R1  the Stats ranges are Week, Month, Year, Monthly and All, each on one line, at 375 and 320 wide;
-//   D1  (desktop) the Refresh button is in the list header and the actions menu does not repeat it.// It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
+//   D1  (desktop) the Refresh button is in the list header and the actions menu does not repeat it.
+//
+// It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { start } from "./common.mjs";
 
@@ -223,6 +228,39 @@ await t.eachViewport(async (page, vp) => {
     const words = await page.getByRole("main").getByText("Back to Stats").count();
     check(words === 0, `${tag} B1 text`, "no text on screen says Back to Stats", "a text link says Back to Stats");
     await t.shot(page, `${tag}-your-year`);
+  });
+
+  await step(`${tag} B2`, async () => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    const pathOf = () => new URL(page.url()).pathname;
+    const chevron = () => page.getByRole("main").getByRole("link", { name: /^Back to / }).first();
+    await open("/settings");
+    await page.getByRole("main").getByRole("link", { name: /^Appearance/ }).first().click();
+    await page.waitForURL((u) => u.pathname === "/settings/appearance", { timeout: 5000 });
+    await page.getByRole("main").getByRole("heading").first().waitFor({ timeout: 5000 });
+    await chevron().click();
+    await page.waitForURL((u) => u.pathname === "/settings", { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    check(pathOf() === "/settings", `${tag} B2 list`, "the chevron in a group opened from the Settings list goes back to the list", `it went to ${pathOf()}`);
+    const focused = await page.evaluate(() => document.activeElement?.textContent?.trim().slice(0, 40) ?? "");
+    check(/^Appearance/.test(focused), `${tag} B2 focus`, "focus arrives on the row of the group just left", `focus is on "${focused}"`);
+
+    const isSummary = (u) => u.pathname === "/api/stats/summary";
+    await page.route(isSummary, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ enabled: false }) }));
+    await open("/stats");
+    await page.getByRole("main").getByRole("link", { name: "Settings > Statistics" }).click();
+    await page.waitForURL((u) => u.pathname === "/settings/statistics", { timeout: 5000 });
+    const back = chevron();
+    await back.waitFor({ timeout: 5000 });
+    const label = (await back.getAttribute("aria-label")) ?? "";
+    await back.click();
+    await page.waitForTimeout(600);
+    const landed = pathOf() === "/settings" ? "Settings" : pathOf() === "/stats" ? "Stats" : pathOf();
+    check(label === `Back to ${landed}`, `${tag} B2 label`, `the chevron lands where its label says (${label})`, `the label says "${label}" and it landed on ${landed}`);
+    await page.goBack();
+    await page.waitForTimeout(400);
+    check(pathOf() !== "/settings/statistics", `${tag} B2 history`, "the system Back does not return to the group just left", "the system Back returned to the group");
+    await page.unroute(isSummary);
   });
 
   await step(`${tag} R1`, async () => {
