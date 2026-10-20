@@ -604,9 +604,12 @@ export function useServerEvents(enabled: boolean): void {
 
     const connect = () => {
       retryTimer = undefined;
-      // A recreated EventSource never sends Last-Event-ID, so the last id we saw goes in the URL; a server
-      // that ignores it is still fine (runs and counts are reconciled from /api/status either way).
-      const src = new EventSource(lastEventId ? `/api/events?last_event_id=${encodeURIComponent(lastEventId)}` : "/api/events");
+      // A new EventSource cannot send Last-Event-ID, so the cursor goes in the URL. It is the newer of the last
+      // id the stream delivered and the id the loaded bootstrap follows: the shell opens the stream after
+      // the bootstrap answered, and what happened in between (a run.done) is replayed from that id.
+      const boot = qc.getQueryData<Bootstrap>(keys.bootstrap)?.event_id;
+      const cursor = eventSeq(boot) > eventSeq(lastEventId) ? String(boot) : lastEventId;
+      const src = new EventSource(cursor ? `/api/events?last_event_id=${encodeURIComponent(cursor)}` : "/api/events");
       es = src;
       src.addEventListener("heartbeat", () => {
         heartbeatSeen = true;

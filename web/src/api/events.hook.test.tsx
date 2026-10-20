@@ -272,6 +272,40 @@ describe("reconnect reconciliation", () => {
     }
   });
 
+  it("opens the first stream at the bootstrap's event id so a run.done in the gap is replayed", () => {
+    mockFetch({});
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, { ...bootstrap, event_id: "1700000000000123" });
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    const { unmount } = renderHook(() => useServerEvents(true), { wrapper });
+    expect(FakeES.all[0]!.url).toBe("/api/events?last_event_id=1700000000000123");
+    unmount();
+  });
+
+  it("ignores a bootstrap without an ordering id and keeps the newer of the bootstrap and the last event", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      mockFetch({ "GET /api/status": () => json({ runs: [], unread_total: 0 }), "GET /api/bootstrap": () => json(bootstrap) });
+      const qc = new QueryClient();
+      qc.setQueryData(keys.bootstrap, { ...bootstrap, event_id: "0" });
+      const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+      const { unmount } = renderHook(() => useServerEvents(true), { wrapper });
+      expect(FakeES.all[0]!.url).toBe("/api/events");
+      act(() => FakeES.all[0]!.emit("counts", { unread_total: 1, feeds: {} }, "60"));
+      qc.setQueryData(keys.bootstrap, { ...bootstrap, event_id: "50" });
+      act(() => FakeES.all[0]!.drop());
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      expect(FakeES.all[1]!.url).toBe("/api/events?last_event_id=60");
+      act(() => FakeES.all[1]!.drop());
+      qc.setQueryData(keys.bootstrap, { ...bootstrap, event_id: "75" });
+      await act(() => vi.advanceTimersByTimeAsync(3_000));
+      expect(FakeES.all[2]!.url).toBe("/api/events?last_event_id=75");
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("re-checks status when the tab becomes visible with a run showing", async () => {
     const { calls } = mockFetch({ "GET /api/status": () => json({ runs: [], event_id: "50", inflight: 0, unread_total: 0 }), "GET /api/bootstrap": () => json(bootstrap) });
     const { unmount } = setup();

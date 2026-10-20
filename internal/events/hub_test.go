@@ -188,3 +188,64 @@ func TestSubscribeOnAClosedHubReturnsAClosedSubscriberEvenWhenFull(t *testing.T)
 	_, open := <-s.C
 	require.False(t, open)
 }
+
+// A run that ends between the bootstrap answer and the stream attaching: the client opens the stream at the
+// bootstrap's event_id (the hub's LastID when the runs were read) and gets exactly what followed.
+func TestSubscribeAtBootstrapIDReplaysTheGap(t *testing.T) {
+	h := newHub()
+	h.Publish("run.start", map[string]string{"run_id": "1"})
+	boot := h.LastID() // the bootstrap answer is stamped here and lists run 1
+	h.Publish("run.progress", map[string]string{"run_id": "1"})
+	h.Publish("run.done", map[string]string{"run_id": "1"})
+
+	s := h.Subscribe(boot)
+	require.Equal(t, "run.progress", (<-s.C).Type)
+	require.Equal(t, "run.done", (<-s.C).Type)
+	select {
+	case ev := <-s.C:
+		t.Fatalf("unexpected extra event %v", ev)
+	default:
+	}
+	h.Publish("e", 1) // and the stream is live afterwards
+	require.Equal(t, "e", (<-s.C).Type)
+}
+
+// The ring covers the longest gap a page can have: a cursor 100 events behind replays all of them.
+func TestSubscribeReplaysALongGapWithinTheRing(t *testing.T) {
+	h := newHub()
+	h.Publish("e", 0)
+	boot := h.LastID()
+	for i := 0; i < subBuffer-1; i++ {
+		h.Publish("e", i)
+	}
+	s := h.Subscribe(boot)
+	require.Len(t, s.C, subBuffer-1)
+}
+
+// After a restart the ids are new and the ring is empty or holds only new events: a cursor from before the
+// restart gets one resync and none of the new process's events, and none of the old ones are invented.
+func TestSubscribeWithAnIDFromBeforeARestartGetsOnlyAResync(t *testing.T) {
+	clk := clock.NewFake(time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC))
+	h1 := NewWithClock(clk)
+	h1.Publish("run.start", 1)
+	boot := h1.LastID()
+	h1.Publish("run.done", 1) // the old process publishes this and then goes away
+
+	clk.Advance(5 * time.Second)
+	h2 := NewWithClock(clk)
+	for _, empty := range []bool{true, false} {
+		if !empty {
+			h2.Publish("counts", 1)
+			h2.Publish("counts", 2)
+		}
+		s := h2.Subscribe(boot)
+		ev := <-s.C
+		require.Equal(t, "resync", ev.Type, "empty ring: %v", empty)
+		require.Equal(t, h2.LastID(), ev.ID)
+		select {
+		case extra := <-s.C:
+			t.Fatalf("unexpected extra event %v (empty ring: %v)", extra, empty)
+		default:
+		}
+	}
+}
