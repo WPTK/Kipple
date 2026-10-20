@@ -71,24 +71,31 @@ afterEach(() => vi.unstubAllGlobals());
 describe("a long library", () => {
   const many = Array.from({ length: 700 }, (_, i) => feed(i + 1));
 
+  // The rows are found by the key the screen marks them with, not by role and name: matching a name pattern against
+  // hundreds of links makes testing-library compute every link's accessible name, which took seconds and made this test
+  // fail on a busy machine. What is checked is the same: which feeds are drawn, and where the focus goes.
+  const rows = (main: HTMLElement) => main.querySelectorAll('a[data-reveal-key^="feed:"]');
+  const row = (main: HTMLElement, n: number) => main.querySelector(`a[data-reveal-key="feed:${n}"]`);
+
   it("draws the Feeds screen a step at a time, and more as its end comes into view", async () => {
     vi.stubGlobal("IntersectionObserver", HeldIO);
     go("/feeds", many);
     const main = await screen.findByRole("main");
-    await within(main).findByRole("link", { name: /^Feed 1\b/ });
+    await waitFor(() => expect(row(main, 1)).not.toBeNull());
     // The folder row is the first of the step, so it draws REVEAL_STEP - 1 feeds.
-    expect(within(main).getAllByRole("link", { name: /^Feed \d+/ })).toHaveLength(REVEAL_STEP - 1);
-    expect(within(main).queryByRole("link", { name: /^Feed 700\b/ })).toBeNull();
+    expect(rows(main)).toHaveLength(REVEAL_STEP - 1);
+    expect(row(main, 700)).toBeNull();
     expect(within(main).getByRole("button", { name: "Show more feeds (401 not shown yet)" })).toBeInTheDocument();
 
     // A press draws the next step and puts the focus on the first row it added.
     await userEvent.setup().click(within(main).getByRole("button", { name: /^Show more feeds/ }));
-    expect(within(main).getAllByRole("link", { name: /^Feed \d+/ })).toHaveLength(2 * REVEAL_STEP - 1);
-    expect(document.activeElement).toBe(within(main).getByRole("link", { name: new RegExp(`^Feed ${REVEAL_STEP}\\b`) }));
+    expect(rows(main)).toHaveLength(2 * REVEAL_STEP - 1);
+    expect(document.activeElement).toBe(row(main, REVEAL_STEP));
 
     // Scrolling near the end draws the rest.
     scrollIntoView();
-    await waitFor(() => expect(within(main).getByRole("link", { name: /^Feed 700\b/ })).toBeInTheDocument());
+    await waitFor(() => expect(row(main, 700)).not.toBeNull());
+    expect(rows(main)).toHaveLength(700);
     expect(within(main).queryByRole("button", { name: /^Show more feeds/ })).toBeNull();
   });
 
