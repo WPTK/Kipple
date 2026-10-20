@@ -117,15 +117,15 @@ describe("Unread list (Magazine)", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  it("tab bar has the four tabs with 44px hit rules and Unread current", async () => {
+  it("tab bar has the four tabs with 44px hit rules and Articles current", async () => {
     routes();
     go("/l/unread");
     await screen.findByText("Article number 1");
     const nav = screen.getByRole("navigation", { name: "Primary" });
-    for (const name of ["Unread", "Feeds", "Search", "Settings"]) {
+    for (const name of ["Articles", "Feeds", "Search", "Settings"]) {
       expect(within(nav).getByRole("link", { name: new RegExp(name) })).toBeInTheDocument();
     }
-    expect(within(nav).getByRole("link", { name: /Unread/ })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: /Articles/ })).toHaveAttribute("aria-current", "page");
   });
 
   it("stars a row optimistically and calls PUT star", async () => {
