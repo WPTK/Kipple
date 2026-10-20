@@ -9,7 +9,7 @@
 //   F1  the Feeds title is not truncated at 402 and 440 wide;
 //   H1  the list header is as tall for Unread as for a feed with a very long title, at 393, 402 and 440 wide;
 //   R1  in landscape the article's title and body start at the same left edge;
-//   T1  the tab bar marks Feeds on a feed's list and on Feed health, and Unread on the Unread list;
+//   T1  the tab bar marks Feeds on a feed's list and on Feed health, and Articles on the Unread list;
 //   M1  at 874x402 the opened row More menu lies inside the screen, above the tab bar (#431).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
@@ -71,7 +71,7 @@ await t.eachViewport(async (page, vp) => {
 
   await step(`${tag} T1`, async () => {
     await size(402);
-    const checks = [["/l/unread", "Unread"], ["/health", "Feeds"]];
+    const checks = [["/l/unread", "Articles"], ["/health", "Feeds"]];
     const feed = (await t.boot(page)).feeds.find((f) => f.title === LONG);
     if (feed) checks.push([`/l/unread?feed=${feed.id}`, "Feeds"]);
     for (const [path, want] of checks) {
