@@ -696,7 +696,11 @@ async function checkScreens(cookies) {
         // check that lands mid-slide reads the row as cut off. Every context starts as a device that has seen it, so
         // the checks look at the list as it rests (the tip itself is covered in the component tests).
         await context.addInitScript(() => {
-          if (localStorage.getItem("kipple.device.v2") === null) localStorage.setItem("kipple.device.v2", JSON.stringify({ peekSeen: true }));
+          try {
+            if (localStorage.getItem("kipple.device.v2") === null) localStorage.setItem("kipple.device.v2", JSON.stringify({ peekSeen: true }));
+          } catch {
+            /* a document without storage (about:blank) has no tip to play */
+          }
         });
         const page = await context.newPage();
         trackRequests(page);
