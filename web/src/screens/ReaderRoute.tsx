@@ -27,13 +27,14 @@ import {
 import { READING_LENGTH_LABELS } from "@/lib/readingLength";
 import { announce } from "@/shell/toasts";
 import { ResizeHandle } from "@/ui/ResizeHandle";
-import { SHORT_QUERY, useMedia, useWide } from "@/lib/useMedia";
+import { NARROW_QUERY, useMedia, useShort, useWide } from "@/lib/useMedia";
 import { ARTICLE_MIN, maxFor, useWidth } from "@/lib/useWidth";
 import { listTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
 import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { NOTHING_TO_UNDO, undoLast, undoStore } from "@/lib/undo";
 import { Button, buttonVariants } from "@/ui/button";
+import { inputCls } from "@/ui/kit";
 import { cn } from "@/lib/cn";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { ArticlePane } from "./ArticlePane";
@@ -131,11 +132,29 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
   // The Muted pill appears when there is something muted, or when you are in it.
   const views = scope.view === "muted" || mutedCount > 0 ? [...VIEWS, { view: "muted" as View, label: "Muted" }] : VIEWS;
   const nothingUnread = scopeUnread(scope, boot.data) === 0;
+  const refreshBusy = refreshing || refresh.isPending;
   // A short phone screen (landscape) has no height to spare for a second header row: the Show pills and the feed
   // switch sit on the title row, after the title (#420).
-  const short = useMedia(SHORT_QUERY);
+  const short = useShort();
   const compact = !wide && short;
-  const pills = (
+  // Where even that is too wide for the title (a feed list on a 568 px screen has the title, four pills, the feed switch
+  // and up to five controls), the pills are one select: the title truncates before anything is dropped.
+  const narrow = useMedia(NARROW_QUERY);
+  const asSelect = compact && narrow;
+  const pills = asSelect ? (
+    <select
+      aria-label="Show"
+      value={scope.view}
+      onChange={(e) => navigate(listTo({ ...scope, view: e.target.value as View }), { replace: true })}
+      className={cn(inputCls, "min-h-11 w-auto shrink-0 py-0 text-sm font-medium")}
+    >
+      {views.map((v) => (
+        <option key={v.view} value={v.view}>
+          {v.label}
+        </option>
+      ))}
+    </select>
+  ) : (
     <nav aria-label="Show" className={cn("flex gap-1", compact ? "shrink-0" : "min-w-0 flex-wrap")}>
       {views.map((v) => {
         const active = v.view === scope.view;
@@ -169,7 +188,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
       </div>
     ) : null;
   return (
-    <header className={cn("pt-safe shrink-0 border-b border-line bg-bg px-4", compact ? "pb-1" : "pb-2")}>
+    <header className={cn("pt-safe shrink-0 border-b border-line bg-bg pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]", compact ? "pb-1" : "pb-2")}>
       {/* The title row is 25rem wide and left-aligned, so the controls sit in the same place in every layout (a grid
           layout has no reader pane, and used to push them to the far right). The title keeps at least 6.5rem and truncates
           beyond that, so at normal text size on a phone the header is one row in every list; only where the pane is
@@ -177,7 +196,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
           a line of their own. */}
       <div className={cn("flex max-w-full flex-wrap items-center gap-x-0.5", compact ? "w-full pt-1" : "w-fit min-w-[min(100%,25rem)] pt-2")}>
         <Heading
-          className={cn("min-w-[6.5rem] truncate text-xl font-bold", compact ? "mr-2 max-w-[40%]" : "max-w-full flex-1")}
+          className={cn("truncate text-xl font-bold", asSelect ? "mr-2 min-w-[3rem] flex-1" : compact ? "mr-2 min-w-[6.5rem] max-w-[40%]" : "min-w-[6.5rem] max-w-full flex-1")}
           tabIndex={-1}
           data-route-heading
           aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}
@@ -229,13 +248,21 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <Button variant="ghost" size="icon" aria-label="List actions">
-              <MoreVertical aria-hidden="true" />
+              {/* With no Refresh button here, the trigger shows that a refresh is running. */}
+              {refreshing && !wide ? <RefreshCw aria-hidden="true" className="animate-spin" /> : <MoreVertical aria-hidden="true" />}
             </Button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
               {wide ? null : (
-                <DropdownMenu.Item className={menuItem} disabled={refreshing || refresh.isPending} onSelect={() => refresh.mutate()}>
+                // aria-disabled, not disabled: while a refresh runs the item stays in the arrow-key order and is read out as
+                // "Refreshing, dimmed"; choosing it does nothing.
+                <DropdownMenu.Item
+                  className={menuItem}
+                  aria-disabled={refreshBusy || undefined}
+                  data-disabled={refreshBusy ? "" : undefined}
+                  onSelect={(e) => (refreshBusy ? e.preventDefault() : refresh.mutate())}
+                >
                   <RefreshCw className={cn("size-5", refreshing && "animate-spin")} aria-hidden="true" />
                   {refreshing ? "Refreshing" : "Refresh all feeds"}
                 </DropdownMenu.Item>

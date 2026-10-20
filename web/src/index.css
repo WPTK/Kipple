@@ -85,11 +85,6 @@
   --toolbar-h: 3.05rem; /* article toolbar: 44 px buttons plus padding */
 }
 
-/* A short screen (a phone held sideways): the tab bar has no top padding and its tabs are one row. */
-@media (max-height: 500px) {
-  :root { --tabbar-h: 2.75rem; }
-}
-
 :root[data-font="easy"] {
   --kp-reading-font: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif;
 }
@@ -419,6 +414,15 @@ a.sr-only-live:focus {
 :root[data-targets="large"] #root :is(button, [role="menuitem"]):not(.article-body *):not(.kp-row *) { min-width: 3.5rem; }
 :root[data-targets="large"] #root :is(nav a, a.row-link, label.min-h-11, .hit, .hit-row) { min-height: 3.5rem; min-width: 3.5rem; }
 :root[data-targets="large"] .row-host { --row-min: 4.25rem; }
+
+/* A short screen (a phone held sideways; the app shell sets data-short from SHORT_QUERY): the tab bar is one row of
+   icon and name, 44 px tall. Large targets keep the 44 px minimum in the header and tab bar there, because 56 px
+   controls would take a third of a 320 px screen; the layout is the same row. */
+:root[data-short] { --tabbar-h: 2.75rem; }
+:root[data-targets="large"][data-short] #root :is(header, nav[aria-label="Primary"]) :is(button, select, summary, a, [role="menuitem"]) {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+}
 
 /* Read-aloud: the paragraph being spoken. Not color alone: it also gets a start bar. */
 .article-body .kp-speaking {

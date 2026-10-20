@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router";
 import { BarChart3, BellOff, Inbox, List, Newspaper, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
@@ -6,7 +6,7 @@ import { useBootstrap } from "@/api/queries";
 import { useStatsEnabled } from "@/lib/statsSender";
 import { useSyncHighlights } from "@/lib/useHighlights";
 import { SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, DEFAULT_DEVICE_PREFS, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
-import { useWide } from "@/lib/useMedia";
+import { useShort, useWide } from "@/lib/useMedia";
 import { cn } from "@/lib/cn";
 import { navItemClass } from "@/ui/navItem";
 import { FeedTree } from "@/screens/FeedTree";
@@ -26,8 +26,8 @@ import { LiveRegion, Toasts, announce } from "./toasts";
 //
 // On a short screen (a phone held sideways) the icon sits beside its name instead of above it, which takes the bar from
 // 56 px to 44 px: the list keeps the height (#420).
-const tab =
-  "flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[length:min(0.75rem,4vw)] font-medium [@media(max-height:500px)]:flex-row [@media(max-height:500px)]:gap-2";
+const tab = "flex min-h-11 min-w-0 flex-1 items-center justify-center px-1 text-[length:min(0.75rem,4vw)] font-medium";
+const tabLayout = (short: boolean) => (short ? "flex-row gap-2" : "flex-col gap-0.5");
 
 /** The Articles tab's badge (the unread count): count (capped at 99+), a dot, or nothing, by the device's "Unread badge" setting. */
 function UnreadBadge() {
@@ -45,15 +45,18 @@ function TabBar() {
   const inList = pathname.startsWith("/l/") || pathname === "/l";
   const articlesTab = inList && !scoped;
   const feedsTab = pathname === "/feeds" || pathname === "/health" || (inList && scoped);
-  const cls = ({ isActive }: { isActive: boolean }) => cn(tab, isActive ? "text-accent" : "text-fg2");
+  const short = useShort();
+  const t = cn(tab, tabLayout(short));
+  const cls = ({ isActive }: { isActive: boolean }) => cn(t, isActive ? "text-accent" : "text-fg2");
   return (
     <nav
       aria-label="Primary"
-      className="pb-safe pt-2 pl-safe pr-safe flex shrink-0 border-t border-line bg-bg shadow-[0_-6px_10px_-8px_rgb(0_0_0/0.5)] [@media(max-height:500px)]:pt-0"
-      style={{ minHeight: "var(--tabbar-h)" }}
+      className={cn("pb-safe pl-safe pr-safe flex shrink-0 border-t border-line bg-bg shadow-[0_-6px_10px_-8px_rgb(0_0_0/0.5)]", short ? "pt-0" : "pt-2")}
+      // The bar is its content plus the device inset: the inset below it (a home indicator) never takes from the 44 px tabs.
+      style={{ minHeight: "calc(var(--tabbar-h) + env(safe-area-inset-bottom))" }}
     >
       {/* Plain links: NavLink would only mark the tab whose own address is the current one. */}
-      <Link to="/l/unread" className={cn(tab, articlesTab ? "text-accent" : "text-fg2")} aria-current={articlesTab ? "page" : undefined}>
+      <Link to="/l/unread" className={cn(t, articlesTab ? "text-accent" : "text-fg2")} aria-current={articlesTab ? "page" : undefined}>
         {/* The badge sits on the icon's corner and grows over the icon, so this tab is no wider than the others. */}
         <span className="relative flex">
           <Newspaper aria-hidden="true" className="size-6" />
@@ -61,7 +64,7 @@ function TabBar() {
         </span>
         Articles
       </Link>
-      <Link to="/feeds" className={cn(tab, feedsTab ? "text-accent" : "text-fg2")} aria-current={feedsTab ? "page" : undefined}>
+      <Link to="/feeds" className={cn(t, feedsTab ? "text-accent" : "text-fg2")} aria-current={feedsTab ? "page" : undefined}>
         <List aria-hidden="true" className="size-6" />
         Feeds
       </Link>
@@ -210,6 +213,12 @@ function WarningsBanner() {
  */
 export function AppShell() {
   const wide = useWide();
+  // The style sheet reads the short-screen query from here, so the query is written once (useMedia.ts).
+  const short = useShort();
+  useLayoutEffect(() => {
+    document.documentElement.toggleAttribute("data-short", short && !wide);
+    return () => document.documentElement.removeAttribute("data-short");
+  }, [short, wide]);
   const { pathname, search, hash, state } = useLocation();
   const navigate = useNavigate();
   useServerEvents(true);

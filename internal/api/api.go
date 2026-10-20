@@ -36,6 +36,10 @@ import (
 
 const (
 	cookieName = "kipple_session"
+	// markerName is the session marker: a cookie script can read, set and cleared with the session cookie, so the
+	// app knows at launch, without a request, whether to expect a session. It holds no secret and is only a hint;
+	// the session cookie stays the truth (docs/design.md §7).
+	markerName = "kipple_signed_in"
 	// sessionTTL is the cookie Max-Age and the sliding session expiry. The plan
 	// (Cloudflare Access notes) says 90 days; design §7 says 30. The plan wins.
 	sessionTTL = 90 * 24 * time.Hour
@@ -407,7 +411,7 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 			http.NotFound(w, r) // never a UI route (design §6.1)
 			return
 		}
-		ok, err := s.sessionOK(w, r)
+		ok, refusal, err := s.signedIn(w, r)
 		if err != nil {
 			// A failed lookup is not a missing session: answering 401 would sign the app out.
 			s.serverError(w, "session lookup", err)
@@ -421,17 +425,27 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusForbidden, "origin")
 			return
 		}
-		// Open mode: the session is only a convenience, the gate is the access
-		// check, so it applies to every request (a device that left the tailnet
-		// or the local network, loses access at once).
-		if snap := s.snapshot(r.Context()); snap.mode == store.AuthOpen || snap.failed {
-			if reason := s.gateRefusal(r, snap, false); reason != "" {
-				writeOpenRefused(w, reason)
-				return
-			}
+		if refusal != "" {
+			writeOpenRefused(w, refusal)
+			return
 		}
 		h(w, r)
 	}
+}
+
+// signedIn is whether r may use the signed-in API, as authed and GET /api/instance both decide it: a live session
+// and, in open mode, the open gate. refusal is the gate's reason when the session is live but the gate refuses.
+// In open mode the session is only a convenience, the gate is the access check, so it applies to every request (a
+// device that left the tailnet or the local network loses access at once).
+func (s *Server) signedIn(w http.ResponseWriter, r *http.Request) (ok bool, refusal string, err error) {
+	ok, err = s.sessionOK(w, r)
+	if err != nil || !ok {
+		return ok, "", err
+	}
+	if snap := s.snapshot(r.Context()); snap.mode == store.AuthOpen || snap.failed {
+		refusal = s.gateRefusal(r, snap, false)
+	}
+	return true, refusal, nil
 }
 
 func needsOriginCheck(r *http.Request) bool {
@@ -465,9 +479,20 @@ func (s *Server) scheme(r *http.Request) string { return s.reach.Scheme(r) }
 
 // sessionOK validates the cookie, sliding the session (and re-issuing the
 // cookie) at most hourly. An error is a failed lookup, not a missing session.
+// It also brings the session marker in line with the answer: set for a live
+// session that arrived without it (one made before the marker existed),
+// cleared for a request that carries it with no live session (expired, signed
+// out elsewhere, revoked by a password change). Only the marker is cleared
+// there, never the session cookie: a stale request that answers after a new
+// sign-in would otherwise sign that new session out.
 func (s *Server) sessionOK(w http.ResponseWriter, r *http.Request) (bool, error) {
+	_, merr := r.Cookie(markerName)
+	marked := merr == nil
 	c, err := r.Cookie(cookieName)
 	if err != nil || c.Value == "" {
+		if marked {
+			s.clearMarker(w, r)
+		}
 		return false, nil
 	}
 	now := s.now()
@@ -475,8 +500,13 @@ func (s *Server) sessionOK(w http.ResponseWriter, r *http.Request) (bool, error)
 	if err != nil {
 		return false, err
 	}
-	if st == store.SessionRenewed {
+	switch {
+	case st == store.SessionRenewed:
 		s.setCookie(w, r, c.Value)
+	case st == store.SessionNone && marked:
+		s.clearMarker(w, r)
+	case st != store.SessionNone && !marked:
+		s.setMarker(w, r)
 	}
 	return st != store.SessionNone, nil
 }
@@ -497,18 +527,33 @@ func newCookieValue() (string, error) {
 // setCookie issues the session cookie: HttpOnly, SameSite=Lax, Path=/,
 // persistent (WebKit drops session cookies in Home Screen apps), Secure when
 // the scheme is https (reach.State.Scheme: TLS, a trusted proxy, or the host of
-// an https public URL), so a LAN visit over plain http still signs in.
+// an https public URL), so a LAN visit over plain http still signs in. The
+// session marker goes with it, with the same lifetime and rules.
 func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, value string) {
-	http.SetCookie(w, &http.Cookie{
-		Name: cookieName, Value: value, Path: "/", MaxAge: int(sessionTTL / time.Second),
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.scheme(r) == "https",
-	})
+	s.sessionCookie(w, r, cookieName, value, int(sessionTTL/time.Second))
+	s.setMarker(w, r)
 }
 
+// clearCookie clears the session cookie and its marker.
 func (s *Server) clearCookie(w http.ResponseWriter, r *http.Request) {
+	s.sessionCookie(w, r, cookieName, "", -1)
+	s.clearMarker(w, r)
+}
+
+func (s *Server) setMarker(w http.ResponseWriter, r *http.Request) {
+	s.sessionCookie(w, r, markerName, "1", int(sessionTTL/time.Second))
+}
+
+func (s *Server) clearMarker(w http.ResponseWriter, r *http.Request) {
+	s.sessionCookie(w, r, markerName, "", -1)
+}
+
+// sessionCookie writes the session cookie or its marker. They differ only in HttpOnly: the marker is for the
+// app's script to read, and holds nothing a reader of it could use.
+func (s *Server) sessionCookie(w http.ResponseWriter, r *http.Request, name, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
-		Name: cookieName, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.scheme(r) == "https",
+		Name: name, Value: value, Path: "/", MaxAge: maxAge,
+		HttpOnly: name == cookieName, SameSite: http.SameSiteLaxMode, Secure: s.scheme(r) == "https",
 	})
 }
 

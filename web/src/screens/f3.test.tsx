@@ -191,7 +191,7 @@ describe("Settings renderer", () => {
     await waitFor(() => expect(calls.filter((c) => c.method === "PATCH").some((c) => body(c)["links.strip_tracking"] === null)).toBe(true));
 
     // The refresh interval is in another group: back to the list, then into Sync & Feeds.
-    await user.click(screen.getByRole("button", { name: "Back to Settings" }));
+    await user.click(screen.getByRole("link", { name: "Back to Settings" }));
     await user.click(await screen.findByRole("link", { name: /^Sync & Feeds/ }));
     await user.click(await screen.findByRole("button", { name: "Increase How often to check feeds" }));
     const alert = await screen.findByText("must be an integer from 5 to 1440");

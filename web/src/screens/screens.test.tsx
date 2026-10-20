@@ -9,7 +9,7 @@ import { feedEditorStore } from "@/lib/feedEditor";
 import { initTheme } from "@/theme/theme";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
-import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
+import { bootstrap, card, detail, json, mockFetch, pageOf, setSessionMarker } from "@/test/mockApi";
 import { emptyCopy } from "./ListPane";
 
 // jsdom has no EventSource; the shell subscribes to one.
@@ -54,12 +54,14 @@ afterEach(() => {
 });
 
 describe("Login", () => {
-  it("shows the login screen on 401 and signs in", async () => {
+  it("a signed-out launch shows the login screen, asks for nothing that answers 401, and signs in", async () => {
     let signedIn = false;
-    mockFetch({
+    setSessionMarker(false);
+    const { calls } = mockFetch({
       "GET /api/bootstrap": () => (signedIn ? json(bootstrap) : json({ error: "auth" }, 401)),
-      "GET /api/instance": () => json({ setup: false, auth: "password" }),
+      "GET /api/instance": () => json({ setup: false, auth: "password", signed_in: false }),
       "POST /api/auth/login": () => {
+        expect(calls.map((c) => c.url.pathname)).not.toContain("/api/bootstrap");
         signedIn = true;
         return new Response(null, { status: 204 });
       },
@@ -76,10 +78,20 @@ describe("Login", () => {
     await screen.findByText("Article number 1");
   });
 
-  it("explains a wrong password without leaking which field", async () => {
-    mockFetch({
+  it("a launch whose session ended (the marker is stale) asks for the bootstrap, and its 401 shows the login screen", async () => {
+    const { calls } = mockFetch({
       "GET /api/bootstrap": () => json({ error: "auth" }, 401),
-      "GET /api/instance": () => json({ setup: false, auth: "password" }),
+      "GET /api/instance": () => json({ setup: false, auth: "password", signed_in: false }),
+    });
+    go("/");
+    await screen.findByRole("heading", { name: "Sign in to Kipple" });
+    expect(calls[0]?.url.pathname).toBe("/api/bootstrap");
+  });
+
+  it("explains a wrong password without leaking which field", async () => {
+    setSessionMarker(false);
+    mockFetch({
+      "GET /api/instance": () => json({ setup: false, auth: "password", signed_in: false }),
       "POST /api/auth/login": () => json({ error: "auth" }, 401),
     });
     go("/");

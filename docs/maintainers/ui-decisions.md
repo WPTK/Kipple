@@ -221,7 +221,7 @@ Decisions are recorded in full in the private history repository. Summary of wha
   share sheet, aggregates only by default. No goals, targets, badges, comparisons with other people or directives.
 - **Reading:** every open is recorded; views count an item as read at 10 s active time, or 25% scroll with at least 3 s active time (a scroll alone stopped counting with issue #120). List-preview
   opens count. Reading stats (open, read time, scroll, open original, share) are web-only; Reader API clients are not tracked for reading, though their stars are recorded.
-- **Screen:** one Stats nav entry, phone first. Range Week/Month/Year/Months/All (default Month); tapping a summary tile shows its previous-period value (none for Months and All, and none when the earlier period starts before recording did). Items/Minutes toggle with
+- **Screen:** one Stats nav entry, phone first. Range Week/Month/Year/Monthly/All (default Month); tapping a summary tile shows its previous-period value (none for Monthly and All, and none when the earlier period starts before recording did). Items/Minutes toggle with
   folder rollup; average read length, quick-bounce rate, open-original rate, read rate per feed, most-starred feeds;
   never opened. A feed's row opens its drill-down sheet.
 - **Settings:** first day of week (Sunday or Monday, default Sunday); stats on/off (off stops recording and hides the
@@ -243,7 +243,7 @@ Decided in a design discussion. #37 keeps the roadmap label; #36 is closed (belo
   table, so the published count per feed per day has to be recorded at fetch time, in a table that survives trims
   (`feed_daily_new`, migration 0017). The rate covers only complete days (today is left out) with complete reads and counted
   arrivals, and counts only reads of the items that arrived in them.
-- **Screen: design A.** One Stats screen. Adds comparison, a Months range with bars covering every month on record
+- **Screen: design A.** One Stats screen. Adds comparison, a Monthly range with bars covering every month on record
   (not capped at 12), and a source row that opens a per-feed drill-down sheet. Design B (a separate Feeds page) is the
   fallback if the sheet outgrows the screen; promote the sheet then.
 - **Comparison has no toggle.** Tiles show plain numbers by default. Tapping a tile shows that stat's previous-period
@@ -253,7 +253,7 @@ Decided in a design discussion. #37 keeps the roadmap label; #36 is closed (belo
   dash, never 0%. Per-feed deltas appear only in the drill-down sheet, not in the Sources list. Folder rows show no
   rate: Sources lists only feeds with activity, so a folder's quiet feeds would be missing from its new items.
 - **Build order.** The published-counts table (migration 0017, `feed_daily_new`) goes first, because its history cannot
-  be recovered later. Comparison, Months, the drill-down and read rate follow in separate PRs.
+  be recovered later. Comparison, Monthly, the drill-down and read rate follow in separate PRs.
 - **Reader API reads (#36): closed as not planned.** Kipple measures reading time only in its own web app. A sync client
   sends no read time or scroll, so its reads can never meet the read definition (10 s active, or 25% scroll with 3 s),
   and no request log can change that. The Stats screen and the docs say: "Statistics count reading in the Kipple web app.
