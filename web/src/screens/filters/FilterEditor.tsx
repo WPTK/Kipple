@@ -37,7 +37,7 @@ import { toast } from "@/shell/toasts";
 import { cn } from "@/lib/cn";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { Button } from "@/ui/button";
-import { Checkbox, Field, Modal, Notice, inputCls } from "@/ui/kit";
+import { Checkbox, Field, Modal, Notice, RadioCard, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 
 export const PREVIEW_DEBOUNCE_MS = 600;
@@ -163,22 +163,7 @@ function Group({ legend, help, error, children }: { legend: string; help?: React
 }
 
 function Choice({ name, value, current, label, help, onPick, disabled }: { name: string; value: string; current: string; label: string; help?: string; onPick: (v: string) => void; disabled?: boolean }) {
-  const on = value === current;
-  return (
-    <label
-      className={cn(
-        "relative flex min-h-11 items-start gap-3 rounded-xl border p-3 text-sm has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent",
-        on ? "border-accent bg-selection" : "border-line bg-surface",
-        disabled ? "opacity-60" : "cursor-pointer hover:bg-selection",
-      )}
-    >
-      <input type="radio" name={name} value={value} checked={on} disabled={disabled} onChange={() => onPick(value)} className="mt-0.5 size-5 shrink-0 accent-[var(--kp-accent)]" />
-      <span>
-        <span className="font-semibold">{label}</span>
-        {help ? <span className="block text-xs text-fg2">{help}</span> : null}
-      </span>
-    </label>
-  );
+  return <RadioCard name={name} value={value} checked={value === current} onSelect={() => onPick(value)} disabled={disabled} title={label} help={help} />;
 }
 
 /** A suggestion that is a toggle: pressed (with a check mark) while its word is in the rule. */
