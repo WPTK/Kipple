@@ -405,3 +405,12 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
   It is the `BackButton` in `web/src/ui`. Rejected: a text link or breadcrumb ("Stats > Your year"), which is a second
   pattern next to the chevron the Settings groups already had.
 - **Stats ranges**: Week, Month, Year, Monthly, All. Monthly is the whole history drawn as one bar per month.
+
+## Phone tabs (1.1 bug hunt, round 7, #421)
+- **The first tab is Articles**, not Unread: it holds the lists of the whole library (Unread, All, Starred, and Muted
+  once something is muted), opens on Unread, and keeps the unread count as its badge. Feeds holds the lists scoped to a
+  feed or folder, Favorites and the way to Feed health; Search holds the saved searches. Rejected: a Starred tab and a
+  More tab for Stats and Settings, which costs a tap for the screens that are tabs today and makes More a drawer for
+  whatever does not fit; and six tabs, which cannot keep their names whole at the largest text size.
+- The Muted pill stays conditional (a list that is empty for most readers is not worth a pill), and Muted, Starred and
+  All articles are always listed at the top of the Feeds screen.

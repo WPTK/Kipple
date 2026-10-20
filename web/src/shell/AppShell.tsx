@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router";
-import { BarChart3, BellOff, Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
+import { BarChart3, BellOff, Inbox, List, Newspaper, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
 import { useStatsEnabled } from "@/lib/statsSender";
@@ -29,7 +29,7 @@ import { LiveRegion, Toasts, announce } from "./toasts";
 const tab =
   "flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[length:min(0.75rem,4vw)] font-medium [@media(max-height:500px)]:flex-row [@media(max-height:500px)]:gap-2";
 
-/** The Unread tab's badge: count (capped at 99+), a dot, or nothing, by the device's "Unread badge" setting. */
+/** The Articles tab's badge (the unread count): count (capped at 99+), a dot, or nothing, by the device's "Unread badge" setting. */
 function UnreadBadge() {
   const boot = useBootstrap();
   return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" noun="" className="absolute -top-1 -right-[10px]" />;
@@ -40,10 +40,10 @@ function TabBar() {
   const stats = useStatsEnabled();
   const [search] = useSearchParams();
   // A list scoped to a feed or folder is reached from the Feeds tab (so is Feed Health); only the four whole lists
-  // (Unread, All, Starred, Muted) belong to the Unread tab.
+  // (Unread, All, Starred, Muted) belong to the Articles tab, which opens on Unread and has the others as its pills.
   const scoped = search.has("feed") || search.has("folder");
   const inList = pathname.startsWith("/l/") || pathname === "/l";
-  const unreadTab = inList && !scoped;
+  const articlesTab = inList && !scoped;
   const feedsTab = pathname === "/feeds" || pathname === "/health" || (inList && scoped);
   const cls = ({ isActive }: { isActive: boolean }) => cn(tab, isActive ? "text-accent" : "text-fg2");
   return (
@@ -53,13 +53,13 @@ function TabBar() {
       style={{ minHeight: "var(--tabbar-h)" }}
     >
       {/* Plain links: NavLink would only mark the tab whose own address is the current one. */}
-      <Link to="/l/unread" className={cn(tab, unreadTab ? "text-accent" : "text-fg2")} aria-current={unreadTab ? "page" : undefined}>
+      <Link to="/l/unread" className={cn(tab, articlesTab ? "text-accent" : "text-fg2")} aria-current={articlesTab ? "page" : undefined}>
         {/* The badge sits on the icon's corner and grows over the icon, so this tab is no wider than the others. */}
         <span className="relative flex">
-          <Inbox aria-hidden="true" className="size-6" />
+          <Newspaper aria-hidden="true" className="size-6" />
           <UnreadBadge />
         </span>
-        Unread
+        Articles
       </Link>
       <Link to="/feeds" className={cn(tab, feedsTab ? "text-accent" : "text-fg2")} aria-current={feedsTab ? "page" : undefined}>
         <List aria-hidden="true" className="size-6" />

@@ -387,7 +387,7 @@ function AppearancePage() {
         />
         <Segmented<UnreadBadge>
           legend="Unread badge"
-          hint="On the Unread tab and in the sidebar. Counts show up to 99+."
+          hint="On the Articles tab and in the sidebar. Counts show up to 99+."
           value={dp.unreadBadge}
           onChange={(unreadBadge) => updateDevicePrefs({ unreadBadge })}
           options={UNREAD_BADGES.map((b) => ({ value: b, label: b === "count" ? "Count" : b === "dot" ? "Dot only" : "Off" }))}
