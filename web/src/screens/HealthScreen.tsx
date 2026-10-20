@@ -2,8 +2,7 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { Suspense, useMemo, useState } from "react";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router";
-import { ArrowDown, ArrowUp, Check, CheckSquare, ChevronLeft, MoreVertical } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckSquare, MoreVertical } from "lucide-react";
 import {
   invalidateFeeds,
   patchFeed,
@@ -19,7 +18,8 @@ import { STATUS_RANK, statusInfo } from "@/lib/feedStatus";
 import { groupState, toggleGroup, toggleIn } from "@/lib/selection";
 import { bytesLabel, fullDate, whenLabel } from "@/lib/format";
 import { useWide } from "@/lib/useMedia";
-import { Button, buttonVariants } from "@/ui/button";
+import { BackButton } from "@/ui/BackButton";
+import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
 import { StatusChip } from "./StatusChip";
@@ -322,11 +322,7 @@ export function HealthScreen() {
     <div className="ui-font flex h-full min-h-0 flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-2">
         <div className="flex items-center gap-1 pt-2">
-          {!wide ? (
-            <Link to="/feeds" aria-label="Back to Feeds" title="Back to Feeds" className={buttonVariants({ variant: "ghost", size: "icon" })}>
-              <ChevronLeft aria-hidden="true" />
-            </Link>
-          ) : null}
+          {!wide ? <BackButton to="/feeds" ariaLabel="Back to Feeds" /> : null}
           <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
             Feed health
           </h1>

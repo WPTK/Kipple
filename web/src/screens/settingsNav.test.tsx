@@ -114,7 +114,7 @@ describe("Settings on a narrow screen", () => {
     expect(screen.queryByRole("switch", { name: /Remove tracking from links/ })).toBeNull();
     expect(await axe(container)).toHaveNoViolations();
 
-    await user.click(screen.getByRole("button", { name: "Back to Settings" }));
+    await user.click(screen.getByRole("link", { name: "Back to Settings" }));
     await waitFor(() => expect(window.location.pathname).toBe("/settings"));
     const row = await screen.findByRole("link", { name: /^Sync & Feeds/ });
     await waitFor(() => expect(row).toHaveFocus());
@@ -126,7 +126,7 @@ describe("Settings on a narrow screen", () => {
     const user = userEvent.setup();
     await screen.findByRole("heading", { level: 1, name: "Account & Devices" });
     expect(await screen.findByRole("textbox", { name: "Time zone" })).toHaveValue("America/New_York");
-    await user.click(screen.getByRole("button", { name: "Back to Settings" }));
+    await user.click(screen.getByRole("link", { name: "Back to Settings" }));
     expect(await screen.findByRole("navigation", { name: "Settings sections" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings");
   });

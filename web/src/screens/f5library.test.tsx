@@ -694,7 +694,7 @@ describe("The unsaved default device (id empty)", () => {
     expect(screen.queryByRole("button", { name: /Copy its settings here/ })).toBeNull();
     // A local change is kept and still sends nothing. The layout is in another group: back to the list, then in.
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Back to Settings" }));
+    await user.click(screen.getByRole("link", { name: "Back to Settings" }));
     await user.click(await screen.findByRole("link", { name: /^Appearance & Reading/ }));
     await user.click(await screen.findByRole("radio", { name: "Compact" }));
     await new Promise((r) => setTimeout(r, 700));
