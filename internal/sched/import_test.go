@@ -97,7 +97,7 @@ func TestImportOf500FeedsIsQueuedAndReported(t *testing.T) {
 	releaseAll := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(releaseAll)
 	var cur, peak atomic.Int32
-	srv := newSrv(t, func(p string, w http.ResponseWriter, req *http.Request) {
+	srv := newSrv(t, func(_ string, w http.ResponseWriter, _ *http.Request) {
 		n := cur.Add(1)
 		for {
 			m := peak.Load()
@@ -107,7 +107,9 @@ func TestImportOf500FeedsIsQueuedAndReported(t *testing.T) {
 		}
 		<-release
 		cur.Add(-1)
-		serveOK(p, w, req)
+		// A feed with no items: what is under test is the queue, so each of the 500 fetches stores as little as it can.
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(emptyFeedXML))
 	})
 	file, err := os.ReadFile("testdata/import-500.opml")
 	require.NoError(t, err)
@@ -134,8 +136,12 @@ func TestImportOf500FeedsIsQueuedAndReported(t *testing.T) {
 	require.Equal(t, 8, inflight, "the other 492 wait in the queue")
 
 	releaseAll()
-	r.waitEvents("run.done", 1)
+	// 500 fetches and their writes: about 2 s locally, many times that under -race on a busy runner. The wait is on
+	// the event, not a clock, so a generous deadline costs nothing when it passes.
+	waitForWithin(t, "the import run to end", 3*time.Minute, func() bool { return len(r.events("run.done")) >= 1 })
 	require.LessOrEqual(t, int(peak.Load()), 8, "never more fetches at once than workers")
 	require.Equal(t, 500, srv.total(), "every new feed was fetched once")
 	require.EqualValues(t, 500, r.num("SELECT count(*) FROM fetch_log WHERE trigger = 'import'"))
 }
+
+const emptyFeedXML = `<?xml version="1.0"?><rss version="2.0"><channel><title>Imported</title><link>https://feeds.test/</link></channel></rss>`
