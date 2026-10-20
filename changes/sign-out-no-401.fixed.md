@@ -1,0 +1,1 @@
+Signing out no longer asks the server for the reading data of the session it just ended, so the browser console logs no 401 error, and the sign-in screen shows only once this device's offline copies are deleted. (#549)

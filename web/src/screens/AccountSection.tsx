@@ -399,6 +399,7 @@ export function AccountActions() {
     // to read them offline, and a request answered meanwhile must not find them still there.
     await wipeOfflineData();
     authStore.set("out");
+    chooseSignOut(false);
   };
 
   return (

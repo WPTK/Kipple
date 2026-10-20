@@ -33,15 +33,20 @@ export const authStore = createStore<AuthState>("unknown");
  */
 export const sessionLostStore = createStore<boolean>(false);
 
-/** Set before a sign-out you chose begins: the 401s that follow it (a stream reconnecting, queued writes) are not a lost session. */
-let signOutChosen = false;
+/**
+ * True while a sign-out you chose is under way: from just before it asks the server until the sign-in screen shows
+ * (or the server refuses it). The bootstrap is not asked for meanwhile (useBootstrap), since the server may already
+ * have ended the session, and the 401s of requests already on their way (a stream reconnecting, queued writes) are
+ * not a lost session.
+ */
+export const signingOutStore = createStore<boolean>(false);
 export function chooseSignOut(chosen: boolean) {
-  signOutChosen = chosen;
+  signingOutStore.set(chosen);
 }
 
 /** The one place the app becomes signed in: a lost-session note and a sign-out intent end with it. */
 export function setSignedIn() {
-  signOutChosen = false;
+  signingOutStore.set(false);
   sessionLostStore.set(false);
   authStore.set("in");
 }
@@ -174,7 +179,7 @@ async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
   if (!cached) setSessionExpired(false);
   noteResponse(res, opts.quiet);
   if (res.status === 401 && !opts.anon) {
-    if (authStore.get() === "in" && !signOutChosen) sessionLostStore.set(true);
+    if (authStore.get() === "in" && !signingOutStore.get()) sessionLostStore.set(true);
     authStore.set("out");
     throw new ApiError(401, "auth");
   }

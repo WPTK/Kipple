@@ -2,7 +2,7 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router";
-import { ApiError, authStore, openRefusedStore, SESSION_EXPIRED } from "@/api/client";
+import { ApiError, authStore, openRefusedStore, SESSION_EXPIRED, signingOutStore } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
 import { failedWhileOffline, prefetchUnread } from "@/lib/offline";
@@ -89,6 +89,9 @@ function Gate() {
   const probed = useSessionProbe();
   const launchAnswer = useStore(launchAnswerStore);
   const refused = useStore(openRefusedStore);
+  // While a sign-out you chose wipes this device's copies, the bootstrap is not asked for again (useBootstrap) and this
+  // screen stands in for the app, so nothing below it asks for anything either.
+  const signingOut = useStore(signingOutStore);
   // A launch the probe found refused by the open gate shows that at once; the bootstrap would only be refused too.
   const boot = useBootstrap(auth === "in" || (auth === "unknown" && probed && !refused));
   const reset = useStore(resetting);
@@ -177,6 +180,13 @@ function Gate() {
           void qc.invalidateQueries();
         }}
       />
+    );
+  }
+  if (boot.isPending && signingOut) {
+    return (
+      <div className="flex h-full items-center justify-center" role="status">
+        <span className="text-fg2">Signing out</span>
+      </div>
     );
   }
   if (boot.isPending) {
