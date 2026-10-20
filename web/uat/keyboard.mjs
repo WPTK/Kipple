@@ -28,7 +28,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
-import { accessControlUrl, unloadRefusal } from "./common.mjs";
+import { accessControlUrl, onPageError, unloadRefusal } from "./common.mjs";
 
 const setupError = (m) => {
   console.error(m);
@@ -247,7 +247,7 @@ async function desktop(cookies) {
   const refused = [];
   const failedRequests = [];
   const isUnloadRefusal = unloadRefusal(page, origin);
-  page.on("pageerror", (e) => (isUnloadRefusal(e) ? refused.push(accessControlUrl(e).pathname) : errors.push(String(e).slice(0, 200))));
+  onPageError(page, (e) => (isUnloadRefusal(e) ? refused.push(accessControlUrl(e).pathname) : errors.push(String(e).slice(0, 200))));
   page.on("requestfailed", (req) => {
     const why = req.failure()?.errorText ?? "failed";
     // A navigation aborts what was in flight; each engine words it its own way (as in run.mjs).
