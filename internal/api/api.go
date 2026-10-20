@@ -549,8 +549,18 @@ func (s *Server) marker(r *http.Request) string {
 	return markerName
 }
 
+// setMarker sets the marker under this scheme's name, and clears one the browser sent under the other name (set while
+// the scheme was the other one), so a browser never keeps a marker its session does not back.
 func (s *Server) setMarker(w http.ResponseWriter, r *http.Request) {
-	s.sessionCookie(w, r, s.marker(r), "1", int(sessionTTL/time.Second))
+	name := s.marker(r)
+	s.sessionCookie(w, r, name, "1", int(sessionTTL/time.Second))
+	other := markerName
+	if name == markerName {
+		other = hostMarkerName
+	}
+	if _, err := r.Cookie(other); err == nil {
+		s.clearMarkerNamed(w, r, other)
+	}
 }
 
 // hasMarker says whether r carries a marker under either name. The scheme can change while a browser holds one (a
@@ -567,10 +577,16 @@ func hasMarker(r *http.Request) bool {
 // clearMarker clears the marker under both names, whatever the scheme is now: one set while the scheme was the other
 // one goes too. The __Host- clear always carries Secure, Path=/ and no Domain, or the browser ignores it.
 func (s *Server) clearMarker(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name: hostMarkerName, Value: "", Path: "/", MaxAge: -1, SameSite: http.SameSiteLaxMode, Secure: true,
-	})
-	s.sessionCookie(w, r, markerName, "", -1)
+	s.clearMarkerNamed(w, r, hostMarkerName)
+	s.clearMarkerNamed(w, r, markerName)
+}
+
+func (s *Server) clearMarkerNamed(w http.ResponseWriter, r *http.Request, name string) {
+	if name == hostMarkerName {
+		http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, SameSite: http.SameSiteLaxMode, Secure: true})
+		return
+	}
+	s.sessionCookie(w, r, name, "", -1)
 }
 
 // sessionCookie writes the session cookie or its marker. They differ only in HttpOnly: the marker is for the
