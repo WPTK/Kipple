@@ -143,7 +143,8 @@ async function radioCardChecks(page, where) {
   const open = page.getByRole("radio", { name: /^No password at all/ });
   const pw = page.getByRole("radio", { name: /^With a password/ });
   const card = open.locator("xpath=ancestor::label/..");
-  if (!(await open.isEnabled())) return; // open mode is not offered from this address
+  // Open mode is offered on the loopback address this flow runs on; without it the cards below would go unmeasured.
+  if (!check(where, await open.isEnabled(), '"No password at all" is disabled, so the radio cards were not measured')) return;
   for (const large of [false, true]) {
     await page.evaluate((on) => (on ? document.documentElement.setAttribute("data-targets", "large") : document.documentElement.removeAttribute("data-targets")), large);
     const tag = `${where} radio card ${large ? "large" : "normal"}`;
@@ -153,7 +154,7 @@ async function radioCardChecks(page, where) {
       const l = label.getBoundingClientRect();
       const r = el.getBoundingClientRect();
       const t = label.querySelector("span > span").getBoundingClientRect();
-      return { cw: c.width, lh: l.height, rw: r.width, rh: r.height, rMid: r.top + r.height / 2, tMid: t.top + t.height / 2, desc: el.getAttribute("aria-describedby") };
+      return { cw: c.width, lh: l.height, rw: r.width, rh: r.height, rMid: r.top + r.height / 2, tMid: t.top + t.height / 2, desc: CSS.escape(el.getAttribute("aria-describedby")) };
     });
     check(tag, m.lh >= (large ? 56 : 44) - 0.5, `the label row is ${m.lh.toFixed(1)} px tall`);
     check(tag, Math.round(m.rw) === 20 && Math.round(m.rh) === 20, `the radio is ${m.rw} x ${m.rh} px`);

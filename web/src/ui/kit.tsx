@@ -357,7 +357,7 @@ export function RadioCard({
     <div
       className={cn(card, "text-sm", !disabled && "cursor-pointer")}
       onClick={(e) => {
-        if (disabled || (e.target as HTMLElement).closest("input, select, textarea, button, a, label")) return;
+        if (disabled || (e.target as HTMLElement).closest("input, select, textarea, button, a, label, summary, [contenteditable], [role=button], [tabindex]")) return;
         radio.current?.click();
       }}
     >

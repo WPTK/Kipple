@@ -154,6 +154,15 @@ describe("RadioCard", () => {
       <RadioCard name="r" checked={false} onSelect={onSelect} title="With a password">
         <p>The usual choice.</p>
         <input aria-label="Password" />
+        <span role="button" tabIndex={0}>
+          Show tips
+        </span>
+        <span contentEditable suppressContentEditableWarning>
+          Note
+        </span>
+        <details>
+          <summary>More</summary>
+        </details>
       </RadioCard>,
     );
     const radio = screen.getByRole("radio", { name: "With a password" });
@@ -164,6 +173,9 @@ describe("RadioCard", () => {
     await user.click(screen.getByText("The usual choice."));
     expect(onSelect).toHaveBeenCalledTimes(2);
     await user.click(screen.getByLabelText("Password"));
+    await user.click(screen.getByRole("button", { name: "Show tips" }));
+    await user.click(screen.getByText("Note"));
+    await user.click(screen.getByText("More"));
     expect(onSelect).toHaveBeenCalledTimes(2);
   });
 
