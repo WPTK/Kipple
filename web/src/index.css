@@ -409,6 +409,8 @@ a.sr-only-live:focus {
 :root[data-spacing="snug"] .article-body { --kp-lh: 1.5; --kp-pgap: 0.75em; --kp-ls: 0em; }
 :root[data-spacing="roomy"] .article-body { --kp-lh: 1.85; --kp-pgap: 1.5em; --kp-hgap: 2em; --kp-ls: 0.02em; word-spacing: 0.06em; }
 
+.kp-check { --check-row: 2.75rem; }
+:root[data-targets="large"] .kp-check { --check-row: 3.5rem; }
 /* Large targets: 56 px controls instead of 44 px, and more room between them. Article text links are
    left alone (they are inline text, not controls). */
 :root[data-targets="large"] {

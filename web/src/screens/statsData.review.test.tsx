@@ -194,11 +194,11 @@ describe("second-review items", () => {
     await user.type(screen.getByLabelText(/Type DELETE ALL/), "x");
   });
 
-  it("has the new titles help text and a CSV-only byte-order-mark switch", async () => {
+  it("has the new titles help text and a CSV-only byte-order-mark checkbox", async () => {
     const user = userEvent.setup();
     wrap(<StatsExportDialog open onOpenChange={() => {}} defaultRange="week" />);
     expect(screen.getByText(/Feed and folder names, times and your time zone stay in./)).toBeInTheDocument();
-    const bom = screen.getByRole("switch", { name: /byte-order mark/ });
+    const bom = screen.getByRole("checkbox", { name: /byte-order mark/ });
     expect(bom).not.toBeChecked();
     await user.click(bom);
     await user.click(screen.getByRole("button", { name: "Download" }));
@@ -208,9 +208,9 @@ describe("second-review items", () => {
   it("offers no byte-order mark for JSON or Summary, and never sends it there", async () => {
     const user = userEvent.setup();
     wrap(<StatsExportDialog open onOpenChange={() => {}} defaultRange="week" />);
-    await user.click(screen.getByRole("switch", { name: /byte-order mark/ }));
+    await user.click(screen.getByRole("checkbox", { name: /byte-order mark/ }));
     await user.click(screen.getByRole("radio", { name: "JSON" }));
-    expect(screen.queryByRole("switch", { name: /byte-order mark/ })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /byte-order mark/ })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Download" }));
     expect(hrefs).toEqual(["/api/stats/export?format=json&content=raw&range=week&titles=1"]);
     expect(exportUrl({ format: "csv", content: "summary", range: "all", from: "", to: "", titles: true, bom: true })).toBe("/api/stats/export?format=json&content=summary&range=all&titles=1");

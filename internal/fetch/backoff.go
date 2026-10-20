@@ -31,19 +31,10 @@ func jitter(base float64, lo, hi float64, rnd Rand) int64 {
 // FailureDelaySeconds is the un-jittered backoff for the n-th consecutive
 // failure (n counted after incrementing): min(interval x 2^(n-1), max(86400, interval)).
 func FailureDelaySeconds(intervalS int64, n int) int64 {
-	cap := int64(maxBackoffS)
-	if intervalS > cap {
-		cap = intervalS
-	}
+	cap := max(maxBackoffS, intervalS)
 	d := intervalS
-	for i := 1; i < n; i++ {
-		d *= 2
-		if d >= cap {
-			return cap
-		}
-	}
-	if d > cap {
-		d = cap
+	for i := 1; i < n && d != cap; i++ {
+		d = min(2*d, cap)
 	}
 	return d
 }
@@ -54,10 +45,8 @@ func FailureDelaySeconds(intervalS int64, n int) int64 {
 func NextOnFailure(now time.Time, intervalS int64, n int, retryAfter time.Duration, hostUntil time.Time, rnd Rand) (time.Time, int64) {
 	d := jitter(float64(FailureDelaySeconds(intervalS, n)), 0.85, 1.15, rnd)
 	next := now.Add(time.Duration(d) * time.Second)
-	if retryAfter > 0 {
-		if t := now.Add(retryAfter); t.After(next) {
-			next = t
-		}
+	if t := now.Add(retryAfter); t.After(next) {
+		next = t
 	}
 	if hostUntil.After(next) {
 		next = hostUntil
@@ -115,10 +104,7 @@ func PublisherHintSeconds(honor bool, ttlMinutes int, h http.Header, now time.Ti
 	if !honor {
 		return 0
 	}
-	hint := int64(0)
-	if ttlMinutes > 0 {
-		hint = int64(ttlMinutes) * 60
-	}
+	hint := max(int64(ttlMinutes)*60, 0)
 	cc := strings.ToLower(h.Get("Cache-Control"))
 	for _, part := range strings.Split(cc, ",") {
 		tok, _, _ := strings.Cut(strings.TrimSpace(part), "=")
@@ -147,10 +133,11 @@ func PublisherHintSeconds(honor bool, ttlMinutes int, h http.Header, now time.Ti
 }
 
 func headerAge(h http.Header) int64 {
-	if a, err := strconv.ParseInt(strings.TrimSpace(h.Get("Age")), 10, 64); err == nil && a > 0 {
-		return a
+	a, err := strconv.ParseInt(strings.TrimSpace(h.Get("Age")), 10, 64)
+	if err != nil {
+		return 0
 	}
-	return 0
+	return max(a, 0)
 }
 
 func directive(cc, name string) (int64, bool) {

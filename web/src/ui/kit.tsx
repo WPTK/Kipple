@@ -217,6 +217,72 @@ export function Switch({
   );
 }
 
+/**
+ * A checkbox with a label and help text: the control for a yes/no choice in a form or dialog that a button (Save, Add,
+ * Export, Continue) applies later. A Switch is for a setting that takes effect the moment it is flipped; the two
+ * differ the way they do on iOS, Android and the web, so a form never offers a switch that does nothing until Save.
+ */
+export function Checkbox({
+  label,
+  help,
+  checked,
+  onChange,
+  disabled,
+  busy,
+  error,
+}: {
+  label: string;
+  help?: ReactNode;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+  /** A change is being worked out (a preview is loading): announced, and the box stays where it is. */
+  busy?: boolean;
+  error?: string | null;
+}) {
+  const id = useId();
+  // The box and the text are one label, so a tap anywhere on the row toggles it. The row is 44 px (56 px under Large
+  // targets, `--check-row` in index.css); the box and the first line of text are each centred in that row height, so
+  // they line up at both sizes and for a label that wraps. The help sits under the label, indented to the text, and is
+  // not part of the name.
+  return (
+    <div className={cn(disabled && "opacity-60")}>
+      <label
+        htmlFor={id}
+        aria-busy={busy || undefined}
+        className={cn("kp-check flex min-h-11 items-start gap-3 text-sm", disabled ? "cursor-not-allowed" : "cursor-pointer")}
+      >
+        <span className="flex h-[var(--check-row)] shrink-0 items-center">
+          <input
+            id={id}
+            type="checkbox"
+            checked={checked}
+            disabled={disabled}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={`${id}-h${error ? ` ${id}-e` : ""}`}
+            onChange={(e) => onChange(e.target.checked)}
+            className="size-5 accent-[var(--kp-accent)]"
+          />
+        </span>
+        <span className="flex min-h-[var(--check-row)] min-w-0 items-center leading-5">{label}</span>
+      </label>
+      {help ? (
+        <p id={`${id}-h`} className="pb-2 pl-8 text-xs text-fg2">
+          {help}
+        </p>
+      ) : (
+        <span id={`${id}-h`} hidden />
+      )}
+      {error ? (
+        <p id={`${id}-e`} role="alert" className="flex items-start gap-1 pb-2 pl-8 text-sm text-danger">
+          <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+          <span>{error}</span>
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /** Wait after the last keystroke or +/- click before a value is committed (blur and Enter commit at once). */
 export const STEPPER_DEBOUNCE_MS = 700;
 

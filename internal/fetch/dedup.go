@@ -103,8 +103,9 @@ func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 	}
 
 	// Guid-less feeds (Atom without id, RSS without guid) are normal and key on
-	// the link, so only repeated non-empty guids count, against the non-empty ones.
-	if guided > 0 && badGUIDs*100 > 5*guided {
+	// the link, so only repeated non-empty guids count, against the non-empty ones
+	// (none counted means none repeated).
+	if badGUIDs*100 > 5*guided {
 		notes = append(notes, fmt.Sprintf("guid_duplicates: %d/%d", badGUIDs, guided))
 	}
 	return kept, notes

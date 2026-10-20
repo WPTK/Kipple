@@ -7,7 +7,7 @@ import { RANGES, addDays, plural, todayString } from "@/lib/statsFormat";
 import { clearStatsQueue } from "@/lib/statsSender";
 import { toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
+import { Checkbox, Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { Segmented } from "@/ui/segmented";
 
 const DANGER = "border-danger text-danger";
@@ -125,7 +125,7 @@ function ExportBody({ onOpenChange, defaultRange }: { onOpenChange: (o: boolean)
           { value: "jsonl", label: "JSON Lines", disabled: summary },
         ]}
       />
-      {!summary && format === "csv" ? <Switch label="Add a byte-order mark (helps Excel show accents)" checked={bom} onChange={setBom} /> : null}
+      {!summary && format === "csv" ? <Checkbox label="Add a byte-order mark (helps Excel show accents)" checked={bom} onChange={setBom} /> : null}
       <Segmented<ExportRange> legend="Range" value={range} onChange={setRange} options={[...RANGES, { value: "custom" as const, label: "Custom" }]} />
       {range === "custom" ? (
         <>
@@ -138,9 +138,9 @@ function ExportBody({ onOpenChange, defaultRange }: { onOpenChange: (o: boolean)
           <p className="text-xs text-fg2">{ZONE_NOTE}</p>
         </>
       ) : null}
-      <Switch
+      <Checkbox
         label="Include article titles and links"
-        help="Turn off before sharing the file. Feed and folder names, times and your time zone stay in."
+        help="Untick this before sharing the file. Feed and folder names, times and your time zone stay in."
         checked={titles}
         onChange={setTitles}
       />

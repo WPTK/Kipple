@@ -64,9 +64,10 @@ type storedHash struct {
 }
 
 // parseDigits reads "<key>=<decimal digits>" as HashPassword writes it: no sign, space, trailing text or leading zero.
+// Zero itself is refused too: no field of a stored hash can be zero.
 func parseDigits(field, key string) (uint64, bool) {
 	digits, found := strings.CutPrefix(field, key+"=")
-	if !found || (len(digits) > 1 && digits[0] == '0') {
+	if !found || strings.HasPrefix(digits, "0") {
 		return 0, false
 	}
 	n, err := strconv.ParseUint(digits, 10, 32)
@@ -89,7 +90,7 @@ func parseHash(phc string) (h storedHash, ok bool) {
 	m, okM := parseDigits(cost[0], "m")
 	t, okT := parseDigits(cost[1], "t")
 	p, okP := parseDigits(cost[2], "p")
-	if !okM || !okT || !okP || p < 1 || p > maxThreads || t < 1 || t > maxTimeCost || m < 8*p || m > maxMemoryKiB {
+	if !okM || !okT || !okP || p > maxThreads || t > maxTimeCost || m < 8*p || m > maxMemoryKiB {
 		return h, false
 	}
 	enc := base64.RawStdEncoding
@@ -242,35 +243,39 @@ func (v *Verifier) ClearMemo() {
 
 // FailureTracker paces password checks per client (design §6.3): the Reader
 // API's ClientLogin and the web sign-in. Only failures are counted, and the
-// count fades only once Window passes with no failure at all. Every admitted
+// count fades only once window passes with no failure at all. Every admitted
 // attempt has its password verified, so an attempt that gets its turn is never
 // refused unchecked; the budget only slows a client down:
 //
 //   - At most one attempt per client hashes at a time. A second concurrent one
 //     (a client retrying a slow login) waits for the first instead of failing.
-//   - The first Threshold failures are free. After that an attempt starts only
-//     when a delay has passed since the client's previous attempt: Delay after
-//     the Threshold-th failure, doubling with each further failure up to
-//     MaxDelay. It waits for that instead of being refused.
-//   - Waiting is bounded: at most MaxWaiters attempts per client wait, for at
-//     most MaxWait (or until the request is cancelled). An attempt that cannot
+//   - The first threshold failures are free. After that an attempt starts only
+//     when a delay has passed since the client's previous attempt: firstDelay after
+//     the threshold-th failure, doubling with each further failure up to
+//     maxDelay. It waits for that instead of being refused.
+//   - Waiting is bounded: at most maxWaiters attempts per client wait, for at
+//     most maxWait (or until the request is cancelled). An attempt that cannot
 //     start is not run and counts nothing; its caller answers with a retry
 //     (never a 429).
 //
 // So one client never runs more than one hash at a time and holds at most
-// 1+MaxWaiters requests open. A verified success clears the client (Forget);
+// 1+maxWaiters requests open. A verified success clears the client (Forget);
 // a busy verifier counts nothing. Clients are keyed by RateKey, so an IPv6 /64
 // is one client. Several people who truly share one key (an unlisted proxy,
 // Docker's gateway, carrier NAT) share one budget, so even one persistent
 // guesser among them can make the others' attempts wait or answer busy.
+//
+// Build one with NewFailureTracker; the zero value cannot be used.
 type FailureTracker struct {
-	Window     time.Duration
-	Threshold  int
-	Delay      time.Duration
-	MaxDelay   time.Duration
-	MaxWait    time.Duration
-	MaxWaiters int
-	Now        func() time.Time
+	// The policy is set only by NewFailureTracker, so every tracker has a whole one.
+	window     time.Duration
+	threshold  int
+	firstDelay time.Duration
+	maxDelay   time.Duration
+	maxWait    time.Duration
+	maxWaiters int
+
+	Now func() time.Time
 	// After is time.After; tests with a fake Now replace it (the pacing wait).
 	After func(time.Duration) <-chan time.Time
 
@@ -296,37 +301,33 @@ type attempt struct {
 // with none, 5 are free, then 2 s doubling per failure to 60 s; at most 4
 // waiting attempts per client, each waiting at most 10 s.
 func NewFailureTracker() *FailureTracker {
-	return &FailureTracker{Window: time.Hour, Threshold: 5, Delay: 2 * time.Second, MaxDelay: time.Minute,
-		MaxWait: 10 * time.Second, MaxWaiters: 4, Now: time.Now,
+	return &FailureTracker{window: time.Hour, threshold: 5, firstDelay: 2 * time.Second, maxDelay: time.Minute,
+		maxWait: 10 * time.Second, maxWaiters: 4, Now: time.Now, After: time.After,
 		m: map[string]*failure{}, live: map[string]*attempt{}}
+}
+
+// SetMaxWait changes how long an attempt may wait for its turn; d must be positive. Tests whose fake clock makes
+// every wait instant lift it. Call it before the first Acquire; it is not safe to call concurrently with one.
+func (f *FailureTracker) SetMaxWait(d time.Duration) {
+	if d <= 0 {
+		panic("auth: FailureTracker wait bound must be positive")
+	}
+	f.maxWait = d
 }
 
 // Acquire admits one attempt for ip before its password is checked, waiting
 // (bounded) while ip has an attempt in flight or is inside its over-budget
 // delay. It returns false when the attempt could not start: too many attempts
-// already waiting, MaxWait passed, or ctx ended; nothing is counted and the
+// already waiting, maxWait passed, or ctx ended; nothing is counted and the
 // caller answers with a retry, without hashing. After true the caller must call
 // Finish exactly once.
 func (f *FailureTracker) Acquire(ctx context.Context, ip string) bool {
 	k := RateKey(ip)
-	maxWait := f.MaxWait
-	if maxWait <= 0 {
-		maxWait = 10 * time.Second
-	}
 	after := f.After
-	if after == nil {
-		after = time.After
-	}
-	deadline := time.NewTimer(maxWait)
+	deadline := time.NewTimer(f.maxWait)
 	defer deadline.Stop()
 
 	f.mu.Lock()
-	if f.live == nil {
-		f.live = map[string]*attempt{}
-	}
-	if f.m == nil {
-		f.m = map[string]*failure{}
-	}
 	a := f.live[k]
 	if a == nil {
 		a = &attempt{done: make(chan struct{})}
@@ -352,9 +353,9 @@ func (f *FailureTracker) Acquire(ctx context.Context, ip string) bool {
 				f.mu.Unlock()
 				return true
 			}
-			if pace > maxWait {
+			if pace > f.maxWait {
 				// The turn cannot come within the bound: say so now instead of
-				// holding the request for MaxWait (Wait tells the caller how long).
+				// holding the request for maxWait (Wait tells the caller how long).
 				if waiting {
 					a.waiters--
 				}
@@ -365,7 +366,7 @@ func (f *FailureTracker) Acquire(ctx context.Context, ip string) bool {
 			wake = after(pace)
 		}
 		if !waiting {
-			if a.waiters >= f.MaxWaiters {
+			if a.waiters >= f.maxWaiters {
 				f.dropIdle(k, a)
 				f.mu.Unlock()
 				return false
@@ -419,8 +420,8 @@ func (f *FailureTracker) Finish(ip string, failed bool) {
 	}
 	now := f.Now()
 	e := f.m[k]
-	if e == nil || now.Sub(e.start) > f.Window {
-		makeRoom(f.m, now, f.Window)
+	if e == nil || now.Sub(e.start) > f.window {
+		makeRoom(f.m, now, f.window)
 		e = &failure{start: now}
 		f.m[k] = e
 	}
@@ -433,11 +434,11 @@ func (f *FailureTracker) Finish(ip string, failed bool) {
 // expired entry is dropped. f.mu is held.
 func (f *FailureTracker) paceLocked(k string, now time.Time) time.Duration {
 	e := f.m[k]
-	if e != nil && now.Sub(e.start) > f.Window {
+	if e != nil && now.Sub(e.start) > f.window {
 		delete(f.m, k)
 		return 0
 	}
-	if e == nil || e.n < f.Threshold {
+	if e == nil || e.n < f.threshold {
 		return 0
 	}
 	return e.last.Add(f.delay(e.n)).Sub(now)
@@ -451,15 +452,12 @@ func (f *FailureTracker) Wait(ip string) time.Duration {
 	return max(f.paceLocked(RateKey(ip), f.Now()), 0)
 }
 
-// delay is how long the client must wait after its n-th failure (n >= Threshold):
-// Delay, doubling per further failure, never above MaxDelay.
+// delay is how long the client must wait after its n-th failure (n >= threshold):
+// firstDelay, doubling per further failure, never above maxDelay.
 func (f *FailureTracker) delay(n int) time.Duration {
-	d := f.Delay
-	for i := f.Threshold; i < n && d < f.MaxDelay; i++ {
-		d *= 2
-	}
-	if f.MaxDelay > 0 && d > f.MaxDelay {
-		d = f.MaxDelay
+	d := f.firstDelay
+	for i := f.threshold; i < n && d != f.maxDelay; i++ {
+		d = min(2*d, f.maxDelay)
 	}
 	return d
 }
@@ -476,7 +474,7 @@ func (f *FailureTracker) Count(ip string) int {
 	k := RateKey(ip)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if e := f.m[k]; e != nil && f.Now().Sub(e.start) <= f.Window {
+	if e := f.m[k]; e != nil && f.Now().Sub(e.start) <= f.window {
 		return e.n
 	}
 	return 0
@@ -516,20 +514,28 @@ func GeneratePassword(n int) (string, error) {
 		return "", err
 	}
 	out := make([]byte, n)
-	// 256 is not a multiple of len(alphabet): reject the biased tail.
-	const limit = 256 - 256%len(passwordAlphabet)
 	for i := 0; i < n; {
-		b := buf[i]
-		if int(b) >= limit {
+		c, ok := passwordChar(buf[i])
+		if !ok {
 			if _, err := rand.Read(buf[i : i+1]); err != nil {
 				return "", err
 			}
 			continue
 		}
-		out[i] = passwordAlphabet[int(b)%len(passwordAlphabet)]
+		out[i] = c
 		i++
 	}
 	return string(out), nil
+}
+
+// passwordChar maps a random byte to a password character. 256 is not a multiple of len(passwordAlphabet), so the
+// bytes of the biased tail are refused (ok false) and drawn again: every character is equally likely.
+func passwordChar(b byte) (c byte, ok bool) {
+	const limit = 256 - 256%len(passwordAlphabet)
+	if int(b) >= limit {
+		return 0, false
+	}
+	return passwordAlphabet[int(b)%len(passwordAlphabet)], true
 }
 
 // EffectiveScheme is "https" when the connection is TLS, or when a trusted
