@@ -1755,7 +1755,7 @@ Everything under `/api/` except the Reader paths and `POST /api/auth/login` requ
   `Max-Age`, `Path`, `SameSite` and `Secure` rules but readable by script (not HttpOnly). It holds nothing secret and
   is only a hint; the session cookie stays the truth. The app reads it at launch: with it, the app asks for the
   bootstrap at once; without it, it first asks `GET /api/instance` for `signed_in` (at most 2 s, then the bootstrap
-  anyway, so a stalled or offline launch still reaches the stored copy). A signed-out launch so sends no request that
+  anyway, so a stalled or offline launch still reaches the stored copy). A signed-out launch sends no request that
   answers `401`, which the browser would log. The server brings the marker in line on every request that checks a
   session: a sign-out clears it with the session cookie, a request that carries it with no live session (expired,
   signed out elsewhere, revoked by a password change) gets it cleared, and a live session that arrives without it

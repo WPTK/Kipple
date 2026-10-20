@@ -51,6 +51,13 @@ func (s *Server) setupGone(w http.ResponseWriter) bool {
 // and never sends a request that would answer 401.
 func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 	if s.opt.Setup.Pending() {
+		// With no account no session can be live: a session cookie or marker left from before a reset or a restore is
+		// dropped here, so the next launch does not ask for the bootstrap (and get a 401) on the strength of it.
+		_, cerr := r.Cookie(cookieName)
+		_, merr := r.Cookie(markerName)
+		if cerr == nil || merr == nil {
+			s.clearCookie(w, r)
+		}
 		restore := backup.RestoreNone
 		if s.restore != nil {
 			restore = s.restore.Status(restoreKey(r)).State

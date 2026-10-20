@@ -142,6 +142,17 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 	require.Equal(t, map[string]any{"enabled": false, "verified": false}, st["access"])
 	require.Equal(t, map[string]any{"reason": nil}, st["open"])
 	require.Zero(t, h.started.Load())
+	require.Nil(t, cookieNamed(rec, markerName), "a visit with no cookies is not told to clear any")
+
+	// A session cookie and marker left from before a reset: with no account they cannot be live, so both are cleared
+	// and the next launch does not ask for the bootstrap on the strength of the marker.
+	rec = h.req("GET", "/api/instance", "", withCookies(&http.Cookie{Name: cookieName, Value: "stale"}, &http.Cookie{Name: markerName, Value: "1"}))
+	require.Equal(t, false, decode(t, rec)["signed_in"])
+	for _, name := range []string{cookieName, markerName} {
+		c := cookieNamed(rec, name)
+		require.NotNil(t, c, name)
+		require.Less(t, c.MaxAge, 0, name)
+	}
 
 	rec = h.createAccount(map[string]any{"username": "reader", "password": setupPass})
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
