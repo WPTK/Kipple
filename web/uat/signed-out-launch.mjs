@@ -11,6 +11,7 @@
 //       with no 401, and the server sets the marker again.
 // It changes nothing. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
+import { URL } from "node:url";
 import { start } from "./common.mjs";
 
 const MARKER = "kipple_signed_in";
