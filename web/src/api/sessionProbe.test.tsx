@@ -6,8 +6,6 @@ import { authStore, openRefusedStore, setSignedIn } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { INSTANCE_KEY } from "@/setup/api";
 import { bootstrap, card, json, mockFetch, pageOf, setSessionMarker } from "@/test/mockApi";
-import { ApiError } from "@/api/client";
-import { retryRead } from "@/lib/offline";
 import { hasSessionMarker, launchAnswerStore, markerCookie, PROBE_MS } from "./sessionProbe";
 
 // A request that answers 401 is logged to the console by the browser, so a signed-out launch must not send one. A
@@ -68,16 +66,7 @@ describe("the session marker", () => {
   });
 });
 
-describe("the retry policy for reads", () => {
-  const err = (status: number, code = "x") => new ApiError(status, code);
-
-  it("asks again only when a second answer could differ (#572)", () => {
-    for (const status of [0, 408, 429, 500, 502, 503]) expect(retryRead(0, err(status)), String(status)).toBe(true);
-    for (const status of [400, 401, 403, 404, 409, 422]) expect(retryRead(0, err(status)), String(status)).toBe(false);
-    expect(retryRead(0, new Error("boom"))).toBe(true);
-    expect(retryRead(2, err(503))).toBe(false);
-  });
-
+describe("a refused open gate and the retry policy", () => {
   it("a refused open gate gets one bootstrap per launch and one per Try again (#572)", async () => {
     const { calls } = mockFetch({ "GET /api/bootstrap": () => json({ error: "open_refused", reason: "peer", message: "x" }, 403) });
     const qc = makeQueryClient();

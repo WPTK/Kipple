@@ -16,6 +16,7 @@ import {
   flushQueue,
   initOffline,
   isOffline,
+  retryRead,
   countsForAnswer,
   memoryBackendForTests,
   mirrorCounts,
@@ -1116,5 +1117,16 @@ describe("the badges while offline", () => {
     vi.spyOn(toasts, "toast").mockImplementation(() => 0);
     await applyRead(c, ["1001"], true, "swipe");
     expect(counts(c.getQueryData(keys.bootstrap))).toEqual([3, 3, 3]);
+  });
+});
+
+describe("the retry policy for reads", () => {
+  const err = (status: number) => new ApiError(status, "x");
+
+  it("asks again only when a second answer could differ (#572)", () => {
+    for (const status of [0, 408, 429, 500, 502, 503]) expect(retryRead(0, err(status)), String(status)).toBe(true);
+    for (const status of [400, 401, 403, 404, 409, 422]) expect(retryRead(0, err(status)), String(status)).toBe(false);
+    expect(retryRead(0, new Error("boom"))).toBe(true);
+    expect(retryRead(2, err(503))).toBe(false);
   });
 });

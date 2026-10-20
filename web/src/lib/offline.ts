@@ -204,7 +204,7 @@ export function failedWhileOffline(e: unknown): boolean {
  * The one retry policy for reads: a failed read is asked again (twice at most) only when asking again can answer
  * differently. A definite answer from the server (any 4xx except 408 Request Timeout and 429 Too Many Requests: a
  * refusal, a missing thing, a bad request, a signed-out session) is final, so it is not retried. A request that never
- * got an answer, a 5xx and those two are.
+ * got an answer, a 5xx, a 408 and a 429 are asked again.
  */
 export function retryRead(attempt: number, e: unknown): boolean {
   if (attempt >= 2 || failedWhileOffline(e)) return false;
