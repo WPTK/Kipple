@@ -1,7 +1,7 @@
 {
   "comment": "Every web/uat/*.mjs is either a flow below or listed in excluded with the reason. `node uat/all.mjs --check` fails otherwise, so a new flow cannot be silently left out of CI. Order matters: flows that mark articles read (keyboard) come last.",
   "chromium": ["run.mjs", "offline.mjs", "folders.mjs", "feeds.mjs", "states.mjs", "downloads.mjs", "images.mjs", "row-name.mjs", "wrapping.mjs", "chrome.mjs", "phone-shell.mjs", "phone-chrome.mjs", "touch-menus.mjs", "mute.mjs", "focus.mjs", "saved-searches.mjs", "stats.mjs", "keys.mjs", "announce.mjs", "scroll-restore.mjs", "feed-failure.mjs", "feeds-scale.mjs", "opml-report.mjs", "setup-rerun.mjs", "bulk-delete.mjs", "keyboard.mjs"],
-  "webkit": ["feeds.mjs", "states.mjs", "downloads.mjs", "images.mjs", "row-name.mjs", "wrapping.mjs", "stats.mjs"],
+  "webkit": ["feeds.mjs", "states.mjs", "downloads.mjs", "images.mjs", "row-name.mjs", "wrapping.mjs", "touch-menus.mjs", "stats.mjs"],
   "firefox": ["stats.mjs", "row-name.mjs"],
   "excluded": {
     "all.mjs": "this runner",

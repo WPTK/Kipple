@@ -1,4 +1,3 @@
-import { DropdownMenu } from "radix-ui";
 import { Check, LayoutGrid, Star } from "lucide-react";
 import type { Scope } from "@/api/types";
 import { useFolderTree } from "@/api/queries";
@@ -23,7 +22,7 @@ import {
 } from "@/lib/devicePrefs";
 import { cn } from "@/lib/cn";
 import { announce } from "@/shell/toasts";
-import { MenuContent } from "@/ui/menu";
+import { DropdownMenu } from "@/ui/menu";
 
 const item =
   "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-selection";
@@ -79,7 +78,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <MenuContent align="start" sideOffset={4} className="w-72">
+        <DropdownMenu.Content align="start" sideOffset={4} popoverWidth="w-72">
           {target ? <p className="px-3 pt-2 text-xs text-fg2">These choices are for this {noun} on this device.</p> : null}
           <DropdownMenu.Label className={heading}>Layout</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
@@ -156,7 +155,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
               <p className="px-3 pt-1 pb-2 text-xs text-fg2">The view this {noun} shows when you open it from your feeds.</p>
             </>
           ) : null}
-        </MenuContent>
+        </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );

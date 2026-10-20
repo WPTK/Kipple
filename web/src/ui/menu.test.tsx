@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DropdownMenu } from "radix-ui";
-import { MenuContent } from "./menu";
+import { useState } from "react";
+import { DropdownMenu } from "./menu";
 
 // #423: a tall menu is a popover beside its button with a mouse and a bottom sheet with a finger. One primitive does both
 // for every dropdown menu, with Radix's menu semantics, focus trap, Escape and return of focus either way.
@@ -13,10 +13,11 @@ function touch(on: boolean) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-function pointer(type: string, el: Element, pointerType: "touch" | "mouse") {
+function pointer(type: string, el: Element, pointerType: "touch" | "mouse", { id = 1, x = 100, y = 700 } = {}) {
   // jsdom has no PointerEvent: a MouseEvent of the same type carries the button and coordinates Radix reads.
-  const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 100, clientY: 700 });
+  const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
   Object.defineProperty(e, "pointerType", { value: pointerType });
+  Object.defineProperty(e, "pointerId", { value: id });
   fireEvent(el, e);
 }
 
@@ -29,10 +30,10 @@ function Demo({ onPick = () => {}, onPickSecond = () => {}, onClickCapture }: { 
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <MenuContent align="start" className="w-72" onClickCapture={onClickCapture}>
+        <DropdownMenu.Content align="start" popoverWidth="w-72" onClickCapture={onClickCapture}>
           <DropdownMenu.Item onSelect={onPick}>First</DropdownMenu.Item>
           <DropdownMenu.Item onSelect={onPickSecond}>Second</DropdownMenu.Item>
-        </MenuContent>
+        </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );
@@ -96,7 +97,7 @@ describe("MenuContent", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("picks with a tap and closes on a press on the dimmed page", async () => {
+  it("picks with a tap and closes on a tap on the dimmed page", async () => {
     touch(true);
     const user = userEvent.setup();
     const pick = vi.fn();
@@ -107,7 +108,10 @@ describe("MenuContent", () => {
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     await user.click(screen.getByRole("button", { name: "List options" }));
     await screen.findByRole("menu");
-    fireEvent.pointerDown(document.querySelector("[data-menu-backdrop]")!); // jsdom has no stylesheet, so user-event would see the body's pointer-events: none
+    // jsdom has no stylesheet, so user-event would see the body's pointer-events: none
+    const backdrop = document.querySelector("[data-menu-backdrop]")!;
+    pointer("pointerdown", backdrop, "touch", { id: 2 });
+    fireEvent.click(backdrop);
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   });
 
@@ -190,9 +194,21 @@ describe("MenuContent", () => {
     const pick = vi.fn();
     render(<Demo onPick={pick} />);
     const { first } = await openWith("mouse");
-    pointer("pointerup", first, "mouse"); // not captured: the release lands on the item and Radix clicks it
+    at(first, { left: 50, right: 150, top: 600, bottom: 640 }); // dragged up from the press at 700 to the item
+    pointer("pointerup", first, "mouse", { y: 620 }); // not captured: the release lands on the item and Radix clicks it
     first.click();
     expect(pick).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops the click a mouse makes when its button comes up where it went down, over the sheet", async () => {
+    touch(true);
+    const pick = vi.fn();
+    render(<Demo onPick={pick} />);
+    const { first } = await openWith("mouse");
+    pointer("pointerup", first, "mouse"); // measured in a touch-screen Chromium: Radix clicks the item on the release
+    first.click();
+    expect(pick).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).not.toBeNull();
   });
 
   it("keeps a caller's own capture handlers", async () => {
@@ -221,7 +237,7 @@ describe("MenuContent", () => {
     expect((await screen.findByRole("menu")).hasAttribute("data-menu-sheet")).toBe(false);
   });
 
-  it("closes on a touch press on the dimmed page, and the click after it reaches nothing", async () => {
+  it("closes on a tap on the dimmed page, which stays until the tap's click so nothing under it gets the tap", async () => {
     touch(true);
     const under = vi.fn();
     render(
@@ -234,11 +250,84 @@ describe("MenuContent", () => {
     );
     await openWith("touch");
     const backdrop = document.querySelector("[data-menu-backdrop]")!;
-    pointer("pointerdown", backdrop, "touch");
-    pointer("pointerup", backdrop, "touch");
+    pointer("pointerdown", backdrop, "touch", { id: 2 });
+    pointer("pointerup", backdrop, "touch", { id: 2 });
+    // Radix closes a menu on the press outside it; the dimmed page would then be gone before the lift and its click,
+    // which the browser would hit-test against the page.
+    expect(screen.queryByRole("menu")).not.toBeNull();
+    expect(document.querySelector("[data-menu-backdrop]")).toBe(backdrop);
     fireEvent.click(backdrop);
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     expect(under).not.toHaveBeenCalled();
+  });
+
+  it("stays open when the click of the tap that opened it lands on the dimmed page", async () => {
+    touch(true);
+    render(<Demo />);
+    const { trigger } = await openWith("touch");
+    pointer("pointerup", trigger, "touch");
+    const backdrop = document.querySelector("[data-menu-backdrop]")!;
+    at(backdrop, { left: 0, right: 375, top: 0, bottom: 812 });
+    fireEvent.click(backdrop);
+    expect(screen.queryByRole("menu")).not.toBeNull();
+  });
+
+  it("stays open when a mouse opens it and its button comes up over the dimmed page", async () => {
+    touch(true);
+    render(<Demo />);
+    const { trigger } = await openWith("mouse");
+    pointer("pointerup", trigger, "mouse");
+    fireEvent.click(document.querySelector("[data-menu-backdrop]")!);
+    expect(screen.queryByRole("menu")).not.toBeNull();
+  });
+
+  it("closes a menu whose open state the caller holds through the caller's onOpenChange", async () => {
+    touch(true);
+    const changed = vi.fn();
+    function Held() {
+      const [open, setOpen] = useState(false);
+      return (
+        <DropdownMenu.Root
+          open={open}
+          onOpenChange={(o) => {
+            changed(o);
+            setOpen(o);
+          }}
+        >
+          <DropdownMenu.Trigger asChild>
+            <button type="button">More</button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content>
+              <DropdownMenu.Item>First</DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      );
+    }
+    const user = userEvent.setup();
+    render(<Held />);
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await screen.findByRole("menu");
+    const backdrop = document.querySelector("[data-menu-backdrop]")!;
+    pointer("pointerdown", backdrop, "touch", { id: 2 });
+    fireEvent.click(backdrop);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(changed).toHaveBeenLastCalledWith(false);
+  });
+
+  it("still drops the leftover click when a second finger lands while the first is down", async () => {
+    touch(true);
+    const pick = vi.fn();
+    render(<Demo onPick={pick} />);
+    const { trigger, first } = await openWith("touch");
+    const backdrop = document.querySelector("[data-menu-backdrop]")!;
+    pointer("pointerdown", backdrop, "touch", { id: 2, x: 300, y: 20 });
+    pointer("pointerup", backdrop, "touch", { id: 2, x: 300, y: 20 });
+    pointer("pointerup", trigger, "touch");
+    fireEvent.click(first);
+    expect(pick).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).not.toBeNull();
   });
 
   it("wraps the sheet in the Radix popper element that index.css pins to the bottom edge", async () => {

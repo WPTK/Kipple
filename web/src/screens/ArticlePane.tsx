@@ -1,7 +1,6 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { DropdownMenu } from "radix-ui";
 import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
@@ -29,7 +28,7 @@ import { StatusBlock, focusListRow, rememberListPlace } from "./ListPane";
 import type { Scope } from "@/api/types";
 import { ReadingMenu } from "./AppearanceControls";
 import { ListenBar } from "./ListenBar";
-import { MenuContent } from "@/ui/menu";
+import { DropdownMenu } from "@/ui/menu";
 
 /** The article column's max width for the "Article width" setting (Medium is the density's own measure). */
 export function columnWidth(w: keyof typeof ARTICLE_WIDTH_REM): string {
@@ -533,7 +532,7 @@ function Toolbar(p: ToolbarProps) {
           </Button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
-          <MenuContent align="end" sideOffset={4} className="min-w-56">
+          <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
             <DropdownMenu.Item className={moreItem} onSelect={p.onManageFeed}>
               <Rss className="size-5" aria-hidden="true" />
               Manage this feed
@@ -550,7 +549,7 @@ function Toolbar(p: ToolbarProps) {
               <BellOff className="size-5" aria-hidden="true" />
               Mute similar…
             </DropdownMenu.Item>
-          </MenuContent>
+          </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
       <ReadingMenu />

@@ -2,7 +2,6 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, Navigate, useMatch, useNavigate, useSearchParams } from "react-router";
-import { DropdownMenu } from "radix-ui";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, MoreVertical, RefreshCw, Settings, Timer, Undo2, X } from "lucide-react";
 import { keys, scopeKey, useBootstrap, useFolderTree } from "@/api/queries";
 import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib/folderTree";
@@ -41,7 +40,7 @@ import { LayoutMenu } from "./LayoutMenu";
 import { LengthMenu } from "./LengthMenu";
 import { ReadingMenu } from "./AppearanceControls";
 import { FINISH_SEARCH, ListPane, StatusBlock, type ListControls } from "./ListPane";
-import { MenuContent } from "@/ui/menu";
+import { DropdownMenu } from "@/ui/menu";
 
 const VIEWS: { view: View; label: string }[] = [
   { view: "unread", label: "Unread" },
@@ -182,7 +181,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
             </Button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <MenuContent align="end" sideOffset={4} className="min-w-56">
+            <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
               <DropdownMenu.Item
                 className={menuItem}
                 disabled={!controls || scope.view === "muted" || !!scope.typing || nothingUnread}
@@ -202,7 +201,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
                   {canUndo ? null : <span className="text-xs text-fg2">{NOTHING_TO_UNDO}</span>}
                 </span>
               </DropdownMenu.Item>
-            </MenuContent>
+            </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
         </div>

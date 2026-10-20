@@ -2,7 +2,6 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { Suspense, useMemo, useState } from "react";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { useQueryClient } from "@tanstack/react-query";
-import { DropdownMenu } from "radix-ui";
 import { Link } from "react-router";
 import { ArrowDown, ArrowUp, Check, CheckSquare, ChevronLeft, MoreVertical } from "lucide-react";
 import {
@@ -26,7 +25,7 @@ import { announce, toast } from "@/shell/toasts";
 import { StatusChip } from "./StatusChip";
 import { DeleteDialog, ToggleDialog } from "./feeds/BulkActions";
 import { BottomBar } from "@/ui/BottomBar";
-import { MenuContent } from "@/ui/menu";
+import { DropdownMenu } from "@/ui/menu";
 
 const FeedEditor = lazyScreen(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
 
@@ -148,7 +147,7 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
         </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <MenuContent align="end" sideOffset={4} className="min-w-56">
+        <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
           <DropdownMenu.Item className={menuItem} onSelect={() => void run(async () => { const r = await refreshFeed(f.id); if (r.error) throw new Error(r.error); }, `Refreshed ${f.title}`)}>
             Refresh now
           </DropdownMenu.Item>
@@ -166,7 +165,7 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
               Reset trimmed-unread count
             </DropdownMenu.Item>
           ) : null}
-        </MenuContent>
+        </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );

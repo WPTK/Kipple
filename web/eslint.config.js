@@ -48,10 +48,6 @@ export default tseslint.config(
     rules: {
       "no-restricted-syntax": [
         "error",
-        {
-          selector: "MemberExpression[object.name='DropdownMenu'][property.name=/^Sub/]",
-          message: "ui/menu does not support nested menus: neither the popover nor the bottom sheet is built for DropdownMenu.Sub.",
-        },
         ...[
           "CallExpression[callee.name='useEffect']",
           "CallExpression[callee.type='MemberExpression'][callee.property.name='useEffect']",
@@ -69,6 +65,23 @@ export default tseslint.config(
             },
           ];
         }),
+      ],
+    },
+  },
+  {
+    // Every dropdown menu is built from ui/menu: a popover with a mouse, a bottom sheet with a finger, and no nested
+    // menus (Sub), which neither is built for. So Radix's DropdownMenu is reached only through it.
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/ui/menu.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            { name: "radix-ui", importNames: ["DropdownMenu"], message: "Import DropdownMenu from @/ui/menu." },
+            { name: "@radix-ui/react-dropdown-menu", message: "Import DropdownMenu from @/ui/menu." },
+          ],
+        },
       ],
     },
   },

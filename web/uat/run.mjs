@@ -10,6 +10,9 @@
 //   S2  no 4xx/5xx or failed requests to /api/*
 //   S3  axe-core, WCAG 2.0/2.1/2.2 A and AA rules
 //   S4  no sideways scroll (page or an unintended scroller) and nothing past the right edge (tablet and phone widths)
+//       and menus in the mode the browser reports: List options a bottom sheet inside the screen with a finger, a popover
+//       above the tab bar without one; and, with a mouse at 375 px, a row's More menu opened near the bottom stops above
+//       the tab bar
 //   S5  no literal "undefined", "NaN", "[object Object]" or "Invalid Date" in visible text, field values or
 //       accessible names
 //   S6  scripts/contrast.mjs over all 20 schemes
@@ -35,7 +38,7 @@
 //   --user <name>       [KIPPLE_UAT_USER], default the seed's user
 //   --password <pw>     [KIPPLE_UAT_PASSWORD], default the seed's password
 //   --out <dir>         report directory, default uat/results/<timestamp> (per engine, with --browsers)
-//   --only <ids>        comma-separated screen ids to run (see SCREENS below)
+//   --only <ids>        comma-separated screen ids to run (see SCREENS below; "row-menu" is the S4 mouse check)
 //   --screenshots       save a full-page screenshot of every screen (failing screens are always saved)
 //   --browser <engine>  chromium (default), firefox or webkit [KIPPLE_UAT_BROWSER]
 //   --browsers <list>   several engines in turn, comma-separated, or "all": one run each, reports in <out>/<engine>;
@@ -53,7 +56,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
 import { accessControlUrl, unloadRefusal } from "./common.mjs";
-import { activeScheme, menuSheetBounds, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
+import { activeScheme, lowestRowMenuButton, menuPlacement, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
 
 /** The smallest touch target, in CSS px (S8). WCAG 2.2 asks for 24; Kipple keeps to the 44 of the Apple and Material guides. */
 const TAP_MIN = 44;
@@ -217,7 +220,7 @@ const SCREENS = [
   { id: "wrapped", title: "Wrapped", path: "/stats/wrapped", heading: "Your year" },
 ];
 const only = opt.only !== undefined ? new Set(opt.only.split(",").map((s) => s.trim()).filter(Boolean)) : null;
-const unknown = only ? [...only].filter((id) => !SCREENS.some((s) => s.id === id)) : [];
+const unknown = only ? [...only].filter((id) => id !== "row-menu" && !SCREENS.some((s) => s.id === id)) : [];
 if (unknown.length || (only && !only.size)) {
   setupError(`unknown screen id(s): ${unknown.join(", ") || "(none given)"}. Known: ${SCREENS.map((s) => s.id).join(", ")}`);
 }
@@ -476,6 +479,7 @@ try {
   mkdirSync(outDir, { recursive: true });
   console.log(`Kipple at ${origin}. Report: ${relative(process.cwd(), outDir) || "."}`);
   const results = await checkScreens(cookies);
+  if (!only || only.has("row-menu")) await checkPopoverClearance(cookies);
   const s6 = contrastCheck();
   exitCode = writeReport(results, s6);
 } catch (e) {
@@ -702,6 +706,44 @@ async function checkScreens(cookies) {
   return results;
 }
 
+/** S4 findings for a menu's placement (menuPlacement): the mode the browser reports, and where that mode puts it. */
+function placementFindings(m, name, where) {
+  if (!m) return [{ rule: "menu-missing", message: `the ${name} menu did not open ${where}` }];
+  const at = `${Math.round(m.top)}-${Math.round(m.bottom)} of ${m.h}px`;
+  if (m.sheet !== m.coarse) return [{ rule: "menu-mode", message: `the ${name} menu is a ${m.sheet ? "sheet" : "popover"} while the browser reports a ${m.coarse ? "coarse" : "fine"} pointer ${where}` }];
+  const out = [];
+  if (m.sheet && (m.top < -0.5 || m.bottom > m.h + 0.5)) out.push({ rule: "menu-sheet-bounds", message: `the ${name} sheet lies outside the screen (${at}) ${where}` });
+  if (!m.sheet && m.barTop !== null && m.bottom > m.barTop + 0.5) out.push({ rule: "menu-over-tab-bar", message: `the ${name} menu covers the tab bar by ${Math.round(m.bottom - m.barTop)}px (${at}) ${where}` });
+  if (!m.shows) out.push({ rule: "menu-hidden", message: `something else shows at the centre of the ${name} menu (${at}) ${where}` });
+  return out;
+}
+
+// S4 with a mouse at a phone's width (a narrow desktop window): the row menu is a popover, and one opened near the
+// bottom stops above the tab bar (useTabBarClearance in ui/menuClearance.ts).
+async function checkPopoverClearance(cookies) {
+  const where = { screen: "row-menu", theme: "light", viewport: "phone-mouse" };
+  const context = await browser.newContext({ baseURL: origin, viewport: { width: 375, height: 812 }, storageState: { cookies, origins: [] }, serviceWorkers: "block" });
+  try {
+    await context.addInitScript({ content: PAGE_SCRIPT });
+    const page = await context.newPage();
+    await page.goto("/l/unread", { waitUntil: "load" });
+    await page.locator("main article[data-item-id]").first().waitFor({ timeout: 15000 });
+    await settle(page);
+    // The lowest More button above the tab bar: its menu has the least room below it.
+    const index = await page.evaluate(lowestRowMenuButton);
+    if (index < 0) return broken(where, "no row More button above the tab bar to open");
+    await page.locator("main article[data-item-id]").nth(index).getByRole("button", { name: /^More actions/ }).click();
+    await page.locator(MENU).waitFor({ timeout: 5000 });
+    await page.waitForTimeout(300);
+    for (const s of placementFindings(await page.evaluate(menuPlacement), "row More", "with a mouse at 375 x 812")) report("S4", where, s.rule, s.message);
+    console.log(`light phone-mouse row-menu      ${findings.some((f) => f.screen === where.screen && f.severity === "fail") ? "S4" : "ok"}`);
+  } catch (e) {
+    broken(where, `could not check the row menu with a mouse: ${firstLine(e)}`);
+  } finally {
+    await context.close().catch(() => {});
+  }
+}
+
 async function checkCombo(page, theme, vp, ctxInfo, results) {
   // Events are always collected; each screen reports what arrived while it was checked, and what arrives after (a
   // query that fails late, during the screenshot) is reported against it when the next screen starts.
@@ -826,12 +868,10 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
 
       const s4 = [];
       if (screen.id === "list-options" && vp.mobile) {
-        // On a touch screen the menu is a bottom sheet over a dimmed page, tab bar included (#423): it must lie inside the
-        // screen, upright and in landscape.
-        const check = async (where) => {
-          const m = await page.evaluate(menuSheetBounds);
-          if (m && (!m.sheet || m.top < -0.5 || m.bottom > m.h + 0.5)) s4.push({ rule: "menu-sheet-bounds", message: `the List options menu is not a bottom sheet inside the screen (sheet ${m.sheet}, ${Math.round(m.top)}-${Math.round(m.bottom)} of ${m.h}px) ${where}` });
-        };
+        // The menu takes the mode the browser reports (Firefox has no coarse-pointer emulation, so it gets the popover
+        // at these widths): with a finger a bottom sheet over a dimmed page, tab bar included, inside the screen and
+        // showing (#423); with a mouse a popover that stops above the tab bar. Upright and in landscape.
+        const check = async (where) => s4.push(...placementFindings(await page.evaluate(menuPlacement), "List options", where));
         await check(`at ${vp.width} x ${vp.height}`);
         if (vp.id === "phone") {
           await page.setViewportSize({ width: 852, height: 393 });

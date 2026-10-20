@@ -1,5 +1,5 @@
-import { type ComponentProps, type MouseEvent, useState } from "react";
-import { DropdownMenu } from "radix-ui";
+import { type ComponentProps, createContext, type MouseEvent, useContext, useRef, useState } from "react";
+import { DropdownMenu as Radix } from "radix-ui";
 import { cn } from "@/lib/cn";
 import { mediaMatches } from "@/lib/useMedia";
 import { menuScrollClass, useTabBarClearance } from "@/ui/menuClearance";
@@ -11,45 +11,85 @@ const shell = "z-50 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl";
 const sheet =
   "menu-sheet mx-auto max-h-[85dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-b-none rounded-t-2xl border-x-0 border-b-0 pt-2 pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))]";
 
-type ContentProps = ComponentProps<typeof DropdownMenu.Content>;
+/** Closes the menu of the Root around it. */
+const CloseMenu = createContext<() => void>(() => {});
+
+/** Radix's Root, with the open state where the sheet's dimmed page can reach it (a tap on it closes the menu). */
+function Root({ open, defaultOpen = false, onOpenChange, ...rest }: ComponentProps<typeof Radix.Root>) {
+  const [own, setOwn] = useState(defaultOpen);
+  const change = (o: boolean) => {
+    setOwn(o);
+    onOpenChange?.(o);
+  };
+  return (
+    <CloseMenu.Provider value={() => change(false)}>
+      <Radix.Root {...rest} open={open ?? own} onOpenChange={change} />
+    </CloseMenu.Provider>
+  );
+}
+
+type ContentProps = Omit<ComponentProps<typeof Radix.Content>, "className"> & {
+  /** The popover's width (a Tailwind width class); the sheet is always the screen's width. */
+  popoverWidth?: string;
+};
 
 /**
  * The content of every dropdown menu. With a mouse it is a popover that keeps clear of the screen edges and the tab bar
  * and scrolls when it is taller than the room left. With a touch screen it is a bottom sheet instead: full width along
  * the bottom edge (capped at the width of a Modal), over a dimmed page, so a tall menu is reached with a thumb and never
  * covers the button that opened it. Radix keeps the menu semantics, focus trap, Escape and the return of focus in both.
- * `className` sizes the popover (a width); the sheet ignores it.
  *
  * The mode is read once, when the menu opens, and kept until it closes: a pointer that appears or goes while the menu is
- * open (a trackpad on a tablet, a keyboard dock) does not swap the layout under the user. Nested menus (DropdownMenu.Sub)
- * are not supported by either mode and ESLint refuses them.
+ * open (a trackpad on a tablet, a keyboard dock) does not swap the layout under the user.
  */
-export function MenuContent(props: ContentProps) {
+function MenuContent(props: ContentProps) {
   // MenuContent mounts only while its menu is open, so this reads the pointer exactly then.
   const [touch] = useState(() => mediaMatches(TOUCH_QUERY));
   return touch ? <SheetContent {...props} /> : <PopoverContent {...props} />;
 }
 
-function PopoverContent({ className, collisionPadding, ...rest }: ContentProps) {
+function PopoverContent({ popoverWidth, collisionPadding, ...rest }: ContentProps) {
   const bottomPad = useTabBarClearance(true);
-  return <DropdownMenu.Content {...rest} collisionPadding={collisionPadding ?? { top: 8, left: 8, right: 8, bottom: bottomPad }} className={cn(shell, menuScrollClass, "max-w-[calc(100vw-1rem)]", className)} />;
+  return <Radix.Content {...rest} collisionPadding={collisionPadding ?? { top: 8, left: 8, right: 8, bottom: bottomPad }} className={cn(shell, menuScrollClass, "max-w-[calc(100vw-1rem)]", popoverWidth)} />;
 }
 
 /**
  * The sheet's placement is the `.menu-sheet` rule in index.css: Radix places every menu with an inline transform on a
  * wrapper element that no prop reaches, so the wrapper is pinned to the bottom edge there. menu.test.tsx fails when Radix
- * stops wrapping the content, and the touch-menus UAT measures where the sheet really lands.
+ * stops wrapping the content, and the touch-menus UAT measures where the sheet really lands in every engine it runs in.
+ *
+ * The dimmed page closes the menu on its click, not on the press: Radix closes a menu on the press outside it, which
+ * took the dimmed page away (and the menu's block on the page's pointer events) while the finger was still down, so the
+ * rest of that tap (the lift and its click) landed on whatever lay under it, an article row that then opened. Measured
+ * in Chromium and WebKit with real touch input. Kept until its own click, the dimmed page takes the whole tap.
  */
-function SheetContent({ className: _className, onClickCapture, children, ...rest }: ContentProps) {
-  const [openedAt] = useState(() => performance.now());
+function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutside, children, ...rest }: ContentProps) {
+  const close = useContext(CloseMenu);
+  const [opener] = useState(() => ({ at: performance.now(), id: lastPress }));
+  const pressed = useRef(false);
   return (
     <>
-      <div aria-hidden="true" data-menu-backdrop="" className="pointer-events-auto fixed inset-0 z-40 bg-black/50" />
-      <DropdownMenu.Content
+      <div
+        aria-hidden="true"
+        data-menu-backdrop=""
+        className="pointer-events-auto fixed inset-0 z-40 bg-black/50"
+        // Only a press that began on it: the click of the press that opened the menu (a tap, or a mouse whose button
+        // comes up over the dimmed page) also lands here. A click handler is also what makes iOS deliver a tap's click
+        // to an element that is not a link or a button.
+        onPointerDown={() => (pressed.current = true)}
+        onClick={() => {
+          if (pressed.current) close();
+        }}
+      />
+      <Radix.Content
         {...rest}
         data-menu-sheet=""
+        onPointerDownOutside={(e) => {
+          onPointerDownOutside?.(e);
+          if ((e.detail.originalEvent.target as Element | null)?.closest?.("[data-menu-backdrop]")) e.preventDefault();
+        }}
         onClickCapture={(e) => {
-          if (isLeftoverClick(e, openedAt)) {
+          if (isLeftoverClick(e, opener)) {
             e.stopPropagation();
             e.preventDefault();
             return;
@@ -59,56 +99,86 @@ function SheetContent({ className: _className, onClickCapture, children, ...rest
         className={cn(shell, sheet)}
       >
         {children}
-      </DropdownMenu.Content>
+      </Radix.Content>
     </>
   );
 }
 
 /**
- * The tap that opens a sheet. A menu opens on the press, so the sheet is already under the finger when it lifts, and the
- * browser then delivers that tap's click to whatever the sheet put at that spot: Chromium sends the click to the element
- * under the lifted finger, WebKit sends the lift to it and Radix's item turns a lift it never saw start into a click. Either
- * way "Mute similar" (say) is chosen by the tap that only opened the menu. Measured in Chromium and WebKit with real touch
- * events (web/uat/touch-menus.mjs).
+ * The menu parts. Nested menus (Sub) are left out on purpose: neither the popover nor the bottom sheet is built for one,
+ * and ESLint keeps every other module from importing Radix's DropdownMenu directly.
+ */
+export const DropdownMenu = {
+  Root,
+  Trigger: Radix.Trigger,
+  Portal: Radix.Portal,
+  Content: MenuContent,
+  Item: Radix.Item,
+  CheckboxItem: Radix.CheckboxItem,
+  RadioGroup: Radix.RadioGroup,
+  RadioItem: Radix.RadioItem,
+  ItemIndicator: Radix.ItemIndicator,
+  Label: Radix.Label,
+  Separator: Radix.Separator,
+};
+
+/**
+ * The press that opens a sheet. A menu opens on the press, so the sheet is already under the finger (or the mouse) when
+ * it lifts, and the browser then delivers that press's click to whatever the sheet put at that spot: Chromium sends a
+ * tap's click to the element under the lifted finger, WebKit sends the lift to it, and Radix's item turns a lift or a
+ * mouse button's release it never saw start into a click. Either way "Mute similar" (say) is chosen by the press that
+ * only opened the menu. Measured in Chromium and WebKit with real touch events and with a mouse in a touch-screen
+ * browser (web/uat/touch-menus.mjs).
  *
- * The leftover click is told apart by what only it has: it follows the lift of a touch whose press began before the sheet
- * existed, within LEFTOVER_MS, and lands on the spot where that press began. A click from assistive technology (TalkBack,
- * Voice Control, Switch Access, el.click()) has no touch before it, or lands elsewhere, or comes later; a trackpad or mouse
- * press-drag-release (Radix clicks the item on release) is not a touch. A press and tap inside the sheet start after it
- * opened, so they are never leftovers.
+ * The leftover click is told apart by what only it has: it follows the release of the press that opened the sheet,
+ * within LEFTOVER_MS, and lands on the spot where that press began. A click from assistive technology (TalkBack, Voice
+ * Control, Switch Access, el.click()) has no press before it, or lands elsewhere, or comes later; a trackpad or mouse
+ * press-drag-release (Radix clicks the item on release) lands on the item it was dragged to, away from where it began.
+ * A press and tap inside the sheet start after it opened, so they are never leftovers. Each pointer's press is kept
+ * apart, so a second finger cannot stand in for the one that opened the menu.
  */
 const LEFTOVER_MS = 400;
 const SLOP_PX = 2;
-const touchPress = { down: -1, up: -1, x: 0, y: 0 };
+type Press = { down: number; up: number; x: number; y: number };
+const presses = new Map<number, Press>();
+/** The pointer of the latest press, or -1 after a key press. */
+let lastPress = -1;
 if (typeof window !== "undefined") {
-  const isTouch = (e: PointerEvent) => e.pointerType === "touch" || e.pointerType === "pen";
   window.addEventListener(
     "pointerdown",
     (e) => {
-      touchPress.down = isTouch(e) ? performance.now() : -1;
-      touchPress.up = -1;
-      touchPress.x = e.clientX;
-      touchPress.y = e.clientY;
+      const now = performance.now();
+      for (const [id, p] of presses) if (p.up >= 0 && now - p.up > LEFTOVER_MS) presses.delete(id);
+      presses.set(e.pointerId, { down: now, up: -1, x: e.clientX, y: e.clientY });
+      lastPress = e.pointerId;
     },
     true,
   );
-  // A key press means the user is no longer tapping: whatever opens or picks next is not the leftover of a tap.
+  // A key press means the user is no longer pressing: whatever opens or picks next is not the leftover of a press.
   window.addEventListener(
     "keydown",
     () => {
-      touchPress.down = -1;
+      presses.clear();
+      lastPress = -1;
     },
     true,
   );
   for (const type of ["pointerup", "pointercancel"]) {
-    window.addEventListener(type, () => (touchPress.up = touchPress.down >= 0 ? performance.now() : -1), true);
+    window.addEventListener(
+      type,
+      (e) => {
+        const p = presses.get((e as PointerEvent).pointerId);
+        if (p) p.up = performance.now();
+      },
+      true,
+    );
   }
 }
 
-function isLeftoverClick(e: MouseEvent<HTMLDivElement>, openedAt: number): boolean {
-  const { down, up, x, y } = touchPress;
-  if (down < 0 || up < 0 || down > openedAt || performance.now() - up > LEFTOVER_MS) return false;
+function isLeftoverClick(e: MouseEvent<HTMLElement>, opener: { at: number; id: number }): boolean {
+  const p = presses.get(opener.id);
+  if (!p || p.up < 0 || p.down > opener.at || performance.now() - p.up > LEFTOVER_MS) return false;
   const box = (e.target as Element).getBoundingClientRect();
-  // The browser hit-tests whole pixels, so a click can land on an item whose edge is a fraction of a pixel off the touch.
-  return x >= box.left - SLOP_PX && x <= box.right + SLOP_PX && y >= box.top - SLOP_PX && y <= box.bottom + SLOP_PX;
+  // The browser hit-tests whole pixels, so a click can land on an item whose edge is a fraction of a pixel off the press.
+  return p.x >= box.left - SLOP_PX && p.x <= box.right + SLOP_PX && p.y >= box.top - SLOP_PX && p.y <= box.bottom + SLOP_PX;
 }

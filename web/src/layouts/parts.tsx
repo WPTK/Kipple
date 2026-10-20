@@ -1,12 +1,11 @@
 import { useState } from "react";
-import { DropdownMenu } from "radix-ui";
 import { BellOff, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, MoveUp, Pencil, Rss, RotateCcw, Share2, Star } from "lucide-react";
 import type { Card } from "@/api/types";
 import { closeRowMenu, rowMenuStore } from "@/gestures/rowMenu";
 import { cn } from "@/lib/cn";
 import { relativeTime } from "@/lib/format";
 import { useStore } from "@/lib/store";
-import { MenuContent } from "@/ui/menu";
+import { DropdownMenu } from "@/ui/menu";
 import { canNativeShare } from "@/lib/share";
 import { useRowTabIndex } from "./rowTabStop";
 import type { RowMenuActions } from "./types";
@@ -123,7 +122,7 @@ export function RowMenu({
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <MenuContent align="end" sideOffset={4} className="min-w-56"
+        <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56"
           // Read by focusOrigin (ui/kit): a dialog opened from this menu gives focus back only where this menu would.
           data-no-focus-return={hadFocus ? undefined : ""}
           onCloseAutoFocus={(e) => {
@@ -187,7 +186,7 @@ export function RowMenu({
             <Share2 className="size-5" aria-hidden="true" />
             {canShare ? "Share" : "Share (copies the link)"}
           </DropdownMenu.Item>
-        </MenuContent>
+        </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );
