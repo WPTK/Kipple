@@ -814,6 +814,24 @@ describe("Step 4: OPML import", () => {
     await headingIs("Recommended feeds");
   });
 
+  it("lists the feeds on my own network with the allow button, and a failure points at where I can fix it after setup", async () => {
+    const priv = { ...result, feeds_added: 1, feeds_private: [{ url: "http://nas.lan/b", feed_id: 12, reason: "lan_name", enabled: true }] };
+    const { calls } = server(signedIn(), {
+      "POST /api/opml": () => json(priv),
+      "PATCH /api/feeds/12": () => json({ error: "not_found", message: "gone" }, 404),
+    });
+    go("/welcome/import");
+    const user = userEvent.setup();
+    await heading();
+    await user.upload(screen.getByLabelText("OPML file"), file());
+    await user.click(await waitFor(() => { const b = screen.getByRole("button", { name: "Import" }); expect(b).toBeEnabled(); return b; }));
+    const res = await screen.findByTestId("import-result");
+    expect(res).toHaveTextContent("1 feed is on your own network");
+    await user.click(within(res).getByRole("button", { name: "Allow my own network for this feed" }));
+    expect(await within(res).findByText(/http:[/][/]nas[.]lan[/]b is gone/)).toHaveTextContent("once setup is finished");
+    expect(callTo(calls, "PATCH", "/api/feeds/12")[0]?.init?.body).toContain('"expected_url":"http://nas.lan/b"');
+  });
+
   it("refuses a file that is not OPML before uploading it", async () => {
     const { calls } = server(signedIn());
     go("/welcome/import");

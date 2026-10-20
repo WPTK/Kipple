@@ -57,7 +57,7 @@ export function ImportStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack:
         {result ? (
           <div className="flex flex-col gap-3" data-testid="import-result">
             <h2 className="text-lg font-bold">Import finished</h2>
-            <OpmlResultSummary result={result} />
+            <OpmlResultSummary result={result} inWizard />
           </div>
         ) : (
           <>

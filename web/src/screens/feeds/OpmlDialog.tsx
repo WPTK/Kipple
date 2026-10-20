@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, errorMessage } from "@/api/client";
-import { importOpml, invalidateFeeds, type OpmlResult } from "@/api/admin";
+import { importOpml, invalidateFeeds, patchFeed, type OpmlResult, type PrivateFeed } from "@/api/admin";
 import { liveStore, seedRun } from "@/api/events";
 import { useStoreSelector } from "@/lib/store";
 import { Button } from "@/ui/button";
@@ -43,19 +43,13 @@ export async function opmlFileProblem(file: File): Promise<string | null> {
   return "That doesn't look like an OPML file. Choose the .opml or .xml file exported from your other reader.";
 }
 
-/** The option in a feed's settings that lets Kipple fetch it from your own network (FeedEditor). */
-const PRIVATE_OPTION = "Allow addresses on my own network";
-
-/**
- * "<url>: kipple:allow_private_net", "<url>: private_address" or "<url>: kipple:allow_insecure_tls" from the import
- * report: the address, and what was not applied, in plain words.
- */
+/** "<url>: kipple:allow_insecure_tls" from the import report: the address, and what was not applied, in plain words. */
 export function attrNote(s: string): { url: string; note: string } {
   const at = s.lastIndexOf(": ");
   const url = at >= 0 ? s.slice(0, at) : s;
   const attr = at >= 0 ? s.slice(at + 2) : "";
-  if (attr === "private_address") return { url, note: `on your own network, so Kipple won't fetch it until you tick "${PRIVATE_OPTION}" in its settings` };
-  if (attr.endsWith("allow_private_net")) return { url, note: `the file allowed addresses on your own network; tick "${PRIVATE_OPTION}" in its settings if it needs that` };
+  if (attr.endsWith("allow_private_net")) return { url, note: "the file asked to reach your own network; Kipple didn't allow it. Allow it in the feed's settings if you trust it" };
+  if (attr === "private_address") return { url, note: "this address can reach services on the machine itself or its network, so Kipple won't fetch it unless you allow it in the feed's settings" };
   if (attr.endsWith("allow_insecure_tls")) return { url, note: "the file skipped certificate checks; Kipple checks them" };
   return { url, note: `${attr || "a setting"} was not applied` };
 }
@@ -95,8 +89,89 @@ function ImportProgress({ runId, total, eventId }: { runId: string; total: numbe
   return <p className="text-sm text-fg2">Kipple is fetching the new feeds now. A feed that can't be fetched says why on its row in Manage feeds.</p>;
 }
 
+/**
+ * The feeds on a private address or a name only a local network resolves. An import never grants the exception (a
+ * file is not you), so they are listed with the one thing that turns it on for all of them. Each grant names the
+ * address this list showed, so a feed whose address has changed since is left alone. A feed on a public name that
+ * only the file asked about is not here: it gets its own line under "Some settings in the file were not applied".
+ */
+function PrivateFeeds({ feeds, where }: { feeds: PrivateFeed[]; where: string }) {
+  const qc = useQueryClient();
+  const [left, setLeft] = useState(feeds); // not tried yet, or stopped by a session or network error: worth another go
+  const [allowed, setAllowed] = useState<PrivateFeed[]>([]);
+  const [refused, setRefused] = useState<string[]>([]); // gone or changed: another go would say the same
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(0);
+  const [error, setError] = useState("");
+  const n = feeds.length;
+  const run = async () => {
+    setBusy(true);
+    setError("");
+    setDone(0);
+    const rest: PrivateFeed[] = [];
+    const ok: PrivateFeed[] = [];
+    const no: string[] = [];
+    for (const [i, f] of left.entries()) {
+      try {
+        await patchFeed(String(f.feed_id), { allow_private_net: true, expected_url: f.url });
+        ok.push(f);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) no.push(`${f.url} is gone`);
+        else if (e instanceof ApiError && e.status === 409) no.push(e.code === "url_changed" ? `${f.url} now has another address` : `${f.url} could not be changed`);
+        else {
+          // The session or the network would fail every feed after this one too, so the rest wait for another go.
+          setError(errorMessage(e));
+          rest.push(...left.slice(i));
+          break;
+        }
+      }
+      setDone((d) => d + 1);
+    }
+    setLeft(rest);
+    setAllowed((a) => [...a, ...ok]);
+    setRefused((r) => [...r, ...no]);
+    setBusy(false);
+    invalidateFeeds(qc);
+    announce(rest.length || no.length ? "Some feeds could not be changed" : "Allowed addresses on your own network");
+  };
+  const off = allowed.filter((f) => !f.enabled).length;
+  const fetching = allowed.length - off;
+  return (
+    <div className="text-sm" data-testid="private-feeds">
+      <p className="font-semibold">
+        {n} feed{n === 1 ? " is" : "s are"} on your own network
+      </p>
+      <p className="text-fg2">For safety, an import never lets a file reach addresses on your own network, so Kipple won't fetch {n === 1 ? "it" : "these"} until you allow it.</p>
+      <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
+        {feeds.map((f) => (
+          <li key={f.feed_id} className="break-all">
+            {f.url}
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2 flex flex-col gap-1">
+        {left.length === 0 ? (
+          allowed.length ? (
+            <p role="status">
+              Allowed for {allowed.length === n ? (n === 1 ? "the feed" : `all ${n} feeds`) : `${allowed.length} of ${n} feeds`}.
+              {fetching ? ` Kipple is fetching ${fetching === 1 ? "it" : fetching === allowed.length ? "them" : `${fetching} of them`} now.` : ""}
+              {off ? ` ${off === 1 ? "One is" : `${off} are`} turned off, so Kipple fetches ${off === 1 ? "it" : "them"} once you turn ${off === 1 ? "it" : "them"} on.` : ""}
+            </p>
+          ) : null
+        ) : (
+          <Button onClick={() => void run()} disabled={busy} className="self-start">
+            {busy ? `Allowing ${done.toLocaleString()} of ${left.length.toLocaleString()}` : left.length < n ? "Try the rest again" : `Allow my own network for ${n === 1 ? "this feed" : `these ${n} feeds`}`}
+          </Button>
+        )}
+        {error ? <p role="alert" className="text-danger">{error}</p> : null}
+        {refused.length ? <p role="alert" className="text-danger">Not changed: {refused.join("; ")}. {where}</p> : null}
+      </div>
+    </div>
+  );
+}
+
 /** What an import did, in plain words: the counts, and everything that was skipped, merged or not applied. */
-export function OpmlResultSummary({ result }: { result: OpmlResult }) {
+export function OpmlResultSummary({ result, inWizard = false }: { result: OpmlResult; inWizard?: boolean }) {
   const existing = result.feeds_existing.length;
   const moved = result.feeds_moved?.length ?? 0;
   const emptied = result.folders_emptied ?? [];
@@ -106,6 +181,7 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
   const skipped = result.skipped ?? [];
   const invalid = result.invalid_attrs ?? [];
   const ignored = result.ignored_attrs ?? [];
+  const priv = result.feeds_private ?? [];
   return (
     <>
     <ul className="flex list-disc flex-col gap-1 pl-5 text-sm">
@@ -179,10 +255,11 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
         </ul>
       </div>
     ) : null}
+    {priv.length ? <PrivateFeeds feeds={priv} where={inWizard ? "You can allow a feed in its settings in Manage feeds once setup is finished." : "Open a feed in Manage feeds to change it there."} /> : null}
     {ignored.length ? (
       <div className="text-sm">
         <p className="font-semibold">Some settings in the file were not applied</p>
-        <p className="text-fg2">For safety, an import never lets a file reach addresses on your own network or skip certificate checks. Set those on the feed itself if you need them.</p>
+        <p className="text-fg2">For safety, an import never lets a file skip certificate checks or reach your own network.</p>
         <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
           {ignored.map((s, i) => {
             const { url, note } = attrNote(s);

@@ -7,8 +7,9 @@
 // For each width (desktop 1280x800, phone 375x812) it checks:
 //   O1  an empty file, a file with only empty folders and a file using an entity XML and HTML do not define are each
 //       refused with their own message, and nothing is imported;
-//   O2  a file with a feed on a private address, a feed listed twice and a feed with no web address reports each once,
-//       in plain words, and points to the option that lets Kipple fetch the private one;
+//   O2  a file with a feed on a private address, a feed listed twice, a feed with no web address and a feed on a public
+//       name that only asks (kipple:allow_private_net) reports each once, in plain words; one button lets Kipple fetch the
+//       private one and works, and the public name is not in that list or granted;
 //   O3  the fetch of the new feeds shows a bar and then how many could not be fetched;
 //   O4  Move for selected feeds opens with no folder chosen;
 //   O5  the fetch of a bigger import stays on screen under the top bar after the dialog is closed, and the bar goes
@@ -23,8 +24,9 @@ const t = await start(import.meta.url, 16);
 const { check, step } = t;
 
 const PRIVATE = "http://127.0.0.1:9/uat-feed-private.xml";
-const outline = (title, url) => `<outline type="rss" text="${title}" title="${title}" xmlUrl="${url}"/>`;
-const opml = (body) => `<?xml version="1.0"?><opml version="2.0"><head><title>uat</title></head><body>${body}</body></opml>`;
+const outline = (title, url, extra = "") => `<outline type="rss" text="${title}" title="${title}" xmlUrl="${url}"${extra}/>`;
+const HOSTILE = "http://uat-feed-hostile.invalid/feed.xml";
+const opml = (body) => `<?xml version="1.0"?><opml version="2.0" xmlns:kipple="https://kipple.invalid/opml/1"><head><title>uat</title></head><body>${body}</body></opml>`;
 
 await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
@@ -60,7 +62,7 @@ await t.eachViewport(async (page, vp) => {
 
   await step(`${tag} O2 O3`, async () => {
     const file = opml(
-      `<outline text="UAT report">${outline(`UAT feed ${n + 1}`, deadFeed(n + 1))}${outline(`UAT feed ${n + 1} again`, deadFeed(n + 1))}${outline(`UAT feed ${n + 2}`, deadFeed(n + 2))}${outline("UAT feed private", PRIVATE)}${outline("UAT feed gopher", "gopher://uat-feed-g.invalid/")}</outline>`,
+      `<outline text="UAT report">${outline(`UAT feed ${n + 1}`, deadFeed(n + 1))}${outline(`UAT feed ${n + 1} again`, deadFeed(n + 1))}${outline(`UAT feed ${n + 2}`, deadFeed(n + 2))}${outline("UAT feed private", PRIVATE)}${outline("UAT feed hostile", HOSTILE, ' kipple:allow_private_net="1"')}${outline("UAT feed gopher", "gopher://uat-feed-g.invalid/")}</outline>`,
     );
     const dlg = await open("report.opml", file);
     const report = dlg.getByText(/feeds? added/);
@@ -69,12 +71,21 @@ await t.eachViewport(async (page, vp) => {
     check(/1 feed was listed again under the same address/.test(text), `${tag} O2 repeat`, "the repeated feed is counted", `no repeat line in "${text}"`);
     const privateLines = text.split(PRIVATE).length - 1;
     check(
-      privateLines === 1 && text.includes('tick "Allow addresses on my own network" in its settings'),
+      privateLines === 1 && /1 feed is on your own network/.test(text),
       `${tag} O2 private`,
-      "the private feed is listed once, with the option to tick",
+      "the private feed is listed once, under its own heading",
       `the private address appears ${privateLines} times; "${text}"`,
     );
     check(/gopher:\/\/uat-feed-g\.invalid\/: not a web address \(it must start with http:\/\/ or https:\/\/\)/.test(text), `${tag} O2 skipped`, "the gopher feed says why it was skipped", `no plain skip reason in "${text}"`);
+    const hostileLines = text.split(HOSTILE).length - 1;
+    const ownList = dlg.getByTestId("private-feeds");
+    const own = (await ownList.count()) === 1 ? await t.textOf(ownList, 5000) : "";
+    check(
+      own.includes(PRIVATE) && hostileLines === 1 && !own.includes(HOSTILE) && text.includes(`${HOSTILE}: the file asked to reach your own network; Kipple didn't allow it`),
+      `${tag} O2 hostile`,
+      "a public name that only the file asked about is listed once, with the caution line, outside the own-network list",
+      `the public name appears ${hostileLines} times; "${text}"`,
+    );
     await t.shot(page, `${tag}-opml-report-summary`);
 
     // The run fetches three dead feeds and the private one, so it ends with every one of them failing.
@@ -84,6 +95,19 @@ await t.eachViewport(async (page, vp) => {
     const ended = await end.waitFor({ timeout: 120000 }).then(() => true, () => false);
     check(ended, `${tag} O3`, `${sawBar ? "a bar, then " : ""}"${ended ? await end.innerText() : ""}"`, `the dialog never said how the fetch ended: "${await t.textOf(dlg)}"`);
     await t.shot(page, `${tag}-opml-report-fetched`);
+
+    const allow = dlg.getByRole("button", { name: "Allow my own network for this feed" });
+    await allow.click();
+    const allowed = await dlg.getByText(/Allowed for the feed/).waitFor({ timeout: 10000 }).then(() => true, () => false);
+    check(allowed, `${tag} O2 allow`, "the button allowed the private feed", `no confirmation after the button: "${await t.textOf(dlg)}"`);
+    const row = (await t.boot(page)).feeds.find((f) => f.title === "UAT feed private");
+    const detail = row ? await (await page.request.get(`/api/feeds/${row.id}`, { headers: { Accept: "application/json" } })).json() : null;
+    const grants = detail ? [detail.allow_private_net] : [];
+    check(grants.length === 1 && grants[0] === true, `${tag} O2 granted`, "the feed now has the exception", `feeds at that address: ${JSON.stringify(grants)}`);
+    const hostileRow = (await t.boot(page)).feeds.find((f) => f.title === "UAT feed hostile");
+    const hostileDetail = hostileRow ? await (await page.request.get(`/api/feeds/${hostileRow.id}`, { headers: { Accept: "application/json" } })).json() : null;
+    check(hostileDetail && hostileDetail.allow_private_net === false, `${tag} O2 hostile off`, "the public name still has the exception off", `detail: ${JSON.stringify(hostileDetail && hostileDetail.allow_private_net)}`);
+    await t.shot(page, `${tag}-opml-report-allowed`);
     await close(dlg);
   });
 

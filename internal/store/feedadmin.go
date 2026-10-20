@@ -15,6 +15,7 @@ var (
 	ErrFeedNotFound   = errors.New("store: no such feed")
 	ErrFolderNotFound = errors.New("store: no such folder")
 	ErrArchiveFeed    = errors.New("store: the archive feed cannot be edited")
+	ErrURLChanged     = errors.New("store: the feed's address is not the one the caller saw")
 	ErrFolderExists   = errors.New("store: a folder with that name exists")
 	ErrDefaultFolder  = errors.New("store: the default folder cannot be deleted")
 	ErrLogNotFound    = errors.New("store: no such fetch log row")
@@ -97,6 +98,10 @@ type FeedPatch struct {
 	Cols    map[string]any
 	URL     *string
 	Enabled *bool
+	// ExpectURL, when set, refuses the patch (ErrURLChanged) unless the feed still has exactly this address: a
+	// grant given on what a report showed must not land on an address that discovery, a redirect or an edit has
+	// replaced since.
+	ExpectURL *string
 }
 
 // patchable is the whitelist of plain columns. Values are validated by the caller.
@@ -152,6 +157,9 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 		if isDeleting(url) {
 			return ErrFeedNotFound // being deleted: only finishing the delete is left
 		}
+		if p.ExpectURL != nil && *p.ExpectURL != url {
+			return ErrURLChanged
+		}
 
 		var sets []string
 		var args []any
@@ -180,6 +188,14 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 				}
 				if n == 0 {
 					return ErrFolderNotFound
+				}
+			case "allow_private_net":
+				// A feed that failed for want of the exception is due as soon as it is granted, not at the end of
+				// the backoff it earned while it was refused.
+				if truthy(v) && private != 1 && enabled == 1 {
+					sets = append(sets, "consecutive_failures = 0", "current_delay_s = 0")
+					set("next_fetch_at", now)
+					res.Changed, res.NeedsFetch, res.Notify = true, true, true
 				}
 			case "user_agent":
 				// The learned browser-UA flag belongs to the old identity.

@@ -127,6 +127,25 @@ func wildcardDNS(h string) bool {
 // hold them.
 var localSuffixes = []string{".lan", ".local", ".home.arpa", ".internal", ".localdomain", ".home", ".corp"}
 
+// LANOnlyName reports whether host is a name no public registrant can point at a private address on purpose: a
+// name under one of localSuffixes (nas.lan, printer.home.arpa), except .internal: that suffix is where cloud
+// providers put their metadata and service hosts (metadata.google.internal, host.docker.internal), so a feed there
+// is the owner's call, one feed at a time. A single-label name is left out (news and app are public TLDs), and so
+// is any name under a real TLD, however it resolves today: public DNS can change what it points at, so only the
+// owner may decide to let such a feed reach the network.
+func LANOnlyName(host string) bool {
+	h := normHost(host)
+	if h == "" || isIPHost(h) || wildcardDNS(h) || strings.Contains(h, "..") {
+		return false
+	}
+	for _, s := range localSuffixes {
+		if s != ".internal" && strings.HasSuffix(h, s) && len(h) > len(s) {
+			return true
+		}
+	}
+	return false
+}
+
 // bareQualified reports whether bare is a single-label name and qualified is
 // exactly bare plus one of localSuffixes (nas and nas.lan; not nas.x.lan).
 func bareQualified(bare, qualified string) bool {

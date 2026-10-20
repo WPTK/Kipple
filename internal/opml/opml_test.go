@@ -250,6 +250,7 @@ func TestKippleAttrsAndMarkRead(t *testing.T) {
 		Scan(&interval, &retention, &ft, &en, &priv, &irb, &next, &dedup, &reason, &ua))
 	require.EqualValues(t, []int64{30, 0, 1, 0, 0}, []int64{interval, retention, ft, en, priv}, "allow_private_net is never applied by import")
 	require.Equal(t, []string{"http://a.test/rss: kipple:allow_private_net"}, r.IgnoredAttrs)
+	require.Empty(t, r.FeedsPrivate, "a public name that only the file asked the exception for is never offered for a bulk allow")
 	require.Equal(t, []string{"link", "user", "x/1"}, []string{dedup, reason, ua})
 	require.Equal(t, next-10*86400, irb)
 	var n int
@@ -438,6 +439,7 @@ func TestImportIgnoresDangerousAttrsAndBareNamespace(t *testing.T) {
 	<outline text="C" xmlUrl="http://c.test/rss" htmlUrl="https://c.test/"/>
 	</outline></body></opml>`, ImportOptions{})
 	require.Equal(t, []string{"http://b.test/rss: kipple:allow_private_net", "http://b.test/rss: kipple:allow_insecure_tls"}, r.IgnoredAttrs)
+	require.Empty(t, r.FeedsPrivate)
 	var tls, priv int
 	var site string
 	require.NoError(t, db.Reader().QueryRowContext(context.Background(),
@@ -478,9 +480,12 @@ func TestImportValidatesURLUserAgentAndFolderNames(t *testing.T) {
 	require.Len(t, r.Skipped, 1, "%v", r.Skipped)
 	require.Contains(t, reasons["http://bob:pw@creds.test/rss"], "user name or password", "userinfo is still refused")
 	require.NotContains(t, reasons, "http://127.0.0.1/rss", "a private address is imported, not skipped")
-	require.Contains(t, r.IgnoredAttrs, "http://127.0.0.1/rss: private_address")
-	require.Equal(t, []string{"http://127.0.0.1/rss: private_address", "http://192.168.1.5:8080/rss: private_address"}, r.IgnoredAttrs,
-		"one line per feed on a private address, its allow_private_net included (issue #485)")
+	require.Empty(t, r.IgnoredAttrs)
+	require.Equal(t, []string{"http://127.0.0.1/rss", "http://192.168.1.5:8080/rss"}, feedURLs(r.FeedsPrivate),
+		"one entry per feed on a private address, its allow_private_net included (issue #485)")
+	for _, f := range r.FeedsPrivate {
+		require.Positive(t, f.FeedID)
+	}
 	var priv int
 	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE url IN ('http://127.0.0.1/rss', 'http://192.168.1.5:8080/rss') AND allow_private_net = 0").Scan(&priv))
 	require.Equal(t, 2, priv, "imported with the exception off")
@@ -574,4 +579,66 @@ func TestImportDroppedReportIsBounded(t *testing.T) {
 			seen[p] = true
 		}
 	}
+}
+
+func feedURLs(l []Private) []string {
+	out := []string{}
+	for _, f := range l {
+		out = append(out, f.URL)
+	}
+	return out
+}
+
+// Only a literal private address or a LAN-only name is offered for the one-click allow. A public name whose file set
+// kipple:allow_private_net stays out (a hostile file could point it at the network later) with the per-feed line; so
+// does a feed that already exists, however the file asks.
+func TestImportPrivateListHoldsOnlyAddressesAndLANNames(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	importString(t, db, `<opml><body><outline text="H" xmlUrl="http://known.example/rss"/></body></opml>`, ImportOptions{})
+	r := importString(t, db, `<opml xmlns:kipple="`+NS+`"><body>
+	<outline text="A" xmlUrl="http://10.0.0.5/a"/>
+	<outline text="B" xmlUrl="http://nas.lan/b" kipple:enabled="0"/>
+	<outline text="C" xmlUrl="http://printer.home.arpa/c" kipple:allow_private_net="1"/>
+	<outline text="D" xmlUrl="http://evil.example.com/d" kipple:allow_private_net="1"/>
+	<outline text="E" xmlUrl="http://nas/e" kipple:allow_private_net="1"/>
+	<outline text="F" xmlUrl="http://evil.example.com/f"/>
+	<outline text="G" xmlUrl="http://169.254.169.254.nip.io/g" kipple:allow_private_net="1"/>
+	<outline text="H" xmlUrl="http://known.example/rss" kipple:allow_private_net="1"/>
+	</body></opml>`, ImportOptions{})
+	require.Equal(t, []string{"http://10.0.0.5/a", "http://nas.lan/b", "http://printer.home.arpa/c"}, feedURLs(r.FeedsPrivate))
+	require.Equal(t, []bool{true, false, true}, []bool{r.FeedsPrivate[0].Enabled, r.FeedsPrivate[1].Enabled, r.FeedsPrivate[2].Enabled})
+	require.Equal(t, []string{"private_address", "lan_name", "lan_name"}, []string{r.FeedsPrivate[0].Reason, r.FeedsPrivate[1].Reason, r.FeedsPrivate[2].Reason})
+	require.Equal(t, []string{
+		"http://evil.example.com/d: kipple:allow_private_net",
+		"http://nas/e: kipple:allow_private_net",
+		"http://169.254.169.254.nip.io/g: kipple:allow_private_net",
+	}, r.IgnoredAttrs, "one line per feed, no duplicates")
+	require.Len(t, r.FeedsExisting, 1)
+	var n int
+	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE allow_private_net = 1").Scan(&n))
+	require.Zero(t, n, "no import grants the exception")
+}
+
+// Cloud metadata hosts (.internal names) and link-local addresses are never offered for the bulk allow, whatever the
+// file says; the file's own request gets its caution line, and a link-local address without one still gets a line.
+func TestImportKeepsMetadataHostsOutOfTheBulkList(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	r := importString(t, db, `<opml xmlns:kipple="`+NS+`"><body>
+	<outline text="A" xmlUrl="http://metadata.google.internal/a" kipple:allow_private_net="1"/>
+	<outline text="B" xmlUrl="http://host.docker.internal/b"/>
+	<outline text="C" xmlUrl="http://169.254.169.254/c" kipple:allow_private_net="1"/>
+	<outline text="D" xmlUrl="http://169.254.1.1/d"/>
+	<outline text="E" xmlUrl="http://[fe80::1]/e"/>
+	<outline text="F" xmlUrl="http://192.168.1.2/f"/>
+	</body></opml>`, ImportOptions{})
+	require.Equal(t, []string{"http://192.168.1.2/f"}, feedURLs(r.FeedsPrivate))
+	require.Equal(t, []string{
+		"http://metadata.google.internal/a: kipple:allow_private_net",
+		"http://169.254.169.254/c: kipple:allow_private_net",
+		"http://169.254.1.1/d: private_address",
+		"http://[fe80::1]/e: private_address",
+	}, r.IgnoredAttrs)
+	require.Equal(t, 6, r.FeedsAdded)
 }

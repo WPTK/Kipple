@@ -486,3 +486,35 @@ func TestHasControlRule(t *testing.T) {
 		require.True(t, hasControl(s), "%q", s)
 	}
 }
+
+// The import answer lists only what may be allowed in bulk, each with a reason and a numeric feed_id; the grant
+// carries the address the report showed and is refused (409, nothing written) when the feed has another.
+func TestOPMLFeedsPrivateJSONAndGuardedGrant(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	doc := `<?xml version="1.0"?><opml version="2.0" xmlns:kipple="https://kipple.invalid/opml/1"><head/><body>
+	<outline text="A" xmlUrl="http://nas.lan/a.xml"/>
+	<outline text="B" xmlUrl="http://evil.example.com/b.xml" kipple:allow_private_net="1"/>
+	</body></opml>`
+	code, out, rec := h.api(c, "POST", "/api/opml", doc)
+	require.Equal(t, 200, code, rec.Body.String())
+	priv := out["feeds_private"].([]any)
+	require.Len(t, priv, 1, rec.Body.String())
+	e := priv[0].(map[string]any)
+	require.Equal(t, "http://nas.lan/a.xml", e["url"])
+	require.Equal(t, "lan_name", e["reason"])
+	id, isNum := e["feed_id"].(float64)
+	require.True(t, isNum, "feed_id is a JSON number: %v", e["feed_id"])
+	require.Len(t, out["ignored_attrs"], 1)
+
+	feed := int64(id)
+	code, out, _ = h.api(c, "PATCH", "/api/feeds/"+sid(feed), `{"allow_private_net":true,"expected_url":"http://evil.example.com/a.xml"}`)
+	require.Equal(t, 409, code)
+	require.Equal(t, "url_changed", out["error"])
+	require.Equal(t, 0, h.count("SELECT allow_private_net FROM feeds WHERE id = ?", feed))
+
+	code, _, rec = h.api(c, "PATCH", "/api/feeds/"+sid(feed), `{"allow_private_net":true,"expected_url":"http://nas.lan/a.xml"}`)
+	require.Equal(t, 200, code, rec.Body.String())
+	require.Equal(t, 1, h.count("SELECT allow_private_net FROM feeds WHERE id = ?", feed))
+}
