@@ -15,6 +15,19 @@ class NoES {
   close() {}
 }
 
+/** Remembers HTMLElement.prototype's own descriptors for `names`; the returned function puts them back (or removes the
+ * property where there was none, so the one on Element.prototype shows through again). */
+function keepProps(names: string[]): () => void {
+  const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
+  const was = names.map((n) => [n, Object.getOwnPropertyDescriptor(proto, n)] as const);
+  return () => {
+    for (const [n, d] of was) {
+      if (d) Object.defineProperty(proto, n, d);
+      else delete proto[n];
+    }
+  };
+}
+
 function go(path: string) {
   window.history.replaceState({ idx: 0 }, "", path);
   return render(<App client={makeQueryClient({ retry: false })} />);
@@ -201,6 +214,7 @@ describe("coming back to a long list (#94)", () => {
   // the offset causes. What this cannot show is paint: it reads the rows' transforms, not where a browser drew them.
   const ROW = 232;
   const VIEWPORT = 800;
+  let restoreBox = () => {};
   beforeEach(() => {
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
       configurable: true,
@@ -209,6 +223,7 @@ describe("coming back to a long list (#94)", () => {
       },
     });
     // How far the list can scroll: the virtualizer never scrolls past it (jsdom's own is 0).
+    restoreBox = keepProps(["clientHeight", "scrollHeight"]);
     const box = { clientHeight: VIEWPORT, scrollHeight: 100 * ROW };
     for (const [name, value] of Object.entries(box)) {
       Object.defineProperty(HTMLElement.prototype, name, {
@@ -232,7 +247,7 @@ describe("coming back to a long list (#94)", () => {
   });
   afterEach(() => {
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 800 });
-    for (const name of ["clientHeight", "scrollHeight"]) Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value: 0 });
+    restoreBox();
   });
 
   const rowsOf = (scroller: HTMLElement) =>
@@ -321,6 +336,7 @@ describe("rows that change shape under the reader (a turned phone)", () => {
   let row = 232;
   let width = 375;
   const observed: { cb: ResizeObserverCallback; el: HTMLElement; ro: unknown }[] = [];
+  let restoreProps = () => {};
   const report = (o: (typeof observed)[number]) => {
     const h = o.el.offsetHeight;
     o.cb([{ target: o.el, contentRect: { width, height: h }, borderBoxSize: [{ inlineSize: width, blockSize: h }] } as unknown as ResizeObserverEntry], o.ro as ResizeObserver);
@@ -329,6 +345,7 @@ describe("rows that change shape under the reader (a turned phone)", () => {
     row = 232;
     width = 375;
     observed.length = 0;
+    restoreProps = keepProps(["offsetHeight", "clientWidth", "clientHeight", "scrollHeight"]);
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
       configurable: true,
       get(this: HTMLElement) {
@@ -367,10 +384,7 @@ describe("rows that change shape under the reader (a turned phone)", () => {
       this.dispatchEvent(new Event("scroll"));
     });
   });
-  afterEach(() => {
-    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 800 });
-    for (const name of ["clientWidth", "clientHeight", "scrollHeight"]) Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value: 0 });
-  });
+  afterEach(() => restoreProps());
 
   /** The article whose row covers the top of the list (rows are placed by their transforms). */
   const topArticle = (scroller: HTMLElement) =>

@@ -434,7 +434,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       remeasureMounted(virtualizer, el);
       const id = listTop.current.id;
       const i = id ? rowsRef.current.findIndex((r) => (r.kind === "item" ? r.item.id === id : r.kind === "group" && r.items.some((x) => x.id === id))) : -1;
-      if (i >= 0) {
+      if (i >= 0 && !Page) {
         // Nothing on the way there counts as seen (the place.index gate below), as after a reload's restore.
         place.index = i;
         virtualizer.scrollToIndex(i, { align: "start" });
@@ -442,7 +442,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     }
     // Only once the rows were laid out for this width (and put back on the article, above) is the top read again.
     if (el && !unmeasured) listTop.current.width = el.clientWidth;
-  }, [sizeSig, unmeasured, virtualizer, width, rowsRef, place]);
+  }, [sizeSig, unmeasured, virtualizer, width, rowsRef, place, Page]);
   // Keep the measured heights for the way back, with what they were measured for.
   useEffect(
     () => () => {
@@ -741,8 +741,11 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   useEffect(() => {
     const r = virtualizer.range;
     // The top rows shown while the place is still coming back were not read there: the list is about to move past them.
-    // Nothing counts until the visible range has reached the row the restore scrolled to.
-    if (!r || place.id) return;
+    // Nothing counts until the visible range has reached the row the restore scrolled to. Nor while the list has a
+    // width its rows were not laid out for (listTop): the range is then over rows that moved, not rows on screen.
+    const el = parentRef.current;
+    const laidOutFor = listTop.current.width;
+    if (!r || place.id || (el && laidOutFor >= 0 && el.clientWidth !== laidOutFor)) return;
     if (place.index !== null) {
       if (place.index < r.startIndex || place.index > r.endIndex) return;
       place.index = null;
@@ -753,7 +756,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       if (row.kind === "item") seenIds.current.add(row.item.id);
       else if (row.kind === "group") for (const it of row.items) seenIds.current.add(it.id);
     }
-  }, [virtualItems, virtualizer]);
+  }, [virtualItems, virtualizer, width]);
   // The article at the top, for rows that change shape (listTop above), read once the rows on screen are measured. Not
   // while the list has a width it was not rendered for: the rows have already moved under the offset, so the article
   // there now is not the one the reader saw.
