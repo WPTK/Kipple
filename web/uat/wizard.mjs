@@ -31,6 +31,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium } from "@playwright/test";
 import { installPageHelpers, tapProbe } from "./probes.mjs";
+import { onPageError } from "./common.mjs";
 
 const require = createRequire(import.meta.url);
 const webDir = fileURLToPath(new URL("../", import.meta.url));
@@ -138,6 +139,37 @@ async function uploadBackup(page) {
   await page.getByLabel("Backup or OPML file").setInputFiles({ name: "kipple-backup.zip", mimeType: "application/zip", buffer: backupZip });
 }
 
+/** The cards of "How do you want to sign in?" (RadioCard with children): 44 / 56 px tall, the radio beside the title, and a tap in the padding or on the description picks the card. */
+async function radioCardChecks(page, where) {
+  const open = page.getByRole("radio", { name: /^No password at all/ });
+  const pw = page.getByRole("radio", { name: /^With a password/ });
+  const card = open.locator("xpath=ancestor::label/..");
+  // Open mode is offered on the loopback address this flow runs on; without it the cards below would go unmeasured.
+  if (!check(where, await open.isEnabled(), '"No password at all" is disabled, so the radio cards were not measured')) return;
+  for (const large of [false, true]) {
+    await page.evaluate((on) => (on ? document.documentElement.setAttribute("data-targets", "large") : document.documentElement.removeAttribute("data-targets")), large);
+    const tag = `${where} radio card ${large ? "large" : "normal"}`;
+    const m = await open.evaluate((el) => {
+      const label = el.closest("label");
+      const c = label.parentElement.getBoundingClientRect();
+      const l = label.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      const t = label.querySelector("span > span").getBoundingClientRect();
+      return { cw: c.width, lh: l.height, rw: r.width, rh: r.height, rMid: r.top + r.height / 2, tMid: t.top + t.height / 2, desc: CSS.escape(el.getAttribute("aria-describedby")) };
+    });
+    check(tag, m.lh >= (large ? 56 : 44) - 0.5, `the label row is ${m.lh.toFixed(1)} px tall`);
+    check(tag, Math.round(m.rw) === 20 && Math.round(m.rh) === 20, `the radio is ${m.rw} x ${m.rh} px`);
+    check(tag, Math.abs(m.rMid - m.tMid) <= 3, `the radio centre ${m.rMid.toFixed(1)} is off the title centre ${m.tMid.toFixed(1)}`); // 2 px low on a 24 px line (mt-1), as it always has
+    await card.click({ position: { x: m.cw / 2, y: 4 } }); // the card's top padding, above the text
+    check(tag, await open.isChecked(), "a tap in the card's padding did not pick it");
+    await pw.check();
+    await page.locator(`#${m.desc} p`).first().click(); // the description text
+    check(tag, await open.isChecked(), "a tap on the card's description did not pick it");
+    await pw.check();
+  }
+  await page.evaluate(() => document.documentElement.removeAttribute("data-targets"));
+}
+
 const browser = await chromium.launch({ headless: !opt.headed }).catch((e) => setupError(`could not start Chromium (npx playwright install chromium): ${e.message.split("\n")[0]}`));
 
 try {
@@ -147,7 +179,7 @@ try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, timezoneId: "Asia/Tokyo", colorScheme: "light" });
     const page = await ctx.newPage();
     const errors = [];
-    page.on("pageerror", (e) => errors.push(String(e)));
+    onPageError(page, (e) => errors.push(String(e)));
     // A 401 is not waived: a signed-out launch asks /api/instance first and sends nothing that answers 401 (issue #465).
     page.on("console", (m) => m.type() === "error" && !/status of 40[34]|status of 429/.test(m.text()) && errors.push(m.text()));
 
@@ -163,6 +195,7 @@ try {
     // Step 1: the first screen is the account form.
     await page.goto(origin);
     await onStep(page, "A", "Create your account", 1);
+    await radioCardChecks(page, "A step 1");
     await page.getByLabel("User name").fill("tester");
     await page.getByLabel("Password", { exact: true }).fill("a long enough password");
     await page.getByLabel("Password again").fill("a long enough password");
@@ -241,7 +274,7 @@ try {
       const out = await browser.newContext({ viewport: { width: 390, height: 844 } });
       const op = await out.newPage();
       const strict = [];
-      op.on("pageerror", (e) => strict.push(String(e)));
+      onPageError(op, (e) => strict.push(String(e)));
       op.on("console", (m) => m.type() === "error" && strict.push(m.text()));
       const api = [];
       op.on("response", (r) => {
@@ -299,7 +332,7 @@ try {
     const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true, colorScheme: "dark" });
     const page = await ctx.newPage();
     const errors = [];
-    page.on("pageerror", (e) => errors.push(String(e)));
+    onPageError(page, (e) => errors.push(String(e)));
     await page.goto(origin);
     await onStep(page, "B", "Create your account", 1);
     await page.getByLabel("User name").fill("opener");
@@ -374,7 +407,7 @@ try {
     const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, timezoneId: "Asia/Tokyo" });
     const page = await ctx.newPage();
     const errors = [];
-    page.on("pageerror", (e) => errors.push(String(e)));
+    onPageError(page, (e) => errors.push(String(e)));
     // GET /api/instance cannot be reached: the screen says so and offers Try again, and never a password form.
     await page.route("**/api/instance", (r) => r.abort());
     await page.goto(origin);
@@ -413,7 +446,7 @@ try {
     const pp = await phone.newPage();
     const dp = await desk.newPage();
     const errors = [];
-    for (const p of [pp, dp]) p.on("pageerror", (e) => errors.push(String(e)));
+    for (const p of [pp, dp]) onPageError(p, (e) => errors.push(String(e)));
 
     // The phone uploads a backup and leaves it unconfirmed.
     await pp.goto(origin);

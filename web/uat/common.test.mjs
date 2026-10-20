@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { accessControlUrl, unloadRefusal } from "./common.mjs";
+import { accessControlUrl, isResizeObserverNotice, unloadRefusal } from "./common.mjs";
 
 // What Playwright's WebKit driver hands to `pageerror` for a console error: its splitErrorMessage cuts the text at the
 // first colon, the part before is the name and the part from two characters after it is the message.
@@ -95,5 +95,15 @@ describe("unloadRefusal", () => {
     page.nav();
     page.emit("requestfailed", { isNavigationRequest: () => true, frame: () => page.main, url: () => `${origin}/feeds` });
     expect(is(err)).toBe(false);
+  });
+});
+
+describe("isResizeObserverNotice", () => {
+  it("matches the browser's notice and nothing else", () => {
+    expect(isResizeObserverNotice(webkitError("ResizeObserver loop completed with undelivered notifications."))).toBe(true);
+    expect(isResizeObserverNotice(new Error("ResizeObserver loop completed with undelivered notifications."))).toBe(true);
+    expect(isResizeObserverNotice(new Error("ResizeObserver loop limit exceeded"))).toBe(false);
+    expect(isResizeObserverNotice(new Error("x ResizeObserver loop completed with undelivered notifications. y"))).toBe(false);
+    expect(isResizeObserverNotice(new TypeError("Cannot read properties of undefined"))).toBe(false);
   });
 });

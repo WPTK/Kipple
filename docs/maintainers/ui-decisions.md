@@ -62,7 +62,13 @@ were resolved in round 2 and what shipped; each is annotated below.
   phrase that reads as the thing you do when it is ticked ("Check this feed", "Use this filter"), not a state ("Enabled",
   "Filter is on"); the owner ruled this 2026-10-19.
 - A choice among a few named steps stays a segmented control (native radios); a choice that wants a sentence each is a
-  list of radio cards.
+  list of radio cards (`RadioCard` in `web/src/ui/kit.tsx`; `RadioRow` for a short plain choice). `checkbox.test.tsx` also fails a hand-written
+  `<input type="checkbox">` or `<input type="radio">` outside the exempt list rows, the segmented control and the theme swatches;
+  `web/uat/controls.mjs` measures the card (K7).
+- **A toggle's state never rests on color alone** (#563). A button with `aria-pressed` also changes its glyph or shows a mark: the
+  star fills, Oldest first swaps its arrow, a suggestion chip gains a check, Full text swaps the plain page for a page with a check
+  mark. Its name stays the same (the state is `aria-pressed`, not a renamed label). A tint may back the glyph up; it is never
+  the only cue.
 
 ## Layout
 
@@ -430,3 +436,18 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
   whatever does not fit; and six tabs, which cannot keep their names whole at the largest text size.
 - The Muted pill stays conditional (a list that is empty for most readers is not worth a pill), and Muted, Starred and
   All articles are always listed at the top of the Feeds screen.
+
+## Stats tiles look tappable (2026-10-20, issue #562)
+
+The Stats summary tiles (previous-period figure) and a feed's Read rate (the counts behind it) are buttons, and nothing showed it.
+
+- **Chosen: a chevron cue.** Each such tile carries a small down chevron in its top-right corner in the secondary text colour
+  (`text-fg2`, the colour the other row chevrons use, so it holds contrast in every scheme). It turns over while the figure
+  is open, and the tile takes the scheme's selection colour while hovered or pressed. The cue is always drawn, so it shows on
+  touch where there is no hover. A tile is at least 44 px tall and wide (`hit`, 56 px with Large targets).
+- **Not chosen: a card-style tile** (a border and raised surface, with a pressed state and no icon). A border says "box",
+  not "opens something", and the look reference's cards are borderless on a tinted surface, so a border would make these
+  tiles the only outlined ones; with no hover on touch, the pressed state alone would only show after the tap.
+- Tiles that are not buttons (Opens, Avg read, Quick bounce, Opened original, Stars) stay plain: the chevron is the one
+  signal for "opens more", so it is not used on anything else in that grid.
+- Checked by `web/uat/stats-tiles.mjs`: the chevron holds 3:1 against the tile and against its selection tint in all 20 schemes; the tint shows on hover (a mouse) and while pressed (touch has no hover); tiles are 44 px (56 px with Large targets, also at the largest text size with a long value such as "12h 40m"), and 44 px on a 667x375 landscape phone. The Read rate card is the same height as its neighbours (56 px).

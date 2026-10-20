@@ -7,7 +7,8 @@
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and, from the keyboard:
 //   R1  Opens an article from All and presses Enter on Next article twice: focus stays on Next beside the list (the
 //       article that arrived is announced), or moves to the new article's title full screen; never to the page.
-//   R2  Full text: Enter keeps focus on the button while the full text loads, and Enter again turns it back.
+//   R2  Full text: Enter keeps focus on the button while the full text loads, and Enter again turns it back; on and off differ
+//       in the glyph (check-mark page vs plain page), not only the tint (#563).
 //   R3  Previous onto the first article: the button is switched off (aria-disabled) and keeps focus.
 //   R4  (desktop) After Next the open article is the list's Tab stop, not the row focused before (#390).
 //   H1  (desktop) Refresh all feeds and Oldest first keep focus when pressed; the order is put back.
@@ -106,6 +107,12 @@ await t.eachViewport(async (page, vp) => {
     await step(`${tag} R2`, async () => {
       const ft = toolbarButton(page, "Full text");
       const on = (await ft.getAttribute("aria-pressed")) === "true";
+      // The state shows in the glyph as well as the tint: a page with a check mark when on, a plain page when off.
+      const glyph = () => ft.locator("svg").evaluate((el) => el.getAttribute("class") ?? "");
+      const glyphOk = (pressed, cls) => (pressed ? /lucide-file-check/.test(cls) : /lucide-file-text/.test(cls));
+      const before = await glyph();
+      check(glyphOk(on, before), `${tag} R2 glyph`, `Full text ${on ? "on" : "off"} has the ${on ? "check-mark" : "plain"} page`, `Full text aria-pressed=${on} but the glyph is "${before}"`);
+      await t.shot(page, `${tag}-R2-fulltext-${on ? "on" : "off"}`);
       await ft.focus();
       await page.keyboard.press("Enter");
       const samples = [];
@@ -116,6 +123,10 @@ await t.eachViewport(async (page, vp) => {
       check(samples.every((s) => s === 'button "Full text"'), `${tag} R2 focus`, "focus stays on Full text while it loads", `focus at 0.1, 0.9, 2.5 s: ${samples.join(", ")}`);
       await page.waitForFunction(() => document.querySelector('[aria-label="Full text"]')?.getAttribute("aria-disabled") !== "true", undefined, { timeout: 20000 }).catch(() => {});
       const now = (await ft.getAttribute("aria-pressed")) === "true";
+      const after = await glyph();
+      check(glyphOk(now, after), `${tag} R2 glyph after`, "the glyph follows the state after the flip", `aria-pressed=${now} but the glyph is "${after}"`);
+      check(now === on || after !== before, `${tag} R2 differs`, "on and off differ in more than color", `state flipped but the glyph stayed "${after}"`);
+      await t.shot(page, `${tag}-R2-fulltext-${now ? "on" : "off"}-after`);
       if (now !== on) {
         await page.keyboard.press("Enter");
         await page.waitForTimeout(500);

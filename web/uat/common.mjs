@@ -85,6 +85,27 @@ export function unloadRefusal(page, origin) {
 }
 
 /**
+ * Whether a `pageerror` is the browser's "ResizeObserver loop completed with undelivered notifications" notice. It is
+ * benign (an observer's callback changed a size that another observed box then reported in the same frame, so the
+ * browser delivered that report on the next frame) and the spec has browsers raise it on `window` as an ErrorEvent; WebKit
+ * hands it to Playwright as a `pageerror` (rotating a phone with a menu sheet open does it). Matched on the exact text
+ * only, so a ResizeObserver error with any other wording still counts. Product code is not changed for it.
+ */
+export function isResizeObserverNotice(err) {
+  return /^(?:\w+:\s*)?ResizeObserver loop completed with undelivered notifications\.?$/.test(String(err?.message ?? err).trim());
+}
+
+/**
+ * `page.on("pageerror", handler)` without the benign ResizeObserver notice. Every flow that counts page errors listens
+ * through this, so a new flow gets the filter by default.
+ */
+export function onPageError(page, handler) {
+  page.on("pageerror", (err) => {
+    if (!isResizeObserverNotice(err)) handler(err);
+  });
+}
+
+/**
  * `options.serviceWorkers`: "block" for a flow that holds back or fakes a request with `page.route`. Playwright's
  * routing does not see the requests the app's service worker sends (WebKit never does), so a route set up while the
  * worker is active may never fire. Default "allow", as a user's browser has it.
