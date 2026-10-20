@@ -457,10 +457,10 @@ func (f *FailureTracker) Wait(ip string) time.Duration {
 // firstDelay, doubling per further failure, never above maxDelay.
 func (f *FailureTracker) delay(n int) time.Duration {
 	d := f.firstDelay
-	for i := f.threshold; i < n && d < f.maxDelay; i++ {
-		d *= 2
+	for i := f.threshold; i < n && d != f.maxDelay; i++ {
+		d = min(2*d, f.maxDelay)
 	}
-	return min(d, f.maxDelay)
+	return d
 }
 
 // Forget clears ip's failures: its owner just proved the password.

@@ -576,6 +576,14 @@ func TestFailureTrackerDelayCap(t *testing.T) {
 	}
 }
 
+// The wait bound can be lifted or lowered but never removed: a bound of zero would refuse every attempt that has to
+// wait.
+func TestFailureTrackerWaitBoundIsPositive(t *testing.T) {
+	f := NewFailureTracker()
+	require.Panics(t, func() { f.SetMaxWait(0) })
+	require.NotPanics(t, func() { f.SetMaxWait(time.Nanosecond) })
+}
+
 // The warning interval is an hour to the second, and an expected proxy stays silent even when a warning is due.
 func TestWarnUntrustedProxyHeadersEdges(t *testing.T) {
 	var buf bytes.Buffer

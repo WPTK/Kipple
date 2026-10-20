@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -242,25 +243,53 @@ func TestFinalURLIsNormalized(t *testing.T) {
 	require.Equal(t, srv.URL+"/feed", res.FinalURL)
 }
 
-// A fetch cancelled while its body is still arriving is cancelled, not a failure.
+// A fetch cancelled while its body is still arriving is cancelled, not a failure. The cancel comes when the client
+// reads the connection again after the whole header has arrived: that read is the body read, waiting for bytes the
+// server never sends.
 func TestCancelledDuringBody(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	sent := make(chan struct{})
 	srv, c := feedServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(rssBody[:40]))
 		w.(http.Flusher).Flush()
-		close(sent) // the headers and part of the body are out; the rest never comes
 		<-r.Context().Done()
 	})
-	go func() {
-		<-sent
-		cancel()
-	}()
+	tr := c.transport(variant{allowPrivate: true})
+	dial := tr.DialContext
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := dial(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return &readAfterHeader{Conn: conn, then: cancel}, nil
+	}
 	res := c.Fetch(ctx, snapFor(srv.URL), t0)
 	require.True(t, res.Cancelled)
+	require.Equal(t, http.StatusOK, res.Status, "the header was in: the body read is what was cancelled")
 	require.Empty(t, res.ErrClass)
+}
+
+// readAfterHeader calls then on the first read made once a whole HTTP header has been read.
+type readAfterHeader struct {
+	net.Conn
+	mu   sync.Mutex
+	seen []byte
+	then func()
+}
+
+func (c *readAfterHeader) Read(p []byte) (int, error) {
+	c.mu.Lock()
+	if c.then != nil && bytes.Contains(c.seen, []byte("\r\n\r\n")) {
+		c.then()
+		c.then = nil
+	}
+	c.mu.Unlock()
+	n, err := c.Conn.Read(p)
+	c.mu.Lock()
+	c.seen = append(c.seen, p[:n]...)
+	c.mu.Unlock()
+	return n, err
 }
 
 // The HTTP charset decides when the document claims UTF-8 but its bytes are not.
