@@ -36,7 +36,7 @@ export default tseslint.config(
   },
   {
     // The single-purpose flows: Node, with the functions they hand to page.evaluate written inline.
-    files: ["uat/common.mjs", "uat/chrome.mjs", "uat/phone-shell.mjs", "uat/phone-header.mjs", "uat/phone-tabs.mjs", "uat/wrapping.mjs", "uat/phone-chrome.mjs", "uat/scroll-restore.mjs", "uat/rotate.mjs", "uat/feeds.mjs", "uat/states.mjs", "uat/wait-ready.mjs", "uat/all.mjs", "uat/row-name.mjs"],
+    files: ["uat/common.mjs", "uat/chrome.mjs", "uat/phone-shell.mjs", "uat/phone-header.mjs", "uat/phone-tabs.mjs", "uat/wrapping.mjs", "uat/phone-chrome.mjs", "uat/touch-menus.mjs", "uat/scroll-restore.mjs", "uat/rotate.mjs", "uat/feeds.mjs", "uat/states.mjs", "uat/wait-ready.mjs", "uat/all.mjs", "uat/row-name.mjs"],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {
@@ -65,6 +65,23 @@ export default tseslint.config(
             },
           ];
         }),
+      ],
+    },
+  },
+  {
+    // Every dropdown menu is built from ui/menu: a popover with a mouse, a bottom sheet with a finger, and no nested
+    // menus (Sub), which neither is built for. So Radix's DropdownMenu is reached only through it.
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/ui/menu.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            { name: "radix-ui", importNames: ["DropdownMenu"], message: "Import DropdownMenu from @/ui/menu." },
+            { name: "@radix-ui/react-dropdown-menu", message: "Import DropdownMenu from @/ui/menu." },
+          ],
+        },
       ],
     },
   },
