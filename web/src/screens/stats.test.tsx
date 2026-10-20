@@ -405,12 +405,12 @@ describe("Stats screen", () => {
     expect(within(summary).queryByText(/from 70/)).toBeNull();
   });
 
-  it("Months fetches everything and draws one bar per month", async () => {
+  it("Monthly fetches everything and draws one bar per month", async () => {
     const m = setup(() => richStats);
     const user = userEvent.setup();
     go();
     await screen.findByRole("heading", { name: "Daily activity" });
-    await user.click(screen.getByRole("radio", { name: "Months" }));
+    await user.click(screen.getByRole("radio", { name: "Monthly" }));
     await screen.findByRole("heading", { name: "Monthly activity" });
     expect(statsCalls(m).at(-1)?.url.searchParams.get("range")).toBe("all");
     expect(screen.getByRole("img", { name: /Items read per month/ })).toBeInTheDocument();
@@ -478,12 +478,12 @@ describe("Stats screen", () => {
     expect(tile.getAttribute("aria-describedby")).toBe(line.id);
   });
 
-  it("All and Months have no tile to tap", async () => {
+  it("All and Monthly have no tile to tap", async () => {
     setupSpan((u) => ({ ...richStats, range: { ...richStats.range!, key: (u.searchParams.get("range") ?? "month") as StatsRange } }));
     const user = userEvent.setup();
     go();
     await screen.findByRole("heading", { name: "Daily activity" });
-    for (const name of ["All", "Months"]) {
+    for (const name of ["All", "Monthly"]) {
       await user.click(screen.getByRole("radio", { name }));
       await waitFor(() => expect(within(screen.getByRole("region", { name: "Summary" })).queryByRole("button", { name: /Items read/ })).toBeNull());
     }

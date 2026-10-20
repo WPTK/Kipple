@@ -415,6 +415,16 @@ a.sr-only-live:focus {
 :root[data-targets="large"] #root :is(nav a, a.row-link, label.min-h-11, .hit, .hit-row) { min-height: 3.5rem; min-width: 3.5rem; }
 :root[data-targets="large"] .row-host { --row-min: 4.25rem; }
 
+/* A short screen (a phone held sideways; the app shell sets data-short from SHORT_QUERY): the tab bar is one row of
+   icon and name, 44 px tall. The doubled #root makes this rule beat the large-targets rule above whatever the order of
+   the two, and :not(.article-body *) keeps a <header> inside article HTML out of it. Large targets keep the 44 px minimum in the header and tab bar there, because 56 px
+   controls would take a third of a 320 px screen; the layout is the same row. */
+:root[data-short] { --tabbar-h: 2.75rem; }
+:root[data-targets="large"][data-short] #root#root :is(header, nav[aria-label="Primary"]):not(.article-body *) :is(button, select, summary, a, [role="menuitem"]) {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+}
+
 /* Read-aloud: the paragraph being spoken. Not color alone: it also gets a start bar. */
 .article-body .kp-speaking {
   background: var(--kp-selection);
