@@ -1,7 +1,7 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
-import { ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useSpanSummary, useStatsSummary } from "@/api/stats";
 import { errorMessage } from "@/api/client";
 import type { StatsSummary } from "@/api/types";
@@ -85,8 +85,15 @@ function Stat({
   return (
     <div className="min-w-0 rounded-xl bg-surface">
       {onToggle ? (
-        <button type="button" onClick={onToggle} aria-expanded={note != null} aria-describedby={note != null ? describedBy : undefined} className="block w-full min-w-0 rounded-xl px-3 py-3 text-left">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={note != null}
+          aria-describedby={note != null ? describedBy : undefined}
+          className="hit relative block min-h-11 w-full min-w-0 rounded-xl py-3 pl-3 pr-7 text-left hover:bg-selection active:bg-selection"
+        >
           {inner}
+          <ChevronDown aria-hidden="true" data-cue="tile" className={`absolute right-2 top-3.5 size-4 text-fg2 transition-transform ${note != null ? "rotate-180" : ""}`} />
         </button>
       ) : (
         <div className="px-3 py-3">{inner}</div>
@@ -644,7 +651,7 @@ function ReadRateTerm({ data }: { data: StatsSummary }) {
   const r = data.read_rate;
   const pct = pctLabel(r?.rate);
   return (
-    <div className="relative rounded-xl bg-surface px-3 py-2">
+    <div className="hit relative rounded-xl bg-surface px-3 py-2 has-[button:hover]:bg-selection has-[button:active]:bg-selection">
       <dt className="text-xs text-fg2">Read rate</dt>
       <dd>
         {/* The name stays "Read rate 25%" whether or not the counts are showing; they are the button's controlled region. */}
@@ -657,6 +664,7 @@ function ReadRateTerm({ data }: { data: StatsSummary }) {
           className="block text-left text-base font-bold tabular-nums after:absolute after:inset-0 after:rounded-xl"
         >
           {pct}
+          <ChevronDown aria-hidden="true" data-cue="tile" className={`absolute right-2 top-2.5 size-4 text-fg2 transition-transform ${shown ? "rotate-180" : ""}`} />
         </button>
         <span id={noteId} hidden={!shown} className="mt-1 block text-xs font-medium tabular-nums">
           {shown ? readRateNote(r, data.read_rate_from, data.read_rate_to) : null}

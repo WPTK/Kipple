@@ -1,7 +1,6 @@
-import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { cn } from "@/lib/cn";
+import { useRef, useState, type FormEvent } from "react";
 import { Button } from "@/ui/button";
-import { Checkbox, Field, Notice, inputCls } from "@/ui/kit";
+import { Checkbox, Field, Notice, RadioCard, inputCls } from "@/ui/kit";
 import { MIN_PASSWORD_LEN, accountFailure, createAccount, openReasonText, passwordProblem, type AccountBody, type SetupOptions } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import { setupSecret } from "./session";
@@ -14,46 +13,6 @@ const USERNAME = /^[A-Za-z0-9._-]{1,64}$/;
 /** Whether choosing "no password, open" can work from this browser's position (GET /api/instance), and if not why. */
 export function openAvailability(open: SetupOptions["open"]): { ok: boolean; why: string | null } {
   return open.reason === null ? { ok: true, why: null } : { ok: false, why: openReasonText(open.reason) };
-}
-
-function Option({
-  id,
-  value,
-  checked,
-  disabled,
-  onSelect,
-  title,
-  children,
-}: {
-  id: string;
-  value: Choice;
-  checked: boolean;
-  disabled?: boolean;
-  onSelect: (c: Choice) => void;
-  title: string;
-  children?: ReactNode;
-}) {
-  return (
-    <div className={cn("rounded-xl border p-3", checked ? "border-accent bg-selection" : "border-line bg-surface", disabled && "opacity-70")}>
-      <label htmlFor={id} className="flex min-h-11 cursor-pointer items-start gap-3 has-[:disabled]:cursor-not-allowed">
-        <input
-          id={id}
-          type="radio"
-          name="signin-choice"
-          value={value}
-          checked={checked}
-          disabled={disabled}
-          onChange={() => onSelect(value)}
-          aria-describedby={`${id}-d`}
-          className="mt-1 size-5 shrink-0 accent-[var(--kp-accent)]"
-        />
-        <span className="text-base font-semibold">{title}</span>
-      </label>
-      <div id={`${id}-d`} className="ml-8 flex flex-col gap-3 text-sm text-fg2">
-        {children}
-      </div>
-    </div>
-  );
 }
 
 /**
@@ -76,7 +35,6 @@ export function AccountStep({
   onCreated: () => void;
   onDone: () => void;
 }) {
-  const uid = useId();
   const [username, setUsername] = useState("");
   // The live checks (too short, no match) speak once a field has been left, not on every keystroke: each one is an
   // alert, and a screen reader would read out a new one per character. Submitting shows them all regardless.
@@ -206,7 +164,7 @@ export function AccountStep({
         <fieldset className="flex min-w-0 flex-col gap-3">
           <legend className="mb-2 text-sm font-semibold">How do you want to sign in?</legend>
 
-          <Option id={`${uid}-pw`} value="password" checked={choice === "password"} onSelect={setChoice} title="With a password">
+          <RadioCard name="signin-choice" value="password" checked={choice === "password"} onSelect={() => setChoice("password")} title="With a password">
             <p>The usual choice. Anyone who wants in needs it.</p>
             {choice === "password" ? (
               <div className="flex flex-col gap-3 text-fg">
@@ -233,16 +191,16 @@ export function AccountStep({
                 </Field>
               </div>
             ) : null}
-          </Option>
+          </RadioCard>
 
           {accessOffered ? (
-            <Option id={`${uid}-access`} value="access" checked={choice === "access"} disabled={!accessOk} onSelect={setChoice} title="No password, through Cloudflare Access">
+            <RadioCard name="signin-choice" value="access" checked={choice === "access"} disabled={!accessOk} onSelect={() => setChoice("access")} title="No password, through Cloudflare Access">
               <p>Cloudflare Access checks who you are before Kipple opens, so Kipple doesn't ask for a password of its own.</p>
               {!accessOk ? <p>To choose this, open Kipple through its Cloudflare Access address, so Kipple can see you signed in there.</p> : null}
-            </Option>
+            </RadioCard>
           ) : null}
 
-          <Option id={`${uid}-open`} value="open" checked={choice === "open"} disabled={!open.ok} onSelect={setChoice} title="No password at all">
+          <RadioCard name="signin-choice" value="open" checked={choice === "open"} disabled={!open.ok} onSelect={() => setChoice("open")} title="No password at all">
             <p>Nothing to remember and nothing to type. This computer, every device on your local network and your Tailscale devices can open Kipple. Only for when Kipple can be reached from nowhere else.</p>
             {!open.ok ? <p role="note">{open.why}</p> : null}
             {choice === "open" ? (
@@ -262,7 +220,7 @@ export function AccountStep({
                 />
               </div>
             ) : null}
-          </Option>
+          </RadioCard>
         </fieldset>
 
         <StepActions>

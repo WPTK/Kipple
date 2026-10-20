@@ -20,6 +20,7 @@
     "focus.mjs",
     "saved-searches.mjs",
     "stats.mjs",
+    "stats-tiles.mjs",
     "keys.mjs",
     "announce.mjs",
     "scroll-restore.mjs",
@@ -42,6 +43,7 @@
     "wrapping.mjs",
     "touch-menus.mjs",
     "stats.mjs",
+    "stats-tiles.mjs",
     "rotate.mjs",
     "phone-header.mjs"
   ],
