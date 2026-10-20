@@ -10,14 +10,16 @@
 //   O2  a file with a feed on a private address, a feed listed twice and a feed with no web address reports each once,
 //       in plain words, and points to the option that lets Kipple fetch the private one;
 //   O3  the fetch of the new feeds shows a bar and then how many could not be fetched;
-//   O4  Move for selected feeds opens with no folder chosen.
+//   O4  Move for selected feeds opens with no folder chosen;
+//   O5  the fetch of a bigger import stays on screen under the top bar after the dialog is closed, and the bar goes
+//       away when the fetch ends (issue #464).
 // The feeds it adds have "uat-feed-" addresses, so the shared cleanup removes them.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { Buffer } from "node:buffer";
 import { deadFeed, start } from "./common.mjs";
 
-const t = await start(import.meta.url, 14);
+const t = await start(import.meta.url, 16);
 const { check, step } = t;
 
 const PRIVATE = "http://127.0.0.1:9/uat-feed-private.xml";
@@ -100,6 +102,31 @@ await t.eachViewport(async (page, vp) => {
     await t.shot(page, `${tag}-opml-report-move`);
     await dlg.getByRole("button", { name: "Cancel" }).click();
     await page.getByRole("button", { name: "Done", exact: true }).click();
+  });
+
+  await step(`${tag} O5`, async () => {
+    // The live stream and the status poll are held, so the run stays as the import's answer left it ("0 of 60") however
+    // fast the dead feeds fail: what is checked is that closing the dialog does not take the progress with it.
+    const COUNT = 60;
+    const held = /\/api\/(events|status)(\?|$)/;
+    await page.route(held, () => undefined);
+    await page.goto("/feeds", { waitUntil: "load" });
+    const feeds = Array.from({ length: COUNT }, (_, i) => outline(`UAT feed ${n + 100 + i}`, deadFeed(n + 100 + i))).join("");
+    const dlg = await open("many.opml", opml(`<outline text="UAT many">${feeds}</outline>`));
+    await dlg.getByText(/feeds? added/).waitFor({ timeout: 10000 });
+    await close(dlg);
+    const bar = page.getByTestId("import-progress");
+    const kept = await bar.waitFor({ timeout: 5000 }).then(() => true, () => false);
+    const text = await t.textOf(bar);
+    check(kept && text.includes(`Fetching imported feeds: 0 of ${COUNT}`), `${tag} O5 kept`, `after closing the dialog: "${text}"`, `no import bar after closing the dialog: "${text}"`);
+    const pb = page.getByRole("progressbar", { name: "Fetching imported feeds" });
+    check((await pb.getAttribute("aria-valuemax").catch(() => null)) === String(COUNT), `${tag} O5 bar`, "the progressbar counts the new feeds", "no progressbar with the feed count");
+    await t.shot(page, `${tag}-opml-report-import-bar`);
+    // With the stream back, the page learns the run is over and the bar goes.
+    await page.unroute(held);
+    await page.reload({ waitUntil: "load" });
+    const gone = await bar.waitFor({ state: "detached", timeout: 120000 }).then(() => true, () => false);
+    check(gone, `${tag} O5 end`, "the bar goes once the fetch is over", `the bar is still there: "${await t.textOf(bar)}"`);
   });
 });
 
