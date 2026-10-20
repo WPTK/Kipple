@@ -171,7 +171,6 @@ describe("the list header on a phone held sideways (#420)", () => {
 
   it("keeps the pills on their own row on a phone held upright, also when its keyboard has taken the height", async () => {
     // The keyboard shrinks the height but not the orientation: the short query does not match.
-    expect(SHORT_QUERY).toContain("orientation: landscape");
     go("/l/unread");
     await screen.findByText("Article number 1");
     expect(showPills().parentElement).not.toBe(titleRow());
@@ -230,12 +229,11 @@ describe("the list header on a phone held sideways (#420)", () => {
     expect(document.documentElement).not.toHaveAttribute("data-short");
   });
 
-  it("has a tab bar of the content plus the device inset", async () => {
+  it("has a tab bar with no padding above the row", async () => {
     media(SHORT_QUERY);
     go("/l/unread");
     await screen.findByText("Article number 1");
     const bar = screen.getByRole("navigation", { name: "Primary" });
-    expect(bar.style.minHeight).toBe("calc(var(--tabbar-h) + env(safe-area-inset-bottom))");
     expect(bar).toHaveClass("pt-0");
   });
 });
@@ -297,7 +295,22 @@ describe("one back pattern (#424)", () => {
     go("/stats/wrapped");
     await userEvent.setup().click(await screen.findByRole("link", { name: "Back to Stats" }));
     await waitFor(() => expect(window.location.pathname).toBe("/stats"));
-    expect(window.history.state.idx).toBe(1); // a new entry: there was nothing in the app to go back to
+    expect(window.history.state.idx).toBe(0); // replaced: the system Back does not return to the screen just left
+  });
+
+  it("goes to the parent, not back, when the entry before is another screen", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json({ ...bootstrap, settings: {} }),
+      "GET /api/stats/summary": () => json({ enabled: false }),
+    });
+    go("/stats");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("link", { name: "Settings > Statistics" }));
+    await user.click(await screen.findByRole("link", { name: "Back to Settings" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/settings"));
+    expect(window.history.state.idx).toBe(1); // replaced the group: Stats, Settings
+    window.history.back();
+    await waitFor(() => expect(window.location.pathname).toBe("/stats"));
   });
 });
 

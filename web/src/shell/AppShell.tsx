@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from
 import { BarChart3, BellOff, Inbox, List, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
+import { useRecordTrail } from "@/lib/navTrail";
 import { useStatsEnabled } from "@/lib/statsSender";
 import { useSyncHighlights } from "@/lib/useHighlights";
 import { SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, DEFAULT_DEVICE_PREFS, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
@@ -220,6 +221,7 @@ export function AppShell() {
     return () => document.documentElement.removeAttribute("data-short");
   }, [short, wide]);
   const { pathname, search, hash, state } = useLocation();
+  useRecordTrail(pathname);
   const navigate = useNavigate();
   useServerEvents(true);
   useSyncHighlights();
