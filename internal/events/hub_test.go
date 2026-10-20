@@ -1,6 +1,7 @@
 package events
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -86,6 +87,23 @@ func TestCloseClosesEveryChannel(t *testing.T) {
 	late := h.Subscribe(0)
 	_, ok = <-late.C
 	require.False(t, ok)
+}
+
+// The largest id there is (what a malformed cursor is turned into) is ahead of every id the hub has: one resync, no replay.
+func TestSubscribeAtMaxUint64GetsOnlyAResync(t *testing.T) {
+	h := newHub()
+	for i := 0; i < 5; i++ {
+		h.Publish("e", i)
+	}
+	s := h.Subscribe(math.MaxUint64)
+	ev := <-s.C
+	require.Equal(t, "resync", ev.Type)
+	require.Equal(t, uint64(5), ev.ID)
+	select {
+	case extra := <-s.C:
+		t.Fatalf("unexpected extra event %v", extra)
+	default:
+	}
 }
 
 func TestSubscribeAheadOfSeqResyncs(t *testing.T) {

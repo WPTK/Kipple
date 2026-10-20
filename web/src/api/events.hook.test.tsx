@@ -284,11 +284,11 @@ describe("reconnect reconciliation", () => {
 
   /** A hook on its own client whose bootstrap is `boot`, with the timers faked so a reconnect can be waited out. */
   function withBootstrap(boot: Record<string, unknown> | undefined) {
-    mockFetch({ "GET /api/status": () => json({ runs: [], unread_total: 0 }), "GET /api/bootstrap": () => json(bootstrap) });
+    const { calls } = mockFetch({ "GET /api/status": () => json({ runs: [], unread_total: 0 }), "GET /api/bootstrap": () => json(bootstrap) });
     const qc = new QueryClient();
     if (boot) qc.setQueryData(keys.bootstrap, { ...bootstrap, ...boot });
     const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
-    return { qc, ...renderHook(() => useServerEvents(true), { wrapper }) };
+    return { qc, calls, ...renderHook(() => useServerEvents(true), { wrapper }) };
   }
 
   it("ignores a bootstrap without an ordering id, and after the first event the cursor is the last event's id alone", async () => {
@@ -376,6 +376,58 @@ describe("reconnect reconciliation", () => {
     expect(liveStore.get().seq).toEqual({});
     expect(liveStore.get().ended).toEqual({});
     expect(liveStore.get().lastId).toBe(100);
+    unmount();
+  });
+
+  it("makes one status request and one tree refresh per resync after an outage, with or without a heartbeat first", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const { qc, calls, unmount } = withBootstrap({ event_id: "50" });
+      const statusCalls = () => calls.filter((c) => c.url.pathname === "/api/status").length;
+      const invalidate = vi.spyOn(qc, "invalidateQueries");
+      const treeRefreshes = () => invalidate.mock.calls.filter((c) => JSON.stringify((c[0] as { queryKey?: unknown })?.queryKey) === JSON.stringify(keys.bootstrap)).length;
+      // A slow subscriber keeps overflowing: each cycle is a drop, a reconnect and a resync.
+      for (let cycle = 0; cycle < 3; cycle++) {
+        const s0 = statusCalls();
+        const t0 = treeRefreshes();
+        act(() => FakeES.last!.drop());
+        await act(() => vi.advanceTimersByTimeAsync(30_000));
+        if (cycle % 2 === 0) act(() => FakeES.last!.emit("heartbeat", {}));
+        act(() => FakeES.last!.emit("resync", {}, String(900 + cycle)));
+        await act(() => vi.advanceTimersByTimeAsync(10));
+        expect(statusCalls() - s0).toBe(1);
+        expect(treeRefreshes() - t0).toBe(1);
+      }
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("works out the first cursor on a later attempt when the bootstrap was not cached on the first", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const { qc, unmount } = withBootstrap(undefined);
+      expect(FakeES.all[0]!.url).toBe("/api/events");
+      act(() => FakeES.all[0]!.drop());
+      qc.setQueryData(keys.bootstrap, { ...bootstrap, event_id: "50" });
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      expect(FakeES.all[1]!.url).toBe("/api/events?last_event_id=50");
+      // Once set it is kept, and a bootstrap refetched during the outage does not move it.
+      act(() => FakeES.all[1]!.drop());
+      qc.setQueryData(keys.bootstrap, { ...bootstrap, event_id: "75" });
+      await act(() => vi.advanceTimersByTimeAsync(3_000));
+      expect(FakeES.all[2]!.url).toBe("/api/events?last_event_id=50");
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never starts older than the live state's newest id, so a remount does not go back to an older bootstrap id", () => {
+    liveStore.set((s) => ({ ...s, lastId: 80 }));
+    const { unmount } = withBootstrap({ event_id: "50" });
+    expect(FakeES.all[0]!.url).toBe("/api/events?last_event_id=80");
     unmount();
   });
 

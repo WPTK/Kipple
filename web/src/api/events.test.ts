@@ -399,11 +399,12 @@ describe("cache reconciliation", () => {
     expect(unread).toEqual({ Tech: 7, Apple: 6, Mac: 4, Sports: 8 });
   });
 
-  it("resync invalidates the lists and the bootstrap", () => {
+  it("resync invalidates the lists and the bootstrap", async () => {
+    mockFetch({ "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 0 }) });
     const qc = seeded();
     handleServerEvent(qc, { type: "resync", data: {} });
     expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(true);
-    expect(qc.getQueryState(keys.bootstrap)?.isInvalidated).toBe(true);
+    await vi.waitFor(() => expect(qc.getQueryState(keys.bootstrap)?.isInvalidated).toBe(true));
   });
 
   it("folder.changed refetches the bootstrap and saved searches, not the item lists", () => {
