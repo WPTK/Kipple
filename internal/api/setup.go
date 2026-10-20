@@ -242,6 +242,10 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request) bool {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return false
 	}
+	if err := s.endHeldSessions(r, true); err != nil {
+		s.serverError(w, "delete session", err)
+		return false
+	}
 	now := s.now()
 	if err := s.db.CreateSession(r.Context(), sessionID(val), now.Unix(), now.Add(sessionTTL).Unix(), r.UserAgent(), s.clientIP(r)); err != nil {
 		s.serverError(w, "create session", err) // 503 maintenance during a search-index rebuild

@@ -78,6 +78,8 @@ func TestBareSessionCookieOverHTTPSIsNoSession(t *testing.T) {
 	left := cookieNamed(rec, cookieName)
 	require.NotNil(t, left)
 	require.Equal(t, -1, left.MaxAge)
+	// The row behind the leftover is ended too, not only the cookie removed from the browser.
+	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/status", "", overScheme("http"), holding(bare)).Code)
 	require.Equal(t, int(sessionTTL/time.Second), cookieNamed(rec, hostCookieName).MaxAge)
 }
 
@@ -88,7 +90,8 @@ func TestParentDomainBareCookieCannotPoseAsTheSession(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	real := h.loginHTTPS()
-	other := h.loginHTTPS() // another live session, whose value the attacker's cookie carries
+	other := h.loginHTTPS()  // another live session, whose value the planted cookie carries
+	unheld := h.loginHTTPS() // a live session the requests below never hold a cookie for
 	planted := &http.Cookie{Name: cookieName, Value: other.Value}
 	forged := &http.Cookie{Name: cookieName, Value: "attacker-chosen-value"}
 
@@ -101,10 +104,13 @@ func TestParentDomainBareCookieCannotPoseAsTheSession(t *testing.T) {
 
 	// With the real cookie too, the request is the real session's: the planted cookie is not read.
 	require.Equal(t, http.StatusOK, h.do("GET", "/api/status", "", overScheme("https"), holding(real, forged)).Code)
-	// A sign-out by the real session deletes that session only.
-	rec := h.do("POST", "/api/auth/logout", "", overScheme("https"), holding(real, planted))
+	// A sign-out ends the session behind every session cookie the request holds, even one sent before the real one
+	// (r.Cookie would return only that first one), and no session it holds no cookie for.
+	rec := h.do("POST", "/api/auth/logout", "", overScheme("https"), holding(planted, real))
 	require.Equal(t, http.StatusNoContent, rec.Code)
 	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/status", "", overScheme("https"), holding(real)).Code)
+	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/status", "", overScheme("https"), holding(other)).Code, "held, so ended")
+	require.Equal(t, http.StatusOK, h.do("GET", "/api/status", "", overScheme("https"), holding(unheld)).Code, "not held, so kept")
 
 	// The sign-in form works with the planted cookie in the jar, and the server picks the value, never the client.
 	rec = h.do("POST", "/api/auth/login", loginBody(testPass), overScheme("https"), holding(forged))
@@ -146,7 +152,7 @@ func requireSessionCleared(t *testing.T, rec *httptest.ResponseRecorder, msg str
 }
 
 // A sign-out over https also ends a session held under the bare name, so a copy left from plain http does not sign in
-// again if the scheme the server sees changes back.
+// again if the scheme the server sees changes back, and a sign-out over http ends one held under the __Host- name.
 func TestLogoutEndsABareSessionToo(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -155,6 +161,12 @@ func TestLogoutEndsABareSessionToo(t *testing.T) {
 	rec := h.do("POST", "/api/auth/logout", "", overScheme("https"), holding(real, bare))
 	require.Equal(t, http.StatusNoContent, rec.Code)
 	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/status", "", overScheme("http"), holding(bare)).Code)
+
+	real = h.loginHTTPS()
+	bare = h.login()
+	rec = h.do("POST", "/api/auth/logout", "", overScheme("http"), holding(bare, real))
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/status", "", overScheme("https"), holding(real)).Code)
 }
 
 // The first-run claim over https signs the browser in under the __Host- name.

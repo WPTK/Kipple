@@ -538,10 +538,30 @@ func (s *Server) sessionName(r *http.Request) string {
 	return cookieName
 }
 
-// sessionValue is the session cookie r carries under this scheme's name. A cookie under the other name is never read:
-// over https the bare name is the one a page on a sibling subdomain can set, so it cannot pose as the session.
+// sessionValue is the session cookie r carries under this scheme's name. A cookie under the other name is never read
+// as the session: over https the bare name is the one a page on a sibling subdomain can set, so it cannot pose as it.
+// The only things done with one are to clear it from the browser and to end the session behind it (endHeldSessions).
 func (s *Server) sessionValue(r *http.Request) (*http.Cookie, error) {
 	return r.Cookie(s.sessionName(r))
+}
+
+// endHeldSessions ends the session behind every session cookie r holds, under either name, or under the other name
+// only. A browser can send the same name twice (a copy set for the parent domain beside the host's own), and r.Cookie
+// returns just the first, so this walks them all. Sign-out ends all it holds: the browser ends with no session cookie
+// of either name, so no row it held stays live for the rest of its 90 days. Sign-in ends those under the other name,
+// which its answer also clears from the browser: a copy left from the scheme the server saw before is not kept alive
+// by a row nothing can use. Ending a session the request already holds a cookie for gives nobody anything new.
+func (s *Server) endHeldSessions(r *http.Request, otherNameOnly bool) error {
+	keep := s.sessionName(r)
+	for _, c := range r.Cookies() {
+		if (c.Name != cookieName && c.Name != hostCookieName) || c.Value == "" || (otherNameOnly && c.Name == keep) {
+			continue
+		}
+		if err := s.db.DeleteSession(r.Context(), sessionID(c.Value)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // setCookie issues the session cookie: HttpOnly, SameSite=Lax, Path=/,
