@@ -107,7 +107,9 @@ await t.eachViewport(async (page, vp) => {
           await page.setViewportSize({ width: w, height: h });
           await page.goto("/l/all", { waitUntil: "load" });
           await markUnread([...(await library()).read]);
-          // Each run starts at the top of All, not at the place the run before left it.
+          // Each run starts at the top of All, not at the place the run before left it: a place near the end of the
+          // shorter pages leaves nothing to scroll over, so nothing is passed (the restore itself marks nothing, P5 in
+          // scroll-restore.mjs covers coming back to a place with room).
           await page.evaluate(() => localStorage.removeItem("kipple.listPlace.v1"));
           await page.reload({ waitUntil: "load" });
           await ready(page);
