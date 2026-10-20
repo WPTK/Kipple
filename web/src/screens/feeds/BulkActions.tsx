@@ -4,7 +4,7 @@ import { deleteFeeds, deleteFolder, invalidateFeeds, patchFeed, reorder as reord
 import { errorMessage } from "@/api/client";
 import type { Feed, Folder } from "@/api/types";
 import { Button } from "@/ui/button";
-import { Checkbox, Field, Modal, Notice, inputCls } from "@/ui/kit";
+import { Checkbox, Field, Modal, Notice, RadioRow, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { folderPath, folderTree } from "@/lib/folderTree";
 import { announce, toast } from "@/shell/toasts";
@@ -410,14 +410,12 @@ export function DeleteFolderDialog({
           {count > 0 ? (
             <fieldset className="flex flex-col gap-2 text-sm" disabled={working || feedsGone}>
               <legend className="sr-only">What happens to the feeds</legend>
-              <label className="flex min-h-11 items-center gap-3">
-                <input type="radio" name="folder-feeds" checked={!all} onChange={() => setMode("keep")} className="size-5 accent-[var(--kp-accent)]" />
+              <RadioRow name="folder-feeds" checked={!all} onSelect={() => setMode("keep")}>
                 Keep the feeds
-              </label>
-              <label className="flex min-h-11 items-center gap-3">
-                <input type="radio" name="folder-feeds" checked={all} onChange={() => setMode("all")} className="size-5 accent-[var(--kp-accent)]" />
+              </RadioRow>
+              <RadioRow name="folder-feeds" checked={all} onSelect={() => setMode("all")}>
                 Delete the {plural} too
-              </label>
+              </RadioRow>
             </fieldset>
           ) : null}
           {all ? (

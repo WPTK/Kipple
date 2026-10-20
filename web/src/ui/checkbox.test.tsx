@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { Checkbox } from "./kit";
+import { Checkbox, RadioCard } from "./kit";
 
 describe("Checkbox", () => {
   it("is a native checkbox named by its label, described by its help, and reports the new value", async () => {
@@ -82,5 +82,76 @@ describe("forms use checkboxes, not switches", () => {
       .map((f) => relative(root, f).split(sep).join("/"))
       .filter((f) => f !== "ui/kit.tsx");
     expect(used.filter((f) => !INSTANT_APPLY.includes(f))).toEqual([]);
+  });
+});
+
+// A checkbox or radio is one shared component (`Checkbox`, `RadioCard`, `RadioRow` in ui/kit.tsx), so a form's options
+// look, size and align the same everywhere. A raw `<input type="checkbox|radio">` may appear only where the control is
+// not a labelled option in a form: the rows of a list that are picked for a bulk action (exempt in
+// docs/maintainers/ui-decisions.md), and the two controls drawn as something else. Every source file is scanned.
+const RAW_INPUT_ALLOWED = [
+  "ui/kit.tsx", // the shared components themselves
+  "ui/segmented.tsx", // the segmented control (native radios drawn as buttons)
+  "theme/ThemePicker.tsx", // swatches: native radios drawn as colour tiles
+  "setup/FeedsStep.tsx", // list rows picked for a bulk action
+  "screens/FeedsScreen.tsx", // list rows picked for a bulk action
+  "screens/HealthScreen.tsx", // list rows picked for a bulk action
+];
+
+describe("options use the shared components", () => {
+  it('<input type="checkbox"> and <input type="radio"> appear only in the allowed places', () => {
+    const root = resolve("src");
+    const used = sources(root)
+      .filter((f) => /type=(["'{]+)(checkbox|radio)\1?/.test(readFileSync(f, "utf8")))
+      .map((f) => relative(root, f).split(sep).join("/"));
+    expect(used.filter((f) => !RAW_INPUT_ALLOWED.includes(f))).toEqual([]);
+  });
+});
+
+describe("RadioCard", () => {
+  it("is a native radio group by name: one checked, arrow keys move it, and the value is the radio's value", async () => {
+    function Host() {
+      const [v, setV] = useState("a");
+      return (
+        <fieldset>
+          <legend>Pick</legend>
+          {["a", "b"].map((x) => (
+            <RadioCard key={x} name="pick" value={x} checked={v === x} onSelect={() => setV(x)} title={`Option ${x}`} help={`About ${x}.`} />
+          ))}
+        </fieldset>
+      );
+    }
+    render(<Host />);
+    expect(screen.getByRole("group", { name: "Pick" })).toBeInTheDocument();
+    const a = screen.getByRole("radio", { name: /^Option a/ });
+    const b = screen.getByRole("radio", { name: /^Option b/ });
+    expect(a).toBeChecked();
+    expect(b).toHaveAttribute("value", "b");
+    expect(a).toHaveAttribute("name", "pick");
+    a.focus();
+    await userEvent.setup().keyboard("{ArrowDown}");
+    expect(b).toBeChecked();
+    expect(a).not.toBeChecked();
+  });
+
+  it("the whole card is one label; children sit outside the name and describe the radio", async () => {
+    const onSelect = vi.fn();
+    render(
+      <RadioCard name="r" checked={false} onSelect={onSelect} title="With a password">
+        <p>The usual choice.</p>
+      </RadioCard>,
+    );
+    const radio = screen.getByRole("radio", { name: "With a password" });
+    expect(radio).toHaveAccessibleDescription("The usual choice.");
+    await userEvent.setup().click(screen.getByText("With a password"));
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("a disabled card cannot be chosen", async () => {
+    const onSelect = vi.fn();
+    render(<RadioCard name="r" checked={false} onSelect={onSelect} disabled title="Not now" />);
+    await userEvent.setup().click(screen.getByText("Not now"));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole("radio", { name: "Not now" })).toBeDisabled();
   });
 });

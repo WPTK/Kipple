@@ -283,6 +283,94 @@ export function Checkbox({
   );
 }
 
+const radioBox = "size-5 shrink-0 accent-[var(--kp-accent)]";
+
+/**
+ * One option of a group of radios that each want a sentence: a bordered card with a title, an optional line of help
+ * and, when the choice needs more room, content below it. Put the cards in a `<fieldset>` with a `<legend>`; cards that
+ * share a `name` are one native radio group (arrow keys move between them, the form value is `value`).
+ *
+ * `help` is part of the option's name. `children` sit under the title, indented to its text, outside the label and
+ * described by it (a description, or fields that belong to the option); a card with children also has the larger title.
+ * The whole card is one hit area (44 px tall, 56 px with Large targets, via `label.min-h-11` in index.css).
+ */
+export function RadioCard({
+  name,
+  value,
+  checked,
+  onSelect,
+  disabled,
+  title,
+  help,
+  children,
+}: {
+  name: string;
+  value?: string;
+  checked: boolean;
+  onSelect: () => void;
+  disabled?: boolean;
+  title: ReactNode;
+  help?: ReactNode;
+  children?: ReactNode;
+}) {
+  const id = useId();
+  const roomy = children != null && children !== false;
+  const card = cn(
+    "rounded-xl border p-3 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent",
+    checked ? "border-accent bg-selection" : "border-line bg-surface",
+    disabled ? "opacity-60" : "hover:bg-selection",
+  );
+  const label = cn("flex min-h-11 items-start gap-3", disabled ? "cursor-not-allowed" : "cursor-pointer");
+  const input = (
+    <input
+      id={id}
+      type="radio"
+      name={name}
+      value={value}
+      checked={checked}
+      disabled={disabled}
+      aria-describedby={roomy ? `${id}-d` : undefined}
+      onChange={onSelect}
+      className={cn(radioBox, roomy ? "mt-1" : "mt-0.5")}
+    />
+  );
+  const text = (
+    <span className="min-w-0">
+      <span className={cn("font-semibold", roomy && "text-base")}>{title}</span>
+      {help ? <span className="block text-xs text-fg2">{help}</span> : null}
+    </span>
+  );
+  if (!roomy) {
+    return (
+      <label htmlFor={id} className={cn(card, label, "text-sm")}>
+        {input}
+        {text}
+      </label>
+    );
+  }
+  return (
+    <div className={cn(card, "text-sm")}>
+      <label htmlFor={id} className={label}>
+        {input}
+        {text}
+      </label>
+      <div id={`${id}-d`} className="ml-8 flex flex-col gap-3 text-fg2">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** One plain radio with its label, for a short choice that needs no card (a few options in a dialog). */
+export function RadioRow({ name, value, checked, onSelect, children }: { name: string; value?: string; checked: boolean; onSelect: () => void; children: ReactNode }) {
+  return (
+    <label className="flex min-h-11 cursor-pointer items-center gap-3">
+      <input type="radio" name={name} value={value} checked={checked} onChange={onSelect} className={radioBox} />
+      {children}
+    </label>
+  );
+}
+
 /** Wait after the last keystroke or +/- click before a value is committed (blur and Enter commit at once). */
 export const STEPPER_DEBOUNCE_MS = 700;
 

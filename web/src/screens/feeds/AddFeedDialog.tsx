@@ -4,7 +4,7 @@ import { ApiError, errorMessage } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
 import { addFeed, invalidateFeeds, type AddFeedResult, type Candidate, type FeedDetail, type FetchOutcome } from "@/api/admin";
 import { Button } from "@/ui/button";
-import { Checkbox, Field, Modal, Notice, inputCls } from "@/ui/kit";
+import { Checkbox, Field, Modal, Notice, RadioCard, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { announce } from "@/shell/toasts";
 
@@ -174,13 +174,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
         <fieldset ref={choices} className="flex flex-col gap-2">
           <legend className="mb-1 text-sm font-semibold">This site has more than one feed. Choose one.</legend>
           {step.candidates.map((c) => (
-            <label key={c.url} className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-line bg-surface p-3 has-[:checked]:border-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent">
-              <input type="radio" name="candidate" checked={pick === c.url} onChange={() => setPick(c.url)} className="mt-1 size-5 accent-[var(--kp-accent)]" />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium">{c.title || c.url}</span>
-                <span className="block text-xs break-all text-fg2">{c.url}</span>
-              </span>
-            </label>
+            <RadioCard key={c.url} name="candidate" checked={pick === c.url} onSelect={() => setPick(c.url)} title={c.title || c.url} help={<span className="break-all">{c.url}</span>} />
           ))}
         </fieldset>
       ) : (

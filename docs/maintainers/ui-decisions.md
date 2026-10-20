@@ -62,7 +62,9 @@ were resolved in round 2 and what shipped; each is annotated below.
   phrase that reads as the thing you do when it is ticked ("Check this feed", "Use this filter"), not a state ("Enabled",
   "Filter is on"); the owner ruled this 2026-10-19.
 - A choice among a few named steps stays a segmented control (native radios); a choice that wants a sentence each is a
-  list of radio cards.
+  list of radio cards (`RadioCard` in `web/src/ui/kit.tsx`; `RadioRow` for a short plain choice). `checkbox.test.tsx` also fails a hand-written
+  `<input type="checkbox">` or `<input type="radio">` outside the exempt list rows, the segmented control and the theme swatches;
+  `web/uat/controls.mjs` measures the card (K7).
 
 ## Layout
 

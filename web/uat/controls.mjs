@@ -10,6 +10,8 @@
 //   K3  New filter: Use this filter and the Options rows are all checkboxes, one control for the same job;
 //   K6  A checkbox row is one hit area (a tap in the box column or the gap toggles it), 44 px tall (56 px with Large targets),
 //       with the box centred on the text, at both widths;
+//   K7  A radio card (New filter, the scope choices) is one hit area, 44 px tall (56 px with Large targets), the 20 px radio beside
+//       its first line, and a tap in its padding picks it;
 //   K5  Add feed with an address on a private network: the refusal points at "tick" and the option it offers is a checkbox,
 //       unticked (nothing is added);
 //   K4  Settings > Appearance & Reading: Larger buttons stays a switch (it applies the moment it is flipped), and flipping it
@@ -19,7 +21,7 @@
 // First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 17);
+const t = await start(import.meta.url, 19);
 const { check, step } = t;
 
 await t.eachViewport(async (page, vp) => {
@@ -158,6 +160,43 @@ await t.eachViewport(async (page, vp) => {
     check(!(await opt.isChecked()) && (await dlg.getByRole("switch").count()) === 0, `${tag} K5`, "the private-network option is an unticked checkbox", "the private-network option is not an unticked checkbox");
     check(/tick "Allow addresses on my own network"/.test(await dlg.innerText()), `${tag} K5 words`, "the refusal says to tick it", "the refusal does not say to tick it");
     await t.shot(page, `${tag}-K5-add-feed`);
+    await page.keyboard.press("Escape");
+    await dlg.waitFor({ state: "detached", timeout: 5000 });
+  });
+});
+
+// K7: a radio card (RadioCard) is one hit area, 44 px tall (56 px with Large targets), with the 20 px radio beside the
+// first line of its title, and the whole card (its padding too) picks it.
+await t.eachViewport(async (page, vp) => {
+  const tag = vp.id;
+  await step(`${tag} K7`, async () => {
+    await page.goto("/settings/filters", { waitUntil: "load" });
+    await page.getByRole("button", { name: /New filter/ }).first().click();
+    const dlg = page.getByRole("dialog", { name: "New filter" });
+    const every = dlg.getByRole("radio", { name: /^Everywhere/ });
+    const folder = dlg.getByRole("radio", { name: /^A folder/ });
+    await every.waitFor({ timeout: 10000 });
+    await every.scrollIntoViewIfNeeded();
+    for (const large of [false, true]) {
+      await page.evaluate((on) => (on ? document.documentElement.setAttribute("data-targets", "large") : document.documentElement.removeAttribute("data-targets")), large);
+      const want = large ? 56 : 44;
+      const tagL = `${tag} K7 ${large ? "large" : "normal"}`;
+      const m = await folder.evaluate((el) => {
+        const card = el.closest("label").getBoundingClientRect();
+        const b = el.getBoundingClientRect();
+        const title = el.closest("label").querySelector("span > span").getBoundingClientRect();
+        return { x: card.left, y: card.top, h: card.height, w: card.width, bw: b.width, bh: b.height, boxMid: b.top + b.height / 2, lineMid: title.top + Math.min(title.height, 20) / 2 };
+      });
+      check(m.h >= want - 0.5, `${tagL} height`, `the card is ${m.h.toFixed(1)} px tall (at least ${want})`, `the card is ${m.h.toFixed(1)} px tall, under ${want}`);
+      check(Math.round(m.bw) === 20 && Math.round(m.bh) === 20, `${tagL} radio`, "the radio stays 20 px", `the radio is ${m.bw} x ${m.bh} px`);
+      // the 20 px radio sits 2 px low on a 20 px line (mt-0.5), as it always has
+      check(Math.abs(m.boxMid - m.lineMid) <= 3, `${tagL} aligned`, `the radio is beside the first line (${m.boxMid.toFixed(1)} v ${m.lineMid.toFixed(1)})`, `the radio centre ${m.boxMid.toFixed(1)} is off the first line ${m.lineMid.toFixed(1)}`);
+      await page.mouse.click(m.x + m.w / 2, m.y + 4); // the card's top padding, above the text and clear of the rounded corners
+      check(await folder.isChecked(), `${tagL} tap padding`, "a tap in the card's padding picks it", "a tap in the card's padding did nothing");
+      await every.check();
+      if (large) await t.shot(page, `${tag}-K7-large`);
+    }
+    await page.evaluate(() => document.documentElement.removeAttribute("data-targets"));
     await page.keyboard.press("Escape");
     await dlg.waitFor({ state: "detached", timeout: 5000 });
   });
