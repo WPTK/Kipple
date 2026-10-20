@@ -232,8 +232,14 @@ describe("Article view", () => {
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
     const user = userEvent.setup();
+    const glyph = () => screen.getByRole("button", { name: "Full text" }).querySelector("svg")?.getAttribute("class") ?? "";
+    expect(screen.getByRole("button", { name: "Full text" })).toHaveAttribute("aria-pressed", "false");
+    expect(glyph()).toContain("lucide-file-text");
     await user.click(screen.getByRole("button", { name: "Full text" }));
     await screen.findByText("The whole article");
+    // On and off differ in more than color: the glyph changes with aria-pressed (#563).
+    await waitFor(() => expect(screen.getByRole("button", { name: "Full text" })).toHaveAttribute("aria-pressed", "true"));
+    expect(glyph()).toContain("lucide-file-check");
     expect(JSON.parse(String(calls.find((c) => c.url.pathname.endsWith("/fulltext"))?.init?.body))).toEqual({ mode: 1 });
   });
 
