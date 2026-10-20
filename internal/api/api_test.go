@@ -217,6 +217,16 @@ func (h *harness) login() *http.Cookie {
 	return nil
 }
 
+// loginHTTPS signs in over https, as a browser does, and returns the session cookie the answer sets: the __Host- one.
+func (h *harness) loginHTTPS() *http.Cookie {
+	h.t.Helper()
+	rec := h.do("POST", "/api/auth/login", loginBody(testPass), overScheme("https"))
+	require.Equal(h.t, http.StatusNoContent, rec.Code)
+	c := cookieNamed(rec, hostCookieName)
+	require.NotNil(h.t, c, "over https the session cookie is __Host- prefixed")
+	return c
+}
+
 func withCookie(c *http.Cookie) func(*http.Request) {
 	return func(r *http.Request) { r.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value}) }
 }
@@ -399,7 +409,7 @@ func TestOriginUsesEffectiveScheme(t *testing.T) {
 	t.Parallel()
 	trusted := netip.MustParsePrefix("192.0.2.20/32")
 	h := newHarness(t, func(o *Options) { o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{trusted}}) })
-	c := h.login()
+	c := h.loginHTTPS()
 	via := func(origin string) func(*http.Request) {
 		return func(r *http.Request) {
 			r.Header.Del("Sec-Fetch-Site")
@@ -995,7 +1005,7 @@ func TestSessionMarkerOverHTTPSIsHostPrefixed(t *testing.T) {
 	require.Equal(t, "/", m.Path)
 	require.Empty(t, m.Domain)
 	require.False(t, m.HttpOnly, "the app's script reads it")
-	sess := cookieNamed(rec, cookieName)
+	sess := cookieNamed(rec, hostCookieName)
 
 	parent := &http.Cookie{Name: markerName, Value: "1"} // the browser sends it without saying it is the parent domain's
 	ask := func(cookies ...*http.Cookie) (any, *httptest.ResponseRecorder) {
@@ -1048,7 +1058,7 @@ func TestTheMarkerOfTheOtherSchemeIsCleared(t *testing.T) {
 	h := newHarness(t)
 	rec := h.do("POST", "/api/auth/login", loginBody(testPass), overScheme("http"))
 	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
-	sess, old := cookieNamed(rec, cookieName), cookieNamed(rec, markerName)
+	old := cookieNamed(rec, markerName)
 	require.NotNil(t, old)
 	require.False(t, old.Secure)
 	held := func(cookies ...*http.Cookie) func(*http.Request) {
@@ -1065,12 +1075,14 @@ func TestTheMarkerOfTheOtherSchemeIsCleared(t *testing.T) {
 	require.NotNil(t, cookieNamed(rec, hostMarkerName))
 	require.Equal(t, int(sessionTTL/time.Second), cookieNamed(rec, hostMarkerName).MaxAge)
 	require.Equal(t, -1, cookieNamed(rec, markerName).MaxAge)
+	sess := cookieNamed(rec, hostCookieName)
+	require.NotNil(t, sess)
 
-	// Signing out over https holding only the http-era marker: both names are cleared, with the session cookie.
+	// Signing out over https holding the http-era marker: both names are cleared, with the session cookie.
 	rec = h.do("POST", "/api/auth/logout", "", overScheme("https"), held(sess, old))
 	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
 	requireBothMarkersCleared(t, rec, "sign-out over https holding the http-era marker")
-	require.Equal(t, -1, cookieNamed(rec, cookieName).MaxAge)
+	require.Equal(t, -1, cookieNamed(rec, hostCookieName).MaxAge)
 
 	// The http-era marker with the session gone, asked over https: cleared under both names.
 	rec = h.do("GET", "/api/instance", "", overScheme("https"), held(old))

@@ -247,7 +247,7 @@ var (
 // other session.
 func (s *Server) storePassword(r *http.Request, hash, mode string) error {
 	keep := ""
-	if c, err := r.Cookie(cookieName); err == nil {
+	if c, err := s.sessionValue(r); err == nil {
 		keep = sessionID(c.Value)
 	}
 	if err := s.db.SetPasswordHash(r.Context(), hash, mode, keep); err != nil {
