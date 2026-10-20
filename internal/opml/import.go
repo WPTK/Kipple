@@ -263,7 +263,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			a := f.Attrs
 			res.InvalidAttrs = append(res.InvalidAttrs, prefixAll(norm, f.BadAttrs)...)
 			// An imported file must not weaken the SSRF/TLS guards of a feed.
-			needsPrivate := privateAddr || a.AllowPrivateNet != nil && *a.AllowPrivateNet
+			needsPrivate := privateAddr || (a.AllowPrivateNet != nil && *a.AllowPrivateNet)
 			a.AllowPrivateNet = nil
 			if a.AllowInsecureTLS != nil {
 				if *a.AllowInsecureTLS {

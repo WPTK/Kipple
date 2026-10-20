@@ -765,6 +765,33 @@ describe("Folders and OPML", () => {
     ]);
   });
 
+  it("when some feeds cannot be allowed it says which and a retry asks only for those", async () => {
+    let calls12 = 0;
+    const seen: string[] = [];
+    base({
+      "POST /api/opml": () =>
+        json({
+          folders_created: 0, feeds_added: 2, feeds_existing: [], folders_merged_case: [], memberships_dropped: [],
+          feeds_private: [{ url: "http://10.0.0.5/a", feed_id: "11" }, { url: "http://nas.lan/b", feed_id: "12" }],
+        }),
+      "PATCH /api/feeds/11": () => (seen.push("11"), json({ ...feedDetail(), id: "11", allow_private_net: true })),
+      "PATCH /api/feeds/12": () => (seen.push("12"), ++calls12 === 1 ? json({ error: "not_found", message: "gone" }, 404) : json({ ...feedDetail(), id: "12", allow_private_net: true })),
+    });
+    go("/feeds");
+    const user = userEvent.setup({ applyAccept: false });
+    await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Import OPML" }));
+    const dlg = await screen.findByRole("dialog", { name: "Import OPML" });
+    await user.upload(within(dlg).getByLabelText("OPML file"), new File(["<opml/>"], "feeds.opml", { type: "text/xml" }));
+    await user.click(within(dlg).getByRole("button", { name: "Import" }));
+    const done = await screen.findByRole("dialog", { name: "Import finished" });
+    await user.click(within(done).getByRole("button", { name: "Allow my own network for these 2 feeds" }));
+    expect(await within(done).findByText(/1 could not be changed: http:\/\/nas.lan\/b/)).toBeInTheDocument();
+    await user.click(within(done).getByRole("button", { name: "Try the rest again" }));
+    expect(await within(done).findByText(/Allowed for all 2 feeds/)).toBeInTheDocument();
+    expect(seen).toEqual(["11", "12", "12"]);
+  });
+
   it("does not restrict the picker to types iOS may not know, and checks the file itself", async () => {
     const { calls } = base({ "POST /api/opml": () => json({ folders_created: 0, feeds_added: 1, feeds_existing: [], folders_merged_case: [], memberships_dropped: [] }) });
     go("/feeds");

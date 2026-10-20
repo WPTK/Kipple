@@ -43,9 +43,6 @@ export async function opmlFileProblem(file: File): Promise<string | null> {
   return "That doesn't look like an OPML file. Choose the .opml or .xml file exported from your other reader.";
 }
 
-/** The option in a feed's settings that lets Kipple fetch it from your own network (FeedEditor). */
-const PRIVATE_OPTION = "Allow addresses on my own network";
-
 /** "<url>: kipple:allow_insecure_tls" from the import report: the address, and what was not applied, in plain words. */
 export function attrNote(s: string): { url: string; note: string } {
   const at = s.lastIndexOf(": ");
@@ -92,43 +89,52 @@ function ImportProgress({ runId, total, eventId }: { runId: string; total: numbe
 
 /**
  * The feeds that need the private-network exception to be fetched. An import never grants it (a file is not you), so
- * they are listed with the one thing that turns it on for all of them. `canAllow` is false where there is no session to
- * change feeds with (the setup wizard): the list then points to each feed's settings.
+ * they are listed with the one thing that turns it on for all of them.
  */
-function PrivateFeeds({ feeds, canAllow }: { feeds: { url: string; feed_id: string }[]; canAllow: boolean }) {
+function PrivateFeeds({ feeds }: { feeds: { url: string; feed_id: string }[] }) {
   const qc = useQueryClient();
-  const [done, setDone] = useState(0);
+  const [left, setLeft] = useState(feeds);
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(0);
+  const [error, setError] = useState("");
   const [failed, setFailed] = useState<string[]>([]);
-  const [finished, setFinished] = useState(false);
+  const n = feeds.length;
   const run = async () => {
     setBusy(true);
-    const bad: string[] = [];
-    for (const f of feeds) {
+    setError("");
+    setFailed([]);
+    setDone(0);
+    const rest: typeof feeds = [];
+    let fatal = false;
+    for (const [i, f] of left.entries()) {
       try {
         await patchFeed(f.feed_id, { allow_private_net: true });
-      } catch {
-        bad.push(f.url);
+      } catch (e) {
+        rest.push(f);
+        // A feed that is gone or conflicts is that feed's problem; anything else (the session, the network) would
+        // fail every feed after it too, so the rest wait for another go.
+        if (!(e instanceof ApiError && (e.status === 404 || e.status === 409))) {
+          setError(errorMessage(e));
+          rest.push(...left.slice(i + 1));
+          fatal = true;
+          break;
+        }
       }
-      setDone((n) => n + 1);
+      setDone((d) => d + 1);
     }
-    setFailed(bad);
-    setFinished(true);
+    setLeft(rest);
+    setFailed(fatal ? [] : rest.map((f) => f.url));
     setBusy(false);
     invalidateFeeds(qc);
-    announce(bad.length ? "Some feeds could not be changed" : "Allowed addresses on your own network");
+    announce(rest.length ? "Some feeds could not be changed" : "Allowed addresses on your own network");
   };
-  const n = feeds.length;
-  const granted = finished ? n - failed.length : 0;
+  const allowed = left.length === 0;
   return (
     <div className="text-sm">
       <p className="font-semibold">
         {n} feed{n === 1 ? " is" : "s are"} on your own network
       </p>
-      <p className="text-fg2">
-        For safety, an import never lets a file reach addresses on your own network, so Kipple won't fetch {n === 1 ? "it" : "these"} until you allow it
-        {canAllow ? "." : ` in ${n === 1 ? "its" : "each feed's"} settings ("${PRIVATE_OPTION}").`}
-      </p>
+      <p className="text-fg2">For safety, an import never lets a file reach addresses on your own network, so Kipple won't fetch {n === 1 ? "it" : "these"} until you allow it.</p>
       <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
         {feeds.map((f) => (
           <li key={f.feed_id} className="break-all">
@@ -136,24 +142,23 @@ function PrivateFeeds({ feeds, canAllow }: { feeds: { url: string; feed_id: stri
           </li>
         ))}
       </ul>
-      {canAllow ? (
-        <div className="mt-2 flex flex-col gap-1">
-          {finished && !failed.length ? (
-            <p role="status">Allowed for {granted === 1 ? "the feed" : `all ${granted} feeds`}. Kipple is fetching {granted === 1 ? "it" : "them"} now.</p>
-          ) : (
-            <Button onClick={() => void run()} disabled={busy} className="self-start">
-              {busy ? `Allowing ${done.toLocaleString()} of ${n.toLocaleString()}` : failed.length ? "Try the rest again" : `Allow my own network for ${n === 1 ? "this feed" : `these ${n} feeds`}`}
-            </Button>
-          )}
-          {failed.length ? <p role="alert" className="text-danger">{failed.length} could not be changed: {failed.join(", ")}. Open {failed.length === 1 ? "it" : "each"} in Manage feeds to allow it there.</p> : null}
-        </div>
-      ) : null}
+      <div className="mt-2 flex flex-col gap-1">
+        {allowed ? (
+          <p role="status">Allowed for {n === 1 ? "the feed" : `all ${n} feeds`}. Kipple is fetching {n === 1 ? "it" : "them"} now.</p>
+        ) : (
+          <Button onClick={() => void run()} disabled={busy} className="self-start">
+            {busy ? `Allowing ${done.toLocaleString()} of ${left.length.toLocaleString()}` : left.length < n ? "Try the rest again" : `Allow my own network for ${n === 1 ? "this feed" : `these ${n} feeds`}`}
+          </Button>
+        )}
+        {error ? <p role="alert" className="text-danger">{error}</p> : null}
+        {failed.length ? <p role="alert" className="text-danger">{failed.length} could not be changed: {failed.join(", ")}. Open {failed.length === 1 ? "it" : "each"} in Manage feeds to allow it there.</p> : null}
+      </div>
     </div>
   );
 }
 
 /** What an import did, in plain words: the counts, and everything that was skipped, merged or not applied. */
-export function OpmlResultSummary({ result, canAllowPrivate = false }: { result: OpmlResult; canAllowPrivate?: boolean }) {
+export function OpmlResultSummary({ result }: { result: OpmlResult }) {
   const existing = result.feeds_existing.length;
   const moved = result.feeds_moved?.length ?? 0;
   const emptied = result.folders_emptied ?? [];
@@ -237,7 +242,7 @@ export function OpmlResultSummary({ result, canAllowPrivate = false }: { result:
         </ul>
       </div>
     ) : null}
-    {priv.length ? <PrivateFeeds feeds={priv} canAllow={canAllowPrivate} /> : null}
+    {priv.length ? <PrivateFeeds feeds={priv} /> : null}
     {ignored.length ? (
       <div className="text-sm">
         <p className="font-semibold">Some settings in the file were not applied</p>
@@ -304,7 +309,7 @@ export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
   if (result) {
     return (
       <Modal open onOpenChange={(o) => !o && onClose()} title="Import finished" footer={<Button variant="solid" onClick={onClose}>Done</Button>}>
-        <OpmlResultSummary result={result} canAllowPrivate />
+        <OpmlResultSummary result={result} />
       </Modal>
     );
   }

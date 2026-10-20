@@ -912,3 +912,16 @@ func TestPatchFeedGrantingPrivateNetMakesTheFeedDue(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, res.NeedsFetch, "already granted: nothing to reschedule")
 }
+
+func TestPatchFeedGrantingPrivateNetOnADisabledFeedDoesNotReschedule(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.addFeed("http://192.168.1.6/f.xml")
+	_, err := e.db.writer.ExecContext(e.ctx, "UPDATE feeds SET enabled = 0, disabled_reason = 'user', consecutive_failures = 4 WHERE id = ?", id)
+	require.NoError(t, err)
+
+	res, err := e.db.PatchFeed(e.ctx, id, FeedPatch{Cols: map[string]any{"allow_private_net": true}})
+	require.NoError(t, err)
+	require.False(t, res.NeedsFetch, "a disabled feed is not fetched")
+	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND allow_private_net = 1 AND consecutive_failures = 4", id))
+}
