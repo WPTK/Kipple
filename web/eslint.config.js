@@ -36,7 +36,7 @@ export default tseslint.config(
   },
   {
     // The single-purpose flows: Node, with the functions they hand to page.evaluate written inline.
-    files: ["uat/common.mjs", "uat/chrome.mjs", "uat/phone-shell.mjs", "uat/phone-header.mjs", "uat/wrapping.mjs", "uat/phone-chrome.mjs", "uat/touch-menus.mjs", "uat/scroll-restore.mjs", "uat/feeds.mjs", "uat/states.mjs", "uat/wait-ready.mjs", "uat/all.mjs", "uat/row-name.mjs"],
+    files: ["uat/common.mjs", "uat/chrome.mjs", "uat/phone-shell.mjs", "uat/phone-header.mjs", "uat/phone-tabs.mjs", "uat/wrapping.mjs", "uat/phone-chrome.mjs", "uat/touch-menus.mjs", "uat/scroll-restore.mjs", "uat/feeds.mjs", "uat/states.mjs", "uat/wait-ready.mjs", "uat/all.mjs", "uat/row-name.mjs"],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {
