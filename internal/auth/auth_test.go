@@ -44,8 +44,13 @@ func TestVerifierRealArgon2WithMemo(t *testing.T) {
 // fakePacing makes f's pacing wait advance the fake clock *now instead of
 // sleeping, and counts the waits.
 func fakePacing(f *FailureTracker, now *time.Time, waits *int) {
-	var mu sync.Mutex
 	f.SetMaxWait(time.Hour) // the fake clock makes every wait instant
+	fakeClock(f, now, waits)
+}
+
+// fakeClock is fakePacing without lifting the wait bound.
+func fakeClock(f *FailureTracker, now *time.Time, waits *int) {
+	var mu sync.Mutex
 	f.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return *now }
 	f.After = func(d time.Duration) <-chan time.Time {
 		mu.Lock()
@@ -208,11 +213,11 @@ func TestFailureTrackerConcurrentAttemptsWait(t *testing.T) {
 			h.Finish("2001:db8::1", true)
 		}()
 	}
-	require.Eventually(t, func() bool { return refused.Load() == 50-1-int32(h.maxWaiters) }, 2*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return refused.Load() == 50-1-4 }, 2*time.Second, 5*time.Millisecond)
 	close(release)
 	wg.Wait()
 	require.EqualValues(t, 1, peak.Load(), "one attempt per client at a time")
-	require.EqualValues(t, 1+h.maxWaiters, admitted.Load(), "the waiting ones ran in turn")
+	require.EqualValues(t, 1+4, admitted.Load(), "the waiting ones ran in turn")
 }
 
 func TestRateKeyGroupsIPv6By64(t *testing.T) {
@@ -444,15 +449,17 @@ func TestParseHashLimits(t *testing.T) {
 func TestFailureTrackerWaitsUpToTheBound(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	f := NewFailureTracker()
-	bound := f.maxWait
-	require.Equal(t, 10*time.Second, bound)
-	fakePacing(f, &now, nil)
+	fakeClock(f, &now, nil) // the default bound stays; the fake wait fires at once
 	for i := 0; i < 8; i++ {
 		fail(f, "a")
 	}
-	f.SetMaxWait(bound)
-	now = now.Add(6 * time.Second)
-	require.Equal(t, bound, f.Wait("a"))
+	// The next turn is 16 s away: past the bound, so it is refused, not held.
+	require.False(t, f.Acquire(context.Background(), "a"), "16 s away is refused")
+	now = now.Add(5 * time.Second)
+	require.Equal(t, 11*time.Second, f.Wait("a"))
+	require.False(t, f.Acquire(context.Background(), "a"), "just past the bound is refused")
+	now = now.Add(1 * time.Second)
+	require.Equal(t, 10*time.Second, f.Wait("a"))
 	require.True(t, f.Acquire(context.Background(), "a"), "a wait of exactly the bound is held")
 	f.Finish("a", false)
 }
@@ -492,8 +499,8 @@ func TestFailureTrackerGiveUpReleasesItsPlace(t *testing.T) {
 	cancel()
 	require.False(t, <-gaveUp, "the cancelled attempt gives up")
 
-	results := make(chan bool, f.maxWaiters)
-	for i := 0; i < f.maxWaiters; i++ {
+	results := make(chan bool, 4)
+	for i := 0; i < 4; i++ {
 		go func() {
 			ok := f.Acquire(t.Context(), "a")
 			if ok {
@@ -511,7 +518,7 @@ func TestFailureTrackerGiveUpReleasesItsPlace(t *testing.T) {
 	now = now.Add(2 * time.Second)
 	mu.Unlock()
 	close(fire)
-	for i := 0; i < f.maxWaiters; i++ {
+	for i := 0; i < 4; i++ {
 		require.True(t, <-results, "every attempt that queued after the one that gave up gets its turn")
 	}
 }

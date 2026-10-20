@@ -264,6 +264,8 @@ func (v *Verifier) ClearMemo() {
 // is one client. Several people who truly share one key (an unlisted proxy,
 // Docker's gateway, carrier NAT) share one budget, so even one persistent
 // guesser among them can make the others' attempts wait or answer busy.
+//
+// Build one with NewFailureTracker; the zero value cannot be used.
 type FailureTracker struct {
 	// The policy is set only by NewFailureTracker, so every tracker has a whole one.
 	window     time.Duration
@@ -300,12 +302,12 @@ type attempt struct {
 // waiting attempts per client, each waiting at most 10 s.
 func NewFailureTracker() *FailureTracker {
 	return &FailureTracker{window: time.Hour, threshold: 5, firstDelay: 2 * time.Second, maxDelay: time.Minute,
-		maxWait: 10 * time.Second, maxWaiters: 4, Now: time.Now,
+		maxWait: 10 * time.Second, maxWaiters: 4, Now: time.Now, After: time.After,
 		m: map[string]*failure{}, live: map[string]*attempt{}}
 }
 
 // SetMaxWait changes how long an attempt may wait for its turn; d must be positive. Tests whose fake clock makes
-// every wait instant lift it.
+// every wait instant lift it. Call it before the first Acquire; it is not safe to call concurrently with one.
 func (f *FailureTracker) SetMaxWait(d time.Duration) {
 	if d <= 0 {
 		panic("auth: FailureTracker wait bound must be positive")
@@ -322,9 +324,6 @@ func (f *FailureTracker) SetMaxWait(d time.Duration) {
 func (f *FailureTracker) Acquire(ctx context.Context, ip string) bool {
 	k := RateKey(ip)
 	after := f.After
-	if after == nil {
-		after = time.After
-	}
 	deadline := time.NewTimer(f.maxWait)
 	defer deadline.Stop()
 
