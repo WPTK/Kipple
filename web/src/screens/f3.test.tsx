@@ -8,7 +8,7 @@ import { initialLive, liveStore } from "@/api/events";
 import type { HealthResponse, SettingMeta } from "@/api/admin";
 import { DEFAULT_PREFS, applyPrefs, parsePrefs, prefsStore } from "@/lib/prefs";
 import { FONTS } from "@/lib/fonts";
-import { devicePrefsStore, parseDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
+import { LAYOUT_HINTS, LAYOUT_IDS, LAYOUT_LABELS, devicePrefsStore, parseDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { healthFilter, healthSort } from "./HealthScreen";
 import * as toasts from "@/shell/toasts";
@@ -132,6 +132,33 @@ describe("Settings renderer", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "Reading" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: /Remove tracking from links/ })).toBeChecked();
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("offers the six layouts as radio cards that say what each looks like, and saves the pick for this device", async () => {
+    base();
+    go("/settings/appearance");
+    const group = await screen.findByRole("group", { name: "Layout" });
+    const radios = within(group).getAllByRole("radio");
+    expect(radios.map((r) => (r as HTMLInputElement).value).sort()).toEqual([...LAYOUT_IDS].sort());
+    for (const id of LAYOUT_IDS) expect(within(group).getByRole("radio", { name: new RegExp(LAYOUT_LABELS[id]) })).toHaveAccessibleName(expect.stringContaining(LAYOUT_HINTS[id]));
+    expect(radios.filter((r) => (r as HTMLInputElement).checked)).toHaveLength(1);
+    expect(group).toHaveAccessibleDescription(/default for this device/);
+    try {
+      const user = userEvent.setup();
+      await user.click(within(group).getByRole("radio", { name: /Headlines/ }));
+      expect(within(group).getByRole("radio", { name: /Headlines/ })).toBeChecked();
+      expect(devicePrefsStore.get().layout).toBe("headlines");
+      expect(radios.filter((r) => (r as HTMLInputElement).checked)).toHaveLength(1);
+      const at = LAYOUT_IDS.indexOf("headlines");
+      await user.keyboard("{ArrowDown}"); // arrow keys move through the layouts like any radio group
+      const next = LAYOUT_IDS[(at + 1) % LAYOUT_IDS.length];
+      expect(within(group).getByRole("radio", { checked: true })).toHaveProperty("value", next);
+      expect(devicePrefsStore.get().layout).toBe(next);
+      await user.keyboard("{ArrowUp}");
+      expect(devicePrefsStore.get().layout).toBe("headlines");
+    } finally {
+      devicePrefsStore.set(parseDevicePrefs(null)); // the pick must not reach the next test
+    }
   });
 
   it("does not list a device-scoped key a second time: this device's own control already shows it", async () => {

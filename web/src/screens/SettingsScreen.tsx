@@ -10,6 +10,7 @@ import { everyLabel } from "@/lib/interval";
 import {
   ARTICLE_WIDTHS,
   ARTICLE_WIDTH_LABELS,
+  LAYOUT_HINTS,
   LAYOUT_IDS,
   LAYOUT_LABELS,
   PAPER_NAME_MAX,
@@ -18,7 +19,6 @@ import {
   updateDevicePrefs,
   useDevicePrefs,
   type ArticleWidth,
-  type LayoutId,
   type LinkTarget,
   type UnreadBadge,
 } from "@/lib/devicePrefs";
@@ -36,7 +36,7 @@ import { navItemClass } from "@/ui/navItem";
 import { Segmented } from "@/ui/segmented";
 import { BackButton } from "@/ui/BackButton";
 import { Button } from "@/ui/button";
-import { Disclosure, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
+import { Disclosure, Notice, RadioCard, Skeleton, Switch, inputCls } from "@/ui/kit";
 import { DensityControl, FontSelect, SpacingControl, TextSizeControl } from "./AppearanceControls";
 import { DevicesSection } from "./DevicesSection";
 import { FiltersSection } from "./filters/FiltersSection";
@@ -359,14 +359,15 @@ function AppearancePage() {
       <AccessibilitySection scrollHelp={scrollHelp} />
 
       <Section title="Lists and reading">
-        <Segmented<LayoutId>
-          legend="Layout"
-          hint="The default for this device. Each feed and folder can override it from the layout button in its list."
-          value={dp.layout}
-          onChange={(layout) => updateDevicePrefs({ layout })}
-          options={LAYOUT_IDS.map((id) => ({ value: id, label: LAYOUT_LABELS[id] }))}
-          wrap
-        />
+        <fieldset className="min-w-0" aria-describedby="layout-hint">
+          <legend className="text-sm font-semibold">Layout</legend>
+          <p id="layout-hint" className="mb-2 text-xs text-fg2">The default for this device. Each feed and folder can override it from the layout button in its list.</p>
+          <div className="flex flex-col gap-2">
+            {LAYOUT_IDS.map((id) => (
+              <RadioCard key={id} name="default-layout" value={id} checked={dp.layout === id} onSelect={() => updateDevicePrefs({ layout: id })} title={LAYOUT_LABELS[id]} help={LAYOUT_HINTS[id]} />
+            ))}
+          </div>
+        </fieldset>
         <PaperNameField />
         <Segmented<ArticleWidth>
           legend="Article width"
