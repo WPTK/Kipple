@@ -179,7 +179,7 @@ answers says "Page not found" (U4).
 
 In CI, the `Browser UAT` workflow (`.github/workflows/browser-uat.yml`) seeds a throwaway instance on loopback and runs
 `npm run uat:all` (`web/uat/all.mjs`): every flow listed in `web/uat/flows.json` under Chromium, and the Feeds, saved-search,
-downloads, images and wrapping flows under WebKit (WebKit sends fetch metadata that Chromium does not, so a download error saved as the file shows only there).
+downloads, images, wrapping and rotate flows under WebKit (WebKit sends fetch metadata that Chromium does not, so a download error saved as the file shows only there).
 A new flow file goes in `flows.json`, as a flow or as excluded with a reason; `node uat/all.mjs --check` fails a file that is neither.
 The workflow needs no outside network: `web/scripts/fixture-feeds.mjs` serves five feeds on loopback and `KIPPLE_SEED_FEEDS_URL`
 makes `npm run seed` add those instead of the public ones. It is not a required check yet, and `scripts/maintainers/pr-ready.ps1`
@@ -764,7 +764,8 @@ size with a throwaway script that reads the instance URL and sign-in from enviro
 the seed's throwaway account), writes screenshots and a findings list to a scratch directory outside the repository,
 and runs the in-page checks above (overflow, target size, text clipped by its box, duplicate labels, reachability). The
 assertable part already lives in the flows `web/uat/scroll-restore.mjs` (`npm run uat:scroll-restore`: a reload comes back to the
-same place in the list) and `web/uat/phone-shell.mjs` (`npm run uat:phone-shell`: Stats stays inside the
+same place in the list), `web/uat/rotate.mjs` (`npm run uat:rotate`: turning the phone keeps the list on the same article
+and marks nothing read) and `web/uat/phone-shell.mjs` (`npm run uat:phone-shell`: Stats stays inside the
 window, the Feeds title is whole, the list header does not grow with a long feed title, the article's edges line up in
 landscape, the tab highlight), and `web/uat/wrapping.mjs` (`npm run uat:wrapping`: a wide table scrolls sideways with its
 words whole, a long unbroken word in a title wraps in the list and the reader), and `web/uat/phone-chrome.mjs`

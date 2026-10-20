@@ -1,0 +1,1 @@
+Turning a phone between portrait and landscape, or resizing the window, keeps the article list on the article you were looking at, and Mark as read while scrolling no longer marks articles read that the new layout moved above the top of the list. Coming back to a list after changing the text size also returns to the same article.
