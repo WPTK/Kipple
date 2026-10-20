@@ -8,6 +8,7 @@ import { keys } from "@/api/queries";
 import { DEFAULT_PREFS, prefsStore, updatePrefs } from "@/lib/prefs";
 import { clearToasts } from "@/shell/toasts";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
+import { LIST_PLACE_KEY } from "@/lib/listPlace";
 import { clearListMemory } from "./ListPane";
 
 class NoES {
@@ -33,7 +34,13 @@ function go(path: string) {
   return render(<App client={makeQueryClient({ retry: false })} />);
 }
 
+/** The cards are dated back from now an hour apart, and the list puts a header at each change of day, so where the
+ * headers fall (and so which row is at a given offset) depends on the time of day a test runs at. Every test here
+ * runs at this local noon instead, with the clock running on from it. Only Date is replaced: the timers stay real. */
+const NOON = new Date(2026, 9, 15, 12, 0, 0);
+
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true, now: NOON });
   authStore.set("unknown");
   liveStore.set(initialLive);
   vi.stubGlobal("EventSource", NoES);
@@ -42,6 +49,7 @@ beforeEach(() => {
   prefsStore.set(DEFAULT_PREFS);
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.innerHTML = "";
@@ -520,5 +528,38 @@ describe("turning mark-read-on-scroll off", () => {
       await new Promise((r) => setTimeout(r, 900));
     });
     expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read")).toBe(false);
+  });
+});
+
+describe("the remembered place when a list is left (#578)", () => {
+  it("a list that is gone from the page when its place timer fires does not forget the place", async () => {
+    localStorage.setItem(LIST_PLACE_KEY, JSON.stringify({ unread: { id: "1007", at: 1 } }));
+    const cards = Array.from({ length: 30 }, (_, i) => card(i + 1));
+    mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf(cards)),
+    });
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const s = screen.getByTestId("list-scroll");
+      act(() => {
+        s.dispatchEvent(new Event("wheel"));
+        s.scrollTop = 900;
+        s.dispatchEvent(new Event("scroll"));
+      });
+      // React takes the list out of the page a moment before it runs the effect cleanup that clears the timer; a
+      // detached list reads as scrolled to its top.
+      s.remove();
+      s.scrollTop = 0;
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(JSON.parse(localStorage.getItem(LIST_PLACE_KEY) ?? "{}").unread?.id).toBe("1007");
+    } finally {
+      vi.useRealTimers();
+      localStorage.removeItem(LIST_PLACE_KEY);
+    }
   });
 });

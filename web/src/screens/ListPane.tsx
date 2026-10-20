@@ -479,6 +479,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       // reader has moved the list (a restore landing on estimated row heights must not save a neighbour instead).
       timer ??= setTimeout(() => {
         timer = undefined;
+        // A list opening an article on a phone leaves the page before this effect's cleanup clears the timer: a detached
+        // list reads as scrolled to its top, which would forget the place the reader is leaving.
+        if (!el.isConnected) return;
         if (place.moved && placeable) rememberListTop(key, el.scrollTop < 8 ? null : topItemId(el));
       }, 400);
     };

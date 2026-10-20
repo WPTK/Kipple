@@ -546,8 +546,11 @@ func TestThumbFallbacksAreRememberedNotRetried(t *testing.T) {
 }
 
 func TestThumbQueueFullTimeoutAndLateThumbnail(t *testing.T) {
+	// The wait is short only so the test is quick. Nothing below measures elapsed time: how long a request took says
+	// nothing on a busy machine. Each path is told apart by what it leaves behind, the flight a request leaves held
+	// when its job is still outstanding and releases when its job was refused.
 	tr := newThumbRig(t, "image/jpeg", sampleJPEG(t), func(o *Options) {
-		o.ThumbWorkers, o.ThumbQueue, o.ThumbWait = 1, 1, time.Second
+		o.ThumbWorkers, o.ThumbQueue, o.ThumbWait = 1, 1, 100*time.Millisecond
 	})
 	// Hold the whole decode allowance so the worker blocks inside its first job. The cleanup releases it on a
 	// failed assertion too: otherwise Close waits on the blocked worker and the failure is buried under a 15 minute
@@ -557,18 +560,34 @@ func TestThumbQueueFullTimeoutAndLateThumbnail(t *testing.T) {
 	releaseBudget := func() { release.Do(func() { tr.h.lim.budget.release(defaultDecodeBudget) }) }
 	t.Cleanup(releaseBudget)
 
-	// The bounds sit far from the one second wait on both sides: a loaded race-detector runner can add
-	// hundreds of milliseconds to the "at once" path, and that must not read as having waited.
-	slow := time.Now()
+	// inFlight reports whether a job for the image is outstanding: its flight is held by the job, not by a request.
+	inFlight := func(name string) bool {
+		leader, _, rel := tr.cache.Flight(imgcache.KeyThumb(FlagPrivateNet, tr.up.URL+"/"+name))
+		if leader {
+			rel()
+		}
+		return !leader
+	}
+
+	// The wait ends with the job still running: the original, and the job goes on.
+	// A lower bound only: a request that waited out the wait took at least that long, and load can only add to it.
+	const minWait = 90 * time.Millisecond
+	began := time.Now()
 	require.Equal(t, tr.src, read(t, tr.thumb("1.jpg")), "worker busy past the wait: the original")
-	require.GreaterOrEqual(t, time.Since(slow), 750*time.Millisecond)
+	require.GreaterOrEqual(t, time.Since(began), minWait, "the request waited for the thumbnail")
+	require.True(t, inFlight("1.jpg"), "the wait ended with the job outstanding")
+	// The worker has taken job 1 once it has marked it in progress; only then is the queue empty for job 2.
+	require.Eventually(t, func() bool { e, ok := tr.thumbEntry("1.jpg"); return ok && e.NegReason == imgcache.InProgress }, 60*time.Second, 5*time.Millisecond)
+
+	began = time.Now()
 	require.Equal(t, tr.src, read(t, tr.thumb("2.jpg")), "queued behind it: the same")
-	// The worker holds job 1 and job 2 fills the queue: job 3 is refused at once.
-	fast := time.Now()
+	require.GreaterOrEqual(t, time.Since(began), minWait, "the request waited for the thumbnail")
+	require.True(t, inFlight("2.jpg"), "job 2 waited in the queue")
+	// The worker holds job 1 and job 2 fills the queue: job 3 is refused, so it leaves no job and no flight behind.
 	resp := tr.thumb("3.jpg")
 	require.Equal(t, 200, resp.StatusCode)
-	require.Equal(t, tr.src, read(t, resp), "queue full: the original, immediately")
-	require.Less(t, time.Since(fast), 500*time.Millisecond)
+	require.Equal(t, tr.src, read(t, resp), "queue full: the original")
+	require.False(t, inFlight("3.jpg"), "refused: no job was queued")
 	_, ok := tr.thumbEntry("3.jpg")
 	require.False(t, ok, "a full queue is not remembered as a failure")
 
