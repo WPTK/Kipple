@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, authStore } from "./client";
 import { filtersKey } from "./filters";
 import { wasFilterTouched } from "./filterEdits";
-import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type ItemPatch } from "./queries";
+import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type BootstrapAnswer, type ItemPatch } from "./queries";
 import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
@@ -333,7 +333,7 @@ let countsRefetch: ReturnType<typeof setTimeout> | undefined;
 export { SAVED_COUNTS_MIN_MS, refreshSavedSearchCounts, resetSavedSearchCounts };
 
 /** Everything one event does: reducer, query cache, live region. `id` is the event's SSE id (absent for one made locally). */
-export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number): void {
+export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number, reconciled = false): void {
   // The run's kind is in `finished` when a status poll already ended it.
   const runKind = ev.type === "run.done" ? (liveStore.get().runs[String(ev.data.run_id)]?.kind ?? liveStore.get().finished[String(ev.data.run_id)]?.kind) : undefined;
   liveStore.set((s) => reduceEvent(s, ev, id));
@@ -396,8 +396,10 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number)
       for (const id of ev.data.ids) void qc.invalidateQueries({ queryKey: keys.item(id) });
       break;
     case "resync":
-      // The server says it cannot replay what we missed: only then are the lists refetched.
-      void qc.invalidateQueries({ queryKey: keys.bootstrap });
+      // The server says it cannot replay what we missed: only then are the lists refetched. A run.done among the
+      // missed events is found by asking for the active runs (the stream stays open, so no reconnect does it). When
+      // the connection just reconciled (`reconciled`: the status poll and the feed tree refresh), that is not repeated.
+      if (!reconciled) void reconcile(qc).catch(() => undefined);
       void qc.invalidateQueries({ queryKey: keys.itemsAll });
       invalidateSavedSearches(qc);
       break;
@@ -576,6 +578,12 @@ export function useServerEvents(enabled: boolean): void {
       if (heartbeatSeen && !stopped) watchdog = setTimeout(() => fail(src), WATCHDOG_MS);
     };
     let lastEventId = "";
+    // Where the first stream starts: the id the loaded bootstrap follows. Fixed on the first attempt that finds one, and kept
+    // for the retries until the stream delivers an event; a bootstrap refetched during an outage describes the
+    // server later than the events this page never received, and a cursor taken from it would skip them.
+    let startCursor = "";
+    // Whether this connection has reconciled after an outage, so its `resync` does not repeat those requests.
+    let reconciled = false;
     /** The stream is up: leave fallback polling and reconcile runs and counts if events were missed. */
     const connected = (proven = true) => {
       // Only a delivered message or heartbeat proves the stream healthy; a bare onopen does not (a proxy
@@ -585,8 +593,10 @@ export function useServerEvents(enabled: boolean): void {
       if (liveStore.get().transport !== "open") liveStore.set((s) => ({ ...s, transport: "open" }));
       if (lost) {
         lost = false;
+        reconciled = true;
         reconcile(qc).catch(() => {
           lost = true; // try again on the next message
+          reconciled = false;
         });
       }
     };
@@ -604,9 +614,26 @@ export function useServerEvents(enabled: boolean): void {
 
     const connect = () => {
       retryTimer = undefined;
-      // A recreated EventSource never sends Last-Event-ID, so the last id we saw goes in the URL; a server
-      // that ignores it is still fine (runs and counts are reconciled from /api/status either way).
-      const src = new EventSource(lastEventId ? `/api/events?last_event_id=${encodeURIComponent(lastEventId)}` : "/api/events");
+      reconciled = false;
+      // A new EventSource cannot send Last-Event-ID, so the cursor goes in the URL: the last id the stream
+      // delivered, and before it has delivered one the id the loaded bootstrap follows (the shell opens the stream
+      // after the bootstrap answered, and what happened in between, a run.done, is replayed from that id). The
+      // service worker's stored copy says nothing about the server now, and "0" means no ordering.
+      if (!startCursor && !lastEventId) {
+        // Worked out again on each attempt while it is empty (the bootstrap was not cached yet, or had no ordering id)
+        // and no event has arrived; once set it is kept. The larger of the live state's newest id and the bootstrap's,
+        // so a remount never goes back to an older bootstrap id.
+        const b = qc.getQueryData<BootstrapAnswer>(keys.bootstrap);
+        const boot = b && !b.fromCache ? eventSeq(b.event_id) : 0;
+        const start = Math.max(boot, liveStore.get().lastId);
+        startCursor = start > 0 ? String(start) : "";
+      }
+      const cursor = lastEventId || startCursor;
+      // A cursor the server cannot honour (it restarted with its clock stepped back) is answered with a resync
+      // whose id is below it: counting the cursor as seen is what lets the reducer recognise that as a restart.
+      const sent = eventSeq(cursor);
+      if (sent > liveStore.get().lastId) liveStore.set((s) => ({ ...s, lastId: sent }));
+      const src = new EventSource(cursor ? `/api/events?last_event_id=${encodeURIComponent(cursor)}` : "/api/events");
       es = src;
       src.addEventListener("heartbeat", () => {
         heartbeatSeen = true;
@@ -620,7 +647,7 @@ export function useServerEvents(enabled: boolean): void {
         connected();
         pet(src);
         const ev = parseServerEvent(type, m.data);
-        if (ev) handleServerEvent(qc, ev, eventSeq(m.lastEventId));
+        if (ev) handleServerEvent(qc, ev, eventSeq(m.lastEventId), reconciled);
       };
       for (const t of SERVER_EVENT_TYPES) src.addEventListener(t, onMessage(t) as EventListener);
       src.onopen = () => {

@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -764,6 +765,69 @@ func TestSSEReplayFromLastEventIDQueryParam(t *testing.T) {
 	defer resp.Body.Close()
 	br := bufio.NewReader(resp.Body)
 	require.Equal(t, "event: two\n", readUntil(t, br, "event: two", 2*time.Second))
+}
+
+// The page opens its stream after the bootstrap answered; a run that ended in between is in the replay.
+func TestSSEFromTheBootstrapIDDeliversTheRunThatEndedInTheGap(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	ts := sseServer(t, h)
+	h.hub.Publish("run.start", map[string]string{"run_id": "7"})
+	boot := h.hub.LastID() // the bootstrap answer lists run 7
+	h.hub.Publish("run.done", map[string]string{"run_id": "7"})
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/events?last_event_id="+itoa(boot), nil)
+	req.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	br := bufio.NewReader(resp.Body)
+	require.Equal(t, "event: run.done\n", readUntil(t, br, "event:", 2*time.Second))
+}
+
+// A cursor that is not a number cannot be honoured: the client gets one resync and nothing else, whether the cursor came
+// in the query or in the Last-Event-ID header.
+func TestSSEWithAMalformedCursorGetsAResync(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	ts := sseServer(t, h)
+	h.hub.Publish("run.done", map[string]string{"run_id": "7"})
+	for _, viaHeader := range []bool{false, true} {
+		for _, v := range []string{"abc", "-5", "1.5", "99999999999999999999999"} {
+			url := ts.URL + "/api/events"
+			if !viaHeader {
+				url += "?last_event_id=" + v
+			}
+			req, _ := http.NewRequest("GET", url, nil)
+			req.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+			if viaHeader {
+				req.Header.Set("Last-Event-ID", v)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			br := bufio.NewReader(resp.Body)
+			name := fmt.Sprintf("%q (header: %v)", v, viaHeader)
+			require.Equal(t, "event: resync\n", readUntil(t, br, "event:", 2*time.Second), name)
+			next := make(chan string, 1)
+			go func() {
+				for {
+					l, err := br.ReadString('\n')
+					if err != nil || (strings.HasPrefix(l, "event:") && l != "event: heartbeat\n") {
+						next <- l
+						return
+					}
+				}
+			}()
+			select {
+			case l := <-next:
+				t.Fatalf("%s: another event followed the resync: %q", name, l)
+			case <-time.After(300 * time.Millisecond):
+			}
+			_ = resp.Body.Close()
+		}
+	}
 }
 
 func TestSSEEndsWhenItsSessionIsGone(t *testing.T) {

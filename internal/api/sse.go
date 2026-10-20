@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -26,7 +27,12 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		v = r.URL.Query().Get("last_event_id")
 	}
 	if v != "" {
-		last, _ = strconv.ParseUint(v, 10, 64)
+		var err error
+		if last, err = strconv.ParseUint(v, 10, 64); err != nil {
+			// A cursor this server could not have issued: answer with a resync (the hub does that for an
+			// id ahead of its own) so the client reconciles, rather than guessing what it missed.
+			last = math.MaxUint64
+		}
 	}
 	var session string
 	if c, err := r.Cookie(cookieName); err == nil {
