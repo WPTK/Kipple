@@ -8,7 +8,7 @@ import { initialLive, liveStore } from "@/api/events";
 import type { HealthResponse, SettingMeta } from "@/api/admin";
 import { DEFAULT_PREFS, applyPrefs, parsePrefs, prefsStore } from "@/lib/prefs";
 import { FONTS } from "@/lib/fonts";
-import { devicePrefsStore, parseDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
+import { LAYOUT_HINTS, LAYOUT_IDS, LAYOUT_LABELS, devicePrefsStore, parseDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { healthFilter, healthSort } from "./HealthScreen";
 import * as toasts from "@/shell/toasts";
@@ -132,6 +132,19 @@ describe("Settings renderer", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "Reading" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: /Remove tracking from links/ })).toBeChecked();
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("offers the six layouts as radio cards that say what each looks like, and saves the pick for this device", async () => {
+    base();
+    go("/settings/appearance");
+    const group = await screen.findByRole("group", { name: "Layout" });
+    const radios = within(group).getAllByRole("radio");
+    expect(radios.map((r) => (r as HTMLInputElement).value).sort()).toEqual([...LAYOUT_IDS].sort());
+    for (const id of LAYOUT_IDS) expect(within(group).getByRole("radio", { name: new RegExp(LAYOUT_LABELS[id]) })).toHaveAccessibleName(expect.stringContaining(LAYOUT_HINTS[id]));
+    await userEvent.setup().click(within(group).getByRole("radio", { name: /Headlines/ }));
+    expect(within(group).getByRole("radio", { name: /Headlines/ })).toBeChecked();
+    expect(devicePrefsStore.get().layout).toBe("headlines");
+    devicePrefsStore.set(parseDevicePrefs(null)); // the pick must not reach the next test
   });
 
   it("does not list a device-scoped key a second time: this device's own control already shows it", async () => {
