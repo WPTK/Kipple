@@ -1,0 +1,1 @@
+The "Kipple can't let you in from here" screen: Try again now sends one request instead of two. A definite refusal from the server (any 4xx answer except a timeout or too-many-requests) is no longer asked for a second time. (#572)
