@@ -477,7 +477,7 @@ upgrade Kipple shows what changed once ("What's new"), and an open browser tab t
 
 The image is signed and built for `linux/amd64` and `linux/arm64`: `ghcr.io/wptk/kipple:<version>`, with the newest
 version on the [releases page](https://github.com/WPTK/Kipple/releases) (`docker-compose.pull.example.yml` in the
-repository is the ready file). Verify a pull with cosign (below, and in each release's notes). Upgrade by changing the tag and
+repository is the ready file). `latest` is the newest stable release; `X.Y` and `X` follow the newest release of that line. Verify a pull with cosign (below, and in each release's notes). Upgrade by changing the tag and
 `docker compose pull kipple && docker compose up -d kipple` (name the service). To go back across a migration, start the
 previous tag's image only after restoring the pre-migration snapshot (see below).
 

@@ -52,7 +52,7 @@ Kipple 1.0 is a release candidate. [CHANGELOG.md](CHANGELOG.md) lists what chang
 
 ## Install
 
-Replace `<version>` with the exact tag of the newest version on the [releases page](https://github.com/WPTK/Kipple/releases), for example `1.0.0-rc.2`. There is no `latest` tag before a stable release.
+Replace `<version>` with the exact tag of the newest version on the [releases page](https://github.com/WPTK/Kipple/releases), for example `1.0.0`. The `latest` tag follows the newest stable release; pin an exact version if you want upgrades to be your choice.
 
 ```
 docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data ghcr.io/wptk/kipple:<version>
