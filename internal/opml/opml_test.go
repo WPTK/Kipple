@@ -619,3 +619,26 @@ func TestImportPrivateListHoldsOnlyAddressesAndLANNames(t *testing.T) {
 	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE allow_private_net = 1").Scan(&n))
 	require.Zero(t, n, "no import grants the exception")
 }
+
+// Cloud metadata hosts (.internal names) and link-local addresses are never offered for the bulk allow, whatever the
+// file says; the file's own request gets its caution line, and a link-local address without one still gets a line.
+func TestImportKeepsMetadataHostsOutOfTheBulkList(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	r := importString(t, db, `<opml xmlns:kipple="`+NS+`"><body>
+	<outline text="A" xmlUrl="http://metadata.google.internal/a" kipple:allow_private_net="1"/>
+	<outline text="B" xmlUrl="http://host.docker.internal/b"/>
+	<outline text="C" xmlUrl="http://169.254.169.254/c" kipple:allow_private_net="1"/>
+	<outline text="D" xmlUrl="http://169.254.1.1/d"/>
+	<outline text="E" xmlUrl="http://[fe80::1]/e"/>
+	<outline text="F" xmlUrl="http://192.168.1.2/f"/>
+	</body></opml>`, ImportOptions{})
+	require.Equal(t, []string{"http://192.168.1.2/f"}, feedURLs(r.FeedsPrivate))
+	require.Equal(t, []string{
+		"http://metadata.google.internal/a: kipple:allow_private_net",
+		"http://169.254.169.254/c: kipple:allow_private_net",
+		"http://169.254.1.1/d: private_address",
+		"http://[fe80::1]/e: private_address",
+	}, r.IgnoredAttrs)
+	require.Equal(t, 6, r.FeedsAdded)
+}

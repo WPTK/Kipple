@@ -49,6 +49,7 @@ export function attrNote(s: string): { url: string; note: string } {
   const url = at >= 0 ? s.slice(0, at) : s;
   const attr = at >= 0 ? s.slice(at + 2) : "";
   if (attr.endsWith("allow_private_net")) return { url, note: "the file asked to reach your own network; Kipple didn't allow it. Allow it in the feed's settings if you trust it" };
+  if (attr === "private_address") return { url, note: "this address can reach services on the machine itself or its network, so Kipple won't fetch it unless you allow it in the feed's settings" };
   if (attr.endsWith("allow_insecure_tls")) return { url, note: "the file skipped certificate checks; Kipple checks them" };
   return { url, note: `${attr || "a setting"} was not applied` };
 }
@@ -116,7 +117,7 @@ function PrivateFeeds({ feeds, where }: { feeds: PrivateFeed[]; where: string })
         ok.push(f);
       } catch (e) {
         if (e instanceof ApiError && e.status === 404) no.push(`${f.url} is gone`);
-        else if (e instanceof ApiError && e.status === 409) no.push(`${f.url} now has another address`);
+        else if (e instanceof ApiError && e.status === 409) no.push(e.code === "url_changed" ? `${f.url} now has another address` : `${f.url} could not be changed`);
         else {
           // The session or the network would fail every feed after this one too, so the rest wait for another go.
           setError(errorMessage(e));
@@ -136,7 +137,7 @@ function PrivateFeeds({ feeds, where }: { feeds: PrivateFeed[]; where: string })
   const off = allowed.filter((f) => !f.enabled).length;
   const fetching = allowed.length - off;
   return (
-    <div className="text-sm">
+    <div className="text-sm" data-testid="private-feeds">
       <p className="font-semibold">
         {n} feed{n === 1 ? " is" : "s are"} on your own network
       </p>

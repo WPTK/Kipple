@@ -103,10 +103,10 @@ func TestWildcardDNSNamesMatchOnlyThemselves(t *testing.T) {
 }
 
 func TestLANOnlyName(t *testing.T) {
-	for _, h := range []string{"nas.lan", "NAS.LAN.", "printer.home.arpa", "a.b.local", "box.internal", "x.localdomain", "x.home", "x.corp"} {
+	for _, h := range []string{"nas.lan", "NAS.LAN.", "printer.home.arpa", "a.b.local", "x.localdomain", "x.home", "x.corp"} {
 		require.True(t, LANOnlyName(h), h)
 	}
-	for _, h := range []string{"", "nas", "news", "lan", ".lan", "10.0.0.5", "::1", "example.com", "evil.lan.example.com", "fritz.box", "10.0.0.5.nip.io", "lan.nip.io", "a..lan"} {
+	for _, h := range []string{"", "nas", "news", "lan", ".lan", "10.0.0.5", "::1", "example.com", "metadata.google.internal", "host.docker.internal", "x.internal", "evil.lan.example.com", "fritz.box", "10.0.0.5.nip.io", "lan.nip.io", "a..lan"} {
 		require.False(t, LANOnlyName(h), h)
 	}
 }

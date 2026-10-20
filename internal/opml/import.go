@@ -91,7 +91,7 @@ type Result struct {
 	// FeedsPrivate are the new feeds on a literal private address or a LAN-only name (fetch.LANOnlyName): they need the
 	// private-network exception to be fetched, and only these may be allowed in bulk. An import never grants it (a
 	// file is not the owner); they are imported with it off, and the owner can turn it on for them from the report
-	// (PATCH /api/feeds/{id} with expected_url). A feed on a public name whose file merely asked for
+	// (PATCH /api/feeds/{id} with expected_url). A link-local address (169.254.0.0/16, fe80::/10) and a name under .internal (cloud metadata and service hosts) are never in it either: each is a per-feed decision. A feed on a public name whose file merely asked for
 	// kipple:allow_private_net is not here: a public name can come to point anywhere, so it is in IgnoredAttrs and the
 	// owner decides on its own row.
 	FeedsPrivate []Private `json:"feeds_private"`
@@ -222,9 +222,12 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				res.Skipped = append(res.Skipped, Skipped{shortURL(f.URL), skipReason(err)})
 				continue
 			}
-			privateAddr := false
+			privateAddr, linkLocal := false, false
 			if ip, perr := netip.ParseAddr(host); perr == nil && fetch.Blocked(ip.Unmap()) {
 				privateAddr = true
+				// 169.254.0.0/16 and fe80::/10 are where cloud metadata services and a host's own interfaces live: never
+				// offered for a bulk allow.
+				linkLocal = ip.Unmap().IsLinkLocalUnicast()
 			}
 			if p, ok := seen[key]; ok {
 				res.FeedsRepeated++
@@ -278,12 +281,14 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			// An imported file must not weaken the SSRF/TLS guards of a feed.
 			privateReason := ""
 			switch {
-			case privateAddr:
+			case privateAddr && !linkLocal:
 				privateReason = "private_address"
 			case fetch.LANOnlyName(host):
 				privateReason = "lan_name"
 			case a.AllowPrivateNet != nil && *a.AllowPrivateNet:
 				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": kipple:allow_private_net")
+			case linkLocal:
+				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": private_address")
 			}
 			a.AllowPrivateNet = nil
 			if a.AllowInsecureTLS != nil {

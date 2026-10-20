@@ -78,9 +78,10 @@ await t.eachViewport(async (page, vp) => {
     );
     check(/gopher:\/\/uat-feed-g\.invalid\/: not a web address \(it must start with http:\/\/ or https:\/\/\)/.test(text), `${tag} O2 skipped`, "the gopher feed says why it was skipped", `no plain skip reason in "${text}"`);
     const hostileLines = text.split(HOSTILE).length - 1;
-    const own = text.slice(text.indexOf("on your own network"), text.indexOf(PRIVATE) + PRIVATE.length + 1);
+    const ownList = dlg.getByTestId("private-feeds");
+    const own = (await ownList.count()) === 1 ? await t.textOf(ownList, 5000) : "";
     check(
-      hostileLines === 1 && !own.includes(HOSTILE) && text.includes(`${HOSTILE}: the file asked to reach your own network; Kipple didn't allow it`),
+      own.includes(PRIVATE) && hostileLines === 1 && !own.includes(HOSTILE) && text.includes(`${HOSTILE}: the file asked to reach your own network; Kipple didn't allow it`),
       `${tag} O2 hostile`,
       "a public name that only the file asked about is listed once, with the caution line, outside the own-network list",
       `the public name appears ${hostileLines} times; "${text}"`,
