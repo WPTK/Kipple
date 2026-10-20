@@ -1,5 +1,3 @@
-import { useState } from "react";
-import { DropdownMenu } from "radix-ui";
 import { Check, LayoutGrid, Star } from "lucide-react";
 import type { Scope } from "@/api/types";
 import { useFolderTree } from "@/api/queries";
@@ -24,7 +22,7 @@ import {
 } from "@/lib/devicePrefs";
 import { cn } from "@/lib/cn";
 import { announce } from "@/shell/toasts";
-import { menuScrollClass, useTabBarClearance } from "@/ui/menuClearance";
+import { DropdownMenu } from "@/ui/menu";
 
 const item =
   "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-selection";
@@ -54,8 +52,6 @@ export function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
  */
 export function LayoutMenu({ scope }: { scope: Scope }) {
   const dp = useDevicePrefs();
-  const [open, setOpen] = useState(false);
-  const bottomPad = useTabBarClearance(open);
   const setListOverride = useSetListOverride();
   const { layout, ctx } = useResolvedLayout(scope);
   const target = overrideTarget(ctx);
@@ -71,7 +67,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
   };
 
   return (
-    <DropdownMenu.Root onOpenChange={setOpen}>
+    <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
@@ -82,12 +78,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="start"
-          sideOffset={4}
-          collisionPadding={{ top: 8, left: 8, right: 8, bottom: bottomPad }}
-          className={cn(menuScrollClass, "z-50 w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-line bg-bg p-1 text-fg shadow-xl")}
-        >
+        <DropdownMenu.Content align="start" sideOffset={4} popoverWidth="w-72">
           {target ? <p className="px-3 pt-2 text-xs text-fg2">These choices are for this {noun} on this device.</p> : null}
           <DropdownMenu.Label className={heading}>Layout</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
