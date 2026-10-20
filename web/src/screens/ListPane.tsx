@@ -426,7 +426,6 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     // Nothing is laid out for real before the list has a width, and heights restored for this same layout, width
     // and text size are still right: dropping them would put the rows above the restored offset back at their
     // estimates and land the reader rows away from where they were.
-    console.debug("DBG sig", sizeSig, "was", measuredSig.current, "w", width, el?.clientWidth, "top", listTop.current.id, "st", el?.scrollTop);
     if (!unmeasured && measuredSig.current !== sizeSig) {
       measuredSig.current = sizeSig;
       // measure() drops every cached size. Rows already on screen (the list came back from an article with its
@@ -439,9 +438,6 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         // Nothing on the way there counts as seen (the place.index gate below), as after a reload's restore.
         place.index = i;
         virtualizer.scrollToIndex(i, { align: "start" });
-        console.debug("DBG anchor", id, "i", i, "start", virtualizer.measurementsCache[i]?.start, "st", el?.scrollTop);
-        requestAnimationFrame(() => console.debug("DBG anchor+1f st", el?.scrollTop, "start", virtualizer.measurementsCache[i]?.start, "size", virtualizer.measurementsCache[i - 1]?.size));
-        setTimeout(() => console.debug("DBG anchor+500 st", el?.scrollTop, "start", virtualizer.measurementsCache[i]?.start), 500);
       }
     }
     // Only once the rows were laid out for this width (and put back on the article, above) is the top read again.
@@ -773,8 +769,6 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     const top = el.scrollTop < 8 ? undefined : virtualizer.getVirtualItemForOffset(el.scrollTop + 1);
     // A day header at the top stands for the article under it.
     const row = top ? rowsRef.current.slice(top.index).find((r) => r.kind !== "header") : undefined;
-    const nextId = row?.kind === "item" ? row.item.id : row?.kind === "group" ? (row.items[0]?.id ?? null) : null;
-    if (nextId !== listTop.current.id) console.debug("DBG capture", nextId, "was", listTop.current.id, "st", el.scrollTop, "topIdx", top?.index, "start", top?.start, "end", top?.end, "w", el.clientWidth);
     listTop.current.id = row?.kind === "item" ? row.item.id : row?.kind === "group" ? (row.items[0]?.id ?? null) : null;
     memoryFor(key).topId = listTop.current.id;
   }, [virtualItems, virtualizer, Page, key, rowsRef]);
