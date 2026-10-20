@@ -570,12 +570,18 @@ func TestThumbQueueFullTimeoutAndLateThumbnail(t *testing.T) {
 	}
 
 	// The wait ends with the job still running: the original, and the job goes on.
+	// A lower bound only: a request that waited out the wait took at least that long, and load can only add to it.
+	const minWait = 90 * time.Millisecond
+	began := time.Now()
 	require.Equal(t, tr.src, read(t, tr.thumb("1.jpg")), "worker busy past the wait: the original")
+	require.GreaterOrEqual(t, time.Since(began), minWait, "the request waited for the thumbnail")
 	require.True(t, inFlight("1.jpg"), "the wait ended with the job outstanding")
 	// The worker has taken job 1 once it has marked it in progress; only then is the queue empty for job 2.
 	require.Eventually(t, func() bool { e, ok := tr.thumbEntry("1.jpg"); return ok && e.NegReason == imgcache.InProgress }, 60*time.Second, 5*time.Millisecond)
 
+	began = time.Now()
 	require.Equal(t, tr.src, read(t, tr.thumb("2.jpg")), "queued behind it: the same")
+	require.GreaterOrEqual(t, time.Since(began), minWait, "the request waited for the thumbnail")
 	require.True(t, inFlight("2.jpg"), "job 2 waited in the queue")
 	// The worker holds job 1 and job 2 fills the queue: job 3 is refused, so it leaves no job and no flight behind.
 	resp := tr.thumb("3.jpg")
