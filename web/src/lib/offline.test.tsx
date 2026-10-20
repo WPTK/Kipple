@@ -128,6 +128,27 @@ describe("the offline queue", () => {
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ starred: false, at: 20 });
   });
 
+  it("is sent only once the app is signed in: never while that is unknown or signed out, and at once on sign-in", async () => {
+    await queueStar("1", true);
+    const { calls } = mockFetch({ "PUT /api/items/1/star": () => json({ starred: true, restored: false }) });
+    for (const state of ["unknown", "out"] as const) {
+      authStore.set(state);
+      await flushQueue();
+      expect(calls, state).toHaveLength(0);
+      expect(offlineStore.get().pending, state).toBe(1);
+    }
+    const stop = initOffline(new QueryClient());
+    try {
+      await new Promise((r) => setTimeout(r, 20)); // the launch flush, still signed out
+      expect(calls).toHaveLength(0);
+      authStore.set("in");
+      await waitFor(() => expect(offlineStore.get().pending).toBe(0));
+      expect(calls.map((c) => c.url.pathname)).toEqual(["/api/items/1/star"]);
+    } finally {
+      stop();
+    }
+  });
+
   it("stops at the first network failure and keeps everything left", async () => {
     await queueStar("1", true);
     await queueStar("2", true);

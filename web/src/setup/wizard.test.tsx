@@ -5,7 +5,7 @@ import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
 import { authStore, openRefusedStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
-import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
+import { bootstrap, card, json, mockFetch, pageOf, setSessionMarker } from "@/test/mockApi";
 import { themeStore } from "@/theme/theme";
 import { DEFAULT_THEME_SETTINGS } from "@/theme/settings";
 import { flush, resetDeviceSync, syncStore } from "@/lib/deviceSync";
@@ -52,15 +52,19 @@ const tzMeta = (w: World) => ({ key: "tz", value: w.tz, default: "UTC", label: "
 
 /** A tiny fake Kipple: every route the wizard touches, with the state it changes. Extra routes win over these. */
 function server(w: World, extra: Record<string, Handler> = {}) {
+  // The browser holds the session marker exactly when the server has signed it in.
+  setSessionMarker(w.signedIn);
   return mockFetch({
-    "GET /api/instance": () => json(w.instance.setup ? { ...w.instance, ...w.state } : w.instance),
+    "GET /api/instance": () => json(w.instance.setup ? { ...w.instance, ...w.state, signed_in: false } : { ...w.instance, signed_in: w.signedIn }),
     "POST /api/setup/account": () => {
       w.signedIn = true;
+      setSessionMarker(true);
       w.instance = { setup: false, auth: "password" };
       return json({ username: "reader", auth_mode: w.authMode }, 201);
     },
     "POST /api/auth/open": () => {
       w.signedIn = true;
+      setSessionMarker(true);
       return new Response(null, { status: 204 });
     },
     "GET /api/bootstrap": () => (w.signedIn ? json({ ...bootstrap, user: { ...bootstrap.user, username: "reader", password_set: w.passwordSet, auth_mode: w.authMode, setup_pending: w.pending } }) : json({ error: "auth" }, 401)),
