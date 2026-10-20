@@ -9,7 +9,7 @@ import (
 )
 
 func TestParseProxies(t *testing.T) {
-	got, err := ParseProxies(" 192.0.2.10, 10.0.0.0/8 ,, 2001:db8::/32, ::ffff:198.51.100.7, ::ffff:203.0.113.0/120, 10.1.2.3/8 ")
+	got, err := ParseProxies(" 192.0.2.10, 10.0.0.0/8 ,, 2001:db8::/32, ::ffff:198.51.100.7, ::ffff:203.0.113.0/120, 10.1.2.3/8, ::ffff:0.0.0.0/96 ")
 	require.NoError(t, err)
 	var s []string
 	for _, p := range got {
@@ -18,13 +18,14 @@ func TestParseProxies(t *testing.T) {
 	require.Equal(t, []string{
 		"192.0.2.10/32", "10.0.0.0/8", "2001:db8::/32", "198.51.100.7/32", "203.0.113.0/24",
 		"10.0.0.0/8", // host bits are dropped
+		"0.0.0.0/0",  // a mapped /96 is the whole IPv4 space, the widest mapped range there is
 	}, s)
 
 	none, err := ParseProxies("")
 	require.NoError(t, err)
 	require.Empty(t, none)
 
-	for _, bad := range []string{"nope", "192.0.2.0/33", "192.0.2.0/x", "::ffff:10.0.0.0/64", "10.0.0.0/8, nope"} {
+	for _, bad := range []string{"nope", "192.0.2.0/33", "192.0.2.0/x", "::ffff:10.0.0.0/64", "::ffff:0.0.0.0/95", "10.0.0.0/8, nope"} {
 		_, err := ParseProxies(bad)
 		require.Error(t, err, bad)
 	}

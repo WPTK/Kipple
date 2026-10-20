@@ -26,7 +26,7 @@ func TestAboutReportsTheBuildAndNothingPrivate(t *testing.T) {
 		o.Build = buildinfo.Info{Commit: "0123456789abcdef0123456789abcdef01234567", BuildDate: "2026-10-01T12:00:00Z"}
 		o.WebBuild = "3fa9c01b2d"
 		o.DataDir = dir
-		o.Reach = reach.Fixed(reach.State{PublicURL: "https://reader.example.test"})
+		o.Reach = reach.Fixed(reach.State{PublicURL: "https://reader.example.test", PublicHost: "reader.example.test"})
 	})
 	code, out, rec := h.api(h.login(), "GET", "/api/about", "")
 	require.Equal(t, http.StatusOK, code)

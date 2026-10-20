@@ -44,8 +44,13 @@ func TestVerifierRealArgon2WithMemo(t *testing.T) {
 // fakePacing makes f's pacing wait advance the fake clock *now instead of
 // sleeping, and counts the waits.
 func fakePacing(f *FailureTracker, now *time.Time, waits *int) {
+	f.SetMaxWait(time.Hour) // the fake clock makes every wait instant
+	fakeClock(f, now, waits)
+}
+
+// fakeClock is fakePacing without lifting the wait bound.
+func fakeClock(f *FailureTracker, now *time.Time, waits *int) {
 	var mu sync.Mutex
-	f.MaxWait = time.Hour // the fake clock makes every wait instant
 	f.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return *now }
 	f.After = func(d time.Duration) <-chan time.Time {
 		mu.Lock()
@@ -123,7 +128,7 @@ func TestFailureTrackerEscalatingDelay(t *testing.T) {
 	require.Equal(t, 1, f.Count("d"))
 }
 
-// A wait longer than MaxWait is not held: Acquire says no at once and Wait says
+// A wait longer than the wait bound is not held: Acquire says no at once and Wait says
 // how long the client's own failures still ask for.
 func TestFailureTrackerLongWaitIsAnsweredAtOnce(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -132,7 +137,7 @@ func TestFailureTrackerLongWaitIsAnsweredAtOnce(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		fail(f, "a")
 	}
-	f.MaxWait = 10 * time.Second
+	f.SetMaxWait(10 * time.Second)
 	begin := time.Now()
 	require.False(t, f.Acquire(context.Background(), "a"), "16 s is over the 10 s bound")
 	require.Less(t, time.Since(begin), time.Second, "and it says so at once")
@@ -166,12 +171,12 @@ func TestFailureTrackerConcurrentAttemptsWait(t *testing.T) {
 	f.Finish("192.0.2.2", false)
 	require.Empty(t, f.live, "idle clients are forgotten")
 
-	// Bounded: MaxWait.
+	// Bounded: the wait bound.
 	g := NewFailureTracker()
-	g.MaxWait = 30 * time.Millisecond
+	g.SetMaxWait(30 * time.Millisecond)
 	require.True(t, g.Acquire(ctx, "198.51.100.1"))
 	begin := time.Now()
-	require.False(t, g.Acquire(ctx, "198.51.100.1"), "gives up after MaxWait")
+	require.False(t, g.Acquire(ctx, "198.51.100.1"), "gives up after the wait bound")
 	require.GreaterOrEqual(t, time.Since(begin), 25*time.Millisecond)
 	// Bounded: a cancelled request stops waiting.
 	cctx, cancel := context.WithCancel(ctx)
@@ -183,7 +188,7 @@ func TestFailureTrackerConcurrentAttemptsWait(t *testing.T) {
 	// attempt admitted at a time and at most MaxWaiters waiting; the rest are
 	// refused at once.
 	h := NewFailureTracker()
-	h.MaxWait = 5 * time.Second
+	h.SetMaxWait(5 * time.Second)
 	var cur, peak, admitted, refused atomic.Int32
 	release := make(chan struct{})
 	var wg sync.WaitGroup
@@ -208,11 +213,11 @@ func TestFailureTrackerConcurrentAttemptsWait(t *testing.T) {
 			h.Finish("2001:db8::1", true)
 		}()
 	}
-	require.Eventually(t, func() bool { return refused.Load() == 50-1-int32(h.MaxWaiters) }, 2*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return refused.Load() == 50-1-4 }, 2*time.Second, 5*time.Millisecond)
 	close(release)
 	wg.Wait()
 	require.EqualValues(t, 1, peak.Load(), "one attempt per client at a time")
-	require.EqualValues(t, 1+h.MaxWaiters, admitted.Load(), "the waiting ones ran in turn")
+	require.EqualValues(t, 1+4, admitted.Load(), "the waiting ones ran in turn")
 }
 
 func TestRateKeyGroupsIPv6By64(t *testing.T) {
@@ -404,4 +409,222 @@ func TestCheckPasswordRefusesBadHash(t *testing.T) {
 	} {
 		require.NotPanics(t, func() { require.False(t, CheckPassword("pw", phc), name) }, name)
 	}
+}
+
+// Each limit on a stored hash, one step inside (accepted) and one step outside (refused), so a limit that moves by
+// one is caught. parseHash is read directly: a hash at the memory and round limits takes seconds to verify.
+func TestParseHashLimits(t *testing.T) {
+	b64 := func(n int) string { return strings.Repeat("A", n*4/3) } // n bytes, n a multiple of 3
+	phc := func(cost string, salt, tag int) string {
+		return "$argon2id$v=19$" + cost + "$" + b64(salt) + "$" + b64(tag)
+	}
+	for _, ok := range []string{
+		phc("m=8,t=1,p=1", 9, 18),       // the least memory for one thread, one round
+		phc("m=32,t=8,p=4", 9, 18),      // the most rounds and threads, the least memory for four
+		phc("m=262144,t=1,p=1", 63, 63), // the most memory, long salt and tag
+		"$argon2id$v=19$m=8,t=1,p=1$" + strings.Repeat("A", 11) + "$" + strings.Repeat("A", 22), // salt 8 and tag 16 bytes
+		"$argon2id$v=19$m=8,t=1,p=1$" + strings.Repeat("A", 86) + "$" + strings.Repeat("A", 86), // salt and tag 64 bytes
+	} {
+		_, good := parseHash(ok)
+		require.True(t, good, ok)
+	}
+	for name, bad := range map[string]string{
+		"rounds over":        phc("m=32,t=9,p=4", 9, 18),
+		"threads over":       phc("m=40,t=1,p=5", 9, 18),
+		"memory under 8p":    phc("m=31,t=1,p=4", 9, 18),
+		"memory over":        phc("m=262145,t=1,p=1", 9, 18),
+		"salt under 8 bytes": "$argon2id$v=19$m=8,t=1,p=1$" + strings.Repeat("A", 10) + "$" + b64(18),
+		"tag under 16 bytes": "$argon2id$v=19$m=8,t=1,p=1$" + b64(9) + "$" + strings.Repeat("A", 20),
+		"salt over 64 bytes": "$argon2id$v=19$m=8,t=1,p=1$" + strings.Repeat("A", 87) + "$" + b64(18),
+		"tag over 64 bytes":  "$argon2id$v=19$m=8,t=1,p=1$" + b64(9) + "$" + strings.Repeat("A", 87),
+		"zero":               phc("m=8,t=0,p=1", 9, 18),
+		"leading zero":       phc("m=08,t=1,p=1", 9, 18),
+	} {
+		_, good := parseHash(bad)
+		require.False(t, good, name)
+	}
+}
+
+// The default wait bound is 10 s, and a turn that comes exactly at the bound is waited for, not refused.
+func TestFailureTrackerWaitsUpToTheBound(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	f := NewFailureTracker()
+	fakeClock(f, &now, nil) // the default bound stays; the fake wait fires at once
+	for i := 0; i < 8; i++ {
+		fail(f, "a")
+	}
+	// The next turn is 16 s away: past the bound, so it is refused, not held.
+	require.False(t, f.Acquire(context.Background(), "a"), "16 s away is refused")
+	now = now.Add(5 * time.Second)
+	require.Equal(t, 11*time.Second, f.Wait("a"))
+	require.False(t, f.Acquire(context.Background(), "a"), "just past the bound is refused")
+	now = now.Add(1 * time.Second)
+	require.Equal(t, 10*time.Second, f.Wait("a"))
+	require.True(t, f.Acquire(context.Background(), "a"), "a wait of exactly the bound is held")
+	f.Finish("a", false)
+}
+
+// An attempt that gives up waiting frees its place in the queue: afterwards a full queue of new attempts can still
+// wait, and each of them gets its turn.
+func TestFailureTrackerGiveUpReleasesItsPlace(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	f := NewFailureTracker()
+	var mu sync.Mutex
+	f.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	for i := 0; i < 5; i++ {
+		fail(f, "a")
+	}
+	// Every attempt now waits 2 s for its turn. The fake wait reports that it started and fires only when the test
+	// says so. Acquire asks for it under the tracker's lock and joins the queue before letting go, so a Count call
+	// made after the report returns only once that attempt is queued (or refused).
+	started := make(chan struct{}, 16)
+	fire := make(chan time.Time)
+	f.After = func(time.Duration) <-chan time.Time {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		return fire
+	}
+	queued := func() {
+		t.Helper()
+		<-started
+		f.Count("a")
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	gaveUp := make(chan bool)
+	go func() { gaveUp <- f.Acquire(ctx, "a") }()
+	queued()
+	cancel()
+	require.False(t, <-gaveUp, "the cancelled attempt gives up")
+
+	results := make(chan bool, 4)
+	for i := 0; i < 4; i++ {
+		go func() {
+			ok := f.Acquire(t.Context(), "a")
+			if ok {
+				f.Forget("a") // a verified success: the rest need not wait
+				f.Finish("a", false)
+			}
+			results <- ok
+		}()
+		queued()
+	}
+	require.False(t, f.Acquire(t.Context(), "a"), "one more than the queue holds is refused at once")
+	<-started
+
+	mu.Lock()
+	now = now.Add(2 * time.Second)
+	mu.Unlock()
+	close(fire)
+	for i := 0; i < 4; i++ {
+		require.True(t, <-results, "every attempt that queued after the one that gave up gets its turn")
+	}
+}
+
+// Over every byte value each password character comes up equally often, and only the biased tail is drawn again.
+func TestPasswordCharIsUniform(t *testing.T) {
+	hits := map[byte]int{}
+	refused := 0
+	for b := 0; b < 256; b++ {
+		c, ok := passwordChar(byte(b))
+		if !ok {
+			refused++
+			continue
+		}
+		hits[c]++
+	}
+	require.Len(t, hits, len(passwordAlphabet))
+	for c, n := range hits {
+		require.Equal(t, 256/len(passwordAlphabet), n, string(c))
+	}
+	require.Equal(t, 256%len(passwordAlphabet), refused)
+}
+
+// The failure count fades only once more than the window has passed: at exactly the window it still counts, a failure
+// then adds to it, and on a full table the newcomer is counted while exactly one old client loses its count.
+func TestFailureTrackerWindowEdge(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := t0
+	f := NewFailureTracker()
+	fakePacing(f, &now, nil)
+	for i := 0; i < 5; i++ {
+		fail(f, "a")
+	}
+	now = t0.Add(f.window)
+	require.Equal(t, 5, f.Count("a"))
+	require.True(t, fail(f, "a"))
+	require.Equal(t, 6, f.Count("a"), "the sixth failure adds to the five")
+
+	g := NewFailureTracker()
+	now = t0
+	g.Now = func() time.Time { return now }
+	for i := 0; i < maxTracked; i++ {
+		fail(g, fmt.Sprintf("ip-%d", i))
+	}
+	now = t0.Add(g.window)
+	fail(g, "newcomer")
+	require.Equal(t, 1, g.Count("newcomer"))
+	lost := 0
+	for i := 0; i < maxTracked; i++ {
+		if g.Count(fmt.Sprintf("ip-%d", i)) == 0 {
+			lost++
+		}
+	}
+	require.Equal(t, 1, lost, "one old client made room, the others of the same age keep their count")
+}
+
+// The delay doubles from 2 s and stops at the 60 s cap exactly.
+func TestFailureTrackerDelayCap(t *testing.T) {
+	f := NewFailureTracker()
+	for n, want := range map[int]time.Duration{5: 2 * time.Second, 6: 4 * time.Second, 9: 32 * time.Second, 10: time.Minute, 1000: time.Minute} {
+		require.Equal(t, want, f.delay(n), n)
+	}
+}
+
+// The wait bound can be lifted or lowered but never removed: a bound of zero would refuse every attempt that has to
+// wait.
+func TestFailureTrackerWaitBoundIsPositive(t *testing.T) {
+	f := NewFailureTracker()
+	require.Panics(t, func() { f.SetMaxWait(0) })
+	require.NotPanics(t, func() { f.SetMaxWait(time.Nanosecond) })
+}
+
+// The warning interval is an hour to the second, and an expected proxy stays silent even when a warning is due.
+func TestWarnUntrustedProxyHeadersEdges(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	h := WarnUntrustedProxyHeaders(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		nil, func(r *http.Request) bool { return r.Header.Get("X-Test-Expected") != "" }, log, func() time.Time { return now })
+	send := func(expected bool) {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = "198.51.100.7:1"
+		r.Header.Set("X-Forwarded-For", "100.64.0.9")
+		if expected {
+			r.Header.Set("X-Test-Expected", "1")
+		}
+		h.ServeHTTP(httptest.NewRecorder(), r)
+	}
+	send(true)
+	require.Empty(t, buf.String(), "an expected proxy never warns, even the first time")
+	send(false)
+	require.Contains(t, buf.String(), "level=WARN")
+	buf.Reset()
+	now = now.Add(proxyWarnEvery)
+	send(true)
+	require.Empty(t, buf.String(), "an expected proxy never warns, even when a warning is due")
+	send(false)
+	require.Contains(t, buf.String(), "level=WARN", "an hour later it warns again")
+}
+
+// A TLS connection is https whatever the headers say.
+func TestEffectiveSchemeTLS(t *testing.T) {
+	r := httptest.NewRequest("GET", "https://rss.example.com/", nil)
+	r.Header.Set("X-Forwarded-Proto", "http")
+	require.NotNil(t, r.TLS)
+	require.Equal(t, "https", EffectiveScheme(r, nil))
+	r.TLS = nil
+	require.Equal(t, "http", EffectiveScheme(r, nil))
 }
