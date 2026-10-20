@@ -1,5 +1,14 @@
 import { useCallback, useSyncExternalStore } from "react";
 
+/** Whether a media query matches right now; `false` when matchMedia is unavailable. */
+export function mediaMatches(query: string): boolean {
+  try {
+    return window.matchMedia(query).matches;
+  } catch {
+    return false;
+  }
+}
+
 /** Subscribe to a media query. Falls back to `false` when matchMedia is unavailable. */
 export function useMedia(query: string): boolean {
   // Stable functions per query: an inline subscribe would unsubscribe and resubscribe every render.
@@ -16,13 +25,7 @@ export function useMedia(query: string): boolean {
     },
     [query],
   );
-  const getSnapshot = useCallback(() => {
-    try {
-      return window.matchMedia(query).matches;
-    } catch {
-      return false;
-    }
-  }, [query]);
+  const getSnapshot = useCallback(() => mediaMatches(query), [query]);
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
 

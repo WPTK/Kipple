@@ -322,12 +322,36 @@ export function tapProbe({ feed, min, root }) {
   }
   return { small: out, measured, covered };
 }
-// How far an open menu's bottom edge is below the top of the bottom tab bar (positive: it covers the bar); null with no
-// menu or no bar at the bottom (the desktop sidebar is the same landmark). Runs in the page.
-export function menuOverBar() {
-  const menu = document.querySelector('[role="menu"]');
-  const bar = document.querySelector('nav[aria-label="Primary"]');
-  if (!menu || !bar) return null;
-  const top = bar.getBoundingClientRect().top;
-  return top > window.innerHeight / 2 ? Math.round(menu.getBoundingClientRect().bottom - top) : null;
+// Where an open menu lies, and in which mode: whether the browser reports a finger as the pointer (`coarse`, the
+// bottom sheet's condition in ui/menu.tsx) and whether the menu is the sheet; its edges against the window's height;
+// the top of the bottom tab bar (null when the bar is not at the bottom: the desktop sidebar is the same landmark); and
+// whether the menu is what shows at its own centre (a sheet drawn under the tab bar or the dimmed page is not). null
+// with no menu. Runs in the page.
+export function menuPlacement() {
+  const el = document.querySelector('[role="menu"]');
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  const barTop = document.querySelector('nav[aria-label="Primary"]')?.getBoundingClientRect().top;
+  const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  return {
+    coarse: matchMedia("(pointer: coarse)").matches,
+    sheet: el.hasAttribute("data-menu-sheet"),
+    top: r.top,
+    bottom: r.bottom,
+    h: window.innerHeight,
+    barTop: barTop !== undefined && barTop > window.innerHeight / 2 ? barTop : null,
+    shows: !!hit && el.contains(hit),
+  };
+}
+// The index of the list row whose More button is lowest on screen while still above the bottom tab bar, or -1. Runs in
+// the page.
+export function lowestRowMenuButton() {
+  const bar = document.querySelector('nav[aria-label="Primary"]')?.getBoundingClientRect().top ?? innerHeight;
+  let best = -1;
+  let bestY = -1;
+  document.querySelectorAll("main article[data-item-id]").forEach((row, i) => {
+    const b = row.querySelector('button[aria-label^="More actions"]')?.getBoundingClientRect();
+    if (b && b.bottom < bar - 4 && b.top > bestY) [best, bestY] = [i, b.top];
+  });
+  return best;
 }

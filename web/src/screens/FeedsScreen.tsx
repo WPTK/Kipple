@@ -5,7 +5,6 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type C
 import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { DropdownMenu } from "radix-ui";
 import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, HeartPulse, MoreVertical, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { createFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { ApiError, errorMessage } from "@/api/client";
@@ -48,6 +47,7 @@ import { SavedSearchesNav } from "./SavedSearchesNav";
 import { CollapseToggle } from "./FeedTree";
 import { DeleteDialog, DeleteFolderDialog, MoveDialog } from "./feeds/BulkActions";
 import { BottomBar } from "@/ui/BottomBar";
+import { DropdownMenu } from "@/ui/menu";
 
 // The dialogs load when first opened, not with the Feeds screen.
 const AddFeedDialog = lazyScreen(() => import("./feeds/AddFeedDialog").then((m) => ({ default: m.AddFeedDialog })));
@@ -703,7 +703,7 @@ export function FeedsScreen() {
                   </Button>
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
-                  <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-48 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
+                  <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-48">
                     <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "rename", folder: fo })}>
                       <Pencil className="size-5" aria-hidden="true" />
                       Rename or set layout
@@ -799,7 +799,7 @@ export function FeedsScreen() {
                 </Button>
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
-                <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
+                <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
                   <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: null })}>
                     <FolderPlus className="size-5" aria-hidden="true" />
                     New folder
