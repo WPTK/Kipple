@@ -5,7 +5,7 @@
 //   npm run uat:announce -- --url http://127.0.0.1:7091 --screenshots <dir> --browser webkit --headed
 //
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and:
-//   A1  Taps Refresh all feeds with the request held back 3 s: the icon spins and the button says Refreshing at once.
+//   A1  Taps Refresh all feeds (on a phone, the item in the actions menu) with the request held back 3 s: the icon spins at once (on a phone, the actions menu button spins) and the button says Refreshing.
 //   A2  Settings > Appearance & Reading: no switch's name carries its visible On or Off.
 //   A3  Signs in with a wrong password in a second, signed-out browser: both fields are aria-invalid and described by
 //       the error, and the password field has focus.
@@ -62,13 +62,17 @@ await t.eachViewport(async (page, vp) => {
         await p.goto("/l/all", { waitUntil: "load" });
         await p.locator("[data-testid=list-scroll] [data-item-id]").first().waitFor({ timeout: 15000 });
         const answered = p.waitForResponse("**/api/refresh", { timeout: 10000 }).catch(() => null);
-        await p.getByRole("button", { name: "Refresh all feeds" }).first().click();
+        // Wide: the header button. A phone has no such button: the actions menu has the item, and its trigger spins.
+        if (vp.mobile) {
+          await p.getByRole("button", { name: "List actions" }).click();
+          await p.getByRole("menuitem", { name: "Refresh all feeds" }).click();
+        } else await p.getByRole("button", { name: "Refresh all feeds" }).first().click();
         await p.waitForTimeout(300);
-        const state = await p.evaluate(() => {
-          const b = document.querySelector('button[aria-label="Refreshing"]');
-          return { label: !!b, spin: !!b?.querySelector("svg.animate-spin") };
-        });
-        check(state.label && state.spin, `${tag} A1`, "the button spins and says Refreshing 0.3 s after the tap", `0.3 s after the tap: ${JSON.stringify(state)}`);
+        const state = await p.evaluate((mobile) => {
+          const b = document.querySelector(mobile ? 'button[aria-label="List actions"]' : 'button[aria-label="Refreshing"]');
+          return { label: mobile ? true : !!b, spin: !!b?.querySelector("svg.animate-spin") };
+        }, vp.mobile);
+        check(state.label && state.spin, `${tag} A1`, vp.mobile ? "the actions menu button spins 0.3 s after the tap" : "the button spins and says Refreshing 0.3 s after the tap", `0.3 s after the tap: ${JSON.stringify(state)}`);
         await t.shot(p, `${tag}-A1`);
         await answered;
       } finally {

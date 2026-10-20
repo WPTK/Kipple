@@ -73,14 +73,14 @@ export const RANGES: readonly { value: StatsRange; label: string }[] = [
 
 const RANGE_KEY = "kipple.stats.range";
 
-/** The Stats screen's ranges: the four the server knows, plus Months, which is "all" shown as one bar per month. */
+/** The Stats screen's ranges: the four the server knows, plus Monthly, which is "all" shown as one bar per month. */
 export type ScreenRange = StatsRange | "months";
 
 export const SCREEN_RANGES: readonly { value: ScreenRange; label: string }[] = [
   { value: "week", label: "Week" },
   { value: "month", label: "Month" },
   { value: "year", label: "Year" },
-  { value: "months", label: "Months" },
+  { value: "months", label: "Monthly" },
   { value: "all", label: "All" },
 ];
 
