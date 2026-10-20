@@ -159,6 +159,39 @@ describe("the offline queue", () => {
     expect(offlineStore.get().pending).toBe(1);
   });
 
+  it("a sign-out that begins mid-flush keeps what was not sent yet, drops nothing, and a failed sign-out sends it", async () => {
+    for (const id of ["1", "2", "3"]) await queueStar(id, true);
+    let answerFirst!: () => void;
+    const firstHeld = new Promise<void>((r) => (answerFirst = r));
+    const star = () => json({ starred: true, restored: false });
+    const { calls } = mockFetch({
+      "PUT /api/items/1/star": async () => {
+        await firstHeld;
+        return star();
+      },
+      "PUT /api/items/2/star": star,
+      "PUT /api/items/3/star": star,
+    });
+    const toast = vi.spyOn(toasts, "toast");
+    const stop = initOffline(new QueryClient());
+    try {
+      await waitFor(() => expect(calls).toHaveLength(1)); // the launch flush is sending the first change
+      signingOutStore.set(true); // Sign out pressed
+      answerFirst(); // the first change was already on its way and is saved
+      await waitFor(() => expect(offlineStore.get().pending).toBe(2));
+      expect(calls.map((c) => c.url.pathname)).toEqual(["/api/items/1/star"]);
+      expect(toast).not.toHaveBeenCalled();
+      // The sign-out fails: the hold lifts and the rest is sent.
+      signingOutStore.set(false);
+      await waitFor(() => expect(offlineStore.get().pending).toBe(0));
+      expect(calls.map((c) => c.url.pathname)).toEqual(["/api/items/1/star", "/api/items/2/star", "/api/items/3/star"]);
+      expect(toast).not.toHaveBeenCalled();
+    } finally {
+      stop();
+      toast.mockRestore();
+    }
+  });
+
   it("stops at the first network failure and keeps everything left", async () => {
     await queueStar("1", true);
     await queueStar("2", true);

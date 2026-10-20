@@ -1,5 +1,5 @@
 import { onlineManager, type QueryClient } from "@tanstack/react-query";
-import { api, ApiError, authStore, buildPath, signingOutStore } from "@/api/client";
+import { api, ApiError, authStore, buildPath, NotSentWhileSigningOut, signingOutStore } from "@/api/client";
 import { itemsParams, keys, PAGE_SIZE, patchItems, undoKept } from "@/api/queryKeys";
 import { toast } from "@/shell/toasts";
 import { devicePrefsStore, resolveOrder } from "./devicePrefs";
@@ -476,6 +476,8 @@ async function doFlush(qc?: QueryClient): Promise<void> {
       if (left.length) kept.push({ at: confirmed.length, ids: left });
       confirmed.push(r);
     } catch (e) {
+      // Not sent because a sign-out began: the change stays, for the sign-out's wipe or for the next run if it fails.
+      if (e instanceof NotSentWhileSigningOut) break;
       if (ctl.signal.aborted || isOffline(e) || (e instanceof ApiError && (e.status === 401 || e.status === 429 || e.status >= 500))) break;
       // Any other refusal is final: drop the change, and say so below.
       dropped++;
@@ -590,6 +592,15 @@ export function initOffline(qc: QueryClient): () => void {
       const isIn = authStore.get() === "in";
       if (isIn && !wasIn) void flushQueue(qc);
       wasIn = isIn;
+    }),
+  );
+  // A sign-out that did not go through (the server refused it, or it got no answer) lifts the hold on the queue.
+  let wasSigningOut = signingOutStore.get();
+  cleanups.push(
+    signingOutStore.subscribe(() => {
+      const now = signingOutStore.get();
+      if (wasSigningOut && !now) void flushQueue(qc);
+      wasSigningOut = now;
     }),
   );
   const timer = window.setInterval(() => void flushQueue(qc), 60_000);

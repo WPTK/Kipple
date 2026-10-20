@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, authStore, busyMessage, chooseSignOut, errorMessage, SIGN_OUT_PATH } from "@/api/client";
+import { ApiError, api, authStore, busyMessage, chooseSignOut, errorMessage, SIGN_OUT_MS, SIGN_OUT_PATH } from "@/api/client";
 import { applyRetention, changePassword, exportBackup, fetchMe, generateApiPassword, removePassword, type BackupInfo } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import { keys } from "@/api/queryKeys";
@@ -385,24 +385,36 @@ export function AccountActions() {
   const runSetupAgain = () => setupActions.restart();
   const signOut = async () => {
     chooseSignOut(true);
+    // A sign-out that gets no answer is given up, like a network failure, so the app does not stay on hold.
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), SIGN_OUT_MS);
     try {
-      await api(SIGN_OUT_PATH, { method: "POST" });
+      await api(SIGN_OUT_PATH, { method: "POST", signal: ctl.signal });
     } catch (e) {
       // 401: the session had ended already, so the sign-out goes on.
       if (!(e instanceof ApiError && e.status === 401 && e.code === "auth")) {
         chooseSignOut(false);
-        toast(errorMessage(e), "error");
+        toast(ctl.signal.aborted ? "The server didn't answer. Try again." : errorMessage(e), "error");
         return;
       }
+    } finally {
+      clearTimeout(timer);
     }
-    // Clearing the cache ends any reading session (the setting reads unknown); one that stops after the wipe below
-    // is dropped by the stats sender, which queues nothing from the wipe until the next sign-in.
-    qc.clear();
-    // Wait for the copies to be gone before the sign-in screen: the next person at this browser must not be able
-    // to read them offline, and a request answered meanwhile must not find them still there.
-    await wipeOfflineData();
-    authStore.set("out");
-    chooseSignOut(false);
+    try {
+      // Clearing the cache ends any reading session (the setting reads unknown); one that stops after the wipe below
+      // is dropped by the stats sender, which queues nothing from the wipe until the next sign-in.
+      qc.clear();
+      // Wait for the copies to be gone before the sign-in screen: the next person at this browser must not be able
+      // to read them offline, and a request answered meanwhile must not find them still there.
+      await wipeOfflineData();
+    } catch (e) {
+      // The sign-in screen has no toasts to say it in, and the session is over whatever happened here.
+      console.error("Kipple could not delete all of this device's offline copies at sign-out", e);
+    } finally {
+      // The server has ended the session either way.
+      authStore.set("out");
+      chooseSignOut(false);
+    }
   };
 
   return (

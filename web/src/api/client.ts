@@ -42,6 +42,18 @@ export const sessionLostStore = createStore<boolean>(false);
 export const signingOutStore = createStore<boolean>(false);
 /** The sign-out request: the one signed-in request api() still sends while a sign-out is under way. */
 export const SIGN_OUT_PATH = "/api/auth/logout";
+/** How long the sign-out waits for the server before it is given up and the app carries on signed in. */
+export const SIGN_OUT_MS = 10_000;
+
+/**
+ * What api() throws for a signed-in request it does not send during a sign-out. It is an AbortError, so it reads as a
+ * cancelled request everywhere; the offline queue tells it apart to keep the change for later.
+ */
+export class NotSentWhileSigningOut extends DOMException {
+  constructor() {
+    super("not sent: a sign-out is under way", "AbortError");
+  }
+}
 export function chooseSignOut(chosen: boolean) {
   signingOutStore.set(chosen);
 }
@@ -144,7 +156,7 @@ export async function api<T = void>(path: string, opts: RequestOptions = {}): Pr
 
 async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
   // During a sign-out a signed-in request would only answer 401. It is not sent, and fails as a cancelled one does.
-  if (signingOutStore.get() && !opts.anon && path !== SIGN_OUT_PATH) throw new DOMException("signing out", "AbortError");
+  if (signingOutStore.get() && !opts.anon && path !== SIGN_OUT_PATH) throw new NotSentWhileSigningOut();
   const method = opts.method ?? "GET";
   const headers: Record<string, string> = { ...opts.headers, Accept: "application/json", "X-Kipple-Client": clientKind() };
   let body: string | FormData | undefined;
