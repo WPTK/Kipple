@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -75,10 +76,7 @@ func DecodeBody(body []byte, httpCharset string) Decoded {
 	}
 
 	if enc == nil {
-		head := body
-		if len(head) > 1024 {
-			head = head[:1024]
-		}
+		head := body[:min(len(body), 1024)]
 		declared := ""
 		if m := xmlDeclRe.FindSubmatch(head); m != nil {
 			declared = string(m[2])
@@ -181,9 +179,5 @@ func rewriteDecl(b []byte) []byte {
 		copy(val, want)
 		return b
 	}
-	out := make([]byte, 0, len(b)-len(val)+len(want))
-	out = append(out, b[:loc[4]]...)
-	out = append(out, want...)
-	out = append(out, b[loc[5]:]...)
-	return out
+	return slices.Concat(b[:loc[4]], []byte(want), b[loc[5]:])
 }

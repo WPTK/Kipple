@@ -8,6 +8,12 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [1.0.0] - 2026-10-19
+
+### Changed
+
+- Kipple 1.0.0 is the first stable release, the same build as 1.0.0-rc.2. The `latest` image tag now follows the newest stable release, and the README and deploy guide say so.
+
 ## [1.0.0-rc.2] - 2026-10-17
 
 ### Changed
@@ -1062,7 +1068,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.0.0-rc.2...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/WPTK/Kipple/compare/v1.0.0-rc.2...v1.0.0
 [1.0.0-rc.2]: https://github.com/WPTK/Kipple/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/WPTK/Kipple/compare/v0.9.0-beta.1...v1.0.0-rc.1
 [0.9.0-beta.1]: https://github.com/WPTK/Kipple/compare/v0.8.0-beta.8...v0.9.0-beta.1

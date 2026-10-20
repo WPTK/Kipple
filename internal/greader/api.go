@@ -40,10 +40,8 @@ type Options struct {
 	Stats stats.Recorder
 	// Events receives items.state and feed.changed notifications; optional.
 	Events *events.Hub
-	// Failures defaults to the design settings. Verifier must be the one
-	// instance shared with api.Options.Verifier (nil builds a private one, tests
-	// only). Tests inject fakes.
-	Failures *auth.FailureTracker
+	// Verifier must be the one instance shared with api.Options.Verifier (nil
+	// builds a private one, tests only).
 	Verifier *auth.Verifier
 	// Reach is the reachability settings in force: the trusted proxies (the peers
 	// allowed to set CF-Connecting-IP) and the public URL (the base of iconUrl when
@@ -133,7 +131,7 @@ type call struct {
 func New(opt Options) *API {
 	a := &API{
 		db: opt.DB, log: opt.Logger, wake: opt.Wake, opt: opt,
-		now: opt.Now, fails: opt.Failures, ver: opt.Verifier,
+		now: opt.Now, ver: opt.Verifier,
 		routes: map[string]route{},
 	}
 	if a.log == nil {
@@ -142,10 +140,8 @@ func New(opt Options) *API {
 	if a.now == nil {
 		a.now = time.Now
 	}
-	if a.fails == nil {
-		a.fails = auth.NewFailureTracker()
-		a.fails.Now = a.now
-	}
+	a.fails = auth.NewFailureTracker()
+	a.fails.Now = a.now
 	if a.ver == nil {
 		a.ver = auth.NewVerifier(nil, auth.VerifierOptions{})
 	}

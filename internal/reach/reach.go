@@ -292,8 +292,8 @@ func (st *State) publicOrigin(hostHeader string) bool {
 	if want == "" {
 		want = "443"
 	}
-	got := ""
-	if i := strings.LastIndexByte(hostHeader, ':'); i >= 0 && !strings.Contains(hostHeader[i:], "]") {
+	got := "" // the port: what follows the last colon, unless that colon is inside an IPv6 literal's brackets
+	if i := strings.LastIndexByte(hostHeader, ':'); i > strings.LastIndexByte(hostHeader, ']') {
 		got = hostHeader[i+1:]
 	}
 	return got == "" || got == want
@@ -328,8 +328,8 @@ func CheckPublicURL(v string) error {
 	if v == "" {
 		return nil
 	}
-	if strings.TrimSpace(v) != v || strings.ContainsFunc(v, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
-		return fmt.Errorf("%q has spaces or control characters", v)
+	if err := spacesOrControls(v); err != nil {
+		return err
 	}
 	u, err := url.Parse(v)
 	if err != nil {
@@ -347,13 +347,20 @@ func CheckPublicURL(v string) error {
 		return fmt.Errorf("%q must not contain user info", v)
 	case u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(v, "?#"):
 		return fmt.Errorf("%q must not have a query or fragment", v)
-	case u.Opaque != "":
-		return fmt.Errorf("%q is not an absolute URL", v)
 	}
 	// The host is one exact name or address, the way a browser sends it: never a
 	// wildcard or anything else the Host gate would read as more than one name.
 	if _, ok := setup.NormalizeHost(u.Host); !ok {
 		return fmt.Errorf("%q: the host must be one name or IP address, such as rss.example.com (no wildcards)", v)
+	}
+	return nil
+}
+
+// spacesOrControls refuses a public URL with a space or a control character
+// anywhere in it.
+func spacesOrControls(v string) error {
+	if strings.TrimSpace(v) != v || strings.ContainsFunc(v, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+		return fmt.Errorf("%q has spaces or control characters", v)
 	}
 	return nil
 }
@@ -368,8 +375,10 @@ func NormalizePublicURL(v string) (string, error) {
 	if v == "" {
 		return "", nil
 	}
-	if strings.TrimSpace(v) != v || strings.ContainsFunc(v, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
-		return "", fmt.Errorf("%q has spaces or control characters", v)
+	// Checked before the parse: rewriting an internationalized host would
+	// percent-encode a space in the path, and CheckPublicURL would then pass it.
+	if err := spacesOrControls(v); err != nil {
+		return "", err
 	}
 	u, err := url.Parse(v)
 	if err != nil || u.Host == "" {

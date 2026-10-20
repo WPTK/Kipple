@@ -1,7 +1,7 @@
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
-import { Field, Notice, inputCls } from "@/ui/kit";
+import { Checkbox, Field, Notice, inputCls } from "@/ui/kit";
 import { MIN_PASSWORD_LEN, accountFailure, createAccount, openReasonText, passwordProblem, type AccountBody, type SetupOptions } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import { setupSecret } from "./session";
@@ -251,27 +251,15 @@ export function AccountStep({
                   <p className="font-semibold">Anyone who can reach this address can read and change everything.</p>
                   <p className="mt-1">Only choose this if Kipple is reachable only from this computer, your local network or your Tailscale network. In Docker, Kipple can't tell your network from the internet: publish its port only on your local network or Tailscale address, never on a public one. You can set a password later in Settings.</p>
                 </Notice>
-                <div className="flex flex-col gap-1">
-                  <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={ack}
-                      onChange={(e) => {
-                        setAck(e.target.checked);
-                        setFieldError(null);
-                      }}
-                      aria-invalid={fieldError?.field === "open" ? true : undefined}
-                      aria-describedby={fieldError?.field === "open" ? `${uid}-ack-e` : undefined}
-                      className="mt-0.5 size-5 shrink-0 accent-[var(--kp-accent)]"
-                    />
-                    <span className="font-semibold">I understand, and Kipple is only reachable from this computer, my local network or Tailscale</span>
-                  </label>
-                  {fieldError?.field === "open" ? (
-                    <p id={`${uid}-ack-e`} role="alert" className="ml-8 text-sm text-danger">
-                      {fieldError.message}
-                    </p>
-                  ) : null}
-                </div>
+                <Checkbox
+                  label="I understand, and Kipple is only reachable from this computer, my local network or Tailscale"
+                  checked={ack}
+                  onChange={(v) => {
+                    setAck(v);
+                    setFieldError(null);
+                  }}
+                  error={fieldError?.field === "open" ? fieldError.message : null}
+                />
               </div>
             ) : null}
           </Option>

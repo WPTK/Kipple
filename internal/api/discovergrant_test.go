@@ -57,12 +57,12 @@ func requireElsewhere(t *testing.T, code int, body map[string]any, link string) 
 	require.Equal(t, "private_address", body["error"], body)
 	msg, _ := body["message"].(string)
 	require.Contains(t, msg, "The page links its feed on another site, at a private address ("+link+").")
-	require.Contains(t, msg, `To use that feed, enter its own address, turn on "Allow addresses on my own network"`)
+	require.Contains(t, msg, `To use that feed, enter its own address, tick "Allow addresses on my own network"`)
 	require.Contains(t, []int{400, 422}, code)
 }
 
 // A page added with "Allow addresses on my own network" that links its one feed on another site, at a
-// literal private address: the switch is for the page's site, so the feed is refused and never asked.
+// literal private address: the option is for the page's site, so the feed is refused and never asked.
 func TestAddLinkedFeedOnAnotherSiteAtPrivateAddressIsRefused(t *testing.T) {
 	t.Parallel()
 	gs := newGrantSite(t, "http://127.0.0.1PORT/feed")
@@ -225,8 +225,8 @@ func linkOf(r *http.Request) string {
 	return "/feed"
 }
 
-// A feed linked on the page's own site that redirects to a private address on another site: the switch
-// is on, so the message says where the redirect goes rather than to turn the switch on.
+// is ticked, so the message says where the redirect goes rather than to tick it.
+// is ticked, so the message says where the redirect goes rather than to tick the option.
 func TestAddLinkedFeedRedirectingToAPrivateAddressElsewhereSaysSo(t *testing.T) {
 	t.Parallel()
 	port, secret := redirectSite(t, func(port string) string { return "http://127.0.0.1" + port + "/secret" })

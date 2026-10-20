@@ -79,10 +79,8 @@ type Options struct {
 	// ReaderLastSeen reports when a Reader API client last called (greader.API.LastSeen; the zero
 	// time if none has); optional.
 	ReaderLastSeen func() time.Time
-	// Failures paces web sign-ins and password checks per client (nil: the
-	// design budget). Verifier must be the one instance shared with
-	// greader.Options.Verifier (nil builds a private one, tests only).
-	Failures *auth.FailureTracker
+	// Verifier must be the one instance shared with greader.Options.Verifier
+	// (nil builds a private one, tests only).
 	Verifier *auth.Verifier
 	// OnAPIPasswordChange runs after the Reader API password changes (drops the
 	// Reader API cached token at once); optional.
@@ -206,17 +204,15 @@ type Server struct {
 
 // New builds the API server.
 func New(opt Options) *Server {
-	s := &Server{started: time.Now(), opt: opt, db: opt.DB, log: opt.Logger, now: opt.Now, fails: opt.Failures, verifier: opt.Verifier, statsGate: make(chan struct{}, 1)}
+	s := &Server{started: time.Now(), opt: opt, db: opt.DB, log: opt.Logger, now: opt.Now, verifier: opt.Verifier, statsGate: make(chan struct{}, 1)}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
 	if s.now == nil {
 		s.now = time.Now
 	}
-	if s.fails == nil {
-		s.fails = auth.NewFailureTracker()
-		s.fails.Now = s.now
-	}
+	s.fails = auth.NewFailureTracker()
+	s.fails.Now = s.now
 	s.setupSlot = make(chan struct{}, 1)
 	s.exportSlot = make(chan struct{}, 1)
 	s.exportWait = defaultExportWait

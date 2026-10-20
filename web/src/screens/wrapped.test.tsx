@@ -262,22 +262,22 @@ describe("Wrapped share", () => {
     expect(prev.textContent).toContain("12");
     expect(prev.textContent).not.toContain("Secret Feed");
     expect(prev.textContent).not.toContain("Private Title");
-    expect(within(dlg).getByRole("switch", { name: /Include my top sources/ })).not.toBeChecked();
-    expect(within(dlg).getByRole("switch", { name: /Include my longest read/ })).not.toBeChecked();
-    await user.click(within(dlg).getByRole("switch", { name: /Include my top sources/ }));
+    expect(within(dlg).getByRole("checkbox", { name: /Include my top sources/ })).not.toBeChecked();
+    expect(within(dlg).getByRole("checkbox", { name: /Include my longest read/ })).not.toBeChecked();
+    await user.click(within(dlg).getByRole("checkbox", { name: /Include my top sources/ }));
     expect(prev.textContent).toContain("Secret Feed");
     expect(prev.textContent).not.toContain("Private Title");
-    await user.click(within(dlg).getByRole("switch", { name: /Include my longest read/ }));
+    await user.click(within(dlg).getByRole("checkbox", { name: /Include my longest read/ }));
     expect(prev.textContent).toContain("Private Title");
   });
 
   it("forgets the toggles when the dialog is opened again", async () => {
     const { user, dlg } = await open();
-    await user.click(within(dlg).getByRole("switch", { name: /Include my top sources/ }));
+    await user.click(within(dlg).getByRole("checkbox", { name: /Include my top sources/ }));
     await user.click(within(dlg).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await user.click(screen.getByRole("button", { name: "Share" }));
-    expect(within(await screen.findByRole("dialog")).getByRole("switch", { name: /Include my top sources/ })).not.toBeChecked();
+    expect(within(await screen.findByRole("dialog")).getByRole("checkbox", { name: /Include my top sources/ })).not.toBeChecked();
   });
 
   it("shows Preparing… and disables the image actions until the card has actually rendered", async () => {
