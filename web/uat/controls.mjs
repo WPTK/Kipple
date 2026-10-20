@@ -15,13 +15,16 @@
 //   K5  Add feed with an address on a private network: the refusal points at "tick" and the option it offers is a checkbox,
 //       unticked (nothing is added);
 //   K4  Settings > Appearance & Reading: Larger buttons stays a switch (it applies the moment it is flipped), and flipping it
-//       sends nothing to the server (it is a device setting) and is put back.
+//       sends nothing to the server (it is a device setting) and is put back;
+//   K8  Settings > Appearance & Reading: Layout is six radio cards in one column (none wraps beside another or runs past
+//       the screen), each 44 px tall (56 px with Large targets) and named with what it looks like; picking one writes
+//       only the device's own profile (PATCH /api/device) and is put back.
 // It changes nothing on the server: every dialog is closed with Escape. It only runs against a loopback address with the
 // seed's credentials unless --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 19);
+const t = await start(import.meta.url, 22);
 const { check, step } = t;
 
 await t.eachViewport(async (page, vp) => {
@@ -199,6 +202,60 @@ await t.eachViewport(async (page, vp) => {
     await page.evaluate(() => document.documentElement.removeAttribute("data-targets"));
     await page.keyboard.press("Escape");
     await dlg.waitFor({ state: "detached", timeout: 5000 });
+  });
+});
+
+// K8: the default layout is a column of radio cards, not a segmented control that wraps.
+await t.eachViewport(async (page, vp) => {
+  const tag = vp.id;
+  await step(`${tag} K8`, async () => {
+    const writes = [];
+    const onRequest = (r) => {
+      if (["POST", "PATCH", "PUT", "DELETE"].includes(r.method()) && r.url().includes("/api/")) writes.push(`${r.method()} ${new URL(r.url()).pathname}`);
+    };
+    page.on("request", onRequest);
+    let was;
+    try {
+    await page.goto("/settings/appearance", { waitUntil: "load" });
+    const group = page.getByRole("group", { name: "Layout", exact: true });
+    await group.waitFor({ timeout: 10000 });
+    const radios = group.getByRole("radio");
+    check((await radios.count()) === 6, `${tag} K8 six`, "six layouts", `${await radios.count()} layouts`);
+    await group.scrollIntoViewIfNeeded();
+    for (const large of [false, true]) {
+      await page.evaluate((on) => (on ? document.documentElement.setAttribute("data-targets", "large") : document.documentElement.removeAttribute("data-targets")), large);
+      const want = large ? 56 : 44;
+      const tagL = `${tag} K8 ${large ? "large" : "normal"}`;
+      const cards = await radios.evaluateAll((els) => els.map((el) => el.closest("label").getBoundingClientRect()).map((r) => ({ l: r.left, r: r.right, t: r.top, b: r.bottom, h: r.height })));
+      const vw = await page.evaluate(() => document.documentElement.clientWidth);
+      check(cards.every((c) => Math.abs(c.l - cards[0].l) < 1 && Math.abs(c.r - cards[0].r) < 1), `${tagL} column`, "the cards share one left and right edge", "the cards are not in one column");
+      check(cards.every((c, i) => i === 0 || c.t >= cards[i - 1].b - 0.5), `${tagL} stacked`, "no card overlaps the one above", "a card overlaps the one above");
+      check(cards.every((c) => c.h >= want - 0.5), `${tagL} height`, `every card is at least ${want} px tall`, `a card is under ${want} px tall`);
+      check(cards.every((c) => c.l >= 0 && c.r <= vw + 0.5), `${tagL} fits`, "every card fits the screen", "a card runs past the screen");
+      check(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${tagL} no sideways scroll`, "the page does not scroll sideways", "the page scrolls sideways");
+    }
+    await page.evaluate(() => document.documentElement.removeAttribute("data-targets"));
+    was = await radios.evaluateAll((els) => els.find((e) => e.checked)?.value);
+    check(!!was, `${tag} K8 current`, `the layout in effect is ${was}`, "no layout card is checked");
+    if (!was) return;
+    const other = was === "headlines" ? "cards" : "headlines";
+    writes.length = 0;
+    try {
+      await group.locator(`input[value="${other}"]`).check();
+      check(await group.locator(`input[value="${other}"]`).isChecked(), `${tag} K8 pick`, "a card picks its layout", "a card did not pick its layout");
+      await page.waitForTimeout(1200); // the device profile is saved 500 ms after the last change
+      check(writes.every((w) => w === "PATCH /api/device"), `${tag} K8 device`, "picking writes only the device profile", `picking sent ${writes.join(", ")}`);
+      await t.shot(page, `${tag}-K8-layout`);
+    } finally {
+      await group.locator(`input[value="${was}"]`).check(); // even if a check above threw
+      await page.waitForTimeout(1200);
+    }
+    check(await group.locator(`input[value="${was}"]`).isChecked(), `${tag} K8 back`, "put back", "the layout was left changed");
+    await page.reload({ waitUntil: "load" }); // and it is what the server holds, not only what the page shows
+    check(await page.getByRole("group", { name: "Layout", exact: true }).locator(`input[value="${was}"]`).isChecked(), `${tag} K8 saved`, "the original layout is saved", "the original layout was not saved");
+    } finally {
+      page.off("request", onRequest);
+    }
   });
 });
 
