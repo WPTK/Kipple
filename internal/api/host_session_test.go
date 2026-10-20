@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -220,29 +222,65 @@ func TestSignInEndsTheSameNameSession(t *testing.T) {
 	// A sign-in that fails (a wrong password) ends nothing.
 	keep := h.loginHTTPS()
 	rec = h.do("POST", "/api/auth/login", loginBody("wrong"), overScheme("https"), holding(keep))
-	require.GreaterOrEqual(t, rec.Code, 400)
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	require.Equal(t, http.StatusOK, h.do("GET", "/api/status", "", overScheme("https"), holding(keep)).Code)
+
+	// A sign-in whose new session cannot be stored (the writer is busy past the request's deadline) ends nothing
+	// either: the browser keeps the session it had.
+	release := make(chan struct{})
+	held := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = h.db.WithWrite(t.Context(), func(context.Context, *sql.Tx) error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	rec = h.do("POST", "/api/auth/login", loginBody(testPass), overScheme("https"), holding(keep), func(r *http.Request) { *r = *r.WithContext(ctx) })
+	close(release)
+	<-done
+	require.GreaterOrEqual(t, rec.Code, 500, rec.Body.String())
+	require.Nil(t, cookieNamed(rec, hostCookieName), "no new cookie for a session that was not stored")
+	require.Equal(t, http.StatusOK, h.do("GET", "/api/status", "", overScheme("https"), holding(keep)).Code, "the held session stays live")
 }
 
-// Hundreds of planted cookies cost one small write: repeated values count once and no more than maxHeldSessions
-// distinct ones are processed.
+// Many planted cookies cost one small write: repeated values count once, and no more than maxHeldSessions distinct
+// ones are processed.
 func TestManyPlantedCookiesStayCheap(t *testing.T) {
-	t.Parallel()
 	h := newHarness(t)
-	real := h.loginHTTPS()
+	real, leftover := h.loginHTTPS(), h.login()
+	// Twenty copies of one planted value sit between the two real cookies. Without the de-dup they fill the cap, and the
+	// leftover after them is cut off.
 	cookies := []*http.Cookie{real}
-	for i := 0; i < 300; i++ {
-		cookies = append(cookies, &http.Cookie{Name: cookieName, Value: "planted-" + strconv.Itoa(i%150)})
+	for i := 0; i < 20; i++ {
+		cookies = append(cookies, &http.Cookie{Name: cookieName, Value: "planted"})
 	}
+	cookies = append(cookies, leftover)
 	r := httptest.NewRequest("POST", "/api/auth/logout", nil)
 	for _, c := range cookies {
 		r.AddCookie(c)
 	}
-	require.Len(t, heldSessionIDs(r), maxHeldSessions)
+	require.Len(t, heldSessionIDs(r, hostCookieName), 3, "three distinct values: the two real ones and the planted one")
 
-	start := time.Now()
 	rec := h.do("POST", "/api/auth/logout", "", overScheme("https"), holding(cookies...))
 	require.Equal(t, http.StatusNoContent, rec.Code)
-	require.Less(t, time.Since(start), 2*time.Second)
 	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/status", "", overScheme("https"), holding(real)).Code)
+	require.Equal(t, http.StatusUnauthorized, h.do("GET", "/api/status", "", overScheme("http"), holding(leftover)).Code)
+
+	// Hundreds of distinct values: no more than the cap are processed, and the signed-in cookie is among them though
+	// it is sent last.
+	real = h.loginHTTPS()
+	r = httptest.NewRequest("POST", "/api/auth/logout", nil)
+	for i := 0; i < 300; i++ {
+		r.AddCookie(&http.Cookie{Name: cookieName, Value: "planted-" + strconv.Itoa(i)})
+	}
+	r.AddCookie(&http.Cookie{Name: real.Name, Value: real.Value})
+	ids := heldSessionIDs(r, hostCookieName)
+	require.Len(t, ids, maxHeldSessions)
+	require.Equal(t, sessionID(real.Value), ids[0], "the cookie under the scheme's name is walked first")
 }

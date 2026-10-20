@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -547,16 +548,21 @@ func (s *Server) sessionValue(r *http.Request) (*http.Cookie, error) {
 
 // maxHeldSessions caps how many distinct session cookie values one request ends: a browser holds a handful at most
 // (the host's own, a leftover from the other scheme, a planted parent-domain copy), and the write stays one small
-// transaction however many a client sends.
+// transaction however many a client sends. 16 is plenty: a __Host- cookie cannot be planted, and a bare one reaches the
+// auth routes only from the few parent paths that match them (about six), so a browser never holds that many. The
+// cookie under this scheme's name is walked first, so the signed-in row is never the one cut off, even for a
+// hand-built client.
 const maxHeldSessions = 16
 
 // heldSessionIDs is the id of the session behind every distinct value of a session cookie r holds, under either name,
 // at most maxHeldSessions. A browser can send the same name twice (a copy set for the parent domain beside the host's
 // own), and r.Cookie returns just the first, so this walks them all.
-func heldSessionIDs(r *http.Request) []string {
+func heldSessionIDs(r *http.Request, first string) []string {
 	var ids []string
 	seen := map[string]bool{}
-	for _, c := range r.Cookies() {
+	cookies := r.Cookies()
+	sort.SliceStable(cookies, func(i, j int) bool { return cookies[i].Name == first && cookies[j].Name != first })
+	for _, c := range cookies {
 		if (c.Name != cookieName && c.Name != hostCookieName) || c.Value == "" || seen[c.Value] {
 			continue
 		}
@@ -575,7 +581,7 @@ func heldSessionIDs(r *http.Request) []string {
 // held, so a row it held would be stranded. Ending a session the request already holds a cookie for gives nobody
 // anything new.
 func (s *Server) endHeldSessions(r *http.Request) error {
-	return s.db.DeleteSessions(r.Context(), heldSessionIDs(r))
+	return s.db.DeleteSessions(r.Context(), heldSessionIDs(r, s.sessionName(r)))
 }
 
 // setCookie issues the session cookie: HttpOnly, SameSite=Lax, Path=/,
