@@ -302,6 +302,7 @@ func TestPublisherHintDirectiveEdges(t *testing.T) {
 	require.EqualValues(t, 600, PublisherHintSeconds(true, 0, h("Cache-Control", "max-age=600", "Age", "-50"), t0))
 	require.EqualValues(t, 600, PublisherHintSeconds(true, 0, h("Cache-Control", "max-age=600", "Age", "99999999999999999999"), t0))
 	require.EqualValues(t, 550, PublisherHintSeconds(true, 0, h("Cache-Control", "max-age=600", "Age", "50"), t0))
+	require.EqualValues(t, 550, PublisherHintSeconds(true, 0, h("Cache-Control", "s-maxage=600, max-age=60", "Age", "50"), t0))
 	require.EqualValues(t, 60, PublisherHintSeconds(true, 1, h(), t0))
 }
 
