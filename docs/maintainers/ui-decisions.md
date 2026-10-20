@@ -430,3 +430,18 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
   whatever does not fit; and six tabs, which cannot keep their names whole at the largest text size.
 - The Muted pill stays conditional (a list that is empty for most readers is not worth a pill), and Muted, Starred and
   All articles are always listed at the top of the Feeds screen.
+
+## Stats tiles look tappable (2026-10-20, issue #562)
+
+The Stats summary tiles (previous-period figure) and a feed's Read rate (the counts behind it) are buttons, and nothing showed it.
+
+- **Chosen: a chevron cue.** Each such tile carries a small down chevron in its top-right corner in the secondary text colour
+  (`text-fg2`, the colour the other row chevrons use, so it holds contrast in every scheme). It turns over while the figure
+  is open, and the tile takes the scheme's selection colour while hovered or pressed. The cue is always drawn, so it shows on
+  touch where there is no hover. A tile is at least 44 px tall and wide (`hit`, 56 px with Large targets).
+- **Not chosen: a card-style tile** (a border and raised surface, with a pressed state and no icon). A border says "box",
+  not "opens something", and the look reference's cards are borderless on a tinted surface, so a border would make these
+  tiles the only outlined ones; with no hover on touch, the pressed state alone would only show after the tap.
+- Tiles that are not buttons (Opens, Avg read, Quick bounce, Opened original, Stars) stay plain: the chevron is the one
+  signal for "opens more", so it is not used on anything else in that grid.
+- Checked by `web/uat/stats-tiles.mjs` in all 20 schemes (3:1 against the tile).
