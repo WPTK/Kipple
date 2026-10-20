@@ -2,7 +2,6 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, Navigate, useMatch, useNavigate, useSearchParams } from "react-router";
-import { DropdownMenu } from "radix-ui";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, MoreVertical, RefreshCw, Settings, Timer, Undo2, X } from "lucide-react";
 import { keys, scopeKey, useBootstrap, useFolderTree } from "@/api/queries";
 import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib/folderTree";
@@ -42,6 +41,7 @@ import { LayoutMenu } from "./LayoutMenu";
 import { LengthMenu } from "./LengthMenu";
 import { ReadingMenu } from "./AppearanceControls";
 import { FINISH_SEARCH, ListPane, StatusBlock, type ListControls } from "./ListPane";
+import { DropdownMenu } from "@/ui/menu";
 
 const VIEWS: { view: View; label: string }[] = [
   { view: "unread", label: "Unread" },
@@ -253,7 +253,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
             </Button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
+            <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
               {wide ? null : (
                 // aria-disabled, not disabled: while a refresh runs the item stays in the arrow-key order and is read out as
                 // "Refreshing, dimmed"; choosing it does nothing.
