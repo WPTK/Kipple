@@ -342,7 +342,7 @@ export function WrappedScreen() {
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-3">
         <div className="flex flex-wrap items-center gap-x-3 pt-2">
           <div className="flex min-w-[10rem] flex-1 items-center gap-1">
-            <BackButton to="/stats" label="Back to Stats" />
+            <BackButton to="/stats" ariaLabel="Back to Stats" />
             <h1 id={headingId} className="min-w-0 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
               Your year
             </h1>
