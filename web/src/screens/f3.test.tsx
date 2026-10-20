@@ -141,9 +141,20 @@ describe("Settings renderer", () => {
     const radios = within(group).getAllByRole("radio");
     expect(radios.map((r) => (r as HTMLInputElement).value).sort()).toEqual([...LAYOUT_IDS].sort());
     for (const id of LAYOUT_IDS) expect(within(group).getByRole("radio", { name: new RegExp(LAYOUT_LABELS[id]) })).toHaveAccessibleName(expect.stringContaining(LAYOUT_HINTS[id]));
+    expect(radios.filter((r) => (r as HTMLInputElement).checked)).toHaveLength(1);
+    expect(group).toHaveAccessibleDescription(/default for this device/);
     try {
-      await userEvent.setup().click(within(group).getByRole("radio", { name: /Headlines/ }));
+      const user = userEvent.setup();
+      await user.click(within(group).getByRole("radio", { name: /Headlines/ }));
       expect(within(group).getByRole("radio", { name: /Headlines/ })).toBeChecked();
+      expect(devicePrefsStore.get().layout).toBe("headlines");
+      expect(radios.filter((r) => (r as HTMLInputElement).checked)).toHaveLength(1);
+      const at = LAYOUT_IDS.indexOf("headlines");
+      await user.keyboard("{ArrowDown}"); // arrow keys move through the layouts like any radio group
+      const next = LAYOUT_IDS[(at + 1) % LAYOUT_IDS.length];
+      expect(within(group).getByRole("radio", { checked: true })).toHaveProperty("value", next);
+      expect(devicePrefsStore.get().layout).toBe(next);
+      await user.keyboard("{ArrowUp}");
       expect(devicePrefsStore.get().layout).toBe("headlines");
     } finally {
       devicePrefsStore.set(parseDevicePrefs(null)); // the pick must not reach the next test

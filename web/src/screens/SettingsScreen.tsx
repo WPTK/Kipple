@@ -359,9 +359,9 @@ function AppearancePage() {
       <AccessibilitySection scrollHelp={scrollHelp} />
 
       <Section title="Lists and reading">
-        <fieldset className="min-w-0">
+        <fieldset className="min-w-0" aria-describedby="layout-hint">
           <legend className="text-sm font-semibold">Layout</legend>
-          <p className="mb-2 text-xs text-fg2">The default for this device. Each feed and folder can override it from the layout button in its list.</p>
+          <p id="layout-hint" className="mb-2 text-xs text-fg2">The default for this device. Each feed and folder can override it from the layout button in its list.</p>
           <div className="flex flex-col gap-2">
             {LAYOUT_IDS.map((id) => (
               <RadioCard key={id} name="default-layout" value={id} checked={dp.layout === id} onSelect={() => updateDevicePrefs({ layout: id })} title={LAYOUT_LABELS[id]} help={LAYOUT_HINTS[id]} />

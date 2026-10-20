@@ -210,9 +210,12 @@ await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
   await step(`${tag} K8`, async () => {
     const writes = [];
-    page.on("request", (r) => {
+    const onRequest = (r) => {
       if (["POST", "PATCH", "PUT", "DELETE"].includes(r.method()) && r.url().includes("/api/")) writes.push(`${r.method()} ${new URL(r.url()).pathname}`);
-    });
+    };
+    page.on("request", onRequest);
+    let was;
+    try {
     await page.goto("/settings/appearance", { waitUntil: "load" });
     const group = page.getByRole("group", { name: "Layout", exact: true });
     await group.waitFor({ timeout: 10000 });
@@ -232,7 +235,7 @@ await t.eachViewport(async (page, vp) => {
       check(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${tagL} no sideways scroll`, "the page does not scroll sideways", "the page scrolls sideways");
     }
     await page.evaluate(() => document.documentElement.removeAttribute("data-targets"));
-    const was = await radios.evaluateAll((els) => els.find((e) => e.checked)?.value);
+    was = await radios.evaluateAll((els) => els.find((e) => e.checked)?.value);
     check(!!was, `${tag} K8 current`, `the layout in effect is ${was}`, "no layout card is checked");
     if (!was) return;
     const other = was === "headlines" ? "cards" : "headlines";
@@ -244,10 +247,17 @@ await t.eachViewport(async (page, vp) => {
       check(writes.every((w) => w === "PATCH /api/device"), `${tag} K8 device`, "picking writes only the device profile", `picking sent ${writes.join(", ")}`);
       await t.shot(page, `${tag}-K8-layout`);
     } finally {
-      await group.locator(`input[value="${was}"]`).check();
-      await page.waitForTimeout(1200);
+      page.off("request", onRequest);
+      if (was) {
+        await group.locator(`input[value="${was}"]`).check();
+        await page.waitForTimeout(1200);
+      }
     }
-    check(await group.locator(`input[value="${was}"]`).isChecked(), `${tag} K8 back`, "put back", "the layout was left changed");
+    if (was) {
+      check(await group.locator(`input[value="${was}"]`).isChecked(), `${tag} K8 back`, "put back", "the layout was left changed");
+      await page.reload({ waitUntil: "load" }); // and it is what the server holds, not only what the page shows
+      check(await page.getByRole("group", { name: "Layout", exact: true }).locator(`input[value="${was}"]`).isChecked(), `${tag} K8 saved`, "the original layout is saved", "the original layout was not saved");
+    }
   });
 });
 
