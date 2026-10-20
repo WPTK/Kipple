@@ -368,7 +368,7 @@ const msgPrivateAddress = "That address is on a private network (this computer o
 
 // privateRefusal explains why target may not be reached: refused is the address the guard turned
 // away (target itself, or a hop target redirects to; "" means target), enteredHost the host the
-// switch covers (with its site), and edit picks the feed editor's wording, where the switch is
+// switch covers (with its site), and edit picks the feed editor's wording, where the option is
 // under Unsafe options.
 func privateRefusal(enteredHost, target, refused string, edit bool) string {
 	turnOn, again := `tick "Allow addresses on my own network"`, " and add it again."
@@ -415,7 +415,7 @@ func linkedHost(found discover.Result) string {
 	return h
 }
 
-// msgPrivateAddressEdit is the same refusal for the feed editor, where the switch is under Unsafe options.
+// msgPrivateAddressEdit is the same refusal for the feed editor, where the option is under Unsafe options.
 const msgPrivateAddressEdit = "That address is on a private network (this computer or your local network). Kipple does not " +
 	"fetch from private addresses unless you allow it for the feed. If this feed is on your own network, tick " +
 	"\"Allow addresses on my own network\" under Unsafe options below and save again."

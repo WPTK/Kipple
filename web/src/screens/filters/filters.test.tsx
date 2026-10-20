@@ -377,7 +377,7 @@ describe("filter editor", () => {
     await user.click(w.getByRole("radio", { name: /^Highlight/ }));
     expect(w.queryByRole("checkbox", { name: /Apply to existing articles/ })).toBeNull();
     await user.click(w.getByRole("radio", { name: /^Mute/ }));
-    await user.click(w.getByRole("checkbox", { name: /Turn this filter on/ }));
+    await user.click(w.getByRole("checkbox", { name: /Filter is on/ }));
     expect(w.queryByRole("checkbox", { name: /Apply to existing articles/ })).toBeNull();
     expect(w.getByText(/turned off does nothing/)).toBeInTheDocument();
   });

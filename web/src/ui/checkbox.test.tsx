@@ -1,9 +1,10 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative, resolve, sep } from "node:path";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { Checkbox, Switch } from "./kit";
+import { Checkbox } from "./kit";
 
 describe("Checkbox", () => {
   it("is a native checkbox named by its label, described by its help, and reports the new value", async () => {
@@ -29,43 +30,57 @@ describe("Checkbox", () => {
     expect(box).not.toBeChecked();
   });
 
-  it("a disabled box cannot be changed, and an error is announced and described", async () => {
+  it("a disabled box cannot be changed, and an error is announced, described and marks the box invalid", async () => {
     const onChange = vi.fn();
     const { rerender } = render(<Checkbox label="Apply" checked={false} onChange={onChange} disabled />);
     await userEvent.setup().click(screen.getByText("Apply"));
     expect(onChange).not.toHaveBeenCalled();
     rerender(<Checkbox label="Apply" checked={false} onChange={onChange} error="Not now." />);
     expect(screen.getByRole("alert")).toHaveTextContent("Not now.");
-    expect(screen.getByRole("checkbox", { name: "Apply" })).toHaveAccessibleDescription(expect.stringContaining("Not now."));
+    const box = screen.getByRole("checkbox", { name: "Apply" });
+    expect(box).toHaveAccessibleDescription(expect.stringContaining("Not now."));
+    expect(box).toBeInvalid();
   });
 
-  it("is a 44 px row on a phone, so it is as easy to hit as the Switch beside it", () => {
-    render(
-      <>
-        <Checkbox label="Tick" checked={false} onChange={() => {}} />
-        <Switch label="Flip" checked={false} onChange={() => {}} />
-      </>,
-    );
-    expect(screen.getByText("Tick").closest("label")?.className).toContain("min-h-11");
-    expect(screen.getByText("Flip").closest("label")?.className).toContain("min-h-11");
+  it("the box and the text are inside one label, so a tap in the box column toggles it; the help is outside the label", async () => {
+    const onChange = vi.fn();
+    render(<Checkbox label="Tick" help="Some help." checked={false} onChange={onChange} />);
+    const box = screen.getByRole("checkbox", { name: "Tick" });
+    const label = box.closest("label");
+    expect(label).not.toBeNull();
+    expect(label).toContainElement(screen.getByText("Tick"));
+    expect(label).not.toContainElement(screen.getByText("Some help."));
+    await userEvent.setup().click(box.parentElement as HTMLElement); // the box column, not the box itself
+    expect(onChange).toHaveBeenCalledWith(true);
+    // The real 44 px and 56 px sizes and the alignment are measured in a browser: web/uat/controls.mjs (K6).
   });
 });
 
-// A switch is for a setting that takes effect the moment it is flipped. These forms and dialogs apply their options with
-// a button, so they offer checkboxes (issue #286). The check reads the source so a switch cannot creep back in unnoticed.
+// A switch is for a setting that takes effect the moment it is flipped. Forms and dialogs apply their options with a
+// button, so they offer checkboxes (issue #286). Every source file is scanned, so a new file is covered: a <Switch> may
+// appear only in the places below, each of which applies the change at once.
+const INSTANT_APPLY = [
+  "screens/AppearanceControls.tsx", // Settings > Appearance & Reading: each flip is saved
+  "screens/SettingField.tsx", // Settings: each flip is saved
+  "screens/SettingsScreen.tsx", // Settings: each flip is saved
+  "screens/filters/FiltersSection.tsx", // the Filters list: a rule's on/off applies at once
+];
+
+function sources(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) return sources(p);
+    return /\.tsx$/.test(e.name) && !/\.test\.tsx$/.test(e.name) ? [p] : [];
+  });
+}
+
 describe("forms use checkboxes, not switches", () => {
-  const FORMS = [
-    "screens/feeds/AddFeedDialog.tsx",
-    "screens/feeds/BulkActions.tsx",
-    "screens/feeds/FeedEditor.tsx",
-    "screens/feeds/OpmlDialog.tsx",
-    "screens/filters/FilterEditor.tsx",
-    "screens/StatsDataDialogs.tsx",
-    "screens/WrappedScreen.tsx",
-    "setup/FeedsStep.tsx",
-  ];
-  it.each(FORMS)("%s has no Switch", (file) => {
-    const src = readFileSync(`src/${file}`, "utf8");
-    expect(src).not.toMatch(/<Switch\b/);
+  it("<Switch> appears only in the instant-apply places", () => {
+    const root = resolve("src");
+    const used = sources(root)
+      .filter((f) => /<Switch\b/.test(readFileSync(f, "utf8")))
+      .map((f) => relative(root, f).split(sep).join("/"))
+      .filter((f) => f !== "ui/kit.tsx");
+    expect(used.filter((f) => !INSTANT_APPLY.includes(f))).toEqual([]);
   });
 });

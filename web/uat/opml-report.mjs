@@ -8,7 +8,7 @@
 //   O1  an empty file, a file with only empty folders and a file using an entity XML and HTML do not define are each
 //       refused with their own message, and nothing is imported;
 //   O2  a file with a feed on a private address, a feed listed twice and a feed with no web address reports each once,
-//       in plain words, and points to the switch that lets Kipple fetch the private one;
+//       in plain words, and points to the option that lets Kipple fetch the private one;
 //   O3  the fetch of the new feeds shows a bar and then how many could not be fetched;
 //   O4  Move for selected feeds opens with no folder chosen.
 // The feeds it adds have "uat-feed-" addresses, so the shared cleanup removes them.
@@ -69,7 +69,7 @@ await t.eachViewport(async (page, vp) => {
     check(
       privateLines === 1 && text.includes('tick "Allow addresses on my own network" in its settings'),
       `${tag} O2 private`,
-      "the private feed is listed once, with the switch to turn on",
+      "the private feed is listed once, with the option to tick",
       `the private address appears ${privateLines} times; "${text}"`,
     );
     check(/gopher:\/\/uat-feed-g\.invalid\/: not a web address \(it must start with http:\/\/ or https:\/\/\)/.test(text), `${tag} O2 skipped`, "the gopher feed says why it was skipped", `no plain skip reason in "${text}"`);

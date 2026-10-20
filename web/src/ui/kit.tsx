@@ -241,36 +241,44 @@ export function Checkbox({
   error?: string | null;
 }) {
   const id = useId();
-  // The box and the label are one 44 px row; the help sits right under the label (not inside it, so it is described, not read as part of the name).
+  // The box and the text are one label, so a tap anywhere on the row toggles it. The row is 44 px (56 px under Large
+  // targets, `--check-row` in index.css); the box and the first line of text are each centred in that row height, so
+  // they line up at both sizes and for a label that wraps. The help sits under the label, indented to the text, and is
+  // not part of the name.
   return (
-    <div className={cn("flex items-start gap-3", disabled && "opacity-60")}>
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        aria-describedby={`${id}-h${error ? ` ${id}-e` : ""}`}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-3 size-5 shrink-0 accent-[var(--kp-accent)]"
-      />
-      <div className="min-w-0">
-        <label htmlFor={id} aria-busy={busy || undefined} className={cn("flex min-h-11 items-center text-sm", disabled ? "cursor-not-allowed" : "cursor-pointer")}>
-          {label}
-        </label>
-        {help ? (
-          <p id={`${id}-h`} className="-mt-2 pb-2 text-xs text-fg2">
-            {help}
-          </p>
-        ) : (
-          <span id={`${id}-h`} hidden />
-        )}
-        {error ? (
-          <p id={`${id}-e`} role="alert" className="flex items-start gap-1 pb-2 text-sm text-danger">
-            <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-            <span>{error}</span>
-          </p>
-        ) : null}
-      </div>
+    <div className={cn(disabled && "opacity-60")}>
+      <label
+        htmlFor={id}
+        aria-busy={busy || undefined}
+        className={cn("kp-check flex min-h-11 items-start gap-3 text-sm", disabled ? "cursor-not-allowed" : "cursor-pointer")}
+      >
+        <span className="flex h-[var(--check-row)] shrink-0 items-center">
+          <input
+            id={id}
+            type="checkbox"
+            checked={checked}
+            disabled={disabled}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={`${id}-h${error ? ` ${id}-e` : ""}`}
+            onChange={(e) => onChange(e.target.checked)}
+            className="size-5 accent-[var(--kp-accent)]"
+          />
+        </span>
+        <span className="flex min-h-[var(--check-row)] min-w-0 items-center leading-5">{label}</span>
+      </label>
+      {help ? (
+        <p id={`${id}-h`} className="pb-2 pl-8 text-xs text-fg2">
+          {help}
+        </p>
+      ) : (
+        <span id={`${id}-h`} hidden />
+      )}
+      {error ? (
+        <p id={`${id}-e`} role="alert" className="flex items-start gap-1 pb-2 pl-8 text-sm text-danger">
+          <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+          <span>{error}</span>
+        </p>
+      ) : null}
     </div>
   );
 }

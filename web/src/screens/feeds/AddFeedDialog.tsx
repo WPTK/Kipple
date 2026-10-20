@@ -10,7 +10,7 @@ import { announce } from "@/shell/toasts";
 
 type Step =
   | { kind: "form" }
-  // from: the address entered, sent back with the pick (the server scopes the private-network switch to its site).
+  // from: the address entered, sent back with the pick (the server scopes the private-network option to its site).
   | { kind: "choose"; candidates: Candidate[]; from: string }
   | { kind: "done"; feed: FeedDetail; existed: boolean; fetch?: FetchOutcome };
 
@@ -78,7 +78,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
       });
       invalidateFeeds(qc);
       if (r.status === "choose") {
-        // A pick that is itself a page with several feeds keeps the address first entered: the switch is for
+        // A pick that is itself a page with several feeds keeps the address first entered: the option is for
         // that site, never for one a page chose. The server cannot verify discovered_from (it keeps no state
         // between requests), so this is the client's part of the rule.
         setStep({ kind: "choose", candidates: r.candidates, from: discoveredFrom ?? target.trim() });

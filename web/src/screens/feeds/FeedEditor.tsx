@@ -142,7 +142,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setEdits((cur) => ({ ...cur, [k]: v }));
   const changedUrl = q.data && f && f.url.trim() !== q.data.url;
   // The unsafe options the feed has now and the form still keeps on: what a new address could lose. One
-  // switched on in this edit is sent anyway (it changed), so it needs no notice.
+  // ticked in this edit is sent anyway (it changed), so it needs no notice.
   const heldGrants = { privateNet: !!(q.data?.allow_private_net && f?.privateNet), insecureTls: !!(q.data?.allow_insecure_tls && f?.insecureTls) };
 
   const save = async () => {
@@ -198,7 +198,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
     }
   };
 
-  // The global switch overrides every feed's own one: say so instead of showing a switch that does nothing.
+  // The global setting overrides every feed's own one: say so instead of showing a checkbox that does nothing.
   const fulltextAll = boot.data?.settings?.["fetch.fulltext_all"] === true;
 
   if (confirmDelete) {

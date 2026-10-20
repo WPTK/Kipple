@@ -597,9 +597,9 @@ function EditorForm({
       </Group>
 
       <Group legend="Options" error={at("options")}>
-        {regex ? null : <Checkbox label="Match whole words only" help="On: cat matches “cat” but not “category”." checked={d.whole_word} onChange={(v) => set({ whole_word: v })} />}
-        <Checkbox label="Ignore capitalization" help="On: Apple matches apple and APPLE." checked={!d.case_sensitive} onChange={(v) => set({ case_sensitive: !v })} />
-        {regex ? null : <Checkbox label="Ignore accents" help="On: cafe matches café." checked={d.fold_diacritics} onChange={(v) => set({ fold_diacritics: v })} />}
+        {regex ? null : <Checkbox label="Match whole words only" help="Ticked: cat matches “cat” but not “category”." checked={d.whole_word} onChange={(v) => set({ whole_word: v })} />}
+        <Checkbox label="Ignore capitalization" help="Ticked: Apple matches apple and APPLE." checked={!d.case_sensitive} onChange={(v) => set({ case_sensitive: !v })} />
+        {regex ? null : <Checkbox label="Ignore accents" help="Ticked: cafe matches café." checked={d.fold_diacritics} onChange={(v) => set({ fold_diacritics: v })} />}
         <Checkbox
           label="Act when it does NOT match"
           help={
@@ -644,7 +644,7 @@ function EditorForm({
       ) : d.action !== "highlight" ? (
         <p className="text-xs text-fg2">A filter that is turned off does nothing, so it can't be applied to stored articles.</p>
       ) : null}
-      <Checkbox label="Turn this filter on" checked={d.enabled} onChange={(v) => set({ enabled: v })} />
+      <Checkbox label="Filter is on" checked={d.enabled} onChange={(v) => set({ enabled: v })} />
       {other ? <Notice tone="error">{other}</Notice> : null}
       {failed ? <Notice tone="error">{failed}</Notice> : null}
     </Modal>

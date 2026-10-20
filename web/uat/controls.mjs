@@ -7,7 +7,9 @@
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and:
 //   K1  Edit feed: its yes/no options are checkboxes (none is a switch), and ticking one sends nothing until Save;
 //   K2  Import OPML and Export statistics: the options are checkboxes, 44 px tall rows on a phone;
-//   K3  New filter: Turn this filter on and the Options rows are all checkboxes, one control for the same job;
+//   K3  New filter: Filter is on and the Options rows are all checkboxes, one control for the same job;
+//   K6  A checkbox row is one hit area (a tap in the box column or the gap toggles it), 44 px tall (56 px with Large targets),
+//       with the box centred on the text, at both widths;
 //   K5  Add feed with an address on a private network: the refusal points at "tick" and the option it offers is a checkbox,
 //       unticked (nothing is added);
 //   K4  Settings > Appearance & Reading: Larger buttons stays a switch (it applies the moment it is flipped), and flipping it
@@ -78,7 +80,7 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("button", { name: /New filter/ }).first().click();
     const dlg = page.getByRole("dialog", { name: "New filter" });
     await dlg.waitFor({ timeout: 10000 });
-    await dlg.getByRole("checkbox", { name: /^Turn this filter on/ }).waitFor({ timeout: 10000 });
+    await dlg.getByRole("checkbox", { name: /^Filter is on/ }).waitFor({ timeout: 10000 });
     check((await dlg.getByRole("switch").count()) === 0, `${tag} K3 none`, "no switch in the filter editor", "a switch is in the filter editor");
     await dlg.getByRole("checkbox", { name: /^Ignore capitalization/ }).scrollIntoViewIfNeeded();
     await t.shot(page, `${tag}-K3-filter`);
@@ -98,6 +100,48 @@ await t.eachViewport(async (page, vp) => {
     await t.shot(page, `${tag}-K4-switch`);
     await tap(sw);
     check((await sw.isChecked()) === was, `${tag} K4 back`, "put back", "Larger buttons was left changed");
+  });
+});
+
+// K6: the whole row is one hit area, and the box lines up with the text at both target sizes.
+await t.eachViewport(async (page, vp) => {
+  const tag = vp.id;
+  await step(`${tag} K6`, async () => {
+    await page.goto("/feeds", { waitUntil: "load" });
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await page.getByRole("button", { name: /^Edit / }).first().click();
+    const dlg = page.getByRole("dialog", { name: "Edit feed" });
+    const box = dlg.getByRole("checkbox", { name: /^Enabled/ });
+    await box.waitFor({ timeout: 10000 });
+    await box.scrollIntoViewIfNeeded();
+    for (const large of [false, true]) {
+      await page.evaluate((on) => (on ? document.documentElement.setAttribute("data-targets", "large") : document.documentElement.removeAttribute("data-targets")), large);
+      const want = large ? 56 : 44;
+      const tagL = `${tag} K6 ${large ? "large" : "normal"}`;
+      const m = await box.evaluate((el) => {
+        const label = document.querySelector(`label[for="${el.id}"]`);
+        const l = label.getBoundingClientRect();
+        const b = el.getBoundingClientRect();
+        const text = label.lastElementChild.getBoundingClientRect();
+        return { ly: l.top, lh: l.height, lw: l.width, bx: b.left, by: b.top, bw: b.width, bh: b.height, tTop: text.top, tHeight: text.height };
+      });
+      check(m.lh >= want - 0.5, `${tagL} height`, `the row is ${m.lh.toFixed(1)} px tall (at least ${want})`, `the row is ${m.lh.toFixed(1)} px tall, under ${want}`);
+      check(m.lw >= want, `${tagL} width`, `the row is ${m.lw.toFixed(0)} px wide`, `the row is ${m.lw.toFixed(0)} px wide, under ${want}`);
+      const boxMid = m.by + m.bh / 2;
+      const lineMid = m.tTop + Math.min(m.tHeight, want) / 2; // the first row of the text cell, which is `want` tall
+      check(Math.abs(boxMid - lineMid) <= 1, `${tagL} aligned`, `the box centre is within 1 px of the text centre (${boxMid.toFixed(1)} v ${lineMid.toFixed(1)})`, `the box centre ${boxMid.toFixed(1)} is not on the text centre ${lineMid.toFixed(1)}`);
+      check(Math.round(m.bw) === 20 && Math.round(m.bh) === 20, `${tagL} box`, "the box stays 20 px", `the box is ${m.bw} x ${m.bh} px`);
+      // A tap beside the box (above it in the box column, then in the gap before the text) toggles it.
+      const was = await box.isChecked();
+      await page.mouse.click(m.bx + m.bw / 2, m.ly + 2);
+      check((await box.isChecked()) !== was, `${tagL} tap above`, "a tap in the box column outside the box toggles it", "a tap in the box column outside the box did nothing");
+      await page.mouse.click(m.bx + m.bw + 6, m.ly + m.lh / 2);
+      check((await box.isChecked()) === was, `${tagL} tap gap`, "a tap in the gap between the box and the text toggles it", "a tap in the gap did nothing");
+      if (large) await t.shot(page, `${tag}-K6-large`);
+    }
+    await page.evaluate(() => document.documentElement.removeAttribute("data-targets"));
+    await page.keyboard.press("Escape");
+    await dlg.waitFor({ state: "detached", timeout: 5000 });
   });
 });
 
