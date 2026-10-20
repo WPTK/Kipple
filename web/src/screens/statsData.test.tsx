@@ -73,7 +73,7 @@ describe("export dialog", () => {
     open();
     await user.click(screen.getByRole("radio", { name: "JSON Lines" }));
     await user.click(screen.getByRole("radio", { name: "All" }));
-    await user.click(screen.getByRole("switch", { name: /Include article titles/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Include article titles/ }));
     await user.click(screen.getByRole("button", { name: "Download" }));
     expect(hrefs).toEqual(["/api/stats/export?format=jsonl&content=raw&range=all&titles=0"]);
   });

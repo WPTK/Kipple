@@ -4,7 +4,7 @@ import { deleteFeeds, deleteFolder, invalidateFeeds, patchFeed, reorder as reord
 import { errorMessage } from "@/api/client";
 import type { Feed, Folder } from "@/api/types";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
+import { Checkbox, Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { folderPath, folderTree } from "@/lib/folderTree";
 import { announce, toast } from "@/shell/toasts";
@@ -200,7 +200,7 @@ export function ToggleDialog({ feeds: selected, enable, onClose, onDone }: { fee
   );
 }
 
-/** The feeds about to be deleted: the starred warning and switch, and the list. */
+/** The feeds about to be deleted: the starred warning and checkbox, and the list. */
 function FeedsToDelete({
   feeds,
   starred,
@@ -224,7 +224,7 @@ function FeedsToDelete({
           <Notice tone="warn">
             {copy.starredWarning}
           </Notice>
-          <Switch label="Delete starred articles too" checked={alsoStarred} onChange={onAlsoStarred} disabled={disabled} help="This can't be undone." />
+          <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={onAlsoStarred} disabled={disabled} help="This can't be undone." />
         </>
       ) : noneNote ? (
         <p className="text-sm text-fg2">{copy.noStarred}</p>
@@ -256,7 +256,7 @@ function DeleteWorking({ count }: { count: number }) {
 /**
  * Delete the selected feeds in one call (POST /api/feeds/delete): the server marks them all at once and finishes
  * the job even if this page is closed, so a half-deleted library cannot happen. Starred articles move to the
- * Archive unless the switch says otherwise.
+ * Archive unless the checkbox says otherwise.
  */
 export function DeleteDialog({
   feeds: selected,

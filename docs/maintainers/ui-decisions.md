@@ -48,6 +48,22 @@ were resolved in round 2 and what shipped; each is annotated below.
 - First-run **peek animation** teaches swipe reveal.
 - Mark-read-on-scroll: keep as a setting, **off by default**.
 
+## Standard controls (#286)
+
+- **Yes or no in a form or dialog is a checkbox** (`Checkbox` in `web/src/ui/kit.tsx`): the choice is applied by Save, Add,
+  Export or Continue, as on iOS, Android and the web. A **switch** (`Switch`) is only for a setting that takes effect the
+  moment it is flipped (Settings, the Filters list). The two never share a form. `web/src/ui/checkbox.test.tsx` scans every
+  source file and allows `<Switch>` only in a short list of instant-apply places. A checkbox row is one label (box and text,
+  44 px tall, 56 px with Large targets); `web/uat/controls.mjs` measures it.
+- **Exempt: selecting rows in a list** (`setup/FeedsStep.tsx`, `screens/FeedsScreen.tsx`, `screens/HealthScreen.tsx`). A bare
+  checkbox on a list row picks that row for a bulk action; it is not a labelled yes/no option, so it stays a native input in
+  the row and is not a `Checkbox`.
+- Wording follows the control: "Tick" and "Untick" for a checkbox, "Turn on" only for a switch. A checkbox label is an action
+  phrase that reads as the thing you do when it is ticked ("Check this feed", "Use this filter"), not a state ("Enabled",
+  "Filter is on"); the owner ruled this 2026-10-19.
+- A choice among a few named steps stays a segmented control (native radios); a choice that wants a sentence each is a
+  list of radio cards.
+
 ## Layout
 
 - **Magazine is the default**; compact list and cards also ship. the owner likes the proposed layouts and wants

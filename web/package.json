@@ -27,6 +27,7 @@
     "uat:mute": "node uat/mute.mjs",
     "uat:focus": "node uat/focus.mjs",
     "uat:announce": "node uat/announce.mjs",
+    "uat:controls": "node uat/controls.mjs",
     "uat:keys": "node uat/keys.mjs",
     "uat:saved-searches": "node uat/saved-searches.mjs",
     "uat:images": "node uat/images.mjs",

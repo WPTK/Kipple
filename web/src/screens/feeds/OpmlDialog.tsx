@@ -5,7 +5,7 @@ import { importOpml, invalidateFeeds, type OpmlResult } from "@/api/admin";
 import { liveStore, seedRun } from "@/api/events";
 import { useStoreSelector } from "@/lib/store";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
+import { Checkbox, Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { announce } from "@/shell/toasts";
 import { PATH_SEP } from "@/lib/folderTree";
 
@@ -43,8 +43,8 @@ export async function opmlFileProblem(file: File): Promise<string | null> {
   return "That doesn't look like an OPML file. Choose the .opml or .xml file exported from your other reader.";
 }
 
-/** The switch in a feed's settings that lets Kipple fetch it from your own network (FeedEditor). */
-const PRIVATE_SWITCH = "Allow addresses on my own network";
+/** The option in a feed's settings that lets Kipple fetch it from your own network (FeedEditor). */
+const PRIVATE_OPTION = "Allow addresses on my own network";
 
 /**
  * "<url>: kipple:allow_private_net", "<url>: private_address" or "<url>: kipple:allow_insecure_tls" from the import
@@ -54,8 +54,8 @@ export function attrNote(s: string): { url: string; note: string } {
   const at = s.lastIndexOf(": ");
   const url = at >= 0 ? s.slice(0, at) : s;
   const attr = at >= 0 ? s.slice(at + 2) : "";
-  if (attr === "private_address") return { url, note: `on your own network, so Kipple won't fetch it until you turn on "${PRIVATE_SWITCH}" in its settings` };
-  if (attr.endsWith("allow_private_net")) return { url, note: `the file allowed addresses on your own network; turn on "${PRIVATE_SWITCH}" in its settings if it needs that` };
+  if (attr === "private_address") return { url, note: `on your own network, so Kipple won't fetch it until you tick "${PRIVATE_OPTION}" in its settings` };
+  if (attr.endsWith("allow_private_net")) return { url, note: `the file allowed addresses on your own network; tick "${PRIVATE_OPTION}" in its settings if it needs that` };
   if (attr.endsWith("allow_insecure_tls")) return { url, note: "the file skipped certificate checks; Kipple checks them" };
   return { url, note: `${attr || "a setting"} was not applied` };
 }
@@ -295,9 +295,9 @@ export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
       >
         {(a) => <input {...a} inputMode="numeric" type="text" value={days} onChange={(e) => setDays(e.target.value)} placeholder="For example 7" className={inputCls} />}
       </Field>
-      <Switch
+      <Checkbox
         label="Move feeds that already exist into the file's folders"
-        help="Off: feeds you already have stay where they are. On: they move to the folder the file puts them in. Folders with no feeds are kept."
+        help="Feeds you already have move to the folder the file puts them in. Left unticked, they stay where they are. Folders with no feeds are kept."
         checked={moveExisting}
         onChange={setMoveExisting}
       />
