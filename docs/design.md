@@ -1752,7 +1752,15 @@ Everything under `/api/` except the Reader paths and `POST /api/auth/login` requ
   as a LAN address or the public name on Kipple's own port over plain http, gets no `Secure`, so it can still sign in.
 - It is persistent, not a session cookie, because WebKit bug 272325 drops session cookies in Home Screen apps.
 - **Session marker.** Every answer that sets or renews `kipple_session` also sets `kipple_signed_in=1`, with the same
-  `Max-Age`, `Path`, `SameSite` and `Secure` rules but readable by script (not HttpOnly). It holds nothing secret and
+  `Max-Age`, `Path`, `SameSite` and `Secure` rules but readable by script (not HttpOnly). Over https it is named
+  `__Host-kipple_signed_in`: the browser keeps a `__Host-` cookie only when it is `Secure`, has `Path=/` and no
+  `Domain`, so a page on another subdomain cannot set a marker for the whole parent domain, which the server's clear
+  could never reach and which would send every launch to a `401`. Over plain http the browser refuses the prefix, so
+  the bare name is used; a page and its server that disagree on the scheme (a proxy that hides it) only cost the
+  `GET /api/instance` question at each launch. The scheme the server sees can change while a browser holds a marker
+  (a trusted proxy's address or the public URL changed), so every clear removes both names, the `__Host-` one always
+  with `Secure`, `Path=/` and no `Domain`, setting it clears one the browser sent under the other name, and a check
+  for a stale marker looks for either. It holds nothing secret and
   is only a hint; the session cookie stays the truth. The app reads it at launch: with it, the app asks for the
   bootstrap at once; without it, it first asks `GET /api/instance` for `signed_in` (at most 2 s, then the bootstrap
   anyway, so a stalled or offline launch still reaches the stored copy). A signed-out launch sends no request that

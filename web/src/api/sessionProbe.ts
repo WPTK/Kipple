@@ -3,8 +3,14 @@ import { createStore } from "@/lib/store";
 import { fetchInstance, type InstanceInfo } from "@/setup/api";
 import { authStore, openRefusedStore, setSignedIn } from "./client";
 
-/** The session marker's cookie: the server sets and clears it with the session cookie (docs/design.md §7). */
-export const MARKER_COOKIE = "kipple_signed_in";
+/**
+ * The session marker's cookie: the server sets and clears it with the session cookie (docs/design.md §7). Over https
+ * it carries the __Host- prefix, so the browser refuses one that another subdomain set for the parent domain (which
+ * the server could never clear); over plain http the browser would refuse the prefix, so it is the bare name.
+ */
+export function markerCookie(protocol: string = location.protocol): string {
+  return protocol === "https:" ? "__Host-kipple_signed_in" : "kipple_signed_in";
+}
 
 /** How long a launch with no marker waits for GET /api/instance before it asks for the bootstrap anyway. */
 export const PROBE_MS = 2_000;
@@ -12,10 +18,12 @@ export const PROBE_MS = 2_000;
 /**
  * Whether this browser holds the session marker. It is a hint, never the truth: a launch that has it asks for the
  * bootstrap at once, and the server's answer decides (a 401 then means the session really ended, and clears it).
+ * It reads this page's cookies under this page's scheme's name unless given others.
  */
-export function hasSessionMarker(): boolean {
+export function hasSessionMarker(cookies?: string, protocol: string = location.protocol): boolean {
   try {
-    return document.cookie.split(";").some((c) => c.trim().startsWith(MARKER_COOKIE + "="));
+    const name = markerCookie(protocol) + "=";
+    return (cookies ?? document.cookie).split(";").some((c) => c.trim().startsWith(name));
   } catch {
     return false;
   }
