@@ -181,6 +181,14 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 				if n == 0 {
 					return ErrFolderNotFound
 				}
+			case "allow_private_net":
+				// A feed that failed for want of the exception is due as soon as it is granted, not at the end of
+				// the backoff it earned while it was refused.
+				if truthy(v) && private != 1 {
+					sets = append(sets, "consecutive_failures = 0", "current_delay_s = 0")
+					set("next_fetch_at", now)
+					res.Changed, res.NeedsFetch, res.Notify = true, true, true
+				}
 			case "user_agent":
 				// The learned browser-UA flag belongs to the old identity.
 				if str, isStr := v.(string); v == nil && curUA.Valid || isStr && (!curUA.Valid || str != curUA.String) {

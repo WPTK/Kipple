@@ -8,7 +8,7 @@
 //   O1  an empty file, a file with only empty folders and a file using an entity XML and HTML do not define are each
 //       refused with their own message, and nothing is imported;
 //   O2  a file with a feed on a private address, a feed listed twice and a feed with no web address reports each once,
-//       in plain words, and points to the option that lets Kipple fetch the private one;
+//       in plain words, and offers one button that lets Kipple fetch the private one, and the button works;
 //   O3  the fetch of the new feeds shows a bar and then how many could not be fetched;
 //   O4  Move for selected feeds opens with no folder chosen;
 //   O5  the fetch of a bigger import stays on screen under the top bar after the dialog is closed, and the bar goes
@@ -69,9 +69,9 @@ await t.eachViewport(async (page, vp) => {
     check(/1 feed was listed again under the same address/.test(text), `${tag} O2 repeat`, "the repeated feed is counted", `no repeat line in "${text}"`);
     const privateLines = text.split(PRIVATE).length - 1;
     check(
-      privateLines === 1 && text.includes('tick "Allow addresses on my own network" in its settings'),
+      privateLines === 1 && /1 feed is on your own network/.test(text),
       `${tag} O2 private`,
-      "the private feed is listed once, with the option to tick",
+      "the private feed is listed once, under its own heading",
       `the private address appears ${privateLines} times; "${text}"`,
     );
     check(/gopher:\/\/uat-feed-g\.invalid\/: not a web address \(it must start with http:\/\/ or https:\/\/\)/.test(text), `${tag} O2 skipped`, "the gopher feed says why it was skipped", `no plain skip reason in "${text}"`);
@@ -84,6 +84,16 @@ await t.eachViewport(async (page, vp) => {
     const ended = await end.waitFor({ timeout: 120000 }).then(() => true, () => false);
     check(ended, `${tag} O3`, `${sawBar ? "a bar, then " : ""}"${ended ? await end.innerText() : ""}"`, `the dialog never said how the fetch ended: "${await t.textOf(dlg)}"`);
     await t.shot(page, `${tag}-opml-report-fetched`);
+
+    const allow = dlg.getByRole("button", { name: "Allow my own network for this feed" });
+    await allow.click();
+    const allowed = await dlg.getByText(/Allowed for the feed/).waitFor({ timeout: 10000 }).then(() => true, () => false);
+    check(allowed, `${tag} O2 allow`, "the button allowed the private feed", `no confirmation after the button: "${await t.textOf(dlg)}"`);
+    const row = (await t.boot(page)).feeds.find((f) => f.title === "UAT feed private");
+    const detail = row ? await (await page.request.get(`/api/feeds/${row.id}`, { headers: { Accept: "application/json" } })).json() : null;
+    const grants = detail ? [detail.allow_private_net] : [];
+    check(grants.length === 1 && grants[0] === true, `${tag} O2 granted`, "the feed now has the exception", `feeds at that address: ${JSON.stringify(grants)}`);
+    await t.shot(page, `${tag}-opml-report-allowed`);
     await close(dlg);
   });
 

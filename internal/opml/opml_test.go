@@ -249,7 +249,8 @@ func TestKippleAttrsAndMarkRead(t *testing.T) {
 		initial_read_before, next_fetch_at, dedup_mode, disabled_reason, user_agent FROM feeds WHERE url = 'http://a.test/rss'`).
 		Scan(&interval, &retention, &ft, &en, &priv, &irb, &next, &dedup, &reason, &ua))
 	require.EqualValues(t, []int64{30, 0, 1, 0, 0}, []int64{interval, retention, ft, en, priv}, "allow_private_net is never applied by import")
-	require.Equal(t, []string{"http://a.test/rss: kipple:allow_private_net"}, r.IgnoredAttrs)
+	require.Empty(t, r.IgnoredAttrs)
+	require.Equal(t, []string{"http://a.test/rss"}, feedURLs(r.FeedsPrivate), "the feed the file asked the exception for is listed, not granted")
 	require.Equal(t, []string{"link", "user", "x/1"}, []string{dedup, reason, ua})
 	require.Equal(t, next-10*86400, irb)
 	var n int
@@ -437,7 +438,8 @@ func TestImportIgnoresDangerousAttrsAndBareNamespace(t *testing.T) {
 	<outline text="B" xmlUrl="http://b.test/rss" htmlUrl="javascript:alert(1)" kipple:allow_insecure_tls="1" kipple:allow_private_net="1"/>
 	<outline text="C" xmlUrl="http://c.test/rss" htmlUrl="https://c.test/"/>
 	</outline></body></opml>`, ImportOptions{})
-	require.Equal(t, []string{"http://b.test/rss: kipple:allow_private_net", "http://b.test/rss: kipple:allow_insecure_tls"}, r.IgnoredAttrs)
+	require.Equal(t, []string{"http://b.test/rss: kipple:allow_insecure_tls"}, r.IgnoredAttrs)
+	require.Equal(t, []string{"http://b.test/rss"}, feedURLs(r.FeedsPrivate))
 	var tls, priv int
 	var site string
 	require.NoError(t, db.Reader().QueryRowContext(context.Background(),
@@ -478,9 +480,12 @@ func TestImportValidatesURLUserAgentAndFolderNames(t *testing.T) {
 	require.Len(t, r.Skipped, 1, "%v", r.Skipped)
 	require.Contains(t, reasons["http://bob:pw@creds.test/rss"], "user name or password", "userinfo is still refused")
 	require.NotContains(t, reasons, "http://127.0.0.1/rss", "a private address is imported, not skipped")
-	require.Contains(t, r.IgnoredAttrs, "http://127.0.0.1/rss: private_address")
-	require.Equal(t, []string{"http://127.0.0.1/rss: private_address", "http://192.168.1.5:8080/rss: private_address"}, r.IgnoredAttrs,
-		"one line per feed on a private address, its allow_private_net included (issue #485)")
+	require.Empty(t, r.IgnoredAttrs)
+	require.Equal(t, []string{"http://127.0.0.1/rss", "http://192.168.1.5:8080/rss"}, feedURLs(r.FeedsPrivate),
+		"one entry per feed on a private address, its allow_private_net included (issue #485)")
+	for _, f := range r.FeedsPrivate {
+		require.Positive(t, f.FeedID)
+	}
 	var priv int
 	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE url IN ('http://127.0.0.1/rss', 'http://192.168.1.5:8080/rss') AND allow_private_net = 0").Scan(&priv))
 	require.Equal(t, 2, priv, "imported with the exception off")
@@ -574,4 +579,12 @@ func TestImportDroppedReportIsBounded(t *testing.T) {
 			seen[p] = true
 		}
 	}
+}
+
+func feedURLs(l []Existing) []string {
+	out := []string{}
+	for _, f := range l {
+		out = append(out, f.URL)
+	}
+	return out
 }

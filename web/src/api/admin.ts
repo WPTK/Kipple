@@ -208,9 +208,10 @@ export interface OpmlResult {
   skipped?: { url: string; reason: string }[];
   /** "<feed url>: <what was wrong>" for kipple:* attributes with bad values. */
   invalid_attrs?: string[];
-  /** "<feed url>: kipple:allow_private_net | kipple:allow_insecure_tls | private_address": valid but never applied by
-   * an import; a feed on a private address has one private_address entry. */
+  /** "<feed url>: kipple:allow_insecure_tls": valid but never applied by an import. */
   ignored_attrs?: string[];
+  /** New feeds on a private address, or whose file asked for allow_private_net: imported with it off. */
+  feeds_private?: { url: string; feed_id: string }[];
   run_id?: string;
   /** The last event the server had published when it started the import run (see `Bootstrap.event_id`). */
   event_id?: string;

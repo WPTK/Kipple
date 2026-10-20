@@ -76,11 +76,12 @@ type Result struct {
 	Skipped                []Skipped `json:"skipped"`
 	InvalidAttrs           []string  `json:"invalid_attrs"`
 	// IgnoredAttrs are valid but security-sensitive kipple:* attributes that an
-	// import never applies (allow_private_net, allow_insecure_tls), and feeds
-	// on a literal private address, imported with allow_private_net off. A feed
-	// on a private address has one "private_address" entry, which covers its
-	// allow_private_net.
+	// import never applies (allow_insecure_tls).
 	IgnoredAttrs []string `json:"ignored_attrs"`
+	// FeedsPrivate are the new feeds that need the private-network exception to be fetched: on a literal private
+	// address, or the file asked for allow_private_net. An import never grants it (a file is not the owner); they are
+	// imported with it off, and the owner can turn it on for them from the report (PATCH /api/feeds/{id}).
+	FeedsPrivate []Existing `json:"feeds_private"`
 	// NewFeedIDs are the inserted feeds in document order (for sched.StartImport).
 	NewFeedIDs []int64 `json:"-"`
 }
@@ -100,6 +101,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		Skipped:            []Skipped{},
 		InvalidAttrs:       []string{},
 		IgnoredAttrs:       []string{},
+		FeedsPrivate:       []Existing{},
 		NewFeedIDs:         []int64{},
 	}
 	now := db.Clock().Now().Unix()
@@ -261,18 +263,13 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			a := f.Attrs
 			res.InvalidAttrs = append(res.InvalidAttrs, prefixAll(norm, f.BadAttrs)...)
 			// An imported file must not weaken the SSRF/TLS guards of a feed.
-			if a.AllowPrivateNet != nil && *a.AllowPrivateNet && !privateAddr {
-				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": kipple:allow_private_net")
-			}
+			needsPrivate := privateAddr || a.AllowPrivateNet != nil && *a.AllowPrivateNet
 			a.AllowPrivateNet = nil
 			if a.AllowInsecureTLS != nil {
 				if *a.AllowInsecureTLS {
 					res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": kipple:allow_insecure_tls")
 				}
 				a.AllowInsecureTLS = nil
-			}
-			if privateAddr {
-				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": private_address")
 			}
 			enabled, reason := 1, any(nil)
 			if a.Enabled != nil && !*a.Enabled {
@@ -300,6 +297,9 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				return err
 			}
 			res.FeedsAdded++
+			if needsPrivate {
+				res.FeedsPrivate = append(res.FeedsPrivate, Existing{norm, id})
+			}
 			res.NewFeedIDs = append(res.NewFeedIDs, id)
 		}
 		for _, id := range emptiedFrom {
