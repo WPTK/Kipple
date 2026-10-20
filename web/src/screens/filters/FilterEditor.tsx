@@ -644,7 +644,7 @@ function EditorForm({
       ) : d.action !== "highlight" ? (
         <p className="text-xs text-fg2">A filter that is turned off does nothing, so it can't be applied to stored articles.</p>
       ) : null}
-      <Checkbox label="Filter is on" checked={d.enabled} onChange={(v) => set({ enabled: v })} />
+      <Checkbox label="Use this filter" checked={d.enabled} onChange={(v) => set({ enabled: v })} />
       {other ? <Notice tone="error">{other}</Notice> : null}
       {failed ? <Notice tone="error">{failed}</Notice> : null}
     </Modal>

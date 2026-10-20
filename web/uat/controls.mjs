@@ -7,7 +7,7 @@
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and:
 //   K1  Edit feed: its yes/no options are checkboxes (none is a switch), and ticking one sends nothing until Save;
 //   K2  Import OPML and Export statistics: the options are checkboxes, 44 px tall rows on a phone;
-//   K3  New filter: Filter is on and the Options rows are all checkboxes, one control for the same job;
+//   K3  New filter: Use this filter and the Options rows are all checkboxes, one control for the same job;
 //   K6  A checkbox row is one hit area (a tap in the box column or the gap toggles it), 44 px tall (56 px with Large targets),
 //       with the box centred on the text, at both widths;
 //   K5  Add feed with an address on a private network: the refusal points at "tick" and the option it offers is a checkbox,
@@ -38,14 +38,14 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("button", { name: /^Edit / }).first().click();
     const dlg = page.getByRole("dialog", { name: "Edit feed" });
     await dlg.waitFor({ timeout: 10000 });
-    const enabled = dlg.getByRole("checkbox", { name: /^Enabled/ });
+    const enabled = dlg.getByRole("checkbox", { name: /^Check this feed/ });
     await enabled.waitFor({ timeout: 10000 });
     check((await dlg.getByRole("switch").count()) === 0, `${tag} K1 no switch`, "no switch in the feed editor", "a switch is still in the feed editor");
     await enabled.scrollIntoViewIfNeeded();
     const was = await enabled.isChecked();
     writes.length = 0;
     await enabled.click();
-    check((await enabled.isChecked()) !== was, `${tag} K1 ticks`, "Enabled ticks and unticks", "Enabled did not change");
+    check((await enabled.isChecked()) !== was, `${tag} K1 ticks`, "Check this feed ticks and unticks", "Check this feed did not change");
     check(writes.length === 0, `${tag} K1 held`, "nothing is sent until Save", `sent ${writes.join(", ")}`);
     await t.shot(page, `${tag}-K1-feed-editor`);
     await page.keyboard.press("Escape");
@@ -80,9 +80,9 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("button", { name: /New filter/ }).first().click();
     const dlg = page.getByRole("dialog", { name: "New filter" });
     await dlg.waitFor({ timeout: 10000 });
-    await dlg.getByRole("checkbox", { name: /^Filter is on/ }).waitFor({ timeout: 10000 });
+    await dlg.getByRole("checkbox", { name: /^Use this filter/ }).waitFor({ timeout: 10000 });
     check((await dlg.getByRole("switch").count()) === 0, `${tag} K3 none`, "no switch in the filter editor", "a switch is in the filter editor");
-    await dlg.getByRole("checkbox", { name: /^Ignore capitalization/ }).scrollIntoViewIfNeeded();
+    await dlg.getByRole("checkbox", { name: /^Use this filter/ }).scrollIntoViewIfNeeded();
     await t.shot(page, `${tag}-K3-filter`);
     await page.keyboard.press("Escape");
     await dlg.waitFor({ state: "detached", timeout: 5000 });
@@ -111,7 +111,7 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     await page.getByRole("button", { name: /^Edit / }).first().click();
     const dlg = page.getByRole("dialog", { name: "Edit feed" });
-    const box = dlg.getByRole("checkbox", { name: /^Enabled/ });
+    const box = dlg.getByRole("checkbox", { name: /^Check this feed/ });
     await box.waitFor({ timeout: 10000 });
     await box.scrollIntoViewIfNeeded();
     for (const large of [false, true]) {

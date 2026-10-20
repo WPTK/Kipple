@@ -334,7 +334,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
           ) : (
             <Checkbox label="Fetch full article text" help="Loads the whole article from the website when the feed only has a summary." checked={f.fulltext} onChange={(v) => set("fulltext", v)} />
           )}
-          <Checkbox label="Enabled" help="Untick to stop checking this feed without deleting it." checked={f.enabled} onChange={(v) => set("enabled", v)} />
+          <Checkbox label="Check this feed" help="Untick to stop checking this feed without deleting it." checked={f.enabled} onChange={(v) => set("enabled", v)} />
 
           <Disclosure label="Advanced">
             <Field label="Duplicate detection" help="How Kipple decides that two entries are the same article.">

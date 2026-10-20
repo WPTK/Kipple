@@ -9,12 +9,12 @@ import { Checkbox } from "./kit";
 describe("Checkbox", () => {
   it("is a native checkbox named by its label, described by its help, and reports the new value", async () => {
     const onChange = vi.fn();
-    render(<Checkbox label="Enabled" help="Untick to stop checking." checked={false} onChange={onChange} />);
-    const box = screen.getByRole("checkbox", { name: "Enabled" });
+    render(<Checkbox label="Check this feed" help="Untick to stop checking." checked={false} onChange={onChange} />);
+    const box = screen.getByRole("checkbox", { name: "Check this feed" });
     expect(box).not.toBeChecked();
     expect(box).toHaveAccessibleDescription("Untick to stop checking.");
     expect(screen.queryByRole("switch")).toBeNull();
-    await userEvent.setup().click(screen.getByText("Enabled"));
+    await userEvent.setup().click(screen.getByText("Check this feed"));
     expect(onChange).toHaveBeenCalledWith(true);
   });
 
