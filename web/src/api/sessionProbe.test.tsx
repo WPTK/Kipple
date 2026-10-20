@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import App, { makeQueryClient } from "@/App";
-import { authStore, setSignedIn } from "@/api/client";
+import { authStore, openRefusedStore, setSignedIn } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { INSTANCE_KEY } from "@/setup/api";
 import { bootstrap, card, json, mockFetch, pageOf, setSessionMarker } from "@/test/mockApi";
-import { hasSessionMarker, markerCookie, PROBE_MS } from "./sessionProbe";
+import { hasSessionMarker, launchAnswerStore, markerCookie, PROBE_MS } from "./sessionProbe";
 
 // A request that answers 401 is logged to the console by the browser, so a signed-out launch must not send one. A
 // launch with the session marker asks for the bootstrap at once; one without it first asks GET /api/instance (always
@@ -27,6 +27,8 @@ const setupAnswer = { setup: true, auth: null, signed_in: false, access: { enabl
 
 beforeEach(() => {
   authStore.set("unknown");
+  openRefusedStore.set(null);
+  launchAnswerStore.set(null);
   liveStore.set(initialLive);
   vi.stubGlobal("EventSource", NoES);
 });
@@ -71,6 +73,27 @@ describe("a launch without the marker", () => {
     await screen.findByRole("button", { name: "Sign in" });
     expect(paths(calls)).not.toContain("/api/bootstrap");
     expect(authStore.get()).toBe("out");
+  });
+
+  it("signed out: the sign-in form starts from the probe's answer and asks /api/instance once (#551)", async () => {
+    const { calls } = mockFetch({ "GET /api/instance": () => json({ setup: false, auth: "password", signed_in: false, open_refused: null }) });
+    launch();
+    await screen.findByRole("button", { name: "Sign in" });
+    // Give a second request (the signed-out screen asking again) every chance to be sent.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(paths(calls).filter((p) => p === "/api/instance")).toHaveLength(1);
+    const ask = calls.find((c) => c.url.pathname === "/api/instance")!;
+    expect(new Headers(ask.init?.headers).get("Accept")).toBe("application/json");
+  });
+
+  it("no password, a live session the open gate refuses from here: the refused screen, with no bootstrap and no sign-in attempt (#552)", async () => {
+    const { calls } = mockFetch({ "GET /api/instance": () => json({ setup: false, auth: "open", signed_in: false, open_refused: "peer" }) });
+    launch();
+    await screen.findByRole("heading", { level: 1, name: "Kipple can't let you in from here" });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(paths(calls)).toEqual(["/api/instance"]);
+    expect(authStore.get()).toBe("unknown");
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
   });
 
   it("with no account yet: shows setup, also without a 401", async () => {

@@ -22,6 +22,8 @@ export interface SetupOptions {
 export type InstanceInfo = (({ setup: true; auth: null } & SetupOptions) | { setup: false; auth: null | "password" | "access" | "open" }) & {
   /** Whether this request is signed in: a live session that the no-password network check (in that mode) also lets through. */
   signed_in: boolean;
+  /** Set when the session is live but the no-password network check refuses it from here (only then). */
+  open_refused?: OpenReason | null;
 };
 
 export type Passwordless = "access" | "open";

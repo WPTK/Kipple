@@ -48,7 +48,10 @@ func (s *Server) setupGone(w http.ResponseWriter) bool {
 // and where this browser's restore stands (the states of GET /api/setup/restore).
 // signed_in says whether this request may use the signed-in API (signedIn: a live session and, in open mode, the
 // open gate). The app asks it when it has no session marker, so a browser that is signed out learns that from a 200
-// and never sends a request that would answer 401.
+// and never sends a request that would answer 401. open_refused is the open gate's reason when the session is live
+// but the gate refuses it, null otherwise: the app then shows why, as it does for any signed-in request the gate
+// refuses (403 open_refused). Without a live session it stays null, as authed tells an anonymous caller nothing
+// about the gate either.
 func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 	if s.opt.Setup.Pending() {
 		// With no account no session can be live: a session cookie or marker left from before a reset or a restore is
@@ -96,7 +99,11 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "instance", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"setup": false, "auth": authMode, "signed_in": in && refusal == ""})
+	var refused any
+	if refusal != "" {
+		refused = refusal
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"setup": false, "auth": authMode, "signed_in": in && refusal == "", "open_refused": refused})
 }
 
 // setupAccount is POST /api/setup/account: creates the one account, if there is
