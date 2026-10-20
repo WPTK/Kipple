@@ -64,6 +64,17 @@ func Key(raw string) (string, error) {
 	return keyOf(u), nil
 }
 
+// StoredKey is Key for an address that is already a feed's: it skips the host-name length rule, which came after
+// feeds could be saved, so a feed saved with an over-long host name can still be found by its address (to
+// unsubscribe it or edit it) though no new one can be added. Every other rule still applies.
+func StoredKey(raw string) (string, error) {
+	u, _, err := parseHost(raw, false)
+	if err != nil {
+		return "", err
+	}
+	return keyOf(u), nil
+}
+
 // Host returns the lowercase hostname (no port) of a URL.
 func Host(raw string) (string, error) {
 	u, _, err := parse(raw)
@@ -124,9 +135,11 @@ func hostFits(host string) bool {
 	if _, err := netip.ParseAddr(host); err == nil {
 		return true
 	}
-	ascii := host
-	if a, err := idna.Punycode.ToASCII(host); err == nil {
-		ascii = a
+	// DNS counts the ASCII (punycode) form. A name with no ASCII form cannot be looked up at all, so the fetch says
+	// so; measuring its UTF-8 bytes instead would refuse names whose ASCII form fits.
+	ascii, err := idna.Punycode.ToASCII(host)
+	if err != nil {
+		return true
 	}
 	ascii = strings.TrimSuffix(ascii, ".") // a fully qualified name's root dot is not a character of the name
 	if len(ascii) > maxHostLen {
@@ -257,7 +270,10 @@ func hasScheme(s string) bool {
 // parse returns the cleaned-up URL and, when it had to build it to measure the length, its string
 // form ("" when the input is plainly short; Normalize then builds it once). The length cap is
 // measured on that string.
-func parse(raw string) (*url.URL, string, error) {
+func parse(raw string) (*url.URL, string, error) { return parseHost(raw, true) }
+
+// parseHost is parse; checkHost false leaves out the host-name length rule (StoredKey).
+func parseHost(raw string, checkHost bool) (*url.URL, string, error) {
 	// Measure what survives cleaning (white space and the fragment are dropped), not the input.
 	kept := strings.TrimSpace(raw)
 	if i := strings.IndexByte(kept, '#'); i >= 0 {
@@ -278,7 +294,7 @@ func parse(raw string) (*url.URL, string, error) {
 		return nil, "", ErrUserinfo
 	}
 	host := strings.ToLower(u.Hostname())
-	if !hostFits(host) {
+	if checkHost && !hostFits(host) {
 		return nil, "", ErrHostTooLong
 	}
 	port := u.Port()

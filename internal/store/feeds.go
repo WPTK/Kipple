@@ -71,9 +71,9 @@ func boolInt(b bool) int {
 
 // FindFeedByURL matches a URL against url_key and url_original_key (so http and
 // https variants and pre-migration URLs collide). found is false when no feed
-// matches.
+// matches. The key is feedurl.StoredKey, so a feed saved before the host-name length rule is still found.
 func FindFeedByURL(ctx context.Context, q Querier, u string) (id int64, found bool, err error) {
-	key, err := feedurl.Key(u)
+	key, err := feedurl.StoredKey(u)
 	if err != nil {
 		return 0, false, err
 	}

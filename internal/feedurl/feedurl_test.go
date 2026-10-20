@@ -212,9 +212,10 @@ func TestHostLongerThanDNSAllowsIsRefused(t *testing.T) {
 	for _, raw := range []string{
 		"https://" + label(64) + ".example.com/f.xml",
 		"https://" + label(300) + ".example.com/f.xml",
-		"https://" + strings.Repeat(label(60)+".", 4) + "example.com/f.xml", // 255 characters, each part fits
-		"https://" + strings.Repeat("é", 60) + ".example.com/f.xml",         // xn-- form 66 characters
-		"https://" + strings.Repeat(label(62)+".", 3) + label(61) + ".com/", // 254 characters
+		"https://" + strings.Repeat(label(60)+".", 4) + "example.com/f.xml",  // 255 characters, each part fits
+		"https://" + strings.Repeat("é", 60) + ".example.com/f.xml",          // xn-- form 66 characters
+		"https://" + strings.Repeat(label(62)+".", 3) + label(61) + ".com/",  // 254 characters
+		"https://" + strings.Repeat(label(62)+".", 3) + label(61) + ".com./", // 254 before the root dot, which is not counted
 		"feed:" + label(64) + ".example.com/f.xml",
 	} {
 		for name, read := range map[string]func(string) (string, error){"Normalize": Normalize, "Key": Key, "Host": Host} {
@@ -230,6 +231,9 @@ func TestHostLongerThanDNSAllowsIsRefused(t *testing.T) {
 		"https://" + strings.Repeat(label(62)+".", 3) + label(60) + ".com/",  // exactly 253
 		"https://" + strings.Repeat(label(62)+".", 3) + label(60) + ".com./", // and its root dot
 		"https://" + strings.Repeat("é", 40) + ".example.com/f.xml",          // 80 bytes as typed, 46 as xn--
+		// No ASCII form (a malformed xn-- label): the name cannot be looked up, which the fetch reports, so its
+		// UTF-8 bytes (80 in the long label) are not measured against the rule.
+		"https://xn--zz." + strings.Repeat("é", 40) + ".example.com/f.xml",
 		"http://[2001:db8::1]:8080/f.xml",
 		"http://192.0.2.1/f.xml",
 	} {

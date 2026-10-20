@@ -2,8 +2,10 @@ package opml
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -44,6 +46,14 @@ func TestOverlongURLsStoreNothing(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			// The file really holds a host name over the 253 characters DNS allows (the case the rule is for).
+			longest := 0
+			for _, m := range xmlURL.FindAllStringSubmatch(tc.file, -1) {
+				if u, err := url.Parse(m[1]); err == nil {
+					longest = max(longest, len(u.Hostname()))
+				}
+			}
+			require.Greater(t, longest, 253, "the file has an over-long host name")
 			dir := t.TempDir()
 			db, err := store.Open(context.Background(), store.Options{Path: filepath.Join(dir, "kipple.db")})
 			require.NoError(t, err)
@@ -69,6 +79,8 @@ func TestOverlongURLsStoreNothing(t *testing.T) {
 		})
 	}
 }
+
+var xmlURL = regexp.MustCompile(`xmlUrl="([^"]*)"`)
 
 func dirSize(t *testing.T, dir string) int64 {
 	t.Helper()
