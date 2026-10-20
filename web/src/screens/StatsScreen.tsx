@@ -651,7 +651,7 @@ function ReadRateTerm({ data }: { data: StatsSummary }) {
   const r = data.read_rate;
   const pct = pctLabel(r?.rate);
   return (
-    <div className="relative rounded-xl bg-surface px-3 pb-1 pt-2 has-[button:hover]:bg-selection has-[button:active]:bg-selection">
+    <div className="hit relative rounded-xl bg-surface px-3 py-2 has-[button:hover]:bg-selection has-[button:active]:bg-selection">
       <dt className="text-xs text-fg2">Read rate</dt>
       <dd>
         {/* The name stays "Read rate 25%" whether or not the counts are showing; they are the button's controlled region. */}
@@ -661,7 +661,7 @@ function ReadRateTerm({ data }: { data: StatsSummary }) {
           aria-expanded={shown}
           aria-controls={noteId}
           onClick={() => setShown((s) => !s)}
-          className="hit block min-h-11 text-left text-base font-bold tabular-nums after:absolute after:inset-0 after:rounded-xl"
+          className="block text-left text-base font-bold tabular-nums after:absolute after:inset-0 after:rounded-xl"
         >
           {pct}
           <ChevronDown aria-hidden="true" data-cue="tile" className={`absolute right-2 top-2.5 size-4 text-fg2 transition-transform ${shown ? "rotate-180" : ""}`} />
