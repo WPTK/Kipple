@@ -177,8 +177,8 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 	rec = h.createAccount(map[string]any{"username": "other", "password": setupPass})
 	require.Equal(t, http.StatusNotFound, rec.Code)
 	require.JSONEq(t, `{"error":"not_found"}`, rec.Body.String())
-	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":false}`, h.req("GET", "/api/instance", "").Body.String())
-	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":true}`, h.req("GET", "/api/instance", "", withCookies(sess)).Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":false,"open_refused":null}`, h.req("GET", "/api/instance", "").Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":true,"open_refused":null}`, h.req("GET", "/api/instance", "", withCookies(sess)).Body.String())
 
 	// The session is a normal one, and onboarding is pending until finished.
 	me := decode(t, h.req("GET", "/api/auth/me", "", withCookies(sess)))
@@ -240,7 +240,7 @@ func TestSetupRoutesAbsentWithAccount(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, rec.Code, p[1])
 	}
 	rec := h.do("GET", "/api/instance", "")
-	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":false}`, rec.Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":false,"open_refused":null}`, rec.Body.String())
 }
 
 func TestSetupAccountValidation(t *testing.T) {
@@ -426,7 +426,7 @@ func TestSetupOpenMode(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	require.JSONEq(t, `{"username":"reader","auth_mode":"open"}`, rec.Body.String())
 	first := cookieNamed(rec, cookieName)
-	require.JSONEq(t, `{"setup":false,"auth":"open","signed_in":false}`, h.req("GET", "/api/instance", "").Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"open","signed_in":false,"open_refused":null}`, h.req("GET", "/api/instance", "").Body.String())
 
 	// A stale login form gets 409, not a failed sign-in.
 	b, _ := json.Marshal(map[string]string{"username": "reader", "password": "anything"})
@@ -472,6 +472,18 @@ func TestSetupOpenMode(t *testing.T) {
 	}
 	require.Equal(t, true, signedIn(peer("192.168.1.20:5000")))
 	require.Equal(t, false, signedIn(peer("203.0.113.9:5000")))
+	// It also says why, as the 403 above does for the same request, so the app shows the refused screen and not a
+	// sign-in screen. A request with no live session learns nothing about the gate, as from any signed-in route.
+	refusedOf := func(mod ...func(*http.Request)) any {
+		// As the app's fetch sends it: fetch metadata and Accept on top of the harness's Sec-Fetch-Site.
+		fetchGET := []func(*http.Request){hdr("Accept", "application/json"), hdr("Sec-Fetch-Mode", "cors"), hdr("Sec-Fetch-Dest", "empty")}
+		return decode(t, h.req("GET", "/api/instance", "", append(fetchGET, mod...)...))["open_refused"]
+	}
+	require.Equal(t, "peer", refusedOf(withCookies(lanSess), peer("203.0.113.9:5000")))
+	require.Equal(t, "forwarded", refusedOf(withCookies(lanSess), peer("192.168.1.20:5000"), hdr("X-Forwarded-For", "203.0.113.9")))
+	require.Nil(t, refusedOf(withCookies(lanSess), peer("192.168.1.20:5000")), "let in")
+	require.Nil(t, refusedOf(peer("203.0.113.9:5000")), "no session: nothing about the gate")
+	require.Nil(t, refusedOf(withCookies(&http.Cookie{Name: cookieName, Value: "forged"}), peer("203.0.113.9:5000")), "a forged session: nothing either")
 	// And a session taken elsewhere, used through a proxy, is refused too.
 	require.Equal(t, http.StatusForbidden, h.req("GET", "/api/bootstrap", "", withCookies(first), hdr("X-Forwarded-For", "203.0.113.9")).Code)
 	// A same-machine proxy that sends no forwarding headers but rewrites Host
@@ -717,7 +729,7 @@ func TestSetupEndsWhenTheRowExistsWhateverTheAnswer(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rec.Code)
 	require.Equal(t, "already_set_up", decode(t, rec)["error"])
 	require.False(t, h.mgr.Pending())
-	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":false}`, h.req("GET", "/api/instance", "").Body.String())
+	require.JSONEq(t, `{"setup":false,"auth":"password","signed_in":false,"open_refused":null}`, h.req("GET", "/api/instance", "").Body.String())
 	require.EqualValues(t, 1, h.started.Load(), "an account that appeared elsewhere still starts the background work")
 }
 
