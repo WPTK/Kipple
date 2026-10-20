@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore, openRefusedStore, setSignedIn } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
@@ -62,6 +63,24 @@ describe("the session marker", () => {
     expect(paths(calls)[0]).toBe("/api/bootstrap");
     expect(paths(calls)).not.toContain("/api/instance");
     expect(paths(calls).filter((p) => p === "/api/bootstrap")).toHaveLength(1);
+  });
+});
+
+describe("a refused open gate and the retry policy", () => {
+  it("a refused open gate gets one bootstrap per launch and one per Try again (#572)", async () => {
+    const { calls } = mockFetch({ "GET /api/bootstrap": () => json({ error: "open_refused", reason: "peer", message: "x" }, 403) });
+    const qc = makeQueryClient();
+    // The default waits 1 s and 2 s between tries; a second request would arrive well inside this test either way.
+    qc.setDefaultOptions({ queries: { ...qc.getDefaultOptions().queries, retryDelay: 0 } });
+    launch(qc);
+    await screen.findByRole("heading", { level: 1, name: "Kipple can't let you in from here" });
+    await new Promise((r) => setTimeout(r, 100));
+    const asked = () => paths(calls).filter((p) => p === "/api/bootstrap").length;
+    expect(asked()).toBe(1);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("heading", { level: 1, name: "Kipple can't let you in from here" });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(asked()).toBe(2);
   });
 });
 
