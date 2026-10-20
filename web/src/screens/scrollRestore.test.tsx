@@ -436,6 +436,34 @@ describe("rows that change shape under the reader (a turned phone)", () => {
     const topIndex = cards.findIndex((c) => c.id === top);
     expect(marked.filter((id) => cards.findIndex((c) => c.id === id) >= topIndex)).toEqual([]);
   });
+
+  it("comes back to the same article when the turned rows start on a fraction of a pixel", async () => {
+    const cards = Array.from({ length: 40 }, (_, i) => card(i + 1));
+    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(pageOf(cards, null, "100")) });
+    // A browser keeps the scroll position on whole (device) pixels, so a scroll to a row's fractional start lands short.
+    vi.spyOn(Element.prototype, "scrollTo").mockImplementation(function (this: Element, opts?: ScrollToOptions | number) {
+      if (typeof opts !== "object" || opts.top === undefined) return;
+      this.scrollTop = Math.floor(opts.top);
+      this.dispatchEvent(new Event("scroll"));
+    });
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const scroller = screen.getByTestId("list-scroll");
+    scrollTo(scroller, 10 * row);
+    await wait(50);
+    const top = topArticle(scroller);
+    expect(top).toBeDefined();
+
+    row = 120.4;
+    width = 812;
+    act(() => [...observed].forEach(report));
+    await wait(250);
+    row = 232;
+    width = 375;
+    act(() => [...observed].forEach(report));
+    await wait(250);
+    expect(topArticle(scroller)).toBe(top);
+  });
 });
 
 describe("turning mark-read-on-scroll off", () => {

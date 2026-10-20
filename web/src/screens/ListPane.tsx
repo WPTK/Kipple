@@ -763,7 +763,10 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   useEffect(() => {
     const el = parentRef.current;
     if (Page || !el || el.clientWidth !== listTop.current.width) return;
-    const top = el.scrollTop < 8 ? undefined : virtualizer.getVirtualItemForOffset(el.scrollTop);
+    // A row scrolled to within a pixel of the top is gone, as the reader sees it: a row's start can be fractional where the
+    // browser rounds the scroll position (a restore aligned on it, another device pixel ratio), and reading the row at
+    // the rounded offset would take the one above.
+    const top = el.scrollTop < 8 ? undefined : virtualizer.getVirtualItemForOffset(el.scrollTop + 1);
     // A day header at the top stands for the article under it.
     const row = top ? rowsRef.current.slice(top.index).find((r) => r.kind !== "header") : undefined;
     listTop.current.id = row?.kind === "item" ? row.item.id : row?.kind === "group" ? (row.items[0]?.id ?? null) : null;

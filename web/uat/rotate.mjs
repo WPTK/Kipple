@@ -32,6 +32,13 @@ const topOf = (page) =>
     }
     return { id: best?.id ?? null, scrollTop: Math.round(el.scrollTop) };
   });
+/** Where article `id` is, for a failure message: its row's top relative to the list's top, and the list's width. */
+const whereIs = (page, id) =>
+  scroller(page).evaluate((el, id) => {
+    const row = el.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
+    const at = row ? `${Math.round(row.getBoundingClientRect().top - el.getBoundingClientRect().top)} px from the top` : "not on screen";
+    return `${id} is ${at}, list ${el.clientWidth} px wide`;
+  }, id);
 /** How far down All the server's view of it is read (the flow scrolls a few screens from wherever All opens). */
 const MAX_ARTICLES = 1000;
 const ready = async (page) => {
@@ -119,14 +126,14 @@ await t.eachViewport(async (page, vp) => {
           const turned = await topOf(page);
           // The Gazette lays its pages out again for the new size, so only what it marks is checked there.
           if (layout !== "gazette") {
-            check(turned.id === here.id, `${tag} R1`, "turned, the same article is at the top", `top was ${here.id}, turned ${turned.id} (scrolled ${turned.scrollTop})`);
+            check(turned.id === here.id, `${tag} R1`, "turned, the same article is at the top", `top was ${here.id} (scrolled ${here.scrollTop}), turned ${turned.id} (scrolled ${turned.scrollTop}; ${await whereIs(page, here.id)})`);
           }
           await t.shot(page, `${tag}-turned`);
 
           await turn(page, w, h);
           const back = await topOf(page);
           if (layout !== "gazette") {
-            check(back.id === here.id, `${tag} R2`, "turned back, the same article is at the top", `top was ${here.id}, turned back ${back.id} (scrolled ${back.scrollTop})`);
+            check(back.id === here.id, `${tag} R2`, "turned back, the same article is at the top", `top was ${here.id} (scrolled ${here.scrollTop}), turned back ${back.id} (scrolled ${back.scrollTop}; ${await whereIs(page, here.id)})`);
           }
           await t.shot(page, `${tag}-turned-back`);
 
