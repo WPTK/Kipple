@@ -57,7 +57,7 @@ Step 'security' 'govulncheck' { go tool '-modfile=tools/go.mod' govulncheck ./..
 Step 'security' 'staticcheck' { go tool '-modfile=tools/go.mod' staticcheck ./... }
 Step 'security' 'gosec (gate: high severity, high confidence)' { go tool '-modfile=tools/go.mod' gosec -quiet -severity high -confidence high ./... }
 Step 'security' 'gitleaks (git history)' {
-  # The workflow runs the release binary on a checkout. Here the official image scans a fresh local clone of the
+  # The workflow runs `gitleaks git` from the release binary on a full checkout. Here the official image scans a fresh clone of the
   # whole history (a git worktree's .git is a pointer file the container cannot follow, which scans nothing).
   $clone = Join-Path $env:TEMP 'kipple-gitleaks-clone'
   Remove-Item -Recurse -Force $clone -ErrorAction SilentlyContinue
