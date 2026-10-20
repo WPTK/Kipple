@@ -695,7 +695,7 @@ describe("manage feeds", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const dlg = await screen.findByRole("dialog", { name: "Delete 2 feeds?" });
     expect(within(dlg).getByText(/hold 3 starred articles in total/)).toBeInTheDocument(); // 2 + 1
-    await user.click(within(dlg).getByRole("switch", { name: /Delete starred articles too/ }));
+    await user.click(within(dlg).getByRole("checkbox", { name: /Delete starred articles too/ }));
     await user.click(within(dlg).getByRole("button", { name: "Delete 2 feeds" }));
     expect(await within(dlg).findByText(/The server returned an error/)).toBeInTheDocument();
     expect(within(dlg).getByText(/Some of the feeds may be gone already/)).toBeInTheDocument();
@@ -714,7 +714,7 @@ describe("manage feeds", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const dlg = await screen.findByRole("dialog", { name: "Delete 4 feeds?" });
     expect(within(dlg).queryByText(/folder/i)).toBeNull();
-    await user.click(within(dlg).getByRole("switch", { name: /Delete starred articles too/ }));
+    await user.click(within(dlg).getByRole("checkbox", { name: /Delete starred articles too/ }));
     await user.click(within(dlg).getByRole("button", { name: "Delete 4 feeds" }));
     await waitFor(() => expect(del).toContain("feed 4"));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -744,7 +744,7 @@ describe("manage feeds", () => {
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Edit Alpha" }));
     const dlg = await screen.findByRole("dialog", { name: "Edit feed" });
-    const sw = await within(dlg).findByRole("switch", { name: /Fetch full article text/ });
+    const sw = await within(dlg).findByRole("checkbox", { name: /Fetch full article text/ });
     expect(sw).toBeChecked();
     expect(sw).toBeDisabled();
     expect(within(dlg).getByText(/On for all feeds/)).toBeInTheDocument();

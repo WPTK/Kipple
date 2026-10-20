@@ -37,7 +37,7 @@ import { toast } from "@/shell/toasts";
 import { cn } from "@/lib/cn";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
+import { Checkbox, Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 
 export const PREVIEW_DEBOUNCE_MS = 600;
@@ -159,19 +159,6 @@ function Group({ legend, help, error, children }: { legend: string; help?: React
         </p>
       ) : null}
     </fieldset>
-  );
-}
-
-function Check({ label, help, checked, onChange, disabled, busy }: { label: string; help?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; busy?: boolean }) {
-  const id = useId();
-  return (
-    <label htmlFor={id} aria-busy={busy || undefined} className={cn("flex min-h-11 items-start gap-3 py-1 text-sm", disabled ? "opacity-60" : "cursor-pointer")}>
-      <input id={id} type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-[var(--kp-accent)]" />
-      <span>
-        {label}
-        {help ? <span className="block text-xs text-fg2">{help}</span> : null}
-      </span>
-    </label>
   );
 }
 
@@ -308,7 +295,7 @@ function PreviewCards({ p }: { p: Preview }) {
   );
 }
 
-/** The live preview: the count (a polite live region), the warnings, the sample cards and the include-read switch. */
+/** The live preview: the count (a polite live region), the warnings, the sample cards and the include-read checkbox. */
 function PreviewPanel({ d, state, includeRead, setIncludeRead }: { d: FilterDraft; state: PreviewState; includeRead: boolean; setIncludeRead: (v: boolean) => void }) {
   const p = state.data;
   return (
@@ -335,7 +322,7 @@ function PreviewPanel({ d, state, includeRead, setIncludeRead }: { d: FilterDraf
           {w.message}
         </Notice>
       ))}
-      <Switch label="Include already-read articles" help="Off looks only at unread articles that are not starred. On also counts, and later applies to, articles you have read." checked={includeRead} onChange={setIncludeRead} />
+      <Checkbox label="Include already-read articles" help="Left unticked, only unread articles that are not starred are looked at. Ticked, articles you have read count too, and the rule later applies to them." checked={includeRead} onChange={setIncludeRead} />
       {p ? <PreviewCards p={p} /> : null}
     </section>
   );
@@ -598,7 +585,7 @@ function EditorForm({
       <Group legend="Look in" help="The rule fires when a term is found in any of the parts you tick." error={at("fields")}>
         <div className="grid gap-x-4 min-[520px]:grid-cols-2">
           {FIELDS.map((f) => (
-            <Check
+            <Checkbox
               key={f.id}
               label={f.label}
               checked={d.fields.includes(f.id)}
@@ -610,10 +597,10 @@ function EditorForm({
       </Group>
 
       <Group legend="Options" error={at("options")}>
-        {regex ? null : <Check label="Match whole words only" help="On: cat matches “cat” but not “category”." checked={d.whole_word} onChange={(v) => set({ whole_word: v })} />}
-        <Check label="Ignore capitalization" help="On: Apple matches apple and APPLE." checked={!d.case_sensitive} onChange={(v) => set({ case_sensitive: !v })} />
-        {regex ? null : <Check label="Ignore accents" help="On: cafe matches café." checked={d.fold_diacritics} onChange={(v) => set({ fold_diacritics: v })} />}
-        <Check
+        {regex ? null : <Checkbox label="Match whole words only" help="On: cat matches “cat” but not “category”." checked={d.whole_word} onChange={(v) => set({ whole_word: v })} />}
+        <Checkbox label="Ignore capitalization" help="On: Apple matches apple and APPLE." checked={!d.case_sensitive} onChange={(v) => set({ case_sensitive: !v })} />
+        {regex ? null : <Checkbox label="Ignore accents" help="On: cafe matches café." checked={d.fold_diacritics} onChange={(v) => set({ fold_diacritics: v })} />}
+        <Checkbox
           label="Act when it does NOT match"
           help={
             d.action === "mute"
@@ -642,7 +629,7 @@ function EditorForm({
       <PreviewPanel d={d} state={preview} includeRead={includeRead} setIncludeRead={setIncludeRead} />
 
       {canApply ? (
-        <Check
+        <Checkbox
           label="Apply to existing articles"
           disabled={previewStale}
           busy={previewStale}
@@ -657,7 +644,7 @@ function EditorForm({
       ) : d.action !== "highlight" ? (
         <p className="text-xs text-fg2">A filter that is turned off does nothing, so it can't be applied to stored articles.</p>
       ) : null}
-      <Switch label="Turn this filter on" checked={d.enabled} onChange={(v) => set({ enabled: v })} />
+      <Checkbox label="Turn this filter on" checked={d.enabled} onChange={(v) => set({ enabled: v })} />
       {other ? <Notice tone="error">{other}</Notice> : null}
       {failed ? <Notice tone="error">{failed}</Notice> : null}
     </Modal>

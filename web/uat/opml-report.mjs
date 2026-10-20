@@ -67,7 +67,7 @@ await t.eachViewport(async (page, vp) => {
     check(/1 feed was listed again under the same address/.test(text), `${tag} O2 repeat`, "the repeated feed is counted", `no repeat line in "${text}"`);
     const privateLines = text.split(PRIVATE).length - 1;
     check(
-      privateLines === 1 && text.includes('turn on "Allow addresses on my own network" in its settings'),
+      privateLines === 1 && text.includes('tick "Allow addresses on my own network" in its settings'),
       `${tag} O2 private`,
       "the private feed is listed once, with the switch to turn on",
       `the private address appears ${privateLines} times; "${text}"`,

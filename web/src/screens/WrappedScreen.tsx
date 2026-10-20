@@ -28,7 +28,7 @@ import { useStore } from "@/lib/store";
 import { activeThemeStore } from "@/theme/theme";
 import { toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
-import { Modal, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
+import { Checkbox, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   const id = useId();
@@ -254,8 +254,8 @@ function ShareBody({ m, onOpenChange }: { m: WrappedModel; onOpenChange: (o: boo
           </p>
         ) : null}
         {image && renderState === "error" ? <Notice tone="error">Couldn't make the image. You can still share or copy the text.</Notice> : null}
-        <Switch label="Include my top sources" help="Feed names." checked={o.topSources} onChange={(v) => setO((p) => ({ ...p, topSources: v }))} />
-        <Switch label="Include my longest read" help="The article title." checked={o.longestRead} onChange={(v) => setO((p) => ({ ...p, longestRead: v }))} />
+        <Checkbox label="Include my top sources" help="Feed names." checked={o.topSources} onChange={(v) => setO((p) => ({ ...p, topSources: v }))} />
+        <Checkbox label="Include my longest read" help="The article title." checked={o.longestRead} onChange={(v) => setO((p) => ({ ...p, longestRead: v }))} />
         {problem ? <Notice tone="error">{problem}</Notice> : null}
         {copyFailed ? (
           <div className="flex flex-col gap-2">

@@ -252,7 +252,7 @@ describe("filter editor", () => {
     expect(previews().length).toBeLessThan(8);
 
     // Including read articles asks again with include_read.
-    await user.click(w.getByRole("switch", { name: /Include already-read articles/ }));
+    await user.click(w.getByRole("checkbox", { name: /Include already-read articles/ }));
     await waitFor(() => expect(body(calls.filter((c) => c.url.pathname === "/api/filters/preview").at(-1) as never).include_read).toBe(true));
 
     await user.click(w.getByRole("button", { name: "Save filter" }));
@@ -377,7 +377,7 @@ describe("filter editor", () => {
     await user.click(w.getByRole("radio", { name: /^Highlight/ }));
     expect(w.queryByRole("checkbox", { name: /Apply to existing articles/ })).toBeNull();
     await user.click(w.getByRole("radio", { name: /^Mute/ }));
-    await user.click(w.getByRole("switch", { name: /Turn this filter on/ }));
+    await user.click(w.getByRole("checkbox", { name: /Turn this filter on/ }));
     expect(w.queryByRole("checkbox", { name: /Apply to existing articles/ })).toBeNull();
     expect(w.getByText(/turned off does nothing/)).toBeInTheDocument();
   });

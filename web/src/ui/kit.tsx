@@ -217,6 +217,64 @@ export function Switch({
   );
 }
 
+/**
+ * A checkbox with a label and help text: the control for a yes/no choice in a form or dialog that a button (Save, Add,
+ * Export, Continue) applies later. A Switch is for a setting that takes effect the moment it is flipped; the two
+ * differ the way they do on iOS, Android and the web, so a form never offers a switch that does nothing until Save.
+ */
+export function Checkbox({
+  label,
+  help,
+  checked,
+  onChange,
+  disabled,
+  busy,
+  error,
+}: {
+  label: string;
+  help?: ReactNode;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+  /** A change is being worked out (a preview is loading): announced, and the box stays where it is. */
+  busy?: boolean;
+  error?: string | null;
+}) {
+  const id = useId();
+  // The box and the label are one 44 px row; the help sits right under the label (not inside it, so it is described, not read as part of the name).
+  return (
+    <div className={cn("flex items-start gap-3", disabled && "opacity-60")}>
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        aria-describedby={`${id}-h${error ? ` ${id}-e` : ""}`}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-3 size-5 shrink-0 accent-[var(--kp-accent)]"
+      />
+      <div className="min-w-0">
+        <label htmlFor={id} aria-busy={busy || undefined} className={cn("flex min-h-11 items-center text-sm", disabled ? "cursor-not-allowed" : "cursor-pointer")}>
+          {label}
+        </label>
+        {help ? (
+          <p id={`${id}-h`} className="-mt-2 pb-2 text-xs text-fg2">
+            {help}
+          </p>
+        ) : (
+          <span id={`${id}-h`} hidden />
+        )}
+        {error ? (
+          <p id={`${id}-e`} role="alert" className="flex items-start gap-1 pb-2 text-sm text-danger">
+            <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            <span>{error}</span>
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /** Wait after the last keystroke or +/- click before a value is committed (blur and Enter commit at once). */
 export const STEPPER_DEBOUNCE_MS = 700;
 

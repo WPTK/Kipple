@@ -57,7 +57,7 @@ func requireElsewhere(t *testing.T, code int, body map[string]any, link string) 
 	require.Equal(t, "private_address", body["error"], body)
 	msg, _ := body["message"].(string)
 	require.Contains(t, msg, "The page links its feed on another site, at a private address ("+link+").")
-	require.Contains(t, msg, `To use that feed, enter its own address, turn on "Allow addresses on my own network"`)
+	require.Contains(t, msg, `To use that feed, enter its own address, tick "Allow addresses on my own network"`)
 	require.Contains(t, []int{400, 422}, code)
 }
 

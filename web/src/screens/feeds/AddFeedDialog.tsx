@@ -4,7 +4,7 @@ import { ApiError, errorMessage } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
 import { addFeed, invalidateFeeds, type AddFeedResult, type Candidate, type FeedDetail, type FetchOutcome } from "@/api/admin";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, Switch, inputCls } from "@/ui/kit";
+import { Checkbox, Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { announce } from "@/shell/toasts";
 
@@ -197,9 +197,9 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
             {(a) => <input {...a} ref={address} type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoFocus placeholder="example.com or https://example.com/feed.xml" value={url} onChange={(e) => setUrl(e.target.value)} className={inputCls} />}
           </Field>
           {privateOffered ? (
-            <Switch
+            <Checkbox
               label="Allow addresses on my own network"
-              help="Lets this feed point at a private or local address, such as a server in your home. Turn it on only for a feed you trust."
+              help="Lets this feed point at a private or local address, such as a server in your home. Tick it only for a feed you trust."
               checked={privateNet}
               onChange={setPrivateNet}
             />

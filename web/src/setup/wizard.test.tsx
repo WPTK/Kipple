@@ -894,7 +894,7 @@ describe("Step 5: recommended feeds", () => {
     await user.click(screen.getByRole("checkbox", { name: /Feed a/ }));
     await user.click(screen.getByRole("checkbox", { name: /Feed b/ }));
     await user.click(screen.getByRole("checkbox", { name: /Feed e/ }));
-    await user.click(screen.getByRole("switch", { name: /own folder/ }));
+    await user.click(screen.getByRole("checkbox", { name: /own folder/ }));
     await user.click(screen.getByRole("button", { name: "Add 3 feeds" }));
     await headingIs("Your Kipple's address");
     expect(bodyOf(callTo(calls, "POST", "/api/starter-feeds")[0] as never)).toEqual({ ids: ["a", "b", "e"], folders: false });

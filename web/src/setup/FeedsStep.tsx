@@ -4,7 +4,7 @@ import { ApiError, errorMessage } from "@/api/client";
 import { invalidateFeeds } from "@/api/admin";
 import { announce } from "@/shell/toasts";
 import { Button } from "@/ui/button";
-import { Notice, Skeleton, Switch } from "@/ui/kit";
+import { Checkbox, Notice, Skeleton } from "@/ui/kit";
 import { fetchStarterFeeds, subscribeStarter, type StarterFeed } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import { stepById } from "./steps";
@@ -121,7 +121,7 @@ export function FeedsStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
             </ul>
           </fieldset>
         ))}
-        <Switch label="Put each category in its own folder" help="Kipple makes a folder named after each category and files its feeds there." checked={folders} onChange={setFolders} />
+        <Checkbox label="Put each category in its own folder" help="Kipple makes a folder named after each category and files its feeds there." checked={folders} onChange={setFolders} />
         <p role="status" className="text-sm text-fg2">
           {chosen.length === 0 ? "No feeds selected." : `${chosen.length} feed${chosen.length === 1 ? "" : "s"} selected.`}
         </p>

@@ -9,7 +9,7 @@ import { AUTO_READ_PRESETS, autoReadLabel } from "@/api/autoRead";
 import { Button } from "@/ui/button";
 import { AutoReadCatchUp } from "../AutoReadCatchUp";
 import { ListOverrideFields, useListOverrideDraft } from "./ListOverrideFields";
-import { Disclosure, Field, Modal, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
+import { Checkbox, Disclosure, Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { announce, toast } from "@/shell/toasts";
 import { intervalLabel } from "@/lib/interval";
@@ -222,7 +222,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
             <Notice tone="warn">
               This feed has {feed.starred_count} starred article{feed.starred_count === 1 ? "" : "s"}. By default they are kept in the Archive.
             </Notice>
-            <Switch label="Delete starred articles too" checked={alsoStarred} onChange={setAlsoStarred} help="This can't be undone." />
+            <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={setAlsoStarred} help="This can't be undone." />
           </>
         ) : (
           <p className="text-sm text-fg2">This feed has no starred articles.</p>
@@ -264,7 +264,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
           {changedUrl && (heldGrants.privateNet || heldGrants.insecureTls) ? (
             <>
               <Notice tone="warn">{grantNotice(heldGrants)}</Notice>
-              <Switch
+              <Checkbox
                 label="Keep for the new address"
                 help="Only for an address you trust, such as another server in your home."
                 checked={f.keepGrants}
@@ -324,17 +324,17 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
             runBlocked={f.autoRead !== fromDetail(q.data).autoRead ? "Save the feed, then open it again to mark these now." : undefined}
           />
           {fulltextAll ? (
-            <Switch
+            <Checkbox
               label="Fetch full article text"
-              help="On for all feeds. Settings > Sync & Feeds > Library fetches the full article for every feed, so this switch has no effect until that is turned off."
+              help="On for all feeds. Settings > Sync & Feeds > Library fetches the full article for every feed, so this option has no effect until that is turned off."
               checked
               disabled
               onChange={() => undefined}
             />
           ) : (
-            <Switch label="Fetch full article text" help="Loads the whole article from the website when the feed only has a summary." checked={f.fulltext} onChange={(v) => set("fulltext", v)} />
+            <Checkbox label="Fetch full article text" help="Loads the whole article from the website when the feed only has a summary." checked={f.fulltext} onChange={(v) => set("fulltext", v)} />
           )}
-          <Switch label="Enabled" help="Turn off to stop checking this feed without deleting it." checked={f.enabled} onChange={(v) => set("enabled", v)} />
+          <Checkbox label="Enabled" help="Untick to stop checking this feed without deleting it." checked={f.enabled} onChange={(v) => set("enabled", v)} />
 
           <Disclosure label="Advanced">
             <Field label="Duplicate detection" help="How Kipple decides that two entries are the same article.">
@@ -357,20 +357,20 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
             >
               {(a) => <input {...a} type="password" autoComplete="off" value={f.auth} disabled={f.clearAuth} placeholder={q.data?.has_http_auth ? "Saved" : ""} onChange={(e) => set("auth", e.target.value)} className={inputCls} />}
             </Field>
-            {q.data.has_http_auth ? <Switch label="Remove the saved login" checked={f.clearAuth} onChange={(v) => set("clearAuth", v)} /> : null}
-            <Switch label="Ignore HTTP caching" help="Download the whole feed every time, even when the site says nothing changed." checked={f.ignoreCache} onChange={(v) => set("ignoreCache", v)} />
-            <Switch label="Don't use HTTP/2" help="Try this if a feed fails with connection or stream errors." checked={f.noHttp2} onChange={(v) => set("noHttp2", v)} />
+            {q.data.has_http_auth ? <Checkbox label="Remove the saved login" checked={f.clearAuth} onChange={(v) => set("clearAuth", v)} /> : null}
+            <Checkbox label="Ignore HTTP caching" help="Download the whole feed every time, even when the site says nothing changed." checked={f.ignoreCache} onChange={(v) => set("ignoreCache", v)} />
+            <Checkbox label="Don't use HTTP/2" help="Try this if a feed fails with connection or stream errors." checked={f.noHttp2} onChange={(v) => set("noHttp2", v)} />
           </Disclosure>
 
           <Disclosure label="Unsafe options" tone="warn">
-            <Notice tone="warn">These weaken protections that keep Kipple safe. Turn them on only for a feed you trust.</Notice>
-            <Switch
+            <Notice tone="warn">These weaken protections that keep Kipple safe. Tick them only for a feed you trust.</Notice>
+            <Checkbox
               label="Allow an invalid security certificate"
               help="The connection is still encrypted, but Kipple can't tell whether it is talking to the real site."
               checked={f.insecureTls}
               onChange={(v) => set("insecureTls", v)}
             />
-            <Switch
+            <Checkbox
               label="Allow addresses on my own network"
               help="Lets this feed point at a private or local address, such as a server in your home. Other feeds can't."
               checked={f.privateNet}

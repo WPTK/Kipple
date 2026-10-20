@@ -48,6 +48,16 @@ were resolved in round 2 and what shipped; each is annotated below.
 - First-run **peek animation** teaches swipe reveal.
 - Mark-read-on-scroll: keep as a setting, **off by default**.
 
+## Standard controls (#286)
+
+- **Yes or no in a form or dialog is a checkbox** (`Checkbox` in `web/src/ui/kit.tsx`): the choice is applied by Save, Add,
+  Export or Continue, as on iOS, Android and the web. A **switch** (`Switch`) is only for a setting that takes effect the
+  moment it is flipped (Settings, the Filters list). The two never share a form. `web/src/ui/checkbox.test.tsx` keeps the
+  form files free of switches.
+- Wording follows the control: "Tick" and "Untick" for a checkbox, "Turn on" only for a switch.
+- A choice among a few named steps stays a segmented control (native radios); a choice that wants a sentence each is a
+  list of radio cards.
+
 ## Layout
 
 - **Magazine is the default**; compact list and cards also ship. the owner likes the proposed layouts and wants

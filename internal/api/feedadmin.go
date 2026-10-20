@@ -363,7 +363,7 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 
 // msgPrivateAddress explains a private address refused by the add dialog and how to allow it.
 const msgPrivateAddress = "That address is on a private network (this computer or your local network). Kipple does not " +
-	"fetch from private addresses unless you allow it for the feed. If this feed is on your own network, turn on " +
+	"fetch from private addresses unless you allow it for the feed. If this feed is on your own network, tick " +
 	"\"Allow addresses on my own network\" and add it again."
 
 // privateRefusal explains why target may not be reached: refused is the address the guard turned
@@ -371,7 +371,7 @@ const msgPrivateAddress = "That address is on a private network (this computer o
 // switch covers (with its site), and edit picks the feed editor's wording, where the switch is
 // under Unsafe options.
 func privateRefusal(enteredHost, target, refused string, edit bool) string {
-	turnOn, again := `turn on "Allow addresses on my own network"`, " and add it again."
+	turnOn, again := `tick "Allow addresses on my own network"`, " and add it again."
 	if edit {
 		turnOn, again = turnOn+" under Unsafe options below", " and save again."
 	}
@@ -417,7 +417,7 @@ func linkedHost(found discover.Result) string {
 
 // msgPrivateAddressEdit is the same refusal for the feed editor, where the switch is under Unsafe options.
 const msgPrivateAddressEdit = "That address is on a private network (this computer or your local network). Kipple does not " +
-	"fetch from private addresses unless you allow it for the feed. If this feed is on your own network, turn on " +
+	"fetch from private addresses unless you allow it for the feed. If this feed is on your own network, tick " +
 	"\"Allow addresses on my own network\" under Unsafe options below and save again."
 
 // discoveryError maps a failed discovery to the add dialog's error code and a plain-language message.

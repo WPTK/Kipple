@@ -66,7 +66,7 @@ describe("the OPML import report", () => {
       </QueryClientProvider>,
     );
     const user = userEvent.setup();
-    const sw = screen.getByRole("switch", { name: /^Move feeds that already exist into the file's folders/ });
+    const sw = screen.getByRole("checkbox", { name: /^Move feeds that already exist into the file's folders/ });
     expect(sw).not.toBeChecked();
     await user.upload(screen.getByLabelText("OPML file"), new File(["<opml/>"], "subs.opml", { type: "text/xml" }));
     await user.click(sw);

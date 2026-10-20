@@ -401,7 +401,7 @@ describe("Add feed", () => {
         const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
         posts.push(b);
         if (!b.allow_private_net)
-          return json({ error: "private_address", message: 'That address is on a private network. Turn on "Allow addresses on my own network" and add it again.' }, 400);
+          return json({ error: "private_address", message: 'That address is on a private network. Tick "Allow addresses on my own network" and add it again.' }, 400);
         return json({ status: "ok", feed: feedDetail({ title: "NAS" }), fetch: { outcome: "ok", new_items: 1 } });
       },
     });
@@ -409,12 +409,12 @@ describe("Add feed", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Add feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Add feed" });
-    expect(within(dlg).queryByRole("switch")).toBeNull();
+    expect(within(dlg).queryByRole("checkbox", { name: /Allow addresses on my own network/ })).toBeNull();
     await user.type(within(dlg).getByLabelText("Feed or website address"), "nas.lan/feed");
     await user.click(within(dlg).getByRole("button", { name: "Add feed" }));
     expect(await within(dlg).findByRole("alert")).toHaveTextContent("private network");
     expect(posts[0]).toEqual({ url: "nas.lan/feed" });
-    await user.click(within(dlg).getByRole("switch", { name: /Allow addresses on my own network/ }));
+    await user.click(within(dlg).getByRole("checkbox", { name: /Allow addresses on my own network/ }));
     await user.click(within(dlg).getByRole("button", { name: "Add feed" }));
     await screen.findByRole("dialog", { name: "Feed added" });
     expect(posts[1]).toEqual({ url: "nas.lan/feed", allow_private_net: true });
@@ -484,10 +484,10 @@ describe("Feed editor", () => {
     await user.click(await screen.findByRole("button", { name: "Edit Example Feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Edit feed" });
     await within(dlg).findByLabelText("Feed address");
-    expect(within(dlg).queryByRole("switch", { name: /invalid security certificate/ })).toBeNull();
+    expect(within(dlg).queryByRole("checkbox", { name: /invalid security certificate/ })).toBeNull();
     await user.click(within(dlg).getByRole("button", { name: "Unsafe options" }));
     expect(within(dlg).getByText(/weaken protections/)).toBeInTheDocument();
-    expect(within(dlg).getByRole("switch", { name: /invalid security certificate/ })).not.toBeChecked();
+    expect(within(dlg).getByRole("checkbox", { name: /invalid security certificate/ })).not.toBeChecked();
   });
 
   it("confirms delete with the starred count and the delete-starred choice", async () => {
@@ -504,7 +504,7 @@ describe("Feed editor", () => {
     await user.click(await screen.findByRole("button", { name: "Delete feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Delete Example Feed?" });
     expect(within(dlg).getByText(/3 starred articles/)).toBeInTheDocument();
-    await user.click(within(dlg).getByRole("switch", { name: /Delete starred articles too/ }));
+    await user.click(within(dlg).getByRole("checkbox", { name: /Delete starred articles too/ }));
     await user.click(within(dlg).getByRole("button", { name: "Delete feed" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url.searchParams.get("delete_starred") === "1")).toBe(true));
   });
@@ -565,11 +565,11 @@ describe("Feed editor", () => {
     await user.click(await screen.findByRole("button", { name: "Edit Example Feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Edit feed" });
     const url = await within(dlg).findByLabelText("Feed address");
-    expect(within(dlg).queryByRole("switch", { name: /Keep for the new address/ })).toBeNull();
+    expect(within(dlg).queryByRole("checkbox", { name: /Keep for the new address/ })).toBeNull();
     await user.clear(url);
     await user.type(url, "http://nas2/feed");
     expect(within(dlg).getByText(/This feed can reach addresses on your own network/)).toBeInTheDocument();
-    await user.click(within(dlg).getByRole("switch", { name: /Keep for the new address/ }));
+    await user.click(within(dlg).getByRole("checkbox", { name: /Keep for the new address/ }));
     await user.click(within(dlg).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit feed" })).toBeNull());
     expect(calls.filter((c) => c.method === "PATCH").map(body).at(-1)).toEqual({ url: "http://nas2/feed", allow_private_net: true, allow_insecure_tls: false });
@@ -730,9 +730,9 @@ describe("Folders and OPML", () => {
     expect(within(done).getByText(/1 feed was skipped/)).toBeInTheDocument();
     const lines = within(done).getAllByRole("listitem").map((li) => li.textContent);
     expect(lines).toContain("ftp://bad: not a valid http(s) URL");
-    expect(lines).toContain('https://x/feed: the file allowed addresses on your own network; turn on "Allow addresses on my own network" in its settings if it needs that');
+    expect(lines).toContain('https://x/feed: the file allowed addresses on your own network; tick "Allow addresses on my own network" in its settings if it needs that');
     expect(lines).toContain("https://y/feed: the file skipped certificate checks; Kipple checks them");
-    expect(lines).toContain(`http://10.0.0.5/feed: on your own network, so Kipple won't fetch it until you turn on "Allow addresses on my own network" in its settings`);
+    expect(lines).toContain(`http://10.0.0.5/feed: on your own network, so Kipple won't fetch it until you tick "Allow addresses on my own network" in its settings`);
     expect(within(done).getByText(/kipple:interval must be a number/)).toBeInTheDocument();
     expect(within(done).getByText(/news into News/)).toBeInTheDocument();
     expect(lines).toContain("2 feeds were listed again under the same address; the repeats were left out");
