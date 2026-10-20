@@ -1,3 +1,4 @@
+import { tapVerb } from "@/lib/pointer";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Check as CheckIcon, X } from "lucide-react";
@@ -528,7 +529,7 @@ function EditorForm({
       {seed ? (
         <section aria-label="Suggestions from this article" className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-3">
           <p className="text-sm font-semibold">Suggestions from this article</p>
-          <p className="text-xs text-fg2">Tap a word to add it, tap it again to take it out. The rule starts on {seed.feedTitle} only; change that below.</p>
+          <p className="text-xs text-fg2">{tapVerb()} a word to add it, {tapVerb().toLowerCase()} it again to take it out. The rule starts on {seed.feedTitle} only; change that below.</p>
           <div className="flex flex-wrap gap-2">
             {seed.keywords.map((k) => (
               <SuggestionChip key={k} on={has(k)} label={k} name={`Word ${k}`} onToggle={() => toggleTerm(k)} />

@@ -152,7 +152,10 @@ export default defineConfig(({ command }) => {
       },
     },
     // Nothing is inlined as a data: URI: the page policy is font-src 'self', and small font subsets were being blocked.
-    build: { target: "es2022", assetsInlineLimit: 0 },
+    // Source maps ship in the image (a few MB inside the binary; a browser fetches one only when its developer tools are
+    // open, and the service worker precaches scripts and styles only). The image holds no source tree, so without
+    // them a stack trace from a user's browser names only minified code; the source is public, so they reveal nothing.
+    build: { target: "es2022", assetsInlineLimit: 0, sourcemap: true },
     test: {
       environment: "jsdom",
       setupFiles: ["./src/test/setup.ts"],

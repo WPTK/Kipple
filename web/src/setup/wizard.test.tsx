@@ -208,6 +208,17 @@ describe("Step 1: account", () => {
     expect(screen.getByText("The two passwords don't match.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(callTo(calls, "POST", "/api/setup/account")).toHaveLength(0);
+    // Announced once, not by both the submit check and the field's own check.
+    expect(screen.getAllByText("The two passwords don't match.")).toHaveLength(1);
+    expect(screen.getByLabelText("Password again")).toHaveFocus();
+    // An empty "Password again" has no live check: the submit says what is missing there.
+    await user.clear(screen.getByLabelText("Password again"));
+    await user.click(screen.getByRole("button", { name: "Create my account" }));
+    expect(screen.getByText("Enter the password again.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Password again")).toHaveFocus();
+    expect(callTo(calls, "POST", "/api/setup/account")).toHaveLength(0);
+    await user.type(screen.getByLabelText("Password again"), "l");
+    expect(screen.queryByText("Enter the password again.")).toBeNull();
   });
 
   it("shows the server's word on a bad password and keeps what was typed", async () => {
