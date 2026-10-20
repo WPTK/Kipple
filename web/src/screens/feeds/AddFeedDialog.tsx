@@ -174,7 +174,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
         <fieldset ref={choices} className="flex flex-col gap-2">
           <legend className="mb-1 text-sm font-semibold">This site has more than one feed. Choose one.</legend>
           {step.candidates.map((c) => (
-            <RadioCard key={c.url} name="candidate" checked={pick === c.url} onSelect={() => setPick(c.url)} title={c.title || c.url} help={<span className="break-all">{c.url}</span>} />
+            <RadioCard key={c.url} name="candidate" checked={pick === c.url} onSelect={() => setPick(c.url)} title={c.title || <span className="break-all">{c.url}</span>} help={c.title ? <span className="break-all">{c.url}</span> : undefined} />
           ))}
         </fieldset>
       ) : (

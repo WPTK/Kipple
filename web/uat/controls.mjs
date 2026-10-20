@@ -11,7 +11,7 @@
 //   K6  A checkbox row is one hit area (a tap in the box column or the gap toggles it), 44 px tall (56 px with Large targets),
 //       with the box centred on the text, at both widths;
 //   K7  A radio card (New filter, the scope choices) is one hit area, 44 px tall (56 px with Large targets), the 20 px radio beside
-//       its first line, and a tap in its padding picks it;
+//       its first line, and a tap in its padding picks it (the cards with fields under them are measured in wizard.mjs);
 //   K5  Add feed with an address on a private network: the refusal points at "tick" and the option it offers is a checkbox,
 //       unticked (nothing is added);
 //   K4  Settings > Appearance & Reading: Larger buttons stays a switch (it applies the moment it is flipped), and flipping it

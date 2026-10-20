@@ -410,10 +410,10 @@ export function DeleteFolderDialog({
           {count > 0 ? (
             <fieldset className="flex flex-col gap-2 text-sm" disabled={working || feedsGone}>
               <legend className="sr-only">What happens to the feeds</legend>
-              <RadioRow name="folder-feeds" checked={!all} onSelect={() => setMode("keep")}>
+              <RadioRow name="folder-feeds" disabled={working || feedsGone} checked={!all} onSelect={() => setMode("keep")}>
                 Keep the feeds
               </RadioRow>
-              <RadioRow name="folder-feeds" checked={all} onSelect={() => setMode("all")}>
+              <RadioRow name="folder-feeds" disabled={working || feedsGone} checked={all} onSelect={() => setMode("all")}>
                 Delete the {plural} too
               </RadioRow>
             </fieldset>

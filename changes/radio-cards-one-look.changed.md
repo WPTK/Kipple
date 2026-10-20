@@ -1,0 +1,1 @@
+Choice cards (the options in Add feed, Delete folder, the filter editor, Delete filter and the setup steps) now share one look: the chosen card is tinted, an unchosen one tints on hover, a focused one gets an outline and a disabled one is dimmed, and a card with fields under it can be picked by clicking anywhere on it. (#561)

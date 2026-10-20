@@ -292,7 +292,9 @@ const radioBox = "size-5 shrink-0 accent-[var(--kp-accent)]";
  *
  * `help` is part of the option's name. `children` sit under the title, indented to its text, outside the label and
  * described by it (a description, or fields that belong to the option); a card with children also has the larger title.
- * The whole card is one hit area (44 px tall, 56 px with Large targets, via `label.min-h-11` in index.css).
+ * The whole card is one hit area (44 px tall, 56 px with Large targets, via `label.min-h-11` in index.css). With children
+ * the label cannot wrap them (they may hold fields), so the card forwards a click on its padding or its text to the radio
+ * and leaves a click on a field, button or link in the children alone.
  */
 export function RadioCard({
   name,
@@ -314,6 +316,7 @@ export function RadioCard({
   children?: ReactNode;
 }) {
   const id = useId();
+  const radio = useRef<HTMLInputElement>(null);
   const roomy = children != null && children !== false;
   const card = cn(
     "rounded-xl border p-3 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent",
@@ -323,6 +326,7 @@ export function RadioCard({
   const label = cn("flex min-h-11 items-start gap-3", disabled ? "cursor-not-allowed" : "cursor-pointer");
   const input = (
     <input
+      ref={radio}
       id={id}
       type="radio"
       name={name}
@@ -349,7 +353,14 @@ export function RadioCard({
     );
   }
   return (
-    <div className={cn(card, "text-sm")}>
+    // The radio and its label stay the keyboard and screen reader control; this click is for the pointer only.
+    <div
+      className={cn(card, "text-sm", !disabled && "cursor-pointer")}
+      onClick={(e) => {
+        if (disabled || (e.target as HTMLElement).closest("input, select, textarea, button, a, label")) return;
+        radio.current?.click();
+      }}
+    >
       <label htmlFor={id} className={label}>
         {input}
         {text}
@@ -362,10 +373,10 @@ export function RadioCard({
 }
 
 /** One plain radio with its label, for a short choice that needs no card (a few options in a dialog). */
-export function RadioRow({ name, value, checked, onSelect, children }: { name: string; value?: string; checked: boolean; onSelect: () => void; children: ReactNode }) {
+export function RadioRow({ name, value, checked, onSelect, disabled, children }: { name: string; value?: string; checked: boolean; onSelect: () => void; disabled?: boolean; children: ReactNode }) {
   return (
-    <label className="flex min-h-11 cursor-pointer items-center gap-3">
-      <input type="radio" name={name} value={value} checked={checked} onChange={onSelect} className={radioBox} />
+    <label className={cn("flex min-h-11 items-center gap-3", disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer")}>
+      <input type="radio" name={name} value={value} checked={checked} disabled={disabled} onChange={onSelect} className={radioBox} />
       {children}
     </label>
   );
