@@ -622,7 +622,7 @@ export function SettingsScreen() {
       <header className="pt-safe shrink-0 border-b border-line">
         {drilled ? (
           <div className="mx-auto flex w-full max-w-[720px] items-center gap-1 px-2 py-1">
-            <BackButton onClick={back} label="Back to Settings" />
+            <BackButton onClick={back} ariaLabel="Back to Settings" />
             <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
               {drilled.label}
             </h1>

@@ -134,7 +134,7 @@ describe("one back pattern (#424)", () => {
   it("BackButton is a chevron link when the parent has an address", () => {
     render(
       <MemoryRouter>
-        <BackButton to="/stats" label="Back to Stats" />
+        <BackButton to="/stats" ariaLabel="Back to Stats" />
       </MemoryRouter>,
     );
     const a = screen.getByRole("link", { name: "Back to Stats" });
@@ -146,7 +146,7 @@ describe("one back pattern (#424)", () => {
 
   it("BackButton is a chevron button when the way back is a call", async () => {
     const onClick = vi.fn();
-    render(<BackButton onClick={onClick} label="Back to Settings" />);
+    render(<BackButton onClick={onClick} ariaLabel="Back to Settings" />);
     await userEvent.setup().click(screen.getByRole("button", { name: "Back to Settings" }));
     expect(onClick).toHaveBeenCalledOnce();
   });

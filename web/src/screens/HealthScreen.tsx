@@ -322,7 +322,7 @@ export function HealthScreen() {
     <div className="ui-font flex h-full min-h-0 flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-2">
         <div className="flex items-center gap-1 pt-2">
-          {!wide ? <BackButton to="/feeds" label="Back to Feeds" /> : null}
+          {!wide ? <BackButton to="/feeds" ariaLabel="Back to Feeds" /> : null}
           <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
             Feed health
           </h1>
