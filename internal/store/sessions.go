@@ -57,11 +57,18 @@ func (d *DB) CheckSession(ctx context.Context, id string, now, newExpires int64)
 	return SessionRenewed, nil
 }
 
-// DeleteSession removes one session (logout).
-func (d *DB) DeleteSession(ctx context.Context, id string) error {
+// DeleteSessions removes several sessions in one write (logout and sign-in end every session a browser holds a cookie for).
+func (d *DB) DeleteSessions(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
 	return d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE id = ?", id)
-		return err
+		for _, id := range ids {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE id = ?", id); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 

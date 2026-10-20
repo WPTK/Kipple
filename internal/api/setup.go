@@ -56,7 +56,7 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) {
 	if s.opt.Setup.Pending() {
 		// With no account no session can be live: a session cookie or marker left from before a reset or a restore is
 		// dropped here, so the next launch does not ask for the bootstrap (and get a 401) on the strength of it.
-		if _, cerr := r.Cookie(cookieName); cerr == nil || hasMarker(r) {
+		if hasSessionCookie(r) || hasMarker(r) {
 			s.clearCookie(w, r)
 		}
 		restore := backup.RestoreNone
@@ -246,6 +246,13 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request) bool {
 	if err := s.db.CreateSession(r.Context(), sessionID(val), now.Unix(), now.Add(sessionTTL).Unix(), r.UserAgent(), s.clientIP(r)); err != nil {
 		s.serverError(w, "create session", err) // 503 maintenance during a search-index rebuild
 		return false
+	}
+	// Every session the browser held a cookie for ends, the one under this scheme's name too: the new cookie replaces
+	// it in the browser, so its row would be stranded for 90 days. After the new session exists, so a failed
+	// CreateSession leaves the browser as it was. A failure here costs nothing: the sign-in has worked, and the rows
+	// expire.
+	if err := s.endHeldSessions(r); err != nil {
+		s.log.Warn("api: end previous sessions", "err", err)
 	}
 	s.setCookie(w, r, val)
 	return true

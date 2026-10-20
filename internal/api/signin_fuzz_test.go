@@ -96,7 +96,7 @@ func FuzzSignInChecks(f *testing.F) {
 
 		var session *http.Cookie
 		for _, c := range rec.Result().Cookies() {
-			if c.Name == cookieName && c.MaxAge >= 0 && c.Value != "" {
+			if (c.Name == cookieName || c.Name == hostCookieName) && c.MaxAge >= 0 && c.Value != "" {
 				session = c
 			}
 		}
@@ -109,8 +109,8 @@ func FuzzSignInChecks(f *testing.F) {
 			t.Fatalf("sign-in answered %d: %s", rec.Code, rec.Body.String())
 		}
 		if session != nil {
-			c2 := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: cookieName, Value: session.Value}) }
-			if rec := h.do("GET", "/api/status", "", c2); rec.Code != http.StatusOK {
+			c2 := func(r *http.Request) { r.AddCookie(&http.Cookie{Name: session.Name, Value: session.Value}) }
+			if rec := h.do("GET", "/api/status", "", mod, c2); rec.Code != http.StatusOK {
 				t.Fatalf("the new session does not work: %d", rec.Code)
 			}
 			if session.Secure != (scheme == "https") {

@@ -35,7 +35,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var session string
-	if c, err := r.Cookie(cookieName); err == nil {
+	if c, err := s.sessionValue(r); err == nil {
 		session = sessionID(c.Value)
 	}
 	sub := s.opt.Hub.Subscribe(last)

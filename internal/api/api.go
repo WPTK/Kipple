@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,6 +37,11 @@ import (
 
 const (
 	cookieName = "kipple_session"
+	// hostCookieName is the session cookie over https. The browser keeps a __Host- cookie only when it is Secure, has
+	// Path=/ and no Domain, so a page on a sibling subdomain cannot set one for the whole parent domain: the only
+	// session cookie the server reads is this host's own, the one its clear reaches. Over plain http the browser
+	// refuses the prefix, so cookieName is used there.
+	hostCookieName = "__Host-" + cookieName
 	// markerName is the session marker: a cookie script can read, set and cleared with the session cookie, so the
 	// app knows at launch, without a request, whether to expect a session. It holds no secret and is only a hint;
 	// the session cookie stays the truth (docs/design.md §7). Over https it is hostMarkerName instead.
@@ -488,7 +494,7 @@ func (s *Server) scheme(r *http.Request) string { return s.reach.Scheme(r) }
 func (s *Server) sessionOK(w http.ResponseWriter, r *http.Request) (bool, error) {
 	_, merr := r.Cookie(s.marker(r))
 	marked := merr == nil
-	c, err := r.Cookie(cookieName)
+	c, err := s.sessionValue(r)
 	if err != nil || c.Value == "" {
 		if hasMarker(r) {
 			s.clearMarker(w, r)
@@ -524,19 +530,83 @@ func newCookieValue() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
+// sessionName is the session cookie's name for r: hostCookieName over https, where the browser enforces what the
+// prefix promises, cookieName over plain http, where it would refuse a __Host- cookie.
+func (s *Server) sessionName(r *http.Request) string {
+	if s.scheme(r) == "https" {
+		return hostCookieName
+	}
+	return cookieName
+}
+
+// sessionValue is the session cookie r carries under this scheme's name. A cookie under the other name is never read
+// as the session: over https the bare name is the one a page on a sibling subdomain can set, so it cannot pose as it.
+// The only things done with one are to clear it from the browser and to end the session behind it (endHeldSessions).
+func (s *Server) sessionValue(r *http.Request) (*http.Cookie, error) {
+	return r.Cookie(s.sessionName(r))
+}
+
+// maxHeldSessions caps how many distinct session cookie values one request ends: a browser holds a handful at most
+// (the host's own, a leftover from the other scheme, a planted parent-domain copy), and the write stays one small
+// transaction however many a client sends. 16 is plenty: a __Host- cookie cannot be planted, and a bare one reaches the
+// auth routes only from the few parent paths that match them (about six), so a browser never holds that many. The
+// cookie under this scheme's name is walked first, so the signed-in row is never the one cut off, even for a
+// hand-built client.
+const maxHeldSessions = 16
+
+// heldSessionIDs is the id of the session behind every distinct value of a session cookie r holds, under either name,
+// at most maxHeldSessions. A browser can send the same name twice (a copy set for the parent domain beside the host's
+// own), and r.Cookie returns just the first, so this walks them all.
+func heldSessionIDs(r *http.Request, first string) []string {
+	var ids []string
+	seen := map[string]bool{}
+	cookies := r.Cookies()
+	sort.SliceStable(cookies, func(i, j int) bool { return cookies[i].Name == first && cookies[j].Name != first })
+	for _, c := range cookies {
+		if (c.Name != cookieName && c.Name != hostCookieName) || c.Value == "" || seen[c.Value] {
+			continue
+		}
+		if len(ids) == maxHeldSessions {
+			break
+		}
+		seen[c.Value] = true
+		ids = append(ids, sessionID(c.Value))
+	}
+	return ids
+}
+
+// endHeldSessions ends, in one write, the session behind every session cookie r holds, under either name. Sign-out
+// does it so the browser ends with no session cookie of either name and no row it held stays live for the rest of its
+// 90 days. Sign-in does it too, after the new session exists: its answer replaces or clears every name the browser
+// held, so a row it held would be stranded. Ending a session the request already holds a cookie for gives nobody
+// anything new.
+func (s *Server) endHeldSessions(r *http.Request) error {
+	return s.db.DeleteSessions(r.Context(), heldSessionIDs(r, s.sessionName(r)))
+}
+
 // setCookie issues the session cookie: HttpOnly, SameSite=Lax, Path=/,
 // persistent (WebKit drops session cookies in Home Screen apps), Secure when
 // the scheme is https (reach.State.Scheme: TLS, a trusted proxy, or the host of
-// an https public URL), so a LAN visit over plain http still signs in. The
-// session marker goes with it, with the same lifetime and rules.
+// an https public URL), so a LAN visit over plain http still signs in. It also
+// clears one the browser sent under the other name, and the session marker goes
+// with it, with the same lifetime and rules.
 func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, value string) {
-	s.sessionCookie(w, r, cookieName, value, int(sessionTTL/time.Second))
+	name := s.sessionName(r)
+	s.sessionCookie(w, r, name, value, int(sessionTTL/time.Second))
+	other := cookieName
+	if name == cookieName {
+		other = hostCookieName
+	}
+	if _, err := r.Cookie(other); err == nil {
+		s.clearNamed(w, r, other)
+	}
 	s.setMarker(w, r)
 }
 
-// clearCookie clears the session cookie and its marker.
+// clearCookie clears the session cookie under both names, whatever the scheme is now, and its marker.
 func (s *Server) clearCookie(w http.ResponseWriter, r *http.Request) {
-	s.sessionCookie(w, r, cookieName, "", -1)
+	s.clearNamed(w, r, hostCookieName)
+	s.clearNamed(w, r, cookieName)
 	s.clearMarker(w, r)
 }
 
@@ -563,6 +633,16 @@ func (s *Server) setMarker(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// hasSessionCookie says whether r carries a session cookie under either name, for the same reason as hasMarker.
+func hasSessionCookie(r *http.Request) bool {
+	for _, name := range []string{hostCookieName, cookieName} {
+		if _, err := r.Cookie(name); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // hasMarker says whether r carries a marker under either name. The scheme can change while a browser holds one (a
 // trusted proxy's address or the public URL changed), so a check for a stale marker looks for both.
 func hasMarker(r *http.Request) bool {
@@ -582,7 +662,13 @@ func (s *Server) clearMarker(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) clearMarkerNamed(w http.ResponseWriter, r *http.Request, name string) {
-	if name == hostMarkerName {
+	s.clearNamed(w, r, name)
+}
+
+// clearNamed clears one of the session cookie's or marker's names. A __Host- clear always carries Secure, Path=/ and
+// no Domain, or the browser ignores it.
+func (s *Server) clearNamed(w http.ResponseWriter, r *http.Request, name string) {
+	if name == hostMarkerName || name == hostCookieName {
 		http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, SameSite: http.SameSiteLaxMode, Secure: true})
 		return
 	}
@@ -594,7 +680,7 @@ func (s *Server) clearMarkerNamed(w http.ResponseWriter, r *http.Request, name s
 func (s *Server) sessionCookie(w http.ResponseWriter, r *http.Request, name, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
 		Name: name, Value: value, Path: "/", MaxAge: maxAge,
-		HttpOnly: name == cookieName, SameSite: http.SameSiteLaxMode, Secure: s.scheme(r) == "https",
+		HttpOnly: name == cookieName || name == hostCookieName, SameSite: http.SameSiteLaxMode, Secure: s.scheme(r) == "https",
 	})
 }
 

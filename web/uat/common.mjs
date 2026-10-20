@@ -12,7 +12,13 @@ import { faultReason, faultStart } from "./faults.mjs";
 
 const ENGINES = { chromium, firefox, webkit };
 /** The session cookie the server sets at sign-in (internal/api). */
-const SESSION_COOKIE = "kipple_session";
+const SESSION_COOKIES = ["__Host-kipple_session", "kipple_session"];
+/**
+ * Whether `name` is the session cookie. The server names it by the scheme it sees (`__Host-` over https, bare over
+ * plain http), which is not always the browser's: Tailscale Serve is https to the browser and the bare name to the
+ * server, so either name counts.
+ */
+export const isSessionCookie = (name) => SESSION_COOKIES.includes(name);
 export const SEP = " › ";
 export const VIEWPORTS = [
   { id: "desktop", width: 1280, height: 800, mobile: false },
@@ -159,7 +165,7 @@ export async function start(metaUrl, helpLines, options = {}) {
    */
   const fail = (where, what) => {
     const w = watching;
-    const jar = w ? w.context.cookies(origin).then((cs) => cs.some((c) => c.name === SESSION_COOKIE && c.value === w.session.value), () => false) : null;
+    const jar = w ? w.context.cookies(origin).then((cs) => cs.some((c) => isSessionCookie(c.name) && c.value === w.session.value), () => false) : null;
     findings.push({ text: `${where}: ${what}`, jar });
     console.error(`FAIL ${where}: ${what}`);
     return jar;
@@ -243,7 +249,7 @@ export async function start(metaUrl, helpLines, options = {}) {
   const serverAccepts = async (session) => {
     let probe;
     try {
-      probe = await request.newContext({ baseURL: origin, extraHTTPHeaders: { Cookie: `${SESSION_COOKIE}=${session.value}`, Accept: "application/json" } });
+      probe = await request.newContext({ baseURL: origin, extraHTTPHeaders: { Cookie: `${session.name}=${session.value}`, Accept: "application/json" } });
       return { ok: (await probe.get("/api/bootstrap")).ok() };
     } catch (e) {
       return { ok: false, error: `could not ask the server whether the session it issued is still valid: ${String(e.message).split("\n")[0]}` };
@@ -268,7 +274,7 @@ export async function start(metaUrl, helpLines, options = {}) {
       await page.getByLabel("Password").fill(opt.password);
       await page.getByRole("button", { name: "Sign in" }).click();
       await page.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
-      session = (await context.cookies(origin)).find((c) => c.name === SESSION_COOKIE) ?? null;
+      session = (await context.cookies(origin)).find((c) => isSessionCookie(c.name)) ?? null;
       if (session) watching = { context, session };
       await cleanup(page); // what an earlier run that stopped half-way left behind
       await body(page, vp);

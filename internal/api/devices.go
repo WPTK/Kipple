@@ -390,7 +390,7 @@ func (s *Server) currentDevice(w http.ResponseWriter, r *http.Request) (store.De
 	// DeviceEvictAfterDays nor this session's own. When nothing can be registered the caller gets
 	// an unsaved default device (empty ID, no cookie) and writes to it answer 404.
 	var key string
-	if c, err := r.Cookie(cookieName); err == nil {
+	if c, err := s.sessionValue(r); err == nil {
 		key = sessionID(c.Value)
 	}
 	sr := s.devRegs.forSession(key, now)
