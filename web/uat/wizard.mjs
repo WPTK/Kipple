@@ -148,7 +148,8 @@ try {
     const page = await ctx.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
-    page.on("console", (m) => m.type() === "error" && !/status of 40[134]|status of 429/.test(m.text()) && errors.push(m.text()));
+    // A 401 is not waived: a signed-out launch asks /api/instance first and sends nothing that answers 401 (issue #465).
+    page.on("console", (m) => m.type() === "error" && !/status of 40[34]|status of 429/.test(m.text()) && errors.push(m.text()));
 
     // While there is no account, the rest of the API refuses; a second browser looks on.
     const stranger = await browser.newContext();
@@ -232,6 +233,42 @@ try {
     await page.waitForTimeout(1500);
     check("A whats-new", (await page.getByRole("dialog", { name: "What's new in Kipple" }).count()) === 0, "What's new appeared on the first load after setup");
     check("A account", errors.length === 0, `console or page errors: ${errors.join(" | ")}`);
+
+    // Issue #465: now that the account exists, a signed-out launch of the sign-in page logs nothing and asks for nothing
+    // that answers 4xx. Then a sign-in sets the session marker, and a signed-in launch asks for the bootstrap once,
+    // with no GET /api/instance first.
+    {
+      const out = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      const op = await out.newPage();
+      const strict = [];
+      op.on("pageerror", (e) => strict.push(String(e)));
+      op.on("console", (m) => m.type() === "error" && strict.push(m.text()));
+      const api = [];
+      op.on("response", (r) => {
+        const u = new URL(r.url());
+        if (u.pathname.startsWith("/api/")) api.push(`${r.status()} ${u.pathname}`);
+      });
+      await op.goto(origin);
+      await op.getByRole("heading", { name: "Sign in to Kipple" }).waitFor({ timeout: 10_000 });
+      await op.waitForTimeout(1000);
+      check("A signed out", strict.length === 0, `console or page errors: ${strict.join(" | ")}`);
+      check("A signed out", api.every((l) => !/^4/.test(l)), `a 4xx answer: ${api.join(", ")}`);
+      check("A signed out", !api.some((l) => l.endsWith(" /api/bootstrap")), `the bootstrap was asked for: ${api.join(", ")}`);
+      await op.getByLabel("Username").fill("tester");
+      await op.getByLabel("Password", { exact: true }).fill("a long enough password");
+      await op.getByRole("button", { name: "Sign in" }).click();
+      await op.waitForURL(/\/l\/unread/, { timeout: 10_000 }).catch(() => fail("A sign-in", `the reader did not open (at ${op.url()})`));
+      check("A sign-in", (await op.evaluate(() => document.cookie)).includes("kipple_signed_in=1"), "no session marker after sign-in");
+      api.length = 0;
+      await op.reload();
+      await op.getByRole("main").waitFor({ timeout: 10_000 });
+      await op.waitForTimeout(1000);
+      check("A signed in", api.filter((l) => l.endsWith(" /api/bootstrap")).length === 1, `not one bootstrap request: ${api.join(", ")}`);
+      check("A signed in", !api.some((l) => l.endsWith(" /api/instance")), `a signed-in launch asked /api/instance: ${api.join(", ")}`);
+      check("A signed in", strict.length === 0, `console or page errors: ${strict.join(" | ")}`);
+      await out.close();
+    }
+
     // A backup of this library, for Run D, made the way the settings page makes one: POST /api/backup answers 200 with
     // the download, or 202 with a job to follow until it is ready. The export asks for the web password first.
     const made = await page.evaluate(async (current) => {

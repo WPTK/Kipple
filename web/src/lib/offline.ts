@@ -446,7 +446,9 @@ export function flushQueue(qc?: QueryClient): Promise<void> {
 }
 
 async function doFlush(qc?: QueryClient): Promise<void> {
-  if (authStore.get() === "out") return;
+  // Only a signed-in app sends what waits: before the launch knows (unknown) a queued write could answer 401 on a
+  // signed-out launch, and signed out the queue is kept for the next sign-in.
+  if (authStore.get() !== "in") return;
   let sent = 0;
   let dropped = 0;
   const confirmed: Queued[] = [];
@@ -579,8 +581,16 @@ export function initOffline(qc: QueryClient): () => void {
   };
   document.addEventListener("visibilitychange", onVisible);
   cleanups.push(() => document.removeEventListener("visibilitychange", onVisible));
-  // A queue left by an earlier session is sent at launch; while changes wait, try again now and then.
+  // A queue left by an earlier session is sent once the launch is signed in; while changes wait, try again now and then.
   void refreshCount().then(() => flushQueue(qc));
+  let wasIn = authStore.get() === "in";
+  cleanups.push(
+    authStore.subscribe(() => {
+      const isIn = authStore.get() === "in";
+      if (isIn && !wasIn) void flushQueue(qc);
+      wasIn = isIn;
+    }),
+  );
   const timer = window.setInterval(() => void flushQueue(qc), 60_000);
   cleanups.push(() => window.clearInterval(timer));
 
