@@ -692,6 +692,16 @@ async function checkScreens(cookies) {
         // axe-core in every document, over the DevTools protocol like page.evaluate (so Kipple's CSP does not block
         // it, and stays on for S1), once per browser instead of once per screen.
         await context.addInitScript({ content: PAGE_SCRIPT });
+        // A touch device that has not seen the swipe tip plays it on the first row (the row slides 72px and back), and a
+        // check that lands mid-slide reads the row as cut off. Every context starts as a device that has seen it, so
+        // the checks look at the list as it rests (the tip itself is covered in the component tests).
+        await context.addInitScript(() => {
+          try {
+            if (localStorage.getItem("kipple.device.v2") === null) localStorage.setItem("kipple.device.v2", JSON.stringify({ peekSeen: true }));
+          } catch {
+            /* a document without storage (about:blank) has no tip to play */
+          }
+        });
         const page = await context.newPage();
         trackRequests(page);
         await checkCombo(page, theme, vp, ctxInfo, results);

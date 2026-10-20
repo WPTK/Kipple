@@ -1,14 +1,19 @@
 package sched
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/WPTK/kipple/internal/opml"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -78,3 +83,65 @@ func TestImportRunIsHeldToTheWorkerCap(t *testing.T) {
 	require.LessOrEqual(t, int(peak.Load()), 3, "never more fetches at once than workers")
 	require.Equal(t, 3, int(peak.Load()), "and the workers are used")
 }
+
+// What a person importing 500 feeds gets (issue #464), from the file to the last fetch: the run counts all 500 from its
+// start, so a client can show "0 of 500" at once; while it goes, no more than Workers fetches are in flight and the
+// status answer (what a reloaded page reads) reports the run and its progress; at the end every feed was fetched once.
+func TestImportOf500FeedsIsQueuedAndReported(t *testing.T) {
+	t.Parallel()
+	r := newRig(t, Options{Workers: 8, PerHost: 100})
+	// The handler holds every fetch until release closes; closing it at cleanup too means a failed require below
+	// ends the test instead of leaving the server and the scheduler blocked until the package times out.
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseAll := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseAll)
+	var cur, peak atomic.Int32
+	srv := newSrv(t, func(_ string, w http.ResponseWriter, _ *http.Request) {
+		n := cur.Add(1)
+		for {
+			m := peak.Load()
+			if n <= m || peak.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		<-release
+		cur.Add(-1)
+		// A feed with no items: what is under test is the queue, so each of the 500 fetches stores as little as it can.
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write([]byte(emptyFeedXML))
+	})
+	file, err := os.ReadFile("testdata/import-500.opml")
+	require.NoError(t, err)
+	doc, err := opml.Parse(bytes.NewReader(bytes.ReplaceAll(file, []byte("http://feeds.test"), []byte(srv.URL))))
+	require.NoError(t, err)
+	res, err := opml.Import(context.Background(), r.db, doc, opml.ImportOptions{})
+	require.NoError(t, err)
+	require.Len(t, res.NewFeedIDs, 500)
+	r.sql("UPDATE feeds SET allow_private_net = 1") // the test server is on loopback
+
+	info, err := r.s.StartImport(res.NewFeedIDs)
+	require.NoError(t, err)
+	require.Equal(t, 500, info.Total, "the answer counts every new feed")
+	r.waitEvents("run.start", 1)
+	require.EqualValues(t, 500, r.events("run.start")[0]["total"])
+
+	waitFor(t, "the workers busy", func() bool { return cur.Load() == 8 })
+	runs, inflight, ok := r.s.Status()
+	require.True(t, ok)
+	require.Len(t, runs, 1)
+	require.Equal(t, RunImport, runs[0].Kind)
+	require.Equal(t, 500, runs[0].Total)
+	require.Equal(t, 0, runs[0].Done)
+	require.Equal(t, 8, inflight, "the other 492 wait in the queue")
+
+	releaseAll()
+	// 500 fetches and their writes: about 2 s locally, many times that under -race on a busy runner. The wait is on
+	// the event, not a clock, so a generous deadline costs nothing when it passes.
+	waitForWithin(t, "the import run to end", 3*time.Minute, func() bool { return len(r.events("run.done")) >= 1 })
+	require.LessOrEqual(t, int(peak.Load()), 8, "never more fetches at once than workers")
+	require.Equal(t, 500, srv.total(), "every new feed was fetched once")
+	require.EqualValues(t, 500, r.num("SELECT count(*) FROM fetch_log WHERE trigger = 'import'"))
+}
+
+const emptyFeedXML = `<?xml version="1.0"?><rss version="2.0"><channel><title>Imported</title><link>https://feeds.test/</link></channel></rss>`

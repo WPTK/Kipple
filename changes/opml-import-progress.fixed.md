@@ -1,0 +1,1 @@
+The fetch of the feeds an OPML import adds now shows its progress under the top of the screen until it ends, not only in the import dialog, so closing the dialog or finishing setup no longer hides how far a big import has got. The fetches are queued behind the fetch workers, never started all at once. (#464)

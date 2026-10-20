@@ -52,6 +52,7 @@ func (d *DB) FeedLabel(ctx context.Context, id int64) (title, folder string, err
 type FeedDetail struct {
 	UIFeed
 	URL              string  `json:"url"`
+	Host             string  `json:"-"` // the stored host column, the one a patch compares an edited address with
 	URLOriginal      *string `json:"url_original"`
 	CustomTitle      *string `json:"custom_title"`
 	Position         int64   `json:"position"`
@@ -77,9 +78,9 @@ func (d *DB) FeedDetail(ctx context.Context, id int64, env StatusEnv) (FeedDetai
 	fd := FeedDetail{UIFeed: l[0]}
 	var orig, custom, reason, ua, auth sql.NullString
 	var enabled, rekey, ignore, h2, insecure, private int64
-	err = d.reader.QueryRowContext(ctx, `SELECT url, url_original, custom_title, position, enabled, disabled_reason, dedup_mode,
+	err = d.reader.QueryRowContext(ctx, `SELECT url, host, url_original, custom_title, position, enabled, disabled_reason, dedup_mode,
 		rekey_pending, user_agent, http_auth, ignore_http_cache, disable_http2, allow_insecure_tls, allow_private_net, next_fetch_at
-		FROM feeds WHERE id = ?`, id).Scan(&fd.URL, &orig, &custom, &fd.Position, &enabled, &reason, &fd.DedupMode,
+		FROM feeds WHERE id = ?`, id).Scan(&fd.URL, &fd.Host, &orig, &custom, &fd.Position, &enabled, &reason, &fd.DedupMode,
 		&rekey, &ua, &auth, &ignore, &h2, &insecure, &private, &fd.NextFetchAt)
 	if err != nil {
 		return FeedDetail{}, false, err

@@ -765,7 +765,7 @@ func (s *Server) resolveEditedURL(ctx context.Context, id int64, p *store.FeedPa
 	// A move to another site drops the exceptions the patch does not set itself (store.PatchFeed), so a
 	// probe runs without them: no request goes where the saved feed may not go. That holds for the
 	// address typed and, separately, for the feed a page links, which may be on yet another site.
-	oldHost, _ := feedurl.Host(fd.URL)
+	oldHost := fd.Host // the stored host, as PatchFeed compares it, so the probe and the patch agree
 	keepExceptions := func(h string) (private, insecure bool) {
 		private, insecure = flag("allow_private_net", fd.AllowPrivateNet), flag("allow_insecure_tls", fd.AllowInsecureTLS)
 		if !fetch.SameSite(oldHost, h) {

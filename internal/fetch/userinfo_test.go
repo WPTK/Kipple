@@ -1,6 +1,8 @@
 package fetch
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -70,4 +72,38 @@ func TestOverlongStoredFeedURLIsNotedOnlyOnRedirect(t *testing.T) {
 	require.Equal(t, OutcomeOK, res.Outcome, res.ErrMsg)
 	require.Contains(t, strings.Join(res.Notes, ";"), "redirect_not_recorded")
 	require.Equal(t, RedirectClear, res.Redirect.Action)
+}
+
+// longHost is a server name over the 253 characters DNS allows, each label within 63.
+var longHost = strings.Repeat(strings.Repeat("h", 60)+".", 5) + "example"
+
+// A redirect to a server name longer than DNS allows (only a resolver that answers for it lets the fetch get that
+// far) reads the feed, records no redirect and says why, like a redirect to an address over the length cap.
+func TestRedirectToOverlongHostIsNoted(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/feed", serveRSS)
+	mux.HandleFunc("/moved", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://"+longHost+"/feed", http.StatusMovedPermanently)
+	})
+	srv, c := feedServer(t, mux.ServeHTTP)
+	// Every name dials the test server: the stand-in for a resolver that answers for the long name.
+	addr := srv.Listener.Addr().String()
+	for _, v := range []variant{{}, {allowPrivate: true}} {
+		c.transports[v] = &http.Transport{DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, addr)
+		}}
+	}
+	res := doFetch(t, c, snapFor(srv.URL+"/moved"))
+	require.Equal(t, OutcomeOK, res.Outcome, res.ErrMsg)
+	require.Equal(t, srv.URL+"/moved", res.FinalURL, "the long name is not kept as the final URL")
+	require.Equal(t, RedirectClear, res.Redirect.Action)
+	require.Contains(t, strings.Join(res.Notes, ";"), "redirect_not_recorded: the server name")
+}
+
+// DecideRedirect clears for a target whose server name DNS could not carry, whatever the hops say.
+func TestDecideRedirectToOverlongHostClears(t *testing.T) {
+	d := DecideRedirect("https://a.test/f", RedirectState{}, "https://"+longHost+"/f", []Hop{{Status: 301}})
+	require.Equal(t, RedirectClear, d.Action)
+	d = DecideRedirect("https://a.test/f", RedirectState{To: "https://" + longHost + "/f", Kind: "permanent", Count: 2}, "https://"+longHost+"/f", []Hop{{Status: 301}})
+	require.Equal(t, RedirectClear, d.Action, "a count carried from before the rule does not migrate it")
 }

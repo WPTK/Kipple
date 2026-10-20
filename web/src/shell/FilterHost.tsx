@@ -39,16 +39,26 @@ export function FeedEditorHost() {
 }
 
 /**
- * Progress of "Apply to existing articles": a slim bar under the top of the screen while the run is going. The bar
+ * Progress of "Apply to existing articles" and of the fetch after an OPML import: a slim bar under the top of the
+ * screen while the run is going (both, stacked, when both are). The bar
  * and its counts are for the eyes (aria-hidden text); assistive technology gets a progressbar with its value and a
- * polite status that changes only when a quarter more is done, so it is not read out twice a second. The finish is
- * announced by the event handler.
+ * polite status that changes only when a quarter more is done, so it is not read out twice a second. A filter's
+ * finish is announced by the event handler; an import's fetch ends quietly (a feed it could not fetch says why on
+ * its row in Manage feeds).
  */
 export function ApplyProgress() {
   const runs = useStoreSelector(liveStore, (s) => s.runs);
   const run = Object.values(runs).find((r) => r.kind === "filter_apply");
   const autoRead = Object.values(runs).some((r) => r.kind === "auto_read");
-  if (run) return <ApplyBar run={run} />;
+  const imported = Object.values(runs).find((r) => r.kind === "import");
+  if (run || imported) {
+    return (
+      <>
+        {run ? <ApplyBar run={run} /> : null}
+        {imported ? <ImportBar run={imported} top={!run} /> : null}
+      </>
+    );
+  }
   // The server is marking old articles read (Settings, Sync & Feeds): a quiet line, no count or progress bar.
   if (autoRead) {
     return (
@@ -88,6 +98,41 @@ function ApplyBar({ run }: { run: RunStatus }) {
       </div>
       <p role="status" className="sr-only-live">
         Applying a filter: {quarter * 25} percent
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The fetch of the feeds an OPML import added (issue #464): it can take minutes for a big file, and the import dialog
+ * or setup step that showed it may be closed long before it ends, so the bar stays under the top of the screen until
+ * the run is over. Same pattern as ApplyBar: visible counts, a progressbar, a status read out once per quarter.
+ */
+function ImportBar({ run, top }: { run: RunStatus; top: boolean }) {
+  const total = Math.max(run.total, 0);
+  const done = Math.min(run.done, total);
+  const quarter = total > 0 ? Math.floor((done / total) * 4) : 0;
+  return (
+    <div data-testid="import-progress" className={`${top ? "pt-safe " : ""}shrink-0 border-b border-line bg-surface px-4 py-2 text-sm`}>
+      <div className="flex items-center gap-3">
+        <span aria-hidden="true" className="min-w-0 flex-1 truncate">
+          Fetching imported feeds: {done.toLocaleString()} of {total.toLocaleString()}
+          {run.errors ? `, ${run.errors.toLocaleString()} couldn't be fetched` : ""}
+        </span>
+        <div
+          role="progressbar"
+          aria-label="Fetching imported feeds"
+          aria-valuemin={0}
+          aria-valuemax={total}
+          aria-valuenow={done}
+          aria-valuetext={`${done} of ${total} feeds fetched`}
+          className="h-2 w-32 shrink-0 overflow-hidden rounded-full bg-line"
+        >
+          <div className="h-full bg-accent transition-[width] duration-300" style={{ width: total ? `${(done / total) * 100}%` : "0%" }} />
+        </div>
+      </div>
+      <p role="status" className="sr-only-live">
+        Fetching imported feeds: {quarter * 25} percent
       </p>
     </div>
   );
