@@ -186,6 +186,14 @@ export const invalidateFeeds = (qc: QueryClient) => {
   void qc.invalidateQueries({ queryKey: ["health"] });
 };
 
+/** A new feed that needs the private-network exception; `enabled` is false when the file turned it off. */
+export interface PrivateFeed {
+  url: string;
+  feed_id: number;
+  reason: "private_address" | "lan_name";
+  enabled: boolean;
+}
+
 export interface OpmlResult {
   folders_created: number;
   feeds_added: number;
@@ -208,10 +216,10 @@ export interface OpmlResult {
   skipped?: { url: string; reason: string }[];
   /** "<feed url>: <what was wrong>" for kipple:* attributes with bad values. */
   invalid_attrs?: string[];
-  /** "<feed url>: kipple:allow_insecure_tls": valid but never applied by an import. */
+  /** "<feed url>: kipple:allow_insecure_tls | kipple:allow_private_net": valid but never applied by an import. The second is only a feed on a public name; a private address or LAN name is in `feeds_private`. */
   ignored_attrs?: string[];
-  /** New feeds on a private address, or whose file asked for allow_private_net: imported with it off. */
-  feeds_private?: { url: string; feed_id: string }[];
+  /** New feeds on a private address or a LAN-only name: imported with the private-network exception off. */
+  feeds_private?: PrivateFeed[];
   run_id?: string;
   /** The last event the server had published when it started the import run (see `Bootstrap.event_id`). */
   event_id?: string;

@@ -742,7 +742,7 @@ describe("Folders and OPML", () => {
       "POST /api/opml": () =>
         json({
           folders_created: 0, feeds_added: 2, feeds_existing: [], folders_merged_case: [], memberships_dropped: [],
-          feeds_private: [{ url: "http://10.0.0.5/a", feed_id: "11" }, { url: "http://nas.lan/b", feed_id: "12" }],
+          feeds_private: [{ url: "http://10.0.0.5/a", feed_id: 11, reason: "private_address", enabled: true }, { url: "http://nas.lan/b", feed_id: 12, reason: "lan_name", enabled: true }],
         }),
       "PATCH /api/feeds/11": (_u, init) => (patched.push({ id: "11", body: JSON.parse(String(init?.body)) }), json({ ...feedDetail(), id: "11", allow_private_net: true })),
       "PATCH /api/feeds/12": (_u, init) => (patched.push({ id: "12", body: JSON.parse(String(init?.body)) }), json({ ...feedDetail(), id: "12", allow_private_net: true })),
@@ -760,22 +760,29 @@ describe("Folders and OPML", () => {
     await user.click(within(done).getByRole("button", { name: "Allow my own network for these 2 feeds" }));
     expect(await within(done).findByText(/Allowed for all 2 feeds/)).toBeInTheDocument();
     expect(patched).toEqual([
-      { id: "11", body: { allow_private_net: true } },
-      { id: "12", body: { allow_private_net: true } },
+      { id: "11", body: { allow_private_net: true, expected_url: "http://10.0.0.5/a" } },
+      { id: "12", body: { allow_private_net: true, expected_url: "http://nas.lan/b" } },
     ]);
   });
 
-  it("when some feeds cannot be allowed it says which and a retry asks only for those", async () => {
-    let calls12 = 0;
+  it("a feed that is gone or has another address is named and not offered again; a network error is retried", async () => {
+    let calls13 = 0;
     const seen: string[] = [];
     base({
       "POST /api/opml": () =>
         json({
-          folders_created: 0, feeds_added: 2, feeds_existing: [], folders_merged_case: [], memberships_dropped: [],
-          feeds_private: [{ url: "http://10.0.0.5/a", feed_id: "11" }, { url: "http://nas.lan/b", feed_id: "12" }],
+          folders_created: 0, feeds_added: 4, feeds_existing: [], folders_merged_case: [], memberships_dropped: [],
+          feeds_private: [
+            { url: "http://10.0.0.5/a", feed_id: 11, reason: "private_address", enabled: true },
+            { url: "http://nas.lan/b", feed_id: 12, reason: "lan_name", enabled: true },
+            { url: "http://nas.lan/c", feed_id: 13, reason: "lan_name", enabled: true },
+            { url: "http://nas.lan/d", feed_id: 14, reason: "lan_name", enabled: false },
+          ],
         }),
-      "PATCH /api/feeds/11": () => (seen.push("11"), json({ ...feedDetail(), id: "11", allow_private_net: true })),
-      "PATCH /api/feeds/12": () => (seen.push("12"), ++calls12 === 1 ? json({ error: "not_found", message: "gone" }, 404) : json({ ...feedDetail(), id: "12", allow_private_net: true })),
+      "PATCH /api/feeds/11": () => (seen.push("11"), json({ error: "url_changed", message: "moved" }, 409)),
+      "PATCH /api/feeds/12": () => (seen.push("12"), json({ error: "not_found", message: "gone" }, 404)),
+      "PATCH /api/feeds/13": () => (seen.push("13"), ++calls13 === 1 ? json({ error: "server", message: "boom" }, 500) : json({ ...feedDetail(), id: "13", allow_private_net: true })),
+      "PATCH /api/feeds/14": () => (seen.push("14"), json({ ...feedDetail(), id: "14", allow_private_net: true })),
     });
     go("/feeds");
     const user = userEvent.setup({ applyAccept: false });
@@ -785,11 +792,35 @@ describe("Folders and OPML", () => {
     await user.upload(within(dlg).getByLabelText("OPML file"), new File(["<opml/>"], "feeds.opml", { type: "text/xml" }));
     await user.click(within(dlg).getByRole("button", { name: "Import" }));
     const done = await screen.findByRole("dialog", { name: "Import finished" });
-    await user.click(within(done).getByRole("button", { name: "Allow my own network for these 2 feeds" }));
-    expect(await within(done).findByText(/1 could not be changed: http:\/\/nas.lan\/b/)).toBeInTheDocument();
+    await user.click(within(done).getByRole("button", { name: "Allow my own network for these 4 feeds" }));
+    // 11 changed and 12 is gone: named, not offered again. 13 hit a server error: it and the rest wait for another go.
+    expect(await within(done).findByText(/Not changed: http:[/][/]10[.]0[.]0[.]5[/]a now has another address; http:[/][/]nas[.]lan[/]b is gone/)).toBeInTheDocument();
     await user.click(within(done).getByRole("button", { name: "Try the rest again" }));
-    expect(await within(done).findByText(/Allowed for all 2 feeds/)).toBeInTheDocument();
-    expect(seen).toEqual(["11", "12", "12"]);
+    expect(await within(done).findByRole("status")).toHaveTextContent("Allowed for 2 of 4 feeds. Kipple is fetching it now. One is turned off, so Kipple fetches it once you turn it on.");
+    expect(within(done).queryByRole("button", { name: /again/ })).toBeNull();
+    expect(seen).toEqual(["11", "12", "13", "13", "14"]);
+  });
+
+  it("a public name that only the file asked to reach my network gets its own line and no bulk button", async () => {
+    base({
+      "POST /api/opml": () =>
+        json({
+          folders_created: 0, feeds_added: 1, feeds_existing: [], folders_merged_case: [], memberships_dropped: [],
+          feeds_private: [],
+          ignored_attrs: ["http://evil.example.com/d: kipple:allow_private_net"],
+        }),
+    });
+    go("/feeds");
+    const user = userEvent.setup({ applyAccept: false });
+    await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Import OPML" }));
+    const dlg = await screen.findByRole("dialog", { name: "Import OPML" });
+    await user.upload(within(dlg).getByLabelText("OPML file"), new File(["<opml/>"], "feeds.opml", { type: "text/xml" }));
+    await user.click(within(dlg).getByRole("button", { name: "Import" }));
+    const done = await screen.findByRole("dialog", { name: "Import finished" });
+    expect(within(done).queryByText(/on your own network/)).toBeNull();
+    expect(within(done).queryByRole("button", { name: /Allow my own network/ })).toBeNull();
+    expect(within(done).getAllByRole("listitem").map((li) => li.textContent)).toContain("http://evil.example.com/d: the file asked to reach your own network; Kipple didn't allow it. Allow it in the feed's settings if you trust it");
   });
 
   it("does not restrict the picker to types iOS may not know, and checks the file itself", async () => {

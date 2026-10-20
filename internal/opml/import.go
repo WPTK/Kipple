@@ -33,6 +33,16 @@ type Existing struct {
 	FeedID int64  `json:"feed_id"`
 }
 
+// Private is a feed that needs the private-network exception. Reason is "private_address" (the address in the file is
+// a literal private one) or "lan_name" (a name only a local network resolves).
+type Private struct {
+	URL    string `json:"url"`
+	FeedID int64  `json:"feed_id"`
+	Reason string `json:"reason"`
+	// Enabled is false for a feed the file turned off (kipple:enabled=0): allowing it does not fetch it.
+	Enabled bool `json:"enabled"`
+}
+
 // Dropped is a feed listed in several folders: the first is kept. Folders are paths.
 type Dropped struct {
 	URL     string   `json:"url"`
@@ -76,12 +86,15 @@ type Result struct {
 	Skipped                []Skipped `json:"skipped"`
 	InvalidAttrs           []string  `json:"invalid_attrs"`
 	// IgnoredAttrs are valid but security-sensitive kipple:* attributes that an
-	// import never applies (allow_insecure_tls).
+	// import never applies (allow_insecure_tls; allow_private_net on a feed that is not in FeedsPrivate).
 	IgnoredAttrs []string `json:"ignored_attrs"`
-	// FeedsPrivate are the new feeds that need the private-network exception to be fetched: on a literal private
-	// address, or the file asked for allow_private_net. An import never grants it (a file is not the owner); they are
-	// imported with it off, and the owner can turn it on for them from the report (PATCH /api/feeds/{id}).
-	FeedsPrivate []Existing `json:"feeds_private"`
+	// FeedsPrivate are the new feeds on a literal private address or a LAN-only name (fetch.LANOnlyName): they need the
+	// private-network exception to be fetched, and only these may be allowed in bulk. An import never grants it (a
+	// file is not the owner); they are imported with it off, and the owner can turn it on for them from the report
+	// (PATCH /api/feeds/{id} with expected_url). A feed on a public name whose file merely asked for
+	// kipple:allow_private_net is not here: a public name can come to point anywhere, so it is in IgnoredAttrs and the
+	// owner decides on its own row.
+	FeedsPrivate []Private `json:"feeds_private"`
 	// NewFeedIDs are the inserted feeds in document order (for sched.StartImport).
 	NewFeedIDs []int64 `json:"-"`
 }
@@ -101,7 +114,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		Skipped:            []Skipped{},
 		InvalidAttrs:       []string{},
 		IgnoredAttrs:       []string{},
-		FeedsPrivate:       []Existing{},
+		FeedsPrivate:       []Private{},
 		NewFeedIDs:         []int64{},
 	}
 	now := db.Clock().Now().Unix()
@@ -263,7 +276,15 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 			a := f.Attrs
 			res.InvalidAttrs = append(res.InvalidAttrs, prefixAll(norm, f.BadAttrs)...)
 			// An imported file must not weaken the SSRF/TLS guards of a feed.
-			needsPrivate := privateAddr || (a.AllowPrivateNet != nil && *a.AllowPrivateNet)
+			privateReason := ""
+			switch {
+			case privateAddr:
+				privateReason = "private_address"
+			case fetch.LANOnlyName(host):
+				privateReason = "lan_name"
+			case a.AllowPrivateNet != nil && *a.AllowPrivateNet:
+				res.IgnoredAttrs = append(res.IgnoredAttrs, norm+": kipple:allow_private_net")
+			}
 			a.AllowPrivateNet = nil
 			if a.AllowInsecureTLS != nil {
 				if *a.AllowInsecureTLS {
@@ -297,8 +318,8 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				return err
 			}
 			res.FeedsAdded++
-			if needsPrivate {
-				res.FeedsPrivate = append(res.FeedsPrivate, Existing{norm, id})
+			if privateReason != "" {
+				res.FeedsPrivate = append(res.FeedsPrivate, Private{norm, id, privateReason, enabled == 1})
 			}
 			res.NewFeedIDs = append(res.NewFeedIDs, id)
 		}

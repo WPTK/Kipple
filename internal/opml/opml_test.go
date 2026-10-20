@@ -249,8 +249,8 @@ func TestKippleAttrsAndMarkRead(t *testing.T) {
 		initial_read_before, next_fetch_at, dedup_mode, disabled_reason, user_agent FROM feeds WHERE url = 'http://a.test/rss'`).
 		Scan(&interval, &retention, &ft, &en, &priv, &irb, &next, &dedup, &reason, &ua))
 	require.EqualValues(t, []int64{30, 0, 1, 0, 0}, []int64{interval, retention, ft, en, priv}, "allow_private_net is never applied by import")
-	require.Empty(t, r.IgnoredAttrs)
-	require.Equal(t, []string{"http://a.test/rss"}, feedURLs(r.FeedsPrivate), "the feed the file asked the exception for is listed, not granted")
+	require.Equal(t, []string{"http://a.test/rss: kipple:allow_private_net"}, r.IgnoredAttrs)
+	require.Empty(t, r.FeedsPrivate, "a public name that only the file asked the exception for is never offered for a bulk allow")
 	require.Equal(t, []string{"link", "user", "x/1"}, []string{dedup, reason, ua})
 	require.Equal(t, next-10*86400, irb)
 	var n int
@@ -438,8 +438,8 @@ func TestImportIgnoresDangerousAttrsAndBareNamespace(t *testing.T) {
 	<outline text="B" xmlUrl="http://b.test/rss" htmlUrl="javascript:alert(1)" kipple:allow_insecure_tls="1" kipple:allow_private_net="1"/>
 	<outline text="C" xmlUrl="http://c.test/rss" htmlUrl="https://c.test/"/>
 	</outline></body></opml>`, ImportOptions{})
-	require.Equal(t, []string{"http://b.test/rss: kipple:allow_insecure_tls"}, r.IgnoredAttrs)
-	require.Equal(t, []string{"http://b.test/rss"}, feedURLs(r.FeedsPrivate))
+	require.Equal(t, []string{"http://b.test/rss: kipple:allow_private_net", "http://b.test/rss: kipple:allow_insecure_tls"}, r.IgnoredAttrs)
+	require.Empty(t, r.FeedsPrivate)
 	var tls, priv int
 	var site string
 	require.NoError(t, db.Reader().QueryRowContext(context.Background(),
@@ -581,10 +581,41 @@ func TestImportDroppedReportIsBounded(t *testing.T) {
 	}
 }
 
-func feedURLs(l []Existing) []string {
+func feedURLs(l []Private) []string {
 	out := []string{}
 	for _, f := range l {
 		out = append(out, f.URL)
 	}
 	return out
+}
+
+// Only a literal private address or a LAN-only name is offered for the one-click allow. A public name whose file set
+// kipple:allow_private_net stays out (a hostile file could point it at the network later) with the per-feed line; so
+// does a feed that already exists, however the file asks.
+func TestImportPrivateListHoldsOnlyAddressesAndLANNames(t *testing.T) {
+	t.Parallel()
+	db := openDB(t)
+	importString(t, db, `<opml><body><outline text="H" xmlUrl="http://known.example/rss"/></body></opml>`, ImportOptions{})
+	r := importString(t, db, `<opml xmlns:kipple="`+NS+`"><body>
+	<outline text="A" xmlUrl="http://10.0.0.5/a"/>
+	<outline text="B" xmlUrl="http://nas.lan/b" kipple:enabled="0"/>
+	<outline text="C" xmlUrl="http://printer.home.arpa/c" kipple:allow_private_net="1"/>
+	<outline text="D" xmlUrl="http://evil.example.com/d" kipple:allow_private_net="1"/>
+	<outline text="E" xmlUrl="http://nas/e" kipple:allow_private_net="1"/>
+	<outline text="F" xmlUrl="http://evil.example.com/f"/>
+	<outline text="G" xmlUrl="http://169.254.169.254.nip.io/g" kipple:allow_private_net="1"/>
+	<outline text="H" xmlUrl="http://known.example/rss" kipple:allow_private_net="1"/>
+	</body></opml>`, ImportOptions{})
+	require.Equal(t, []string{"http://10.0.0.5/a", "http://nas.lan/b", "http://printer.home.arpa/c"}, feedURLs(r.FeedsPrivate))
+	require.Equal(t, []bool{true, false, true}, []bool{r.FeedsPrivate[0].Enabled, r.FeedsPrivate[1].Enabled, r.FeedsPrivate[2].Enabled})
+	require.Equal(t, []string{"private_address", "lan_name", "lan_name"}, []string{r.FeedsPrivate[0].Reason, r.FeedsPrivate[1].Reason, r.FeedsPrivate[2].Reason})
+	require.Equal(t, []string{
+		"http://evil.example.com/d: kipple:allow_private_net",
+		"http://nas/e: kipple:allow_private_net",
+		"http://169.254.169.254.nip.io/g: kipple:allow_private_net",
+	}, r.IgnoredAttrs, "one line per feed, no duplicates")
+	require.Len(t, r.FeedsExisting, 1)
+	var n int
+	require.NoError(t, db.Reader().QueryRow("SELECT count(*) FROM feeds WHERE allow_private_net = 1").Scan(&n))
+	require.Zero(t, n, "no import grants the exception")
 }

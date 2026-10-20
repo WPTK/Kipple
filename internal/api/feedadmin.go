@@ -542,7 +542,7 @@ func (s *Server) writeExisting(w http.ResponseWriter, r *http.Request, id int64)
 // ---- PATCH /api/feeds/{id} ----
 
 var patchKeys = []string{"custom_title", "folder_id", "position", "interval_minutes", "retention", "auto_read_days", "fulltext", "dedup_mode",
-	"user_agent", "http_auth", "ignore_http_cache", "disable_http2", "allow_insecure_tls", "allow_private_net", "enabled", "url"}
+	"user_agent", "http_auth", "ignore_http_cache", "disable_http2", "allow_insecure_tls", "allow_private_net", "enabled", "url", "expected_url"}
 
 // parsePatch validates every field of a PATCH body; msg is non-empty on failure.
 func parsePatch(m map[string]json.RawMessage) (p store.FeedPatch, msg string) {
@@ -648,6 +648,12 @@ func parsePatch(m map[string]json.RawMessage) (p store.FeedPatch, msg string) {
 				return p, "url must be a non-empty string"
 			}
 			p.URL = &v
+		case "expected_url":
+			v, ok := rawString(raw)
+			if !ok || v == "" {
+				return p, "expected_url must be a non-empty string"
+			}
+			p.ExpectURL = &v
 		}
 	}
 	return p, ""
@@ -694,6 +700,9 @@ func (s *Server) patchFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	case errors.Is(err, store.ErrArchiveFeed):
 		writeErrorMsg(w, http.StatusConflict, "archive_feed", "the archive feed cannot be edited")
+		return
+	case errors.Is(err, store.ErrURLChanged):
+		writeErrorMsg(w, http.StatusConflict, "url_changed", "the feed's address is not the one you saw; nothing was changed")
 		return
 	case errors.Is(err, store.ErrFolderNotFound):
 		writeErrorMsg(w, http.StatusBadRequest, "folder_not_found", "no such folder")

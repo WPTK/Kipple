@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, errorMessage } from "@/api/client";
-import { importOpml, invalidateFeeds, patchFeed, type OpmlResult } from "@/api/admin";
+import { importOpml, invalidateFeeds, patchFeed, type OpmlResult, type PrivateFeed } from "@/api/admin";
 import { liveStore, seedRun } from "@/api/events";
 import { useStoreSelector } from "@/lib/store";
 import { Button } from "@/ui/button";
@@ -48,6 +48,7 @@ export function attrNote(s: string): { url: string; note: string } {
   const at = s.lastIndexOf(": ");
   const url = at >= 0 ? s.slice(0, at) : s;
   const attr = at >= 0 ? s.slice(at + 2) : "";
+  if (attr.endsWith("allow_private_net")) return { url, note: "the file asked to reach your own network; Kipple didn't allow it. Allow it in the feed's settings if you trust it" };
   if (attr.endsWith("allow_insecure_tls")) return { url, note: "the file skipped certificate checks; Kipple checks them" };
   return { url, note: `${attr || "a setting"} was not applied` };
 }
@@ -88,47 +89,52 @@ function ImportProgress({ runId, total, eventId }: { runId: string; total: numbe
 }
 
 /**
- * The feeds that need the private-network exception to be fetched. An import never grants it (a file is not you), so
- * they are listed with the one thing that turns it on for all of them.
+ * The feeds on a private address or a name only a local network resolves. An import never grants the exception (a
+ * file is not you), so they are listed with the one thing that turns it on for all of them. Each grant names the
+ * address this list showed, so a feed whose address has changed since is left alone. A feed on a public name that
+ * only the file asked about is not here: it gets its own line under "Some settings in the file were not applied".
  */
-function PrivateFeeds({ feeds }: { feeds: { url: string; feed_id: string }[] }) {
+function PrivateFeeds({ feeds, where }: { feeds: PrivateFeed[]; where: string }) {
   const qc = useQueryClient();
-  const [left, setLeft] = useState(feeds);
+  const [left, setLeft] = useState(feeds); // not tried yet, or stopped by a session or network error: worth another go
+  const [allowed, setAllowed] = useState<PrivateFeed[]>([]);
+  const [refused, setRefused] = useState<string[]>([]); // gone or changed: another go would say the same
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(0);
   const [error, setError] = useState("");
-  const [failed, setFailed] = useState<string[]>([]);
   const n = feeds.length;
   const run = async () => {
     setBusy(true);
     setError("");
-    setFailed([]);
     setDone(0);
-    const rest: typeof feeds = [];
-    let fatal = false;
+    const rest: PrivateFeed[] = [];
+    const ok: PrivateFeed[] = [];
+    const no: string[] = [];
     for (const [i, f] of left.entries()) {
       try {
-        await patchFeed(f.feed_id, { allow_private_net: true });
+        await patchFeed(String(f.feed_id), { allow_private_net: true, expected_url: f.url });
+        ok.push(f);
       } catch (e) {
-        rest.push(f);
-        // A feed that is gone or conflicts is that feed's problem; anything else (the session, the network) would
-        // fail every feed after it too, so the rest wait for another go.
-        if (!(e instanceof ApiError && (e.status === 404 || e.status === 409))) {
+        if (e instanceof ApiError && e.status === 404) no.push(`${f.url} is gone`);
+        else if (e instanceof ApiError && e.status === 409) no.push(`${f.url} now has another address`);
+        else {
+          // The session or the network would fail every feed after this one too, so the rest wait for another go.
           setError(errorMessage(e));
-          rest.push(...left.slice(i + 1));
-          fatal = true;
+          rest.push(...left.slice(i));
           break;
         }
       }
       setDone((d) => d + 1);
     }
     setLeft(rest);
-    setFailed(fatal ? [] : rest.map((f) => f.url));
+    setAllowed((a) => [...a, ...ok]);
+    setRefused((r) => [...r, ...no]);
     setBusy(false);
     invalidateFeeds(qc);
-    announce(rest.length ? "Some feeds could not be changed" : "Allowed addresses on your own network");
+    announce(rest.length || no.length ? "Some feeds could not be changed" : "Allowed addresses on your own network");
   };
-  const allowed = left.length === 0;
+  const off = allowed.filter((f) => !f.enabled).length;
+  const fetching = allowed.length - off;
   return (
     <div className="text-sm">
       <p className="font-semibold">
@@ -143,22 +149,28 @@ function PrivateFeeds({ feeds }: { feeds: { url: string; feed_id: string }[] }) 
         ))}
       </ul>
       <div className="mt-2 flex flex-col gap-1">
-        {allowed ? (
-          <p role="status">Allowed for {n === 1 ? "the feed" : `all ${n} feeds`}. Kipple is fetching {n === 1 ? "it" : "them"} now.</p>
+        {left.length === 0 ? (
+          allowed.length ? (
+            <p role="status">
+              Allowed for {allowed.length === n ? (n === 1 ? "the feed" : `all ${n} feeds`) : `${allowed.length} of ${n} feeds`}.
+              {fetching ? ` Kipple is fetching ${fetching === 1 ? "it" : fetching === allowed.length ? "them" : `${fetching} of them`} now.` : ""}
+              {off ? ` ${off === 1 ? "One is" : `${off} are`} turned off, so Kipple fetches ${off === 1 ? "it" : "them"} once you turn ${off === 1 ? "it" : "them"} on.` : ""}
+            </p>
+          ) : null
         ) : (
           <Button onClick={() => void run()} disabled={busy} className="self-start">
             {busy ? `Allowing ${done.toLocaleString()} of ${left.length.toLocaleString()}` : left.length < n ? "Try the rest again" : `Allow my own network for ${n === 1 ? "this feed" : `these ${n} feeds`}`}
           </Button>
         )}
         {error ? <p role="alert" className="text-danger">{error}</p> : null}
-        {failed.length ? <p role="alert" className="text-danger">{failed.length} could not be changed: {failed.join(", ")}. Open {failed.length === 1 ? "it" : "each"} in Manage feeds to allow it there.</p> : null}
+        {refused.length ? <p role="alert" className="text-danger">Not changed: {refused.join("; ")}. {where}</p> : null}
       </div>
     </div>
   );
 }
 
 /** What an import did, in plain words: the counts, and everything that was skipped, merged or not applied. */
-export function OpmlResultSummary({ result }: { result: OpmlResult }) {
+export function OpmlResultSummary({ result, inWizard = false }: { result: OpmlResult; inWizard?: boolean }) {
   const existing = result.feeds_existing.length;
   const moved = result.feeds_moved?.length ?? 0;
   const emptied = result.folders_emptied ?? [];
@@ -242,11 +254,11 @@ export function OpmlResultSummary({ result }: { result: OpmlResult }) {
         </ul>
       </div>
     ) : null}
-    {priv.length ? <PrivateFeeds feeds={priv} /> : null}
+    {priv.length ? <PrivateFeeds feeds={priv} where={inWizard ? "You can allow a feed in its settings in Manage feeds once setup is finished." : "Open a feed in Manage feeds to change it there."} /> : null}
     {ignored.length ? (
       <div className="text-sm">
         <p className="font-semibold">Some settings in the file were not applied</p>
-        <p className="text-fg2">For safety, an import never lets a file skip certificate checks.</p>
+        <p className="text-fg2">For safety, an import never lets a file skip certificate checks or reach your own network.</p>
         <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
           {ignored.map((s, i) => {
             const { url, note } = attrNote(s);

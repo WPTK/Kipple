@@ -925,3 +925,25 @@ func TestPatchFeedGrantingPrivateNetOnADisabledFeedDoesNotReschedule(t *testing.
 	require.False(t, res.NeedsFetch, "a disabled feed is not fetched")
 	require.Equal(t, 1, e.count("SELECT count(*) FROM feeds WHERE id = ? AND allow_private_net = 1 AND consecutive_failures = 4", id))
 }
+
+// A patch that names the address the caller saw is refused, with nothing written, once the feed has another.
+func TestPatchFeedExpectURLRefusesAChangedAddress(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.addFeed("http://nas.lan/f.xml")
+	_, err0 := e.db.writer.ExecContext(e.ctx, "UPDATE feeds SET allow_private_net = 0 WHERE id = ?", id)
+	require.NoError(t, err0)
+	grant := FeedPatch{Cols: map[string]any{"allow_private_net": true}}
+
+	other := "http://elsewhere.example/f.xml"
+	grant.ExpectURL = &other
+	_, err := e.db.PatchFeed(e.ctx, id, grant)
+	require.ErrorIs(t, err, ErrURLChanged)
+	require.Equal(t, 0, e.count("SELECT allow_private_net FROM feeds WHERE id = ?", id))
+
+	same := "http://nas.lan/f.xml"
+	grant.ExpectURL = &same
+	_, err = e.db.PatchFeed(e.ctx, id, grant)
+	require.NoError(t, err)
+	require.Equal(t, 1, e.count("SELECT allow_private_net FROM feeds WHERE id = ?", id))
+}

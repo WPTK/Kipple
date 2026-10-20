@@ -15,6 +15,7 @@ var (
 	ErrFeedNotFound   = errors.New("store: no such feed")
 	ErrFolderNotFound = errors.New("store: no such folder")
 	ErrArchiveFeed    = errors.New("store: the archive feed cannot be edited")
+	ErrURLChanged     = errors.New("store: the feed's address is not the one the caller saw")
 	ErrFolderExists   = errors.New("store: a folder with that name exists")
 	ErrDefaultFolder  = errors.New("store: the default folder cannot be deleted")
 	ErrLogNotFound    = errors.New("store: no such fetch log row")
@@ -97,6 +98,10 @@ type FeedPatch struct {
 	Cols    map[string]any
 	URL     *string
 	Enabled *bool
+	// ExpectURL, when set, refuses the patch (ErrURLChanged) unless the feed still has exactly this address: a
+	// grant given on what a report showed must not land on an address that discovery, a redirect or an edit has
+	// replaced since.
+	ExpectURL *string
 }
 
 // patchable is the whitelist of plain columns. Values are validated by the caller.
@@ -151,6 +156,9 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 		}
 		if isDeleting(url) {
 			return ErrFeedNotFound // being deleted: only finishing the delete is left
+		}
+		if p.ExpectURL != nil && *p.ExpectURL != url {
+			return ErrURLChanged
 		}
 
 		var sets []string
