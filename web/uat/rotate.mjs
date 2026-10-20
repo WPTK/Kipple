@@ -66,6 +66,9 @@ const turn = async (page, w, h) => {
 };
 
 await t.eachViewport(async (page, vp) => {
+  // DEBUG (temporary): the list's own log, and a frame-by-frame trace of the turn back.
+  const dbg = [];
+  page.on("console", (m) => m.text().startsWith("DBG") && dbg.push(m.text()));
   const patch = (b) =>
     page.evaluate((x) => fetch("/api/device", { method: "PATCH", headers: { "Content-Type": "application/json", "X-Kipple-Client": "web" }, body: JSON.stringify(x) }).then((r) => r.status), b);
   /** All in list order, and which are read: the server's pages (at most 100 articles each) up to MAX_ARTICLES. */
@@ -130,8 +133,21 @@ await t.eachViewport(async (page, vp) => {
           }
           await t.shot(page, `${tag}-turned`);
 
+          dbg.push(`--- R2 turning back, here ${JSON.stringify(here)}`);
+          await scroller(page).evaluate((el, id) => {
+            const t0 = performance.now();
+            const tick = () => {
+              const row = document.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
+              const at = row ? Math.round(row.getBoundingClientRect().top - document.querySelector('[data-testid="list-scroll"]').getBoundingClientRect().top) : null;
+              const l = document.querySelector('[data-testid="list-scroll"]');
+              console.debug(`DBG frame ${Math.round(performance.now() - t0)}ms st ${l?.scrollTop} w ${l?.clientWidth} target at ${at}`);
+              if (performance.now() - t0 < 2500) requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+          }, here.id);
           await turn(page, w, h);
           const back = await topOf(page);
+          if (tag === "desktop") console.log(dbg.join("\n"));
           if (layout !== "gazette") {
             check(back.id === here.id, `${tag} R2`, "turned back, the same article is at the top", `top was ${here.id} (scrolled ${here.scrollTop}), turned back ${back.id} (scrolled ${back.scrollTop}; ${await whereIs(page, here.id)})`);
           }
