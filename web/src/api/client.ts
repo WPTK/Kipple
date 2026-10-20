@@ -33,15 +33,34 @@ export const authStore = createStore<AuthState>("unknown");
  */
 export const sessionLostStore = createStore<boolean>(false);
 
-/** Set before a sign-out you chose begins: the 401s that follow it (a stream reconnecting, queued writes) are not a lost session. */
-let signOutChosen = false;
+/**
+ * True while a sign-out you chose is under way: from just before it asks the server until the sign-in screen shows
+ * (or the server refuses it). The server may already have ended the session, so api() sends no signed-in request
+ * meanwhile except the sign-out itself (SIGN_OUT_PATH), and a 401 of a request already on its way neither ends the
+ * sign-in early nor counts as a lost session.
+ */
+export const signingOutStore = createStore<boolean>(false);
+/** The sign-out request: the one signed-in request api() still sends while a sign-out is under way. */
+export const SIGN_OUT_PATH = "/api/auth/logout";
+/** How long the sign-out waits for the server before it is given up and the app carries on signed in. */
+export const SIGN_OUT_MS = 10_000;
+
+/**
+ * What api() throws for a signed-in request it does not send during a sign-out. It is an AbortError, so it reads as a
+ * cancelled request everywhere; the offline queue tells it apart to keep the change for later.
+ */
+export class NotSentWhileSigningOut extends DOMException {
+  constructor() {
+    super("not sent: a sign-out is under way", "AbortError");
+  }
+}
 export function chooseSignOut(chosen: boolean) {
-  signOutChosen = chosen;
+  signingOutStore.set(chosen);
 }
 
 /** The one place the app becomes signed in: a lost-session note and a sign-out intent end with it. */
 export function setSignedIn() {
-  signOutChosen = false;
+  signingOutStore.set(false);
   sessionLostStore.set(false);
   authStore.set("in");
 }
@@ -136,6 +155,8 @@ export async function api<T = void>(path: string, opts: RequestOptions = {}): Pr
 }
 
 async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
+  // During a sign-out a signed-in request would only answer 401. It is not sent, and fails as a cancelled one does.
+  if (signingOutStore.get() && !opts.anon && path !== SIGN_OUT_PATH) throw new NotSentWhileSigningOut();
   const method = opts.method ?? "GET";
   const headers: Record<string, string> = { ...opts.headers, Accept: "application/json", "X-Kipple-Client": clientKind() };
   let body: string | FormData | undefined;
@@ -174,8 +195,11 @@ async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
   if (!cached) setSessionExpired(false);
   noteResponse(res, opts.quiet);
   if (res.status === 401 && !opts.anon) {
-    if (authStore.get() === "in" && !signOutChosen) sessionLostStore.set(true);
-    authStore.set("out");
+    // During a sign-out you chose, the sign-out itself shows the sign-in screen once the offline copies are gone.
+    if (!signingOutStore.get()) {
+      if (authStore.get() === "in") sessionLostStore.set(true);
+      authStore.set("out");
+    }
     throw new ApiError(401, "auth");
   }
   if (!res.ok) {

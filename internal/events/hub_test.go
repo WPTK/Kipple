@@ -1,6 +1,7 @@
 package events
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -86,6 +87,23 @@ func TestCloseClosesEveryChannel(t *testing.T) {
 	late := h.Subscribe(0)
 	_, ok = <-late.C
 	require.False(t, ok)
+}
+
+// The largest id there is (what a malformed cursor is turned into) is ahead of every id the hub has: one resync, no replay.
+func TestSubscribeAtMaxUint64GetsOnlyAResync(t *testing.T) {
+	h := newHub()
+	for i := 0; i < 5; i++ {
+		h.Publish("e", i)
+	}
+	s := h.Subscribe(math.MaxUint64)
+	ev := <-s.C
+	require.Equal(t, "resync", ev.Type)
+	require.Equal(t, uint64(5), ev.ID)
+	select {
+	case extra := <-s.C:
+		t.Fatalf("unexpected extra event %v", extra)
+	default:
+	}
 }
 
 func TestSubscribeAheadOfSeqResyncs(t *testing.T) {
@@ -187,4 +205,82 @@ func TestSubscribeOnAClosedHubReturnsAClosedSubscriberEvenWhenFull(t *testing.T)
 	require.NotNil(t, s)
 	_, open := <-s.C
 	require.False(t, open)
+}
+
+// A run that ends between the bootstrap answer and the stream attaching: the client opens the stream at the
+// bootstrap's event_id (the hub's LastID when the runs were read) and gets exactly what followed.
+func TestSubscribeAtBootstrapIDReplaysTheGap(t *testing.T) {
+	h := newHub()
+	h.Publish("run.start", map[string]string{"run_id": "1"})
+	boot := h.LastID() // the bootstrap answer is stamped here and lists run 1
+	h.Publish("run.progress", map[string]string{"run_id": "1"})
+	h.Publish("run.done", map[string]string{"run_id": "1"})
+
+	s := h.Subscribe(boot)
+	require.Equal(t, "run.progress", (<-s.C).Type)
+	require.Equal(t, "run.done", (<-s.C).Type)
+	select {
+	case ev := <-s.C:
+		t.Fatalf("unexpected extra event %v", ev)
+	default:
+	}
+	h.Publish("e", 1) // and the stream is live afterwards
+	require.Equal(t, "e", (<-s.C).Type)
+}
+
+// A cursor up to subBuffer-1 events behind replays all of them; from subBuffer events behind the replay would not
+// fit the subscriber's buffer, so the subscriber gets a resync instead (the next test).
+func TestSubscribeReplaysALongGapWithinTheRing(t *testing.T) {
+	h := newHub()
+	h.Publish("e", 0)
+	boot := h.LastID()
+	for i := 0; i < subBuffer-1; i++ {
+		h.Publish("e", i)
+	}
+	s := h.Subscribe(boot)
+	require.Len(t, s.C, subBuffer-1)
+}
+
+// The bound on a replay is the subscriber buffer (subBuffer), not the 500-event ring: a gap of subBuffer events
+// gets one resync and no replay.
+func TestSubscribeWithAGapOfTheBufferSizeGetsAResyncNotAReplay(t *testing.T) {
+	h := newHub()
+	h.Publish("e", 0)
+	boot := h.LastID()
+	for i := 0; i < subBuffer; i++ {
+		h.Publish("e", i)
+	}
+	s := h.Subscribe(boot)
+	require.Len(t, s.C, 1)
+	ev := <-s.C
+	require.Equal(t, "resync", ev.Type)
+	require.Equal(t, h.LastID(), ev.ID)
+}
+
+// After a restart the ids are new and the ring is empty or holds only new events: a cursor from before the
+// restart gets one resync and none of the new process's events, and none of the old ones are invented.
+func TestSubscribeWithAnIDFromBeforeARestartGetsOnlyAResync(t *testing.T) {
+	clk := clock.NewFake(time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC))
+	h1 := NewWithClock(clk)
+	h1.Publish("run.start", 1)
+	boot := h1.LastID()
+	h1.Publish("run.done", 1) // the old process publishes this and then goes away
+
+	clk.Advance(5 * time.Second)
+	h2 := NewWithClock(clk)
+	for _, empty := range []bool{true, false} {
+		if !empty {
+			h2.Publish("counts", 1)
+			h2.Publish("counts", 2)
+		}
+		s := h2.Subscribe(boot)
+		ev := <-s.C
+		require.Equal(t, "resync", ev.Type, "empty ring: %v", empty)
+		require.Equal(t, h2.LastID(), ev.ID)
+		select {
+		case extra := <-s.C:
+			t.Fatalf("unexpected extra event %v (empty ring: %v)", extra, empty)
+		default:
+		}
+	}
 }
