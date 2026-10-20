@@ -141,10 +141,13 @@ describe("Settings renderer", () => {
     const radios = within(group).getAllByRole("radio");
     expect(radios.map((r) => (r as HTMLInputElement).value).sort()).toEqual([...LAYOUT_IDS].sort());
     for (const id of LAYOUT_IDS) expect(within(group).getByRole("radio", { name: new RegExp(LAYOUT_LABELS[id]) })).toHaveAccessibleName(expect.stringContaining(LAYOUT_HINTS[id]));
-    await userEvent.setup().click(within(group).getByRole("radio", { name: /Headlines/ }));
-    expect(within(group).getByRole("radio", { name: /Headlines/ })).toBeChecked();
-    expect(devicePrefsStore.get().layout).toBe("headlines");
-    devicePrefsStore.set(parseDevicePrefs(null)); // the pick must not reach the next test
+    try {
+      await userEvent.setup().click(within(group).getByRole("radio", { name: /Headlines/ }));
+      expect(within(group).getByRole("radio", { name: /Headlines/ })).toBeChecked();
+      expect(devicePrefsStore.get().layout).toBe("headlines");
+    } finally {
+      devicePrefsStore.set(parseDevicePrefs(null)); // the pick must not reach the next test
+    }
   });
 
   it("does not list a device-scoped key a second time: this device's own control already shows it", async () => {

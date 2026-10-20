@@ -1,1 +1,1 @@
-Settings > Appearance & Reading: the default layout is a list of six cards, each saying what the layout looks like, instead of a control whose options wrapped onto two rows. (#564)
+Settings > Appearance & Reading: the default layout is now a list of six cards, each describing the layout. (#564)

@@ -17,8 +17,8 @@
 //   K4  Settings > Appearance & Reading: Larger buttons stays a switch (it applies the moment it is flipped), and flipping it
 //       sends nothing to the server (it is a device setting) and is put back;
 //   K8  Settings > Appearance & Reading: Layout is six radio cards in one column (none wraps beside another or runs past
-//       the screen), each 44 px tall (56 px with Large targets) and named with what it looks like; picking one sends
-//       nothing to the server (a device setting) and is put back.
+//       the screen), each 44 px tall (56 px with Large targets) and named with what it looks like; picking one writes
+//       only the device's own profile (PATCH /api/device) and is put back.
 // It changes nothing on the server: every dialog is closed with Escape. It only runs against a loopback address with the
 // seed's credentials unless --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
@@ -232,14 +232,21 @@ await t.eachViewport(async (page, vp) => {
       check(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), `${tagL} no sideways scroll`, "the page does not scroll sideways", "the page scrolls sideways");
     }
     await page.evaluate(() => document.documentElement.removeAttribute("data-targets"));
-    const was = (await radios.evaluateAll((els) => els.find((e) => e.checked)?.value)) ?? "magazine";
+    const was = await radios.evaluateAll((els) => els.find((e) => e.checked)?.value);
+    check(!!was, `${tag} K8 current`, `the layout in effect is ${was}`, "no layout card is checked");
+    if (!was) return;
     const other = was === "headlines" ? "cards" : "headlines";
     writes.length = 0;
-    await group.locator(`input[value="${other}"]`).check();
-    check(await group.locator(`input[value="${other}"]`).isChecked(), `${tag} K8 pick`, "a card picks its layout", "a card did not pick its layout");
-    check(writes.length === 0, `${tag} K8 device`, "picking sends nothing to the server", `picking sent ${writes.join(", ")}`);
-    await t.shot(page, `${tag}-K8-layout`);
-    await group.locator(`input[value="${was}"]`).check();
+    try {
+      await group.locator(`input[value="${other}"]`).check();
+      check(await group.locator(`input[value="${other}"]`).isChecked(), `${tag} K8 pick`, "a card picks its layout", "a card did not pick its layout");
+      await page.waitForTimeout(1200); // the device profile is saved 500 ms after the last change
+      check(writes.every((w) => w === "PATCH /api/device"), `${tag} K8 device`, "picking writes only the device profile", `picking sent ${writes.join(", ")}`);
+      await t.shot(page, `${tag}-K8-layout`);
+    } finally {
+      await group.locator(`input[value="${was}"]`).check();
+      await page.waitForTimeout(1200);
+    }
     check(await group.locator(`input[value="${was}"]`).isChecked(), `${tag} K8 back`, "put back", "the layout was left changed");
   });
 });
