@@ -15,6 +15,19 @@ class NoES {
   close() {}
 }
 
+/** Remembers HTMLElement.prototype's own descriptors for `names`; the returned function puts them back (or removes the
+ * property where there was none, so the one on Element.prototype shows through again). */
+function keepProps(names: string[]): () => void {
+  const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
+  const was = names.map((n) => [n, Object.getOwnPropertyDescriptor(proto, n)] as const);
+  return () => {
+    for (const [n, d] of was) {
+      if (d) Object.defineProperty(proto, n, d);
+      else delete proto[n];
+    }
+  };
+}
+
 function go(path: string) {
   window.history.replaceState({ idx: 0 }, "", path);
   return render(<App client={makeQueryClient({ retry: false })} />);
@@ -201,6 +214,7 @@ describe("coming back to a long list (#94)", () => {
   // the offset causes. What this cannot show is paint: it reads the rows' transforms, not where a browser drew them.
   const ROW = 232;
   const VIEWPORT = 800;
+  let restoreBox = () => {};
   beforeEach(() => {
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
       configurable: true,
@@ -208,6 +222,17 @@ describe("coming back to a long list (#94)", () => {
         return this.dataset.testid === "list-scroll" ? VIEWPORT : ROW;
       },
     });
+    // How far the list can scroll: the virtualizer never scrolls past it (jsdom's own is 0).
+    restoreBox = keepProps(["clientHeight", "scrollHeight"]);
+    const box = { clientHeight: VIEWPORT, scrollHeight: 100 * ROW };
+    for (const [name, value] of Object.entries(box)) {
+      Object.defineProperty(HTMLElement.prototype, name, {
+        configurable: true,
+        get(this: HTMLElement) {
+          return this.dataset.testid === "list-scroll" ? value : 0;
+        },
+      });
+    }
     // Reports the same heights; setup.ts's own observer reports 800 for everything.
     class SizedRO {
       constructor(private cb: ResizeObserverCallback) {}
@@ -222,6 +247,7 @@ describe("coming back to a long list (#94)", () => {
   });
   afterEach(() => {
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 800 });
+    restoreBox();
   });
 
   const rowsOf = (scroller: HTMLElement) =>
@@ -296,9 +322,180 @@ describe("coming back to a long list (#94)", () => {
 
   it("measures the rows again without gaps when the saved heights no longer apply (text size changed while away)", async () => {
     // The heights from the way down are dropped, so the rows on screen are measured on the spot, straight after
-    // the restored offset scrolled the list (when the virtualizer's own measuring skips them).
-    const { scroller } = await readLeaveAndReturn(() => updatePrefs({ textSize: 1.25 }));
+    // the restored offset scrolled the list (when the virtualizer's own measuring skips them). The offset no longer
+    // points at the same rows, so the list goes back to the article the reader left instead.
+    const { leftAt, scroller } = await readLeaveAndReturn(() => updatePrefs({ textSize: 1.25 }));
     expect(steps(scroller)).toEqual([ROW]);
+    expect(rowAt(scroller, scroller.scrollTop)).toBe(leftAt);
+  });
+});
+
+describe("rows that change shape under the reader (a turned phone)", () => {
+  // As in "coming back to a long list" above, jsdom has no layout: every row is `row` px tall and the list `width` px
+  // wide and 800 px high, and turning the phone changes both and has every observer report again, as a browser does.
+  let row = 232;
+  let width = 375;
+  const observed: { cb: ResizeObserverCallback; el: HTMLElement; ro: unknown }[] = [];
+  let restoreProps = () => {};
+  const report = (o: (typeof observed)[number]) => {
+    const h = o.el.offsetHeight;
+    o.cb([{ target: o.el, contentRect: { width, height: h }, borderBoxSize: [{ inlineSize: width, blockSize: h }] } as unknown as ResizeObserverEntry], o.ro as ResizeObserver);
+  };
+  beforeEach(() => {
+    row = 232;
+    width = 375;
+    observed.length = 0;
+    restoreProps = keepProps(["offsetHeight", "clientWidth", "clientHeight", "scrollHeight"]);
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.dataset.testid === "list-scroll" ? 800 : row;
+      },
+    });
+    // The list's own box, which a browser changes at once when the phone turns (before any observer reports).
+    const box = { clientWidth: () => width, clientHeight: () => 800, scrollHeight: () => 100 * row };
+    for (const [name, value] of Object.entries(box)) {
+      Object.defineProperty(HTMLElement.prototype, name, {
+        configurable: true,
+        get(this: HTMLElement) {
+          return this.dataset.testid === "list-scroll" ? value() : 0;
+        },
+      });
+    }
+    class TurningRO {
+      constructor(private cb: ResizeObserverCallback) {}
+      observe(el: HTMLElement) {
+        const o = { cb: this.cb, el, ro: this };
+        observed.push(o);
+        report(o);
+      }
+      unobserve(el: HTMLElement) {
+        const i = observed.findIndex((o) => o.el === el && o.ro === this);
+        if (i >= 0) observed.splice(i, 1);
+      }
+      disconnect() {
+        for (let i = observed.length - 1; i >= 0; i--) if (observed[i]?.ro === this) observed.splice(i, 1);
+      }
+    }
+    vi.stubGlobal("ResizeObserver", TurningRO);
+    vi.spyOn(Element.prototype, "scrollTo").mockImplementation(function (this: Element, opts?: ScrollToOptions | number) {
+      if (typeof opts !== "object" || opts.top === undefined) return;
+      this.scrollTop = opts.top;
+      this.dispatchEvent(new Event("scroll"));
+    });
+  });
+  afterEach(() => restoreProps());
+
+  /** The article whose row covers the top of the list (rows are placed by their transforms). */
+  const topArticle = (scroller: HTMLElement) =>
+    [...scroller.querySelectorAll<HTMLElement>("[data-index]")]
+      .map((el) => ({ id: el.querySelector<HTMLElement>("[data-item-id]")?.dataset.itemId, top: Number(/translateY\((-?[\d.]+)px\)/.exec(el.style.transform)?.[1]) }))
+      .find((r) => r.id && r.top <= scroller.scrollTop && scroller.scrollTop < r.top + row)?.id;
+  const wait = (ms: number) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
+  const scrollTo = (scroller: HTMLElement, y: number) =>
+    act(() => {
+      scroller.scrollTop = y;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+
+  it("keeps the article at the top and marks nothing read the reader did not scroll past", async () => {
+    updatePrefs({ markReadOnScroll: true });
+    const cards = Array.from({ length: 40 }, (_, i) => card(i + 1));
+    const { calls } = mockFetch({
+      "GET /api/bootstrap": () => json(bootstrap),
+      "GET /api/items": () => json(pageOf(cards, null, "100")),
+      "POST /api/items/mark-read": (_u, init) => json({ changed: JSON.parse(String(init?.body)).ids, restored: [] }),
+    });
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const scroller = screen.getByTestId("list-scroll");
+    // Read down the list a row at a time, and let the settle mark what was scrolled past.
+    for (let y = row; y <= 2200; y += row) {
+      scrollTo(scroller, y);
+      await wait(20);
+    }
+    await wait(800);
+    const top = topArticle(scroller);
+    expect(top).toBeDefined();
+    const sentBefore = calls.filter((c) => c.url.pathname === "/api/items/mark-read").length;
+
+    // Turned: wider, and every row shorter, so the same offset would put rows the reader has on screen above the top.
+    row = 120;
+    width = 812;
+    act(() => [...observed].forEach(report));
+    await wait(250);
+    expect(topArticle(scroller)).toBe(top);
+
+    // A short scroll settles as any scroll does: it may mark what was above the top already, never a row below it.
+    scrollTo(scroller, scroller.scrollTop + 10);
+    await wait(900);
+    const marked = calls
+      .filter((c) => c.url.pathname === "/api/items/mark-read")
+      .slice(sentBefore)
+      .flatMap((c) => JSON.parse(String(c.init?.body)).ids as string[]);
+    const topIndex = cards.findIndex((c) => c.id === top);
+    expect(marked.filter((id) => cards.findIndex((c) => c.id === id) >= topIndex)).toEqual([]);
+  });
+
+  it("comes back to the same article when the list it replaces saves its heights only after the new one mounted", async () => {
+    const cards = Array.from({ length: 40 }, (_, i) => card(i + 1));
+    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(pageOf(cards, null, "100")) });
+    const listOf = (r: ReturnType<typeof render>) => r.container.querySelector<HTMLElement>('[data-testid="list-scroll"]')!;
+    // One app's list, mounted three times (the same data, so each comes back to its offset).
+    const qc = makeQueryClient({ retry: false });
+    window.history.replaceState({ idx: 0 }, "", "/l/unread");
+    // The desktop list: read down, then leave (its heights are saved for this width).
+    const first = render(<App client={qc} />);
+    await screen.findByText("Article number 1");
+    scrollTo(listOf(first), 10 * row);
+    await wait(50);
+    first.unmount();
+    // Turned: the phone list takes its place, comes back to the article and is scrolled a little further.
+    row = 120;
+    width = 812;
+    const turned = render(<App client={qc} />);
+    await within(turned.container).findAllByText(/Article number/);
+    await wait(250);
+    scrollTo(listOf(turned), listOf(turned).scrollTop + 2 * row);
+    await wait(50);
+    const top = topArticle(listOf(turned));
+    expect(top).toBeDefined();
+    // Turned back: the desktop list mounts before the phone list has gone, as when the layouts swap.
+    row = 232;
+    width = 375;
+    const back = render(<App client={qc} />);
+    turned.unmount();
+    await within(back.container).findAllByText(/Article number/);
+    await wait(250);
+    expect(topArticle(listOf(back))).toBe(top);
+  });
+
+  it("comes back to the same article when the turned rows start on a fraction of a pixel", async () => {
+    const cards = Array.from({ length: 40 }, (_, i) => card(i + 1));
+    mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(pageOf(cards, null, "100")) });
+    // A browser keeps the scroll position on whole (device) pixels, so a scroll to a row's fractional start lands short.
+    vi.spyOn(Element.prototype, "scrollTo").mockImplementation(function (this: Element, opts?: ScrollToOptions | number) {
+      if (typeof opts !== "object" || opts.top === undefined) return;
+      this.scrollTop = Math.floor(opts.top);
+      this.dispatchEvent(new Event("scroll"));
+    });
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const scroller = screen.getByTestId("list-scroll");
+    scrollTo(scroller, 10 * row);
+    await wait(50);
+    const top = topArticle(scroller);
+    expect(top).toBeDefined();
+
+    row = 120.4;
+    width = 812;
+    act(() => [...observed].forEach(report));
+    await wait(250);
+    row = 232;
+    width = 375;
+    act(() => [...observed].forEach(report));
+    await wait(250);
+    expect(topArticle(scroller)).toBe(top);
   });
 });
 

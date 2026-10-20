@@ -88,10 +88,15 @@ interface ListMemory {
   /** The failing-feed note's height above the rows when `offset` was recorded: the note may be gone or another height
    * when the list comes back, and the rows must land where they were. */
   offsetNoteH?: number;
+  /** What the rows' heights were measured for when `offset` was taken (`sizes.sig` below). */
+  offsetSig?: string;
   /** Row heights measured on the last visit, and what they were measured for (layout, columns, width bucket, text
    * size). `offset` was taken over these heights: without them the rows above it come back at their estimates, so
    * the same offset lands rows away from where the reader was (#94). */
   sizes?: { sig: string; items: VirtualItem[] };
+  /** The article at the top of the list when `offset` was recorded: where the list goes back to when the saved heights
+   * no longer apply (the list came back at another width or text size), since `offset` then points at other rows. */
+  topId?: string | null;
   selectedId?: string;
   /** A row the list must scroll to when it next mounts (the article reached by paging Next or Previous). */
   reveal?: string;
@@ -352,6 +357,11 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const noteBoxRef = useRef<HTMLDivElement>(null);
   const [noteH, setNoteH] = useState(0);
   const noteHRef = useRef(0);
+  // The heights from the last visit go with its offset only if the offset was taken over them. A list that unmounts as
+  // another mounts in its place (the phone and desktop layouts swapping at a turn) saves its heights only after the
+  // new one has read them, so the heights can still be from an earlier visit at another width while the offset is
+  // the latest: those heights are dropped, and the rows are measured again and put back on the article (listTop).
+  const savedSizes = saved?.sizes && saved.sizes.sig === saved.offsetSig ? saved.sizes : undefined;
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: Page ? 0 : rows.length,
@@ -370,7 +380,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     // A page layout restores its own offset once its pages are laid out (below); a jump here would land short.
     initialOffset: Page ? 0 : (saved?.offset ?? 0),
     // The heights from the last visit, so the restored offset points at the rows it was taken over.
-    initialMeasurementsCache: saved?.sizes?.items,
+    initialMeasurementsCache: savedSizes?.items,
   });
 
   // `as_of` is a global watermark (it moves whenever any feed anywhere gets new items), and `staleTime:
@@ -404,24 +414,42 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const textSize = prefs.textSize;
   const sizeSig = `${layout.id}|${cols}|${widthBucket}|${textSize}`;
   // What the heights the virtualizer holds were measured for: the ones restored from the last visit, at first.
-  const measuredSig = useRef(saved?.sizes?.sig);
+  const measuredSig = useRef(savedSizes?.sig);
   const unmeasured = width === 0;
+  // The article at the top of the list, as the reader left it, and the list width it was taken at. Rows that change
+  // shape (a turned phone, a resized window, another text size, while here or while away) keep the list's pixel offset
+  // but not what is under it, so the list goes back to this article afterwards: the reader stays where they were, and
+  // mark as read while scrolling (which judges rows by whether they are above the top) finds the same rows above the
+  // top as before.
+  const listTop = useRef<{ id: string | null; width: number }>({ id: saved?.topId ?? null, width: -1 });
+  const rowsRef = useLatestRef(rows);
   useEffect(() => {
     try {
       sizeCtx.current.rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     } catch {
       /* keep the last */
     }
+    const el = parentRef.current;
     // Nothing is laid out for real before the list has a width, and heights restored for this same layout, width
     // and text size are still right: dropping them would put the rows above the restored offset back at their
     // estimates and land the reader rows away from where they were.
-    if (unmeasured || measuredSig.current === sizeSig) return;
-    measuredSig.current = sizeSig;
-    // measure() drops every cached size. Rows already on screen (the list came back from an article with its
-    // data cached, so it renders at once) will not report again until they resize, so measure them now or they
-    // keep the estimate and overlap the rows below.
-    remeasureMounted(virtualizer, parentRef.current);
-  }, [sizeSig, unmeasured, virtualizer]);
+    if (!unmeasured && measuredSig.current !== sizeSig) {
+      measuredSig.current = sizeSig;
+      // measure() drops every cached size. Rows already on screen (the list came back from an article with its
+      // data cached, so it renders at once) will not report again until they resize, so measure them now or they
+      // keep the estimate and overlap the rows below.
+      remeasureMounted(virtualizer, el);
+      const id = listTop.current.id;
+      const i = id ? rowsRef.current.findIndex((r) => (r.kind === "item" ? r.item.id === id : r.kind === "group" && r.items.some((x) => x.id === id))) : -1;
+      if (i >= 0 && !Page) {
+        // Nothing on the way there counts as seen (the place.index gate below), as after a reload's restore.
+        place.index = i;
+        virtualizer.scrollToIndex(i, { align: "start" });
+      }
+    }
+    // Only once the rows were laid out for this width (and put back on the article, above) is the top read again.
+    if (el && !unmeasured) listTop.current.width = el.clientWidth;
+  }, [sizeSig, unmeasured, virtualizer, width, rowsRef, place, Page]);
   // Keep the measured heights for the way back, with what they were measured for.
   useEffect(
     () => () => {
@@ -444,6 +472,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     const onScroll = () => {
       const m = memoryFor(key);
       m.offset = el.scrollTop;
+      m.offsetSig = measuredSig.current;
       m.offsetNoteH = noteHRef.current;
       m.offsetAsOf = asOf.current;
       // And on the device, for the next page load: the article at the top, a few times a second at most, once the
@@ -711,7 +740,6 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // setting off"). The only reader is that effect and its timer, so a discarded render cannot leave it wrong for long.
   const markOnScrollRef = useRef(markOnScroll);
   markOnScrollRef.current = markOnScroll;
-  const rowsRef = useLatestRef(rows);
   const sentByScroll = useRef(memoryFor(key).sentByScroll);
   // Rows actually rendered in the visible window at some point (not the overscan rows outside it), so a
   // restored/jumped-to offset that puts rows "above the start index" without them ever having been on screen
@@ -721,8 +749,11 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   useEffect(() => {
     const r = virtualizer.range;
     // The top rows shown while the place is still coming back were not read there: the list is about to move past them.
-    // Nothing counts until the visible range has reached the row the restore scrolled to.
-    if (!r || place.id) return;
+    // Nothing counts until the visible range has reached the row the restore scrolled to. Nor while the list has a
+    // width its rows were not laid out for (listTop): the range is then over rows that moved, not rows on screen.
+    const el = parentRef.current;
+    const laidOutFor = listTop.current.width;
+    if (!r || place.id || (el && laidOutFor >= 0 && el.clientWidth !== laidOutFor)) return;
     if (place.index !== null) {
       if (place.index < r.startIndex || place.index > r.endIndex) return;
       place.index = null;
@@ -733,7 +764,22 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       if (row.kind === "item") seenIds.current.add(row.item.id);
       else if (row.kind === "group") for (const it of row.items) seenIds.current.add(it.id);
     }
-  }, [virtualItems, virtualizer]);
+  }, [virtualItems, virtualizer, width]);
+  // The article at the top, for rows that change shape (listTop above), read once the rows on screen are measured. Not
+  // while the list has a width it was not rendered for: the rows have already moved under the offset, so the article
+  // there now is not the one the reader saw.
+  useEffect(() => {
+    const el = parentRef.current;
+    if (Page || !el || el.clientWidth !== listTop.current.width) return;
+    // A row scrolled to within a pixel of the top is gone, as the reader sees it: a row's start can be fractional where the
+    // browser rounds the scroll position (a restore aligned on it, another device pixel ratio), and reading the row at
+    // the rounded offset would take the one above.
+    const top = el.scrollTop < 8 ? undefined : virtualizer.getVirtualItemForOffset(el.scrollTop + 1);
+    // A day header at the top stands for the article under it.
+    const row = top ? rowsRef.current.slice(top.index).find((r) => r.kind !== "header") : undefined;
+    listTop.current.id = row?.kind === "item" ? row.item.id : row?.kind === "group" ? (row.items[0]?.id ?? null) : null;
+    memoryFor(key).topId = listTop.current.id;
+  }, [virtualItems, virtualizer, Page, key, rowsRef]);
   // A page layout has no virtual range: its stories are judged by their own boxes (pageSeen and pagePassed above),
   // so a story beside one still on screen, in another column, is judged alone.
   const pageItemsRef = useLatestRef(allItems);
