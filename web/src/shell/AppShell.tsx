@@ -23,7 +23,11 @@ import { LiveRegion, Toasts, announce } from "./toasts";
 // Five equal tabs that always fit: the label follows the text size up to 4% of the screen width, the most a fifth of
 // the bar holds "Settings" in (12.8 px at 320 wide, 15 px at 375, 17 px at 430). A larger label could only be cut off,
 // as phone tab bars cap theirs; the icons above keep growing with the text size.
-const tab = "flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[length:min(0.75rem,4vw)] font-medium";
+//
+// On a short screen (a phone held sideways) the icon sits beside its name instead of above it, which takes the bar from
+// 56 px to 44 px: the list keeps the height (#420).
+const tab =
+  "flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[length:min(0.75rem,4vw)] font-medium [@media(max-height:500px)]:flex-row [@media(max-height:500px)]:gap-2";
 
 /** The Unread tab's badge: count (capped at 99+), a dot, or nothing, by the device's "Unread badge" setting. */
 function UnreadBadge() {
@@ -45,7 +49,7 @@ function TabBar() {
   return (
     <nav
       aria-label="Primary"
-      className="pb-safe pt-2 pl-safe pr-safe flex shrink-0 border-t border-line bg-bg shadow-[0_-6px_10px_-8px_rgb(0_0_0/0.5)]"
+      className="pb-safe pt-2 pl-safe pr-safe flex shrink-0 border-t border-line bg-bg shadow-[0_-6px_10px_-8px_rgb(0_0_0/0.5)] [@media(max-height:500px)]:pt-0"
       style={{ minHeight: "var(--tabbar-h)" }}
     >
       {/* Plain links: NavLink would only mark the tab whose own address is the current one. */}

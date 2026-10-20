@@ -27,6 +27,7 @@ import { canNativeShare } from "@/lib/share";
 import { useStore } from "@/lib/store";
 import { activeThemeStore } from "@/theme/theme";
 import { toast } from "@/shell/toasts";
+import { BackButton } from "@/ui/BackButton";
 import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
 
@@ -339,13 +340,13 @@ export function WrappedScreen() {
   return (
     <div className="ui-font flex h-full min-h-0 flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-3">
-        <h1 id={headingId} className="pt-2 pb-2 text-xl font-bold" tabIndex={-1} data-route-heading>
-          Your year
-        </h1>
-        <div className="flex items-end gap-3">
-          <Link to="/stats" className="min-h-11 content-center text-sm text-link underline underline-offset-2">
-            Back to Stats
-          </Link>
+        <div className="flex flex-wrap items-center gap-x-3 pt-2">
+          <div className="flex min-w-[10rem] flex-1 items-center gap-1">
+            <BackButton to="/stats" label="Back to Stats" />
+            <h1 id={headingId} className="min-w-0 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
+              Your year
+            </h1>
+          </div>
           {on ? (
             <>
               <label className="ml-auto flex items-center gap-2 text-sm">

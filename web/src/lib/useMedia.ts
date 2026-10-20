@@ -26,6 +26,9 @@ export function useMedia(query: string): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
 
+/** A short screen: a phone held sideways (about 375 px or less of height). Its chrome has to take less of it. */
+export const SHORT_QUERY = "(max-height: 500px)";
+
 /** Wide layout: sidebar plus list plus reader pane (design: container >= 900 px). */
 export const WIDE_QUERY = "(min-width: 900px)";
 export function useWide(): boolean {

@@ -27,7 +27,7 @@ import {
 import { READING_LENGTH_LABELS } from "@/lib/readingLength";
 import { announce } from "@/shell/toasts";
 import { ResizeHandle } from "@/ui/ResizeHandle";
-import { useWide } from "@/lib/useMedia";
+import { SHORT_QUERY, useMedia, useWide } from "@/lib/useMedia";
 import { ARTICLE_MIN, maxFor, useWidth } from "@/lib/useWidth";
 import { listTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
 import { prefsStore } from "@/lib/prefs";
@@ -131,18 +131,66 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
   // The Muted pill appears when there is something muted, or when you are in it.
   const views = scope.view === "muted" || mutedCount > 0 ? [...VIEWS, { view: "muted" as View, label: "Muted" }] : VIEWS;
   const nothingUnread = scopeUnread(scope, boot.data) === 0;
+  // A short phone screen (landscape) has no height to spare for a second header row: the Show pills and the feed
+  // switch sit on the title row, after the title (#420).
+  const short = useMedia(SHORT_QUERY);
+  const compact = !wide && short;
+  const pills = (
+    <nav aria-label="Show" className={cn("flex gap-1", compact ? "shrink-0" : "min-w-0 flex-wrap")}>
+      {views.map((v) => {
+        const active = v.view === scope.view;
+        return (
+          <Link
+            key={v.view}
+            to={listTo({ ...scope, view: v.view })}
+            replace
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "inline-flex min-h-11 items-center rounded-full text-sm font-medium",
+              compact ? "px-3" : "px-4",
+              active ? "bg-accent text-bg" : "text-fg hover:bg-selection",
+            )}
+          >
+            {v.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+  const switcher =
+    prev || next ? (
+      <div className={cn("flex", compact ? "shrink-0" : "ml-auto")} role="group" aria-label={`Switch ${noun}`}>
+        <Button variant="ghost" size="icon" aria-label={`Previous ${noun}`} title={`Previous ${noun}`} disabled={!prev} onClick={() => go(prev)}>
+          <ChevronLeft aria-hidden="true" />
+        </Button>
+        <Button variant="ghost" size="icon" aria-label={`Next ${noun}`} title={`Next ${noun}`} disabled={!next} onClick={() => go(next)}>
+          <ChevronRight aria-hidden="true" />
+        </Button>
+      </div>
+    ) : null;
   return (
-    <header className="pt-safe shrink-0 border-b border-line bg-bg px-4 pb-2">
+    <header className={cn("pt-safe shrink-0 border-b border-line bg-bg px-4", compact ? "pb-1" : "pb-2")}>
       {/* The title row is 25rem wide and left-aligned, so the controls sit in the same place in every layout (a grid
           layout has no reader pane, and used to push them to the far right). The title keeps at least 6.5rem and truncates
           beyond that, so at normal text size on a phone the header is one row in every list; only where the pane is
           too narrow for 6.5rem and the controls together (a narrow list pane, a large text size) do the controls drop to
           a line of their own. */}
-      <div className="flex w-fit min-w-[min(100%,25rem)] max-w-full flex-wrap items-center gap-x-0.5 pt-2">
-        <Heading className="min-w-[6.5rem] max-w-full flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}>
+      <div className={cn("flex max-w-full flex-wrap items-center gap-x-0.5", compact ? "w-full pt-1" : "w-fit min-w-[min(100%,25rem)] pt-2")}>
+        <Heading
+          className={cn("min-w-[6.5rem] truncate text-xl font-bold", compact ? "mr-2 max-w-[40%]" : "max-w-full flex-1")}
+          tabIndex={-1}
+          data-route-heading
+          aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}
+        >
           {above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
           {title}
         </Heading>
+        {compact ? (
+          <>
+            {pills}
+            {switcher}
+          </>
+        ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
         {/* A layout that is always newest first has no order to toggle (the list options menu says why). On a phone
             the order lives only in the Layout menu, which leaves the title room in a one-row header. */}
@@ -160,15 +208,19 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
         <LengthMenu scope={scope} />
         <LayoutMenu scope={scope} />
         <ReadingMenu />
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={refreshing ? "Refreshing" : "Refresh all feeds"}
-          onClick={() => refresh.mutate()}
-          aria-disabled={refresh.isPending || undefined}
-        >
-          <RefreshCw aria-hidden="true" className={cn(refreshing && "animate-spin")} />
-        </Button>
+        {/* On a phone Refresh is a pull on the list and an item in the menu after this one, which leaves four controls
+            at most: the header is no wider than the title and what the list is. */}
+        {wide ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={refreshing ? "Refreshing" : "Refresh all feeds"}
+            onClick={() => refresh.mutate()}
+            aria-disabled={refresh.isPending || undefined}
+          >
+            <RefreshCw aria-hidden="true" className={cn(refreshing && "animate-spin")} />
+          </Button>
+        ) : null}
         {wide ? (
           <Link to="/settings" aria-label="Settings" title="Settings" className={buttonVariants({ variant: "ghost", size: "icon" })}>
             <Settings aria-hidden="true" />
@@ -182,6 +234,12 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 min-w-56 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl">
+              {wide ? null : (
+                <DropdownMenu.Item className={menuItem} disabled={refreshing || refresh.isPending} onSelect={() => refresh.mutate()}>
+                  <RefreshCw className={cn("size-5", refreshing && "animate-spin")} aria-hidden="true" />
+                  {refreshing ? "Refreshing" : "Refresh all feeds"}
+                </DropdownMenu.Item>
+              )}
               <DropdownMenu.Item
                 className={menuItem}
                 disabled={!controls || scope.view === "muted" || !!scope.typing || nothingUnread}
@@ -206,51 +264,12 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
         </DropdownMenu.Root>
         </div>
       </div>
-      <div className="mt-1 flex max-w-[25rem] items-center gap-1">
-      <nav aria-label="Show" className="flex min-w-0 flex-wrap gap-1">
-        {views.map((v) => {
-          const active = v.view === scope.view;
-          return (
-            <Link
-              key={v.view}
-              to={listTo({ ...scope, view: v.view })}
-              replace
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "inline-flex min-h-11 items-center rounded-full px-4 text-sm font-medium",
-                active ? "bg-accent text-bg" : "text-fg hover:bg-selection",
-              )}
-            >
-              {v.label}
-            </Link>
-          );
-        })}
-      </nav>
-        {prev || next ? (
-          <div className="ml-auto flex" role="group" aria-label={`Switch ${noun}`}>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={`Previous ${noun}`}
-              title={`Previous ${noun}`}
-              disabled={!prev}
-              onClick={() => go(prev)}
-            >
-              <ChevronLeft aria-hidden="true" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={`Next ${noun}`}
-              title={`Next ${noun}`}
-              disabled={!next}
-              onClick={() => go(next)}
-            >
-              <ChevronRight aria-hidden="true" />
-            </Button>
-          </div>
-        ) : null}
-      </div>
+      {compact ? null : (
+        <div className="mt-1 flex max-w-[25rem] items-center gap-1">
+          {pills}
+          {switcher}
+        </div>
+      )}
       {scope.length ? (
         <div className="mt-1 flex max-w-[25rem]">
           <Link

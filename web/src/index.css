@@ -85,6 +85,11 @@
   --toolbar-h: 3.05rem; /* article toolbar: 44 px buttons plus padding */
 }
 
+/* A short screen (a phone held sideways): the tab bar has no top padding and its tabs are one row. */
+@media (max-height: 500px) {
+  :root { --tabbar-h: 2.75rem; }
+}
+
 :root[data-font="easy"] {
   --kp-reading-font: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, sans-serif;
 }

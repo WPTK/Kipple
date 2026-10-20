@@ -391,3 +391,17 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
 - Whether a Columns-style text layout is worth shipping next to Cards (no owner intent yet).
 - Whether Expanded stream returns (full text under each headline, collapsed by default, no scroll-based read marking).
 
+
+## Phone header and back buttons (1.1 bug hunt, round 7, #420 #422 #424)
+- **A phone held sideways** (screen height 500 px or less) puts the Show pills and the feed switch on the title row,
+  and the tab bar becomes one row of icon and name (44 px instead of 56). Header and tab bar together went from about
+  44% of a 375 px screen to about 28%. Rejected: a navigation rail down the left edge, which frees the most height but
+  changes the geometry that the menus, the toasts and the safe areas measure from.
+- **A phone's list header has at most four controls**: Reading time, List options, Aa and the actions menu. Refresh is
+  the pull on the list and the first item of the actions menu; the Refresh button stays on a wide screen, where there is
+  room. Rejected: one "View" sheet holding every list control, which adds a tap to each of them and waits on the
+  bottom-sheet menus.
+- **One way back**: a chevron before the title of any screen inside another (a Settings group, Feed health, Your year).
+  It is the `BackButton` in `web/src/ui`. Rejected: a text link or breadcrumb ("Stats > Your year"), which is a second
+  pattern next to the chevron the Settings groups already had.
+- **Stats ranges**: Week, Month, Year, Monthly, All. Monthly is the whole history drawn as one bar per month.
