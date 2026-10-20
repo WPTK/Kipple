@@ -27,7 +27,7 @@
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 22, { serviceWorkers: "block" });
+const t = await start(import.meta.url, 27, { serviceWorkers: "block" });
 const { check, step } = t;
 
 await t.eachViewport(async (page, vp) => {
