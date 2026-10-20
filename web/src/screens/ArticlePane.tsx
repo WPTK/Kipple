@@ -1,7 +1,7 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
+import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileCheck, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
@@ -522,7 +522,8 @@ function Toolbar(p: ToolbarProps) {
         aria-label="Full text"
         className={p.ftOn ? "bg-selection" : undefined}
       >
-        <FileText aria-hidden="true" />
+        {/* The state is the glyph (a page with a check mark while the full text is shown), not only the tint: a toggle's state never rests on color alone. */}
+        {p.ftOn ? <FileCheck aria-hidden="true" /> : <FileText aria-hidden="true" />}
       </Button>
       {/* The rarely used actions (Share included) share one 44 px target, so seven targets (308 px) fit the narrowest phone and a narrow pane with Aa. */}
       <DropdownMenu.Root open={more && !!p.a} onOpenChange={(o) => setMore(o && !!p.a)}>

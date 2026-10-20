@@ -63,6 +63,10 @@ were resolved in round 2 and what shipped; each is annotated below.
   "Filter is on"); the owner ruled this 2026-10-19.
 - A choice among a few named steps stays a segmented control (native radios); a choice that wants a sentence each is a
   list of radio cards.
+- **A toggle's state never rests on color alone** (#563). A button with `aria-pressed` also changes its glyph or shows a mark: the
+  star fills, Oldest first swaps its arrow, a suggestion chip gains a check, Full text swaps the plain page for a page with a check
+  mark. Its name stays the same (the state is `aria-pressed`, not a renamed label). A tint may back the glyph up; it is never
+  the only cue, and it is checked in all 20 color schemes because the glyph does not depend on one.
 
 ## Layout
 
