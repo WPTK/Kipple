@@ -84,7 +84,12 @@ export function unloadRefusal(page, origin) {
   };
 }
 
-export async function start(metaUrl, helpLines) {
+/**
+ * `options.serviceWorkers`: "block" for a flow that holds back or fakes a request with `page.route`. Playwright's
+ * routing does not see the requests the app's service worker sends (WebKit never does), so a route set up while the
+ * worker is active may never fire. Default "allow", as a user's browser has it.
+ */
+export async function start(metaUrl, helpLines, options = {}) {
   const setupError = (m) => {
     console.error(m);
     process.exit(2);
@@ -232,7 +237,7 @@ export async function start(metaUrl, helpLines) {
    * the server still accepts it) and why, or null; and `probeError` when the server could not be asked.
    */
   const attempt = async (body, vp) => {
-    const context = await browser.newContext({ baseURL: origin, viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile });
+    const context = await browser.newContext({ baseURL: origin, viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile, serviceWorkers: options.serviceWorkers ?? "allow" });
     const mark = findings.length;
     let session = null;
     try {
