@@ -8,7 +8,6 @@ description = "Documented placeholders, not real secrets"
 paths = [
   '''^\.env\.example$''',
   '''^docker-compose\.example\.yml$''',
-  '''^docs/.*\.md$''',
 ]
 
 [[allowlists]]

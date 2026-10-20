@@ -205,7 +205,7 @@ jobs:
           curl -sSfL -o "$tarball" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$tarball"
           echo "${GITLEAKS_SHA256}  $tarball" | sha256sum -c -
           tar -xzf "$tarball" gitleaks
-          ./gitleaks detect --source . --config .gitleaks.toml --redact --verbose
+          ./gitleaks git . --config .gitleaks.toml --redact --verbose
 
   web:
     needs: changes
