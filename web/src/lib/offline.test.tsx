@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import { useRefreshAll } from "@/api/refresh";
 import { applyCounts } from "@/api/events";
-import { ApiError, api, authStore } from "@/api/client";
+import { ApiError, api, authStore, signingOutStore } from "@/api/client";
 import { applyRead, applyStar, flattenItems, keys, useBootstrap, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { OfflineNotice } from "@/shell/OfflineNotice";
@@ -39,6 +39,7 @@ function fresh() {
   resetOfflineForTests();
   resetPrefetchForTests();
   authStore.set("in");
+  signingOutStore.set(false);
   offlineStore.set({ online: true, pending: 0, updateReady: false, sessionExpired: false });
 }
 beforeEach(fresh);
@@ -147,6 +148,15 @@ describe("the offline queue", () => {
     } finally {
       stop();
     }
+  });
+
+  it("is not sent during a sign-out, when the server may have ended the session already", async () => {
+    await queueStar("1", true);
+    const { calls } = mockFetch({ "PUT /api/items/1/star": () => json({ starred: true, restored: false }) });
+    signingOutStore.set(true);
+    await flushQueue();
+    expect(calls).toHaveLength(0);
+    expect(offlineStore.get().pending).toBe(1);
   });
 
   it("stops at the first network failure and keeps everything left", async () => {

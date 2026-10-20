@@ -35,11 +35,13 @@ export const sessionLostStore = createStore<boolean>(false);
 
 /**
  * True while a sign-out you chose is under way: from just before it asks the server until the sign-in screen shows
- * (or the server refuses it). The bootstrap is not asked for meanwhile (useBootstrap), since the server may already
- * have ended the session, and the 401s of requests already on their way (a stream reconnecting, queued writes) are
- * not a lost session.
+ * (or the server refuses it). The server may already have ended the session, so api() sends no signed-in request
+ * meanwhile except the sign-out itself (SIGN_OUT_PATH), and a 401 of a request already on its way neither ends the
+ * sign-in early nor counts as a lost session.
  */
 export const signingOutStore = createStore<boolean>(false);
+/** The sign-out request: the one signed-in request api() still sends while a sign-out is under way. */
+export const SIGN_OUT_PATH = "/api/auth/logout";
 export function chooseSignOut(chosen: boolean) {
   signingOutStore.set(chosen);
 }
@@ -141,6 +143,8 @@ export async function api<T = void>(path: string, opts: RequestOptions = {}): Pr
 }
 
 async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
+  // During a sign-out a signed-in request would only answer 401. It is not sent, and fails as a cancelled one does.
+  if (signingOutStore.get() && !opts.anon && path !== SIGN_OUT_PATH) throw new DOMException("signing out", "AbortError");
   const method = opts.method ?? "GET";
   const headers: Record<string, string> = { ...opts.headers, Accept: "application/json", "X-Kipple-Client": clientKind() };
   let body: string | FormData | undefined;
@@ -179,8 +183,11 @@ async function apiOnce<T>(path: string, opts: RequestOptions): Promise<T> {
   if (!cached) setSessionExpired(false);
   noteResponse(res, opts.quiet);
   if (res.status === 401 && !opts.anon) {
-    if (authStore.get() === "in" && !signingOutStore.get()) sessionLostStore.set(true);
-    authStore.set("out");
+    // During a sign-out you chose, the sign-out itself shows the sign-in screen once the offline copies are gone.
+    if (!signingOutStore.get()) {
+      if (authStore.get() === "in") sessionLostStore.set(true);
+      authStore.set("out");
+    }
     throw new ApiError(401, "auth");
   }
   if (!res.ok) {

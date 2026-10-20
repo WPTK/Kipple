@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, authStore, busyMessage, chooseSignOut, errorMessage } from "@/api/client";
+import { ApiError, api, authStore, busyMessage, chooseSignOut, errorMessage, SIGN_OUT_PATH } from "@/api/client";
 import { applyRetention, changePassword, exportBackup, fetchMe, generateApiPassword, removePassword, type BackupInfo } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import { keys } from "@/api/queryKeys";
@@ -386,11 +386,14 @@ export function AccountActions() {
   const signOut = async () => {
     chooseSignOut(true);
     try {
-      await api("/api/auth/logout", { method: "POST" });
+      await api(SIGN_OUT_PATH, { method: "POST" });
     } catch (e) {
-      chooseSignOut(false);
-      toast(errorMessage(e), "error");
-      return;
+      // 401: the session had ended already, so the sign-out goes on.
+      if (!(e instanceof ApiError && e.status === 401 && e.code === "auth")) {
+        chooseSignOut(false);
+        toast(errorMessage(e), "error");
+        return;
+      }
     }
     // Clearing the cache ends any reading session (the setting reads unknown); one that stops after the wipe below
     // is dropped by the stats sender, which queues nothing from the wipe until the next sign-in.

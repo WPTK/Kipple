@@ -1,5 +1,5 @@
 import { onlineManager, type QueryClient } from "@tanstack/react-query";
-import { api, ApiError, authStore, buildPath } from "@/api/client";
+import { api, ApiError, authStore, buildPath, signingOutStore } from "@/api/client";
 import { itemsParams, keys, PAGE_SIZE, patchItems, undoKept } from "@/api/queryKeys";
 import { toast } from "@/shell/toasts";
 import { devicePrefsStore, resolveOrder } from "./devicePrefs";
@@ -447,8 +447,9 @@ export function flushQueue(qc?: QueryClient): Promise<void> {
 
 async function doFlush(qc?: QueryClient): Promise<void> {
   // Only a signed-in app sends what waits: before the launch knows (unknown) a queued write could answer 401 on a
-  // signed-out launch, and signed out the queue is kept for the next sign-in.
-  if (authStore.get() !== "in") return;
+  // signed-out launch, signed out the queue is kept for the next sign-in, and during a sign-out the server may have
+  // ended the session already.
+  if (authStore.get() !== "in" || signingOutStore.get()) return;
   let sent = 0;
   let dropped = 0;
   const confirmed: Queued[] = [];
