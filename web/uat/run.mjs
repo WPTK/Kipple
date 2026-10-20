@@ -53,7 +53,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
 import { accessControlUrl, unloadRefusal } from "./common.mjs";
-import { activeScheme, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, menuOverBar, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
+import { activeScheme, menuSheetBounds, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
 
 /** The smallest touch target, in CSS px (S8). WCAG 2.2 asks for 24; Kipple keeps to the 44 of the Apple and Material guides. */
 const TAP_MIN = 44;
@@ -826,10 +826,11 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
 
       const s4 = [];
       if (screen.id === "list-options" && vp.mobile) {
-        // The menu stops above the tab bar, upright and in landscape.
+        // On a touch screen the menu is a bottom sheet over a dimmed page, tab bar included (#423): it must lie inside the
+        // screen, upright and in landscape.
         const check = async (where) => {
-          const over = await page.evaluate(menuOverBar);
-          if (over !== null && over > 0) s4.push({ rule: "menu-over-tab-bar", message: `the List options menu covers the tab bar by ${over}px ${where}` });
+          const m = await page.evaluate(menuSheetBounds);
+          if (m && (!m.sheet || m.top < -0.5 || m.bottom > m.h + 0.5)) s4.push({ rule: "menu-sheet-bounds", message: `the List options menu is not a bottom sheet inside the screen (sheet ${m.sheet}, ${Math.round(m.top)}-${Math.round(m.bottom)} of ${m.h}px) ${where}` });
         };
         await check(`at ${vp.width} x ${vp.height}`);
         if (vp.id === "phone") {

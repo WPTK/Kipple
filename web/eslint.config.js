@@ -48,6 +48,10 @@ export default tseslint.config(
     rules: {
       "no-restricted-syntax": [
         "error",
+        {
+          selector: "MemberExpression[object.name='DropdownMenu'][property.name=/^Sub/]",
+          message: "ui/menu does not support nested menus: neither the popover nor the bottom sheet is built for DropdownMenu.Sub.",
+        },
         ...[
           "CallExpression[callee.name='useEffect']",
           "CallExpression[callee.type='MemberExpression'][callee.property.name='useEffect']",

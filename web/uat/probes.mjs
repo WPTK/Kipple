@@ -322,12 +322,11 @@ export function tapProbe({ feed, min, root }) {
   }
   return { small: out, measured, covered };
 }
-// How far an open menu's bottom edge is below the top of the bottom tab bar (positive: it covers the bar); null with no
-// menu or no bar at the bottom (the desktop sidebar is the same landmark). Runs in the page.
-export function menuOverBar() {
-  const menu = document.querySelector('[role="menu"]');
-  const bar = document.querySelector('nav[aria-label="Primary"]');
-  if (!menu || !bar) return null;
-  const top = bar.getBoundingClientRect().top;
-  return top > window.innerHeight / 2 ? Math.round(menu.getBoundingClientRect().bottom - top) : null;
+// Where an open menu lies: whether it is a bottom sheet (touch) and its top and bottom edges against the window's height;
+// null with no menu. Runs in the page.
+export function menuSheetBounds() {
+  const el = document.querySelector('[role="menu"]');
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { sheet: el.hasAttribute("data-menu-sheet"), top: r.top, bottom: r.bottom, h: window.innerHeight };
 }

@@ -11,7 +11,9 @@
 //       screen, over a dimmed page, and List options names its Layout and Order sections;
 //   P2  focus is inside the sheet when it opens, Escape closes it and focus returns to the button that opened it;
 //   P3  a tap on the dimmed page closes the sheet and does not reach the page under it (the address does not change);
-//   P5  opening the sheet with a tap leaves it open and picks nothing under the finger (the tap's own click);
+//   P5  opening the sheet with a tap leaves it open and picks nothing under the finger (the tap's own click), also when
+//       the button sits where the sheet lands, so the lifted finger is right over one of its items;
+//   P6  a bare click on a choice (what TalkBack, Voice Control and Switch Access send) applies it;
 //   P4  a tap on a choice applies it, and in landscape, where the sheet is shorter than its content, the last choice of
 //       List options can be scrolled to.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
@@ -118,9 +120,43 @@ await t.eachViewport(async (page, vp) => {
         await menu().waitFor({ state: "detached", timeout: 5000 });
         await page.waitForTimeout(300);
         check(page.url() === before, `P3 ${name}`, "a tap on the dimmed page only closes the sheet", `the address changed to ${page.url()}`);
+
+        // The same over an article row that the dimmed page covers.
+        await press(b[id]);
+        await menu().waitFor({ timeout: 5000 });
+        const sheetTop = (await menuBox()).top;
+        const rowBox = await page.locator("main article[data-item-id]").first().boundingBox();
+        if (rowBox && rowBox.y + rowBox.height < sheetTop - 4 && rowBox.y > 60) {
+          await page.touchscreen.tap(rowBox.x + 40, rowBox.y + rowBox.height / 2);
+          await menu().waitFor({ state: "detached", timeout: 5000 });
+          await page.waitForTimeout(400);
+          check(page.url() === before, `P3 ${name} row`, "a tap on the dimmed page over an article does not open it", `the address changed to ${page.url()}`);
+        } else {
+          await page.keyboard.press("Escape");
+          await menu().waitFor({ state: "detached", timeout: 5000 });
+        }
       });
     }
   }
+
+  // The leftover click of the tap that opened a sheet reaches the sheet only when the button sits where the sheet lands:
+  // park a row's More button at the bottom of the list, then tap it with real touch input.
+  await step(`${tag} P5 leftover`, async () => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await open("/l/unread");
+    const more = page.locator("main article[data-item-id]").first().getByRole("button", { name: /^More actions/ });
+    await more.evaluate((el) => el.scrollIntoView({ block: "end" }));
+    await page.waitForTimeout(300);
+    const box = await more.boundingBox();
+    await more.tap();
+    await menu().waitFor({ timeout: 5000 });
+    await page.waitForTimeout(600);
+    const m = await menuBox();
+    const under = box.y + box.height / 2 > m.top;
+    check(under && (await menu().count()) === 1, `${tag} P5 leftover`, "a tap on a button under the sheet leaves the sheet open with nothing picked", `the button at ${Math.round(box.y)} is not under the sheet (top ${Math.round(m.top)}) or the menu closed (${await menu().count()} menus)`);
+    await page.keyboard.press("Escape");
+    await menu().waitFor({ state: "detached", timeout: 5000 });
+  });
 
   await step(`${tag} P4 choice`, async () => {
     await page.setViewportSize({ width: 375, height: 812 });
@@ -135,6 +171,15 @@ await t.eachViewport(async (page, vp) => {
     await openMenu();
     const oldest = await menu().getByRole("menuitemradio", { name: "Oldest first" }).getAttribute("aria-checked");
     check(oldest === "true", `${tag} P4 oldest`, "a tap on Oldest first applies it", `Oldest first is aria-checked ${oldest}`);
+    await menu().getByRole("menuitemradio", { name: "Newest first" }).tap();
+    await menu().waitFor({ state: "detached", timeout: 5000 });
+
+    // A bare click, with no press before it: assistive technology.
+    await openMenu();
+    await menu().getByRole("menuitemradio", { name: "Oldest first" }).evaluate((el) => el.click());
+    await menu().waitFor({ state: "detached", timeout: 5000 }).catch(() => {});
+    check((await menu().count()) === 0, `${tag} P6 bare click`, "a bare click on a choice applies it", "a bare click on a choice did nothing");
+    await openMenu();
     await menu().getByRole("menuitemradio", { name: "Newest first" }).tap();
     await menu().waitFor({ state: "detached", timeout: 5000 });
   });
