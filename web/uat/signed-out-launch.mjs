@@ -1,4 +1,5 @@
-// UAT: a launch without the session marker settles the sign-in in one question and sends nothing that answers 401.
+// UAT: a launch without the session marker settles the sign-in in one question, and neither it nor a sign-out sends
+// anything that answers 401.
 //
 //   npm run seed                            in one terminal (builds the web app if needed, serves it on 127.0.0.1:1919)
 //   npm run uat:signed-out-launch           in another
@@ -8,15 +9,17 @@
 //   L1  a browser with no cookies opens Kipple: the sign-in form shows after exactly one GET /api/instance, with no
 //       request for the bootstrap and no answer of 401 (the browser logs those to the console);
 //   L2  a signed-in browser that has lost only the marker opens Kipple: the reader shows after one GET /api/instance,
-//       with no 401, and the server sets the marker again.
-// It changes nothing. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
+//       with no 401, and the server sets the marker again;
+//   L3  a browser that signs in and then chooses Sign out (Settings, Account & Devices) reaches the sign-in form with no
+//       answer of 401 after the click.
+// It changes nothing but the session it makes for L3. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { URL } from "node:url";
 import { start } from "./common.mjs";
 
 const MARKER = "kipple_signed_in";
-const t = await start(import.meta.url, 13);
-const { check, step, origin } = t;
+const t = await start(import.meta.url, 16);
+const { check, step, opt, origin } = t;
 
 /** Records the /api answers a page gets: the path of each, and those that answered 401. */
 function watch(page) {
@@ -65,6 +68,30 @@ await t.eachViewport(async (page, vp) => {
       check(seen.unauthorized.length === 0, `${tag} L2 401`, "no answer of 401", `answered 401: ${seen.unauthorized.join(", ")}`);
       const marked = (await ctx.cookies(origin)).some((c) => c.name === MARKER);
       check(marked, `${tag} L2 marker`, "the server set the marker again", "no marker after the launch");
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  await step(`${tag} L3`, async () => {
+    const ctx = await newContext();
+    try {
+      const p = await ctx.newPage();
+      await p.goto("/", { waitUntil: "load" });
+      await p.getByLabel("Username").fill(opt.user);
+      await p.getByLabel("Password").fill(opt.password);
+      await p.getByRole("button", { name: "Sign in" }).click();
+      await p.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
+      await p.goto("/settings/account", { waitUntil: "load" });
+      const out = p.getByRole("button", { name: "Sign out" });
+      await out.scrollIntoViewIfNeeded({ timeout: 15000 });
+      const seen = watch(p);
+      await out.click();
+      await p.getByRole("button", { name: "Sign in" }).waitFor({ timeout: 15000 });
+      await p.waitForLoadState("networkidle");
+      check(seen.unauthorized.length === 0, `${tag} L3 401`, "no answer of 401 after Sign out", `answered 401: ${seen.unauthorized.join(", ")}`);
+      check(count(seen, "/api/bootstrap") === 0, `${tag} L3 bootstrap`, "the bootstrap was not asked for again", `the bootstrap was asked for ${count(seen, "/api/bootstrap")} times`);
+      await t.shot(p, `${tag}-signed-out-after-sign-out`);
     } finally {
       await ctx.close();
     }
