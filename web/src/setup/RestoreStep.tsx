@@ -1,8 +1,8 @@
-import { useEffect, useId, useRef, useState, type DragEvent, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { ApiError } from "@/api/client";
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
-import { Field, Notice, inputCls } from "@/ui/kit";
+import { Field, Notice, RadioCard, inputCls } from "@/ui/kit";
 import { MIN_PASSWORD_LEN, passwordProblem } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import {
@@ -65,7 +65,6 @@ function passwordReason(s: BackupSummary): string {
  * `resume`: the server already holds a restore from before a reload, and this page asks it where it is.
  */
 export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: RestoreHandlers & { resume: boolean }) {
-  const uid = useId();
   const [view, setView] = useState<View>(resume ? "waiting" : "pick");
   const viewNow = useLatestRef(view);
   const [file, setFile] = useState<File | null>(null);
@@ -363,8 +362,12 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
             ) : (
               <fieldset className="flex min-w-0 flex-col gap-3">
                 <legend className="mb-2 text-sm font-semibold">What do you want to bring back?</legend>
-                <Choice id={`${uid}-all`} checked={mode === "everything"} onSelect={() => setMode("everything")} title="Everything" help={EVERYTHING_HELP} />
-                <Choice id={`${uid}-feeds`} checked={mode === "feeds"} onSelect={() => setMode("feeds")} title="Feeds only" help={FEEDS_HELP} />
+                <RadioCard name="restore-mode" checked={mode === "everything"} onSelect={() => setMode("everything")} title="Everything">
+                  <p>{EVERYTHING_HELP}</p>
+                </RadioCard>
+                <RadioCard name="restore-mode" checked={mode === "feeds"} onSelect={() => setMode("feeds")} title="Feeds only">
+                  <p>{FEEDS_HELP}</p>
+                </RadioCard>
               </fieldset>
             )}
 
@@ -421,19 +424,5 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
         ) : null}
       </div>
     </WizardFrame>
-  );
-}
-
-function Choice({ id, checked, onSelect, title, help }: { id: string; checked: boolean; onSelect: () => void; title: string; help: ReactNode }) {
-  return (
-    <div className={cn("rounded-xl border p-3", checked ? "border-accent bg-selection" : "border-line bg-surface")}>
-      <label htmlFor={id} className="flex min-h-11 cursor-pointer items-start gap-3">
-        <input id={id} type="radio" name="restore-mode" checked={checked} onChange={onSelect} aria-describedby={`${id}-d`} className="mt-1 size-5 shrink-0 accent-[var(--kp-accent)]" />
-        <span className="text-base font-semibold">{title}</span>
-      </label>
-      <p id={`${id}-d`} className="ml-8 text-sm text-fg2">
-        {help}
-      </p>
-    </div>
   );
 }

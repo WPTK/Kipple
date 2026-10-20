@@ -11,7 +11,7 @@ import { openFilterEditor } from "@/lib/similar";
 import { emptyDraft } from "@/api/filters";
 import { announce, toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
-import { Modal, Notice, Skeleton, Switch } from "@/ui/kit";
+import { Modal, Notice, RadioCard, Skeleton, Switch } from "@/ui/kit";
 
 /** "Everywhere", "Folder: News" or "Feed: Example". */
 export function scopeText(f: Pick<Filter, "scope" | "folder_id" | "feed_id">, folders: { id: string; name: string; parent_id?: string | null }[], feeds: { id: string; title: string }[]): string {
@@ -119,13 +119,7 @@ export function DeleteFilterDialog({ filter, onClose }: { filter: Filter; onClos
             This filter has muted {n.toLocaleString()} article{n === 1 ? "" : "s"}. What should happen to {n === 1 ? "it" : "them"}?
           </legend>
           {opts.map((o) => (
-            <label key={o.value} className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-line bg-surface p-3 text-sm has-[:checked]:border-accent has-[:checked]:bg-selection">
-              <input type="radio" name="unmute" checked={mode === o.value} onChange={() => setMode(o.value)} className="mt-0.5 size-5 shrink-0 accent-[var(--kp-accent)]" />
-              <span>
-                <span className="font-semibold">{o.label}</span>
-                <span className="block text-xs text-fg2">{o.help}</span>
-              </span>
-            </label>
+            <RadioCard key={o.value} name="unmute" checked={mode === o.value} onSelect={() => setMode(o.value)} title={o.label} help={o.help} />
           ))}
         </fieldset>
       ) : null}
