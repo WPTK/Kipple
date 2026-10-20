@@ -146,12 +146,17 @@ func TestSetupHappyPathWithPassword(t *testing.T) {
 
 	// A session cookie and marker left from before a reset: with no account they cannot be live, so both are cleared
 	// and the next launch does not ask for the bootstrap on the strength of the marker.
-	rec = h.req("GET", "/api/instance", "", withCookies(&http.Cookie{Name: cookieName, Value: "stale"}, &http.Cookie{Name: markerName, Value: "1"}))
-	require.Equal(t, false, decode(t, rec)["signed_in"])
-	for _, name := range []string{cookieName, markerName} {
-		c := cookieNamed(rec, name)
-		require.NotNil(t, c, name)
-		require.Less(t, c.MaxAge, 0, name)
+	// The marker is cleared under both names, as the scheme may have changed since it was set. A browser sends a
+	// Secure (__Host-) cookie only over https, and a bare one over either.
+	for _, c := range []struct{ scheme, left string }{{"http", markerName}, {"https", markerName}, {"https", hostMarkerName}} {
+		at := c.scheme + " " + c.left
+		rec = h.req("GET", "/api/instance", "", overScheme(c.scheme), withCookies(&http.Cookie{Name: cookieName, Value: "stale"}, &http.Cookie{Name: c.left, Value: "1"}))
+		require.Equal(t, false, decode(t, rec)["signed_in"], at)
+		require.Less(t, cookieNamed(rec, cookieName).MaxAge, 0, at)
+		requireBothMarkersCleared(t, rec, at)
+		// Only a marker left over, no session cookie.
+		rec = h.req("GET", "/api/instance", "", overScheme(c.scheme), withCookies(&http.Cookie{Name: c.left, Value: "1"}))
+		requireBothMarkersCleared(t, rec, at+" alone")
 	}
 
 	rec = h.createAccount(map[string]any{"username": "reader", "password": setupPass})

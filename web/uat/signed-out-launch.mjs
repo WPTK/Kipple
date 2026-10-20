@@ -17,9 +17,10 @@
 import { URL } from "node:url";
 import { start } from "./common.mjs";
 
-const MARKER = "kipple_signed_in";
 const t = await start(import.meta.url, 16);
 const { check, step, opt, origin } = t;
+// The session marker's name: __Host- prefixed over https (web/src/api/sessionProbe.ts).
+const MARKER = new URL(origin).protocol === "https:" ? "__Host-kipple_signed_in" : "kipple_signed_in";
 
 /** Records the /api answers a page gets: the path of each, and those that answered 401. */
 function watch(page) {
