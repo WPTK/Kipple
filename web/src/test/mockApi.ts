@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 import type { Bootstrap, Card, ItemDetail, ItemsPage } from "@/api/types";
+import { MARKER_COOKIE } from "@/api/sessionProbe";
 
 export function card(n: number, over: Partial<Card> = {}): Card {
   return {
@@ -67,6 +68,15 @@ type Handler = (url: URL, init: RequestInit | undefined) => Response | Promise<R
 
 export const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } });
+
+/**
+ * The browser's session marker (docs/design.md §7). Every test starts with it, as a browser with a session does
+ * (test/setup.ts), so a launch asks for the bootstrap at once. A test of a signed-out browser clears it, and the app
+ * then asks GET /api/instance first: route that with the answer the server sends in that mode.
+ */
+export function setSessionMarker(on: boolean) {
+  document.cookie = on ? `${MARKER_COOKIE}=1; path=/` : `${MARKER_COOKIE}=; max-age=0; path=/`;
+}
 
 /** Route table keyed "METHOD /path". Unmatched requests fail the test loudly. */
 export function mockFetch(routes: Record<string, Handler>) {
