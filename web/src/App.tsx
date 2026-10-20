@@ -17,7 +17,7 @@ import { forgetWizardMemory, rerunStore, resetting, revertUnsavedTheme, welcomeE
 import { RestoreWaiting } from "@/setup/RestoreWaiting";
 import { OpenRefusedScreen } from "@/setup/OpenRefused";
 import { SignedOut } from "@/setup/SignedOut";
-import { useSessionProbe } from "@/api/sessionProbe";
+import { launchAnswerStore, useSessionProbe } from "@/api/sessionProbe";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { StatusBlock } from "@/screens/ListPane";
 import { Button, buttonVariants } from "@/ui/button";
@@ -87,8 +87,10 @@ function Gate() {
   // Nothing that needs a session is asked for until the session marker, or failing it a short probe, says there may
   // be one: a signed-out launch sends no request that answers 401 (the browser logs those to the console).
   const probed = useSessionProbe();
-  const boot = useBootstrap(auth === "in" || (auth === "unknown" && probed));
+  const launchAnswer = useStore(launchAnswerStore);
   const refused = useStore(openRefusedStore);
+  // A launch the probe found refused by the open gate shows that at once; the bootstrap would only be refused too.
+  const boot = useBootstrap(auth === "in" || (auth === "unknown" && probed && !refused));
   const reset = useStore(resetting);
   const { pathname } = useLocation();
   const rerun = useStore(rerunStore);
@@ -163,7 +165,7 @@ function Gate() {
   }, [ready]);
 
   if (reset) return <RestoreWaiting kind="reset" estimateSeconds={reset.estimateSeconds} username={null} onSignIn={() => window.location.reload()} />;
-  if (auth === "out") return <SignedOut />;
+  if (auth === "out") return <SignedOut initial={launchAnswer} />;
   // An account with no password, reached from somewhere the server does not allow: say why, and how to get in.
   if (refused) {
     return (
