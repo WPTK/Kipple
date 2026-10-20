@@ -247,16 +247,14 @@ await t.eachViewport(async (page, vp) => {
       check(writes.every((w) => w === "PATCH /api/device"), `${tag} K8 device`, "picking writes only the device profile", `picking sent ${writes.join(", ")}`);
       await t.shot(page, `${tag}-K8-layout`);
     } finally {
-      page.off("request", onRequest);
-      if (was) {
-        await group.locator(`input[value="${was}"]`).check();
-        await page.waitForTimeout(1200);
-      }
+      await group.locator(`input[value="${was}"]`).check(); // even if a check above threw
+      await page.waitForTimeout(1200);
     }
-    if (was) {
-      check(await group.locator(`input[value="${was}"]`).isChecked(), `${tag} K8 back`, "put back", "the layout was left changed");
-      await page.reload({ waitUntil: "load" }); // and it is what the server holds, not only what the page shows
-      check(await page.getByRole("group", { name: "Layout", exact: true }).locator(`input[value="${was}"]`).isChecked(), `${tag} K8 saved`, "the original layout is saved", "the original layout was not saved");
+    check(await group.locator(`input[value="${was}"]`).isChecked(), `${tag} K8 back`, "put back", "the layout was left changed");
+    await page.reload({ waitUntil: "load" }); // and it is what the server holds, not only what the page shows
+    check(await page.getByRole("group", { name: "Layout", exact: true }).locator(`input[value="${was}"]`).isChecked(), `${tag} K8 saved`, "the original layout is saved", "the original layout was not saved");
+    } finally {
+      page.off("request", onRequest);
     }
   });
 });
