@@ -6,7 +6,7 @@ import { lazyScreen } from "@/lib/lazyScreen";
 import { LoginScreen } from "@/screens/LoginScreen";
 import { Button } from "@/ui/button";
 import { Skeleton } from "@/ui/kit";
-import { fetchInstance, INSTANCE_KEY, openReasonText } from "./api";
+import { fetchInstance, INSTANCE_KEY, openReasonText, type InstanceInfo } from "./api";
 
 // The wizard's signed-out half loads only when Kipple has no account or has no password; everyone else gets the sign-in form.
 const SetupFlow = lazyScreen(() => import("./SetupFlow").then((m) => ({ default: m.SetupFlow })));
@@ -16,9 +16,21 @@ const OpenSignIn = lazyScreen(() => import("./SetupFlow").then((m) => ({ default
  * What a signed-out browser sees. GET /api/instance says which: the setup wizard (no account yet), a silent sign-in
  * (open mode: no password), or the sign-in form. A server that predates the wizard has no such route; the form is
  * shown then, as it always was.
+ *
+ * `initial` is the launch probe's answer to the same question, when it is what found the launch signed out: the
+ * screen starts from it and does not ask again on mount. Without it the screen asks; either way the answer lives only
+ * while the screen does (gcTime 0), so the next signed-out screen asks afresh.
  */
-export function SignedOut() {
-  const inst = useQuery({ queryKey: INSTANCE_KEY, queryFn: ({ signal }) => fetchInstance(signal), retry: false, staleTime: 0, gcTime: 0 });
+export function SignedOut({ initial }: { initial?: InstanceInfo | null }) {
+  const inst = useQuery({
+    queryKey: INSTANCE_KEY,
+    queryFn: ({ signal }) => fetchInstance(signal),
+    initialData: initial ?? undefined,
+    refetchOnMount: false,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
   // The tab names the one screen of this component that has no screen of its own (the others set theirs).
   const status = inst.error instanceof ApiError ? inst.error.status : -1;
   const unreachable = !inst.isPending && (inst.isError || !inst.data) && !(status === 401 || status === 404 || inst.error instanceof SyntaxError);

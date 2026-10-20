@@ -1,0 +1,1 @@
+A launch with no sign-in asks the server once instead of twice before the sign-in form shows, and a no-password Kipple opened from a network it does not allow shows why at once instead of a sign-in screen. (#551, #552)
