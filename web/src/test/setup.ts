@@ -1,11 +1,17 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, configure } from "@testing-library/react";
-import { afterEach, expect } from "vitest";
+import { afterEach, beforeEach, expect } from "vitest";
 import * as axeMatchers from "vitest-axe/matchers";
 
 expect.extend(axeMatchers);
 // findBy and waitFor give a lazy screen time to load when the whole suite is running at once.
 configure({ asyncUtilTimeout: 5000 });
+
+// A browser with a session holds the session marker; a test of a signed-out browser clears it (mockApi's
+// setSessionMarker). Set here without importing it, so no app module loads before a test file's mocks.
+beforeEach(() => {
+  document.cookie = "kipple_signed_in=1; path=/";
+});
 
 afterEach(() => {
   cleanup();

@@ -17,6 +17,7 @@ import { forgetWizardMemory, rerunStore, resetting, revertUnsavedTheme, welcomeE
 import { RestoreWaiting } from "@/setup/RestoreWaiting";
 import { OpenRefusedScreen } from "@/setup/OpenRefused";
 import { SignedOut } from "@/setup/SignedOut";
+import { useSessionProbe } from "@/api/sessionProbe";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { StatusBlock } from "@/screens/ListPane";
 import { Button, buttonVariants } from "@/ui/button";
@@ -83,7 +84,10 @@ function Gate() {
   const auth = useStore(authStore);
   const { online } = useStore(offlineStore);
   const qc = useQueryClient();
-  const boot = useBootstrap(auth !== "out");
+  // Nothing that needs a session is asked for until the session marker, or failing it a short probe, says there may
+  // be one: a signed-out launch sends no request that answers 401 (the browser logs those to the console).
+  const probed = useSessionProbe();
+  const boot = useBootstrap(auth === "in" || (auth === "unknown" && probed));
   const refused = useStore(openRefusedStore);
   const reset = useStore(resetting);
   const { pathname } = useLocation();

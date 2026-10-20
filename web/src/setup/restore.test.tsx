@@ -5,7 +5,7 @@ import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
 import { authStore, openRefusedStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
-import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
+import { bootstrap, card, json, mockFetch, pageOf, setSessionMarker } from "@/test/mockApi";
 import { themeStore } from "@/theme/theme";
 import { DEFAULT_THEME_SETTINGS } from "@/theme/settings";
 import { resetDeviceSync } from "@/lib/deviceSync";
@@ -84,8 +84,10 @@ const ready = (over: Record<string, unknown> = {}) => ({ state: "ready", summary
 const bodyOf = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body)) as Record<string, unknown>;
 
 function server(w: World, extra: Parameters<typeof mockFetch>[0] = {}) {
+  setSessionMarker(w.signedIn);
   return mockFetch({
-    "GET /api/instance": () => json(w.setup ? { setup: true, auth: null, access: { enabled: false, verified: false }, open: { reason: null }, restore: w.restore } : { setup: false, auth: "password" }),
+    "GET /api/instance": () =>
+      json(w.setup ? { setup: true, auth: null, signed_in: false, access: { enabled: false, verified: false }, open: { reason: null }, restore: w.restore } : { setup: false, auth: "password", signed_in: w.signedIn }),
     "POST /api/setup/restore/confirm": () => {
       w.restore = "confirmed";
       return json({ restarting: true, estimate_seconds: 130 }, 202);
@@ -487,7 +489,7 @@ describe("restore in the setup wizard", () => {
     server(w, {
       "GET /api/instance": () => {
         if (down) throw new TypeError("Failed to fetch");
-        return json({ setup: true, auth: null, access: { enabled: false, verified: false }, open: { reason: null }, restore: "confirmed" });
+        return json({ setup: true, auth: null, signed_in: false, access: { enabled: false, verified: false }, open: { reason: null }, restore: "confirmed" });
       },
     });
     go();
@@ -507,7 +509,7 @@ describe("restore in the setup wizard", () => {
   it("says a reset was not applied, not that Kipple stopped, when Kipple keeps answering as set up", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     server({ restore: "none", setup: false, signedIn: false }, {
-      "GET /api/instance": () => json({ setup: false, auth: null, access: { enabled: false, verified: false }, open: { reason: null }, restore: "none" }),
+      "GET /api/instance": () => json({ setup: false, auth: null, signed_in: false }),
     });
     render(<RestoreWaiting kind="reset" estimateSeconds={30} username={null} onSignIn={() => {}} />);
     await act(async () => {
