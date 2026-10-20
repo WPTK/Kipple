@@ -577,7 +577,10 @@ async function phone(cookies) {
     check(items.some((t) => /^Mark as (read|unread)/.test(t)) && items.some((t) => /^(Star|Unstar)/.test(t)), where("swipe right / long press: read, star, more"), `the row's More actions menu has ${items.slice(0, 3).join(", ")}...`, `the menu offers: ${items.join(", ") || "nothing"}`);
     await page.keyboard.press("Escape");
   } else fail(where("long press: row menu"), "no More actions button on a row");
-  check(await page.getByRole("button", { name: "Refresh all feeds" }).first().isVisible().catch(() => false), where("pull to refresh"), "a Refresh all feeds button", "no visible Refresh all feeds button");
+  // The header has no Refresh button on a phone: the pull on the list and the actions menu do it.
+  await page.getByRole("button", { name: "List actions" }).first().click();
+  check(await page.getByRole("menuitem", { name: "Refresh all feeds" }).first().isVisible().catch(() => false), where("pull to refresh"), "a Refresh all feeds item in the actions menu", "no Refresh all feeds item in the actions menu");
+  await page.keyboard.press("Escape");
   await row.locator("a[href^='/i/']").first().click();
   await page.waitForURL((u) => u.pathname.startsWith("/i/"), { timeout: 10000 });
   await page.getByRole("button", { name: "Back to list" }).first().waitFor({ timeout: 10000 }).catch(() => {});

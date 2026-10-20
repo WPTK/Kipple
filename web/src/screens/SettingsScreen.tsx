@@ -1,7 +1,7 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Link, Navigate, Route, Routes, useLocation, useMatch, useNavigate } from "react-router";
-import { BarChart3, ChevronLeft, ChevronRight, Filter, Info, Palette, Rss, SlidersHorizontal, UserRound, type LucideIcon } from "lucide-react";
+import { Link, Navigate, Route, Routes, useLocation, useMatch } from "react-router";
+import { BarChart3, ChevronRight, Filter, Info, Palette, Rss, SlidersHorizontal, UserRound, type LucideIcon } from "lucide-react";
 import { useSettings, type SettingGroup, type SettingMeta } from "@/api/admin";
 import { AUTO_READ_PRESETS, autoReadLabel } from "@/api/autoRead";
 import { errorMessage } from "@/api/client";
@@ -34,6 +34,7 @@ import { schemeById } from "@/theme/schemes";
 import { themeStore } from "@/theme/theme";
 import { navItemClass } from "@/ui/navItem";
 import { Segmented } from "@/ui/segmented";
+import { BackButton } from "@/ui/BackButton";
 import { Button } from "@/ui/button";
 import { Disclosure, Notice, Skeleton, Switch, inputCls } from "@/ui/kit";
 import { DensityControl, FontSelect, SpacingControl, TextSizeControl } from "./AppearanceControls";
@@ -550,7 +551,6 @@ function GroupList({ returnTo }: { returnTo: SettingsGroupId | undefined }) {
           <li key={id} className="border-b border-line last:border-b-0">
             <Link
               to={`/settings/${id}`}
-              state={{ fromSettingsList: true }}
               data-route-focus={returnTo === id ? "" : undefined}
               className="-mx-2 flex min-h-14 items-center gap-3 rounded-lg px-2 py-2 hover:bg-selection"
             >
@@ -589,7 +589,6 @@ function GroupPage({ group, wide, focusHeading }: { group: SettingsGroup; wide: 
 
 export function SettingsScreen() {
   const wide = useWide();
-  const navigate = useNavigate();
   const location = useLocation();
   const match = useMatch("/settings/:group");
   const current = groupById(match?.params.group);
@@ -605,12 +604,6 @@ export function SettingsScreen() {
   else if (trail.shown !== shown?.id) setTrail({ ...trail, shown: shown?.id });
   const cameFrom = trail.from;
 
-  const fromList = (location.state as { fromSettingsList?: boolean } | null)?.fromSettingsList === true;
-  const back = () => {
-    if (fromList) navigate(-1);
-    else navigate("/settings", { replace: true });
-  };
-
   const drilled = !wide && current;
   // The tab names the page on screen: the group when one is shown (wide always shows one), else the list.
   useDocumentTitle(shown && (wide || current) ? `${shown.label} - Settings` : "Settings");
@@ -621,9 +614,7 @@ export function SettingsScreen() {
       <header className="pt-safe shrink-0 border-b border-line">
         {drilled ? (
           <div className="mx-auto flex w-full max-w-[720px] items-center gap-1 px-2 py-1">
-            <Button variant="ghost" size="icon" onClick={back} aria-label="Back to Settings" title="Back to Settings">
-              <ChevronLeft aria-hidden="true" />
-            </Button>
+            <BackButton to="/settings" ariaLabel="Back to Settings" />
             <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
               {drilled.label}
             </h1>

@@ -5,6 +5,7 @@ import { authStore } from "@/api/client";
 import { handleServerEvent, initialLive, liveStore } from "@/api/events";
 import { clearToasts } from "@/shell/toasts";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
+import { wide } from "@/test/media";
 import { clearListMemory } from "./ListPane";
 
 const articleToCalls = vi.hoisted(() => ({ n: 0 }));
@@ -64,6 +65,7 @@ describe("live state in the list", () => {
   });
 
   it("a run whose run.done was missed stops spinning once /api/status says nothing is running", async () => {
+    wide(); // the Refresh button is in the wide header; a phone has it in the menu and the pull
     mockFetch({
       "GET /api/bootstrap": () => json(bootstrap),
       "GET /api/items": () => json(pageOf([card(1)])),
@@ -79,6 +81,7 @@ describe("live state in the list", () => {
   });
 
   it("a retention run does not spin the refresh icon", async () => {
+    wide();
     mockFetch({ "GET /api/bootstrap": () => json(bootstrap), "GET /api/items": () => json(pageOf([card(1)])) });
     go("/l/unread");
     await screen.findByText("Article number 1");

@@ -35,6 +35,7 @@
     "uat:stats": "node uat/stats.mjs",
     "uat:chrome": "node uat/chrome.mjs",
     "uat:phone-shell": "node uat/phone-shell.mjs",
+    "uat:phone-header": "node uat/phone-header.mjs",
     "uat:wrapping": "node uat/wrapping.mjs",
     "uat:phone-chrome": "node uat/phone-chrome.mjs",
     "uat:scroll-restore": "node uat/scroll-restore.mjs",
