@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
 import type { OpmlResult } from "@/api/admin";
@@ -9,6 +9,7 @@ import type { Bootstrap, Feed, Folder } from "@/api/types";
 import { bootstrap } from "@/test/mockApi";
 import { OpmlResultSummary, opmlError } from "./OpmlDialog";
 import { MoveDialog } from "./BulkActions";
+import { ApplyProgress } from "@/shell/FilterHost";
 
 // What an import says when it is refused (issues #487, #467), the fetch progress after it (issue #464), and the bulk
 // move's starting choice (issue #487).
@@ -43,6 +44,30 @@ describe("the fetch after an import", () => {
     act(() => liveStore.set((s) => ({ ...s, runs: {}, finished: { "7": { kind: "import", errors: 1, seq: 9, at: Date.now() } } })));
     expect(screen.getByText("Kipple fetched the new feeds. 1 couldn't be fetched; each says why on its row in Manage feeds.")).toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+});
+
+describe("the fetch after an import, once the dialog is closed (issue #464)", () => {
+  it("stays on screen under the top bar until the run ends", () => {
+    const qc = new QueryClient();
+    const dialog = render(<OpmlResultSummary result={{ ...result, feeds_added: 500 }} />);
+    const shell = render(
+      <QueryClientProvider client={qc}>
+        <ApplyProgress />
+      </QueryClientProvider>,
+    );
+    // Closing the dialog does not end the run: the shell keeps showing it.
+    dialog.unmount();
+    const bar = within(shell.container).getByRole("progressbar", { name: "Fetching imported feeds" });
+    expect(bar).toHaveAttribute("aria-valuemax", "500");
+    expect(bar).toHaveAttribute("aria-valuenow", "0");
+
+    act(() => liveStore.set((s) => ({ ...s, runs: { "7": { ...s.runs["7"]!, done: 120, errors: 4 } } })));
+    expect(within(shell.container).getByTestId("import-progress")).toHaveTextContent("Fetching imported feeds: 120 of 500, 4 couldn't be fetched");
+    expect(bar).toHaveAttribute("aria-valuenow", "120");
+
+    act(() => liveStore.set((s) => ({ ...s, runs: {}, finished: { "7": { kind: "import", errors: 4, seq: 9, at: Date.now() } } })));
+    expect(within(shell.container).queryByTestId("import-progress")).toBeNull();
   });
 });
 

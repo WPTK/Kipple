@@ -152,7 +152,14 @@ func (r *rig) events(typ string) []map[string]any {
 
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
+	waitForWithin(t, what, 15*time.Second, cond)
+}
+
+// waitForWithin is waitFor with its own deadline, for a wait on a lot of work (the race detector, on a shared CI
+// runner beside the package's other parallel tests, makes that many times slower than a local run).
+func waitForWithin(t *testing.T, what string, d time.Duration, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(d)
 	for !cond() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)
