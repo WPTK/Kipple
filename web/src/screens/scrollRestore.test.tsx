@@ -33,7 +33,13 @@ function go(path: string) {
   return render(<App client={makeQueryClient({ retry: false })} />);
 }
 
+/** The cards are dated back from now an hour apart, and the list puts a header at each change of day, so where the
+ * headers fall (and so which row is at a given offset) depends on the time of day a test runs at. Every test here
+ * runs at this local noon instead, with the clock running on from it. Only Date is replaced: the timers stay real. */
+const NOON = new Date(2026, 9, 15, 12, 0, 0);
+
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true, now: NOON });
   authStore.set("unknown");
   liveStore.set(initialLive);
   vi.stubGlobal("EventSource", NoES);
@@ -42,6 +48,7 @@ beforeEach(() => {
   prefsStore.set(DEFAULT_PREFS);
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.innerHTML = "";
