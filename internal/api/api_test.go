@@ -766,6 +766,43 @@ func TestSSEReplayFromLastEventIDQueryParam(t *testing.T) {
 	require.Equal(t, "event: two\n", readUntil(t, br, "event: two", 2*time.Second))
 }
 
+// The page opens its stream after the bootstrap answered; a run that ended in between is in the replay.
+func TestSSEFromTheBootstrapIDDeliversTheRunThatEndedInTheGap(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	ts := sseServer(t, h)
+	h.hub.Publish("run.start", map[string]string{"run_id": "7"})
+	boot := h.hub.LastID() // the bootstrap answer lists run 7
+	h.hub.Publish("run.done", map[string]string{"run_id": "7"})
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/events?last_event_id="+itoa(boot), nil)
+	req.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	br := bufio.NewReader(resp.Body)
+	require.Equal(t, "event: run.done\n", readUntil(t, br, "event:", 2*time.Second))
+}
+
+// A cursor that is not a number cannot be honoured: the client gets a resync and reconciles, not silence.
+func TestSSEWithAMalformedCursorGetsAResync(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	ts := sseServer(t, h)
+	h.hub.Publish("run.done", map[string]string{"run_id": "7"})
+	for _, v := range []string{"abc", "-5", "1.5", "99999999999999999999999"} {
+		req, _ := http.NewRequest("GET", ts.URL+"/api/events?last_event_id="+v, nil)
+		req.AddCookie(&http.Cookie{Name: c.Name, Value: c.Value})
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		br := bufio.NewReader(resp.Body)
+		require.Equal(t, "event: resync\n", readUntil(t, br, "event:", 2*time.Second), v)
+		_ = resp.Body.Close()
+	}
+}
+
 func TestSSEEndsWhenItsSessionIsGone(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)

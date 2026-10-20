@@ -282,28 +282,111 @@ describe("reconnect reconciliation", () => {
     unmount();
   });
 
-  it("ignores a bootstrap without an ordering id and keeps the newer of the bootstrap and the last event", async () => {
+  /** A hook on its own client whose bootstrap is `boot`, with the timers faked so a reconnect can be waited out. */
+  function withBootstrap(boot: Record<string, unknown> | undefined) {
+    mockFetch({ "GET /api/status": () => json({ runs: [], unread_total: 0 }), "GET /api/bootstrap": () => json(bootstrap) });
+    const qc = new QueryClient();
+    if (boot) qc.setQueryData(keys.bootstrap, { ...bootstrap, ...boot });
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    return { qc, ...renderHook(() => useServerEvents(true), { wrapper }) };
+  }
+
+  it("ignores a bootstrap without an ordering id, and after the first event the cursor is the last event's id alone", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     try {
-      mockFetch({ "GET /api/status": () => json({ runs: [], unread_total: 0 }), "GET /api/bootstrap": () => json(bootstrap) });
-      const qc = new QueryClient();
-      qc.setQueryData(keys.bootstrap, { ...bootstrap, event_id: "0" });
-      const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
-      const { unmount } = renderHook(() => useServerEvents(true), { wrapper });
+      const { qc, unmount } = withBootstrap({ event_id: "0" });
       expect(FakeES.all[0]!.url).toBe("/api/events");
       act(() => FakeES.all[0]!.emit("counts", { unread_total: 1, feeds: {} }, "60"));
       qc.setQueryData(keys.bootstrap, { ...bootstrap, event_id: "50" });
       act(() => FakeES.all[0]!.drop());
       await act(() => vi.advanceTimersByTimeAsync(1_500));
       expect(FakeES.all[1]!.url).toBe("/api/events?last_event_id=60");
+      // A bootstrap refetched during the outage (pollStatus invalidates it) is newer than the events never
+      // delivered: the cursor stays at what the stream delivered, so those events are replayed.
       act(() => FakeES.all[1]!.drop());
       qc.setQueryData(keys.bootstrap, { ...bootstrap, event_id: "75" });
       await act(() => vi.advanceTimersByTimeAsync(3_000));
-      expect(FakeES.all[2]!.url).toBe("/api/events?last_event_id=75");
+      expect(FakeES.all[2]!.url).toBe("/api/events?last_event_id=60");
       unmount();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("keeps the bootstrap's id for every retry until an event arrives, even when the bootstrap is refetched meanwhile", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const { qc, unmount } = withBootstrap({ event_id: "50" });
+      expect(FakeES.all[0]!.url).toBe("/api/events?last_event_id=50");
+      act(() => FakeES.all[0]!.drop());
+      qc.setQueryData(keys.bootstrap, { ...bootstrap, event_id: "75" });
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      expect(FakeES.all[1]!.url).toBe("/api/events?last_event_id=50");
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("compares event ids as numbers: 9 and 10", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      const { unmount } = withBootstrap({ event_id: "9" });
+      expect(FakeES.all[0]!.url).toBe("/api/events?last_event_id=9");
+      expect(liveStore.get().lastId).toBe(9);
+      act(() => FakeES.all[0]!.emit("counts", { unread_total: 1, feeds: {} }, "10"));
+      expect(liveStore.get().lastId).toBe(10);
+      act(() => FakeES.all[0]!.drop());
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      expect(FakeES.all[1]!.url).toBe("/api/events?last_event_id=10");
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores the id of a bootstrap that is the service worker's stored copy", () => {
+    const { unmount } = withBootstrap({ event_id: "1700000000000123", fromCache: true });
+    expect(FakeES.all[0]!.url).toBe("/api/events");
+    expect(liveStore.get().lastId).toBe(0);
+    unmount();
+  });
+
+  it("starts a new sign-in from the new bootstrap, not from the previous session's events", () => {
+    const { qc, unmount } = withBootstrap({ event_id: "40" });
+    act(() => FakeES.all[0]!.emit("counts", { unread_total: 1, feeds: {} }, "60"));
+    // Signing out replaces the shell with the sign-in screen (App.tsx), so the hook unmounts; signing in mounts it again.
+    unmount();
+    authStore.set("out");
+    authStore.set("in");
+    liveStore.set(initialLive);
+    qc.setQueryData(keys.bootstrap, { ...bootstrap, event_id: "90" });
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    const again = renderHook(() => useServerEvents(true), { wrapper });
+    expect(FakeES.all[1]!.url).toBe("/api/events?last_event_id=90");
+    again.unmount();
+  });
+
+  it("treats a resync below the bootstrap's id on the first connection as a restart and drops the ordering ids", () => {
+    // The server restarted with its clock stepped back: its ids are below the bootstrap's, so it answers the cursor with a resync.
+    const { unmount } = withBootstrap({ event_id: "5000" });
+    liveStore.set((s) => ({ ...s, seq: { "1": 5000 }, ended: { "2": true } }));
+    expect(FakeES.all[0]!.url).toBe("/api/events?last_event_id=5000");
+    act(() => FakeES.all[0]!.emit("resync", {}, "100"));
+    expect(liveStore.get().seq).toEqual({});
+    expect(liveStore.get().ended).toEqual({});
+    expect(liveStore.get().lastId).toBe(100);
+    unmount();
+  });
+
+  it("asks for the active runs after a resync, so a run that ended in the gap ends", async () => {
+    mockFetch({ "GET /api/status": () => json({ runs: [], event_id: "900", inflight: 0, unread_total: 0 }), "GET /api/bootstrap": () => json(bootstrap) });
+    const { unmount } = setup();
+    act(() => FakeES.all[0]!.emit("run.start", { run_id: "7", kind: "refresh", total: 2 }, "6"));
+    expect(liveStore.get().runs["7"]).toBeDefined();
+    act(() => FakeES.all[0]!.emit("resync", {}, "900"));
+    await waitFor(() => expect(liveStore.get().runs["7"]).toBeUndefined());
+    unmount();
   });
 
   it("re-checks status when the tab becomes visible with a run showing", async () => {

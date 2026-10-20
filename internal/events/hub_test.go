@@ -210,7 +210,8 @@ func TestSubscribeAtBootstrapIDReplaysTheGap(t *testing.T) {
 	require.Equal(t, "e", (<-s.C).Type)
 }
 
-// The ring covers the longest gap a page can have: a cursor 100 events behind replays all of them.
+// A cursor up to subBuffer-1 events behind replays all of them; from subBuffer events behind the replay would not
+// fit the subscriber's buffer, so the subscriber gets a resync instead (the next test).
 func TestSubscribeReplaysALongGapWithinTheRing(t *testing.T) {
 	h := newHub()
 	h.Publish("e", 0)
@@ -220,6 +221,22 @@ func TestSubscribeReplaysALongGapWithinTheRing(t *testing.T) {
 	}
 	s := h.Subscribe(boot)
 	require.Len(t, s.C, subBuffer-1)
+}
+
+// The bound on a replay is the subscriber buffer (subBuffer), not the 500-event ring: a gap of subBuffer events
+// gets one resync and no replay.
+func TestSubscribeWithAGapOfTheBufferSizeGetsAResyncNotAReplay(t *testing.T) {
+	h := newHub()
+	h.Publish("e", 0)
+	boot := h.LastID()
+	for i := 0; i < subBuffer; i++ {
+		h.Publish("e", i)
+	}
+	s := h.Subscribe(boot)
+	require.Len(t, s.C, 1)
+	ev := <-s.C
+	require.Equal(t, "resync", ev.Type)
+	require.Equal(t, h.LastID(), ev.ID)
 }
 
 // After a restart the ids are new and the ring is empty or holds only new events: a cursor from before the

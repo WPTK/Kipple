@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, authStore } from "./client";
 import { filtersKey } from "./filters";
 import { wasFilterTouched } from "./filterEdits";
-import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type ItemPatch } from "./queries";
+import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type BootstrapAnswer, type ItemPatch } from "./queries";
 import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
@@ -396,7 +396,9 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number)
       for (const id of ev.data.ids) void qc.invalidateQueries({ queryKey: keys.item(id) });
       break;
     case "resync":
-      // The server says it cannot replay what we missed: only then are the lists refetched.
+      // The server says it cannot replay what we missed: only then are the lists refetched. A run.done among the
+      // missed events is found by asking for the active runs (the stream stays open, so no reconnect does it).
+      void pollStatus(qc).catch(() => undefined);
       void qc.invalidateQueries({ queryKey: keys.bootstrap });
       void qc.invalidateQueries({ queryKey: keys.itemsAll });
       invalidateSavedSearches(qc);
@@ -576,6 +578,10 @@ export function useServerEvents(enabled: boolean): void {
       if (heartbeatSeen && !stopped) watchdog = setTimeout(() => fail(src), WATCHDOG_MS);
     };
     let lastEventId = "";
+    // Where the first stream starts: the id the loaded bootstrap follows. Read once, on the first attempt, and kept
+    // for the retries until the stream delivers an event; a bootstrap refetched during an outage describes the
+    // server later than the events this page never received, and a cursor taken from it would skip them.
+    let startCursor: string | undefined;
     /** The stream is up: leave fallback polling and reconcile runs and counts if events were missed. */
     const connected = (proven = true) => {
       // Only a delivered message or heartbeat proves the stream healthy; a bare onopen does not (a proxy
@@ -604,11 +610,19 @@ export function useServerEvents(enabled: boolean): void {
 
     const connect = () => {
       retryTimer = undefined;
-      // A new EventSource cannot send Last-Event-ID, so the cursor goes in the URL. It is the newer of the last
-      // id the stream delivered and the id the loaded bootstrap follows: the shell opens the stream after
-      // the bootstrap answered, and what happened in between (a run.done) is replayed from that id.
-      const boot = qc.getQueryData<Bootstrap>(keys.bootstrap)?.event_id;
-      const cursor = eventSeq(boot) > eventSeq(lastEventId) ? String(boot) : lastEventId;
+      // A new EventSource cannot send Last-Event-ID, so the cursor goes in the URL: the last id the stream
+      // delivered, and before it has delivered one the id the loaded bootstrap follows (the shell opens the stream
+      // after the bootstrap answered, and what happened in between, a run.done, is replayed from that id). The
+      // service worker's stored copy says nothing about the server now, and "0" means no ordering.
+      if (startCursor === undefined) {
+        const b = qc.getQueryData<BootstrapAnswer>(keys.bootstrap);
+        startCursor = b && !b.fromCache && eventSeq(b.event_id) > 0 ? String(b.event_id) : "";
+      }
+      const cursor = lastEventId || startCursor;
+      // A cursor the server cannot honour (it restarted with its clock stepped back) is answered with a resync
+      // whose id is below it: counting the cursor as seen is what lets the reducer recognise that as a restart.
+      const sent = eventSeq(cursor);
+      if (sent > liveStore.get().lastId) liveStore.set((s) => ({ ...s, lastId: sent }));
       const src = new EventSource(cursor ? `/api/events?last_event_id=${encodeURIComponent(cursor)}` : "/api/events");
       es = src;
       src.addEventListener("heartbeat", () => {
