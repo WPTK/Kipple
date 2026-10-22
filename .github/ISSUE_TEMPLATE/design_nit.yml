@@ -1,0 +1,43 @@
+name: Design note
+description: Something works but looks, reads or feels wrong (layout, spacing, wording, order of actions, consistency).
+labels: [design-review, ux]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For things that work but could look or read better. Something that does not work is a bug report.
+        A screenshot is worth more than a description; remove anything private from it first.
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: The screen, menu or state, and the device (phone, tablet or desktop).
+      placeholder: Article view on a phone, the toolbar at the top
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What looks or feels wrong
+      description: Paste or drag a screenshot here too.
+    validations:
+      required: true
+  - type: textarea
+    id: better
+    attributes:
+      label: What would be better
+      description: Optional. What you expected, or how another screen of Kipple already does it.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Inconsistent with another screen
+        - Action in the wrong place or order
+        - Hard to read (contrast, size, crowding)
+        - Layout or spacing
+        - Wording
+        - Touch target or gesture
+        - Other
+    validations:
+      required: true

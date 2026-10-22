@@ -3,10 +3,11 @@
 //   node scripts/fixture-feeds.mjs [--port 1994]       serves http://127.0.0.1:1994/feed/<name>.xml
 //   KIPPLE_SEED_FEEDS_URL=http://127.0.0.1:1994 npm run seed      imports those feeds instead of the public ones
 //
-// Five RSS feeds with a dozen dated articles each (newest first, dated from now, so nothing is old). Loopback only,
-// and read-only: it never writes anything.
+// Five RSS feeds with a dozen dated articles each (newest first, dated from now, so nothing is old), and under /design/
+// the design review's library (design-feeds.mjs). Loopback only, and read-only: it never writes anything.
 import { createServer } from "node:http";
 import { parseArgs } from "node:util";
+import { designRoute } from "./design-feeds.mjs";
 
 export const FIXTURE_FEEDS = [
   ["Go Blog", "go-blog"],
@@ -30,6 +31,7 @@ function feed(name, title, base) {
 
 export function serve(port) {
   const server = createServer((req, res) => {
+    if (designRoute(req, res, `http://127.0.0.1:${server.address().port}`)) return;
     const m = /^\/feed\/([a-z-]+)\.xml$/.exec(req.url ?? "");
     const f = m && FIXTURE_FEEDS.find(([, n]) => n === m[1]);
     if (!f) {
