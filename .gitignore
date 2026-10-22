@@ -18,6 +18,9 @@ web/.seed.pid
 *.p12
 !**/testdata/**
 
+# Design review captures (scripts/maintainers/design-shots.mjs): screenshots, regenerated on demand
+/.design/
+
 # Runtime data
 /data/
 *.db
