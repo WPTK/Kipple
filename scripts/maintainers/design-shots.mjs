@@ -310,7 +310,7 @@ function sheet(list) {
     .join("");
   return `<!doctype html><meta charset="utf-8"><title>Kipple design review captures</title><style>
 body{font:14px system-ui,sans-serif;margin:16px;background:#e9e9ec;color:#111}h2{margin:32px 0 4px;text-transform:capitalize}
-h3{margin:18px 0 6px;font-size:14px}code{color:#666;font-weight:400}.row{display:flex;gap:10px;align-items:flex-start;overflow-x:auto}
+h3{margin:18px 0 6px;font-size:14px}code{color:#666;font-weight:400}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start}
 figure{margin:0;flex:none}img{display:block;border:1px solid #bbb;background:#fff}figcaption{font-size:11px;color:#444;margin-top:2px}
 .phone img{width:180px}.tablet img{width:260px}.desktop img{width:420px}</style>
 <script>addEventListener("DOMContentLoaded",()=>{const a=new URLSearchParams(location.search).get("area");if(a)for(const s of document.querySelectorAll("section"))if(s.dataset.area!==a)s.remove()})</script>
