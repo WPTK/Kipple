@@ -315,6 +315,17 @@ describe("mark as read while scrolling in the Gazette", () => {
     expect(new Set(marked(calls)[0]?.ids)).toEqual(new Set(order.slice(0, 8)));
   });
 
+  it("the paper's scroller turns the browser's scroll anchoring off, and rows keep it", async () => {
+    routes(() => pageOf(many(1, 20)));
+    go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const list = screen.getByTestId("list-scroll");
+    expect(list.className).toContain("[overflow-anchor:none]");
+    act(() => updateDevicePrefs({ layout: "compact" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: DEFAULT_PAPER_NAME })).toBeNull());
+    expect(list.className).not.toContain("overflow-anchor");
+  });
+
   it("marks what was scrolled past just before the list closes", async () => {
     const { calls } = routes(() => pageOf(many(1, 20)));
     const view = go("/l/unread");
