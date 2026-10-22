@@ -13,6 +13,8 @@ export const buttonVariants = cva(
         outline: "border border-line bg-surface text-fg hover:bg-selection",
         ghost: "text-fg hover:bg-selection",
         link: "text-link underline underline-offset-2",
+        // A destructive action: the one look for Delete, Forget, Reset and Sign out, and for the confirm button of their dialogs.
+        danger: "border border-danger bg-surface font-semibold text-danger hover:bg-selection",
       },
       size: {
         default: "min-h-11 min-w-11 px-4",

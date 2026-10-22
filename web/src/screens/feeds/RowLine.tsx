@@ -1,18 +1,10 @@
 import { Folder as FolderIcon } from "lucide-react";
 import type { Feed } from "@/api/types";
 import { cn } from "@/lib/cn";
+import { FeedIcon } from "@/ui/FeedIcon";
 import { UnreadCount } from "@/ui/UnreadCount";
 import { FeedRowStatus } from "../StatusChip";
 import { FeedRowName } from "./FeedRowName";
-
-/** A feed's icon, or a blank of the same size so names line up. */
-function FeedIcon({ feed }: { feed: Pick<Feed, "icon"> }) {
-  return feed.icon ? (
-    <img src={feed.icon} alt="" width={16} height={16} loading="lazy" className="size-4 shrink-0 rounded-sm" />
-  ) : (
-    <span className="size-4 shrink-0" aria-hidden="true" />
-  );
-}
 
 /**
  * What a feed row says: its icon, its name (dimmed when nothing is unread), optionally its status, and its unread count.
@@ -23,7 +15,7 @@ function FeedIcon({ feed }: { feed: Pick<Feed, "icon"> }) {
 export function FeedLine({ feed, status }: { feed: Feed; status?: boolean }) {
   return (
     <>
-      <FeedIcon feed={feed} />
+      <FeedIcon src={feed.icon} title={feed.title} />
       <span className={cn("min-w-0", feed.unread <= 0 && "text-fg2")}>
         <FeedRowName feed={feed} />{" "}
         {status ? <FeedRowStatus status={feed.status} error={feed.last_error} /> : null}

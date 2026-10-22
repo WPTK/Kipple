@@ -1,7 +1,7 @@
 import { tapVerb } from "@/lib/pointer";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { Check as CheckIcon, X } from "lucide-react";
+import { Check as CheckIcon } from "lucide-react";
 import { handleServerEvent } from "@/api/events";
 import { dropFromLists, patchItems, useBootstrap } from "@/api/queries";
 import { ApiError, errorMessage } from "@/api/client";
@@ -37,7 +37,7 @@ import { toast } from "@/shell/toasts";
 import { cn } from "@/lib/cn";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { Button } from "@/ui/button";
-import { Checkbox, Field, Modal, Notice, RadioCard, inputCls } from "@/ui/kit";
+import { Checkbox, Chip, Field, Modal, Notice, RadioCard, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 
 export const PREVIEW_DEBOUNCE_MS = 600;
@@ -180,11 +180,10 @@ function Chips({ terms, mono, onRemove }: { terms: string[]; mono: boolean; onRe
   return (
     <ul aria-label="Terms in this filter" className="flex flex-wrap gap-2">
       {terms.map((t, i) => (
-        <li key={`${i}:${t}`} className={cn("flex min-h-9 max-w-full items-center gap-1 rounded-full border border-line bg-surface py-0.5 pr-1 pl-3 text-sm", mono && "font-mono")}>
-          <span className="truncate">{t}</span>
-          <button type="button" aria-label={`Remove ${t}`} onClick={() => onRemove(i)} className="hit-row inline-flex size-8 shrink-0 items-center justify-center rounded-full hover:bg-selection">
-            <X aria-hidden="true" className="size-4" />
-          </button>
+        <li key={`${i}:${t}`} className="max-w-full">
+          <Chip removeLabel={`Remove ${t}`} onRemove={() => onRemove(i)} className={mono ? "font-mono" : undefined}>
+            {t}
+          </Chip>
         </li>
       ))}
     </ul>

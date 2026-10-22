@@ -48,6 +48,11 @@ for (const s of schemes) {
   // Secondary text on the selection color (a selected row's meta line, a selected option's hint): 4.5:1.
   const text2sel = contrast(t.text2, t.selection);
   if (text2sel < TEXT_MIN) failures.push(`${s.name}: text2 on selection ${text2sel.toFixed(2)} < ${TEXT_MIN}`);
+  // The boundary of an input, select or card (non-text contrast, WCAG 1.4.11) against the page and the surface.
+  for (const [name, under] of [["bg", t.bg], ["surface", t.surface]]) {
+    const r = contrast(t.field, under);
+    if (r < UI_MIN) failures.push(`${s.name}: field on ${name} ${r.toFixed(2)} < ${UI_MIN}`);
+  }
   // Toasts (undo, help, errors): text on the accent-tinted surface (--kp-toast-bg in index.css: 18% accent into
   // the surface), and the accent and danger borders against the page.
   const toastBg = mixHex(t.accent, t.surface, 18);

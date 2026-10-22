@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
 import { Dialog } from "radix-ui";
 import { Collapsible } from "radix-ui";
-import { ChevronDown, TriangleAlert } from "lucide-react";
+import { ChevronDown, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "./button";
 import { useLatestRef } from "@/lib/useLatestRef";
@@ -568,6 +568,39 @@ export function Disclosure({ label, children, defaultOpen = false, tone }: { lab
       </Collapsible.Trigger>
       <Collapsible.Content className="flex flex-col gap-4 px-3 pt-1 pb-3">{children}</Collapsible.Content>
     </Collapsible.Root>
+  );
+}
+
+/**
+ * A titled section of a screen (Settings, Statistics): a heading that names the region, a rule under it and the content.
+ * `level` is the heading level the page's outline needs; `sub` is a section inside another (a rule above, a smaller
+ * heading); `stack` lays the content out as a column of settings.
+ */
+export function Section({ title, children, level = 2, sub = false, stack = false }: { title: string; children: ReactNode; level?: 2 | 3; sub?: boolean; stack?: boolean }) {
+  const id = useId();
+  const H = sub || level === 3 ? "h3" : "h2";
+  return (
+    <section aria-labelledby={id} className={sub ? "border-t border-line pt-4" : "border-b border-line py-5"}>
+      <H id={id} className={cn("mb-3 font-semibold", sub ? "text-base" : "text-lg")}>
+        {title}
+      </H>
+      {stack ? <div className="flex flex-col gap-5">{children}</div> : children}
+    </section>
+  );
+}
+
+/** The look of a chip: a pill with a boundary, 44 px tall, for a filter that is on or a term in a list. */
+export const chipCls = "inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full border border-field bg-surface text-sm";
+
+/** A removable chip: the word, and a button that takes it away. */
+export function Chip({ children, removeLabel, onRemove, className }: { children: ReactNode; removeLabel: string; onRemove: () => void; className?: string }) {
+  return (
+    <span className={cn(chipCls, "gap-1 pr-1 pl-3", className)}>
+      <span className="min-w-0 truncate">{children}</span>
+      <button type="button" aria-label={removeLabel} onClick={onRemove} className="hit-row inline-flex shrink-0 items-center justify-center rounded-full hover:bg-selection">
+        <X aria-hidden="true" className="size-4" />
+      </button>
+    </span>
   );
 }
 

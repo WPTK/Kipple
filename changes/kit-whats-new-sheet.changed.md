@@ -1,0 +1,1 @@
+What's new opens as a standard dialog sheet and returns focus to the control that opened it. (#686)

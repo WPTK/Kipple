@@ -20,6 +20,7 @@ import { useAllowedSchemes } from "@/theme/serverThemes";
 import { themeStore, updateTheme } from "@/theme/theme";
 import { chooseFixed, choosePair, themeChoice } from "@/theme/settings";
 import { Segmented } from "@/ui/segmented";
+import { Icon } from "@/ui/Icon";
 import { Disclosure, Switch, inputCls } from "@/ui/kit";
 import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { cn } from "@/lib/cn";
@@ -289,7 +290,7 @@ export function ReadingMenu({ className }: { className?: string }) {
     <Popover.Root>
       <Popover.Trigger asChild>
         <button type="button" aria-label="Reading appearance" title="Theme, font and text size" className={cn("hit inline-flex items-center justify-center rounded-lg text-fg hover:bg-selection", className)}>
-          <CaseSensitive className="size-6" aria-hidden="true" />
+          <Icon of={CaseSensitive} />
         </button>
       </Popover.Trigger>
       <Popover.Portal>

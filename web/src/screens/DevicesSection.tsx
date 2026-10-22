@@ -207,7 +207,7 @@ export function DevicesSection() {
                       Copy its settings here
                     </Button>
                   )}
-                  <Button variant="ghost" onClick={() => setConfirm({ kind: "delete", device: d })} aria-label={`Forget ${label(d)}`}>
+                  <Button variant="danger" onClick={() => setConfirm({ kind: "delete", device: d })} aria-label={`Forget ${label(d)}`}>
                     Forget
                   </Button>
                 </div>
@@ -225,7 +225,7 @@ export function DevicesSection() {
             <p className="text-xs text-fg2">A device that has never changed a setting follows the default, so it stays in step when you update it.</p>
           </div>
           <div className="flex flex-col items-start gap-1">
-            <Button variant="link" className="min-h-11 px-0" onClick={() => setConfirm({ kind: "reset" })}>
+            <Button variant="danger" onClick={() => setConfirm({ kind: "reset" })}>
               Reset this device to defaults
             </Button>
             {lists > 0 ? (
@@ -252,7 +252,7 @@ export function DevicesSection() {
               <Button variant="ghost" onClick={() => setConfirm(null)} disabled={busy}>
                 Cancel
               </Button>
-              <Button variant="solid" onClick={() => void run()} disabled={busy}>
+              <Button variant={confirm.kind === "delete" || confirm.kind === "reset" ? "danger" : "solid"} onClick={() => void run()} disabled={busy}>
                 {busy ? "Working" : c.action}
               </Button>
             </>

@@ -11,10 +11,18 @@ const shell = "z-50 rounded-xl border border-line bg-bg p-1 text-fg shadow-sheet
 const sheet =
   "menu-sheet mx-auto max-h-[70dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-b-none rounded-t-2xl border-x-0 border-b-0 pt-2 pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))]";
 
+/** The row of a menu item (a command, a choice): 44 px tall, with the highlight the keyboard and pointer move. */
+export const menuItemClass = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-selection";
+
 /** Closes the menu of the Root around it. */
 const CloseMenu = createContext<() => void>(() => {});
 
-/** Radix's Root, with the open state where the sheet's dimmed page can reach it (a tap on it closes the menu). */
+/**
+ * Radix's Root, with the open state where the sheet's dimmed page can reach it (a tap on it closes the menu). Menus are
+ * not modal: a modal menu marks the rest of the page aria-hidden while its Skip link and list pane can still be
+ * focused, and leaves the page with no main landmark. Escape, a press outside and the arrow keys work the same; the
+ * keyboard cannot leave the menu either way, since Radix keeps Tab inside it.
+ */
 function Root({ open, defaultOpen = false, onOpenChange, ...rest }: ComponentProps<typeof Radix.Root>) {
   const [own, setOwn] = useState(defaultOpen);
   const change = (o: boolean) => {
@@ -23,7 +31,7 @@ function Root({ open, defaultOpen = false, onOpenChange, ...rest }: ComponentPro
   };
   return (
     <CloseMenu.Provider value={() => change(false)}>
-      <Radix.Root {...rest} open={open ?? own} onOpenChange={change} />
+      <Radix.Root modal={false} {...rest} open={open ?? own} onOpenChange={change} />
     </CloseMenu.Provider>
   );
 }
@@ -107,13 +115,22 @@ function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutsi
 }
 
 /**
+ * Where menus are drawn: inside the page's main landmark, not loose in the body, so every menu is in a landmark (axe
+ * "region"). Its position is fixed, so it is placed the same wherever it sits in the page. Without a main (a bare test
+ * render) Radix falls back to the body.
+ */
+function Portal(props: ComponentProps<typeof Radix.Portal>) {
+  return <Radix.Portal container={typeof document === "undefined" ? null : document.getElementById("main")} {...props} />;
+}
+
+/**
  * The menu parts. Nested menus (Sub) are left out on purpose: neither the popover nor the bottom sheet is built for one,
  * and ESLint keeps every other module from importing Radix's DropdownMenu directly.
  */
 export const DropdownMenu = {
   Root,
   Trigger: Radix.Trigger,
-  Portal: Radix.Portal,
+  Portal,
   Content: MenuContent,
   Item: Radix.Item,
   CheckboxItem: Radix.CheckboxItem,

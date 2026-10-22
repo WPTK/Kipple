@@ -39,7 +39,7 @@ await t.eachViewport(async (page, vp) => {
     await view.route(/\/api\/saved-searches\?counts=0/, (route) => (blocked ? route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"boom"}' }) : route.continue()));
     await view.goto("/feeds", { waitUntil: "load" });
     // The wide layout shows the sidebar and the Feeds list together; either one is checked.
-    const section = view.getByRole("region", { name: "Saved searches" }).first();
+    const section = view.getByRole("group", { name: "Saved searches" }).first();
     await step(`${tag} S1`, async () => {
       await section.waitFor({ timeout: 15000 });
       const said = await section.getByText("Couldn't load your saved searches.").isVisible();

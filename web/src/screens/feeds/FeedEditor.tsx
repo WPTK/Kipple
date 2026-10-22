@@ -211,7 +211,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
         footer={
           <>
             <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
-            <Button variant="solid" disabled={busy} onClick={() => void remove()}>
+            <Button variant="danger" disabled={busy} onClick={() => void remove()}>
               Delete feed
             </Button>
           </>
@@ -385,7 +385,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
             <Button disabled={busy} onClick={() => void refresh()}>
               Refresh now
             </Button>
-            <Button disabled={busy} onClick={() => setConfirmDelete(true)}>
+            <Button variant="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>
               Delete feed
             </Button>
           </div>

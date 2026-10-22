@@ -3,6 +3,14 @@ import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
+// [regex source, message] for a Tailwind arbitrary value written in a class string.
+const DESIGN_VALUES = [
+  [String.raw`(^|[\s:!-])(bg|text|border|fill|stroke|ring|outline|shadow|from|via|to|decoration|accent|caret|divide)-(\[(#|rgb|hsl|oklch|color:)|black\b|white\b)`, "Use a scheme token (bg-bg, text-fg, border-field, bg-scrim ...), not a literal colour. New tokens go in src/theme/schemes.json."],
+  [String.raw`(^|[\s:!-])text-\[[0-9.]+(px|rem|em)\]`, "Use the type scale (text-xs, text-sm ... text-micro in src/index.css), which follows the text size setting."],
+  [String.raw`(^|[\s:!-])-?(p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|gap-x|gap-y|space-x|space-y|inset|top|right|bottom|left)-\[[0-9.]+(px|rem)\]`, "Use a step of the spacing scale (p-3, gap-2.5 ...), not an arbitrary length."],
+  [String.raw`(^|[\s:!-])(min|max)-\[(?!(380|420|520|560|640)px\]|20rem\])[0-9.]+(px|rem)\]:`, "Use an existing breakpoint (380, 420, 520, 560 or 640 px, 20rem); the three-pane widths come from the pane minimums."],
+];
+
 export default tseslint.config(
   { ignores: ["dist", "node_modules"] },
   js.configs.recommended,
@@ -48,6 +56,10 @@ export default tseslint.config(
     rules: {
       "no-restricted-syntax": [
         "error",
+        // Design tokens, not one-off values: a class string never spells a colour, a type size, a spacing step or a
+        // breakpoint the scale does not have (src/index.css and src/theme/schemes.json define them). The Gazette
+        // layout is exempt until its masthead and section heads move onto the scale.
+        ...DESIGN_VALUES.map(([pattern, message]) => ({ selector: `:matches(Literal[value=/${pattern}/], TemplateElement[value.raw=/${pattern}/])`, message })),
         ...[
           "CallExpression[callee.name='useEffect']",
           "CallExpression[callee.type='MemberExpression'][callee.property.name='useEffect']",
@@ -67,6 +79,11 @@ export default tseslint.config(
         }),
       ],
     },
+  },
+  {
+    // The Gazette keeps its own display sizes and rules until its masthead and section heads follow the type scale.
+    files: ["src/layouts/gazette.tsx", "src/layouts/gazette.test.tsx"],
+    rules: { "no-restricted-syntax": "off" },
   },
   {
     // Every dropdown menu is built from ui/menu: a popover with a mouse, a bottom sheet with a finger, and no nested

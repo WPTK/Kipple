@@ -107,7 +107,7 @@ export function DeleteFilterDialog({ filter, onClose }: { filter: Filter; onClos
           <Button variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="solid" onClick={() => void remove()} disabled={busy}>
+          <Button variant="danger" onClick={() => void remove()} disabled={busy}>
             {busy ? "Deleting" : "Delete filter"}
           </Button>
         </>
@@ -175,7 +175,7 @@ function FilterRow({
           <Pencil aria-hidden="true" />
           Edit
         </Button>
-        <Button variant="ghost" onClick={() => onDelete(f)} aria-label={`Delete ${f.name || "filter"}`}>
+        <Button variant="danger" onClick={() => onDelete(f)} aria-label={`Delete ${f.name || "filter"}`}>
           <Trash2 aria-hidden="true" />
           Delete
         </Button>

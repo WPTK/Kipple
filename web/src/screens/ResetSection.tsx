@@ -43,7 +43,7 @@ function ResetDialog({ hasPassword, envAccount, onClose }: { hasPassword: boolea
           <Button disabled={busy} onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="solid" disabled={!ready || busy} onClick={() => void submit()}>
+          <Button variant="danger" disabled={!ready || busy} onClick={() => void submit()}>
             Reset Kipple
           </Button>
         </>
@@ -77,7 +77,7 @@ export function ResetSection({ hasPassword }: { hasPassword: boolean }) {
         Reset Kipple
       </h3>
       <p className="text-xs text-fg2">Erases your feeds, folders, history, settings and account, and starts over in setup. A safety copy is kept.</p>
-      <Button className="self-start" onClick={() => setOpen(true)} disabled={open && info.isFetching}>
+      <Button variant="danger" className="self-start" onClick={() => setOpen(true)} disabled={open && info.isFetching}>
         {open && info.isFetching ? "Checking" : "Reset Kipple and start over"}
       </Button>
       {open && info.isSuccess ? <ResetDialog hasPassword={hasPassword} envAccount={info.data.env_account} onClose={() => setOpen(false)} /> : null}
