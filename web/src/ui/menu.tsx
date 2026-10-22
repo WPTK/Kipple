@@ -9,7 +9,7 @@ export const TOUCH_QUERY = "(pointer: coarse)";
 
 const shell = "z-50 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl";
 const sheet =
-  "menu-sheet mx-auto max-h-[85dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-b-none rounded-t-2xl border-x-0 border-b-0 pt-2 pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))]";
+  "menu-sheet mx-auto max-h-[70dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-b-none rounded-t-2xl border-x-0 border-b-0 pt-2 pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))]";
 
 /** Closes the menu of the Root around it. */
 const CloseMenu = createContext<() => void>(() => {});

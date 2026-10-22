@@ -126,12 +126,13 @@ func oneLine(s string) bool {
 	return true
 }
 
-// listOverrideFields are what one feed or folder list may set for itself: its layout, its sort order
-// and the view it opens in. A field left out is inherited (the nearest folder above, then the device).
+// listOverrideFields are what one feed or folder list may set for itself: its layout, its sort order,
+// how it is grouped under headers and the view it opens in. A field left out is inherited (the nearest folder above, then the device).
 var listOverrideFields = map[string][]string{
 	"layout": layoutIDs,
 	"order":  {"newest", "oldest"},
 	"view":   {"unread", "all"},
+	"group":  {"day", "week", "none"},
 }
 
 // listOverrideMap checks one side ("feed" or "folder") of client.list_overrides: numeric-string
@@ -169,7 +170,7 @@ func boundedInt(lo, hi int) func(any) (any, string) { return intIn(lo, hi) }
 var clientDefs = map[string]clientDef{
 	"client.layout": {oneOf(layoutIDs...), "magazine"},
 	"client.list_overrides": {func(v any) (any, string) {
-		const msg = `must be {"feed":{id:{layout,order,view}},"folder":{id:{layout,order,view}}} with numeric-string ids, at least one known field per id and known values`
+		const msg = `must be {"feed":{id:{layout,order,group,view}},"folder":{id:{layout,order,group,view}}} with numeric-string ids, at least one known field per id and known values`
 		m, ok := v.(map[string]any)
 		if !ok || len(m) > 2 {
 			return nil, msg
@@ -191,6 +192,7 @@ var clientDefs = map[string]clientDef{
 		return out, ""
 	}, map[string]any{"feed": map[string]any{}, "folder": map[string]any{}}},
 	"client.order":              {oneOf("newest", "oldest"), "newest"},
+	"client.group":              {oneOf("day", "week", "none"), "day"},
 	"client.search_order":       {oneOf("relevance", "newest", "oldest"), "relevance"},
 	"client.inbox_thumbs":       {oneOf("auto", "off"), "auto"},
 	"client.peek_seen":          {boolVal, false},

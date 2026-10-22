@@ -1,3 +1,5 @@
+import type { GroupBy } from "./devicePrefs";
+
 const DAY = 86_400;
 
 /** Short relative time for a list row: "now", "5m", "3h", "2d", then "Sep 12". Unix seconds in. */
@@ -40,12 +42,29 @@ export function dayLabel(unix: number, nowMs: number = Date.now()): string {
 
 export type Row<T> = { kind: "header"; key: string; label: string } | { kind: "item"; key: string; item: T };
 
-/** Interleave day headers into an ordered list (by each item's sort time). */
-export function withDayHeaders<T extends { id: string; sort_at: number }>(items: T[], nowMs: number = Date.now()): Row<T>[] {
+/** The week-bucket header of a unix-seconds time: Today, Yesterday, This week (back to the local Monday), else Earlier. */
+export function weekBucketLabel(unix: number, nowMs: number = Date.now()): string {
+  const now = new Date(nowMs);
+  // Local calendar arithmetic through the Date constructor, so a 23 or 25 hour day (DST) and a year boundary come out right.
+  const at = (back: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - back).getTime();
+  const ms = unix * 1000;
+  if (ms >= at(0)) return "Today";
+  if (ms >= at(1)) return "Yesterday";
+  if (ms >= at((now.getDay() + 6) % 7)) return "This week";
+  return "Earlier";
+}
+
+/**
+ * Interleave headers into an ordered list (by each item's sort time). The headers follow the list's order, so an
+ * oldest-first list reads Earlier, This week, Yesterday, Today.
+ */
+export function withHeaders<T extends { id: string; sort_at: number }>(items: T[], group: GroupBy, nowMs: number = Date.now()): Row<T>[] {
+  if (group === "none") return items.map((item) => ({ kind: "item", key: item.id, item }));
+  const labelOf = group === "week" ? weekBucketLabel : dayLabel;
   const rows: Row<T>[] = [];
   let last = "";
   for (const item of items) {
-    const label = dayLabel(item.sort_at, nowMs);
+    const label = labelOf(item.sort_at, nowMs);
     if (label !== last) {
       rows.push({ kind: "header", key: `h:${label}`, label });
       last = label;

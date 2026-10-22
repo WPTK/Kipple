@@ -72,6 +72,11 @@ export const LIST_WIDTH_MAX = 720;
 export type OrderPref = "newest" | "oldest";
 export const ORDER_LABELS: Record<OrderPref, string> = { newest: "Newest first", oldest: "Oldest first" };
 
+/** How a list is cut by headers (not on the Gazette, which prints its own pages, nor on a search). */
+export type GroupBy = "day" | "week" | "none";
+export const GROUP_BYS: readonly GroupBy[] = ["day", "week", "none"];
+export const GROUP_LABELS: Record<GroupBy, string> = { day: "Day", week: "Week", none: "None" };
+
 /** The views a feed or folder list can open in. Unread unless the feed or a folder above it says otherwise. */
 export type ListView = "unread" | "all";
 export const LIST_VIEWS: readonly ListView[] = ["unread", "all"];
@@ -86,6 +91,7 @@ export interface ListOverride {
   layout?: LayoutId;
   order?: OrderPref;
   view?: ListView;
+  group?: GroupBy;
 }
 export type ListField = keyof ListOverride;
 
@@ -103,11 +109,13 @@ const LEGACY_SEARCH_ORDER_KEY = "kipple.searchOrder.v1";
 export interface DevicePrefs {
   /** Device default layout. Magazine unless changed. */
   layout: LayoutId;
-  /** Per-feed and per-folder overrides of layout, order and view, resolved field by field: the feed, then the folders
+  /** Per-feed and per-folder overrides of layout, order, grouping and view, resolved field by field: the feed, then the folders
    * up the tree, then the device default (resolveList). */
   overrides: { feed: Record<string, ListOverride>; folder: Record<string, ListOverride> };
   /** Device default order. */
   order: OrderPref;
+  /** Device default grouping of a list under headers (server key `client.group`). */
+  group: GroupBy;
   /** Result ordering of the Search screen (server key `client.search_order`). */
   searchOrder: SearchOrder;
   /** Inbox trailing thumbnails: Auto shows them when the item has an image. */
@@ -149,6 +157,7 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   layout: "magazine",
   overrides: { feed: {}, folder: {} },
   order: "newest",
+  group: "day",
   searchOrder: "rank",
   inboxThumbs: "auto",
   peekSeen: false,
@@ -205,6 +214,7 @@ function cleanOverride(v: unknown): ListOverride | null {
   if (isLayoutId(o.layout)) out.layout = o.layout;
   if (o.order === "newest" || o.order === "oldest") out.order = o.order;
   if (LIST_VIEWS.includes(o.view as ListView)) out.view = o.view as ListView;
+  if (GROUP_BYS.includes(o.group as GroupBy)) out.group = o.group as GroupBy;
   return Object.keys(out).length ? out : null;
 }
 
@@ -228,6 +238,7 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       layout: isLayoutId(v?.layout) ? v.layout : d.layout,
       overrides: { feed: cleanMap(v?.overrides?.feed), folder: cleanMap(v?.overrides?.folder) },
       order: v?.order === "oldest" ? "oldest" : "newest",
+      group: GROUP_BYS.includes(v?.group as GroupBy) ? (v?.group as GroupBy) : d.group,
       searchOrder: isSearchOrder(v?.searchOrder) ? v.searchOrder : d.searchOrder,
       inboxThumbs: v?.inboxThumbs === "off" ? "off" : "auto",
       peekSeen: v?.peekSeen === true,
@@ -406,10 +417,10 @@ export interface Resolved<F extends ListField> {
 }
 
 const deviceDefault = <F extends ListField>(p: DevicePrefs, field: F): FieldValue<F> =>
-  (field === "layout" ? p.layout : field === "order" ? p.order : DEFAULT_LIST_VIEW) as FieldValue<F>;
+  (field === "layout" ? p.layout : field === "order" ? p.order : field === "group" ? p.group : DEFAULT_LIST_VIEW) as FieldValue<F>;
 
 /**
- * The one resolution of a list's layout, order and view: the feed's own override, then the nearest folder up the tree
+ * The one resolution of a list's layout, order, grouping and view: the feed's own override, then the nearest folder up the tree
  * that sets the field, then the device default (Unread for the view, which has no device default). Each field resolves
  * on its own, so a feed can keep its folder's layout and set its own order.
  */
