@@ -3,10 +3,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { flattenItems, keys, useItems } from "@/api/queries";
 import type { Card, Scope } from "@/api/types";
 
+/** Why mark above and below do nothing in a page layout (the Gazette). */
+export const NO_RANGE_IN_PAGES = "Mark above and below are off in the Gazette: its pages are not in date order";
+
 /**
  * Where a list's articles come from. The list screen drives everything it does with them (restoring the place,
  * loading more, mark as read while scrolling, the arrow keys, mark all, mark above and below) through this alone, so a
- * layout that brings its own data (`ListLayout.data`) only needs a source of its own.
+ * layout that brings its own data only needs a source of its own.
  *
  * A source is a fresh object on every render, like the query it wraps: effects that list it in their dependencies run
  * whenever the list's state changes. `startOver` is the one member that keeps its identity (while the scope does).
@@ -39,19 +42,20 @@ export interface ListSource {
   /** Drop what is loaded and load the list from its first page. */
   startOver: () => Promise<void>;
   /**
-   * The articles mark above and below may reach from `item`, in the date order the server marks a side by; null when
-   * the list's reading order is not date order there.
+   * The articles mark above and below may reach from `item`, in the date order the server marks a side by; or, where
+   * the list's reading order is not date order, why they reach nothing (what the list announces instead).
    */
-  rangeOf: (item: Card) => readonly Card[] | null;
+  rangeOf: (item: Card) => { cards: readonly Card[] } | { why: string };
 }
 
 /**
  * The list as the server sends it, a page at a time (useItems). `paged`: a page layout (the Gazette) draws it, whose
- * reading order is not date order, so mark above and below reach nothing.
+ * reading order is not date order (the lead can be older than stories printed on later pages), and the server marks a
+ * side by date, so "above" would reach stories the reader has not seen: mark above and below reach nothing.
  */
-export function useItemsSource(scope: Scope, enabled: boolean, paged: boolean): ListSource {
+export function useItemsSource(scope: Scope, paged: boolean): ListSource {
   const qc = useQueryClient();
-  const q = useItems(scope, enabled);
+  const q = useItems(scope);
   const cards = useMemo(() => flattenItems(q.data), [q.data]);
   const startOver = useCallback(() => qc.resetQueries({ queryKey: keys.items(scope) }), [qc, scope]);
   const first = q.data?.pages[0];
@@ -69,6 +73,6 @@ export function useItemsSource(scope: Scope, enabled: boolean, paged: boolean): 
     fallback: first?.fallback === true,
     retry: () => void q.refetch(),
     startOver,
-    rangeOf: () => (paged ? null : cards),
+    rangeOf: () => (paged ? { why: NO_RANGE_IN_PAGES } : { cards }),
   };
 }

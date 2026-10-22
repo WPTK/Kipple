@@ -72,6 +72,37 @@ describe("judging a page's stories story by story", () => {
     expect(seen.has("x")).toBe(true);
   });
 
+  it("a story above that grows, with the scroll moved by as much in the same look, passes nothing that stayed", () => {
+    // Two columns: "a" (0-100) and "b" (100-400) on the left, "k" (0-400) on the right.
+    const before: [string, number, number][] = [["a", 0, 100], ["k", 0, 400], ["b", 100, 300]];
+    // "a" grows by 150 and the browser's scroll anchoring adds 150 to the scroll position: "k" stayed in the content,
+    // but on screen it now ends above the top, though the reader never scrolled past it.
+    const after: [string, number, number][] = [["a", 0, 250], ["k", 0, 400], ["b", 250, 300]];
+    const { seen, passed } = looks(measure(0, before), measure(300, before), measure(450, after));
+    expect(passed.size).toBe(0);
+    expect(seen.has("k")).toBe(false);
+    // A story the reader did scroll past before the move stays passed.
+    const earlier = looks(measure(0, before), measure(450, before), measure(600, after));
+    expect(earlier.passed.has("k")).toBe(true);
+  });
+
+  it("after a look in which the page moved, the next scroll judges the stories that stayed again", () => {
+    const before: [string, number, number][] = [["a", 0, 100], ["k", 0, 400], ["b", 100, 300]];
+    const after: [string, number, number][] = [["a", 0, 250], ["k", 0, 400], ["b", 250, 300]];
+    // Seen again in view after the move ("k" ends at 400, the list shows 350 to 650), then scrolled past.
+    const { passed } = looks(measure(0, before), measure(300, before), measure(350, after), measure(450, after));
+    expect(passed.has("k")).toBe(true);
+  });
+
+  it("a story with no id is never tracked, and does not count as a move", () => {
+    const ids = column(["a", "", "b", "c"]);
+    const later = column(["a", "", "b", "c"]).map(([id, at, h]): [string, number, number] => (id ? [id, at, h] : [id, at, h + 50]));
+    const { seen, passed } = looks(measure(0, ids), measure(150, later));
+    expect(seen.has("")).toBe(false);
+    expect(passed.has("")).toBe(false);
+    expect([...passed]).toEqual(["a"]);
+  });
+
   it("another width starts every story again", () => {
     const ids = column(["a", "b", "c", "d"]);
     const { passed } = looks(measure(0, ids), measure(150, ids), measure(150, ids, 600));

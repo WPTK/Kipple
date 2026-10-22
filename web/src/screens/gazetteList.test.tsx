@@ -246,18 +246,22 @@ describe("mark as read while scrolling in the Gazette", () => {
   let story = 100;
   /** A fraction of a pixel the stories sit off the whole-pixel grid (device pixel ratio, sub-pixel scrolling). */
   let subpixel = 0;
+  /** Extra height of single stories, by their place in DOM order (a story whose text wraps to more lines). */
+  let taller = new Map<number, number>();
   beforeEach(() => {
     story = 100;
     subpixel = 0;
+    taller = new Map();
     updatePrefs({ markReadOnScroll: true });
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       const all = [...document.querySelectorAll("article[data-item-id]")];
       const i = all.indexOf(this);
       const scroll = document.querySelector<HTMLElement>('[data-testid="list-scroll"]')?.scrollTop ?? 0;
+      const grown = (n: number) => [...taller].reduce((sum, [at, px]) => (at < n ? sum + px : sum), 0);
       // The pages' box is as tall as its stories.
       const pages = this instanceof HTMLElement && this.hasAttribute("data-page-box");
-      const top = i < 0 ? (pages ? -scroll : 0) : i * story - scroll + subpixel;
-      const bottom = i < 0 ? (pages ? top + all.length * story : 800) : top + story;
+      const top = i < 0 ? (pages ? -scroll : 0) : i * story + grown(i) - scroll + subpixel;
+      const bottom = i < 0 ? (pages ? top + all.length * story + grown(all.length) : 800) : top + story + (taller.get(i) ?? 0);
       return { x: 0, y: top, top, bottom, left: 0, right: 375, width: 375, height: bottom - top, toJSON() {} } as DOMRect;
     });
     // A ResizeObserver the test can fire again, as a browser does whenever an observed box changes size.
@@ -499,6 +503,41 @@ describe("mark as read while scrolling in the Gazette", () => {
     await frame();
     await settle();
     expect(marked(calls).flatMap((m) => m.ids)).toEqual([before[0]]);
+  });
+
+  it("a reflow of stories below the screen keeps a story the reader scrolled past, and judges the moved ones again", async () => {
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    const { container } = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const order = storyIds(container);
+    resized();
+    scrollTo(150); // the first story goes above the top
+    await frame();
+    // Before scrolling settles, a story well below the screen gets taller: it and the stories after it move, the ones
+    // above it stay where they were.
+    taller.set(12, 300);
+    resized();
+    scrollTo(160);
+    await frame();
+    await settle();
+    expect(marked(calls).flatMap((m) => m.ids)).toEqual([order[0]]);
+  });
+
+  it("a story that grows above the top, with the scroll moved by as much, marks none of the stories it moved", async () => {
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    resized();
+    scrollTo(50); // stories 0 to 8 are seen, none is above the top
+    await frame();
+    // The first story grows by 300 px and the browser's scroll anchoring adds as much to the scroll position, so the
+    // stories under it stay on screen: they moved, and the reader scrolled past nothing.
+    taller.set(0, 300);
+    scrollTo(350);
+    await frame();
+    resized();
+    await settle();
+    expect(marked(calls)).toHaveLength(0);
   });
 
   it("turning the setting off with a settle pending, then on again, marks nothing from before", async () => {

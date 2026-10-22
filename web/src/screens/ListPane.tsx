@@ -168,9 +168,6 @@ export function clearListMemory(): void {
   pageRestoredPlace = false;
 }
 
-/** Why mark above and below do nothing in a page layout (the Gazette). */
-const NO_RANGE_IN_PAGES = "Mark above and below are off in the Gazette: its pages are not in date order";
-
 /** How long a row marked read on purpose stays in the Unread list (the undo toast lasts far longer). */
 export const LEAVE_MS = 1500;
 
@@ -272,9 +269,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const { layout } = useResolvedLayout(scope);
   // A page layout (the Gazette) draws the whole loaded list itself: no virtualized rows, and no row ever leaves it.
   const Page = pageOf(layout, scope);
-  // Where the articles come from (listSource.ts). Every layout reads the server's list today; a layout that brings its
-  // own data (`data: "sections"`) gets a source of its own, called here too, with only one of them enabled.
-  const src = useItemsSource(scope, (layout.data ?? "list") === "list", !!Page);
+  // Where the articles come from (listSource.ts): the server's list, a page at a time.
+  const src = useItemsSource(scope, !!Page);
   const { startOver } = src;
   const pagedRef = useLatestRef(!!Page);
   // Only the pending-new slices: run progress and fetch ticks must not re-render every row.
@@ -1057,12 +1053,11 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     (item: Card, side: "above" | "below") => {
       if (scope.view === "muted") return; // nothing to mark in the muted list: those articles are already read
       if (rank || scope.typing) return; // relevance order has no above or below, and a search being typed is not a set the server can mark
-      // A page layout's reading order is not date order (the lead can be older than stories printed on later pages),
-      // and the server marks a side by date: "above" would reach stories the reader has not seen.
+      // The source says how far a side reaches, or why it reaches nothing (a page whose reading order is not date order).
       const reach = srcRef.current.rangeOf(item);
-      if (!reach) return announce(NO_RANGE_IN_PAGES);
+      if ("why" in reach) return announce(reach.why);
       const gone = hiddenRef.current;
-      const list = gone.size ? reach.filter((i) => !gone.has(i.id)) : reach;
+      const list = gone.size ? reach.cards.filter((i) => !gone.has(i.id)) : reach.cards;
       const at = list.findIndex((i) => i.id === item.id);
       if (at < 0) return;
       const part = side === "above" ? list.slice(0, at) : list.slice(at + 1);
