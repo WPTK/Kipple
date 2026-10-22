@@ -3,11 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { useLocation, useNavigate } from "react-router";
 import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileCheck, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
 import { ApiError } from "@/api/client";
-import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
+import { useFulltext, useItem, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
 import { enhanceEmbeds, handleArticleClick, watchImages } from "@/lib/articleDom";
-import { useStoryOrder } from "@/layouts/gazetteOrder";
+import { useListOrder } from "@/layouts/listOrder";
 import { useItemActions } from "@/lib/itemActions";
 import { retireUndoToastFor } from "@/lib/undo";
 import { articleTo, listTo } from "@/lib/routes";
@@ -26,7 +26,7 @@ import { Hl, useGroups } from "@/lib/useHighlights";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { StatusBlock, focusListRow, rememberListPlace } from "./ListPane";
-import type { Card, Scope } from "@/api/types";
+import type { Scope } from "@/api/types";
 import { ReadingMenu } from "./AppearanceControls";
 import { ListenBar } from "./ListenBar";
 import { DropdownMenu } from "@/ui/menu";
@@ -53,7 +53,6 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const dp = useDevicePrefs();
 
   const item = useItem(id);
-  const list = useItems(scope, hasFrom || pane);
   const open = useOpenItem();
   const star = useToggleStar();
   const act = useItemActions();
@@ -63,21 +62,12 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   // much of the fallback Unread list happens to be cached, so buttons and keys agree: no Next or Previous.
   const paging = pane || hasFrom;
   // In the Gazette that is the page's reading order (#315), taken from the list's cache so it works with no list mounted.
-  const storyOrder = useStoryOrder(scope);
-  const orderOf = useCallback(
-    (cards: Card[], more: boolean) => {
-      const plain = cards.map((i) => i.id);
-      const printed = storyOrder?.(cards, more);
-      // An article outside the plan (not laid out yet) pages through the loaded list.
-      return printed?.includes(id) ? printed : plain;
-    },
-    [storyOrder, id],
-  );
-  const ids = useMemo(() => (paging ? orderOf(flattenItems(list.data), !!list.hasNextPage) : []), [list.data, list.hasNextPage, paging, orderOf]);
+  const list = useListOrder(scope, id, paging);
+  const { ids } = list;
   // The article's own detail fetch can fail (offline, a server error) with no data at all, but the list this
   // article was opened from often already has this item's card cached, url included: enough to still offer
   // "read the original" even though the article body itself could not be loaded.
-  const cachedCard = useMemo(() => flattenItems(list.data).find((i) => i.id === id), [list.data, id]);
+  const cachedCard = useMemo(() => list.cards.find((i) => i.id === id), [list.cards, id]);
   const browserOnline = useSyncExternalStore(subscribeOnline, () => navigator.onLine !== false);
   const index = ids.indexOf(id);
   // The list order as it was while this article was in it. An article can leave its list while it is open (saving
@@ -140,15 +130,15 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   };
   const next = () => {
     if (nextId) return go(nextId);
-    if (canPage && list.hasNextPage) {
+    if (canPage && list.more) {
       // A Gazette lays out whole chunks only, so a page that brings no new story asks again while there is more.
       const known = new Set(order);
       const more = async (): Promise<string | undefined> => {
-        const r = await list.fetchNextPage();
-        const all = orderOf(flattenItems(r.data), !!r.hasNextPage);
+        const r = await list.fetchMore();
+        const all = r.ids;
         // An article that left the list goes on to the first one the new page brought.
         const n = all.includes(id) ? all[all.indexOf(id) + 1] : all.find((x) => !known.has(x));
-        return n ?? (r.hasNextPage && !r.isFetchNextPageError ? more() : undefined);
+        return n ?? (r.more ? more() : undefined);
       };
       void more().then((n) => (n ? go(n) : toast("End of list")));
       return;

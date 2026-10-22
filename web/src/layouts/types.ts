@@ -71,6 +71,11 @@ export interface ListLayout {
    * newest-first list, and a search is ordered by relevance or by the reader's choice.
    */
   Page?: ComponentType<PageProps>;
+  /**
+   * Where the list's articles come from (screens/listSource.ts): "list", the default, is the server's list a page at a
+   * time; "sections" is a list made of sections, each loaded on its own.
+   */
+  data?: "list" | "sections";
   Row: ComponentType<RowProps>;
   /**
    * Initial size guess in px for the virtualizer; rows are measured after render. `ctx` is the list's measured
