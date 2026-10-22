@@ -18,7 +18,7 @@ node ../scripts/maintainers/design-shots.mjs --out ../.design/all --themes all -
 ```
 
 The output (gitignored) is one PNG per capture, `manifest.json`, `index.html` (the contact sheet, `?area=lists` for one
-area) and `sheet-<area>.png` per area. `--only <regexp>` captures some surfaces, by id. A surface that cannot be reached
+area) and `sheet-<area>.png` per area. The default run takes about 40 minutes; keep the seed running until it ends. `--only <regexp>` captures some surfaces, by id. A surface that cannot be reached
 is listed under `missed` in the manifest, and the run exits 1.
 
 The design library (`web/scripts/design-feeds.mjs`) has a feed with hundreds of unread articles, titles from one word to
@@ -62,6 +62,24 @@ what is wrong and why, and proposes a fix. The rules, in order:
    error prevention, recognition over recall, minimal clutter, helpful empty and error states.
 6. **Wording.** Plain words that say what a control does. User-facing text describes the product as it is.
 
+### Beyond the usual checks
+
+The review deliberately goes past what the UAT flows and the contrast check cover. Each of these is a lens on the same
+surfaces, and each finding names the lens that found it.
+
+- **Conditions the app rarely sees in testing:** 200% and 400% zoom (reflow at 320 CSS px), a 280 px wide screen,
+  landscape phone, the text-spacing override of WCAG 1.4.12, forced colors (Windows high contrast), reduced motion,
+  slow network and CPU (skeleton flashes, layout shift), right-to-left text and long words.
+- **Perception tests:** every color-vision deficiency Chromium emulates, grayscale (is anything said by color alone),
+  the squint or blur test (does the hierarchy survive), and a 5-second test of each main screen.
+- **Ergonomics:** thumb reach on a phone (what the main actions sit in), tap counts for the main tasks (the
+  keystroke-level model), Fitts's law for small or distant targets, and controls that only appear on hover.
+- **Inventories:** every button, badge, menu, empty state, icon (size and stroke), color and spacing value that is
+  actually rendered, side by side, so near-duplicates show (an interface inventory).
+- **The accessibility tree as copy:** what a screen reader reads, in what order, under what names, reviewed as wording.
+- **Reading quality:** line length, leading and hierarchy of the article view, image framing and dimming in dark
+  themes, and how unread state reads in each layout, judged against published typography and reading research.
+
 Severity uses the issue priorities: **P1** a normal session hits it and it misleads (wrong count, hidden action),
 **P2** clearly off on a common screen, **P3** polish, **P4** nit.
 
@@ -70,7 +88,7 @@ Severity uses the issue priorities: **P1** a normal session hits it and it misle
 | Phase | Work | Output |
 |---|---|---|
 | 0 | Milestone, label, the Design note issue template, the design library, the capture script, this page | First captures |
-| 1 | Automated pass: a code audit for duplicate components, values that bypass the theme tokens, unlabelled icon buttons and menu order; measured checks on live pages (touch targets, contrast in all 20 themes, clipped text and sideways scrolling, layout shift, alignment, visible focus) | Issues for the objective findings |
+| 1 | Automated pass: a code audit for duplicate components, values that bypass the theme tokens, unlabelled icon buttons and menu order; measured checks on live pages (touch targets, contrast in all 20 themes, clipped text and sideways scrolling, layout shift, alignment, visible focus) and the conditions in "Beyond the usual checks" | Issues for the objective findings |
 | 2 | Review by area, in parallel, against the captures and the rules above | Ranked findings with captures |
 | 3 | Triage with the owner | Rulings; issues on the milestone |
 | 4 | Fixes, grouped by area, each PR with before and after captures | Merged fixes |
