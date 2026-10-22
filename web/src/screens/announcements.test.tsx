@@ -187,7 +187,8 @@ describe("status text that is not stale or repeated (#499)", () => {
     const user = userEvent.setup();
     await user.click(document.querySelector<HTMLElement>('[data-item-id="1001"] a') as HTMLElement);
     const toolbar = within(await screen.findByRole("toolbar", { name: "Article actions" }));
-    await user.click(await toolbar.findByRole("button", { name: "Mark as unread" }));
+    await user.click(await toolbar.findByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mark as unread" }));
     await waitFor(() => expect(screen.getByTestId("undo-region")).toHaveTextContent("Marked unread"));
     await user.click(toolbar.getByRole("button", { name: "Next article" }));
     await screen.findByRole("heading", { level: 1, name: "Article number 2" });

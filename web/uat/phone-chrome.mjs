@@ -130,7 +130,7 @@ await t.eachViewport(async (page, vp) => {
     await rows.first().waitFor({ timeout: 15000 });
     const first = TITLES[0];
     await page.getByRole("button", { name: `More actions: ${first}` }).first().click({ force: true });
-    await page.getByRole("menuitem", { name: "Mark as read" }).click();
+    await page.getByRole("menuitem", { name: "Mark as read" }).click(); // uat-labels: ignore (a menu item's text, not an aria-label)
     const toast = page.getByTestId("undo-region").getByRole("button", { name: "Undo" });
     await toast.waitFor({ timeout: 10000 });
     await page.getByTestId("list-scroll").evaluate((el) => el.scrollTo(0, el.scrollHeight));

@@ -132,13 +132,17 @@ await t.eachViewport(async (page, vp) => {
       await row.locator("a").first().click();
       await page.waitForURL(/\/i\/\d+/, { timeout: 10000 });
       const bar = page.getByRole("toolbar", { name: "Article actions" });
-      const read = bar.getByRole("button", { name: /^Mark as (un)?read$/ });
+      const more = bar.getByRole("button", { name: "More actions" });
+      await more.waitFor({ timeout: 10000 });
+      await more.click();
+      const read = page.getByRole("menuitem", { name: /^Mark as (un)?read$/ });
       await read.waitFor({ timeout: 10000 });
-      if ((await read.getAttribute("aria-label")) === "Mark as read") {
+      if ((await read.textContent())?.trim() === "Mark as read") { // uat-labels: ignore (a menu item's text, not an aria-label)
         await read.click();
         await page.waitForTimeout(500);
+        await more.click();
       }
-      await bar.getByRole("button", { name: "Mark as unread" }).click();
+      await page.getByRole("menuitem", { name: "Mark as unread" }).click(); // uat-labels: ignore (a menu item's text, not an aria-label)
       await page.waitForTimeout(400);
       const before = (await page.getByTestId("undo-region").textContent()) ?? "";
       const url = page.url();
