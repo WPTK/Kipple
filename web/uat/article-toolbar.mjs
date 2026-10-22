@@ -11,6 +11,7 @@
 //   T4  More actions no longer holds Share.
 // It marks the article it toggled back afterwards. It only runs against a loopback address with the seed's credentials
 // unless --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
+import { URL } from "node:url";
 import { start } from "./common.mjs";
 
 const t = await start(import.meta.url, 12);
