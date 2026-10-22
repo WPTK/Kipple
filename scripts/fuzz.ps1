@@ -13,7 +13,8 @@
   scripts\fuzz.ps1 -Minutes 10 -Parallel 2 -Filter OPML
 Stops at the first failure (unless -ContinueOnFailure) and prints the failing input file (testdata\fuzz\<Target>\<hash>
 inside the package; commit it as a regression seed once the bug is fixed). New coverage
-found while running is cached under "go env GOCACHE"\fuzz and is not committed.
+found while running is cached under "go env GOCACHE"\fuzz (one directory per target) and is not committed;
+scripts/fuzz-cache.ps1 keeps those directories in the Actions cache, one key per target, for the Fuzz workflow.
 
 Long mode (-Minutes N, for the dev machine, not CI): first re-runs every selected target against its committed
 testdata\fuzz reproducers and the seed corpus (a failure there is a regression and is reported as REPRO), then fuzzes each
@@ -48,6 +49,17 @@ function Select-FuzzTarget {
     $picked = @(for ($i = $index - 1; $i -lt $sorted.Count; $i += $count) { $sorted[$i] })
   }
   $picked
+}
+
+# Get-FuzzTargetList: every fuzz target of the module (package and name), unsorted.
+function Get-FuzzTargetList {
+  [CmdletBinding()]
+  param()
+  foreach ($pkg in (go list ./...)) {
+    foreach ($line in (go test -list 'Fuzz.*' $pkg 2>$null)) {
+      if ($line -match '^Fuzz\w+$') { [pscustomobject]@{ Package = $pkg; Name = $line } }
+    }
+  }
 }
 
 # Get-FuzzParallel: the -parallel value of a long run. 0 (not given) means half the cores, at least 1; a given value is
@@ -137,12 +149,7 @@ if ($MyInvocation.InvocationName -ne '.') {
   # A bad -Shard is refused before the (slow) target list is built.
   if ($Shard) { $null = @(Select-FuzzTarget -Target @() -Shard $Shard) }
 
-  $all = @()
-  foreach ($pkg in (go list ./...)) {
-    foreach ($line in (go test -list 'Fuzz.*' $pkg 2>$null)) {
-      if ($line -match '^Fuzz\w+$') { $all += [pscustomobject]@{ Package = $pkg; Name = $line } }
-    }
-  }
+  $all = @(Get-FuzzTargetList)
   $targets = @(Select-FuzzTarget -Target $all -Filter $Filter -Shard $Shard)
 
   $each = if ($Minutes -gt 0) { "$Minutes min" } else { "$Seconds s" }

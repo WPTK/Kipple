@@ -1,0 +1,36 @@
+name: Cache cleanup
+
+# The repository's Actions cache quota is 10 GB, shared by every workflow; when it is full GitHub evicts the least recently
+# used entries, which can be the build and module caches that pull request CI depends on. Two kinds of entry grow without
+# bound and nothing else removes them: Docker layers saved under pull request refs, and one CodeQL overlay database per
+# main commit. scripts/cache-cleanup.ps1 deletes them (both are rebuilt on demand). The fuzz corpora prune themselves
+# (scripts/fuzz-cache.ps1).
+on:
+  schedule:
+    - cron: "43 6 * * 1" # Mondays 06:43 UTC, after the Fuzz workflow
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cache-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write # gh cache delete
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: scripts/cache-cleanup.ps1

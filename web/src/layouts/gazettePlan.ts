@@ -247,3 +247,9 @@ export function planGazette(input: GazetteInput): GazettePlan {
   }
   return { pages, complete };
 }
+
+/** The ids of a plan's stories in the order the pages print them: page by page, block by block, slot by slot (a
+ * block lists its slots column by column). */
+export function readingOrder(plan: GazettePlan): string[] {
+  return plan.pages.flatMap((p) => p.blocks.flatMap((b) => b.slots.map((s) => s.id)));
+}
