@@ -32,11 +32,23 @@ describe("failure wording by cause", () => {
     render(<Toasts />);
     act(() => {
       toast("Couldn't star this article. Kipple can't be reached.", "error", undefined, "star");
-      toast("Couldn't mark as read.", "error", undefined, "read");
+      toast("Link copied");
     });
     expect(screen.getByText(/Couldn't star/)).toBeInTheDocument();
     act(() => settleToasts("star"));
     expect(screen.queryByText(/Couldn't star/)).toBeNull();
-    expect(screen.getByText("Couldn't mark as read.")).toBeInTheDocument();
+    expect(screen.getByText("Link copied")).toBeInTheDocument();
+  });
+
+  it("shows one toast per kind: a newer error replaces the older one", () => {
+    render(<Toasts />);
+    act(() => {
+      toast("Couldn't star this article. Kipple can't be reached.", "error", undefined, "star");
+      toast("Couldn't mark as read. Kipple can't be reached.", "error", undefined, "read");
+      toast("Link copied");
+    });
+    expect(screen.queryByText(/Couldn't star/)).toBeNull();
+    expect(screen.getByText(/Couldn't mark as read/)).toBeInTheDocument();
+    expect(screen.getByText("Link copied")).toBeInTheDocument();
   });
 });

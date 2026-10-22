@@ -156,7 +156,7 @@ export function bumpMuted(qc: QueryClient, delta: number): void {
 }
 
 /** The cached card or detail for an id, wherever it is cached. */
-export function findCached(qc: QueryClient, id: string): Pick<Card, "feed_id" | "read"> | undefined {
+export function findCached(qc: QueryClient, id: string): Pick<Card, "feed_id" | "read" | "title"> | undefined {
   const d = qc.getQueryData<ItemDetail>(keys.item(id));
   if (d) return d;
   for (const [, data] of qc.getQueriesData<InfiniteData<ItemsPage>>({ queryKey: keys.itemsAll })) {

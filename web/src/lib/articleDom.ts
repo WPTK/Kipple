@@ -147,14 +147,16 @@ function setCueLink(cue: HTMLElement, original: string | undefined, sameTab: boo
  * the original article, where the image can be seen. Inside a link it is plain text (the link still works). Tracking
  * pixels and embed thumbnails (the embed has its own link) get no cue.
  */
-export function imageNotShown(img: HTMLImageElement, original: string | undefined, sameTab: boolean): HTMLElement | null {
+export function imageNotShown(img: HTMLImageElement, original: string | undefined, sameTab: boolean, offline = false): HTMLElement | null {
   if (!img.isConnected || isBeacon(img) || img.closest(`figure.kp-embed, .${NOT_SHOWN_CLASS}`)) return null;
   const doc = img.ownerDocument;
   const cue = doc.createElement("span");
   cue.className = NOT_SHOWN_CLASS;
   const alt = (img.getAttribute("alt") ?? "").trim();
   const label = doc.createElement("span");
-  label.textContent = alt ? `Image not shown: ${alt}` : "Image not shown";
+  // Offline the picture is only out of reach for now, not refused: the cue says so.
+  const text = offline ? "Picture not available offline" : "Image not shown";
+  label.textContent = alt ? `${text}: ${alt}` : text;
   cue.append(label);
   const w = declared(img, "width");
   const h = declared(img, "height");
@@ -196,6 +198,14 @@ export function watchImages(root: HTMLElement, original: string | undefined, sam
     const img = e.target;
     if (!(img instanceof HTMLImageElement) || !root.contains(img)) return;
     erred.add(img);
+    // No network: the failure needs no check, and the cue says the picture is out of reach, not refused.
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      if (!asked.has(img) && !isBeacon(img) && !img.closest("figure.kp-embed")) {
+        asked.add(img);
+        imageNotShown(img, original, sameTab, true);
+      }
+      return;
+    }
     check(img);
   };
   root.addEventListener("error", onError, true);

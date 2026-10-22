@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { onlineManager, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import { useRefreshAll } from "@/api/refresh";
 import { applyCounts } from "@/api/events";
@@ -583,7 +584,7 @@ describe("<OfflineNotice />", () => {
     expect(region).toHaveAttribute("aria-live", "polite");
     expect(region).toBeEmptyDOMElement();
     expect(screen.getByTestId("offline-notice")).toHaveClass("sr-only-live");
-    expect(screen.getByTestId("offline-notice")).not.toHaveClass("pt-safe");
+    expect(screen.getByTestId("offline-notice")).toHaveClass("sr-only-live");
   });
 
   it("puts the text into the region that was mounted before it, and keeps the button out of it", () => {
@@ -592,8 +593,8 @@ describe("<OfflineNotice />", () => {
     act(() => setOnline(false));
     rerender(<OfflineNotice />);
     expect(screen.getByRole("status")).toBe(region); // the same node: an announcement, not a new region
-    expect(region).toHaveTextContent("You're offline.");
-    expect(screen.getByTestId("offline-notice")).toHaveClass("pt-safe");
+    expect(region).toHaveTextContent("Kipple can't be reached.");
+    expect(screen.getByTestId("offline-notice")).not.toHaveClass("sr-only-live");
     act(() => offlineStore.set((s) => ({ ...s, updateReady: true })));
     expect(screen.getByRole("status")).toBe(region);
     expect(region).toHaveTextContent("A newer version of Kipple is ready.");
@@ -601,7 +602,31 @@ describe("<OfflineNotice />", () => {
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
   });
 
+  it("says Kipple can't be reached when the browser has a network but Kipple does not answer", () => {
+    setOnline(false);
+    render(<OfflineNotice />);
+    expect(screen.getByRole("status")).toHaveTextContent("Kipple can't be reached. Reading what's on this device.");
+  });
+
+  it("names the changes waiting to be sent when asked", async () => {
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    const c = makeQueryClient();
+    c.setQueryData(keys.item("7"), { id: "7", feed_id: "1", read: false, title: "Ember" });
+    await queueStar("7", true);
+    setOnline(false);
+    setPending(1);
+    render(
+      <QueryClientProvider client={c}>
+        <OfflineNotice />
+      </QueryClientProvider>,
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: /Show changes/ }));
+    expect(await screen.findByText("Starred Ember")).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
   it("explains offline, with and without waiting changes, and while sending", () => {
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
     setOnline(false);
     const { rerender } = render(<OfflineNotice />);
     expect(screen.getByRole("status")).toHaveTextContent("You're offline. Reading what's on this device.");

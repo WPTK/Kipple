@@ -37,6 +37,20 @@ describe("images refused for good", () => {
     root.remove();
   });
 
+  it("a picture that fails while the browser is offline says it is out of reach, with no request", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    const root = body('<img src="/img/a" alt="Harbour">');
+    watchImages(root, undefined, false);
+    fail(root.querySelector("img"));
+    await settle();
+    expect(root.querySelector(".kp-img-off")?.textContent).toBe("Picture not available offline: Harbour");
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+    root.remove();
+  });
+
   it("an image with no address gets the cue when the watch begins, with no error event and no request", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
