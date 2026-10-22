@@ -214,6 +214,8 @@ func TestPatchDeviceValidation(t *testing.T) {
 		{"override bad layout", `{"client.list_overrides":{"feed":{"1":{"layout":"grid"}},"folder":{}}}`, "client.list_overrides"},
 		{"override bad order", `{"client.list_overrides":{"feed":{"1":{"order":"rank"}}}}`, "client.list_overrides"},
 		{"override bad view", `{"client.list_overrides":{"folder":{"1":{"view":"starred"}}}}`, "client.list_overrides"},
+		{"override bad group", `{"client.list_overrides":{"feed":{"1":{"group":"month"}}}}`, "client.list_overrides"},
+		{"group type", `{"client.group":"rank"}`, "client.group"},
 		{"override unknown field", `{"client.list_overrides":{"feed":{"1":{"layout":"cards","density":"dense"}}}}`, "client.list_overrides"},
 		{"override empty entry", `{"client.list_overrides":{"feed":{"1":{}}}}`, "client.list_overrides"},
 		{"override bare layout", `{"client.list_overrides":{"feed":{"1":"cards"}}}`, "client.list_overrides"},
@@ -251,7 +253,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	d := h.newDev()
 	body := `{"ui.theme":"system","ui.theme_schedule":true,"ui.theme_day":"linen","ui.theme_night":"carbon","ui.theme_night_start":"22:30","ui.theme_day_start":"06:15","ui.font_body":"Atkinson Hyperlegible Next",
 	 "ui.reading_density":"airy","ui.list_density":"dense","ui.mark_read_on_scroll":true,
-	 "client.layout":"digest","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"},"5":{"layout":"gazette"}}},
+	 "client.layout":"digest","client.group":"week","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","group":"none","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"},"5":{"layout":"gazette"}}},
 	 "client.paper_name":"` + strings.Repeat("é", 60) + `",
 	 "client.order":"oldest","client.search_order":"relevance","client.inbox_thumbs":"off","client.peek_seen":true,"client.article_width":"full",
 	 "client.list_width":400,"client.sidebar_width":300,"client.link_target":"same","client.unread_badge":"dot",
@@ -268,6 +270,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	require.Equal(t, "22:30", m["ui.theme_night_start"])
 	require.Equal(t, "06:15", m["ui.theme_day_start"])
 	require.Equal(t, "digest", m["client.layout"])
+	require.Equal(t, "week", m["client.group"])
 	require.Equal(t, "easy", m["ui.font_body"], "a display name is stored as the font id")
 	for _, bad := range []string{"\"rank\"", "1"} {
 		c2, o2, _ := d.call("PATCH", "/api/device", `{"client.search_order":`+bad+`}`)
@@ -275,7 +278,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 		_ = o2
 	}
 	require.Equal(t, map[string]any{
-		"feed":   map[string]any{"12": map[string]any{"layout": "inbox", "order": "oldest", "view": "all"}},
+		"feed":   map[string]any{"12": map[string]any{"layout": "inbox", "order": "oldest", "group": "none", "view": "all"}},
 		"folder": map[string]any{"3": map[string]any{"layout": "compact"}, "8": map[string]any{"view": "unread"}, "5": map[string]any{"layout": "gazette"}},
 	}, m["client.list_overrides"])
 	require.Equal(t, strings.Repeat("é", 60), m["client.paper_name"], "60 characters, not 60 bytes")

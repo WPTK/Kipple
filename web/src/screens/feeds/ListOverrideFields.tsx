@@ -1,5 +1,7 @@
 import { useListContext, useSetListOverride } from "@/layouts";
 import {
+  GROUP_BYS,
+  GROUP_LABELS,
   LAYOUT_IDS,
   LAYOUT_LABELS,
   LIST_VIEWS,
@@ -16,11 +18,12 @@ import { useFallbackLabel } from "../LayoutMenu";
 const CHOICES: { field: ListField; label: string; ids: readonly string[]; names: Record<string, string> }[] = [
   { field: "layout", label: "Layout on this device", ids: LAYOUT_IDS, names: LAYOUT_LABELS },
   { field: "order", label: "Order on this device", ids: ["newest", "oldest"], names: ORDER_LABELS },
+  { field: "group", label: "Group by on this device", ids: GROUP_BYS, names: GROUP_LABELS },
   { field: "view", label: "Opens in", ids: LIST_VIEWS, names: LIST_VIEW_LABELS },
 ];
 
 /**
- * A feed's or folder's own layout, order and opening view on this device (the same overrides the list header's
+ * A feed's or folder's own layout, order, grouping and opening view on this device (the same overrides the list header's
 
  * options menu sets), as a draft: nothing is written until the dialog's Save calls `apply` from
  * useListOverrideDraft, so Cancel leaves them as they were. The first choice of each clears the list's own value and
@@ -56,6 +59,7 @@ export function ListOverrideFields({ kind, id, draft: state }: { kind: "feed" | 
   const fallback: Record<ListField, string> = {
     layout: useFallbackLabel(ctx, "layout"),
     order: useFallbackLabel(ctx, "order"),
+    group: useFallbackLabel(ctx, "group"),
     view: useFallbackLabel(ctx, "view"),
   };
   const help =

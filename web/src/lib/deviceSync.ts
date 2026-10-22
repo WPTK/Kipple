@@ -93,6 +93,7 @@ export function profileOf(l: LocalState): Profile {
     "client.layout": dp.layout,
     "client.list_overrides": { feed: { ...dp.overrides.feed }, folder: { ...dp.overrides.folder } },
     "client.order": dp.order,
+    "client.group": dp.group,
     "client.search_order": SEARCH_ORDER_TO_SERVER[dp.searchOrder],
     "client.inbox_thumbs": dp.inboxThumbs,
     "client.peek_seen": dp.peekSeen,
@@ -149,6 +150,7 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     layout: g("client.layout"),
     overrides: g("client.list_overrides"),
     order: g("client.order"),
+    group: g("client.group"),
     searchOrder: searchOrderFromServer(g("client.search_order")),
     inboxThumbs: g("client.inbox_thumbs"),
     peekSeen: g("client.peek_seen"),
@@ -524,7 +526,7 @@ function legacyProfileKeys(): Set<string> {
   if (p?.markReadOnScroll === true) out.add("ui.mark_read_on_scroll");
   // The v1 cache counts when this build has not written its own yet (devicePrefs converts it on load).
   add(read(DEVICE_PREFS_KEY) ?? read(LEGACY_DEVICE_PREFS_KEY), {
-    layout: ["client.layout"], overrides: ["client.list_overrides"], order: ["client.order"], searchOrder: ["client.search_order"], inboxThumbs: ["client.inbox_thumbs"],
+    layout: ["client.layout"], overrides: ["client.list_overrides"], order: ["client.order"], group: ["client.group"], searchOrder: ["client.search_order"], inboxThumbs: ["client.inbox_thumbs"],
     peekSeen: ["client.peek_seen"], articleWidth: ["client.article_width"], listWidth: ["client.list_width"],
     sidebarWidth: ["client.sidebar_width"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],
     unreadBadge: ["client.unread_badge"], highlightKeywords: ["client.highlight_keywords"],

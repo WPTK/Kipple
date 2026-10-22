@@ -206,7 +206,12 @@ Choices made where the decisions above were silent; the owner may overrule any o
   All, Starred and Muted), and toggling back to the inherited order removes the override. The menu's Order radio is
   the explicit form: picking Newest first or Oldest first there keeps that override even when it equals what the list
   would inherit (so a later change above does not move it), and its first choice removes it.
-- Layout, order and view of one list are one object per feed or folder in the device profile
+- **Group by** (#39) is the headers a list is cut under: Day (one per local day, the default), Week (Today, Yesterday,
+  This week, Earlier; the week starts on Monday) or None. It is a fourth field of the same override, resolved like the
+  order, and a radio group in the list options menu (and a select in the feed and folder editors) whose first choice names
+  what the list inherits. Headers keep the list's order and are level 2 headings; the Gazette and a search ignore the
+  choice, and the menu hides it there.
+- Layout, order, grouping and view of one list are one object per feed or folder in the device profile
   (`client.list_overrides`), set from the list header's options menu (its button reads "List options, Cards layout")
   and from the feed and folder editors, whose first choice names what the list inherits, as the menu does.
 ### Mute similar (#320, 2026-10-07)

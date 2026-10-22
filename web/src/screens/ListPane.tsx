@@ -19,10 +19,10 @@ import { usePullToRefresh } from "@/gestures/usePullToRefresh";
 import { pageOf, useResolvedLayout } from "@/layouts";
 import { ROW_KEYSHORTCUTS, RowTabStop, useRowTabIndex } from "@/layouts/rowTabStop";
 import type { ListLayout, RowMenuActions } from "@/layouts";
-import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
+import { resolveList, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { prefsStore } from "@/lib/prefs";
 import { useStore, useStoreSelector } from "@/lib/store";
-import { withDayHeaders, type Row } from "@/lib/format";
+import { withHeaders, type Row } from "@/lib/format";
 import { useSearchHighlight } from "@/lib/useHighlights";
 import { onBecameUnread, readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
@@ -265,7 +265,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const boot = useBootstrap();
   const prefs = useStore(prefsStore);
   const dp = useDevicePrefs();
-  const { layout } = useResolvedLayout(scope);
+  const { layout, ctx } = useResolvedLayout(scope);
+  // A search keeps its own headers (days, or the one for relevance): the grouping is a setting of the feed and folder lists.
+  const group = scope.q ? "day" : resolveList(dp, ctx, "group").value;
   // A page layout (the Gazette) draws the whole loaded list itself: no virtualized rows, and no row ever leaves it.
   const Page = pageOf(layout, scope);
   // Where the articles come from (listSource.ts): the server's list, a page at a time.
@@ -296,10 +298,10 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       chunkRows(
         rank && items.length > 0
           ? [{ kind: "header", key: "h:rank", label: "Best matches first" } as Row<Card>, ...items.map((item): Row<Card> => ({ kind: "item", key: item.id, item }))]
-          : withDayHeaders(items),
+          : withHeaders(items, group),
         cols,
       ),
-    [items, cols, rank],
+    [items, cols, rank, group],
   );
   // A search that had no exact match shows partial matches, and the list's own flag goes back to the server when
   // the whole result is marked read, so it marks what was shown.

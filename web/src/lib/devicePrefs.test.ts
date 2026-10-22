@@ -137,6 +137,25 @@ describe("order and view overrides (#38)", () => {
     expect(inheritedList(p(), ctx12, "order")).toEqual({ value: "oldest", from: null });
   });
 
+  it("the grouping resolves like the order: feed, folders up the tree, then the device default (Day)", () => {
+    const p = () => devicePrefsStore.get();
+    const ctx4 = layoutContext({ view: "unread", feed: "4" }, feeds, tree);
+    expect(resolveList(p(), ctx4, "group")).toEqual({ value: "day", from: null });
+    setListOverride("folder", "12", "group", "week");
+    expect(resolveList(p(), ctx4, "group")).toEqual({ value: "week", from: { kind: "folder", id: "12" } });
+    setListOverride("feed", "4", "group", "none");
+    expect(resolveList(p(), ctx4, "group")).toEqual({ value: "none", from: { kind: "feed", id: "4" } });
+    expect(inheritedList(p(), ctx4, "group")).toEqual({ value: "week", from: { kind: "folder", id: "12" } });
+    updateDevicePrefs({ group: "week" });
+    expect(resolveList(p(), layoutContext({ view: "unread", feed: "3" }, feeds, tree), "group")).toEqual({ value: "week", from: null });
+  });
+
+  it("drops a grouping it does not know, from the device and from an override", () => {
+    const p = parseDevicePrefs(JSON.stringify({ group: "month", overrides: { feed: { "1": { group: "year", order: "oldest" } }, folder: {} } }));
+    expect(p.group).toBe("day");
+    expect(p.overrides.feed).toEqual({ "1": { order: "oldest" } });
+  });
+
   it("clearing the last field removes the override, and the other fields stay", () => {
     setListOverride("feed", "2", "layout", "cards");
     setListOverride("feed", "2", "view", "all");
