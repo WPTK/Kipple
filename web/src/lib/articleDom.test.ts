@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { embedSrc, footnoteTarget, handleArticleClick, loadEmbed } from "./articleDom";
+import { embedSrc, enhanceTables, footnoteTarget, handleArticleClick, loadEmbed } from "./articleDom";
 
 describe("embedSrc", () => {
   it("allows only YouTube (nocookie) and Vimeo with sane ids", () => {
@@ -91,5 +91,18 @@ describe("malformed footnote hrefs", () => {
     expect(() => handleArticleClick(ev, body, null, false)).not.toThrow();
     expect(ev.defaultPrevented).toBe(true);
     body.remove();
+  });
+});
+
+describe("enhanceTables", () => {
+  it("marks numbers and short cells, and leaves long text and rich cells alone", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      "<table><tr><th>Name</th><th>Price</th><th>Notes</th></tr>" +
+      "<tr><td>Widget</td><td>$1,234.50</td><td>A longer sentence that should wrap like a paragraph.</td></tr>" +
+      "<tr><td>Gadget</td><td>-12%</td><td><p>Block</p></td></tr></table>";
+    enhanceTables(root);
+    const kp = [...root.querySelectorAll("td, th")].map((c) => (c as HTMLElement).dataset.kp ?? "");
+    expect(kp).toEqual(["short", "short", "short", "short", "num", "", "short", "num", ""]);
   });
 });

@@ -164,12 +164,12 @@ export function FontPicker({ value, onChange, label = "Reading font", help, prev
         })}
       </select>
       {preview === "large" ? (
-        <div data-testid="font-preview" aria-hidden="true" className="mt-1 flex flex-col gap-1 rounded-xl border border-line bg-surface px-3 py-2" style={{ fontFamily: stack }}>
+        <div data-testid="font-preview" aria-hidden="true" className="mt-1 flex flex-col gap-1 rounded-xl border border-line bg-surface px-3 py-2" style={{ fontFamily: stack, fontSizeAdjust: 0.5 }}>
           <p className="text-lg leading-snug font-bold">Toaster files formal grievance against the kitchen</p>
           <p className="text-base leading-snug">{FONT_SAMPLE}</p>
         </div>
       ) : (
-        <p data-testid="font-preview" className="text-xs text-fg2" style={{ fontFamily: stack }}>
+        <p data-testid="font-preview" className="text-xs text-fg2" style={{ fontFamily: stack, fontSizeAdjust: 0.5 }}>
           Sample: {FONT_SAMPLE}
         </p>
       )}

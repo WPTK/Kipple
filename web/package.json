@@ -53,7 +53,8 @@
     "uat:gazette-menu": "node uat/gazette-menu.mjs",
     "uat:gazette-order": "node uat/gazette-order.mjs",
     "uat:article-toolbar": "node uat/article-toolbar.mjs",
-    "uat:group-by": "node uat/group-by.mjs"
+    "uat:group-by": "node uat/group-by.mjs",
+    "uat:reading": "node uat/reading.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

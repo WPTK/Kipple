@@ -248,3 +248,52 @@ export function handleArticleClick(e: MouseEvent | React.MouseEvent, body: HTMLE
   }
   return false;
 }
+
+/** A cell of a table: short text stays on one line, a number also sits on the end edge in tabular figures. */
+const NUMBER = /^[(+\-\u2212$\u20ac\u00a3\u00a5\s]*\d[\d,.\s\u00a0]*(%|[kKmMbB])?\)?$/;
+const SHORT_CELL = 12;
+
+/** Mark table cells that hold a number or only a few characters (CSS reads data-kp). Cells with markup other than inline text are left alone. */
+export function enhanceTables(root: ParentNode): void {
+  for (const cell of root.querySelectorAll<HTMLElement>("td, th")) {
+    if (cell.dataset.kp || cell.querySelector("table, p, ul, ol, div, img, pre")) continue;
+    const text = (cell.textContent ?? "").trim();
+    if (text === "") continue;
+    if (NUMBER.test(text)) cell.dataset.kp = "num";
+    else if (text.length <= SHORT_CELL) cell.dataset.kp = "short";
+  }
+}
+
+/**
+ * Code blocks and tables wider than the column scroll sideways, so they need to be reachable without a mouse: while one
+ * overflows it takes focus (tabindex 0), and says what it is (a code block is a labelled region; a table keeps its
+ * role and gets a name). They are checked again when the column or the text size changes. Returns the cleanup.
+ */
+export function watchScrollRegions(root: HTMLElement): () => void {
+  const regions = [...root.querySelectorAll<HTMLElement>("pre, table")];
+  const apply = (el: HTMLElement) => {
+    const over = el.scrollWidth > el.clientWidth + 1;
+    if (over) {
+      el.tabIndex = 0;
+      if (el.tagName === "PRE") el.setAttribute("role", "region");
+      if (!el.hasAttribute("aria-label")) {
+        el.setAttribute("aria-label", el.tagName === "PRE" ? "Code" : "Table");
+        el.dataset.kpName = "1";
+      }
+    } else {
+      el.removeAttribute("tabindex");
+      if (el.tagName === "PRE") el.removeAttribute("role");
+      if (el.dataset.kpName) {
+        el.removeAttribute("aria-label");
+        delete el.dataset.kpName;
+      }
+    }
+  };
+  if (typeof ResizeObserver === "undefined") {
+    regions.forEach(apply);
+    return () => undefined;
+  }
+  const ro = new ResizeObserver((entries) => entries.forEach((e) => apply(e.target as HTMLElement)));
+  regions.forEach((el) => ro.observe(el));
+  return () => ro.disconnect();
+}
