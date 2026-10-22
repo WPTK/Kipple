@@ -5,7 +5,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type C
 import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, HeartPulse, MoreVertical, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckCheck, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, HeartPulse, ListFilter, MoreVertical, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { createFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { ApiError, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
@@ -34,15 +34,16 @@ import { clickRow, groupState, toggleGroup } from "@/lib/selection";
 import { cn } from "@/lib/cn";
 import { listTo, openListTo } from "@/lib/routes";
 import { visibleFeeds } from "@/lib/visibleFeeds";
-import { FeedRowName, feedLabel } from "./feeds/FeedRowName";
+import { feedLabel } from "./feeds/FeedRowName";
+import { FeedLine, FolderLine } from "./feeds/RowLine";
+import { useItemActions } from "@/lib/itemActions";
 import { RevealMore, useReveal } from "@/lib/reveal";
 import { FavStar } from "@/ui/FavStar";
-import { MutedCount } from "@/ui/UnreadCount";
+import { MutedCount, StarredCount, UnreadCount } from "@/ui/UnreadCount";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
 import { FirstRun } from "./FirstRun";
-import { FeedRowStatus } from "./StatusChip";
 import { SavedSearchesNav } from "./SavedSearchesNav";
 import { CollapseToggle } from "./FeedTree";
 import { DeleteDialog, DeleteFolderDialog, MoveDialog } from "./feeds/BulkActions";
@@ -56,16 +57,6 @@ const OpmlImportDialog = lazyScreen(() => import("./feeds/OpmlDialog").then((m) 
 
 const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 const menuItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
-
-function Badge({ n }: { n: number }) {
-  if (n <= 0) return null;
-  return (
-    <span className="ml-auto shrink-0 rounded-full bg-surface px-2 py-0.5 text-xs font-semibold text-fg2 tabular-nums">
-      <span className="sr-only-live">Unread </span>
-      {n > 9999 ? "9999+" : n}
-    </span>
-  );
-}
 
 type FolderDialog =
   | { kind: "new"; parent: string | null }
@@ -248,22 +239,26 @@ export function FeedsScreen() {
   // Up and down buttons: the keyboard and screen reader alternative to dragging, off the row by default.
   const [buttons, setButtons] = useState(false);
   const [selecting, setSelecting] = useState(false);
+  // Only the feeds with something unread. Editing and selecting always show every feed (a reorder is saved against the whole tree).
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [sel, setSel] = useState<Sel>(new Set());
   const [anchor, setAnchor] = useState<string | null>(null);
   const [bulk, setBulk] = useState<null | "move" | "delete">(null);
   const [saved, setSaved] = useState<"saving" | "saved" | null>(null);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scroller = useRef<HTMLDivElement>(null);
+  const act = useItemActions();
 
   const feeds = useMemo(() => boot.data?.feeds ?? [], [boot.data?.feeds]);
   const folders = useMemo(() => boot.data?.folders ?? [], [boot.data?.folders]);
   const realFeeds = useMemo(() => visibleFeeds(feeds), [feeds]);
+  const filtering = unreadOnly && !editMode && !selecting;
   const byFolder = useMemo(() => {
     const m: Record<string, Feed[]> = {};
     for (const fo of folders) m[fo.id] = [];
-    for (const f of realFeeds) (m[f.folder_id] ??= []).push(f);
+    for (const f of realFeeds) if (!filtering || f.unread > 0) (m[f.folder_id] ??= []).push(f);
     return m;
-  }, [folders, realFeeds]);
+  }, [folders, realFeeds, filtering]);
   const ftree = useMemo(() => folderTree(folders), [folders]);
   const tree: Tree = useMemo(
     () => ({
@@ -278,9 +273,12 @@ export function FeedsScreen() {
   // Each folder's feeds over its subtree (its Select checkbox), built once per tree, not per row and drag move.
   const subtreeIds = useMemo(() => subtreeFeeds(ftree, (id) => tree.feeds[id] ?? []), [ftree, tree]);
   // The empty default folder only shows while editing, where it takes dropped feeds (issue #469).
+  // Unread only leaves out every folder with no unread feed in its subtree.
+  const hasFeeds = (id: string) => (subtreeIds.get(id)?.length ?? 0) > 0;
   const topLevel = useMemo(
-    () => childrenOf(ftree, null).filter((id) => editMode || !ftree.byId.get(id)?.is_default || (byFolder[id]?.length ?? 0) > 0),
-    [ftree, byFolder, editMode],
+    () => childrenOf(ftree, null).filter((id) => (filtering ? hasFeeds(id) : editMode || !ftree.byId.get(id)?.is_default || (byFolder[id]?.length ?? 0) > 0)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ftree, byFolder, editMode, filtering, subtreeIds],
   );
   // Every folder and feed row in screen order (collapsed folders hide theirs outside Edit and Select): a library of
   // thousands of feeds draws them a step at a time (issue #463).
@@ -289,11 +287,12 @@ export function FeedsScreen() {
   // applies outside them; it is not changed, and returns when the mode ends. The key list and the render share this rule.
   const rules: RowRules = useMemo(
     () => ({
-      subfolders: (id) => childrenOf(ftree, id),
+      subfolders: (id) => (filtering ? childrenOf(ftree, id).filter(hasFeeds) : childrenOf(ftree, id)),
       feeds: (id) => byFolder[id] ?? [],
       open: (id) => selecting || editMode || !dp.collapsedFolders.includes(id),
     }),
-    [ftree, byFolder, selecting, editMode, dp.collapsedFolders],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ftree, byFolder, selecting, editMode, filtering, subtreeIds, dp.collapsedFolders],
   );
   const rowKeys = useMemo(() => {
     const out: string[] = [];
@@ -380,6 +379,12 @@ export function FeedsScreen() {
     else setSaved(null);
   };
   const favKey = (f: Favorite) => `${f.t}:${f.id}`;
+
+  /** Mark every unread article in a folder and its subfolders read; the undo toast takes it back. */
+  const markFolderRead = async (fo: Folder) => {
+    await act.markAll({ view: "unread", folder: fo.id }, undefined, []);
+    invalidateFeeds(qc);
+  };
 
   // A drop after the last drawn row of a list that is not all drawn yet lands there, before its first row not drawn,
   // not after the whole list (the reveal says which rows are drawn).
@@ -545,21 +550,13 @@ export function FeedsScreen() {
               onClick={(e) => onCheck(f.id, e.shiftKey)}
               className="size-5 shrink-0 accent-[var(--kp-accent)]"
             />
-            <span className="min-w-0">
-              <FeedRowName feed={f} />
-              <FeedRowStatus status={f.status} error={f.last_error} />
-            </span>
-            <Badge n={f.unread} />
+            <FeedLine feed={f} status />
           </label>
         ) : (
           <>
             {editMode ? grip(src, f.title) : null}
             <Link to={openListTo({ feed: f.id })} draggable={false} data-reveal-key={`feed:${f.id}`} className={`${row} min-w-0 flex-1 text-sm`}>
-              <span className="min-w-0">
-                <FeedRowName feed={f} />
-                <FeedRowStatus status={f.status} error={f.last_error} />
-              </span>
-              <Badge n={f.unread} />
+              <FeedLine feed={f} status />
             </Link>
           </>
         )}
@@ -582,7 +579,10 @@ export function FeedsScreen() {
     const key = favKey(fav);
     const src: DragSource = { kind: "fav", id: key, group: "fav" };
     const favFolder = fav.t === "folder" ? ftree.byId.get(fav.id) : undefined;
-    const name = favFolder ? folderPath(ftree, favFolder.id) : feeds.find((f) => f.id === fav.id)?.title;
+    const favFeed = fav.t === "feed" ? realFeeds.find((f) => f.id === fav.id) : undefined;
+    // A favorite whose feed or folder is gone draws nothing (the sidebar does the same).
+    if (!favFolder && !favFeed) return null;
+    const name = favFolder ? folderPath(ftree, favFolder.id) : favFeed!.title;
     // A favorite folder lists the feeds of its whole subtree.
     const inFav = favFolder ? subtreeOf(ftree, favFolder.id) : null;
     const favFeeds = inFav ? realFeeds.filter((f) => inFav.has(f.folder_id)) : [];
@@ -607,8 +607,7 @@ export function FeedsScreen() {
             draggable={false}
             className={`${row} min-w-0 flex-1 text-sm`}
           >
-            <span className="truncate">{name}</span>
-            <span className="ml-auto shrink-0 text-xs text-fg2">{fav.t === "folder" ? "Folder" : "Feed"}</span>
+            {favFolder ? <FolderLine name={name} unread={favFolder.unread} icon /> : <FeedLine feed={favFeed!} status />}
           </Link>
           {!selecting ? (
             <>
@@ -621,8 +620,8 @@ export function FeedsScreen() {
           <ul id={favListId} className="pl-6">
             {favFeeds.map((f) => (
               <li key={f.id}>
-                <Link to={openListTo({ feed: f.id })} draggable={false} className={`${row} text-sm`}>
-                  <span className="truncate">{f.title}</span>
+                <Link to={openListTo({ feed: f.id })} draggable={false} className={`${row} min-w-0 text-sm`}>
+                  <FeedLine feed={f} />
                 </Link>
               </li>
             ))}
@@ -680,15 +679,13 @@ export function FeedsScreen() {
                 }}
                 className="size-5 shrink-0 accent-[var(--kp-accent)]"
               />
-              <span className="truncate">{fo.name}</span>
-              <Badge n={fo.unread} />
+              <FolderLine name={fo.name} unread={fo.unread} />
             </label>
           ) : (
             <>
               {editMode ? grip(fsrc, `folder ${label}`) : <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} />}
               <Link to={openListTo({ folder: fo.id })} draggable={false} data-reveal-key={`folder:${fo.id}`} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
-                <span className="truncate">{fo.name}</span>
-                <Badge n={fo.unread} />
+                <FolderLine name={fo.name} unread={fo.unread} />
               </Link>
             </>
           )}
@@ -704,6 +701,12 @@ export function FeedsScreen() {
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-48">
+                    {fo.unread > 0 ? (
+                      <DropdownMenu.Item className={menuItem} onSelect={() => void markFolderRead(fo)}>
+                        <CheckCheck className="size-5" aria-hidden="true" />
+                        Mark all as read
+                      </DropdownMenu.Item>
+                    ) : null}
                     <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "rename", folder: fo })}>
                       <Pencil className="size-5" aria-hidden="true" />
                       Rename or set layout
@@ -772,69 +775,87 @@ export function FeedsScreen() {
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
           {/* The text hides below 560px, so the name comes from aria-label, matching the text when shown. The name
-              itself carries the state (Select/Edit, then Done), so there is no aria-pressed to announce it twice. */}
-          {!selecting ? (
-            <Button variant="ghost" onClick={() => setEditMode((e) => !e)} aria-label={editMode ? "Done editing" : "Edit"}>
-              <Pencil aria-hidden="true" />
-              <span className="hidden min-[560px]:inline">{editMode ? "Done" : "Edit"}</span>
+              itself carries the state (Edit, then Done), so there is no aria-pressed to announce it twice. While
+              selecting, only Done shows. */}
+          {selecting ? (
+            <Button variant="ghost" onClick={exitSelect} aria-label="Done">
+              <Check aria-hidden="true" />
+              <span>Done</span>
             </Button>
-          ) : null}
-          {realFeeds.length > 0 ? (
-            <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
-              {selecting ? <Check aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
-              <span className={selecting ? undefined : "hidden min-[560px]:inline"}>{selecting ? "Done" : "Select"}</span>
-            </Button>
-          ) : null}
-          {!selecting ? (
-            <Button variant="ghost" onClick={() => setAdding(true)} aria-label="Add feed">
-              <Plus aria-hidden="true" />
-              <span className="hidden min-[560px]:inline">Add feed</span>
-            </Button>
-          ) : null}
-          {!selecting ? (
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger asChild>
-                <Button variant="ghost" size="icon" id={FEED_ACTIONS_ID} aria-label="Feed actions">
-                  <MoreVertical aria-hidden="true" />
-                </Button>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
-                  <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: null })}>
-                    <FolderPlus className="size-5" aria-hidden="true" />
-                    New folder
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Item className={menuItem} onSelect={() => setImporting(true)}>
-                    <Upload className="size-5" aria-hidden="true" />
-                    Import OPML
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Item asChild className={menuItem}>
-                    <a href="/api/opml" download>
-                      <Download className="size-5" aria-hidden="true" />
-                      Export OPML
-                    </a>
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Item className={menuItem} onSelect={() => setButtons((r) => !r)}>
-                    <ArrowUp className="size-5" aria-hidden="true" />
-                    {buttons ? "Hide move buttons" : "Show move buttons"}
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Item className={menuItem} onSelect={() => navigate("/health")}>
-                    <HeartPulse className="size-5" aria-hidden="true" />
-                    Feed health
-                  </DropdownMenu.Item>
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
-          ) : null}
+          ) : (
+            <>
+              <Button variant="ghost" onClick={() => setEditMode((e) => !e)} aria-label={editMode ? "Done editing" : "Edit"}>
+                <Pencil aria-hidden="true" />
+                <span className="hidden min-[560px]:inline">{editMode ? "Done" : "Edit"}</span>
+              </Button>
+              <Button variant="ghost" onClick={() => setAdding(true)} aria-label="Add feed">
+                <Plus aria-hidden="true" />
+                <span className="hidden min-[560px]:inline">Add feed</span>
+              </Button>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <Button variant="ghost" size="icon" id={FEED_ACTIONS_ID} aria-label="Feed actions">
+                    <MoreVertical aria-hidden="true" />
+                  </Button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
+                    {realFeeds.length > 0 ? (
+                      <DropdownMenu.Item className={menuItem} onSelect={() => setSelecting(true)}>
+                        <CheckSquare className="size-5" aria-hidden="true" />
+                        Select feeds
+                      </DropdownMenu.Item>
+                    ) : null}
+                    {realFeeds.length > 0 ? (
+                      <DropdownMenu.Item className={menuItem} onSelect={() => setUnreadOnly((u) => !u)}>
+                        <ListFilter className="size-5" aria-hidden="true" />
+                        {unreadOnly ? "Show all feeds" : "Show only unread feeds"}
+                      </DropdownMenu.Item>
+                    ) : null}
+                    <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: null })}>
+                      <FolderPlus className="size-5" aria-hidden="true" />
+                      New folder
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item className={menuItem} onSelect={() => setImporting(true)}>
+                      <Upload className="size-5" aria-hidden="true" />
+                      Import OPML
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item asChild className={menuItem}>
+                      <a href="/api/opml" download>
+                        <Download className="size-5" aria-hidden="true" />
+                        Export OPML
+                      </a>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item className={menuItem} onSelect={() => setButtons((r) => !r)}>
+                      <ArrowUp className="size-5" aria-hidden="true" />
+                      {buttons ? "Hide move buttons" : "Show move buttons"}
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item className={menuItem} onSelect={() => navigate("/health")}>
+                      <HeartPulse className="size-5" aria-hidden="true" />
+                      Feed health
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </>
+          )}
           </div>
         </div>
-        <p className="pb-1 text-xs text-fg2">
-          {selecting
-            ? `${tapVerb()} feeds to select them, then move or delete them.${finePointer ? " Shift-click selects a range; with the keyboard, Space selects the focused feed." : ""}`
-            : editMode
-              ? "Drag a feed or folder to reorder it. Changes are saved as you drop."
-              : `${tapVerb()} the arrow beside a folder to collapse it, or its menu to rename, move or delete it. ${tapVerb()} Edit to reorder feeds or change one.`}
-        </p>
+        {/* Help only where a mode needs it: a plain visit to this screen is the list and nothing else. */}
+        {selecting ? (
+          <p className="pb-1 text-xs text-fg2">
+            {tapVerb()} feeds to select them, then move or delete them.{finePointer ? " Shift-click selects a range; with the keyboard, Space selects the focused feed." : ""}
+          </p>
+        ) : editMode ? (
+          <p className="pb-1 text-xs text-fg2">Drag a feed or folder to reorder it. Changes are saved as you drop.</p>
+        ) : unreadOnly ? (
+          <p className="flex items-center gap-2 pb-1 text-xs text-fg2">
+            Showing only feeds with unread articles.
+            <button type="button" className="min-h-11 font-semibold text-accent underline" onClick={() => setUnreadOnly(false)}>
+              Show all
+            </button>
+          </p>
+        ) : null}
       </header>
       <div ref={scroller} data-reveal-root="" className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {boot.isPending ? <Skeleton rows={5} label="Loading feeds" /> : null}
@@ -848,7 +869,8 @@ export function FeedsScreen() {
                 <li>
                   <Link to={listTo({ view: "unread" })} className={row}>
                     Unread
-                    <Badge n={c?.unread ?? 0} />
+                    <span className="ml-auto" />
+                    <UnreadCount n={c?.unread ?? 0} noun="" />
                   </Link>
                 </li>
                 <li>
@@ -859,7 +881,7 @@ export function FeedsScreen() {
                 <li>
                   <Link to={listTo({ view: "starred" })} className={row}>
                     Starred
-                    <Badge n={c?.starred ?? 0} />
+                    <StarredCount n={c?.starred ?? 0} className="ml-auto" />
                   </Link>
                 </li>
                 <li>
@@ -877,7 +899,16 @@ export function FeedsScreen() {
               </section>
             ) : null}
             {selecting ? null : <SavedSearchesNav />}
-            <ul className="flex flex-col gap-1">{topLevel.map((id) => folderNode(ftree.byId.get(id) as Folder))}</ul>
+            {filtering && topLevel.length === 0 ? (
+              <div className="px-3 py-6 text-center">
+                <p className="text-sm text-fg2">Every feed is read.</p>
+                <Button className="mt-2" onClick={() => setUnreadOnly(false)}>
+                  Show all feeds
+                </Button>
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-1">{topLevel.map((id) => folderNode(ftree.byId.get(id) as Folder))}</ul>
+            )}
             <RevealMore reveal={reveal} noun="feeds" />
           </>
         ) : null}

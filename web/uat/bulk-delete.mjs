@@ -12,7 +12,7 @@
 // The feeds have "uat-feed-" addresses, so the shared cleanup removes anything a failed run leaves.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
-import { deadFeed, start } from "./common.mjs";
+import { deadFeed, start, startSelect } from "./common.mjs";
 
 const t = await start(import.meta.url, 12);
 const { check, step } = t;
@@ -33,7 +33,7 @@ await t.eachViewport(async (page, vp) => {
   const b = a + 500;
   const select = async (folder) => {
     await page.goto("/feeds", { waitUntil: "load" });
-    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await startSelect(page);
     await page.getByRole("main").getByRole("checkbox", { name: `Select all feeds in ${folder}` }).check();
   };
 
@@ -52,7 +52,7 @@ await t.eachViewport(async (page, vp) => {
     const toast = await page.getByText(`Deleted ${COUNT} feeds`).first().waitFor({ timeout: 5000 }).then(() => true, () => false);
     check(toast, `${tag} D1 toast`, "a toast says how many were deleted", "no toast said how many feeds were deleted");
     check((await left(page, a)) === 0, `${tag} D1 gone`, "every feed is gone", `${await left(page, a)} feeds are left`);
-    check((await page.getByRole("button", { name: "Select", exact: true }).count()) > 0, `${tag} D1 select mode`, "Select mode ended", "the screen is still in Select mode");
+    check((await page.getByRole("button", { name: "Edit", exact: true }).count()) > 0, `${tag} D1 select mode`, "Select mode ended", "the screen is still in Select mode");
   });
 
   await step(`${tag} D2`, async () => {

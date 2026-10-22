@@ -18,7 +18,7 @@
 // cleaned up by the next one. It only runs against a loopback address with the seed's credentials unless
 // --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
-import { start } from "./common.mjs";
+import { start, startSelect } from "./common.mjs";
 
 const t = await start(import.meta.url, 22);
 const { check, step, textOf } = t;
@@ -35,7 +35,7 @@ await t.eachViewport(async (page, vp) => {
   const real = b0.feeds.find((f) => !f.is_archive);
   if (!real) return t.setupError(`${tag}: the seed has no feeds`);
   await step(`${tag} F1`, async () => {
-  await page.getByRole("button", { name: "Select", exact: true }).click();
+  await startSelect(page);
   // The row on the Feeds screen itself (the desktop sidebar lists the same feed as a link, which this must not hit).
   const box = page.getByRole("checkbox", { name: `Select ${real.title}`, exact: true }).first();
   // A middle-click or a long-press "Open" would open a link in a new tab however the plain click is handled, so the
@@ -53,7 +53,7 @@ await t.eachViewport(async (page, vp) => {
   await page.waitForTimeout(500);
   check(page.context().pages().length === pages, `${tag} F1 no tab`, "a middle-click opens nothing", "a middle-click opened a new tab");
   await page.getByRole("button", { name: "Done", exact: true }).click();
-  check(await page.getByRole("button", { name: "Select", exact: true }).isVisible(), `${tag} F1 done`, "Done leaves select mode", "still selecting");
+  check(await page.getByRole("button", { name: "Edit", exact: true }).isVisible(), `${tag} F1 done`, "Done leaves select mode", "still selecting");
   });
 
   // F2: root holds feed 1; child holds feeds 2 and 3.
@@ -64,7 +64,7 @@ await t.eachViewport(async (page, vp) => {
   if (!seeded.ok) return t.fail(`${tag} F2`, "the disposable feeds were not imported");
   const titleOf = (n) => `UAT feed ${n}`;
   const pick = async (...ns) => {
-    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await startSelect(page);
     for (const n of ns) await page.getByRole("checkbox", { name: `Select ${titleOf(n)}`, exact: true }).first().click();
   };
   const progressSpy = () =>

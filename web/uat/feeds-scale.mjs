@@ -14,7 +14,7 @@
 //   L5  (desktop) ArrowDown on the last drawn sidebar row draws the next step and focuses the row after it.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
-import { deadFeed, start } from "./common.mjs";
+import { deadFeed, start, startSelect } from "./common.mjs";
 
 const t = await start(import.meta.url, 14);
 const { check, step } = t;
@@ -65,7 +65,7 @@ await t.eachViewport(async (page, vp) => {
     const onRows = TWINS.every((u) => texts.some((x) => x.includes(short(u))));
     check(texts.length === 2 && onRows, `${tag} L3 rows`, `the rows say ${JSON.stringify(texts)}`, `the rows of the two "${TWIN}" feeds say ${JSON.stringify(texts)}, without their addresses`);
 
-    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await startSelect(page);
     for (const u of TWINS) await main.getByRole("checkbox", { name: `Select ${TWIN}, ${short(u)}` }).check();
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     const list = page.getByRole("list", { name: "Feeds to delete" });

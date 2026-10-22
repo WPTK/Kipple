@@ -24,6 +24,12 @@ export const VIEWPORTS = [
   { id: "desktop", width: 1280, height: 800, mobile: false },
   { id: "phone", width: 375, height: 812, mobile: true },
 ];
+/** Starts Select mode on the Feeds screen: it is an entry of the Feed actions menu. */
+export async function startSelect(page) {
+  await page.getByRole("button", { name: "Feed actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Select feeds", exact: true }).click();
+}
+
 /** The feed address every disposable feed uses: it never resolves, so nothing is fetched and nothing leaves the machine. */
 export const deadFeed = (n) => `http://uat-feed-${n}.invalid/feed.xml`;
 

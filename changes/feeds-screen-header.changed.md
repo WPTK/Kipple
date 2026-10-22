@@ -1,0 +1,1 @@
+The Feeds screen is quieter: a plain visit shows the list with no help sentence, the header holds Edit, Add feed and the Feed actions menu, and Select (now "Select feeds") moves into that menu. Favorites no longer label each row "Feed" or "Folder"; a folder has a folder icon instead.

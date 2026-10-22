@@ -28,7 +28,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
-import { accessControlUrl, onPageError, unloadRefusal } from "./common.mjs";
+import { accessControlUrl, onPageError, startSelect, unloadRefusal } from "./common.mjs";
 
 const setupError = (m) => {
   console.error(m);
@@ -591,7 +591,7 @@ async function phone(cookies) {
   check(["Star", "Previous article", "Next article"].every((n) => articleButtons.some((t) => t.startsWith(n))), where("article actions"), "Star, Previous and Next article buttons", `the article has: ${articleButtons.join(", ")}`);
   // Reordering feeds by dragging: Move to folder reaches the same result with no drag (Select mode).
   await load(page, "/feeds");
-  await page.getByRole("button", { name: "Select" }).first().click();
+  await startSelect(page);
   const moveTo = await page.getByText("Move to folder").count().catch(() => 0);
   check(moveTo > 0, where("drag to reorder"), "Select mode offers Move to folder (the grips also take arrow keys)", "no Move to folder in Select mode");
   await ctx.close();
