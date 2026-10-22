@@ -142,7 +142,23 @@ await t.eachViewport(async (page, vp) => {
           // A short scroll afterwards settles as any scroll does: it may mark the article at the top, never one below it.
           await readerScroll(page, 40);
           const after = await library();
-          const below = [...after.read].filter((x) => !before.read.has(x) && before.order.indexOf(x) > limit);
+          let below = [...after.read].filter((x) => !before.read.has(x) && before.order.indexOf(x) > limit);
+          if (layout === "gazette") {
+            // The Gazette reads in its printed order, not the list's: a story in another column can be passed (wholly above the
+            // top of the list) and sit later in All. Judge by where the stories are: nothing marked may reach the top or lie below it.
+            const marked = [...after.read].filter((x) => !before.read.has(x));
+            const finalTop = (await topOf(page)).id;
+            below = await scroller(page).evaluate(
+              (el, [ids, topId]) => {
+                const top = el.getBoundingClientRect().top + 1;
+                return ids.filter((id) => {
+                  const a = el.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
+                  return a && id !== topId && a.getBoundingClientRect().bottom > top;
+                });
+              },
+              [marked, finalTop],
+            );
+          }
           check(below.length === 0, `${tag} R3`, "turning marks nothing read the reader did not scroll past", `${below.length} article(s) below the top were marked read: ${below.slice(0, 5).join(", ")}`);
         } finally {
           await page.setViewportSize({ width: vp.width, height: vp.height });
