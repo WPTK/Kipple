@@ -60,6 +60,10 @@ const DEFAULTS: Record<string, unknown> = {
   "client.voice": "",
   "client.rate": 1,
   "client.collapsed_folders": [],
+  "client.digest_sections": "folder",
+  "client.digest_order": "sidebar",
+  "client.digest_images": true,
+  "client.digest_rows": 3,
 };
 
 const device = (over: Partial<DeviceView> = {}): DeviceView => ({ id: "dev1", name: "", profile: {}, merged: { ...DEFAULTS }, ...over });
@@ -466,6 +470,7 @@ const SERVER_CLIENT_KEYS = [
   "client.list_width", "client.sidebar_width", "client.link_target", "client.unread_badge", "client.text_size",
   "client.adjust_separately", "client.spacing", "client.motion", "client.large_targets",
   "client.listen", "client.voice", "client.rate", "client.collapsed_folders", "client.highlight_keywords",
+  "client.digest_sections", "client.digest_order", "client.digest_images", "client.digest_rows",
 ];
 
 describe("every device pref is carried both ways (review finding 2)", () => {
@@ -484,6 +489,7 @@ describe("every device pref is carried both ways (review finding 2)", () => {
       "client.text_size": 1.25, "client.adjust_separately": true, "client.spacing": "roomy",
       "client.motion": "off", "client.large_targets": true, "client.listen": true, "client.voice": "Samantha",
       "client.rate": 1.2, "client.collapsed_folders": ["3", "9"], "client.highlight_keywords": false,
+      "client.digest_sections": "feed", "client.digest_order": "quiet", "client.digest_images": false, "client.digest_rows": 10,
     };
     const back = profileOf(deriveLocal({ ...DEFAULTS, ...changed }, local()));
     for (const [k, v] of Object.entries(changed)) expect(back[k], k).toEqual(v);
