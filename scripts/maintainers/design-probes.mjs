@@ -11,7 +11,7 @@
 // Run from web/. The surfaces, devices and sign-in are the ones design-shots.mjs uses (lib/design-surfaces.mjs). A check
 // that cannot reach a surface lists it under `missed`; the exit code is 1 when any was missed. Findings never fail the
 // run: they are what the review reads.
-/* global document, window, getComputedStyle, innerWidth, innerHeight, Image, NodeFilter, PerformanceObserver, MutationObserver, performance, CSS, location */
+/* global document, window, getComputedStyle, innerWidth, innerHeight, Image, NodeFilter, MutationObserver, location */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -202,7 +202,10 @@ function installLib() {
         const dx = Math.max(0, q.left - r.right, r.left - q.right);
         const dy = Math.max(0, q.top - r.bottom, r.top - q.bottom);
         const d = Math.hypot(dx, dy);
-        if (d < gap) (gap = d), (near = name(o));
+        if (d < gap) {
+          gap = d;
+          near = name(o);
+        }
         const ddx = Math.max(0, q.left - cx0, cx0 - q.right);
         const ddy = Math.max(0, q.top - cy0, cy0 - q.bottom);
         if (Math.hypot(ddx, ddy) < 12) spacingOk = false;
@@ -495,7 +498,10 @@ function installLib() {
     for (const el of document.querySelectorAll("body *")) {
       if (!shown(el) || !inView(el.getBoundingClientRect())) continue;
       const cs = getComputedStyle(el);
-      if ([...el.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim())) (inc(values.fontSize, cs.fontSize), inc(values.color, cs.color));
+      if ([...el.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim())) {
+        inc(values.fontSize, cs.fontSize);
+        inc(values.color, cs.color);
+      }
       for (const p of ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "marginTop", "marginBottom"]) if (cs[p] !== "0px" && !cs[p].startsWith("-")) inc(values.spacing, cs[p]);
       if (cs.display.includes("flex") || cs.display.includes("grid")) if (cs.rowGap !== "normal" && cs.rowGap !== "0px") inc(values.gap, cs.rowGap);
       if (cs.borderTopLeftRadius !== "0px") inc(values.radius, cs.borderTopLeftRadius);
@@ -1112,7 +1118,10 @@ const RUN = {
                 const title = t.parentElement?.closest('a[href^="/i/"], h1, h2, h3');
                 if (set.has(v) || (title && v.length > 12 && !title.closest("[class*=prose]"))) todo.push(t);
               }
-              for (const t of todo) ((t.textContent = str), n++);
+              for (const t of todo) {
+                t.textContent = str;
+                n++;
+              }
               return n;
             },
             [str, names],
