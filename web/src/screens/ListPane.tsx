@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLatestRef } from "@/lib/useLatestRef";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { defaultRangeExtractor, useVirtualizer, type Range, type VirtualItem } from "@tanstack/react-virtual";
@@ -26,6 +26,7 @@ import { withHeaders, type Row } from "@/lib/format";
 import { useSearchHighlight } from "@/lib/useHighlights";
 import { onBecameUnread, readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
+import { EmptyState } from "@/ui/EmptyState";
 import { focusOrigin } from "@/ui/kit";
 import { articleTo } from "@/lib/routes";
 import { FirstRun } from "./FirstRun";
@@ -1246,19 +1247,18 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       const error = src.error;
       // A search the server calls too broad says so in its own words; asking again would not help.
       const broad = tooBroadMessage(error);
-      if (broad) return <StatusBlock role="status" title="That search is too broad" body={broad} />;
+      if (broad) return <EmptyState title="That search is too broad" why={broad} action={null} />;
       // Only a failed connection is "couldn't reach the server"; any other answer (a 400, a 5xx) is the server's.
       const unreachable = !(error instanceof ApiError) || error.status === 0;
       const refused = error instanceof ApiError && error.status === 400;
       return (
-        <StatusBlock
+        <EmptyState
           role="alert"
           title="Couldn't load articles"
-          body={unreachable ? "Kipple couldn't reach the server. Your place in the list is saved." : refused ? "Kipple no longer recognises this place in the list." : errorMessage(error)}
-        >
-          {/* A refused request (400) repeats the same refusal: start the list from its first page instead. */}
-          {refused ? <Button onClick={() => void startOver()}>Start over</Button> : <Button onClick={src.retry}>Try again</Button>}
-        </StatusBlock>
+          why={refused ? "Kipple no longer recognises this place in the list." : `${errorMessage(error)}${unreachable ? " Your place in the list is saved." : ""}`}
+          // A refused request (400) repeats the same refusal: start the list from its first page instead.
+          action={refused ? <Button onClick={() => void startOver()}>Start over</Button> : <Button onClick={src.retry}>Try again</Button>}
+        />
       );
     }
     if ((Page ? src.cards.length : rows.length) === 0) {
@@ -1269,18 +1269,24 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       }
       const c = emptyCopy(scope, pendingNew, scope.feed ? feedById.get(scope.feed) : undefined);
       return (
-        <StatusBlock role="status" title={c.title} body={c.body}>
-          {c.health ? (
-            <Link to="/health" className="text-sm text-link underline underline-offset-2">
-              Open Feed health
-            </Link>
-          ) : null}
-          {scope.view === "muted" && !scope.q ? (
-            <Link to="/settings/filters" className="text-sm text-link underline underline-offset-2">
-              Add a filter in Settings
-            </Link>
-          ) : null}
-        </StatusBlock>
+        <EmptyState
+          title={c.title}
+          why={c.body}
+          action={
+            <>
+              {c.health ? (
+                <Link to="/health" className="text-sm text-link underline underline-offset-2">
+                  Open Feed health
+                </Link>
+              ) : null}
+              {scope.view === "muted" && !scope.q ? (
+                <Link to="/settings/filters" className="text-sm text-link underline underline-offset-2">
+                  Add a filter in Settings
+                </Link>
+              ) : null}
+            </>
+          }
+        />
       );
     }
     if (Page) {
@@ -1713,38 +1719,3 @@ function Skeleton() {
   );
 }
 
-export function StatusBlock({
-  title,
-  body,
-  role,
-  asH1,
-  children,
-}: {
-  title: string;
-  body: string;
-  role: "status" | "alert";
-  /** A screen of its own (nothing else names it): the title is the page's h1 rather than an h2 under one. */
-  asH1?: boolean;
-  children?: ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const h1 = useRef<HTMLHeadingElement>(null);
-  // Empty and error screens move focus to the headline (design section 6): the h1 where the block is the page's own
-  // heading, else the block, which the alert role reads out.
-  useEffect(() => {
-    if (role === "alert") (h1.current ?? ref.current)?.focus({ preventScroll: true });
-  }, [role]);
-  return (
-    <div ref={ref} tabIndex={-1} role={role} className="mx-auto flex max-w-sm flex-col items-center gap-3 px-6 py-16 text-center outline-none">
-      {asH1 ? (
-        <h1 ref={h1} tabIndex={-1} className="text-lg font-semibold outline-none">
-          {title}
-        </h1>
-      ) : (
-        <h2 className="text-lg font-semibold">{title}</h2>
-      )}
-      <p className="text-sm text-fg2">{body}</p>
-      {children}
-    </div>
-  );
-}

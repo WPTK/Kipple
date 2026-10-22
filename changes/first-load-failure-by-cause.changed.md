@@ -1,0 +1,1 @@
+The first-load failure screens (app start, sign-in and setup) name the cause, centre like other status screens, drop the advice to read the server logs, and ask again by themselves every few seconds with a Trying again line. (#705)

@@ -40,7 +40,8 @@ import { ArticlePane } from "./ArticlePane";
 import { LayoutMenu } from "./LayoutMenu";
 import { LengthMenu } from "./LengthMenu";
 import { ReadingMenu } from "./AppearanceControls";
-import { FINISH_SEARCH, ListPane, StatusBlock, type ListControls } from "./ListPane";
+import { EmptyState } from "@/ui/EmptyState";
+import { FINISH_SEARCH, ListPane, type ListControls } from "./ListPane";
 import { DropdownMenu } from "@/ui/menu";
 
 const VIEWS: { view: View; label: string }[] = [
@@ -482,24 +483,24 @@ export function ReaderRoute() {
   // under a made-up one.
   if (view !== undefined && !VIEWS.some((v) => v.view === view) && view !== "muted") return <Navigate to={listTo({ view: "unread" })} replace />;
   if (missing && missingKey) {
-    if (checked?.key !== missingKey || checked.round !== round) return <StatusBlock role="status" title="Checking" body={`Looking for this ${missing.kind}.`} />;
+    if (checked?.key !== missingKey || checked.round !== round) return <EmptyState title="Checking" why={`Looking for this ${missing.kind}.`} action={null} />;
     // A bootstrap that could not be fetched again proves nothing about the feed.
     const unsure = boot.isRefetchError;
     return (
-      <StatusBlock
-        role="status"
+      <EmptyState
         title={unsure ? `Couldn't check this ${missing.kind}` : `This ${missing.kind} no longer exists`}
-        body={unsure ? "Kipple couldn't reach the server to look for it." : "It may have been deleted, or the address is out of date."}
-      >
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <Link to={listTo({ view: "unread" })} replace className={buttonVariants({})}>
-            Go to Unread
-          </Link>
-          <Button variant="ghost" onClick={() => setRound((n) => n + 1)}>
-            Try again
-          </Button>
-        </div>
-      </StatusBlock>
+        why={unsure ? "Kipple couldn't reach the server to look for it." : "It may have been deleted, or the address is out of date."}
+        action={
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Link to={listTo({ view: "unread" })} replace className={buttonVariants({})}>
+              Go to Unread
+            </Link>
+            <Button variant="ghost" onClick={() => setRound((n) => n + 1)}>
+              Try again
+            </Button>
+          </div>
+        }
+      />
     );
   }
   return <ReaderLayout scope={scope} articleId={item?.params.id} hasFrom={sp.has("from")} />;

@@ -25,7 +25,8 @@ import { clearMarks, wrapMarks } from "@/lib/highlight";
 import { Hl, useGroups } from "@/lib/useHighlights";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
-import { StatusBlock, focusListRow, rememberListPlace } from "./ListPane";
+import { EmptyState } from "@/ui/EmptyState";
+import { focusListRow, rememberListPlace } from "./ListPane";
 import type { Scope } from "@/api/types";
 import { ReadingMenu } from "./AppearanceControls";
 import { ListenBar } from "./ListenBar";
@@ -321,23 +322,24 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
         {pane && toolbar(true)}
         {failed ? (
           <div className="flex min-h-0 flex-1 items-center justify-center">
-            <StatusBlock
+            <EmptyState
               role="alert"
               asH1
               title={gone ? "This article is no longer available" : "Couldn't open this article"}
-              body={
+              why={
                 gone
                   ? "It may have been removed by a feed's retention limit or deleted."
                   : originalUrl
                     ? "The article couldn't be loaded. You can read the original instead."
                     : "The article couldn't be loaded."
               }
-            >
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                {gone ? pane ? null : <Button onClick={back}>Back to the list</Button> : <Button onClick={() => void item.refetch()}>Try again</Button>}
-                {originalUrl ? <Button variant="ghost" onClick={() => openOriginalAndRecord({ id, url: originalUrl })}>Read the original</Button> : null}
-              </div>
-            </StatusBlock>
+              action={
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {gone ? pane ? null : <Button onClick={back}>Back to the list</Button> : <Button onClick={() => void item.refetch()}>Try again</Button>}
+                  {originalUrl ? <Button variant="ghost" onClick={() => openOriginalAndRecord({ id, url: originalUrl })}>Read the original</Button> : null}
+                </div>
+              }
+            />
           </div>
         ) : (
           <div className="p-6" aria-busy="true" role="status">
@@ -411,7 +413,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           ) : null}
           {a.trimmed ? null : <ListenBar bodyRef={bodyRef} articleId={id} />}
           {a.trimmed ? (
-            <StatusBlock role="status" title="This article was removed" body="Kipple keeps only the newest articles for this feed. Open the original to read it." />
+            <EmptyState title="This article was removed" why="Kipple keeps only the newest articles for this feed. Open the original to read it." action={null} />
           ) : (
             <div
               ref={bodyCallback}

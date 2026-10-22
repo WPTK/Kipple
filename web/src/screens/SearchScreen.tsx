@@ -10,7 +10,8 @@ import { SEARCH_ORDERS, SEARCH_ORDER_LABELS, scopeOrder, setSearchOrder, useSear
 import { Button } from "@/ui/button";
 import { inputCls } from "@/ui/kit";
 import { ReadingMenu } from "./AppearanceControls";
-import { ListPane, StatusBlock, type ListControls } from "./ListPane";
+import { EmptyState } from "@/ui/EmptyState";
+import { ListPane, type ListControls } from "./ListPane";
 import { SaveSearchDialog } from "./search/SaveSearchDialog";
 import { SearchHelp } from "./search/SearchHelp";
 import { useLatestRef } from "@/lib/useLatestRef";
@@ -238,10 +239,10 @@ export function SearchScreen() {
         {scope ? (
           <ListPane key={`${q}|${whereKey}|${order}`} scope={scope} onControls={setControls} />
         ) : (
-          <StatusBlock
-            role="status"
+          <EmptyState
             title={trimmed.length === 0 ? "Search your articles" : "Keep typing"}
-            body={trimmed.length === 0 ? "Search covers every article Kipple has kept." : "Search needs at least two characters."}
+            why={trimmed.length === 0 ? "Search covers every article Kipple has kept." : "Search needs at least two characters."}
+            action={null}
           />
         )}
       </div>

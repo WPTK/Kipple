@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
-import { ApiError } from "@/api/client";
+import { ApiError, failureCause, type FailureCause } from "@/api/client";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { Button } from "@/ui/button";
+import { LoadFailed } from "@/ui/LoadFailed";
 import { INSTANCE_KEY, isOpenRefused, openRefusedReason, signInOpen, type OpenReason, type SetupOptions } from "./api";
 import { AccountStep } from "./AccountStep";
 import { OpenRefusedScreen } from "./OpenRefused";
@@ -95,7 +96,7 @@ export function resetOpenSignInGuard(): void {
 export function OpenSignIn() {
   const qc = useQueryClient();
   const [refused, setRefused] = useState<OpenReason | null | undefined>(undefined);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<FailureCause | "other" | false>(false);
   // Read once, at mount: a sign-in that just happened and is already gone means the cookie was not kept.
   const [noCookie, setNoCookie] = useState(() => Date.now() - autoSignedInAt < COOKIE_LOOP_MS);
   const [busy, setBusy] = useState(!noCookie);
@@ -116,7 +117,7 @@ export function OpenSignIn() {
         // Either way, ask again what it is, so the app moves to the sign-in form or the account form.
         if (e instanceof ApiError && (e.status === 404 || (e.status === 409 && e.code === "setup_required")))
           void qc.invalidateQueries({ queryKey: INSTANCE_KEY });
-        setFailed(true);
+        setFailed(failureCause(e) ?? "other");
       }
     } finally {
       setBusy(false);
@@ -167,23 +168,15 @@ export function OpenSignIn() {
   }
   if (failed) {
     return (
-      <main className="flex h-full items-center justify-center px-4">
-        <div className="flex max-w-sm flex-col gap-3" role="alert">
-          <h1 className="text-xl font-bold">Kipple couldn't sign you in</h1>
-          <p className="text-fg2">Kipple couldn't reach the server, or it answered with something unexpected. Try again, and check the Kipple logs if it keeps happening.</p>
-          <Button
-            variant="solid"
-            className="self-start"
-            onClick={() => {
-              // The mode may have changed since this screen was drawn: ask again, then try.
-              void qc.invalidateQueries({ queryKey: INSTANCE_KEY });
-              void run();
-            }}
-          >
-            Try again
-          </Button>
-        </div>
-      </main>
+      <LoadFailed
+        cause={failed}
+        busy={busy}
+        onRetry={() => {
+          // The mode may have changed since this screen was drawn: ask again, then try.
+          void qc.invalidateQueries({ queryKey: INSTANCE_KEY });
+          void run();
+        }}
+      />
     );
   }
   return (

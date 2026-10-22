@@ -1255,9 +1255,9 @@ describe("a stale /welcome/<step> address before the account exists", () => {
 
 describe("the signed-out screen when GET /api/instance does not answer", () => {
   it.each([
-    ["a server error", () => json({ error: "internal" }, 500), /answered with something unexpected/],
+    ["a server error", () => json({ error: "internal" }, 500), /server had a problem/],
     ["a refused address", () => json({ error: "misdirected" }, 421), /Allowed host names in Settings/],
-    ["no network", () => Promise.reject(new TypeError("offline")) as never, /couldn't reach the server/],
+    ["no network", () => Promise.reject(new TypeError("offline")) as never, /can't be reached/],
   ])("says so, with Try again, instead of a password form (%s)", async (_n, answer, text) => {
     const w = makeWorld({ instance: { setup: false, auth: "open" }, authMode: "open", pending: false, passwordSet: false });
     let broken = true;
@@ -1372,7 +1372,7 @@ describe("open-mode sign-in edge cases", () => {
       },
     });
     go("/");
-    await screen.findByText("Kipple couldn't sign you in");
+    await screen.findByText("Kipple's server had a problem");
     const before = callTo(calls, "GET", "/api/instance").length;
     fail = false;
     await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));

@@ -2,7 +2,7 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router";
-import { ApiError, authStore, openRefusedStore, SESSION_EXPIRED, signingOutStore } from "@/api/client";
+import { ApiError, authStore, failureCause, openRefusedStore, SESSION_EXPIRED, signingOutStore } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
 import { prefetchUnread, retryRead } from "@/lib/offline";
@@ -19,7 +19,8 @@ import { OpenRefusedScreen } from "@/setup/OpenRefused";
 import { SignedOut } from "@/setup/SignedOut";
 import { launchAnswerStore, useSessionProbe } from "@/api/sessionProbe";
 import { lazyScreen } from "@/lib/lazyScreen";
-import { StatusBlock } from "@/screens/ListPane";
+import { EmptyState } from "@/ui/EmptyState";
+import { LoadFailed } from "@/ui/LoadFailed";
 import { Button, buttonVariants } from "@/ui/button";
 import { Skeleton } from "@/ui/kit";
 
@@ -44,11 +45,17 @@ function NotFound() {
   useDocumentTitle("Page not found");
   const { pathname } = useLocation();
   return (
-    <StatusBlock asH1 role="alert" title="Page not found" body={`Kipple has nothing at ${pathname}.`}>
-      <Link to="/l/unread" className={buttonVariants({ variant: "solid" })}>
-        Go to Unread
-      </Link>
-    </StatusBlock>
+    <EmptyState
+      asH1
+      role="alert"
+      title="Page not found"
+      why={`Kipple has nothing at ${pathname}.`}
+      action={
+        <Link to="/l/unread" className={buttonVariants({ variant: "solid" })}>
+          Go to Unread
+        </Link>
+      }
+    />
   );
 }
 
@@ -200,23 +207,18 @@ function Gate() {
   const failed = boot.isError && !boot.data;
   if (failed && boot.error instanceof ApiError && boot.error.code === SESSION_EXPIRED) {
     return (
-      <StatusBlock role="alert" title="Your sign-in has expired" body="The sign-in in front of Kipple timed out. Reload to sign in again.">
-        <Button onClick={() => reloadToSignIn()}>Reload</Button>
-      </StatusBlock>
-    );
-  }
-  if (failed && !online) {
-    return (
-      <StatusBlock role="alert" title="You're offline" body="Kipple has nothing saved on this device yet. Open it once while you're online and your unread articles will be here next time.">
-        <Button onClick={() => void boot.refetch()}>Try again</Button>
-      </StatusBlock>
+      <EmptyState role="alert" asH1 title="Your sign-in has expired" why="The sign-in in front of Kipple timed out. Reload to sign in again." action={<Button onClick={() => reloadToSignIn()}>Reload</Button>} />
     );
   }
   if (failed) {
+    const cause = !online ? "offline" : (failureCause(boot.error) ?? "other");
     return (
-      <StatusBlock role="alert" title="Something went wrong" body="Kipple couldn't reach the server. Try again, and check the Kipple logs if it keeps happening.">
-        <Button onClick={() => void boot.refetch()}>Try again</Button>
-      </StatusBlock>
+      <LoadFailed
+        cause={cause}
+        busy={boot.isFetching}
+        onRetry={() => void boot.refetch()}
+        why={cause === "offline" ? "Kipple has nothing saved on this device yet. Open it once while you're online and your unread articles will be here next time." : undefined}
+      />
     );
   }
   // First-run setup pending (a fresh account): every screen but /welcome gives way to it. Not on a

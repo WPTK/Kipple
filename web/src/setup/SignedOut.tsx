@@ -1,10 +1,10 @@
 import { Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ApiError } from "@/api/client";
+import { ApiError, failureCause } from "@/api/client";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { LoginScreen } from "@/screens/LoginScreen";
-import { Button } from "@/ui/button";
+import { LoadFailed } from "@/ui/LoadFailed";
 import { Skeleton } from "@/ui/kit";
 import { fetchInstance, INSTANCE_KEY, openReasonText, type InstanceInfo } from "./api";
 
@@ -49,21 +49,12 @@ export function SignedOut({ initial }: { initial?: InstanceInfo | null }) {
     // A 200 that is not JSON (a proxy or an older server answering with its page) is the same "no such route".
     if (status === 401 || status === 404 || inst.error instanceof SyntaxError) return <LoginScreen />;
     return (
-      <main className="flex h-full items-center justify-center px-4">
-        <div className="flex max-w-sm flex-col gap-3" role="alert">
-          <h1 className="text-xl font-bold">Kipple couldn't load</h1>
-          <p className="text-fg2">
-            {status === 0
-              ? "Kipple couldn't reach the server. Check your connection and try again."
-              : status === 421
-                ? openReasonText("host")
-                : "The server answered with something unexpected. Try again, and check the Kipple logs if it keeps happening."}
-          </p>
-          <Button variant="solid" className="self-start" onClick={() => void inst.refetch()}>
-            Try again
-          </Button>
-        </div>
-      </main>
+      <LoadFailed
+        cause={failureCause(inst.error) ?? "other"}
+        busy={inst.isFetching}
+        onRetry={() => void inst.refetch()}
+        why={status === 421 ? openReasonText("host") : undefined}
+      />
     );
   }
   if (inst.data.setup) {
