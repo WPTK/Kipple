@@ -259,14 +259,24 @@ describe("read state in the Unread list", () => {
     expect(qc.getQueryState(keys.items(all))?.isInvalidated).toBe(false);
   });
 
-  it("the read/unread button in the article toolbar is labelled by its action and shows the state", async () => {
+  it("the feed name in the article opens that feed's list, not the website", async () => {
+    routes();
+    media(WIDE);
+    go("/i/1001?from=unread");
+    await screen.findByTestId("article-body");
+    const link = within(screen.getByTestId("read-state").parentElement as HTMLElement).getByRole("link");
+    expect(link.getAttribute("href")).toMatch(/^\/l\?feed=/);
+  });
+
+  it("the read/unread item in the article's More menu is labelled by its action and the byline shows the state", async () => {
     routes();
     media(WIDE);
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
     const state = await screen.findByTestId("read-state");
     await waitFor(() => expect(state).toHaveTextContent("Read"));
-    expect(screen.getByRole("button", { name: "Mark as unread" })).toBeInTheDocument();
+    await userEvent.setup().click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
+    expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeInTheDocument();
     // The state is plain text: no border or pill shape that would make it look like a second button (#425).
     expect(state.className).not.toMatch(/\b(border|rounded-full)\b/);
   });
@@ -840,8 +850,7 @@ describe("share", () => {
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
     const user = userEvent.setup();
-    await user.click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Share" }));
+    await user.click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "Share" }));
     expect(share).toHaveBeenCalledWith({ title: "Article number 1", url: "https://example.com/a/1" });
   });
 
@@ -852,8 +861,7 @@ describe("share", () => {
     vi.stubGlobal("navigator", { userAgent: "test", clipboard: { writeText } });
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
-    fireEvent.pointerDown(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }), { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Share" })); // (user-event would install its own clipboard stub)
+    fireEvent.click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "Share" })); // (user-event would install its own clipboard stub)
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://example.com/a/1"));
     expect(await screen.findByText("Link copied")).toBeInTheDocument();
   });

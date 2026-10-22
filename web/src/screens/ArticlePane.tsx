@@ -1,6 +1,6 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileCheck, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { flattenItems, useFulltext, useItem, useItems, useOpenItem, useToggleStar } from "@/api/queries";
@@ -10,7 +10,7 @@ import { enhanceEmbeds, handleArticleClick, watchImages } from "@/lib/articleDom
 import { useStoryOrder } from "@/layouts/gazetteOrder";
 import { useItemActions } from "@/lib/itemActions";
 import { retireUndoToastFor } from "@/lib/undo";
-import { articleTo, listTo } from "@/lib/routes";
+import { articleTo, listTo, openListTo } from "@/lib/routes";
 import { sanitizeArticleHtml } from "@/lib/safeHtml";
 import { resolveLinkTarget } from "@/lib/links";
 import { safeHttpUrl } from "@/lib/safeUrl";
@@ -378,9 +378,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
                 {a.read ? "Read" : "Unread"}
               </span>
               <span aria-hidden="true">{" · "}</span>
-              <a href={safeHttpUrl(a.feed.site_url)} target={linkTarget === "new" ? "_blank" : undefined} rel="noopener noreferrer" className="hit-pad hover:underline">
+              <Link to={openListTo({ feed: a.feed_id })} className="hit-pad hover:underline">
                 {a.source || a.feed.title}
-              </a>
+              </Link>
             </p>
             <h1 id="article-title" ref={headingRef} tabIndex={-1} className="mt-1 text-2xl leading-tight font-bold wrap-anywhere outline-none [font-family:var(--kp-reading-font)]">
               <Hl text={a.title || "Untitled"} field="title" feedId={a.feed_id} />
@@ -520,16 +520,6 @@ function Toolbar(p: ToolbarProps) {
       <Button
         variant="ghost"
         size="icon"
-        onClick={p.onRead}
-        aria-disabled={!p.a || undefined}
-        aria-label={p.a?.read ? "Mark as unread" : "Mark as read"}
-        title={p.a?.read ? "Mark as unread" : "Mark as read"}
-      >
-        {p.a?.read ? <Mail aria-hidden="true" /> : <MailOpen aria-hidden="true" />}
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
         onClick={p.onFulltext}
         aria-disabled={p.ftBusy || !p.a || undefined}
         aria-pressed={p.ftOn}
@@ -539,7 +529,11 @@ function Toolbar(p: ToolbarProps) {
         {/* The state is the glyph (a page with a check mark while the full text is shown), not only the tint: a toggle's state never rests on color alone. */}
         {p.ftOn ? <FileCheck aria-hidden="true" /> : <FileText aria-hidden="true" />}
       </Button>
-      {/* The rarely used actions (Share included) share one 44 px target, so seven targets (308 px) fit the narrowest phone and a narrow pane with Aa. */}
+      <Button variant="ghost" size="icon" onClick={p.onShare} aria-disabled={!p.a || undefined} aria-label="Share" title="Share">
+        <Share2 aria-hidden="true" />
+      </Button>
+      <ReadingMenu />
+      {/* The rarely used actions (read state included) share one 44 px target, last in the row, so seven targets (308 px) fit the narrowest phone and a narrow pane with Aa. */}
       <DropdownMenu.Root open={more && !!p.a} onOpenChange={(o) => setMore(o && !!p.a)}>
         <DropdownMenu.Trigger asChild>
           <Button variant="ghost" size="icon" aria-label="More actions" title="More actions" aria-disabled={!p.a || undefined}>
@@ -548,6 +542,10 @@ function Toolbar(p: ToolbarProps) {
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
+            <DropdownMenu.Item className={moreItem} onSelect={p.onRead}>
+              {p.a?.read ? <Mail className="size-5" aria-hidden="true" /> : <MailOpen className="size-5" aria-hidden="true" />}
+              {p.a?.read ? "Mark as unread" : "Mark as read"}
+            </DropdownMenu.Item>
             <DropdownMenu.Item className={moreItem} onSelect={p.onManageFeed}>
               <Rss className="size-5" aria-hidden="true" />
               Manage this feed
@@ -556,10 +554,6 @@ function Toolbar(p: ToolbarProps) {
               <ExternalLink className="size-5" aria-hidden="true" />
               Open original
             </DropdownMenu.Item>
-            <DropdownMenu.Item className={moreItem} onSelect={p.onShare}>
-              <Share2 className="size-5" aria-hidden="true" />
-              Share
-            </DropdownMenu.Item>
             <DropdownMenu.Item className={moreItem} onSelect={p.onMuteSimilar}>
               <BellOff className="size-5" aria-hidden="true" />
               Mute similar…
@@ -567,7 +561,6 @@ function Toolbar(p: ToolbarProps) {
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
-      <ReadingMenu />
     </div>
   );
 }

@@ -111,9 +111,9 @@ describe("addresses from the feed", () => {
     await user.click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Open original" }));
     expect(open).not.toHaveBeenCalled();
-    // The source name is plain text, not a link to a script.
+    // The source name opens the feed's list, never the site address (a script).
     const source = screen.getByText("Example Feed", { selector: "header a" });
-    expect(source).not.toHaveAttribute("href");
+    expect(source).toHaveAttribute("href", "/l?feed=1");
 
     // An ordinary address still opens.
     await user.click(rowLink(2));
