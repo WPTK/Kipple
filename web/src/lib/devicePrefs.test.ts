@@ -185,6 +185,17 @@ describe("the Gazette's order and name (#39)", () => {
     expect(resolveOrder(p(), ctx4)).toBe("oldest");
   });
 
+  it("the Digest follows no sort order and its settings fall back to their defaults", () => {
+    updateDevicePrefs({ layout: "digest", order: "oldest" });
+    expect(resolveOrder(devicePrefsStore.get(), {})).toBe("newest");
+    const d = parseDevicePrefs(null);
+    expect([d.digestSections, d.digestOrder, d.digestImages, d.digestRows]).toEqual(["folder", "sidebar", true, 3]);
+    const ok = parseDevicePrefs(JSON.stringify({ digestSections: "feed", digestOrder: "quiet", digestImages: false, digestRows: 10 }));
+    expect([ok.digestSections, ok.digestOrder, ok.digestImages, ok.digestRows]).toEqual(["feed", "quiet", false, 10]);
+    const bad = parseDevicePrefs(JSON.stringify({ layout: "digest", digestSections: "tag", digestOrder: "newest", digestImages: "no", digestRows: 4 }));
+    expect([bad.layout, bad.digestSections, bad.digestOrder, bad.digestImages, bad.digestRows]).toEqual(["digest", "folder", "sidebar", true, 3]);
+  });
+
   it("keeps a valid name and blanks one the profile would refuse", () => {
     expect(parseDevicePrefs(null).paperName).toBe("");
     expect(parseDevicePrefs(JSON.stringify({ paperName: "Morning Notes" })).paperName).toBe("Morning Notes");

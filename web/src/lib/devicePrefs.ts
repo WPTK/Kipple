@@ -4,7 +4,7 @@ import { createStore, useStore } from "./store";
 // not appearance lives here, behind ONE storage seam (`storage` below): localStorage is the
 // instant-paint cache of the server's device profile, which lib/deviceSync.ts keeps in step.
 
-export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines", "gazette"] as const;
+export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines", "gazette", "digest"] as const;
 export type LayoutId = (typeof LAYOUT_IDS)[number];
 // The ids are what devices have stored, so they never change; only the labels do. "magazine" is shown as
 // Editorial; "headlines" is Headlines (title-only rows).
@@ -15,6 +15,7 @@ export const LAYOUT_LABELS: Record<LayoutId, string> = {
   inbox: "Inbox",
   headlines: "Headlines",
   gazette: "Gazette",
+  digest: "Digest",
 };
 
 /**
@@ -28,7 +29,13 @@ export const LAYOUT_HINTS: Record<LayoutId, string> = {
   inbox: "Source, title and a preview",
   headlines: "One line per article, titles only",
   gazette: "Newspaper-style pages",
+  digest: "Each folder or feed as its own section, a few articles each",
 };
+
+export type DigestSections = "folder" | "feed";
+export type DigestOrder = "sidebar" | "quiet";
+export const DIGEST_ROWS = [3, 5, 10] as const;
+export type DigestRows = (typeof DIGEST_ROWS)[number];
 
 /** The longest name the Gazette can be given (`client.paper_name`). */
 export const PAPER_NAME_MAX = 60;
@@ -131,6 +138,14 @@ export interface DevicePrefs {
   highlightKeywords: boolean;
   /** The Gazette's name on this device; blank prints the default name (layouts/gazette.tsx). */
   paperName: string;
+  /** What a Digest section is: a folder or a single feed (`client.digest_sections`). */
+  digestSections: DigestSections;
+  /** The order of the Digest sections: as the sidebar lists them, or the quietest feeds first (`client.digest_order`). */
+  digestOrder: DigestOrder;
+  /** Whether Digest rows show pictures (`client.digest_images`). */
+  digestImages: boolean;
+  /** How many articles a Digest section shows before "more" (`client.digest_rows`). */
+  digestRows: DigestRows;
   /** The layout to go back to when "Titles only in lists" is turned off. Local to this device (no profile key). */
   layoutBeforeTitlesOnly: LayoutId | null;
 }
@@ -154,6 +169,10 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   unreadBadge: "count",
   highlightKeywords: true,
   paperName: "",
+  digestSections: "folder",
+  digestOrder: "sidebar",
+  digestImages: true,
+  digestRows: 3,
   layoutBeforeTitlesOnly: null,
 };
 
@@ -232,6 +251,10 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       unreadBadge: UNREAD_BADGES.includes(v?.unreadBadge as UnreadBadge) ? (v?.unreadBadge as UnreadBadge) : d.unreadBadge,
       highlightKeywords: v?.highlightKeywords !== false,
       paperName: cleanPaperName(v?.paperName),
+      digestSections: v?.digestSections === "feed" ? "feed" : d.digestSections,
+      digestOrder: v?.digestOrder === "quiet" ? "quiet" : d.digestOrder,
+      digestImages: v?.digestImages !== false,
+      digestRows: DIGEST_ROWS.includes(v?.digestRows as DigestRows) ? (v?.digestRows as DigestRows) : d.digestRows,
       layoutBeforeTitlesOnly: isLayoutId(v?.layoutBeforeTitlesOnly) && v.layoutBeforeTitlesOnly !== "headlines" ? v.layoutBeforeTitlesOnly : null,
     };
   } catch {
@@ -433,7 +456,7 @@ export function resolveOrder(p: DevicePrefs, ctx: LayoutContext): OrderPref {
 }
 
 /** Whether a layout shows the list in the order the reader set (every layout but the Gazette). */
-export const followsOrder = (layout: LayoutId): boolean => layout !== "gazette";
+export const followsOrder = (layout: LayoutId): boolean => layout !== "gazette" && layout !== "digest";
 
 /** Which override a list can carry, if any (a feed list or a folder list). */
 export function overrideTarget(ctx: LayoutContext): { kind: "feed" | "folder"; id: string } | null {

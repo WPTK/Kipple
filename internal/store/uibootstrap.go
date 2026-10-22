@@ -264,6 +264,9 @@ type UIFeed struct {
 	// another listed feed has the same title (trimmed, any case): a row shows it so the two can be told apart.
 	// Null otherwise, so the bootstrap does not carry every feed's address.
 	AddressHint *string `json:"address_hint"`
+	// Pace is the feed's average new items per complete local day over the last 28 complete days
+	// (FeedPaces); null when under 7 days were counted. Set by UIFeeds only, so a feed detail has null.
+	Pace *float64 `json:"pace"`
 }
 
 // UIFeeds lists feeds in display order: the listed feeds (listedFeedSQL), so
@@ -274,6 +277,19 @@ func (d *DB) UIFeeds(ctx context.Context, env StatusEnv) ([]UIFeed, error) {
 		return nil, err
 	}
 	addressHints(feeds, urls)
+	now := env.Now
+	if now.IsZero() {
+		now = d.clock.Now()
+	}
+	paces, err := d.FeedPaces(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+	for i := range feeds {
+		if p, ok := paces[feeds[i].ID]; ok {
+			feeds[i].Pace = &p
+		}
+	}
 	return feeds, nil
 }
 

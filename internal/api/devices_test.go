@@ -222,6 +222,11 @@ func TestPatchDeviceValidation(t *testing.T) {
 		{"override bad id", `{"client.list_overrides":{"feed":{"abc":{"layout":"cards"}}}}`, "client.list_overrides"},
 		{"override extra key", `{"client.list_overrides":{"tag":{"1":{"layout":"cards"}}}}`, "client.list_overrides"},
 		{"old override key", `{"client.layout_overrides":{"feed":{"1":"cards"}}}`, "client.layout_overrides"},
+		{"digest sections", `{"client.digest_sections":"tag"}`, "client.digest_sections"},
+		{"digest order", `{"client.digest_order":"newest"}`, "client.digest_order"},
+		{"digest images type", `{"client.digest_images":"yes"}`, "client.digest_images"},
+		{"digest rows other", `{"client.digest_rows":4}`, "client.digest_rows"},
+		{"digest rows string", `{"client.digest_rows":"5"}`, "client.digest_rows"},
 		{"collapsed dup", `{"client.collapsed_folders":["1","1"]}`, "client.collapsed_folders"},
 		{"collapsed type", `{"client.collapsed_folders":[1]}`, "client.collapsed_folders"},
 	} {
@@ -248,12 +253,13 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	d := h.newDev()
 	body := `{"ui.theme":"system","ui.theme_schedule":true,"ui.theme_day":"linen","ui.theme_night":"carbon","ui.theme_night_start":"22:30","ui.theme_day_start":"06:15","ui.font_body":"Atkinson Hyperlegible Next",
 	 "ui.reading_density":"airy","ui.list_density":"dense","ui.mark_read_on_scroll":true,
-	 "client.layout":"headlines","client.group":"week","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","group":"none","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"},"5":{"layout":"gazette"}}},
+	 "client.layout":"digest","client.group":"week","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","group":"none","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"},"5":{"layout":"gazette"}}},
 	 "client.paper_name":"` + strings.Repeat("é", 60) + `",
 	 "client.order":"oldest","client.search_order":"relevance","client.inbox_thumbs":"off","client.peek_seen":true,"client.article_width":"full",
 	 "client.list_width":400,"client.sidebar_width":300,"client.link_target":"same","client.unread_badge":"dot",
 	 "client.text_size":0.875,"client.adjust_separately":true,"client.shortcuts":false,"client.spacing":"roomy",
 	 "client.motion":"on","client.font_everywhere":true,"client.large_targets":true,"client.highlight_keywords":false,"client.listen":true,"client.voice":"Samantha","client.rate":1.2,
+	 "client.digest_sections":"feed","client.digest_order":"quiet","client.digest_images":false,"client.digest_rows":10,
 	 "client.collapsed_folders":["4","9"]}`
 	code, out, _ := d.call("PATCH", "/api/device", body)
 	require.Equal(t, http.StatusOK, code, out)
@@ -263,7 +269,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	require.Equal(t, true, m["ui.theme_schedule"])
 	require.Equal(t, "22:30", m["ui.theme_night_start"])
 	require.Equal(t, "06:15", m["ui.theme_day_start"])
-	require.Equal(t, "headlines", m["client.layout"])
+	require.Equal(t, "digest", m["client.layout"])
 	require.Equal(t, "week", m["client.group"])
 	require.Equal(t, "easy", m["ui.font_body"], "a display name is stored as the font id")
 	for _, bad := range []string{"\"rank\"", "1"} {
@@ -284,6 +290,15 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	require.Equal(t, true, fresh["merged"].(map[string]any)["client.highlight_keywords"], "on unless a device turns it off")
 	require.EqualValues(t, 1.2, m["client.rate"])
 	require.Equal(t, []any{"4", "9"}, m["client.collapsed_folders"])
+	require.Equal(t, "feed", m["client.digest_sections"])
+	require.Equal(t, "quiet", m["client.digest_order"])
+	require.Equal(t, false, m["client.digest_images"])
+	require.EqualValues(t, 10, m["client.digest_rows"])
+	fm := fresh["merged"].(map[string]any)
+	require.Equal(t, "folder", fm["client.digest_sections"], "defaults")
+	require.Equal(t, "sidebar", fm["client.digest_order"])
+	require.Equal(t, true, fm["client.digest_images"])
+	require.EqualValues(t, 3, fm["client.digest_rows"])
 	// partial update keeps the rest
 	_, out, _ = d.call("PATCH", "/api/device", `{"client.layout":null,"client.shortcuts":null}`)
 	prof := out["profile"].(map[string]any)

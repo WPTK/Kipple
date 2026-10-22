@@ -152,6 +152,10 @@ describe("layouts", () => {
       expect(r.querySelectorAll("article[data-slot]").length).toBe(5);
       expect(r.querySelector("[data-index]")).toBeNull();
     },
+    // Until its page ships (Phase C 1c) the Digest draws the Compact rows.
+    digest: (r) => {
+      expect(r.querySelector(".row-compact")).not.toBeNull();
+    },
     headlines: (r) => {
       expect(r.querySelector(".row-headline")).not.toBeNull();
       expect(within(r).queryByText("Excerpt for article 1")).toBeNull();
