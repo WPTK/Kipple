@@ -235,8 +235,8 @@ try {
 
     await onStep(page, "A", "You're all set", 7);
     // The reload at step 4 made the page forget the password typed in step 1, so step 7 asks for it again.
-    check("A step 7", await page.getByLabel("Your web password").isVisible(), "the web password was not asked for after a reload");
-    await page.getByLabel("Your web password").fill("a long enough password");
+    check("A step 7", await page.getByLabel("Your web password", { exact: true }).isVisible(), "the web password was not asked for after a reload");
+    await page.getByLabel("Your web password", { exact: true }).fill("a long enough password");
     await page.getByRole("button", { name: "Generate API password" }).click();
     await page.getByTestId("api-password").waitFor({ timeout: 10_000 });
     check("A step 7", ((await page.getByTestId("api-password").textContent()) ?? "").length > 8, "no API password shown");
@@ -413,7 +413,7 @@ try {
     try {
       await page.getByRole("heading", { level: 1, name: "Kipple couldn't load" }).waitFor({ timeout: 10_000 });
       check("C offline", await page.getByRole("button", { name: "Try again" }).isVisible(), "no Try again button");
-      check("C offline", (await page.getByLabel("Password").count()) === 0, "a password form was shown when the server could not be reached");
+      check("C offline", (await page.getByLabel("Password", { exact: true }).count()) === 0, "a password form was shown when the server could not be reached");
       await overflowRun(page, "C offline");
       if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "C-offline.png"), fullPage: true });
     } catch {

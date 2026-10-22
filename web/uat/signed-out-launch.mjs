@@ -80,7 +80,7 @@ await t.eachViewport(async (page, vp) => {
       const p = await ctx.newPage();
       await p.goto("/", { waitUntil: "load" });
       await p.getByLabel("Username").fill(opt.user);
-      await p.getByLabel("Password").fill(opt.password);
+      await p.getByLabel("Password", { exact: true }).fill(opt.password);
       await p.getByRole("button", { name: "Sign in" }).click();
       await p.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
       await p.goto("/settings/account", { waitUntil: "load" });
