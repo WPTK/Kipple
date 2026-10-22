@@ -354,6 +354,12 @@ a.sr-only-live:focus {
 .article-body table:not(:has(tr > :nth-child(2))) td { overflow-wrap: anywhere; }
 .article-body th, .article-body td { border: 1px solid var(--kp-border); padding: 0.35em 0.6em; }
 .article-body ul, .article-body ol { padding-inline-start: 1.5em; }
+/* The base reset clears list-style on every list; an article's lists need their bullets and numbers back. */
+.article-body ul { list-style: disc; }
+.article-body ol { list-style: decimal; }
+.article-body ul ul, .article-body ol ul { list-style: circle; }
+.article-body ul ul ul, .article-body ol ul ul, .article-body ul ol ul, .article-body ol ol ul { list-style: square; }
+.article-body li > ul, .article-body li > ol { margin-block: 0.25em 0; }
 .article-body hr { border: 0; border-top: 1px solid var(--kp-border); margin-block: var(--kp-hgap); }
 
 /* ---------- List rows ---------- */
