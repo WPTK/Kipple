@@ -1,6 +1,7 @@
 import type { Card, Feed, Folder } from "@/api/types";
 import type { Favorite } from "@/lib/devicePrefs";
-import { chainOf, folderTree, subtreeOf } from "@/lib/folderTree";
+import { folderTree, subtreeOf } from "@/lib/folderTree";
+import { byFolder } from "@/lib/sections";
 
 // The Gazette planner (docs/maintainers/ui-decisions.md, "The Gazette"). A pure function: the same articles, feeds, folders,
 // favorites, scope and screen class always give the same pages, whatever order the input arrives in. It knows nothing
@@ -188,21 +189,8 @@ function frontPage(input: GazetteInput, sorted: readonly PlanCard[], used: Set<s
 
 /** Which section an article belongs to: one level below the list's scope. */
 function sectioner(input: GazetteInput): (a: PlanCard) => { key: string; title: string } {
-  const tree = folderTree(input.folders);
-  const feeds = new Map(input.feeds.map((f) => [f.id, f]));
-  const byFeed = (a: PlanCard) => ({ key: `feed:${a.feed_id}`, title: feeds.get(a.feed_id)?.title ?? "Other" });
-  const byFolder = (id: string) => ({ key: `folder:${id}`, title: tree.byId.get(id)?.name ?? "Other" });
-  const { feed, folder } = input.scope;
-  return (a) => {
-    if (feed) return byFeed(a);
-    const f = feeds.get(a.feed_id);
-    if (!f || !tree.byId.has(f.folder_id)) return byFeed(a);
-    const chain = chainOf(tree, f.folder_id);
-    if (!folder) return byFolder(chain[chain.length - 1]!);
-    const at = chain.indexOf(folder);
-    // A feed straight in the scope folder (or one the chain cannot place) is grouped by its own name.
-    return at > 0 ? byFolder(chain[at - 1]!) : byFeed(a);
-  };
+  const sectionOf = byFolder(input.folders, input.feeds, input.scope);
+  return (a) => sectionOf(a.feed_id);
 }
 
 function innerPage(input: GazetteInput, chunk: readonly PlanCard[], number: number, last: boolean, sectionOf: ReturnType<typeof sectioner>): PagePlan {
