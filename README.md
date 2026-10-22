@@ -118,6 +118,20 @@ Kipple leaves these out on purpose.
 To report a bug, open an [issue](https://github.com/WPTK/Kipple/issues). To send a change, read
 [CONTRIBUTING.md](CONTRIBUTING.md). Vulnerabilities go through [SECURITY.md](SECURITY.md).
 
+## Maintenance and governance
+
+Kipple is vibe coded. AI coding agents (Claude) write nearly all of its code, tests and docs. The maintainer is not a
+professional programmer; the work is specifying, steering and verifying the agents.
+
+What backs it up is checking, not authorship: test suites, CI scans (govulncheck, staticcheck, gosec, gitleaks, Trivy,
+zizmor), fuzzing, signed and attested releases with an SBOM, a written [compatibility promise](docs/compatibility.md) and
+a release checklist. [Verify a release yourself](docs/deploy.md#verify-the-signature).
+
+There is one maintainer with one person's time, and Kipple is single-user by design. [SECURITY.md](SECURITY.md) sets a
+14-day target for a first response. If the maintainer stops, the code is under a permissive license and a fork is welcome:
+the repository's workflow builds and signs each release, so a fork builds its own. Notes and decisions are on the
+[maintainer's blog](https://blog.wptk.org) and in the [history repository](https://github.com/WPTK/kipple-history).
+
 ## License
 
 [Blue Oak Model License 1.0.0](LICENSE): use, modify and share it, including commercially. Third-party licenses are in
