@@ -1,0 +1,1 @@
+Gazette, mark as read while scrolling: when part of the page is laid out again under you (another plan, taller stories in one column), a story you had already scrolled past and that stayed where it was is still marked read when scrolling stops; only the stories that moved start again from what is on screen. (#39)
