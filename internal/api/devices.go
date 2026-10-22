@@ -107,7 +107,7 @@ func floatOneOf(vals ...float64) func(any) (any, string) {
 	}
 }
 
-var layoutIDs = []string{"magazine", "cards", "compact", "inbox", "headlines", "gazette"}
+var layoutIDs = []string{"magazine", "cards", "compact", "inbox", "headlines", "gazette", "digest"}
 
 // maxPaperName is the longest name, in characters, a device can give the Gazette layout.
 const maxPaperName = 60
@@ -224,6 +224,13 @@ var clientDefs = map[string]clientDef{
 		}
 		return s, ""
 	}, ""},
+	// The Digest layout's device settings: what a section is (a folder or a feed), the order of the sections
+	// (as the sidebar lists them, or the quietest feeds first), whether its rows show pictures, and how many
+	// articles each section shows before "more".
+	"client.digest_sections": {oneOf("folder", "feed"), "folder"},
+	"client.digest_order":    {oneOf("sidebar", "quiet"), "sidebar"},
+	"client.digest_images":   {boolVal, true},
+	"client.digest_rows":     {floatOneOf(3, 5, 10), 3.0},
 	"client.collapsed_folders": {func(v any) (any, string) {
 		const msg = "must be a list (at most 200) of numeric-string folder ids without repeats"
 		arr, ok := v.([]any)

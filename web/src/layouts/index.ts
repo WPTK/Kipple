@@ -14,13 +14,14 @@ import {
 } from "@/lib/devicePrefs";
 import { cards } from "./cards";
 import { compact } from "./compact";
+import { digest } from "./digest";
 import { gazette } from "./gazette";
 import { headlines } from "./headlines";
 import { inbox } from "./inbox";
 import { magazine } from "./magazine";
 import type { ListLayout, PageProps } from "./types";
 
-const layouts: Record<LayoutId, ListLayout> = { magazine, cards, compact, inbox, headlines, gazette };
+const layouts: Record<LayoutId, ListLayout> = { magazine, cards, compact, inbox, headlines, gazette, digest };
 
 function getLayout(id: LayoutId): ListLayout {
   return layouts[id] ?? magazine;

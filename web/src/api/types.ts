@@ -72,6 +72,8 @@ export interface Feed {
   site_url: string;
   /** The feed's short address, sent only when another feed has the same title (null otherwise): rows show it. */
   address_hint?: string | null;
+  /** Average new items per complete day over the last 28 complete days; null while fewer than 7 days were counted. */
+  pace?: number | null;
   icon: string | null;
   unread: number;
   status: string;
