@@ -46,19 +46,19 @@ Describe 'Get-DirectoryByte' {
 }
 
 Describe 'Select-StaleFuzzCache' {
-  BeforeAll { function New-CacheEntry($id, $name, $when) { [pscustomobject]@{ id = $id; key = $name; createdAt = $when } } }
+  BeforeAll { function Get-CacheEntry($id, $name, $when) { [pscustomobject]@{ id = $id; key = $name; createdAt = $when } } }
   It 'keeps the newest key of each target and lists the rest' {
     $c = @(
-      New-CacheEntry 1 'fuzz-corpus-p-FuzzA-100' '2026-10-05T05:30:00Z'
-      New-CacheEntry 2 'fuzz-corpus-p-FuzzA-300' '2026-10-19T05:30:00Z'
-      New-CacheEntry 3 'fuzz-corpus-p-FuzzA-200' '2026-10-12T05:30:00Z'
-      New-CacheEntry 4 'fuzz-corpus-p-FuzzAB-150' '2026-10-10T05:30:00Z'
-      New-CacheEntry 5 'setup-go-Linux-abc' '2026-09-01T00:00:00Z'
+      Get-CacheEntry 1 'fuzz-corpus-p-FuzzA-100' '2026-10-05T05:30:00Z'
+      Get-CacheEntry 2 'fuzz-corpus-p-FuzzA-300' '2026-10-19T05:30:00Z'
+      Get-CacheEntry 3 'fuzz-corpus-p-FuzzA-200' '2026-10-12T05:30:00Z'
+      Get-CacheEntry 4 'fuzz-corpus-p-FuzzAB-150' '2026-10-10T05:30:00Z'
+      Get-CacheEntry 5 'setup-go-Linux-abc' '2026-09-01T00:00:00Z'
     )
     @(Select-StaleFuzzCache -Cache $c | ForEach-Object id | Sort-Object) | Should -Be @(1, 3)
   }
   It 'lists nothing when every target has one key' {
-    $c = @(New-CacheEntry 1 'fuzz-corpus-p-FuzzA-100' '2026-10-05T05:30:00Z')
+    $c = @(Get-CacheEntry 1 'fuzz-corpus-p-FuzzA-100' '2026-10-05T05:30:00Z')
     @(Select-StaleFuzzCache -Cache $c).Count | Should -Be 0
   }
 }

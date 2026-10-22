@@ -65,9 +65,9 @@ function Select-StaleFuzzCache {
     ForEach-Object { $_.Group | Sort-Object { [datetime]$_.createdAt } -Descending | Select-Object -Skip 1 }
 }
 
-function Set-StepOutput {
+function Write-StepOutput {
   param([string]$Name, [string]$Value)
-  if ($WhatIfOnly -or -not $env:GITHUB_OUTPUT) { Write-Host "output $Name=$Value" } else { "$Name=$Value" | Add-Content -Path $env:GITHUB_OUTPUT }
+  if ($WhatIfOnly -or -not $env:GITHUB_OUTPUT) { Write-Information -InformationAction Continue "output $Name=$Value" } else { "$Name=$Value" | Add-Content -Path $env:GITHUB_OUTPUT }
 }
 
 # Dot-sourced (the tests do), the script only defines the functions above.
@@ -89,9 +89,9 @@ if ($MyInvocation.InvocationName -ne '.') {
           }
         })
       foreach ($p in $plan) {
-        Set-StepOutput "key$($p.Slot)" $p.Key
-        Set-StepOutput "path$($p.Slot)" $p.Path
-        Write-Host ("slot {0,-2} {1,-28} {2}" -f $p.Slot, $p.Name, $p.Key)
+        Write-StepOutput "key$($p.Slot)" $p.Key
+        Write-StepOutput "path$($p.Slot)" $p.Path
+        Write-Information -InformationAction Continue ("slot {0,-2} {1,-28} {2}" -f $p.Slot, $p.Name, $p.Key)
       }
       if (-not $WhatIfOnly) { $plan | ConvertTo-Json -AsArray | Set-Content -Path $PlanFile }
     }
@@ -101,8 +101,8 @@ if ($MyInvocation.InvocationName -ne '.') {
         $bytes = Get-DirectoryByte -Path $p.Path
         $save = $bytes -gt 0 -and $bytes -le ($MaxMiB * 1MB)
         $why = if ($bytes -eq 0) { 'empty, not saved' } elseif (-not $save) { "over $MaxMiB MiB, not saved" } else { 'saved' }
-        Write-Host ("{0,-28} {1,8:N1} MiB  {2}" -f $p.Name, ($bytes / 1MB), $why)
-        Set-StepOutput "save$($p.Slot)" ($save ? 'true' : 'false')
+        Write-Information -InformationAction Continue ("{0,-28} {1,8:N1} MiB  {2}" -f $p.Name, ($bytes / 1MB), $why)
+        Write-StepOutput "save$($p.Slot)" ($save ? 'true' : 'false')
       }
     }
     'Prune' {
@@ -110,10 +110,10 @@ if ($MyInvocation.InvocationName -ne '.') {
       if ($LASTEXITCODE -ne 0) { throw 'gh cache list failed' }
       $stale = @(Select-StaleFuzzCache -Cache @($json | ConvertFrom-Json))
       foreach ($c in $stale) {
-        Write-Host "delete $($c.key)"
+        Write-Information -InformationAction Continue "delete $($c.key)"
         if (-not $WhatIfOnly) { gh cache delete $c.id; if ($LASTEXITCODE -ne 0) { throw "gh cache delete $($c.id) failed" } }
       }
-      Write-Host "$($stale.Count) older fuzz corpus caches deleted"
+      Write-Information -InformationAction Continue "$($stale.Count) older fuzz corpus caches deleted"
     }
   }
 }
