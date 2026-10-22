@@ -1239,7 +1239,7 @@ process.exit(missed.length ? 1 : 0);
 
 /** report.md: per check, one section per root-cause group (key) with its instances, worst values and up to three crops. */
 function report() {
-  const esc = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\n/g, " ");
+  const esc = (s) => String(s ?? "").replace(/[\\|]/g, "\\$&").replace(/\n/g, " ");
   const lines = [`# Design probes`, "", `${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC · ${origin} · checks ${checks.join(", ")} · devices ${devices.join(", ")} · ${findings.length} findings in ${new Set(findings.map((f) => f.key)).size} groups · ${missed.length} missed`, ""];
   for (const c of checks) {
     const fs = findings.filter((f) => f.check === c);
