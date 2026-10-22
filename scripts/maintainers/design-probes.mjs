@@ -18,7 +18,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { COMMON_OPTIONS, DEVICES, chromium, resolveCommon, schemes, session, settle, webRequire } from "./lib/design-surfaces.mjs";
 
-const CHECKS = ["targets", "contrast", "reflow", "spacing", "forced", "vision", "throttle", "stuck", "keyboard", "aria", "stress", "inventory"];
+const CHECKS = ["reading", "targets", "contrast", "reflow", "spacing", "forced", "vision", "throttle", "stuck", "keyboard", "aria", "stress", "inventory"];
 const { values: opt } = parseArgs({
   options: {
     ...COMMON_OPTIONS,
@@ -178,7 +178,13 @@ function installLib() {
   /** Interactive targets in the window, with the nearest other target and whether the WCAG 2.5.8 spacing exception holds. */
   function targets() {
     const els = [...document.querySelectorAll(INTERACTIVE)].filter((e) => drawn(e) === e && shown(e) && seenAt(e) && !disabled(e) && !inline(e));
-    const rs = els.map((e) => e.getBoundingClientRect());
+    // A stretched link (a ::before laid over its row) is hit anywhere on the row, so its target is the row.
+    const hitBox = (e) => {
+      const pb = getComputedStyle(e, "::before");
+      if (pb.content !== "none" && pb.position === "absolute" && e.offsetParent) return e.offsetParent.getBoundingClientRect();
+      return e.getBoundingClientRect();
+    };
+    const rs = els.map(hitBox);
     return els.map((e, i) => {
       const r = rs[i];
       const cx0 = r.left + r.width / 2;
@@ -203,7 +209,7 @@ function installLib() {
         const small = q.width < 24 || q.height < 24;
         if (small && Math.hypot(q.left + q.width / 2 - cx0, q.top + q.height / 2 - cy0) < 24) spacingOk = false;
       }
-      return { ...info(e), gap: gap === Infinity ? null : Math.round(gap * 10) / 10, near, spacingOk };
+      return { ...info(e), rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }, href: e.getAttribute("href") || "", gap: gap === Infinity ? null : Math.round(gap * 10) / 10, near, spacingOk };
     });
   }
 
@@ -590,9 +596,9 @@ async function crop(page, id, label) {
 // One finding per instance; report.md groups them by `key`, the root cause (same check, rule and control name).
 const CROPS_PER_KEY = 3;
 const cropCount = new Map();
-const stripName = (n) => (n || "").replace(/[:,] .*$/, "").replace(/\d+/g, "#").slice(0, 50) || "(no name)";
+const stripName = (n, href) => (href?.startsWith("/i/") ? "(an article title link)" : n || "").replace(/[:,] .*$/, "").replace(/\d+/g, "#").slice(0, 50) || "(no name)";
 async function hit(page, f) {
-  const key = f.key ?? `${f.check}|${f.rule}|${f.role ?? ""}|${stripName(f.name)}`;
+  const key = f.key ?? `${f.check}|${f.rule}|${f.role ?? ""}|${stripName(f.name, f.href)}`;
   const n = cropCount.get(key) ?? 0;
   let file = null;
   if (page && f.id && n < CROPS_PER_KEY) {
@@ -653,6 +659,32 @@ const log = (s) => console.log(`${new Date().toISOString().slice(11, 19)} ${s}`)
 
 // ---- Checks -----------------------------------------------------------------------------------------------------------
 const RUN = {
+  /** Article type on each device and text size: body size, leading, characters a line and the column's share of the window, against 45-90 characters, 16 px and 1.3-1.7 leading. */
+  async reading() {
+    for (const device of devices)
+      for (const size of [0.875, 1, 1.5])
+        await overSurfaces("reading", device, { size, filter: (s) => s.area === "article" }, async (page, s) => {
+          const m = await page.evaluate(() => {
+            const p = [...document.querySelectorAll('[data-testid="article-body"] p')].find((x) => x.textContent.trim().length > 120 && x.getBoundingClientRect().width > 0);
+            if (!p) return null;
+            const cs = getComputedStyle(p);
+            const r = p.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(p);
+            const lines = new Set([...range.getClientRects()].map((q) => Math.round(q.bottom))).size;
+            p.dataset.dpId ||= "reading";
+            return { id: p.dataset.dpId, font: parseFloat(cs.fontSize), lh: parseFloat(cs.lineHeight) / parseFloat(cs.fontSize), family: cs.fontFamily.split(",")[0].replace(/"/g, ""), width: Math.round(r.width), vw: innerWidth, cpl: Math.round(p.textContent.trim().length / Math.max(1, lines)) };
+          });
+          if (!m) return;
+          const value = `body ${m.font} px ${m.family}, leading ${m.lh.toFixed(2)}, ${m.cpl} characters a line, column ${m.width} px of ${m.vw} (${Math.round((m.width / m.vw) * 100)}%)`;
+          notes.push({ check: "reading", surface: s.id, device, condition: `text ${size}`, note: value });
+          const base = { check: "reading", surface: s.id, device, condition: `text ${size}`, id: m.id, name: s.id, value };
+          if (m.cpl < 45 || m.cpl > 90) await hit(page, { ...base, rule: "line length outside 45-90 characters (Practical Typography)", key: `reading|measure|${device}` });
+          if (m.font < 16) await hit(page, { ...base, rule: "body text under 16 px", key: `reading|size|${device}` });
+          if (m.lh < 1.3 || m.lh > 1.7) await hit(page, { ...base, rule: "body leading outside 1.3-1.7", key: `reading|leading|${device}` });
+        });
+  },
+
   /** WCAG 2.5.8 (24 px or spacing), the 44 pt (HIG) and 48 dp (Material) touch sizes on phone and tablet, and neighbours under 8 px apart. */
   async targets() {
     for (const device of devices)
@@ -663,7 +695,7 @@ const RUN = {
           const small = Math.min(t.rect.w, t.rect.h);
           if (small < 24 && !t.spacingOk) await hit(page, { ...base, rule: "WCAG 2.5.8 target under 24 px without spacing", value: `${t.rect.w}x${t.rect.h}`, threshold: 24 });
           else if (small < min) await hit(page, { ...base, rule: `touch target under ${min} px (HIG 44 pt, Material 48 dp)`, value: `${t.rect.w}x${t.rect.h}`, threshold: min });
-          if (t.gap !== null && t.gap < 8 && small < 44) await hit(page, { ...base, rule: "neighbouring targets under 8 px apart", value: `${t.gap} px to "${t.near}"`, threshold: 8, key: `targets|gap|${t.role}|${stripName(t.name)}` });
+          if (t.gap !== null && t.gap < 8 && small < 44) await hit(page, { ...base, rule: "neighbouring targets under 8 px apart", value: `${t.gap} px to "${t.near}"`, threshold: 8, key: `targets|gap|${t.role}|${stripName(t.name, t.href)}` });
         }
       });
   },
@@ -913,7 +945,10 @@ const RUN = {
       lib ??= await library(ctx);
       const feeds = ["The Morning Ledger", "Long Essays", "Ünïcödé", null];
       let stuckCount = 0;
+      const times = [];
       for (let i = 0; i < n; i++) {
+        // Every other try changes the device profile first, as a capture run does before each surface.
+        if (i % 2) await setProfile(ctx, { "client.layout": i % 4 === 1 ? "cards" : "magazine" });
         const page = await ctx.newPage();
         const pending = new Map();
         const errors = [];
@@ -933,6 +968,7 @@ const RUN = {
           const ok = await page
             .waitForFunction(() => document.querySelector('[aria-label="Article actions"]') && !document.querySelector('main [aria-busy="true"], [aria-busy="true"][role=status]'), null, { timeout: 12000 })
             .then(() => true, () => false);
+          if (ok) times.push(Date.now() - t0);
           if (!ok) {
             stuckCount++;
             const waiting = [...pending].filter(([r]) => !r.url().endsWith("/api/events")).map(([r, t]) => `${r.method()} ${new URL(r.url()).pathname} (${Math.round((Date.now() - t) / 1000)} s)`);
@@ -948,7 +984,8 @@ const RUN = {
           await page.close();
         }
       }
-      notes.push({ check: "stuck", note: `${stuckCount} of ${n} article opens stayed on the skeleton past 12 s` });
+      times.sort((a, b) => a - b);
+      notes.push({ check: "stuck", note: `${stuckCount} of ${n} article opens stayed on the skeleton past 12 s (half of them after a profile change); the others loaded in ${times[0] ?? "-"} ms at best, ${times[times.length >> 1] ?? "-"} ms median, ${times.at(-1) ?? "-"} ms at worst` });
     } finally {
       await ctx.close();
     }

@@ -61,6 +61,7 @@ node ../scripts/maintainers/design-probes.mjs --out ../.design/probes --checks t
 
 | Check | What it measures |
 |---|---|
+| `reading` | Article body size, leading, characters a line and the column's share of the window, per device and text size |
 | `targets` | Controls under 24 px without the WCAG 2.5.8 spacing, under 44 px on a phone or tablet, neighbours under 8 px apart |
 | `contrast` | Text contrast (axe) and non-text contrast (icons in icon-only controls, unread dots, field boundaries, selected states) in every theme (`--contrast-themes`) |
 | `reflow` | Sideways scrolling and clipped text at 320x256 (400% zoom), 280 px and two landscape phones |
