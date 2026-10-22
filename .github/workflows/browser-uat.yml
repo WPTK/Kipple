@@ -139,13 +139,14 @@ jobs:
       - name: Collect the downloaded system packages
         id: debs
         if: steps.gate.outputs.code != 'false' && always()
+        env:
+          BEFORE: ${{ steps.browsers.outputs.before }}
         run: |
           mkdir -p ~/apt-debs
           sudo cp -n /var/cache/apt/archives/*.deb ~/apt-debs/ 2>/dev/null || true
           sudo chown -R "$(id -u):$(id -g)" ~/apt-debs
-          before='${{ steps.browsers.outputs.before }}'
           now="$(find ~/apt-debs -name '*.deb' | wc -l)"
-          if [ -n "$before" ] && [ "$now" -gt "$before" ]; then echo "save=true" >> "$GITHUB_OUTPUT"; fi
+          if [ -n "$BEFORE" ] && [ "$now" -gt "$BEFORE" ]; then echo "save=true" >> "$GITHUB_OUTPUT"; fi
 
       - name: Save the downloaded system packages
         if: steps.gate.outputs.code != 'false' && always() && steps.debs.outputs.save == 'true'
