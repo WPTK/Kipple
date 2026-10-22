@@ -106,7 +106,7 @@ if ($MyInvocation.InvocationName -ne '.') {
       }
     }
     'Prune' {
-      $json = gh cache list --key fuzz-corpus- --limit 1000 --json id, key, createdAt
+      $json = gh cache list --key fuzz-corpus- --limit 1000 --json 'id,key,createdAt'
       if ($LASTEXITCODE -ne 0) { throw 'gh cache list failed' }
       $stale = @(Select-StaleFuzzCache -Cache @($json | ConvertFrom-Json))
       foreach ($c in $stale) {

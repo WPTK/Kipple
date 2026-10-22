@@ -6,7 +6,7 @@ inputs:
     description: Local image tag to build.
     required: true
   cache-scope:
-    description: GitHub Actions cache scope for the layer cache. Empty means no layer cache.
+    description: GitHub Actions cache scope for the layer cache. Empty means no layer cache. Every ref reads it; only main writes it, so pull requests do not each add their own copy of the layers to the repository's cache quota.
     default: ""
 
 runs:
@@ -33,4 +33,4 @@ runs:
           VCS_REF=${{ steps.version.outputs.vcs_ref }}
         cache-from: ${{ inputs.cache-scope != '' && format('type=gha,scope={0}', inputs.cache-scope) || '' }}
         # A throttled cache service must not fail the build.
-        cache-to: ${{ inputs.cache-scope != '' && format('type=gha,scope={0},mode=max,ignore-error=true', inputs.cache-scope) || '' }}
+        cache-to: ${{ inputs.cache-scope != '' && github.ref == 'refs/heads/main' && format('type=gha,scope={0},mode=max,ignore-error=true', inputs.cache-scope) || '' }}
