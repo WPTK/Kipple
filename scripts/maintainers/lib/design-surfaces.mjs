@@ -29,6 +29,8 @@ const openFirst = async (page) => {
   await firstRow(page).waitFor({ timeout: 20000 });
   await firstRow(page).click();
   await page.getByRole("toolbar", { name: "Article actions" }).or(page.locator('[aria-label="Article actions"]')).first().waitFor({ timeout: 15000 });
+  // The toolbar shows before the text; wait for the text, or a capture can show the loading skeleton.
+  await page.locator("main .article-body").first().waitFor({ timeout: 15000 });
 };
 const list = (path) => async (page) => {
   await page.goto(path);

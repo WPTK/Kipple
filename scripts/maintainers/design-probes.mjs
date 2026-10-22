@@ -54,10 +54,6 @@ if (!opt.out) {
 }
 const out = resolve(opt.out);
 for (const d of ["crops", "aria", "forced", "vision", "frames", "rtl", "keyboard", "inventory"]) mkdirSync(join(out, d), { recursive: true });
-if (opt.report) {
-  writeReport();
-  process.exit(0);
-}
 const probes = opt.probes.split(",").map((s) => s.trim());
 for (const p of probes) if (!PROBES[p]) throw new Error(`unknown probe ${p} (have ${Object.keys(PROBES).join(", ")})`);
 const origin = loopbackOrigin(opt.url);
@@ -142,6 +138,12 @@ async function hit(page, where, rule, item, value, limit, extra = {}) {
   const sig = item.sig ?? `${item.region} > ${item.tag} "${item.name}"`;
   const file = page ? await crop(page, `${where.probe}:${rule}`, sig, item.rect) : null;
   hits.push({ rule, ...where, sig, name: item.name, region: item.region, value, limit, crop: file, ...extra });
+}
+
+// RULES is set above, so a report-only run starts here.
+if (opt.report) {
+  writeReport();
+  process.exit(0);
 }
 
 // ---- Driving ---------------------------------------------------------------------------------------------------------
@@ -349,14 +351,17 @@ const run = {
         await session.setProfile(ctx, { "client.text_size": size });
         for (const s of articles)
           await onSurface(device, s, async (page) => {
+            await page.waitForSelector(".article-body p", { timeout: 10000 }).catch(() => {});
             const m = await ev(page, () => {
-              const p = [...document.querySelectorAll(".article-body p")].find((x) => (x.innerText || "").length > 200);
+              // The widest paragraph that wraps, so its width is the column's line length.
+              const wraps = (x) => x.getBoundingClientRect().height >= 1.8 * parseFloat(getComputedStyle(x).lineHeight);
+              const p = [...document.querySelectorAll(".article-body p")].filter(wraps).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
               if (!p) return null;
               const cs = getComputedStyle(p);
               const c = document.createElement("canvas").getContext("2d");
               c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
               const sample = "the quick brown fox jumps over the lazy dog and keeps reading the article text";
-              const avg = c.measureText(sample).width / sample.length + parseFloat(cs.letterSpacing || 0) || 1;
+              const avg = c.measureText(sample).width / sample.length + (parseFloat(cs.letterSpacing) || 0) || 1;
               const r = p.getBoundingClientRect();
               return { width: r.width, font: parseFloat(cs.fontSize), leading: parseFloat(cs.lineHeight) / parseFloat(cs.fontSize), chars: Math.round(r.width / avg), rect: { x: r.x, y: r.y, w: r.width, h: Math.min(r.height, 120) }, family: cs.fontFamily.split(",")[0] };
             });
@@ -537,8 +542,8 @@ const run = {
       if (!r.ok()) throw new Error(`PATCH ${path}: ${r.status()} ${await r.text()}`);
     };
     try {
-      await patch(`/api/feeds/${feedA.id}`, { title: names.a });
-      await patch(`/api/feeds/${feedB.id}`, { title: names.b });
+      await patch(`/api/feeds/${feedA.id}`, { custom_title: names.a });
+      await patch(`/api/feeds/${feedB.id}`, { custom_title: names.b });
       await patch(`/api/folders/${folder.id}`, { name: names.f });
       const list = pick(["list-magazine", "nav-feeds", "article-picture", "article-long", "health", "list-folder", "stats", "menu-article-more"]).map((s) =>
         s.id === "list-folder" ? { ...s, go: async (page) => (await page.goto(`/l/unread?folder=${folder.id}`), page.locator("main").first().waitFor()) } : s,
@@ -550,8 +555,8 @@ const run = {
             await recordLayout(page, { probe: "long", surface: s.id, device, theme: "paper", viewport: "long names" }, null, await layoutNow(page));
           });
     } finally {
-      await patch(`/api/feeds/${feedA.id}`, { title: feedA.title }).catch((e) => console.error(String(e)));
-      await patch(`/api/feeds/${feedB.id}`, { title: feedB.title }).catch((e) => console.error(String(e)));
+      await patch(`/api/feeds/${feedA.id}`, { custom_title: feedA.custom_title ?? null }).catch((e) => console.error(String(e)));
+      await patch(`/api/feeds/${feedB.id}`, { custom_title: feedB.custom_title ?? null }).catch((e) => console.error(String(e)));
       await patch(`/api/folders/${folder.id}`, { name: folder.name }).catch((e) => console.error(String(e)));
     }
   },
@@ -628,11 +633,11 @@ async function tabWalk(page, where, max, rule) {
       continue;
     }
     if (!visible) await hit(page, where, "focus-invisible", f, `background ${f.bgRatio}:1`, "an outline or 3:1");
-    else if (f.ring && f.ring.ratio < 3) await hit(page, where, "focus-ring-contrast", f, f.ring.ratio, 3, { width: f.ring.width });
+    else if (f.ring && f.ring.ratio < 3 && !f.disabled) await hit(page, where, "focus-ring-contrast", f, f.ring.ratio, 3, { width: f.ring.width });
     else if (!f.ring && f.bgRatio < 3) await hit(page, where, "focus-ring-contrast", { ...f, sig: `${f.sig} (background only)` }, f.bgRatio, 3);
     if (f.obscured === "full") await hit(page, where, "focus-obscured", f, `under ${f.by}`, "partly visible");
     const prev = stops.at(-2);
-    if (prev && prev.region === f.region && f.rect.y + f.rect.h < prev.rect.y - 4 && f.obscured === "none") await hit(page, where, "focus-order", { ...f, sig: `${prev.sig} -> ${f.sig}` }, `up ${Math.round(prev.rect.y - f.rect.y)} px after "${prev.name}"`, "down or right");
+    if (prev && prev.region === f.region && f.docY + f.rect.h < prev.docY - 4 && f.obscured === "none") await hit(page, where, "focus-order", { ...f, sig: `${prev.sig} -> ${f.sig}` }, `up ${Math.round(prev.docY - f.docY)} px after "${prev.name}"`, "down or right");
   }
   return stops;
 }
@@ -742,7 +747,7 @@ function writeReport() {
     rows.set(h.sig, r);
     byRule.set(h.rule, rows);
   }
-  const cell = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\n/g, " ");
+  const cell = (s) => String(s ?? "").replace(/[\\|]/g, "\\$&").replace(/\n/g, " ");
   const list = (set, n = 4) => [...set].slice(0, n).join(", ") + (set.size > n ? ` +${set.size - n}` : "");
   const worst = (vals) => {
     const nums = vals.filter((v) => typeof v === "number");

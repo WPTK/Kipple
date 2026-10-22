@@ -2,7 +2,7 @@
 // runs in the browser before the app on every page and must stay self-contained: it puts the checks on window.__kp, and
 // the probe calls them with page.evaluate. Each check returns plain data (a description of every element it names, with
 // its box in viewport pixels, so the probe can crop a picture of it); judging thresholds live in the probe.
-/* global window, document, location, getComputedStyle, innerWidth, innerHeight, NodeFilter, HTMLElement */
+/* global window, document, location, getComputedStyle, innerWidth, innerHeight, NodeFilter, HTMLElement, CSS */
 export function installChecks() {
   const K = (window.__kp = {});
 
@@ -203,7 +203,9 @@ export function installChecks() {
     for (const svg of document.querySelectorAll("svg")) {
       if (!K.shown(svg)) continue;
       const c = svg.closest("button,a,[role=button],[role=menuitem],[role=tab],[role=link],summary");
-      if (!(c && !(c.innerText || "").trim()) && svg.getAttribute("role") !== "img") continue;
+      // Icons of icon-only controls; a chart (an svg with its own name) is judged by its marks, not here. Disabled controls are exempt (1.4.11).
+      if (!(c && !(c.innerText || "").trim())) continue;
+      if (c.matches("[disabled],[aria-disabled=true]")) continue;
       const cs = getComputedStyle(svg);
       const paint = cs.stroke && cs.stroke !== "none" ? cs.stroke : cs.fill && cs.fill !== "none" ? cs.fill : cs.color;
       const bg = K.bg(svg.parentElement);
@@ -316,7 +318,19 @@ export function installChecks() {
       if (!n.textContent.trim() || !p || !K.shown(p)) continue;
       const rg = document.createRange();
       rg.selectNodeContents(n);
-      for (const r of rg.getClientRects()) if (r.width > 2 && r.height > 2 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth) boxes.push({ p, r });
+      // A text rect runs on past an ellipsis or a clamp; keep only the part its clipping ancestors paint.
+      const clips = [];
+      for (let e = p; e && e !== document.body; e = e.parentElement) {
+        const cs = getComputedStyle(e);
+        if (cs.overflowX !== "visible" || cs.overflowY !== "visible") clips.push(e.getBoundingClientRect());
+      }
+      for (const raw of rg.getClientRects()) {
+        const r = { left: raw.left, top: raw.top, right: raw.right, bottom: raw.bottom };
+        for (const c of clips) Object.assign(r, { left: Math.max(r.left, c.left), top: Math.max(r.top, c.top), right: Math.min(r.right, c.right), bottom: Math.min(r.bottom, c.bottom) });
+        r.width = r.right - r.left;
+        r.height = r.bottom - r.top;
+        if (r.width > 2 && r.height > 2 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth) boxes.push({ p, r });
+      }
     }
     const hidden = (under, top) => {
       // Something opaque between the two (a sticky bar over scrolled text) hides the lower one.
@@ -383,12 +397,26 @@ export function installChecks() {
 
   // ---- Focus (WCAG 2.4.7, 2.4.11, 2.4.13) ---------------------------------------------------------------------------
   K.focusInfo = () => {
-    const el = document.activeElement;
-    if (!el || el === document.body || el === document.documentElement) return null;
+    const focused = document.activeElement;
+    if (!focused || focused === document.body || focused === document.documentElement) return null;
+    // A visually hidden input (a theme card, a switch) shows its focus on the label or control drawn for it.
+    const fr = focused.getBoundingClientRect();
+    const el =
+      fr.width <= 2 || fr.height <= 2
+        ? (focused.closest("label") ?? (focused.id && document.querySelector(`label[for="${CSS.escape(focused.id)}"]`)) ?? focused.nextElementSibling ?? focused.parentElement ?? focused)
+        : focused;
     const cs = getComputedStyle(el);
     const before = getComputedStyle(el, "::before");
     const ringOf = (s) => (s.outlineStyle !== "none" && parseFloat(s.outlineWidth) > 0 ? { width: parseFloat(s.outlineWidth), color: s.outlineColor } : null);
-    const ring = ringOf(cs) ?? ringOf(before);
+    let ring = ringOf(cs) ?? ringOf(before);
+    let shadowEl = null;
+    if (el !== focused && !ring)
+      for (const d of el.querySelectorAll("*")) {
+        const ds = getComputedStyle(d);
+        ring = ringOf(ds);
+        if (ring) break;
+        if (ds.boxShadow && ds.boxShadow !== "none") shadowEl ??= ds;
+      }
     const bg = K.bg(el.parentElement ?? el).color;
     const r = el.getBoundingClientRect();
     const pts = [
@@ -412,14 +440,19 @@ export function installChecks() {
       }
     }
     const fine = (s) => s.boxShadow !== "none" && s.boxShadow;
+    // Where it sits in the scrolled content, so tabbing down a scrolling pane does not read as moving up.
+    let docY = r.y + window.scrollY;
+    for (let e = el.parentElement; e; e = e.parentElement) docY += e.scrollTop;
     return {
       ...K.desc(el),
+      docY,
       ring: ring ? { ...ring, ratio: K.ratio(K.painted(ring.color, el, bg) ?? bg, bg) } : null,
-      shadow: fine(cs) || fine(before) || null,
+      shadow: fine(cs) || fine(before) || (shadowEl && fine(shadowEl)) || null,
       bgRatio: K.ratio(K.painted(cs.backgroundColor, el, bg) ?? bg, bg),
       obscured: covered === pts.length ? "full" : covered ? "partial" : "none",
       by,
       tabindex: el.getAttribute("tabindex"),
+      disabled: focused.matches("[disabled],[aria-disabled=true]"),
     };
   };
   /** Focusable elements in the window, in DOM order: the tab order a numbered overlay shows. */
