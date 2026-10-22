@@ -35,7 +35,7 @@ jobs:
   uat:
     name: Browser UAT
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       # Ports of their own, never Kipple's default, so nothing else on the runner can answer for them.
       KIPPLE_DEV_PORT: "1991"

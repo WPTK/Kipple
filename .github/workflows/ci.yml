@@ -281,10 +281,12 @@ jobs:
         run: npm run contrast
       # Shared with the weekly audit (audit.yml).
       - if: needs.changes.outputs.code != 'false'
+        timeout-minutes: 5 # a slow registry fails the step in minutes; rerun it and the job keeps its budget
         uses: ./.github/actions/audit-npm # zizmor: ignore[self-repository]
       # Registry signatures and provenance of what was installed (a different check from the advisory audit above).
       # A registry hiccup here is fixed by re-running the job.
       - if: needs.changes.outputs.code != 'false'
+        timeout-minutes: 5
         run: npm audit signatures
 
   docker:
