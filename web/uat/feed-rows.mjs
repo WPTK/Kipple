@@ -84,7 +84,6 @@ await t.eachViewport(async (page, vp) => {
 
   if (restore.length) {
     await page.request.post("/api/items/mark-read", { headers: t.WRITE, data: { ids: restore, read: false, undo: true, reason: "bulk" } });
-    restore = [];
   }
 
   await step(`${tag} R4`, async () => {
