@@ -467,13 +467,17 @@ describe("mark as read while scrolling in the Gazette", () => {
     scrollTo(450);
     await frame();
     await settle();
-    // Mid-scroll, the stories halve: the list does not scroll itself under the reader's fling.
+    // Mid-scroll, a finger on the list, the stories halve: the list does not scroll itself under the reader. (A finger,
+    // not only the scroll's own 150 ms, so the test does not hang on how fast the machine runs it.)
+    act(() => void list.dispatchEvent(Object.assign(new Event("touchstart"), { touches: [] })));
     scrollTo(460);
     await frame();
     story = 50;
     resized();
+    await act(() => new Promise((r) => setTimeout(r, 300)));
     expect(list.scrollTop).toBe(460);
-    // Once they stop, it scrolls back so story 5, 40 px below the top at 460, is there again (it is at 250 px now).
+    // Once they let go and stop, it scrolls back so story 5, 40 px below the top at 460, is there again (at 250 px now).
+    act(() => void window.dispatchEvent(new Event("touchend")));
     await waitFor(() => expect(list.scrollTop).toBe(210));
     // A finger resting on the list holds it too, until it lifts.
     act(() => void list.dispatchEvent(new Event("pointerdown")));
