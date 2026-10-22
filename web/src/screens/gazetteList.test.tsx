@@ -432,10 +432,12 @@ describe("mark as read while scrolling in the Gazette", () => {
     await frame();
     await settle();
     expect(new Set(marked(calls).flatMap((m) => m.ids))).toEqual(new Set(order.slice(0, 4)));
-    // Smaller text from the open article's controls: the stories halve, so 4 to 8 now sit above 450 px.
+    // Smaller text from the open article's controls: the stories halve, so 4 to 8 now sit above 450 px. The list scrolls
+    // back so story 5, the first whose top was on screen, stays 50 px below the top (it is at 250 px now).
     story = 50;
     resized();
-    scrollTo(451); // the next small scroll
+    expect(screen.getByTestId("list-scroll").scrollTop).toBe(200);
+    scrollTo(201); // the next small scroll
     await frame();
     await settle();
     expect(new Set(marked(calls).flatMap((m) => m.ids))).toEqual(new Set(order.slice(0, 4)));

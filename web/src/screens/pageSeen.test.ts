@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstLook, lookAgain, type PageMeasure } from "./pageSeen";
+import { firstLook, keepStill, lookAgain, type PageMeasure } from "./pageSeen";
 
 // The list is 300 px tall from y = 0. A page is its stories' boxes within the scrolled content, [id, top, height], in
 // any number of columns side by side (a box's column does not matter to the rule, only where it is). `scroll` is how
@@ -92,17 +92,32 @@ describe("judging a page's stories against the look before", () => {
     expect(passed).toEqual(new Set(["k"]));
   });
 
-  it("scroll anchoring and a reader's scroll look the same, which is why the page turns anchoring off", () => {
-    // The browser's scroll anchoring: "a" grows above the top by 150 px and the browser adds 150 px to the scroll
-    // position to keep "b" still. The reader scrolled nothing, but "k" (right column, unmoved) ends above the top.
-    const anchored = [measure(100, page()), measure(100 + 150 /* the browser's adjustment */, page(250))];
-    // Without anchoring (a scroller that turns it off): the reader scrolls 150 px in the frame "a" grows.
-    const scrolled = [measure(100, page()), measure(100 + 150 /* the reader's scroll */, page(250))];
-    expect(anchored).toEqual(scrolled);
-    // The look cannot tell them apart; the rule takes it as the reader's scroll.
-    expect(looks(scrolled[0]!, scrolled[1]!).has("k")).toBe(true);
+  it("a scroll position the browser rounds still passes a story right at the top", () => {
+    // The story's bottom is 2.4 px below the top; the reader scrolls 2.8 px, which reads back as 2.
+    const was = firstLook({ listTop: 0, listBottom: 300, scrollTop: 0, stories: [{ id: "a", top: 0, bottom: 2.4 }, { id: "b", top: 2.4, bottom: 102.4 }] });
+    const passed = new Set<string>();
+    lookAgain(was, { listTop: 0, listBottom: 300, scrollTop: 2, stories: [{ id: "a", top: -2.8, bottom: -0.4 }, { id: "b", top: -0.4, bottom: 99.6 }] }, passed);
+    expect(passed).toEqual(new Set(["a"]));
   });
 
+  it("a scroll the look made itself to keep the top story still passes nothing; the same scroll by the browser would", () => {
+    // Left: "a" (0-100), "b" (100-400). Right: "k" (110-250). At 100, "b" is the top story and "k" is in view under it.
+    const before: Box[] = [["a", 0, 100], ["b", 100, 300], ["k", 110, 140]];
+    const was = firstLook(measure(100, before));
+    // "a" grows by 150 above the top with no scroll: "b" moved down 150, and the list scrolls 150 to keep it still,
+    // which carries "k" (unmoved, in the other column) above the top.
+    const grown: Box[] = [["a", 0, 250], ["b", 250, 300], ["k", 110, 140]];
+    const by = keepStill(was, measure(100, grown));
+    expect(by).toBe(150);
+    const after = measure(100 + by, grown);
+    const recorded = new Set<string>();
+    lookAgain({ ...was, scrollTop: after.scrollTop }, after, recorded);
+    expect(recorded.size).toBe(0);
+    // The browser's scroll anchoring makes the same scroll without telling the look: it reads as the reader's.
+    const anchored = new Set<string>();
+    lookAgain(was, after, anchored);
+    expect(anchored).toEqual(new Set(["k"]));
+  });
   it("a story with no id is never passed", () => {
     expect(looks(measure(0, column(["a", "", "b"])), measure(250, column(["a", "", "b"])))).toEqual(new Set(["a"]));
   });
@@ -110,5 +125,36 @@ describe("judging a page's stories against the look before", () => {
   it("sub-pixel positions that differ between frames change nothing", () => {
     const at = (d: number) => column(["a", "b", "c"]).map(([id, top, h]): Box => [id, top + d, h]);
     expect(looks(measure(0, at(0.499)), measure(150, at(0.501)), measure(160, at(0.499)))).toEqual(new Set(["a"]));
+  });
+});
+
+describe("keeping the story at the top still", () => {
+  const col = column(["a", "b", "c", "d", "e", "f", "g"]);
+
+  it("the failing-feed note going away: the list scrolls back by its height, and the top story stays in view", () => {
+    const withNote = column(["a", "b", "c", "d"], 100, 80);
+    const without = column(["a", "b", "c", "d"]);
+    const was = firstLook(measure(150, withNote));
+    const by = keepStill(was, measure(150, without));
+    expect(by).toBe(-80);
+    const after = measure(150 + by, without);
+    expect(after.stories[0]).toMatchObject({ top: -70, bottom: 30 });
+  });
+
+  it("a picture failing in the story cut off by the top keeps the story under it still", () => {
+    // At 50, "a" (0-100) is cut off by the top. Its picture fails and it shrinks to 40: "b" moves up 60.
+    const shrunk: Box[] = [["a", 0, 40], ...column(["b", "c", "d"], 100, 40)];
+    expect(keepStill(firstLook(measure(50, col)), measure(50, shrunk))).toBe(-60);
+  });
+
+  it("a text size change, where every story changed height, keeps the first story whose top is on screen still", () => {
+    // At 450, story "e" (400-500) is cut off by the top and "f" (500-600) starts 50 px below it. The stories halve: "f"
+    // is at 250-300.
+    expect(keepStill(firstLook(measure(450, col)), measure(450, column(["a", "b", "c", "d", "e", "f", "g"], 50)))).toBe(-250);
+  });
+
+  it("nothing to do when the stories did not move, or when the list scrolled", () => {
+    expect(keepStill(firstLook(measure(150, col)), measure(150, col))).toBe(0);
+    expect(keepStill(firstLook(measure(150, col)), measure(160, column(["a", "b", "c", "d", "e", "f", "g"], 50)))).toBe(0);
   });
 });

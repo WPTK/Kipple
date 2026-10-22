@@ -40,7 +40,7 @@ import { failureCopy, failureNoteFeeds, showsFailure } from "@/lib/feedStatus";
 import { FeedFailureNote } from "./FeedFailureNote";
 import { listPlace, rememberListTop } from "@/lib/listPlace";
 import { useItemsSource } from "./listSource";
-import { firstLook, lookAgain, measurePage, type PageLook } from "./pageSeen";
+import { firstLook, keepStill, lookAgain, measurePage, type PageLook } from "./pageSeen";
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
 export const SCROLL_RETRY_MS = 30_000;
@@ -519,8 +519,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // or a text size change, never reaches the offset).
   /** Where the restore put the page, so its own scroll event is told apart from every other. */
   const restoreTarget = useRef<number | null>(null);
-  // Mark as read while scrolling, on a page: the stories a scroll carried from in view to above the top (pageSeen.ts),
-  // judged look by look against the look before. They start empty on every mount and again whenever a restore puts
+  // A page is looked at after every scroll and every change in its size (pageSeen.ts): to keep the story at the top
+  // still when the page changes under the reader, and, with mark as read while scrolling on, to find the stories a
+  // scroll carried from in view to above the top. Those start empty on every mount and again whenever a restore puts
   // the page somewhere the reader did not scroll to.
   const pagePassed = useRef(new Set<string>());
   const markOnScrollPage = prefs.markReadOnScroll && scope.view !== "starred" && !!Page; // never a search: no Page there
@@ -534,15 +535,26 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     pagePassed.current.clear();
     pageLook.current = firstLook(measurePage(el));
   }, []);
+  /** The scrolled content (the failing-feed note and the pages), which the pull-to-refresh offset moves. */
+  const contentRef = useRef<HTMLDivElement | null>(null);
   /**
    * Look at the stories (after a scroll, or when the pages change size) and judge each against the last look. Both the
    * scroll's look and the ResizeObserver's look this way, so the order in which the browser reports them does not
-   * matter: a look in which the page changed but nothing scrolled passes nothing.
+   * matter: a look in which the page changed but nothing scrolled passes nothing. In such a look the story at the top
+   * is kept still (keepStill), the way the browser's scroll anchoring would, except that this look knows the scroll it
+   * made and records it, so it is never taken for the reader's. Not while a pull to refresh holds the content down.
    */
   const lookAtStories = useCallback((el: HTMLElement) => {
-    const m = measurePage(el);
     const was = pageLook.current;
-    pageLook.current = was ? lookAgain(was, m, pagePassed.current) : firstLook(m);
+    let m = measurePage(el);
+    if (!was) return void (pageLook.current = firstLook(m));
+    const passed = markOnScrollPageRef.current ? pagePassed.current : new Set<string>();
+    const by = contentRef.current?.style.transform ? 0 : keepStill(was, m);
+    if (by) {
+      el.scrollTop += by;
+      m = measurePage(el);
+      pageLook.current = lookAgain({ ...was, scrollTop: m.scrollTop }, m, passed);
+    } else pageLook.current = lookAgain(was, m, passed);
   }, []);
   useLayoutEffect(() => {
     const el = parentRef.current;
@@ -557,14 +569,14 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       pageRestored.current = true;
       story.scrollIntoView?.({ block: "center" });
       restoreTarget.current = el.scrollTop;
-      if (markOnScrollPageRef.current) lookFromHere(el);
+      lookFromHere(el);
       return;
     }
     if (el.scrollHeight - el.clientHeight < (saved?.offset ?? 0)) return;
     pageRestored.current = true;
     el.scrollTop = saved?.offset ?? 0;
     restoreTarget.current = el.scrollTop;
-    if (markOnScrollPageRef.current) lookFromHere(el);
+    lookFromHere(el);
   });
   // Turning the setting on or off (here, or from another device) starts again too: nothing found while it was off,
   // or before it was turned off with a settle still pending, is marked later.
@@ -572,7 +584,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     pagePassed.current.clear();
     pageLook.current = null;
     const el = parentRef.current;
-    if (markOnScrollPage && el && pageRestored.current) lookFromHere(el);
+    if (el && pageRestored.current) lookFromHere(el);
   }, [markOnScrollPage, lookFromHere]);
   useEffect(() => {
     const el = parentRef.current;
@@ -585,7 +597,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       }
       restoreTarget.current = null;
       pageRestored.current = true;
-      if (!markOnScrollPageRef.current || frame) return;
+      if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
         lookAtStories(el);
@@ -597,24 +609,20 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       el.removeEventListener("scroll", onScroll);
     };
   }, [Page, lookAtStories]);
-  // A change in the size of the pages with no scroll after it (a new plan, more pages, another width, a text size
-  // change, the page taking the place of rows) is brought up to date here too (lookAtStories). Not while a restore
-  // is pending: the stories at the top are only passing through.
-  const pageBoxObserver = useRef<ResizeObserver | null>(null);
-  const pageBoxRef = useCallback(
-    (box: HTMLDivElement | null) => {
-      pageBoxObserver.current?.disconnect();
-      pageBoxObserver.current = null;
-      if (!box) return;
-      pageBoxObserver.current = new ResizeObserver(() => {
-        const el = parentRef.current;
-        // A look like a scroll's, so the next scroll is judged against where the new layout put the stories.
-        if (el && markOnScrollPageRef.current && pageRestored.current) lookAtStories(el);
-      });
-      pageBoxObserver.current.observe(box);
-    },
-    [lookAtStories],
-  );
+  // A change in the size of the scrolled content with no scroll after it (a new plan, more pages, another width, a text
+  // size change, a picture that failed, the failing-feed note coming or going, the page taking the place of rows) is
+  // looked at here too (lookAtStories), before it is painted. Not while a restore is pending: the stories at the top
+  // are only passing through.
+  useEffect(() => {
+    const box = contentRef.current;
+    if (!Page || !box) return;
+    const observer = new ResizeObserver(() => {
+      const el = parentRef.current;
+      if (el && pageRestored.current) lookAtStories(el);
+    });
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [Page, lookAtStories]);
 
   // Back to the remembered place after a reload: once its article is loaded, scroll it to the top. Pages are fetched
   // until it turns up (at most PLACE_SEARCH_MAX articles); a list without it any more starts at the top and forgets it.
@@ -628,7 +636,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         place.id = null;
         story.scrollIntoView?.({ block: "start" });
         restoreTarget.current = el.scrollTop;
-        if (markOnScrollPageRef.current) lookFromHere(el);
+        lookFromHere(el);
         return;
       }
       // Loaded but not laid out yet: the pages come in a later render.
@@ -1264,7 +1272,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     if (Page) {
       return (
         <>
-          <div ref={pageBoxRef} data-page-box="">
+          <div data-page-box="">
             <Page items={src.cards} scope={scope} more={src.more} width={width} selectedId={selected} tabStopId={shown(focusId, src.cards)} onOpen={openItem} actions={menuActions} />
           </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
@@ -1430,6 +1438,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
           {/* Room at the end the size of a toast, always there (a room that came and went with the toast would move the
               list under the reader), so the last row can be scrolled out from under the undo toast. */}
           <div
+            ref={contentRef}
             className="pb-20"
             style={
               pullOffset > 0 && !reduced
