@@ -4,6 +4,9 @@ import { useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
 import { useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
+  GROUP_BYS,
+  GROUP_HINTS,
+  GROUP_LABELS,
   LAYOUT_HINTS,
   LAYOUT_IDS,
   LAYOUT_LABELS,
@@ -15,6 +18,7 @@ import {
   overrideTarget,
   updateDevicePrefs,
   useDevicePrefs,
+  type GroupBy,
   type LayoutContext,
   type LayoutId,
   type ListField,
@@ -28,7 +32,7 @@ const item =
   "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-selection";
 const heading = "px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase";
 
-const FIELD_LABELS: { [F in ListField]: Record<string, string> } = { layout: LAYOUT_LABELS, order: ORDER_LABELS, view: LIST_VIEW_LABELS };
+const FIELD_LABELS: { [F in ListField]: Record<string, string> } = { layout: LAYOUT_LABELS, order: ORDER_LABELS, view: LIST_VIEW_LABELS, group: GROUP_LABELS };
 
 /**
  * The first choice of a feed's or folder's group, which clears its own value: it names what the list then gets, "Inherited
@@ -60,6 +64,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
   const layoutFallback = useFallbackLabel(ctx, "layout");
   const orderFallback = useFallbackLabel(ctx, "order");
   const viewFallback = useFallbackLabel(ctx, "view");
+  const groupFallback = useFallbackLabel(ctx, "group");
   const say = (l: LayoutId) => announce(`${LAYOUT_LABELS[l]} layout`);
   const makeDefault = (l: LayoutId) => {
     updateDevicePrefs({ layout: l });
@@ -136,6 +141,29 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
           </DropdownMenu.RadioGroup>
           {followsOrder(layout.id) ? null : (
             <p className="px-3 pt-1 pb-2 text-xs text-fg2">The {layout.label} is always newest first. The order applies to the other layouts.</p>
+          )}
+
+          {/* The Gazette prints its own pages and a search its own headers; the other lists group under headers. */}
+          {scope.q || !followsOrder(layout.id) ? null : (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-line" />
+              <DropdownMenu.Label className={heading}>Group by</DropdownMenu.Label>
+              <DropdownMenu.RadioGroup
+                aria-label={target ? `Grouping of this ${noun}` : "Group by"}
+                value={target ? (own?.group ?? "default") : dp.group}
+                onValueChange={(v) => {
+                  const group = v === "default" ? null : (v as GroupBy);
+                  if (!target) updateDevicePrefs({ group: group ?? "day" });
+                  else setListOverride(target.kind, target.id, "group", group);
+                  if (group) announce(`Group by ${GROUP_LABELS[group].toLowerCase()}`);
+                }}
+              >
+                {target ? <Radio value="default" label={groupFallback} /> : null}
+                {GROUP_BYS.map((g) => (
+                  <Radio key={g} value={g} label={GROUP_LABELS[g]} hint={GROUP_HINTS[g]} />
+                ))}
+              </DropdownMenu.RadioGroup>
+            </>
           )}
 
           {target ? (
