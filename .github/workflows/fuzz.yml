@@ -7,7 +7,7 @@ name: Fuzz
 #
 # Two tiers: the merge-blocking one is ci.yml (every committed and f.Add seed runs as an ordinary test under -race, on
 # every pull request); this is the deep one. Its targets are split over the matrix's runners (same total compute, a
-# fraction of the wall time), and each runner restores the previous run's mutation corpus, so a week's coverage builds on the last
+# fraction of the wall time), and each target restores the previous run's mutation corpus, so a week's coverage builds on the last
 # instead of starting cold. A failing target no longer hides the ones after it.
 on:
   schedule:
@@ -31,7 +31,10 @@ jobs:
   fuzz:
     name: fuzz (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
-    # A normal run takes about ten minutes; the cap is for a manual run with a long `seconds` (about eight targets per shard).
+    permissions:
+      contents: read
+      actions: write # the prune step deletes superseded corpus caches
+    # A normal run takes about ten minutes; the cap is for a manual run with a long `seconds` (about eleven targets per shard).
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -47,16 +50,101 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Go keeps the interesting inputs a fuzz run finds in "go env GOCACHE"/fuzz. Restore the newest corpus of this shard and
-      # save the grown one below even when a target failed (the other targets' coverage is still worth keeping). setup-go
-      # caches the same directory under a go.sum key and saves it once; this restore runs after it, so the newer corpus wins.
-      - id: fuzzdir
-        run: echo "dir=$(go env GOCACHE)/fuzz" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Go keeps the interesting inputs a fuzz run finds in "go env GOCACHE"/fuzz/<package>/<target>. Each target's directory is
+      # cached under its own key (fuzz-corpus-<package>-<target>-<run id>), so a target that moves to another shard when the
+      # target list changes still restores its corpus. A step cannot loop, so there is one restore and one save step per
+      # slot (12; the plan fails if a shard needs more) and a slot without a target skips. setup-go caches the whole GOCACHE
+      # under a go.sum key and saves it once; these restores run after it, so the newer corpus wins.
+      - id: plan
+        shell: pwsh
+        env:
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: scripts/fuzz-cache.ps1 -Action Plan -ShardSpec $env:SHARD
+
+      - id: restore1
+        if: ${{ steps.plan.outputs.key1 != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ steps.fuzzdir.outputs.dir }}
-          key: fuzz-corpus-${{ matrix.shard }}-${{ github.run_id }}
-          restore-keys: fuzz-corpus-${{ matrix.shard }}-
+          path: ${{ steps.plan.outputs.path1 }}
+          key: ${{ steps.plan.outputs.key1 }}${{ github.run_id }}
+          restore-keys: ${{ steps.plan.outputs.key1 }}
+      - id: restore2
+        if: ${{ steps.plan.outputs.key2 != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path2 }}
+          key: ${{ steps.plan.outputs.key2 }}${{ github.run_id }}
+          restore-keys: ${{ steps.plan.outputs.key2 }}
+      - id: restore3
+        if: ${{ steps.plan.outputs.key3 != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path3 }}
+          key: ${{ steps.plan.outputs.key3 }}${{ github.run_id }}
+          restore-keys: ${{ steps.plan.outputs.key3 }}
+      - id: restore4
+        if: ${{ steps.plan.outputs.key4 != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path4 }}
+          key: ${{ steps.plan.outputs.key4 }}${{ github.run_id }}
+          restore-keys: ${{ steps.plan.outputs.key4 }}
+      - id: restore5
+        if: ${{ steps.plan.outputs.key5 != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path5 }}
+          key: ${{ steps.plan.outputs.key5 }}${{ github.run_id }}
+          restore-keys: ${{ steps.plan.outputs.key5 }}
+      - id: restore6
+        if: ${{ steps.plan.outputs.key6 != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path6 }}
+          key: ${{ steps.plan.outputs.key6 }}${{ github.run_id }}
+          restore-keys: ${{ steps.plan.outputs.key6 }}
+      - id: restore7
+        if: ${{ steps.plan.outputs.key7 != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path7 }}
+          key: ${{ steps.plan.outputs.key7 }}${{ github.run_id }}
+          restore-keys: ${{ steps.plan.outputs.key7 }}
+      - id: restore8
+        if: ${{ steps.plan.outputs.key8 != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path8 }}
+          key: ${{ steps.plan.outputs.key8 }}${{ github.run_id }}
+          restore-keys: ${{ steps.plan.outputs.key8 }}
+      - id: restore9
+        if: ${{ steps.plan.outputs.key9 != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path9 }}
+          key: ${{ steps.plan.outputs.key9 }}${{ github.run_id }}
+          restore-keys: ${{ steps.plan.outputs.key9 }}
+      - id: restore10
+        if: ${{ steps.plan.outputs.key10 != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path10 }}
+          key: ${{ steps.plan.outputs.key10 }}${{ github.run_id }}
+          restore-keys: ${{ steps.plan.outputs.key10 }}
+      - id: restore11
+        if: ${{ steps.plan.outputs.key11 != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path11 }}
+          key: ${{ steps.plan.outputs.key11 }}${{ github.run_id }}
+          restore-keys: ${{ steps.plan.outputs.key11 }}
+      - id: restore12
+        if: ${{ steps.plan.outputs.key12 != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path12 }}
+          key: ${{ steps.plan.outputs.key12 }}${{ github.run_id }}
+          restore-keys: ${{ steps.plan.outputs.key12 }}
 
       # web/dist holds only the committed placeholder, which is all the Go packages need (see web/embed.go).
       - name: Fuzz this shard's targets
@@ -66,11 +154,81 @@ jobs:
           SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: scripts/fuzz.ps1 -Seconds ([int]$env:SECONDS_PER_TARGET) -Shard $env:SHARD -ContinueOnFailure
 
-      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Save each target's grown corpus even when a target failed (the other targets' coverage is still worth keeping). A
+      # corpus over 10 MiB is not saved (the previous, smaller one stays in the cache).
+      - id: cap
         if: ${{ !cancelled() }}
+        shell: pwsh
+        run: scripts/fuzz-cache.ps1 -Action Cap
+
+      - if: ${{ !cancelled() && steps.cap.outputs.save1 == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ steps.fuzzdir.outputs.dir }}
-          key: fuzz-corpus-${{ matrix.shard }}-${{ github.run_id }}
+          path: ${{ steps.plan.outputs.path1 }}
+          key: ${{ steps.plan.outputs.key1 }}${{ github.run_id }}
+      - if: ${{ !cancelled() && steps.cap.outputs.save2 == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path2 }}
+          key: ${{ steps.plan.outputs.key2 }}${{ github.run_id }}
+      - if: ${{ !cancelled() && steps.cap.outputs.save3 == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path3 }}
+          key: ${{ steps.plan.outputs.key3 }}${{ github.run_id }}
+      - if: ${{ !cancelled() && steps.cap.outputs.save4 == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path4 }}
+          key: ${{ steps.plan.outputs.key4 }}${{ github.run_id }}
+      - if: ${{ !cancelled() && steps.cap.outputs.save5 == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path5 }}
+          key: ${{ steps.plan.outputs.key5 }}${{ github.run_id }}
+      - if: ${{ !cancelled() && steps.cap.outputs.save6 == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path6 }}
+          key: ${{ steps.plan.outputs.key6 }}${{ github.run_id }}
+      - if: ${{ !cancelled() && steps.cap.outputs.save7 == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path7 }}
+          key: ${{ steps.plan.outputs.key7 }}${{ github.run_id }}
+      - if: ${{ !cancelled() && steps.cap.outputs.save8 == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path8 }}
+          key: ${{ steps.plan.outputs.key8 }}${{ github.run_id }}
+      - if: ${{ !cancelled() && steps.cap.outputs.save9 == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path9 }}
+          key: ${{ steps.plan.outputs.key9 }}${{ github.run_id }}
+      - if: ${{ !cancelled() && steps.cap.outputs.save10 == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path10 }}
+          key: ${{ steps.plan.outputs.key10 }}${{ github.run_id }}
+      - if: ${{ !cancelled() && steps.cap.outputs.save11 == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path11 }}
+          key: ${{ steps.plan.outputs.key11 }}${{ github.run_id }}
+      - if: ${{ !cancelled() && steps.cap.outputs.save12 == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.plan.outputs.path12 }}
+          key: ${{ steps.plan.outputs.key12 }}${{ github.run_id }}
+
+      # Keep only the newest key per target, so the repository holds one corpus per target (the cache quota is 10 GB for
+      # the whole repository, shared with the build and module caches).
+      - if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/fuzz-cache.ps1 -Action Prune
 
       # A failing input is written next to the package as an untracked file; keep it so it can be committed as a
       # regression seed once the bug is fixed.
