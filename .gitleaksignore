@@ -1,2 +1,5 @@
 # Fixture value in a test file (fake key-looking string). Approved 2026-09-25.
 cf766c6d5108dc4decee641be2f84a0cafc33422:web/src/screens/f3.test.tsx:generic-api-key:465
+
+# Fixture value in a test file (a fake cache name that looks like a key). Approved 2026-10-21.
+d36de600f269cedf345510729c1c68e1dc7e9ed4:scripts/fuzz-cache.Tests.ps1:generic-api-key:54
