@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Button } from "@/ui/button";
-import { Checkbox, Field, Notice, RadioCard, inputCls } from "@/ui/kit";
+import { Checkbox, Field, Notice, PasswordField, RadioCard, inputCls } from "@/ui/kit";
 import { MIN_PASSWORD_LEN, accountFailure, createAccount, openReasonText, passwordProblem, type AccountBody, type SetupOptions } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import { setupSecret } from "./session";
@@ -38,49 +38,38 @@ export function AccountStep({
   const [username, setUsername] = useState("");
   // The live checks (too short, no match) speak once a field has been left, not on every keystroke: each one is an
   // alert, and a screen reader would read out a new one per character. Submitting shows them all regardless.
-  const [left, setLeft] = useState<{ username?: boolean; password?: boolean; again?: boolean }>({});
-  const leave = (k: "username" | "password" | "again") => setLeft((l) => (l[k] ? l : { ...l, [k]: true }));
+  const [left, setLeft] = useState<{ username?: boolean; password?: boolean }>({});
+  const leave = (k: "username" | "password") => setLeft((l) => (l[k] ? l : { ...l, [k]: true }));
   const [choice, setChoice] = useState<Choice>("password");
   const [password, setPassword] = useState("");
-  const [again, setAgain] = useState("");
   const [ack, setAck] = useState(false);
-  const [fieldError, setFieldError] = useState<{ field: "username" | "password" | "again" | "open"; message: string } | null>(null);
+  const [fieldError, setFieldError] = useState<{ field: "username" | "password" | "open"; message: string } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const userInput = useRef<HTMLInputElement>(null);
   const pwInput = useRef<HTMLInputElement>(null);
-  const againInput = useRef<HTMLInputElement>(null);
 
   const open = openAvailability(state.open);
   const usernameBad = left.username && username !== "" && !USERNAME.test(username) ? "Use 1 to 64 letters, digits, dots, dashes or underscores." : null;
   const pwBad = left.password && password !== "" ? passwordProblem(password) : null;
-  const mismatch = left.again && again !== "" && again !== password ? "The two passwords don't match." : null;
 
   const ready =
     USERNAME.test(username) &&
-    (choice === "password" ? passwordProblem(password) === null && password === again : choice === "access" ? true : ack);
+    (choice === "password" ? passwordProblem(password) === null : choice === "access" ? true : ack);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setFieldError(null);
     setFormError(null);
     if (!ready) {
-      setLeft({ username: true, password: true, again: true });
+      setLeft({ username: true, password: true });
       if (!USERNAME.test(username)) {
         setFieldError({ field: "username", message: username === "" ? "Enter a user name." : "Use 1 to 64 letters, digits, dots, dashes or underscores." });
         userInput.current?.focus();
       } else if (choice === "password") {
-        const problem = password === "" ? "Enter a password." : passwordProblem(password);
-        if (problem) {
-          setFieldError({ field: "password", message: problem });
-          pwInput.current?.focus();
-        } else {
-          // A mismatch is already announced by the "Password again" field (submitting marks it left); a second alert
-          // would read it twice. An empty one has no live check, so it gets its own word.
-          if (again === "") setFieldError({ field: "again", message: "Enter the password again." });
-          againInput.current?.focus();
-        }
+        setFieldError({ field: "password", message: password === "" ? "Enter a password." : (passwordProblem(password) ?? "Enter a password.") });
+        pwInput.current?.focus();
       } else if (choice === "open" && !ack) setFieldError({ field: "open", message: "Tick the box to confirm you understand." });
       return;
     }
@@ -168,27 +157,20 @@ export function AccountStep({
             <p>The usual choice. Anyone who wants in needs it.</p>
             {choice === "password" ? (
               <div className="flex flex-col gap-3 text-fg">
-                <Field label="Password" help={`At least ${MIN_PASSWORD_LEN} characters. Longer is better; a few words in a row works well.`} error={fieldError?.field === "password" ? fieldError.message : pwBad}>
-                  {(a) => (
-                    <input
-                      {...a}
-                      ref={pwInput}
-                      name="new-password"
-                      type="password"
-                      autoComplete="new-password"
-                      value={password}
-                      onBlur={() => leave("password")}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        setFieldError(null);
-                      }}
-                      className={inputCls}
-                    />
-                  )}
-                </Field>
-                <Field label="Password again" error={fieldError?.field === "again" ? fieldError.message : mismatch}>
-                  {(a) => <input {...a} ref={againInput} name="new-password-again" type="password" autoComplete="new-password" value={again} onBlur={() => leave("again")} onChange={(e) => { setAgain(e.target.value); setFieldError(null); }} className={inputCls} />}
-                </Field>
+                <PasswordField
+                  label="Password"
+                  help={`At least ${MIN_PASSWORD_LEN} characters. Longer is better; a few words in a row works well. Use Show to check what you typed.`}
+                  error={fieldError?.field === "password" ? fieldError.message : pwBad}
+                  inputRef={pwInput}
+                  name="new-password"
+                  autoComplete="new-password"
+                  value={password}
+                  onBlur={() => leave("password")}
+                  onChange={(v) => {
+                    setPassword(v);
+                    setFieldError(null);
+                  }}
+                />
               </div>
             ) : null}
           </RadioCard>

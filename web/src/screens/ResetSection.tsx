@@ -5,7 +5,7 @@ import { wipeOfflineData } from "@/lib/offline";
 import { UNCLAIMED_NOTICE } from "@/setup/RestoreWaiting";
 import { resetting } from "@/setup/session";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, inputCls } from "@/ui/kit";
+import { Field, Modal, Notice, PasswordField, inputCls } from "@/ui/kit";
 import { accountError } from "./AccountSection";
 
 /** The phrase that confirms a reset (the server compares it without regard to case or surrounding spaces). */
@@ -58,7 +58,7 @@ function ResetDialog({ hasPassword, envAccount, onClose }: { hasPassword: boolea
         <Notice>Kipple will ignore KIPPLE_USERNAME and KIPPLE_PASSWORD until you create a new account. You can delete them from your compose file whenever convenient.</Notice>
       ) : null}
       {hasPassword ? (
-        <Field label="Your web password">{(a) => <input {...a} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} />}</Field>
+        <PasswordField label="Your web password" autoComplete="current-password" value={password} onChange={setPassword} />
       ) : null}
       <Field label={`Type "${RESET_PHRASE}" to confirm`}>
         {(a) => <input {...a} type="text" autoComplete="off" autoCapitalize="none" spellCheck={false} value={phrase} onChange={(e) => setPhrase(e.target.value)} className={inputCls} />}

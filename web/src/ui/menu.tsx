@@ -7,7 +7,7 @@ import { menuScrollClass, useTabBarClearance } from "@/ui/menuClearance";
 /** A finger is the pointer: menus open as a bottom sheet there, as a popover beside their button everywhere else. */
 export const TOUCH_QUERY = "(pointer: coarse)";
 
-const shell = "z-50 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl";
+const shell = "z-50 rounded-xl border border-line bg-bg p-1 text-fg shadow-sheet";
 const sheet =
   "menu-sheet mx-auto max-h-[70dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-b-none rounded-t-2xl border-x-0 border-b-0 pt-2 pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))]";
 
@@ -74,7 +74,7 @@ function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutsi
         data-menu-backdrop=""
         // touch-none and overscroll-none: a drag that starts on the dimmed page must not scroll the page behind it (the
         // row's menu is not modal and locks no scroll of its own).
-        className="pointer-events-auto fixed inset-0 z-40 touch-none overscroll-none bg-black/50"
+        className="pointer-events-auto fixed inset-0 z-40 touch-none overscroll-none bg-scrim"
         // Only a press that began on it: the click of the press that opened the menu (a tap, or a mouse whose button
         // comes up over the dimmed page) also lands here. A click handler is also what makes iOS deliver a tap's click
         // to an element that is not a link or a button.

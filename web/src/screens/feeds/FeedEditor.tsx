@@ -9,7 +9,7 @@ import { AUTO_READ_PRESETS, autoReadLabel } from "@/api/autoRead";
 import { Button } from "@/ui/button";
 import { AutoReadCatchUp } from "../AutoReadCatchUp";
 import { ListOverrideFields, useListOverrideDraft } from "./ListOverrideFields";
-import { Checkbox, Disclosure, Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
+import { Checkbox, Disclosure, Field, Modal, Notice, PasswordField, Skeleton, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { announce, toast } from "@/shell/toasts";
 import { intervalLabel } from "@/lib/interval";
@@ -350,13 +350,16 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
             <Field label="User agent" help="Only for feeds that refuse to load. Leave empty for the default.">
               {(a) => <input {...a} type="text" value={f.userAgent} onChange={(e) => set("userAgent", e.target.value)} className={inputCls} />}
             </Field>
-            <Field
+            <PasswordField
               label="Login for this feed"
               help={q.data.has_http_auth ? "A login is saved. Type a new one as user:password to replace it." : "Only for private feeds. Type it as user:password."}
               error={err?.field === "auth" ? err.message : null}
-            >
-              {(a) => <input {...a} type="password" autoComplete="off" value={f.auth} disabled={f.clearAuth} placeholder={q.data?.has_http_auth ? "Saved" : ""} onChange={(e) => set("auth", e.target.value)} className={inputCls} />}
-            </Field>
+              autoComplete="off"
+              value={f.auth}
+              disabled={f.clearAuth}
+              placeholder={q.data?.has_http_auth ? "Saved" : ""}
+              onChange={(v) => set("auth", v)}
+            />
             {q.data.has_http_auth ? <Checkbox label="Remove the saved login" checked={f.clearAuth} onChange={(v) => set("clearAuth", v)} /> : null}
             <Checkbox label="Ignore HTTP caching" help="Download the whole feed every time, even when the site says nothing changed." checked={f.ignoreCache} onChange={(v) => set("ignoreCache", v)} />
             <Checkbox label="Don't use HTTP/2" help="Try this if a feed fails with connection or stream errors." checked={f.noHttp2} onChange={(v) => set("noHttp2", v)} />

@@ -16,7 +16,7 @@ export function SearchHelp() {
           sideOffset={4}
           collisionPadding={8}
           aria-label="Search tips"
-          className="z-50 w-[min(22rem,calc(100vw-1rem))] rounded-xl border border-line bg-bg p-4 text-sm text-fg shadow-xl"
+          className="z-50 w-[min(22rem,calc(100vw-1rem))] rounded-xl border border-line bg-bg p-4 text-sm text-fg shadow-sheet"
         >
           <p className="font-semibold">Search tips</p>
           <ul className="mt-2 flex flex-col gap-1.5 text-fg2">

@@ -8,5 +8,5 @@ import { cn } from "@/lib/cn";
 export const navItemClass = ({ isActive }: { isActive: boolean }): string =>
   cn(
     "relative flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium hover:bg-selection",
-    isActive && "bg-selection font-semibold before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-accent",
+    isActive && "bg-selection font-semibold before:absolute before:inset-y-2 before:left-0 before:w-0.75 before:rounded-full before:bg-accent",
   );

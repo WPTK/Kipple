@@ -8,6 +8,7 @@ import { folderPath } from "@/lib/folderTree";
 import type { Scope } from "@/api/types";
 import { SEARCH_ORDERS, SEARCH_ORDER_LABELS, scopeOrder, setSearchOrder, useSearchOrder, type SearchOrder } from "@/lib/searchPrefs";
 import { Button } from "@/ui/button";
+import { cn } from "@/lib/cn";
 import { inputCls } from "@/ui/kit";
 import { ReadingMenu } from "./AppearanceControls";
 import { ListPane, StatusBlock, type ListControls } from "./ListPane";
@@ -176,7 +177,7 @@ export function SearchScreen() {
               // Down from the field goes into the results, as it moves between rows in the list itself.
               else if (e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.nativeEvent.isComposing && controls?.focusStop()) e.preventDefault();
             }}
-            className="mt-2 min-h-11 w-full rounded-lg border border-line bg-surface px-3 text-base text-fg placeholder:text-fg2"
+            className={cn(inputCls, "mt-2")}
           />
         </form>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">

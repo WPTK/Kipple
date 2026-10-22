@@ -198,7 +198,6 @@ try {
     await radioCardChecks(page, "A step 1");
     await page.getByLabel("User name").fill("tester");
     await page.getByLabel("Password", { exact: true }).fill("a long enough password");
-    await page.getByLabel("Password again").fill("a long enough password");
     await page.getByRole("button", { name: "Create my account" }).click();
 
     // Step 2: the browser's zone (Asia/Tokyo here) is preselected.
@@ -425,7 +424,6 @@ try {
     await onStep(page, "C", "Create your account", 1);
     await page.getByLabel("User name").fill("skipper");
     await page.getByLabel("Password", { exact: true }).fill("a long enough password");
-    await page.getByLabel("Password again").fill("a long enough password");
     await page.getByRole("button", { name: "Create my account" }).click();
     await onStep(page, "C", "Choose your time zone", 2);
     await page.getByRole("button", { name: "Skip the rest of setup" }).click();
