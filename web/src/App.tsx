@@ -1,7 +1,6 @@
-import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { ApiError, authStore, failureCause, openRefusedStore, SESSION_EXPIRED, signingOutStore } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
@@ -19,9 +18,10 @@ import { OpenRefusedScreen } from "@/setup/OpenRefused";
 import { SignedOut } from "@/setup/SignedOut";
 import { launchAnswerStore, useSessionProbe } from "@/api/sessionProbe";
 import { lazyScreen } from "@/lib/lazyScreen";
-import { EmptyState } from "@/ui/EmptyState";
+import { NotFoundBlock } from "@/ui/NotFoundBlock";
 import { LoadFailed } from "@/ui/LoadFailed";
-import { Button, buttonVariants } from "@/ui/button";
+import { Button } from "@/ui/button";
+import { EmptyState } from "@/ui/EmptyState";
 import { Skeleton } from "@/ui/kit";
 
 // Settings, Feeds and Health load on first visit; the reader and list stay in the main chunk.
@@ -42,25 +42,11 @@ export const BOOT_RECHECK_MAX_MS = 2 * 60_000;
 
 /** A path nothing answers (a mistyped address, an old link): say so instead of silently showing Unread. */
 function NotFound() {
-  useDocumentTitle("Page not found");
-  const { pathname } = useLocation();
-  return (
-    <EmptyState
-      asH1
-      role="alert"
-      title="Page not found"
-      why={`Kipple has nothing at ${pathname}.`}
-      action={
-        <Link to="/l/unread" className={buttonVariants({ variant: "solid" })}>
-          Go to Unread
-        </Link>
-      }
-    />
-  );
+  return <NotFoundBlock noun="page" why="Kipple has no page at this address." />;
 }
 
-function Lazy({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<Skeleton label="Loading screen" />}>{children}</Suspense>;
+function Lazy({ children, label = "Loading screen" }: { children: React.ReactNode; label?: string }) {
+  return <Suspense fallback={<Skeleton label={label} />}>{children}</Suspense>;
 }
 
 /**
@@ -234,12 +220,12 @@ function Gate() {
           <Route path="l/:view" />
           <Route path="i/:id" />
         </Route>
-        <Route path="feeds" element={<Lazy><FeedsScreen /></Lazy>} />
-        <Route path="health" element={<Lazy><HealthScreen /></Lazy>} />
+        <Route path="feeds" element={<Lazy label="Loading feeds"><FeedsScreen /></Lazy>} />
+        <Route path="health" element={<Lazy label="Loading feed health"><HealthScreen /></Lazy>} />
         <Route path="search" element={<SearchScreen />} />
-        <Route path="stats" element={<Lazy><StatsScreen /></Lazy>} />
-        <Route path="stats/wrapped" element={<Lazy><WrappedScreen /></Lazy>} />
-        <Route path="settings/*" element={<Lazy><SettingsScreen /></Lazy>} />
+        <Route path="stats" element={<Lazy label="Loading stats"><StatsScreen /></Lazy>} />
+        <Route path="stats/wrapped" element={<Lazy label="Loading your year"><WrappedScreen /></Lazy>} />
+        <Route path="settings/*" element={<Lazy label="Loading settings"><SettingsScreen /></Lazy>} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

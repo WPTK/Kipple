@@ -458,8 +458,10 @@ a.sr-only-live:focus {
   scroll-behavior: auto !important;
 }
 
-/* Headings that receive programmatic focus on navigation do not need a ring. */
+/* Headings that receive programmatic focus on navigation do not need a ring. (The `outline-none` utility cannot do
+   this: the unlayered :focus-visible rule above beats a layered utility.) */
 [data-route-heading]:focus,
+[data-focus-quiet]:focus,
 #article-title:focus {
   outline: none;
 }

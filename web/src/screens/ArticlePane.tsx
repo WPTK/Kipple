@@ -26,6 +26,7 @@ import { Hl, useGroups } from "@/lib/useHighlights";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { EmptyState } from "@/ui/EmptyState";
+import { NotFoundBlock } from "@/ui/NotFoundBlock";
 import { focusListRow, rememberListPlace } from "./ListPane";
 import type { Scope } from "@/api/types";
 import { ReadingMenu } from "./AppearanceControls";
@@ -255,6 +256,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   // offered only online, as on the error screen below: offline it cannot open. Going on or offline re-attaches the
   // watch, which updates the cues already shown.
   const articleUrl = browserOnline ? safeHttpUrl(item.data?.url) : undefined;
+  // A feed that sent only a title: nothing to read and no picture either. Told apart from an article that is all pictures.
+  const textless = !!a && !a.trimmed && html.length < 4000 && !/<(img|picture|video|audio|iframe|figure|svg|canvas|table|pre|code)\b/i.test(html) && html.replace(/<[^>]*>/g, "").replace(/&nbsp;|\s/g, "") === "";
+  const originalButton = articleUrl ? <Button variant="solid" onClick={() => openOriginalAndRecord({ id, url: articleUrl })}>Open original</Button> : null;
   const sameTab = linkTarget === "same";
   const bodyCallback = useCallback(
     (el: HTMLDivElement | null) => {
@@ -322,24 +326,22 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
         {pane && toolbar(true)}
         {failed ? (
           <div className="flex min-h-0 flex-1 items-center justify-center">
-            <EmptyState
-              role="alert"
-              asH1
-              title={gone ? "This article is no longer available" : "Couldn't open this article"}
-              why={
-                gone
-                  ? "It may have been removed by a feed's retention limit or deleted."
-                  : originalUrl
-                    ? "The article couldn't be loaded. You can read the original instead."
-                    : "The article couldn't be loaded."
-              }
-              action={
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  {gone ? pane ? null : <Button onClick={back}>Back to the list</Button> : <Button onClick={() => void item.refetch()}>Try again</Button>}
-                  {originalUrl ? <Button variant="ghost" onClick={() => openOriginalAndRecord({ id, url: originalUrl })}>Read the original</Button> : null}
-                </div>
-              }
-            />
+            {gone ? (
+              <NotFoundBlock noun="article" why="It may have been removed by a feed's retention limit or deleted." action={pane ? null : <Button onClick={back}>Back to the list</Button>} />
+            ) : (
+              <EmptyState
+                role="alert"
+                asH1
+                title="Couldn't open this article"
+                why={originalUrl ? "The article couldn't be loaded. You can read the original instead." : "The article couldn't be loaded."}
+                action={
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Button onClick={() => void item.refetch()}>Try again</Button>
+                    {originalUrl ? <Button variant="ghost" onClick={() => openOriginalAndRecord({ id, url: originalUrl })}>Read the original</Button> : null}
+                  </div>
+                }
+              />
+            )}
           </div>
         ) : (
           <div className="p-6" aria-busy="true" role="status">
@@ -413,7 +415,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           ) : null}
           {a.trimmed ? null : <ListenBar bodyRef={bodyRef} articleId={id} />}
           {a.trimmed ? (
-            <EmptyState title="This article was removed" why="Kipple keeps only the newest articles for this feed. Open the original to read it." action={null} />
+            <EmptyState title="This article was removed" why="Kipple keeps only the newest articles for this feed. Open the original to read it." action={originalButton} />
+          ) : textless ? (
+            <EmptyState title="This feed sent only a title" why="There is no text to show here. The original may have more." action={originalButton} />
           ) : (
             <div
               ref={bodyCallback}

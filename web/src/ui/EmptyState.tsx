@@ -28,9 +28,9 @@ export function EmptyState({
     if (role === "alert") (h1.current ?? ref.current)?.focus({ preventScroll: true });
   }, [role]);
   return (
-    <div ref={ref} tabIndex={-1} role={role} className="mx-auto flex max-w-sm flex-col items-center gap-3 px-6 py-16 text-center outline-none">
+    <div ref={ref} tabIndex={-1} role={role} data-focus-quiet="" className="mx-auto flex max-w-sm flex-col items-center gap-3 px-6 py-16 text-center outline-none">
       {asH1 ? (
-        <h1 ref={h1} tabIndex={-1} className="text-lg font-semibold outline-none">
+        <h1 ref={h1} tabIndex={-1} data-focus-quiet="" className="text-lg font-semibold">
           {title}
         </h1>
       ) : (

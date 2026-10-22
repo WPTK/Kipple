@@ -41,6 +41,7 @@ import { LayoutMenu } from "./LayoutMenu";
 import { LengthMenu } from "./LengthMenu";
 import { ReadingMenu } from "./AppearanceControls";
 import { EmptyState } from "@/ui/EmptyState";
+import { NotFoundBlock } from "@/ui/NotFoundBlock";
 import { FINISH_SEARCH, ListPane, type ListControls } from "./ListPane";
 import { DropdownMenu } from "@/ui/menu";
 
@@ -482,20 +483,24 @@ export function ReaderRoute() {
   }, [missingKey, round, refetchBoot]);
   // A list whose view is not one of ours is not a list: go to Unread (and fix the address) rather than show Unread
   // under a made-up one.
-  if (view !== undefined && !VIEWS.some((v) => v.view === view) && view !== "muted") return <Navigate to={listTo({ view: "unread" })} replace />;
+  if (view !== undefined && !VIEWS.some((v) => v.view === view) && view !== "muted") return <NotFoundBlock noun="list" why="Kipple has no list at this address." />;
   if (missing && missingKey) {
     if (checked?.key !== missingKey || checked.round !== round) return <EmptyState title="Checking" why={`Looking for this ${missing.kind}.`} action={null} />;
     // A bootstrap that could not be fetched again proves nothing about the feed.
     const unsure = boot.isRefetchError;
+    const toUnread = (
+      <Link to={listTo({ view: "unread" })} replace className={buttonVariants({})}>
+        Go to Unread
+      </Link>
+    );
+    if (!unsure) return <NotFoundBlock noun={missing.kind} action={toUnread} />;
     return (
       <EmptyState
-        title={unsure ? `Couldn't check this ${missing.kind}` : `This ${missing.kind} no longer exists`}
-        why={unsure ? "Kipple couldn't reach the server to look for it." : "It may have been deleted, or the address is out of date."}
+        title={`Couldn't check this ${missing.kind}`}
+        why="Kipple couldn't reach the server to look for it."
         action={
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <Link to={listTo({ view: "unread" })} replace className={buttonVariants({})}>
-              Go to Unread
-            </Link>
+            {toUnread}
             <Button variant="ghost" onClick={() => setRound((n) => n + 1)}>
               Try again
             </Button>
