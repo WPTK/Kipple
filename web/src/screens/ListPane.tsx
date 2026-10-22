@@ -74,7 +74,7 @@ export async function markScrolledPast(qc: QueryClient, passed: Card[], sent: Se
   const expired = failure instanceof ApiError && (failure.code === SESSION_EXPIRED || failure.status === 401);
   if (!expired) ids.forEach((id) => sent.delete(id));
   scrollFailure.until = now + SCROLL_RETRY_MS;
-  if (!scrollFailure.streak) toast(changeError(failure), "error");
+  if (!scrollFailure.streak) toast(changeError(failure, "mark articles as read"), "error", undefined, "read");
   scrollFailure.streak = true;
 }
 
@@ -1235,7 +1235,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     <div role="alert" className="flex items-center justify-center gap-2 px-4 py-3 text-sm text-fg2">
       <span>Couldn&apos;t load more.</span>
       <Button variant="ghost" onClick={() => void src.loadMore()}>
-        Retry
+        Try again
       </Button>
     </div>
   ) : null;

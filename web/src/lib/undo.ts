@@ -228,7 +228,7 @@ async function run(g: Group): Promise<void> {
     }
     armTimer();
     publish();
-    announce("Couldn't undo. Try again."); // the failed request has shown its own error toast
+    // The failed request has shown its own error toast, which is announced.
     return;
   }
   announce(result === "kept" ? NOTHING_TO_UNDO : "Undone");

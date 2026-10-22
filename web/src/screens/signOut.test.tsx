@@ -99,7 +99,7 @@ describe("sign-out", () => {
     render(<App client={makeQueryClient({ retry: false })} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Sign out" }));
-    expect(await screen.findByText("The server returned an error. Try again.")).toBeTruthy();
+    expect(await screen.findByText("Kipple's server had a problem.")).toBeTruthy();
     expect(authStore.get()).toBe("in");
     expect(sessionLostStore.get()).toBe(false);
     // Still on the account screen, signed in: the same button tries again.

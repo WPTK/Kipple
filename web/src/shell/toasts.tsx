@@ -7,6 +7,8 @@ export interface ToastItem {
   message: string;
   kind: "info" | "error";
   action?: { label: string; run: () => void };
+  /** What the toast is about ("star", "read"): a later success on the same topic clears its error. */
+  topic?: string;
 }
 
 const toasts = createStore<ToastItem[]>([]);
@@ -22,18 +24,23 @@ export function announce(message: string): void {
 /** Errors are announced assertively, through their own persistent region. */
 const alertAnnouncement = createStore<{ n: number; message: string }>({ n: 0, message: "" });
 
-export function toast(message: string, kind: ToastItem["kind"] = "info", action?: ToastItem["action"]): number {
+export function toast(message: string, kind: ToastItem["kind"] = "info", action?: ToastItem["action"], topic?: string): number {
   const id = ++seq;
   // The visible toast is not itself a live region: a freshly mounted role=status/alert node is
   // often not announced on iOS VoiceOver. The persistent regions in <LiveRegion> speak instead.
   if (kind === "error") alertAnnouncement.set((a) => ({ n: a.n + 1, message }));
   else announce(message);
-  toasts.set((t) => [...t.filter((x) => x.message !== message), { id, message, kind, action }].slice(-3));
+  toasts.set((t) => [...t.filter((x) => x.message !== message), { id, message, kind, action, topic }].slice(-3));
   return id;
 }
 
 export function dismissToast(id: number): void {
   toasts.set((t) => t.filter((x) => x.id !== id));
+}
+
+/** The change on `topic` went through: drop an error toast it left behind. */
+export function settleToasts(topic: string): void {
+  toasts.set((t) => (t.some((x) => x.kind === "error" && x.topic === topic) ? t.filter((x) => !(x.kind === "error" && x.topic === topic)) : t));
 }
 
 export function clearToasts(): void {

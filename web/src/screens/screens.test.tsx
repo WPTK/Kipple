@@ -390,11 +390,11 @@ describe("Reader: lists and articles that are not there", () => {
     expect(screen.queryByText(/no longer exists/)).toBeNull();
   });
 
-  it("offers Check again on the gone message", async () => {
+  it("offers Try again on the gone message", async () => {
     routes();
     go("/l/unread?feed=999");
     expect(await screen.findByText("This feed no longer exists")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
   it("an article opened with no list has no Next or Previous, and j does not page", async () => {

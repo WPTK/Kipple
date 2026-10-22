@@ -6,7 +6,7 @@ import {
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
-import { api, errorMessage, signingOutStore } from "./client";
+import { api, failed, signingOutStore } from "./client";
 import type {
   Bootstrap,
   Card,
@@ -32,14 +32,14 @@ import { useStore } from "@/lib/store";
 import { chainOf, folderTree, type FolderTree } from "@/lib/folderTree";
 import { useMemo } from "react";
 import { setUpdateReady } from "@/lib/offlineState";
-import { toast } from "@/shell/toasts";
+import { settleToasts, toast } from "@/shell/toasts";
 import { itemsParams, keys, patchItems, undoKept } from "./queryKeys";
 
 export { PAGE_SIZE, keys, scopeKey, parseScopeKey, itemsParams, patchItems, dropFromLists, invalidateLists, undoKept, type ItemPatch } from "./queryKeys";
 
 /** The toast for a failed change: one made offline that could not be stored says so, not "the server". */
-export function changeError(e: unknown): string {
-  return e instanceof QueueWriteError ? "Kipple couldn't save that change on this device." : errorMessage(e);
+export function changeError(e: unknown, action: string): string {
+  return e instanceof QueueWriteError ? "Couldn't save that change on this device." : failed(action, e);
 }
 
 /**
@@ -207,7 +207,7 @@ export function useOpenItem() {
     },
     onError: (e, { id }, ctx) => {
       // The article itself is still on screen (it is held on the device); only the read could not be kept.
-      if (e instanceof QueueWriteError) toast(changeError(e), "error");
+      if (e instanceof QueueWriteError) toast(changeError(e, "mark this article read"), "error", undefined, "read");
       if (!ctx?.bumped) return;
       patchItems(qc, [id], { read: false });
       bumpUnread(qc, ctx.bumped, 1);
@@ -237,10 +237,11 @@ export function useToggleStar() {
       patchItems(qc, [id], { starred });
       return { prev };
     },
-    onError: (e, { id }, ctx) => {
+    onError: (e, { id, starred }, ctx) => {
       if (ctx?.prev !== undefined) patchItems(qc, [id], { starred: ctx.prev });
-      toast(changeError(e), "error");
+      toast(changeError(e, starred ? "star this article" : "unstar this article"), "error", undefined, "star");
     },
+    onSuccess: () => settleToasts("star"),
   });
 }
 
@@ -269,7 +270,7 @@ export function useFulltext() {
         void qc.invalidateQueries({ queryKey: keys.item(id) });
       }
     },
-    onError: (e) => toast(errorMessage(e), "error"),
+    onError: (e) => toast(failed("load the full article", e), "error"),
   });
 }
 
@@ -293,6 +294,7 @@ export async function applyRead(
     try {
       const res = await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, read, reason, ...(undo ? { undo } : {}) } });
       undoKept(qc, res?.kept);
+      settleToasts("read");
       return res;
     } catch (e) {
       // No network: keep the change on screen and send it when the connection returns (lib/offline.ts). A
@@ -306,7 +308,7 @@ export async function applyRead(
   } catch (e) {
     patchItems(qc, ids, { read: !read });
     if (opts.onError) opts.onError(e);
-    else toast(changeError(e), "error");
+    else toast(changeError(e, undo ? "undo that" : read ? "mark as read" : "mark as unread"), "error", undefined, "read");
     return undefined;
   }
 }
@@ -330,10 +332,11 @@ export async function applyStar(qc: QueryClient, id: string, starred: boolean, u
       if (!isOffline(e)) throw e;
       await queueStar(id, starred, undefined, undo);
     }
+    settleToasts("star");
     return true;
   } catch (e) {
     patchItems(qc, [id], { starred: !starred });
-    toast(changeError(e), "error");
+    toast(changeError(e, starred ? "star this article" : "unstar this article"), "error", undefined, "star");
     return false;
   }
 }

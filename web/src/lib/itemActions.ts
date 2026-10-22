@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { applyRead, applyStar, bumpMuted, dropFromLists, invalidateLists, keys, undoKept, patchItems } from "@/api/queries";
-import { api, errorMessage } from "@/api/client";
+import { api, failed } from "@/api/client";
 import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
 import type { BulkMarkResponse, Card, ItemsPage, MarkReadResponse, Scope } from "@/api/types";
 import { announce, toast } from "@/shell/toasts";
@@ -55,7 +55,7 @@ async function undoBulk(qc: QueryClient, ids: string[], ledger: string[]): Promi
     return ledger.length > 0 ? true : allKept(ids, res?.kept);
   } catch (e) {
     patchItems(qc, ids, { read: true });
-    toast(errorMessage(e), "error");
+    toast(failed("undo that", e), "error");
     return false;
   }
 }
@@ -237,7 +237,7 @@ export function itemActions(qc: QueryClient) {
       ticket.settle(null);
       patchItems(qc, local, { read: false });
       restore?.();
-      announce("Couldn't mark those as read");
+      toast("Couldn't mark those as read.", "error", undefined, "read");
     }
   }
 
@@ -262,7 +262,7 @@ export function itemActions(qc: QueryClient) {
     try {
       res = await api("/api/items/unmute", { method: "POST", body: { ids } });
     } catch (e) {
-      toast(errorMessage(e), "error");
+      toast(failed("restore those articles", e), "error");
       restore?.();
       return false;
     }

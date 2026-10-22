@@ -1,6 +1,6 @@
 // The restore calls of the setup wizard (before there is an account). Nothing here knows about React. Every call
 // carries this browser's owner key (restoreKey.ts): the server shows and acts on an upload only for the key that sent it.
-import { ApiError, api, clientKind } from "@/api/client";
+import { ApiError, api, clientKind, errorMessage, failureCause } from "@/api/client";
 import { restoreKey, restoreKeyHeaders } from "./restoreKey";
 
 export type PasswordState = "password" | "none_access" | "open";
@@ -123,11 +123,11 @@ export async function fetchBackupFeeds(): Promise<File> {
 /** The server's own message for a failed restore call (it is written for the reader), else a plain fallback. */
 export function restoreErrorText(e: unknown): string {
   if (e instanceof ApiError) {
-    if (e.status === 0) return "Kipple couldn't reach the server.";
+    if (failureCause(e)) return errorMessage(e);
     const m = e.body?.message;
     if (typeof m === "string" && m) return m;
   }
-  return "Something went wrong. Try again.";
+  return errorMessage(e);
 }
 
 /** Whole minutes, at least one, for "about N minutes". */

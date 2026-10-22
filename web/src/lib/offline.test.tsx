@@ -416,7 +416,7 @@ describe("changes made offline", () => {
     expect(c.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(false);
     await expect(applyStar(c, "1001", true)).resolves.toBe(false);
     expect(c.getQueryData<{ starred: boolean }>(keys.item("1001"))?.starred).toBe(false);
-    expect(toast).toHaveBeenCalledWith("Kipple couldn't save that change on this device.", "error");
+    expect(toast).toHaveBeenCalledWith("Couldn't save that change on this device.", "error", undefined, expect.any(String));
 
     const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={c}>{children}</QueryClientProvider>;
     const star = renderHook(() => useToggleStar(), { wrapper });
@@ -461,7 +461,7 @@ describe("an expired access-proxy session", () => {
     c.setQueryData(keys.item("1001"), detail(1));
     await expect(applyRead(c, ["1001"], true, "key")).resolves.toBeUndefined();
     expect(c.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(false);
-    expect(toast).toHaveBeenCalledWith("Your sign-in has expired. Reload Kipple to sign in again.", "error");
+    expect(toast).toHaveBeenCalledWith("Couldn't mark as read. Your sign-in has expired. Reload Kipple to sign in again.", "error", undefined, "read");
     await flushQueue();
     expect(offlineStore.get().pending).toBe(1);
   });
@@ -742,7 +742,7 @@ describe("the query client offline", () => {
     const refresh = renderHook(() => useRefreshAll(), { wrapper: wrapperFor(makeQueryClient()) });
     refresh.result.current.mutate();
     await waitFor(() => expect(refresh.result.current.isError).toBe(true));
-    expect(toast).toHaveBeenCalledWith("Can't refresh while offline", "error");
+    expect(toast).toHaveBeenCalledWith("Couldn't refresh. You're offline.", "error");
   });
 
   it("the online state starts from the browser's, so a launch offline still sees the network come back", () => {

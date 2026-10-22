@@ -254,7 +254,7 @@ describe("Step 1: account", () => {
     await user.type(screen.getByLabelText("Password"), "long enough");
     await user.type(screen.getByLabelText("Password again"), "long enough");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
-    expect(await screen.findByText("Kipple couldn't reach the server.")).toBeInTheDocument();
+    expect(await screen.findByText("Kipple can't be reached.")).toBeInTheDocument();
     expect(screen.getByLabelText("User name")).toHaveValue("reader");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(await screen.findByText("No.")).toBeInTheDocument();
@@ -505,7 +505,7 @@ describe("routing into and out of /welcome", () => {
     server(signedIn(), { "POST /api/onboarding/complete": () => json({ error: "internal" }, 500) });
     go("/welcome/import");
     await userEvent.setup().click(await screen.findByRole("button", { name: "Skip the rest of setup" }));
-    expect(await screen.findByText("The server returned an error. Try again.")).toBeInTheDocument();
+    expect(await screen.findByText("Kipple's server had a problem.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Bring your feeds along");
   });
 });
@@ -635,7 +635,7 @@ describe("Step 2: time zone", () => {
     go("/welcome/timezone");
     await screen.findByTestId("selected-zone");
     await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    expect(await findAlert()).toHaveTextContent("The server returned an error");
+    expect(await findAlert()).toHaveTextContent("server had a problem");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Choose your time zone");
   });
 
@@ -777,7 +777,7 @@ describe("Step 3: theme", () => {
     go("/welcome/theme");
     await heading();
     await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    expect(await findAlert()).toHaveTextContent("The server returned an error");
+    expect(await findAlert()).toHaveTextContent("server had a problem");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Look and feel");
   });
 
@@ -964,7 +964,7 @@ describe("Step 5: recommended feeds", () => {
   it.each([
     [{ error: "unknown_id", message: "not a recommended feed: zz" }, 400, /list of recommended feeds changed/],
     [{ error: "unavailable" }, 503, /no recommended feeds to add right now/],
-    [{ error: "internal" }, 500, /server returned an error/],
+    [{ error: "internal" }, 500, /server had a problem/],
   ])("explains a failed add (%j) and stays on the step", async (body, status, text) => {
     server(signedIn({ starter }), { "POST /api/starter-feeds": () => json(body, status) });
     go("/welcome/feeds");
@@ -1047,7 +1047,7 @@ describe("Step 7: finish", () => {
     go("/welcome/finish");
     await heading();
     await userEvent.setup().click(screen.getByRole("button", { name: "Finish" }));
-    await waitFor(() => expect(screen.getAllByText("The server returned an error. Try again.").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("Kipple's server had a problem.").length).toBeGreaterThan(0));
     expect(screen.getByRole("button", { name: "Finish" })).toBeEnabled();
   });
 });

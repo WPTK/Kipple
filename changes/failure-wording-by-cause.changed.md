@@ -1,0 +1,1 @@
+Failures now say what could not be done and why, in three phrases by cause: "You're offline", "Kipple can't be reached" and "Kipple's server had a problem". A warning looks different from an error, "Try again" is the one retry word, and an error toast clears when the same change later succeeds. (#704)

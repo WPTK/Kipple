@@ -496,7 +496,7 @@ export function ReaderRoute() {
             Go to Unread
           </Link>
           <Button variant="ghost" onClick={() => setRound((n) => n + 1)}>
-            Check again
+            Try again
           </Button>
         </div>
       </StatusBlock>

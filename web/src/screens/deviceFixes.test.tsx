@@ -711,7 +711,7 @@ describe("manage feeds", () => {
     expect(within(dlg).getByText(/hold 3 starred articles in total/)).toBeInTheDocument(); // 2 + 1
     await user.click(within(dlg).getByRole("checkbox", { name: /Delete starred articles too/ }));
     await user.click(within(dlg).getByRole("button", { name: "Delete 2 feeds" }));
-    expect(await within(dlg).findByText(/The server returned an error/)).toBeInTheDocument();
+    expect(await within(dlg).findByText(/Kipple's server had a problem/)).toBeInTheDocument();
     expect(within(dlg).getByText(/Some of the feeds may be gone already/)).toBeInTheDocument();
     expect(within(dlg).getByRole("button", { name: "Try again" })).toBeEnabled();
     expect(sent).toEqual([{ ids: ["1", "2"], delete_starred: true }]); // one call for the whole set

@@ -173,7 +173,7 @@ describe("Wrapped screen", () => {
     });
     go();
     const retry = await screen.findByRole("button", { name: "Try again" });
-    expect(within(retry.parentElement!).getByRole("alert")).toHaveTextContent(/error/i);
+    expect(within(retry.parentElement!).getByRole("alert")).toHaveTextContent(/problem/i);
     expect(screen.queryByText("Loading your year")).toBeNull();
     fail = false;
     await user.click(retry);
