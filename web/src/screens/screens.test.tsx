@@ -147,7 +147,13 @@ describe("Unread list (Magazine)", () => {
   });
 
   it("unread empty copy doesn't claim new articles are pending when none have arrived", () => {
-    expect(emptyCopy({ view: "unread" })).toEqual({ title: "All caught up", body: "No unread articles. New ones appear after the next refresh." });
+    expect(emptyCopy({ view: "unread" })).toEqual({ title: "All caught up", body: "No unread articles. New ones appear after the next refresh.", next: "all" });
+  });
+
+  it("an empty folder with no feeds says so and offers to add one, in any view", () => {
+    expect(emptyCopy({ view: "unread", folder: "9" }, 0, undefined, 0)).toEqual({ title: "This folder has no feeds", body: "Move a feed here or add one.", next: "add" });
+    expect(emptyCopy({ view: "all", folder: "9" }, 0, undefined, 0).title).toBe("This folder has no feeds");
+    expect(emptyCopy({ view: "all", folder: "9" }, 0, undefined, 2).title).toBe("No articles yet");
   });
 
   it("unread empty copy reflects new articles already waiting, instead of contradicting the pill", () => {

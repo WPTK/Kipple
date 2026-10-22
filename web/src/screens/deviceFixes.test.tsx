@@ -325,12 +325,30 @@ describe("sidebar", () => {
     expect(within(nav).queryByRole("button", { name: "Collapse Holding" })).toBeNull();
   });
 
+  it("with no feeds the welcome appears once: the list has it, the sidebar a link, the reader pane no placeholder, Search says to add a feed", async () => {
+    routes({ "GET /api/items": () => json(pageOf([])) }, { ...bootstrap, feeds: [], folders: bootstrap.folders });
+    media(WIDE);
+    go("/l/unread");
+    expect(await screen.findByRole("heading", { name: "No feeds yet" })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { name: "No feeds yet" })).toHaveLength(1);
+    expect(screen.queryByText("Select an article to read it here.")).toBeNull();
+  });
+
+  it("Search with no feeds says to add a feed first, not that nothing matched", async () => {
+    routes({ "GET /api/items": () => json(pageOf([])) }, { ...bootstrap, feeds: [] });
+    media(WIDE);
+    go("/search?q=news");
+    expect(await screen.findByRole("heading", { name: "Add a feed first" })).toBeInTheDocument();
+    expect(screen.queryByText(/No results/)).toBeNull();
+  });
+
   it('says "No feeds yet" when the archive feed is the only feed', async () => {
     routes({}, { ...bootstrap, feeds: [{ ...archive, folder_id: "1" }] });
     media(WIDE);
     go("/l/unread");
     const nav = await screen.findByRole("navigation", { name: "Primary" });
-    expect(await within(nav).findByRole("heading", { name: "No feeds yet" })).toBeInTheDocument();
+    expect(await within(nav).findByText(/No feeds yet\./)).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "Add a feed" })).toBeInTheDocument();
     expect(within(nav).queryByText("Unsubscribed (starred)")).toBeNull();
   });
 

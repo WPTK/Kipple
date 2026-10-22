@@ -373,7 +373,8 @@ function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?:
           <ArticlePane id={articleId} scope={scope} hasFrom={hasFrom} pane />
         ) : (
           <div className="flex h-full items-center justify-center p-6 text-center text-fg2">
-            <p>Select an article to read it here.</p>
+            {/* Not beside an empty list, a list that failed, or a library with no feeds: there is nothing to select. */}
+            {controls && controls.count > 0 ? <p>Select an article to read it here.</p> : null}
           </div>
         )
       }

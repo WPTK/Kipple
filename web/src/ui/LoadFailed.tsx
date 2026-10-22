@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { CAUSE_PHRASE, type FailureCause } from "@/api/client";
+import { useLatestRef } from "@/lib/useLatestRef";
 import { Button } from "@/ui/button";
 import { EmptyState } from "@/ui/EmptyState";
 
@@ -30,10 +31,7 @@ export function LoadFailed({
   /** Replaces the sentence for the cause when the screen knows more (what is saved on this device, say). */
   why?: string;
 }) {
-  const retry = useRef(onRetry);
-  useEffect(() => {
-    retry.current = onRetry;
-  });
+  const retry = useLatestRef(onRetry);
   useEffect(() => {
     if (busy) return;
     const h = setTimeout(() => retry.current(), AUTO_RETRY_MS);

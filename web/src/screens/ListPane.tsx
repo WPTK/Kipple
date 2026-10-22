@@ -7,6 +7,8 @@ import { Link, useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
 import { ApiError, SESSION_EXPIRED, errorMessage } from "@/api/client";
 import { offlineStore } from "@/lib/offlineState";
+import { feedsInFolder } from "@/lib/folderTree";
+import { listTo } from "@/lib/routes";
 import { applyRead, changeError, keys, scopeKey, useBootstrap } from "@/api/queries";
 import { clearPending, liveStore, pendingFor } from "@/api/events";
 import { CANT_REFRESH_OFFLINE, useRefreshAll, useRefreshing } from "@/api/refresh";
@@ -171,22 +173,35 @@ export function clearListMemory(): void {
 /** How long a row marked read on purpose stays in the Unread list (the undo toast lasts far longer). */
 export const LEAVE_MS = 1500;
 
-/** What an empty list says. `feed` is the one feed a feed list shows: a failing feed says why instead of "All caught up" (issue #476). */
-export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed): { title: string; body: string; health?: boolean } {
+/** What an empty list says, and the one next step it offers: show everything, or add a feed. */
+export interface EmptyCopy {
+  title: string;
+  body: string;
+  health?: boolean;
+  next?: "all" | "add";
+}
+
+/**
+ * What an empty list says. `feed` is the one feed a feed list shows: a failing feed says why instead of "All caught up"
+ * (issue #476). `scopeFeeds` is how many feeds the list covers (a folder with none cannot have articles), so the reason
+ * given is the real one, not the view's.
+ */
+export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed, scopeFeeds?: number): EmptyCopy {
   if (scope.q) {
     // Only a search narrowed to a feed or folder has a wider place to try (the chip on the Search screen widens it).
     const narrowed = scope.feed || scope.folder;
     return { title: `No results for "${scope.q}"`, body: narrowed ? "Try fewer words, or search the whole library." : "Try fewer words." };
   }
   if (scope.view === "muted") return { title: "Nothing muted", body: "No filter has muted an article yet." };
-  if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here. Retention never removes starred articles." };
+  if (scope.view === "starred") return { title: "No starred articles", body: "Tap the star on an article to keep it here." };
+  if (scope.folder && scopeFeeds === 0) return { title: "This folder has no feeds", body: "Move a feed here or add one.", next: "add" };
   // The server sends last_error only while the feed is failing. New articles waiting mean a fetch has worked since.
   const failure = feed && showsFailure(scope.view, pendingNew, feed) ? failureCopy(feed) : null;
   if (failure) return { title: failure.title, body: failure.body, health: true };
   if (scope.view === "unread") {
     return pendingNew > 0
       ? { title: "All caught up", body: `${pendingNew} new article${pendingNew === 1 ? "" : "s"} arrived. Load ${pendingNew === 1 ? "it" : "them"} above to continue reading.` }
-      : { title: "All caught up", body: "No unread articles. New ones appear after the next refresh." };
+      : { title: "All caught up", body: "No unread articles. New ones appear after the next refresh.", next: "all" };
   }
   return { title: "No articles yet", body: "Kipple hasn't fetched anything from these feeds yet." };
 }
@@ -1267,13 +1282,26 @@ export function ListPane({ scope, activeId, onControls }: Props) {
           <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
         );
       }
-      const c = emptyCopy(scope, pendingNew, scope.feed ? feedById.get(scope.feed) : undefined);
+      const c = emptyCopy(
+        scope,
+        pendingNew,
+        scope.feed ? feedById.get(scope.feed) : undefined,
+        scope.folder ? feedsInFolder(scope.folder, boot.data?.feeds ?? [], boot.data?.folders ?? []).length : undefined,
+      );
       return (
         <EmptyState
           title={c.title}
           why={c.body}
           action={
             <>
+              {c.next === "all" ? (
+                <Link to={listTo({ ...scope, view: "all" })} replace className="text-sm text-link underline underline-offset-2">
+                  Show all articles
+                </Link>
+              ) : null}
+              {c.next === "add" ? (
+                <Button onClick={() => navigate("/feeds", { state: { open: "add" } })}>Add a feed</Button>
+              ) : null}
               {c.health ? (
                 <Link to="/health" className="text-sm text-link underline underline-offset-2">
                   Open Feed health
