@@ -5,7 +5,6 @@ import { folderPath } from "@/lib/folderTree";
 import { useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
   GROUP_BYS,
-  GROUP_HINTS,
   GROUP_LABELS,
   LAYOUT_HINTS,
   LAYOUT_IDS,
@@ -160,7 +159,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
               >
                 {target ? <Radio value="default" label={groupFallback} /> : null}
                 {GROUP_BYS.map((g) => (
-                  <Radio key={g} value={g} label={GROUP_LABELS[g]} hint={GROUP_HINTS[g]} />
+                  <Radio key={g} value={g} label={GROUP_LABELS[g]} />
                 ))}
               </DropdownMenu.RadioGroup>
             </>

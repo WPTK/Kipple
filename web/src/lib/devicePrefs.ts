@@ -69,7 +69,6 @@ export const ORDER_LABELS: Record<OrderPref, string> = { newest: "Newest first",
 export type GroupBy = "day" | "week" | "none";
 export const GROUP_BYS: readonly GroupBy[] = ["day", "week", "none"];
 export const GROUP_LABELS: Record<GroupBy, string> = { day: "Day", week: "Week", none: "None" };
-export const GROUP_HINTS: Record<GroupBy, string> = { day: "Today, Yesterday, then each date", week: "Today, Yesterday, This week, Earlier", none: "No headers" };
 
 /** The views a feed or folder list can open in. Unread unless the feed or a folder above it says otherwise. */
 export type ListView = "unread" | "all";

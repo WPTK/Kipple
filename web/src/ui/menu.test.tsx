@@ -74,7 +74,7 @@ describe("MenuContent", () => {
     const menu = await screen.findByRole("menu");
     expect(menu.hasAttribute("data-menu-sheet")).toBe(true);
     expect(menu.className).toContain("w-full");
-    expect(menu.className).toContain("max-h-[85dvh]");
+    expect(menu.className).toContain("max-h-[70dvh]");
     expect(menu.className).toContain("overflow-y-auto");
     expect(menu.className).toContain("rounded-t-2xl");
     expect(menu.className).toContain("pl-[max(0.5rem,env(safe-area-inset-left))]");
