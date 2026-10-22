@@ -57,6 +57,8 @@ export interface PageProps {
   /** The story that last had focus, the list's one Tab stop (rowTabStop.ts); else the layout picks the selected one. */
   tabStopId?: string;
   onOpen: (item: Card) => void;
+  /** What a story's menu does (the list's own, as for a row). */
+  actions: RowMenuActions;
 }
 
 export interface ListLayout {

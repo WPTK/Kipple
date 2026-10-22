@@ -49,6 +49,7 @@
     "uat:bulk-delete": "node uat/bulk-delete.mjs",
     "uat:setup-rerun": "node uat/setup-rerun.mjs",
     "uat:signed-out-launch": "node uat/signed-out-launch.mjs",
+    "uat:gazette-menu": "node uat/gazette-menu.mjs",
     "uat:gazette-order": "node uat/gazette-order.mjs"
   },
   "dependencies": {

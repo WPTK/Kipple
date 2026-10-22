@@ -85,11 +85,14 @@ export function RowMenu({
   item,
   actions,
   revealOnHover = false,
+  ranges = true,
   className,
 }: {
   item: Card;
   actions: RowMenuActions;
   revealOnHover?: boolean;
+  /** Offer Mark above and Mark below. A page that is not in date order (the Gazette) has no above or below. */
+  ranges?: boolean;
   className?: string;
 }) {
   const openId = useStore(rowMenuStore);
@@ -155,14 +158,18 @@ export function RowMenu({
                 {item.read ? <Mail className="size-5" aria-hidden="true" /> : <MailOpen className="size-5" aria-hidden="true" />}
                 {item.read ? "Mark as unread" : "Mark as read"}
               </DropdownMenu.Item>
-              <DropdownMenu.Item className={menuItem} disabled={actions.noRange} onSelect={() => actions.markAbove(item)}>
-                <MoveUp className="size-5" aria-hidden="true" />
-                Mark above as read
-              </DropdownMenu.Item>
-              <DropdownMenu.Item className={menuItem} disabled={actions.noRange} onSelect={() => actions.markBelow(item)}>
-                <MoveDown className="size-5" aria-hidden="true" />
-                Mark below as read
-              </DropdownMenu.Item>
+              {ranges ? (
+                <>
+                  <DropdownMenu.Item className={menuItem} disabled={actions.noRange} onSelect={() => actions.markAbove(item)}>
+                    <MoveUp className="size-5" aria-hidden="true" />
+                    Mark above as read
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item className={menuItem} disabled={actions.noRange} onSelect={() => actions.markBelow(item)}>
+                    <MoveDown className="size-5" aria-hidden="true" />
+                    Mark below as read
+                  </DropdownMenu.Item>
+                </>
+              ) : null}
               <DropdownMenu.Item className={menuItem} onSelect={() => actions.muteSimilar(item)}>
                 <BellOff className="size-5" aria-hidden="true" />
                 Mute similar…

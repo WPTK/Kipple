@@ -9,8 +9,10 @@ import { contrast } from "@/theme/contrast";
 import { SCHEMES } from "@/theme/schemes";
 import { closingLine, DEFAULT_PAPER_NAME, Gazette, paperName } from "./gazette";
 import { planGazette, type GazettePlan } from "./gazettePlan";
+import type { RowMenuActions } from "./types";
 
 const IMG = "https://example.com/i.jpg";
+const noActions = new Proxy({}, { get: () => vi.fn() }) as unknown as RowMenuActions;
 const feeds = [
   { id: "1", title: "Example Feed", folder_id: "news" },
   { id: "2", title: "Second Feed", folder_id: "news" },
@@ -34,7 +36,7 @@ function draw(cards: Card[], p: GazettePlan, screenClass: "wide" | "phone" = "wi
   const items = new Map(cards.map((c) => [c.id, c]));
   return render(
     <MemoryRouter>
-      <Gazette plan={p} items={items} name="The Gazette" date={DATE} screen={screenClass} to={(c) => `/item/${c.id}`} onOpen={onOpen} />
+      <Gazette plan={p} items={items} name="The Gazette" date={DATE} screen={screenClass} to={(c) => `/item/${c.id}`} onOpen={onOpen} actions={noActions} />
     </MemoryRouter>,
   );
 }
@@ -63,7 +65,7 @@ describe("Gazette pages", () => {
     const picked = planOrder(p)[10]!;
     rerender(
       <MemoryRouter>
-        <Gazette plan={p} items={new Map(cards.map((c) => [c.id, c]))} name="The Gazette" date={DATE} screen="wide" to={(c) => `/item/${c.id}`} onOpen={vi.fn()} selectedId={picked} />
+        <Gazette plan={p} items={new Map(cards.map((c) => [c.id, c]))} name="The Gazette" date={DATE} screen="wide" to={(c) => `/item/${c.id}`} onOpen={vi.fn()} actions={noActions} selectedId={picked} />
       </MemoryRouter>,
     );
     expect(tabbable(container)).toEqual([picked]);
@@ -83,7 +85,7 @@ describe("Gazette pages", () => {
     const items = new Map(cards.map((c) => [c.id, c]));
     render(
       <MemoryRouter>
-        <Gazette plan={p} items={items} name="   " date={DATE} screen="wide" to={(c) => `/item/${c.id}`} onOpen={vi.fn()} />
+        <Gazette plan={p} items={items} name="   " date={DATE} screen="wide" to={(c) => `/item/${c.id}`} onOpen={vi.fn()} actions={noActions} />
       </MemoryRouter>,
     );
     expect(screen.getByRole("heading", { level: 2, name: DEFAULT_PAPER_NAME })).toBeInTheDocument();
@@ -116,7 +118,7 @@ describe("Gazette pages", () => {
     const read = cards.map((c) => ({ ...c, read: true }));
     rerender(
       <MemoryRouter>
-        <Gazette plan={p} items={new Map(read.map((c) => [c.id, c]))} name="The Gazette" date={DATE} screen="wide" to={(c) => `/item/${c.id}`} onOpen={vi.fn()} />
+        <Gazette plan={p} items={new Map(read.map((c) => [c.id, c]))} name="The Gazette" date={DATE} screen="wide" to={(c) => `/item/${c.id}`} onOpen={vi.fn()} actions={noActions} />
       </MemoryRouter>,
     );
     for (const c of read) {

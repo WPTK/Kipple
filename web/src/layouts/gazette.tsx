@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, type To } from "react-router";
+import { useLongPressMenu } from "@/gestures/useLongPressMenu";
 import { useBootstrap } from "@/api/queries";
 import type { Card } from "@/api/types";
 import { cn } from "@/lib/cn";
@@ -9,8 +10,9 @@ import { articleTo } from "@/lib/routes";
 import { planGazette, type Block, type GazettePlan, type PagePlan, type Slot } from "./gazettePlan";
 import { magazine } from "./magazine";
 import { ROW_KEYSHORTCUTS } from "./rowTabStop";
-import { ListImage, useImageFailure, PublishedTime, rowLinkProps } from "./parts";
-import type { ListLayout, PageProps } from "./types";
+import { ListImage, useImageFailure, PublishedTime, RowMenu, rowLinkProps } from "./parts";
+import { RowTabStop } from "./rowTabStop";
+import type { ListLayout, PageProps, RowMenuActions } from "./types";
 
 // The Gazette's pages (docs/maintainers/ui-decisions.md, "The Gazette"). It draws what planGazette returns, in that order: a page
 // is a stack of blocks, a block is a grid of columns, and each column lists its slots top to bottom, so the DOM order
@@ -35,6 +37,8 @@ export interface GazetteProps {
   /** Where a story's link goes (the article route). */
   to: (item: Card) => To;
   onOpen: (item: Card) => void;
+  /** What a story's menu does: a long press on touch, the More button or the context menu with a pointer. */
+  actions: RowMenuActions;
   /** The story selected (arrow keys) or open in the reader pane: it is outlined. */
   selectedId?: string;
   /** The story that last had focus: the paper's one Tab stop when it is still there. */
@@ -52,7 +56,7 @@ export function closingLine(name: string): string {
 const longDate = (d: Date) => d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 const shortDate = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
-export function Gazette({ plan, items, name: given, date, screen, to, onOpen, selectedId, focusedId }: GazetteProps) {
+export function Gazette({ plan, items, name: given, date, screen, to, onOpen, actions, selectedId, focusedId }: GazetteProps) {
   const phone = screen === "phone";
   const name = paperName(given);
   const last = plan.pages.length - 1;
@@ -71,6 +75,7 @@ export function Gazette({ plan, items, name: given, date, screen, to, onOpen, se
           phone={phone}
           to={to}
           onOpen={onOpen}
+          actions={actions}
           selectedId={selectedId}
           tabStopId={tabStopId}
           ruled={i > 0}
@@ -103,7 +108,7 @@ interface PagePlanProps extends Omit<GazetteProps, "plan" | "screen"> {
   ruled: boolean;
 }
 
-function GazettePage({ page, items, name, date, phone, to, onOpen, selectedId, tabStopId, ruled }: PagePlanProps) {
+function GazettePage({ page, items, name, date, phone, to, onOpen, actions, selectedId, tabStopId, ruled }: PagePlanProps) {
   const front = page.kind === "front";
   return (
     // A plain section with no accessible name, so a long paper does not add one landmark per page; its h2 is what
@@ -112,7 +117,7 @@ function GazettePage({ page, items, name, date, phone, to, onOpen, selectedId, t
       {front ? <Masthead name={name} date={date} phone={phone} /> : <Folio name={name} date={date} number={page.number} phone={phone} />}
       <div className="flex flex-col gap-6">
         {page.blocks.map((b, i) => (
-          <GazetteBlock key={i} block={b} items={items} to={to} onOpen={onOpen} phone={phone} selectedId={selectedId} tabStopId={tabStopId} />
+          <GazetteBlock key={i} block={b} items={items} to={to} onOpen={onOpen} actions={actions} phone={phone} selectedId={selectedId} tabStopId={tabStopId} />
         ))}
       </div>
     </section>
@@ -156,11 +161,12 @@ interface BlockProps {
   items: ReadonlyMap<string, Card>;
   to: (item: Card) => To;
   onOpen: (item: Card) => void;
+  actions: RowMenuActions;
   phone: boolean;
   selectedId: string | undefined;
 }
 
-function GazetteBlock({ block, items, to, onOpen, phone, selectedId, tabStopId }: BlockProps) {
+function GazetteBlock({ block, items, to, onOpen, actions, phone, selectedId, tabStopId }: BlockProps) {
   const columns = phone ? 1 : block.columns;
   const byColumn: Slot[][] = Array.from({ length: columns }, () => []);
   for (const s of block.slots) if (items.has(s.id)) byColumn[Math.min(s.column, columns - 1)]!.push(s);
@@ -185,6 +191,7 @@ function GazetteBlock({ block, items, to, onOpen, phone, selectedId, tabStopId }
                 heading={titled ? "h4" : "h3"}
                 to={to(items.get(s.id)!)}
                 onOpen={onOpen}
+                actions={actions}
                 phone={phone}
                 selected={s.id === selectedId}
                 tabStop={s.id === tabStopId}
@@ -203,6 +210,7 @@ interface StoryProps {
   heading: "h3" | "h4";
   to: To;
   onOpen: (item: Card) => void;
+  actions: RowMenuActions;
   phone: boolean;
   selected: boolean;
   /** This story's link is the paper's one Tab stop. */
@@ -224,7 +232,8 @@ function headlineClass(slot: Slot, phone: boolean): string {
   }
 }
 
-function Story({ slot: planned, item, heading: H, to, onOpen, phone, selected, tabStop }: StoryProps) {
+function Story({ slot: planned, item, heading: H, to, onOpen, actions, phone, selected, tabStop }: StoryProps) {
+  const press = useLongPressMenu(item.id);
   const failure = useImageFailure(item.image);
   // A picture that cannot be shown takes the slot back to what it is without one: a lead without a picture is the
   // headline lead, a photo cell is an ordinary story with its standfirst.
@@ -240,8 +249,10 @@ function Story({ slot: planned, item, heading: H, to, onOpen, phone, selected, t
       data-slot={slot.kind}
       data-read={item.read || undefined}
       data-selected={selected || undefined}
-      // The selection is an outline outside the story's box, so selecting one never moves the page.
-      className={cn("relative flex min-w-0 flex-col gap-1.5", brief && "border-b border-line pb-2", selected && "outline-2 outline-offset-4 outline-accent")}
+      {...press}
+      // The selection is an outline outside the story's box, so selecting one never moves the page. The story is a row
+      // host for the menu button, and holds off the browser's own touch menu for the long press.
+      className={cn("row-host relative flex min-w-0 flex-col gap-1.5 [-webkit-touch-callout:none]", brief && "border-b border-line pb-2", selected && "outline-2 outline-offset-4 outline-accent")}
     >
       {picture ? (
         <ListImage
@@ -272,6 +283,10 @@ function Story({ slot: planned, item, heading: H, to, onOpen, phone, selected, t
           </>
         )}
       </p>
+      {/* Laid over the story's corner, so the menu never takes room on the page (a story keeps its place whatever it does). */}
+      <RowTabStop.Provider value={tabStop}>
+        <RowMenu item={item} actions={actions} ranges={false} revealOnHover className="row-touch-unseen absolute right-0 bottom-0 bg-bg/80" />
+      </RowTabStop.Provider>
     </article>
   );
 }
@@ -284,7 +299,7 @@ export const PHONE_BELOW = 600;
  * was opened. Until the planner has a front page (it waits for the lead window, or the end of the list) it says the
  * front page is being laid out; the list screen keeps loading meanwhile.
  */
-function GazetteList({ items, scope, more, width, selectedId, tabStopId, onOpen }: PageProps) {
+function GazetteList({ items, scope, more, width, selectedId, tabStopId, onOpen, actions }: PageProps) {
   const boot = useBootstrap();
   const { favorites } = useFavorites();
   const { paperName: name } = useDevicePrefs();
@@ -307,7 +322,7 @@ function GazetteList({ items, scope, more, width, selectedId, tabStopId, onOpen 
       </p>
     );
   }
-  return <Gazette plan={plan} items={byId} name={name} date={date} screen={screen} to={(c) => articleTo(c.id, scope)} onOpen={onOpen} selectedId={selectedId} focusedId={tabStopId} />;
+  return <Gazette plan={plan} items={byId} name={name} date={date} screen={screen} to={(c) => articleTo(c.id, scope)} onOpen={onOpen} actions={actions} selectedId={selectedId} focusedId={tabStopId} />;
 }
 
 /** In a search, which a paper cannot be planned from, the Gazette shows Editorial rows. */
