@@ -41,9 +41,41 @@ articles and saves a search. Statistics start empty, because the seed records no
 | settings | Feed health, each settings group |
 | setup | the sign-in screen |
 
+The surfaces, devices and sign-in live in `scripts/maintainers/lib/design-surfaces.mjs`, which both the captures and
+the measured checks below use. A surface added there is captured and measured.
+
 Not captured yet: the setup wizard (needs `KIPPLE_SEED_SET=fresh`), dialogs (add feed, edit feed, delete), toasts,
 offline, drag and drop, and the gestures themselves. The review covers those by driving them, or a later version of the
 script adds them.
+
+## Measured checks
+
+`design-probes.mjs` measures the same surfaces against the seeded instance and writes `findings.json`, `report.md`
+(findings grouped by root cause, each with a cropped capture, the hit outlined in magenta), filmstrips and vision strips
+under `frames/`, the accessibility tree and tab order of each screen under `aria/`, and the interface inventory sheets.
+
+```
+node ../scripts/maintainers/design-probes.mjs --out ../.design/probes                     # every check, about an hour
+node ../scripts/maintainers/design-probes.mjs --out ../.design/probes --checks targets,keyboard --only '^list-'
+```
+
+| Check | What it measures |
+|---|---|
+| `targets` | Controls under 24 px without the WCAG 2.5.8 spacing, under 44 px on a phone or tablet, neighbours under 8 px apart |
+| `contrast` | Text contrast (axe) and non-text contrast (icons in icon-only controls, unread dots, field boundaries, selected states) in every theme (`--contrast-themes`) |
+| `reflow` | Sideways scrolling and clipped text at 320x256 (400% zoom), 280 px and two landscape phones |
+| `spacing` | Text that newly clips, overlaps or scrolls sideways under the WCAG 1.4.12 override, the largest text size and 200% browser text |
+| `forced` | Icons, unread dots, boundaries and selected states under forced colors and `prefers-contrast: more` |
+| `vision` | Unread, selected states and errors told by color alone; a strip of the screen under each color-vision deficiency and in grayscale |
+| `throttle` | Layout shift and skeletons (flashes, a different shape from the result) on 4x CPU and a slow network, with a filmstrip |
+| `stuck` | Opens articles on a phone `--repeat` times and records any that stay on the loading skeleton, with the requests still waiting |
+| `keyboard` | Tabs through each screen: focus drawn (pixels change, and by how much), not hidden under a sticky bar, order following the layout |
+| `aria` | The accessibility tree: unnamed controls, repeated names, heading levels, reading order, and axe's other rules |
+| `stress` | Right-to-left, 100-character names, a long compound word and CJK put into names and titles: new overflow, clipping and overlap |
+| `inventory` | Every distinct button, field, menu item, badge and icon style, and every font size, spacing, radius, color and shadow value |
+
+A finding is a measurement, not a verdict: the review decides which are real problems and files one issue per root
+cause. Findings never fail the run; a surface a check could not reach is listed under `missed` and the run exits 1.
 
 ## Judging
 
