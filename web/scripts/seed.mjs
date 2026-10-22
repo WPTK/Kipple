@@ -16,9 +16,10 @@
 // The web app is built first when web/dist is missing or older than its sources (otherwise the server would serve
 // only its status page). KIPPLE_SEED_NO_BUILD=1 (or true, yes) skips that, for example right after a build.
 //
-// KIPPLE_SEED_FEEDS_URL=http://127.0.0.1:1994 imports the five feeds of scripts/fixture-feeds.mjs (start it first)
-// instead of the public ones, so no outside network is needed (CI uses this). A feed on loopback is fetched only when
-// it is allowed to be, so these are added through the API with private-network access on.
+// KIPPLE_SEED_SET=design seeds the design review's library (scripts/design-feeds.mjs): long and short titles, pictures
+// of every shape, hundreds of unread articles, nested and empty folders, a failing feed, starred, read and muted
+// articles and a saved search, all offline. It starts the fixture feed server on 127.0.0.1:1994 itself (or uses the
+// one at KIPPLE_SEED_FEEDS_URL). scripts/maintainers/design-shots.mjs captures the app from it.
 //
 // KIPPLE_SEED_FEEDS_URL=http://127.0.0.1:1994 imports the five feeds of scripts/fixture-feeds.mjs (start it first) instead
 // of the public ones, so no outside network is needed (CI uses this). Kipple only fetches loopback feeds that are
@@ -33,7 +34,8 @@ import { createWriteStream, existsSync, mkdirSync, readdirSync, rmSync, statSync
 import { homedir, tmpdir } from "node:os";
 import { join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FIXTURE_FEEDS } from "./fixture-feeds.mjs";
+import { DESIGN_EMPTY_FOLDERS, DESIGN_FEEDS, designFeedUrl } from "./design-feeds.mjs";
+import { FIXTURE_FEEDS, serve as serveFixtureFeeds } from "./fixture-feeds.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const dataDir = process.env.KIPPLE_DEV_DATA || join(tmpdir(), "kipple-dev");
@@ -82,6 +84,7 @@ const SITE_FEEDS = [
   ["Hacker News", "https://hnrss.org/frontpage"],
 ];
 const site = process.env.KIPPLE_SEED_SET === "site";
+const design = process.env.KIPPLE_SEED_SET === "design";
 const fixtureBase = process.env.KIPPLE_SEED_FEEDS_URL?.replace(/\/+$/, "");
 const SEED = fixtureBase ? { folder: "Dev seed", feeds: FIXTURE_FEEDS.map(([t, n]) => [t, `${fixtureBase}/feed/${n}.xml`]) } : site ? { folder: "Less noise", feeds: SITE_FEEDS } : { folder: "Dev seed", feeds: FEEDS };
 
@@ -180,6 +183,20 @@ process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
 server.on("exit", (code) => process.exit(code ?? 0));
 
+/**
+ * Where the design feeds are served: KIPPLE_SEED_FEEDS_URL, or a fixture feed server this script starts on 1994. When
+ * 1994 is taken it uses a free port instead, never the server already there, which may be an older build without the
+ * design feeds. The feeds keep that address, so a --keep run that gets another port shows them as failing.
+ */
+async function designFeedBase() {
+  if (fixtureBase) return fixtureBase;
+  const server = await serveFixtureFeeds(1994).catch((e) => {
+    if (e.code !== "EADDRINUSE") throw e;
+    return serveFixtureFeeds(0);
+  });
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
 async function waitReady() {
   for (let i = 0; i < 100; i++) {
     try {
@@ -193,8 +210,8 @@ async function waitReady() {
   throw new Error("server did not become ready");
 }
 
-// The fixture feeds are on loopback, which a feed may fetch only when it is allowed to, so they go in through the API.
-async function addFixtureFeeds() {
+/** Signs in as the seed's account; returns `post(path, body)` and `get(path)` for the API. */
+async function apiSession() {
   const origin = `http://${addr}`;
   const hdr = { "Content-Type": "application/json", "X-Kipple-Client": "web", Origin: origin };
   const login = await fetch(`${origin}/api/auth/login`, { method: "POST", headers: hdr, body: JSON.stringify({ username: env.KIPPLE_USERNAME, password: env.KIPPLE_PASSWORD }) });
@@ -205,9 +222,67 @@ async function addFixtureFeeds() {
     if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text()}`);
     return r.json();
   };
+  const get = async (path) => {
+    const r = await fetch(`${origin}${path}`, { headers: { Cookie: cookie, Accept: "application/json" } });
+    if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text()}`);
+    return r.json();
+  };
+  /** Imports an OPML document the way the app does (a multipart upload). */
+  const importOpml = async (xml) => {
+    const form = new FormData();
+    form.append("file", new Blob([xml], { type: "text/x-opml" }), "seed.opml");
+    const r = await fetch(`${origin}/api/opml`, { method: "POST", headers: { "X-Kipple-Client": "web", Origin: origin, Cookie: cookie }, body: form });
+    if (!r.ok) throw new Error(`/api/opml: ${r.status} ${await r.text()}`);
+  };
+  return { post, get, importOpml };
+}
+
+// The fixture feeds are on loopback, which a feed may fetch only when it is allowed to, so they go in through the API.
+async function addFixtureFeeds() {
+  const { post } = await apiSession();
   const folder = await post("/api/folders", { name: SEED.folder, parent_id: null });
   for (const [title, url] of SEED.feeds) await post("/api/feeds", { url, title, folder_id: folder.id, allow_private_net: true });
   await post("/api/refresh", {});
+}
+
+// The design review's library (design-feeds.mjs) in its folders, then some state: stars, reads, a mute filter and a
+// saved search, so the Starred, Muted and saved-search views are not empty.
+async function addDesignFeeds(base) {
+  const { post, get, importOpml } = await apiSession();
+  const folders = new Map();
+  const folderOf = async (path) => {
+    let parent = null;
+    for (let i = 0; i < path.length; i++) {
+      const key = path.slice(0, i + 1).join("/");
+      if (!folders.has(key)) folders.set(key, (await post("/api/folders", { name: path[i], parent_id: parent })).id);
+      parent = folders.get(key);
+    }
+    return parent;
+  };
+  for (const name of DESIGN_EMPTY_FOLDERS) await folderOf([name]);
+  const ids = {};
+  for (const f of DESIGN_FEEDS.filter((x) => !x.fails)) {
+    const added = await post("/api/feeds", { url: designFeedUrl(f, base), title: f.title, folder_id: await folderOf(f.folder), allow_private_net: true });
+    ids[f.slug] = added.feed.id;
+  }
+  const dead = DESIGN_FEEDS.filter((x) => x.fails).map((f) => `<outline type="rss" text="${f.title}" title="${f.title}" xmlUrl="${designFeedUrl(f, base)}"/>`);
+  await importOpml(`<?xml version="1.0"?><opml version="2.0"><head><title>design</title></head><body>${dead.join("")}</body></opml>`);
+  await post("/api/filters", {
+    name: "Sponsored", enabled: true, scope: "global", folder_id: null, feed_id: null, kind: "text", terms: ["Sponsored"], fields: ["title"],
+    case_sensitive: false, whole_word: true, fold_diacritics: true, invert: false, action: "mute",
+  });
+  await post("/api/saved-searches", { name: "Bridges", q: "bridges" });
+  await post("/api/refresh", {});
+  const items = async (slug) => (await get(`/api/items?view=all&feed=${ids[slug]}&limit=100`)).items ?? [];
+  let ledger = [];
+  for (let i = 0; i < 60 && ledger.length < 100; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    ledger = await items("ledger");
+  }
+  if (ledger.length === 0) throw new Error("the design feeds were not fetched within 30 s");
+  // Read the older half of the first page, so a list shows read and unread rows together; star a few of each.
+  await post("/api/items/mark-read", { ids: ledger.slice(50).map((it) => it.id), read: true, reason: "bulk" });
+  for (const it of [...ledger.slice(1, 4), ...ledger.slice(60, 62), ...(await items("essays")).slice(0, 2)]) await post(`/api/items/${it.id}/star`, { starred: true }).catch(() => {});
 }
 
 await waitReady();
@@ -215,7 +290,8 @@ if (fresh) {
   console.log(`\nKipple is running at http://${addr} in SETUP MODE (no account). Its log is ${join(dataDir, "server-stderr.log")}.`);
   console.log("Open the address and create the account. Ctrl-C stops the server.");
 } else {
-  if (fixtureBase) await addFixtureFeeds();
+  if (design) await addDesignFeeds(await designFeedBase());
+  else if (fixtureBase) await addFixtureFeeds();
   else {
     const imp = spawnSync(bin, ["import", opmlPath], { env, stdio: "inherit" });
     if (imp.status !== 0) console.error("import failed; feeds were not added");
