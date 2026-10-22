@@ -1283,7 +1283,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       return (
         <>
           <div ref={pageBoxRef} data-page-box="">
-            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} tabStopId={shown(focusId, allItems)} onOpen={openItem} />
+            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} tabStopId={shown(focusId, allItems)} onOpen={openItem} actions={menuActions} />
           </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
           {q.isFetchingNextPage ? (

@@ -61,7 +61,7 @@ describe("gazette story links", () => {
     const plan = planGazette({ articles: list, feeds: [], folders: [], favorites: [], scope: {}, screen: "wide", more: false });
     render(
       <MemoryRouter>
-        <Gazette plan={plan} items={new Map(list.map((c) => [c.id, c]))} name="The Gazette" date={new Date(2026, 9, 7, 9, 0)} screen="wide" to={(c) => `/item/${c.id}`} onOpen={vi.fn()} />
+        <Gazette plan={plan} items={new Map(list.map((c) => [c.id, c]))} name="The Gazette" date={new Date(2026, 9, 7, 9, 0)} screen="wide" to={(c) => `/item/${c.id}`} onOpen={vi.fn()} actions={actions} />
       </MemoryRouter>,
     );
     for (const c of list) {

@@ -480,6 +480,11 @@ a.sr-only-live:focus {
   .row-reveal[data-state="open"],
   .row-reveal:focus-visible { opacity: 1; }
 }
+/* A control for a mouse or pen. On touch it stays in the accessibility tree (a screen reader can still
+   activate it) and anchors the menu a long press opens, but is neither seen nor tapped. */
+@media (pointer: coarse) {
+  .row-touch-unseen { opacity: 0; pointer-events: none; }
+}
 .row-fine-only { display: none; }
 @media (hover: hover) and (pointer: fine) {
   .row-fine-only { display: inline-flex; }

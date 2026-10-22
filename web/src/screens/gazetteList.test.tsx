@@ -130,6 +130,31 @@ describe("Gazette on the list screen", () => {
     expect(screen.getByText("That's Morning Notes.")).toBeInTheDocument();
   });
 
+  it("a story's menu stars and marks it where it stands, and offers no mark above or below (#314)", async () => {
+    wide();
+    const stars: string[] = [];
+    routes(() => pageOf(few()), {
+      "PUT /api/items/1002/star": (_u, init) => {
+        stars.push(String(init?.body));
+        return json({ starred: true, restored: false });
+      },
+    });
+    const { container } = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const before = storyIds(container);
+    const user = userEvent.setup();
+    const story = container.querySelector<HTMLElement>('article[data-item-id="1002"]')!;
+    fireEvent.contextMenu(within(story).getByRole("link"), { button: 2 });
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).queryByRole("menuitem", { name: /above|below/ })).toBeNull();
+    await user.click(within(menu).getByRole("menuitem", { name: "Star" }));
+    await waitFor(() => expect(stars).toHaveLength(1));
+    await user.click(within(story).getByRole("button", { name: /More actions/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mark as read" }));
+    await waitFor(() => expect(story).toHaveAttribute("data-read"));
+    expect(storyIds(container)).toEqual(before);
+  });
+
   it("a search shows rows, not a paper", async () => {
     routes(() => pageOf(few()), { "GET /api/saved-searches": () => json({ saved_searches: [] }) });
     const { container } = go("/search?q=article");
