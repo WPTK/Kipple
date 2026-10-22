@@ -17,6 +17,7 @@
     "seed": "node scripts/seed.mjs",
     "uat": "node uat/run.mjs",
     "uat:feeds": "node uat/feeds.mjs",
+    "uat:feed-rows": "node uat/feed-rows.mjs",
     "uat:states": "node uat/states.mjs",
     "uat:all": "node uat/all.mjs",
     "uat:wizard": "node uat/wizard.mjs",

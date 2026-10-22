@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium } from "@playwright/test";
+import { startSelect } from "./common.mjs";
 
 const require = createRequire(import.meta.url);
 const setupError = (m) => {
@@ -195,7 +196,7 @@ async function run(browser, vp) {
     const gid = folderNamed(made.b, G, cid).id;
 
     // N2
-    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await startSelect(page);
     await page.getByRole("checkbox", { name: `Select ${feed.title}`, exact: true }).first().click();
     await page.getByRole("button", { name: "Move to folder" }).click();
     const mv = page.getByRole("dialog");

@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
-import { ChevronDown, ChevronRight, Folder as FolderIcon } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useBootstrap } from "@/api/queries";
 import type { Feed, Folder } from "@/api/types";
 import { updateDevicePrefs, useDevicePrefs, type UnreadBadge } from "@/lib/devicePrefs";
@@ -12,8 +12,9 @@ import { cn } from "@/lib/cn";
 import { RevealMore, useReveal, type Reveal } from "@/lib/reveal";
 import { FavStar } from "@/ui/FavStar";
 import { SavedSearchesNav } from "./SavedSearchesNav";
-import { FeedRowName, feedLabel } from "./feeds/FeedRowName";
-import { UnreadCount, unreadName } from "@/ui/UnreadCount";
+import { feedLabel } from "./feeds/FeedRowName";
+import { FeedLine, FolderLine } from "./feeds/RowLine";
+import { unreadName } from "@/ui/UnreadCount";
 
 export const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 
@@ -42,14 +43,6 @@ export function CollapseToggle({ folder, collapsed, listId, collapsedIds, tabInd
     >
       {collapsed ? <ChevronRight className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
     </button>
-  );
-}
-
-function FeedIcon({ feed }: { feed: Feed }) {
-  return feed.icon ? (
-    <img src={feed.icon} alt="" width={16} height={16} loading="lazy" className="size-4 shrink-0 rounded-sm" />
-  ) : (
-    <span className="size-4 shrink-0" aria-hidden="true" />
   );
 }
 
@@ -216,12 +209,7 @@ function FeedItem({ f, level, ctx, fav }: { f: Feed; level: number; ctx: TreeCtx
         className="group/row flex items-center rounded-lg focus-visible:outline-2 focus-visible:outline-accent"
       >
         <Link tabIndex={-1} to={openListTo({ feed: f.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 text-sm", !fav && "pl-3")}>
-          <FeedIcon feed={f} />
-          <span className="min-w-0">
-            <FeedRowName feed={f} />{" "}
-          </span>
-          <span className="ml-auto" />
-          <UnreadCount n={f.unread} />
+          <FeedLine feed={f} />
         </Link>
         <FavStar on={ctx.favs.has("feed", f.id)} name={feedLabel(f)} onToggle={() => ctx.favs.toggle("feed", f.id)} className={fav ? undefined : reveal} tabIndex={-1} />
       </div>
@@ -255,11 +243,7 @@ function FolderItem({ fo, level, ctx, fav }: { fo: Folder; level: number; ctx: T
       >
         {branch ? <CollapseToggle folder={fo} collapsed={collapsed} listId={groupId} collapsedIds={ctx.collapsedIds} tabIndex={-1} /> : null}
         <Link tabIndex={-1} to={openListTo({ folder: fo.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 pl-1 text-sm font-semibold")}>
-          {fav ? <FolderIcon aria-hidden="true" className="size-4 shrink-0 text-fg2" /> : null}
-          <span className="truncate">{name}{" "}</span>
-          <span className="ml-auto" />
-          {/* A collapsed folder still shows what is inside it. */}
-          <UnreadCount n={fo.unread} />
+          <FolderLine name={name} unread={fo.unread} icon={fav} />
         </Link>
         <FavStar on={ctx.favs.has("folder", fo.id)} name={folderPath(ctx.tree, fo.id)} onToggle={() => ctx.favs.toggle("folder", fo.id)} className={fav ? undefined : reveal} tabIndex={-1} />
       </div>

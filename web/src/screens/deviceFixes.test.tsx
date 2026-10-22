@@ -17,6 +17,12 @@ import { INFO_MS, ACTION_MS, clearToasts, toast, toastMs, Toasts } from "@/shell
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 import { clearListMemory, NewArticlesPill } from "./ListPane";
 
+/** Select mode starts from the Feed actions menu. */
+async function startSelect(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Select feeds" }));
+}
+
 class NoES {
   addEventListener() {}
   close() {}
@@ -557,7 +563,7 @@ describe("manage feeds", () => {
     await user.click(screen.getByRole("button", { name: "Done editing" }));
     expect(screen.queryByText("Alpha")).toBeNull();
     // Select all / shift-click range over every feed, so none may be hidden while selecting.
-    await user.click(screen.getByRole("button", { name: "Select" }));
+    await startSelect(user);
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByText("Alpha")).toBeNull();
@@ -627,15 +633,15 @@ describe("manage feeds", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^(Add|Remove) News (to|from) favorites$/ }));
     const fav = await screen.findByRole("region", { name: "Favorites" });
-    expect(within(fav).getByRole("link", { name: "Alpha" })).toBeInTheDocument();
+    expect(within(fav).getByRole("link", { name: /^Alpha/ })).toBeInTheDocument();
     await user.click(within(fav).getByRole("button", { name: "Collapse News" }));
-    expect(within(fav).queryByRole("link", { name: "Alpha" })).toBeNull();
+    expect(within(fav).queryByRole("link", { name: /^Alpha/ })).toBeNull();
     expect(devicePrefsStore.get().collapsedFolders).toEqual(["1"]);
     await user.click(within(fav).getByRole("button", { name: "Expand News" }));
-    expect(within(fav).getByRole("link", { name: "Alpha" })).toBeInTheDocument();
+    expect(within(fav).getByRole("link", { name: /^Alpha/ })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Edit" }));
     expect(within(await screen.findByRole("region", { name: "Favorites" })).queryByRole("button", { name: /^(Collapse|Expand) News$/ })).toBeNull();
-    expect(within(screen.getByRole("region", { name: "Favorites" })).queryByRole("link", { name: "Alpha" })).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Favorites" })).queryByRole("link", { name: /^Alpha/ })).toBeNull();
   });
 
   it("selects with checkboxes, shift-click ranges and whole folders, then bulk-moves in one reorder call", async () => {
@@ -643,11 +649,9 @@ describe("manage feeds", () => {
     go("/feeds");
     await screen.findByText("Alpha");
     const user = userEvent.setup();
-    // The toggle keeps its name below 400px, where its text is hidden (issue #47).
-    const toggle = screen.getByRole("button", { name: /Select/ });
-    expect(toggle).toHaveAttribute("aria-label", "Select");
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute("aria-label", "Done");
+    await startSelect(user);
+    // The button keeps its name below 400px, where its text is hidden (issue #47).
+    const toggle = screen.getByRole("button", { name: "Done" });
     expect(toggle).not.toHaveAttribute("aria-pressed"); // the name carries the state
     expect(screen.getByText("0 selected")).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "Select Bravo" }));
@@ -676,7 +680,7 @@ describe("manage feeds", () => {
     go("/feeds");
     await screen.findByText("Alpha");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Select/ }));
+    await startSelect(user);
     // Nothing to open or edit from here: no links, no Add feed, no menu.
     expect(screen.queryByRole("link", { name: /Alpha|Bravo|News/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add feed" })).toBeNull();
@@ -699,7 +703,7 @@ describe("manage feeds", () => {
     go("/feeds");
     await screen.findByText("Alpha");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Select/ }));
+    await startSelect(user);
     await user.click(screen.getByRole("checkbox", { name: "Select Alpha" }));
     await user.click(screen.getByRole("checkbox", { name: "Select Bravo" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
@@ -719,7 +723,7 @@ describe("manage feeds", () => {
     go("/feeds");
     await screen.findByText("Alpha");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Select/ }));
+    await startSelect(user);
     await user.click(screen.getByRole("button", { name: "Select all" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const dlg = await screen.findByRole("dialog", { name: "Delete 4 feeds?" });
