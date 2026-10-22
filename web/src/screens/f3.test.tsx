@@ -639,22 +639,24 @@ describe("Folders and OPML", () => {
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/reorder").map(body)).toEqual([{ folders: ["2", "1"] }]));
   });
 
-  it("the Manage feeds help says Click, not Tap, when the main pointer is a mouse", async () => {
+  it("the Select help says Click, not Tap, when the main pointer is a mouse", async () => {
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("pointer: fine"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
     mockFetch({ "GET /api/bootstrap": () => json(bootstrap) });
     go("/feeds");
-    expect(await screen.findByText(/Click the arrow beside a folder to collapse it.*Click Edit to reorder/)).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Select feeds" }));
+    expect(await screen.findByText(/Click feeds to select them/)).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 
-  it("Enter in the New folder name creates the folder, and the help text fits a touch screen", async () => {
+  it("Enter in the New folder name creates the folder", async () => {
     const { calls } = mockFetch({
       "GET /api/bootstrap": () => json(bootstrap),
       "POST /api/folders": () => json({ id: "3", name: "Fun", position: 2, is_default: false, unread: 0 }),
     });
     go("/feeds");
     const user = userEvent.setup();
-    expect(await screen.findByText(/Tap the arrow beside a folder to collapse it/)).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Feed actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "New folder" }));
     await user.type(await screen.findByLabelText("Name"), "Fun{Enter}");
@@ -662,7 +664,8 @@ describe("Folders and OPML", () => {
     // Esc on a dialog opened from the menu puts the focus back on the menu's button, not on the page.
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(screen.getByRole("button", { name: "Feed actions" })).toHaveFocus());
-    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Feed actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Select feeds" }));
     expect(screen.queryByText(/Shift-click/)).toBeNull();
   });
 

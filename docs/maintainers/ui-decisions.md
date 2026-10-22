@@ -456,3 +456,19 @@ The Stats summary tiles (previous-period figure) and a feed's Read rate (the cou
 - Tiles that are not buttons (Opens, Avg read, Quick bounce, Opened original, Stars) stay plain: the chevron is the one
   signal for "opens more", so it is not used on anything else in that grid.
 - Checked by `web/uat/stats-tiles.mjs`: the chevron holds 3:1 against the tile and against its selection tint in all 20 schemes; the tint shows on hover (a mouse) and while pressed (touch has no hover); tiles are 44 px (56 px with Large targets, also at the largest text size with a long value such as "12h 40m"), and 44 px on a 667x375 landscape phone. The Read rate card is the same height as its neighbours (56 px).
+
+## Feeds screen rows and header (2026-10-22)
+
+- **One row, two places.** The sidebar tree and the Feeds screen draw a feed or folder row with the same component
+  (`web/src/screens/feeds/RowLine.tsx`): icon, name, unread count. A count, the "Unread badge" setting (Count, Dot, Off)
+  and the 99+ cap are therefore the same on both, Favorites included. A feed or folder with nothing unread is dimmed
+  (`text-fg2`), so a missing badge is never ambiguous. Starred and Muted keep a plain count that the setting does not hide.
+  Rejected: patching the Favorites rows in place, which left two drawings of one row to drift apart again.
+- **A plain visit is the list.** No help sentence under the title; the sentences for Edit and for Select stay, where a
+  mode needs them. The header is Edit, Add feed and the Feed actions menu; Select feeds, Show only unread feeds, New
+  folder, OPML, move buttons and Feed health are in that menu. Muted, Starred and All articles stay listed at the top
+  (phone tabs decision above), and the star stays on every row (the Feeds screen is where favorites are made).
+- **Show only unread feeds** is a view of this screen for this visit, not a device setting. Edit and Select always show
+  every feed, because a reorder is saved against the whole tree.
+- **Mark all as read** is in each folder's menu (the folder and its subfolders, with the usual undo toast), shown only
+  when the folder has unread articles.

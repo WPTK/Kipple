@@ -13,7 +13,7 @@
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
-import { start } from "./common.mjs";
+import { start, startSelect } from "./common.mjs";
 
 const t = await start(import.meta.url, 13);
 const { check, step } = t;
@@ -52,7 +52,7 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("button", { name: "Create" }).click();
     const toast = page.getByTestId("toast-region").getByText("Folder created");
     await toast.waitFor({ timeout: 10000 });
-    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await startSelect(page);
     const bar = page.getByRole("region", { name: "Selected feeds" });
     await bar.waitFor({ timeout: 5000 });
     await page.waitForTimeout(400);

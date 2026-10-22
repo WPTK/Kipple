@@ -178,7 +178,8 @@ describe("Manage feeds", () => {
   it("does not rebuild its key list when a feed is ticked", async () => {
     go("/feeds", many);
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Select" }));
+    await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Select feeds" }));
     const boxes = screen.getAllByRole("checkbox");
     const before = walk.calls;
     await user.click(boxes[1]!);

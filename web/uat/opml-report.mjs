@@ -18,7 +18,7 @@
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { Buffer } from "node:buffer";
-import { deadFeed, start } from "./common.mjs";
+import { deadFeed, start, startSelect } from "./common.mjs";
 
 const t = await start(import.meta.url, 16);
 const { check, step } = t;
@@ -113,7 +113,7 @@ await t.eachViewport(async (page, vp) => {
 
   await step(`${tag} O4`, async () => {
     const main = page.getByRole("main");
-    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await startSelect(page);
     await t.shot(page, `${tag}-opml-report-select`);
     await main.getByRole("checkbox", { name: new RegExp(`^Select UAT feed ${n + 2}$`) }).check();
     await page.getByRole("button", { name: "Move to folder", exact: true }).click();

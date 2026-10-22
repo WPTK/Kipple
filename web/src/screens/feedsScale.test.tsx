@@ -11,6 +11,12 @@ import { REVEAL_STEP, useReveal } from "@/lib/reveal";
 import { bootstrap, json, mockFetch, pageOf } from "@/test/mockApi";
 import { wide } from "@/test/media";
 
+/** Select mode starts from the Feed actions menu. */
+async function startSelect(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Select feeds" }));
+}
+
 // The Feeds screen and the sidebar draw a long library a step at a time (issue #463), feeds that share a title show
 // their address (issue #484), and an empty default folder is not shown outside Edit (issue #469).
 
@@ -103,7 +109,7 @@ describe("a long library", () => {
     vi.stubGlobal("IntersectionObserver", HeldIO);
     go("/feeds", many);
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Select" }));
+    await startSelect(user);
     await user.click(screen.getByRole("button", { name: "Select all" }));
     expect(screen.getByText("700 selected")).toBeInTheDocument();
   });

@@ -45,6 +45,43 @@ Not captured yet: the setup wizard (needs `KIPPLE_SEED_SET=fresh`), dialogs (add
 offline, drag and drop, and the gestures themselves. The review covers those by driving them, or a later version of the
 script adds them.
 
+## Measured checks
+
+`scripts/maintainers/design-probes.mjs` loads the same surfaces (they live in `scripts/maintainers/lib/design-surfaces.mjs`,
+which both scripts import) and measures them against published thresholds instead of picturing them. Each probe is one
+condition:
+
+| Probe | What it measures |
+|---|---|
+| `base` | Every surface and device in Paper: targets under 24 px (44 px on a phone or tablet) and small targets under 8 px from a neighbour, non-text contrast (icons of icon-only controls, unread markers, control boundaries, selected states), clipped and overlapping text, sideways scrolling, every axe-core WCAG 2.2 AA rule, the accessibility tree (unnamed controls, repeated names, heading levels; the snapshots are saved for reading as copy), layout shift, and the interface inventory |
+| `themes` | Text contrast (axe) and non-text contrast on the busiest surfaces in all 20 themes |
+| `reflow` | 320x256 (400% zoom), 280 px, two landscape phones and a desktop at 200%: sideways scroll, cut-off content, clipping, overlap |
+| `spacing` | The WCAG 1.4.12 text-spacing override and the largest text size: only what is newly clipped or overlapping |
+| `reading` | Article line length, body size and leading at every text size on each device, and empty states that sit small at the top of a blank pane |
+| `forced` | Forced colors (icons, selected states, focus rings) and `prefers-contrast: more` |
+| `vision` | Every colour-vision deficiency Chromium emulates, grayscale, blur and low contrast, side by side; whether unread is told from read by colour alone in each layout |
+| `throttle` | A slow network and a 6x slower CPU: layout shift, skeletons that flash or differ from the rows that replace them, with frames |
+| `keyboard` | Tab through each screen: focus visible, ring contrast, focus hidden under a bar, order; a numbered tab-order overlay per screen |
+| `rtl` | Right-to-left: sideways scroll, clipping, overlap |
+| `long` | A 100-character feed name, a long compound and a CJK folder name (renames them, then restores them; run it alone) |
+| `stuck` | Opens articles again and again on a phone and times the loading skeleton |
+
+```
+cd web
+KIPPLE_SEED_SET=design npm run seed                                                  # terminal 1
+node ../scripts/maintainers/design-probes.mjs --out ../.design/probes                # terminal 2, all but long (about an hour)
+node ../scripts/maintainers/design-probes.mjs --out ../.design/probes --probes long
+node ../scripts/maintainers/design-probes.mjs --out ../.design/probes --report       # rebuild report.md
+```
+
+Probes can run in separate processes into one `--out`: each writes `hits-<probe>.json`, and `report.md` reads them all. The
+report has one row per rule and kind of element (a row component that fails on every row is one line, with its count),
+the measured value, where it happens and a cropped, framed picture of the first one. `findings.json` has every hit,
+`inventory/sheet-<kind>.png` the interface inventory (buttons, icon buttons, chips, badges, inputs, menu items and icons,
+grouped by height so near-duplicates sit together, plus the colours, type, spacing, radii and shadows painted),
+`vision/sheet.png` the deficiency comparison, `keyboard/` the tab-order overlays and `forced/` and `rtl/` pictures. A hit is
+a measurement, not yet a finding: the review reads it, groups hits by root cause and files the issue.
+
 ## Judging
 
 Each area is reviewed against the pictures and the code. A finding names the surface and device, shows the capture, says
@@ -95,3 +132,27 @@ Severity uses the issue priorities: **P1** a normal session hits it and it misle
 | 5 | Capture everything again and compare with phase 0 | Sign-off |
 
 The measured checks of phase 1 run on demand, like the captures. They are not a CI gate.
+
+## Sources
+
+The thresholds and the issues cite these. Each link was checked when it was added.
+
+- WCAG 2.2: https://www.w3.org/TR/WCAG22/ and the Understanding pages, for example
+  https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html (2.5.8),
+  https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html (1.4.11),
+  https://www.w3.org/WAI/WCAG22/Understanding/reflow.html (1.4.10),
+  https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html (1.4.12),
+  https://www.w3.org/WAI/WCAG22/Understanding/focus-not-obscured-minimum.html (2.4.11)
+- Apple Human Interface Guidelines: https://developer.apple.com/design/human-interface-guidelines/accessibility,
+  https://developer.apple.com/design/human-interface-guidelines/layout
+- Material 3: https://m3.material.io/foundations/layout/applying-layout (breakpoints),
+  https://m3.material.io/foundations/interaction/states/state-layers
+- Nielsen Norman Group: https://www.nngroup.com/articles/ten-usability-heuristics/,
+  https://www.nngroup.com/articles/skeleton-screens/, https://www.nngroup.com/articles/touch-target-size/,
+  https://www.nngroup.com/articles/f-shaped-pattern-reading-web-content/
+- Laws of UX: https://lawsofux.com/fittss-law/, https://lawsofux.com/hicks-law/, https://lawsofux.com/doherty-threshold/
+- Practical Typography: https://practicaltypography.com/line-length.html,
+  https://practicaltypography.com/line-spacing.html, https://practicaltypography.com/point-size.html
+- Layout shift: https://web.dev/articles/cls. Forced colors:
+  https://developer.mozilla.org/en-US/docs/Web/CSS/@media/forced-colors
+- Interface inventory: https://bradfrost.com/blog/post/interface-inventory/
