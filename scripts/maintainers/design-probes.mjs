@@ -856,7 +856,7 @@ const RUN = {
           window.__dpSkel = [];
           const sig = (n) => (n && n.nodeType === 1 ? `${n.tagName.toLowerCase()}${n.getAttribute("aria-label") ? `[${n.getAttribute("aria-label").slice(0, 30)}]` : ""}${n.dataset?.testid ? `#${n.dataset.testid}` : ""} "${(n.textContent || "").trim().slice(0, 40)}"` : "?");
           new PerformanceObserver((l) => {
-            for (const e of l.getEntries()) if (!e.hadRecentInput) window.__dpShifts.push({ t: Math.round(e.startTime), v: e.value, src: (e.sources || []).map((x) => ({ n: sig(x.node), from: x.previousRect && [x.previousRect.y, x.previousRect.height].map(Math.round), to: x.currentRect && [x.currentRect.y, x.currentRect.height].map(Math.round) })) });
+            for (const e of l.getEntries()) if (!e.hadRecentInput) window.__dpShifts.push({ t: Math.round(e.startTime), v: e.value, src: (e.sources || []).map((x) => ({ n: sig(x.node), from: x.previousRect && [x.previousRect.x, x.previousRect.y, x.previousRect.width, x.previousRect.height].map(Math.round), to: x.currentRect && [x.currentRect.x, x.currentRect.y, x.currentRect.width, x.currentRect.height].map(Math.round) })) });
           }).observe({ type: "layout-shift", buffered: true });
           let on = null;
           let last = null;
@@ -912,7 +912,7 @@ const RUN = {
             const cls = r.shifts.reduce((a, x) => a + x.v, 0);
             notes.push({ check: "throttle", surface: s.id, device, note: `CLS ${cls.toFixed(3)}, ${r.skel.length} skeleton spells`, file });
             if (cls >= 0.1)
-              findings.push({ check: "throttle", rule: "layout shift (CLS) at or over 0.1 on a slow device", surface: s.id, device, value: `CLS ${cls.toFixed(3)}; biggest: ${r.shifts.sort((a, b) => b.v - a.v).slice(0, 3).map((x) => `${x.v.toFixed(3)} at ${x.t} ms (${x.src.map((y) => y.n).join("; ").slice(0, 160)})`).join(" | ")}`, threshold: 0.1, crop: file, key: `throttle|cls|${s.id}` });
+              findings.push({ check: "throttle", rule: "layout shift (CLS) at or over 0.1 on a slow device", surface: s.id, device, value: `CLS ${cls.toFixed(3)}; biggest: ${r.shifts.sort((a, b) => b.v - a.v).slice(0, 3).map((x) => `${x.v.toFixed(3)} at ${x.t} ms (${x.src.map((y) => `${y.n.slice(0, 50)} x,y,w,h ${y.from} to ${y.to}`).join("; ")})`).join(" | ")}`, threshold: 0.1, crop: file, key: `throttle|cls|${s.id}` });
             for (const k of r.skel) {
               if (k.ms < 300) findings.push({ check: "throttle", rule: "skeleton flashes (shown under 300 ms)", surface: s.id, device, value: `${k.ms} ms, ${k.shapes?.[0]?.sig ?? ""}`, crop: file, key: `throttle|flash|${k.shapes?.[0]?.sig?.slice(0, 40)}` });
               const sk = k.shapes?.find((x) => x.sig.includes("list-skeleton"));
