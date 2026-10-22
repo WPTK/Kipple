@@ -1,0 +1,1 @@
+In the Gazette, an open article's Previous and Next now follow the order the page prints its stories (the lead, the front page, then the sections), on a phone as well as beside the list; they used to follow the newest-first order of the list. (#315)
