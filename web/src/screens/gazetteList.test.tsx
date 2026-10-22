@@ -253,30 +253,45 @@ describe("mark as read while scrolling in the Gazette", () => {
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       const all = [...document.querySelectorAll("article[data-item-id]")];
       const i = all.indexOf(this);
-      const scroll = document.querySelector<HTMLElement>('[data-testid="list-scroll"]')?.scrollTop ?? 0;
+      const list = document.querySelector<HTMLElement>('[data-testid="list-scroll"]');
+      const scroll = list?.scrollTop ?? 0;
+      // The pull-to-refresh offset moves the scrolled content, the stories with it.
+      const pull = Number(/translateY\(([-\d.]+)px\)/.exec((list?.firstElementChild as HTMLElement | null)?.style.transform ?? "")?.[1] ?? 0);
       // The pages' box is as tall as its stories.
       const pages = this instanceof HTMLElement && this.hasAttribute("data-page-box");
-      const top = i < 0 ? (pages ? -scroll : 0) : i * story - scroll + subpixel;
+      const top = i < 0 ? (pages ? -scroll : 0) : i * story - scroll + subpixel + pull;
       const bottom = i < 0 ? (pages ? top + all.length * story : 800) : top + story;
       return { x: 0, y: top, top, bottom, left: 0, right: 375, width: 375, height: bottom - top, toJSON() {} } as DOMRect;
     });
-    // A ResizeObserver the test can fire again, as a browser does whenever an observed box changes size.
+    // A ResizeObserver the test can fire again, as a browser does whenever an observed box changes size. Like a
+    // browser's, it reports the boxes it starts watching once, together, after the code that observed them has run.
     observers.clear();
     vi.stubGlobal(
       "ResizeObserver",
       class {
-        el: Element | null = null;
+        els = new Set<Element>();
+        due = false;
         constructor(public cb: ResizeObserverCallback) {}
         observe(el: Element) {
-          this.el = el;
+          this.els.add(el);
           observers.add(this);
-          this.fire();
+          if (this.due) return;
+          this.due = true;
+          queueMicrotask(() => {
+            this.due = false;
+            this.fire();
+          });
         }
         fire() {
-          if (this.el) this.cb([{ target: this.el, contentRect: this.el.getBoundingClientRect() } as ResizeObserverEntry], this as unknown as ResizeObserver);
+          if (!this.els.size) return;
+          const entry = (target: Element) => ({ target, get contentRect() { return target.getBoundingClientRect(); } }) as ResizeObserverEntry;
+          this.cb([...this.els].map(entry), this as unknown as ResizeObserver);
         }
-        unobserve() {}
+        unobserve(el: Element) {
+          this.els.delete(el);
+        }
         disconnect() {
+          this.els.clear();
           observers.delete(this);
         }
       },
@@ -441,6 +456,72 @@ describe("mark as read while scrolling in the Gazette", () => {
     await frame();
     await settle();
     expect(new Set(marked(calls).flatMap((m) => m.ids))).toEqual(new Set(order.slice(0, 4)));
+  });
+
+  it("a change while the reader scrolls, or holds the list, is kept still only once they stop", async () => {
+    routes(() => pageOf(many(1, 20)));
+    go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    resized();
+    const list = screen.getByTestId("list-scroll");
+    scrollTo(450);
+    await frame();
+    await settle();
+    // Mid-scroll, the stories halve: the list does not scroll itself under the reader's fling.
+    scrollTo(460);
+    await frame();
+    story = 50;
+    resized();
+    expect(list.scrollTop).toBe(460);
+    // Once they stop, it scrolls back so story 5, 40 px below the top at 460, is there again (it is at 250 px now).
+    await waitFor(() => expect(list.scrollTop).toBe(210));
+    // A finger resting on the list holds it too, until it lifts.
+    act(() => void list.dispatchEvent(new Event("pointerdown")));
+    story = 100;
+    resized();
+    await act(() => new Promise((r) => setTimeout(r, 300)));
+    expect(list.scrollTop).toBe(210);
+    act(() => void window.dispatchEvent(new Event("pointerup")));
+    await waitFor(() => expect(list.scrollTop).toBe(460));
+  });
+
+  it("a reader at the top stays at the top when the stories move", async () => {
+    routes(() => pageOf(many(1, 20)));
+    go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    resized();
+    story = 50;
+    resized();
+    await act(() => new Promise((r) => setTimeout(r, 300)));
+    expect(screen.getByTestId("list-scroll").scrollTop).toBe(0);
+  });
+
+  it("a pull to refresh let go is not taken for a move: the next scroll marks what it passes", async () => {
+    const { calls } = routes(() => pageOf(many(1, 20)));
+    const { container } = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const order = storyIds(container);
+    resized();
+    const list = screen.getByTestId("list-scroll");
+    const touch = (type: string, y: number) =>
+      act(() => {
+        const ev = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(ev, "touches", { value: type === "touchend" ? [] : [{ clientX: 100, clientY: y }] });
+        list.dispatchEvent(ev);
+      });
+    // A short pull, not far enough to refresh: the content is held 65 px down, and looked at there.
+    touch("touchstart", 100);
+    touch("touchmove", 110);
+    touch("touchmove", 230);
+    expect((list.firstElementChild as HTMLElement).style.transform).toBe("translateY(65px)");
+    resized();
+    touch("touchend", 230);
+    expect((list.firstElementChild as HTMLElement).style.transform).toBe("");
+    // The first story (0-100) was in view; a scroll of 150 px carries it above the top.
+    scrollTo(150);
+    await frame();
+    await settle();
+    expect(marked(calls).flatMap((m) => m.ids)).toEqual([order[0]]);
   });
 
   it("a reflow during a fling, looked at before the ResizeObserver reports, marks nothing it moved", async () => {

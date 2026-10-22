@@ -40,7 +40,7 @@ import { failureCopy, failureNoteFeeds, showsFailure } from "@/lib/feedStatus";
 import { FeedFailureNote } from "./FeedFailureNote";
 import { listPlace, rememberListTop } from "@/lib/listPlace";
 import { useItemsSource } from "./listSource";
-import { firstLook, keepStill, lookAgain, measurePage, type PageLook } from "./pageSeen";
+import { firstLook, keepStill, lookAgain, measurePage, readerScrolling, SCROLLING_MS, type PageLook, type ReaderInput } from "./pageSeen";
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
 export const SCROLL_RETRY_MS = 30_000;
@@ -530,31 +530,46 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   markOnScrollPageRef.current = markOnScrollPage;
   /** The last look at the stories; null before the first. */
   const pageLook = useRef<PageLook | null>(null);
+  /** How far the story at the top was moved while the reader was scrolling, to scroll once they stop (keepStill). */
+  const pageOwed = useRef(0);
+  /** The reader is scrolling the page: a scroll they made in the last SCROLLING_MS, or a finger or button down on it. */
+  const pageScrolling = useRef<ReaderInput>({ at: -Infinity, touch: false, pointer: false });
   /** Start again from what is on screen: nothing is passed, and the next look is judged against this one. */
   const lookFromHere = useCallback((el: HTMLElement) => {
     pagePassed.current.clear();
+    pageOwed.current = 0;
     pageLook.current = firstLook(measurePage(el));
   }, []);
   /** The scrolled content (the failing-feed note and the pages), which the pull-to-refresh offset moves. */
   const contentRef = useRef<HTMLDivElement | null>(null);
+  /** Where the list last scrolled itself to keep the story at the top still, so that scroll is not taken for the reader's. */
+  const keptAt = useRef<number | null>(null);
   /**
    * Look at the stories (after a scroll, or when the pages change size) and judge each against the last look. Both the
    * scroll's look and the ResizeObserver's look this way, so the order in which the browser reports them does not
-   * matter: a look in which the page changed but nothing scrolled passes nothing. In such a look the story at the top
-   * is kept still (keepStill), the way the browser's scroll anchoring would, except that this look knows the scroll it
-   * made and records it, so it is never taken for the reader's. Not while a pull to refresh holds the content down.
+   * matter: a story the page moved is never taken for one the reader scrolled past. The story at the top is kept still
+   * (keepStill), the way the browser's scroll anchoring would, except that this look knows the scroll it made and counts
+   * only the rest as the reader's. Not while a pull to refresh holds the content down, and not while the reader is
+   * scrolling: what is owed then is scrolled by the first look after they stop.
    */
   const lookAtStories = useCallback((el: HTMLElement) => {
     const was = pageLook.current;
     let m = measurePage(el);
     if (!was) return void (pageLook.current = firstLook(m));
     const passed = markOnScrollPageRef.current ? pagePassed.current : new Set<string>();
-    const by = contentRef.current?.style.transform ? 0 : keepStill(was, m);
-    if (by) {
-      el.scrollTop += by;
-      m = measurePage(el);
-      pageLook.current = lookAgain({ ...was, scrollTop: m.scrollTop }, m, passed);
-    } else pageLook.current = lookAgain(was, m, passed);
+    const by = contentRef.current?.style.transform ? 0 : keepStill(was, m, pageOwed.current);
+    if (Math.abs(by) < 1 || readerScrolling(pageScrolling.current)) {
+      pageOwed.current = by;
+      pageLook.current = lookAgain(was, m, passed);
+      return;
+    }
+    const before = m.scrollTop;
+    el.scrollTop = before + by;
+    // A scroll the browser clamped to where the list already was fires no scroll event to clear this.
+    keptAt.current = el.scrollTop === before ? null : el.scrollTop;
+    pageOwed.current = 0;
+    m = measurePage(el);
+    pageLook.current = lookAgain({ ...was, scrollTop: was.scrollTop + m.scrollTop - before }, m, passed);
   }, []);
   useLayoutEffect(() => {
     const el = parentRef.current;
@@ -590,6 +605,19 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     const el = parentRef.current;
     if (!Page || !el) return;
     let frame = 0;
+    let stopped: ReturnType<typeof setTimeout> | undefined;
+    const input = pageScrolling.current;
+    // Once the reader stops scrolling, a look scrolls what the looks while they scrolled owed.
+    const whenStopped = () => {
+      if (stopped) clearTimeout(stopped);
+      stopped = setTimeout(() => {
+        stopped = undefined;
+        // A finger or button still down: its release comes back here.
+        if (input.touch || input.pointer) return;
+        if (readerScrolling(input)) return void whenStopped();
+        if (pageOwed.current && pageRestored.current && el.isConnected) lookAtStories(el);
+      }, SCROLLING_MS);
+    };
     const onScroll = () => {
       if (restoreTarget.current !== null && el.scrollTop === restoreTarget.current) {
         restoreTarget.current = null;
@@ -597,23 +625,47 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       }
       restoreTarget.current = null;
       pageRestored.current = true;
+      if (keptAt.current !== null && el.scrollTop === keptAt.current) keptAt.current = null;
+      else {
+        keptAt.current = null;
+        input.at = performance.now();
+        whenStopped();
+      }
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
         lookAtStories(el);
       });
     };
+    const hold = (kind: "touch" | "pointer", down: boolean) => () => {
+      input[kind] = down;
+      if (!down) whenStopped();
+    };
+    const listeners: [EventTarget, string, () => void][] = [
+      [el, "touchstart", hold("touch", true)],
+      [el, "pointerdown", hold("pointer", true)],
+      [window, "touchend", hold("touch", false)],
+      [window, "touchcancel", hold("touch", false)],
+      [window, "pointerup", hold("pointer", false)],
+      [window, "pointercancel", hold("pointer", false)],
+    ];
     el.addEventListener("scroll", onScroll, { passive: true });
+    for (const [target, type, fn] of listeners) target.addEventListener(type, fn, { passive: true });
     return () => {
       if (frame) cancelAnimationFrame(frame);
+      if (stopped) clearTimeout(stopped);
       el.removeEventListener("scroll", onScroll);
+      for (const [target, type, fn] of listeners) target.removeEventListener(type, fn);
+      input.touch = input.pointer = false;
     };
   }, [Page, lookAtStories]);
   // A change in the size of the scrolled content with no scroll after it (a new plan, more pages, another width, a text
   // size change, a picture that failed, the failing-feed note coming or going, the page taking the place of rows) is
-  // looked at here too (lookAtStories), before it is painted. Not while a restore is pending: the stories at the top
-  // are only passing through.
-  useEffect(() => {
+  // looked at here too (lookAtStories), before it is painted. Each story is watched as well as the content: a story
+  // that changes height in a column shorter than the tallest moves the stories under it and leaves the content's size
+  // as it was. Not while a restore is pending: the stories at the top are only passing through.
+  const storyObserver = useRef<{ observer: ResizeObserver; watched: Set<Element> } | null>(null);
+  useLayoutEffect(() => {
     const box = contentRef.current;
     if (!Page || !box) return;
     const observer = new ResizeObserver(() => {
@@ -621,8 +673,22 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       if (el && pageRestored.current) lookAtStories(el);
     });
     observer.observe(box);
-    return () => observer.disconnect();
+    storyObserver.current = { observer, watched: new Set() };
+    return () => {
+      observer.disconnect();
+      storyObserver.current = null;
+    };
   }, [Page, lookAtStories]);
+  // The stories on the page change with every plan and every page that loads.
+  useLayoutEffect(() => {
+    const o = storyObserver.current;
+    const box = contentRef.current;
+    if (!o || !box) return;
+    const now = new Set(box.querySelectorAll("article[data-item-id]"));
+    for (const a of o.watched) if (!now.has(a)) o.observer.unobserve(a);
+    for (const a of now) if (!o.watched.has(a)) o.observer.observe(a);
+    o.watched = now;
+  });
 
   // Back to the remembered place after a reload: once its article is loaded, scroll it to the top. Pages are fetched
   // until it turns up (at most PLACE_SEARCH_MAX articles); a list without it any more starts at the top and forgets it.
@@ -1331,6 +1397,15 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const pullOffset = holding ? 56 : pull.distance;
   const pullLabel = holding || refreshing ? "Refreshing" : pull.armed ? "Release to refresh" : "Pull to refresh";
   const showPull = holding || pull.distance >= 16;
+  // The pull-to-refresh offset moves every story without anything scrolling: once it lets go, the next look starts from
+  // where the stories are now (what was passed stays passed), not from where the offset held them.
+  const pulled = pullOffset > 0 && !reduced;
+  useLayoutEffect(() => {
+    const el = parentRef.current;
+    if (pulled || !Page || !el || !pageLook.current || !pageRestored.current) return;
+    pageOwed.current = 0;
+    pageLook.current = firstLook(measurePage(el));
+  }, [pulled, Page]);
   // Known to have nothing (not merely still loading): a search with no results has nothing to save or mark.
   const empty = !src.pending && src.cards.length === 0;
   // Each feed is judged by the new articles waiting from it, the way the pill counts them (one rule with the feed's empty list).
@@ -1441,7 +1516,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
             ref={contentRef}
             className="pb-20"
             style={
-              pullOffset > 0 && !reduced
+              pulled
                 ? { transform: `translateY(${pullOffset}px)`, transition: pull.dragging ? "none" : "transform 200ms cubic-bezier(0.2, 0, 0, 1)" }
                 : undefined
             }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstLook, keepStill, lookAgain, type PageMeasure } from "./pageSeen";
+import { firstLook, keepStill, lookAgain, readerScrolling, SCROLLING_MS, type PageMeasure } from "./pageSeen";
 
 // The list is 300 px tall from y = 0. A page is its stories' boxes within the scrolled content, [id, top, height], in
 // any number of columns side by side (a box's column does not matter to the rule, only where it is). `scroll` is how
@@ -153,8 +153,47 @@ describe("keeping the story at the top still", () => {
     expect(keepStill(firstLook(measure(450, col)), measure(450, column(["a", "b", "c", "d", "e", "f", "g"], 50)))).toBe(-250);
   });
 
-  it("nothing to do when the stories did not move, or when the list scrolled", () => {
+  it("nothing to do when the stories did not move, however far the list scrolled", () => {
     expect(keepStill(firstLook(measure(150, col)), measure(150, col))).toBe(0);
-    expect(keepStill(firstLook(measure(150, col)), measure(160, column(["a", "b", "c", "d", "e", "f", "g"], 50)))).toBe(0);
+    expect(keepStill(firstLook(measure(150, col)), measure(160, col))).toBe(0);
+  });
+
+  it("a change and a scroll in the same frame: the change is kept still, the scroll is left alone", () => {
+    // The note (80 px) appears above the pages in the frame the reader scrolls 10 px.
+    expect(keepStill(firstLook(measure(150, col)), measure(160, column(["a", "b", "c", "d", "e", "f", "g"], 100, 80)))).toBe(80);
+  });
+
+  it("a reader at the top stays at the top, and sees what appears above the stories", () => {
+    const withNote = column(["a", "b", "c", "d", "e", "f", "g"], 100, 80);
+    expect(keepStill(firstLook(measure(0, col)), measure(0, withNote))).toBe(0);
+    expect(keepStill(firstLook(measure(0.5, col)), measure(0.5, withNote), 40)).toBe(0); // nothing owed is kept either
+  });
+
+  it("a story whose top is a rounding off the top is the one kept still", () => {
+    // At 100.5, "b" starts half a pixel above the top. It grows by 50, which moves "c" under it and not "b" itself.
+    const grown: Box[] = [["a", 0, 100], ["b", 100, 150], ...column(["c", "d", "e"], 100, 250)];
+    expect(keepStill(firstLook(measure(100.5, col)), measure(100.5, grown))).toBe(0);
+  });
+
+  it("the story kept still removed from the page: nothing is held, and what is owed stays owed", () => {
+    // At 150, "c" (200-300) is the first story whose top is in view. It is removed: "d" takes its place.
+    const removed = column(["a", "b", "d", "e", "f", "g"]);
+    expect(keepStill(firstLook(measure(150, col)), measure(150, removed))).toBe(0);
+    expect(keepStill(firstLook(measure(150, col)), measure(150, removed), 30)).toBe(30);
+  });
+
+  it("what an earlier look owed is added to what this one finds", () => {
+    expect(keepStill(firstLook(measure(150, col)), measure(150, col), 30)).toBe(30);
+    expect(keepStill(firstLook(measure(150, col)), measure(150, column(["a", "b", "c", "d", "e", "f", "g"], 100, 80)), 30)).toBe(110);
+  });
+});
+
+describe("the reader scrolling", () => {
+  it("is a scroll in the last moments, or a finger or a button down", () => {
+    const idle = { at: 0, touch: false, pointer: false };
+    expect(readerScrolling(idle, 100)).toBe(true);
+    expect(readerScrolling(idle, SCROLLING_MS)).toBe(false);
+    expect(readerScrolling({ ...idle, touch: true }, 10_000)).toBe(true);
+    expect(readerScrolling({ ...idle, pointer: true }, 10_000)).toBe(true);
   });
 });
