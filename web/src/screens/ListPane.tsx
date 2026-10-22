@@ -7,7 +7,7 @@ import { Link, useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
 import { ApiError, SESSION_EXPIRED, errorMessage } from "@/api/client";
 import { offlineStore } from "@/lib/offlineState";
-import { applyRead, changeError, flattenItems, keys, scopeKey, useBootstrap, useItems } from "@/api/queries";
+import { applyRead, changeError, keys, scopeKey, useBootstrap } from "@/api/queries";
 import { clearPending, liveStore, pendingFor } from "@/api/events";
 import { CANT_REFRESH_OFFLINE, useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, Feed, Scope } from "@/api/types";
@@ -39,6 +39,7 @@ import { visibleFeeds } from "@/lib/visibleFeeds";
 import { failureCopy, failureNoteFeeds, showsFailure } from "@/lib/feedStatus";
 import { FeedFailureNote } from "./FeedFailureNote";
 import { listPlace, rememberListTop } from "@/lib/listPlace";
+import { useItemsSource } from "./listSource";
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
 export const SCROLL_RETRY_MS = 30_000;
@@ -166,9 +167,6 @@ export function clearListMemory(): void {
   pageRestoredPlace = false;
 }
 
-/** Why mark above and below do nothing in a page layout (the Gazette). */
-const NO_RANGE_IN_PAGES = "Mark above and below are off in the Gazette: its pages are not in date order";
-
 /** How long a row marked read on purpose stays in the Unread list (the undo toast lasts far longer). */
 export const LEAVE_MS = 1500;
 
@@ -265,12 +263,14 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const boot = useBootstrap();
-  const q = useItems(scope);
   const prefs = useStore(prefsStore);
   const dp = useDevicePrefs();
   const { layout } = useResolvedLayout(scope);
   // A page layout (the Gazette) draws the whole loaded list itself: no virtualized rows, and no row ever leaves it.
   const Page = pageOf(layout, scope);
+  // Where the articles come from (listSource.ts): the server's list, a page at a time.
+  const src = useItemsSource(scope, !!Page);
+  const { startOver } = src;
   const pagedRef = useLatestRef(!!Page);
   // Only the pending-new slices: run progress and fetch ticks must not re-render every row.
   const pendingByFeed = useStoreSelector(liveStore, (s) => s.pendingByFeed);
@@ -286,9 +286,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => memory.get(key)?.hidden ?? new Set());
   // Rows that are collapsing (COLLAPSE_MS) before they leave the list.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(() => new Set());
-  const allItems = useMemo(() => flattenItems(q.data), [q.data]);
-  const loadedIdSet = useMemo(() => new Set(allItems.map((i) => i.id)), [allItems]);
-  const items = useMemo(() => (hidden.size ? allItems.filter((i) => !hidden.has(i.id)) : allItems), [allItems, hidden]);
+  const loadedIdSet = useMemo(() => new Set(src.cards.map((i) => i.id)), [src.cards]);
+  const items = useMemo(() => (hidden.size ? src.cards.filter((i) => !hidden.has(i.id)) : src.cards), [src.cards, hidden]);
   // Relevance order is not chronological: day headers would repeat and mean nothing. One header says what the order is
   // (and keeps the heading levels in sequence for screen readers, as the day headers do elsewhere).
   const rank = scope.order === "rank";
@@ -304,7 +303,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   );
   // A search that had no exact match shows partial matches, and the list's own flag goes back to the server when
   // the whole result is marked read, so it marks what was shown.
-  const fallback = !!scope.q && q.data?.pages[0]?.fallback === true;
+  const fallback = !!scope.q && src.fallback;
   const markScope = useMemo<Scope>(() => (scope.q ? { ...scope, fallback } : scope), [scope, fallback]);
   useSearchHighlight(scope.q, { fallback, typing: scope.typing });
   // An archived article's feed (the archive feed) is not one of these, so "Manage this feed" says it is gone.
@@ -313,7 +312,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
 
   // "Only items present when the list loaded": the highest id the list knew about.
   // The server's own `as_of` for the first page (ids follow arrival, not sort order, so the page maximum is wrong).
-  const currentAsOf = q.data?.pages[0]?.as_of;
+  const currentAsOf = src.asOf;
   const asOf = useLatestRef<string | undefined>(currentAsOf);
 
   const saved = memory.get(key);
@@ -401,10 +400,10 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       restoredAsOf.current = undefined;
       pageRestored.current = true;
       virtualizer.scrollToOffset(0);
-    } else if (!q.isFetching) {
+    } else if (!src.fetching) {
       restoredAsOf.current = undefined;
     }
-  }, [currentAsOf, virtualizer, q.isFetching]);
+  }, [currentAsOf, virtualizer, src.fetching]);
 
   // A different layout has different row heights: drop the sizes measured for the old one.
   // The same goes for a width that moves a row across a breakpoint or changes its image height: re-measure per
@@ -653,7 +652,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         return;
       }
       // Loaded but not laid out yet: the pages come in a later render.
-      if (allItems.some((i) => i.id === id)) return;
+      if (src.cards.some((i) => i.id === id)) return;
     } else {
       const i = rowIndexOf(id);
       if (i >= 0) {
@@ -663,8 +662,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         return;
       }
     }
-    if (q.isPending || q.isFetching) return;
-    if (q.hasNextPage && !q.isFetchNextPageError && allItems.length < PLACE_SEARCH_MAX) void q.fetchNextPage();
+    if (src.pending || src.fetching) return;
+    if (src.more && !src.loadMoreFailed && src.cards.length < PLACE_SEARCH_MAX) void src.loadMore();
     else {
       place.id = null;
       rememberListTop(key, null);
@@ -721,8 +720,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     // Not while the list itself is being refetched (an on-mount refetch of an invalidated list): fetchNextPage would
     // cancel it and append a page to the stale rows, leaving both the stale rows and a restored offset in place.
     const nearTail = Page ? nearEnd : rows.length > 0 && lastIndex >= rows.length - 10;
-    if (q.hasNextPage && !q.isFetching && !q.isFetchNextPageError && nearTail) void q.fetchNextPage();
-  }, [lastIndex, rows.length, q, Page, nearEnd]);
+    if (src.more && !src.fetching && !src.loadMoreFailed && nearTail) void src.loadMore();
+  }, [lastIndex, rows.length, src, Page, nearEnd]);
 
   // The selection is committed to memory before the route changes: on a phone the list unmounts in the
   // same render, before any effect would have saved it, and "back" must land on this row.
@@ -785,7 +784,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   }, [virtualItems, virtualizer, Page, key, rowsRef]);
   // A page layout has no virtual range: its stories are judged by their own boxes (pageSeen and pagePassed above),
   // so a story beside one still on screen, in another column, is judged alone.
-  const pageItemsRef = useLatestRef(allItems);
+  const pageItemsRef = useLatestRef(src.cards);
   const pagedScroll = !!Page;
   // A layout effect, so its cleanup on unmount (a phone opening a story) still finds the stories' boxes and marks
   // what was scrolled past in the last moments, as rows do.
@@ -855,7 +854,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       target.click();
       return;
     }
-    const order = Page ? pageOrder(parentRef.current, allItems) : items;
+    const order = Page ? pageOrder(parentRef.current, src.cards) : items;
     const at = order.findIndex((i) => i.id === row.dataset.itemId);
     const page = Math.max(1, Math.floor((parentRef.current?.clientHeight ?? 0) / Math.max(1, row.offsetHeight))) * cols;
     const last = order.length - 1;
@@ -894,7 +893,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   }, []);
 
   // Read at commit time by hide(), which runs from timers.
-  const allItemsRef = useLatestRef(allItems);
+  const allItemsRef = useLatestRef(src.cards);
   const selectionRef = useLatestRef({ selectedId, activeId });
 
   /** Take rows out of the list: collapse them, then remove; the still-visible rows stay put on screen. */
@@ -956,12 +955,12 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // stale (undone or marked unread while this list was not mounted), so they come back. Once per mount.
   const reconciled = useRef(false);
   useEffect(() => {
-    if (reconciled.current || allItems.length === 0) return;
+    if (reconciled.current || src.cards.length === 0) return;
     reconciled.current = true;
-    const stale = allItems.filter((i) => hidden.has(i.id) && !i.read && !readIntent.get().has(i.id)).map((i) => i.id);
+    const stale = src.cards.filter((i) => hidden.has(i.id) && !i.read && !readIntent.get().has(i.id)).map((i) => i.id);
     if (stale.length) unhide(stale);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allItems]);
+  }, [src.cards]);
 
   // A row that has focus and leaves the list (marked read in Unread, muted, whatever took it out) hands focus to the row
   // that takes its place, or the one before it at the end, instead of dropping it to the page, where the next Tab would
@@ -969,7 +968,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // the keyboard. A dialog opened from the row (Mute similar…) gives focus back to the row before it takes the row out
   // (FilterEditor's onClosed), so it lands here too. Focus anywhere else (the open article, the page) stays where it is.
   // Where focus is gets read while rendering, before this render's commit takes the row out of the page.
-  const shownIds = useMemo(() => (Page ? allItems : items).map((i) => i.id), [Page, allItems, items]);
+  const shownIds = useMemo(() => (Page ? src.cards : items).map((i) => i.id), [Page, src.cards, items]);
   const holder = focusOrigin(document.activeElement)?.closest<HTMLElement>("[data-item-id],[data-muted-for]");
   const held = holder && parentRef.current?.contains(holder) ? (holder.dataset.itemId ?? holder.dataset.mutedFor) : undefined;
   const shownBefore = useRef(shownIds);
@@ -1062,16 +1061,18 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     };
   }, [key]);
 
-  // Read through a ref so a cache patch (a mark-read) does not change `range`, and with it every row's menu actions.
-  const itemsRef = useLatestRef(items);
+  // Read through refs so a cache patch (a mark-read) does not change `range`, and with it every row's menu actions.
+  const srcRef = useLatestRef(src);
+  const hiddenRef = useLatestRef(hidden);
   const range = useCallback(
     (item: Card, side: "above" | "below") => {
       if (scope.view === "muted") return; // nothing to mark in the muted list: those articles are already read
       if (rank || scope.typing) return; // relevance order has no above or below, and a search being typed is not a set the server can mark
-      // A page layout's reading order is not date order (the lead can be older than stories printed on later pages),
-      // and the server marks a side by date: "above" would reach stories the reader has not seen.
-      if (pagedRef.current) return announce(NO_RANGE_IN_PAGES);
-      const list = itemsRef.current;
+      // The source says how far a side reaches, or why it reaches nothing (a page whose reading order is not date order).
+      const reach = srcRef.current.rangeOf(item);
+      if ("why" in reach) return announce(reach.why);
+      const gone = hiddenRef.current;
+      const list = gone.size ? reach.cards.filter((i) => !gone.has(i.id)) : reach.cards;
       const at = list.findIndex((i) => i.id === item.id);
       if (at < 0) return;
       const part = side === "above" ? list.slice(0, at) : list.slice(at + 1);
@@ -1079,7 +1080,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       const restore = unreadView && local.length ? hide(local) : undefined;
       void act.markSide({ scope: markScope, order: scope.order === "oldest" ? "oldest" : "date", side, anchor: item, maxId: asOf.current }, local, restore, unhide);
     },
-    [itemsRef, act, hide, unhide, scope, markScope, unreadView, rank],
+    [srcRef, hiddenRef, act, hide, unhide, scope, markScope, unreadView, rank],
   );
 
   const markAllRead = useCallback(() => {
@@ -1127,13 +1128,13 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // page: start the list over instead of leaving "Couldn't load more" that can never succeed. At most twice.
   const restarts = useRef(0);
   useEffect(() => {
-    if (!q.isFetchNextPageError) return;
-    const e = q.error;
+    if (!src.loadMoreFailed) return;
+    const e = src.error;
     if (!(e instanceof ApiError) || e.status !== 400 || e.code !== "bad_cursor" || restarts.current >= 2) return;
     restarts.current++;
     announce(scope.q ? "Search restarted" : "List restarted");
-    void qc.resetQueries({ queryKey: keys.items(scope) });
-  }, [q.isFetchNextPageError, q.error, scope, qc]);
+    void startOver();
+  }, [src.loadMoreFailed, src.error, scope, startOver]);
 
   const pull = usePullToRefresh(parentRef, { enabled: !scope.q, onRefresh: startRefresh });
   // Hold the spinner until the run has finished (or a second after the request settles with nothing running).
@@ -1167,7 +1168,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // ---- render ------------------------------------------------------------
 
   // Items the list already holds are not "new" to it, whatever fetched them (a later load, another route).
-  const loadedIds = useMemo(() => new Set(allItems.map((i) => i.id)), [allItems]);
+  const loadedIds = useMemo(() => new Set(src.cards.map((i) => i.id)), [src.cards]);
   const pendingNew = pendingFor(pendingByFeed, scope, boot.data?.feeds ?? [], boot.data?.folders ?? [], { ids: loadedIds, pendingIds });
   const loadNew = () => {
     // Only what this list showed is now loaded; other feeds' arrivals keep counting for other lists.
@@ -1183,7 +1184,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     setLeaving(new Set());
     // Other cached lists for the cleared feeds are now stale too; they refetch when next opened.
     void qc.invalidateQueries({ queryKey: keys.itemsAll, refetchType: "none" });
-    void qc.resetQueries({ queryKey: keys.items(scope) }).then(() => {
+    void startOver().then(() => {
       virtualizer.scrollToOffset(0);
       announce("List updated");
     });
@@ -1228,36 +1229,37 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     />
   );
 
-  const moreFailed = q.isFetchNextPageError ? (
+  const moreFailed = src.loadMoreFailed ? (
     <div role="alert" className="flex items-center justify-center gap-2 px-4 py-3 text-sm text-fg2">
       <span>Couldn&apos;t load more.</span>
-      <Button variant="ghost" onClick={() => void q.fetchNextPage()}>
+      <Button variant="ghost" onClick={() => void src.loadMore()}>
         Retry
       </Button>
     </div>
   ) : null;
   const body = (() => {
-    if (q.isPending) return <Skeleton />;
+    if (src.pending) return <Skeleton />;
     // Only a failed first load replaces the list; a failed later page keeps it (and the scroll position).
-    if (q.isError && !q.data) {
+    if (src.error != null && !src.hasData) {
+      const error = src.error;
       // A search the server calls too broad says so in its own words; asking again would not help.
-      const broad = tooBroadMessage(q.error);
+      const broad = tooBroadMessage(error);
       if (broad) return <StatusBlock role="status" title="That search is too broad" body={broad} />;
       // Only a failed connection is "couldn't reach the server"; any other answer (a 400, a 5xx) is the server's.
-      const unreachable = !(q.error instanceof ApiError) || q.error.status === 0;
-      const refused = q.error instanceof ApiError && q.error.status === 400;
+      const unreachable = !(error instanceof ApiError) || error.status === 0;
+      const refused = error instanceof ApiError && error.status === 400;
       return (
         <StatusBlock
           role="alert"
           title="Couldn't load articles"
-          body={unreachable ? "Kipple couldn't reach the server. Your place in the list is saved." : refused ? "Kipple no longer recognises this place in the list." : errorMessage(q.error)}
+          body={unreachable ? "Kipple couldn't reach the server. Your place in the list is saved." : refused ? "Kipple no longer recognises this place in the list." : errorMessage(error)}
         >
           {/* A refused request (400) repeats the same refusal: start the list from its first page instead. */}
-          {refused ? <Button onClick={() => void qc.resetQueries({ queryKey: keys.items(scope) })}>Start over</Button> : <Button onClick={() => void q.refetch()}>Try again</Button>}
+          {refused ? <Button onClick={() => void startOver()}>Start over</Button> : <Button onClick={src.retry}>Try again</Button>}
         </StatusBlock>
       );
     }
-    if ((Page ? allItems.length : rows.length) === 0) {
+    if ((Page ? src.cards.length : rows.length) === 0) {
       if (boot.data && visibleFeeds(boot.data.feeds).length === 0 && !scope.q) {
         return (
           <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
@@ -1283,10 +1285,10 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       return (
         <>
           <div ref={pageBoxRef} data-page-box="">
-            <Page items={allItems} scope={scope} more={!!q.hasNextPage} width={width} selectedId={selected} tabStopId={shown(focusId, allItems)} onOpen={openItem} actions={menuActions} />
+            <Page items={src.cards} scope={scope} more={src.more} width={width} selectedId={selected} tabStopId={shown(focusId, src.cards)} onOpen={openItem} actions={menuActions} />
           </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
-          {q.isFetchingNextPage ? (
+          {src.loadingMore ? (
             <p className="py-3 text-center text-sm text-fg2" role="status">
               Loading more
             </p>
@@ -1326,7 +1328,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
             </div>
           );
         })}
-        {q.isFetchingNextPage ? (
+        {src.loadingMore ? (
           <p className="absolute bottom-0 w-full py-3 text-center text-sm text-fg2" role="status">
             Loading more
           </p>
@@ -1342,11 +1344,11 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const pullLabel = holding || refreshing ? "Refreshing" : pull.armed ? "Release to refresh" : "Pull to refresh";
   const showPull = holding || pull.distance >= 16;
   // Known to have nothing (not merely still loading): a search with no results has nothing to save or mark.
-  const empty = !q.isPending && allItems.length === 0;
+  const empty = !src.pending && src.cards.length === 0;
   // Each feed is judged by the new articles waiting from it, the way the pill counts them (one rule with the feed's empty list).
   const feeds = boot.data?.feeds;
   const folders = boot.data?.folders;
-  const loaded = !q.isPending && !(q.isError && !q.data);
+  const loaded = !src.pending && !(src.error != null && !src.hasData);
   const { view, feed: scopeFeed, folder: scopeFolder, q: scopeQ, order: scopeOrder, length: scopeLength } = scope;
   const noteFeeds = useMemo(() => {
     const noteScope: Scope = { view, feed: scopeFeed, folder: scopeFolder, q: scopeQ, order: scopeOrder, length: scopeLength };
@@ -1437,7 +1439,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         <div
           ref={parentRef}
           data-testid="list-scroll"
-          aria-busy={q.isPending || q.isFetchingNextPage}
+          aria-busy={src.pending || src.loadingMore}
           className="@container h-full overflow-y-auto overscroll-y-contain"
           tabIndex={-1}
           onKeyDownCapture={onRowKey}
