@@ -137,7 +137,7 @@ await t.eachViewport(async (page, vp) => {
         const row = page.locator(`[data-item-id="${other.id}"]`).first();
         await row.waitFor({ timeout: 15000 });
         await row.getByRole("button", { name: "More actions" }).click();
-        await page.getByRole("menuitem", { name: "Mark as read" }).click();
+        await page.getByRole("menuitem", { name: "Mark as read" }).click(); // uat-labels: ignore (a menu item's text, not an aria-label)
         const undo = page.getByRole("button", { name: "Undo" }).first();
         await undo.waitFor({ timeout: 10000 });
         const word = (other.title.match(/\p{L}{5,}/u) ?? [""])[0];

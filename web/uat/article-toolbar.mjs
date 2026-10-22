@@ -7,7 +7,7 @@
 // For each width (desktop 1280x800, phone 375x812) it opens an article from the list and checks:
 //   T1  the feed name in the byline opens that feed's list (not the site) and the list is that feed's;
 //   T2  the toolbar has Share as a button and More actions as its last button, after the reading menu;
-//   T3  More actions holds Mark as read or unread (not in the toolbar), and it toggles the article's state;
+//   T3  More actions holds Mark as read or unread (not in the toolbar), and it toggles the article's state; // uat-labels: ignore (a menu item's text, not an aria-label)
 //   T4  More actions no longer holds Share.
 // It marks the article it toggled back afterwards. It only runs against a loopback address with the seed's credentials
 // unless --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
@@ -40,7 +40,7 @@ await t.eachViewport(async (page, vp) => {
     await bar.getByRole("button", { name: "More actions" }).click();
     const items = (await page.getByRole("menu").getByRole("menuitem").allInnerTexts()).map((s) => s.trim());
     check(items[0]?.startsWith("Mark as") && !items.includes("Share"), `${tag} T3 menu`, "More starts with the read toggle and has no Share", `menu: ${items.join(", ")}`);
-    const wantRead = (await page.getByRole("menuitem", { name: /^Mark as (un)?read$/ }).innerText()).trim() === "Mark as read";
+    const wantRead = (await page.getByRole("menuitem", { name: /^Mark as (un)?read$/ }).innerText()).trim() === "Mark as read"; // uat-labels: ignore (a menu item's text, not an aria-label)
     await page.getByRole("menuitem", { name: /^Mark as (un)?read$/ }).click();
     await page.waitForTimeout(600);
     const after = await itemState();
