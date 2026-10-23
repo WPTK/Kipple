@@ -361,7 +361,7 @@ a.sr-only-live:focus {
 .article-body a { color: var(--kp-link); text-decoration: underline; text-underline-offset: 0.15em; }
 .article-body img, .article-body video, .article-body svg { max-width: 100%; height: auto; border-radius: 0.5rem; }
 /* A picture never grows taller than most of a screen: a tall one keeps its shape, narrower, centred, instead of
-   pushing the text away. Pictures and video only; the embed poster keeps its 16:9 frame below. */
+   pushing the text away. Pictures and video only; the embed poster is a 16:9 frame and is not capped (below). */
 .article-body img, .article-body video { max-height: min(70dvh, 40rem); object-fit: contain; }
 /* The base style makes every img a block, which would cut a line of text around an icon in two: pictures flow with the
    text unless they stand alone (below). */
@@ -577,7 +577,7 @@ a.sr-only-live:focus {
   background: var(--kp-surface);
   border: 1px solid var(--kp-border);
 }
-.article-body figure.kp-embed > img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 0; }
+.article-body figure.kp-embed > img { display: block; width: 100%; max-height: none; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 0; }
 .article-body figure.kp-embed:not(:has(> img)):not([data-loaded="1"]) { padding-block: 0.75rem; text-align: center; }
 .article-body figure.kp-embed > a { display: block; padding: 0.5rem 0.75rem; font-size: 0.875em; }
 .article-body .kp-embed-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }

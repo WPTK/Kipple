@@ -138,6 +138,12 @@ describe("enhanceImages", () => {
     expect(kinds('<p>Text <picture><source><img src="a.png"></picture> more</p>')).toEqual([""]);
     expect(kinds('<p><span><a href="/x"><img src="a.png"></a></span></p>')).toEqual(["block"]);
   });
+  it("ends the line at a definition, a summary, a caption and an svg", () => {
+    expect(kinds('<dl><dt>x</dt><dd><img src="a.png"></dd></dl>')).toEqual(["block"]);
+    expect(kinds('<details><summary>More</summary><img src="a.png"></details>')).toEqual(["block"]);
+    expect(kinds('<details><summary><img src="a.png"></summary>Text</details>')).toEqual(["block"]);
+    expect(kinds('<p><img src="a.png"><svg></svg></p>')).toEqual([""]);
+  });
   it("leaves a picture in a table cell to the cell's own alignment", () => {
     expect(kinds('<table><tr><td align="left"><img src="a.png"></td><td>Name</td></tr></table>')).toEqual([""]);
   });

@@ -1,5 +1,5 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileCheck, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
 import { ApiError } from "@/api/client";
@@ -244,8 +244,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   });
 
   // Embed placeholders get a real Play button once the HTML is in the DOM.
+  // A layout effect, so a picture that stands alone is centred before the first paint, not after it.
   const bodyRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!bodyRef.current) return;
     enhanceEmbeds(bodyRef.current);
     enhanceTables(bodyRef.current);

@@ -9,7 +9,7 @@
 // opens them and checks what the browser computes:
 //   R1  bullet lists show discs (circles when nested) and numbered lists decimals (the base style reset clears them);
 //   R2  the title is 1.75 rem, the body headings step down from it (h2 1.2 em) and all are weight 650;
-//   R3  a tall picture on its own line, bare or in a div, a figure or a link, is capped at min(70% of the window,
+//   R3  (the embed poster keeps 16:9 in landscape) a tall picture on its own line, bare or in a div, a figure or a link, is capped at min(70% of the window,
 //       40 rem), is drawn contained and centred; an icon in a line of text and a row of icons keep their own size and
 //       are not centred; a picture keeps the width attribute it was given (12 px on a 24 px file), and a capped one is as narrow
 //       as its drawn shape;
@@ -67,7 +67,7 @@ function png(w, h, [r, g, b]) {
   const raw = Buffer.concat(Array.from({ length: h }, () => row));
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", head), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
 }
-const IMAGES = { "/img/icon.png": png(24, 24, [200, 60, 60]), "/img/tall.png": png(400, 1000, [60, 120, 200]) };
+const IMAGES = { "/img/icon.png": png(24, 24, [200, 60, 60]), "/img/wide.png": png(400, 200, [60, 160, 90]), "/img/tall.png": png(400, 1000, [60, 120, 200]) };
 
 let base = "";
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -91,6 +91,7 @@ const essayHtml = () =>
     `<div>${tall()}</div>`,
     `<figure>${tall()}<figcaption>A tall picture</figcaption></figure>`,
     `<p><a href="https://example.com/">${tall()}</a></p>`,
+    `<p><img src="${base}/img/wide.png" width="200" height="100" alt=""></p>`,
     "<p>The last paragraph.</p>",
   ].join("");
 const server = createServer((req, res) => {
@@ -167,16 +168,40 @@ try {
         };
         const icons = [...el.querySelectorAll("img[width=\"24\"]")].map(box);
         const talls = [...el.querySelectorAll("img[width=\"400\"]")].map((i) => ({ ...box(i), nw: i.naturalWidth, nh: i.naturalHeight, fit: getComputedStyle(i).objectFit, where: i.parentElement.tagName.toLowerCase() }));
-        return { icons, talls, vh: window.innerHeight, rem: parseFloat(getComputedStyle(document.documentElement).fontSize), small: [...el.querySelectorAll("img[width=\"12\"]")].map(box) };
+        return { icons, talls, vh: window.innerHeight, rem: parseFloat(getComputedStyle(document.documentElement).fontSize), small: [...el.querySelectorAll("img[width=\"12\"]")].map(box), alone: [...el.querySelectorAll("img[width=\"200\"]")].map(box) };
       });
       const cap = Math.min(0.7 * pics.vh, 40 * pics.rem);
       check(pics.icons.length === 4 && pics.icons.every((i) => i.w === 24 && i.h === 24 && Math.abs(i.mid) > 10), `${tag} R3 icons`, "an icon in text and a row of icons keep the 24 px they were given and are not centred", JSON.stringify(pics.icons));
       check(pics.talls.length === 4, `${tag} R3 found`, "all four tall pictures are in the article", `${pics.talls.length} found`);
       check(pics.small.length === 1 && pics.small[0].w === 12 && pics.small[0].h === 12 && pics.small[0].display === "inline", `${tag} R3 width attribute`, "a picture keeps the width it was given (12 px on a 24 px file)", JSON.stringify(pics.small));
+      check(pics.alone.length === 1 && pics.alone[0].w === 200 && pics.alone[0].h === 100 && pics.alone[0].display === "block", `${tag} R3 width attribute alone`, "a picture alone on its line keeps the width it was given (200 px on a 400 px file)", JSON.stringify(pics.alone));
       for (const [n, p] of pics.talls.entries()) {
         check(p.h <= cap + 1 && p.w <= p.nw && p.fit === "contain", `${tag} R3 cap ${n + 1} ${p.where}`, `a tall picture in a ${p.where} is capped (${p.h} <= ${cap}) and drawn contained (its shape kept)`, JSON.stringify(p));
         check(Math.abs(p.w - cap * (400 / 1000)) <= 2, `${tag} R3 box ${n + 1} ${p.where}`, `a capped picture in a ${p.where} is as wide as its drawn shape (${Math.round(cap * 0.4)}), not the 400 it was given`, JSON.stringify(p));
         check(p.display === "block" && Math.abs(p.mid) <= 2, `${tag} R3 centred ${n + 1} ${p.where}`, `a tall picture in a ${p.where} is centred`, JSON.stringify(p));
+      }
+
+      // The embed poster is a 16:9 frame, not a picture to cap: in a phone held sideways (844 x 390) the height cap would crop it.
+      if (tag === "phone") {
+        await page.setViewportSize({ width: 844, height: 390 });
+        await page.waitForTimeout(300);
+        // The server builds the poster from a thumbnail it fetches from the video site, so the flow builds the same markup.
+        const poster = await body.evaluate(async (el) => {
+          const fig = document.createElement("figure");
+          fig.className = "kp-embed";
+          const i = document.createElement("img");
+          i.alt = "";
+          fig.append(i);
+          el.append(fig);
+          i.src = el.querySelector("img[width=\"200\"]").src; // a picture the page already loads (its policy allows only those)
+          await i.decode();
+          const r = i.getBoundingClientRect();
+          fig.remove();
+          return { w: Math.round(r.width), h: Math.round(r.height) };
+        });
+        check(Math.abs(poster.h - (poster.w * 9) / 16) <= 1, `${tag} R3 poster`, "in landscape the embed poster keeps its 16:9 frame (not cropped by the picture cap)", JSON.stringify(poster));
+        await page.setViewportSize({ width: vp.width, height: vp.height });
+        await page.waitForTimeout(300);
       }
 
       // R4: code and tables.

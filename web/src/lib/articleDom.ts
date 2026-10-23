@@ -301,7 +301,7 @@ export function watchScrollRegions(root: HTMLElement): () => void {
   return () => ro.disconnect();
 }
 
-const LINE_BREAKERS = new Set(["ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BR", "DETAILS", "DIV", "DL", "FIGCAPTION", "FIGURE", "FOOTER", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION", "TABLE", "UL"]);
+const LINE_BREAKERS = new Set(["ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BR", "CAPTION", "DD", "DETAILS", "DIV", "DL", "DT", "FIGCAPTION", "FIGURE", "FOOTER", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION", "SUMMARY", "TABLE", "UL"]);
 
 const NOT_ALONE_MEDIA = new Set(["IMG", "VIDEO", "SVG", "PICTURE", "IFRAME"]);
 
@@ -313,8 +313,8 @@ function noneBeside(node: Node): boolean {
         if ((n.textContent ?? "").trim() !== "") return false;
       } else if (n.nodeType === Node.ELEMENT_NODE) {
         const el = n as Element;
-        if (LINE_BREAKERS.has(el.tagName)) break;
-        if (NOT_ALONE_MEDIA.has(el.tagName) || (el.textContent ?? "").trim() !== "" || el.querySelector("img, video, svg")) return false;
+        if (LINE_BREAKERS.has(el.tagName.toUpperCase())) break;
+        if (NOT_ALONE_MEDIA.has(el.tagName.toUpperCase()) || (el.textContent ?? "").trim() !== "" || el.querySelector("img, video, svg")) return false;
       }
     }
   }
@@ -328,7 +328,7 @@ function noneBeside(node: Node): boolean {
 function aloneOnItsLine(img: Element): boolean {
   for (let node: Element | null = img; node; node = node.parentElement) {
     if (!noneBeside(node)) return false;
-    if (node.parentElement && LINE_BREAKERS.has(node.parentElement.tagName)) return true;
+    if (node.parentElement && LINE_BREAKERS.has(node.parentElement.tagName.toUpperCase())) return true;
   }
   return true;
 }
