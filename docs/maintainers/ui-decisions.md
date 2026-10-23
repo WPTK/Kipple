@@ -472,3 +472,39 @@ The Stats summary tiles (previous-period figure) and a feed's Read rate (the cou
   every feed, because a reorder is saved against the whole tree.
 - **Mark all as read** is in each folder's menu (the folder and its subfolders, with the usual undo toast), shown only
   when the folder has unread articles.
+
+## Vocabulary (design review 1.5, 2026-10-22)
+
+One name for each thing, in every screen, tooltip, label, help text and document. A change to a name is made here first.
+The area packages (the sidebar and tab bar, Settings, Stats, setup, feed management) apply it; none of them coins a new
+word for something listed.
+
+- **Destinations** (the sidebar and the tab bar; `web/src/lib/destinations.ts` is the one list):
+  Unread, All articles, Starred, Muted (the four lists of the whole library), Search, Feeds, Stats, Settings.
+  The tab bar's first tab is "Articles" because it holds the four lists as pills; it is not a fifth list.
+- **Feeds** is the one word for the place that manages feeds. "Manage feeds", "Feed list" and "Subscriptions" are not
+  used. Feed health is a screen of Feeds and Feeds is the current destination while it is open.
+- **Your year** is the name of the yearly summary wherever a reader sees it (link, screen title, share text).
+  "Wrapped" is the internal name (code, route, settings keys) and never appears in the interface. Your year belongs to
+  Stats and Stats is the current destination while it is open.
+- **Uncategorized** is the folder a feed is in when it is in no other folder. It is the same in the sidebar, the Feeds
+  screen, the editors and the delete messages.
+- **Muted** is hidden from the header pills while nothing is muted (a pill that comes and goes would only shift the
+  others), and always present in the sidebar and under Feeds.
+- **Reading appearance** is the Aa control (theme, font, text size), in the article toolbar, the list header and
+  Settings. **Reading time** is an estimate of minutes for an article and the filter built on it; the two words are
+  never swapped.
+- **This device** and **All devices** are the only scope words in Settings and in help text. "Everywhere", "locally"
+  and "on the server" do not say where a setting applies.
+- **Articles**, not "items" or "entries", in every sentence a reader sees. **Read** and **unread** are the states;
+  "opened" is a statistic, not a state.
+- **Pause** is what a feed's off switch does ("Pause this feed"); a feed is never "disabled" or "muted".
+- Wording for people who do not run servers: no file names, environment variables or protocol names in a screen's own
+  text. Those belong in the documentation and behind "Copy debug info".
+
+### The current destination
+
+Exactly one destination is current at a time, and the sidebar, the tab bar and the header pills agree because they
+read one function (`currentDestination(pathname, search)`): a list scoped to a feed or a folder belongs to Feeds,
+not to Unread; Feed health belongs to Feeds; Your year belongs to Stats. Other screens (an article, setup) have no
+current destination.
