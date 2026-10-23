@@ -53,6 +53,7 @@
     "uat:signed-out-launch": "node uat/signed-out-launch.mjs",
     "uat:gazette-menu": "node uat/gazette-menu.mjs",
     "uat:gazette-order": "node uat/gazette-order.mjs",
+    "uat:gazette-place": "node uat/gazette-place.mjs",
     "uat:article-toolbar": "node uat/article-toolbar.mjs",
     "uat:group-by": "node uat/group-by.mjs"
   },
