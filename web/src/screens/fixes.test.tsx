@@ -101,7 +101,7 @@ describe("row collapse in the Unread view", () => {
     // window when the machine is loaded (both timers fire in one starved slice), so the clock is faked from here
     // and stepped by hand: 50 ms steps can never skip over the 180 ms leaving state. The menu is opened first, on real timers.
     await userEvent.setup().click(screen.getByRole("button", { name: "List actions" }));
-    const markAll = await screen.findByRole("menuitem", { name: /Mark (all|everything)/ });
+    const markAll = await screen.findByRole("menuitem", { name: /^Mark (all \d+|everything unread) as read$/ });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       const step = async (ms: number) => {
@@ -116,7 +116,7 @@ describe("row collapse in the Unread view", () => {
         fireEvent.click(markAll);
       });
       await act(async () => {
-        fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Mark (all|everything)/ }));
+        fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Mark (all \d+|everything unread) as read$/ }));
       });
       let waited = 0;
       while (!leaving() && waited < 5000) {

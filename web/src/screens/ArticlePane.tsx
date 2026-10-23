@@ -365,10 +365,14 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
             <p className="text-sm text-fg2">
               {/* Only an unread article says so, in plain text, not a pill: a "Read" word beside the toolbar's read toggle
                   looked like a second button, and a read article is the ordinary case that needs no mark. */}
-              <span data-testid="read-state" className="font-semibold text-fg">
-                {a.read ? null : "Unread"}
-              </span>
-              {a.read ? null : <span aria-hidden="true">{" · "}</span>}
+              {a.read ? null : (
+                <>
+                  <span data-testid="read-state" className="font-semibold text-fg">
+                    Unread
+                  </span>
+                  <span aria-hidden="true">{" · "}</span>
+                </>
+              )}
               <Link to={openListTo({ feed: a.feed_id })} className="hit-pad hover:underline">
                 {a.source || a.feed.title}
               </Link>

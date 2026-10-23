@@ -11,6 +11,7 @@ import { AutoReadCatchUp } from "../AutoReadCatchUp";
 import { ListOverrideFields, useListOverrideDraft } from "./ListOverrideFields";
 import { Checkbox, Disclosure, Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
+import { deleteCopy } from "./BulkActions";
 import { announce, toast } from "@/shell/toasts";
 import { intervalLabel } from "@/lib/interval";
 
@@ -207,7 +208,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
         open
         onOpenChange={(o) => !o && setConfirmDelete(false)}
         title={`Delete ${feed.title}?`}
-        description="Its articles are removed from Kipple, with their read state, and your sync apps stop seeing this feed. This can't be undone."
+        description={deleteCopy(1, feed.starred_count).consequence}
         footer={
           <>
             <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>

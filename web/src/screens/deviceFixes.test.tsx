@@ -270,7 +270,7 @@ describe("read state in the Unread list", () => {
     media(WIDE);
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
-    const link = within(screen.getByTestId("read-state").parentElement as HTMLElement).getByRole("link");
+    const link = within(screen.getByRole("heading", { level: 1 }).closest("header") as HTMLElement).getAllByRole("link")[0] as HTMLElement;
     expect(link.getAttribute("href")).toMatch(/^\/l\?feed=/);
   });
 
@@ -279,13 +279,10 @@ describe("read state in the Unread list", () => {
     media(WIDE);
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
-    const state = await screen.findByTestId("read-state");
-    // Opening marks it read, and a read article says nothing: only an unread one is labelled (a "Read" word looked like a button).
-    await waitFor(() => expect(state).toBeEmptyDOMElement());
+    // Opening marks it read, and a read article says nothing (a "Read" word beside the toggle looked like a button).
+    await waitFor(() => expect(screen.queryByTestId("read-state")).toBeNull());
     await userEvent.setup().click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
     expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeInTheDocument();
-    // The state is plain text: no border or pill shape that would make it look like a second button (#425).
-    expect(state.className).not.toMatch(/\b(border|rounded-full)\b/);
   });
 });
 

@@ -72,7 +72,7 @@ describe("the list header on a phone", () => {
     const actions = await screen.findByRole("button", { name: "List actions" });
     expect(screen.queryByRole("button", { name: "Oldest first" })).toBeNull();
     await userEvent.setup().click(actions);
-    await screen.findByRole("menuitem", { name: /Mark (all|everything)/ });
+    await screen.findByRole("menuitem", { name: /^Mark (all \d+|everything unread) as read$/ });
     expect(screen.queryAllByRole("menuitem", { name: /^(Previous|Next) / })).toHaveLength(0);
   });
 });

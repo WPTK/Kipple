@@ -40,7 +40,7 @@ describe("deleteCopy", () => {
   it("reads right for one feed", () => {
     const c = deleteCopy(1, 2);
     expect(c.feeds).toBe("feed");
-    expect(c.consequence).toBe("Its articles are removed from Kipple. Your sync apps stop seeing this feed.");
+    expect(c.consequence).toBe("Its articles are removed from Kipple, apart from starred ones kept in the Archive. Your sync apps stop seeing this feed. This can't be undone.");
     expect(c.starredWarning).toBe("This feed holds 2 starred articles. By default they are kept in the Archive.");
     expect(deleteCopy(1, 1).starredWarning).toBe("This feed holds 1 starred article. By default it is kept in the Archive.");
     expect(c.noStarred).toBe("This feed has no starred articles.");
@@ -48,7 +48,7 @@ describe("deleteCopy", () => {
   it("reads right for several feeds", () => {
     const c = deleteCopy(3, 4);
     expect(c.feeds).toBe("feeds");
-    expect(c.consequence).toBe("Their articles are removed from Kipple. Your sync apps stop seeing these feeds.");
+    expect(c.consequence).toBe("Their articles are removed from Kipple, apart from starred ones kept in the Archive. Your sync apps stop seeing these feeds. This can't be undone.");
     expect(c.starredWarning).toBe("These feeds hold 4 starred articles in total. By default they are kept in the Archive.");
     expect(c.noStarred).toBe("None of these feeds has starred articles.");
   });

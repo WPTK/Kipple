@@ -320,9 +320,9 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
         style={{ width: 0, visibility: "hidden" }}
         className="swipe-panel absolute inset-y-0 left-0 overflow-hidden bg-accent text-bg"
       >
-        <div className="flex h-full w-44 items-center gap-2 pl-4 text-sm font-semibold whitespace-nowrap">
+        <div className="flex h-full w-32 items-center gap-1.5 pr-1 pl-3 text-sm leading-tight font-semibold">
           <span className="swipe-icon inline-flex transition-transform [[data-armed=true]_&]:scale-115">
-            <ActionIcon id="read" state={readState} className="size-6" />
+            <ActionIcon id="read" state={readState} className="size-5" />
           </span>
           <span>{actionLabel("read", readState)}</span>
         </div>

@@ -19,7 +19,7 @@ export function deleteCopy(count: number, starred: number) {
   const one = count === 1;
   return {
     feeds: one ? "feed" : "feeds",
-    consequence: `${one ? "Its articles are" : "Their articles are"} removed from Kipple. Your sync apps stop seeing ${one ? "this feed" : "these feeds"}.`,
+    consequence: `${one ? "Its articles are" : "Their articles are"} removed from Kipple, apart from starred ones kept in the Archive. Your sync apps stop seeing ${one ? "this feed" : "these feeds"}. This can't be undone.`,
     starredWarning: `${one ? "This feed holds" : "These feeds hold"} ${starred} starred article${starred === 1 ? "" : "s"}${one ? "" : " in total"}. By default ${starred === 1 ? "it is" : "they are"} kept in the Archive.`,
     noStarred: one ? "This feed has no starred articles." : "None of these feeds has starred articles.",
   };
@@ -224,7 +224,7 @@ function FeedsToDelete({
           <Notice tone="warn">
             {copy.starredWarning}
           </Notice>
-          <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={onAlsoStarred} disabled={disabled} help="This can't be undone." />
+          <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={onAlsoStarred} disabled={disabled} help="Removes them from the Archive too." />
         </>
       ) : noneNote ? (
         <p className="text-sm text-fg2">{copy.noStarred}</p>
@@ -420,7 +420,7 @@ export function DeleteFolderDialog({
           ) : null}
           {all ? (
             <>
-              <Notice tone="warn">This permanently deletes {plural} and their articles, and your sync apps stop seeing them.</Notice>
+              <Notice tone="warn">This deletes {plural} and their articles, apart from starred ones kept in the Archive, and your sync apps stop seeing them. This can't be undone.</Notice>
               <FeedsToDelete feeds={feeds} starred={starred} alsoStarred={alsoStarred} onAlsoStarred={setAlsoStarred} disabled={working || feedsGone} />
               <Field label={`Type ${folder.name} to confirm`}>
                 {(a) => <input {...a} type="text" autoComplete="off" autoCapitalize="off" value={typed} onChange={(e) => setTyped(e.target.value)} className={inputCls} />}

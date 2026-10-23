@@ -15,7 +15,7 @@ export function useMarkAllConfirm(): { ask: (label: string, where: string, run: 
       open
       onOpenChange={(o) => !o && setPending(null)}
       title={pending.label}
-      description={`Every unread article in ${pending.where} is marked read. Undo is offered afterwards.`}
+      description={`Every unread article in ${pending.where} is marked read.`}
       footer={
         <>
           <Button onClick={() => setPending(null)}>Cancel</Button>
