@@ -1166,13 +1166,19 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       announce(FINISH_SEARCH);
       return;
     }
-    // A list of lists (the Digest) marks each loaded one within its own bound; any other is one list.
-    const parts = srcRef.current.markAllParts?.() ?? [{ scope: markScope, asOf: asOf.current, cards: items }];
-    for (const part of parts) {
-      const local = part.cards.filter((i) => !i.read).map((i) => i.id);
+    // A list of lists (the Digest) is marked by one request for the whole scope and one for each loaded section that
+    // is newer than it, all as one undo group; any other list is one request.
+    const parts = srcRef.current.markAllParts?.();
+    if (!parts) {
+      const local = items.filter((i) => !i.read).map((i) => i.id);
       const restore = unreadView && local.length ? hide(local) : undefined;
-      void act.markAll(part.scope, part.asOf, local, restore, unhide);
+      void act.markAll(markScope, asOf.current, local, restore, unhide);
+      return;
     }
+    const requests = parts.map((part) => ({ scope: part.scope ?? markScope, maxId: part.asOf, local: part.cards.filter((i) => !i.read).map((i) => i.id) }));
+    const all = [...new Set(requests.flatMap((r) => r.local))];
+    const restore = unreadView && all.length ? hide(all) : undefined;
+    void act.markAllIn(requests, restore, unhide);
   }, [act, hide, unhide, items, scope, markScope, unreadView, srcRef]);
 
   const menuActions: RowMenuActions = useMemo(

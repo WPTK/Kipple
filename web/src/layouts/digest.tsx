@@ -114,17 +114,27 @@ interface SectionProps {
 function DigestSection({ section: s, rows, images, scope, onOpen, actions, selectedId, tabStopId, expand, retry }: SectionProps) {
   const box = useRef<HTMLElement>(null);
   // Pressing "N more" or Retry takes its button away (or moves it): focus goes to the first article the press brought in.
-  const from = useRef<number | null>(null);
+  // The press is forgotten once its request has settled without bringing any (a failed Retry), or after a while, so a
+  // later refetch never takes focus from where the reader has gone.
+  const from = useRef<{ at: number; started: boolean } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
-    if (from.current === null || s.cards.length <= from.current) return;
-    const id = s.cards[from.current]!.id;
-    from.current = null;
-    box.current?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a`)?.focus();
+    const f = from.current;
+    if (!f) return;
+    if (s.cards.length > f.at) {
+      const id = s.cards[f.at]!.id;
+      from.current = null;
+      box.current?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a`)?.focus({ preventScroll: true });
+    } else if (s.busy) f.started = true;
+    else if (f.started) from.current = null;
   });
+  useEffect(() => () => clearTimeout(timer.current), []);
   // A press while the section is already loading is ignored (aria-disabled does not stop a click).
   const press = (act: (key: string) => void) => {
     if (s.loadingMore || (s.state === "loading" && s.error == null)) return;
-    from.current = s.cards.length;
+    from.current = { at: s.cards.length, started: false };
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => (from.current = null), 10_000);
     act(s.key);
   };
   return (

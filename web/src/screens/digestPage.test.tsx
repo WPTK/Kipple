@@ -7,7 +7,7 @@ import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import type { Bootstrap, Card, Feed } from "@/api/types";
 import { devicePrefsStore, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
-import { resetUndo } from "@/lib/undo";
+import { resetUndo, undoLast } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 import { clearListMemory, resetScrollReadForTests } from "./ListPane";
@@ -263,30 +263,93 @@ describe("Digest marking", () => {
     expect(container.querySelector('[data-item-id="1000"]')).not.toHaveAttribute("data-read");
   });
 
-  it("Mark all sends one request for each loaded section, each with that section's own as_of", async () => {
-    const { calls } = routes({
+  // Section n's articles have ids 1000 * (n + 1) + k, so a bound of 2500 sits between Beta's and Gamma's.
+  const markAllRoutes = (fail: Set<string> = new Set()) =>
+    routes({
       boot: library([3, 3, 3]),
       counts: [3, 3, 3],
-      asOf: (n) => ["700", "650", "800"][n],
+      asOf: (n) => ["5000", "2500", "6000"][n],
       extra: {
         // The server marks what is in the request's list, up to its bound.
         "POST /api/items/mark-read": (_u, init) => {
           const body = JSON.parse(String(init?.body));
-          const n = Number(body.scope.folder_id) - 10;
-          return json({ changed: articlesOf(n, 3).map((c) => c.id), restored: [] });
+          if (body.read === false) return json({ changed: body.ids, restored: [] });
+          const key = body.scope.folder_id ?? "all";
+          if (fail.has(key)) return json({ error: "gone" }, 404);
+          const sections = key === "all" ? [0, 1, 2] : [Number(key) - 10];
+          const ids = sections.flatMap((n) => articlesOf(n, 3).map((c) => c.id)).filter((id) => !body.max_id || Number(id) <= Number(body.max_id));
+          return json({ changed: ids, restored: [] });
         },
       },
     });
+  const markAll = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole("button", { name: "List actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Mark all as read/ }));
+  };
+  const marks = (calls: { method: string; url: URL; init?: RequestInit }[], read = true) => bodies(calls).filter((b) => b.read === read);
+
+  it("Mark all marks the whole list up to the oldest as_of, and each section whose own bound is newer up to that", async () => {
+    const { calls } = markAllRoutes();
     const user = userEvent.setup();
     const { container } = go("/l/unread");
     await screen.findByText("Gamma story 1");
-    await user.click(screen.getByRole("button", { name: "List actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Mark all as read/ }));
-    await waitFor(() => expect(bodies(calls)).toHaveLength(3));
-    expect(bodies(calls).map((b) => [b.scope.folder_id, b.max_id])).toEqual([["10", "700"], ["11", "650"], ["12", "800"]]);
-    // A later section's articles, newer than an earlier section's bound, stay read: none is turned back to unread.
+    await markAll(user);
+    await waitFor(() => expect(marks(calls)).toHaveLength(3));
+    expect(marks(calls).map((b) => [b.scope.folder_id ?? "all", b.max_id])).toEqual([["all", "2500"], ["10", "5000"], ["12", "6000"]]);
+    // Gamma's articles, newer than the whole list's bound, are marked by Gamma's own request and stay marked.
     await waitFor(() => expect(container.querySelector('[data-item-id="3000"]')).toHaveAttribute("data-read"));
-    expect(container.querySelectorAll("article[data-item-id]:not([data-read])")).toHaveLength(0);
+    await waitFor(() => expect(container.querySelectorAll("article[data-item-id]:not([data-read])")).toHaveLength(0));
+  });
+
+  it("is one undo group: one toast, one Undo that restores every section", async () => {
+    const { calls } = markAllRoutes();
+    const user = userEvent.setup();
+    const { container } = go("/l/unread");
+    await screen.findByText("Gamma story 1");
+    await markAll(user);
+    const toast = await screen.findByText("Marked 9 as read");
+    expect(screen.getAllByRole("button", { name: "Undo" })).toHaveLength(1);
+    expect(screen.getAllByText(/^Marked \d+ as read/)).toHaveLength(1);
+    await user.click(within(toast.closest("[role=status]") as HTMLElement).getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(marks(calls, false)).toHaveLength(1));
+    expect([...marks(calls, false)[0].ids].sort()).toEqual([...articlesOf(0, 3), ...articlesOf(1, 3), ...articlesOf(2, 3)].map((c) => c.id).sort());
+    await waitFor(() => expect(container.querySelectorAll("article[data-item-id][data-read]")).toHaveLength(0));
+  });
+
+  it("is undone by the Undo command too, for every section", async () => {
+    const { calls } = markAllRoutes();
+    const user = userEvent.setup();
+    const { container } = go("/l/unread");
+    await screen.findByText("Gamma story 1");
+    await markAll(user);
+    await screen.findByText("Marked 9 as read");
+    await act(async () => void (await undoLast()));
+    await waitFor(() => expect(marks(calls, false)).toHaveLength(1));
+    await waitFor(() => expect(container.querySelectorAll("article[data-item-id][data-read]")).toHaveLength(0));
+  });
+
+  it("when one request fails only its articles go back, with one message", async () => {
+    const { calls } = markAllRoutes(new Set(["12"]));
+    const user = userEvent.setup();
+    const { container } = go("/l/unread");
+    await screen.findByText("Gamma story 1");
+    await markAll(user);
+    await waitFor(() => expect(marks(calls)).toHaveLength(3));
+    await screen.findByText("Marked 6 as read");
+    await waitFor(() => expect(container.querySelector('[data-item-id="3000"]')).not.toHaveAttribute("data-read"));
+    expect(container.querySelector('[data-item-id="1000"]')).toHaveAttribute("data-read");
+    expect(screen.getAllByRole("button", { name: "Undo" })).toHaveLength(1);
+  });
+
+  it("marks the whole list even when every loaded section failed", async () => {
+    const { calls } = routes({ boot: library([3, 3]), counts: [3, 3], fail: new Set([0, 1]), extra: { "POST /api/items/mark-read": () => json({ changed: [], count: 6, restored: [] }) } });
+    const user = userEvent.setup();
+    go("/l/unread");
+    await screen.findByText("Couldn't load articles");
+    await markAll(user);
+    await waitFor(() => expect(marks(calls)).toHaveLength(1));
+    expect(marks(calls)[0].scope).toMatchObject({ all: true, view: "unread" });
+    expect(marks(calls)[0].max_id).toBeUndefined();
   });
 });
 
@@ -452,6 +515,32 @@ describe("Digest loading states", () => {
     expect(container.querySelector('[data-testid="digest-skeleton"]')!.children).toHaveLength(2);
     release();
     await screen.findByText("Beta story 1");
+  });
+});
+
+describe("Digest focus after Retry", () => {
+  it("a Retry that fails does not move focus when a later refetch succeeds", async () => {
+    const fail = new Set([1]);
+    const { calls } = routes({ boot: library([3, 3, 3]), counts: [3, 3, 3], fail });
+    const user = userEvent.setup();
+    const { container } = go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    const retry = within(section(container, "Beta")).getByRole("button", { name: "Retry" });
+    await user.click(retry); // fails again
+    await waitFor(() => expect(itemCalls(calls).filter((c) => c.url.searchParams.get("folder") === "11").length).toBeGreaterThanOrEqual(2));
+    await within(section(container, "Beta")).findByRole("button", { name: "Retry" });
+    // The reader is elsewhere, and the section then loads on its own (a refetch, not a press).
+    const elsewhere = within(section(container, "Alpha")).getAllByRole("link")[0]!;
+    elsewhere.focus();
+    fail.clear();
+    await act(async () => {
+      await retry.ownerDocument.defaultView!.dispatchEvent(new Event("online"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(document.activeElement).toBe(elsewhere);
   });
 });
 

@@ -6,6 +6,7 @@ import { useDevicePrefs, type DigestOrder, type DigestSections } from "@/lib/dev
 import { chainOf, folderTree } from "@/lib/folderTree";
 import { byFeed, byFolder } from "@/lib/sections";
 import { createStore, useStoreSelector } from "@/lib/store";
+import { arrivedAfter } from "@/lib/itemActions";
 import { useLatestRef } from "@/lib/useLatestRef";
 import { EXPAND_BATCH, groupFeeds, layoutDigest, orderSections, type LoadedSection } from "@/layouts/digestPlan";
 import type { DigestSectionView, DigestView } from "@/layouts/types";
@@ -50,10 +51,23 @@ const SNAPSHOT_KEEP_MS = 5 * 60_000;
  * the reader left it.
  */
 const opened = new Map<string, { sig: string; keys: string[]; counts: Map<string, number | null>; left: number | null }>();
-function leave(listKey: string): void {
+/** How many mounted hooks (the list, and the reader's previous and next) use each list's page. The reader has left it only when none does. */
+const consumers = new Map<string, number>();
+/** A hook starts using the list's page: it is no longer away. Returns the call that stops. */
+export function holdPage(listKey: string): () => void {
+  consumers.set(listKey, (consumers.get(listKey) ?? 0) + 1);
   const o = opened.get(listKey);
-  if (o) o.left = Date.now();
+  if (o) o.left = null;
+  return () => {
+    const n = (consumers.get(listKey) ?? 1) - 1;
+    if (n > 0) return void consumers.set(listKey, n);
+    consumers.delete(listKey);
+    const kept = opened.get(listKey);
+    if (kept) kept.left = Date.now();
+  };
 }
+/** When the reader left the page of list `listKey` (null while it is in use; undefined for a list with no page). For tests. */
+export const digestPageLeftAt = (listKey: string): number | null | undefined => opened.get(listKey)?.left;
 
 const placeOf = (key: string): Place => places.get().get(key) ?? FRESH;
 function setPlace(key: string, next: (p: Place) => Place): void {
@@ -125,7 +139,9 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
   const listKey = scopeKey(scope);
   const sig = `${input.sections}|${input.order}`;
   let fixed = opened.get(listKey);
-  if (fixed && (fixed.sig !== sig || (fixed.left !== null && Date.now() - fixed.left > SNAPSHOT_KEEP_MS))) fixed = undefined;
+  // Time away counts only while no hook uses the page: one that is mounted keeps it, however long the reader reads.
+  const away = !consumers.has(listKey) && fixed?.left != null && Date.now() - fixed.left > SNAPSHOT_KEEP_MS;
+  if (fixed && (fixed.sig !== sig || away)) fixed = undefined;
   if (!fixed) {
     const kept = live.filter((d) => !(scope.view === "unread" && d.count === 0));
     fixed = { sig, keys: kept.map((d) => d.key), counts: new Map(kept.map((d) => [d.key, d.count])), left: null };
@@ -169,6 +185,7 @@ function sectionViews(plan: Plan): DigestSectionView[] {
       ...s,
       error: s.state === "loading" ? (r?.error ?? null) : null,
       loadingMore: !!r?.fetchingMore,
+      busy: !!r?.fetching,
       moreFailed: !!r?.moreFailed,
     });
   }
@@ -304,13 +321,8 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
     observers.want(wanted);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [observers, wantedKey]);
-  useEffect(
-    () => () => {
-      observers.release();
-      leave(listKey);
-    },
-    [observers, listKey],
-  );
+  useEffect(() => () => observers.release(), [observers]);
+  useEffect(() => (on ? holdPage(listKey) : undefined), [on, listKey]);
 
   // A press of "N more" shows more cards than the section has loaded: load the page that has them.
   useEffect(() => {
@@ -401,11 +413,20 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
       }
       return { why: "Mark above and below need the article's section loaded" };
     },
-    markAllParts: () =>
-      (plan?.defs ?? []).flatMap((d) => {
+    markAllParts: () => {
+      // The whole list, up to the oldest bound among the sections (the page's opening): it covers every section, the
+      // ones not loaded too. A loaded section whose own bound is newer is marked up to that, so what it shows stays marked.
+      const loadedSections = (plan?.defs ?? []).flatMap((d) => {
         const r = plan?.results.get(d.key)?.data;
-        return r && r.cards.length ? [{ scope: sectionScope(scope, d), asOf: r.asOf, cards: r.cards }] : [];
-      }),
+        return r ? [{ d, r }] : [];
+      });
+      const oldest = oldestAsOf(loadedSections.map((s) => s.r.asOf));
+      const whole = { scope: undefined, asOf: oldest, cards: loadedSections.flatMap((s) => s.r.cards).filter((c) => !arrivedAfter(c.id, oldest)) };
+      const newer = loadedSections
+        .filter((s) => oldest && s.r.asOf && arrivedAfter(s.r.asOf, oldest))
+        .map((s) => ({ scope: sectionScope(scope, s.d), asOf: s.r.asOf, cards: s.r.cards.filter((c) => arrivedAfter(c.id, oldest)) }));
+      return [whole, ...newer];
+    },
     digest,
     loadedCards: allCards,
   };

@@ -188,28 +188,25 @@ export function itemActions(qc: QueryClient) {
   }
 
   /**
-   * After a bulk call: patch the ids the server changed and offer undo through them. `local` are the rows the
-   * caller optimistically marked (and possibly hid). Of the ones the server did not change, those above the list's
-   * `as_of` (`asOf`) were left alone because of the bound: they go back to unread and `unhide` brings them back on
-   * screen. For the rest the server is asked what they are now (recheckUnchanged).
+   * After a bulk call: patch the ids the server changed. `local` are the rows the caller optimistically marked (and
+   * possibly hid). Of the ones the server did not change, those above the list's `as_of` (`asOf`) were left alone because
+   * of the bound: they go back to unread and `unhide` brings them back on screen. For the rest the server is asked what
+   * they are now (recheckUnchanged). Says what the call came to; the caller announces and offers the undo.
    */
-  async function finishBulk(
+  async function settleBulk(
     res: { changed: string[]; count?: number; undoable?: boolean; ledger_ids?: string[] },
     local: string[],
     asOf: string | undefined,
-    restore?: () => void,
     unhide?: (ids: string[]) => void,
-  ): Promise<UndoChange | null> {
+  ): Promise<{ changed: string[]; ledger: string[]; count: number; overCap: boolean }> {
     const overCap = res.undoable === false && res.changed.length === 0 && (res.count ?? 0) > 0;
-    // Only what the server says it changed is undoable: local guesses would flip items another client read.
-    const changed = res.undoable === false ? [] : res.changed;
-    const ledger = res.ledger_ids ?? [];
     if (overCap) {
       // The server marked more than it will list, so which local rows it skipped is unknown: refetch the truth.
-      announce(`Marked ${res.count} as read`);
       void qc.invalidateQueries({ queryKey: keys.itemsAll }).then(() => unhide?.(local));
-      return null;
+      return { changed: [], ledger: [], count: res.count ?? 0, overCap: true };
     }
+    // Only what the server says it changed is undoable: local guesses would flip items another client read.
+    const changed = res.undoable === false ? [] : res.changed;
     if (changed.length) patchItems(qc, changed, { read: true });
     const kept = new Set(changed);
     const skipped = local.filter((id) => !kept.has(id) && arrivedAfter(id, asOf));
@@ -219,12 +216,27 @@ export function itemActions(qc: QueryClient) {
     }
     const unsure = local.filter((id) => !kept.has(id) && !arrivedAfter(id, asOf));
     if (unsure.length) await recheckUnchanged(unsure, unhide);
-    const n = res.count ?? changed.length;
-    if (changed.length === 0) {
-      announce(n === 0 ? "Nothing to mark" : `Marked ${n} as read`);
+    return { changed, ledger: res.ledger_ids ?? [], count: res.count ?? changed.length, overCap: false };
+  }
+
+  /** After a bulk call: settle it and offer undo through the ids it changed. */
+  async function finishBulk(
+    res: { changed: string[]; count?: number; undoable?: boolean; ledger_ids?: string[] },
+    local: string[],
+    asOf: string | undefined,
+    restore?: () => void,
+    unhide?: (ids: string[]) => void,
+  ): Promise<UndoChange | null> {
+    const r = await settleBulk(res, local, asOf, unhide);
+    if (r.overCap) {
+      announce(`Marked ${r.count} as read`);
       return null;
     }
-    return { ids: changed, restore, undo: (ids) => undoBulk(qc, ids, ledger) };
+    if (r.changed.length === 0) {
+      announce(r.count === 0 ? "Nothing to mark" : `Marked ${r.count} as read`);
+      return null;
+    }
+    return { ids: r.changed, restore, undo: (ids) => undoBulk(qc, ids, r.ledger) };
   }
 
   /** A bulk mark: its undo group is on the stack from the moment the rows turn read, filled in by the answer. */
@@ -239,6 +251,51 @@ export function itemActions(qc: QueryClient) {
       restore?.();
       announce("Couldn't mark those as read");
     }
+  }
+
+  /**
+   * Several bulk marks that are one action to the reader (Mark all on a list made of lists): one undo group and one
+   * toast for all of them, one announcement, and when only some failed those rows alone go back to unread. `local` of each
+   * request are the rows it covers (the caller hides all of them at once and hands `restore` for that).
+   */
+  async function bulkMarkMany(
+    requests: { send: () => Promise<BulkMarkResponse>; local: string[]; asOf: string | undefined }[],
+    restore?: () => void,
+    unhide?: (ids: string[]) => void,
+  ): Promise<void> {
+    const ticket = beginUndo("read", { bulk: true });
+    patchItems(qc, requests.flatMap((r) => r.local), { read: true });
+    const sent = await Promise.allSettled(requests.map((r) => r.send()));
+    const failed = requests.filter((_, i) => sent[i]!.status === "rejected");
+    const failedLocal = failed.flatMap((r) => r.local);
+    if (failed.length === requests.length) {
+      ticket.settle(null);
+      patchItems(qc, failedLocal, { read: false });
+      restore?.();
+      announce("Couldn't mark those as read");
+      return;
+    }
+    if (failedLocal.length) {
+      patchItems(qc, failedLocal, { read: false });
+      unhide?.(failedLocal);
+    }
+    const done = await Promise.all(
+      requests.flatMap((r, i) => {
+        const s = sent[i]!;
+        return s.status === "fulfilled" ? [settleBulk(s.value, r.local, r.asOf, unhide)] : [];
+      }),
+    );
+    const count = done.reduce((n, d) => n + d.count, 0);
+    const ids = [...new Set(done.flatMap((d) => d.changed))];
+    const ledger = [...new Set(done.flatMap((d) => d.ledger))];
+    const note = failed.length ? " Some of it could not be marked." : "";
+    if (done.some((d) => d.overCap) || ids.length === 0) {
+      ticket.settle(null);
+      announce(count === 0 && !failed.length ? "Nothing to mark" : `Marked ${count} as read.${note}`.trim());
+      return;
+    }
+    ticket.settle({ ids, restore, undo: (undoIds) => undoBulk(qc, undoIds, ledger) });
+    if (failed.length) announce(`Marked ${count} as read.${note}`);
   }
 
   function markSide(p: RangeParams, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
@@ -278,5 +335,10 @@ export function itemActions(qc: QueryClient) {
     return true;
   }
 
-  return { setRead, toggleRead, toggleStar, markSide, markAll, restoreMuted };
+  /** Mark all on a list made of lists (the Digest): see bulkMarkMany. */
+  function markAllIn(requests: { scope: Scope; maxId: string | undefined; local: string[] }[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {
+    return bulkMarkMany(requests.map((r) => ({ send: () => markAllRead(r.scope, r.maxId), local: r.local, asOf: r.maxId })), restore, unhide);
+  }
+
+  return { setRead, toggleRead, toggleStar, markSide, markAll, markAllIn, restoreMuted };
 }

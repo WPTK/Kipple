@@ -33,7 +33,7 @@ const { check, step } = t;
 
 const A = "UAT Digest A";
 const B = "UAT Digest B";
-const EXTRA = ["x1", "x2", "x3", "x4"]; // one-story feeds in folders of their own: with the rest, more than the six sections a page opens with
+const EXTRA = Array.from({ length: 16 }, (_, i) => `x${i + 1}`); // ten-story feeds in folders of their own: with the rest, more than the six sections a page opens with
 const FEEDS = { a: { title: "UAT feed digest a", count: 8, withPicture: [1, 2] }, b: { title: "UAT feed digest b", count: 4, withPicture: [] } };
 // A 1x1 GIF, so a picture's address answers.
 const GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
@@ -42,9 +42,9 @@ let base = "";
 const server = createServer((req, res) => {
   const path = new URL(req.url ?? "/", "http://x").pathname;
   if (path.startsWith("/img/")) return void res.writeHead(200, { "Content-Type": "image/gif" }).end(GIF);
-  const which = /^\/(a|b|x[1-4])\.xml$/.exec(path)?.[1] ?? null;
+  const which = /^\/(a|b|x\d+)\.xml$/.exec(path)?.[1] ?? null;
   if (!which) return void res.writeHead(404).end();
-  const f = FEEDS[which] ?? { title: `UAT feed digest ${which}`, count: 1, withPicture: [] };
+  const f = FEEDS[which] ?? { title: `UAT feed digest ${which}`, count: 10, withPicture: [] };
   const item = (n) => {
     const body = f.withPicture.includes(n) ? `&lt;p&gt;Story ${n}.&lt;/p&gt;&lt;img src="${base}/img/${which}${n}.gif" width="600" height="400"/&gt;` : `&lt;p&gt;Story ${n}.&lt;/p&gt;`;
     return `<item><title>UAT digest ${which} story ${n}</title><link>${base}/page/${which}/${n}</link><guid isPermaLink="false">uat-digest-${which}-${n}</guid><pubDate>${new Date(Date.now() - (n + (which === "b" ? 100 : 0)) * 3600_000).toUTCString()}</pubDate><description>${body}</description></item>`;
@@ -65,6 +65,8 @@ try {
       page.evaluate((x) => fetch("/api/device", { method: "PATCH", headers: { "Content-Type": "application/json", "X-Kipple-Client": "web" }, body: JSON.stringify(x) }).then((r) => r.status), b);
     const section = (name) => page.locator("section[data-section]").filter({ has: page.getByRole("heading", { level: 2, name, exact: true }) });
     const idsOf = (name) => section(name).locator("article[data-item-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId));
+    // Every section draws its heading; only the ones asked for have articles.
+    const loaded = () => page.locator("section[data-section]:has(article[data-item-id]) > h2").allTextContents();
     const headings = () => page.locator("section[data-section] > h2").allTextContents();
     const mine = async () => (await headings()).filter((h) => h === A || h === B);
     const isRead = (id) => page.evaluate(async (i) => (await (await fetch(`/api/items/${i}`)).json()).read === true, id);
@@ -122,6 +124,9 @@ try {
         const moved = folder ? await page.request.patch(`/api/feeds/${r.feedId}`, { data: { folder_id: folder.id }, headers: t.WRITE }) : null;
         if (!moved?.ok()) return t.fail(`${tag} G setup`, `the folder ${name} was not made with its feed in it`);
       }
+      // G9 needs sections past the first six; with six or fewer it would pass without testing anything.
+      const withUnread = (await t.boot(page)).folders.filter((f) => f.unread > 0).length;
+      if (withUnread <= 6) return t.fail(`${tag} G setup`, `only ${withUnread} sections have unread articles; G9 needs more than six`);
       const set = await patch({ "client.layout": "digest", "client.digest_sections": "folder", "client.digest_order": "sidebar", "client.digest_images": true, "client.digest_rows": 3 });
       if (set !== 200) return t.fail(`${tag} G setup`, `the Digest was not set as the layout (${set})`);
       try {
@@ -190,7 +195,7 @@ try {
         await page.keyboard.press("Enter");
         await settled(() => document.querySelectorAll("section[data-section] article[data-item-id]").length >= 8);
         const afterEnter = await idsOf(A);
-        await page.waitForTimeout(200);
+        await settled(`document.activeElement?.closest("article[data-item-id]")?.getAttribute("data-item-id") === ${JSON.stringify(afterEnter[shownBefore.length] ?? "")}`, 3000);
         const focused = await page.evaluate(() => document.activeElement?.closest("article[data-item-id]")?.getAttribute("data-item-id") ?? null);
         check(afterEnter.length === 8 && focused === afterEnter[shownBefore.length], `${tag} G6b focus`, "Enter on \"more\" opens the section and focus goes to the first article it brought in", `${afterEnter.length} stories; focus is on ${focused}, wanted ${afterEnter[shownBefore.length]}`);
 
@@ -235,27 +240,56 @@ try {
         }
 
         // G9: the sections below the first six load when the end of the page is reached.
+        // Tall sections (ten rows), so the first six fill more than the page and its look-ahead and the rest are left unasked.
+        if ((await patch({ "client.digest_rows": 10 })) !== 200) return t.fail(`${tag} G9 setup`, "Rows per section was not set");
+        // The page remembers where the reader was, and opening it again goes back there, loading what it needs to; this checks a first visit.
+        await page.evaluate(() => localStorage.removeItem("kipple.listPlace.v1"));
         await open();
         const last = `UAT Digest ${EXTRA[EXTRA.length - 1].toUpperCase()}`;
         const scroller = page.getByTestId("list-scroll");
-        for (let i = 0; i < 6 && !(await headings()).includes(last); i++) {
+        const beforeScroll = await loaded();
+        check(!beforeScroll.includes(last), `${tag} G9 not yet`, "the last section has no articles before the end of the page is reached", `the sections with articles at open are: ${beforeScroll.join(", ")}`);
+        for (let i = 0; i < 6 && !(await loaded()).includes(last); i++) {
+          const n = (await loaded()).length;
           await scroller.evaluate((e) => e.scrollTo(0, e.scrollHeight));
-          await page.waitForTimeout(500);
+          await settled(`document.querySelectorAll("section[data-section]:has(article[data-item-id])").length > ${n}`, 3000);
         }
         await settled(() => !document.querySelector('[data-testid="digest-skeleton"]'), 15000);
-        check((await headings()).includes(last), `${tag} G9 later sections`, "a section past the sixth loads when the end of the page is reached", `the sections are: ${(await headings()).join(", ")}`);
+        check((await loaded()).includes(last), `${tag} G9 later sections`, "a section past the sixth loads when the end of the page is reached", `the sections with articles are: ${(await loaded()).join(", ")}`);
         await t.shot(page, `${tag}-digest-later-sections`);
+        await patch({ "client.digest_rows": 3 });
 
         // G10: mark as read while scrolling marks what was scrolled past, in the Digest too. What it marked is put back.
         const wasRead = new Set();
         try {
           const on = await patch({ "ui.mark_read_on_scroll": true });
           if (on !== 200) return t.fail(`${tag} G10 setup`, `the setting was not set (${on})`);
+          await page.evaluate(() => localStorage.removeItem("kipple.listPlace.v1")); // the G9 scroll is remembered; start at the top
           await open();
           const shown = await page.locator("section[data-section] article[data-item-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId));
+          // The page notes where it stands before the reader scrolls: wait until its height has stopped changing (a scroll
+          // made while sections are still arriving would be the page's first look and count nothing as passed).
+          await page.waitForFunction(
+            () => {
+              const h = document.querySelector('[data-testid="list-scroll"]')?.scrollHeight;
+              const still = window.__uatHeight === h;
+              window.__uatHeight = h;
+              return still;
+            },
+            null,
+            { timeout: 10000, polling: 300 },
+          );
           await scroller.evaluate((e) => e.scrollTo(0, 700));
-          await page.waitForTimeout(1500);
-          const flags = await readOf(shown);
+          // Wait for the server to show the first article read (the page marks what was passed once scrolling settles).
+          for (let i = 0; i < 40 && !(await isRead(shown[0])); i++) await page.waitForTimeout(250);
+          // Then for the marking to finish: the count of read articles stops changing.
+          let seen = -1;
+          for (let i = 0; i < 20; i++) {
+            const n = (await readOf(shown)).filter(Boolean).length;
+            if (n === seen) break;
+            seen = n;
+            await page.waitForTimeout(250);
+          }          const flags = await readOf(shown);
           const marked = shown.filter((_, i) => flags[i]);
           marked.forEach((id) => wasRead.add(id));
           const firstMarked = shown.indexOf(marked[0]);

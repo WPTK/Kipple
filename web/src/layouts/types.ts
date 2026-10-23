@@ -49,6 +49,8 @@ export interface DigestSectionView extends DigestSection {
   error: unknown;
   /** The cards pressed for are being loaded. */
   loadingMore: boolean;
+  /** Any request for this section is out (its first page, a retry, a next page). */
+  busy: boolean;
   /** The last attempt at more cards failed (the cards shown stay). */
   moreFailed: boolean;
 }
