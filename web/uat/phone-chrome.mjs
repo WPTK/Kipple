@@ -15,7 +15,7 @@
 //   C3  with the undo toast on screen, the end of the list scrolls clear of it (the last row is above the toast);
 //   C4  in a list with nothing unread, List actions offers Mark all as read off with "Nothing unread here", and after
 //       a reload Undo is off with "Nothing to undo";
-//   C5  the reader's Read or Unread is plain text, not a pill that looks like a button.
+//   C5  the reader's Unread word (shown after Mark as unread) is plain text, not a pill that looks like a button.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
@@ -176,7 +176,9 @@ await t.eachViewport(async (page, vp) => {
   await step(`${tag} C5`, async () => {
     await open(feedList);
     await page.locator("a.row-link").filter({ hasText: TITLES[1] }).first().click();
-    // The article is unread when it opens (it is marked read a moment later), and only an unread one carries a state word.
+    // Opening marks it read, and a read article carries no state word; marked unread it says so, in plain text.
+    await page.getByRole("toolbar", { name: "Article actions" }).getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Mark as unread" }).click();
     const state = page.getByTestId("read-state");
     await state.waitFor({ timeout: 15000 });
     const word = (await state.innerText()).trim();

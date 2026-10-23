@@ -14,7 +14,7 @@
 //   A5  phone, at 375 and 320 wide: a real touch swipe right on a row shows "Mark as read" or "Mark as unread" whole,
 //       inside the panel, once the swipe is far enough to arm;
 //   A6  an unread article shows "Unread" in plain text and a read one shows no state word.
-// It reads one article by opening it (A6). It only runs against a loopback address with the seed's credentials unless
+// It opens one article and toggles its read state (A6), leaving it read. It only runs against a loopback address with the seed's credentials unless
 // --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
 import { start } from "./common.mjs";
 
@@ -98,7 +98,8 @@ await t.eachViewport(async (page, vp) => {
         const cdp = await page.context().newCDPSession(page);
         const touch = (type, points) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points });
         const y = Math.round(box.y + Math.min(box.height / 2, 60));
-        const from = Math.round(box.x + 6);
+        // Not at the screen edge, where a swipe is Back.
+        const from = Math.round(box.x + 40);
         const to = Math.round(from + armAt(box.width) + 12);
         await touch("touchStart", [{ x: from, y }]);
         for (let x = from; x <= to; x += 8) await touch("touchMove", [{ x, y }]);
@@ -124,17 +125,24 @@ await t.eachViewport(async (page, vp) => {
     await page.locator("[data-testid=list-scroll] [data-item-id]").first().waitFor({ timeout: 15000 });
     await page.locator("[data-testid=list-scroll] [data-item-id] a").first().click();
     await page.waitForURL(/\/i\/\d+/, { timeout: 10000 });
+    // Opening marks it read at once, and a read article has no state word at all.
     const state = page.getByTestId("read-state");
-    await state.waitFor({ timeout: 10000 });
+    await state.waitFor({ state: "detached", timeout: 10000 }).catch(() => {});
+    check((await state.count()) === 0, `${tag} A6 read`, "a read article shows no state word", `the state word is "${await state.innerText().catch(() => "")}"`);
+    await t.shot(page, `${tag}-article-read`);
+    // Marked unread from the toolbar's More menu, it says so in plain text; marked read again, it is gone.
+    const bar = page.getByRole("toolbar", { name: "Article actions" });
+    await bar.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Mark as unread" }).click();
+    await state.waitFor({ timeout: 5000 });
     const word = (await state.innerText()).trim();
-    check(word === "Unread", `${tag} A6 unread`, "an unread article shows Unread", `the state word is "${word}"`);
+    const plain = await state.evaluate((el) => ({ border: getComputedStyle(el).borderTopWidth, radius: getComputedStyle(el).borderTopLeftRadius }));
+    check(word === "Unread" && plain.border === "0px" && plain.radius === "0px", `${tag} A6 unread`, "an unread article shows Unread in plain text", `the state word is "${word}", ${JSON.stringify(plain)}`);
     await t.shot(page, `${tag}-article-state`);
-    // Opening it marks it read a moment later; a read article has no state word at all.
-    await page.waitForFunction(() => !document.querySelector('[data-testid="read-state"]'), undefined, { timeout: 8000 }).then(
-      () => check(true, `${tag} A6 read`, "once read the article shows no state word", ""),
-      () => check(false, `${tag} A6 read`, "once read the article shows no state word", "the state word stayed"),
-    );
-  });
+    await bar.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Mark as read" }).click();
+    await state.waitFor({ state: "detached", timeout: 5000 }).catch(() => {});
+    check((await state.count()) === 0, `${tag} A6 back`, "marked read again, the state word goes", `${await state.count()} state words`);  });
 });
 
 await t.finish("item actions");
