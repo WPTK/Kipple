@@ -1,7 +1,9 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { BookmarkPlus, CheckCheck, X } from "lucide-react";
+import { BookmarkPlus, X } from "lucide-react";
+import { MARK_ALL_RESULTS, MarkAllIcon } from "@/lib/itemActionTable";
+import { useMarkAllConfirm } from "./MarkAllConfirm";
 import { savedScopeOf, scopeFromSearchParams, useSavedSearches } from "@/api/savedSearches";
 import { useBootstrap, useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
@@ -41,6 +43,7 @@ export function SearchScreen() {
   const typing = entry.typed === urlQ && entry.submitted !== urlQ && ssId === null;
   const [saving, setSaving] = useState(false);
   const [controls, setControls] = useState<ListControls | null>(null);
+  const markAll = useMarkAllConfirm();
   const inputId = useId();
   const sortId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -224,15 +227,16 @@ export function SearchScreen() {
             <Button
               variant="ghost"
               className="px-2"
-              onClick={() => controls?.markAllRead()}
+              onClick={() => markAll.ask(MARK_ALL_RESULTS, "these results", () => controls?.markAllRead())}
               disabled={!controls || controls.count === 0 || typing}
               title={typing ? "Press Enter to search first, then mark all results as read" : undefined}
             >
-              <CheckCheck aria-hidden="true" />
-              Mark all results as read
+              <MarkAllIcon aria-hidden="true" />
+              {MARK_ALL_RESULTS}
             </Button>
           </div>
         ) : null}
+        {markAll.dialog}
       </header>
       <div className="min-h-0 flex-1">
         {scope ? (

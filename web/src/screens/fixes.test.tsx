@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
@@ -101,7 +101,7 @@ describe("row collapse in the Unread view", () => {
     // window when the machine is loaded (both timers fire in one starved slice), so the clock is faked from here
     // and stepped by hand: 50 ms steps can never skip over the 180 ms leaving state. The menu is opened first, on real timers.
     await userEvent.setup().click(screen.getByRole("button", { name: "List actions" }));
-    const markAll = await screen.findByRole("menuitem", { name: /Mark all as read/ });
+    const markAll = await screen.findByRole("menuitem", { name: /Mark (all|everything)/ });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       const step = async (ms: number) => {
@@ -114,6 +114,9 @@ describe("row collapse in the Unread view", () => {
       // fireEvent, not userEvent: user-event's async wrapper waits on a real setTimeout, which is faked here.
       await act(async () => {
         fireEvent.click(markAll);
+      });
+      await act(async () => {
+        fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Mark (all|everything)/ }));
       });
       let waited = 0;
       while (!leaving() && waited < 5000) {

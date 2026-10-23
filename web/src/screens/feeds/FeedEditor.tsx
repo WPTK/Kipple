@@ -207,7 +207,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
         open
         onOpenChange={(o) => !o && setConfirmDelete(false)}
         title={`Delete ${feed.title}?`}
-        description="Its articles are removed from Kipple. Your sync apps stop seeing this feed."
+        description="Its articles are removed from Kipple, with their read state, and your sync apps stop seeing this feed. This can't be undone."
         footer={
           <>
             <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>

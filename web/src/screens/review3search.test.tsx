@@ -109,7 +109,7 @@ describe("Mark all while the search is still being typed", () => {
     go(`/i/1001?from=${encodeURIComponent("all|q:rust|typing:1")}`);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "List actions" }));
-    const item = await screen.findByRole("menuitem", { name: /Mark all as read/ });
+    const item = await screen.findByRole("menuitem", { name: /Mark (all|everything)/ });
     expect(item).toHaveAttribute("aria-disabled", "true");
     expect(item).toHaveTextContent("Finish your search first (press Enter)");
   });

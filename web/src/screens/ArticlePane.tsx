@@ -363,11 +363,12 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
         <article className="px-4 pt-4 pb-10 md:px-6" aria-labelledby="article-title" style={{ "--kp-col": columnWidth(dp.articleWidth) } as CSSProperties}>
           <header className="mx-auto mb-5 max-w-[min(var(--kp-col),100%)]">
             <p className="text-sm text-fg2">
-              {/* Plain text, not a pill: the toolbar's read toggle is the one control, so nothing here looks tappable. */}
-              <span data-testid="read-state" className={cn(a.read ? "font-medium text-fg2" : "font-semibold text-fg")}>
-                {a.read ? "Read" : "Unread"}
+              {/* Only an unread article says so, in plain text, not a pill: a "Read" word beside the toolbar's read toggle
+                  looked like a second button, and a read article is the ordinary case that needs no mark. */}
+              <span data-testid="read-state" className="font-semibold text-fg">
+                {a.read ? null : "Unread"}
               </span>
-              <span aria-hidden="true">{" · "}</span>
+              {a.read ? null : <span aria-hidden="true">{" · "}</span>}
               <Link to={openListTo({ feed: a.feed_id })} className="hit-pad hover:underline">
                 {a.source || a.feed.title}
               </Link>

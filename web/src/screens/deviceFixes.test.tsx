@@ -280,7 +280,8 @@ describe("read state in the Unread list", () => {
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
     const state = await screen.findByTestId("read-state");
-    await waitFor(() => expect(state).toHaveTextContent("Read"));
+    // Opening marks it read, and a read article says nothing: only an unread one is labelled (a "Read" word looked like a button).
+    await waitFor(() => expect(state).toBeEmptyDOMElement());
     await userEvent.setup().click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
     expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeInTheDocument();
     // The state is plain text: no border or pill shape that would make it look like a second button (#425).

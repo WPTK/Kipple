@@ -211,7 +211,7 @@ describe("the Muted list", () => {
     const user = userEvent.setup();
     await screen.findByText("Muted article 1");
     await user.click(screen.getByRole("button", { name: "List actions" }));
-    expect(await screen.findByRole("menuitem", { name: "Mark all as read" })).toHaveAttribute("aria-disabled", "true");
+    expect(await screen.findByRole("menuitem", { name: /^Mark (all|everything)/ })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("says so when nothing is muted", async () => {
