@@ -60,7 +60,7 @@ beforeEach(() => {
   resetDevicePrefs();
   resetUndo();
   updateDevicePrefs({ peekSeen: true, layout: "inbox" });
-  media("min-width: 900px");
+  media("min-width: 820px");
 });
 afterEach(() => {
   vi.unstubAllGlobals();

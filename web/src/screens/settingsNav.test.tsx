@@ -57,7 +57,7 @@ function go(path: string) {
 
 function wide(on: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: on && query.includes("min-width: 900px"),
+    matches: on && query.includes("min-width: 820px"),
     media: query,
     onchange: null,
     addEventListener() {},

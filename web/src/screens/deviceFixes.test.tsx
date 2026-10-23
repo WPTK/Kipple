@@ -45,7 +45,7 @@ function media(...on: string[]) {
     dispatchEvent: () => false,
   }));
 }
-const WIDE = "min-width: 900px";
+const WIDE = "min-width: 820px";
 
 const feedBase = bootstrap.feeds[0] as Bootstrap["feeds"][number];
 const feed = (id: string, folder: string, title: string, over: Partial<Bootstrap["feeds"][number]> = {}) => ({ ...feedBase, id, folder_id: folder, title, ...over });

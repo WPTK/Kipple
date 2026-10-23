@@ -28,6 +28,7 @@ import { announce } from "@/shell/toasts";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { NARROW_QUERY, useMedia, useShort, useWide } from "@/lib/useMedia";
 import { ARTICLE_MIN, maxFor, useWidth } from "@/lib/useWidth";
+import { DESTINATIONS, LISTS } from "@/lib/destinations";
 import { listTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
 import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
@@ -43,11 +44,8 @@ import { ReadingMenu } from "./AppearanceControls";
 import { FINISH_SEARCH, ListPane, StatusBlock, type ListControls } from "./ListPane";
 import { DropdownMenu } from "@/ui/menu";
 
-const VIEWS: { view: View; label: string }[] = [
-  { view: "unread", label: "Unread" },
-  { view: "all", label: "All" },
-  { view: "starred", label: "Starred" },
-];
+// The Show pills are the whole-library lists of the destinations table; Muted is added only while it has something.
+const VIEWS: { view: View; label: string }[] = LISTS.filter((d) => d.id !== "muted").map((d) => ({ view: d.id as View, label: d.pill }));
 
 /** The list's title, and for a subfolder the path of the folders above it ("Tech › Apple" above "Mac"). */
 function useScopeTitle(scope: Scope): { title: string; above: string } {
@@ -130,7 +128,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
   const boot = useBootstrap();
   const mutedCount = boot.data?.counts.muted ?? 0;
   // The Muted pill appears when there is something muted, or when you are in it.
-  const views = scope.view === "muted" || mutedCount > 0 ? [...VIEWS, { view: "muted" as View, label: "Muted" }] : VIEWS;
+  const views = scope.view === "muted" || mutedCount > 0 ? [...VIEWS, { view: "muted" as View, label: DESTINATIONS.muted.pill }] : VIEWS;
   const nothingUnread = scopeUnread(scope, boot.data) === 0;
   const refreshBusy = refreshing || refresh.isPending;
   // A short phone screen (landscape) has no height to spare for a second header row: the Show pills and the feed

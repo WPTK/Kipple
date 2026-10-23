@@ -1,9 +1,9 @@
 import { vi } from "vitest";
 
-/** Stubs matchMedia so the wide layout (min-width 900px) is on. Undo with vi.unstubAllGlobals(). */
+/** Stubs matchMedia so the wide layout (the sidebar breakpoint) is on. Undo with vi.unstubAllGlobals(). */
 export function wide(): void {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: query.includes("min-width: 900px"),
+    matches: query.includes("min-width: 820px"),
     media: query,
     onchange: null,
     addEventListener() {},

@@ -112,7 +112,7 @@ describe("the article list is one Tab stop", () => {
 
   it("goes back to the open article when the reader changes it, not to a row focused before", async () => {
     vi.stubGlobal("matchMedia", (query: string) => ({
-      matches: query.includes("min-width: 900px"),
+      matches: query.includes("min-width: 820px"),
       media: query,
       onchange: null,
       addEventListener() {},

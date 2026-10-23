@@ -17,7 +17,8 @@ export function keyWidth(key: string, shift: boolean, current: number, min: numb
 }
 
 /**
- * A vertical drag handle on the right edge of a column (the parent must be `relative`). Pointer drag and the
+ * A vertical drag handle on the right edge of a column (the parent must be `relative`). It draws a thin line but is 24 px
+ * wide, centred on the edge (WCAG 2.5.8): what sits beside it keeps 12 px clear of the edge. Pointer drag and the
  * arrow keys resize it; Home and End go to the limits; double-click resets. It is a WAI-ARIA window splitter
  * (`role="separator"` with a value), so a screen reader announces the width.
  */
@@ -70,7 +71,7 @@ export function ResizeHandle({
       title="Drag to resize. Double-click to reset."
       data-active={active || undefined}
       className={cn(
-        "group absolute inset-y-0 -right-1.5 z-30 w-3 cursor-col-resize touch-none outline-none",
+        "group absolute inset-y-0 -right-3 z-30 w-6 cursor-col-resize touch-none outline-none",
         className,
       )}
       onPointerDown={(e) => {

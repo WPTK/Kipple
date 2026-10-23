@@ -234,7 +234,7 @@ describe("layouts", () => {
 
   it("Cards with nothing open fills the width; an open article keeps its list beside it", async () => {
     routes();
-    media("min-width: 900px");
+    media("min-width: 820px");
     updateDevicePrefs({ layout: "cards" });
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
@@ -246,7 +246,7 @@ describe("layouts", () => {
 
   it("switching layout with an article open keeps the article and the list (Cards included)", async () => {
     routes();
-    media("min-width: 900px");
+    media("min-width: 820px");
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
     await waitFor(() => expect(document.querySelector('[data-item-id="1002"]')).not.toBeNull());

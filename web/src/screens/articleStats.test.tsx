@@ -47,7 +47,7 @@ let stopStats: (() => void) | undefined;
 
 beforeEach(() => {
   vi.stubGlobal("EventSource", NoES);
-  vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width: 900px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width: 820px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
   clearToasts();
   clearListMemory();
   authStore.set("unknown");
