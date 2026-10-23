@@ -8,12 +8,19 @@ import { READING_LENGTH_MINUTES, isReadingLength } from "@/lib/readingLength";
  */
 
 export const PAGE_SIZE = 50;
+/** What follows a scope key in the key of a Digest section (parseScopeKey reads past it, so it names the same scope). */
+export const SECTION_SUFFIX = "|digest:1";
 
 export const keys = {
   bootstrap: ["bootstrap"] as const,
   /** GET /api/auth/me, live (not "auth": the sign-out sweep must drop it). */
   me: ["me"] as const,
   items: (scope: Scope) => ["items", scopeKey(scope)] as const,
+  /**
+   * One section of a Digest page: the list of a folder or a feed, kept apart from the list of the same scope (its pages
+   * are cut differently). Under "items", so every patch, drop and invalidation of a list reaches it too.
+   */
+  section: (scope: Scope) => ["items", `${scopeKey(scope)}${SECTION_SUFFIX}`] as const,
   itemsAll: ["items"] as const,
   item: (id: string) => ["item", id] as const,
   stats: (range: string) => ["stats", range] as const,

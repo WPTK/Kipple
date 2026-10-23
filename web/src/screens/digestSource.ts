@@ -1,0 +1,371 @@
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { InfiniteQueryObserver, useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
+import { itemsQuery, keys, scopeKey, SECTION_SUFFIX, useBootstrap } from "@/api/queries";
+import type { Card, Feed, Folder, ItemsPage, Scope } from "@/api/types";
+import { useDevicePrefs, type DigestOrder, type DigestSections } from "@/lib/devicePrefs";
+import { chainOf, folderTree } from "@/lib/folderTree";
+import { byFeed, byFolder } from "@/lib/sections";
+import { createStore, useStoreSelector } from "@/lib/store";
+import { useLatestRef } from "@/lib/useLatestRef";
+import { EXPAND_BATCH, groupFeeds, layoutDigest, orderSections, type LoadedSection } from "@/layouts/digestPlan";
+import type { DigestSectionView, DigestView } from "@/layouts/types";
+import type { ListSource } from "./listSource";
+
+/**
+ * The Digest page's data: every folder (or feed) is a list of its own, asked for lazily. The first FIRST_SECTIONS are
+ * asked for at open and STEP_SECTIONS more each time the end of the page comes near; a section shows its first few
+ * cards and EXPAND_BATCH more for each press of "N more". What the page shows is digestPlan's layout over what has loaded.
+ *
+ * The page is a snapshot, like every list: the sections it lists, and their order, are those of the moment it was
+ * opened (or last started over), so a count that moves while the reader reads never adds, drops or moves a section
+ * under them.
+ */
+
+/** Sections asked for when the page opens. */
+export const FIRST_SECTIONS = 6;
+/** Sections asked for each time the end of the page comes near. */
+export const STEP_SECTIONS = 4;
+/** Cards a section's request returns: one "N more" batch, so a press needs at most one more request. */
+export const SECTION_PAGE = EXPAND_BATCH;
+
+/** What a Digest page remembers about a list while the app runs: how far it has loaded, which sections were opened out. */
+interface Place {
+  /** Times the end of the page was reached (STEP_SECTIONS more sections each). */
+  steps: number;
+  /** Presses of "N more", by section key. */
+  presses: ReadonlyMap<string, number>;
+}
+const FRESH: Place = { steps: 0, presses: new Map() };
+const PLACES_MAX = 50;
+const places = createStore<ReadonlyMap<string, Place>>(new Map());
+/** The sections each list showed when it was opened, in order, and the settings that order came from. */
+const opened = new Map<string, { sig: string; keys: string[] }>();
+
+const placeOf = (key: string): Place => places.get().get(key) ?? FRESH;
+function setPlace(key: string, next: (p: Place) => Place): void {
+  places.set((all) => {
+    const m = new Map(all);
+    const p = next(m.get(key) ?? FRESH);
+    m.delete(key);
+    m.set(key, p);
+    while (m.size > PLACES_MAX) m.delete(m.keys().next().value!);
+    return m;
+  });
+}
+/** Forget every list's place (tests). */
+export function clearDigestPlaces(): void {
+  places.set(new Map());
+  opened.clear();
+}
+
+type FeedLike = Pick<Feed, "id" | "title" | "folder_id" | "unread" | "starred_count" | "is_archive"> & { pace?: number | null };
+type FolderLike = Pick<Folder, "id" | "name" | "parent_id">;
+
+export interface DigestInput {
+  scope: Scope;
+  feeds: readonly FeedLike[];
+  folders: readonly FolderLike[];
+  sections: DigestSections;
+  order: DigestOrder;
+  rows: number;
+  place: Place;
+}
+
+/** What a section's list came to: its cards (if it has any yet), and how its requests stand. */
+export interface SectionResult {
+  data?: { cards: Card[]; more: boolean; asOf: string | undefined };
+  error: unknown;
+  fetching: boolean;
+  fetchingMore: boolean;
+  moreFailed: boolean;
+  /** Ask the next page of this section. */
+  fetchMore?: () => void;
+  refetch?: () => void;
+}
+
+/** The list a section is: its view, length and the folder or feed it is. */
+export const sectionScope = (scope: Scope, s: { scope: Pick<Scope, "feed" | "folder"> }): Scope => ({ view: scope.view, length: scope.length, ...s.scope });
+
+function shape(data: InfiniteData<ItemsPage>, more: boolean): NonNullable<SectionResult["data"]> {
+  const last = data.pages[data.pages.length - 1];
+  return { cards: data.pages.flatMap((p) => p.items), more: more || !!last?.next_cursor, asOf: data.pages[0]?.as_of };
+}
+
+/** The section's list as the cache holds it now (no request is made). */
+function fromCache(qc: QueryClient, sc: Scope): SectionResult | undefined {
+  const data = qc.getQueryData<InfiniteData<ItemsPage>>(keys.section(sc));
+  return data ? { data: shape(data, false), error: null, fetching: false, fetchingMore: false, moreFailed: false } : undefined;
+}
+
+/**
+ * The page: the sections of a list in the order it shows them, the first ones asked for, and the layout over what has
+ * loaded. `read` says what a section's list is.
+ */
+export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResult | undefined) {
+  const { scope, feeds, folders, place } = input;
+  const tree = folderTree(folders);
+  const inScope = feeds.filter((f) => (scope.feed ? f.id === scope.feed : scope.folder ? chainOf(tree, f.folder_id).includes(scope.folder) : true));
+  const keyOf = input.sections === "feed" ? byFeed(inScope) : byFolder(folders, inScope, scope);
+  const live = orderSections(groupFeeds(inScope, folders, keyOf, scope.view), input.order);
+  // A section with nothing unread is not asked for. Which sections there are, and their order, are fixed when the page opens.
+  const listKey = scopeKey(scope);
+  const sig = `${input.sections}|${input.order}`;
+  let fixed = opened.get(listKey);
+  if (fixed?.sig !== sig) {
+    fixed = { sig, keys: live.filter((d) => !(scope.view === "unread" && d.count === 0)).map((d) => d.key) };
+    opened.delete(listKey);
+    opened.set(listKey, fixed);
+    while (opened.size > PLACES_MAX) opened.delete(opened.keys().next().value!);
+  }
+  const byKey = new Map(live.map((d) => [d.key, d]));
+  const defs = fixed.keys.flatMap((k) => byKey.get(k) ?? []);
+  const askedFor = new Set(defs.slice(0, FIRST_SECTIONS + STEP_SECTIONS * place.steps).map((d) => d.key));
+  const results = new Map<string, SectionResult>();
+  const loaded = new Map<string, LoadedSection>();
+  for (const d of defs) {
+    if (!askedFor.has(d.key)) continue;
+    const r = read(sectionScope(scope, d));
+    if (!r) continue;
+    results.set(d.key, r);
+    if (r.data) loaded.set(d.key, { cards: r.data.cards, more: r.data.more });
+  }
+  const layout = layoutDigest(defs, { view: scope.view, rows: input.rows, expanded: place.presses, activated: askedFor }, loaded);
+  return { defs, askedFor, results, layout, waiting: defs.length > askedFor.size };
+}
+export type Plan = ReturnType<typeof planDigest>;
+
+/** The sections the page draws: the ones asked for that have something to show or to say. */
+function sectionViews(plan: Plan, view: Scope["view"]): DigestSectionView[] {
+  const out: DigestSectionView[] = [];
+  for (const s of plan.layout.sections) {
+    if (s.state === "waiting") continue;
+    if (s.state === "ready" && s.cards.length === 0) continue;
+    const r = plan.results.get(s.key);
+    const count = plan.defs.find((d) => d.key === s.key)?.count ?? null;
+    // "N more" counts what has not been shown: a card read since it was shown has left the section's unread count already.
+    const moreCount = view === "unread" && count !== null ? Math.max(0, count - s.cards.filter((c) => !c.read).length) : s.moreCount;
+    out.push({
+      ...s,
+      moreCount,
+      hasMore: s.hasMore && (moreCount === null || moreCount > 0),
+      error: s.state === "loading" ? (r?.error ?? null) : null,
+      loadingMore: !!r?.fetchingMore,
+      moreFailed: !!r?.moreFailed,
+    });
+  }
+  return out;
+}
+
+/** The `as_of` of the oldest first page among the sections: a mark all bounded by it leaves alone what any section did not yet know of. */
+export function oldestAsOf(asOfs: readonly (string | undefined)[]): string | undefined {
+  let out: string | undefined;
+  for (const a of asOfs) {
+    if (!a) continue;
+    try {
+      if (out === undefined || BigInt(a) < BigInt(out)) out = a;
+    } catch {
+      /* an as_of that is not a number takes no part */
+    }
+  }
+  return out;
+}
+
+type Observer = InfiniteQueryObserver<ItemsPage, Error, InfiniteData<ItemsPage, string>, readonly unknown[], string>;
+type Options = Parameters<Observer["getOptimisticResult"]>[0];
+interface Entry {
+  observer: Observer;
+  options: Options;
+  off: (() => void) | null;
+}
+
+/** The observers of a page's sections, one per section, subscribed while the page wants it: that is what loads a section and follows the cache. */
+class SectionObservers {
+  private entries = new Map<string, Entry>();
+  private listeners = new Set<() => void>();
+  private version = 0;
+  constructor(private qc: QueryClient) {}
+
+  subscribe = (fn: () => void) => {
+    this.listeners.add(fn);
+    return () => void this.listeners.delete(fn);
+  };
+  getVersion = () => this.version;
+  private emit = () => {
+    this.version++;
+    this.listeners.forEach((f) => f());
+  };
+
+  private entry(sc: Scope): Entry {
+    const id = String(keys.section(sc)[1]);
+    const had = this.entries.get(id);
+    if (had) return had;
+    const options = this.qc.defaultQueryOptions(itemsQuery(sc, keys.section(sc), SECTION_PAGE)) as unknown as Options;
+    const made: Entry = { observer: new InfiniteQueryObserver(this.qc, options), options, off: null };
+    this.entries.set(id, made);
+    return made;
+  }
+
+  /** What the section's list is now, from the cache (a request not yet made shows as pending). */
+  result(sc: Scope): SectionResult {
+    const { observer, options } = this.entry(sc);
+    const r = observer.getOptimisticResult(options);
+    return {
+      data: r.data ? shape(r.data, !!r.hasNextPage) : undefined,
+      error: r.error,
+      fetching: r.isFetching,
+      fetchingMore: r.isFetchingNextPage,
+      moreFailed: r.isFetchNextPageError,
+      fetchMore: () => void observer.fetchNextPage(),
+      refetch: () => void observer.refetch(),
+    };
+  }
+
+  /** Subscribe to the wanted sections and let go of the others. */
+  want(scopes: readonly Scope[]): void {
+    const wanted = new Set(scopes.map((sc) => String(keys.section(sc)[1])));
+    for (const sc of scopes) {
+      const e = this.entry(sc);
+      e.off ??= e.observer.subscribe(this.emit);
+    }
+    for (const [id, e] of this.entries) {
+      if (wanted.has(id)) continue;
+      e.off?.();
+      this.entries.delete(id);
+    }
+    this.emit();
+  }
+  release(): void {
+    for (const e of this.entries.values()) {
+      e.off?.();
+      e.off = null;
+    }
+  }
+}
+
+export interface DigestSource extends ListSource {
+  digest: DigestView;
+  /** Every article the sections hold, shown or not, in the page's order. */
+  loadedCards: Card[];
+  /** Ask for the next sections; resolves once they are in, with the articles shown then and whether sections are still left. */
+  loadMore: () => Promise<{ cards: Card[]; more: boolean }>;
+}
+
+const EMPTY_CARDS: Card[] = [];
+
+/**
+ * The Digest page of a list: the list screen's source when the layout is the Digest. `on` false makes it inert (the
+ * hook is called either way). `live` false only reads what is cached, for the reader's previous and next with no list
+ * mounted.
+ */
+export function useDigestSource(scope: Scope, on: boolean, live = true): DigestSource {
+  const qc = useQueryClient();
+  const boot = useBootstrap();
+  const dp = useDevicePrefs();
+  const listKey = scopeKey(scope);
+  const place = useStoreSelector(places, (all) => all.get(listKey) ?? FRESH);
+  const observers = useMemo(() => new SectionObservers(qc), [qc]);
+  const version = useSyncExternalStore(observers.subscribe, observers.getVersion);
+  const feeds = boot.data?.feeds;
+  const folders = boot.data?.folders;
+  const { view, feed, folder, length } = scope;
+  const rows = dp.digestRows;
+
+  const input = useMemo<DigestInput | null>(
+    () => (on && feeds && folders ? { scope: { view, feed, folder, length }, feeds, folders, sections: dp.digestSections, order: dp.digestOrder, rows, place } : null),
+    [on, feeds, folders, view, feed, folder, length, dp.digestSections, dp.digestOrder, rows, place],
+  );
+  // `version` is not read here: it says that the observers' results moved.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const plan = useMemo(() => (input ? planDigest(input, (sc) => observers.result(sc)) : null), [input, observers, version]);
+
+  // The sections asked for are subscribed to: that is what loads them.
+  const wanted = useMemo(() => (plan && live ? plan.defs.filter((d) => plan.askedFor.has(d.key)).map((d) => sectionScope({ view, length }, d)) : []), [plan, live, view, length]);
+  const wantedKey = wanted.map((sc) => scopeKey(sc)).join("\n");
+  useEffect(() => {
+    observers.want(wanted);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [observers, wantedKey]);
+  useEffect(() => () => observers.release(), [observers]);
+
+  // A press of "N more" shows more cards than the section has loaded: load the page that has them.
+  useEffect(() => {
+    if (!plan || !live) return;
+    for (const s of plan.layout.sections) {
+      const r = plan.results.get(s.key);
+      const want = rows + EXPAND_BATCH * (place.presses.get(s.key) ?? 0);
+      if (r?.data?.more && r.data.cards.length < want && !r.fetching && !r.moreFailed) r.fetchMore?.();
+    }
+  });
+
+  const latest = useLatestRef({ input, plan });
+
+  const expand = useCallback((key: string) => setPlace(listKey, (p) => ({ ...p, presses: new Map(p.presses).set(key, (p.presses.get(key) ?? 0) + 1) })), [listKey]);
+  const retry = useCallback((key: string) => {
+    const r = latest.current.plan?.results.get(key);
+    if (r?.error != null && !r.data) r.refetch?.();
+    else r?.fetchMore?.();
+  }, []);
+
+  const snapshot = useCallback((): { cards: Card[]; more: boolean } => {
+    const inp = latest.current.input;
+    if (!inp) return { cards: [], more: false };
+    const p = planDigest({ ...inp, place: placeOf(listKey) }, (sc) => fromCache(qc, sc));
+    return { cards: p.layout.cards, more: p.waiting };
+  }, [qc, listKey]);
+
+  const loadMore = useCallback(async () => {
+    const inp = latest.current.input;
+    if (!inp) return { cards: [], more: false };
+    setPlace(listKey, (p) => ({ ...p, steps: p.steps + 1 }));
+    const next = planDigest({ ...inp, place: placeOf(listKey) }, (sc) => fromCache(qc, sc));
+    await Promise.allSettled(
+      next.defs
+        .filter((d) => next.askedFor.has(d.key))
+        .map((d) => {
+          const sc = sectionScope(inp.scope, d);
+          return qc.fetchInfiniteQuery(itemsQuery(sc, keys.section(sc), SECTION_PAGE));
+        }),
+    );
+    return snapshot();
+  }, [qc, listKey, snapshot]);
+
+  const startOver = useCallback(async () => {
+    setPlace(listKey, () => FRESH);
+    opened.delete(listKey);
+    await qc.resetQueries({ queryKey: keys.itemsAll, predicate: (q) => String(q.queryKey[1]).startsWith(`${view}|`) && String(q.queryKey[1]).endsWith(SECTION_SUFFIX) });
+  }, [qc, listKey, view]);
+
+  const results = useMemo(() => (plan ? [...plan.results.values()] : []), [plan]);
+  const hasData = results.some((r) => r.data);
+  const errored = results.find((r) => r.error != null && !r.data);
+  const asOf = useMemo(() => oldestAsOf(results.map((r) => r.data?.asOf)), [results]);
+  const shownViews = useMemo(() => (plan ? sectionViews(plan, view) : []), [plan, view]);
+  const allCards = useMemo(() => (plan ? plan.defs.flatMap((d) => plan.results.get(d.key)?.data?.cards ?? []) : EMPTY_CARDS), [plan]);
+  const digest = useMemo<DigestView>(() => ({ sections: shownViews, rows, images: dp.digestImages, expand, retry }), [shownViews, rows, dp.digestImages, expand, retry]);
+
+  return {
+    cards: plan?.layout.cards ?? EMPTY_CARDS,
+    more: !!plan?.waiting,
+    loadMore,
+    loadingMore: hasData && results.some((r) => r.fetching && !r.data),
+    loadMoreFailed: false,
+    // Nothing to show until the bootstrap says which sections there are and one of them has come back.
+    pending: on && (!plan || (plan.askedFor.size > 0 && !hasData && !errored)),
+    fetching: results.some((r) => r.fetching),
+    error: hasData ? null : (errored?.error ?? null),
+    hasData,
+    asOf,
+    fallback: false,
+    retry: () => results.forEach((r) => (r.error != null && !r.data ? r.refetch?.() : undefined)),
+    startOver,
+    rangeOf: (item) => {
+      for (const d of plan?.defs ?? []) {
+        const r = plan?.results.get(d.key)?.data;
+        if (r?.cards.some((c) => c.id === item.id)) return { cards: r.cards, scope: sectionScope(scope, d), asOf: r.asOf };
+      }
+      return { why: "Mark above and below need the article's section loaded" };
+    },
+    digest,
+    loadedCards: allCards,
+  };
+}

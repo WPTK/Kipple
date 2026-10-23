@@ -2248,6 +2248,19 @@ The design is in docs/maintainers/ui-decisions.md ("The Gazette"); this is how t
 - **Scroll position** comes back when the reader returns, once the pages are tall enough to hold it. Any scroll the restore did not make before that (the reader's, the article pane's previous and next, find in page) cancels it, so loading more pages never jumps back.
 - **Not built yet:** swipe and the row menu on stories (issue #314).
 
+### 7.12 The Digest layout (web only, `web/src/layouts/digest.tsx`, `web/src/screens/digestSource.ts`, `web/src/layouts/digestPlan.ts`)
+
+The design is in docs/maintainers/ui-decisions.md ("The Digest"). No server change beyond the profile keys of §7.1c and `feeds[].pace` in the bootstrap.
+
+- **A page of sections.** The Digest is a page layout (§7.10, `ListLayout.Page`). `digestPlan.ts` cuts the sidebar's folders (or feeds, `client.digest_sections`) into sections and orders them (`client.digest_order`: sidebar order, or Quiet Feeds First: lower `pace` first, no pace last, sidebar order within ties). A search has no sections and draws Compact rows.
+- **One query for each section.** A section is the list of its folder or feed (`/api/items`), cached under `["items", scopeKey + "|digest:1"]`, so a mark, a star or a refresh reaches it like any list. It shows its first N unread articles (`client.digest_rows`: 3, 5 or 10) and "M more in <name>", where M is the section's unread count less those shown. Pressing it opens the section in place, 20 articles at a time. A section's request failing shows that section's error with a Retry button and nothing else changes.
+- **Lazy.** The first 6 sections load when the list opens and 4 more each time the end-of-list marker is reached; a section below the fold costs nothing until then.
+- **A snapshot.** The section list and order are fixed when the page opens and change only when the reader starts over (refresh) or changes a Digest setting, so an unread count that moves under a reader's hands never adds, removes or reorders a section. An opened section stays open while the reader is in an article and comes back (the place is kept per list, `places` in `digestSource.ts`).
+- **Keys.** The page is one Tab stop (the article that last had focus, else the selected one, else the first). The arrow keys visit articles and the "more" and Retry buttons in the order they are drawn; Enter on a button acts on it. Next and Previous in an open article follow the same order.
+- **Mark above and below** act within the article's own section (the request names the section's list and its own `as_of`), and **Mark all** is bounded by the smallest `as_of` of the loaded sections, so nothing newer than what the reader was shown is marked.
+- **Mark as read while scrolling** works as in the Gazette (`pageSeen.ts`), on the articles shown.
+- **Rows.** The title comes first, then source and time; with Images on, an article that has a picture shows it at the right (`client.digest_images`), and with it off the row is text only. A read article keeps its place and fades.
+
 ### 7.11 Undo in the web app (`web/src/lib/undo.ts`, `web/src/lib/itemActions.ts`)
 
 The toast and the stack's limits are in docs/maintainers/ui-decisions.md ("Gestures and keys"): one toast for 15 s, same-kind actions merged, up to 20 groups reachable with Undo for 60 s, bulk marks never merged and undoable for 2 minutes. Undo reverses exactly what the server says it changed (`changed`, `ledger_ids`; §7.1), never the rows the client guessed.
