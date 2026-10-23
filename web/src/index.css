@@ -316,9 +316,10 @@ a.sr-only-live:focus {
 
 /* ---------- Article body ---------- */
 
-/* The column is a count of characters of the reading face (--kp-measure, in ch), so a wide face does not run long
-   lines and a narrow one does not run short ones. A registered length is computed where it is set, the article, whose
-   font is the reading font at the body size; the header, banners and body below all read the same pixel width. */
+/* At the Medium width the column is a count of characters of the reading face (--kp-measure, in ch): a wide face gets a
+   wider column and a narrow one a narrower, so a line holds about the same number of characters in any font. (Narrow
+   and Wide are fixed widths in rem, set by the article.) A registered length is computed where it is set, the article,
+   whose font is the reading font at the body size; the header, banners and body below all read the same pixel width. */
 @property --kp-col {
   syntax: "<length-percentage>";
   inherits: true;
@@ -326,16 +327,15 @@ a.sr-only-live:focus {
 }
 /* The article is set in the reading font so ch means the body text's ch. font-size-adjust gives every face the same
    x-height, so one text size looks the same in all bundled fonts (a face's own x-height ranges from 0.45 to 0.55 em). */
-.kp-article { font-family: var(--kp-reading-font); font-size: 1.0625rem; font-size-adjust: 0.5; }
+.kp-article { --kp-col: min(var(--kp-measure), 46rem); font-family: var(--kp-reading-font); font-size: 1.0625rem; font-size-adjust: 0.5; }
 /* The parts of an article that are interface, not reading: back in the app font. */
-.kp-ui { font-family: var(--kp-app-font, var(--font-sans)); font-size: 1rem; font-size-adjust: none; }
+.kp-ui { font-family: var(--kp-app-font, var(--font-sans)); font-size-adjust: none; }
 
 .article-body {
   font-family: var(--kp-reading-font);
-  font-size: 1.0625rem;
   line-height: var(--kp-lh);
   letter-spacing: var(--kp-ls);
-  max-width: min(var(--kp-col, min(var(--kp-measure), 46rem)), 100%);
+  max-width: min(var(--kp-col), 100%);
   margin-inline: auto;
   /* A long address breaks only where it would run past the column. break-word, not anywhere: anywhere also shrinks
      the narrowest width a table cell can take, so cells broke words letter by letter instead of the table scrolling. */
@@ -362,10 +362,10 @@ a.sr-only-live:focus {
 .article-body img, .article-body video, .article-body svg { max-width: 100%; height: auto; border-radius: 0.5rem; }
 /* A picture never grows taller than most of a screen: a tall one keeps its shape, narrower, centred, instead of
    pushing the text away. Pictures and video only; the embed poster keeps its 16:9 frame below. */
-.article-body img, .article-body video { max-height: min(70dvh, 40rem); width: auto; object-fit: contain; }
-.article-body :is(p, figure, a) > img:only-child, .article-body figure > video { display: block; margin-inline: auto; }
-.article-body figure { text-align: center; }
-.article-body figure > figcaption { text-align: start; }
+.article-body img, .article-body video { max-height: min(70dvh, 40rem); object-fit: contain; }
+/* A picture that stands alone on its line (enhanceImages in articleDom.ts) is centred; one in a line of text or in a row
+   of icons stays where it is. */
+.article-body img[data-kp="block"], .article-body figure > video { display: block; margin-inline: auto; }
 .article-body figure { margin-inline: 0; }
 .article-body figcaption { color: var(--kp-text2); font-size: 0.875em; margin-block-start: 0.4em; }
 .article-body blockquote { border-inline-start: 3px solid var(--kp-border); padding-inline-start: 1em; color: var(--kp-text2); margin-inline: 0; }

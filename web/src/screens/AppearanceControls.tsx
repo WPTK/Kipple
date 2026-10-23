@@ -58,7 +58,7 @@ export function DensityPreview({ list, reading }: { list: Step; reading: Step })
         </div>
         <div className="size-[var(--thumb)] shrink-0 rounded-lg bg-surface" />
       </div>
-      <div data-reading-density={reading} className="article-body px-4 py-3 text-base">
+      <div data-reading-density={reading} className="kp-article article-body px-4 py-3">
         <h3>Toaster files formal grievance against the kitchen</h3>
         <p className="text-sm text-fg2">By A. Reasonable Person · The Ubiquitous Gazette</p>
         <p>

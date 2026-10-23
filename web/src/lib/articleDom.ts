@@ -276,7 +276,9 @@ export function watchScrollRegions(root: HTMLElement): () => void {
     if (over) {
       el.tabIndex = 0;
       if (el.tagName === "PRE") el.setAttribute("role", "region");
-      if (!el.hasAttribute("aria-label")) {
+      // A table with a caption or its own name already has one; a code block has none, so it gets "Code".
+      const named = el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby") || (el.tagName === "TABLE" && el.querySelector(":scope > caption") !== null);
+      if (!named) {
         el.setAttribute("aria-label", el.tagName === "PRE" ? "Code" : "Table");
         el.dataset.kpName = "1";
       }
@@ -296,4 +298,36 @@ export function watchScrollRegions(root: HTMLElement): () => void {
   const ro = new ResizeObserver((entries) => entries.forEach((e) => apply(e.target as HTMLElement)));
   regions.forEach((el) => ro.observe(el));
   return () => ro.disconnect();
+}
+
+const LINE_BREAKERS = new Set(["ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BR", "DETAILS", "DIV", "DL", "FIGCAPTION", "FIGURE", "FOOTER", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION", "TABLE", "UL"]);
+
+/** True when nothing else sits on the picture's line: no text and no other inline content before it or after it, up to a line break or the edge of its block. */
+function aloneOnItsLine(node: Node): boolean {
+  for (const dir of ["previousSibling", "nextSibling"] as const) {
+    for (let n = node[dir]; n; n = n[dir]) {
+      if (n.nodeType === Node.TEXT_NODE) {
+        if ((n.textContent ?? "").trim() !== "") return false;
+      } else if (n.nodeType === Node.ELEMENT_NODE) {
+        if (LINE_BREAKERS.has((n as Element).tagName)) break;
+        if ((n as Element).textContent?.trim() !== "" || (n as Element).querySelector("img, video, svg")) return false;
+        if (["IMG", "VIDEO", "SVG", "PICTURE", "IFRAME"].includes((n as Element).tagName)) return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * Mark a picture that stands alone on its line (data-kp="block": CSS centres it, so a picture capped in height sits in
+ * the middle of the column). A picture inside a line of text, or beside others in a row of icons, is left alone. The
+ * picture's own wrappers (a link, a picture element) count as part of it.
+ */
+export function enhanceImages(root: ParentNode): void {
+  for (const img of root.querySelectorAll<HTMLImageElement>("img")) {
+    if (img.dataset.kp || img.closest("figure.kp-embed") || img.classList.contains(NOT_SHOWN_CLASS)) continue;
+    let node: Element = img;
+    while (node.parentElement && ["A", "PICTURE"].includes(node.parentElement.tagName) && node.parentElement.children.length === 1 && (node.parentElement.textContent ?? "").trim() === "") node = node.parentElement;
+    if (aloneOnItsLine(node)) img.dataset.kp = "block";
+  }
 }

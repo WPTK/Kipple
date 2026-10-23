@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { embedSrc, enhanceTables, footnoteTarget, handleArticleClick, loadEmbed } from "./articleDom";
+import { embedSrc, enhanceImages, enhanceTables, footnoteTarget, handleArticleClick, loadEmbed } from "./articleDom";
 
 describe("embedSrc", () => {
   it("allows only YouTube (nocookie) and Vimeo with sane ids", () => {
@@ -104,5 +104,28 @@ describe("enhanceTables", () => {
     enhanceTables(root);
     const kp = [...root.querySelectorAll("td, th")].map((c) => (c as HTMLElement).dataset.kp ?? "");
     expect(kp).toEqual(["short", "short", "short", "short", "num", "", "short", "num", ""]);
+  });
+});
+describe("enhanceImages", () => {
+  const kinds = (html: string) => {
+    const root = document.createElement("div");
+    root.innerHTML = html;
+    enhanceImages(root);
+    return [...root.querySelectorAll("img")].map((i) => i.dataset.kp ?? "");
+  };
+  it("marks a picture that stands alone on its line, whatever wraps it", () => {
+    expect(kinds('<img src="a.png">')).toEqual(["block"]);
+    expect(kinds('<p><img src="a.png"></p>')).toEqual(["block"]);
+    expect(kinds('<div><img src="a.png"></div>')).toEqual(["block"]);
+    expect(kinds('<picture><source><img src="a.png"></picture>')).toEqual(["block"]);
+    expect(kinds('<p><a href="/x"><img src="a.png"></a></p>')).toEqual(["block"]);
+    expect(kinds('<figure><img src="a.png"><figcaption>Caption</figcaption></figure>')).toEqual(["block"]);
+    expect(kinds('<p>Text</p><img src="a.png"><p>More</p>')).toEqual(["block"]);
+  });
+  it("leaves a picture in a line of text or in a row of icons alone", () => {
+    expect(kinds('<p>Text <img src="a.png"> more</p>')).toEqual([""]);
+    expect(kinds('<p><img src="a.png"> <img src="b.png"> <img src="c.png"></p>')).toEqual(["", "", ""]);
+    expect(kinds('<p><img src="a.png"> caption</p>')).toEqual([""]);
+    expect(kinds('<p><img src="a.png"><br><img src="b.png"></p>')).toEqual(["block", "block"]);
   });
 });
