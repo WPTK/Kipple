@@ -363,9 +363,15 @@ a.sr-only-live:focus {
 /* A picture never grows taller than most of a screen: a tall one keeps its shape, narrower, centred, instead of
    pushing the text away. Pictures and video only; the embed poster keeps its 16:9 frame below. */
 .article-body img, .article-body video { max-height: min(70dvh, 40rem); object-fit: contain; }
+/* The base style makes every img a block, which would cut a line of text around an icon in two: pictures flow with the
+   text unless they stand alone (below). */
+.article-body img { display: inline; }
 /* A picture that stands alone on its line (enhanceImages in articleDom.ts) is centred; one in a line of text or in a row
    of icons stays where it is. */
 .article-body img[data-kp="block"], .article-body figure > video { display: block; margin-inline: auto; }
+/* A capped picture's box narrows with its height (enhanceImages gives --kp-w and --kp-h from the width and height
+   attributes), so its rounded corners and its link are the picture's own, not a full-width bar around it. */
+.article-body img[data-kp="block"][data-sized] { width: min(calc(var(--kp-w) * 1px), calc(min(70dvh, 40rem) * var(--kp-w) / var(--kp-h))); }
 .article-body figure { margin-inline: 0; }
 .article-body figcaption { color: var(--kp-text2); font-size: 0.875em; margin-block-start: 0.4em; }
 .article-body blockquote { border-inline-start: 3px solid var(--kp-border); padding-inline-start: 1em; color: var(--kp-text2); margin-inline: 0; }
@@ -625,6 +631,9 @@ a.sr-only-live:focus {
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
+/* The same height cap and centring as the picture it replaced, so a late failure moves no text. */
+.article-body .kp-img-off { max-height: min(70dvh, 40rem); }
+.article-body .kp-img-off[data-kp="block"] { display: flex; width: fit-content; margin-inline: auto; }
 /* Holding a declared image size (width and aspect-ratio set by imageNotShown): the text sits in the middle. */
 .article-body .kp-img-off[data-sized] { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 /* Inside a link the cue is part of that link, so it looks like one (an underline does not reach an inline-flex box). */

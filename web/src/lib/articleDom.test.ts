@@ -128,4 +128,26 @@ describe("enhanceImages", () => {
     expect(kinds('<p><img src="a.png"> caption</p>')).toEqual([""]);
     expect(kinds('<p><img src="a.png"><br><img src="b.png"></p>')).toEqual(["block", "block"]);
   });
+  it("looks through every inline wrapper, so a picture in a line of text stays inline", () => {
+    expect(kinds('<p>Text <a href="/x"><img src="a.png"></a></p>')).toEqual([""]);
+    expect(kinds('<p><a href="/x"><img src="a.png"></a> <a href="/y"><img src="b.png"></a></p>')).toEqual(["", ""]);
+    expect(kinds('<p>Text <span><img src="a.png"></span> more</p>')).toEqual([""]);
+    expect(kinds('<p>Text <strong><img src="a.png"></strong> more</p>')).toEqual([""]);
+    expect(kinds('<p>Text <mark><img src="a.png"></mark> more</p>')).toEqual([""]);
+    expect(kinds('<p><a href="/x"><span><img src="a.png"></span></a> Link text</p>')).toEqual([""]);
+    expect(kinds('<p>Text <picture><source><img src="a.png"></picture> more</p>')).toEqual([""]);
+    expect(kinds('<p><span><a href="/x"><img src="a.png"></a></span></p>')).toEqual(["block"]);
+  });
+  it("leaves a picture in a table cell to the cell's own alignment", () => {
+    expect(kinds('<table><tr><td align="left"><img src="a.png"></td><td>Name</td></tr></table>')).toEqual([""]);
+  });
+  it("gives a block picture its declared size for the CSS that narrows its box", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<p><img src="a.png" width="400" height="1000"></p>';
+    enhanceImages(root);
+    const img = root.querySelector("img") as HTMLImageElement;
+    expect(img.style.getPropertyValue("--kp-w")).toBe("400");
+    expect(img.style.getPropertyValue("--kp-h")).toBe("1000");
+    expect(img.hasAttribute("data-sized")).toBe(true);
+  });
 });

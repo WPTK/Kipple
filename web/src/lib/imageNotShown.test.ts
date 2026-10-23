@@ -159,6 +159,14 @@ describe("images refused for good", () => {
     root.remove();
   });
 
+  it("stands where the picture stood: a centred picture leaves a centred cue", () => {
+    const root = body('<p><img src="" data-kp="block"></p><p>Text <img src=""></p>');
+    const [alone, inline] = Array.from(root.querySelectorAll("img"));
+    expect((imageNotShown(alone as HTMLImageElement, undefined, false) as HTMLElement).dataset.kp).toBe("block");
+    expect((imageNotShown(inline as HTMLImageElement, undefined, false) as HTMLElement).dataset.kp).toBeUndefined();
+    root.remove();
+  });
+
   it("says only that the image is not shown when it has no alt text, and opens in the same tab when asked", async () => {
     const root = body('<img src="">');
     watchImages(root, "https://example.com/a/1", true);

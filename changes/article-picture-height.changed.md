@@ -1,1 +1,1 @@
-A tall picture in an article is capped at 70% of the window (at most 40 rem) and, when it stands alone on its line, centred, instead of filling the screen. Icons and pictures inside a line of text keep their size. (#648)
+A tall picture in an article is capped at 70% of the window (at most 40 rem) and, when it stands alone on its line, centred, instead of filling the screen. Icons and pictures inside a line of text stay in the line at their own size. (#648)

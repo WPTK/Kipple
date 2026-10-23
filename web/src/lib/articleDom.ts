@@ -156,6 +156,7 @@ export function imageNotShown(img: HTMLImageElement, original: string | undefine
   const label = doc.createElement("span");
   label.textContent = alt ? `Image not shown: ${alt}` : "Image not shown";
   cue.append(label);
+  if (img.dataset.kp) cue.dataset.kp = img.dataset.kp; // it stands where the picture stood, centred the same
   const w = declared(img, "width");
   const h = declared(img, "height");
   if (w && h) {
@@ -302,16 +303,18 @@ export function watchScrollRegions(root: HTMLElement): () => void {
 
 const LINE_BREAKERS = new Set(["ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BR", "DETAILS", "DIV", "DL", "FIGCAPTION", "FIGURE", "FOOTER", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION", "TABLE", "UL"]);
 
-/** True when nothing else sits on the picture's line: no text and no other inline content before it or after it, up to a line break or the edge of its block. */
-function aloneOnItsLine(node: Node): boolean {
+const NOT_ALONE_MEDIA = new Set(["IMG", "VIDEO", "SVG", "PICTURE", "IFRAME"]);
+
+/** True when no text and no other inline content sits beside this node, up to a line break or the edge of its block. */
+function noneBeside(node: Node): boolean {
   for (const dir of ["previousSibling", "nextSibling"] as const) {
     for (let n = node[dir]; n; n = n[dir]) {
       if (n.nodeType === Node.TEXT_NODE) {
         if ((n.textContent ?? "").trim() !== "") return false;
       } else if (n.nodeType === Node.ELEMENT_NODE) {
-        if (LINE_BREAKERS.has((n as Element).tagName)) break;
-        if ((n as Element).textContent?.trim() !== "" || (n as Element).querySelector("img, video, svg")) return false;
-        if (["IMG", "VIDEO", "SVG", "PICTURE", "IFRAME"].includes((n as Element).tagName)) return false;
+        const el = n as Element;
+        if (LINE_BREAKERS.has(el.tagName)) break;
+        if (NOT_ALONE_MEDIA.has(el.tagName) || (el.textContent ?? "").trim() !== "" || el.querySelector("img, video, svg")) return false;
       }
     }
   }
@@ -319,15 +322,34 @@ function aloneOnItsLine(node: Node): boolean {
 }
 
 /**
+ * True when nothing else sits on the picture's line. Looks through every inline wrapper (a link, a span, a picture
+ * element, strong...): at each level nothing but the wrapper's own markup may sit beside it, until a block ends the line.
+ */
+function aloneOnItsLine(img: Element): boolean {
+  for (let node: Element | null = img; node; node = node.parentElement) {
+    if (!noneBeside(node)) return false;
+    if (node.parentElement && LINE_BREAKERS.has(node.parentElement.tagName)) return true;
+  }
+  return true;
+}
+
+/**
  * Mark a picture that stands alone on its line (data-kp="block": CSS centres it, so a picture capped in height sits in
- * the middle of the column). A picture inside a line of text, or beside others in a row of icons, is left alone. The
- * picture's own wrappers (a link, a picture element) count as part of it.
+ * the middle of the column), and a picture or cue the same. A picture in a line of text, beside others in a row of
+ * icons, or in a table cell (where the author's cell alignment rules) is left alone. A block picture with both sizes
+ * declared also gets them as --kp-w and --kp-h, so CSS can narrow its box with its height (see index.css).
  */
 export function enhanceImages(root: ParentNode): void {
-  for (const img of root.querySelectorAll<HTMLImageElement>("img")) {
-    if (img.dataset.kp || img.closest("figure.kp-embed") || img.classList.contains(NOT_SHOWN_CLASS)) continue;
-    let node: Element = img;
-    while (node.parentElement && ["A", "PICTURE"].includes(node.parentElement.tagName) && node.parentElement.children.length === 1 && (node.parentElement.textContent ?? "").trim() === "") node = node.parentElement;
-    if (aloneOnItsLine(node)) img.dataset.kp = "block";
+  for (const img of root.querySelectorAll<HTMLImageElement>(`img, .${NOT_SHOWN_CLASS}`)) {
+    if (img.dataset.kp || img.closest("figure.kp-embed, td, th")) continue;
+    if (!aloneOnItsLine(img)) continue;
+    img.dataset.kp = "block";
+    const w = declared(img, "width");
+    const h = declared(img, "height");
+    if (w && h && img.tagName === "IMG") {
+      img.dataset.sized = "";
+      img.style.setProperty("--kp-w", String(w));
+      img.style.setProperty("--kp-h", String(h));
+    }
   }
 }

@@ -11,11 +11,12 @@
 //   R2  the title is 1.75 rem, the body headings step down from it (h2 1.2 em) and all are weight 650;
 //   R3  a tall picture on its own line, bare or in a div, a figure or a link, is capped at min(70% of the window,
 //       40 rem), is drawn contained and centred; an icon in a line of text and a row of icons keep their own size and
-//       are not centred; a video keeps its width attribute;
+//       are not centred; a picture keeps the width attribute it was given (12 px on a 24 px file), and a capped one is as narrow
+//       as its drawn shape;
 //   R4  code and tables wider than the column are focusable and named ("Code"; a table keeps its caption as its name,
 //       otherwise "Table"), axe's scrollable-region-focusable finds nothing, and a table in a figure is not centred text;
 //   R5  on a wide desktop, where the column is narrower than the pane, in a reading font far wider than the app font,
-//       the header and the body are one width and the column holds 55 to 80 characters of that font;
+//       the header and the body are one width and the column holds about 66 characters of that font (the Standard density);
 //   R6  an Arabic article lays out right to left (its title, byline, and the body, whose paragraphs have no dir of
 //       their own) while the "Read" line stays left to right;
 //   R7  table headers start-align and a number cell sits on the end edge.
@@ -32,7 +33,7 @@ const AXE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
 const t = await start(import.meta.url, 24);
 const { check, step } = t;
 
-const FEED = "UAT reading";
+const FEED = "UAT feed reading";
 const ESSAY = "UAT reading essay with every block";
 const ARABIC = "عنوان باللغة العربية يمتد عبر السطر";
 const PICTURES = "UAT reading a tall picture";
@@ -73,10 +74,12 @@ const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, 
 const wide = (n) => `<tr>${Array.from({ length: 8 }, (_, i) => `<${n}>${n === "th" ? `Column ${i + 1}` : i === 1 ? "6,650" : `Cell text number ${i + 1} in the row`}</${n}>`).join("")}</tr>`;
 const tall = () => `<img src="${base}/img/tall.png" width="400" height="1000" alt="">`;
 const icon = () => `<img src="${base}/img/icon.png" width="24" height="24" alt="">`;
+// The 24 px picture, asked to be 12 px wide: the width attribute decides, not the picture's own size.
+const small = () => `<img src="${base}/img/icon.png" width="12" height="12" alt="">`;
 const essayHtml = () =>
   [
     "<h2>A second-level heading</h2>",
-    `<p>A line of text with an icon ${icon()} inside it.</p>`,
+    `<p>A line of text with an icon ${icon()} inside it, and a small one ${small()} too.</p>`,
     `<p>${icon()}${icon()}${icon()}</p>`,
     "<ul><li>An item<ul><li>A nested item</li></ul></li><li>Another</li></ul>",
     "<ol><li>First step</li><li>Second step</li></ol>",
@@ -88,7 +91,6 @@ const essayHtml = () =>
     `<div>${tall()}</div>`,
     `<figure>${tall()}<figcaption>A tall picture</figcaption></figure>`,
     `<p><a href="https://example.com/">${tall()}</a></p>`,
-    `<video width="320" height="180" src="${base}/img/none.mp4" controls></video>`,
     "<p>The last paragraph.</p>",
   ].join("");
 const server = createServer((req, res) => {
@@ -165,18 +167,17 @@ try {
         };
         const icons = [...el.querySelectorAll("img[width=\"24\"]")].map(box);
         const talls = [...el.querySelectorAll("img[width=\"400\"]")].map((i) => ({ ...box(i), nw: i.naturalWidth, nh: i.naturalHeight, fit: getComputedStyle(i).objectFit, where: i.parentElement.tagName.toLowerCase() }));
-        const v = el.querySelector("video");
-        return { icons, talls, vh: window.innerHeight, rem: parseFloat(getComputedStyle(document.documentElement).fontSize), video: v ? { w: Math.round(v.getBoundingClientRect().width), display: getComputedStyle(v).display } : null };
+        return { icons, talls, vh: window.innerHeight, rem: parseFloat(getComputedStyle(document.documentElement).fontSize), small: [...el.querySelectorAll("img[width=\"12\"]")].map(box) };
       });
       const cap = Math.min(0.7 * pics.vh, 40 * pics.rem);
       check(pics.icons.length === 4 && pics.icons.every((i) => i.w === 24 && i.h === 24 && Math.abs(i.mid) > 10), `${tag} R3 icons`, "an icon in text and a row of icons keep the 24 px they were given and are not centred", JSON.stringify(pics.icons));
       check(pics.talls.length === 4, `${tag} R3 found`, "all four tall pictures are in the article", `${pics.talls.length} found`);
-      for (const p of pics.talls) {
-        check(p.h <= cap + 1 && p.w <= p.nw && p.fit === "contain", `${tag} R3 cap ${p.where}`, `a tall picture in a ${p.where} is capped (${p.h} <= ${cap}) and drawn contained (its shape kept)`, JSON.stringify(p));
-        check(p.display === "block" && Math.abs(p.mid) <= 2, `${tag} R3 centred ${p.where}`, `a tall picture in a ${p.where} is centred`, JSON.stringify(p));
+      check(pics.small.length === 1 && pics.small[0].w === 12 && pics.small[0].h === 12 && pics.small[0].display === "inline", `${tag} R3 width attribute`, "a picture keeps the width it was given (12 px on a 24 px file)", JSON.stringify(pics.small));
+      for (const [n, p] of pics.talls.entries()) {
+        check(p.h <= cap + 1 && p.w <= p.nw && p.fit === "contain", `${tag} R3 cap ${n + 1} ${p.where}`, `a tall picture in a ${p.where} is capped (${p.h} <= ${cap}) and drawn contained (its shape kept)`, JSON.stringify(p));
+        check(Math.abs(p.w - cap * (400 / 1000)) <= 2, `${tag} R3 box ${n + 1} ${p.where}`, `a capped picture in a ${p.where} is as wide as its drawn shape (${Math.round(cap * 0.4)}), not the 400 it was given`, JSON.stringify(p));
+        check(p.display === "block" && Math.abs(p.mid) <= 2, `${tag} R3 centred ${n + 1} ${p.where}`, `a tall picture in a ${p.where} is centred`, JSON.stringify(p));
       }
-      if (pics.video) check(pics.video.w === 320, `${tag} R3 video`, "a video keeps the width it was given", JSON.stringify(pics.video));
-      else t.pass(`${tag} R3 video`, "the sanitizer keeps no video here; nothing to size");
 
       // R4: code and tables.
       const regions = await body.evaluate((el) => {
@@ -252,7 +253,7 @@ try {
         check(col.pane > col.body + 100, `${tag} R5 room`, "the pane is wider than the column", JSON.stringify(col));
         check(col.bodyFont !== col.headerFont, `${tag} R5 fonts`, "the header and the body are set in different fonts", `${col.headerFont} / ${col.bodyFont}`);
         check(Math.abs(col.body - col.header) <= 1, `${tag} R5 aligned`, "the header and the body are one width", JSON.stringify(col));
-        check(col.chars >= 55 && col.chars <= 80, `${tag} R5 chars`, "the column holds 55 to 80 characters of the reading font", JSON.stringify(col));
+        check(Math.abs(col.chars - 66) <= 3, `${tag} R5 chars`, "the column holds about 66 characters (63 to 69) of the reading font at the Standard density", JSON.stringify(col));
         await page.evaluate(() => document.documentElement.style.removeProperty("--kp-reading-font"));
         await page.setViewportSize({ width: vp.width, height: vp.height });
       });
