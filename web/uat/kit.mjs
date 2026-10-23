@@ -54,10 +54,10 @@ await t.eachViewport(async (page, vp) => {
   await step(`${tag} K2`, async () => {
     const cur = await openPasswordDialog(page);
     await cur.fill("secret-value");
-    const show = page.getByRole("button", { name: "Show password" });
+    const show = cur.locator("xpath=..").getByRole("button", { name: "Show password" });
     await show.click();
     check((await cur.getAttribute("type")) === "text", `${tag} K2 show`, "Show reveals the value", `type is ${await cur.getAttribute("type")}`);
-    await page.getByRole("button", { name: "Hide password" }).click();
+    await cur.locator("xpath=..").getByRole("button", { name: "Hide password" }).click();
     check((await cur.getAttribute("type")) === "password", `${tag} K2 hide`, "Hide covers it again", "still shown");
     const body = await textOf(page.locator("body"), 4000);
     check(!/password again/i.test(body), `${tag} K2 again`, "there is no second password field", "a \"password again\" field is still there");
@@ -82,7 +82,7 @@ await t.eachViewport(async (page, vp) => {
       return s && { tag: el.tagName, outlineColor: s.outlineColor, outlineWidth: parseFloat(s.outlineWidth), shadow: s.boxShadow, accent: rgb("accent"), bg: rgb("bg") };
     });
     // The one two-tone ring: an accent outline with a gap of the page color between it and the control (#619).
-    const gap = r && /s(d+(?:.d+)?)px$/.exec(r.shadow);
+    const gap = r && /\s(\d+(?:\.\d+)?)px$/.exec(r.shadow);
     check(!!r && r.outlineColor === r.accent && r.outlineWidth >= 2 && r.shadow.startsWith(r.bg) && !!gap && Number(gap[1]) >= 2, `${tag} K3`, `the focused ${r?.tag} has an accent outline over a ${gap?.[1]}px page-colored gap`, `not the two-tone ring: ${JSON.stringify(r)}`);
   });
 
