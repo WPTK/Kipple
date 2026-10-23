@@ -116,6 +116,8 @@ const MEMORY_CAP = 100;
 const OVERSCAN = 8;
 /** How far down a list a remembered place is looked for after a reload, in articles. */
 const PLACE_SEARCH_MAX = 1000;
+/** The same for the Digest, which loads up to a page of every section it asks for: about ten sections. */
+const PLACE_SEARCH_DIGEST_MAX = 200;
 
 /** The article whose row is at the top of the scrolled list (rows are absolutely placed, so the highest one in view). */
 function topItemId(scroller: HTMLElement): string | null {
@@ -278,6 +280,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const listSrc = useItemsSource(scope, !!Page, !digestOn);
   const digestSrc = useDigestSource(scope, digestOn);
   const src: ListSource = digestOn ? digestSrc : listSrc;
+  // The Digest has nothing to show only when no section is drawn (even one still loading or failed is) and none is left to ask.
+  const nothingShown = src.digest ? src.digest.sections.length === 0 && !src.more : src.cards.length === 0;
   const { startOver } = src;
   const pagedRef = useLatestRef(!!Page);
   // Only the pending-new slices: run progress and fetch ticks must not re-render every row.
@@ -714,6 +718,12 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       }
       // Loaded but not laid out yet: the pages come in a later render.
       if (src.cards.some((i) => i.id === id)) return;
+      // The Digest shows a few of a section's articles: one it holds but does not show is not found by loading more.
+      if (digestOn && digestSrc.loadedCards.some((i) => i.id === id)) {
+        place.id = null;
+        rememberListTop(key, null);
+        return;
+      }
     } else {
       const i = rowIndexOf(id);
       if (i >= 0) {
@@ -724,7 +734,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       }
     }
     if (src.pending || src.fetching) return;
-    if (src.more && !src.loadMoreFailed && src.cards.length < PLACE_SEARCH_MAX) void src.loadMore();
+    // The Digest asks for sections, not pages: it looks through a few, never every one.
+    const searched = digestOn ? digestSrc.loadedCards.length : src.cards.length;
+    if (src.more && !src.loadMoreFailed && searched < (digestOn ? PLACE_SEARCH_DIGEST_MAX : PLACE_SEARCH_MAX)) void src.loadMore();
     else {
       place.id = null;
       rememberListTop(key, null);
@@ -1154,10 +1166,14 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       announce(FINISH_SEARCH);
       return;
     }
-    const local = items.filter((i) => !i.read).map((i) => i.id);
-    const restore = unreadView && local.length ? hide(local) : undefined;
-    void act.markAll(markScope, asOf.current, local, restore, unhide);
-  }, [act, hide, unhide, items, scope, markScope, unreadView]);
+    // A list of lists (the Digest) marks each loaded one within its own bound; any other is one list.
+    const parts = srcRef.current.markAllParts?.() ?? [{ scope: markScope, asOf: asOf.current, cards: items }];
+    for (const part of parts) {
+      const local = part.cards.filter((i) => !i.read).map((i) => i.id);
+      const restore = unreadView && local.length ? hide(local) : undefined;
+      void act.markAll(part.scope, part.asOf, local, restore, unhide);
+    }
+  }, [act, hide, unhide, items, scope, markScope, unreadView, srcRef]);
 
   const menuActions: RowMenuActions = useMemo(
     () => ({
@@ -1323,7 +1339,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         </StatusBlock>
       );
     }
-    if ((Page ? src.cards.length : rows.length) === 0) {
+    if (Page ? nothingShown : rows.length === 0) {
       if (boot.data && visibleFeeds(boot.data.feeds).length === 0 && !scope.q) {
         return (
           <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
@@ -1417,7 +1433,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     pageLook.current = firstLook(measurePage(el));
   }, [pulled, Page]);
   // Known to have nothing (not merely still loading): a search with no results has nothing to save or mark.
-  const empty = !src.pending && src.cards.length === 0;
+  const empty = !src.pending && nothingShown;
   // Each feed is judged by the new articles waiting from it, the way the pill counts them (one rule with the feed's empty list).
   const feeds = boot.data?.feeds;
   const folders = boot.data?.folders;

@@ -38,8 +38,22 @@ interface Place {
 const FRESH: Place = { steps: 0, presses: new Map() };
 const PLACES_MAX = 50;
 const places = createStore<ReadonlyMap<string, Place>>(new Map());
-/** The sections each list showed when it was opened, in order, and the settings that order came from. */
-const opened = new Map<string, { sig: string; keys: string[] }>();
+/**
+ * How long the page a reader left is kept as it was: the time the section lists stay in the query cache (its default
+ * garbage collection), after which a return starts a new page, so a folder that gained its first unread article shows.
+ */
+const SNAPSHOT_KEEP_MS = 5 * 60_000;
+/**
+ * What each list showed when it was opened: its sections in order, the unread count of each as the bootstrap said then
+ * (the page counts "N more" from it, so a count that moves under the reader does not), the Sections and Order settings
+ * it came from (a change of either makes a new page; Rows and Images do not change which sections there are), and when
+ * the reader left it.
+ */
+const opened = new Map<string, { sig: string; keys: string[]; counts: Map<string, number | null>; left: number | null }>();
+function leave(listKey: string): void {
+  const o = opened.get(listKey);
+  if (o) o.left = Date.now();
+}
 
 const placeOf = (key: string): Place => places.get().get(key) ?? FRESH;
 function setPlace(key: string, next: (p: Place) => Place): void {
@@ -111,14 +125,24 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
   const listKey = scopeKey(scope);
   const sig = `${input.sections}|${input.order}`;
   let fixed = opened.get(listKey);
-  if (fixed?.sig !== sig) {
-    fixed = { sig, keys: live.filter((d) => !(scope.view === "unread" && d.count === 0)).map((d) => d.key) };
+  if (fixed && (fixed.sig !== sig || (fixed.left !== null && Date.now() - fixed.left > SNAPSHOT_KEEP_MS))) fixed = undefined;
+  if (!fixed) {
+    const kept = live.filter((d) => !(scope.view === "unread" && d.count === 0));
+    fixed = { sig, keys: kept.map((d) => d.key), counts: new Map(kept.map((d) => [d.key, d.count])), left: null };
     opened.delete(listKey);
     opened.set(listKey, fixed);
     while (opened.size > PLACES_MAX) opened.delete(opened.keys().next().value!);
   }
   const byKey = new Map(live.map((d) => [d.key, d]));
-  const defs = fixed.keys.flatMap((k) => byKey.get(k) ?? []);
+  // A length filter makes the unread counts a count of something else: only a count of nothing still says there is nothing.
+  const counted = (k: string): number | null => {
+    const n = fixed.counts.get(k) ?? null;
+    return scope.length && n !== 0 ? null : n;
+  };
+  const defs = fixed.keys.flatMap((k) => {
+    const d = byKey.get(k);
+    return d ? [{ ...d, count: counted(k) }] : [];
+  });
   const askedFor = new Set(defs.slice(0, FIRST_SECTIONS + STEP_SECTIONS * place.steps).map((d) => d.key));
   const results = new Map<string, SectionResult>();
   const loaded = new Map<string, LoadedSection>();
@@ -135,19 +159,14 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
 export type Plan = ReturnType<typeof planDigest>;
 
 /** The sections the page draws: the ones asked for that have something to show or to say. */
-function sectionViews(plan: Plan, view: Scope["view"]): DigestSectionView[] {
+function sectionViews(plan: Plan): DigestSectionView[] {
   const out: DigestSectionView[] = [];
   for (const s of plan.layout.sections) {
     if (s.state === "waiting") continue;
     if (s.state === "ready" && s.cards.length === 0) continue;
     const r = plan.results.get(s.key);
-    const count = plan.defs.find((d) => d.key === s.key)?.count ?? null;
-    // "N more" counts what has not been shown: a card read since it was shown has left the section's unread count already.
-    const moreCount = view === "unread" && count !== null ? Math.max(0, count - s.cards.filter((c) => !c.read).length) : s.moreCount;
     out.push({
       ...s,
-      moreCount,
-      hasMore: s.hasMore && (moreCount === null || moreCount > 0),
       error: s.state === "loading" ? (r?.error ?? null) : null,
       loadingMore: !!r?.fetchingMore,
       moreFailed: !!r?.moreFailed,
@@ -285,7 +304,13 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
     observers.want(wanted);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [observers, wantedKey]);
-  useEffect(() => () => observers.release(), [observers]);
+  useEffect(
+    () => () => {
+      observers.release();
+      leave(listKey);
+    },
+    [observers, listKey],
+  );
 
   // A press of "N more" shows more cards than the section has loaded: load the page that has them.
   useEffect(() => {
@@ -304,14 +329,14 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
     const r = latest.current.plan?.results.get(key);
     if (r?.error != null && !r.data) r.refetch?.();
     else r?.fetchMore?.();
-  }, []);
+  }, [latest]);
 
   const snapshot = useCallback((): { cards: Card[]; more: boolean } => {
     const inp = latest.current.input;
     if (!inp) return { cards: [], more: false };
     const p = planDigest({ ...inp, place: placeOf(listKey) }, (sc) => fromCache(qc, sc));
     return { cards: p.layout.cards, more: p.waiting };
-  }, [qc, listKey]);
+  }, [qc, listKey, latest]);
 
   const loadMore = useCallback(async () => {
     const inp = latest.current.input;
@@ -327,7 +352,7 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
         }),
     );
     return snapshot();
-  }, [qc, listKey, snapshot]);
+  }, [qc, listKey, snapshot, latest]);
 
   const startOver = useCallback(async () => {
     setPlace(listKey, () => FRESH);
@@ -337,11 +362,21 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
 
   const results = useMemo(() => (plan ? [...plan.results.values()] : []), [plan]);
   const hasData = results.some((r) => r.data);
+  // A section is out while it has neither its cards nor an error to show for them.
+  const loading = results.some((r) => !r.data && r.error == null);
   const errored = results.find((r) => r.error != null && !r.data);
   const asOf = useMemo(() => oldestAsOf(results.map((r) => r.data?.asOf)), [results]);
-  const shownViews = useMemo(() => (plan ? sectionViews(plan, view) : []), [plan, view]);
+  const shownViews = useMemo(() => (plan ? sectionViews(plan) : []), [plan]);
   const allCards = useMemo(() => (plan ? plan.defs.flatMap((d) => plan.results.get(d.key)?.data?.cards ?? []) : EMPTY_CARDS), [plan]);
   const digest = useMemo<DigestView>(() => ({ sections: shownViews, rows, images: dp.digestImages, expand, retry }), [shownViews, rows, dp.digestImages, expand, retry]);
+
+  // The sections asked for came back with nothing to show (a length filter can empty them all) and there are more to
+  // ask for: ask, so the page is never empty while a section that has articles has not been looked at. With nothing
+  // drawn there is no end of the page to reach.
+  const nothingYet = !!plan && live && !loading && plan.waiting && shownViews.length === 0;
+  useEffect(() => {
+    if (nothingYet) setPlace(listKey, (p) => ({ ...p, steps: p.steps + 1 }));
+  }, [nothingYet, listKey, plan?.askedFor.size]);
 
   return {
     cards: plan?.layout.cards ?? EMPTY_CARDS,
@@ -349,10 +384,11 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
     loadMore,
     loadingMore: hasData && results.some((r) => r.fetching && !r.data),
     loadMoreFailed: false,
-    // Nothing to show until the bootstrap says which sections there are and one of them has come back.
-    pending: on && (!plan || (plan.askedFor.size > 0 && !hasData && !errored)),
+    // Nothing to show until the bootstrap says which sections there are and one has come back; and while sections are
+    // still out, a failed one does not stand for the page.
+    pending: on && (!plan || (plan.askedFor.size > 0 && !hasData && loading) || nothingYet),
     fetching: results.some((r) => r.fetching),
-    error: hasData ? null : (errored?.error ?? null),
+    error: hasData || loading ? null : (errored?.error ?? null),
     hasData,
     asOf,
     fallback: false,
@@ -365,6 +401,11 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
       }
       return { why: "Mark above and below need the article's section loaded" };
     },
+    markAllParts: () =>
+      (plan?.defs ?? []).flatMap((d) => {
+        const r = plan?.results.get(d.key)?.data;
+        return r && r.cards.length ? [{ scope: sectionScope(scope, d), asOf: r.asOf, cards: r.cards }] : [];
+      }),
     digest,
     loadedCards: allCards,
   };

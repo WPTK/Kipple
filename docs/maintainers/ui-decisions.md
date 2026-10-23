@@ -480,7 +480,7 @@ The Stats summary tiles (previous-period figure) and a feed's Read rate (the cou
   everything: a quiet folder is as visible as a busy one.
 - **Row.** Title first (the reading font, bold while unread), then source and time; a picture at the right when Images is
   on and the article has one. Text only is a choice, not a fallback.
-- **Order.** Sidebar order, or Quiet Feeds First (feeds that post least first, feeds with no pace yet last). The name is
+- **Order.** Sidebar order, or Quiet Feeds First (sections that get the fewest new articles a day first, a folder's pace being the sum of its feeds; a section with any feed under a week old has no pace yet and goes last). The name is
   plain on purpose; no print vocabulary.
 - **Settings, for this device, in the layout menu.** Order, Sections (Folders or Feeds), Images (Show images or Text
   only) and Rows per section (3, 5 or 10). They are not per-list overrides.

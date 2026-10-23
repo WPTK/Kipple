@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Link, type To } from "react-router";
 import { useLongPressMenu } from "@/gestures/useLongPressMenu";
 import type { Card } from "@/api/types";
@@ -95,7 +96,7 @@ function SectionSkeleton({ rows }: { rows: number }) {
 }
 
 /** "7 more in Tech", or "More in Tech" where the number is not known. */
-export const moreLabel = (s: Pick<DigestSectionView, "title" | "moreCount">): string => (s.moreCount === null ? `More in ${s.title}` : `${s.moreCount} more in ${s.title}`);
+export const moreLabel = (s: Pick<DigestSectionView, "title" | "moreCount">): string => (s.moreCount ? `${s.moreCount} more in ${s.title}` : `More in ${s.title}`);
 
 interface SectionProps {
   section: DigestSectionView;
@@ -111,21 +112,36 @@ interface SectionProps {
 }
 
 function DigestSection({ section: s, rows, images, scope, onOpen, actions, selectedId, tabStopId, expand, retry }: SectionProps) {
+  const box = useRef<HTMLElement>(null);
+  // Pressing "N more" or Retry takes its button away (or moves it): focus goes to the first article the press brought in.
+  const from = useRef<number | null>(null);
+  useEffect(() => {
+    if (from.current === null || s.cards.length <= from.current) return;
+    const id = s.cards[from.current]!.id;
+    from.current = null;
+    box.current?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a`)?.focus();
+  });
+  // A press while the section is already loading is ignored (aria-disabled does not stop a click).
+  const press = (act: (key: string) => void) => {
+    if (s.loadingMore || (s.state === "loading" && s.error == null)) return;
+    from.current = s.cards.length;
+    act(s.key);
+  };
   return (
     // A plain section with no accessible name, so a long page does not add a landmark for each; its h2 is what heading navigation finds.
-    <section data-section={s.key} className="pt-4">
+    <section ref={box} data-section={s.key} className="pt-4">
       <h2 className="px-4 pb-1 text-sm font-semibold tracking-wide text-accent uppercase">{s.title}</h2>
       {s.error != null ? (
         <div role="alert" className="flex items-center gap-2 border-b border-line px-4 py-2 text-sm text-fg2">
           <span>Couldn&apos;t load {s.title}.</span>
           <Stop id={stopId("retry", s.key)}>
-            <Button variant="ghost" tabIndex={-1} aria-keyshortcuts={ROW_KEYSHORTCUTS} onClick={() => retry(s.key)}>
+            <Button variant="ghost" tabIndex={-1} aria-keyshortcuts={ROW_KEYSHORTCUTS} onClick={() => press(retry)}>
               Retry
             </Button>
           </Stop>
         </div>
       ) : s.state === "loading" ? (
-        <SectionSkeleton rows={Math.min(rows, 3)} />
+        <SectionSkeleton rows={Math.max(1, Math.min(rows, s.moreCount ?? rows))} />
       ) : (
         s.cards.map((item) => (
           <DigestRow
@@ -144,14 +160,14 @@ function DigestSection({ section: s, rows, images, scope, onOpen, actions, selec
         <div role="alert" className="flex items-center gap-2 px-4 py-1 text-sm text-fg2">
           <span>Couldn&apos;t load more of {s.title}.</span>
           <Stop id={stopId("retry", s.key)}>
-            <Button variant="ghost" tabIndex={-1} aria-keyshortcuts={ROW_KEYSHORTCUTS} onClick={() => retry(s.key)}>
+            <Button variant="ghost" tabIndex={-1} aria-keyshortcuts={ROW_KEYSHORTCUTS} onClick={() => press(retry)}>
               Retry
             </Button>
           </Stop>
         </div>
       ) : s.state === "ready" && s.hasMore ? (
         <Stop id={stopId("more", s.key)}>
-          <Button variant="ghost" tabIndex={-1} aria-keyshortcuts={ROW_KEYSHORTCUTS} aria-busy={s.loadingMore || undefined} aria-disabled={s.loadingMore || undefined} onClick={() => expand(s.key)} className="text-link">
+          <Button variant="ghost" tabIndex={-1} aria-keyshortcuts={ROW_KEYSHORTCUTS} aria-busy={s.loadingMore || undefined} aria-disabled={s.loadingMore || undefined} onClick={() => press(expand)} className="text-link">
             {s.loadingMore ? "Loading" : moreLabel(s)}
           </Button>
         </Stop>

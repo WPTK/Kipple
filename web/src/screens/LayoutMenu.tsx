@@ -164,7 +164,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
                 }}
               >
                 {(["sidebar", "quiet"] as const).map((o) => (
-                  <Radio key={o} value={o} label={DIGEST_ORDER_LABELS[o]} hint={o === "quiet" ? "Feeds with fewer new articles a day come first" : undefined} />
+                  <Radio key={o} value={o} label={DIGEST_ORDER_LABELS[o]} hint={o === "quiet" ? "The sections with the fewest new articles a day come first; a section with a feed under a week old goes last" : undefined} />
                 ))}
               </DropdownMenu.RadioGroup>
               <DropdownMenu.Label className={sub}>Sections</DropdownMenu.Label>

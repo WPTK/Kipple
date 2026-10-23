@@ -10,12 +10,16 @@
 //   G1  each folder is a section with its name as a heading, in sidebar order, and shows its first three unread stories
 //       and "5 more in UAT Digest A" (the Rows per section setting);
 //   G2  Images: a story with a picture shows it on the right; Text only (set in the Layout menu) shows none;
-//   G3  Quiet Feeds First is a choice in the Layout menu and is saved for the device (a new feed has no pace yet, so the
-//       sections stay in sidebar order);
+//   G3  Quiet Feeds First is a choice in the Layout menu and is saved for the device. A feed's pace is counted from days
+//       of new articles and a seeded library has none, so the order itself (slowest first) is checked by the planner's unit
+//       tests, and here only that the sections stay in sidebar order;
 //   G4  "5 more" opens the section in place: all eight stories, the button gone, the other section unmoved in order;
 //   G5  Mark below as read on a story marks the stories after it in its section and no other; Mark above likewise;
 //   G6  the arrow keys visit the stories and the "more" button in the order they are drawn, and the page has one Tab stop;
 //   G7  opening a story and going Back keeps the section open;
+//   G6b Enter on the "more" button opens the section and puts focus on the first article it brought in;
+//   G9  with more than six sections, the later ones load when the end of the page is reached;
+//   G10 mark as read while scrolling marks the articles scrolled past, and only those;
 //   and no request goes to an export or download address.
 // Chromium only. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
@@ -29,6 +33,7 @@ const { check, step } = t;
 
 const A = "UAT Digest A";
 const B = "UAT Digest B";
+const EXTRA = ["x1", "x2", "x3", "x4"]; // one-story feeds in folders of their own: with the rest, more than the six sections a page opens with
 const FEEDS = { a: { title: "UAT feed digest a", count: 8, withPicture: [1, 2] }, b: { title: "UAT feed digest b", count: 4, withPicture: [] } };
 // A 1x1 GIF, so a picture's address answers.
 const GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
@@ -37,9 +42,9 @@ let base = "";
 const server = createServer((req, res) => {
   const path = new URL(req.url ?? "/", "http://x").pathname;
   if (path.startsWith("/img/")) return void res.writeHead(200, { "Content-Type": "image/gif" }).end(GIF);
-  const which = path === "/a.xml" ? "a" : path === "/b.xml" ? "b" : null;
+  const which = /^\/(a|b|x[1-4])\.xml$/.exec(path)?.[1] ?? null;
   if (!which) return void res.writeHead(404).end();
-  const f = FEEDS[which];
+  const f = FEEDS[which] ?? { title: `UAT feed digest ${which}`, count: 1, withPicture: [] };
   const item = (n) => {
     const body = f.withPicture.includes(n) ? `&lt;p&gt;Story ${n}.&lt;/p&gt;&lt;img src="${base}/img/${which}${n}.gif" width="600" height="400"/&gt;` : `&lt;p&gt;Story ${n}.&lt;/p&gt;`;
     return `<item><title>UAT digest ${which} story ${n}</title><link>${base}/page/${which}/${n}</link><guid isPermaLink="false">uat-digest-${which}-${n}</guid><pubDate>${new Date(Date.now() - (n + (which === "b" ? 100 : 0)) * 3600_000).toUTCString()}</pubDate><description>${body}</description></item>`;
@@ -108,6 +113,15 @@ try {
         const moved = await page.request.patch(`/api/feeds/${added[k].feedId}`, { data: { folder_id: folder.id }, headers: t.WRITE });
         if (!moved.ok()) return t.fail(`${tag} G setup`, `the feed was not moved into ${name} (${moved.status()})`);
       }
+      for (const k of EXTRA) {
+        const r = await t.addLocalFeed(page, `${base}/${k}.xml`, `UAT feed digest ${k}`, (items) => items.length >= 1);
+        if (r.error) return t.fail(`${tag} G setup`, r.error);
+        const name = `UAT Digest ${k.toUpperCase()}`;
+        const made = await page.request.post("/api/folders", { data: { name }, headers: t.WRITE });
+        const folder = made.ok() ? (await t.boot(page)).folders.find((x) => x.name === name) : null;
+        const moved = folder ? await page.request.patch(`/api/feeds/${r.feedId}`, { data: { folder_id: folder.id }, headers: t.WRITE }) : null;
+        if (!moved?.ok()) return t.fail(`${tag} G setup`, `the folder ${name} was not made with its feed in it`);
+      }
       const set = await patch({ "client.layout": "digest", "client.digest_sections": "folder", "client.digest_order": "sidebar", "client.digest_images": true, "client.digest_rows": 3 });
       if (set !== 200) return t.fail(`${tag} G setup`, `the Digest was not set as the layout (${set})`);
       try {
@@ -150,7 +164,8 @@ try {
         const opened = await settled(() => document.querySelectorAll('section[data-section] article[data-item-id]').length >= 11);
         const allA = await idsOf(A);
         check(opened && allA.length === 8 && (await section(A).getByRole("button", { name: /more in/ }).count()) === 0, `${tag} G4 expand`, "the section opens in place to all eight stories and its button goes", `${allA.length} stories, ${await section(A).getByRole("button", { name: /more in/ }).count()} button(s)`);
-        check(JSON.stringify(await idsOf(B)) === JSON.stringify(bBefore) || (await idsOf(B)).length >= bBefore.length, `${tag} G4 other`, "the other section is not changed", "the other section's stories changed");
+        const bAfter = await idsOf(B);
+        check(bBefore.length === 3 && JSON.stringify(bAfter) === JSON.stringify(bBefore), `${tag} G4 other`, "the other section keeps its three stories", `it had ${bBefore.join(" ")}, now ${bAfter.join(" ")}`);
         const orderNow = await mine();
         check(orderNow.join() === [A, B].join(), `${tag} G4 order`, "the sections keep their order", orderNow.join(", "));
 
@@ -169,9 +184,17 @@ try {
         }
         check(visited.join() === drawn.slice(0, visited.length).join(), `${tag} G6 arrows`, "ArrowDown visits stories and \"more\" buttons in the drawn order", `visited ${visited.join(" ")}, drawn ${drawn.slice(0, visited.length).join(" ")}`);
 
+        // G6b: Enter on the button, which is reached by the arrow keys and is not a Tab stop.
+        const shownBefore = await idsOf(A);
+        await section(A).getByRole("button", { name: /^[0-9]+ more in UAT Digest A$/ }).focus();
+        await page.keyboard.press("Enter");
+        await settled(() => document.querySelectorAll("section[data-section] article[data-item-id]").length >= 8);
+        const afterEnter = await idsOf(A);
+        await page.waitForTimeout(200);
+        const focused = await page.evaluate(() => document.activeElement?.closest("article[data-item-id]")?.getAttribute("data-item-id") ?? null);
+        check(afterEnter.length === 8 && focused === afterEnter[shownBefore.length], `${tag} G6b focus`, "Enter on \"more\" opens the section and focus goes to the first article it brought in", `${afterEnter.length} stories; focus is on ${focused}, wanted ${afterEnter[shownBefore.length]}`);
+
         // G7
-        await section(A).getByRole("button", { name: /more in/ }).click();
-        await settled(() => document.querySelectorAll('section[data-section] article[data-item-id]').length >= 8);
         const wide = (await idsOf(A)).length;
         const target = (await idsOf(A))[wide - 1];
         await page.locator(`article[data-item-id="${target}"] a`).first().click();
@@ -209,6 +232,37 @@ try {
           const last = await isRead(idsB[idsB.length - 1]);
           const aUpper = await readOf(allA.slice(0, 3));
           check(readAbove && !last && aUpper.every((r) => !r), `${tag} G5 above`, "Mark above marks the earlier stories of its section and nothing else", `above read: ${readAbove}; the story itself read: ${last}; other section read: ${aUpper.join()}`);
+        }
+
+        // G9: the sections below the first six load when the end of the page is reached.
+        await open();
+        const last = `UAT Digest ${EXTRA[EXTRA.length - 1].toUpperCase()}`;
+        const scroller = page.getByTestId("list-scroll");
+        for (let i = 0; i < 6 && !(await headings()).includes(last); i++) {
+          await scroller.evaluate((e) => e.scrollTo(0, e.scrollHeight));
+          await page.waitForTimeout(500);
+        }
+        await settled(() => !document.querySelector('[data-testid="digest-skeleton"]'), 15000);
+        check((await headings()).includes(last), `${tag} G9 later sections`, "a section past the sixth loads when the end of the page is reached", `the sections are: ${(await headings()).join(", ")}`);
+        await t.shot(page, `${tag}-digest-later-sections`);
+
+        // G10: mark as read while scrolling marks what was scrolled past, in the Digest too. What it marked is put back.
+        const wasRead = new Set();
+        try {
+          const on = await patch({ "ui.mark_read_on_scroll": true });
+          if (on !== 200) return t.fail(`${tag} G10 setup`, `the setting was not set (${on})`);
+          await open();
+          const shown = await page.locator("section[data-section] article[data-item-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId));
+          await scroller.evaluate((e) => e.scrollTo(0, 700));
+          await page.waitForTimeout(1500);
+          const flags = await readOf(shown);
+          const marked = shown.filter((_, i) => flags[i]);
+          marked.forEach((id) => wasRead.add(id));
+          const firstMarked = shown.indexOf(marked[0]);
+          check(marked.length > 0 && shown[0] === marked[0] && !flags[shown.length - 1], `${tag} G10 scroll`, "the articles scrolled past are marked read and the ones not reached are not", `${marked.length} of ${shown.length} marked (first marked at ${firstMarked}); the last is ${flags[shown.length - 1] ? "read" : "unread"}`);
+        } finally {
+          await patch({ "ui.mark_read_on_scroll": null });
+          if (wasRead.size) await page.request.post("/api/items/mark-read", { headers: t.WRITE, data: { ids: [...wasRead], read: false } }).catch(() => {});
         }
 
         const bad = requests.filter((p) => /export|download|\.opml/i.test(p));

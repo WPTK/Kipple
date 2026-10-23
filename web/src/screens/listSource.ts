@@ -49,6 +49,12 @@ export interface ListSource {
    * the bound of that list.
    */
   rangeOf: (item: Card) => { cards: readonly Card[]; scope?: Scope; asOf?: string } | { why: string };
+  /**
+   * Where "mark all" goes when the list is made of lists of its own (the Digest): one request for each loaded one, each
+   * with its own bound, so an article a later-loaded list shows is never left out by an earlier list's bound. A list that is
+   * one list has none: mark all goes to its scope with its `asOf`.
+   */
+  markAllParts?: () => { scope: Scope; asOf: string | undefined; cards: readonly Card[] }[];
   /** A list cut into sections of its own (the Digest): the sections the page draws. */
   digest?: DigestView;
 }

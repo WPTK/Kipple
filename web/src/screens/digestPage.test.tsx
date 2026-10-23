@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
@@ -12,6 +12,7 @@ import { clearToasts } from "@/shell/toasts";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 import { clearListMemory, resetScrollReadForTests } from "./ListPane";
 import { clearDigestPlaces, FIRST_SECTIONS, STEP_SECTIONS } from "./digestSource";
+import { rememberListTop } from "@/lib/listPlace";
 import { updatePrefs } from "@/lib/prefs";
 
 // The Digest as the list screen draws it: a section for each folder, loaded on its own, opened out in place.
@@ -262,15 +263,30 @@ describe("Digest marking", () => {
     expect(container.querySelector('[data-item-id="1000"]')).not.toHaveAttribute("data-read");
   });
 
-  it("Mark all is bounded by the oldest as_of of the sections", async () => {
-    const { calls } = routes({ boot: library([3, 3, 3]), counts: [3, 3, 3], asOf: (n) => ["700", "650", "800"][n] });
+  it("Mark all sends one request for each loaded section, each with that section's own as_of", async () => {
+    const { calls } = routes({
+      boot: library([3, 3, 3]),
+      counts: [3, 3, 3],
+      asOf: (n) => ["700", "650", "800"][n],
+      extra: {
+        // The server marks what is in the request's list, up to its bound.
+        "POST /api/items/mark-read": (_u, init) => {
+          const body = JSON.parse(String(init?.body));
+          const n = Number(body.scope.folder_id) - 10;
+          return json({ changed: articlesOf(n, 3).map((c) => c.id), restored: [] });
+        },
+      },
+    });
     const user = userEvent.setup();
-    go("/l/unread");
+    const { container } = go("/l/unread");
     await screen.findByText("Gamma story 1");
     await user.click(screen.getByRole("button", { name: "List actions" }));
     await user.click(await screen.findByRole("menuitem", { name: /Mark all as read/ }));
-    await waitFor(() => expect(bodies(calls)).toHaveLength(1));
-    expect(bodies(calls)[0].max_id).toBe("650");
+    await waitFor(() => expect(bodies(calls)).toHaveLength(3));
+    expect(bodies(calls).map((b) => [b.scope.folder_id, b.max_id])).toEqual([["10", "700"], ["11", "650"], ["12", "800"]]);
+    // A later section's articles, newer than an earlier section's bound, stay read: none is turned back to unread.
+    await waitFor(() => expect(container.querySelector('[data-item-id="3000"]')).toHaveAttribute("data-read"));
+    expect(container.querySelectorAll("article[data-item-id]:not([data-read])")).toHaveLength(0);
   });
 });
 
@@ -300,6 +316,8 @@ describe("Digest keys", () => {
     await waitFor(() => expect(more).toHaveFocus());
     await user.keyboard("{Enter}");
     await waitFor(() => expect(storyIds(section(container, "Alpha"))).toHaveLength(6));
+    // The button went with the press; focus goes to the first article it brought in, not to the page.
+    await waitFor(() => expect(link("Alpha story 4")).toHaveFocus());
   });
 });
 
@@ -361,5 +379,226 @@ describe("Digest settings in the list options menu", () => {
     await screen.findByText("Alpha story 1");
     await user.click(screen.getByRole("button", { name: /^List options, Compact layout/ }));
     expect(screen.queryByText("Digest, for this device")).toBeNull();
+  });
+});
+
+describe("Digest loading states", () => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("keeps asking for sections when the first ones have nothing to show, so later ones are not left unloaded", async () => {
+    const counts = [0, 0, 0, 0, 0, 0, 3, 3];
+    // The bootstrap counts unread articles; a length filter shows none of them for the first six.
+    routes({ boot: library([3, 3, 3, 3, 3, 3, 3, 3]), counts });
+    const { container } = go("/l/unread");
+    await screen.findByText("Eta story 1");
+    expect(headings(container)).toEqual(["Eta", "Theta"]);
+    expect(screen.queryByText(/nothing|caught up|no unread/i)).toBeNull();
+  });
+
+  it("a section that fails while the others are still loading does not replace the page with its error", async () => {
+    routes({
+      boot: library([3, 3]),
+      counts: [3, 3],
+      extra: {
+        "GET /api/items": async (u) => {
+          const n = u.searchParams.get("folder");
+          if (n === "10") return json({ error: "gone" }, 404);
+          if (n === "11") {
+            await wait(60);
+            return json(pageOf(articlesOf(1, 3), null, "500"));
+          }
+          return json(pageOf([]));
+        },
+      },
+    });
+    const { container } = go("/l/unread");
+    await screen.findByText("Beta story 1");
+    expect(screen.queryByText("Couldn't load articles")).toBeNull();
+    expect(within(section(container, "Alpha")).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("when every section fails the page says so, and Try again asks again", async () => {
+    const fail = new Set([0, 1]);
+    const { calls } = routes({ boot: library([3, 3]), counts: [3, 3], fail });
+    go("/l/unread");
+    expect(await screen.findByText("Couldn't load articles")).toBeInTheDocument();
+    const before = itemCalls(calls).length;
+    fail.clear();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByText("Alpha story 1");
+    expect(itemCalls(calls).length).toBeGreaterThan(before);
+  });
+
+  it("draws as many placeholder rows as the section will have, not more", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    routes({
+      boot: library([9, 2]),
+      counts: [9, 2],
+      extra: {
+        "GET /api/items": async (u) => {
+          const n = u.searchParams.get("folder");
+          if (!n) return json(pageOf([]));
+          const i = Number(n) - 10;
+          if (i === 1) await gate; // the second section is still out when the first is drawn
+          return json(pageOf(articlesOf(i, [9, 2][i]!), null, "500"));
+        },
+      },
+    });
+    const { container } = go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    // Beta has two articles, and rows is three: two placeholders.
+    await waitFor(() => expect(container.querySelectorAll('[data-testid="digest-skeleton"]')).toHaveLength(1));
+    expect(container.querySelector('[data-testid="digest-skeleton"]')!.children).toHaveLength(2);
+    release();
+    await screen.findByText("Beta story 1");
+  });
+});
+
+describe("Digest more counts", () => {
+  it("counts what the section holds once it is all loaded, whatever the bootstrap said", async () => {
+    routes({ boot: library([9]), counts: [5] });
+    go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    expect(screen.getByRole("button", { name: "2 more in Alpha" })).toBeInTheDocument();
+  });
+
+  it("keeps the count the page opened with when an article shown is read during the visit", async () => {
+    routes({ boot: library([30]), counts: [30] });
+    const { container } = go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    expect(screen.getByRole("button", { name: "27 more in Alpha" })).toBeInTheDocument();
+    fireEvent.click(within(container.querySelector<HTMLElement>('[data-item-id="1000"]')!).getByRole("link"));
+    expect(screen.queryByRole("button", { name: "26 more in Alpha" })).toBeNull();
+  });
+
+  it("says More in, with no number, when a length filter makes the unread count the wrong count", async () => {
+    routes({ boot: library([30]), counts: [30] });
+    go("/l/unread?len=short");
+    await screen.findByText("Alpha story 1");
+    expect(screen.getByRole("button", { name: "More in Alpha" })).toBeInTheDocument();
+  });
+});
+
+describe("Digest page memory", () => {
+  it("a folder that had nothing unread when the page was left shows when the reader comes back after the cache is gone", async () => {
+    routes({ boot: library([2, 0]), counts: [2, 3] });
+    const first = go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    expect(headings(first.container)).toEqual(["Alpha"]);
+    first.unmount();
+    // Beta gained articles while away; five minutes on, the page is a new one.
+    routes({ boot: library([2, 3]), counts: [2, 3] });
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 6 * 60_000);
+    const second = go("/l/unread");
+    await screen.findByText("Beta story 1");
+    expect(headings(second.container)).toEqual(["Alpha", "Beta"]);
+  });
+
+  it("stays the same page when the reader comes straight back", async () => {
+    routes({ boot: library([2, 0]), counts: [2, 3] });
+    const first = go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    first.unmount();
+    routes({ boot: library([2, 3]), counts: [2, 3] });
+    const second = go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    expect(headings(second.container)).toEqual(["Alpha"]);
+  });
+
+  it("looks for a remembered place among a bounded number of sections, not every one", async () => {
+    const boot = library([3]);
+    // Twenty-two sections of twenty-five articles; the remembered article is in none of them.
+    const many = Array.from({ length: 22 }, (_, i) => ({ id: String(10 + i), name: "S" + i, position: i, is_default: i === 0, unread: 25 }));
+    const feeds = many.map((f, i) => ({ ...boot.feeds![0]!, id: String(20 + i), folder_id: f.id, title: "F" + i, unread: 25 }));
+    const big = { ...boot, folders: many, feeds };
+    rememberListTop("unread", "99999");
+    // Nothing reaches the end of the page: only the place search asks for more sections.
+    vi.stubGlobal("IntersectionObserver", class { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } });
+    const { calls } = mockFetch({
+      "GET /api/bootstrap": () => json(big),
+      "GET /api/items": (u) => {
+        const n = Number(u.searchParams.get("folder")) - 10;
+        if (!(n >= 0)) return json(pageOf([]));
+        const items = Array.from({ length: 20 }, (_, k) => card(1, { id: String(1000 * (n + 1) + k), feed_id: String(20 + n), title: "s" + n + "-" + k }));
+        return json(pageOf(items, "c20", "500"));
+      },
+      "GET /api/settings": () => json({ settings: [], values: {} }),
+    });
+    go("/l/unread");
+    await waitFor(() => expect(itemCalls(calls).length).toBeGreaterThanOrEqual(6));
+    await new Promise((r) => setTimeout(r, 400));
+    const asked = new Set(itemCalls(calls).map((c) => c.url.searchParams.get("folder")));
+    expect(asked.size).toBeLessThanOrEqual(14);
+  });
+});
+
+describe("mark as read while scrolling in the Digest", () => {
+  const observers = new Set<{ fire: () => void }>();
+  beforeEach(() => {
+    updatePrefs({ markReadOnScroll: true });
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const all = [...document.querySelectorAll("article[data-item-id]")];
+      const i = all.indexOf(this);
+      const list = document.querySelector<HTMLElement>('[data-testid="list-scroll"]');
+      const scroll = list?.scrollTop ?? 0;
+      const pages = this instanceof HTMLElement && this.hasAttribute("data-page-box");
+      const top = i < 0 ? (pages ? -scroll : 0) : i * 100 - scroll;
+      const bottom = i < 0 ? (pages ? top + all.length * 100 : 800) : top + 100;
+      return { x: 0, y: top, top, bottom, left: 0, right: 375, width: 375, height: bottom - top, toJSON() {} } as DOMRect;
+    });
+    observers.clear();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        els = new Set<Element>();
+        due = false;
+        constructor(public cb: ResizeObserverCallback) {}
+        observe(el: Element) {
+          this.els.add(el);
+          observers.add(this);
+          if (this.due) return;
+          this.due = true;
+          queueMicrotask(() => {
+            this.due = false;
+            this.fire();
+          });
+        }
+        fire() {
+          if (!this.els.size) return;
+          const entry = (target: Element) => ({ target, get contentRect() { return target.getBoundingClientRect(); } }) as ResizeObserverEntry;
+          this.cb([...this.els].map(entry), this as unknown as ResizeObserver);
+        }
+        unobserve(el: Element) {
+          this.els.delete(el);
+        }
+        disconnect() {
+          this.els.clear();
+          observers.delete(this);
+        }
+      },
+    );
+  });
+
+  it("marks the articles that were shown and scrolled above the top, in the order drawn, and no others", async () => {
+    const counts = [3, 3, 3, 3];
+    const { calls } = routes({ boot: library(counts), counts });
+    const { container } = go("/l/unread");
+    await screen.findByText("Delta story 1");
+    const order = storyIds(container);
+    expect(order).toHaveLength(12);
+    act(() => observers.forEach((o) => o.fire()));
+    // Straight down 650 px: the first six articles are above the top, the first eight were on screen.
+    act(() => {
+      const scroller = screen.getByTestId("list-scroll");
+      scroller.scrollTop = 650;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    const marks = () => calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read");
+    await waitFor(() => expect(marks()).toHaveLength(1), { timeout: 3000 });
+    const body = JSON.parse(String(marks()[0]!.init?.body));
+    expect(body.reason).toBe("scroll");
+    expect(new Set(body.ids)).toEqual(new Set(order.slice(0, 6)));
   });
 });
