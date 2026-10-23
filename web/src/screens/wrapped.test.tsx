@@ -99,7 +99,7 @@ describe("Wrapped screen", () => {
   it("shows a not-found page for an address nothing answers, not the Unread list", async () => {
     setup();
     go("/wrapped");
-    expect(await screen.findByText("Kipple has nothing at /wrapped.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go to Unread" })).toHaveAttribute("href", "/l/unread");
   });
 
