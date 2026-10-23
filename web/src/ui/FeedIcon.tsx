@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 
-// The scheme colors a letter tile may take: each is held to 3:1 against the page in every scheme (contrast.mjs), and the letter is the page color.
-const TILES = ["bg-accent", "bg-star", "bg-danger", "bg-link", "bg-unread"] as const;
+// The tile colors: the scheme's text, secondary text and link colors, each held to 4.5:1 against the page in every scheme
+// (contrast.mjs), so the letter, which is the page color, is AA on every tile. None of them is a status color (danger,
+// star, unread), so a healthy feed never looks broken or starred.
+const TILES = ["bg-fg", "bg-fg2", "bg-link"] as const;
 
 /** A stable choice of tile color for a name: the same feed is the same color on every screen and every visit. */
 function tileFor(name: string): string {

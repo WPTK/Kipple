@@ -15,12 +15,23 @@ export const openWhatsNew = (): void => whatsNewRequest.set((n) => n + 1);
 
 const MANUAL_RELEASES = 3;
 
-/** The panel: the sections of the releases it is given, newest first, in the app's sheet (focus trapped, Esc closes, focus goes back to the opener). */
-function WhatsNewDialog({ releases, onClose }: { releases: Release[]; onClose: () => void }) {
+/**
+ * Where focus goes once the sheet has closed and nothing has it: the sheet is opened by state, often with no control
+ * focused (an upgrade shown on a cold load), so the screen's heading, else the page's main region.
+ */
+function focusFallback(): void {
+  const a = document.activeElement;
+  if (a && a !== document.body) return;
+  (document.querySelector<HTMLElement>("[data-route-heading]") ?? document.getElementById("main"))?.focus({ preventScroll: true });
+}
+
+/** The panel: the sections of the releases it is given, newest first, in the app's sheet (focus trapped, Esc closes). */
+export function WhatsNewDialog({ releases, onClose }: { releases: Release[]; onClose: () => void }) {
   return (
     <Modal
       open
       onOpenChange={(o) => (o ? undefined : onClose())}
+      onClosed={focusFallback}
       title="What's new in Kipple"
       description={releases.length === 1 ? "What changed in this version." : "What changed since you last looked."}
       footer={<Button onClick={onClose}>Close</Button>}

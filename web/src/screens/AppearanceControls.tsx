@@ -21,6 +21,7 @@ import { themeStore, updateTheme } from "@/theme/theme";
 import { chooseFixed, choosePair, themeChoice } from "@/theme/settings";
 import { Segmented } from "@/ui/segmented";
 import { Icon } from "@/ui/Icon";
+import { useMain } from "@/ui/useMain";
 import { Disclosure, Switch, inputCls } from "@/ui/kit";
 import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { cn } from "@/lib/cn";
@@ -286,6 +287,7 @@ export function HighlightToggle() {
  * second density picker.
  */
 export function ReadingMenu({ className }: { className?: string }) {
+  const main = useMain();
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
@@ -293,7 +295,7 @@ export function ReadingMenu({ className }: { className?: string }) {
           <Icon of={CaseSensitive} />
         </button>
       </Popover.Trigger>
-      <Popover.Portal>
+      <Popover.Portal container={main}>
         <Popover.Content
           align="end"
           sideOffset={4}

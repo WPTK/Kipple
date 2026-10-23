@@ -413,7 +413,7 @@ try {
     try {
       await page.getByRole("heading", { level: 1, name: "Kipple couldn't load" }).waitFor({ timeout: 10_000 });
       check("C offline", await page.getByRole("button", { name: "Try again" }).isVisible(), "no Try again button");
-      check("C offline", (await page.getByLabel("Password", { exact: true }).count()) === 0, "a password form was shown when the server could not be reached");
+      check("C offline", (await page.locator('input[type="password"]').count()) + (await page.getByRole("textbox", { name: /password/i }).count()) === 0, "a password form was shown when the server could not be reached");
       await overflowRun(page, "C offline");
       if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "C-offline.png"), fullPage: true });
     } catch {

@@ -1,1 +1,1 @@
-The current page in the sidebar and the Settings list is now marked with an accent bar and semibold text as well as the selection fill, so it no longer depends on colour alone. (#610)
+The current page in the sidebar and the Settings list is now marked with an accent bar and semibold text as well as the selection fill, so it no longer depends on color alone. (#610)

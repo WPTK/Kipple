@@ -1,1 +1,1 @@
-What's new opens as a standard dialog sheet and returns focus to the control that opened it. (#686)
+What's new opens as a standard dialog sheet, and closing it with nothing focused puts focus on the screen's heading. (#627)

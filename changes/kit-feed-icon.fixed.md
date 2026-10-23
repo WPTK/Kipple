@@ -1,1 +1,1 @@
-A feed whose icon fails to load shows a colored letter tile instead of a broken image. (#630)
+A feed with no icon, or whose icon fails to load, shows a letter tile in a neutral color instead of an empty space or a broken image. (#630)

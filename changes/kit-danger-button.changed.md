@@ -1,1 +1,1 @@
-Destructive buttons (delete, sign out, reset, forget) share one outlined red style. (#627)
+Destructive buttons (delete, sign out, reset, forget) share one outlined red style. (#626)

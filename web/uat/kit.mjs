@@ -7,8 +7,9 @@
 // At each width (desktop 1280x800, phone 375x812) it checks:
 //   K1  an open menu is inside the main landmark, and axe-core finds no aria-hidden-focus or region violation with it open;
 //   K2  the password fields of Settings have a Show control that reveals and hides the value, and no "again" field;
-//   K3  a keyboard-focused button draws the focus outline;
-//   K4  an input's border is a visible 3:1 against the page (the computed border color is not the line color).
+//   K3  a keyboard-focused control draws the accent outline with a page-colored gap (the one focus ring);
+//   K4  an input's border is the field color, not the hairline color;
+//   K5  a keyboard-focused list row draws its ring around the row and the link gets no box of its own.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { readFileSync } from "node:fs";
@@ -53,10 +54,10 @@ await t.eachViewport(async (page, vp) => {
   await step(`${tag} K2`, async () => {
     const cur = await openPasswordDialog(page);
     await cur.fill("secret-value");
-    const show = page.getByRole("button", { name: "Show current password" });
+    const show = page.getByRole("button", { name: "Show password" });
     await show.click();
     check((await cur.getAttribute("type")) === "text", `${tag} K2 show`, "Show reveals the value", `type is ${await cur.getAttribute("type")}`);
-    await page.getByRole("button", { name: "Hide current password" }).click();
+    await page.getByRole("button", { name: "Hide password" }).click();
     check((await cur.getAttribute("type")) === "password", `${tag} K2 hide`, "Hide covers it again", "still shown");
     const body = await textOf(page.locator("body"), 4000);
     check(!/password again/i.test(body), `${tag} K2 again`, "there is no second password field", "a \"password again\" field is still there");
@@ -66,21 +67,55 @@ await t.eachViewport(async (page, vp) => {
   await step(`${tag} K3`, async () => {
     await openPasswordDialog(page);
     await page.keyboard.press("Tab");
-    const style = await page.evaluate(() => {
+    const r = await page.evaluate(() => {
+      // A scheme token as the rgb() the browser draws it in: put it on a probe element and read it back.
+      const rgb = (token) => {
+        const p = document.createElement("i");
+        p.style.color = `var(--kp-${token})`;
+        document.body.append(p);
+        const v = getComputedStyle(p).color;
+        p.remove();
+        return v;
+      };
       const el = document.activeElement;
       const s = el ? getComputedStyle(el) : null;
-      return s ? { tag: el.tagName, style: s.outlineStyle, width: parseFloat(s.outlineWidth) } : null;
+      return s && { tag: el.tagName, outlineColor: s.outlineColor, outlineWidth: parseFloat(s.outlineWidth), shadow: s.boxShadow, accent: rgb("accent"), bg: rgb("bg") };
     });
-    check(!!style && style.style !== "none" && style.width >= 2, `${tag} K3`, `the focused ${style?.tag} has a ${style?.width}px outline`, `no outline: ${JSON.stringify(style)}`);
+    // The one two-tone ring: an accent outline with a gap of the page color between it and the control (#619).
+    const gap = r && /s(d+(?:.d+)?)px$/.exec(r.shadow);
+    check(!!r && r.outlineColor === r.accent && r.outlineWidth >= 2 && r.shadow.startsWith(r.bg) && !!gap && Number(gap[1]) >= 2, `${tag} K3`, `the focused ${r?.tag} has an accent outline over a ${gap?.[1]}px page-colored gap`, `not the two-tone ring: ${JSON.stringify(r)}`);
   });
 
   await step(`${tag} K4`, async () => {
     const input = await openPasswordDialog(page);
-    const [field, line] = await input.evaluate((el) => {
-      const root = getComputedStyle(document.documentElement);
-      return [getComputedStyle(el).borderTopColor, root.getPropertyValue("--kp-border").trim()];
+    const r = await input.evaluate((el) => {
+      const rgb = (token) => {
+        const p = document.createElement("i");
+        p.style.color = `var(--kp-${token})`;
+        document.body.append(p);
+        const v = getComputedStyle(p).color;
+        p.remove();
+        return v;
+      };
+      return { border: getComputedStyle(el).borderTopColor, field: rgb("field"), line: rgb("border") };
     });
-    check(field !== line, `${tag} K4`, `the input border (${field}) is not the hairline color`, `the input border is ${field}, the hairline ${line}`);
+    // The input's boundary is the field token (3:1 against the page, tested with the schemes), not the hairline.
+    check(r.border === r.field && r.field !== r.line, `${tag} K4`, `the input border is the field color ${r.field}, not the hairline ${r.line}`, `the input border is ${r.border}; field ${r.field}, hairline ${r.line}`);
+  });
+
+  await step(`${tag} K5`, async () => {
+    await page.goto("/", { waitUntil: "load" });
+    const row = page.locator("a.row-link").first();
+    await row.waitFor({ timeout: 15000 });
+    await page.keyboard.press("Tab");
+    await row.focus();
+    const r = await row.evaluate((el) => {
+      const s = getComputedStyle(el);
+      const b = getComputedStyle(el, "::before");
+      return { focused: el.matches(":focus-visible"), shadow: s.boxShadow, outline: s.outlineStyle, ring: parseFloat(b.outlineWidth), ringStyle: b.outlineStyle };
+    });
+    // The row draws its ring on the row's ::before: the link itself has neither an outline nor the two-tone gap's box (#619).
+    check(r.focused && r.shadow === "none" && r.outline === "none" && r.ring >= 2 && r.ringStyle === "solid", `${tag} K5`, "a focused row link has no box of its own and draws the ring around the row", `focused row link: ${JSON.stringify(r)}`);
   });
 });
 

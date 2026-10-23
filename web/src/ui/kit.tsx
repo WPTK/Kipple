@@ -195,9 +195,10 @@ export function PasswordField({
           <input {...a} {...rest} ref={inputRef} type={shown ? "text" : "password"} autoComplete={autoComplete} autoCapitalize="none" spellCheck={false} value={value} onChange={(e) => onChange(e.target.value)} className={cn(inputCls, "pr-16")} />
           <button
             type="button"
-            aria-label={`${shown ? "Hide" : "Show"} ${label.toLowerCase()}`}
+            aria-label={shown ? "Hide password" : "Show password"}
+            disabled={rest.disabled}
             onClick={() => setShown((s) => !s)}
-            className="absolute inset-y-0 right-0 inline-flex min-w-11 items-center justify-center rounded-lg px-3 text-sm font-medium text-link"
+            className="absolute inset-y-0 right-0 inline-flex min-w-11 items-center justify-center rounded-lg px-3 text-sm font-medium text-link disabled:opacity-50"
           >
             {shown ? "Hide" : "Show"}
           </button>

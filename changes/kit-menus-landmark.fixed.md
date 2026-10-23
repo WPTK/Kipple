@@ -1,1 +1,1 @@
-Open menus no longer hide the rest of the page from assistive technology, and the Saved searches list is a group rather than a second region. (#628)
+Open menus no longer hide the rest of the page from assistive technology, and the Saved searches list is a group rather than a second region. (#611)

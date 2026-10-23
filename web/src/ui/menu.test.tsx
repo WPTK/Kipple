@@ -21,9 +21,9 @@ function pointer(type: string, el: Element, pointerType: "touch" | "mouse", { id
   fireEvent(el, e);
 }
 
-function Demo({ onPick = () => {}, onPickSecond = () => {}, onClickCapture, modal = true }: { onPick?: () => void; onPickSecond?: () => void; onClickCapture?: () => void; modal?: boolean }) {
+function Demo({ onPick = () => {}, onPickSecond = () => {}, onClickCapture }: { onPick?: () => void; onPickSecond?: () => void; onClickCapture?: () => void }) {
   return (
-    <DropdownMenu.Root modal={modal}>
+    <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button type="button" aria-label="List options">
           open
@@ -54,6 +54,25 @@ async function openWith(type: "touch" | "mouse") {
 }
 
 describe("MenuContent", () => {
+  it("is not modal: the page stays visible to assistive technology and the menu sits in the main landmark", async () => {
+    touch(false);
+    render(
+      <>
+        <header>
+          <button type="button">Skip</button>
+        </header>
+        <main id="main">
+          <Demo />
+        </main>
+      </>,
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: "List options" }));
+    const menu = await screen.findByRole("menu");
+    expect(menu.closest("#main")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Skip" }).closest("[aria-hidden='true']")).toBeNull();
+    expect(screen.getByRole("main").closest("[aria-hidden='true']")).toBeNull();
+  });
+
   it("is a popover with a mouse: sized by the caller, scrolling, no dimmed page", async () => {
     touch(false);
     const user = userEvent.setup();
@@ -261,9 +280,9 @@ describe("MenuContent", () => {
     expect(under).not.toHaveBeenCalled();
   });
 
-  it.each([true, false])("gives focus back to the button after a tap on the dimmed page (modal %s)", async (modal) => {
+  it("gives focus back to the button after a tap on the dimmed page", async () => {
     touch(true);
-    render(<Demo modal={modal} />);
+    render(<Demo />);
     const { trigger } = await openWith("touch");
     const backdrop = document.querySelector("[data-menu-backdrop]")!;
     pointer("pointerdown", backdrop, "touch", { id: 2 });

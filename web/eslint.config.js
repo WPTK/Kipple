@@ -11,6 +11,27 @@ const DESIGN_VALUES = [
   [String.raw`(^|[\s:!-])(min|max)-\[(?!(380|420|520|560|640)px\]|20rem\])[0-9.]+(px|rem)\]:`, "Use an existing breakpoint (380, 420, 520, 560 or 640 px, 20rem); the three-pane widths come from the pane minimums."],
 ];
 
+// A ref refreshed in a passive effect is stale until the browser has run the effect, which React may defer past the
+// next key press or pointer event. useLatestRef refreshes in a layout effect. Flags a useEffect whose callback does
+// nothing but assign to `x.current`, however it is spelled.
+const REF_GUARDS = [
+  "CallExpression[callee.name='useEffect']",
+  "CallExpression[callee.type='MemberExpression'][callee.property.name='useEffect']",
+].flatMap((call) => {
+  const refWrite = "ExpressionStatement[expression.type='AssignmentExpression'][expression.left.type='MemberExpression'][expression.left.property.name='current']";
+  const message =
+    "A ref refreshed in a passive useEffect is stale until the effect runs. Use useLatestRef (src/lib/useLatestRef.ts), which refreshes in a layout effect.";
+  return [
+    // Expression body: useEffect(() => (ref.current = x))
+    { selector: `${call} > :function[body.type='AssignmentExpression'][body.left.property.name='current']`, message },
+    // Block body whose every statement is a write to `.current`
+    {
+      selector: `${call} > :function > BlockStatement[body.length>0]:not(:has(> :not(${refWrite})))`,
+      message,
+    },
+  ];
+});
+
 export default tseslint.config(
   { ignores: ["dist", "node_modules"] },
   js.configs.recommended,
@@ -56,34 +77,18 @@ export default tseslint.config(
     rules: {
       "no-restricted-syntax": [
         "error",
-        // Design tokens, not one-off values: a class string never spells a colour, a type size, a spacing step or a
+        // Design tokens, not one-off values: a class string never spells a color, a type size, a spacing step or a
         // breakpoint the scale does not have (src/index.css and src/theme/schemes.json define them). The Gazette
         // layout is exempt until its masthead and section heads move onto the scale.
         ...DESIGN_VALUES.map(([pattern, message]) => ({ selector: `:matches(Literal[value=/${pattern}/], TemplateElement[value.raw=/${pattern}/])`, message })),
-        ...[
-          "CallExpression[callee.name='useEffect']",
-          "CallExpression[callee.type='MemberExpression'][callee.property.name='useEffect']",
-        ].flatMap((call) => {
-          const refWrite = "ExpressionStatement[expression.type='AssignmentExpression'][expression.left.type='MemberExpression'][expression.left.property.name='current']";
-          const message =
-            "A ref refreshed in a passive useEffect is stale until the effect runs. Use useLatestRef (src/lib/useLatestRef.ts), which refreshes in a layout effect.";
-          return [
-            // Expression body: useEffect(() => (ref.current = x))
-            { selector: `${call} > :function[body.type='AssignmentExpression'][body.left.property.name='current']`, message },
-            // Block body whose every statement is a write to `.current`
-            {
-              selector: `${call} > :function > BlockStatement[body.length>0]:not(:has(> :not(${refWrite})))`,
-              message,
-            },
-          ];
-        }),
+        ...REF_GUARDS,
       ],
     },
   },
   {
     // The Gazette keeps its own display sizes and rules until its masthead and section heads follow the type scale.
     files: ["src/layouts/gazette.tsx", "src/layouts/gazette.test.tsx"],
-    rules: { "no-restricted-syntax": "off" },
+    rules: { "no-restricted-syntax": ["error", ...REF_GUARDS] },
   },
   {
     // Every dropdown menu is built from ui/menu: a popover with a mouse, a bottom sheet with a finger, and no nested

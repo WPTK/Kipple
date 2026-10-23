@@ -1,8 +1,10 @@
 import { CircleHelp } from "lucide-react";
 import { Popover } from "radix-ui";
+import { useMain } from "@/ui/useMain";
 
 /** The search syntax in a small popover beside the box (docs/design.md 2.4). */
 export function SearchHelp() {
+  const main = useMain();
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
@@ -10,7 +12,7 @@ export function SearchHelp() {
           <CircleHelp className="size-5" aria-hidden="true" />
         </button>
       </Popover.Trigger>
-      <Popover.Portal>
+      <Popover.Portal container={main}>
         <Popover.Content
           align="end"
           sideOffset={4}

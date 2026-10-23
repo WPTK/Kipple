@@ -21,3 +21,11 @@ describe("PasswordField", () => {
     expect(input).toHaveAttribute("type", "password");
   });
 });
+
+describe("PasswordField disabled", () => {
+  it("disables the Show button with its input", () => {
+    render(<PasswordField label="Login" value="" onChange={() => {}} autoComplete="off" disabled />);
+    expect(screen.getByLabelText("Login")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Show password" })).toBeDisabled();
+  });
+});

@@ -2,6 +2,7 @@ import { type ComponentProps, createContext, type MouseEvent, useContext, useRef
 import { DropdownMenu as Radix } from "radix-ui";
 import { cn } from "@/lib/cn";
 import { mediaMatches } from "@/lib/useMedia";
+import { useMain } from "@/ui/useMain";
 import { menuScrollClass, useTabBarClearance } from "@/ui/menuClearance";
 
 /** A finger is the pointer: menus open as a bottom sheet there, as a popover beside their button everywhere else. */
@@ -31,7 +32,7 @@ function Root({ open, defaultOpen = false, onOpenChange, ...rest }: ComponentPro
   };
   return (
     <CloseMenu.Provider value={() => change(false)}>
-      <Radix.Root modal={false} {...rest} open={open ?? own} onOpenChange={change} />
+      <Radix.Root {...rest} modal={false} open={open ?? own} onOpenChange={change} />
     </CloseMenu.Provider>
   );
 }
@@ -116,11 +117,10 @@ function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutsi
 
 /**
  * Where menus are drawn: inside the page's main landmark, not loose in the body, so every menu is in a landmark (axe
- * "region"). Its position is fixed, so it is placed the same wherever it sits in the page. Without a main (a bare test
- * render) Radix falls back to the body.
+ * "region"). Its position is fixed, so it is placed the same wherever it sits in the page.
  */
 function Portal(props: ComponentProps<typeof Radix.Portal>) {
-  return <Radix.Portal container={typeof document === "undefined" ? null : document.getElementById("main")} {...props} />;
+  return <Radix.Portal container={useMain()} {...props} />;
 }
 
 /**
