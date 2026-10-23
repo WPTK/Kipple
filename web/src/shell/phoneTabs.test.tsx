@@ -57,11 +57,12 @@ describe("the phone tab bar's current tab", () => {
 });
 
 describe("the reading column", () => {
-  it("is measured in rem, so a title and the body (different font sizes) share one width", () => {
+  it("is a count of reading-font characters, computed once on the article so a title and the body (different font sizes) share one width", () => {
     const css = readFileSync("src/index.css", "utf8");
     const measures = [...css.matchAll(/--kp-measure:\s*([^;]+);/g)].map((m) => m[1]);
     expect(measures.length).toBeGreaterThan(0);
-    for (const m of measures) expect(m).toMatch(/rem$/);
+    for (const m of measures) expect(m).toMatch(/ch$/);
+    expect(css).toMatch(/@property --kp-col \{\s*syntax: "<length-percentage>";\s*inherits: true;/);
   });
 });
 
