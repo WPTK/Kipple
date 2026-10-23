@@ -24,6 +24,22 @@ describe("LoadFailed", () => {
     expect(retry).toHaveBeenCalledTimes(1);
     rerender(<LoadFailed cause="unreachable" busy onRetry={retry} />);
     expect(screen.getByText("Trying again")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Try again" })).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("does not ask again by itself for a cause that will not pass (a refusal, a rate limit)", () => {
+    const retry = vi.fn();
+    render(<LoadFailed cause="other" busy={false} onRetry={retry} />);
+    act(() => void vi.advanceTimersByTime(AUTO_RETRY_MS * 10));
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("waits at least as long as the server asked", () => {
+    const retry = vi.fn();
+    render(<LoadFailed cause="server" busy={false} onRetry={retry} retryAfterMs={30_000} />);
+    act(() => void vi.advanceTimersByTime(AUTO_RETRY_MS * 2));
+    expect(retry).not.toHaveBeenCalled();
+    act(() => void vi.advanceTimersByTime(30_000));
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 });

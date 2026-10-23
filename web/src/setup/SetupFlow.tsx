@@ -124,8 +124,8 @@ export function OpenSignIn() {
     }
   };
   const run = () => {
+    // `failed` stays up while it is tried again, so the failed screen (its alert and focus) is not rebuilt.
     setBusy(true);
-    setFailed(false);
     setNoCookie(false);
     return attempt();
   };

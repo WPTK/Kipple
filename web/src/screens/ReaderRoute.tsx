@@ -1,8 +1,9 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, Navigate, useMatch, useNavigate, useSearchParams } from "react-router";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, MoreVertical, RefreshCw, Settings, Timer, Undo2, X } from "lucide-react";
+import { errorMessage } from "@/api/client";
 import { keys, scopeKey, useBootstrap, useFolderTree } from "@/api/queries";
 import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib/folderTree";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
@@ -406,6 +407,14 @@ function WidePane({
   const limit = maxFor(total, ARTICLE_MIN, LIST_WIDTH_MIN, LIST_WIDTH_MAX);
   const wanted = listWidth ?? Math.round(layoutRem * remPx);
   const shown = Math.min(limit, Math.max(LIST_WIDTH_MIN, wanted));
+  // The notice pill over the list stays inside the list's width (shell/OfflineNotice.tsx reads this).
+  useLayoutEffect(() => {
+    if (listOnly) return;
+    document.documentElement.style.setProperty("--list-w", `${shown}px`);
+    return () => {
+      document.documentElement.style.removeProperty("--list-w");
+    };
+  }, [listOnly, shown]);
   return (
     <div ref={box} className="flex h-full min-h-0">
       {/* The list is always the first child here, so it is never remounted when an article opens or closes. */}
@@ -497,7 +506,7 @@ export function ReaderRoute() {
     return (
       <EmptyState
         title={`Couldn't check this ${missing.kind}`}
-        why="Kipple couldn't reach the server to look for it."
+        why={`${errorMessage(boot.error)} Kipple could not look for it.`}
         action={
           <div className="flex flex-wrap items-center justify-center gap-2">
             {toUnread}

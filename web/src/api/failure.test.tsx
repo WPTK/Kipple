@@ -1,14 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, errorMessage, failed, failureCause } from "./client";
+import { setBrowserOnline } from "@/lib/offlineState";
 import { act, render, screen } from "@testing-library/react";
 import { Toasts, clearToasts, settleToasts, toast } from "@/shell/toasts";
 
 function online(on: boolean) {
-  vi.spyOn(navigator, "onLine", "get").mockReturnValue(on);
+  setBrowserOnline(on);
+}
+
+/** An error answer the way Kipple sends it (it carries Kipple's API header), or as a proxy in front of it would not. */
+function answer(status: number, fromKipple: boolean) {
+  const e = new ApiError(status, "http_" + status);
+  e.fromKipple = fromKipple;
+  return e;
 }
 
 describe("failure wording by cause", () => {
   afterEach(() => {
+    setBrowserOnline(true);
     vi.restoreAllMocks();
     clearToasts();
   });
@@ -18,8 +27,15 @@ describe("failure wording by cause", () => {
     expect(errorMessage(new ApiError(0, "network"))).toBe("You're offline.");
     online(true);
     expect(errorMessage(new ApiError(0, "network"))).toBe("Kipple can't be reached.");
-    expect(errorMessage(new ApiError(503, "http_503"))).toBe("Kipple's server had a problem.");
+    expect(errorMessage(answer(503, true))).toBe("Kipple's server had a problem.");
     expect(failureCause(new ApiError(400, "bad"))).toBeNull();
+  });
+
+  it("calls an error answer a proxy or tunnel sent for a Kipple that is down 'can't be reached', not a server problem", () => {
+    online(true);
+    for (const status of [502, 503, 504, 530]) expect(failureCause(answer(status, false))).toBe("unreachable");
+    expect(failureCause(answer(500, true))).toBe("server");
+    expect(failureCause(new ApiError(503, "maintenance"))).toBeNull();
   });
 
   it("names the action, then the cause, and never ends on a retry word", () => {

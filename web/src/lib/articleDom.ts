@@ -258,3 +258,17 @@ export function handleArticleClick(e: MouseEvent | React.MouseEvent, body: HTMLE
   }
   return false;
 }
+
+/** Elements that are something to look at or read other than running text. */
+const SHOWS_SOMETHING = "img,picture,video,audio,iframe,figure,svg,canvas,table,pre,code";
+
+/**
+ * A feed that sent only a title: the body has no text and nothing to look at either. Told apart from an article that is
+ * all pictures. Read from the parsed body (text content, so entities such as `&#160;` count as the blank they are),
+ * never by matching the markup; parsing runs no script and loads nothing.
+ */
+export function hasNothingToRead(html: string): boolean {
+  if (html.length >= 4000) return false;
+  const body = new DOMParser().parseFromString(html, "text/html").body;
+  return !body.querySelector(SHOWS_SOMETHING) && (body.textContent ?? "").trim() === "";
+}

@@ -6,7 +6,7 @@ import { ApiError } from "@/api/client";
 import { useFulltext, useItem, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
-import { enhanceEmbeds, handleArticleClick, watchImages } from "@/lib/articleDom";
+import { enhanceEmbeds, handleArticleClick, hasNothingToRead, watchImages } from "@/lib/articleDom";
 import { useListOrder } from "@/layouts/listOrder";
 import { useItemActions } from "@/lib/itemActions";
 import { retireUndoToastFor } from "@/lib/undo";
@@ -257,7 +257,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   // watch, which updates the cues already shown.
   const articleUrl = browserOnline ? safeHttpUrl(item.data?.url) : undefined;
   // A feed that sent only a title: nothing to read and no picture either. Told apart from an article that is all pictures.
-  const textless = !!a && !a.trimmed && html.length < 4000 && !/<(img|picture|video|audio|iframe|figure|svg|canvas|table|pre|code)\b/i.test(html) && html.replace(/<[^>]*>/g, "").replace(/&nbsp;|\s/g, "") === "";
+  const textless = !!a && !a.trimmed && hasNothingToRead(html);
   const originalButton = articleUrl ? <Button variant="solid" onClick={() => openOriginalAndRecord({ id, url: articleUrl })}>Open original</Button> : null;
   const sameTab = linkTarget === "same";
   const bodyCallback = useCallback(

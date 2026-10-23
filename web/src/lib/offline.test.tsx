@@ -35,9 +35,16 @@ import {
 } from "./offline";
 import { devicePrefsStore } from "./devicePrefs";
 import * as toasts from "@/shell/toasts";
-import { offlineStore, setOnline, setPending } from "./offlineState";
+import { offlineStore, setBrowserOnline, setOnline, setPending } from "./offlineState";
+
+/** The browser's own network state: what navigator.onLine says and what the app's store holds (it follows the events). */
+function browser(on: boolean) {
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(on);
+  setBrowserOnline(on);
+}
 
 function fresh() {
+  setBrowserOnline(true);
   resetOfflineForTests();
   resetPrefetchForTests();
   authStore.set("in");
@@ -564,11 +571,11 @@ describe("prefetch for offline reading", () => {
 
   it("does not run offline, and retries after a failure", async () => {
     setOnline(false);
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    browser(false);
     const { calls } = mockFetch({});
     await prefetchUnread(5_000_000);
     expect(calls).toHaveLength(0);
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    browser(true);
     netFail();
     await prefetchUnread(5_000_000);
     const again = mockFetch({ "GET /api/items": () => json({ items: [], next_cursor: null }) });
@@ -608,8 +615,18 @@ describe("<OfflineNotice />", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Kipple can't be reached. Reading what's on this device.");
   });
 
+  it("follows the browser's offline and online events, not only what it saw at render", () => {
+    setOnline(false);
+    render(<OfflineNotice />);
+    expect(screen.getByRole("status")).toHaveTextContent("Kipple can't be reached. Reading");
+    act(() => void window.dispatchEvent(new Event("offline")));
+    expect(screen.getByRole("status")).toHaveTextContent("You're offline. Reading");
+    act(() => void window.dispatchEvent(new Event("online")));
+    expect(screen.getByRole("status")).toHaveTextContent("Kipple can't be reached. Reading");
+  });
+
   it("names the changes waiting to be sent when asked", async () => {
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    browser(false);
     const c = makeQueryClient();
     c.setQueryData(keys.item("7"), { id: "7", feed_id: "1", read: false, title: "Ember" });
     await queueStar("7", true);
@@ -626,7 +643,7 @@ describe("<OfflineNotice />", () => {
   });
 
   it("explains offline, with and without waiting changes, and while sending", () => {
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    browser(false);
     setOnline(false);
     const { rerender } = render(<OfflineNotice />);
     expect(screen.getByRole("status")).toHaveTextContent("You're offline. Reading what's on this device.");
@@ -683,7 +700,7 @@ describe("new builds", () => {
 // the offline queue never ran.
 describe("the query client offline", () => {
   const offline = () => {
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    browser(false);
     onlineManager.setOnline(false);
   };
   afterEach(() => {
@@ -740,7 +757,7 @@ describe("the query client offline", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     fetchMock.mockResolvedValue(json(detail(1)));
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    browser(true);
     act(() => onlineManager.setOnline(true));
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -771,7 +788,7 @@ describe("the query client offline", () => {
   });
 
   it("the online state starts from the browser's, so a launch offline still sees the network come back", () => {
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    browser(false);
     const stop = initOffline(new QueryClient());
     try {
       expect(onlineManager.isOnline()).toBe(false);
@@ -796,7 +813,7 @@ describe("the queue laid over the worker's stored copy", () => {
   const cached = { "X-Kipple-Cache": "1" };
   const unread = { view: "unread" } as const;
   const goOffline = () => {
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    browser(false);
     onlineManager.setOnline(false);
   };
 
@@ -924,7 +941,7 @@ describe("the badges while offline", () => {
       vi.restoreAllMocks();
       onlineManager.setOnline(live);
       if (!live) {
-        vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+        browser(false);
       }
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(answer, 200, live ? {} : { "X-Kipple-Cache": "1" })));
       const c = makeQueryClient();

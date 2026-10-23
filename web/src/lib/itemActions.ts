@@ -233,11 +233,11 @@ export function itemActions(qc: QueryClient) {
     patchItems(qc, local, { read: true });
     try {
       ticket.settle(await finishBulk(await send(), local, asOf, restore, unhide));
-    } catch {
+    } catch (e) {
       ticket.settle(null);
       patchItems(qc, local, { read: false });
       restore?.();
-      toast("Couldn't mark those as read.", "error", undefined, "read");
+      toast(failed("mark those as read", e), "error", undefined, "read");
     }
   }
 

@@ -5,18 +5,18 @@ import { CAUSE_PHRASE } from "@/api/client";
 import { findCached } from "@/api/queries";
 import { reloadForUpdate } from "@/lib/buildInfo";
 import { queuedChanges, type Queued } from "@/lib/offline";
-import { offlineStore, type OfflineState } from "@/lib/offlineState";
+import { browserOnlineStore, offlineStore, type OfflineState } from "@/lib/offlineState";
 import { reloadToSignIn } from "@/lib/reload";
 import { useStore } from "@/lib/store";
 
 type Notice = { text: string; icon: "offline" | "update" | "session"; reload: boolean; changes: boolean };
 
 /** Why Kipple is not answering: the browser says it has no network, or it has one and Kipple does not answer. */
-function lead(): string {
-  return typeof navigator !== "undefined" && navigator.onLine === false ? CAUSE_PHRASE.offline : CAUSE_PHRASE.unreachable;
+function lead(browserOnline: boolean): string {
+  return browserOnline ? CAUSE_PHRASE.unreachable : CAUSE_PHRASE.offline;
 }
 
-function noticeFor({ online, pending, updateReady, sessionExpired }: OfflineState): Notice | null {
+function noticeFor({ online, pending, updateReady, sessionExpired }: OfflineState, browserOnline: boolean): Notice | null {
   if (sessionExpired) return { text: "Your sign-in has expired. Reload Kipple to sign in again.", icon: "session", reload: true, changes: false };
   if (updateReady) return { text: "A newer version of Kipple is ready.", icon: "update", reload: true, changes: false };
   if (online && pending === 0) return null;
@@ -24,8 +24,8 @@ function noticeFor({ online, pending, updateReady, sessionExpired }: OfflineStat
   const text = online
     ? `Sending ${changes} made while offline.`
     : pending > 0
-      ? `${lead()}. Reading what's on this device; ${changes} will be sent when you're back.`
-      : `${lead()}. Reading what's on this device.`;
+      ? `${lead(browserOnline)}. Reading what's on this device; ${changes} will be sent when you're back.`
+      : `${lead(browserOnline)}. Reading what's on this device.`;
   return { text, icon: "offline", reload: false, changes: pending > 0 };
 }
 
@@ -68,12 +68,19 @@ function Changes({ pending }: { pending: number }) {
  */
 export function OfflineNotice() {
   const state = useStore(offlineStore);
-  const n = noticeFor(state);
+  const browserOnline = useStore(browserOnlineStore);
+  const n = noticeFor(state, browserOnline);
   const [open, setOpen] = useState(false);
+  // The list keeps more room at its end while the pill stands over it (screens/ListPane.tsx).
+  const showingPill = n !== null;
+  useEffect(() => {
+    document.documentElement.toggleAttribute("data-pill", showingPill);
+    return () => document.documentElement.removeAttribute("data-pill");
+  }, [showingPill]);
   const showing = open && n?.changes === true;
   return (
     <div
-      className={n ? "pointer-events-auto flex min-h-11 w-full max-w-md flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm shadow-md" : "sr-only-live"}
+      className={n ? "pointer-events-auto flex min-h-11 w-full max-w-[min(28rem,calc(var(--list-w,100vw)-2rem))] flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm shadow-md" : "sr-only-live"}
       data-testid="offline-notice"
     >
       {n?.icon === "offline" ? <CloudOff aria-hidden="true" className="size-4 shrink-0 text-fg2" /> : null}

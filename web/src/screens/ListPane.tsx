@@ -1482,9 +1482,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
           onFocus={onListFocus}
         >
           {/* Room at the end the size of a toast, always there (a room that came and went with the toast would move the
-              list under the reader), so the last row can be scrolled out from under the undo toast. */}
+              list under the reader), so the last row can be scrolled out from under the undo toast; more while the offline notice shows (data-pill). */}
           <div
-            className="pb-20"
+            className="pb-20 [[data-pill]_&]:pb-40"
             style={
               pullOffset > 0 && !reduced
                 ? { transform: `translateY(${pullOffset}px)`, transition: pull.dragging ? "none" : "transform 200ms cubic-bezier(0.2, 0, 0, 1)" }

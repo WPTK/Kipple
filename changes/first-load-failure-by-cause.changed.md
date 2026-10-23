@@ -1,1 +1,1 @@
-The first-load failure screens (app start, sign-in and setup) name the cause, centre like other status screens, drop the advice to read the server logs, and ask again by themselves every few seconds with a Trying again line. (#705)
+A launch that cannot load keeps its failed screen up while it asks again by itself, with a "Trying again" line, and gives up asking by itself for causes that will not pass (a refusal, a rate limit) and waits as long as the server's Retry-After says. (#705)

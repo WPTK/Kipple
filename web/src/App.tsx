@@ -19,7 +19,7 @@ import { SignedOut } from "@/setup/SignedOut";
 import { launchAnswerStore, useSessionProbe } from "@/api/sessionProbe";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { NotFoundBlock } from "@/ui/NotFoundBlock";
-import { LoadFailed } from "@/ui/LoadFailed";
+import { LoadFailed, useKeptFailure } from "@/ui/LoadFailed";
 import { Button } from "@/ui/button";
 import { EmptyState } from "@/ui/EmptyState";
 import { Skeleton } from "@/ui/kit";
@@ -74,7 +74,6 @@ export function makeQueryClient(opts: { retry?: boolean } = {}): QueryClient {
 
 function Gate() {
   const auth = useStore(authStore);
-  const { online } = useStore(offlineStore);
   const qc = useQueryClient();
   // Nothing that needs a session is asked for until the session marker, or failing it a short probe, says there may
   // be one: a signed-out launch sends no request that answers 401 (the browser logs those to the console).
@@ -86,6 +85,8 @@ function Gate() {
   const signingOut = useStore(signingOutStore);
   // A launch the probe found refused by the open gate shows that at once; the bootstrap would only be refused too.
   const boot = useBootstrap(auth === "in" || (auth === "unknown" && probed && !refused));
+  // The launch's failure is kept while it is asked again, so the failed screen stays up (see useKeptFailure).
+  const keptFailure = useKeptFailure(boot.error, !!boot.data);
   const reset = useStore(resetting);
   const { pathname } = useLocation();
   const rerun = useStore(rerunStore);
@@ -181,7 +182,7 @@ function Gate() {
       </div>
     );
   }
-  if (boot.isPending) {
+  if (boot.isPending && keptFailure == null) {
     return (
       <div className="flex h-full items-center justify-center" role="status">
         <span className="text-fg2">Loading Kipple</span>
@@ -190,17 +191,20 @@ function Gate() {
   }
   // The full-screen errors are for a launch with nothing to show. A background refetch that fails later keeps its
   // data (and sets isError alongside it): the reader stays up and the notice at the top explains what happened.
-  const failed = boot.isError && !boot.data;
-  if (failed && boot.error instanceof ApiError && boot.error.code === SESSION_EXPIRED) {
+  const failure = boot.data ? null : boot.isError ? boot.error : keptFailure;
+  const failed = failure != null;
+  if (failure instanceof ApiError && failure.code === SESSION_EXPIRED) {
     return (
       <EmptyState role="alert" asH1 title="Your sign-in has expired" why="The sign-in in front of Kipple timed out. Reload to sign in again." action={<Button onClick={() => reloadToSignIn()}>Reload</Button>} />
     );
   }
   if (failed) {
-    const cause = !online ? "offline" : (failureCause(boot.error) ?? "other");
+    // Offline only when the browser says so: Kipple not answering is "can't be reached", whatever the last request did.
+    const cause = failureCause(failure) ?? "other";
     return (
       <LoadFailed
         cause={cause}
+        retryAfterMs={failure instanceof ApiError ? failure.retryAfterMs : 0}
         busy={boot.isFetching}
         onRetry={() => void boot.refetch()}
         why={cause === "offline" ? "Kipple has nothing saved on this device yet. Open it once while you're online and your unread articles will be here next time." : undefined}

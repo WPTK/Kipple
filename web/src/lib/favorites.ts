@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, errorMessage } from "@/api/client";
+import { api, failed } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { toast } from "@/shell/toasts";
@@ -66,7 +66,7 @@ export function useFavorites(): FavoritesApi {
         // Undo only the favorites slice, and only if nothing newer has been applied since: the rest of the
         // bootstrap (counts, feeds) may have changed while this was in flight.
         if (mine === sent) patchBoot(before);
-        toast(errorMessage(e), "error");
+        toast(failed("save your favorites", e), "error");
         return false;
       }
     },

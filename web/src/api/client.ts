@@ -1,4 +1,4 @@
-import { noteResponse, setOnline, setSessionExpired } from "@/lib/offlineState";
+import { browserOnlineStore, noteResponse, setOnline, setSessionExpired } from "@/lib/offlineState";
 import { createStore } from "@/lib/store";
 
 /** ApiError code for a request the access proxy in front of Kipple redirected to its login page. */
@@ -247,11 +247,16 @@ export const CAUSE_PHRASE: Record<FailureCause, string> = {
   server: "Kipple's server had a problem",
 };
 
-/** The cause of a failure, or null when it is none of the three (a refusal, a 404, an expired sign-in). */
+/**
+ * The cause of a failure, or null when it is none of the three (a refusal, a 404, an expired sign-in). No answer is
+ * "offline" only when the browser itself says it has no network. An error answer is the server's problem only when it
+ * came from Kipple (it carries Kipple's API header); a 502, 503, 504 or 530 from a proxy or tunnel in front of a Kipple
+ * that is not running is "can't be reached".
+ */
 export function failureCause(e: unknown): FailureCause | null {
   if (!(e instanceof ApiError)) return null;
-  if (e.status === 0) return typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "unreachable";
-  if (e.status >= 500 && e.code !== "maintenance") return "server";
+  if (e.status === 0) return browserOnlineStore.get() ? "unreachable" : "offline";
+  if (e.status >= 500 && e.code !== "maintenance") return e.fromKipple ? "server" : "unreachable";
   return null;
 }
 
