@@ -102,14 +102,58 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.deps.outputs.playwright }}-${{ steps.gate.outputs.engines }}
 
-      - name: Install the browsers
+      # The system libraries (--with-deps) come from apt, and the Azure mirror sometimes stalls for minutes between
+      # packages. So: the downloaded .deb files are cached (a warm run downloads nothing), a stalled connection is
+      # dropped and retried within seconds, and the step has its own budget so a stall cannot eat the job's 45 minutes.
+      # The cache is restored and saved by separate steps (same pinned commit as actions/cache) so the save can run
+      # after a failed install: what was downloaded before the stall is kept for the next attempt. Each run saves under
+      # its own key, restores the newest one for the same Playwright version and engines, and saves only when it fetched
+      # something new.
+      - name: Restore the downloaded system packages
         if: steps.gate.outputs.code != 'false'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-debs
+          key: apt-debs-${{ runner.os }}-${{ steps.deps.outputs.playwright }}-${{ steps.gate.outputs.engines }}-${{ github.run_id }}
+          restore-keys: |
+            apt-debs-${{ runner.os }}-${{ steps.deps.outputs.playwright }}-${{ steps.gate.outputs.engines }}-
+
+      - name: Install the browsers
+        id: browsers
+        if: steps.gate.outputs.code != 'false'
+        timeout-minutes: 15
         working-directory: web
         env:
           ENGINES: ${{ steps.gate.outputs.engines == 'all' && 'chromium webkit firefox' || 'chromium' }}
         run: |
+          mkdir -p ~/apt-debs
+          echo "before=$(find ~/apt-debs -name '*.deb' | wc -l)" >> "$GITHUB_OUTPUT"
+          # Drop a stalled connection after 20 s and try again, rather than waiting minutes on it.
+          printf '%s\n' 'Acquire::Retries "5";' 'Acquire::http::Timeout "20";' 'Acquire::https::Timeout "20";' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-network > /dev/null
+          sudo cp -n ~/apt-debs/*.deb /var/cache/apt/archives/ 2>/dev/null || true
           # shellcheck disable=SC2086 # one engine name per word
           npx playwright install --with-deps $ENGINES
+
+      # Runs after a failed or timed-out install too. An empty "before" means the install never started: nothing to save.
+      - name: Collect the downloaded system packages
+        id: debs
+        if: steps.gate.outputs.code != 'false' && always()
+        env:
+          BEFORE: ${{ steps.browsers.outputs.before }}
+        run: |
+          mkdir -p ~/apt-debs
+          sudo cp -n /var/cache/apt/archives/*.deb ~/apt-debs/ 2>/dev/null || true
+          sudo chown -R "$(id -u):$(id -g)" ~/apt-debs
+          now="$(find ~/apt-debs -name '*.deb' | wc -l)"
+          if [ -n "$BEFORE" ] && [ "$now" -gt "$BEFORE" ]; then echo "save=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Save the downloaded system packages
+        if: steps.gate.outputs.code != 'false' && always() && steps.debs.outputs.save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-debs
+          key: apt-debs-${{ runner.os }}-${{ steps.deps.outputs.playwright }}-${{ steps.gate.outputs.engines }}-${{ github.run_id }}
 
       # `npm run seed` builds web/dist when it is missing, builds Kipple, starts it and adds the fixture feeds.
       - name: Start the fixture feeds and a seeded instance on loopback
