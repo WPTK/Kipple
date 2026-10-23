@@ -45,7 +45,7 @@ export function ListenBar({ bodyRef, articleId }: { bodyRef: RefObject<HTMLEleme
   };
 
   return (
-    <div role="group" aria-label="Listen to this article" className="mx-auto mb-4 flex max-w-[min(var(--kp-measure),46rem)] flex-col gap-2 rounded-xl border border-line bg-surface px-3 py-2">
+    <div role="group" aria-label="Listen to this article" className="kp-ui mx-auto mb-4 flex max-w-[min(var(--kp-col),100%)] flex-col gap-2 rounded-xl border border-line bg-surface px-3 py-2">
       <div className="flex flex-wrap items-center gap-1">
         {idle ? (
           <Button onClick={play}>
