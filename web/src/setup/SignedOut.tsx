@@ -32,7 +32,7 @@ export function SignedOut({ initial }: { initial?: InstanceInfo | null }) {
     gcTime: 0,
   });
   // The failure is kept while it is asked again, so the failed screen stays up (see useKeptFailure).
-  const kept = useKeptFailure(inst.error, !!inst.data);
+  const kept = useKeptFailure(inst.error, !!inst.data, inst.isFetching);
   const failure = inst.data ? null : (inst.error ?? kept);
   const retrying = inst.isPending && kept != null;
   // The tab names the one screen of this component that has no screen of its own (the others set theirs).

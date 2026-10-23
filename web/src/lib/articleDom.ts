@@ -1,6 +1,7 @@
 // DOM behaviour for server-transformed article HTML (docs/design.md 7.7 and 7.8):
 // click-to-load embeds, footnote links that scroll inside the article, and nothing else.
 // No inline script, no eval; iframes exist only for the two allowed hosts and only after a tap.
+import { browserOnlineStore } from "@/lib/offlineState";
 
 // Same patterns as internal/sanitize/serve.go, which already filtered what reaches the placeholder.
 const YOUTUBE_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -97,6 +98,8 @@ const isBeacon = (img: HTMLImageElement): boolean => ["width", "height"].some((k
 
 /** Images that fired an error event, kept for the next watch of the same body. */
 const erred = new WeakSet<HTMLImageElement>();
+/** The picture an offline cue took the place of, to put back when the network returns. */
+const offlineCues = new WeakMap<HTMLElement, { box: Element; img: HTMLImageElement }>();
 
 /** An image the server sent with no address: it refused it before any request (an SVG named as one). */
 const noAddress = (img: HTMLImageElement): boolean =>
@@ -168,6 +171,7 @@ export function imageNotShown(img: HTMLImageElement, original: string | undefine
   // A <picture> is one image: the cue takes the place of the whole of it.
   const box = img.parentElement?.tagName === "PICTURE" ? img.parentElement : img;
   box.replaceWith(cue);
+  if (offline) offlineCues.set(cue, { box, img });
   setCueLink(cue, original, sameTab);
   return cue;
 }
@@ -191,6 +195,26 @@ export function watchImages(root: HTMLElement, original: string | undefined, sam
       if (yes && !stop.signal.aborted) imageNotShown(img, original, sameTab);
     });
   };
+  // The network is back: a picture that was only out of reach is put back and asked for again (a refusal then gets its cue).
+  const restore = () => {
+    for (const cue of root.querySelectorAll<HTMLElement>(`.${NOT_SHOWN_CLASS}`)) {
+      const kept = offlineCues.get(cue);
+      if (!kept) continue;
+      offlineCues.delete(cue);
+      cue.replaceWith(kept.box);
+      asked.delete(kept.img);
+      erred.delete(kept.img);
+      const src = kept.img.getAttribute("src");
+      if (src) {
+        kept.img.removeAttribute("src");
+        kept.img.setAttribute("src", src);
+      }
+    }
+  };
+  if (browserOnlineStore.get()) restore();
+  const unsubOnline = browserOnlineStore.subscribe(() => {
+    if (browserOnlineStore.get()) restore();
+  });
   for (const cue of root.querySelectorAll<HTMLElement>(`.${NOT_SHOWN_CLASS}`)) setCueLink(cue, original, sameTab);
   // No address, or an error seen by an earlier watch of this body whose check was stopped (the link changed mid-check).
   for (const img of root.querySelectorAll("img")) if (noAddress(img) || erred.has(img)) check(img);
@@ -199,7 +223,7 @@ export function watchImages(root: HTMLElement, original: string | undefined, sam
     if (!(img instanceof HTMLImageElement) || !root.contains(img)) return;
     erred.add(img);
     // No network: the failure needs no check, and the cue says the picture is out of reach, not refused.
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    if (!browserOnlineStore.get()) {
       if (!asked.has(img) && !isBeacon(img) && !img.closest("figure.kp-embed")) {
         asked.add(img);
         imageNotShown(img, original, sameTab, true);
@@ -211,6 +235,7 @@ export function watchImages(root: HTMLElement, original: string | undefined, sam
   root.addEventListener("error", onError, true);
   return () => {
     stop.abort();
+    unsubOnline();
     root.removeEventListener("error", onError, true);
   };
 }

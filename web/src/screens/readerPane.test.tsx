@@ -8,6 +8,7 @@ import { initialLive, liveStore } from "@/api/events";
 import { resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
+import { setBrowserOnline } from "@/lib/offlineState";
 import { clearListMemory } from "./ListPane";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 
@@ -236,6 +237,7 @@ describe("an article that fails to load", () => {
     await screen.findByText("Article number 1");
     offline = true;
     vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    setBrowserOnline(false);
     onlineManager.setOnline(false);
     try {
       await userEvent.setup().click(screen.getByText("Article number 1"));
@@ -246,6 +248,7 @@ describe("an article that fails to load", () => {
       expect(screen.queryByRole("button", { name: "Read the original" })).toBeNull();
     } finally {
       onlineManager.setOnline(true);
+      setBrowserOnline(true);
       vi.restoreAllMocks();
     }
   });

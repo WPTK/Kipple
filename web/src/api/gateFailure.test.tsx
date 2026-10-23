@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import App, { makeQueryClient } from "@/App";
-import { authStore } from "@/api/client";
+import { authStore, setSignedIn } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { offlineStore, setBrowserOnline } from "@/lib/offlineState";
 import { json, mockFetch } from "@/test/mockApi";
@@ -92,5 +93,31 @@ describe("the launch failure screen asks again quietly", () => {
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Kipple can't be reached"));
     expect(screen.getByRole("alert")).toBe(alert);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Try again" }));
+  });
+});
+
+describe("a failure belongs to its own attempt", () => {
+  it("shows no failure screen for the bootstrap that follows a sign-in, after a failed launch and an expired session", async () => {
+    let calls = 0;
+    mockFetch({
+      "GET /api/bootstrap": () => {
+        calls++;
+        // The launch fails (the launch's own retries too); Try again then meets the expired cookie (401); after the sign-in
+        // the bootstrap is slow and stays pending.
+        if (calls <= 3) return json({ error: "internal" }, 500);
+        return calls === 4 ? json({ error: "auth" }, 401) : new Promise<Response>(() => {});
+      },
+      "GET /api/instance": () => json({ setup: false, auth: "password", signed_in: false, open_refused: null }),
+    });
+    render(<App client={makeQueryClient({ retry: false })} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Try again" }));
+    await screen.findByRole("button", { name: "Sign in" });
+    expect(authStore.get()).toBe("out");
+    act(() => setSignedIn());
+    await waitFor(() => expect(calls).toBe(5));
+    expect(screen.getByText("Loading Kipple")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Trying again")).toBeNull();
   });
 });

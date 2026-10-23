@@ -498,7 +498,7 @@ export function ReaderRoute() {
     // A bootstrap that could not be fetched again proves nothing about the feed.
     const unsure = boot.isRefetchError;
     const toUnread = (
-      <Link to={listTo({ view: "unread" })} replace className={buttonVariants({})}>
+      <Link to={listTo({ view: "unread" })} replace className={buttonVariants({ variant: "solid" })}>
         Go to Unread
       </Link>
     );

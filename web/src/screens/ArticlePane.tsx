@@ -1,5 +1,7 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { browserOnlineStore } from "@/lib/offlineState";
+import { useStore } from "@/lib/store";
 import { Link, useLocation, useNavigate } from "react-router";
 import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileCheck, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
 import { ApiError } from "@/api/client";
@@ -70,7 +72,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   // article was opened from often already has this item's card cached, url included: enough to still offer
   // "read the original" even though the article body itself could not be loaded.
   const cachedCard = useMemo(() => list.cards.find((i) => i.id === id), [list.cards, id]);
-  const browserOnline = useSyncExternalStore(subscribeOnline, () => navigator.onLine !== false);
+  const browserOnline = useStore(browserOnlineStore);
   const index = ids.indexOf(id);
   // The list order as it was while this article was in it. An article can leave its list while it is open (saving
   // "Mute similar..." from it drops it from every list but Muted), and Next and Previous then go on from where it was.
@@ -161,8 +163,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const toggleStar = () => {
     if (!item.data) return;
     const starred = !item.data.starred;
-    star.mutate({ id, starred });
-    announce(starred ? "Starred" : "Unstarred");
+    // Said once the change is made (or kept for later), not before: a failed star is not announced as done.
+    star.mutate({ id, starred }, { onSuccess: () => announce(starred ? "Starred" : "Unstarred") });
   };
   const toggleRead = () => {
     if (!item.data) return;
@@ -413,7 +415,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
               </Button>
             </p>
           ) : null}
-          {a.trimmed ? null : <ListenBar bodyRef={bodyRef} articleId={id} />}
+          {a.trimmed || textless ? null : <ListenBar bodyRef={bodyRef} articleId={id} />}
           {a.trimmed ? (
             <EmptyState title="This article was removed" why="Kipple keeps only the newest articles for this feed. Open the original to read it." action={originalButton} />
           ) : textless ? (
@@ -434,16 +436,6 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
       {!pane && toolbar(false)}
     </div>
   );
-}
-
-/** The browser's own online state (navigator.onLine), not the app's: a request failing sets the app offline too. */
-function subscribeOnline(cb: () => void): () => void {
-  window.addEventListener("online", cb);
-  window.addEventListener("offline", cb);
-  return () => {
-    window.removeEventListener("online", cb);
-    window.removeEventListener("offline", cb);
-  };
 }
 
 function TopBar({ onBack }: { onBack: () => void }) {

@@ -9,6 +9,7 @@ import { feedEditorStore } from "@/lib/feedEditor";
 import { initTheme } from "@/theme/theme";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
+import * as toasts from "@/shell/toasts";
 import { bootstrap, card, detail, json, mockFetch, pageOf, setSessionMarker } from "@/test/mockApi";
 import { emptyCopy } from "./ListPane";
 
@@ -338,6 +339,27 @@ describe("Reader: lists and articles that are not there", () => {
     expect(await screen.findByRole("heading", { name: "This feed sent only a title" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open original" })).toBeInTheDocument();
     expect(screen.queryByTestId("article-body")).toBeNull();
+    expect(screen.queryByRole("button", { name: /listen/i })).toBeNull();
+  });
+
+  it("announces Starred only once the star went through, never for a star the server refused", async () => {
+    const say = vi.spyOn(toasts, "announce");
+    const body = detail(1);
+    let fail = true;
+    routes({
+      "GET /api/items/1001": () => json(body),
+      "POST /api/items/1001/open": () => json({ session_key: "k", item: { ...body, read: true } }),
+      "PUT /api/items/1001/star": () => (fail ? json({ error: "internal" }, 500) : json({ starred: true, restored: false })),
+    });
+    go("/i/1001");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Star" }));
+    expect((await screen.findAllByText(/Couldn't star/)).length).toBeGreaterThan(0);
+    expect(say).not.toHaveBeenCalledWith("Starred");
+    fail = false;
+    await user.click(await screen.findByRole("button", { name: "Star" }));
+    await waitFor(() => expect(say).toHaveBeenCalledWith("Starred"));
+    say.mockRestore();
   });
 
   it("an article that is only a picture is still shown as an article", async () => {

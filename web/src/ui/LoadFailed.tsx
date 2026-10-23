@@ -10,14 +10,19 @@ export const AUTO_RETRY_MS = 5_000;
 /**
  * The failure a first load ended with, kept while it is asked again. TanStack Query puts a query that has no data back to
  * "pending" for each new attempt, which would unmount the failed screen (and its alert and focus) every few seconds; a
- * screen shows LoadFailed for as long as this is set, and it is cleared when data arrives. `error` is the query's.
+ * screen shows LoadFailed for as long as this is set. It is cleared when data arrives, when the query is no longer
+ * trying (not fetching, no error), and whenever `reset` is true (the session ended: the signed-out screen is showing), so
+ * a failure never outlives the attempt it belongs to and reappears after the next sign-in. `error`, `hasData` and
+ * `fetching` are the query's.
  */
-export function useKeptFailure(error: unknown, hasData: boolean): unknown {
+export function useKeptFailure(error: unknown, hasData: boolean, fetching: boolean, reset = false): unknown {
   const [kept, setKept] = useState<unknown>(null);
   // Data wins: a refetch that fails over data already shown (TanStack keeps both) is not a failed launch.
-  if (hasData) {
+  if (hasData || reset) {
     if (kept !== null) setKept(null);
-  } else if (error != null && kept !== error) setKept(error);
+  } else if (error != null) {
+    if (kept !== error) setKept(error);
+  } else if (!fetching && kept !== null) setKept(null);
   return kept;
 }
 

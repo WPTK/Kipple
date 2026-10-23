@@ -86,7 +86,7 @@ function Gate() {
   // A launch the probe found refused by the open gate shows that at once; the bootstrap would only be refused too.
   const boot = useBootstrap(auth === "in" || (auth === "unknown" && probed && !refused));
   // The launch's failure is kept while it is asked again, so the failed screen stays up (see useKeptFailure).
-  const keptFailure = useKeptFailure(boot.error, !!boot.data);
+  const keptFailure = useKeptFailure(boot.error, !!boot.data, boot.isFetching, auth === "out");
   const reset = useStore(resetting);
   const { pathname } = useLocation();
   const rerun = useStore(rerunStore);
