@@ -1,1 +1,1 @@
-Password fields have a Show/Hide button, and the second "password again" field is gone from setup, restore and the account settings. (#699)
+Password fields have a Show/Hide button named after its field (for example "Show new password"), and the second "password again" field is gone from setup, restore and the account settings. (#699)

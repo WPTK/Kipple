@@ -1,1 +1,1 @@
-Destructive buttons (delete, sign out, reset, forget) share one outlined red style. (#626)
+Destructive buttons (delete, sign out, reset, forget) share one outlined red style whose hover thickens the border, so the red text always stays on the page color. (#626)

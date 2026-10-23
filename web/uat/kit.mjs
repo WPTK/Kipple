@@ -54,10 +54,13 @@ await t.eachViewport(async (page, vp) => {
   await step(`${tag} K2`, async () => {
     const cur = await openPasswordDialog(page);
     await cur.fill("secret-value");
-    const show = cur.locator("xpath=..").getByRole("button", { name: "Show password" });
+    // Each Show button is named after its field and controls its own input: two identical buttons cannot be told apart.
+    const names = await page.getByRole("button", { name: /^Show .*password$/ }).evaluateAll((bs) => bs.map((b) => `${b.getAttribute("aria-label")}>${b.getAttribute("aria-controls") === b.parentElement.querySelector("input").id}`));
+    check(names.length >= 2 && new Set(names).size === names.length && names.every((x) => x.endsWith(">true")), `${tag} K2 names`, "each Show button has its own name and controls its own input", names.join(" | "));
+    const show = cur.locator("xpath=..").getByRole("button", { name: "Show current password" });
     await show.click();
     check((await cur.getAttribute("type")) === "text", `${tag} K2 show`, "Show reveals the value", `type is ${await cur.getAttribute("type")}`);
-    await cur.locator("xpath=..").getByRole("button", { name: "Hide password" }).click();
+    await cur.locator("xpath=..").getByRole("button", { name: "Hide current password" }).click();
     check((await cur.getAttribute("type")) === "password", `${tag} K2 hide`, "Hide covers it again", "still shown");
     const body = await textOf(page.locator("body"), 4000);
     check(!/password again/i.test(body), `${tag} K2 again`, "there is no second password field", "a \"password again\" field is still there");

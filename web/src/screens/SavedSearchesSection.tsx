@@ -212,7 +212,7 @@ export function SavedSearchesSection() {
                 className={cn(
                   "flex flex-col gap-1 rounded-xl border border-line bg-surface p-3",
                   DND_ROW_CLASS,
-                  dragged && "relative z-10 opacity-90 shadow-lg",
+                  dragged && "relative z-10 opacity-90 shadow-toast",
                   before && "border-t-2 border-t-accent",
                   atEnd && "border-b-2 border-b-accent",
                 )}

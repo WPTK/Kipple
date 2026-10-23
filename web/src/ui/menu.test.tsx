@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
+import { Toasts } from "@/shell/toasts";
+import { DeviceSaveStatus } from "@/shell/SaveStatus";
 import { DropdownMenu } from "./menu";
 
 // #423: a tall menu is a popover beside its button with a mouse and a bottom sheet with a finger. One primitive does both
@@ -71,6 +73,41 @@ describe("MenuContent", () => {
     expect(menu.closest("#main")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Skip" }).closest("[aria-hidden='true']")).toBeNull();
     expect(screen.getByRole("main").closest("[aria-hidden='true']")).toBeNull();
+  });
+
+  it("is drawn above the toasts and the save notice, so neither covers a sheet or takes its taps", async () => {
+    touch(true);
+    const z = (el: Element) => Number(/(?:^|\s)z-(\d+)(?:\s|$)/.exec(el.className)![1]);
+    const { container } = render(
+      <>
+        <main id="main">
+          <Demo />
+        </main>
+        <Toasts />
+      </>,
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: "List options" }));
+    const menu = await screen.findByRole("menu");
+    const toasts = container.querySelector("[data-testid=toast-region]")!;
+    expect(z(menu)).toBeGreaterThan(z(toasts));
+    expect(z(document.querySelector("[data-menu-backdrop]")!)).toBeGreaterThan(z(toasts));
+    // The save notice shares the toasts' layer.
+    expect(DeviceSaveStatus.toString()).toContain("z-50");
+  });
+
+  it("stays open when focus moves to the page under a sheet (the mouse events after a long press's lift focus it)", async () => {
+    touch(true);
+    render(
+      <>
+        <button type="button">Under</button>
+        <Demo />
+      </>,
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: "List options" }));
+    await screen.findByRole("menu");
+    act(() => screen.getByRole("button", { name: "Under" }).focus());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("menu")).not.toBeNull();
   });
 
   it("is a popover with a mouse: sized by the caller, scrolling, no dimmed page", async () => {

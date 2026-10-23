@@ -22,6 +22,21 @@ describe("PasswordField", () => {
   });
 });
 
+describe("PasswordField names", () => {
+  it("gives two fields in one dialog two different Show buttons, each controlling its own input", () => {
+    render(
+      <>
+        <PasswordField label="Current password" value="" onChange={() => {}} autoComplete="current-password" />
+        <PasswordField label="New password" value="" onChange={() => {}} autoComplete="new-password" />
+      </>,
+    );
+    const cur = screen.getByRole("button", { name: "Show current password" });
+    const next = screen.getByRole("button", { name: "Show new password" });
+    expect(cur.getAttribute("aria-controls")).toBe(screen.getByLabelText("Current password").id);
+    expect(next.getAttribute("aria-controls")).toBe(screen.getByLabelText("New password").id);
+  });
+});
+
 describe("PasswordField disabled", () => {
   it("disables the Show button with its input", () => {
     render(<PasswordField label="Login" value="" onChange={() => {}} autoComplete="off" disabled />);

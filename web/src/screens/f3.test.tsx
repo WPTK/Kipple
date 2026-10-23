@@ -221,8 +221,8 @@ describe("Settings renderer", () => {
     await user.click(screen.getByRole("link", { name: "Back to Settings" }));
     await user.click(await screen.findByRole("link", { name: /^Sync & Feeds/ }));
     await user.click(await screen.findByRole("button", { name: "Increase How often to check feeds" }));
-    const alert = await screen.findByText("must be an integer from 5 to 1440");
-    expect(alert).toHaveAttribute("role", "alert");
+    const alert = (await screen.findByText("must be an integer from 5 to 1440")).closest("[role=alert]");
+    expect(alert).not.toBeNull();
     expect(interval).toBe(30);
   });
 });

@@ -8,7 +8,9 @@ import { menuScrollClass, useTabBarClearance } from "@/ui/menuClearance";
 /** A finger is the pointer: menus open as a bottom sheet there, as a popover beside their button everywhere else. */
 export const TOUCH_QUERY = "(pointer: coarse)";
 
-const shell = "z-50 rounded-xl border border-line bg-bg p-1 text-fg shadow-sheet";
+// z-60 and z-55 sit above the toasts, the save notice and dialogs (z-50): an open menu is never covered by one, so a toast
+// cannot take the taps meant for the bottom of a sheet.
+const shell = "z-60 rounded-xl border border-line bg-bg p-1 text-fg shadow-sheet";
 const sheet =
   "menu-sheet mx-auto max-h-[70dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-b-none rounded-t-2xl border-x-0 border-b-0 pt-2 pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))]";
 
@@ -72,7 +74,7 @@ function PopoverContent({ popoverWidth, collisionPadding, ...rest }: ContentProp
  * rest of that tap (the lift and its click) landed on whatever lay under it, an article row that then opened. Measured
  * in Chromium and WebKit with real touch input. Kept until its own click, the dimmed page takes the whole tap.
  */
-function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutside, children, ...rest }: ContentProps) {
+function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutside, onFocusOutside, children, ...rest }: ContentProps) {
   const close = useContext(CloseMenu);
   const [opener] = useState(() => ({ at: performance.now(), id: lastPress }));
   const pressed = useRef(false);
@@ -83,7 +85,7 @@ function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutsi
         data-menu-backdrop=""
         // touch-none and overscroll-none: a drag that starts on the dimmed page must not scroll the page behind it (the
         // row's menu is not modal and locks no scroll of its own).
-        className="pointer-events-auto fixed inset-0 z-40 touch-none overscroll-none bg-scrim"
+        className="pointer-events-auto fixed inset-0 z-55 touch-none overscroll-none bg-scrim"
         // Only a press that began on it: the click of the press that opened the menu (a tap, or a mouse whose button
         // comes up over the dimmed page) also lands here. A click handler is also what makes iOS deliver a tap's click
         // to an element that is not a link or a button.
@@ -95,6 +97,14 @@ function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutsi
       <Radix.Content
         {...rest}
         data-menu-sheet=""
+        // A non-modal menu closes when focus leaves it, and a long press opens a row menu with no focus anywhere: the
+        // mouse events a browser sends after the lift (mousedown on the story's link) move focus to the page under the
+        // sheet and closed the menu the moment the finger came up. The sheet is closed by its dimmed page, Escape and a
+        // choice, and Tab cannot leave it, so focus moving elsewhere is never a reason to close it.
+        onFocusOutside={(e) => {
+          onFocusOutside?.(e);
+          e.preventDefault();
+        }}
         onPointerDownOutside={(e) => {
           onPointerDownOutside?.(e);
           if ((e.detail.originalEvent.target as Element | null)?.closest?.("[data-menu-backdrop]")) e.preventDefault();

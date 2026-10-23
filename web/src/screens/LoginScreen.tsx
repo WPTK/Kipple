@@ -96,7 +96,7 @@ export function LoginScreen() {
           </div>
         ) : null}
         <div className="flex flex-col gap-1">
-          <label htmlFor={uid} className="text-sm font-medium">
+          <label htmlFor={uid} className="text-sm font-semibold">
             Username
           </label>
           <input

@@ -188,6 +188,9 @@ export function PasswordField({
   inputRef?: Ref<HTMLInputElement>;
 } & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type" | "autoComplete" | "className" | "id" | "ref">) {
   const [shown, setShown] = useState(false);
+  // Named after its field when the label ends in "password" ("Show new password"), so two fields in one dialog have two
+  // different Show buttons.
+  const what = /password$/i.test(label) ? label.replace(/^./, (c) => c.toLowerCase()) : "password";
   return (
     <Field label={label} help={help} error={error}>
       {(a) => (
@@ -195,7 +198,8 @@ export function PasswordField({
           <input {...a} {...rest} ref={inputRef} type={shown ? "text" : "password"} autoComplete={autoComplete} autoCapitalize="none" spellCheck={false} value={value} onChange={(e) => onChange(e.target.value)} className={cn(inputCls, "pr-16")} />
           <button
             type="button"
-            aria-label={shown ? "Hide password" : "Show password"}
+            aria-label={`${shown ? "Hide" : "Show"} ${what}`}
+            aria-controls={a.id}
             disabled={rest.disabled}
             onClick={() => setShown((s) => !s)}
             className="absolute inset-y-0 right-0 inline-flex min-w-11 items-center justify-center rounded-lg px-3 text-sm font-medium text-link disabled:opacity-50"

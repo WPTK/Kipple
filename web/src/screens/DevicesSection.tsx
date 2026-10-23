@@ -9,7 +9,7 @@ import { useStore } from "@/lib/store";
 import { whenLabel } from "@/lib/format";
 import { announce, toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
-import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
+import { FieldError, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 
 const KIND_ICON = { phone: Smartphone, tablet: Tablet, computer: Monitor };
 
@@ -69,11 +69,7 @@ function ThisDeviceName({ device }: { device: DeviceRow }) {
       <p id={`${id}-h`} className="text-xs text-fg2">
         Shown in this list so you can tell your devices apart. Leave it empty to use a description of the browser.
       </p>
-      {error ? (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
+      {error ? <FieldError id={`${id}-e`}>{error}</FieldError> : null}
     </form>
   );
 }

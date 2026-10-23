@@ -301,7 +301,7 @@ export function ReadingMenu({ className }: { className?: string }) {
           sideOffset={4}
           collisionPadding={8}
           aria-label="Reading appearance"
-          className="z-50 flex max-h-[min(80dvh,var(--radix-popover-content-available-height))] w-[min(22rem,calc(100vw-1rem))] flex-col gap-4 overflow-y-auto rounded-xl border border-line bg-bg p-4 text-fg shadow-xl"
+          className="z-50 flex max-h-[min(80dvh,var(--radix-popover-content-available-height))] w-[min(22rem,calc(100vw-1rem))] flex-col gap-4 overflow-y-auto rounded-xl border border-line bg-bg p-4 text-fg shadow-sheet"
         >
           <ThemeSelect />
           <FontSelect />

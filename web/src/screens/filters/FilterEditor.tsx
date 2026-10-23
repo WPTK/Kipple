@@ -37,7 +37,7 @@ import { toast } from "@/shell/toasts";
 import { cn } from "@/lib/cn";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { Button } from "@/ui/button";
-import { Checkbox, Chip, Field, Modal, Notice, RadioCard, inputCls } from "@/ui/kit";
+import { Checkbox, Chip, Field, FieldError, Modal, Notice, RadioCard, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 
 export const PREVIEW_DEBOUNCE_MS = 600;
@@ -153,11 +153,7 @@ function Group({ legend, help, error, children }: { legend: string; help?: React
         </p>
       ) : null}
       {children}
-      {error ? (
-        <p id={`${id}-e`} role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
+      {error ? <FieldError id={`${id}-e`}>{error}</FieldError> : null}
     </fieldset>
   );
 }
@@ -251,11 +247,7 @@ function TermsInput({ d, set, error }: { d: FilterDraft; set: (patch: Partial<Fi
           : "A phrase matches its words in order. "}
         {d.terms.length} of {max} used. The rule fires when any one of them matches.
       </p>
-      {shown ? (
-        <p id={`${id}-e`} role="alert" className="text-sm text-danger">
-          {shown}
-        </p>
-      ) : null}
+      {shown ? <FieldError id={`${id}-e`}>{shown}</FieldError> : null}
       <Chips terms={d.terms} mono={regex} onRemove={(i) => set({ terms: d.terms.filter((_, j) => j !== i) })} />
     </div>
   );
