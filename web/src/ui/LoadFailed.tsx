@@ -14,8 +14,10 @@ export const AUTO_RETRY_MS = 5_000;
  */
 export function useKeptFailure(error: unknown, hasData: boolean): unknown {
   const [kept, setKept] = useState<unknown>(null);
-  if (error != null && kept !== error) setKept(error);
-  else if (hasData && kept !== null) setKept(null);
+  // Data wins: a refetch that fails over data already shown (TanStack keeps both) is not a failed launch.
+  if (hasData) {
+    if (kept !== null) setKept(null);
+  } else if (error != null && kept !== error) setKept(error);
   return kept;
 }
 

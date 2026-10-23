@@ -99,7 +99,7 @@ describe("sign-out", () => {
     render(<App client={makeQueryClient({ retry: false })} />);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Sign out" }));
-    expect(await screen.findByText("Kipple's server had a problem.")).toBeTruthy();
+    expect(await screen.findByText("Couldn't sign out. Kipple's server had a problem.")).toBeTruthy();
     expect(authStore.get()).toBe("in");
     expect(sessionLostStore.get()).toBe(false);
     // Still on the account screen, signed in: the same button tries again.
@@ -154,7 +154,7 @@ describe("sign-out", () => {
       await user.click(button);
       expect(signingOutStore.get()).toBe(true);
       await act(() => vi.advanceTimersByTimeAsync(SIGN_OUT_MS));
-      expect((await screen.findAllByText("The server didn't answer. Try again.")).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText("Couldn't sign out. Kipple can't be reached.")).length).toBeGreaterThan(0);
     } finally {
       vi.useRealTimers();
     }

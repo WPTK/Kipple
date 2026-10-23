@@ -505,7 +505,7 @@ describe("routing into and out of /welcome", () => {
     server(signedIn(), { "POST /api/onboarding/complete": () => json({ error: "internal" }, 500) });
     go("/welcome/import");
     await userEvent.setup().click(await screen.findByRole("button", { name: "Skip the rest of setup" }));
-    expect(await screen.findByText("Kipple's server had a problem.")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn't finish setup. Kipple's server had a problem.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Bring your feeds along");
   });
 });
@@ -1047,7 +1047,7 @@ describe("Step 7: finish", () => {
     go("/welcome/finish");
     await heading();
     await userEvent.setup().click(screen.getByRole("button", { name: "Finish" }));
-    await waitFor(() => expect(screen.getAllByText("Kipple's server had a problem.").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("Couldn't finish setup. Kipple's server had a problem.").length).toBeGreaterThan(0));
     expect(screen.getByRole("button", { name: "Finish" })).toBeEnabled();
   });
 });

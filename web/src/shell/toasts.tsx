@@ -105,7 +105,7 @@ function ToastView({ t }: { t: ToastItem }) {
   return (
     <div
       data-kind={t.kind}
-      className={`pointer-events-auto flex min-h-11 w-full max-w-md items-center gap-3 rounded-xl px-4 py-2 text-sm ${TOAST_SURFACE}`}
+      className={`pointer-events-auto flex min-h-11 w-full max-w-[min(28rem,calc(var(--list-w,100vw)-2rem))] items-center gap-3 rounded-xl px-4 py-2 text-sm ${TOAST_SURFACE}`}
       onPointerEnter={() => setHeld(true)}
       onPointerLeave={() => setHeld(false)}
       onFocus={() => setHeld(true)}
