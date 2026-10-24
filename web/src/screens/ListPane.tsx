@@ -38,6 +38,7 @@ import { useWidth } from "@/lib/useWidth";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { failureCopy, failureNoteFeeds, showsFailure } from "@/lib/feedStatus";
 import { FeedFailureNote } from "./FeedFailureNote";
+import { FeedRepair } from "./FeedRepair";
 import { listPlace, rememberListTop } from "@/lib/listPlace";
 import { useItemsSource } from "./listSource";
 import { firstLook, keepStill, lookAgain, measurePage, readerScrolling, SCROLLING_MS, type PageLook, type ReaderInput } from "./pageSeen";
@@ -1318,17 +1319,14 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     if ((Page ? src.cards.length : rows.length) === 0) {
       if (boot.data && visibleFeeds(boot.data.feeds).length === 0 && !scope.q) {
         return (
-          <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
+          <FirstRun onImport={() => navigate("/feeds", { state: { open: "import" } })} />
         );
       }
-      const c = emptyCopy(scope, pendingNew, scope.feed ? feedById.get(scope.feed) : undefined);
+      const failing = scope.feed ? feedById.get(scope.feed) : undefined;
+      const c = emptyCopy(scope, pendingNew, failing);
       return (
         <StatusBlock role="status" title={c.title} body={c.body}>
-          {c.health ? (
-            <Link to="/health" className="text-sm text-link underline underline-offset-2">
-              Open Feed health
-            </Link>
-          ) : null}
+          {c.health && failing ? <FeedRepair feed={failing} /> : null}
           {scope.view === "muted" && !scope.q ? (
             <Link to="/settings/filters" className="text-sm text-link underline underline-offset-2">
               Add a filter in Settings

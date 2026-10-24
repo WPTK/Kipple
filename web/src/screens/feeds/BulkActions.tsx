@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { deleteFeeds, deleteFolder, invalidateFeeds, patchFeed, reorder as reorderApi } from "@/api/admin";
+import { deleteFeeds, deleteFolder, invalidateFeeds, patchFeed, reorder as reorderApi, useDeleteArticleCount } from "@/api/admin";
 import { errorMessage } from "@/api/client";
 import type { Feed, Folder } from "@/api/types";
 import { Button } from "@/ui/button";
@@ -14,12 +14,22 @@ export function deleteSummary(feeds: readonly Feed[]): { count: number; starred:
   return { count: feeds.length, starred: feeds.reduce((n, f) => n + (f.starred_count ?? 0), 0) };
 }
 
-/** The delete dialogs' wording, right for one feed and for several: the one place the singular and plural forms live. */
-export function deleteCopy(count: number, starred: number) {
+const articlesOf = (n: number) => `${n} article${n === 1 ? "" : "s"}`;
+
+/**
+ * The delete dialogs' wording, right for one feed and for several: the one place the singular and plural forms live.
+ * `articles` is how many the feeds hold in all (null while counting, or if it could not be counted); starred ones stay in
+ * the Archive unless `alsoStarred`. The button names the outcome: "Delete feed and 312 articles".
+ */
+export function deleteCopy(count: number, starred: number, articles: number | null = null, alsoStarred = false) {
   const one = count === 1;
+  const feeds = one ? "feed" : "feeds";
+  const removed = articles === null ? null : Math.max(0, articles - (alsoStarred ? 0 : starred));
   return {
-    feeds: one ? "feed" : "feeds",
-    consequence: `${one ? "Its articles are" : "Their articles are"} removed from Kipple. Your sync apps stop seeing ${one ? "this feed" : "these feeds"}.`,
+    feeds,
+    consequence: `${removed === null ? `Removes ${one ? "its" : "their"} articles` : removed === 0 ? "Removes no articles" : `Removes ${articlesOf(removed)}`}. This can't be undone.`,
+    button: `Delete ${one ? "feed" : `${count} feeds`}${removed ? ` and ${articlesOf(removed)}` : ""}`,
+    removed,
     starredWarning: `${one ? "This feed holds" : "These feeds hold"} ${starred} starred article${starred === 1 ? "" : "s"}${one ? "" : " in total"}. By default ${starred === 1 ? "it is" : "they are"} kept in the Archive.`,
     noStarred: one ? "This feed has no starred articles." : "None of these feeds has starred articles.",
   };
@@ -129,7 +139,7 @@ function BulkProgress({ label, done, total }: { label: string; done: number | nu
 }
 
 /**
- * Turn the selected feeds on or off, one at a time (a feed has no bulk endpoint of its own): progress and a
+ * Pause or resume the selected feeds, one at a time (a feed has no bulk endpoint of its own): progress and a
  * per-feed error list, same shape as the delete dialog. One bad feed does not stop the rest.
  */
 export function ToggleDialog({ feeds: selected, enable, onClose, onDone }: { feeds: Feed[]; enable: boolean; onClose: () => void; onDone: () => void }) {
@@ -137,7 +147,7 @@ export function ToggleDialog({ feeds: selected, enable, onClose, onDone }: { fee
   const qc = useQueryClient();
   const count = feeds.length;
   const { progress, report, setReport, busy, runEach } = useBulkRun(feeds);
-  const verb = enable ? "Turn on" : "Turn off";
+  const verb = enable ? "Resume" : "Pause";
 
   const run = async () => {
     const { succeeded, failed } = await runEach((f) => patchFeed(f.id, { enabled: enable }).then(() => undefined));
@@ -145,10 +155,10 @@ export function ToggleDialog({ feeds: selected, enable, onClose, onDone }: { fee
     invalidateFeeds(qc);
     onDone();
     if (failed.length === 0) {
-      toast(`${enable ? "Turned on" : "Turned off"} ${done} feed${done === 1 ? "" : "s"}`);
+      toast(`${enable ? "Resumed" : "Paused"} ${done} feed${done === 1 ? "" : "s"}`);
       onClose();
     } else {
-      announce(`${enable ? "Turned on" : "Turned off"} ${done}, ${failed.length} failed`);
+      announce(`${enable ? "Resumed" : "Paused"} ${done}, ${failed.length} failed`);
       setReport({ done, failed });
     }
   };
@@ -186,14 +196,14 @@ export function ToggleDialog({ feeds: selected, enable, onClose, onDone }: { fee
         </ul>
       ) : (
         <>
-          <ul className="max-h-40 overflow-y-auto text-sm text-fg2" aria-label={`Feeds to ${enable ? "turn on" : "turn off"}`}>
+          <ul className="max-h-40 overflow-y-auto text-sm text-fg2" aria-label={`Feeds to ${enable ? "resume" : "pause"}`}>
             {feeds.map((f) => (
               <li key={f.id} className="truncate">
                 {f.title}
               </li>
             ))}
           </ul>
-          {busy ? <BulkProgress label={`${enable ? "Turning on" : "Turning off"} feeds`} done={progress} total={count} /> : null}
+          {busy ? <BulkProgress label={`${enable ? "Resuming" : "Pausing"} feeds`} done={progress} total={count} /> : null}
         </>
       )}
     </Modal>
@@ -224,7 +234,7 @@ function FeedsToDelete({
           <Notice tone="warn">
             {copy.starredWarning}
           </Notice>
-          <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={onAlsoStarred} disabled={disabled} help="This can't be undone." />
+          <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={onAlsoStarred} disabled={disabled} help="Removes them from the Archive too." />
         </>
       ) : noneNote ? (
         <p className="text-sm text-fg2">{copy.noStarred}</p>
@@ -271,7 +281,9 @@ export function DeleteDialog({
   const [feeds] = useState(selected); // fixed when the dialog opens: the live selection shrinks as feeds are deleted
   const qc = useQueryClient();
   const { count, starred } = deleteSummary(feeds);
+  const articles = useDeleteArticleCount(feeds.map((f) => f.id)) ?? null;
   const [alsoStarred, setAlsoStarred] = useState(false);
+  const copy = deleteCopy(count, starred, articles, alsoStarred);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -305,15 +317,15 @@ export function DeleteDialog({
     <Modal
       open
       onOpenChange={(o) => !o && !busy && onClose()}
-      title={`Delete ${count} ${deleteCopy(count, starred).feeds}?`}
-      description={deleteCopy(count, starred).consequence}
+      title={`Delete ${count} ${copy.feeds}?`}
+      description={copy.consequence}
       footer={
         <>
           <Button onClick={onClose} disabled={busy}>
             {error ? "Close" : "Cancel"}
           </Button>
           <Button variant="solid" disabled={busy} onClick={() => void run()}>
-            {busy ? "Deleting…" : error ? "Try again" : `Delete ${count} ${deleteCopy(count, starred).feeds}`}
+            {busy ? "Deleting…" : error ? "Try again" : copy.button}
           </Button>
         </>
       }
@@ -352,6 +364,8 @@ export function DeleteFolderDialog({
   const { count, starred } = deleteSummary(feeds);
   const [mode, setMode] = useState<"keep" | "all">("keep");
   const [alsoStarred, setAlsoStarred] = useState(false);
+  const articles = useDeleteArticleCount(feeds.map((f) => f.id), mode === "all") ?? null;
+  const removed = deleteCopy(count, starred, articles, alsoStarred).removed;
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -398,7 +412,7 @@ export function DeleteFolderDialog({
               Cancel
             </Button>
             <Button variant="solid" disabled={working || !ready} onClick={() => void run()}>
-              {working ? "Deleting…" : all ? (feedsGone ? "Delete the folder" : `Delete folder and ${plural}`) : "Delete folder"}
+              {working ? "Deleting…" : all ? (feedsGone ? "Delete the folder" : `Delete folder and ${plural}${removed ? ` and ${articlesOf(removed)}` : ""}`) : "Delete folder"}
             </Button>
           </>
         )
@@ -420,7 +434,9 @@ export function DeleteFolderDialog({
           ) : null}
           {all ? (
             <>
-              <Notice tone="warn">This permanently deletes {plural} and their articles, and your sync apps stop seeing them.</Notice>
+              <Notice tone="warn">
+                Deletes {plural}{removed === null ? " and their articles" : removed === 0 ? "" : ` and ${articlesOf(removed)}`}. This can't be undone.
+              </Notice>
               <FeedsToDelete feeds={feeds} starred={starred} alsoStarred={alsoStarred} onAlsoStarred={setAlsoStarred} disabled={working || feedsGone} />
               <Field label={`Type ${folder.name} to confirm`}>
                 {(a) => <input {...a} type="text" autoComplete="off" autoCapitalize="off" value={typed} onChange={(e) => setTyped(e.target.value)} className={inputCls} />}

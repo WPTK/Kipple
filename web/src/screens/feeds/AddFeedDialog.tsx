@@ -4,7 +4,8 @@ import { ApiError, errorMessage } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
 import { addFeed, invalidateFeeds, type AddFeedResult, type Candidate, type FeedDetail, type FetchOutcome } from "@/api/admin";
 import { Button } from "@/ui/button";
-import { Checkbox, Field, Modal, Notice, RadioCard, inputCls } from "@/ui/kit";
+import { Checkbox, Disclosure, Field, Modal, Notice, RadioCard, inputCls } from "@/ui/kit";
+import { failureReason } from "@/lib/feedStatus";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { announce } from "@/shell/toasts";
 
@@ -42,6 +43,27 @@ export function addError(e: unknown): string {
   return errorMessage(e);
 }
 
+/** The host of what was typed, with or without a scheme ("example.com/feed" is "example.com"); "" when it has none. */
+export function hostOf(typed: string): string {
+  const t = typed.trim();
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`).hostname;
+  } catch {
+    return "";
+  }
+}
+
+/** Whether a typed address points at the reader's own network (a loopback, private-range or local name), which Kipple fetches only when allowed for the feed. */
+export function looksPrivate(typed: string): boolean {
+  const h = hostOf(typed).replace(/^\[|\]$/g, "");
+  if (!h) return false;
+  if (h === "localhost" || h === "::1" || /\.(local|lan|home\.arpa|internal)$/.test(h)) return true;
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(h);
+  if (!v4) return /^f[cd][0-9a-f]{2}:/i.test(h) || /^fe80:/i.test(h);
+  const [a, b] = [Number(v4[1]), Number(v4[2])];
+  return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254);
+}
+
 /** The longest title the server accepts, in characters. */
 const MAX_TITLE_CHARS = 200;
 
@@ -56,9 +78,10 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
   const [pick, setPick] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Offered once the server refused a private address; sent only when turned on.
-  const [privateOffered, setPrivateOffered] = useState(false);
+  // Offered as soon as the address looks like one on the reader's own network, or once the server refused one; sent only when turned on.
+  const [refusedPrivate, setRefusedPrivate] = useState(false);
   const [privateNet, setPrivateNet] = useState(false);
+  const privateOffered = refusedPrivate || looksPrivate(url);
   // The server counts characters (code points), so an emoji is one, not the two UTF-16 units maxLength would count.
   const titleChars = [...title.trim()].length;
   const titleTooLong = titleChars > MAX_TITLE_CHARS;
@@ -89,7 +112,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
       }
     } catch (e) {
       setError(addError(e));
-      if (e instanceof ApiError && e.code === "private_address") setPrivateOffered(true);
+      if (e instanceof ApiError && e.code === "private_address") setRefusedPrivate(true);
       // Focus goes back where the keyboard was (the busy button let it go): the address field, whose error it is, or the
       // feed that was picked.
       (address.current ?? choices.current?.querySelector<HTMLInputElement>("input:checked"))?.focus();
@@ -121,10 +144,10 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
         }
       >
         <p className="text-sm">{name}</p>
-        {existed ? <p className="text-sm text-fg2">It is already in your folder list, so nothing was added.</p> : null}
+        {existed ? <p className="text-sm text-fg2">It is already in your feed list, so nothing was added.</p> : null}
         {!existed && fetch?.error ? (
           <Notice tone="error">
-            First fetch failed: {fetch.error}. Kipple will try again later. Check the address on the feed health page.
+            Kipple can't fetch this feed yet: {failureReason({ last_error: fetch.error, last_error_class: fetch.error_class }).toLowerCase()}. It will try again later. You can fix the address in Feed health.
           </Notice>
         ) : null}
         {!existed && fetch && !fetch.error && !fetch.pending && fetch.outcome ? (
@@ -188,28 +211,31 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
         >
           <Field label="Feed or website address" error={error}>
             {/* type="text": the browser's URL check would refuse example.com, which Kipple accepts. */}
-            {(a) => <input {...a} ref={address} type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoFocus placeholder="example.com or https://example.com/feed.xml" value={url} onChange={(e) => setUrl(e.target.value)} className={inputCls} />}
+            {(a) => (
+              <input {...a} ref={address} type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoFocus placeholder="https://example.com/feed.xml" value={url} readOnly={busy} onChange={(e) => setUrl(e.target.value)} className={inputCls} />
+            )}
           </Field>
+          {busy ? (
+            <p role="status" className="text-sm text-fg2">
+              Looking for a feed at {hostOf(url) || "this address"}...
+            </p>
+          ) : null}
           {privateOffered ? (
             <Checkbox
               label="Allow addresses on my own network"
-              help="Lets this feed point at a private or local address, such as a server in your home. Tick it only for a feed you trust."
+              help="This address looks like one on your own network, which Kipple fetches only if you allow it for this feed. Tick it only for a feed you trust."
               checked={privateNet}
               onChange={setPrivateNet}
             />
           ) : null}
-          <Field
-            label="Title (optional)"
-            help={title.trim() ? "Kipple uses this title instead of the feed's own. You can change it later." : "Left empty, the title is filled in from the feed. You can change it later."}
-            error={titleTooLong ? `A title can be at most ${MAX_TITLE_CHARS} characters; this one has ${titleChars}.` : null}
-          >
-            {(a) => <input {...a} type="text" placeholder="Filled in from the feed" value={title} onChange={(e) => setTitle(e.target.value)} className={inputCls} />}
-          </Field>
-          <Field label="Folder">
-            {(a) => (
-              <FolderSelect {...a} value={folder} onChange={setFolder} none="Default folder" />
-            )}
-          </Field>
+          <Disclosure label="Options">
+            <Field label="Title (optional)" help={title.trim() ? "Kipple uses this title instead of the feed's own. You can change it later." : "Left empty, the title is filled in from the feed. You can change it later."}>
+              {(a) => <input {...a} type="text" placeholder="Filled in from the feed" value={title} readOnly={busy} onChange={(e) => setTitle(e.target.value)} className={inputCls} />}
+            </Field>
+            <Field label="Folder">{(a) => <FolderSelect {...a} value={folder} onChange={setFolder} none="Default folder" disabled={busy} />}</Field>
+          </Disclosure>
+          {/* Outside the closed Options, so a too-long title is never a silent reason the button is off. */}
+          {titleTooLong ? <Notice tone="error">{`A title can be at most ${MAX_TITLE_CHARS} characters; this one has ${titleChars}.`}</Notice> : null}
         </form>
       )}
     </Modal>

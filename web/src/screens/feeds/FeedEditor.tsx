@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, errorMessage } from "@/api/client";
-import { deleteFeed, invalidateFeeds, loadFeedDetail, patchFeed, refreshFeed, type FeedDetail } from "@/api/admin";
+import { deleteFeed, invalidateFeeds, loadFeedDetail, patchFeed, refreshFeed, useDeleteArticleCount, type FeedDetail } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import type { Feed } from "@/api/types";
 import { sentence } from "./AddFeedDialog";
@@ -12,7 +12,9 @@ import { ListOverrideFields, useListOverrideDraft } from "./ListOverrideFields";
 import { Checkbox, Disclosure, Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
 import { announce, toast } from "@/shell/toasts";
-import { intervalLabel } from "@/lib/interval";
+import { everyLabel } from "@/lib/interval";
+import { FeedReason } from "../FeedRepair";
+import { deleteCopy } from "./BulkActions";
 
 const INTERVALS = [15, 30, 60, 120, 360, 720, 1440, 10080];
 const RETENTIONS = [50, 100, 250, 500, 1000, 0];
@@ -126,7 +128,20 @@ function saveError(e: unknown): { field: "url" | "auth" | "form"; message: strin
   return { field: "form", message: errorMessage(e) };
 }
 
-export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void }) {
+/** A titled group of fields in the editor. */
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section aria-label={title} className="flex flex-col gap-4">
+      <h3 className="border-b border-line pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+/** What a setting that follows Settings says it is following, e.g. "Same as Settings (every 30 minutes)". */
+const sameAsSettings = (value: string) => `Same as Settings (${value})`;
+
+export function FeedEditor({ feed, onClose, focusAddress }: { feed: Feed; onClose: () => void; /** Open with the address field focused: the way to repair a feed that can't be fetched. */ focusAddress?: boolean }) {
   const qc = useQueryClient();
   const boot = useBootstrap();
   const q = useQuery({ queryKey: ["feed", feed.id], queryFn: () => loadFeedDetail(feed), staleTime: 0, gcTime: 0, retry: false });
@@ -136,6 +151,8 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [alsoStarred, setAlsoStarred] = useState(false);
+  const articles = useDeleteArticleCount([feed.id], confirmDelete) ?? null;
+  const copy = deleteCopy(1, feed.starred_count, articles, alsoStarred);
   const f: Form | null = q.data ? { ...fromDetail(q.data), ...edits } : null;
 
   const patch = useMemo(() => (q.data ? diffForm(q.data, { ...fromDetail(q.data), ...edits }) : {}), [q.data, edits]);
@@ -173,7 +190,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
     try {
       const r = await refreshFeed(feed.id);
       invalidateFeeds(qc);
-      if (r.pending) announce("Still fetching. Check the health page in a moment.");
+      if (r.pending) announce("Still fetching. Check Feed health in a moment.");
       else if (r.error) toast(`Couldn't fetch this feed: ${r.error}`, "error");
       else toast(r.new_items ? `${r.new_items} new article${r.new_items === 1 ? "" : "s"}` : "No new articles");
     } catch (e) {
@@ -200,6 +217,9 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
 
   // The global setting overrides every feed's own one: say so instead of showing a checkbox that does nothing.
   const fulltextAll = boot.data?.settings?.["fetch.fulltext_all"] === true;
+  // What "Same as Settings" follows, so each choice names its real value.
+  const st = boot.data?.settings;
+  const defaults = { interval: Number(st?.["refresh.interval_minutes"] ?? 30), retention: Number(st?.["retention.default"] ?? 250), autoRead: Number(st?.["library.auto_read_days"] ?? 0) };
 
   if (confirmDelete) {
     return (
@@ -207,12 +227,12 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
         open
         onOpenChange={(o) => !o && setConfirmDelete(false)}
         title={`Delete ${feed.title}?`}
-        description="Its articles are removed from Kipple. Your sync apps stop seeing this feed."
+        description={copy.consequence}
         footer={
           <>
             <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
             <Button variant="solid" disabled={busy} onClick={() => void remove()}>
-              Delete feed
+              {copy.button}
             </Button>
           </>
         }
@@ -222,10 +242,10 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
             <Notice tone="warn">
               This feed has {feed.starred_count} starred article{feed.starred_count === 1 ? "" : "s"}. By default they are kept in the Archive.
             </Notice>
-            <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={setAlsoStarred} help="This can't be undone." />
+            <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={setAlsoStarred} help="Removes them from the Archive too." />
           </>
         ) : (
-          <p className="text-sm text-fg2">This feed has no starred articles.</p>
+          <p className="text-sm text-fg2">{copy.noStarred}</p>
         )}
       </Modal>
     );
@@ -240,8 +260,8 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="solid" disabled={busy || !f} onClick={() => void save()}>
-            {Object.keys(patch).length || lists.dirty ? "Save" : "Done"}
+          <Button variant="solid" disabled={busy || !f || (Object.keys(patch).length === 0 && !lists.dirty)} onClick={() => void save()}>
+            Save
           </Button>
         </>
       }
@@ -251,90 +271,95 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
       {f && q.data ? (
         <>
           {err?.field === "form" ? <Notice tone="error">{err.message}</Notice> : null}
-          <Field label="Title" help="Leave empty to use the title the feed gives itself.">
-            {(a) => <input {...a} type="text" value={f.title} placeholder={q.data.title} onChange={(e) => set("title", e.target.value)} className={inputCls} />}
-          </Field>
-          <Field
-            label="Feed address"
-            help={q.data.url_original && q.data.url_original !== q.data.url ? `Originally ${q.data.url_original}. Change this to point at a new address; articles you already have are kept.` : "Change this to point at a new address; articles you already have are kept."}
-            error={err?.field === "url" ? err.message : null}
-          >
-            {(a) => <input {...a} type="url" inputMode="url" autoCapitalize="none" spellCheck={false} value={f.url} onChange={(e) => set("url", e.target.value)} className={inputCls} />}
-          </Field>
-          {changedUrl && (heldGrants.privateNet || heldGrants.insecureTls) ? (
-            <>
-              <Notice tone="warn">{grantNotice(heldGrants)}</Notice>
-              <Checkbox
-                label="Keep for the new address"
-                help="Only for an address you trust, such as another server in your home."
-                checked={f.keepGrants}
-                onChange={(v) => set("keepGrants", v)}
-              />
-            </>
-          ) : null}
-          <Field label="Folder">
-            {(a) => (
-              <FolderSelect {...a} value={f.folder} onChange={(id) => set("folder", id)} />
-            )}
-          </Field>
-          <ListOverrideFields kind="feed" id={feed.id} draft={lists} />
-          <Field label="Check for new articles">
-            {(a) => (
-              <select {...a} value={f.interval} onChange={(e) => set("interval", e.target.value)} className={inputCls}>
-                <option value="">Use the default in Settings</option>
-                {withCustom(INTERVALS, f.interval).map((m) => (
-                  <option key={m} value={m}>
-                    Every {intervalLabel(m)}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          <Field label="Articles to keep" help="Starred articles are always kept.">
-            {(a) => (
-              <select {...a} value={f.retention} onChange={(e) => set("retention", e.target.value)} className={inputCls}>
-                <option value="">Use the default in Settings</option>
-                {RETENTIONS.map((n) => (
-                  <option key={n} value={n}>
-                    {retentionLabel(n)}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          <Field
-            label="Mark as read after"
-            help="Unread articles are marked read once they are this old. Starred and muted articles are never touched. Changing this never marks anything at once."
-          >
-            {(a) => (
-              <select {...a} value={f.autoRead} onChange={(e) => set("autoRead", e.target.value)} className={inputCls}>
-                <option value="">Use the global setting</option>
-                {withCustom(AUTO_READ_PRESETS, f.autoRead).map((n) => (
-                  <option key={n} value={n}>
-                    {n === 0 ? "Off for this feed" : autoReadLabel(n)}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          <AutoReadCatchUp
-            feedId={feed.id}
-            days={f.autoRead !== fromDetail(q.data).autoRead && f.autoRead !== "" ? Number(f.autoRead) : undefined}
-            blockedReason={f.autoRead === "" && q.data.auto_read_days != null ? "Save this change to preview it." : undefined}
-            runBlocked={f.autoRead !== fromDetail(q.data).autoRead ? "Save the feed, then open it again to mark these now." : undefined}
-          />
-          {fulltextAll ? (
-            <Checkbox
-              label="Fetch full article text"
-              help="On for all feeds. Settings > Sync & Feeds > Library fetches the full article for every feed, so this option has no effect until that is turned off."
-              checked
-              disabled
-              onChange={() => undefined}
+          {feed.last_error ? <FeedReason feed={feed} /> : null}
+          <Group title="Basics">
+            <Field label="Title" help="Leave empty to use the title the feed gives itself.">
+              {(a) => <input {...a} type="text" value={f.title} placeholder={q.data.title} onChange={(e) => set("title", e.target.value)} className={inputCls} />}
+            </Field>
+            <Field
+              label="Feed address"
+              help={q.data.url_original && q.data.url_original !== q.data.url ? `Originally ${q.data.url_original}. Change this to point at a new address; articles you already have are kept.` : "Change this to point at a new address; articles you already have are kept."}
+              error={err?.field === "url" ? err.message : null}
+            >
+              {(a) => (
+                <input {...a} type="url" inputMode="url" autoCapitalize="none" spellCheck={false} autoFocus={focusAddress} value={f.url} onChange={(e) => set("url", e.target.value)} className={inputCls} />
+              )}
+            </Field>
+            {changedUrl && (heldGrants.privateNet || heldGrants.insecureTls) ? (
+              <>
+                <Notice tone="warn">{grantNotice(heldGrants)}</Notice>
+                <Checkbox
+                  label="Keep for the new address"
+                  help="Only for an address you trust, such as another server in your home."
+                  checked={f.keepGrants}
+                  onChange={(v) => set("keepGrants", v)}
+                />
+              </>
+            ) : null}
+            <Field label="Folder">{(a) => <FolderSelect {...a} value={f.folder} onChange={(id) => set("folder", id)} />}</Field>
+          </Group>
+          <Group title="This feed's schedule">
+            <Field label="Check for new articles">
+              {(a) => (
+                <select {...a} value={f.interval} onChange={(e) => set("interval", e.target.value)} className={inputCls}>
+                  <option value="">{sameAsSettings(everyLabel(defaults.interval).toLowerCase())}</option>
+                  {withCustom(INTERVALS, f.interval).map((m) => (
+                    <option key={m} value={m}>
+                      {everyLabel(m)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field label="Articles to keep" help="Starred articles are always kept.">
+              {(a) => (
+                <select {...a} value={f.retention} onChange={(e) => set("retention", e.target.value)} className={inputCls}>
+                  <option value="">{sameAsSettings(retentionLabel(defaults.retention).toLowerCase())}</option>
+                  {RETENTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {retentionLabel(n)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field
+              label="Mark as read after"
+              help="Unread articles are marked read once they are this old. Starred and muted articles are never touched. Changing this never marks anything at once."
+            >
+              {(a) => (
+                <select {...a} value={f.autoRead} onChange={(e) => set("autoRead", e.target.value)} className={inputCls}>
+                  <option value="">{sameAsSettings(autoReadLabel(defaults.autoRead).toLowerCase())}</option>
+                  {withCustom(AUTO_READ_PRESETS, f.autoRead).map((n) => (
+                    <option key={n} value={n}>
+                      {n === 0 ? "Off for this feed" : autoReadLabel(n)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <AutoReadCatchUp
+              feedId={feed.id}
+              days={f.autoRead !== fromDetail(q.data).autoRead && f.autoRead !== "" ? Number(f.autoRead) : undefined}
+              blockedReason={f.autoRead === "" && q.data.auto_read_days != null ? "Save this change to preview it." : undefined}
+              runBlocked={f.autoRead !== fromDetail(q.data).autoRead ? "Save the feed, then open it again to mark these now." : undefined}
             />
-          ) : (
-            <Checkbox label="Fetch full article text" help="Loads the whole article from the website when the feed only has a summary." checked={f.fulltext} onChange={(v) => set("fulltext", v)} />
-          )}
-          <Checkbox label="Check this feed" help="Untick to stop checking this feed without deleting it." checked={f.enabled} onChange={(v) => set("enabled", v)} />
+            {fulltextAll ? (
+              <Checkbox
+                label="Fetch full article text"
+                help="On for all feeds. Settings > Sync & Feeds > Library fetches the full article for every feed, so this option has no effect until that is turned off."
+                checked
+                disabled
+                onChange={() => undefined}
+              />
+            ) : (
+              <Checkbox label="Fetch full article text" help="Loads the whole article from the website when the feed only has a summary." checked={f.fulltext} onChange={(v) => set("fulltext", v)} />
+            )}
+            <Checkbox label="Pause this feed" help="Kipple stops checking this feed until you resume it. Its articles stay." checked={!f.enabled} onChange={(v) => set("enabled", !v)} />
+          </Group>
+          <Group title="On this device">
+            <ListOverrideFields kind="feed" id={feed.id} draft={lists} />
+          </Group>
 
           <Disclosure label="Advanced">
             <Field label="Duplicate detection" help="How Kipple decides that two entries are the same article.">

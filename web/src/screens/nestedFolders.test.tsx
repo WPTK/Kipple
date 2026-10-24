@@ -270,6 +270,7 @@ describe("managing nested folders", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Add feed" }));
     const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Options" }));
     const options = within(within(dialog).getByRole("combobox", { name: "Folder" })).getAllByRole("option").map((o) => o.textContent);
     expect(options).toEqual(["Default folder", "Uncategorized", "Tech", "Tech › Apple", "Tech › Apple › Mac", "Tech › Empty", "Sports"]);
   });

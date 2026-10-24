@@ -14,7 +14,7 @@ import {
 import { ApiError, api, errorMessage } from "@/api/client";
 import { invalidateLists, keys, useBootstrap } from "@/api/queries";
 import type { Feed } from "@/api/types";
-import { STATUS_RANK, statusInfo } from "@/lib/feedStatus";
+import { STATUS_RANK, failureReason, retryLabel, statusInfo } from "@/lib/feedStatus";
 import { groupState, toggleGroup, toggleIn } from "@/lib/selection";
 import { bytesLabel, fullDate, whenLabel } from "@/lib/format";
 import { useWide } from "@/lib/useMedia";
@@ -23,6 +23,7 @@ import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
 import { StatusChip } from "./StatusChip";
+import { RepairButtons } from "./FeedRepair";
 import { DeleteDialog, ToggleDialog } from "./feeds/BulkActions";
 import { BottomBar } from "@/ui/BottomBar";
 import { DropdownMenu } from "@/ui/menu";
@@ -32,7 +33,7 @@ const FeedEditor = lazyScreen(() => import("./feeds/FeedEditor").then((m) => ({ 
 const menuItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
 
 type SortKey = "status" | "title" | "last_success_at" | "next_fetch_at";
-type Filter = "all" | "attention" | "redirects" | "off";
+type Filter = "all" | "attention" | "off";
 
 const SORT_LABEL: Record<SortKey, string> = { status: "Status", title: "Feed", last_success_at: "Last success", next_fetch_at: "Next fetch" };
 
@@ -58,8 +59,6 @@ export function healthFilter(feeds: HealthFeed[], filter: Filter, q: string): He
     switch (filter) {
       case "attention":
         return ["dead", "failing", "erroring", "throttled", "redirecting"].includes(f.status);
-      case "redirects":
-        return f.redirect_pending || f.notices.some((n) => n.includes("redirect"));
       case "off":
         return !f.enabled;
       default:
@@ -157,8 +156,8 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
           <DropdownMenu.Item className={menuItem} onSelect={onEdit}>
             Edit feed
           </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} onSelect={() => void run(() => patchFeed(f.id, { enabled: !f.enabled }), f.enabled ? `Turned off ${f.title}` : `Turned on ${f.title}`)}>
-            {f.enabled ? "Turn off" : "Turn on"}
+          <DropdownMenu.Item className={menuItem} onSelect={() => void run(() => patchFeed(f.id, { enabled: !f.enabled }), f.enabled ? `Paused ${f.title}` : `Resumed ${f.title}`)}>
+            {f.enabled ? "Pause this feed" : "Resume this feed"}
           </DropdownMenu.Item>
           {f.trimmed_unread_count > 0 ? (
             <DropdownMenu.Item className={menuItem} onSelect={() => void run(() => api(`/api/feeds/${f.id}/trimmed-unread/reset`, { method: "POST" }), "Reset the trimmed-unread count")}>
@@ -244,13 +243,52 @@ function RedirectNotice({ f, onDelete }: { f: HealthFeed; onDelete: () => void }
   );
 }
 
-function ErrorLine({ f }: { f: HealthFeed }) {
+/**
+ * Why a feed fails, in words, with when it last worked and when Kipple tries again, and the two ways to repair it. The
+ * server's own text is behind Details, because it is for a person who has to look the cause up. A feed that works
+ * again keeps its earlier error greyed (design 4.6), without the buttons.
+ */
+function ErrorLine({ f, onEdit }: { f: HealthFeed; onEdit: () => void }) {
   if (!f.last_error) return null;
   const resolved = f.status === "ok" || f.status === "silent";
+  const reason = failureReason(f);
+  const retry = f.enabled ? retryLabel(f.next_fetch_at) : "";
   return (
-    <p className={`mt-1 text-xs break-words ${resolved ? "text-fg2" : "text-danger"}`}>
-      {resolved ? "Earlier error" : "Last error"} {whenLabel(f.last_error_at)}: {f.last_error}
-    </p>
+    <div className="mt-1 flex flex-col gap-2 text-xs font-normal">
+      {resolved ? (
+        <p className="break-words text-fg2">
+          Earlier error {whenLabel(f.last_error_at)}: {reason}.
+        </p>
+      ) : (
+        <>
+          <p className="break-words text-danger">{reason}.</p>
+          <p className="text-fg2">{[f.last_success_at ? `Last worked ${whenLabel(f.last_success_at).toLowerCase()}.` : "", retry ? `${retry}.` : ""].filter(Boolean).join(" ")}</p>
+          <RepairButtons feedId={f.id} title={f.title} onEdit={onEdit} />
+        </>
+      )}
+      <details>
+        <summary className="hit-row inline-flex cursor-pointer items-center text-link underline underline-offset-2">Details</summary>
+        <p className="break-words text-fg2">{f.last_error}</p>
+      </details>
+    </div>
+  );
+}
+
+/** One count in the summary line: a button that shows only those feeds (a second press shows all). Nothing is drawn for zero. */
+function SummaryPart({ n, label, on, onToggle, urgent }: { n: number; label: string; on: boolean; onToggle: () => void; urgent?: boolean }) {
+  if (n === 0) return null;
+  return (
+    <span>
+      <button
+        type="button"
+        aria-pressed={on}
+        onClick={onToggle}
+        className={`hit-row inline-flex items-center underline underline-offset-2 ${urgent ? "font-semibold text-danger" : "text-link"} ${on ? "decoration-2" : ""}`}
+      >
+        {n} {label}
+      </button>
+      .{" "}
+    </span>
   );
 }
 
@@ -266,7 +304,8 @@ export function HealthScreen() {
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
   const [log, setLog] = useState<HealthFeed | null>(null);
-  const [edit, setEdit] = useState<string | null>(null);
+  // The feed being edited; `address` opens Edit feed with its address field focused (the repair route).
+  const [edit, setEdit] = useState<{ id: string; address: boolean } | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [sel, setSel] = useState<ReadonlySet<string>>(new Set());
   const [bulk, setBulk] = useState<null | "delete" | "enable" | "disable">(null);
@@ -280,7 +319,14 @@ export function HealthScreen() {
   };
 
   const feeds = useMemo(() => (h.data ? healthSort(healthFilter(h.data.feeds, filter, q), sort, dir) : []), [h.data, filter, q, sort, dir]);
-  const editing = edit ? boot.data?.feeds.find((f) => f.id === edit) : undefined;
+  // The summary line: how many feeds need attention, are paused, or work. It is also the filter.
+  const tally = useMemo(() => {
+    const all = (h.data?.feeds ?? []).filter((f) => f.status !== "archive");
+    const attention = healthFilter(all, "attention", "").length;
+    const off = all.filter((f) => !f.enabled).length;
+    return { total: all.length, attention, off, working: all.length - attention - off };
+  }, [h.data]);
+  const editing = edit ? boot.data?.feeds.find((f) => f.id === edit.id) : undefined;
   const exitSelect = () => {
     setSelecting(false);
     setSel(new Set());
@@ -288,7 +334,7 @@ export function HealthScreen() {
   const check = (id: string) => setSel((s) => toggleIn(s, id));
   const shownIds = useMemo(() => feeds.map((f) => f.id), [feeds]);
   // A filter or search can hide feeds that are still ticked. Everything that counts or acts on the selection
-  // uses only the ticked feeds still on screen, so a bulk Delete or Turn off never touches a feed you can't see.
+  // uses only the ticked feeds still on screen, so a bulk Delete or Pause never touches a feed you can't see.
   const shownSel = useMemo(() => new Set(shownIds.filter((id) => sel.has(id))), [shownIds, sel]);
   const allShownSelected = groupState(shownIds, sel) === "all";
   // Feed Health's own rows (HealthFeed) don't carry folder_id/starred_count; the bulk dialogs work on the
@@ -326,6 +372,15 @@ export function HealthScreen() {
           <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
             Feed health
           </h1>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              void qc.invalidateQueries({ queryKey: ["health"] });
+              announce("Feed health updated");
+            }}
+          >
+            Update list
+          </Button>
           <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
             {selecting ? <Check aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
             <span className={selecting ? undefined : "hidden min-[560px]:inline"}>{selecting ? "Done" : "Select"}</span>
@@ -350,43 +405,44 @@ export function HealthScreen() {
                 ))}
               </div>
             ) : null}
-            <div className="mb-3 flex flex-wrap items-end gap-3">
-              <label className="flex min-w-40 flex-1 flex-col gap-1 text-sm font-semibold">
-                Search feeds
-                <input type="search" value={q} onChange={(e) => setQ(e.target.value)} className={inputCls} autoComplete="off" />
-              </label>
-              <label className="flex flex-col gap-1 text-sm font-semibold">
-                Show
-                <select value={filter} onChange={(e) => setFilter(e.target.value as Filter)} className={inputCls}>
-                  <option value="all">All feeds</option>
-                  <option value="attention">Needs attention</option>
-                  <option value="redirects">Moved</option>
-                  <option value="off">Turned off</option>
-                </select>
-              </label>
+            <div className="mb-2 flex items-center gap-2">
+              <input
+                type="search"
+                aria-label="Search feeds"
+                placeholder="Search feeds"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className={`${inputCls} min-w-0 flex-1`}
+                autoComplete="off"
+              />
               {!wide ? (
-                <label className="flex flex-col gap-1 text-sm font-semibold">
-                  Sort by
-                  <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className={inputCls}>
+                <>
+                  <select aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className={`${inputCls} w-auto shrink-0`}>
                     {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
                       <option key={k} value={k}>
                         {SORT_LABEL[k]}
                       </option>
                     ))}
                   </select>
-                </label>
+                  <Button onClick={() => setDir((x) => (x === 1 ? -1 : 1))} aria-label={dir === 1 ? "Sort ascending. Switch to descending" : "Sort descending. Switch to ascending"}>
+                    {dir === 1 ? <ArrowUp aria-hidden="true" /> : <ArrowDown aria-hidden="true" />}
+                  </Button>
+                </>
               ) : null}
-              {!wide ? (
-                <Button onClick={() => setDir((x) => (x === 1 ? -1 : 1))} aria-label={dir === 1 ? "Sort ascending. Switch to descending" : "Sort descending. Switch to ascending"}>
-                  {dir === 1 ? <ArrowUp aria-hidden="true" /> : <ArrowDown aria-hidden="true" />}
-                </Button>
-              ) : null}
-              <Button onClick={() => { void qc.invalidateQueries({ queryKey: ["health"] }); announce("Feed health refreshed"); }}>Reload</Button>
             </div>
-            <p role="status" className="mb-2 text-sm text-fg2">
-              {feeds.length} of {d.feeds.filter((f) => f.status !== "archive").length} feeds
-              {d.reader_last_seen_at ? ` · A sync app was last seen ${whenLabel(Math.min(d.reader_last_seen_at, Date.now() / 1000)).toLowerCase()}` : ""}
+            <p className="mb-2 text-sm text-fg2" data-testid="health-summary">
+              <SummaryPart n={tally.attention} label={tally.attention === 1 ? "feed needs attention" : "feeds need attention"} on={filter === "attention"} onToggle={() => setFilter(filter === "attention" ? "all" : "attention")} urgent />
+              <SummaryPart n={tally.off} label="paused" on={filter === "off"} onToggle={() => setFilter(filter === "off" ? "all" : "off")} />
+              <span>{tally.attention + tally.off === 0 ? `All ${tally.working} feeds working.` : `${tally.working} working.`} </span>
+              {filter !== "all" ? (
+                <button type="button" className="hit-row inline-flex items-center text-link underline underline-offset-2" onClick={() => setFilter("all")}>
+                  Show all
+                </button>
+              ) : null}
             </p>
+            <span role="status" className="sr-only-live">
+              Showing {feeds.length} of {tally.total} feeds
+            </span>
             {feeds.length === 0 ? (
               <p className="py-8 text-center text-sm text-fg2">No feeds match.</p>
             ) : wide ? (
@@ -432,16 +488,16 @@ export function HealthScreen() {
                         <span className="block truncate">{f.title}</span>
                         <span className="block truncate text-xs font-normal text-fg2">{f.url}</span>
                         <RedirectNotice f={f} onDelete={() => askDelete(f.id)} />
-                        <ErrorLine f={f} />
+                        <ErrorLine f={f} onEdit={() => setEdit({ id: f.id, address: true })} />
                       </th>
                       <td className="px-3 py-2">
                         <StatusChip status={f.status} />
                         {f.consecutive_failures > 0 ? <span className="block text-xs text-fg2">{f.consecutive_failures} failed in a row</span> : null}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">{whenLabel(f.last_success_at)}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{f.enabled ? whenLabel(f.next_fetch_at) : "Turned off"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{f.enabled ? whenLabel(f.next_fetch_at) : "Paused"}</td>
                       <td className="px-3 py-1">
-                        <Actions f={f} onEdit={() => setEdit(f.id)} onLog={() => setLog(f)} />
+                        <Actions f={f} onEdit={() => setEdit({ id: f.id, address: false })} onLog={() => setLog(f)} />
                       </td>
                     </tr>
                   ))}
@@ -468,27 +524,25 @@ export function HealthScreen() {
                         <p className="truncate text-xs text-fg2">{f.url}</p>
                         <div className="mt-1">
                           <StatusChip status={f.status} />
+                          {f.consecutive_failures > 0 ? <span className="block text-xs text-fg2">{f.consecutive_failures} failed in a row</span> : null}
                         </div>
                       </div>
-                      <Actions f={f} onEdit={() => setEdit(f.id)} onLog={() => setLog(f)} />
+                      <Actions f={f} onEdit={() => setEdit({ id: f.id, address: false })} onLog={() => setLog(f)} />
                     </div>
                     <p className="mt-1 text-xs text-fg2">{statusInfo(f.status).hint}</p>
                     <dl className="mt-2 grid grid-cols-2 gap-x-3 text-xs">
                       <dt className="text-fg2">Last success</dt>
                       <dd>{whenLabel(f.last_success_at)}</dd>
                       <dt className="text-fg2">Next fetch</dt>
-                      <dd>{f.enabled ? whenLabel(f.next_fetch_at) : "Turned off"}</dd>
+                      <dd>{f.enabled ? whenLabel(f.next_fetch_at) : "Paused"}</dd>
                     </dl>
                     <RedirectNotice f={f} onDelete={() => askDelete(f.id)} />
-                    <ErrorLine f={f} />
+                    <ErrorLine f={f} onEdit={() => setEdit({ id: f.id, address: true })} />
                   </li>
                 ))}
               </ul>
             )}
-            <p className="mt-4 text-xs text-fg2">
-              Database {bytesLabel(d.db.db_bytes + (d.db.wal_bytes ?? 0))}, backups {bytesLabel(d.db.backup_bytes)}
-              {typeof d.db.imgcache_bytes === "number" ? `, image cache ${bytesLabel(d.db.imgcache_bytes)}` : ""}, {d.unread_total} unread.
-            </p>
+            {d.reader_last_seen_at ? <p className="mt-4 text-xs text-fg2">A sync app was last seen {whenLabel(Math.min(d.reader_last_seen_at, Date.now() / 1000)).toLowerCase()}.</p> : null}
           </>
         ) : null}
       </div>
@@ -501,10 +555,10 @@ export function HealthScreen() {
             Select all
           </Button>
           <Button onClick={() => setBulk("enable")} disabled={shownSel.size === 0}>
-            Turn on
+            Resume
           </Button>
           <Button onClick={() => setBulk("disable")} disabled={shownSel.size === 0}>
-            Turn off
+            Pause
           </Button>
           <Button variant="solid" onClick={() => setBulk("delete")} disabled={shownSel.size === 0}>
             Delete
@@ -514,7 +568,7 @@ export function HealthScreen() {
       {log ? <LogDialog feed={log} onClose={() => setLog(null)} /> : null}
       {editing ? (
         <Suspense fallback={null}>
-          <FeedEditor feed={editing} onClose={() => setEdit(null)} />
+          <FeedEditor feed={editing} focusAddress={edit?.address} onClose={() => setEdit(null)} />
         </Suspense>
       ) : null}
       {bulk === "delete" ? (

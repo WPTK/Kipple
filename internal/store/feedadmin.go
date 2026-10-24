@@ -742,3 +742,24 @@ func (d *DB) Reorder(ctx context.Context, folders []FolderOrder, feeds []FeedOrd
 	}
 	return res, nil
 }
+
+// FeedArticleCount is how many articles the feeds in ids hold (starred ones included, the archive feed's too): what a
+// delete confirmation says it removes. Ids that are gone count for nothing.
+func (d *DB) FeedArticleCount(ctx context.Context, ids []int64) (int64, error) {
+	var total int64
+	for len(ids) > 0 {
+		n := min(len(ids), 500)
+		args := make([]any, n)
+		marks := make([]string, n)
+		for i, id := range ids[:n] {
+			args[i], marks[i] = id, "?"
+		}
+		var c int64
+		if err := d.reader.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id IN ("+strings.Join(marks, ",")+")", args...).Scan(&c); err != nil {
+			return 0, err
+		}
+		total += c
+		ids = ids[n:]
+	}
+	return total, nil
+}

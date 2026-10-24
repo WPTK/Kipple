@@ -1371,6 +1371,50 @@ func (s *Server) reorder(w http.ResponseWriter, r *http.Request) {
 // maxBulkDelete bounds one POST /api/feeds/delete (the id list, not the data it removes).
 const maxBulkDelete = 20000
 
+// feedIDList reads the ids of a bulk feed request: between 1 and maxBulkDelete, each a positive integer, a repeat
+// once. It answers 400 itself and reports false when the list is not that.
+func feedIDList(w http.ResponseWriter, raw []json.RawMessage) ([]int64, bool) {
+	if len(raw) == 0 || len(raw) > maxBulkDelete {
+		writeErrorMsg(w, http.StatusBadRequest, "bad_request", "give between 1 and "+strconv.Itoa(maxBulkDelete)+" feed ids")
+		return nil, false
+	}
+	ids := make([]int64, 0, len(raw))
+	seen := make(map[int64]bool, len(raw))
+	for _, r := range raw {
+		id, ok := parseID(r)
+		if !ok {
+			writeErrorMsg(w, http.StatusBadRequest, "bad_request", "ids is a list of feed ids")
+			return nil, false
+		}
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return ids, true
+}
+
+// POST /api/feeds/delete-preview {ids}: how many articles deleting these feeds would remove, for the confirmation to
+// say so. It changes nothing.
+func (s *Server) deletePreview(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs []json.RawMessage `json:"ids"`
+	}
+	if !decodeBody(w, r, &body, false) {
+		return
+	}
+	ids, ok := feedIDList(w, body.IDs)
+	if !ok {
+		return
+	}
+	n, err := s.db.FeedArticleCount(r.Context(), ids)
+	if err != nil {
+		s.serverError(w, "count feed articles", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"articles": n})
+}
+
 // POST /api/feeds/delete {ids, delete_starred}: delete many feeds as one server-side commitment. The whole set is
 // marked in one transaction, then removed here without the request's cancellation: closing the tab part-way
 // cannot leave the library half deleted (see store.DeleteFeeds). Answers {"deleted": n}; ids that are already gone
@@ -1383,22 +1427,9 @@ func (s *Server) deleteFeeds(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body, false) {
 		return
 	}
-	if len(body.IDs) == 0 || len(body.IDs) > maxBulkDelete {
-		writeErrorMsg(w, http.StatusBadRequest, "bad_request", "give between 1 and "+strconv.Itoa(maxBulkDelete)+" feed ids")
+	ids, ok := feedIDList(w, body.IDs)
+	if !ok {
 		return
-	}
-	ids := make([]int64, 0, len(body.IDs))
-	seen := make(map[int64]bool, len(body.IDs))
-	for _, raw := range body.IDs {
-		id, ok := parseID(raw)
-		if !ok {
-			writeErrorMsg(w, http.StatusBadRequest, "bad_request", "ids is a list of feed ids")
-			return
-		}
-		if !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
-		}
 	}
 	marked, err := s.db.MarkFeedsDeleting(r.Context(), ids, body.DeleteStarred)
 	if errors.Is(err, store.ErrArchiveHasStarred) {
