@@ -165,6 +165,8 @@ await t.eachViewport(async (page, vp) => {
       await page.setViewportSize({ width, height: vp.height });
       await open("/stats", "long");
       await page.locator("button[aria-expanded] > span.text-2xl").first().waitFor({ timeout: 10000 });
+      // A wider fallback font (CI has other fonts than a dev machine) is stood in for by loosening the letters 5%.
+      await page.addStyleTag({ content: "button[aria-expanded] > span.text-2xl { letter-spacing: 0.05em !important; }" });
       const bad = await page.locator("button[aria-expanded]").evaluateAll((tiles) =>
         tiles.flatMap((b) => {
           const v = b.querySelector("span.text-2xl");

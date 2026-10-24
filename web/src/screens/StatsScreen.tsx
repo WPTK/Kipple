@@ -67,7 +67,7 @@ function Stat({
       {/* The value shrinks to the room the tile has (its width less the padding and the chevron), so "12h 40m" never runs under the chevron or wraps. */}
       <span
         className="block text-2xl font-bold whitespace-nowrap tabular-nums"
-        style={{ fontSize: `min(1.5rem, calc((100cqw - 2.5rem) / ${(Math.max(value.length, 3) * 0.62).toFixed(2)}))` }}
+        style={{ fontSize: `min(1.5rem, calc((100cqw - 2.5rem) / ${(Math.max(value.length, 3) * 0.68).toFixed(2)}))` }}
       >
         {value}
       </span>
