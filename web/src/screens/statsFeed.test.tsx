@@ -76,7 +76,7 @@ describe("Feed drill-down", () => {
     const call = feedCalls(m)[0]!.url.searchParams;
     expect([call.get("feed"), call.get("range")]).toEqual(["1", "month"]);
     const engagement = within(sheet).getByRole("region", { name: "Engagement" });
-    expect(within(engagement).getByText("Quick bounce").nextSibling?.textContent).toBe("50%");
+    expect(within(engagement).getByText("Skimmed").nextSibling?.textContent).toBe("50%");
     expect(within(engagement).getByText("Stars").nextSibling?.textContent).toBe("2");
     await user.click(within(sheet).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -89,7 +89,7 @@ describe("Feed drill-down", () => {
     const sources = await screen.findByRole("region", { name: "Sources" });
     await user.click(within(sources).getByRole("button", { name: /Alpha Blog/ }));
     const sheet = await screen.findByRole("dialog", { name: "Alpha Blog" });
-    await user.click(await within(sheet).findByRole("button", { name: /Items read/ }));
+    await user.click(await within(sheet).findByRole("button", { name: /Articles read/ }));
     expect(await within(sheet).findByText("+50% from 20")).toBeInTheDocument();
     const spans = feedCalls(m)
       .filter((c) => c.url.searchParams.get("from"))
@@ -109,7 +109,7 @@ describe("Feed drill-down", () => {
     const sources = await screen.findByRole("region", { name: "Sources" });
     await user.click(within(sources).getByRole("button", { name: /Alpha Blog/ }));
     const sheet = await screen.findByRole("dialog", { name: "Alpha Blog" });
-    await user.click(await within(sheet).findByRole("button", { name: /Items read/ }));
+    await user.click(await within(sheet).findByRole("button", { name: /Articles read/ }));
     expect(await within(sheet).findByText("Not enough history")).toBeInTheDocument();
   });
 
@@ -132,8 +132,7 @@ describe("Feed drill-down", () => {
     const user = userEvent.setup();
     go();
     const sources = await screen.findByRole("region", { name: "Sources" });
-    expect(within(sources).getByText("Read rate 25%")).toBeInTheDocument();
-    expect(within(sources).getAllByText("Read rate -")).toHaveLength(2); // the feeds with no rate show a dash
+    expect(within(sources).queryByText(/Read rate/)).toBeNull(); // the list keeps one number; the rest is in the sheet
     await user.click(within(sources).getByRole("button", { name: /Alpha Blog/ }));
     const sheet = await screen.findByRole("dialog", { name: "Alpha Blog" });
     const rate = await within(sheet).findByRole("button", { name: "Read rate 25%" });
@@ -146,8 +145,8 @@ describe("Feed drill-down", () => {
 
   it.each([
     ["no window", { read_rate_from: null, read_rate_to: null, read_rate: { items_read: 0, new_items: 0, rate: null } }, "Not enough history"],
-    ["nothing new", { read_rate: { items_read: 0, new_items: 0, rate: null } }, `No new items from ${shortDate("2026-09-01")} to ${shortDate("2026-09-24")}`],
-  ])("a feed with %s shows a dash, never 0%%", async (_, over, note) => {
+    ["nothing new", { read_rate: { items_read: 0, new_items: 0, rate: null } }, `No new articles from ${shortDate("2026-09-01")} to ${shortDate("2026-09-24")}`],
+  ])("a feed with %s says there is not enough data, never 0%%", async (_, over, note) => {
     mockFetch({
       "GET /api/bootstrap": () => json({ ...bootstrap, settings: {} }),
       "GET /api/stats/summary": (u) => json(u.searchParams.get("feed") ? { ...alpha, ...over } : richStats),
@@ -160,7 +159,7 @@ describe("Feed drill-down", () => {
     const sheet = await screen.findByRole("dialog", { name: "Alpha Blog" });
     const engagement = await within(sheet).findByRole("region", { name: "Engagement" });
     expect(within(engagement).queryByText("0%")).toBeNull();
-    await user.click(within(engagement).getByRole("button", { name: "Read rate unknown" }));
+    await user.click(within(engagement).getByRole("button", { name: "Read rate Not enough data yet" }));
     expect(within(engagement).getByText(note)).toBeInTheDocument();
   });
 

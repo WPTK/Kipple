@@ -25,8 +25,8 @@ describe("readRateNote", () => {
   it("says why there is no rate", () => {
     expect(readRateNote(r(0, 0), null, null)).toBe("Not enough history");
     expect(readRateNote(undefined, "2026-09-05", "2026-09-23")).toBe("Not enough history");
-    expect(readRateNote(r(0, 0), "2026-09-05", "2026-09-23")).toBe(`No new items ${span}`);
-    expect(readRateNote(r(0, 0), "2026-09-23", "2026-09-23")).toBe(`No new items on ${shortDate("2026-09-23")}`);
+    expect(readRateNote(r(0, 0), "2026-09-05", "2026-09-23")).toBe(`No new articles ${span}`);
+    expect(readRateNote(r(0, 0), "2026-09-23", "2026-09-23")).toBe(`No new articles on ${shortDate("2026-09-23")}`);
   });
   it("a folder has no rate, a feed carries its own", () => {
     const base = { feed_id: "1", feed_title: "A", folder_id: "9", folder_name: "F", items_read: 1, opens: 1, active_seconds: 0, avg_read_seconds: null, bounce_rate: null, open_original_rate: null, stars: 0, subscribed: true, timed_seconds: 0, timed_items: 0 };
@@ -39,30 +39,37 @@ describe("readRateNote", () => {
 describe("durationLabel", () => {
   it("rounds minutes and spells hours", () => {
     expect(durationLabel(0)).toBe("0 min");
-    expect(durationLabel(20)).toBe("<1 min");
-    expect(durationLabel(60)).toBe("1 min");
-    expect(durationLabel(89)).toBe("1 min");
-    expect(durationLabel(90)).toBe("2 min");
+    expect(durationLabel(20)).toBe("20 s");
+    expect(durationLabel(0.2)).toBe("1 s");
+    expect(durationLabel(60)).toBe("60 s");
+    expect(durationLabel(89)).toBe("89 s");
+    expect(durationLabel(119)).toBe("119 s");
+    expect(durationLabel(120)).toBe("2 min");
+    expect(durationLabel(150)).toBe("3 min");
     expect(durationLabel(3599)).toBe("1h");
     expect(durationLabel(4800)).toBe("1h 20m");
     expect(durationLabel(7200)).toBe("2h");
-    expect(durationLabel(null)).toBe("-");
+    expect(durationLabel(null)).toBe("Not enough data yet");
   });
 });
 
 describe("small helpers", () => {
   it("formats percentages, hours and days", () => {
     expect(pctLabel(0.456)).toBe("46%");
-    expect(pctLabel(null)).toBe("-");
+    expect(pctLabel(null)).toBe("Not enough data yet");
     expect(hourLabel(0)).toBe("12 am");
     expect(hourLabel(12)).toBe("12 pm");
     expect(hourLabel(20)).toBe("8 pm");
     expect(parseDay("2026-09-01").getDate()).toBe(1);
     expect(weekOrder("sunday")).toEqual([0, 1, 2, 3, 4, 5, 6]);
     expect(weekOrder("monday")).toEqual([1, 2, 3, 4, 5, 6, 0]);
-    expect(heatLevel(0, 10)).toBe(0);
-    expect(heatLevel(1, 10)).toBe(1);
-    expect(heatLevel(10, 10)).toBe(4);
+    expect(heatLevel(0, [1, 2])).toBe(0);
+    expect(heatLevel(5, [])).toBe(0);
+    // One huge value does not push the rest into the lightest shade: ranks spread over 1-4.
+    const spread = [1, 2, 3, 4, 5, 6, 7, 8, 9000];
+    expect([1, 3, 5, 7, 9000].map((v) => heatLevel(v, spread))).toEqual([1, 1, 2, 3, 4]);
+    expect(heatLevel(7, [7])).toBe(1);
+    expect(heatLevel(3, [3, 3, 3, 3])).toBe(1);
   });
 });
 
