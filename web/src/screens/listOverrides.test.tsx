@@ -281,7 +281,8 @@ describe("reading-time filter", () => {
     expect(itemCalls(calls).at(-1)?.url.searchParams.get("min_minutes")).toBe("16");
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "List actions" }));
-    await user.click(screen.getByRole("menuitem", { name: /Mark all as read/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Mark all as read" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Mark all as read" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read")).toBe(true));
     const body = JSON.parse(String(calls.find((c) => c.url.pathname === "/api/items/mark-read")?.init?.body));
     expect(body.scope).toMatchObject({ all: true, view: "unread", min_minutes: 16 });
