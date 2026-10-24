@@ -1,7 +1,8 @@
 import { useId, useRef, useState } from "react";
 import { errorMessage } from "@/api/client";
 import { settingsIssues, usePatchSettings, type SettingMeta } from "@/api/admin";
-import { settingWarning } from "@/lib/settingGuards";
+import { lowersRetention, settingWarning } from "@/lib/settingGuards";
+import { RetentionDialog } from "./RetentionDialog";
 import { Segmented } from "@/ui/segmented";
 import { Button } from "@/ui/button";
 import { Field, Modal, Stepper, Switch, inputCls } from "@/ui/kit";
@@ -26,6 +27,8 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
   const uid = useId();
   const inflight = useRef(false);
   const [confirm, setConfirm] = useState<{ value: unknown; w: { title: string; body: string; action: string } } | null>(null);
+  // A lower number of articles to keep: the dialog that says how many articles that removes.
+  const [trim, setTrim] = useState<{ value: unknown } | null>(null);
   const queued = useRef<{ value: unknown } | null>(null);
 
   if (meta.kind === "json") return null;
@@ -61,6 +64,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
 
   // A change the server acts on at once (a lower cache cap, fewer articles kept) waits for a yes.
   const ask = (value: unknown): void => {
+    if (meta.key === "retention.default" && lowersRetention(meta.value, value === null ? meta.default : value)) return setTrim({ value });
     const w = settingWarning(meta.key, meta.value, value === null ? meta.default : value);
     if (w) setConfirm({ value, w });
     else send(value);
@@ -183,6 +187,14 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
   return (
     <div data-setting={meta.key} className="flex flex-col gap-1">
       {control}
+      {trim ? (
+        <RetentionDialog
+          keep={Number(trim.value === null ? meta.default : trim.value)}
+          apply={false}
+          onConfirm={() => send(trim.value)}
+          onClose={() => setTrim(null)}
+        />
+      ) : null}
       {confirm ? (
         <Modal
           open

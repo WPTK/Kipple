@@ -123,14 +123,14 @@ const body = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body));
 
 describe("Settings renderer", () => {
   // One test per group, each opened by its own URL: moving between groups is covered in settingsNav.test.tsx.
-  it("draws the reading settings under Appearance & Reading", async () => {
+  it("draws the reading settings under Appearance", async () => {
     base();
     const { container } = go("/settings/appearance");
     // Settings is a lazy chunk: under a busy full run its first import can take longer than findBy's default.
-    await screen.findByRole("heading", { level: 1, name: "Appearance & Reading" });
-    for (const h of ["Appearance", "Accessibility", "Lists and reading"]) expect(screen.getByRole("heading", { level: 2, name: h })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { level: 2, name: "Reading" })).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: /Remove tracking from links/ })).toBeChecked();
+    await screen.findByRole("heading", { level: 1, name: "Appearance" });
+    for (const h of ["Look", "Lists", "Articles", "Accessibility"]) expect(screen.getByRole("heading", { level: 2, name: h })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Reading" })).toBeNull();
+    expect(await screen.findByRole("switch", { name: /Remove tracking from links/ })).toBeChecked();
     expect(await axe(container)).toHaveNoViolations();
   });
 
@@ -142,7 +142,7 @@ describe("Settings renderer", () => {
     expect(radios.map((r) => (r as HTMLInputElement).value).sort()).toEqual([...LAYOUT_IDS].sort());
     for (const id of LAYOUT_IDS) expect(within(group).getByRole("radio", { name: new RegExp(LAYOUT_LABELS[id]) })).toHaveAccessibleName(expect.stringContaining(LAYOUT_HINTS[id]));
     expect(radios.filter((r) => (r as HTMLInputElement).checked)).toHaveLength(1);
-    expect(group).toHaveAccessibleDescription(/default for this device/);
+    expect(group).toHaveAccessibleDescription(/override it from the layout button/);
     try {
       const user = userEvent.setup();
       await user.click(within(group).getByRole("radio", { name: /Headlines/ }));
@@ -164,7 +164,7 @@ describe("Settings renderer", () => {
   it("does not list a device-scoped key a second time: this device's own control already shows it", async () => {
     base();
     go("/settings/appearance");
-    await screen.findByRole("heading", { level: 1, name: "Appearance & Reading" });
+    await screen.findByRole("heading", { level: 1, name: "Appearance" });
     expect(await screen.findByRole("switch", { name: /Remove tracking from links/ })).toBeInTheDocument(); // the server rows have loaded
     // A generic row would show the metadata description (the fixtures describe each key as "About <key>").
     for (const key of ["ui.theme_day", "ui.theme_night", "ui.list_density"]) expect(screen.queryByText("About " + key), key).toBeNull();
@@ -174,8 +174,8 @@ describe("Settings renderer", () => {
   it("draws every kind from the metadata, in the group each server group belongs to", async () => {
     base();
     const { container } = go("/settings/sync");
-    await screen.findByRole("heading", { level: 2, name: "Sync" });
-    expect(screen.getByRole("heading", { level: 2, name: "Library" })).toBeInTheDocument();
+    await screen.findByRole("heading", { level: 2, name: "Checking feeds" });
+    expect(screen.getByRole("heading", { level: 2, name: "Storage" })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: "How often to check feeds" })).toHaveValue(30);
     expect(screen.getByRole("radio", { name: "Always identify as Kipple" })).toBeInTheDocument(); // enum with 3 options: segmented
     expect(screen.getByRole("combobox", { name: "Articles to keep per feed" })).toHaveValue("500"); // enum with 6: select
@@ -184,7 +184,9 @@ describe("Settings renderer", () => {
     cleanup();
 
     go("/settings/account");
-    expect(await screen.findByRole("heading", { level: 2, name: "Account" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 2, name: "Sign-in" })).toBeInTheDocument();
+    cleanup();
+    go("/settings/statistics");
     expect(await screen.findByRole("textbox", { name: "Time zone" })).toHaveValue("America/New_York");
     cleanup();
 
@@ -237,7 +239,6 @@ describe("Accessibility section", () => {
     // One font choice only (the Aa menu): the Accessibility section points at it instead of adding a second one.
     expect(w.queryByRole("switch", { name: /Easy-to-read font/ })).toBeNull();
     expect(w.queryByRole("combobox", { name: /font/i })).toBeNull();
-    expect(w.getByText(/Atkinson Hyperlegible Next/)).toBeInTheDocument();
     expect(w.getByRole("group", { name: "Text spacing" })).toBeInTheDocument();
     expect(w.getByText("Adds extra space between letters, words and lines")).toBeInTheDocument();
     expect(w.getByRole("group", { name: "Reduce motion" })).toBeInTheDocument();
@@ -1168,18 +1169,19 @@ describe("Feed health", () => {
 });
 
 describe("Account and backup", () => {
-  it("shows a generated API password once with Copy and the sync app instructions", async () => {
+  it("shows the sync address and username with Copy, and a generated app password once", async () => {
     const { calls } = base({ "POST /api/account/api-password": () => json({ api_password: "maple river lantern 42" }) });
     go("/settings/account");
     const user = userEvent.setup();
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
-    await user.click(await screen.findByRole("button", { name: "Generate API password" }));
-    const dlg = await screen.findByRole("dialog", { name: "Generate API password" });
+    expect(await screen.findByTestId("sync-address")).toHaveTextContent("/api/greader.php");
+    expect(screen.getByTestId("sync-username")).toHaveTextContent("dev");
+    await user.click(await screen.findByRole("button", { name: "Generate new app password" }));
+    const dlg = await screen.findByRole("dialog", { name: "Generate a new app password" });
     await user.type(within(dlg).getByLabelText("Your web password"), "old passphrase");
     await user.click(within(dlg).getByRole("button", { name: "Generate" }));
-    const shown = await screen.findByRole("dialog", { name: "Your new API password" });
+    const shown = await screen.findByRole("dialog", { name: "Your new app password" });
     expect(within(shown).getByTestId("api-password")).toHaveTextContent("maple river lantern 42");
-    expect(within(shown).getByText(/Server URL/)).toHaveTextContent("/api/greader.php");
     await user.click(within(shown).getByRole("button", { name: "Copy" }));
     expect(writeText).toHaveBeenCalledWith("maple river lantern 42");
     expect(body(calls.find((c) => c.url.pathname === "/api/account/api-password") as never)).toEqual({ current: "old passphrase", generate: true });

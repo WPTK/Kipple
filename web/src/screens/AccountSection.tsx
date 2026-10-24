@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, authStore, busyMessage, chooseSignOut, errorMessage, SIGN_OUT_MS, SIGN_OUT_PATH } from "@/api/client";
-import { applyRetention, changePassword, exportBackup, fetchMe, generateApiPassword, removePassword, type BackupInfo } from "@/api/admin";
+import { changePassword, exportBackup, fetchMe, removePassword, type BackupInfo } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import { keys } from "@/api/queryKeys";
 import { bytesLabel, fullDate } from "@/lib/format";
@@ -13,7 +13,7 @@ import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { useSetupActions } from "@/setup/actions";
 import { MIN_PASSWORD_LEN } from "@/setup/api";
-import { ResetSection } from "./ResetSection";
+import { ResetSection, RestoreRow } from "./ResetSection";
 
 /** Message for a failed account or backup call. */
 export function accountError(e: unknown): string {
@@ -71,7 +71,7 @@ function ChangePasswordDialog({ hasPassword, onDone, onClose }: { hasPassword: b
       open
       onOpenChange={(o) => !o && onClose()}
       title={hasPassword ? "Change web password" : "Set web password"}
-      description="This is the password you use to sign in to Kipple in a browser. Your sync apps use a separate API password."
+      description="This is the password you use to sign in to Kipple in a browser. Your sync apps use a separate app password."
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -135,83 +135,10 @@ function RemovePasswordDialog({ email, onDone, onClose }: { email: string; onDon
   );
 }
 
-function ApiPasswordDialog({ username, hasPassword, onClose }: { username: string; hasPassword: boolean; onClose: () => void }) {
-  const [cur, setCur] = useState("");
-  const [pw, setPw] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const server = `${window.location.origin}/api/greader.php`;
-  const generate = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      setPw((await generateApiPassword(cur)).api_password);
-    } catch (e) {
-      setError(accountError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(pw ?? "");
-      setCopied(true);
-      announce("API password copied");
-    } catch {
-      toast("Couldn't copy. Select the password and copy it by hand.", "error");
-    }
-  };
-  return (
-    <Modal
-      open
-      onOpenChange={(o) => !o && onClose()}
-      title={pw ? "Your new API password" : "Generate API password"}
-      description={pw ? "Copy it now. Kipple can't show it again." : "Sync apps sign in with this. Generating a new one signs those apps out until you enter it."}
-      footer={
-        pw ? (
-          <Button variant="solid" onClick={onClose}>
-            Done
-          </Button>
-        ) : (
-          <>
-            <Button onClick={onClose}>Cancel</Button>
-            <Button variant="solid" disabled={(hasPassword && !cur) || busy} onClick={() => void generate()}>
-              Generate
-            </Button>
-          </>
-        )
-      }
-    >
-      {error ? <Notice tone="error">{error}</Notice> : null}
-      {pw ? (
-        <>
-          <div className="flex items-center gap-2">
-            <code data-testid="api-password" className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2 font-mono text-sm break-all select-all">
-              {pw}
-            </code>
-            <Button onClick={() => void copy()}>{copied ? "Copied" : "Copy"}</Button>
-          </div>
-          <div className="text-sm">
-            <p className="font-semibold">In your sync app</p>
-            <p className="mt-1 text-fg2">
-              Add a Google Reader compatible account. Server URL (enter all of it, not just the host): <span className="font-mono break-all text-fg">{server}</span>. Username: <span className="font-mono text-fg">{username}</span>. Password: the one above.
-            </p>
-          </div>
-        </>
-      ) : hasPassword ? (
-        <Field label="Your web password" help="Kipple asks for it before creating a new API password.">
-          {(a) => <input {...a} type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} className={inputCls} />}
-        </Field>
-      ) : null}
-    </Modal>
-  );
-}
-
 /**
  * Build the export, show what is in it, then let the browser's save dialog take over. Without `ready` it first asks
  * for the web password (the file holds the account's credentials) and builds the export itself; an account without
- * a web password has nothing to type, so its export is built before the dialog opens, as for the API password.
+ * a web password has nothing to type, so its export is built before the dialog opens, as for the app password.
  */
 function BackupDialog({ ready, onClose }: { ready: BackupInfo | null; onClose: () => void }) {
   const [info, setInfo] = useState(ready);
@@ -324,11 +251,10 @@ function BackupDialog({ ready, onClose }: { ready: BackupInfo | null; onClose: (
   );
 }
 
-/** Account actions: passwords, backup, retention, sign out. */
-export function AccountActions() {
+/** The signed-in account as the server reports it right now. */
+export function useAccount() {
   const boot = useBootstrap();
   const qc = useQueryClient();
-  const [dialog, setDialog] = useState<"password" | "remove" | "api" | "backup" | null>(null);
   const user = boot.data?.user;
   // Live account state (never the offline copy): the password and Access controls follow it. Until it answers, and
   // when it fails (offline), the bootstrap's password_set stands in and no Access sign-in is assumed. An older server
@@ -348,41 +274,15 @@ export function AccountActions() {
     void qc.invalidateQueries({ queryKey: keys.me });
     void qc.invalidateQueries({ queryKey: keys.bootstrap });
   };
-  const setupActions = useSetupActions();
-  const [backup, setBackup] = useState<BackupInfo | null>(null);
-  const [busy, setBusy] = useState<"backup" | "retention" | null>(null);
-  const [backupError, setBackupError] = useState<string | null>(null);
+  return { user, hasPassword, accessEmail, refreshUser };
+}
 
-  const doBackup = async () => {
-    if (busy) return;
-    if (hasPassword) {
-      setBackupError(null);
-      setDialog("backup");
-      return;
-    }
-    setBusy("backup");
-    setBackupError(null);
-    try {
-      setBackup(await exportBackup());
-    } catch (e) {
-      setBackupError(accountError(e));
-    } finally {
-      setBusy(null);
-    }
-  };
-  const doRetention = async () => {
-    if (busy) return;
-    setBusy("retention");
-    try {
-      await applyRetention();
-      toast("Kipple is trimming feeds to their retention limits now.");
-    } catch (e) {
-      toast(errorMessage(e), "error");
-    } finally {
-      setBusy(null);
-    }
-  };
-  const runSetupAgain = () => setupActions.restart();
+/** Settings, Account, Sign-in: who is signed in, sign out, and the web password. */
+export function SignInSection() {
+  const boot = useBootstrap();
+  const qc = useQueryClient();
+  const [dialog, setDialog] = useState<"password" | "remove" | null>(null);
+  const { user, hasPassword, accessEmail, refreshUser } = useAccount();
   const signOut = async () => {
     chooseSignOut(true);
     // A sign-out that gets no answer is given up, like a network failure, so the app does not stay on hold.
@@ -421,49 +321,67 @@ export function AccountActions() {
     <>
       <p className="text-sm text-fg2">
         {boot.data ? `Signed in as ${boot.data.user.username}.` : "Signed in."}
-        {boot.data ? ` Kipple ${boot.data.version}.` : ""}
         {accessEmail ? ` Cloudflare Access: ${accessEmail}.` : ""}
         {hasPassword ? "" : user?.auth_mode === "open" ? " No password: Kipple opens without signing in, from this computer, your local network and over Tailscale." : " No web password: you sign in through Cloudflare Access."}
       </p>
       <div className="flex flex-wrap gap-2">
+        {/* Without a password there is nothing to sign out of: Kipple would sign this browser straight back in. */}
+        {user?.auth_mode === "open" ? null : <Button onClick={() => void signOut()}>Sign out</Button>}
         <Button onClick={() => setDialog("password")}>{hasPassword ? "Change web password" : "Set web password"}</Button>
         {hasPassword && accessEmail ? <Button onClick={() => setDialog("remove")}>Remove web password</Button> : null}
-        <Button onClick={() => setDialog("api")}>Generate API password</Button>
       </div>
+      {dialog === "password" ? <ChangePasswordDialog hasPassword={hasPassword} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
+      {dialog === "remove" && accessEmail ? <RemovePasswordDialog email={accessEmail} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
+    </>
+  );
+}
+
+/** Settings, Account, Backup and data: export, restore, setup again, and the reset in its own danger block. */
+export function BackupSection() {
+  const { hasPassword } = useAccount();
+  const setupActions = useSetupActions();
+  const [dialog, setDialog] = useState<"backup" | null>(null);
+  const [backup, setBackup] = useState<BackupInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [backupError, setBackupError] = useState<string | null>(null);
+
+  const doBackup = async () => {
+    if (busy) return;
+    setBackupError(null);
+    if (hasPassword) {
+      setDialog("backup");
+      return;
+    }
+    setBusy(true);
+    try {
+      setBackup(await exportBackup());
+    } catch (e) {
+      setBackupError(accountError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
       <div>
         {/* aria-disabled, not disabled: a disabled button drops the keyboard's place, so the dialog it opens would have nothing to return focus to. */}
-        <Button aria-disabled={busy === "backup" || undefined} onClick={() => void doBackup()}>
-          {busy === "backup" ? "Preparing backup" : "Export backup"}
+        <Button aria-disabled={busy || undefined} onClick={() => void doBackup()}>
+          {busy ? "Preparing backup" : "Export backup"}
         </Button>
-        <p className="mt-1 text-xs text-fg2">Saves everything (feeds, articles, read and starred state, settings) as one file you choose where to keep.</p>
+        <p className="mt-1 text-xs text-fg2">Saves your feeds, articles, read and starred state and settings as one file you keep.</p>
         {backupError ? (
           <div className="mt-2">
             <Notice tone="error">{backupError}</Notice>
           </div>
         ) : null}
       </div>
+      <RestoreRow hasPassword={hasPassword} />
       <div>
-        <Button aria-disabled={busy === "retention" || undefined} onClick={() => void doRetention()}>
-          Apply retention now
-        </Button>
-        <p className="mt-1 text-xs text-fg2">Trims every feed to its "articles to keep" limit right away. Starred articles are never removed.</p>
+        <Button onClick={() => setupActions.restart()}>Run setup again</Button>
+        <p className="mt-1 text-xs text-fg2">Opens the setup steps again. Your account and feeds stay as they are.</p>
       </div>
-      <div>
-        <Button onClick={runSetupAgain}>
-          Run setup again
-        </Button>
-        <p className="mt-1 text-xs text-fg2">Walks through the first-run steps again: time zone, look, importing feeds, recommended feeds and the address. Your account and feeds stay as they are.</p>
-      </div>
-      {/* Without a password there is nothing to sign out of: Kipple would sign this browser straight back in. */}
-      {user?.auth_mode === "open" ? null : (
-        <Button onClick={() => void signOut()} className="self-start">
-          Sign out
-        </Button>
-      )}
       <ResetSection hasPassword={hasPassword} />
-      {dialog === "password" ? <ChangePasswordDialog hasPassword={hasPassword} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
-      {dialog === "remove" && accessEmail ? <RemovePasswordDialog email={accessEmail} onDone={refreshUser} onClose={() => setDialog(null)} /> : null}
-      {dialog === "api" ? <ApiPasswordDialog username={user?.username ?? ""} hasPassword={hasPassword} onClose={() => setDialog(null)} /> : null}
       {dialog === "backup" ? <BackupDialog ready={null} onClose={() => setDialog(null)} /> : null}
       {backup ? <BackupDialog ready={backup} onClose={() => setBackup(null)} /> : null}
     </>

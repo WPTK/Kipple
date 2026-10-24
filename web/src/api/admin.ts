@@ -328,6 +328,9 @@ export const fetchResetInfo = () => api<{ env_account: boolean }>("/api/reset");
 /** Confirms a reset: Kipple stops and the next start begins empty, in setup mode. `password` is "" for an account without one. */
 export const resetKipple = (body: { password: string; phrase: string }) =>
   api<{ restarting: true; estimate_seconds: number }>("/api/reset", { method: "POST", body });
+/** What a trim would remove now: with `keep`, that number as the default for feeds without their own; without, the saved limits. */
+export const fetchRetentionPreview = (keep?: number) =>
+  api<{ articles: number; feeds: number }>(`/api/retention/preview${keep === undefined ? "" : `?keep=${keep}`}`);
 export const applyRetention = () => api<{ run_id: string; total: number }>("/api/retention/apply", { method: "POST" });
 
 export interface BackupInfo {

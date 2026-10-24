@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchResetInfo, resetKipple } from "@/api/admin";
 import { wipeOfflineData } from "@/lib/offline";
 import { UNCLAIMED_NOTICE } from "@/setup/RestoreWaiting";
-import { resetting } from "@/setup/session";
+import { openRestoreAfterReset, resetting } from "@/setup/session";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { accountError } from "./AccountSection";
@@ -11,12 +11,18 @@ import { accountError } from "./AccountSection";
 /** The phrase that confirms a reset (the server compares it without regard to case or surrounding spaces). */
 export const RESET_PHRASE = "reset kipple";
 
-function ResetDialog({ hasPassword, envAccount, onClose }: { hasPassword: boolean; envAccount: boolean; onClose: () => void }) {
+/** What the dialog is for: erasing and starting over, or erasing to restore a backup. Both end in the same setup screens. */
+type Purpose = "reset" | "restore";
+
+const TITLES: Record<Purpose, string> = { reset: "Reset Kipple and start over", restore: "Restore from a backup" };
+
+function ResetDialog({ purpose, hasPassword, envAccount, onClose }: { purpose: Purpose; hasPassword: boolean; envAccount: boolean; onClose: () => void }) {
   const [password, setPassword] = useState("");
   const [phrase, setPhrase] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ready = phrase.trim().toLowerCase() === RESET_PHRASE && (!hasPassword || password !== "");
+  const restoring = purpose === "restore";
 
   const submit = async () => {
     setBusy(true);
@@ -25,6 +31,7 @@ function ResetDialog({ hasPassword, envAccount, onClose }: { hasPassword: boolea
       const r = await resetKipple({ password, phrase: phrase.trim() });
       // The erased library's offline copies must not outlive it in this browser.
       await wipeOfflineData().catch(() => undefined);
+      if (restoring) openRestoreAfterReset();
       resetting.set({ estimateSeconds: r.estimate_seconds });
     } catch (e) {
       setError(accountError(e));
@@ -36,27 +43,29 @@ function ResetDialog({ hasPassword, envAccount, onClose }: { hasPassword: boolea
     <Modal
       open
       onOpenChange={(o) => !o && !busy && onClose()}
-      title="Reset Kipple and start over"
-      description="This erases all your feeds, folders, reading history, settings and your account, and returns Kipple to setup, where you create a new account or restore a backup."
+      title={TITLES[purpose]}
+      description={
+        restoring
+          ? "A backup takes the place of everything in this Kipple: feeds, folders, reading history, settings and your account. Kipple sets your current library aside first, then asks you to choose the backup file."
+          : "This erases all your feeds, folders, reading history, settings and your account, and returns Kipple to setup, where you create a new account or restore a backup."
+      }
       footer={
         <>
           <Button disabled={busy} onClick={onClose}>
             Cancel
           </Button>
           <Button variant="solid" disabled={!ready || busy} onClick={() => void submit()}>
-            Reset Kipple
+            {restoring ? "Set aside and choose a backup" : "Reset Kipple"}
           </Button>
         </>
       }
     >
       {error ? <Notice tone="error">{error}</Notice> : null}
       <p className="text-sm text-fg2">
-        Kipple keeps a safety copy of your library in <code>backup/pre-restore-*</code> in your data folder, and <code>kipple restore</code> can bring it back. Export a backup first if you want one you can keep elsewhere. The address and access settings (public address, allowed host names, trusted proxies, Cloudflare Access) are kept.
+        Kipple keeps a safety copy of your library on the server. Export a backup first if you want one you can keep elsewhere. Your address and sign-in protection settings are kept.
       </p>
       <Notice tone="warn">{UNCLAIMED_NOTICE}</Notice>
-      {envAccount ? (
-        <Notice>Kipple will ignore KIPPLE_USERNAME and KIPPLE_PASSWORD until you create a new account. You can delete them from your compose file whenever convenient.</Notice>
-      ) : null}
+      {envAccount ? <Notice>Until you create a new account, Kipple ignores the account set in your server&apos;s settings. You can remove it there whenever convenient.</Notice> : null}
       {hasPassword ? (
         <Field label="Your web password">{(a) => <input {...a} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} />}</Field>
       ) : null}
@@ -67,25 +76,53 @@ function ResetDialog({ hasPassword, envAccount, onClose }: { hasPassword: boolea
   );
 }
 
-/** Settings, Account & Devices: the danger section that returns Kipple to setup. */
-export function ResetSection({ hasPassword }: { hasPassword: boolean }) {
+/** Opens a ResetDialog once the server has said whether the account comes from its own settings. */
+function useResetDialog(purpose: Purpose, hasPassword: boolean) {
   const [open, setOpen] = useState(false);
   const info = useQuery({ queryKey: ["reset", "info"], queryFn: fetchResetInfo, enabled: open, staleTime: 0, retry: false });
+  return {
+    start: () => setOpen(true),
+    checking: open && info.isFetching,
+    dialog: (
+      <>
+        {open && info.isSuccess ? <ResetDialog purpose={purpose} hasPassword={hasPassword} envAccount={info.data.env_account} onClose={() => setOpen(false)} /> : null}
+        {open && info.isError ? (
+          <Modal open onOpenChange={(o) => !o && setOpen(false)} title={TITLES[purpose]} footer={<Button onClick={() => setOpen(false)}>Close</Button>}>
+            <Notice tone="error">{accountError(info.error)}</Notice>
+          </Modal>
+        ) : null}
+      </>
+    ),
+  };
+}
+
+/** Settings, Backup and data: restoring a backup. Kipple restores only while it is in setup, so this first sets the library aside. */
+export function RestoreRow({ hasPassword }: { hasPassword: boolean }) {
+  const r = useResetDialog("restore", hasPassword);
+  return (
+    <div>
+      <Button onClick={r.start} disabled={r.checking}>
+        {r.checking ? "Checking" : "Restore from a backup"}
+      </Button>
+      <p className="mt-1 text-xs text-fg2">Replaces everything here with a backup file. You confirm first.</p>
+      {r.dialog}
+    </div>
+  );
+}
+
+/** Settings, Backup and data: the danger block that returns Kipple to setup. */
+export function ResetSection({ hasPassword }: { hasPassword: boolean }) {
+  const r = useResetDialog("reset", hasPassword);
   return (
     <section aria-labelledby="reset-heading" className="mt-2 flex flex-col gap-2 rounded-xl border border-danger px-4 py-3">
       <h3 id="reset-heading" className="text-sm font-semibold text-danger">
-        Reset Kipple
+        Danger zone
       </h3>
       <p className="text-xs text-fg2">Erases your feeds, folders, history, settings and account, and starts over in setup. A safety copy is kept.</p>
-      <Button className="self-start" onClick={() => setOpen(true)} disabled={open && info.isFetching}>
-        {open && info.isFetching ? "Checking" : "Reset Kipple and start over"}
+      <Button className="self-start" onClick={r.start} disabled={r.checking}>
+        {r.checking ? "Checking" : "Reset Kipple and start over"}
       </Button>
-      {open && info.isSuccess ? <ResetDialog hasPassword={hasPassword} envAccount={info.data.env_account} onClose={() => setOpen(false)} /> : null}
-      {open && info.isError ? (
-        <Modal open onOpenChange={(o) => !o && setOpen(false)} title="Reset Kipple and start over" footer={<Button onClick={() => setOpen(false)}>Close</Button>}>
-          <Notice tone="error">{accountError(info.error)}</Notice>
-        </Modal>
-      ) : null}
+      {r.dialog}
     </section>
   );
 }

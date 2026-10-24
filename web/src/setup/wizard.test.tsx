@@ -303,7 +303,7 @@ describe("Step 1: account", () => {
 
     it.each([
       ["forwarded", /proxy or tunnel/],
-      ["host", /Allowed host names in Settings/],
+      ["host", /Other names for this server in Settings/],
       ["peer", /Tailscale/],
     ])("cannot be chosen when the gate refuses it for good (%s), and says why", async (reason, text) => {
       const w = claimed();
@@ -395,7 +395,7 @@ describe("open-mode sign-in", () => {
 
   it.each([
     ["forwarded", /proxy or tunnel/],
-    ["host", /Allowed host names in Settings/],
+    ["host", /Other names for this server in Settings/],
     ["peer", /Tailscale network/],
   ])("says why when the gate refuses this address (%s), and lets you try again", async (reason, text) => {
     const w = makeWorld({ instance: { setup: false, auth: "open" }, authMode: "open", pending: false });
@@ -1256,7 +1256,7 @@ describe("a stale /welcome/<step> address before the account exists", () => {
 describe("the signed-out screen when GET /api/instance does not answer", () => {
   it.each([
     ["a server error", () => json({ error: "internal" }, 500), /answered with something unexpected/],
-    ["a refused address", () => json({ error: "misdirected" }, 421), /Allowed host names in Settings/],
+    ["a refused address", () => json({ error: "misdirected" }, 421), /Other names for this server in Settings/],
     ["no network", () => Promise.reject(new TypeError("offline")) as never, /couldn't reach the server/],
   ])("says so, with Try again, instead of a password form (%s)", async (_n, answer, text) => {
     const w = makeWorld({ instance: { setup: false, auth: "open" }, authMode: "open", pending: false, passwordSet: false });
