@@ -208,9 +208,9 @@ describe("the feed and folder editors", () => {
     setListOverride("folder", "1", "order", "oldest");
     updateDevicePrefs({ layout: "cards" });
     renderFields("feed", "1");
-    expect(within(screen.getByLabelText("Order on this device")).getByRole("option", { name: "Inherited from News (Oldest first)" })).toBeInTheDocument();
-    expect(within(screen.getByLabelText("Layout on this device")).getByRole("option", { name: "Use device default (Cards)" })).toBeInTheDocument();
-    expect(within(screen.getByLabelText("Opens in")).getByRole("option", { name: "Use the standard view (Unread)" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Order on this device")).getByRole("option", { name: "Same as News (Oldest first)" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Layout on this device")).getByRole("option", { name: "Same as this device's default (Cards)" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Opens in")).getByRole("option", { name: "Same as this device's default (Unread)" })).toBeInTheDocument();
   });
 
   it("a write drops the overrides of feeds and folders the library no longer has", async () => {

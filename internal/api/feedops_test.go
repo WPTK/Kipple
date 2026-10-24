@@ -499,3 +499,24 @@ func TestBulkDeleteFeeds(t *testing.T) {
 	}
 	require.Equal(t, 1, h.count("SELECT count(*) FROM feeds WHERE id = ?", keep))
 }
+
+func TestDeletePreviewCountsArticles(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	a, b := h.addFeed("A", 0), h.addFeed("B", 0)
+	h.addItem(a, seedItem{})
+	h.addItem(a, seedItem{Starred: true})
+	h.addItem(b, seedItem{})
+	code, body, _ := h.api(c, "POST", "/api/feeds/delete-preview", fmt.Sprintf(`{"ids":["%d"]}`, a))
+	require.Equal(t, 200, code)
+	require.EqualValues(t, 2, body["articles"])
+	code, body, _ = h.api(c, "POST", "/api/feeds/delete-preview", fmt.Sprintf(`{"ids":[%d,"%d",%d,"99999"]}`, a, b, a))
+	require.Equal(t, 200, code)
+	require.EqualValues(t, 3, body["articles"], "a repeated id and a missing one count for nothing")
+	require.Equal(t, 2, h.count("SELECT count(*) FROM feeds WHERE id IN (?, ?)", a, b), "nothing is marked or removed")
+	for _, bad := range []string{`{}`, `{"ids":[]}`, `{"ids":["x"]}`, `nope`} {
+		code, _, _ = h.api(c, "POST", "/api/feeds/delete-preview", bad)
+		require.Equal(t, 400, code, bad)
+	}
+}

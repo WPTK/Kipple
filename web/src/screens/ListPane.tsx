@@ -41,6 +41,7 @@ import { useWidth } from "@/lib/useWidth";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { failureCopy, failureNoteFeeds, showsFailure } from "@/lib/feedStatus";
 import { FeedFailureNote } from "./FeedFailureNote";
+import { FeedRepair } from "./FeedRepair";
 import { listPlace, rememberListTop } from "@/lib/listPlace";
 import { useItemsSource, type ListSource } from "./listSource";
 import { useDigestSource } from "./digestSource";
@@ -1371,10 +1372,11 @@ export function ListPane({ scope, activeId, onControls }: Props) {
           <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
         );
       }
+      const failing = scope.feed ? feedById.get(scope.feed) : undefined;
       const c = emptyCopy(
         scope,
         pendingNew,
-        scope.feed ? feedById.get(scope.feed) : undefined,
+        failing,
         scope.folder ? feedsInFolder(scope.folder, boot.data?.feeds ?? [], boot.data?.folders ?? []).length : undefined,
       );
       return (
@@ -1391,7 +1393,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
               {c.next === "add" ? (
                 <Button onClick={() => navigate("/feeds", { state: { open: "add" } })}>Add a feed</Button>
               ) : null}
-              {c.health ? (
+              {c.health && failing ? <FeedRepair feed={failing} /> : c.health ? (
                 <Link to="/health" className="text-sm text-link underline underline-offset-2">
                   Open Feed health
                 </Link>

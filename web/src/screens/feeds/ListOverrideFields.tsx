@@ -1,3 +1,5 @@
+import { useFolderTree } from "@/api/queries";
+import { folderPath } from "@/lib/folderTree";
 import { useListContext, useSetListOverride } from "@/layouts";
 import {
   GROUP_BYS,
@@ -7,13 +9,13 @@ import {
   LIST_VIEWS,
   LIST_VIEW_LABELS,
   ORDER_LABELS,
+  inheritedList,
   useDevicePrefs,
   type ListField,
   type ListOverride,
 } from "@/lib/devicePrefs";
 import { useState } from "react";
 import { Field, inputCls } from "@/ui/kit";
-import { useFallbackLabel } from "../LayoutMenu";
 
 const CHOICES: { field: ListField; label: string; ids: readonly string[]; names: Record<string, string> }[] = [
   { field: "layout", label: "Layout on this device", ids: LAYOUT_IDS, names: LAYOUT_LABELS },
@@ -27,7 +29,7 @@ const CHOICES: { field: ListField; label: string; ids: readonly string[]; names:
 
  * options menu sets), as a draft: nothing is written until the dialog's Save calls `apply` from
  * useListOverrideDraft, so Cancel leaves them as they were. The first choice of each clears the list's own value and
- * names what it then gets, as the menu does: "Inherited from Tech (Cards)", or the device default.
+ * names what it then gets: "Same as Tech (Cards)", or "Same as this device's default (Cards)".
  */
 export interface OverrideDraft {
   /** The fields changed in the dialog; a null value clears the override. */
@@ -56,11 +58,13 @@ export function ListOverrideFields({ kind, id, draft: state }: { kind: "feed" | 
   const stored = useDevicePrefs().overrides[kind][id];
   const own = (field: ListField): string | null => (field in state.draft ? (state.draft[field] ?? null) : ((stored?.[field] as string | undefined) ?? null));
   const ctx = useListContext(kind === "feed" ? { feed: id } : { folder: id });
-  const fallback: Record<ListField, string> = {
-    layout: useFallbackLabel(ctx, "layout"),
-    order: useFallbackLabel(ctx, "order"),
-    group: useFallbackLabel(ctx, "group"),
-    view: useFallbackLabel(ctx, "view"),
+  // The first choice of each clears the list's own value and names what it then gets: the folder above that sets it,
+  // else this device's default. One phrase for every "follow the setting above" choice in the editor.
+  const dp = useDevicePrefs();
+  const tree = useFolderTree();
+  const fallback = (c: (typeof CHOICES)[number]): string => {
+    const up = inheritedList(dp, ctx, c.field);
+    return `Same as ${up.from ? folderPath(tree, up.from.id) : "this device's default"} (${c.names[up.value]})`;
   };
   const help =
     kind === "feed"
@@ -77,7 +81,7 @@ export function ListOverrideFields({ kind, id, draft: state }: { kind: "feed" | 
               onChange={(e) => state.setDraft(c.field, e.target.value === "default" ? null : e.target.value)}
               className={inputCls}
             >
-              <option value="default">{fallback[c.field]}</option>
+              <option value="default">{fallback(c)}</option>
               {c.ids.map((v) => (
                 <option key={v} value={v}>
                   {c.names[v]}
