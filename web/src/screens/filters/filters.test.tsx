@@ -334,8 +334,8 @@ describe("filter editor", () => {
     const w = within(dialog);
     await user.type(w.getByLabelText("Words or phrases"), "abc{Enter}");
     await user.click(w.getByRole("button", { name: "Save filter" }));
-    const alert = await w.findByText("must not be empty after trimming");
-    expect(alert).toHaveAttribute("role", "alert");
+    const alert = (await w.findByText("must not be empty after trimming")).closest("[role=alert]")!;
+    expect(alert).not.toBeNull();
     expect(alert.closest("div")).toContainElement(w.getByLabelText("Words or phrases"));
     expect(screen.getByRole("dialog", { name: "New filter" })).toBeInTheDocument(); // stays open
   });

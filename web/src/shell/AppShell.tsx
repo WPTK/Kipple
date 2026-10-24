@@ -27,15 +27,19 @@ import { LiveRegion, Toasts, announce } from "./toasts";
 //
 // On a short screen (a phone held sideways) the icon sits beside its name instead of above it, which takes the bar from
 // 56 px to 44 px: the list keeps the height (#420).
-const tab = "flex min-h-11 min-w-0 flex-1 items-center justify-center px-1 text-[length:min(0.75rem,4vw)] font-medium";
+// The current tab is told apart by more than its colour: a tinted icon and a bar on its top edge. Its label keeps the weight
+// of the others: a bolder label is wider, and at Largest text it no longer fits its fifth of the bar.
+const tabNow = "text-accent before:absolute before:inset-x-3 before:top-0 before:h-0.75 before:rounded-full before:bg-accent [&_svg]:fill-current/25";
+const tab = "relative flex min-h-11 min-w-0 flex-1 items-center justify-center px-1 text-[length:min(0.75rem,4vw)] font-medium";
 // On a short screen the icon sits beside the name, in a tab about a fifth of 568 px wide: at Largest text the longest name
 // ("Articles") needs the room, so the gap and the side padding are as small as they can be and still read as a row.
 const tabLayout = (short: boolean) => (short ? "flex-row gap-1 px-0.5" : "flex-col gap-0.5");
 
-/** The Articles tab's badge (the unread count): count (capped at 99+), a dot, or nothing, by the device's "Unread badge" setting. */
+/** The Articles tab's badge (the unread count): count (capped at 99+), a dot, or nothing, by the device's "Unread badge" setting.
+ * Its offset is in rem like its text, so it grows with the text size: -right-2.5 pushed it past its tab at Largest text. */
 function UnreadBadge() {
   const boot = useBootstrap();
-  return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" noun="" className="absolute -top-1 -right-[10px]" />;
+  return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" noun="" className="absolute -top-1 -right-2" />;
 }
 
 function TabBar() {
@@ -50,16 +54,16 @@ function TabBar() {
   const feedsTab = pathname === "/feeds" || pathname === "/health" || (inList && scoped);
   const short = useShort();
   const t = cn(tab, tabLayout(short));
-  const cls = ({ isActive }: { isActive: boolean }) => cn(t, isActive ? "text-accent" : "text-fg2");
+  const cls = ({ isActive }: { isActive: boolean }) => cn(t, isActive ? tabNow : "text-fg2");
   return (
     <nav
       aria-label="Primary"
-      className={cn("pb-safe pl-safe pr-safe flex shrink-0 border-t border-line bg-bg shadow-[0_-6px_10px_-8px_rgb(0_0_0/0.5)]", short ? "pt-0" : "pt-2")}
+      className={cn("pb-safe pl-safe pr-safe flex shrink-0 border-t border-line bg-bg shadow-bar", short ? "pt-0" : "pt-2")}
       // The bar is its content plus the device inset: the inset below it (a home indicator) never takes from the 44 px tabs.
       style={{ minHeight: "calc(var(--tabbar-h) + env(safe-area-inset-bottom))" }}
     >
       {/* Plain links: NavLink would only mark the tab whose own address is the current one. */}
-      <Link to="/l/unread" className={cn(t, articlesTab ? "text-accent" : "text-fg2")} aria-current={articlesTab ? "page" : undefined}>
+      <Link to="/l/unread" className={cn(t, articlesTab ? tabNow : "text-fg2")} aria-current={articlesTab ? "page" : undefined}>
         {/* The badge sits on the icon's corner and grows over the icon, so this tab is no wider than the others. */}
         <span className="relative flex">
           <Newspaper aria-hidden="true" className="size-6" />
@@ -67,7 +71,7 @@ function TabBar() {
         </span>
         Articles
       </Link>
-      <Link to="/feeds" className={cn(t, feedsTab ? "text-accent" : "text-fg2")} aria-current={feedsTab ? "page" : undefined}>
+      <Link to="/feeds" className={cn(t, feedsTab ? tabNow : "text-fg2")} aria-current={feedsTab ? "page" : undefined}>
         <List aria-hidden="true" className="size-6" />
         Feeds
       </Link>

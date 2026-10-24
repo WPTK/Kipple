@@ -198,7 +198,7 @@ async function signIn() {
     await page.goto(origin + "/");
     await page.getByLabel("Username").waitFor({ timeout: 15000 }).catch(() => setupError(`no sign-in form at ${origin} (is the UI built before the binary?)`));
     await page.getByLabel("Username").fill(opt.user);
-    await page.getByLabel("Password").fill(opt.password);
+    await page.getByLabel("Password", { exact: true }).fill(opt.password);
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 }).catch(() => setupError("sign-in failed"));
     const cookies = (await ctx.storageState()).cookies;

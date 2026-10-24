@@ -10,7 +10,6 @@ import { Button } from "@/ui/button";
 import { Checkbox, Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { Segmented } from "@/ui/segmented";
 
-const DANGER = "border-danger text-danger";
 
 /*
  * Every dialog here is a wrapper that mounts its body only while open, so each opening starts from a fresh body: no
@@ -239,7 +238,7 @@ function DeleteRangeBody({ onOpenChange, onSettled }: { onOpenChange: (o: boolea
           <Button disabled={busy} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button className={DANGER} disabled={busy || count == null || zero} onClick={() => (confirming ? void run() : setConfirmKey(key))}>
+          <Button variant="danger" disabled={busy || count == null || zero} onClick={() => (confirming ? void run() : setConfirmKey(key))}>
             {busy ? "Deleting…" : confirming ? `Yes, delete ${plural(count ?? 0, "record")}` : "Delete"}
           </Button>
         </>
@@ -308,7 +307,7 @@ function DeleteAllBody({ onOpenChange, onSettled }: { onOpenChange: (o: boolean)
           <Button disabled={busy} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button className={DANGER} disabled={busy || !matches} onClick={() => void run()}>
+          <Button variant="danger" disabled={busy || !matches} onClick={() => void run()}>
             {busy ? "Deleting…" : "Delete all statistics"}
           </Button>
         </>
@@ -368,7 +367,7 @@ export function StatsDataSection({ defaultRange, hideTitle }: { defaultRange: St
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => setDlg("export")}>Export…</Button>
         <Button onClick={() => setDlg("range")}>Delete a date range…</Button>
-        <Button className={DANGER} onClick={() => setDlg("all")}>
+        <Button variant="danger" onClick={() => setDlg("all")}>
           Delete all statistics…
         </Button>
       </div>

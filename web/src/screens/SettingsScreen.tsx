@@ -38,7 +38,7 @@ import { navItemClass } from "@/ui/navItem";
 import { Segmented } from "@/ui/segmented";
 import { BackButton } from "@/ui/BackButton";
 import { Button } from "@/ui/button";
-import { Disclosure, Notice, RadioCard, Skeleton, Switch, inputCls } from "@/ui/kit";
+import { Disclosure, FieldError, Notice, RadioCard, Section as KitSection, Skeleton, Switch, inputCls } from "@/ui/kit";
 import { DensityControl, FontSelect, SpacingControl, TextSizeControl } from "./AppearanceControls";
 import { DevicesSection } from "./DevicesSection";
 import { FiltersSection } from "./filters/FiltersSection";
@@ -79,15 +79,10 @@ const groupById = (id: string | undefined) => SETTINGS_GROUPS.find((g) => g.id =
 const SectionLevel = createContext<2 | 3>(2);
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
-  const id = useId();
-  const Heading = useContext(SectionLevel) === 3 ? "h3" : "h2";
   return (
-    <section aria-labelledby={id} className="border-b border-line py-5">
-      <Heading id={id} className="mb-3 text-lg font-bold">
-        {title}
-      </Heading>
-      <div className="flex flex-col gap-5">{children}</div>
-    </section>
+    <KitSection title={title} level={useContext(SectionLevel)} stack>
+      {children}
+    </KitSection>
   );
 }
 
@@ -240,9 +235,9 @@ function PaperNameField() {
         className={`${inputCls} max-w-sm`}
       />
       {refused !== null ? (
-        <span id={`${id}-error`} role="alert" className="text-xs text-danger">
+        <FieldError id={`${id}-error`} className="text-xs">
           The name must fit on one line: no tabs, line breaks or other control characters. It was not saved.
-        </span>
+        </FieldError>
       ) : null}
       <span id={`${id}-hint`} className="text-xs text-fg2">
         Printed at the top of the Gazette layout&apos;s front page and on every page after it. Leave it empty for {DEFAULT_PAPER_NAME}.

@@ -67,7 +67,7 @@ export function Segmented<T extends string | number>({ legend, hint, value, opti
       <legend className="text-sm font-semibold">{legend}</legend>
       {hint ? <p className="mb-2 text-xs text-fg2">{hint}</p> : <div className="mb-2" />}
       {/* Each choice keeps its 44 px touch width, so a row that does not fit wraps to a second line, never squeezes them. */}
-      <div ref={box} className="flex w-full flex-wrap gap-px overflow-hidden rounded-xl border border-line bg-line">
+      <div ref={box} className="flex w-full flex-wrap gap-px overflow-hidden rounded-xl border border-field bg-field">
         {options.map((o, i) => {
           const on = o.value === value;
           return (
@@ -76,10 +76,10 @@ export function Segmented<T extends string | number>({ legend, hint, value, opti
               data-pressed={on}
               className={cn(
                 "relative flex min-h-11 min-w-11 flex-1 cursor-pointer items-center justify-center px-1 text-center text-xs font-medium select-none min-[380px]:text-sm",
-                "has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-accent",
+                "has-[:focus-visible]:kp-ring-inset",
                 wrap && "basis-[30%]",
                 o.disabled && "cursor-not-allowed opacity-50",
-                on ? "bg-accent font-semibold text-bg shadow-[inset_0_2px_5px_rgb(0_0_0/0.35)]" : "bg-surface text-fg hover:bg-selection",
+                on ? "bg-selection font-semibold text-fg shadow-[inset_0_0_0_2px_var(--kp-accent)]" : "bg-surface text-fg hover:bg-selection",
               )}
             >
               <input

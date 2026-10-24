@@ -68,7 +68,7 @@ export function toastMs(t: Pick<ToastItem, "kind" | "action">): number | null {
 
 /** Toast look, shared with the undo toast: an accent-tinted surface with an accent border and a real shadow. */
 export const TOAST_SURFACE =
-  "border-2 bg-[var(--kp-toast-bg)] text-fg shadow-[0_8px_24px_rgb(0_0_0/0.3)] data-[kind=error]:border-danger border-accent";
+  "border-2 bg-[var(--kp-toast-bg)] text-fg shadow-toast data-[kind=error]:border-danger border-accent";
 
 /**
  * Toast region. Toasts stay 8 s (15 s with an action, errors until dismissed) and hold while hovered or focused.

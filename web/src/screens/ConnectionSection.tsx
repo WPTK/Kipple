@@ -7,7 +7,7 @@ import { accountError } from "./AccountSection";
 import { keys } from "@/api/queries";
 import { announce } from "@/shell/toasts";
 import { Button } from "@/ui/button";
-import { Field, Notice, Skeleton, inputCls } from "@/ui/kit";
+import { Field, Notice, PasswordField, Skeleton, inputCls } from "@/ui/kit";
 
 /** The reachability settings: how other devices reach Kipple and who may. */
 export const CONNECTION_KEYS = {
@@ -50,9 +50,7 @@ function useNeedsPassword(): boolean {
 /** The web password a guarded write asks for. */
 function CurrentPassword({ what, value, onChange }: { what: string; value: string; onChange: (v: string) => void }) {
   return (
-    <Field label={`Your web password, to save ${what}`} help="Kipple asks for it before it changes who may sign in or name a visitor's address.">
-      {(a) => <input {...a} type="password" autoComplete="current-password" value={value} onChange={(e) => onChange(e.target.value)} className={inputCls} />}
-    </Field>
+    <PasswordField label={`Your web password, to save ${what}`} help="Kipple asks for it before it changes who may sign in or name a visitor's address." autoComplete="current-password" value={value} onChange={onChange} />
   );
 }
 

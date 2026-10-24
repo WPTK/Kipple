@@ -190,7 +190,6 @@ describe("restore in the setup wizard", () => {
     expect(await screen.findByText("Enter a password.")).toBeInTheDocument();
     expect(calls.filter((c) => c.url.pathname === "/api/setup/restore/confirm")).toHaveLength(0);
     await user.type(screen.getByLabelText("New password"), "long enough");
-    await user.type(screen.getByLabelText("Password again"), "long enough");
     await user.click(screen.getByRole("button", { name: "Restore everything" }));
     await screen.findByRole("heading", { name: "Restoring your library" });
     const confirm = calls.filter((c) => c.url.pathname === "/api/setup/restore/confirm");
