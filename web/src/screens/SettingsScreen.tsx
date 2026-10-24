@@ -62,7 +62,7 @@ import { loadRange } from "@/lib/statsFormat";
 export const SETTINGS_GROUPS = [
   { id: "appearance", label: "Appearance & Reading", icon: Palette },
   { id: "sync", label: "Sync & Feeds", icon: Rss },
-  { id: "statistics", label: "Statistics", icon: BarChart3 },
+  { id: "statistics", label: "Stats", icon: BarChart3 },
   { id: "filters", label: "Filters & Saved Searches", icon: Filter },
   { id: "account", label: "Account & Devices", icon: UserRound },
   { id: "advanced", label: "Advanced", icon: SlidersHorizontal },

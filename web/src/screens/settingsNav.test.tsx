@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WIDE_QUERY } from "@/lib/useMedia";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
@@ -57,7 +58,7 @@ function go(path: string) {
 
 function wide(on: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: on && query.includes("min-width: 900px"),
+    matches: on && query.includes(WIDE_QUERY),
     media: query,
     onchange: null,
     addEventListener() {},
@@ -68,7 +69,7 @@ function wide(on: boolean) {
   }));
 }
 
-const GROUPS = ["Appearance & Reading", "Sync & Feeds", "Statistics", "Filters & Saved Searches", "Account & Devices", "Advanced", "About"];
+const GROUPS = ["Appearance & Reading", "Sync & Feeds", "Stats", "Filters & Saved Searches", "Account & Devices", "Advanced", "About"];
 
 beforeEach(() => {
   authStore.set("unknown");
@@ -135,8 +136,8 @@ describe("Settings on a narrow screen", () => {
     routes();
     go("/settings");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("link", { name: /^Statistics/ }));
-    await screen.findByRole("heading", { level: 1, name: "Statistics" });
+    await user.click(await within(await screen.findByRole("main")).findByRole("link", { name: /^Stats/ }));
+    await screen.findByRole("heading", { level: 1, name: "Stats" });
     expect(screen.getByRole("region", { name: "Your statistics data" })).toBeInTheDocument();
     window.history.back();
     expect(await screen.findByRole("navigation", { name: "Settings sections" })).toBeInTheDocument();
@@ -203,14 +204,14 @@ describe("Settings on a wide screen", () => {
     expect(await axe(container)).toHaveNoViolations();
 
     const user = userEvent.setup();
-    await user.click(within(rail).getByRole("link", { name: "Statistics" }));
+    await user.click(within(rail).getByRole("link", { name: "Stats" }));
     expect(window.location.pathname).toBe("/settings/statistics");
-    const h2 = await screen.findByRole("heading", { level: 2, name: "Statistics" });
+    const h2 = await screen.findByRole("heading", { level: 2, name: "Stats" });
     await waitFor(() => expect(h2).toHaveFocus()); // moving between groups lands on the group's heading
     expect(await screen.findByRole("switch", { name: /Reading statistics/ })).toBeChecked();
     expect(screen.getByRole("region", { name: "Your statistics data" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Accessibility" })).toBeNull();
-    expect(within(rail).getByRole("link", { name: "Statistics" })).toHaveAttribute("aria-current", "page");
+    expect(within(rail).getByRole("link", { name: "Stats" })).toHaveAttribute("aria-current", "page");
     expect(within(rail).getByRole("link", { name: "Appearance & Reading" })).not.toHaveAttribute("aria-current");
     // The rail stays put.
     expect(screen.getByRole("navigation", { name: "Settings sections" })).toBe(rail);
