@@ -102,6 +102,8 @@ interface SectionProps {
   section: DigestSectionView;
   rows: number;
   images: boolean;
+  /** The heading says how many articles the section holds ("3 new"). */
+  counts: boolean;
   scope: PageProps["scope"];
   onOpen: (item: Card) => void;
   actions: RowMenuActions;
@@ -111,7 +113,7 @@ interface SectionProps {
   retry: (key: string) => void;
 }
 
-function DigestSection({ section: s, rows, images, scope, onOpen, actions, selectedId, tabStopId, expand, retry }: SectionProps) {
+function DigestSection({ section: s, rows, images, counts, scope, onOpen, actions, selectedId, tabStopId, expand, retry }: SectionProps) {
   const box = useRef<HTMLElement>(null);
   // Pressing "N more" or Retry takes its button away (or moves it): focus goes to the first article the press brought in.
   // The press is forgotten once its request has settled without bringing any (a failed Retry), or after a while, so a
@@ -140,7 +142,10 @@ function DigestSection({ section: s, rows, images, scope, onOpen, actions, selec
   return (
     // A plain section with no accessible name, so a long page does not add a landmark for each; its h2 is what heading navigation finds.
     <section ref={box} data-section={s.key} className="pt-4">
-      <h2 className="px-4 pb-1 text-sm font-semibold tracking-wide text-accent uppercase">{s.title}</h2>
+      <h2 className="flex items-baseline gap-2 px-4 pb-1 text-sm font-semibold tracking-wide text-accent uppercase">
+        {s.title}
+        {counts && s.total ? <span className="text-xs font-normal tracking-normal text-fg2 normal-case">{s.total} new</span> : null}
+      </h2>
       {s.error != null ? (
         <div role="alert" className="flex items-center gap-2 border-b border-line px-4 py-2 text-sm text-fg2">
           <span>Couldn&apos;t load {s.title}.</span>
@@ -191,7 +196,7 @@ function DigestSection({ section: s, rows, images, scope, onOpen, actions, selec
  * (the article that last had focus, else the selected one, else the first); its "N more" and Retry buttons are reached
  * with the arrow keys, between the articles, in the order they are drawn.
  */
-function DigestPage({ items, scope, selectedId, tabStopId, onOpen, actions, digest }: PageProps) {
+function DigestPage({ items, scope, more, selectedId, tabStopId, onOpen, actions, digest }: PageProps) {
   if (!digest) return null;
   const present = new Set(items.map((i) => i.id));
   const stop = [tabStopId, selectedId].find((id) => id && present.has(id)) ?? items[0]?.id;
@@ -203,6 +208,7 @@ function DigestPage({ items, scope, selectedId, tabStopId, onOpen, actions, dige
           section={s}
           rows={digest.rows}
           images={digest.images}
+          counts={digest.counts}
           scope={scope}
           onOpen={onOpen}
           actions={actions}
@@ -212,6 +218,11 @@ function DigestPage({ items, scope, selectedId, tabStopId, onOpen, actions, dige
           retry={digest.retry}
         />
       ))}
+      {digest.counts && !more ? (
+        <p data-testid="digest-end" className="px-4 pt-6 text-center text-sm text-fg2">
+          That&apos;s every folder with something new.
+        </p>
+      ) : null}
     </div>
   );
 }

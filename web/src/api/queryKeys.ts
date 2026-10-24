@@ -35,6 +35,7 @@ export function scopeKey(s: Scope): string {
   if (s.order === "oldest" || s.order === "rank") parts.push(`order:${s.order}`);
   if (s.typing) parts.push("typing:1");
   if (s.length) parts.push(`len:${s.length}`);
+  if (s.after) parts.push(`after:${s.after}`);
   return parts.join("|");
 }
 
@@ -61,6 +62,7 @@ export function parseScopeKey(key: string | null | undefined): Scope {
     } else if (k === "order" && (v === "oldest" || v === "rank")) scope.order = v;
     else if (k === "typing" && v === "1") scope.typing = true;
     else if (k === "len" && isReadingLength(v)) scope.length = v;
+    else if (k === "after" && /^(0|[1-9]\d*)$/.test(v)) scope.after = v;
   }
   return scope;
 }
@@ -77,6 +79,7 @@ export function itemsParams(scope: Scope, cursor?: string, limit = PAGE_SIZE) {
     // Only while the user is typing (docs/design.md 7.1): a submitted or saved search never sends it.
     typing: scope.typing && scope.q ? 1 : undefined,
     ...(scope.length ? READING_LENGTH_MINUTES[scope.length] : {}),
+    after: scope.after,
     cursor,
     limit,
   };

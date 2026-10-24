@@ -198,6 +198,7 @@ export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed, scopeFeeds?
     const narrowed = scope.feed || scope.folder;
     return { title: `No results for "${scope.q}"`, body: narrowed ? "Try fewer words, or search the whole library." : "Try fewer words." };
   }
+  if (scope.after) return { title: "Nothing new", body: "Nothing has arrived since you last looked. Unread has everything you have not read yet." };
   if (scope.view === "muted") return { title: "Nothing muted", body: "No filter has muted an article yet." };
   if (scope.view === "starred") return { title: "No starred articles", body: "Tap the star on an article to keep it here." };
   if (scope.folder && scopeFeeds === 0) return { title: "This folder has no feeds", body: "Move a feed here or add one.", next: "add" };

@@ -92,7 +92,7 @@ describe("the phone's first tab holds the whole-library lists (#421)", () => {
     window.history.replaceState({ idx: 0 }, "", "/l/starred");
     render(<App client={makeQueryClient({ retry: false })} />);
     const pills = await screen.findByRole("navigation", { name: "Show" });
-    expect(within(pills).getAllByRole("link").map((l) => l.textContent)).toEqual(["Unread", "All", "Starred"]);
+    expect(within(pills).getAllByRole("link").map((l) => l.textContent)).toEqual(["New", "Unread", "All", "Starred"]);
     const tab = within(screen.getByRole("navigation", { name: "Primary" })).getByRole("link", { name: /Articles/ });
     expect(tab).toHaveAttribute("href", "/l/unread");
     expect(tab).toHaveAttribute("aria-current", "page");

@@ -114,6 +114,8 @@ export interface DigestSection {
   cards: Card[];
   /** Cards beyond those shown, where the count is known; null where it is not (All, Muted). */
   moreCount: number | null;
+  /** Cards in the whole section: exact once it has loaded, else the count the page opened with; null where it is not known. */
+  total: number | null;
   /** More cards can be shown or loaded for this section. */
   hasMore: boolean;
   state: SectionState;
@@ -144,7 +146,8 @@ export function layoutDigest(defs: readonly SectionDef[], opts: DigestOptions, l
     // Exact once the whole section has loaded; before that, the count the page opened with, where there is one.
     const moreCount = got && !got.more ? got.cards.length - cards.length : d.count === null ? null : Math.max(0, d.count - cards.length);
     const hasMore = got ? got.cards.length > cards.length || got.more : true;
-    sections.push({ key: d.key, title: d.title, scope: d.scope, cards, moreCount, hasMore, state });
+    const total = got && !got.more ? got.cards.length : d.count;
+    sections.push({ key: d.key, title: d.title, scope: d.scope, cards, moreCount, total, hasMore, state });
   }
   return { sections, cards: sections.flatMap((s) => s.cards), more: sections.some((s) => s.hasMore) };
 }

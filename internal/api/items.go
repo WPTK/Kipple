@@ -141,6 +141,15 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "bad_request")
 			return
 		}
+		// after keeps what arrived after that item: the New page's lists. Only the unread list takes it.
+		if v := qv.Get("after"); v != "" {
+			id, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || id < 0 || q.View != "unread" || q.Query != "" {
+				writeError(w, http.StatusBadRequest, "bad_request")
+				return
+			}
+			q.AfterID = id
+		}
 		var err1, err2, err3 error
 		if v := qv.Get("feed"); v != "" {
 			q.FeedID, err1 = strconv.ParseInt(v, 10, 64)
@@ -411,6 +420,8 @@ type markReadRequest struct {
 		Fallback *bool           `json:"fallback"`
 		MinMin   int             `json:"min_minutes"`
 		MaxMin   int             `json:"max_minutes"`
+		// AfterID limits the mark to articles that arrived after this item (the New page).
+		AfterID json.RawMessage `json:"after_id"`
 	} `json:"scope"`
 	Bound *struct {
 		Order  string `json:"order"`
@@ -493,6 +504,13 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 		if len(sc.Q) > maxSearchQuery || !validMinutes(sc.MinMin, sc.MaxMin) {
 			bad()
 			return
+		}
+		if len(sc.AfterID) > 0 && string(sc.AfterID) != "null" {
+			var err error // 0 is the mark before the page was ever left: everything is after it
+			if filter.AfterID, err = strconv.ParseInt(strings.Trim(strings.TrimSpace(string(sc.AfterID)), `"`), 10, 64); err != nil || filter.AfterID < 0 || sc.View != "unread" || filter.Query != "" {
+				bad()
+				return
+			}
 		}
 		if req.Bound != nil {
 			if req.Bound.Anchor == nil {

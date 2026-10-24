@@ -117,6 +117,8 @@ type CardQuery struct {
 	// extracted text (word_count 0) never match either filter.
 	MinMinutes int
 	MaxMinutes int
+	// AfterID (0 = unset) keeps items with an id above it: what arrived after that item (the New page).
+	AfterID int64
 }
 
 // ReadingWhere is the SQL for the reading-time filters on column col
@@ -349,6 +351,10 @@ func listCardsSQL(q CardQuery) (string, []any, int, error) {
 			where = append(where, w)
 			args = append(args, a...)
 		}
+		if q.AfterID > 0 {
+			where = append(where, "i.id > ?")
+			args = append(args, q.AfterID)
+		}
 		if q.Cursor != nil {
 			where = append(where, "(i.sort_at, i.id) "+keysetOp(q.Oldest)+" (?, ?)")
 			args = append(args, q.Cursor.SortAt, q.Cursor.ID)
@@ -544,10 +550,12 @@ type MarkFilter struct {
 	MinMinutes int
 	MaxMinutes int
 	Bound      *Bound
+	// AfterID (0 = unset) leaves out items with an id at or below it: the New page marks only what arrived after its mark.
+	AfterID int64
 }
 
 func (f MarkFilter) any() bool {
-	return f.Query != "" || f.MinMinutes > 0 || f.MaxMinutes > 0 || f.Bound != nil
+	return f.Query != "" || f.MinMinutes > 0 || f.MaxMinutes > 0 || f.Bound != nil || f.AfterID > 0
 }
 
 // MarkScopeRead marks the unread items inside scope with id <= maxID read and
@@ -637,6 +645,10 @@ func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64, match string, pro
 			where += " AND muted_by IS NULL" // the list skips muted items unless it is the muted view
 		}
 		return "SELECT 1 FROM items WHERE " + cond + where + feedWhere + extra + " LIMIT 1", args, feedWhere, base
+	}
+	if f.AfterID > 0 {
+		extra += " AND id > :after"
+		args = append(args, sql.Named("after", f.AfterID))
 	}
 	if b := f.Bound; b != nil {
 		extra += " AND (sort_at, id) " + b.op() + " (:bsort, :bid)"
