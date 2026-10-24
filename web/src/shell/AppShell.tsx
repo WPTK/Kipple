@@ -201,7 +201,10 @@ export function AppShell() {
   useRecordTrail(pathname);
   useRememberFocusedRow();
   const navType = useNavigationType();
-  const stepKey = navType === "POP" ? key : "";
+  // The key of the last step through history. It stays while later pushes and replaces (typing in search, picking a feed)
+  // go on from that entry, so only a new step, or a change of screen, runs the arrival focus again.
+  const [stepKey, setStepKey] = useState("");
+  if (navType === "POP" && stepKey !== key) setStepKey(key);
   const navigate = useNavigate();
   useServerEvents(true);
   useSyncHighlights();
@@ -301,7 +304,7 @@ export function AppShell() {
       <div className="kp-stack relative flex min-w-0 flex-1 flex-col">
         <WarningsBanner />
         <ApplyProgress />
-        <main id="main" ref={mainRef} tabIndex={-1} className="pl-safe pr-safe min-h-0 flex-1 outline-none">
+        <main id="main" ref={mainRef} tabIndex={-1} className={cn("pr-safe min-h-0 flex-1 outline-none", wide ? "pl-6" : "pl-safe")}>
           <Outlet />
         </main>
         {showTabs ? <TabBar /> : null}

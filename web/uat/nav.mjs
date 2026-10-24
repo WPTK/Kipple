@@ -9,7 +9,7 @@
 //   A1  the sidebar marks exactly one destination: Unread on Unread, Feeds on Feed health, none on a feed's list;
 //   A2  the sidebar has no "Manage feeds", and All articles has an icon of its own;
 //   A3  "Resize sidebar" is at least 24 px wide, the sidebar's controls end at least 8 px before it, and "Resize article list"
-//       starts where the list ends (the list's scrollbar is not under it);
+//       starts where the list ends (the list's scrollbar is not under it), and no control of the next column is under either strip;
 //   A4  open an article from the list, press Back: focus is on the row left, not the body; Forward: not the body.
 // On the phone width of the run:
 //   B1  at 812x375 the unread badge follows the Articles name and is not on top of it;
@@ -69,6 +69,20 @@ await t.eachViewport(async (page, vp) => {
         if (!col || !hit) return null;
         return { right: col.getBoundingClientRect().right, left: hit.getBoundingClientRect().left, bar: col.offsetWidth - col.clientWidth };
       });
+      // The other side: no control of the next column is under a handle's strip (the handle is the only thing there).
+      const under = await page.evaluate(() => {
+        const hits = [];
+        for (const sep of document.querySelectorAll('[role="separator"]')) {
+          const r = sep.getBoundingClientRect();
+          for (const el of document.querySelectorAll("main a, main button, main input, main select, main textarea, main [tabindex]")) {
+            if (el === sep || sep.contains(el)) continue;
+            const b = el.getBoundingClientRect();
+            if (b.width > 0 && b.height > 0 && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top) hits.push(`${sep.getAttribute("aria-label")}: ${el.getAttribute("aria-label") ?? el.textContent?.trim().slice(0, 20) ?? el.tagName}`);
+          }
+        }
+        return hits;
+      });
+      check(under.length === 0, `${tag} A3 neighbour`, "no control sits under a resize handle", `under a handle: ${under.slice(0, 4).join("; ")}`);
       check(list !== null && list.left >= list.right - 0.5, `${tag} A3 scrollbar`, `the list handle starts at the list's edge (scrollbar ${list?.bar} px)`, `the list handle starts ${list ? Math.round(list.right - list.left) : "?"} px inside the list's edge`);
     });
     await step(`${tag} A4`, async () => {

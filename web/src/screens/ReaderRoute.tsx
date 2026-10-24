@@ -436,7 +436,7 @@ function WidePane({
           />
         )}
       </div>
-      {listOnly ? null : <div className="min-w-0 flex-1">{article}</div>}
+      {listOnly ? null : <div className="min-w-0 flex-1 pl-6">{article}</div>}
     </div>
   );
 }

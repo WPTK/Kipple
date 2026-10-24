@@ -19,7 +19,7 @@ export function keyWidth(key: string, shift: boolean, current: number, min: numb
 /**
  * A vertical drag handle on the right edge of a column (the parent must be `relative`). It draws a thin line on the edge
  * but is 24 px wide (WCAG 2.5.8), all of it outside the column, so it never covers the column's own scrollbar; what
- * sits in the column keeps at least 8 px clear of the edge. Pointer drag and the
+ * sits in the column keeps at least 8 px clear of the edge, and the next column starts 24 px further right (padding), so no control is under the strip. Pointer drag and the
  * arrow keys resize it; Home and End go to the limits; double-click resets. It is a WAI-ARIA window splitter
  * (`role="separator"` with a value), so a screen reader announces the width.
  */
