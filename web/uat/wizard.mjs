@@ -7,23 +7,25 @@
 // touches any other instance:
 //
 //   Run A (desktop 1280x800, browser time zone Asia/Tokyo): opens the address, which shows the account form first
-//     (no setup code), and walks all seven steps with a password. Asserts the time zone step preselects Asia/Tokyo and
-//     that GET /api/settings then reports it, that while unclaimed the other API routes refuse, that a second browser
-//     context creating the account afterwards gets 404, and that after completion /api/setup/* answers 404.
-//   Run B (the narrowest phone, 320x568): the same wizard in open mode (no password), a theme and reading-font preview + Skip that
-//     must leave no theme or font overrides in the device profile, then a fresh browser context signs in by itself
-//     (POST /api/auth/open), and a request that carries a forwarding header is refused with the plain-English screen.
+//     (no setup code), and walks both steps with a password. Asserts the feeds step starts with nothing ticked and
+//     says Continue, that Import a feeds file opens the import dialog, that adding a feed ends setup, that
+//     GET /api/settings then reports the browser's zone, that while unclaimed the other API routes refuse, that a
+//     second browser context creating the account afterwards gets 404, and that after completion /api/setup/* answers 404.
+//   Run B (the narrowest phone, 320x568): the same wizard in open mode (no password), ending with Continue and nothing
+//     added, then a fresh browser context signs in by itself (POST /api/auth/open), and a request that carries a
+//     forwarding header is refused with the plain-English screen.
 //   Run C (phone, time zone Asia/Tokyo): GET /api/instance unreachable (a Try again screen, never a password form), then
-//     "Skip the rest of setup" on step 2, which must still save the preselected zone.
-//   Run D (a phone and a desktop browser on one fresh server): the phone uploads a backup made in Run A and leaves it
-//     unconfirmed, as an abandoned tab would. The desktop browser's upload must then be accepted at once (it replaces the
-//     phone's), the phone's "Restore everything" must say another browser has the upload and go back to the picker, and
-//     the desktop's confirm must start the restore.
+//     Continue on the feeds step, which must save the browser's zone.
+//   Run D (a phone and a desktop browser on one fresh server): a feeds file sent to the restore screen is refused in
+//     words. The phone then uploads a backup made in Run A and leaves it unconfirmed, as an abandoned tab would. The
+//     desktop browser's upload must then be accepted at once (it replaces the phone's), the phone's "Restore this backup"
+//     must say another browser has the upload and go back to the picker, and the desktop's confirm must start the restore.
 //
 // axe-core (WCAG 2.0/2.1/2.2 A and AA) runs on every step at both sizes. Exit code: 0 clean, 1 findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium`.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -70,7 +72,20 @@ if (opt.screenshots) mkdirSync(opt.screenshots, { recursive: true });
 
 const servers = [];
 /** A fresh server in setup mode. Resolves with its origin. */
-async function startServer(name, port) {
+/** A port nobody listens on now. A fixed one can belong to another instance on the machine, whose /healthz would pass for this run's server. */
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.once("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+async function startServer(name) {
+  const port = await freePort();
   const dir = join(tmp, name);
   mkdirSync(dir, { recursive: true });
   const env = { ...process.env, KIPPLE_ADDR: `127.0.0.1:${port}`, KIPPLE_DATA: dir, KIPPLE_LOG_LEVEL: "warn" };
@@ -115,7 +130,7 @@ async function onStep(page, tag, heading, n) {
     throw new Error("lost");
   }
   await page.waitForTimeout(250);
-  check(where, await page.getByText(`Step ${n} of 7`).isVisible(), `no "Step ${n} of 7"`);
+  check(where, await page.getByText(`Step ${n} of 2`).isVisible(), `no "Step ${n} of 2"`);
   await axeRun(page, where);
   await overflowRun(page, where);
   await tapRun(page, where);
@@ -136,8 +151,10 @@ let backupZip = null;
 /** Opens the restore screen of the wizard on page and sends the backup through its file picker. */
 async function uploadBackup(page) {
   await page.getByRole("button", { name: "Restore from a backup" }).click();
-  await page.getByLabel("Backup or OPML file").setInputFiles({ name: "kipple-backup.zip", mimeType: "application/zip", buffer: backupZip });
+  await page.getByLabel("Backup file").setInputFiles({ name: "kipple-backup.zip", mimeType: "application/zip", buffer: backupZip });
 }
+
+const feedsFile = { name: "feeds.opml", mimeType: "text/xml", buffer: Buffer.from('<?xml version="1.0"?><opml version="2.0"><body><outline text="Example" xmlUrl="https://example.org/feed.xml"/></body></opml>') };
 
 /** The cards of "How do you want to sign in?" (RadioCard with children): 44 / 56 px tall, the radio beside the title, and a tap in the padding or on the description picks the card. */
 async function radioCardChecks(page, where) {
@@ -175,7 +192,7 @@ const browser = await chromium.launch({ headless: !opt.headed }).catch((e) => se
 try {
   // ---------------------------------------------------------------------------------------------- Run A
   {
-    const { origin } = await startServer("a", 7191);
+    const { origin } = await startServer("a");
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, timezoneId: "Asia/Tokyo", colorScheme: "light" });
     const page = await ctx.newPage();
     const errors = [];
@@ -196,63 +213,42 @@ try {
     await page.goto(origin);
     await onStep(page, "A", "Create your account", 1);
     await radioCardChecks(page, "A step 1");
-    await page.getByLabel("User name").fill("tester");
+    await page.getByLabel("Username").fill("tester");
     await page.getByLabel("Password", { exact: true }).fill("a long enough password");
     await page.getByRole("button", { name: "Create my account" }).click();
 
-    // Step 2: the browser's zone (Asia/Tokyo here) is preselected.
-    await onStep(page, "A", "Choose your time zone", 2);
-    check("A step 2", ((await page.getByTestId("selected-zone").textContent()) ?? "").includes("Asia/Tokyo"), "Asia/Tokyo was not preselected");
-    await page.getByLabel("Search time zones").fill("+9");
-    check("A step 2", (await page.getByRole("listbox", { name: "Time zones" }).getByRole("option", { name: /Asia\/Tokyo/ }).count()) === 1, "searching +9 did not find Tokyo");
-    await page.getByLabel("Search time zones").fill("");
-    await page.getByRole("button", { name: "Continue" }).click();
-
-    await onStep(page, "A", "Look and feel", 3);
-    await page.getByLabel("Day theme").selectOption("linen");
-    check("A step 3", (await page.evaluate(() => document.documentElement.dataset.theme)) === "linen", "the day theme was not applied at once (light browser)");
-    // The reading font is part of this step (it once went missing everywhere but the Aa menu): every font, applied at once.
-    const fontSelect = page.getByLabel("Reading font");
-    check("A step 3", (await fontSelect.count()) === 1 && (await fontSelect.locator("option").count()) >= 12, "no Reading font select with every font");
-    await fontSelect.selectOption("vollkorn");
-    check("A step 3", /Vollkorn/.test(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--kp-reading-font"))), "the reading font was not applied at once");
-    if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "A-step4-font.png"), fullPage: true });
-    await page.getByRole("button", { name: "Continue" }).click();
-
-    await onStep(page, "A", "Bring your feeds along", 4);
+    // Step 2: the feeds. Nothing is ticked, so the one button says Continue; the time zone is not asked for.
+    await onStep(page, "A", "Choose your feeds", 2);
     // Steps are in the address: a reload lands on the same step.
     await page.reload();
-    await onStep(page, "A", "Bring your feeds along", 4);
-    await page.getByRole("button", { name: "Skip", exact: true }).click();
-
-    await onStep(page, "A", "Recommended feeds", 5);
-    await page.getByRole("button", { name: /^Add \d+ feeds?$/ }).click(); // uat-labels: ignore (the wizard Add N feeds button)
-
-    // Step 6: the public URL. 127.0.0.1 is never suggested, so the field starts empty; Skip saves nothing.
-    await onStep(page, "A", "Your Kipple's address", 6);
-    check("A step 6", (await page.getByLabel("Public URL (optional)").inputValue()) === "", "an IP address was suggested as the public URL");
-    await page.getByRole("button", { name: "Skip", exact: true }).click();
-
-    await onStep(page, "A", "You're all set", 7);
-    // The reload at step 4 made the page forget the password typed in step 1, so step 7 asks for it again.
-    check("A step 7", await page.getByLabel("Your web password", { exact: true }).isVisible(), "the web password was not asked for after a reload");
-    await page.getByLabel("Your web password", { exact: true }).fill("a long enough password");
-    await page.getByRole("button", { name: "Generate API password" }).click();
-    await page.getByTestId("api-password").waitFor({ timeout: 10_000 });
-    check("A step 7", ((await page.getByTestId("api-password").textContent()) ?? "").length > 8, "no API password shown");
-    await axeRun(page, "A step 7 (password shown)");
-    await page.getByRole("button", { name: "Finish" }).click();
+    await onStep(page, "A", "Choose your feeds", 2);
+    check("A step 2", (await page.getByRole("button", { name: "Continue", exact: true }).count()) === 1, "no Continue button");
+    check("A step 2", (await page.locator('fieldset[data-category] input[type="checkbox"]:checked:not(:disabled)').count()) === 0, "a feed was ticked before anyone chose it");
+    check("A step 2", (await page.getByText(/time zone/i).count()) === 0, "the wizard talks about a time zone");
+    check("A step 2", (await page.getByRole("button", { name: /skip|back/i }).count()) === 0, "a Skip or Back button is still offered");
+    // Import a feeds file: the dialog Settings uses, over this step.
+    await page.getByRole("button", { name: "Import a feeds file" }).click();
+    await page.getByRole("dialog").waitFor({ timeout: 5000 });
+    await axeRun(page, "A step 2 (import dialog)");
+    if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "A-step2-import.png"), fullPage: true });
+    await page.getByRole("button", { name: "Cancel" }).click();
+    // Ticking one feed changes the button to Add 1 feed; adding it ends setup.
+    const first = page.locator('input[type="checkbox"]:not(:disabled)').first();
+    if (check("A step 2", (await first.count()) === 1, "no recommended feed to tick (the list is empty)")) {
+      await first.check();
+      await page.getByRole("button", { name: /^Add 1 feed$/ }).waitFor({ timeout: 5000 }).catch(() => fail("A step 2", 'the button did not read "Add 1 feed"')); // uat-labels: ignore (the wizard Add N feeds button)
+      if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "A-step2-ticked.png"), fullPage: true });
+      await page.getByRole("button", { name: /^Add 1 feed$/ }).click(); // uat-labels: ignore (the wizard Add N feeds button)
+    } else await page.getByRole("button", { name: "Continue", exact: true }).click();
     await page.waitForURL(/\/l\/unread/, { timeout: 10_000 }).catch(() => fail("A finish", `the reader did not open (at ${page.url()})`));
     if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "A-reader.png"), fullPage: true });
 
     // What the wizard wrote, and that setup routes are gone.
     const settings = await page.evaluate(async () => (await fetch("/api/settings")).json());
     check("A settings", settings.values?.tz === "Asia/Tokyo", `tz is ${settings.values?.tz}, expected Asia/Tokyo`);
-    check("A settings", settings.values?.["ui.theme_day"] === "linen", `ui.theme_day is ${settings.values?.["ui.theme_day"]}`);
-    check("A settings", settings.values?.["ui.font_body"] === "vollkorn", `ui.font_body is ${settings.values?.["ui.font_body"]}, expected vollkorn`);
     check("A setup routes", (await call(sp, "/api/setup/account", { username: "intruder", password: "intruder-password" })) === 404, "/api/setup/account still answers after setup");
     const me = await page.evaluate(async () => (await fetch("/api/auth/me")).json());
-    check("A account", me.setup_pending === false, "setup is still pending after Finish");
+    check("A account", me.setup_pending === false, "setup is still pending after the feeds step");
     // A brand-new install is not an upgrade: the account was created at this version, so the next load (with the feeds
     // the wizard just added) shows no "What's new". The dialog check has teeth when web/dist was built with the same
     // VERSION as the server (a development bundle never shows it); the recorded version is checked either way.
@@ -327,14 +323,14 @@ try {
 
   // ---------------------------------------------------------------------------------------------- Run B
   {
-    const { origin } = await startServer("b", 7192);
+    const { origin } = await startServer("b");
     const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true, colorScheme: "dark" });
     const page = await ctx.newPage();
     const errors = [];
     onPageError(page, (e) => errors.push(String(e)));
     await page.goto(origin);
     await onStep(page, "B", "Create your account", 1);
-    await page.getByLabel("User name").fill("opener");
+    await page.getByLabel("Username").fill("opener");
     await page.getByRole("radio", { name: /No password at all/ }).check();
     await page.getByText("Anyone who can reach this address can read and change everything.").waitFor();
     await axeRun(page, "B step 0 (open mode notice)");
@@ -343,33 +339,8 @@ try {
     check("B step 1", await page.getByText("Tick the box to confirm you understand.").isVisible(), "no acknowledgement error");
     await page.getByRole("checkbox", { name: /I understand/ }).check();
     await page.getByRole("button", { name: "Create my account" }).click();
-    await onStep(page, "B", "Choose your time zone", 2);
-    await page.getByRole("button", { name: "Continue" }).click();
-    await onStep(page, "B", "Look and feel", 3);
-    // A preview is not a choice: trying a theme and skipping must leave this device's profile without theme overrides.
-    await page.getByLabel("Day theme").selectOption("linen");
-    await page.getByLabel("Reading font").selectOption("inter");
-    await page.waitForTimeout(900); // longer than the 500 ms the app waits before it would send a change
-    await page.getByRole("button", { name: "Skip", exact: true }).click();
-    await onStep(page, "B", "Bring your feeds along", 4);
-    await page.waitForTimeout(900);
-    const dev = await page.evaluate(async () => (await fetch("/api/device")).json());
-    const pinned = Object.keys(dev.profile ?? {}).filter((k) => k.startsWith("ui.theme") || k === "ui.font_body");
-    check("B step 3", pinned.length === 0, `a preview and Skip left theme or font overrides in the device profile: ${pinned.join(", ")}`);
-    check("B step 3", !/Inter/.test(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--kp-reading-font"))), "Skip did not put the reading font back");
-    await page.getByRole("button", { name: "Back" }).click();
-    await onStep(page, "B", "Look and feel", 3);
-    await page.getByRole("button", { name: "Continue" }).click();
-    await onStep(page, "B", "Bring your feeds along", 4);
-    await page.getByRole("button", { name: "Skip", exact: true }).click();
-    await onStep(page, "B", "Recommended feeds", 5);
-    await page.getByRole("button", { name: "Skip", exact: true }).click();
-    await onStep(page, "B", "Your Kipple's address", 6);
-    await page.getByRole("button", { name: "Skip", exact: true }).click();
-    await onStep(page, "B", "You're all set", 7);
-    await page.getByRole("button", { name: "Generate API password" }).click();
-    await page.getByTestId("api-password").waitFor({ timeout: 10_000 });
-    await page.getByRole("button", { name: "Finish" }).click();
+    await onStep(page, "B", "Choose your feeds", 2);
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
     await page.waitForURL(/\/l\/unread/, { timeout: 10_000 }).catch(() => fail("B finish", `the reader did not open (at ${page.url()})`));
     if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "B-reader.png"), fullPage: true });
     const me = await page.evaluate(async () => (await fetch("/api/auth/me")).json());
@@ -401,8 +372,8 @@ try {
   }
   // ---------------------------------------------------------------------------------------------- Run C
   {
-    // Server trouble on the first screen, and "Skip the rest of setup" from step 2.
-    const { origin } = await startServer("c", 7193);
+    // Server trouble on the first screen, and Continue on the feeds step.
+    const { origin } = await startServer("c");
     const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, timezoneId: "Asia/Tokyo" });
     const page = await ctx.newPage();
     const errors = [];
@@ -411,34 +382,34 @@ try {
     await page.route("**/api/instance", (r) => r.abort());
     await page.goto(origin);
     try {
-      await page.getByRole("heading", { level: 1, name: "Kipple couldn't load" }).waitFor({ timeout: 10_000 });
+      await page.getByRole("heading", { name: /Kipple can't be reached|You're offline/ }).waitFor({ timeout: 10_000 });
       check("C offline", await page.getByRole("button", { name: "Try again" }).isVisible(), "no Try again button");
       check("C offline", (await page.locator('input[type="password"]').count()) + (await page.getByRole("textbox", { name: /password/i }).count()) === 0, "a password form was shown when the server could not be reached");
       await overflowRun(page, "C offline");
       if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "C-offline.png"), fullPage: true });
     } catch {
-      fail("C offline", `no "couldn't load" screen when /api/instance was unreachable`);
+      fail("C offline", `no "can't be reached" screen when /api/instance was unreachable`);
     }
     await page.unroute("**/api/instance");
     await page.getByRole("button", { name: "Try again" }).click();
     await onStep(page, "C", "Create your account", 1);
-    await page.getByLabel("User name").fill("skipper");
+    await page.getByLabel("Username").fill("skipper");
     await page.getByLabel("Password", { exact: true }).fill("a long enough password");
     await page.getByRole("button", { name: "Create my account" }).click();
-    await onStep(page, "C", "Choose your time zone", 2);
-    await page.getByRole("button", { name: "Skip the rest of setup" }).click();
-    await page.waitForURL(/\/l\/unread/, { timeout: 10_000 }).catch(() => fail("C skip-all", `the reader did not open (at ${page.url()})`));
+    await onStep(page, "C", "Choose your feeds", 2);
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.waitForURL(/\/l\/unread/, { timeout: 10_000 }).catch(() => fail("C continue", `the reader did not open (at ${page.url()})`));
     const settings = await page.evaluate(async () => (await fetch("/api/settings")).json());
-    check("C skip-all", settings.values?.tz === "Asia/Tokyo", `tz is ${settings.values?.tz} after "Skip the rest of setup" on step 2, expected Asia/Tokyo`);
+    check("C continue", settings.values?.tz === "Asia/Tokyo", `tz is ${settings.values?.tz} after Continue on the feeds step, expected Asia/Tokyo`);
     const me = await page.evaluate(async () => (await fetch("/api/auth/me")).json());
-    check("C skip-all", me.setup_pending === false, "setup is still pending after Skip the rest of setup");
+    check("C continue", me.setup_pending === false, "setup is still pending after Continue");
     check("C account", errors.length === 0, `page errors: ${errors.join(" | ")}`);
     await ctx.close();
   }
   // ---------------------------------------------------------------------------------------------- Run D
   if (!backupZip) throw new Error("lost"); // Run A said why
   {
-    const { origin } = await startServer("d", 7194);
+    const { origin } = await startServer("d");
     const phone = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
     const desk = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const pp = await phone.newPage();
@@ -446,9 +417,21 @@ try {
     const errors = [];
     for (const p of [pp, dp]) onPageError(p, (e) => errors.push(String(e)));
 
-    // The phone uploads a backup and leaves it unconfirmed.
+    // A feeds file is not a backup: the restore screen says where it goes and stays on the picker.
     await pp.goto(origin);
-    await uploadBackup(pp);
+    await pp.getByRole("button", { name: "Restore from a backup" }).click();
+    await onStep(pp, "D", "Restore from a backup", 1);
+    await pp.getByLabel("Backup file").setInputFiles(feedsFile);
+    try {
+      await pp.getByRole("alert").waitFor({ timeout: 10_000 });
+      check("D phone", /not a Kipple backup.*Import a feeds file/s.test((await pp.getByRole("alert").textContent()) ?? ""), "a feeds file was not refused in words");
+      if (opt.screenshots) await pp.screenshot({ path: join(opt.screenshots, "D-phone-feeds-file.png"), fullPage: true });
+    } catch {
+      fail("D phone", "no message after a feeds file was sent to the restore screen");
+    }
+
+    // The phone uploads a backup and leaves it unconfirmed.
+    await pp.getByLabel("Backup file").setInputFiles({ name: "kipple-backup.zip", mimeType: "application/zip", buffer: backupZip });
     await pp.getByTestId("backup-summary").waitFor({ timeout: 30_000 });
     if (opt.screenshots) await pp.screenshot({ path: join(opt.screenshots, "D-phone-ready.png"), fullPage: true });
 
@@ -465,11 +448,11 @@ try {
     await overflowRun(dp, "D desktop review");
 
     // The phone's upload is gone: its confirm says so and the page goes back to the picker.
-    await pp.getByRole("button", { name: "Restore everything" }).click();
+    await pp.getByRole("button", { name: "Restore this backup" }).click();
     try {
       await pp.getByRole("alert").waitFor({ timeout: 10_000 });
       check("D phone", /Another browser uploaded a backup, which replaced the one uploaded here/.test((await pp.getByRole("alert").textContent()) ?? ""), "the phone's confirm did not say another browser's upload replaced its own");
-      check("D phone", await pp.getByLabel("Backup or OPML file").isVisible(), "the phone did not go back to the file picker");
+      check("D phone", await pp.getByRole("button", { name: "Choose a backup file" }).isVisible(), "the phone did not go back to the file picker");
       check("D phone", (await pp.getByTestId("backup-summary").count()) === 0, "the phone still shows the replaced backup");
       await axeRun(pp, "D phone replaced");
       await overflowRun(pp, "D phone replaced");
@@ -480,7 +463,7 @@ try {
     }
 
     // The desktop browser restores.
-    await dp.getByRole("button", { name: "Restore everything" }).click();
+    await dp.getByRole("button", { name: "Restore this backup" }).click();
     await dp
       .getByRole("heading", { name: "Restoring your library" })
       .waitFor({ timeout: 10_000 })

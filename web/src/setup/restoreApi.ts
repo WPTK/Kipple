@@ -20,14 +20,8 @@ export interface BackupSummary {
   estimate_seconds: number;
 }
 
-/** What the server found in an uploaded OPML file. */
-export interface OpmlSummary {
-  kind: "opml";
-  feeds: number;
-}
-
-/** What the upload answers: an OPML file is read at once; a zip is then checked on the server (poll the status). */
-export type UploadResult = OpmlSummary | { state: "checking" };
+/** What the upload answers: the zip is then checked on the server (poll the status). */
+export type UploadResult = { state: "checking" };
 
 /** Where a restore is: the same names in GET /api/instance and GET /api/setup/restore. */
 export type RestoreState = "none" | "uploading" | "checking" | "ready" | "failed" | "confirmed";
@@ -99,30 +93,6 @@ export const confirmRestore = (newPassword?: string) =>
 
 /** Cancels an upload that was not confirmed, and removes it from the server. */
 export const cancelRestore = () => api("/api/setup/restore", { method: "DELETE", anon: true, headers: restoreKeyHeaders() });
-
-/** The feeds file of the uploaded backup, as a file the import step can send. The server forgets the upload after this. */
-export async function fetchBackupFeeds(): Promise<File> {
-  let res: Response;
-  try {
-    res = await fetch("/api/setup/restore/feeds", { headers: { "X-Kipple-Client": clientKind(), ...restoreKeyHeaders() }, credentials: "same-origin", redirect: "manual" });
-  } catch {
-    throw new ApiError(0, "network");
-  }
-  if (!res.ok) {
-    let body: Record<string, unknown> | null = null;
-    let code = "http_" + res.status;
-    try {
-      body = (await res.json()) as Record<string, unknown>;
-      if (typeof body.error === "string") code = body.error;
-    } catch {
-      /* not JSON */
-    }
-    const err = new ApiError(res.status, code, body);
-    err.fromKipple = res.headers.has("X-Kipple-API");
-    throw err;
-  }
-  return new File([await res.text()], "feeds.opml", { type: "text/x-opml" });
-}
 
 /** The server's own message for a failed restore call (it is written for the reader), else a plain fallback. */
 export function restoreErrorText(e: unknown): string {

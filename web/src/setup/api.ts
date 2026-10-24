@@ -41,7 +41,6 @@ export interface StarterFeed {
   url: string;
   site?: string;
   description?: string;
-  checked: boolean;
   lang?: string;
   subscribed: boolean;
 }

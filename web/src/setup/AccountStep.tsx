@@ -3,7 +3,6 @@ import { Button } from "@/ui/button";
 import { Checkbox, Field, Notice, PasswordField, RadioCard, inputCls } from "@/ui/kit";
 import { MIN_PASSWORD_LEN, accountFailure, createAccount, openReasonText, passwordProblem, type AccountBody, type SetupOptions } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
-import { setupSecret } from "./session";
 import { stepById } from "./steps";
 
 type Choice = "password" | "access" | "open";
@@ -16,20 +15,17 @@ export function openAvailability(open: SetupOptions["open"]): { ok: boolean; why
 }
 
 /**
- * Step 1: the account, the first screen of a Kipple that has none. A user name, then how to sign in: a password (the normal choice), no password behind
+ * Step 1: the account, the first screen of a Kipple that has none. A username, then how to sign in: a password (the normal choice), no password behind
  * Cloudflare Access (only offered when Access is set up and this very request came through it), or no password at all
  * (open mode, which is only safe when Kipple can be reached from this computer, your local network and Tailscale and nowhere else).
  */
 export function AccountStep({
   state,
-  feedsReady,
   onRestore,
   onCreated,
   onDone,
 }: {
   state: SetupOptions;
-  /** Feeds from a backup or OPML file were taken in the restore screen: they are offered in the import step. */
-  feedsReady?: boolean;
   /** Opens the restore screen. */
   onRestore?: () => void;
   onCreated: () => void;
@@ -65,7 +61,7 @@ export function AccountStep({
     if (!ready) {
       setLeft({ username: true, password: true });
       if (!USERNAME.test(username)) {
-        setFieldError({ field: "username", message: username === "" ? "Enter a user name." : "Use 1 to 64 letters, digits, dots, dashes or underscores." });
+        setFieldError({ field: "username", message: username === "" ? "Enter a username." : "Use 1 to 64 letters, digits, dots, dashes or underscores." });
         userInput.current?.focus();
       } else if (choice === "password") {
         setFieldError({ field: "password", message: password === "" ? "Enter a password." : (passwordProblem(password) ?? "Enter a password.") });
@@ -82,7 +78,6 @@ export function AccountStep({
     setBusy(true);
     try {
       await createAccount(body);
-      setupSecret.set(choice === "password" ? password : null);
       onCreated();
     } catch (err) {
       const f = accountFailure(err);
@@ -117,18 +112,15 @@ export function AccountStep({
     <WizardFrame step={stepById("account")} description="Kipple has no account yet. This is the one you'll sign in with. There is only one, and it's yours.">
       <form onSubmit={(e) => void submit(e)} className="flex flex-1 flex-col gap-5" noValidate>
         {formError ? <Notice tone="error">{formError}</Notice> : null}
-        {feedsReady ? (
-          <Notice role="status">Your feeds are ready. Create an account first, and the import step offers them.</Notice>
-        ) : null}
         {onRestore ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface p-3">
-            <p className="text-sm">{feedsReady ? "Chose the wrong file?" : "Already have a Kipple backup?"}</p>
+            <p className="text-sm">Already have a Kipple backup?</p>
             <Button onClick={onRestore} disabled={busy}>
               Restore from a backup
             </Button>
           </div>
         ) : null}
-        <Field label="User name" help="Letters, digits, dots, dashes and underscores, up to 64. Your sync apps use this too." error={fieldError?.field === "username" ? fieldError.message : usernameBad}>
+        <Field label="Username" help="Letters, digits, dots, dashes and underscores, up to 64. Your sync apps use this too." error={fieldError?.field === "username" ? fieldError.message : usernameBad}>
           {(a) => (
             <input
               {...a}

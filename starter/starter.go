@@ -29,14 +29,13 @@ type Category struct {
 	Feeds []Feed `json:"feeds"`
 }
 
-// Feed is one recommendation. Checked pre-ticks it in the wizard.
+// Feed is one recommendation. The wizard ticks none of them for the reader.
 type Feed struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	URL         string `json:"url"`
 	Site        string `json:"site,omitempty"`
 	Description string `json:"description,omitempty"`
-	Checked     bool   `json:"checked"`
 	Lang        string `json:"lang,omitempty"`
 }
 

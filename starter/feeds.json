@@ -11,7 +11,6 @@
           "url": "https://unsung.aresluna.org/feed.xml",
           "site": "https://unsung.aresluna.org/",
           "description": "Small, well-observed details of interface and product design.",
-          "checked": true,
           "lang": "en"
         },
         {
@@ -20,7 +19,6 @@
           "url": "https://blog.jim-nielsen.com/feed.xml",
           "site": "https://www.jim-nielsen.com/",
           "description": "Notes on design, the web and building interfaces.",
-          "checked": true,
           "lang": "en"
         },
         {
@@ -29,7 +27,6 @@
           "url": "https://basicappleguy.com/basicappleblog?format=rss",
           "site": "https://basicappleguy.com/",
           "description": "Apple-focused design, wallpapers and tech.",
-          "checked": true,
           "lang": "en"
         }
       ]
@@ -44,7 +41,6 @@
           "url": "https://storiedcolors.com/rss.xml",
           "site": "https://storiedcolors.com/",
           "description": "The stories behind colors and the art that uses them.",
-          "checked": true,
           "lang": "en"
         }
       ]
@@ -59,7 +55,6 @@
           "url": "https://hackernoon.com/feed",
           "site": "https://hackernoon.com/",
           "description": "Technology stories written by its community.",
-          "checked": true,
           "lang": "en"
         },
         {
@@ -68,7 +63,6 @@
           "url": "https://9to5mac.com/feed/",
           "site": "https://9to5mac.com/",
           "description": "Apple news, rumors and reviews.",
-          "checked": true,
           "lang": "en"
         }
       ]
@@ -83,7 +77,6 @@
           "url": "https://electrek.co/feed/",
           "site": "https://electrek.co/",
           "description": "Electric vehicles, clean energy and transportation news.",
-          "checked": true,
           "lang": "en"
         }
       ]
@@ -98,7 +91,6 @@
           "url": "https://www.lrb.co.uk/feeds/rss",
           "site": "https://www.lrb.co.uk/",
           "description": "Essays and reviews on books, ideas and culture.",
-          "checked": true,
           "lang": "en"
         }
       ]
@@ -113,7 +105,6 @@
           "url": "https://www.airportspotting.com/feed/",
           "site": "https://www.airportspotting.com/",
           "description": "Airport and airline news for aviation fans.",
-          "checked": true,
           "lang": "en"
         },
         {
@@ -122,7 +113,6 @@
           "url": "https://airlinegeeks.com/feed/",
           "site": "https://airlinegeeks.com/",
           "description": "Airline and commercial aviation news.",
-          "checked": true,
           "lang": "en"
         }
       ]

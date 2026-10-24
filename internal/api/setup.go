@@ -24,7 +24,6 @@ func (s *Server) registerSetup(mux *http.ServeMux) {
 	if s.restore != nil {
 		mux.HandleFunc("POST /api/setup/restore/upload", s.restoreUpload)
 		mux.HandleFunc("POST /api/setup/restore/confirm", s.restoreConfirm)
-		mux.HandleFunc("GET /api/setup/restore/feeds", s.restoreFeeds)
 		mux.HandleFunc("GET /api/setup/restore", s.restoreStatus)
 		mux.HandleFunc("DELETE /api/setup/restore", s.restoreCancel)
 	}

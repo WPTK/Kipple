@@ -52,8 +52,6 @@ func TestUploadBelongsToItsOwner(t *testing.T) {
 	require.Equal(t, Status{State: RestoreNone}, r.Status(""), "no key is not the owner")
 	_, _, err = r.Uploaded(other)
 	require.ErrorIs(t, err, ErrRestoreReplaced)
-	_, err = r.Feeds(other)
-	require.ErrorIs(t, err, ErrRestoreReplaced)
 	require.ErrorIs(t, r.Cancel(other), ErrRestoreElsewhere)
 	_, err = r.Upload(context.Background(), me, bytes.NewReader(b), int64(len(b)), nil)
 	require.ErrorIs(t, err, ErrRestoreBusy, "the owner may cancel its own and try again")
@@ -80,8 +78,6 @@ func TestUploadBelongsToItsOwner(t *testing.T) {
 	require.Equal(t, RestoreFailed, r.Status(me).State)
 	require.Equal(t, Status{State: RestoreNone}, r.Status(other))
 	_, _, err = r.Uploaded(other)
-	require.ErrorIs(t, err, ErrNoUpload)
-	_, err = r.Feeds(other)
 	require.ErrorIs(t, err, ErrNoUpload)
 	require.NoError(t, r.Cancel(other))
 	require.Equal(t, RestoreFailed, r.Status(me).State, "another key's cancel leaves the owner's refusal")
@@ -240,8 +236,6 @@ func TestUploadConfirmApply(t *testing.T) {
 	_, err = upload(r, hostBackup(t))
 	require.ErrorIs(t, err, ErrRestorePending)
 	require.ErrorIs(t, r.Cancel(me), ErrRestorePending)
-	_, err = r.Feeds(me)
-	require.ErrorIs(t, err, ErrRestorePending)
 	require.ErrorIs(t, r.Confirm(context.Background(), ticket, ""), ErrRestorePending)
 
 	// The next start: the empty database of setup mode is kept, the backup installed.
@@ -307,25 +301,11 @@ func TestUploadKinds(t *testing.T) {
 	t.Parallel()
 	r, dir := newRestorer(t)
 
-	// A bare OPML file: counted, nothing kept, no upload state.
-	up, err := upload(r, []byte(`<?xml version="1.0"?>
-<!-- exported -->
-<opml version="2.0"><body><outline text="A" xmlUrl="http://a.test/rss"/><outline text="F"><outline xmlUrl="http://b.test/rss"/></outline></body></opml>`))
-	require.NoError(t, err)
-	require.Equal(t, Upload{Kind: KindOPML, Feeds: 2}, up)
+	// A feeds file is not a backup either: it is imported from the feeds step.
+	_, err := upload(r, []byte(`<?xml version="1.0"?>
+<opml version="2.0"><body><outline text="A" xmlUrl="http://a.test/rss"/></body></opml>`))
+	require.ErrorIs(t, err, ErrNotBackup)
 	require.Equal(t, RestoreNone, r.State())
-
-	// An OPML file the import would refuse says why, not "not a backup" (issue #518).
-	for name, tc := range map[string]struct{ body, want string }{
-		"folders only": {`<opml><body><outline text="Empty"/></body></opml>`, "That OPML file has no feeds in it."},
-		"entity":       {`<opml><body><outline text="&x;"><outline xmlUrl="http://a.test/rss"/></outline></body></opml>`, "&x; on line 1 is not an entity XML or HTML defines."},
-	} {
-		_, err := upload(r, []byte(tc.body))
-		var ref *OPMLRefusedError
-		require.ErrorAs(t, err, &ref, name)
-		require.NotErrorIs(t, err, ErrNotBackup, name)
-		require.Contains(t, err.Error(), tc.want, name)
-	}
 
 	// A bare database file is not accepted here, nor any other file.
 	db := openDB(t)
@@ -345,13 +325,8 @@ func TestUploadKinds(t *testing.T) {
 	} {
 		_, err := upload(r, b)
 		require.ErrorIs(t, err, ErrNotBackup, name)
-		require.Equal(t, "This is not a Kipple backup zip or an OPML file.", err.Error())
+		require.Equal(t, ErrNotBackup.Msg, err.Error())
 	}
-
-	// An OPML file too large for an import.
-	big := append([]byte("<opml><body>"), bytes.Repeat([]byte(" "), maxFeedsOPML)...)
-	_, err = upload(r, big)
-	require.ErrorIs(t, err, ErrOPMLTooLarge)
 
 	// A file over the cap is refused before it is read.
 	r2, dir2 := newRestorer(t, func(o *RestorerOptions) { o.MaxBytes = 100 })
@@ -914,22 +889,6 @@ func TestRefusedUploadExpiresAndNothingRenewsTheTTL(t *testing.T) {
 	require.Equal(t, RestoreNone, r.State())
 }
 
-func TestFeedsOnlyTakesTheZipsOPML(t *testing.T) {
-	t.Parallel()
-	b := hostBackup(t)
-	r, dir := newRestorer(t)
-	_, err := r.Feeds(me)
-	require.ErrorIs(t, err, ErrNoUpload)
-	_, err = upload(r, b)
-	require.NoError(t, err)
-	got, err := r.Feeds(me)
-	require.NoError(t, err)
-	require.Equal(t, zipEntries(t, b)[OPMLFile], got)
-	require.Contains(t, string(got), "http://a.test/rss")
-	require.Equal(t, RestoreNone, r.State(), "the upload is discarded")
-	require.NoFileExists(t, filepath.Join(dir, StagedFile))
-}
-
 // Every state a crash can leave is finished or cleaned at the next start.
 func TestApplyStagedIsIdempotent(t *testing.T) {
 	t.Parallel()
@@ -1028,7 +987,7 @@ func TestEstimateSeconds(t *testing.T) {
 // The texts a person restoring reads never mention schema numbers.
 func TestRestoreTextsSayNoSchemaVersion(t *testing.T) {
 	t.Parallel()
-	for _, e := range []error{ErrRestoreBusy, ErrRestoreReplaced, ErrRestorePending, ErrNoUpload, ErrNotBackup, ErrUploadTooLarge, ErrOPMLTooLarge,
+	for _, e := range []error{ErrRestoreBusy, ErrRestoreReplaced, ErrRestorePending, ErrNoUpload, ErrNotBackup, ErrUploadTooLarge,
 		ErrUploadCut, &NewerError{}, &NewerError{KippleVersion: "1.2"}, &UploadSpaceError{Need: 1, Free: 0}} {
 		require.NotContains(t, strings.ToLower(e.Error()), "schema", e.Error())
 	}
@@ -1036,8 +995,7 @@ func TestRestoreTextsSayNoSchemaVersion(t *testing.T) {
 }
 
 // The first bytes decide before anything is stored or any space is asked
-// for: a file that is neither a zip nor OPML, and an OPML file too large for
-// an import, are refused at once.
+// for: a file that is not a zip is refused at once.
 func TestSniffBeforeSpooling(t *testing.T) {
 	t.Parallel()
 	asked := 0
@@ -1051,32 +1009,21 @@ func TestSniffBeforeSpooling(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotBackup, "refused from the first 64 KB, without waiting for the rest")
 	_ = pr.Close()
 
-	big := append([]byte("<opml><body>"), bytes.Repeat([]byte(" "), maxFeedsOPML)...)
-	pr, pw = io.Pipe()
-	go func() { _, _ = pw.Write(big[:sniffBytes]) }()
-	_, err = r.Upload(context.Background(), me, pr, int64(len(big)), nil)
-	require.ErrorIs(t, err, ErrOPMLTooLarge)
-	_ = pr.Close()
-
 	require.Zero(t, asked, "no space check for a file that is refused anyway")
 	require.NoFileExists(t, filepath.Join(dir, UploadFile))
 	require.Equal(t, RestoreNone, r.State())
 }
 
-// "Everything" does not depend on the OPML import limit: a backup whose
-// feeds.opml is over 8 MB restores, and "feeds only" hands the file out whole.
+// A restore does not depend on the OPML import limit: a backup whose feeds.opml is over 8 MB restores.
 func TestLargeFeedsOPMLDoesNotBlockARestore(t *testing.T) {
 	t.Parallel()
 	ents := zipEntries(t, hostBackup(t))
-	big := append([]byte("<opml><body>"), bytes.Repeat([]byte(" "), maxFeedsOPML+1)...)
+	big := append([]byte("<opml><body>"), bytes.Repeat([]byte(" "), 9<<20)...)
 	big = append(big, []byte("</body></opml>")...)
 	r, _ := newRestorer(t)
 	up, err := upload(r, goodZip(ents[DBFile], map[string][]byte{OPMLFile: big}))
 	require.NoError(t, err)
 	require.Equal(t, "owner", up.Account.Username)
-	got, err := r.Feeds(me)
-	require.NoError(t, err)
-	require.Equal(t, big, got)
 }
 
 // The state and a busy refusal always agree: while a cancelled job still holds

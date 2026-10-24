@@ -10,7 +10,7 @@ import { themeStore } from "@/theme/theme";
 import { DEFAULT_THEME_SETTINGS } from "@/theme/settings";
 import { resetDeviceSync } from "@/lib/deviceSync";
 import { updatePrefs } from "@/lib/prefs";
-import { forgetWizardMemory, openRestoreAfterReset, restoredFeeds, wantsRestoreNext } from "./session";
+import { endRerun, openRestoreAfterReset, wantsRestoreNext } from "./session";
 import { resetOpenSignInGuard } from "./SetupFlow";
 import { RestoreWaiting, silenceLimitSeconds } from "./RestoreWaiting";
 import { forgetRestoreKeyForTests } from "./restoreKey";
@@ -101,7 +101,6 @@ function server(w: World, extra: Parameters<typeof mockFetch>[0] = {}) {
       w.status = undefined;
       return new Response(null, { status: 204 });
     },
-    "GET /api/setup/restore/feeds": () => new Response('<opml version="2.0"><body/></opml>', { status: 200, headers: { "Content-Type": "text/x-opml" } }),
     "GET /api/bootstrap": () => (w.signedIn ? json({ ...bootstrap, user: { ...bootstrap.user, username: "reader", setup_pending: true } }) : json({ error: "auth" }, 401)),
     "GET /api/auth/me": () => json({ username: "reader", api_enabled: false, password_set: true, access_enabled: false, access_email: null, auth_mode: "password", setup_pending: true }),
     "GET /api/settings": () => json({ settings: [], values: {} }),
@@ -120,14 +119,14 @@ function go(path = "/") {
 
 async function chooseFile(user: ReturnType<typeof userEvent.setup>, name = "kipple-backup.zip") {
   await user.click(await screen.findByRole("button", { name: "Restore from a backup" }));
-  const input = await screen.findByLabelText("Backup or OPML file");
+  const input = await screen.findByLabelText("Backup file");
   await user.upload(input, new File(["x"], name));
 }
 
 beforeEach(() => {
   authStore.set("unknown");
   openRefusedStore.set(null);
-  forgetWizardMemory();
+  endRerun();
   sessionStorage.clear();
   localStorage.removeItem("kipple.restoreKey");
   forgetRestoreKeyForTests();
@@ -154,9 +153,31 @@ describe("restore in the setup wizard", () => {
     openRestoreAfterReset();
     server({ restore: "none", setup: true, signedIn: false, status: ready() });
     go();
-    expect(await screen.findByLabelText("Backup or OPML file")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Backup file")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 1, name: "Create your account" })).toBeNull();
     expect(wantsRestoreNext()).toBe(false);
+    // Nothing led here but Settings: no wizard, so no step counter.
+    expect(screen.queryByText(/^Step \d of \d$/)).toBeNull();
+  });
+
+  it("still shows no step counter after a reload, until an account is created", async () => {
+    openRestoreAfterReset();
+    server({ restore: "none", setup: true, signedIn: false, status: ready() });
+    const first = go();
+    expect(await screen.findByLabelText("Backup file")).toBeInTheDocument();
+    first.unmount();
+    go(); // a reload: the one-time flag is gone, the tab still knows where the restore step came from
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Restore from a backup" }));
+    expect(await screen.findByLabelText("Backup file")).toBeInTheDocument();
+    expect(screen.queryByText(/^Step d of d$/)).toBeNull();
+  });
+
+  it("counts as step 1 of 2 when it is opened from the account form", async () => {
+    server({ restore: "none", setup: true, signedIn: false, status: ready() });
+    go();
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Restore from a backup" }));
+    expect(await screen.findByText("Step 1 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose a backup file" })).toBeInTheDocument();
   });
 
   it("offers the restore on the first screen and keeps the account form", async () => {
@@ -167,7 +188,7 @@ describe("restore in the setup wizard", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  it("uploads a backup, shows what is in it and restores everything", async () => {
+  it("uploads a backup, shows what is in it and restores it", async () => {
     const w: World = { restore: "none", setup: true, signedIn: false, status: ready() };
     const { calls } = server(w);
     const { container } = go();
@@ -176,12 +197,13 @@ describe("restore in the setup wizard", () => {
     expect(await screen.findByTestId("backup-summary")).toHaveTextContent("You will sign in as reader");
     expect(screen.getByTestId("backup-summary")).toHaveTextContent("42 feeds, 1200 items, 7 starred");
     expect(screen.getByTestId("backup-summary")).toHaveTextContent("Made by Kipple 0.8.0");
-    expect(screen.getByText(/Feeds only brings your subscriptions and folders/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Feeds only/)).toBeNull();
+    expect(screen.queryByText(/Feeds only/)).toBeNull();
     expect(screen.getByLabelText(/Set a new password \(optional\)/)).not.toBeRequired();
     expect(sent?.name).toBe("kipple-backup.zip");
     expect(await axe(container)).toHaveNoViolations();
 
-    await user.click(screen.getByRole("button", { name: "Restore everything" }));
+    await user.click(screen.getByRole("button", { name: "Restore this backup" }));
     expect(await screen.findByText(/This usually takes about 3 minutes for a backup this size/)).toBeInTheDocument();
     const confirm = calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/setup/restore/confirm");
     expect(confirm).toHaveLength(1);
@@ -195,25 +217,14 @@ describe("restore in the setup wizard", () => {
     await chooseFile(user);
     expect(await screen.findByText(/Cloudflare Access/)).toBeInTheDocument();
     expect(screen.getByLabelText("New password")).toBeRequired();
-    await user.click(screen.getByRole("button", { name: "Restore everything" }));
+    await user.click(screen.getByRole("button", { name: "Restore this backup" }));
     expect(await screen.findByText("Enter a password.")).toBeInTheDocument();
     expect(calls.filter((c) => c.url.pathname === "/api/setup/restore/confirm")).toHaveLength(0);
     await user.type(screen.getByLabelText("New password"), "long enough");
-    await user.click(screen.getByRole("button", { name: "Restore everything" }));
+    await user.click(screen.getByRole("button", { name: "Restore this backup" }));
     await screen.findByRole("heading", { name: "Restoring your library" });
     const confirm = calls.filter((c) => c.url.pathname === "/api/setup/restore/confirm");
     expect(bodyOf(confirm[0] as { init?: RequestInit })).toEqual({ new_password: "long enough" });
-  });
-
-  it("shows the server's message when the file is not a backup", async () => {
-    reply = { status: 400, body: { error: "not_a_backup", message: "This is not a Kipple backup zip or an OPML file." } };
-    server({ restore: "none", setup: true, signedIn: false, status: ready() });
-    go();
-    const user = userEvent.setup();
-    await chooseFile(user, "notes.txt");
-    expect(await screen.findByRole("alert")).toHaveTextContent("This is not a Kipple backup zip or an OPML file.");
-    // Back to choosing a file.
-    expect(screen.getByLabelText("Backup or OPML file")).toBeInTheDocument();
   });
 
   it("says another browser holds the restore when the refused upload shows up as a cut connection", async () => {
@@ -263,46 +274,14 @@ describe("restore in the setup wizard", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
 
-  it("takes an OPML file as feeds only, then the account form says the feeds are ready", async () => {
-    reply = { status: 200, body: { kind: "opml", feeds: 12 } };
+  it.each(["feeds.opml", "photo.png", "empty.zip"])("refuses %s here and says what a backup is and where a feeds file goes", async (name) => {
+    reply = { status: 400, body: { error: "not_a_backup", message: "This is not a Kipple backup. It must be the zip made by Export backup in Settings." } };
     server({ restore: "none", setup: true, signedIn: false, status: ready() });
     go();
     const user = userEvent.setup();
-    await chooseFile(user, "feeds.opml");
-    expect(await screen.findByTestId("opml-summary")).toHaveTextContent("12 feeds");
-    expect(screen.queryByLabelText("Everything")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(await screen.findByRole("heading", { level: 1, name: "Create your account" })).toBeInTheDocument();
-    expect(screen.getByText(/Your feeds are ready/)).toBeInTheDocument();
-    expect(restoredFeeds.get()?.name).toBe("feeds.opml");
-  });
-
-  it("takes feeds only from a backup by fetching its feeds file", async () => {
-    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() });
-    go();
-    const user = userEvent.setup();
-    await chooseFile(user);
-    await user.click(await screen.findByLabelText(/^Feeds only/));
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await screen.findByText(/Your feeds are ready/);
-    expect(calls.filter((c) => c.url.pathname === "/api/setup/restore/feeds")).toHaveLength(1);
-    expect(restoredFeeds.get()?.name).toBe("feeds.opml");
-  });
-
-  it("offers the saved feeds in the import step", async () => {
-    restoredFeeds.set(new File(["<opml/>"], "feeds.opml"));
-    const { calls } = server(
-      { restore: "none", setup: false, signedIn: true },
-      { "POST /api/opml": () => json({ folders_created: 1, feeds_added: 3, feeds_existing: [], folders_merged_case: [], memberships_dropped: [] }) },
-    );
-    authStore.set("in");
-    go("/welcome/import");
-    const user = userEvent.setup();
-    expect(await screen.findByText(/The feeds from your backup are ready/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Import" }));
-    await screen.findByTestId("import-result");
-    expect(calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/opml")).toHaveLength(1);
-    expect(restoredFeeds.get()).toBeNull();
+    await chooseFile(user, name);
+    expect(await screen.findByRole("alert")).toHaveTextContent("That is not a Kipple backup. A backup is the zip made by Export backup in Settings. To bring in a feeds file, create your account, then use Import a feeds file in the feeds step.");
+    expect(screen.getByLabelText("Backup file")).toBeInTheDocument();
   });
 
   it("cancels an upload on the server", async () => {
@@ -313,7 +292,7 @@ describe("restore in the setup wizard", () => {
     await chooseFile(user);
     await screen.findByTestId("backup-summary");
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(await screen.findByLabelText("Backup or OPML file")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Backup file")).toBeInTheDocument();
     expect(calls.filter((c) => c.method === "DELETE" && c.url.pathname === "/api/setup/restore")).toHaveLength(1);
   });
 
@@ -324,7 +303,7 @@ describe("restore in the setup wizard", () => {
     const summary = await screen.findByTestId("backup-summary");
     expect(summary).toHaveTextContent("You will sign in as reader");
     expect(summary).toHaveTextContent("42 feeds, 1200 items, 7 starred");
-    await user.click(screen.getByRole("button", { name: "Restore everything" }));
+    await user.click(screen.getByRole("button", { name: "Restore this backup" }));
     await screen.findByRole("heading", { name: "Restoring your library" });
     expect(calls.filter((c) => c.url.pathname === "/api/setup/restore/confirm")).toHaveLength(1);
   });
@@ -333,7 +312,7 @@ describe("restore in the setup wizard", () => {
     server({ restore: "checking", setup: true, signedIn: false, status: { state: "checking" } });
     go();
     expect(await screen.findByText("Checking your backup...")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Restore everything" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Restore this backup" })).toBeNull();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
@@ -342,10 +321,10 @@ describe("restore in the setup wizard", () => {
     go();
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Restore from a backup" }));
-    await screen.findByLabelText("Backup or OPML file");
+    await screen.findByLabelText("Backup file");
     await user.click(screen.getByRole("button", { name: "Back" }));
     await user.click(await screen.findByRole("button", { name: "Restore from a backup" }));
-    expect(screen.getByLabelText("Backup or OPML file")).toBeInTheDocument();
+    expect(screen.getByLabelText("Backup file")).toBeInTheDocument();
     expect(screen.queryByText("Checking your backup...")).toBeNull();
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
   });
@@ -372,7 +351,7 @@ describe("restore in the setup wizard", () => {
     const user = userEvent.setup();
     await chooseFile(user);
     expect(await screen.findByRole("alert")).toHaveTextContent("This backup was made by a newer Kipple (0.9). Update Kipple first.");
-    expect(screen.getByLabelText("Backup or OPML file")).toBeInTheDocument();
+    expect(screen.getByLabelText("Backup file")).toBeInTheDocument();
     // Nothing is cancelled for the person: a later upload replaces the failed attempt on the server.
     expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
   });
@@ -390,7 +369,7 @@ describe("restore in the setup wizard", () => {
     expect(calls.filter((c) => c.method === "DELETE" && c.url.pathname === "/api/setup/restore")).toHaveLength(1);
     // The picker is back, so another file can be sent (the answer to a retry is the checking state).
     server({ restore: "none", setup: true, signedIn: false, status: ready() });
-    await user.upload(screen.getByLabelText("Backup or OPML file"), new File(["x"], "again.zip"));
+    await user.upload(screen.getByLabelText("Backup file"), new File(["x"], "again.zip"));
     expect(await screen.findByTestId("backup-summary")).toBeInTheDocument();
   });
 
@@ -406,21 +385,17 @@ describe("restore in the setup wizard", () => {
     expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
   });
 
-  it.each([
-    ["Restore everything", "POST /api/setup/restore/confirm"],
-    ["Continue", "GET /api/setup/restore/feeds"],
-  ])("goes back to the picker when another browser's upload replaced this one (%s)", async (button, route) => {
+  it("goes back to the picker when another browser's upload replaced this one", async () => {
     const msg = "Another browser uploaded a backup, which replaced the one uploaded here. Choose the file again to restore it from this browser.";
-    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() }, { [route]: () => json({ error: "restore_replaced", message: msg }, 409) });
+    const { calls } = server({ restore: "none", setup: true, signedIn: false, status: ready() }, { "POST /api/setup/restore/confirm": () => json({ error: "restore_replaced", message: msg }, 409) });
     go();
     const user = userEvent.setup();
     await chooseFile(user);
     expect(await screen.findByTestId("backup-summary")).toBeInTheDocument();
-    if (button === "Continue") await user.click(screen.getByLabelText("Feeds only"));
-    await user.click(screen.getByRole("button", { name: button }));
+    await user.click(screen.getByRole("button", { name: "Restore this backup" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(msg);
     expect(screen.queryByTestId("backup-summary")).toBeNull();
-    expect(screen.getByLabelText("Backup or OPML file")).toBeInTheDocument();
+    expect(screen.getByLabelText("Backup file")).toBeInTheDocument();
     expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(0);
   });
 
@@ -431,7 +406,7 @@ describe("restore in the setup wizard", () => {
     await chooseFile(user);
     await screen.findByTestId("backup-summary");
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(await screen.findByLabelText("Backup or OPML file")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Backup file")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -461,7 +436,7 @@ describe("restore in the setup wizard", () => {
     await user.click(await screen.findByRole("button", { name: "Cancel upload" }));
     // The upload is this browser's from its first byte, so the DELETE is honoured however late the abort arrives.
     await waitFor(() => expect(calls.filter((c) => c.method === "DELETE" && c.url.pathname === "/api/setup/restore")).toHaveLength(1));
-    expect(await screen.findByLabelText("Backup or OPML file")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Backup file")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 

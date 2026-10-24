@@ -12,7 +12,8 @@ import { OpenList, ReaderRoute } from "@/screens/ReaderRoute";
 import { SearchScreen } from "@/screens/SearchScreen";
 import { AppShell } from "@/shell/AppShell";
 import { RoutedErrorBoundary } from "@/shell/ErrorBoundary";
-import { forgetWizardMemory, rerunStore, resetting, revertUnsavedTheme, welcomeEntry } from "@/setup/session";
+import { endRerun, rerunStore, resetting } from "@/setup/session";
+import { WELCOME_ENTRY } from "@/setup/steps";
 import { RestoreWaiting } from "@/setup/RestoreWaiting";
 import { OpenRefusedScreen } from "@/setup/OpenRefused";
 import { SignedOut } from "@/setup/SignedOut";
@@ -93,15 +94,14 @@ function Gate() {
   const rerun = useStore(rerunStore);
   const inWizard = pathname === "/welcome" || pathname.startsWith("/welcome/");
 
-  // Leaving the steps of a rerun (the Back button) ends it: a previewed theme goes back and the wizard forgets what it held.
+  // Leaving the step of a rerun (the Back button) ends it.
   const reached = useRef(false);
   useEffect(() => {
     if (!rerun) reached.current = false;
     else if (inWizard) reached.current = true;
     else if (reached.current) {
       reached.current = false;
-      revertUnsavedTheme();
-      forgetWizardMemory();
+      endRerun();
     }
   }, [rerun, inWizard]);
 
@@ -109,7 +109,7 @@ function Gate() {
   useEffect(() => {
     if (auth === "out") {
       qc.removeQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
-      forgetWizardMemory();
+      endRerun();
     }
   }, [auth, qc]);
 
@@ -214,7 +214,7 @@ function Gate() {
   }
   // First-run setup pending (a fresh account): every screen but /welcome gives way to it. Not on a
   // stored copy of the bootstrap, which may still say so after setup was finished elsewhere.
-  if (boot.data?.user.setup_pending === true && !fromCache && !inWizard) return <Navigate to={welcomeEntry()} replace />;
+  if (boot.data?.user.setup_pending === true && !fromCache && !inWizard) return <Navigate to={WELCOME_ENTRY} replace />;
   return (
     <Routes>
       <Route path="welcome/*" element={<Lazy><Welcome /></Lazy>} />
