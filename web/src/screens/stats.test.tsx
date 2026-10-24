@@ -67,13 +67,14 @@ describe("Stats screen", () => {
     expect(within(summary).getByText("84")).toBeInTheDocument();
     expect(within(summary).getByText("1h 20m")).toBeInTheDocument();
     expect(within(summary).getByText("12")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /Items read per day/ })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /Articles read per day/ })).toBeInTheDocument();
     expect(screen.getByText("9 days")).toBeInTheDocument(); // longest streak
     expect(screen.getByText("Tuesday 8 pm: 12 min")).toBeInTheDocument();
-    expect(screen.getByText(/Busiest day: Tuesday/)).toBeInTheDocument();
-    expect(screen.getByText(/Busiest hour: 8 pm/)).toBeInTheDocument();
-    expect(screen.getByText(/Average read length: 3 min/)).toBeInTheDocument();
-    expect(screen.getByText(/Longest read: A very long essay, from Long Reads, 22 min/)).toBeInTheDocument();
+    expect(screen.queryByText("Busiest day")).toBeNull(); // the heatmap answers it
+    const habits = screen.getByRole("region", { name: "Reading habits" });
+    expect(within(habits).getByText("Average read").nextSibling?.textContent).toBe("3 min");
+    expect(within(habits).getByRole("link", { name: "A very long essay" })).toHaveAttribute("href", "/i/77?from=all");
+    expect(within(habits).getByText(/Long Reads, 22 min/)).toBeInTheDocument();
     expect(screen.getByText("Most starred: Gamma Daily (5), Alpha Blog (2), Beta News (1).")).toBeInTheDocument();
     expect(screen.getByText("Quiet Feed")).toBeInTheDocument();
     expect(screen.getByText(/subscribed on Aug 15, 2026/)).toBeInTheDocument();
@@ -91,27 +92,38 @@ describe("Stats screen", () => {
     setup(() => ({ ...richStats, totals: { ...richStats.totals!, legacy_opens: 7 } }));
     const r2 = go();
     const s2 = await screen.findByRole("region", { name: "Summary" });
-    expect(within(s2).getByText(/7 opens here happened before Kipple measured reading time. They count as read but add no time\./)).toBeInTheDocument();
+    expect(within(s2).getByText(/7 articles were read before reading time was recorded. They count as read but add no time\./)).toBeInTheDocument();
     r2.unmount();
 
     setup(() => ({ ...richStats, totals: { ...richStats.totals!, legacy_opens: 1 } }));
     go();
     const s3 = await screen.findByRole("region", { name: "Summary" });
-    expect(within(s3).getByText(/1 open here happened before Kipple measured reading time. It counts as read but adds no time/)).toBeInTheDocument();
+    expect(within(s3).getByText(/1 article was read before reading time was recorded. It counts as read but adds no time/)).toBeInTheDocument();
   });
 
-  it("shows friendly empty states, not blank charts", async () => {
+  it("says once, for the whole screen, that nothing has been read, and shows nothing else", async () => {
     setup(() => emptyStats);
     go();
-    await screen.findByRole("heading", { name: "Daily activity" });
-    expect(screen.getByText(/No reading in this range yet/)).toBeInTheDocument();
-    expect(screen.getByText(/Nothing to show yet/)).toBeInTheDocument();
-    expect(screen.getByText(/Nothing here until/)).toBeInTheDocument();
-    expect(screen.getByText(/Nothing read yet/)).toBeInTheDocument();
-    expect(screen.getByText(/No streak yet/)).toBeInTheDocument();
-    expect(screen.getByText(/Every feed you subscribe to has had an article opened/)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Nothing read yet" })).toBeInTheDocument();
+    expect(screen.getByText(/counts as read after 10 seconds of reading/)).toBeInTheDocument();
+    for (const name of ["Summary", "Daily activity", "Streaks", "When you read", "Reading habits", "Sources", "Never opened"]) expect(screen.queryByRole("heading", { name })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Your year/ })).toBeNull();
   });
 
+  it("a quiet range after earlier reading keeps the numbers and says so once", async () => {
+    setup(() => ({ ...emptyStats, first_event_date: "2026-08-01", never_opened: richStats.never_opened }));
+    go();
+    expect(await screen.findByRole("heading", { name: "Nothing read in this range" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Summary" })).toBeInTheDocument();
+    for (const name of ["Daily activity", "When you read", "Reading habits", "Sources"]) expect(screen.queryByRole("heading", { name })).toBeNull();
+  });
+
+  it("holds Never opened until a feed is a few days old", async () => {
+    setup(() => ({ ...richStats, never_opened: [{ feed_id: "9", title: "Fresh Feed", folder_name: null, subscribed_on: "2026-09-25" }, ...richStats.never_opened!] }));
+    go();
+    expect(await screen.findByText("Quiet Feed")).toBeInTheDocument();
+    expect(screen.queryByText("Fresh Feed")).toBeNull();
+  });
   it("switches range, refetches and remembers the choice", async () => {
     const user = userEvent.setup();
     const m = setup(() => richStats);
@@ -198,29 +210,16 @@ describe("Stats screen", () => {
     await waitFor(() => expect(qc.getQueryState(["stats", "month"])?.isInvalidated).toBe(true));
   });
 
-  it("keeps a very long feed name from displacing the columns and never clips the suffix", async () => {
-    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("640"), media: q, addEventListener() {}, removeEventListener() {} }));
+  it("lets a long feed name take two lines and keeps the unsubscribed note with it", async () => {
     const long = "L".repeat(120);
     setup(() => ({ ...richStats, sources: [{ ...richStats.sources![0]!, feed_title: long, subscribed: false }] }));
     go();
-    const table = await screen.findByRole("table", { name: /by items read/ });
-    expect(table.className).toContain("table-fixed");
-    const suffix = within(table).getByText("(unsubscribed)");
-    expect(suffix.className).toContain("shrink-0");
-    const name = within(table).getByText(long);
-    expect(name.className).toContain("truncate");
-    expect(name.contains(suffix)).toBe(false);
-    expect(within(table).getByRole("columnheader", { name: "Stars" })).toBeInTheDocument();
+    const list = await screen.findByRole("list", { name: /by articles read/ });
+    const item = within(list).getByRole("listitem");
+    expect(within(item).getByText(long, { exact: false }).className).toContain("line-clamp-2");
+    expect(item).toHaveTextContent("(unsubscribed)");
+    expect(item).toHaveTextContent("30 articles");
   });
-
-  it("keeps the suffix outside the truncating name in the phone list", async () => {
-    const long = "L".repeat(120);
-    setup(() => ({ ...richStats, sources: [{ ...richStats.sources![0]!, feed_title: long, subscribed: false }] }));
-    go();
-    const list = await screen.findByRole("list", { name: /by items read/ });
-    expect(within(list).getByText(long).contains(within(list).getByText("(unsubscribed)"))).toBe(false);
-  });
-
   it("says when the sources list was capped", async () => {
     setup(() => ({ ...richStats, sources_truncated: true }));
     go();
@@ -230,11 +229,11 @@ describe("Stats screen", () => {
   it("does not call an untimed opens cell empty when the range also has timed reading", async () => {
     setup(() => ({ ...richStats, heatmap: [...richStats.heatmap!, { weekday: 3, hour: 14, active_seconds: 0, opens: 3 }] }));
     go();
-    const cell = (await screen.findByText("Wednesday 2 pm: 3 opens, no reading time recorded")).closest("td")!;
+    const cell = (await screen.findByText("Wednesday 2 pm: 3 articles, no reading time recorded")).closest("td")!;
     expect(cell).toHaveAttribute("data-level", "1");
     expect(screen.getByText("Tuesday 8 pm: 12 min").closest("td")).toHaveAttribute("data-level", "4");
     expect(screen.getByText("Wednesday 3 pm: none").closest("td")).toHaveAttribute("data-level", "0");
-    expect(screen.getByText(/Opens with no recorded time show as the lightest shade/)).toBeInTheDocument();
+    expect(screen.getByText(/Reads with no recorded time show as the lightest shade/)).toBeInTheDocument();
   });
 
   it("keeps Export available when statistics are off", async () => {
@@ -302,8 +301,9 @@ describe("Stats screen", () => {
     const m = setup(() => json({ error: "boom" }, 500));
     window.history.replaceState({ idx: 0 }, "", "/stats");
     render(<App client={makeQueryClient({ retry: false })} />);
-    const alert = await screen.findByText("Kipple's server had a problem.");
+    const alert = await screen.findByRole("heading", { name: "Kipple's server had a problem" });
     expect(alert.closest("[role=alert]")).not.toBeNull();
+    expect(screen.getByText("Kipple answered with an error.")).toBeInTheDocument();
     for (const a of document.querySelectorAll("[role=alert]")) expect(a.querySelector("[role=alert]")).toBeNull();
     const before = statsCalls(m).length;
     await user.click(screen.getByRole("button", { name: "Try again" }));
@@ -330,42 +330,47 @@ describe("Stats screen", () => {
     expect(within(table).getAllByRole("rowheader")[0]?.textContent).toMatch(/^Sun/);
   });
 
-  it("stacks sources on a phone, with every stat labelled", async () => {
+  it("lists each source with its name, a bar and one number with its unit", async () => {
     setup(() => richStats);
     go();
     await screen.findByRole("heading", { name: "Sources" });
-    expect(screen.queryByRole("table", { name: /by items read/ })).toBeNull();
-    const list = screen.getByRole("list", { name: /by items read/ });
+    const list = screen.getByRole("list", { name: /by articles read/ });
     const first = within(list).getAllByRole("listitem")[0]!;
     expect(first).toHaveTextContent("Gamma Daily");
-    expect(first).toHaveTextContent("Avg read -");
-    const beta = within(list).getByText("Beta News").closest("li")!;
-    expect(beta).toHaveTextContent("Avg read 5 min");
-    expect(beta).toHaveTextContent("Quick bounce 10%");
-    expect(beta).toHaveTextContent("Opened original 30%");
-    expect(beta).toHaveTextContent("Stars 1");
+    expect(first).toHaveTextContent("44 articles");
+    expect(first).not.toHaveTextContent(/Skimmed|Went to the original|Read rate|Stars/); // those are in the feed's sheet
+    expect(screen.queryByRole("table", { name: /by articles read/ })).toBeNull();
   });
 
-  it("toggles Items/Minutes and Feeds/Folders", async () => {
-    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("640"), media: q, addEventListener() {}, removeEventListener() {} }));
+  it("toggles Articles/Minutes and Feeds/Folders", async () => {
     const user = userEvent.setup();
     setup(() => richStats);
     go();
     await screen.findByRole("heading", { name: "Sources" });
-    const rowNames = () =>
-      within(screen.getByRole("table", { name: /by (items read|reading time)/ }))
-        .getAllByRole("rowheader")
-        .map((r) => r.textContent ?? "");
-    expect(rowNames()[0]).toContain("Gamma Daily"); // 44 items
+    const rowNames = () => within(screen.getByRole("list", { name: /by (articles read|reading time)/ })).getAllByRole("listitem").map((r) => r.textContent ?? "");
+    expect(rowNames()[0]).toContain("Gamma Daily"); // 44 articles
     await user.click(screen.getByRole("radio", { name: "Minutes" }));
     expect(rowNames()[0]).toContain("Beta News"); // 50 min
     await user.click(screen.getByRole("radio", { name: "Folders" }));
     const folders = rowNames();
     expect(folders[0]).toContain("Tech"); // 80 min rolled up
     expect(folders[0]).toContain("(2 feeds)");
-    expect(within(screen.getByRole("table", { name: /Folders by reading time/ })).getAllByRole("row")[1]).toHaveTextContent("1h 20m");
+    expect(folders[0]).toContain("1h 20m");
   });
 
+  it("taps a bar for its day, and a heatmap square for its day and hour", async () => {
+    const user = userEvent.setup();
+    setup(() => richStats);
+    go();
+    const chart = await screen.findByRole("group", { name: /Articles read per day/ });
+    expect(screen.getByText("Tap a bar for its day.")).toBeInTheDocument();
+    chart.focus();
+    await user.keyboard("{End}");
+    expect(screen.getByText(/^Sep 26: \d+ articles?, /)).toBeInTheDocument();
+    const cell = screen.getByText("Tuesday 8 pm: 12 min").closest("td")!;
+    await user.click(cell);
+    expect(screen.getAllByRole("status").some((s) => s.textContent === "Tuesday, 8 pm: 12 min")).toBe(true);
+  });
   it("says statistics are off and hides the nav entry", async () => {
     const m = setup(() => offStats, { "stats.enabled": false });
     go();
@@ -407,14 +412,14 @@ describe("Stats screen", () => {
     const summary = await screen.findByRole("region", { name: "Summary" });
     expect(within(summary).queryByText(/from 70/)).toBeNull();
     expect(statsCalls(m).some((c) => c.url.searchParams.get("from"))).toBe(false); // nothing fetched until asked
-    await user.click(within(summary).getByRole("button", { name: /Items read/ }));
+    await user.click(within(summary).getByRole("button", { name: /Articles read/ }));
     expect(await within(summary).findByText("+20% from 70")).toBeInTheDocument();
     expect(within(summary).getByText("Complete days only, so today is left out of both: compared with the previous 29 days.")).toBeInTheDocument();
     // Both sides are complete days: the range without today, and the 29 days before it.
     const spans = statsCalls(m).filter((c) => c.url.searchParams.get("from")).map((c) => [c.url.searchParams.get("from"), c.url.searchParams.get("to")]);
     expect(spans).toContainEqual(["2026-08-28", "2026-09-25"]);
     expect(spans).toContainEqual(["2026-07-30", "2026-08-27"]);
-    await user.click(within(summary).getByRole("button", { name: /Items read/ }));
+    await user.click(within(summary).getByRole("button", { name: /Articles read/ }));
     expect(within(summary).queryByText(/from 70/)).toBeNull();
   });
 
@@ -426,7 +431,7 @@ describe("Stats screen", () => {
     await user.click(screen.getByRole("radio", { name: "Monthly" }));
     await screen.findByRole("heading", { name: "Monthly activity" });
     expect(statsCalls(m).at(-1)?.url.searchParams.get("range")).toBe("all");
-    expect(screen.getByRole("img", { name: /Items read per month/ })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /Articles read per month/ })).toBeInTheDocument();
   });
 
   const prevTotals = { items_read: 70, opens: 90, active_seconds: 4000, days_active: 12 };
@@ -439,7 +444,7 @@ describe("Stats screen", () => {
     const user = userEvent.setup();
     go();
     const summary = await screen.findByRole("region", { name: "Summary" });
-    await user.click(within(summary).getByRole("button", { name: /Items read/ }));
+    await user.click(within(summary).getByRole("button", { name: /Articles read/ }));
     expect(await within(summary).findByText("Couldn't load the earlier period.")).toBeInTheDocument();
     expect(within(summary).queryByText("Loading")).toBeNull();
     fail = false;
@@ -453,11 +458,11 @@ describe("Stats screen", () => {
     const user = userEvent.setup();
     go();
     const summary = await screen.findByRole("region", { name: "Summary" });
-    await user.click(within(summary).getByRole("button", { name: /Items read/ }));
+    await user.click(within(summary).getByRole("button", { name: /Articles read/ }));
     expect(await within(summary).findByText("Not enough history")).toBeInTheDocument();
     expect(within(summary).queryByText(/from 0/)).toBeNull();
     expect(within(summary).queryByText(/Complete days only/)).toBeNull(); // nothing is compared, so nothing to explain
-    expect(within(summary).getByRole("button", { name: /Items read/ })).not.toHaveAttribute("aria-describedby"); // no dangling reference
+    expect(within(summary).getByRole("button", { name: /Articles read/ })).not.toHaveAttribute("aria-describedby"); // no dangling reference
     expect(statsCalls(m).some((c) => c.url.searchParams.get("from"))).toBe(false); // nothing to fetch for it
   });
 
@@ -470,7 +475,7 @@ describe("Stats screen", () => {
     const summary = await screen.findByRole("region", { name: "Summary" });
     await user.click(within(summary).getByRole("button", { name: /Active time/ }));
     expect(await within(summary).findByText("Not enough history")).toBeInTheDocument();
-    await user.click(within(summary).getByRole("button", { name: /Items read/ }));
+    await user.click(within(summary).getByRole("button", { name: /Articles read/ }));
     expect(await within(summary).findByText("+20% from 70")).toBeInTheDocument();
   });
 
@@ -485,7 +490,7 @@ describe("Stats screen", () => {
     await screen.findByRole("heading", { name: "Daily activity" });
     await user.click(screen.getByRole("radio", { name: "Week" }));
     const summary = await screen.findByRole("region", { name: "Summary" });
-    const tile = within(summary).getByRole("button", { name: /Items read/ });
+    const tile = within(summary).getByRole("button", { name: /Articles read/ });
     await user.click(tile);
     const line = await within(summary).findByText("Complete days only, so today is left out of both: compared with the same days last week.");
     expect(tile.getAttribute("aria-describedby")).toBe(line.id);
@@ -498,7 +503,7 @@ describe("Stats screen", () => {
     await screen.findByRole("heading", { name: "Daily activity" });
     for (const name of ["All", "Monthly"]) {
       await user.click(screen.getByRole("radio", { name }));
-      await waitFor(() => expect(within(screen.getByRole("region", { name: "Summary" })).queryByRole("button", { name: /Items read/ })).toBeNull());
+      await waitFor(() => expect(within(screen.getByRole("region", { name: "Summary" })).queryByRole("button", { name: /Articles read/ })).toBeNull());
     }
   });
 });

@@ -305,7 +305,7 @@ describe("one back pattern (#424)", () => {
     });
     go("/stats");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("link", { name: "Settings > Statistics" }));
+    await user.click(await screen.findByRole("link", { name: /Settings > Statistics/ }));
     await user.click(await screen.findByRole("link", { name: "Back to Settings" }));
     await waitFor(() => expect(window.location.pathname).toBe("/settings"));
     expect(window.history.state.idx).toBe(1); // replaced the group: Stats, Settings

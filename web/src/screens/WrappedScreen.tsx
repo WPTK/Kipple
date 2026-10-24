@@ -2,8 +2,7 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useWrappedSummary } from "@/api/stats";
-import { errorMessage } from "@/api/client";
-import { durationLabel, hourLabel, plural, todayString, weekdayName } from "@/lib/statsFormat";
+import { READ_RULE, durationLabel, hourLabel, plural, todayString, weekdayName } from "@/lib/statsFormat";
 import {
   CARD_H,
   CARD_W,
@@ -29,12 +28,14 @@ import { activeThemeStore } from "@/theme/theme";
 import { toast } from "@/shell/toasts";
 import { BackButton } from "@/ui/BackButton";
 import { Button } from "@/ui/button";
+import { EmptyState } from "@/ui/EmptyState";
+import { FailedBlock } from "@/ui/FailedBlock";
 import { Checkbox, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 
-function Card({ title, children }: { title: string; children: ReactNode }) {
+function Card({ title, children, hero = false }: { title: string; children: ReactNode; hero?: boolean }) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className="wrapped-card rounded-2xl bg-surface px-5 py-6">
+    <section aria-labelledby={id} className={`wrapped-card rounded-2xl bg-surface px-5 ${hero ? "py-8" : "py-6"}`}>
       <h2 id={id} className="text-sm font-medium text-fg2">
         {title}
       </h2>
@@ -43,75 +44,71 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-const Big = ({ children }: { children: ReactNode }) => <p className="text-4xl leading-tight font-bold tabular-nums">{children}</p>;
+/** The card's value alone; its title sits above, so nothing is said twice. */
+const Big = ({ children, hero = false }: { children: ReactNode; hero?: boolean }) => (
+  <p className={`${hero ? "text-6xl text-accent" : "text-4xl"} leading-tight font-bold tabular-nums`}>{children}</p>
+);
 const Sub = ({ children }: { children: ReactNode }) => <p className="mt-1 text-base text-fg2">{children}</p>;
-const Nothing = ({ children }: { children: ReactNode }) => <p className="text-base text-fg2">{children}</p>;
 
+/**
+ * The year as cards, in the order of the share image: articles read, active reading, days with reading, then (from a
+ * week of reading on) the longest streak and the busiest day, hour and month, then the top sources and the longest read.
+ */
 export function WrappedCards({ m }: { m: WrappedModel }) {
+  const low = isLowData(m);
   return (
-    <div className="flex flex-col gap-4">
-      <Card title="Items read">
-        {m.itemsRead > 0 ? (
-          <>
-            <Big>You read {plural(m.itemsRead, "item")} in {m.year}</Big>
-            {m.avgReadSeconds != null ? <Sub>An average read took {durationLabel(m.avgReadSeconds)}.</Sub> : null}
-          </>
-        ) : (
-          <Nothing>No items read in {m.year}.</Nothing>
-        )}
+    <div className="mx-auto flex max-w-xl flex-col gap-4">
+      <Card title={`Articles read in ${m.year}`} hero>
+        <Big hero>{m.itemsRead}</Big>
+        {m.avgReadSeconds != null ? <Sub>An average read took {durationLabel(m.avgReadSeconds)}.</Sub> : null}
       </Card>
       <Card title="Active reading">
-        {m.activeSeconds > 0 ? <Big>{hoursLabel(m.activeSeconds)} of active reading</Big> : <Nothing>No reading time recorded in {m.year}.</Nothing>}
+        <Big>{m.activeSeconds > 0 ? hoursLabel(m.activeSeconds) : "Not recorded"}</Big>
       </Card>
       <Card title="Days with reading">
-        {m.daysActive > 0 ? (
-          <>
-            <Big>{plural(m.daysActive, "day")} with reading</Big>
-            <Sub>Longest streak: {plural(m.longestStreak, "day")}.</Sub>
-          </>
-        ) : (
-          <Nothing>No days with reading in {m.year}.</Nothing>
-        )}
+        <Big>{m.daysActive}</Big>
       </Card>
-      <Card title="When you read">
-        {m.busiestWeekday != null || m.busiestHour != null ? (
-          <Big>
-            {m.busiestWeekday != null ? `Your busiest day was ${weekdayName(m.busiestWeekday)}` : "Your busiest hour"}
-            {m.busiestWeekday != null && m.busiestHour != null ? `; your busiest hour ${hourLabel(m.busiestHour)}` : m.busiestHour != null ? ` was ${hourLabel(m.busiestHour)}` : ""}
-          </Big>
-        ) : (
-          <Nothing>Not enough reading to name a busiest day or hour.</Nothing>
-        )}
-      </Card>
-      <Card title="Busiest month">
-        {m.busiestMonth != null ? <Big>Busiest month: {monthName(m.busiestMonth)}</Big> : <Nothing>No month stands out yet.</Nothing>}
-      </Card>
-      <Card title="Top sources">
-        {m.topSources.length > 0 ? (
+      {!low && m.longestStreak > 0 ? (
+        <Card title="Longest streak">
+          <Big>{plural(m.longestStreak, "day")}</Big>
+        </Card>
+      ) : null}
+      {!low && m.busiestWeekday != null ? (
+        <Card title="Busiest day">
+          <Big>{weekdayName(m.busiestWeekday)}</Big>
+        </Card>
+      ) : null}
+      {!low && m.busiestHour != null ? (
+        <Card title="Busiest hour">
+          <Big>{hourLabel(m.busiestHour)}</Big>
+        </Card>
+      ) : null}
+      {!low && m.busiestMonth != null ? (
+        <Card title="Busiest month">
+          <Big>{monthName(m.busiestMonth)}</Big>
+        </Card>
+      ) : null}
+      {m.topSources.length > 0 ? (
+        <Card title="Top sources">
           <ol className="flex flex-col gap-1 text-lg">
             {m.topSources.map((s) => (
               <li key={s.feedId} className="flex items-baseline justify-between gap-3">
-                <span className="min-w-0 truncate font-medium">{s.name}</span>
+                <span className="min-w-0 line-clamp-2 font-medium [overflow-wrap:anywhere]">{s.name}</span>
                 <span className="shrink-0 tabular-nums text-fg2">{s.items}</span>
               </li>
             ))}
           </ol>
-        ) : (
-          <Nothing>Nothing read yet.</Nothing>
-        )}
-      </Card>
-      <Card title="Longest read">
-        {m.longestRead ? (
-          <>
-            <p className="text-2xl leading-snug font-bold">{m.longestRead.title}</p>
-            <Sub>
-              {m.longestRead.feed}, {durationLabel(m.longestRead.seconds)}
-            </Sub>
-          </>
-        ) : (
-          <Nothing>No timed reads yet.</Nothing>
-        )}
-      </Card>
+        </Card>
+      ) : null}
+      {m.longestRead ? (
+        <Card title="Longest read">
+          <p className="line-clamp-2 text-2xl leading-snug font-bold [overflow-wrap:anywhere]">{m.longestRead.title}</p>
+          <Sub>
+            {m.longestRead.feed}, {durationLabel(m.longestRead.seconds)}
+          </Sub>
+        </Card>
+      ) : null}
+      {low ? <p className="rounded-xl bg-surface px-3 py-2 text-sm text-fg2">Keep reading: your busiest day, hour and month and your longest streak appear after a week of reading, and then you can share your year.</p> : null}
     </div>
   );
 }
@@ -124,7 +121,7 @@ export function CardPreview({ m, o }: { m: WrappedModel; o: WrappedOptions }) {
       role="img"
       aria-label={wrappedText(m, o).replace(/\n/g, " ")}
       viewBox={`0 0 ${CARD_W} ${CARD_H}`}
-      className="mx-auto block max-h-[45dvh] w-auto max-w-full rounded-xl border border-line"
+      className="mx-auto block max-h-[min(45dvh,32rem)] w-auto max-w-full rounded-xl border border-line"
       data-testid="wrapped-preview"
     >
       {ops.map((op, i) =>
@@ -227,25 +224,30 @@ function ShareBody({ m, onOpenChange }: { m: WrappedModel; onOpenChange: (o: boo
       title="Share your year"
       description="Only the summary below is shared, and only when you choose to share it."
       footer={
-        <>
+        // Stacked on a phone with the main action on top (the column is reversed), one row from 420 px up.
+        <div className="flex w-full flex-col-reverse gap-2 min-[420px]:flex-row min-[420px]:justify-end">
           <Button onClick={() => onOpenChange(false)}>Close</Button>
+          <Button disabled={busy} onClick={() => void doCopy()}>
+            Copy as text
+          </Button>
           {native ? (
-            <Button variant="solid" disabled={busy || preparing} onClick={() => void doShare()}>
+            <Button disabled={busy || preparing} onClick={() => void doShare()}>
               Share
             </Button>
           ) : null}
           {image ? (
-            <Button disabled={busy || preparing || !blob} onClick={doDownload}>
+            <Button variant="solid" disabled={busy || preparing || !blob} onClick={doDownload}>
               Download image
             </Button>
           ) : null}
-          <Button disabled={busy} onClick={() => void doCopy()}>
-            Copy as text
-          </Button>
-        </>
+        </div>
       }
     >
       <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <Checkbox label="Include my top sources" help="Feed names." checked={o.topSources} onChange={(v) => setO((p) => ({ ...p, topSources: v }))} />
+          <Checkbox label="Include my longest read" help="The article title." checked={o.longestRead} onChange={(v) => setO((p) => ({ ...p, longestRead: v }))} />
+        </div>
         <div ref={previewRef}>
           <CardPreview m={m} o={o} />
         </div>
@@ -255,8 +257,6 @@ function ShareBody({ m, onOpenChange }: { m: WrappedModel; onOpenChange: (o: boo
           </p>
         ) : null}
         {image && renderState === "error" ? <Notice tone="error">Couldn't make the image. You can still share or copy the text.</Notice> : null}
-        <Checkbox label="Include my top sources" help="Feed names." checked={o.topSources} onChange={(v) => setO((p) => ({ ...p, topSources: v }))} />
-        <Checkbox label="Include my longest read" help="The article title." checked={o.longestRead} onChange={(v) => setO((p) => ({ ...p, longestRead: v }))} />
         {problem ? <Notice tone="error">{problem}</Notice> : null}
         {copyFailed ? (
           <div className="flex flex-col gap-2">
@@ -295,44 +295,44 @@ export function WrappedScreen() {
   const dataForYear = data && summaryMatchesYear(data, year) ? data : undefined;
   const years = yearRange(data?.first_event_date, today);
   const model = dataForYear?.enabled ? deriveWrapped(dataForYear, year, today) : null;
+  const low = model != null && isLowData(model);
 
   let body: ReactNode;
   if (state === "unknown") {
     body = <Skeleton rows={4} label="Loading your year" />;
   } else if (!on || (dataForYear && !dataForYear.enabled)) {
     body = (
-      <p className="py-8 text-center text-sm text-fg2" role="status">
-        Wrapped is off. Turn it on in{" "}
-        <Link to="/settings/statistics" className="text-link underline underline-offset-2">
-          Settings &gt; Statistics
-        </Link>
-        .
-      </p>
+      <EmptyState
+        title="Your year is off"
+        why="Kipple isn't putting your year together."
+        action={
+          <Link to="/settings/statistics" className="text-link underline underline-offset-2">
+            Turn it on in Settings &gt; Statistics
+          </Link>
+        }
+      />
     );
   } else if (q.isError && !dataForYear) {
     // Before the skeleton: a failed request (or a failed switch to another year, where `data` may still be the old
     // year's) never becomes this year's data, so the skeleton would stay up for good with no way to retry.
-    body = (
-      <div className="flex flex-col items-start gap-3 py-6">
-        {/* The error Notice is itself the alert; a second role="alert" around it would announce it twice. */}
-        <Notice tone="error">{errorMessage(q.error)}</Notice>
-        <Button onClick={() => void q.refetch()} disabled={q.isFetching}>
-          Try again
-        </Button>
-      </div>
-    );
+    body = <FailedBlock error={q.error} busy={q.isFetching} onRetry={() => void q.refetch()} />;
   } else if (q.isPending || !dataForYear) {
     body = <Skeleton rows={4} label="Loading your year" />;
   } else if (model) {
     body = (
       <div aria-busy={q.isPlaceholderData} className={q.isPlaceholderData ? "opacity-60" : undefined}>
-        {isLowData(model) && !model.empty && model.daysActive > 0 && !q.isPlaceholderData ? (
-          <p className="mb-4 rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
-            Only {plural(model.historyDays, "day")} of reading in {model.year} so far.
-          </p>
-        ) : null}
-        {model.empty ? <p className="mb-4 rounded-xl bg-surface px-3 py-2 text-sm text-fg2">Nothing read in {model.year} yet.</p> : null}
-        <WrappedCards m={model} />
+        {model.empty ? (
+          <EmptyState title={`Nothing read in ${model.year} yet`} why={`Your year fills in as you read. ${READ_RULE}`} action={null} />
+        ) : (
+          <>
+            {low && model.daysActive > 0 && !q.isPlaceholderData ? (
+              <p className="mx-auto mb-4 max-w-xl rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
+                Only {plural(model.historyDays, "day")} of reading in {model.year} so far.
+              </p>
+            ) : null}
+            <WrappedCards m={model} />
+          </>
+        )}
       </div>
     );
   }
@@ -359,8 +359,8 @@ export function WrappedScreen() {
                   ))}
                 </select>
               </label>
-              {/* Nothing read this year: there is no summary worth sending. */}
-              {model && !model.empty ? <Button onClick={() => setSharing(true)}>Share</Button> : null}
+              {/* Nothing read this year, or under a week of it: there is no summary worth sending. */}
+              {model && !model.empty && !low ?<Button onClick={() => setSharing(true)}>Share</Button> : null}
             </>
           ) : null}
         </div>

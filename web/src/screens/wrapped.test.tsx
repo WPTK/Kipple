@@ -62,14 +62,17 @@ describe("Wrapped screen", () => {
   it("asks for the current year through the summary from/to and shows each card", async () => {
     const m = setup();
     go();
-    await screen.findByText("You read 12 items in 2026");
+    await screen.findByRole("heading", { name: "Articles read in 2026" });
     const q = calls(m)[0]!.url.searchParams;
     expect([q.get("from"), q.get("to"), q.get("range")]).toEqual(["2026-01-01", "2026-09-27", null]);
-    expect(screen.getByText("1.5 hours of active reading")).toBeInTheDocument();
-    expect(screen.getByText("4 days with reading")).toBeInTheDocument();
-    expect(screen.getByText("Longest streak: 3 days.")).toBeInTheDocument();
-    expect(screen.getByText("Your busiest day was Sunday; your busiest hour 7 pm")).toBeInTheDocument();
-    expect(screen.getByText("Busiest month: March")).toBeInTheDocument();
+    const value = (card: string) => within(screen.getByRole("region", { name: card })).getAllByText(/./, { selector: "p" })[0]!.textContent;
+    expect(value("Articles read in 2026")).toBe("12");
+    expect(value("Active reading")).toBe("1.5 hours");
+    expect(value("Days with reading")).toBe("4");
+    expect(value("Longest streak")).toBe("3 days");
+    expect(value("Busiest day")).toBe("Sunday");
+    expect(value("Busiest hour")).toBe("7 pm");
+    expect(value("Busiest month")).toBe("March");
     expect(within(screen.getByRole("region", { name: "Top sources" })).getByText("Secret Feed")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Longest read" })).getByText("Private Title")).toBeInTheDocument();
     expect(screen.queryByText(/Only \d+ days? of reading/)).toBeNull();
@@ -81,7 +84,7 @@ describe("Wrapped screen", () => {
     const user = userEvent.setup();
     const m = setup();
     go();
-    await screen.findByText("You read 12 items in 2026");
+    await screen.findByRole("heading", { name: "Articles read in 2026" });
     const sel = screen.getByLabelText("Year") as HTMLSelectElement;
     expect([...sel.options].map((o) => o.value)).toEqual(["2026", "2025"]);
     await user.selectOptions(sel, "2025");
@@ -93,7 +96,11 @@ describe("Wrapped screen", () => {
     setup({}, { ...yearData, first_event_date: "2026-09-25" });
     go();
     expect(await screen.findByText(/Only 3 days of reading in 2026 so far/)).toBeInTheDocument();
-    expect(screen.getByText("You read 12 items in 2026")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Articles read in 2026" })).toBeInTheDocument();
+    // Under a week of reading: totals and a keep-reading line, no superlatives and no Share.
+    for (const name of ["Longest streak", "Busiest day", "Busiest hour", "Busiest month"]) expect(screen.queryByRole("region", { name })).toBeNull();
+    expect(screen.getByText(/Keep reading/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
   });
 
   it("shows a not-found page for an address nothing answers, not the Unread list", async () => {
@@ -103,18 +110,12 @@ describe("Wrapped screen", () => {
     expect(screen.getByRole("link", { name: "Go to Unread" })).toHaveAttribute("href", "/l/unread");
   });
 
-  it("has an empty state per card", async () => {
+  it("says once that nothing was read in the year, instead of a card of nothing each", async () => {
     setup({}, { ...yearData, totals: { items_read: 0, opens: 0, active_seconds: 0, days_active: 0 }, daily: [], heatmap: [], behavior: undefined, sources: [] });
     go();
-    expect(await screen.findByText("No items read in 2026.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Nothing read in 2026 yet" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
-    expect(screen.getByText("No reading time recorded in 2026.")).toBeInTheDocument();
-    expect(screen.getByText("No month stands out yet.")).toBeInTheDocument();
-    expect(screen.getByText(/Nothing read yet/)).toBeInTheDocument();
-    expect(screen.getByText("No timed reads yet.")).toBeInTheDocument();
-    const region = screen.getByRole("region", { name: "Your year" });
-    expect(region).toHaveAttribute("tabindex", "0");
-    expect(within(region).getByText("No items read in 2026.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Active reading" })).toBeNull();
   });
 
   it("shows a loading state, not the off message, while the bootstrap answer is still unknown", () => {
@@ -130,7 +131,7 @@ describe("Wrapped screen", () => {
       </QueryClientProvider>,
     );
     expect(screen.getByText("Loading your year")).toBeInTheDocument();
-    expect(screen.queryByText(/Wrapped is off/)).toBeNull();
+    expect(screen.queryByText(/Your year is off/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
   });
 
@@ -146,11 +147,11 @@ describe("Wrapped screen", () => {
       "GET /api/items": () => json({ items: [], next_cursor: null }),
     });
     go();
-    await screen.findByText("You read 12 items in 2026");
+    await screen.findByRole("heading", { name: "Articles read in 2026" });
     const sel = screen.getByLabelText("Year") as HTMLSelectElement;
     await user.selectOptions(sel, "2025");
     await screen.findByText("Loading your year");
-    expect(screen.queryByText("You read 12 items in 2026")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Articles read in 2026" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
     resolve2025(
       json({
@@ -159,7 +160,7 @@ describe("Wrapped screen", () => {
         totals: { items_read: 3, opens: 5, active_seconds: 900, days_active: 2 },
       }),
     );
-    await screen.findByText("You read 3 items in 2025");
+    await screen.findByRole("heading", { name: "Articles read in 2025" });
     expect(screen.getByRole("button", { name: "Share" })).not.toBeDisabled();
   });
 
@@ -173,11 +174,11 @@ describe("Wrapped screen", () => {
     });
     go();
     const retry = await screen.findByRole("button", { name: "Try again" });
-    expect(within(retry.parentElement!).getByRole("alert")).toHaveTextContent(/problem/i);
+    expect(within(retry.closest("[role=alert]") as HTMLElement).getByRole("heading")).toHaveTextContent("Kipple's server had a problem");
     expect(screen.queryByText("Loading your year")).toBeNull();
     fail = false;
     await user.click(retry);
-    await screen.findByText("You read 12 items in 2026");
+    await screen.findByRole("heading", { name: "Articles read in 2026" });
   });
 
   it("shows the error when switching to another year fails, even with the old year's data still cached", async () => {
@@ -188,18 +189,18 @@ describe("Wrapped screen", () => {
       "GET /api/items": () => json({ items: [], next_cursor: null }),
     });
     go();
-    await screen.findByText("You read 12 items in 2026");
+    await screen.findByRole("heading", { name: "Articles read in 2026" });
     await user.selectOptions(screen.getByLabelText("Year") as HTMLSelectElement, "2025");
     expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(screen.queryByText("Loading your year")).toBeNull();
-    expect(screen.queryByText("You read 12 items in 2026")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Articles read in 2026" })).toBeNull();
   });
 
   it("says Wrapped is off, without fetching", async () => {
     const m = setup({ "stats.wrapped_enabled": false });
     go();
-    expect(await screen.findByText(/Wrapped is off\./)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Settings > Statistics" })).toHaveAttribute("href", "/settings/statistics");
+    expect(await screen.findByRole("heading", { name: "Your year is off" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Settings > Statistics/ })).toHaveAttribute("href", "/settings/statistics");
     expect(calls(m)).toHaveLength(0);
     // The link is the tab stop here; the region adds none of its own.
     expect(screen.getByRole("region", { name: "Your year" })).not.toHaveAttribute("tabindex");
@@ -208,7 +209,7 @@ describe("Wrapped screen", () => {
   it("says Wrapped is off when statistics are off", async () => {
     setup({ "stats.enabled": false }, offStats);
     go();
-    expect(await screen.findByText(/Wrapped is off\./)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Your year is off" })).toBeInTheDocument();
   });
 
   it("shows the Your year entry on Stats", async () => {
@@ -230,7 +231,7 @@ describe("Wrapped share", () => {
     const user = userEvent.setup();
     setup();
     go();
-    await screen.findByText("You read 12 items in 2026");
+    await screen.findByRole("heading", { name: "Articles read in 2026" });
     await user.click(screen.getByRole("button", { name: "Share" }));
     return { user, dlg: await screen.findByRole("dialog") };
   }
@@ -330,7 +331,7 @@ describe("Wrapped share", () => {
     const { user, dlg } = await open(); // user-event installs its own clipboard
     await user.click(within(dlg).getByRole("button", { name: "Copy as text" }));
     const copied = await navigator.clipboard.readText();
-    expect(copied).toContain("I read 12 items in 2026.");
+    expect(copied).toContain("I read 12 articles in 2026.");
     expect(copied).not.toContain("Secret Feed");
   });
 
@@ -340,7 +341,7 @@ describe("Wrapped share", () => {
     await user.click(within(dlg).getByRole("button", { name: "Copy as text" }));
     expect(await within(dlg).findByRole("alert")).toHaveTextContent(/Couldn't copy/);
     const box = within(dlg).getByRole("textbox", { name: /Your year, as text/i }) as HTMLTextAreaElement;
-    expect(box.value).toContain("I read 12 items in 2026.");
+    expect(box.value).toContain("I read 12 articles in 2026.");
   });
 
   it("shares the image file when the sheet takes files", async () => {
@@ -364,7 +365,7 @@ describe("Wrapped share", () => {
     await waitFor(() => expect(share).toHaveBeenCalled());
     const arg = share.mock.calls[0]![0] as { files?: File[]; text: string };
     expect(arg.files).toBeUndefined();
-    expect(arg.text).toContain("12 items");
+    expect(arg.text).toContain("12 articles");
   });
 
   it("retries as text-only when the file share itself fails for a reason other than a cancel", async () => {
@@ -377,7 +378,7 @@ describe("Wrapped share", () => {
     await waitFor(() => expect(share).toHaveBeenCalledTimes(2));
     const second = share.mock.calls[1]![0] as { files?: File[]; text: string };
     expect(second.files).toBeUndefined();
-    expect(second.text).toContain("12 items");
+    expect(second.text).toContain("12 articles");
     // Succeeded on the retry, so the dialog closes and no failure is reported.
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });

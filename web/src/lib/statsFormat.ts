@@ -1,11 +1,21 @@
 import { feedName } from "@/lib/feedStatus";
 import type { ReadRate, StatsRange, StatsSource, WeekStart } from "@/api/types";
 
-/** "<1 min", "12 min", "1h 20m", "2h". Minutes are rounded; 0 seconds is "0 min". */
+/** What makes an open a read (design §8, `store.statsIsRead`); the thresholds live on the server. */
+export const READ_RULE =
+  "An article counts as read after 10 seconds of reading, or 3 seconds once you've scrolled a quarter of the way down.";
+
+/** What a figure shows when there is nothing to compute it from (never a dash, never 0). */
+export const NO_DATA = "Not enough data yet";
+
+/**
+ * The one duration format of Stats and Your year: "45 s" under two minutes, "12 min" up to an hour, then "1h 20m" or
+ * "2h". 0 seconds is "0 min".
+ */
 export function durationLabel(seconds: number | null | undefined): string {
-  if (seconds == null || !Number.isFinite(seconds)) return "-";
+  if (seconds == null || !Number.isFinite(seconds)) return NO_DATA;
   if (seconds <= 0) return "0 min";
-  if (seconds < 60) return "<1 min";
+  if (seconds < 120) return `${Math.max(1, Math.round(seconds))} s`;
   const m = Math.round(seconds / 60);
   if (m < 60) return `${m} min`;
   const h = Math.floor(m / 60);
@@ -13,9 +23,9 @@ export function durationLabel(seconds: number | null | undefined): string {
   return r ? `${h}h ${r}m` : `${h}h`;
 }
 
-/** A 0..1 rate as a whole-number percentage; "-" when unknown. */
+/** A 0..1 rate as a whole-number percentage; "Not enough data yet" when unknown. */
 export function pctLabel(rate: number | null | undefined): string {
-  return rate == null || !Number.isFinite(rate) ? "-" : `${Math.round(rate * 100)}%`;
+  return rate == null || !Number.isFinite(rate) ? NO_DATA : `${Math.round(rate * 100)}%`;
 }
 
 /**
@@ -26,7 +36,7 @@ export function pctLabel(rate: number | null | undefined): string {
 export function readRateNote(r: ReadRate | undefined, from: string | null | undefined, to: string | null | undefined): string {
   if (!r || !from || !to) return "Not enough history";
   const days = from === to ? `on ${shortDate(from)}` : `from ${shortDate(from)} to ${shortDate(to)}`;
-  if (r.new_items === 0) return `No new items ${days}`;
+  if (r.new_items === 0) return `No new articles ${days}`;
   return `${r.items_read} of ${r.new_items} new ${days}`;
 }
 

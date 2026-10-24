@@ -198,7 +198,7 @@ export const DEFAULT_OPTIONS: WrappedOptions = { topSources: false, longestRead:
 
 /** The facts as lines of plain text. Feed names and titles appear only when the options ask for them. */
 export function wrappedLines(m: WrappedModel, o: WrappedOptions): string[] {
-  const lines = [`I read ${plural(m.itemsRead, "item")} in ${m.year}.`];
+  const lines = [`I read ${plural(m.itemsRead, "article")} in ${m.year}.`];
   lines.push(activeSecondsKnown(m) ? `${activeReadingFact(m)} of active reading.` : "Active reading time not recorded.");
   lines.push(`${plural(m.daysActive, "day")} with reading; longest streak ${plural(m.longestStreak, "day")}.`);
   if (m.busiestWeekday != null && m.busiestHour != null) lines.push(`Busiest day: ${weekdayName(m.busiestWeekday)}, busiest hour: ${hourLabel(m.busiestHour)}.`);
@@ -229,43 +229,117 @@ const clip = (s: string, n: number): string => {
   return points.length > n ? `${points.slice(0, n - 1).join("").trimEnd()}…` : s;
 };
 
-/** Draw instructions for the share card: pure, so the preview, the PNG and the tests all read the same list. */
+/** Words wrapped onto at most `lines` lines of `width` characters; only a title longer than all of them is cut. */
+function wrapLines(s: string, width: number, lines: number): string[] {
+  const out: string[] = [];
+  let line = "";
+  for (const word of s.split(/\s+/).filter(Boolean)) {
+    const next = line ? `${line} ${word}` : word;
+    if (Array.from(next).length <= width || !line) line = next;
+    else {
+      out.push(line);
+      line = word;
+    }
+  }
+  if (line) out.push(line);
+  if (out.length <= lines) return out.map((l) => clip(l, width));
+  return [...out.slice(0, lines - 1).map((l) => clip(l, width)), clip(out.slice(lines - 1).join(" "), width)];
+}
+
+const MARGIN = 90;
+const TITLE_CHARS = 46;
+const SOURCE_CHARS = 40;
+
+/**
+ * Draw instructions for the share card: pure, so the preview, the PNG and the tests all read the same list. The blocks
+ * (heading, count, three tiles, three facts, then the opted-in sources and longest read) are stacked down the card with
+ * the leftover height shared between them, so the card is filled whatever is switched on and nothing is cut to fit.
+ */
 export function buildWrappedCard(m: WrappedModel, o: WrappedOptions): CardOp[] {
   const ops: CardOp[] = [{ kind: "rect", x: 0, y: 0, w: CARD_W, h: CARD_H, color: "bg" }];
-  const X = 90;
+  const X = MARGIN;
   const text = (t: string, x: number, y: number, size: number, weight: 400 | 700 = 400, color: CardColor = "text") => ops.push({ kind: "text", text: t, x, y, size, weight, color });
-  ops.push({ kind: "rect", x: X, y: 90, w: 120, h: 10, color: "accent", radius: 5 });
-  text(`My ${m.year} in Kipple`, X, 180, 52, 700, "text2");
-  text(String(m.itemsRead), X, 350, 190, 700, "accent");
-  text(m.itemsRead === 1 ? "item read" : "items read", X, 410, 56);
+
   const tiles: [string, string][] = [
     [activeSecondsKnown(m) ? activeReadingFact(m).replace(" hours", " h").replace(" hour", " h") : "n/a", "active reading"],
     [String(m.daysActive), m.daysActive === 1 ? "day with reading" : "days with reading"],
     [String(m.longestStreak), m.longestStreak === 1 ? "day, longest streak" : "days, longest streak"],
   ];
-  tiles.forEach(([big, small], i) => {
-    const x = X + i * 300;
-    ops.push({ kind: "rect", x, y: 470, w: 270, h: 190, color: "surface", radius: 24 });
-    text(clip(big, 8), x + 24, 560, 60, 700);
-    text(clip(small, 22), x + 24, 620, 26, 400, "text2");
-  });
-  const fact = (label: string, value: string, x: number, y: number) => {
-    text(label, x, y, 28, 400, "text2");
-    text(clip(value, 22), x, y + 54, 46, 700);
-  };
-  if (m.busiestWeekday != null) fact("Busiest day", weekdayName(m.busiestWeekday), X, 740);
-  if (m.busiestHour != null) fact("Busiest hour", hourLabel(m.busiestHour), X + 480, 740);
-  if (m.busiestMonth != null) fact("Busiest month", monthName(m.busiestMonth), X, 860);
-  let y = 980;
-  if (o.topSources && m.topSources.length) {
-    text("Top sources", X, y, 28, 400, "text2");
-    m.topSources.slice(0, 3).forEach((s, i) => text(`${clip(s.name, 30)}  ${s.items}`, X, y + 48 + i * 42, 32));
-    y += 48 + Math.min(3, m.topSources.length) * 42 + 20;
+  const facts: [string, string][] = [];
+  if (m.busiestWeekday != null) facts.push(["Busiest day", weekdayName(m.busiestWeekday)]);
+  if (m.busiestHour != null) facts.push(["Busiest hour", hourLabel(m.busiestHour)]);
+  if (m.busiestMonth != null) facts.push(["Busiest month", monthName(m.busiestMonth)]);
+  const sources = o.topSources ? m.topSources : [];
+  const title = o.longestRead && m.longestRead ? wrapLines(m.longestRead.title, TITLE_CHARS, 2) : [];
+
+  // Each block: its height, and how it draws itself from its top edge.
+  const blocks: { h: number; draw: (top: number) => void }[] = [
+    {
+      h: 100,
+      draw: (top) => {
+        ops.push({ kind: "rect", x: X, y: top, w: 120, h: 10, color: "accent", radius: 5 });
+        text(`My ${m.year} in Kipple`, X, top + 90, 52, 700, "text2");
+      },
+    },
+    {
+      h: 240,
+      draw: (top) => {
+        text(String(m.itemsRead), X, top + 170, 190, 700, "accent");
+        text(m.itemsRead === 1 ? "article read" : "articles read", X, top + 235, 56);
+      },
+    },
+    {
+      h: 190,
+      draw: (top) =>
+        tiles.forEach(([big, small], i) => {
+          const x = X + i * 300;
+          ops.push({ kind: "rect", x, y: top, w: 270, h: 190, color: "surface", radius: 24 });
+          text(clip(big, 8), x + 24, top + 90, 60, 700);
+          text(clip(small, 22), x + 24, top + 150, 26, 400, "text2");
+        }),
+    },
+  ];
+  if (facts.length) {
+    blocks.push({
+      h: 100,
+      draw: (top) =>
+        facts.forEach(([label, value], i) => {
+          const x = X + i * 320;
+          text(label, x, top + 28, 28, 400, "text2");
+          text(clip(value, 12), x, top + 82, 44, 700);
+        }),
+    });
   }
-  if (o.longestRead && m.longestRead) {
-    text("Longest read", X, y, 28, 400, "text2");
-    text(clip(m.longestRead.title, 44), X, y + 48, 32);
-    text(durationLabel(m.longestRead.seconds), X, y + 92, 28, 400, "text2");
+  if (sources.length) {
+    blocks.push({
+      h: 38 + sources.length * 46,
+      draw: (top) => {
+        text("Top sources", X, top + 28, 28, 400, "text2");
+        sources.forEach((s, i) => {
+          text(String(s.items), X, top + 78 + i * 46, 32, 700, "accent");
+          text(clip(s.name, SOURCE_CHARS), X + 90, top + 78 + i * 46, 32);
+        });
+      },
+    });
+  }
+  if (title.length && m.longestRead) {
+    const l = m.longestRead;
+    blocks.push({
+      h: 38 + title.length * 42 + 44,
+      draw: (top) => {
+        text("Longest read", X, top + 28, 28, 400, "text2");
+        title.forEach((t, i) => text(t, X, top + 78 + i * 42, 32));
+        text(durationLabel(l.seconds), X, top + 78 + title.length * 42 + 2, 28, 400, "text2");
+      },
+    });
+  }
+  const used = blocks.reduce((a, b) => a + b.h, 0);
+  const free = CARD_H - 2 * MARGIN - used;
+  const gap = Math.max(20, Math.min(150, free / (blocks.length - 1)));
+  let top = MARGIN;
+  for (const b of blocks) {
+    b.draw(Math.round(top));
+    top += b.h + gap;
   }
   return ops;
 }
