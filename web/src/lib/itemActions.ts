@@ -122,9 +122,9 @@ const IDS_PER_QUERY = 100;
 
 export function itemActions(qc: QueryClient) {
   /**
-   * Set read state for ids and record an undo (mark-read undone = mark-unread through the API). `undoable` is false
-   * for a control that stays on screen and shows the state (the open article's read button): it says so aloud and the
-   * control is its own undo, as with a star. A swipe, a menu item and a key have no such control, so they offer Undo.
+   * Set read state for ids and record an undo (mark-read undone = mark-unread through the API). A row can leave its
+   * list (a swipe, or its menu in Unread), so those offer Undo. `undoable` is false for the open article: it stays put,
+   * its Unread word shows the state and its read item undoes itself, as its star button does. The change is announced.
    */
   async function setRead(ids: string[], read: boolean, reason: "swipe" | "key", restore?: () => void, undoable = true): Promise<void> {
     if (ids.length === 0) return;

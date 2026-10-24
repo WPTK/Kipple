@@ -1,1 +1,1 @@
-The devices list holds room for the name form, this device and one more while it loads, so the buttons below it no longer jump. (#730)
+Settings: the devices list shows a placeholder as tall as the name form, this device and one other while it loads. (#730)

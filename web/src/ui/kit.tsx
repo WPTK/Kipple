@@ -627,17 +627,12 @@ export function Notice({ tone = "info", children, role }: { tone?: "info" | "war
   );
 }
 
-/**
- * Placeholder rows while something loads. Where the loaded content's size is known, pass it so nothing below jumps:
- * `rows` as the height class of each row (measured from the real row), and `className` for the box around them.
- */
-export function Skeleton({ rows = 4, label = "Loading", className }: { rows?: number | readonly string[]; label?: string; className?: string }) {
-  const heights = typeof rows === "number" ? Array.from({ length: rows }, () => "h-12") : rows;
+export function Skeleton({ rows = 4, label = "Loading" }: { rows?: number; label?: string }) {
   return (
-    <div role="status" aria-busy="true" data-skeleton className={cn("flex flex-col gap-3 p-4", className)}>
+    <div role="status" aria-busy="true" data-skeleton className="flex flex-col gap-3 p-4">
       <span className="sr-only-live">{label}</span>
-      {heights.map((h, i) => (
-        <div key={i} aria-hidden="true" className={cn("animate-pulse rounded-xl bg-surface", h)} />
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} aria-hidden="true" className="h-12 animate-pulse rounded-xl bg-surface" />
       ))}
     </div>
   );

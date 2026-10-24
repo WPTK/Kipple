@@ -391,10 +391,16 @@ describe("z while an action is still in flight", () => {
   it("a read toggle from a control that shows the state is announced and offers no Undo", async () => {
     server();
     const act = itemActions(seeded());
+    const said = vi.spyOn(toasts, "announce");
     await act.toggleRead(card(1), "key", undefined, false);
+    expect(said).toHaveBeenCalledWith("Marked read");
+    await act.toggleRead(card(1, { read: true }), "key", undefined, false);
+    expect(said).toHaveBeenLastCalledWith("Marked unread");
     expect(undoStore.get().toast).toBeNull();
     expect(undoStore.get().canUndo).toBe(false);
+    said.mockRestore();
   });
+
   it("a star that cannot be undone does not make Undo available while it is in flight", async () => {
     const { star } = server();
     const starring = itemActions(seeded()).toggleStar(card(1));

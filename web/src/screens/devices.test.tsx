@@ -107,6 +107,7 @@ describe("Settings > Devices", () => {
     });
     go();
     const user = userEvent.setup();
+    await screen.findByRole("list", { name: "Your devices" }); // the placeholder holds a hidden copy of the form until then
     const input = await screen.findByLabelText("This device's name");
     expect(screen.getByRole("button", { name: "Save name" })).toBeDisabled();
     await user.clear(input);

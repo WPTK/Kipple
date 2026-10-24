@@ -1,1 +1,1 @@
-Marking the open article read or unread is announced and shows the Unread word, with no Undo toast; a swipe, a row menu item and a key still offer Undo. (#651)
+Reader: marking the open article read or unread is announced aloud and shows no Undo toast; the row menu and a swipe still offer Undo. (#651)

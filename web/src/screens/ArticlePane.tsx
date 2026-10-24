@@ -126,7 +126,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
 
   const go = (target: string | undefined) => {
     if (!target) return;
-    // A "Marked unread" left up would name no article once the next one is open.
+    // A toast for this article (marked read from its row menu beside it) would name no article once the next one is open.
     retireUndoToastFor([id]);
     // Prev/next replaces the history entry so back is always one step to the list.
     if (!pane) rememberListPlace(scope, target); // a list beside the article follows it itself

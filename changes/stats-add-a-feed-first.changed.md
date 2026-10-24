@@ -1,1 +1,1 @@
-With no feeds, Stats says Add a feed first and offers the button, instead of Nothing read yet. (#617)
+Stats: with no feeds it says Add a feed first and opens the add dialog from the button. (#617)

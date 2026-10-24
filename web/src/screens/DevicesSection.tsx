@@ -9,13 +9,7 @@ import { useStore } from "@/lib/store";
 import { whenLabel } from "@/lib/format";
 import { announce, toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
-import { FieldError, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
-
-/**
- * The loading placeholder holds the room of what usually follows: the name form, this device and one other (heights
- * measured from those boxes at phone and desktop widths), so the buttons below move only by the other devices.
- */
-const DEVICE_ROW_HEIGHTS = ["h-24", "h-[4.125rem]", "h-[7.375rem]"] as const;
+import { FieldError, Modal, Notice, inputCls } from "@/ui/kit";
 
 const KIND_ICON = { phone: Smartphone, tablet: Tablet, computer: Monitor };
 
@@ -80,6 +74,62 @@ function ThisDeviceName({ device }: { device: DeviceRow }) {
   );
 }
 
+function DeviceItem({ d, unsaved, onCopy, onForget }: { d: DeviceRow; unsaved: boolean; onCopy: () => void; onForget: () => void }) {
+  const Icon = KIND_ICON[deviceKind(d.user_agent)];
+  return (
+    <li className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-3">
+      <div className="flex items-start gap-3">
+        <Icon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-fg2" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold">
+            {label(d)}
+            {d.current ? <span className="ml-2 rounded-full border border-accent px-2 py-0.5 text-xs font-medium">This device</span> : null}
+          </p>
+          <p className="text-xs text-fg2">
+            {d.current ? "Using it now" : `Last seen ${whenLabel(d.last_seen_at).toLowerCase()}`} ·{" "}
+            {d.overrides === 0 ? "uses the defaults" : `${d.overrides} setting${d.overrides === 1 ? "" : "s"} of its own`}
+          </p>
+          {d.name ? <p className="truncate text-xs text-fg2">{describeUserAgent(d.user_agent, d.client)}</p> : null}
+        </div>
+      </div>
+      {d.current ? null : (
+        <div className="flex flex-wrap gap-2">
+          {unsaved ? null : (
+            <Button onClick={onCopy} aria-label={`Copy its settings here, from ${label(d)}`}>
+              Copy its settings here
+            </Button>
+          )}
+          <Button variant="danger" onClick={onForget} aria-label={`Forget ${label(d)}`}>
+            Forget
+          </Button>
+        </div>
+      )}
+    </li>
+  );
+}
+
+const STAND_IN: DeviceRow = { id: "", name: "", current: true, user_agent: "", client: "", created_at: 0, last_seen_at: 0, overrides: 0 };
+
+/**
+ * While the devices load: the name form, this device and one other, drawn by the same components the loaded list uses
+ * (so each is as tall as the real one at this width, and wraps where it wraps), hidden and inert under one pulsing box.
+ * Only the other devices after the first move what is below.
+ */
+function DevicesLoading() {
+  return (
+    <div role="status" aria-busy="true" data-skeleton className="relative">
+      <span className="sr-only-live">Loading devices</span>
+      <div aria-hidden="true" inert className="invisible flex flex-col gap-5">
+        <ThisDeviceName device={STAND_IN} />
+        <ul className="flex flex-col gap-2">
+          <DeviceItem d={STAND_IN} unsaved={false} onCopy={() => {}} onForget={() => {}} />
+          <DeviceItem d={{ ...STAND_IN, current: false }} unsaved={false} onCopy={() => {}} onForget={() => {}} />
+        </ul>
+      </div>
+      <div aria-hidden="true" className="absolute inset-0 animate-pulse rounded-xl bg-surface" />
+    </div>
+  );
+}
 function confirmCopy(c: Confirm): { title: string; body: string; action: string } {
   switch (c.kind) {
     case "copy":
@@ -172,7 +222,7 @@ export function DevicesSection() {
           This browser can't save its own settings yet. Older browsers will be forgotten automatically. Until then it keeps using the settings stored in this browser.
         </Notice>
       ) : null}
-      {devices.isPending ? <Skeleton rows={DEVICE_ROW_HEIGHTS} className="gap-2 p-0" label="Loading devices" /> : null}
+      {devices.isPending ? <DevicesLoading /> : null}
       {devices.isError ? (
         <Notice tone="error">
           Couldn't load your devices. {errorMessage(devices.error)}{" "}
@@ -185,37 +235,7 @@ export function DevicesSection() {
       {list.length ? (
         <ul aria-label="Your devices" className="flex flex-col gap-2">
           {list.map((d) => {
-            const Icon = KIND_ICON[deviceKind(d.user_agent)];
-            return (
-            <li key={d.id} className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-3">
-              <div className="flex items-start gap-3">
-                <Icon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-fg2" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">
-                    {label(d)}
-                    {d.current ? <span className="ml-2 rounded-full border border-accent px-2 py-0.5 text-xs font-medium">This device</span> : null}
-                  </p>
-                  <p className="text-xs text-fg2">
-                    {d.current ? "Using it now" : `Last seen ${whenLabel(d.last_seen_at).toLowerCase()}`} ·{" "}
-                    {d.overrides === 0 ? "uses the defaults" : `${d.overrides} setting${d.overrides === 1 ? "" : "s"} of its own`}
-                  </p>
-                  {d.name ? <p className="truncate text-xs text-fg2">{describeUserAgent(d.user_agent, d.client)}</p> : null}
-                </div>
-              </div>
-              {d.current ? null : (
-                <div className="flex flex-wrap gap-2">
-                  {unsaved ? null : (
-                    <Button onClick={() => setConfirm({ kind: "copy", from: d })} aria-label={`Copy its settings here, from ${label(d)}`}>
-                      Copy its settings here
-                    </Button>
-                  )}
-                  <Button variant="danger" onClick={() => setConfirm({ kind: "delete", device: d })} aria-label={`Forget ${label(d)}`}>
-                    Forget
-                  </Button>
-                </div>
-              )}
-            </li>
-            );
+            return <DeviceItem key={d.id} d={d} unsaved={unsaved} onCopy={() => setConfirm({ kind: "copy", from: d })} onForget={() => setConfirm({ kind: "delete", device: d })} />;
           })}
         </ul>
       ) : null}

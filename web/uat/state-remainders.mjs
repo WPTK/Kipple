@@ -5,8 +5,9 @@
 //   npm run uat:state-remainders -- --url http://127.0.0.1:7091 --screenshots <dir> --headed
 //
 // For each width (desktop 1280x800, phone 375x812) it checks:
-//   S1  the devices list loads: while the answer is held the placeholder is one box, and when it arrives the section
-//       grows by no more than one more device (the placeholder holds the name form, this device and one other);
+//   S1  the devices list loads: while the answer is held the placeholder is a visible box as tall as the name form, this
+//       device and one other, so the section grows only by the devices after the first other (and a placeholder that
+//       is oversized, shrinking or hidden fails);
 //   S2  desktop: the reading pane's "Select an article to read it here." sits where it does once the list has loaded,
 //       whether the list answer is held or not.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0
@@ -30,6 +31,13 @@ await t.eachViewport(async (page, vp) => {
     const sk = page.locator("[data-skeleton]").filter({ hasText: "Loading devices" });
     await sk.waitFor({ timeout: 15000 });
     const sectionH = (loc) => loc.evaluate((e) => e.parentElement.getBoundingClientRect().height);
+    // Hidden: the placeholder is a box of its own with a visible pulsing block over it.
+    const shown = await sk.evaluate((e) => {
+      const pulse = e.querySelector(".animate-pulse");
+      const box = e.getBoundingClientRect();
+      const cs = pulse ? getComputedStyle(pulse) : null;
+      return { height: box.height, pulse: !!pulse && cs.visibility === "visible" && cs.display !== "none" && Number(cs.opacity) > 0 && pulse.getBoundingClientRect().height >= box.height - 1 };
+    });
     const loading = await sectionH(sk);
     await t.shot(page, `${tag}-devices-loading`);
     release();
@@ -37,9 +45,14 @@ await t.eachViewport(async (page, vp) => {
     await list.waitFor({ timeout: 15000 });
     await page.waitForTimeout(400);
     const loaded = await sectionH(list);
-    const oneDevice = await list.locator("> li").last().evaluate((e) => e.getBoundingClientRect().height + 8);
-    check(loaded - loading <= oneDevice, `${tag} S1`, "the section grows by no more than one device when the list arrives", `${Math.round(loading)} px while loading, ${Math.round(loaded)} px loaded (one device is ${Math.round(oneDevice)} px)`);
-    await page.unroute("**/api/devices");
+    const rows = await list.locator("> li").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height));
+    const others = rows.length - 1;
+    // The placeholder holds the name form, this device and one other: the section then grows by one device for each
+    // other device after the first, and by nothing when there is exactly one.
+    const unit = rows.length > 1 ? rows[rows.length - 1] + 8 : 0;
+    const expected = loaded - Math.max(0, others - 1) * unit;
+    check(shown.height >= 100 && shown.pulse, `${tag} S1 shown`, "the devices placeholder is a visible box of real height", `${Math.round(shown.height)} px tall, pulsing block ${shown.pulse ? "visible" : "hidden or too small"}`);
+    check(others >= 1 ? Math.abs(loading - expected) <= 4 : loading >= loaded - 1, `${tag} S1`, "the placeholder is as tall as the name form, this device and one other (not oversized, not shrinking)", `${Math.round(loading)} px while loading, ${Math.round(loaded)} px loaded with ${others} other device(s), expected ${Math.round(expected)} px`);    await page.unroute("**/api/devices");
   });
 
   if (vp.width < 900) return;
