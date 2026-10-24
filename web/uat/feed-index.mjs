@@ -166,14 +166,17 @@ try {
       const first = block(TITLES.b).locator("article[data-item-id]").first();
       const id = await first.getAttribute("data-item-id");
       const wasRead = await first.getAttribute("data-read");
+      // The article is marked read once it has loaded (the title shows from the list first), so wait for that request.
+      const marked = page.waitForResponse((r) => r.request().method() === "POST" && r.url().endsWith(`/api/items/${id}/open`), { timeout: 15000 }).then(() => true, () => false);
       await first.getByRole("link").click();
       await page.waitForURL(`**/i/${id}?*`, { timeout: 10000 });
       const open = await page.getByRole("heading", { name: /UAT index b story 5/ }).first().waitFor({ timeout: 15000 }).then(() => true, () => false);
       await t.shot(page, `${tag}-feed-index-article`);
+      const wasMarked = await marked;
       await page.goBack();
       await ready();
       const nowRead = await settled((i) => document.querySelector(`article[data-item-id="${i}"]`)?.hasAttribute("data-read"), id, 15000);
-      check(open && wasRead === null && nowRead, `${tag} I6 open`, "the headline opens the article and shows as read when you come back", `opened ${open}, read before ${wasRead}, read after ${nowRead}`);
+      check(open && wasMarked && wasRead === null && nowRead, `${tag} I6 open`, "the headline opens the article and shows as read when you come back", `opened ${open}, marked ${wasMarked}, read before ${wasRead}, read after ${nowRead}`);
 
       // I8: after an article, Back returns to the index where it was left, with the headline focused. A short window
       // makes the page scroll whatever the library holds.
