@@ -5,6 +5,7 @@ import { invalidateFeeds } from "@/api/admin";
 import { announce } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { Checkbox, Notice, Skeleton } from "@/ui/kit";
+import { OpmlImportDialog } from "@/screens/feeds/OpmlDialog";
 import { fetchStarterFeeds, subscribeStarter, type StarterFeed } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import { stepById } from "./steps";
@@ -30,20 +31,22 @@ function hostOf(url: string | undefined): string {
 }
 
 /**
- * Step 5: a starter set of feeds to subscribe to, in one checklist per category with a single select all or none.
- * Everything here is optional: nothing is added until "Add" is pressed, a feed already in Kipple shows as added, and
- * the list may be empty.
+ * Step 2: a starter set of feeds to subscribe to, in one checklist per category with a single select all or none.
+ * Nothing is ticked at first and nothing is added until "Add" is pressed. A feed already in Kipple shows as added, and
+ * the list may be empty. "Import a feeds file" opens the same import as Settings. The one button ends setup: it adds
+ * what is ticked, or just continues when nothing is.
  */
-export function FeedsStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: () => void; onNext: () => void; onSkipAll: () => void; skipAllBusy?: boolean }) {
+export function FeedsStep({ onDone, finishing }: { onDone: () => void; finishing?: boolean }) {
   const qc = useQueryClient();
   const list = useQuery({ queryKey: STARTER_KEY, queryFn: ({ signal }) => fetchStarterFeeds(signal), retry: false, staleTime: 0 });
-  // What the person changed from the file's own suggestions; a feed not in here follows its `checked` flag.
+  // The feeds the person ticked or unticked; a feed not in here is not ticked.
   const [picks, setPicks] = useState<Record<string, boolean>>({});
   const [folders, setFolders] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isOn = (f: StarterFeed) => (f.subscribed ? false : (picks[f.id] ?? f.checked));
+  const isOn = (f: StarterFeed) => (f.subscribed ? false : (picks[f.id] ?? false));
   const all = list.data?.categories.flatMap((c) => c.feeds) ?? [];
   const chosen = all.filter(isOn);
   const pickable = all.filter((f) => !f.subscribed);
@@ -60,7 +63,7 @@ export function FeedsStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
       invalidateFeeds(qc);
       void qc.invalidateQueries({ queryKey: STARTER_KEY });
       announce(`Added ${r.added} feed${r.added === 1 ? "" : "s"}${r.existing ? `, ${r.existing} already in Kipple` : ""}`);
-      onNext();
+      onDone();
     } catch (e) {
       setError(feedsError(e));
     } finally {
@@ -89,13 +92,6 @@ export function FeedsStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
   } else {
     body = (
       <>
-        {pickable.length > 0 ? (
-          <div>
-            <Button className="min-h-11" onClick={() => setMany(all, !allOn)}>
-              {allOn ? "Select none" : "Select all"}
-            </Button>
-          </div>
-        ) : null}
         {list.data.categories.map((c) => (
           <fieldset key={c.id} className="flex min-w-0 flex-col gap-2 rounded-xl border border-line p-3" data-category={c.id}>
             <legend className="px-1 text-base font-bold">{c.title}</legend>
@@ -122,38 +118,43 @@ export function FeedsStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack: 
           </fieldset>
         ))}
         <Checkbox label="Put each category in its own folder" help="Kipple makes a folder named after each category and files its feeds there." checked={folders} onChange={setFolders} />
-        <p role="status" className="text-sm text-fg2">
-          {chosen.length === 0 ? "No feeds selected." : `${chosen.length} feed${chosen.length === 1 ? "" : "s"} selected.`}
-        </p>
       </>
     );
   }
 
   return (
-    <WizardFrame
-      step={stepById("feeds")}
-      description="A few good feeds to start with, so Kipple isn't empty. Untick anything that isn't for you. You can add, remove or move feeds any time."
-      onSkipAll={onSkipAll}
-      skipAllBusy={skipAllBusy || busy}
-    >
+    <WizardFrame step={stepById("feeds")} description="A few good feeds to start with, so Kipple isn't empty. Tick the ones you want. You can add, remove or move feeds any time.">
       <div className="flex flex-1 flex-col gap-4">
         {error ? <Notice tone="error">{error}</Notice> : null}
-        {body}
-        <StepActions
-          back={
-            <Button disabled={busy} onClick={onBack}>
-              Back
+        {list.isPending ? null : (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {pickable.length > 0 ? (
+              <Button className="min-h-11" onClick={() => setMany(all, !allOn)}>
+                {allOn ? "Select none" : "Select all"}
+              </Button>
+            ) : (
+              <span />
+            )}
+            <Button variant="link" className="min-h-11" onClick={() => setImporting(true)}>
+              Import a feeds file
             </Button>
-          }
-        >
-          <Button disabled={busy} onClick={onNext}>
-            Skip
-          </Button>
-          <Button variant="solid" disabled={busy || chosen.length === 0} onClick={() => void add()}>
-            {busy ? "Adding" : chosen.length === 0 ? "Add feeds" : `Add ${chosen.length} feed${chosen.length === 1 ? "" : "s"}`}
+          </div>
+        )}
+        {body}
+        <StepActions>
+          <Button variant="solid" disabled={busy || finishing} onClick={() => (chosen.length === 0 ? onDone() : void add())}>
+            {busy ? "Adding" : finishing ? "Finishing" : chosen.length === 0 ? "Continue" : `Add ${chosen.length} feed${chosen.length === 1 ? "" : "s"}`}
           </Button>
         </StepActions>
       </div>
+      {importing ? <OpmlImportDialog
+          inWizard
+          onClose={() => {
+            setImporting(false);
+            // The file may hold recommended feeds: the list shows those as already added.
+            void qc.invalidateQueries({ queryKey: STARTER_KEY });
+          }}
+        /> : null}
     </WizardFrame>
   );
 }

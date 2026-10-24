@@ -16,8 +16,8 @@ import (
 )
 
 // Restore in the setup wizard (docs/design.md §2.6 and §7.1e): upload a backup
-// zip (checked in the background; GET /api/setup/restore follows it) or an OPML
-// file, then confirm it, or take only its feeds, or cancel.
+// zip (checked in the background; GET /api/setup/restore follows it), then confirm
+// it or cancel.
 // The routes exist only in setup mode and share the setup guards: the Host gate,
 // same-origin and X-Kipple-Client. A confirmed restore is applied by the next
 // start, so a confirm answers 202 and shuts the process down (Options.Restart).
@@ -186,7 +186,7 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 	_ = rc.SetWriteDeadline(time.Time{}) // the server-wide one started with the request
 	body := newDeadlineReader(r.Body, rc, r.ContentLength)
-	up, err := s.restore.Upload(r.Context(), key, body, r.ContentLength, body.stop)
+	_, err := s.restore.Upload(r.Context(), key, body, r.ContentLength, body.stop)
 	_ = rc.SetWriteDeadline(time.Now().Add(restoreAnswerWait))
 	if err != nil {
 		if body.unread() {
@@ -212,10 +212,6 @@ func (s *Server) restoreUpload(w http.ResponseWriter, r *http.Request) {
 		// An account was created as the file arrived: a restore cannot follow.
 		s.restore.Drop()
 		writeErrorMsg(w, http.StatusConflict, "already_set_up", "Kipple was set up a moment ago; sign in instead")
-		return
-	}
-	if up.Kind == backup.KindOPML {
-		writeJSON(w, http.StatusOK, map[string]any{"kind": up.Kind, "feeds": up.Feeds})
 		return
 	}
 	// A zip: it is checked in the background; GET /api/setup/restore follows it,
@@ -369,26 +365,6 @@ func (s *Server) restoreConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// restoreFeeds is GET /api/setup/restore/feeds: the checked backup's
-// feeds.opml (the "feeds only" choice). The upload is discarded.
-func (s *Server) restoreFeeds(w http.ResponseWriter, r *http.Request) {
-	if s.setupGone(w) {
-		return
-	}
-	if !s.sameOrigin(r) {
-		writeError(w, http.StatusForbidden, "origin")
-		return
-	}
-	b, err := s.restore.Feeds(restoreKey(r))
-	if err != nil {
-		s.writeRestoreError(w, "restore feeds", err)
-		return
-	}
-	w.Header().Set("Content-Type", "text/x-opml; charset=utf-8")
-	w.Header().Set("Cache-Control", "private, no-store")
-	_, _ = w.Write(b)
-}
-
 // restoreCancel is DELETE /api/setup/restore: stops an upload arriving or being
 // checked, removes a checked one, clears a failed one. Idempotent; 409 only once
 // confirmed.
@@ -415,9 +391,6 @@ func (s *Server) writeRestoreError(w http.ResponseWriter, what string, err error
 		s.serverError(w, what, err)
 		return
 	}
-	if code == "no_upload" && what == "restore feeds" {
-		status = http.StatusNotFound
-	}
 	writeErrorMsg(w, status, code, msg)
 }
 
@@ -428,7 +401,6 @@ func restoreErrorInfo(err error) (status int, code, msg string) {
 		space *backup.UploadSpaceError
 		newer *backup.NewerError
 		bad   *backup.BadUploadError
-		ref   *backup.OPMLRefusedError
 	)
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -444,7 +416,7 @@ func restoreErrorInfo(err error) (status int, code, msg string) {
 		return http.StatusConflict, "restore_pending", err.Error()
 	case errors.Is(err, backup.ErrNoUpload):
 		return http.StatusConflict, "no_upload", err.Error()
-	case errors.Is(err, backup.ErrUploadTooLarge), errors.Is(err, backup.ErrOPMLTooLarge):
+	case errors.Is(err, backup.ErrUploadTooLarge):
 		return http.StatusRequestEntityTooLarge, "too_large", err.Error()
 	case errors.Is(err, backup.ErrNotBackup):
 		return http.StatusBadRequest, "not_a_backup", err.Error()
@@ -460,8 +432,6 @@ func restoreErrorInfo(err error) (status int, code, msg string) {
 		return http.StatusUnprocessableEntity, "newer_kipple", err.Error()
 	case errors.As(err, &bad):
 		return http.StatusBadRequest, "bad_backup", err.Error()
-	case errors.As(err, &ref):
-		return http.StatusBadRequest, ref.Code, err.Error()
 	}
 	return http.StatusInternalServerError, "", ""
 }

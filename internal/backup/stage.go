@@ -12,12 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/WPTK/kipple/internal/opml"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -50,8 +48,7 @@ const (
 	upgradeSpaceNum, upgradeSpaceDen = 31, 10
 	upgradeSpaceSlack                = 64 << 20
 
-	maxFeedsOPML = opml.MaxFileBytes
-	sniffBytes   = 64 << 10
+	sniffBytes = 64 << 10
 )
 
 // Restore states, as GET /api/setup/restore and GET /api/instance report them.
@@ -64,22 +61,15 @@ const (
 	RestoreConfirmed = "confirmed" // the next start applies it
 )
 
-// Upload kinds.
+// Upload kinds (the one kind there is, so a response says what it holds).
 const (
 	KindBackup = "backup"
-	KindOPML   = "opml"
 )
 
 // Refusal is a restore refusal whose text is written for the person restoring.
 type Refusal struct{ Msg string }
 
 func (e *Refusal) Error() string { return e.Msg }
-
-// OPMLRefusedError is an OPML file the import would refuse too (empty, no feeds, an undefined entity); Code is the
-// import's own code for it.
-type OPMLRefusedError struct{ Code, Msg string }
-
-func (e *OPMLRefusedError) Error() string { return e.Msg }
 
 // Refusals of the Restorer; the API maps each to a status.
 var (
@@ -89,11 +79,10 @@ var (
 	ErrRestoreElsewhere = &Refusal{"Another browser is uploading a backup. Kipple stops an upload that stalls or crawls; once it has been checked, a new upload from this browser replaces it."}
 	ErrRestorePending   = &Refusal{"A restore is waiting to be applied: Kipple is restarting to finish it."}
 	ErrNoUpload         = &Refusal{"No checked backup is waiting, or it expired. Upload it again."}
-	ErrNotBackup        = &Refusal{"This is not a Kipple backup zip or an OPML file."}
+	ErrNotBackup        = &Refusal{"This is not a Kipple backup. It must be the zip made by Export backup in Settings."}
 	ErrUploadTooLarge   = &Refusal{"This file is larger than the " + human(MaxUploadBytes) + " a restore accepts."}
-	ErrOPMLTooLarge     = &Refusal{"This OPML file is larger than the " + human(opml.MaxFileBytes) + " an import accepts."}
 	ErrUploadCut        = &Refusal{"The upload stopped before the whole file arrived. Try again."}
-	// ErrRestoreReplaced: a page asked to confirm or take the feeds of its
+	// ErrRestoreReplaced: a page asked to confirm its
 	// upload, and another browser's upload has replaced it.
 	ErrRestoreReplaced = &Refusal{"Another browser uploaded a backup, which replaced the one uploaded here. Choose the file again to restore it from this browser."}
 	// ErrDiskFull: the volume filled up while the upload was being kept.
@@ -132,8 +121,8 @@ type BackupAccount struct {
 // Upload is what an upload found: the kind at once, and for a backup the rest
 // once it is checked.
 type Upload struct {
-	Kind string // KindBackup or KindOPML
-	// Feeds is the subscription count, for both kinds.
+	Kind string // KindBackup
+	// Feeds is the subscription count.
 	Feeds int64
 	// The rest describes a checked backup.
 	Manifest        Manifest
@@ -194,7 +183,6 @@ type Restorer struct {
 	state    string
 	job      *job // the upload or check running, if any; it alone touches the files then
 	cur      *Upload
-	feeds    []byte // the backup's feeds.opml
 	failErr  error
 	estimate int
 	timer    *time.Timer
@@ -312,9 +300,8 @@ func (r *Restorer) Status(owner string) Status {
 func (r *Restorer) path(name string) string { return filepath.Join(r.o.DataDir, name) }
 
 // Upload reads one file of size bytes from body, which must deliver exactly
-// that many. The first bytes decide, before anything is stored: an OPML file
-// is read and counted (nothing is kept, the state goes back to none) and
-// returned at once; anything but a zip is ErrNotBackup. A zip is spooled to
+// that many. The first bytes decide, before anything is stored: anything but a
+// zip is ErrNotBackup. A zip is spooled to
 // the data directory and Upload returns Kind KindBackup as soon as the body has
 // arrived: the check (manifest and checksums, the schema against a fresh
 // database of its version, the integrity checks) runs in the background, and
@@ -349,7 +336,7 @@ func (r *Restorer) Upload(reqCtx context.Context, owner string, body io.Reader, 
 	}
 	r.gen++
 	g := r.gen
-	r.state, r.failErr, r.estimate, r.cur, r.feeds, r.owner = RestoreUploading, nil, 0, nil, nil, owner
+	r.state, r.failErr, r.estimate, r.cur, r.owner = RestoreUploading, nil, 0, nil, owner
 	ctx, cancel := context.WithCancel(context.Background())
 	j := &job{cancel: cancel, stop: stop, done: make(chan struct{})}
 	r.job = j
@@ -372,7 +359,7 @@ func (r *Restorer) Upload(reqCtx context.Context, owner string, body io.Reader, 
 		r.mu.Unlock()
 		err = context.Canceled
 	}
-	// Done here: an OPML file, or a refusal. Nothing is kept but a refusal for
+	// Done here: a refusal. Nothing is kept but a refusal for
 	// slowness, as the owner's failed state (see ErrUploadTooSlow).
 	removeStaged(r.o.DataDir)
 	r.mu.Lock()
@@ -388,7 +375,7 @@ func (r *Restorer) Upload(reqCtx context.Context, owner string, body io.Reader, 
 	return up, err
 }
 
-// receive sniffs the first bytes, then counts an OPML file or spools a zip.
+// receive sniffs the first bytes, then spools a zip.
 func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upload, error) {
 	src := &ctxReader{ctx, body}
 	head := make([]byte, min(size, sniffBytes))
@@ -397,23 +384,6 @@ func (r *Restorer) receive(ctx context.Context, body io.Reader, size int64) (Upl
 	}
 	switch {
 	case bytes.HasPrefix(head, []byte("PK\x03\x04")):
-	case opml.LooksLikeOPML(head):
-		if size > maxFeedsOPML {
-			return Upload{}, ErrOPMLTooLarge
-		}
-		b := make([]byte, size)
-		copy(b, head)
-		if _, err := io.ReadFull(src, b[len(head):]); err != nil {
-			return Upload{}, ended(ctx, err)
-		}
-		doc, err := opml.Parse(bytes.NewReader(b))
-		if ref, ok := opml.AsRefused(err); ok && !ref.NotOPML {
-			return Upload{}, &OPMLRefusedError{Code: ref.Code, Msg: strings.ToUpper(ref.Message[:1]) + ref.Message[1:] + "."}
-		}
-		if err != nil {
-			return Upload{}, ErrNotBackup
-		}
-		return Upload{Kind: KindOPML, Feeds: int64(len(doc.Feeds))}, nil
 	default:
 		return Upload{}, ErrNotBackup
 	}
@@ -468,7 +438,7 @@ func ended(ctx context.Context, err error) error {
 // check verifies a spooled zip in the background and records the outcome,
 // unless the upload was cancelled meanwhile.
 func (r *Restorer) check(ctx context.Context, j *job, g int) {
-	up, feeds, err := r.verify(ctx, g)
+	up, err := r.verify(ctx, g)
 	r.mu.Lock()
 	r.job = nil
 	switch {
@@ -480,7 +450,7 @@ func (r *Restorer) check(ctx context.Context, j *job, g int) {
 		r.failLocked(g, err)
 		r.log.Info("restore: the uploaded backup was refused", "err", err)
 	default:
-		r.state, r.cur, r.feeds, r.estimate = RestoreReady, &up, feeds, up.EstimateSeconds
+		r.state, r.cur, r.estimate = RestoreReady, &up, up.EstimateSeconds
 		r.expireLocked(g)
 		r.log.Info("restore: backup uploaded and checked", "kipple_version", up.Manifest.KippleVersion,
 			"created_at", up.Manifest.CreatedAt, "feeds", up.Info.Feeds, "items", up.Info.Items, "db_bytes", up.Manifest.DBBytes)
@@ -490,7 +460,7 @@ func (r *Restorer) check(ctx context.Context, j *job, g int) {
 	close(j.done)
 }
 
-func (r *Restorer) verify(ctx context.Context, g int) (Upload, []byte, error) {
+func (r *Restorer) verify(ctx context.Context, g int) (Upload, error) {
 	spool, staged := r.path(UploadFile), r.path(StagedFile)
 	defer os.Remove(spool)
 	x, err := Extract(ctx, spool, staged, r.o.FreeBytes)
@@ -500,9 +470,9 @@ func (r *Restorer) verify(ctx context.Context, g int) (Upload, []byte, error) {
 			space *UploadSpaceError
 		)
 		if errors.As(err, &newer) || errors.As(err, &space) || ctx.Err() != nil {
-			return Upload{}, nil, err
+			return Upload{}, err
 		}
-		return Upload{}, nil, &BadUploadError{err}
+		return Upload{}, &BadUploadError{err}
 	}
 	_ = os.Remove(spool) // the zip is not needed any more: free its space now
 	mf := x.Manifest
@@ -512,24 +482,23 @@ func (r *Restorer) verify(ctx context.Context, g int) (Upload, []byte, error) {
 		r.estimate = EstimateSeconds(mf.DBBytes, older)
 	}
 	r.mu.Unlock()
-	feeds := x.FeedsOPML
-	if feeds == nil {
-		return Upload{}, nil, &BadUploadError{errors.New("it holds no feeds.opml")}
+	if x.FeedsOPML == nil {
+		return Upload{}, &BadUploadError{errors.New("it holds no feeds.opml")}
 	}
 	info, acct, err := checkStaged(ctx, staged, mf.KippleVersion)
 	if err != nil {
-		return Upload{}, nil, err
+		return Upload{}, err
 	}
 	older = info.SchemaVersion < store.LatestVersion()
 	if older {
 		if err := r.needSpace(mf.DBBytes*upgradeSpaceNum/upgradeSpaceDen + upgradeSpaceSlack); err != nil {
-			return Upload{}, nil, err
+			return Upload{}, err
 		}
 	}
 	return Upload{
 		Kind: KindBackup, Feeds: info.Feeds, Manifest: mf, Info: info, Account: acct,
 		EstimateSeconds: EstimateSeconds(mf.DBBytes, older),
-	}, feeds, nil
+	}, nil
 }
 
 // needSpace refuses when the data directory's volume has less than need free.
@@ -545,25 +514,6 @@ func (r *Restorer) needSpace(need int64) error {
 		return &UploadSpaceError{Need: need, Free: free}
 	}
 	return nil
-}
-
-// Feeds hands out the checked backup's feeds.opml (the "feeds only" choice)
-// to its owner and discards the upload: the rest of it will not be used.
-func (r *Restorer) Feeds(owner string) ([]byte, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	switch {
-	case r.state == RestoreConfirmed:
-		return nil, ErrRestorePending
-	case r.othersLocked(owner):
-		return nil, ErrRestoreReplaced
-	case r.state != RestoreReady:
-		return nil, ErrNoUpload
-	}
-	b := r.feeds
-	r.discardLocked()
-	r.log.Info("restore: the feeds of the uploaded backup were taken; the upload was deleted")
-	return b, nil
 }
 
 // Uploaded is the owner's checked, unconfirmed upload and its ticket for
@@ -679,7 +629,7 @@ func (r *Restorer) discardLocked() {
 		r.timer = nil
 	}
 	r.gen++
-	r.state, r.cur, r.feeds, r.failErr, r.estimate, r.owner = RestoreNone, nil, nil, nil, 0, ""
+	r.state, r.cur, r.failErr, r.estimate, r.owner = RestoreNone, nil, nil, 0, ""
 	removeStaged(r.o.DataDir)
 }
 
@@ -714,7 +664,7 @@ func (r *Restorer) Confirm(ctx context.Context, ticket int, passwordHash string)
 		r.timer = nil
 	}
 	r.gen++
-	r.state, r.feeds = RestoreConfirmed, nil
+	r.state = RestoreConfirmed
 	r.log.Info("restore: confirmed; it is applied when Kipple starts again", "username", r.cur.Account.Username)
 	return nil
 }

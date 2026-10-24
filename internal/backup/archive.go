@@ -53,9 +53,9 @@ kipple.db is the only file a full restore uses. The rest is for humans:
 feeds.opml imports into any feed reader.
 
 To restore on a new Kipple, open it in a browser before creating an account,
-choose "Restore from a backup" and pick this file. "Everything" brings back
+choose "Restore from a backup" and pick this file. It brings back
 your account, settings, feeds and history; Kipple restarts to apply it, then
-you sign in with this backup's account. "Feeds only" takes just feeds.opml.
+you sign in with this backup's account.
 The public URL, allowed host names and trusted proxies are not restored: they
 describe the old server, so set them again for the new one.
 
