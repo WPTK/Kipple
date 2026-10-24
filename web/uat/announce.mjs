@@ -10,7 +10,7 @@
 //   A3  Signs in with a wrong password in a second, signed-out browser: both fields are aria-invalid and described by
 //       the error, and the password field has focus.
 //   A4  Manage feeds > Add feed with "not a url !!": the address field is aria-invalid, described by the error, focused.
-//   A5  Opens an article, marks it unread from the toolbar, then Next: the "Marked unread" toast is gone.
+//   A5  Opens an article and marks it unread from the toolbar: it is announced as "Marked unread" with no Undo toast (the state word is the state).
 //   A6  Settings > Advanced > Address and access (proxy section opened): the Cloudflare Access state is not a live region.
 //   A7  The list: a row's Star and More actions name its article, its link starts with the title, and the Unread
 //       link in the sidebar (desktop) reads "Unread N", the word once.
@@ -144,13 +144,9 @@ await t.eachViewport(async (page, vp) => {
       }
       await page.getByRole("menuitem", { name: "Mark as unread" }).click(); // uat-labels: ignore (a menu item's text, not an aria-label)
       await page.waitForTimeout(400);
-      const before = (await page.getByTestId("undo-region").textContent()) ?? "";
-      const url = page.url();
-      await bar.getByRole("button", { name: "Next article" }).click();
-      await page.waitForURL((u) => u.href !== url, { timeout: 10000 });
-      await page.waitForTimeout(400);
-      const after = (await page.getByTestId("undo-region").textContent()) ?? "";
-      check(before.includes("Marked unread") && !after.includes("Marked unread"), `${tag} A5`, "Next takes down the Marked unread toast", `before "${before}", after Next "${after}"`);
+      const said = (await page.getByTestId("live-region").textContent()) ?? "";
+      const toastText = (await page.getByTestId("undo-region").textContent()) ?? "";
+      check(said.includes("Marked unread") && toastText.trim() === "", `${tag} A5`, "marking unread from the toolbar is announced and shows no Undo toast", `announced "${said}", toast "${toastText}"`);
     });
     await step(`${tag} A6`, async () => {
       await page.goto("/settings/advanced", { waitUntil: "load" });

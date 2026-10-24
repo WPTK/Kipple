@@ -110,6 +110,16 @@ describe("Stats screen", () => {
     expect(screen.queryByRole("link", { name: /Your year/ })).toBeNull();
   });
 
+  it("with no feeds, nothing read yet says to add a feed first", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [], settings: {} }),
+      "GET /api/stats/summary": () => json(emptyStats),
+    });
+    go();
+    expect(await screen.findByRole("heading", { name: "Add a feed first" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add a feed" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Nothing read yet" })).toBeNull();
+  });
   it("a quiet range after earlier reading keeps the numbers and says so once", async () => {
     setup(() => ({ ...emptyStats, first_event_date: "2026-08-01", never_opened: richStats.never_opened }));
     go();

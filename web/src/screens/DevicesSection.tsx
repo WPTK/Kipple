@@ -11,6 +11,12 @@ import { announce, toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { FieldError, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 
+/**
+ * The loading placeholder holds the room of what usually follows: the name form, this device and one other (heights
+ * measured from those boxes at phone and desktop widths), so the buttons below move only by the other devices.
+ */
+const DEVICE_ROW_HEIGHTS = ["h-24", "h-[4.125rem]", "h-[7.375rem]"] as const;
+
 const KIND_ICON = { phone: Smartphone, tablet: Tablet, computer: Monitor };
 
 const label = (d: DeviceRow): string => d.name || describeUserAgent(d.user_agent, d.client);
@@ -166,7 +172,7 @@ export function DevicesSection() {
           This browser can't save its own settings yet. Older browsers will be forgotten automatically. Until then it keeps using the settings stored in this browser.
         </Notice>
       ) : null}
-      {devices.isPending ? <Skeleton rows={2} label="Loading devices" /> : null}
+      {devices.isPending ? <Skeleton rows={DEVICE_ROW_HEIGHTS} className="gap-2 p-0" label="Loading devices" /> : null}
       {devices.isError ? (
         <Notice tone="error">
           Couldn't load your devices. {errorMessage(devices.error)}{" "}

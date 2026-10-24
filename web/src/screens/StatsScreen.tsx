@@ -1,7 +1,8 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useId, useMemo, useState, type ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { useBootstrap } from "@/api/queries";
 import { useSpanSummary, useStatsSummary } from "@/api/stats";
 import type { StatsSummary } from "@/api/types";
 import {
@@ -31,6 +32,7 @@ import {
   type SourceRow,
 } from "@/lib/statsFormat";
 import { articleTo } from "@/lib/routes";
+import { visibleFeeds } from "@/lib/visibleFeeds";
 import { useStatsEnabled } from "@/lib/statsSender";
 import { useNarrowText } from "@/lib/useNarrowText";
 import { Button } from "@/ui/button";
@@ -463,6 +465,9 @@ export function StatsScreen() {
   useDocumentTitle("Stats");
   const on = useStatsEnabled();
   const wrapped = useWrappedEnabled();
+  const navigate = useNavigate();
+  const boot = useBootstrap();
+  const noFeeds = !!boot.data && visibleFeeds(boot.data.feeds).length === 0;
   const [range, setRange] = useState<ScreenRange>(loadScreenRange);
   const q = useStatsSummary(apiRange(range), on);
   const data = q.data;
@@ -516,11 +521,19 @@ export function StatsScreen() {
     body = never ? (
       <div aria-busy={q.isPlaceholderData}>
         {refreshFailed}
-        <EmptyState
-          title="Nothing read yet"
-          why={`Your reading shows up here as you go. ${READ_RULE}`}
-          action={null}
-        />
+        {noFeeds ? (
+          <EmptyState
+            title="Add a feed first"
+            why="Your reading shows up here once you have feeds to read."
+            action={
+              <Button variant="solid" onClick={() => navigate("/feeds", { state: { open: "add" } })}>
+                Add a feed
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState title="Nothing read yet" why={`Your reading shows up here as you go. ${READ_RULE}`} action={null} />
+        )}
       </div>
     ) : (
       <div aria-busy={q.isPlaceholderData} className={q.isPlaceholderData ? "opacity-60" : undefined}>

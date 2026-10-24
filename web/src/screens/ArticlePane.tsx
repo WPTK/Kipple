@@ -168,7 +168,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   };
   const toggleRead = () => {
     if (!item.data) return;
-    void act.toggleRead(item.data, "key");
+    void act.toggleRead(item.data, "key", undefined, false);
   };
   const share = () => {
     if (!item.data) return;
