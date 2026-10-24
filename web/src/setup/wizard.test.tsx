@@ -545,6 +545,26 @@ describe("Step 2: the feeds", () => {
     expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(1);
   });
 
+  it("ends setup even when the bootstrap refresh that adding feeds starts answers after setup is marked done", async () => {
+    const w = signedIn({ starter });
+    let bootstraps = 0;
+    server(w, {
+      "POST /api/starter-feeds": () => json({ added: 1, existing: 0, run_id: "r" }),
+      // The refresh started by adding: it is answered from the server's state at the time it was asked (pending), late.
+      "GET /api/bootstrap": async () => {
+        const pendingThen = w.pending;
+        if (++bootstraps > 1) await new Promise((r) => setTimeout(r, 300));
+        return json({ ...bootstrap, user: { ...bootstrap.user, username: "reader", password_set: w.passwordSet, auth_mode: w.authMode, setup_pending: bootstraps > 1 ? pendingThen : w.pending } });
+      },
+    });
+    go("/welcome/feeds");
+    const user = userEvent.setup();
+    await screen.findByText("Feed a");
+    await user.click(screen.getByRole("checkbox", { name: /Feed a/ }));
+    await user.click(screen.getByRole("button", { name: "Add 1 feed" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+  });
+
   it("Continue with nothing ticked adds nothing and ends setup in the reader", async () => {
     const { calls } = server(signedIn({ starter }));
     go("/welcome/feeds");

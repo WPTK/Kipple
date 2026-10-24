@@ -7,9 +7,16 @@ import { completeOnboarding } from "./api";
 import { endRerun, markRerun, rerunStore } from "./session";
 import { welcomePath } from "./steps";
 
-/** Records in the app's copy of the account that first-run setup is (or is not) pending, so the routing follows at once. */
-function setPending(qc: QueryClient, pending: boolean): void {
-  qc.setQueryData<BootstrapAnswer>(keys.bootstrap, (old) => (old ? { ...old, user: { ...old.user, setup_pending: pending } } : old));
+/**
+ * Records in the app's copy of the account that first-run setup is (or is not) pending, so the routing follows at once.
+ * A bootstrap fetch still in flight (adding feeds refreshes it) was answered before setup ended and would write
+ * "pending" back over this, leaving the wizard open: it is cancelled first.
+ */
+async function setPending(qc: QueryClient, pending: boolean): Promise<void> {
+  await qc.cancelQueries({ queryKey: keys.bootstrap });
+  qc.setQueryData<BootstrapAnswer>(keys.bootstrap, (old) =>
+    old ? { ...old, user: { ...old.user, setup_pending: pending } } : old,
+  );
   void qc.invalidateQueries({ queryKey: keys.me });
 }
 
@@ -23,10 +30,16 @@ export async function adoptBrowserZone(): Promise<void> {
   try {
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (!zone) return;
-    const { settings } = await api<SettingsResponse>("/api/settings", { quiet: true });
+    const { settings } = await api<SettingsResponse>("/api/settings", {
+      quiet: true,
+    });
     const meta = settings.find((s) => s.key === "tz");
     if (!meta || meta.value !== meta.default || meta.value === zone) return;
-    await api("/api/settings", { method: "PATCH", body: { tz: zone }, quiet: true });
+    await api("/api/settings", {
+      method: "PATCH",
+      body: { tz: zone },
+      quiet: true,
+    });
   } catch {
     /* the zone stays as it was; it is in Settings */
   }
@@ -46,7 +59,7 @@ export function useSetupActions() {
       void qc.invalidateQueries({ queryKey: settingsKey });
       await completeOnboarding();
       endRerun();
-      setPending(qc, false);
+      await setPending(qc, false);
     },
     /** Opens the first-run step again in this tab for an account that finished it. Nothing is changed on the server. */
     restart: () => {
