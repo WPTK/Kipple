@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { embedSrc, footnoteTarget, handleArticleClick, loadEmbed } from "./articleDom";
+import { embedSrc, enhanceImages, enhanceTables, footnoteTarget, handleArticleClick, loadEmbed } from "./articleDom";
 
 describe("embedSrc", () => {
   it("allows only YouTube (nocookie) and Vimeo with sane ids", () => {
@@ -91,5 +91,69 @@ describe("malformed footnote hrefs", () => {
     expect(() => handleArticleClick(ev, body, null, false)).not.toThrow();
     expect(ev.defaultPrevented).toBe(true);
     body.remove();
+  });
+});
+
+describe("enhanceTables", () => {
+  it("marks numbers and short cells, and leaves long text and rich cells alone", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      "<table><tr><th>Name</th><th>Price</th><th>Notes</th></tr>" +
+      "<tr><td>Widget</td><td>$1,234.50</td><td>A longer sentence that should wrap like a paragraph.</td></tr>" +
+      "<tr><td>Gadget</td><td>-12%</td><td><p>Block</p></td></tr></table>";
+    enhanceTables(root);
+    const kp = [...root.querySelectorAll("td, th")].map((c) => (c as HTMLElement).dataset.kp ?? "");
+    expect(kp).toEqual(["short", "short", "short", "short", "num", "", "short", "num", ""]);
+  });
+});
+describe("enhanceImages", () => {
+  const kinds = (html: string) => {
+    const root = document.createElement("div");
+    root.innerHTML = html;
+    enhanceImages(root);
+    return [...root.querySelectorAll("img")].map((i) => i.dataset.kp ?? "");
+  };
+  it("marks a picture that stands alone on its line, whatever wraps it", () => {
+    expect(kinds('<img src="a.png">')).toEqual(["block"]);
+    expect(kinds('<p><img src="a.png"></p>')).toEqual(["block"]);
+    expect(kinds('<div><img src="a.png"></div>')).toEqual(["block"]);
+    expect(kinds('<picture><source><img src="a.png"></picture>')).toEqual(["block"]);
+    expect(kinds('<p><a href="/x"><img src="a.png"></a></p>')).toEqual(["block"]);
+    expect(kinds('<figure><img src="a.png"><figcaption>Caption</figcaption></figure>')).toEqual(["block"]);
+    expect(kinds('<p>Text</p><img src="a.png"><p>More</p>')).toEqual(["block"]);
+  });
+  it("leaves a picture in a line of text or in a row of icons alone", () => {
+    expect(kinds('<p>Text <img src="a.png"> more</p>')).toEqual([""]);
+    expect(kinds('<p><img src="a.png"> <img src="b.png"> <img src="c.png"></p>')).toEqual(["", "", ""]);
+    expect(kinds('<p><img src="a.png"> caption</p>')).toEqual([""]);
+    expect(kinds('<p><img src="a.png"><br><img src="b.png"></p>')).toEqual(["block", "block"]);
+  });
+  it("looks through every inline wrapper, so a picture in a line of text stays inline", () => {
+    expect(kinds('<p>Text <a href="/x"><img src="a.png"></a></p>')).toEqual([""]);
+    expect(kinds('<p><a href="/x"><img src="a.png"></a> <a href="/y"><img src="b.png"></a></p>')).toEqual(["", ""]);
+    expect(kinds('<p>Text <span><img src="a.png"></span> more</p>')).toEqual([""]);
+    expect(kinds('<p>Text <strong><img src="a.png"></strong> more</p>')).toEqual([""]);
+    expect(kinds('<p>Text <mark><img src="a.png"></mark> more</p>')).toEqual([""]);
+    expect(kinds('<p><a href="/x"><span><img src="a.png"></span></a> Link text</p>')).toEqual([""]);
+    expect(kinds('<p>Text <picture><source><img src="a.png"></picture> more</p>')).toEqual([""]);
+    expect(kinds('<p><span><a href="/x"><img src="a.png"></a></span></p>')).toEqual(["block"]);
+  });
+  it("ends the line at a definition, a summary, a caption and an svg", () => {
+    expect(kinds('<dl><dt>x</dt><dd><img src="a.png"></dd></dl>')).toEqual(["block"]);
+    expect(kinds('<details><summary>More</summary><img src="a.png"></details>')).toEqual(["block"]);
+    expect(kinds('<details><summary><img src="a.png"></summary>Text</details>')).toEqual(["block"]);
+    expect(kinds('<p><img src="a.png"><svg></svg></p>')).toEqual([""]);
+  });
+  it("leaves a picture in a table cell to the cell's own alignment", () => {
+    expect(kinds('<table><tr><td align="left"><img src="a.png"></td><td>Name</td></tr></table>')).toEqual([""]);
+  });
+  it("gives a block picture its declared size for the CSS that narrows its box", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<p><img src="a.png" width="400" height="1000"></p>';
+    enhanceImages(root);
+    const img = root.querySelector("img") as HTMLImageElement;
+    expect(img.style.getPropertyValue("--kp-w")).toBe("400");
+    expect(img.style.getPropertyValue("--kp-h")).toBe("1000");
+    expect(img.hasAttribute("data-sized")).toBe(true);
   });
 });

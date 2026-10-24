@@ -27,7 +27,7 @@ export default tseslint.config(
   },
   {
     // Node, with functions that run in the page (page.evaluate) written inline.
-    files: ["uat/wizard.mjs", "uat/offline.mjs", "uat/keyboard.mjs", "uat/folders.mjs", "uat/downloads.mjs", "uat/focus.mjs", "uat/keys.mjs", "uat/announce.mjs", "uat/controls.mjs", "uat/stats.mjs", "uat/stats-tiles.mjs", "uat/gazette-order.mjs", "uat/gazette-menu.mjs", "uat/group-by.mjs"],
+    files: ["uat/wizard.mjs", "uat/offline.mjs", "uat/keyboard.mjs", "uat/folders.mjs", "uat/downloads.mjs", "uat/focus.mjs", "uat/keys.mjs", "uat/announce.mjs", "uat/controls.mjs", "uat/stats.mjs", "uat/stats-tiles.mjs", "uat/gazette-order.mjs", "uat/gazette-menu.mjs", "uat/gazette-place.mjs", "uat/group-by.mjs", "uat/reading.mjs"],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {
