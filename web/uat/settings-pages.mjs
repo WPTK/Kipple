@@ -56,7 +56,8 @@ await t.eachViewport(async (page, vp) => {
   check((await rd.innerText()).includes("nothing is removed"), `${tag} S2 apply`, "Apply retention now says nothing is removed", "no 'nothing is removed' in the dialog");
   await rd.getByRole("button", { name: "Cancel" }).click();
   // Lowering the default to 50 with a 60-article feed present: the dialog counts the 10 that would go.
-  const added = await t.addLocalFeed(page, feedUrl, FEED_TITLE, (items) => items.length >= 60);
+  const added = await t.addLocalFeed(page, feedUrl, FEED_TITLE, (items) => items.length >= 50); // one page is at most 50 articles
+  await page.waitForTimeout(2000); // the rest of the 60 are stored in the same fetch
   if (added.error) t.fail(`${tag} S2 setup`, added.error);
   else {
     await page.reload({ waitUntil: "load" });
