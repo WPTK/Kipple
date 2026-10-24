@@ -1,10 +1,10 @@
 import { Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ApiError } from "@/api/client";
+import { ApiError, failureCause } from "@/api/client";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { LoginScreen } from "@/screens/LoginScreen";
-import { Button } from "@/ui/button";
+import { LoadFailed, useKeptFailure } from "@/ui/LoadFailed";
 import { Skeleton } from "@/ui/kit";
 import { fetchInstance, INSTANCE_KEY, openReasonText, type InstanceInfo } from "./api";
 
@@ -31,11 +31,15 @@ export function SignedOut({ initial }: { initial?: InstanceInfo | null }) {
     staleTime: 0,
     gcTime: 0,
   });
+  // The failure is kept while it is asked again, so the failed screen stays up (see useKeptFailure).
+  const kept = useKeptFailure(inst.error, !!inst.data, inst.isFetching);
+  const failure = inst.data ? null : (inst.error ?? kept);
+  const retrying = inst.isPending && kept != null;
   // The tab names the one screen of this component that has no screen of its own (the others set theirs).
-  const status = inst.error instanceof ApiError ? inst.error.status : -1;
-  const unreachable = !inst.isPending && (inst.isError || !inst.data) && !(status === 401 || status === 404 || inst.error instanceof SyntaxError);
+  const status = failure instanceof ApiError ? failure.status : -1;
+  const unreachable = (!inst.isPending || retrying) && (inst.isError || !inst.data) && !(status === 401 || status === 404 || failure instanceof SyntaxError);
   useDocumentTitle(unreachable ? "Kipple couldn't load" : undefined, true);
-  if (inst.isPending) {
+  if (inst.isPending && !retrying) {
     return (
       <div className="flex h-full items-center justify-center" role="status">
         <span className="text-fg2">Loading Kipple</span>
@@ -47,23 +51,15 @@ export function SignedOut({ initial }: { initial?: InstanceInfo | null }) {
     // always was. Anything else (offline, a server error, a proxy refusing the address) says so; a password form there
     // would send a no-password Kipple's owner to a screen that cannot let them in.
     // A 200 that is not JSON (a proxy or an older server answering with its page) is the same "no such route".
-    if (status === 401 || status === 404 || inst.error instanceof SyntaxError) return <LoginScreen />;
+    if (status === 401 || status === 404 || failure instanceof SyntaxError) return <LoginScreen />;
     return (
-      <main className="flex h-full items-center justify-center px-4">
-        <div className="flex max-w-sm flex-col gap-3" role="alert">
-          <h1 className="text-xl font-bold">Kipple couldn't load</h1>
-          <p className="text-fg2">
-            {status === 0
-              ? "Kipple couldn't reach the server. Check your connection and try again."
-              : status === 421
-                ? openReasonText("host")
-                : "The server answered with something unexpected. Try again, and check the Kipple logs if it keeps happening."}
-          </p>
-          <Button variant="solid" className="self-start" onClick={() => void inst.refetch()}>
-            Try again
-          </Button>
-        </div>
-      </main>
+      <LoadFailed
+        cause={failureCause(failure) ?? "other"}
+        retryAfterMs={failure instanceof ApiError ? failure.retryAfterMs : 0}
+        busy={inst.isFetching}
+        onRetry={() => void inst.refetch()}
+        why={status === 421 ? openReasonText("host") : undefined}
+      />
     );
   }
   if (inst.data.setup) {

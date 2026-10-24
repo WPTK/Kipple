@@ -7,12 +7,14 @@ import { useMarkAllConfirm } from "./MarkAllConfirm";
 import { savedScopeOf, scopeFromSearchParams, useSavedSearches } from "@/api/savedSearches";
 import { useBootstrap, useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
+import { visibleFeeds } from "@/lib/visibleFeeds";
 import type { Scope } from "@/api/types";
 import { SEARCH_ORDERS, SEARCH_ORDER_LABELS, scopeOrder, setSearchOrder, useSearchOrder, type SearchOrder } from "@/lib/searchPrefs";
 import { Button } from "@/ui/button";
 import { inputCls } from "@/ui/kit";
 import { ReadingMenu } from "./AppearanceControls";
-import { ListPane, StatusBlock, type ListControls } from "./ListPane";
+import { EmptyState } from "@/ui/EmptyState";
+import { ListPane, type ListControls } from "./ListPane";
 import { SaveSearchDialog } from "./search/SaveSearchDialog";
 import { SearchHelp } from "./search/SearchHelp";
 import { useLatestRef } from "@/lib/useLatestRef";
@@ -94,6 +96,7 @@ export function SearchScreen() {
   // Escape on the Search screen goes back, as it does on an open article. Not while typing (the box takes the first
   // Escape and lets go of focus), not in a menu or dialog (those take it first), not during IME composition.
   const navigate = useNavigate();
+  const noFeeds = !!boot.data && visibleFeeds(boot.data.feeds).length === 0;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing) return;
@@ -239,13 +242,19 @@ export function SearchScreen() {
         {markAll.dialog}
       </header>
       <div className="min-h-0 flex-1">
-        {scope ? (
+        {scope && !noFeeds ? (
           <ListPane key={`${q}|${whereKey}|${order}`} scope={scope} onControls={setControls} />
         ) : (
-          <StatusBlock
-            role="status"
-            title={trimmed.length === 0 ? "Search your articles" : "Keep typing"}
-            body={trimmed.length === 0 ? "Search covers every article Kipple has kept." : "Search needs at least two characters."}
+          <EmptyState
+            title={noFeeds ? "Add a feed first" : trimmed.length === 0 ? "Search your articles" : "Keep typing"}
+            why={noFeeds ? "Search covers the articles of your feeds, and you have none yet." : trimmed.length === 0 ? "Search covers every article Kipple has kept." : "Search needs at least two characters."}
+            action={
+              noFeeds ? (
+                <Button variant="solid" onClick={() => navigate("/feeds", { state: { open: "add" } })}>
+                  Add a feed
+                </Button>
+              ) : null
+            }
           />
         )}
       </div>

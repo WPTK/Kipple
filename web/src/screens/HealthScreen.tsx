@@ -12,7 +12,7 @@ import {
   useHealth,
   type HealthFeed,
 } from "@/api/admin";
-import { ApiError, api, errorMessage } from "@/api/client";
+import { ApiError, api, failed } from "@/api/client";
 import { invalidateLists, keys, useBootstrap } from "@/api/queries";
 import type { Feed } from "@/api/types";
 import { STATUS_RANK, statusInfo } from "@/lib/feedStatus";
@@ -93,7 +93,7 @@ function LogDialog({ feed, onClose }: { feed: HealthFeed; onClose: () => void })
       // updates down): the loaded lists reload the next time they are shown instead of keeping these articles unread.
       invalidateLists(qc, () => true);
     } catch (e) {
-      toast(errorMessage(e), "error");
+      toast(failed("mark that fetch read", e), "error");
     }
   };
   return (
@@ -130,14 +130,14 @@ function LogDialog({ feed, onClose }: { feed: HealthFeed; onClose: () => void })
 function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLog: () => void }) {
   const qc = useQueryClient();
   const done = () => invalidateFeeds(qc);
-  const run = async (fn: () => Promise<unknown>, ok: string) => {
+  const run = async (fn: () => Promise<unknown>, ok: string, what: string) => {
     try {
       await fn();
       done();
       announce(ok);
       toast(ok);
     } catch (e) {
-      toast(errorMessage(e), "error");
+      toast(failed(what, e), "error");
     }
   };
   return (
@@ -149,7 +149,7 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
-          <DropdownMenu.Item className={menuItem} onSelect={() => void run(async () => { const r = await refreshFeed(f.id); if (r.error) throw new Error(r.error); }, `Refreshed ${f.title}`)}>
+          <DropdownMenu.Item className={menuItem} onSelect={() => void run(async () => { const r = await refreshFeed(f.id); if (r.error) throw new Error(r.error); }, `Refreshed ${f.title}`, "refresh the feed")}>
             Refresh now
           </DropdownMenu.Item>
           <DropdownMenu.Item className={menuItem} onSelect={onLog}>
@@ -158,11 +158,11 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
           <DropdownMenu.Item className={menuItem} onSelect={onEdit}>
             Edit feed
           </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} onSelect={() => void run(() => patchFeed(f.id, { enabled: !f.enabled }), f.enabled ? `Turned off ${f.title}` : `Turned on ${f.title}`)}>
+          <DropdownMenu.Item className={menuItem} onSelect={() => void run(() => patchFeed(f.id, { enabled: !f.enabled }), f.enabled ? `Turned off ${f.title}` : `Turned on ${f.title}`, f.enabled ? "turn the feed off" : "turn the feed on")}>
             {f.enabled ? "Turn off" : "Turn on"}
           </DropdownMenu.Item>
           {f.trimmed_unread_count > 0 ? (
-            <DropdownMenu.Item className={menuItem} onSelect={() => void run(() => api(`/api/feeds/${f.id}/trimmed-unread/reset`, { method: "POST" }), "Reset the trimmed-unread count")}>
+            <DropdownMenu.Item className={menuItem} onSelect={() => void run(() => api(`/api/feeds/${f.id}/trimmed-unread/reset`, { method: "POST" }), "Reset the trimmed-unread count", "reset the count")}>
               Reset trimmed-unread count
             </DropdownMenu.Item>
           ) : null}
@@ -194,7 +194,7 @@ function RedirectNotice({ f, onDelete }: { f: HealthFeed; onDelete: () => void }
     } catch (e) {
       const code = e instanceof ApiError ? e.code : undefined;
       const msg = e instanceof ApiError && typeof e.body?.message === "string" ? e.body.message : "";
-      toast(code === "url_exists" ? msg || "Another feed already uses the new address." : errorMessage(e), "error");
+      toast(code === "url_exists" ? msg || "Another feed already uses the new address." : failed("update the feed address", e), "error");
     } finally {
       setBusy(false);
     }
@@ -210,7 +210,7 @@ function RedirectNotice({ f, onDelete }: { f: HealthFeed; onDelete: () => void }
         invalidateFeeds(qc); // the card was stale: refresh it
         toast("That redirect is no longer pending.", "error");
       } else {
-        toast(errorMessage(e), "error");
+        toast(failed("keep both feeds", e), "error");
       }
     } finally {
       setBusy(false);

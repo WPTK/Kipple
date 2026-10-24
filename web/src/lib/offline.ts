@@ -241,6 +241,11 @@ export async function queueRead(ids: string[], read: boolean, undo = false): Pro
   return { changed: ids, restored: [] };
 }
 
+/** The changes waiting to be sent, oldest first (for the offline notice to name them). */
+export async function queuedChanges(): Promise<Queued[]> {
+  return safe(async (b) => (await b.all()).map(({ seq: _seq, ...q }) => q as Queued), []);
+}
+
 /**
  * The service worker's stored copy of a list or an article is the server's word as of the time it was stored; the queue
  * holds what this user did since. This is the one place the two are put together: it lays the queued changes, oldest

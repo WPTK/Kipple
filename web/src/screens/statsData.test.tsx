@@ -200,7 +200,7 @@ describe("delete all statistics", () => {
     wrap(<DeleteAllDialog open onOpenChange={close} onSettled={() => {}} />);
     await user.type(screen.getByLabelText(/Type DELETE ALL/), "DELETE ALL");
     await user.click(screen.getByRole("button", { name: "Delete all statistics" }));
-    expect(await screen.findByText("The server returned an error. Try again.")).toBeInTheDocument();
+    expect(await screen.findByText("Kipple's server had a problem.")).toBeInTheDocument();
     expect(close).not.toHaveBeenCalled();
   });
 });

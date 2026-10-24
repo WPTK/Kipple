@@ -54,7 +54,7 @@ describe("list paging errors", () => {
     expect(calls.filter((c) => c.url.searchParams.get("cursor")).length).toBe(seen);
 
     fail = false;
-    await userEvent.setup().click(screen.getByRole("button", { name: "Retry" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
     await screen.findByText("Article number 9");
     await waitFor(() => expect(screen.queryByText(/Couldn.t load more/)).toBeNull());
   });

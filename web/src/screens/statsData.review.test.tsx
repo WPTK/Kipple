@@ -83,13 +83,13 @@ describe("dialogs start clean on every opening", () => {
       await user.click(screen.getByText("Open"));
       await user.type(screen.getByLabelText(/Type DELETE ALL/), "DELETE ALL");
       await user.click(screen.getByRole("button", { name: "Delete all statistics" }));
-      await screen.findByText("The server returned an error. Try again.");
+      await screen.findByText("Kipple's server had a problem.");
       await close(user);
       await gone();
       await user.click(screen.getByText("Open"));
       expect(screen.getByLabelText(/Type DELETE ALL/)).toHaveValue("");
       expect(screen.getByRole("button", { name: "Delete all statistics" })).toBeDisabled();
-      expect(screen.queryByText("The server returned an error. Try again.")).toBeNull();
+      expect(screen.queryByText("Kipple's server had a problem.")).toBeNull();
     });
 
     it(`export after ${name}: options reset`, async () => {

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, errorMessage } from "@/api/client";
+import { ApiError, errorMessage, failed } from "@/api/client";
 import { deleteFeed, invalidateFeeds, loadFeedDetail, patchFeed, refreshFeed, type FeedDetail } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import type { Feed } from "@/api/types";
@@ -178,7 +178,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
       else if (r.error) toast(`Couldn't fetch this feed: ${r.error}`, "error");
       else toast(r.new_items ? `${r.new_items} new article${r.new_items === 1 ? "" : "s"}` : "No new articles");
     } catch (e) {
-      toast(errorMessage(e), "error");
+      toast(failed("fetch this feed", e), "error");
     } finally {
       setBusy(false);
     }
@@ -194,7 +194,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
       setConfirmDelete(false);
       onClose();
     } catch (e) {
-      toast(errorMessage(e), "error");
+      toast(failed("delete this feed", e), "error");
       setBusy(false);
     }
   };
