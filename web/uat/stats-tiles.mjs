@@ -189,7 +189,7 @@ await t.eachViewport(async (page, vp) => {
         document.documentElement.setAttribute("data-targets", "large");
         document.documentElement.style.setProperty("--kp-scale", "1.5");
         // The longest value a tile shows ("<n>h <m>m", statsFormat.ts durationLabel), in the middle tile.
-        document.querySelectorAll("button[aria-expanded] > span.text-xl")[1].textContent = "12h 40m";
+        document.querySelectorAll("button[aria-expanded] > span.text-2xl")[1].textContent = "12h 40m";
       });
       const clipped = [];
       for (let i = 0; i < 3; i++) {
@@ -197,7 +197,7 @@ await t.eachViewport(async (page, vp) => {
         const box = await btn.boundingBox();
         if (box.height < 56 || box.width < 56) clipped.push(`tile ${i} is ${Math.round(box.width)}x${Math.round(box.height)}`);
         const m = await btn.evaluate((b) => {
-          const v = b.querySelector("span.text-xl").getBoundingClientRect();
+          const v = b.querySelector("span.text-2xl").getBoundingClientRect();
           const r = b.getBoundingClientRect();
           const chev = b.querySelector("svg[data-cue]").getBoundingClientRect();
           // Text can wrap but must stay inside the tile and clear of the chevron.

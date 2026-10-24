@@ -36,6 +36,7 @@
     "uat:row-name": "node uat/row-name.mjs",
     "uat:stats": "node uat/stats.mjs",
     "uat:stats-tiles": "node uat/stats-tiles.mjs",
+    "uat:stats-screen": "node uat/stats-screen.mjs",
     "uat:chrome": "node uat/chrome.mjs",
     "uat:phone-shell": "node uat/phone-shell.mjs",
     "uat:phone-header": "node uat/phone-header.mjs",
