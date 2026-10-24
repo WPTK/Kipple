@@ -33,7 +33,7 @@ for (let i = 0; i < runs; i++) {
   page.on("requestfailed", (r) => failed.add(r.url()));
   await page.goto(base + "/");
   await page.getByLabel("Username").fill(user);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.keyboard.press("Enter");
   await page.waitForURL((u) => !/login|setup/.test(u.pathname), { timeout: 15000 }).catch(() => {});
   await page.goto(base + "/l/all").catch(() => {});

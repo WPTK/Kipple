@@ -3,7 +3,7 @@ import { Collapsible } from "radix-ui";
 import { ChevronDown } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/cn";
-import { inputCls } from "@/ui/kit";
+import { inputCls, selectedCard } from "@/ui/kit";
 import { DEFAULT_DAY, DEFAULT_NIGHT, schemeById, type Scheme } from "./schemes";
 import { useAllowedSchemes } from "./serverThemes";
 import { chooseFixed, choosePair, clockMinutes, themeChoice, toClockTime } from "./settings";
@@ -34,8 +34,8 @@ function Option({ s, checked, onSelect }: { s: Scheme; checked: boolean; onSelec
   return (
     <label
       className={cn(
-        "relative flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border p-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent",
-        checked ? "border-accent bg-selection" : "border-line bg-surface hover:bg-selection",
+        "relative flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border p-2 has-[:focus-visible]:kp-ring",
+        checked ? selectedCard : "border-field bg-surface hover:bg-selection",
       )}
     >
       <input type="radio" name="theme" className="sr-only-live" checked={checked} onChange={onSelect} />
@@ -99,8 +99,8 @@ function PairOption({ title, detail, day, night, checked, onSelect }: { title: s
   return (
     <label
       className={cn(
-        "relative flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border p-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent",
-        checked ? "border-accent bg-selection" : "border-line bg-surface hover:bg-selection",
+        "relative flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border p-2 has-[:focus-visible]:kp-ring",
+        checked ? selectedCard : "border-field bg-surface hover:bg-selection",
       )}
     >
       <input type="radio" name="theme" className="sr-only-live" checked={checked} onChange={onSelect} />

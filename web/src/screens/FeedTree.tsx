@@ -206,7 +206,7 @@ function FeedItem({ f, level, ctx, fav }: { f: Feed; level: number; ctx: TreeCtx
         tabIndex={ctx.tabStop === key ? 0 : -1}
         data-tree-key={key}
         data-fav={`feed:${f.id}`}
-        className="group/row flex items-center rounded-lg focus-visible:outline-2 focus-visible:outline-accent"
+        className="group/row flex items-center rounded-lg"
       >
         <Link tabIndex={-1} to={openListTo({ feed: f.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 text-sm", !fav && "pl-3")}>
           <FeedLine feed={f} />
@@ -239,7 +239,7 @@ function FolderItem({ fo, level, ctx, fav }: { fo: Folder; level: number; ctx: T
         data-tree-key={key}
         data-folder-id={fo.id}
         data-fav={`folder:${fo.id}`}
-        className="group/row flex items-center rounded-lg focus-visible:outline-2 focus-visible:outline-accent"
+        className="group/row flex items-center rounded-lg"
       >
         {branch ? <CollapseToggle folder={fo} collapsed={collapsed} listId={groupId} collapsedIds={ctx.collapsedIds} tabIndex={-1} /> : null}
         <Link tabIndex={-1} to={openListTo({ folder: fo.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 pl-1 text-sm font-semibold")}>

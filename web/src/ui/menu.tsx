@@ -2,19 +2,30 @@ import { type ComponentProps, createContext, type MouseEvent, useContext, useRef
 import { DropdownMenu as Radix } from "radix-ui";
 import { cn } from "@/lib/cn";
 import { mediaMatches } from "@/lib/useMedia";
+import { useMain } from "@/ui/useMain";
 import { menuScrollClass, useTabBarClearance } from "@/ui/menuClearance";
 
 /** A finger is the pointer: menus open as a bottom sheet there, as a popover beside their button everywhere else. */
 export const TOUCH_QUERY = "(pointer: coarse)";
 
-const shell = "z-50 rounded-xl border border-line bg-bg p-1 text-fg shadow-xl";
+// z-60 and z-55 sit above the toasts, the save notice and dialogs (z-50): an open menu is never covered by one, so a toast
+// cannot take the taps meant for the bottom of a sheet.
+const shell = "z-60 rounded-xl border border-line bg-bg p-1 text-fg shadow-sheet";
 const sheet =
   "menu-sheet mx-auto max-h-[70dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-b-none rounded-t-2xl border-x-0 border-b-0 pt-2 pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))]";
+
+/** The row of a menu item (a command, a choice): 44 px tall, with the highlight the keyboard and pointer move. */
+export const menuItemClass = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-selection";
 
 /** Closes the menu of the Root around it. */
 const CloseMenu = createContext<() => void>(() => {});
 
-/** Radix's Root, with the open state where the sheet's dimmed page can reach it (a tap on it closes the menu). */
+/**
+ * Radix's Root, with the open state where the sheet's dimmed page can reach it (a tap on it closes the menu). Menus are
+ * not modal: a modal menu marks the rest of the page aria-hidden while its Skip link and list pane can still be
+ * focused, and leaves the page with no main landmark. Escape, a press outside and the arrow keys work the same; the
+ * keyboard cannot leave the menu either way, since Radix keeps Tab inside it.
+ */
 function Root({ open, defaultOpen = false, onOpenChange, ...rest }: ComponentProps<typeof Radix.Root>) {
   const [own, setOwn] = useState(defaultOpen);
   const change = (o: boolean) => {
@@ -23,7 +34,7 @@ function Root({ open, defaultOpen = false, onOpenChange, ...rest }: ComponentPro
   };
   return (
     <CloseMenu.Provider value={() => change(false)}>
-      <Radix.Root {...rest} open={open ?? own} onOpenChange={change} />
+      <Radix.Root {...rest} modal={false} open={open ?? own} onOpenChange={change} />
     </CloseMenu.Provider>
   );
 }
@@ -63,7 +74,7 @@ function PopoverContent({ popoverWidth, collisionPadding, ...rest }: ContentProp
  * rest of that tap (the lift and its click) landed on whatever lay under it, an article row that then opened. Measured
  * in Chromium and WebKit with real touch input. Kept until its own click, the dimmed page takes the whole tap.
  */
-function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutside, children, ...rest }: ContentProps) {
+function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutside, onFocusOutside, children, ...rest }: ContentProps) {
   const close = useContext(CloseMenu);
   const [opener] = useState(() => ({ at: performance.now(), id: lastPress }));
   const pressed = useRef(false);
@@ -74,7 +85,7 @@ function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutsi
         data-menu-backdrop=""
         // touch-none and overscroll-none: a drag that starts on the dimmed page must not scroll the page behind it (the
         // row's menu is not modal and locks no scroll of its own).
-        className="pointer-events-auto fixed inset-0 z-40 touch-none overscroll-none bg-black/50"
+        className="pointer-events-auto fixed inset-0 z-55 touch-none overscroll-none bg-scrim"
         // Only a press that began on it: the click of the press that opened the menu (a tap, or a mouse whose button
         // comes up over the dimmed page) also lands here. A click handler is also what makes iOS deliver a tap's click
         // to an element that is not a link or a button.
@@ -86,6 +97,14 @@ function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutsi
       <Radix.Content
         {...rest}
         data-menu-sheet=""
+        // A non-modal menu closes when focus leaves it, and a long press opens a row menu with no focus anywhere: the
+        // mouse events a browser sends after the lift (mousedown on the story's link) move focus to the page under the
+        // sheet and closed the menu the moment the finger came up. The sheet is closed by its dimmed page, Escape and a
+        // choice, and Tab cannot leave it, so focus moving elsewhere is never a reason to close it.
+        onFocusOutside={(e) => {
+          onFocusOutside?.(e);
+          e.preventDefault();
+        }}
         onPointerDownOutside={(e) => {
           onPointerDownOutside?.(e);
           if ((e.detail.originalEvent.target as Element | null)?.closest?.("[data-menu-backdrop]")) e.preventDefault();
@@ -107,13 +126,21 @@ function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutsi
 }
 
 /**
+ * Where menus are drawn: inside the page's main landmark, not loose in the body, so every menu is in a landmark (axe
+ * "region"). Its position is fixed, so it is placed the same wherever it sits in the page.
+ */
+function Portal(props: ComponentProps<typeof Radix.Portal>) {
+  return <Radix.Portal container={useMain()} {...props} />;
+}
+
+/**
  * The menu parts. Nested menus (Sub) are left out on purpose: neither the popover nor the bottom sheet is built for one,
  * and ESLint keeps every other module from importing Radix's DropdownMenu directly.
  */
 export const DropdownMenu = {
   Root,
   Trigger: Radix.Trigger,
-  Portal: Radix.Portal,
+  Portal,
   Content: MenuContent,
   Item: Radix.Item,
   CheckboxItem: Radix.CheckboxItem,

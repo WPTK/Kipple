@@ -1,7 +1,7 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { BookmarkPlus, CheckCheck, X } from "lucide-react";
+import { BookmarkPlus, CheckCheck } from "lucide-react";
 import { savedScopeOf, scopeFromSearchParams, useSavedSearches } from "@/api/savedSearches";
 import { useBootstrap, useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
@@ -9,7 +9,8 @@ import { visibleFeeds } from "@/lib/visibleFeeds";
 import type { Scope } from "@/api/types";
 import { SEARCH_ORDERS, SEARCH_ORDER_LABELS, scopeOrder, setSearchOrder, useSearchOrder, type SearchOrder } from "@/lib/searchPrefs";
 import { Button } from "@/ui/button";
-import { inputCls } from "@/ui/kit";
+import { cn } from "@/lib/cn";
+import { Chip, inputCls } from "@/ui/kit";
 import { ReadingMenu } from "./AppearanceControls";
 import { EmptyState } from "@/ui/EmptyState";
 import { ListPane, type ListControls } from "./ListPane";
@@ -179,7 +180,7 @@ export function SearchScreen() {
               // Down from the field goes into the results, as it moves between rows in the list itself.
               else if (e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.nativeEvent.isComposing && controls?.focusStop()) e.preventDefault();
             }}
-            className="mt-2 min-h-11 w-full rounded-lg border border-line bg-surface px-3 text-base text-fg placeholder:text-fg2"
+            className={cn(inputCls, "mt-2")}
           />
         </form>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -205,17 +206,9 @@ export function SearchScreen() {
             </select>
           </div>
           {chip ? (
-            <span className="inline-flex min-h-11 items-center gap-1 rounded-full border border-line bg-surface pr-1 pl-3 text-sm">
-              <span className="max-w-40 truncate">In {chip}</span>
-              <button
-                type="button"
-                aria-label="Search the whole library instead"
-                className="hit inline-flex items-center justify-center rounded-full hover:bg-selection"
-                onClick={() => setQuery(q, ["feed", "folder", "view", "ss"])}
-              >
-                <X className="size-4" aria-hidden="true" />
-              </button>
-            </span>
+            <Chip className="max-w-52" removeLabel="Search the whole library instead" onRemove={() => setQuery(q, ["feed", "folder", "view", "ss"])}>
+              In {chip}
+            </Chip>
           ) : null}
         </div>
         {ready ? (

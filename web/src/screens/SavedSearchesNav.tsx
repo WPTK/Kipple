@@ -83,8 +83,9 @@ export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
   const countsFailed = useFailureShown(countsError, countsFetching, searches.some((s) => s.unread !== undefined));
   if (searches.length === 0 && !listFailed) return null;
   const current = loc.pathname === "/search" ? new URLSearchParams(loc.search).get("ss") : null;
+  // A group inside the Primary navigation, not a region of its own: Settings has a region of the same name.
   return (
-    <section aria-label="Saved searches" className="mb-2">
+    <div role="group" aria-label="Saved searches" className="mb-2">
       <h2 className="mt-3">
         <button
           type="button"
@@ -118,6 +119,6 @@ export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
           {countsFailed ? <RetryNote message="Couldn't count unread articles." busy={countsFetching} onRetry={refetchCounts} /> : null}
         </ul>
       ) : null}
-    </section>
+    </div>
   );
 }

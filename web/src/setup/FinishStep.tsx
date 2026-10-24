@@ -5,7 +5,7 @@ import { useBootstrap } from "@/api/queries";
 import { accountError } from "@/screens/AccountSection";
 import { announce, toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
-import { Field, Notice, inputCls } from "@/ui/kit";
+import { Notice, PasswordField } from "@/ui/kit";
 import { StepActions, WizardFrame } from "./Frame";
 import { apiPasswordMade, setupSecret } from "./session";
 import { stepById } from "./steps";
@@ -92,9 +92,7 @@ export function FinishStep({ onBack, onFinish, busy }: { onBack: () => void; onF
                 </Notice>
               ) : null}
               {needsPassword ? (
-                <Field label="Your web password" help="Kipple asks for it before making an API password.">
-                  {(a) => <input {...a} type="password" autoComplete="current-password" value={typed} onChange={(e) => setTyped(e.target.value)} className={inputCls} />}
-                </Field>
+                <PasswordField label="Your web password" help="Kipple asks for it before making an API password." autoComplete="current-password" value={typed} onChange={setTyped} />
               ) : null}
               <Button className="self-start" disabled={working || !known || (needsPassword && typed === "")} onClick={() => void generate()}>
                 {working ? "Generating" : madeBefore ? "Replace API password" : "Generate API password"}

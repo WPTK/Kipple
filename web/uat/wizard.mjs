@@ -198,7 +198,6 @@ try {
     await radioCardChecks(page, "A step 1");
     await page.getByLabel("User name").fill("tester");
     await page.getByLabel("Password", { exact: true }).fill("a long enough password");
-    await page.getByLabel("Password again").fill("a long enough password");
     await page.getByRole("button", { name: "Create my account" }).click();
 
     // Step 2: the browser's zone (Asia/Tokyo here) is preselected.
@@ -236,8 +235,8 @@ try {
 
     await onStep(page, "A", "You're all set", 7);
     // The reload at step 4 made the page forget the password typed in step 1, so step 7 asks for it again.
-    check("A step 7", await page.getByLabel("Your web password").isVisible(), "the web password was not asked for after a reload");
-    await page.getByLabel("Your web password").fill("a long enough password");
+    check("A step 7", await page.getByLabel("Your web password", { exact: true }).isVisible(), "the web password was not asked for after a reload");
+    await page.getByLabel("Your web password", { exact: true }).fill("a long enough password");
     await page.getByRole("button", { name: "Generate API password" }).click();
     await page.getByTestId("api-password").waitFor({ timeout: 10_000 });
     check("A step 7", ((await page.getByTestId("api-password").textContent()) ?? "").length > 8, "no API password shown");
@@ -414,7 +413,7 @@ try {
     try {
       await page.getByRole("heading", { level: 1, name: "Kipple couldn't load" }).waitFor({ timeout: 10_000 });
       check("C offline", await page.getByRole("button", { name: "Try again" }).isVisible(), "no Try again button");
-      check("C offline", (await page.getByLabel("Password").count()) === 0, "a password form was shown when the server could not be reached");
+      check("C offline", (await page.locator('input[type="password"]').count()) + (await page.getByRole("textbox", { name: /password/i }).count()) === 0, "a password form was shown when the server could not be reached");
       await overflowRun(page, "C offline");
       if (opt.screenshots) await page.screenshot({ path: join(opt.screenshots, "C-offline.png"), fullPage: true });
     } catch {
@@ -425,7 +424,6 @@ try {
     await onStep(page, "C", "Create your account", 1);
     await page.getByLabel("User name").fill("skipper");
     await page.getByLabel("Password", { exact: true }).fill("a long enough password");
-    await page.getByLabel("Password again").fill("a long enough password");
     await page.getByRole("button", { name: "Create my account" }).click();
     await onStep(page, "C", "Choose your time zone", 2);
     await page.getByRole("button", { name: "Skip the rest of setup" }).click();

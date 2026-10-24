@@ -35,7 +35,7 @@ import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { NOTHING_TO_UNDO, undoLast, undoStore } from "@/lib/undo";
 import { Button, buttonVariants } from "@/ui/button";
-import { inputCls } from "@/ui/kit";
+import { chipCls, inputCls } from "@/ui/kit";
 import { cn } from "@/lib/cn";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { ArticlePane } from "./ArticlePane";
@@ -45,7 +45,7 @@ import { ReadingMenu } from "./AppearanceControls";
 import { EmptyState } from "@/ui/EmptyState";
 import { NotFoundBlock } from "@/ui/NotFoundBlock";
 import { FINISH_SEARCH, ListPane, type ListControls } from "./ListPane";
-import { DropdownMenu } from "@/ui/menu";
+import { DropdownMenu, menuItemClass as menuItem } from "@/ui/menu";
 
 // The Show pills are the whole-library lists of the destinations table; Muted is added only while it has something.
 const VIEWS: { view: View; label: string }[] = LISTS.filter((d) => d.id !== "muted").map((d) => ({ view: d.id as View, label: d.pill }));
@@ -99,9 +99,6 @@ export function scopeUnread(scope: Scope, boot: Bootstrap | undefined): number |
 
 /** Why Mark all as read is off in a list with nothing unread. */
 export const NOTHING_UNREAD = "Nothing unread here";
-
-const menuItem =
-  "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-selection";
 
 export function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: ListControls; beside?: boolean }) {
   const { title, above } = useScopeTitle(scope);
@@ -304,7 +301,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
             to={listTo({ ...scope, length: undefined })}
             replace
             aria-label={`Reading time ${READING_LENGTH_LABELS[scope.length]}. Show any length`}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-accent px-3 text-sm text-fg hover:bg-selection"
+            className={cn(chipCls, "border-accent px-3 text-fg hover:bg-selection")}
           >
             <Timer className="size-4 text-accent" aria-hidden="true" />
             {READING_LENGTH_LABELS[scope.length]}
