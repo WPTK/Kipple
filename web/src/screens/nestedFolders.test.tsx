@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WIDE_QUERY } from "@/lib/useMedia";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
@@ -33,7 +34,7 @@ function media(...on: string[]) {
     dispatchEvent: () => false,
   }));
 }
-const WIDE = "min-width: 900px";
+const WIDE = WIDE_QUERY;
 
 const feedBase = bootstrap.feeds[0] as Bootstrap["feeds"][number];
 const feed = (id: string, folder: string, title: string, unread = 1) => ({ ...feedBase, id, folder_id: folder, title, unread });
@@ -270,6 +271,7 @@ describe("managing nested folders", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Add feed" }));
     const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Options" }));
     const options = within(within(dialog).getByRole("combobox", { name: "Folder" })).getAllByRole("option").map((o) => o.textContent);
     expect(options).toEqual(["Default folder", "Uncategorized", "Tech", "Tech › Apple", "Tech › Apple › Mac", "Tech › Empty", "Sports"]);
   });

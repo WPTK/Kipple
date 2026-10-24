@@ -270,6 +270,11 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 					// The new URL has never been fetched: its first success brings a backlog, not
 					// arrivals, so feed_daily_new leaves it out like a new subscription's.
 					"url_succeeded = 0")
+				// A feed the site said is gone (410) was switched off for that address; a corrected address is
+				// the way back, so it is switched on and fetched at once unless the same patch says otherwise.
+				if reason.String == "gone" && p.Enabled == nil {
+					sets = append(sets, "enabled = 1", "disabled_reason = NULL")
+				}
 				set("next_fetch_at", now)
 				res.Changed, res.NeedsFetch, res.Notify = true, true, true
 			}
@@ -281,10 +286,11 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 				sets = append(sets, "enabled = 1", "disabled_reason = NULL", "consecutive_failures = 0", "current_delay_s = 0")
 				set("next_fetch_at", now)
 				res.NeedsFetch = true
-			case enabled == 1:
+			case enabled == 1 || reason.String == "gone":
+				// Pausing a gone feed makes it the person's choice: it stays off if its address is corrected later.
 				sets = append(sets, "enabled = 0", "disabled_reason = 'user'")
 			}
-			if *p.Enabled || enabled == 1 {
+			if *p.Enabled || enabled == 1 || reason.String == "gone" {
 				res.Changed, res.Notify = true, true
 			}
 		}
@@ -741,4 +747,25 @@ func (d *DB) Reorder(ctx context.Context, folders []FolderOrder, feeds []FeedOrd
 		return ReorderResult{}, err
 	}
 	return res, nil
+}
+
+// FeedArticleCount is how many articles the feeds in ids hold (starred ones included, the archive feed's too): what a
+// delete confirmation says it removes. Ids that are gone count for nothing.
+func (d *DB) FeedArticleCount(ctx context.Context, ids []int64) (int64, error) {
+	var total int64
+	for len(ids) > 0 {
+		n := min(len(ids), 500)
+		args := make([]any, n)
+		marks := make([]string, n)
+		for i, id := range ids[:n] {
+			args[i], marks[i] = id, "?"
+		}
+		var c int64
+		if err := d.reader.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id IN ("+strings.Join(marks, ",")+")", args...).Scan(&c); err != nil {
+			return 0, err
+		}
+		total += c
+		ids = ids[n:]
+	}
+	return total, nil
 }

@@ -17,7 +17,9 @@ export function keyWidth(key: string, shift: boolean, current: number, min: numb
 }
 
 /**
- * A vertical drag handle on the right edge of a column (the parent must be `relative`). Pointer drag and the
+ * A vertical drag handle on the right edge of a column (the parent must be `relative`). It draws a thin line on the edge
+ * but is 24 px wide (WCAG 2.5.8), all of it outside the column, so it never covers the column's own scrollbar; what
+ * sits in the column keeps at least 8 px clear of the edge, and the next column starts 24 px further right (padding), so no control is under the strip. Pointer drag and the
  * arrow keys resize it; Home and End go to the limits; double-click resets. It is a WAI-ARIA window splitter
  * (`role="separator"` with a value), so a screen reader announces the width.
  */
@@ -70,7 +72,7 @@ export function ResizeHandle({
       title="Drag to resize. Double-click to reset."
       data-active={active || undefined}
       className={cn(
-        "group absolute inset-y-0 -right-1.5 z-30 w-3 cursor-col-resize touch-none outline-none",
+        "group absolute inset-y-0 -right-6 z-30 w-6 cursor-col-resize touch-none outline-none",
         className,
       )}
       onPointerDown={(e) => {
@@ -101,7 +103,7 @@ export function ResizeHandle({
     >
       <span
         aria-hidden="true"
-        className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-transparent group-hover:bg-accent group-focus-visible:bg-accent group-data-[active]:bg-accent"
+        className="absolute inset-y-0 left-0 w-0.5 bg-transparent group-hover:bg-accent group-focus-visible:bg-accent group-data-[active]:bg-accent"
       />
     </div>
   );

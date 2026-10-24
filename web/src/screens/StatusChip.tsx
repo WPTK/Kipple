@@ -1,19 +1,23 @@
 import { CircleAlert, CircleCheck, CirclePause } from "lucide-react";
-import { statusInfo } from "@/lib/feedStatus";
+import type { Feed } from "@/api/types";
+import { failureReason, statusInfo } from "@/lib/feedStatus";
+import { useFeedTimes } from "./FeedRepair";
 
-/** A Feeds screen row's status: the chip, and for a failing feed the reason it fails (two lines at most; the feed's empty list and Feed health show it whole). */
-export function FeedRowStatus({ status, error }: { status: string; error?: string | null }) {
-  if (status === "ok") return null;
+/** A Feeds screen row's status: the chip, and for a failing feed the reason it fails and when Kipple tries again (two lines at most). */
+export function FeedRowStatus({ feed }: { feed: Pick<Feed, "id" | "status" | "last_error" | "last_error_class"> }) {
+  if (feed.status === "ok") return null;
   return (
     <>
-      <StatusChip status={status} />
-      {error ? (
-        <span className="line-clamp-2 text-xs break-words text-fg2" title={error}>
-          {error}
-        </span>
-      ) : null}
+      <StatusChip status={feed.status} />
+      {feed.last_error ? <FailureText feed={feed} /> : null}
     </>
   );
+}
+
+/** The reason in reader words, then "Trying again in 1 hour" once Feed health's figures are in. */
+function FailureText({ feed }: { feed: Pick<Feed, "id" | "last_error" | "last_error_class"> }) {
+  const { retry } = useFeedTimes(feed.id);
+  return <span className="line-clamp-2 text-xs break-words text-fg2">{[`${failureReason(feed)}.`, retry ? `${retry}.` : ""].filter(Boolean).join(" ")}</span>;
 }
 
 /** Icon and text together: status is never color alone. */

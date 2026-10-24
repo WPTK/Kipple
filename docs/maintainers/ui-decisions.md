@@ -59,7 +59,7 @@ were resolved in round 2 and what shipped; each is annotated below.
   checkbox on a list row picks that row for a bulk action; it is not a labelled yes/no option, so it stays a native input in
   the row and is not a `Checkbox`.
 - Wording follows the control: "Tick" and "Untick" for a checkbox, "Turn on" only for a switch. A checkbox label is an action
-  phrase that reads as the thing you do when it is ticked ("Check this feed", "Use this filter"), not a state ("Enabled",
+  phrase that reads as the thing you do when it is ticked ("Pause this feed", "Use this filter"), not a state ("Enabled",
   "Filter is on"); the owner ruled this 2026-10-19.
 - A choice among a few named steps stays a segmented control (native radios); a choice that wants a sentence each is a
   list of radio cards (`RadioCard` in `web/src/ui/kit.tsx`; `RadioRow` for a short plain choice). `checkbox.test.tsx` also fails a hand-written
@@ -473,6 +473,50 @@ The Stats summary tiles (previous-period figure) and a feed's Read rate (the cou
 - **Mark all as read** is in each folder's menu (the folder and its subfolders, with the usual undo toast), shown only
   when the folder has unread articles.
 
+## Vocabulary (design review 1.5, 2026-10-22)
+
+One name for each thing, in every screen, tooltip, label, help text and document. A change to a name is made here first.
+The area packages (the sidebar and tab bar, Settings, Stats, setup, feed management) apply it; none of them coins a new
+word for something listed.
+
+- **Destinations** (the sidebar and the tab bar; `web/src/lib/destinations.ts` is the one list):
+  Unread, All articles, Starred, Muted (the four lists of the whole library), Search, Feeds, Stats, Settings.
+  The tab bar's first tab is "Articles" because it holds the four lists as pills; it is not a fifth list.
+- **Feeds** is the one word for the place that manages feeds. "Manage feeds", "Feed list" and "Subscriptions" are not
+  used. Feed health is a screen of Feeds and Feeds is the current destination while it is open.
+- **Your year** is the name of the yearly summary wherever a reader sees it (link, screen title, share text).
+  "Wrapped" is the internal name (code, route, settings keys) and never appears in the interface. Your year belongs to
+  Stats and Stats is the current destination while it is open.
+- **Uncategorized** is the folder a feed is in when it is in no other folder. It is the same in the sidebar, the Feeds
+  screen, the editors and the delete messages.
+- **Muted** is hidden from the header pills while nothing is muted (a pill that comes and goes would only shift the
+  others), and always present in the sidebar and under Feeds.
+- **Reading appearance** is the Aa control (theme, font, text size), in the article toolbar, the list header and
+  Settings. **Reading time** is an estimate of minutes for an article and the filter built on it; the two words are
+  never swapped.
+- **This device** and **All devices** are the only scope words in Settings and in help text. "Everywhere", "locally"
+  and "on the server" do not say where a setting applies.
+- **Stats**, not "Statistics", is the name of the screen and of its Settings group.
+- **Articles**, not "items" or "entries", in every sentence a reader sees. **Read** and **unread** are the states;
+  "opened" is a statistic, not a state.
+- **Pause** is what a feed's off switch does ("Pause this feed"); a feed is never "disabled" or "muted".
+- Wording for people who do not run servers: no file names, environment variables or protocol names in a screen's own
+  text. Those belong in the documentation and behind "Copy debug info".
+
+### The current destination
+
+At most one destination is current at a time. The sidebar and the tab bar read one function
+(`currentDestination(pathname, search)`): a list scoped to a feed or a folder belongs to Feeds, not to Unread; Feed
+health belongs to Feeds; Your year belongs to Stats. Other screens (an article, setup) have none. The sidebar shows no
+destination row as current on a feed's or a folder's list, because the tree below it marks the feed or folder itself,
+and none on an article. The tab bar marks Feeds there. The Show pills in a list header are not destinations: they read
+the list's own view (`scope.view`).
+
+### Resize handles
+
+A resize handle draws a thin line on the column's edge and has a 24 px hit area wholly outside the column, so it never
+covers the column's scrollbar, and what sits in the column stays at least 8 px clear of it. The sidebar's handle stays
+a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, and a splitter is focusable by its pattern.
 ## The Digest (#39, Phase C)
 
 - **What it is.** One page of sections, a section for each folder (or feed, a device setting), each with its name in the

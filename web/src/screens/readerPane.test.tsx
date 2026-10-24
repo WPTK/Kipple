@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WIDE_QUERY } from "@/lib/useMedia";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { onlineManager } from "@tanstack/react-query";
@@ -61,7 +62,7 @@ beforeEach(() => {
   resetDevicePrefs();
   resetUndo();
   updateDevicePrefs({ peekSeen: true, layout: "inbox" });
-  media("min-width: 900px");
+  media(WIDE_QUERY);
 });
 afterEach(() => {
   vi.unstubAllGlobals();

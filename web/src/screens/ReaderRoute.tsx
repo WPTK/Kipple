@@ -31,6 +31,7 @@ import { announce } from "@/shell/toasts";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { NARROW_QUERY, useMedia, useShort, useWide } from "@/lib/useMedia";
 import { ARTICLE_MIN, maxFor, useWidth } from "@/lib/useWidth";
+import { DESTINATIONS, LISTS } from "@/lib/destinations";
 import { NEW_VIEW, listTo, newTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
 import { useCatchupVisit, visitStore } from "@/lib/catchup";
 import { prefsStore } from "@/lib/prefs";
@@ -49,11 +50,8 @@ import { NotFoundBlock } from "@/ui/NotFoundBlock";
 import { FINISH_SEARCH, ListPane, type ListControls } from "./ListPane";
 import { DropdownMenu, menuItemClass as menuItem } from "@/ui/menu";
 
-const VIEWS: { view: View; label: string }[] = [
-  { view: "unread", label: "Unread" },
-  { view: "all", label: "All" },
-  { view: "starred", label: "Starred" },
-];
+// The Show pills are the whole-library lists of the destinations table; Muted is added only while it has something.
+const VIEWS: { view: View; label: string }[] = LISTS.filter((d) => d.id !== "muted").map((d) => ({ view: d.id as View, label: d.pill }));
 
 /** The list's title, and for a subfolder the path of the folders above it ("Tech › Apple" above "Mac"). */
 function useScopeTitle(scope: Scope): { title: string; above: string } {
@@ -62,7 +60,7 @@ function useScopeTitle(scope: Scope): { title: string; above: string } {
   if (scope.after) return { title: "New", above: "" };
   if (scope.feed) return { title: boot.data?.feeds.find((f) => f.id === scope.feed)?.title ?? "Feed", above: "" };
   if (scope.folder) return { title: tree.byId.get(scope.folder)?.name ?? "Folder", above: tree.byId.has(scope.folder) ? parentPath(tree, scope.folder) : "" };
-  return { title: scope.view === "all" ? "All articles" : scope.view === "starred" ? "Starred" : scope.view === "muted" ? "Muted" : "Unread", above: "" };
+  return { title: DESTINATIONS[scope.view].label, above: "" };
 }
 
 /** Feeds (or folders, on a folder list) in sidebar order, and the neighbours of the current one. */
@@ -134,7 +132,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
   const boot = useBootstrap();
   const mutedCount = boot.data?.counts.muted ?? 0;
   // The Muted pill appears when there is something muted, or when you are in it.
-  const views = scope.view === "muted" || mutedCount > 0 ? [...VIEWS, { view: "muted" as View, label: "Muted" }] : VIEWS;
+  const views = scope.view === "muted" || mutedCount > 0 ? [...VIEWS, { view: "muted" as View, label: DESTINATIONS.muted.pill }] : VIEWS;
   // New is the whole library's page, so it is a pill only there (not on a feed or a folder), and the other pills leave it.
   const plain: Scope = { ...scope, after: undefined };
   const pillList = [
@@ -456,7 +454,7 @@ function WidePane({
           />
         )}
       </div>
-      {listOnly ? null : <div className="min-w-0 flex-1">{article}</div>}
+      {listOnly ? null : <div className="min-w-0 flex-1 pl-6">{article}</div>}
     </div>
   );
 }
