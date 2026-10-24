@@ -31,6 +31,11 @@ describe("Mark all words name the reach", () => {
   it("says everything unread in the Unread view of the library", () => {
     expect(markAllLabel({ view: "unread" }, 214)).toBe("Mark everything unread as read");
   });
+  it("counts what is new on the New page, never everything unread", () => {
+    expect(markAllLabel({ view: "unread", after: "100" }, 6)).toBe("Mark all 6 as read");
+    expect(markAllLabel({ view: "unread", after: "100" }, null)).toBe("Mark all as read");
+    expect(markAllReach({ view: "unread", after: "100" })).toBe("unread articles that arrived since you last looked");
+  });
   it("names a feed's count in Unread, results in a search, and nothing false where the count is unknown or zero", () => {
     expect(markAllLabel({ view: "unread", feed: "f1" }, 3)).toBe("Mark all 3 as read");
     expect(markAllLabel({ view: "all", q: "rust" }, null)).toBe("Mark all results as read");

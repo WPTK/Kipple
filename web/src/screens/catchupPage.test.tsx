@@ -207,7 +207,8 @@ describe("the New page", () => {
     go("/l/new");
     await screen.findByText("Beta story 1");
     await user.click(screen.getByRole("button", { name: "List actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Mark all as read/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /Mark all 6 as read/ }));
+    await user.click(await screen.findByRole("button", { name: "Mark all 6 as read" }));
     await waitFor(() => expect(calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read").length).toBeGreaterThan(0));
     const bodies = calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read").map((c) => JSON.parse(String(c.init?.body)));
     expect(bodies.every((b) => b.scope.after_id === "100" && b.scope.view === "unread")).toBe(true);
@@ -324,7 +325,8 @@ describe("the page's loading, failure and edges", () => {
     go("/l/new");
     await screen.findByText("Beta story 1");
     await user.click(screen.getByRole("button", { name: "List actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Mark all as read/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /Mark all 6 as read/ }));
+    await user.click(await screen.findByRole("button", { name: "Mark all 6 as read" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read")).toBe(true));
     const body = JSON.parse(String(calls.find((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read")!.init?.body));
     expect(body.max_id).toBe("900");
