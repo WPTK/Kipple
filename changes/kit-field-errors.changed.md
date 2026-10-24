@@ -1,0 +1,1 @@
+Filter, setting and device-name errors show the same warning icon and message style as every other field error. (#609)

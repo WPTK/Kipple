@@ -324,7 +324,7 @@ export function DeleteDialog({
           <Button onClick={onClose} disabled={busy}>
             {error ? "Close" : "Cancel"}
           </Button>
-          <Button variant="solid" disabled={busy} onClick={() => void run()}>
+          <Button variant="danger" disabled={busy} onClick={() => void run()}>
             {busy ? "Deleting…" : error ? "Try again" : copy.button}
           </Button>
         </>
@@ -411,7 +411,7 @@ export function DeleteFolderDialog({
             <Button onClick={() => onClose()} disabled={working}>
               Cancel
             </Button>
-            <Button variant="solid" disabled={working || !ready} onClick={() => void run()}>
+            <Button variant="danger" disabled={working || !ready} onClick={() => void run()}>
               {working ? "Deleting…" : all ? (feedsGone ? "Delete the folder" : `Delete folder and ${plural}${removed ? ` and ${articlesOf(removed)}` : ""}`) : "Delete folder"}
             </Button>
           </>

@@ -279,6 +279,13 @@ describe("scheme roster", () => {
     for (const s of SCHEMES) expect(contrast(s.tokens.text2, s.tokens.selection), `${s.name} text2/selection`).toBeGreaterThanOrEqual(4.5);
   });
 
+  it("the field boundary reaches 3:1 against the page and the surface in every scheme", () => {
+    for (const s of SCHEMES) {
+      expect(contrast(s.tokens.field, s.tokens.bg), `${s.name} field/bg`).toBeGreaterThanOrEqual(3);
+      expect(contrast(s.tokens.field, s.tokens.surface), `${s.name} field/surface`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
   it("toasts: text on the accent-tinted toast surface is AA in every scheme, and the borders are visible", () => {
     // --kp-toast-bg in index.css is color-mix(in srgb, accent 18%, surface).
     for (const s of SCHEMES) {

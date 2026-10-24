@@ -158,7 +158,7 @@ export function designSession(browser, origin, user = SEED_USER, password = SEED
     const page = await ctx.newPage();
     await page.goto("/");
     await page.getByLabel("Username").fill(user);
-    await page.getByLabel("Password").fill(password);
+    await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
     await page.close();

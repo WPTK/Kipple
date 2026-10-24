@@ -4,7 +4,7 @@ import { settingsIssues, usePatchSettings, type SettingMeta } from "@/api/admin"
 import { settingWarning } from "@/lib/settingGuards";
 import { Segmented } from "@/ui/segmented";
 import { Button } from "@/ui/button";
-import { Field, Modal, Stepper, Switch, inputCls } from "@/ui/kit";
+import { Field, FieldError, Modal, Stepper, Switch, inputCls } from "@/ui/kit";
 import { announce } from "@/shell/toasts";
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -82,11 +82,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
       break;
     case "enum": {
       const opts = meta.options ?? [];
-      const err = error ? (
-        <p role="alert" className="mt-1 text-sm text-danger">
-          {error}
-        </p>
-      ) : null;
+      const err = error ? <FieldError id={`${uid}-e`} className="mt-1">{error}</FieldError> : null;
       control =
         opts.length <= 4 ? (
           <>
@@ -153,11 +149,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
           <p id={`${uid}-h`} className="mt-1 text-xs text-fg2">
             {help}
           </p>
-          {error ? (
-            <p id={`${uid}-e`} role="alert" className="mt-1 text-sm text-danger">
-              {error}
-            </p>
-          ) : null}
+          {error ? <FieldError id={`${uid}-e`} className="mt-1">{error}</FieldError> : null}
         </div>
       );
       break;

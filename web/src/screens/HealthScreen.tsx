@@ -26,11 +26,10 @@ import { StatusChip } from "./StatusChip";
 import { RepairButtons } from "./FeedRepair";
 import { DeleteDialog, ToggleDialog } from "./feeds/BulkActions";
 import { BottomBar } from "@/ui/BottomBar";
-import { DropdownMenu } from "@/ui/menu";
+import { DropdownMenu, menuItemClass as menuItem } from "@/ui/menu";
 
 const FeedEditor = lazyScreen(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
 
-const menuItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
 
 type SortKey = "status" | "title" | "last_success_at" | "next_fetch_at";
 type Filter = "all" | "attention" | "off";
@@ -221,7 +220,7 @@ function RedirectNotice({ f, onDelete }: { f: HealthFeed; onDelete: () => void }
           This address redirects to <span className="font-semibold">{f.redirect_owner}</span>, which you already have.
         </p>
         <div className="mt-1 flex flex-wrap gap-2">
-          <Button disabled={busy} onClick={onDelete}>
+          <Button variant="danger" disabled={busy} onClick={onDelete}>
             Delete this feed
           </Button>
           <Button disabled={busy} onClick={() => void keepBoth()}>
