@@ -1031,7 +1031,7 @@ func TestBootstrap(t *testing.T) {
 	c := h.login()
 	fo := h.addFolder("News")
 	a, b := h.addFeed("A", 0), h.addFeed("B", fo)
-	h.exec("UPDATE feeds SET custom_title = 'Bee', fulltext = 1, retention = 100, interval_minutes = 60, consecutive_failures = 2, last_error = 'HTTP 503' WHERE id = ?", b)
+	h.exec("UPDATE feeds SET custom_title = 'Bee', fulltext = 1, retention = 100, interval_minutes = 60, consecutive_failures = 2, last_error = 'HTTP 503', last_error_class = 'http' WHERE id = ?", b)
 	h.exec("INSERT INTO feed_icons (feed_id, data, content_type, hash, fetched_at) VALUES (?, x'00', 'image/png', 'abc123', 1)", a)
 	h.addItem(a, seedItem{})
 	h.addItem(a, seedItem{Starred: true, Read: true})
@@ -1072,11 +1072,11 @@ func TestBootstrap(t *testing.T) {
 	fa, fb := feeds[0].(map[string]any), feeds[1].(map[string]any)
 	require.Equal(t, map[string]any{
 		"id": sid(a), "folder_id": "1", "title": "A", "site_url": "https://x.example/", "icon": "/api/feeds/" + sid(a) + "/icon?h=abc123",
-		"unread": float64(1), "status": "ok", "fulltext": false, "fulltext_effective": false, "retention": nil, "interval_minutes": nil, "auto_read_days": nil, "is_archive": false, "starred_count": float64(1), "last_error": nil, "address_hint": nil, "pace": nil,
+		"unread": float64(1), "status": "ok", "fulltext": false, "fulltext_effective": false, "retention": nil, "interval_minutes": nil, "auto_read_days": nil, "is_archive": false, "starred_count": float64(1), "last_error": nil, "last_error_class": nil, "address_hint": nil, "pace": nil,
 	}, fa)
 	require.Equal(t, map[string]any{
 		"id": sid(b), "folder_id": sid(fo), "title": "Bee", "site_url": "https://x.example/", "icon": nil,
-		"unread": float64(2), "status": "erroring", "fulltext": true, "fulltext_effective": true, "retention": float64(100), "interval_minutes": float64(60), "auto_read_days": nil, "is_archive": false, "starred_count": float64(0), "last_error": "HTTP 503", "address_hint": nil, "pace": nil,
+		"unread": float64(2), "status": "erroring", "fulltext": true, "fulltext_effective": true, "retention": float64(100), "interval_minutes": float64(60), "auto_read_days": nil, "is_archive": false, "starred_count": float64(0), "last_error": "HTTP 503", "last_error_class": "http", "address_hint": nil, "pace": nil,
 	}, fb)
 
 	require.Equal(t, []any{map[string]any{"id": "42", "kind": "manual", "done": float64(1), "total": float64(3), "new_items": float64(0), "errors": float64(0)}}, body["runs"])

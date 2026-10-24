@@ -24,7 +24,7 @@ func openReach(ctx context.Context, db *store.DB, cfg config.Config, logger *slo
 		return nil, err
 	}
 	for _, key := range ignored {
-		logger.Warn("an environment variable is not used: Settings already holds another value, and Settings decides (change it under Account & Devices, Address and access, or remove the variable)",
+		logger.Warn("an environment variable is not used: Settings already holds another value, and Settings decides (change it under Advanced, Address and access, or remove the variable)",
 			"variable", reach.EnvNames[key], "setting", key)
 	}
 	live, err := reach.Open(ctx, db, reach.Options{Logger: logger, Access: access.Options{Logger: logger}, NoPrefetch: !prefetchAccessKeys})

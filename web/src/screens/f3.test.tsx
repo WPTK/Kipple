@@ -377,6 +377,7 @@ describe("Add feed", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Add feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Add feed" });
+    await user.click(within(dlg).getByRole("button", { name: "Options" }));
     const title = within(dlg).getByLabelText("Title (optional)");
     expect(title).toHaveAttribute("placeholder", "Filled in from the feed");
     expect(title).toHaveAccessibleDescription(/filled in from the feed/);
@@ -926,7 +927,7 @@ describe("Feed health", () => {
     expect(await screen.findByText(/last automatic database snapshot failed: disk full/)).toBeInTheDocument();
     expect(screen.getByText(/clock is about 10 minutes ahead/)).toBeInTheDocument();
     expect(screen.getByText("Failing")).toBeInTheDocument();
-    expect(screen.getAllByText("Moved").length).toBeGreaterThan(1); // the chip and the filter option
+    expect(screen.getByText("Moved")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
 
     await user.click(screen.getByRole("button", { name: "Update to new URL" }));
@@ -1120,7 +1121,7 @@ describe("Feed health", () => {
     expect(screen.getByText("1 selected")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const dlg = await screen.findByRole("dialog", { name: "Delete 1 feed?" });
-    await user.click(within(dlg).getByRole("button", { name: "Delete 1 feed" }));
+    await user.click(within(dlg).getByRole("button", { name: "Delete feed" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/feeds/delete")).toBe(true));
     expect(calls.filter((c) => c.url.pathname === "/api/feeds/delete").map((c) => JSON.parse(String(c.init?.body)).ids)).toEqual([["1"]]);
   });
@@ -1140,7 +1141,7 @@ describe("Feed health", () => {
     await user.click(screen.getByRole("checkbox", { name: "Select Zed Blog" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const dlg = await screen.findByRole("dialog", { name: "Delete 1 feed?" });
-    await user.click(within(dlg).getByRole("button", { name: "Delete 1 feed" }));
+    await user.click(within(dlg).getByRole("button", { name: "Delete feed" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     // Same as Turn on/off: Select mode is over, so no selection bar is left for the toast to cover.
     expect(screen.getByRole("button", { name: "Select" })).toBeInTheDocument();
@@ -1150,7 +1151,7 @@ describe("Feed health", () => {
     expect(screen.getByText("0 selected")).toBeInTheDocument();
   });
 
-  it("bulk turns feeds off, then Done clears the selection", async () => {
+  it("bulk pauses feeds, then Done clears the selection", async () => {
     const { calls } = base({
       "GET /api/health/feeds": () => json(HEALTH),
       "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
@@ -1164,9 +1165,9 @@ describe("Feed health", () => {
     await user.click(screen.getByRole("button", { name: "Select" }));
     await user.click(screen.getByRole("button", { name: "Select all" }));
     expect(screen.getByText("3 selected")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Turn off" }));
-    const dlg = await screen.findByRole("dialog", { name: "Turn off 3 feeds?" });
-    await user.click(within(dlg).getByRole("button", { name: "Turn off 3 feeds" }));
+    await user.click(screen.getByRole("button", { name: "Pause" }));
+    const dlg = await screen.findByRole("dialog", { name: "Pause 3 feeds?" });
+    await user.click(within(dlg).getByRole("button", { name: "Pause 3 feeds" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(calls.filter((c) => c.method === "PATCH").map((c) => c.url.pathname).sort()).toEqual(["/api/feeds/1", "/api/feeds/2", "/api/feeds/3"]);
     // Turning off a feed exits selection: Select is back to its starting state.

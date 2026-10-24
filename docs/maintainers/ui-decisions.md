@@ -59,7 +59,7 @@ were resolved in round 2 and what shipped; each is annotated below.
   checkbox on a list row picks that row for a bulk action; it is not a labelled yes/no option, so it stays a native input in
   the row and is not a `Checkbox`.
 - Wording follows the control: "Tick" and "Untick" for a checkbox, "Turn on" only for a switch. A checkbox label is an action
-  phrase that reads as the thing you do when it is ticked ("Check this feed", "Use this filter"), not a state ("Enabled",
+  phrase that reads as the thing you do when it is ticked ("Pause this feed", "Use this filter"), not a state ("Enabled",
   "Filter is on"); the owner ruled this 2026-10-19.
 - A choice among a few named steps stays a segmented control (native radios); a choice that wants a sentence each is a
   list of radio cards (`RadioCard` in `web/src/ui/kit.tsx`; `RadioRow` for a short plain choice). `checkbox.test.tsx` also fails a hand-written

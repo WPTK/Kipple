@@ -660,9 +660,23 @@ func TestRetentionPreview(t *testing.T) {
 	_, out, _ = h.api(c, "GET", "/api/retention/preview", "")
 	require.EqualValues(t, 20, out["articles"])
 	require.EqualValues(t, 1, out["feeds"])
-	// a feed that is off, and one being deleted, are not trimmed
+	// a feed that is turned off is not trimmed
 	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `UPDATE feeds SET enabled = 0, disabled_reason = 'user' WHERE id = ?`, b)
+		return err
+	}))
+	_, out, _ = h.api(c, "GET", "/api/retention/preview?keep=50", "")
+	require.EqualValues(t, 0, out["articles"])
+	require.EqualValues(t, 0, out["feeds"])
+	// a feed being deleted is not trimmed either
+	d := h.addFeed("Delta", 0)
+	for range 60 {
+		h.addItem(d, seedItem{})
+	}
+	_, out, _ = h.api(c, "GET", "/api/retention/preview?keep=50", "")
+	require.EqualValues(t, 10, out["articles"], "Delta is over 50 while it is still a feed")
+	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE feeds SET url = 'kipple:deleting:' || id, url_key = 'kipple:deleting:' || id WHERE id = ?`, d)
 		return err
 	}))
 	_, out, _ = h.api(c, "GET", "/api/retention/preview?keep=50", "")

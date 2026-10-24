@@ -317,7 +317,6 @@ export function SignInSection() {
   );
 }
 
-/** Settings, Account, Backup and data: export, restore, setup again, and the reset in its own danger block. */
 /** What Kipple keeps on the server, so a person sizing a backup or a disk can see it: the database, the backups, the image cache and the unread total. */
 function StorageFigures() {
   const health = useHealth();
@@ -344,6 +343,7 @@ function StorageFigures() {
   );
 }
 
+/** Settings, Account, Backup and data: export, restore, setup again, and the reset in its own danger block. */
 export function BackupSection() {
   const { hasPassword } = useAccount();
   const setupActions = useSetupActions();

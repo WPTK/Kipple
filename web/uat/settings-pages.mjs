@@ -6,17 +6,29 @@
 //
 // For each width (desktop 1280x800, phone 375x812) it opens each group's page and checks:
 //   S1  Appearance has Look, Lists, Articles and Accessibility, and the font switch is named by what it does;
-//   S2  Sync & Feeds has Checking feeds and Storage; Apply retention now opens "Remove older articles?" with a count and
-//       Cancel leaves everything as it was;
+//   S2  Sync & Feeds has Checking feeds and Storage; Apply retention now says nothing is removed; choosing 50 with a 60-article feed present opens "Remove older articles?" with the count, and Cancel keeps the old choice;
 //   S3  Account & Devices has Devices, Sign-in, Sync apps and Backup and data (with the storage figures), shows the address
 //       and username, offers Restore from a backup, and its dialog asks for the phrase and is cancelled without erasing;
 //   S4  Advanced has Address and access, with Other names for this server outside the proxy fold.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
+import { createServer } from "node:http";
 import { start } from "./common.mjs";
 
 const t = await start(import.meta.url, 16);
 const { check } = t;
+
+// A feed of 60 articles served on loopback: 10 more than the smallest "articles to keep" choice, so lowering the choice to 50 has
+// something to remove and the retention dialog must say so.
+const FEED_TITLE = "UAT feed settings pages";
+const server = createServer((req, res) => {
+  const base = "http://" + req.headers.host;
+  const item = (n) => `<item><title>UAT settings story ${n}</title><link>${base}/page/${n}</link><guid isPermaLink="false">uat-settings-${n}</guid><pubDate>${new Date(Date.now() - n * 60000).toUTCString()}</pubDate><description>&lt;p&gt;Story ${n}.&lt;/p&gt;</description></item>`;
+  res.setHeader("Content-Type", "application/rss+xml");
+  res.end(`<?xml version="1.0"?><rss version="2.0"><channel><title>${FEED_TITLE}</title><link>${base}/</link><description>x</description>${Array.from({ length: 60 }, (_, i) => item(i + 1)).join("")}</channel></rss>`);
+});
+await new Promise((r) => server.listen(0, "127.0.0.1", r));
+const feedUrl = "http://127.0.0.1:" + server.address().port + "/feed.xml";
 
 await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
@@ -36,13 +48,31 @@ await t.eachViewport(async (page, vp) => {
   await open("sync");
   hs = await h2s();
   check(["Checking feeds", "Storage"].every((h) => hs.includes(h)), `${tag} S2 sections`, "Sync has Checking feeds and Storage", JSON.stringify(hs));
+  // Apply retention now against the saved default (250) removes nothing and says so.
   await page.getByRole("button", { name: "Apply retention now" }).click();
-  const rd = page.getByRole("dialog", { name: "Remove older articles?" });
+  let rd = page.getByRole("dialog", { name: "Remove older articles?" });
   await rd.waitFor({ timeout: 10000 });
-  await rd.getByText(/About d[d,]* articles? from|nothing is removed/).waitFor({ timeout: 10000 }).catch(() => {});
-  check(/About [d,]+ articles? from [d,]+ feeds?|nothing is removed/.test(await rd.innerText()), `${tag} S2 retention`, "the dialog says how many articles go", "the dialog has no count");
-  await t.shot(page, `${tag}-retention-dialog`);
+  await rd.getByText("nothing is removed").waitFor({ timeout: 10000 }).catch(() => {});
+  check((await rd.innerText()).includes("nothing is removed"), `${tag} S2 apply`, "Apply retention now says nothing is removed", "no 'nothing is removed' in the dialog");
   await rd.getByRole("button", { name: "Cancel" }).click();
+  // Lowering the default to 50 with a 60-article feed present: the dialog counts the 10 that would go.
+  const added = await t.addLocalFeed(page, feedUrl, FEED_TITLE, (items) => items.length >= 60);
+  if (added.error) t.fail(`${tag} S2 setup`, added.error);
+  else {
+    await page.reload({ waitUntil: "load" });
+    await page.getByRole("combobox", { name: "Articles to keep per feed" }).selectOption("50");
+    rd = page.getByRole("dialog", { name: "Remove older articles?" });
+    await rd.waitFor({ timeout: 10000 });
+    await rd.getByText(/About [0-9,]+ articles? from [0-9,]+ feeds?/).waitFor({ timeout: 10000 }).catch(() => {});
+    const text = await rd.innerText();
+    const m = text.match(/About ([0-9,]+) articles? from ([0-9,]+) feeds?/);
+    check(m !== null && Number(m[1].replace(/,/g, "")) >= 10, `${tag} S2 count`, "the dialog counts the articles that would go", `got "${text.slice(0, 200)}"`);
+    await t.shot(page, `${tag}-retention-dialog`);
+    await rd.getByRole("button", { name: "Cancel" }).click();
+    const kept = await page.getByRole("combobox", { name: "Articles to keep per feed" }).inputValue();
+    check(kept === "250", `${tag} S2 cancel`, "Cancel leaves the setting as it was", `the choice reads ${kept}`);
+    for (const f of (await t.boot(page)).feeds.filter((x) => x.title === FEED_TITLE)) await page.request.delete(`/api/feeds/${f.id}`, { headers: t.WRITE });
+  }
   await t.shot(page, `${tag}-sync`);
 
   await open("account");
@@ -70,4 +100,5 @@ await t.eachViewport(async (page, vp) => {
   await t.shot(page, `${tag}-advanced`);
 });
 
+server.close();
 await t.finish("Settings pages");

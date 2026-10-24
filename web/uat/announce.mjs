@@ -11,7 +11,7 @@
 //       the error, and the password field has focus.
 //   A4  Manage feeds > Add feed with "not a url !!": the address field is aria-invalid, described by the error, focused.
 //   A5  Opens an article, marks it unread from the toolbar, then Next: the "Marked unread" toast is gone.
-//   A6  Settings > Account & Devices: the Cloudflare Access state is not a live region.
+//   A6  Settings > Advanced > Address and access (proxy section opened): the Cloudflare Access state is not a live region.
 //   A7  The list: a row's Star and More actions name its article, its link starts with the title, and the Unread
 //       link in the sidebar (desktop) reads "Unread N", the word once.
 //   A8  (desktop) Cocoa Mid: a selected row's secondary text is at least 4.5:1 on the selection; the theme is put back.

@@ -32,7 +32,7 @@ describe("the bulk delete dialog", () => {
     expect(screen.getByRole("dialog", { name: "Delete 3 feeds?" })).toBeInTheDocument();
     release();
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/feeds/delete")).toHaveLength(1));
-    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ ids: ["1", "2", "3"], delete_starred: false });
+    expect(JSON.parse(String(calls.find((c) => c.url.pathname === "/api/feeds/delete")!.init?.body))).toEqual({ ids: ["1", "2", "3"], delete_starred: false });
   });
 });
 
@@ -40,7 +40,8 @@ describe("deleteCopy", () => {
   it("reads right for one feed", () => {
     const c = deleteCopy(1, 2);
     expect(c.feeds).toBe("feed");
-    expect(c.consequence).toBe("Its articles are removed from Kipple, apart from starred ones kept in the Archive. Your sync apps stop seeing this feed. This can't be undone.");
+    expect(c.consequence).toBe("Removes its articles, apart from starred ones kept in the Archive. This can't be undone.");
+    expect(c.button).toBe("Delete feed");
     expect(c.starredWarning).toBe("This feed holds 2 starred articles. By default they are kept in the Archive.");
     expect(deleteCopy(1, 1).starredWarning).toBe("This feed holds 1 starred article. By default it is kept in the Archive.");
     expect(c.noStarred).toBe("This feed has no starred articles.");
@@ -48,15 +49,25 @@ describe("deleteCopy", () => {
   it("reads right for several feeds", () => {
     const c = deleteCopy(3, 4);
     expect(c.feeds).toBe("feeds");
-    expect(c.consequence).toBe("Their articles are removed from Kipple, apart from starred ones kept in the Archive. Your sync apps stop seeing these feeds. This can't be undone.");
+    expect(c.consequence).toBe("Removes their articles, apart from starred ones kept in the Archive. This can't be undone.");
+    expect(c.button).toBe("Delete 3 feeds");
     expect(c.starredWarning).toBe("These feeds hold 4 starred articles in total. By default they are kept in the Archive.");
     expect(c.noStarred).toBe("None of these feeds has starred articles.");
   });
+  it("states what goes and names the outcome once the articles are counted", () => {
+    expect(deleteCopy(1, 2, false, 312).consequence).toBe("Removes 310 articles. This can't be undone.");
+    expect(deleteCopy(1, 2, false, 312).button).toBe("Delete feed and 310 articles");
+    // Ticking "Delete starred articles too" adds the starred ones to what goes.
+    expect(deleteCopy(1, 2, true, 312).button).toBe("Delete feed and 312 articles");
+    expect(deleteCopy(3, 0, false, 1).button).toBe("Delete 3 feeds and 1 article");
+    expect(deleteCopy(1, 0, false, 0)).toMatchObject({ consequence: "Removes no articles. This can't be undone.", button: "Delete feed" });
+  });
   it("follows the delete-starred box and says nothing about starred when there are none", () => {
-    expect(deleteCopy(1, 2, true).consequence).toBe("Its articles are removed from Kipple, starred ones too. Your sync apps stop seeing this feed. This can't be undone.");
+    expect(deleteCopy(1, 2, true).consequence).toBe("Removes its articles, starred ones too. This can't be undone.");
     expect(deleteCopy(3, 4, true).starredWarning).toBe("These feeds hold 4 starred articles in total. They are deleted too.");
     expect(deleteCopy(1, 1, true).starredWarning).toBe("This feed holds 1 starred article. It is deleted too.");
-    expect(deleteCopy(1, 0).consequence).toBe("Its articles are removed from Kipple. Your sync apps stop seeing this feed. This can't be undone.");
+    expect(deleteCopy(1, 0).consequence).toBe("Removes its articles. This can't be undone.");
+    expect(deleteCopy(1, 0).consequence).not.toMatch(/sync apps/);
   });
   it("changes the dialog's words when the box is ticked", async () => {
     mockFetch({});
@@ -68,7 +79,7 @@ describe("deleteCopy", () => {
     expect(screen.getByText(/apart from starred ones kept in the Archive/)).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("checkbox", { name: /Delete starred articles too/ }));
     expect(screen.queryByText(/kept in the Archive/)).toBeNull();
-    expect(screen.getByText(/removed from Kipple, starred ones too/)).toBeInTheDocument();
+    expect(screen.getByText(/Removes its articles, starred ones too/)).toBeInTheDocument();
     expect(screen.getByText("This feed holds 2 starred articles. They are deleted too.")).toBeInTheDocument();
   });
   it("shows the single-feed copy in the dialog", () => {
@@ -79,7 +90,7 @@ describe("deleteCopy", () => {
       </QueryClientProvider>,
     );
     expect(screen.getByRole("dialog", { name: "Delete 1 feed?" })).toBeInTheDocument();
-    expect(screen.getByText(/Its articles are removed/)).toBeInTheDocument();
+    expect(screen.getByText(/Removes its articles, apart from starred ones kept in the Archive. This can't be undone./)).toBeInTheDocument();
     expect(screen.getByText(/This feed holds 2 starred articles\./)).toBeInTheDocument();
   });
 });

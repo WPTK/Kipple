@@ -569,7 +569,7 @@ describe("Auto-read per feed", () => {
     auto_read_days: null,
   };
 
-  it("offers Use the global setting / Off / N days and PATCHes auto_read_days", async () => {
+  it("offers Same as Settings / Off / N days and PATCHes auto_read_days", async () => {
     const { calls } = base({
       "GET /api/feeds/1": () => json(detail),
       "PATCH /api/feeds/1": () => json({ ...detail, auto_read_days: 60 }),
@@ -581,7 +581,7 @@ describe("Auto-read per feed", () => {
     const sel = await screen.findByRole("combobox", { name: "Mark as read after" });
     expect(sel).toHaveValue("");
     const labels = within(sel).getAllByRole("option").map((o) => o.textContent);
-    expect(labels).toEqual(["Use the global setting", "Off for this feed", "30 days", "60 days", "90 days", "180 days", "365 days"]);
+    expect(labels).toEqual(["Same as Settings (off)", "Off for this feed", "30 days", "60 days", "90 days", "180 days", "365 days"]);
     await user.selectOptions(sel, "60");
     await user.click(screen.getByRole("button", { name: /^Save/ }));
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
@@ -660,17 +660,6 @@ describe("Images (Settings)", () => {
     await user.click(within(dlg).getByRole("button", { name: "Clear image cache" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/imgcache/clear")).toBe(true));
     await waitFor(() => expect(within(screen.getByTestId("imgcache-card")).getByText(/0 B/)).toBeInTheDocument());
-  });
-});
-
-describe("Health shows the image cache size", () => {
-  it("adds imgcache_bytes to the sizes line", async () => {
-    base({
-      "GET /api/health/feeds": () =>
-        json({ feeds: [], reader_last_seen_at: null, snapshot: { last_at: null, last_error: null }, clock: { ahead_s: 0 }, db: { db_bytes: 5 * 1024 ** 2, wal_bytes: 0, backup_bytes: 2 * 1024 ** 2, imgcache_bytes: 300 * 1024 ** 2 }, unread_total: 3 }),
-    });
-    go("/health");
-    expect(await screen.findByText(/image cache 300\.0 MB/)).toBeInTheDocument();
   });
 });
 

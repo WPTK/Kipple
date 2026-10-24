@@ -100,7 +100,7 @@ The pacing is in memory; a restart clears it.
 Kipple refuses a state-changing request whose `Origin` does not match the address it was sent to, and for a browser
 that sends no `Sec-Fetch-Site` it compares the scheme too. A proxy that rewrites `Host`, or that terminates HTTPS without
 a trusted `X-Forwarded-Proto: https`, makes every action fail with 403 while the pages still load. Pass the original
-`Host` through, send `X-Forwarded-Proto`, and list the proxy under **Proxy addresses** in Settings, Account & Devices
+`Host` through, send `X-Forwarded-Proto`, and list the proxy under **Proxy addresses** in Settings, Advanced, Address and access
 ([reverse-proxy.md](reverse-proxy.md)).
 
 ## Feeds are not updating

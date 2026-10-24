@@ -119,7 +119,7 @@ remove the lines after setup, and keep `.env` somewhere private either way.
 
 The other variables that name a setting are seeds, with one rule: a seed is stored only when its setting has never been
 stored, and the setting decides from then on. `TZ` seeds the time zone; `KIPPLE_PUBLIC_URL`, `KIPPLE_ALLOWED_HOSTS`,
-`KIPPLE_TRUSTED_PROXY_IPS` and the two `KIPPLE_ACCESS_*` variables seed the settings under Settings, Account & Devices,
+`KIPPLE_TRUSTED_PROXY_IPS` and the two `KIPPLE_ACCESS_*` variables seed the settings under Settings, Advanced,
 Address and access. A restored backup brings its own settings back, and the variables do not override them; Kipple
 logs a warning at start for each variable whose setting holds something else, so you can remove the stale line. The
 one exception is a restore from the setup wizard: the backup's public URL, allowed host names and trusted proxies
