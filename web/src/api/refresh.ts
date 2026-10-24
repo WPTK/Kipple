@@ -1,10 +1,10 @@
 import { useIsMutating, useMutation } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
-import { ApiError, api, errorMessage } from "./client";
+import { api, failed } from "./client";
 import { isRefreshKind, liveStore, seedRun } from "./events";
 import { announce, toast } from "@/shell/toasts";
 
-export const CANT_REFRESH_OFFLINE = "Can't refresh while offline";
+export const CANT_REFRESH_OFFLINE = "Couldn't refresh. You're offline.";
 
 const REFRESH_ALL = ["refresh-all"];
 
@@ -19,7 +19,7 @@ export function useRefreshAll() {
       announce("Refreshing");
     },
     // A failed connection with the browser offline, worded as the pull gesture words it.
-    onError: (e) => toast(e instanceof ApiError && e.status === 0 && typeof navigator !== "undefined" && navigator.onLine === false ? CANT_REFRESH_OFFLINE : errorMessage(e), "error"),
+    onError: (e) => toast(failed("refresh", e), "error"),
   });
 }
 

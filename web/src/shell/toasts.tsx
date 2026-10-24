@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { CircleAlert, X } from "lucide-react";
 import { createStore, useStore } from "@/lib/store";
 
 export interface ToastItem {
@@ -7,6 +7,8 @@ export interface ToastItem {
   message: string;
   kind: "info" | "error";
   action?: { label: string; run: () => void };
+  /** What the toast is about ("star", "read"): a later success on the same topic clears its error. */
+  topic?: string;
 }
 
 const toasts = createStore<ToastItem[]>([]);
@@ -22,18 +24,24 @@ export function announce(message: string): void {
 /** Errors are announced assertively, through their own persistent region. */
 const alertAnnouncement = createStore<{ n: number; message: string }>({ n: 0, message: "" });
 
-export function toast(message: string, kind: ToastItem["kind"] = "info", action?: ToastItem["action"]): number {
+export function toast(message: string, kind: ToastItem["kind"] = "info", action?: ToastItem["action"], topic?: string): number {
   const id = ++seq;
   // The visible toast is not itself a live region: a freshly mounted role=status/alert node is
   // often not announced on iOS VoiceOver. The persistent regions in <LiveRegion> speak instead.
   if (kind === "error") alertAnnouncement.set((a) => ({ n: a.n + 1, message }));
   else announce(message);
-  toasts.set((t) => [...t.filter((x) => x.message !== message), { id, message, kind, action }].slice(-3));
+  // One toast per kind at a time: a newer info or error replaces the older one instead of stacking under it.
+  toasts.set((t) => [...t.filter((x) => x.kind !== kind), { id, message, kind, action, topic }]);
   return id;
 }
 
 export function dismissToast(id: number): void {
   toasts.set((t) => t.filter((x) => x.id !== id));
+}
+
+/** The change on `topic` went through: drop an error toast it left behind. */
+export function settleToasts(topic: string): void {
+  toasts.set((t) => (t.some((x) => x.kind === "error" && x.topic === topic) ? t.filter((x) => !(x.kind === "error" && x.topic === topic)) : t));
 }
 
 export function clearToasts(): void {
@@ -62,14 +70,19 @@ export function toastMs(t: Pick<ToastItem, "kind" | "action">): number | null {
 export const TOAST_SURFACE =
   "border-2 bg-[var(--kp-toast-bg)] text-fg shadow-[0_8px_24px_rgb(0_0_0/0.3)] data-[kind=error]:border-danger border-accent";
 
-/** Toast region. Toasts stay 8 s (15 s with an action, errors until dismissed) and hold while hovered or focused. Announcements go through LiveRegion. */
-export function Toasts({ children, inset = "tabbar" }: { children?: ReactNode; inset?: ToastInset }) {
+/**
+ * Toast region. Toasts stay 8 s (15 s with an action, errors until dismissed) and hold while hovered or focused.
+ * Announcements go through LiveRegion. `anchor="column"` puts the region at the bottom-left of its positioned parent
+ * (the shell's main column, so beside the sidebar and under the list) instead of centred on the window.
+ */
+export function Toasts({ children, inset = "tabbar", anchor = "window" }: { children?: ReactNode; inset?: ToastInset; anchor?: "window" | "column" }) {
   const list = useStore(toasts);
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 z-50 flex flex-col items-center gap-2 px-4"
+      className={`pointer-events-none inset-x-0 z-50 flex flex-col gap-2 px-4 ${anchor === "column" ? "absolute items-start" : "fixed items-center"}`}
       data-testid="toast-region"
       data-inset={inset}
+      data-anchor={anchor}
       style={{ bottom: `calc(${INSET[inset]} + var(--bottom-bar-h, 0px) + env(safe-area-inset-bottom) + 0.5rem)` }}
     >
       {list.map((t) => (
@@ -92,12 +105,13 @@ function ToastView({ t }: { t: ToastItem }) {
   return (
     <div
       data-kind={t.kind}
-      className={`pointer-events-auto flex min-h-11 w-full max-w-md items-center gap-3 rounded-xl px-4 py-2 text-sm ${TOAST_SURFACE}`}
+      className={`pointer-events-auto flex min-h-11 w-full max-w-[min(28rem,calc(var(--list-w,100vw)-2rem))] items-center gap-3 rounded-xl px-4 py-2 text-sm ${TOAST_SURFACE}`}
       onPointerEnter={() => setHeld(true)}
       onPointerLeave={() => setHeld(false)}
       onFocus={() => setHeld(true)}
       onBlur={() => setHeld(false)}
     >
+      {t.kind === "error" ? <CircleAlert aria-hidden="true" className="size-5 shrink-0 text-danger" /> : null}
       <span className="flex-1 font-medium">{t.message}</span>
       {t.action && (
         <button

@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ApiError } from "@/api/client";
+import { ApiError, failed } from "@/api/client";
 import { createSavedSearch, invalidateSavedSearches, patchSavedSearch } from "@/api/savedSearches";
 import type { SavedSearch } from "@/api/types";
 import { useWide } from "@/lib/useMedia";
@@ -16,9 +16,8 @@ export function savedSearchError(e: unknown): string {
     if (e.status === 409 && e.code === "too_many") return "You already have 100 saved searches. Delete one first.";
     if (e.status === 400 && m) return m;
     if (e.status === 404) return "That saved search no longer exists.";
-    if (e.status === 0) return "Kipple couldn't reach the server.";
   }
-  return "Couldn't save the search. Try again.";
+  return failed("save the search", e);
 }
 
 /** The first `max` characters of `s` counted as code points (as the server counts), never half an emoji; `…` when cut. */

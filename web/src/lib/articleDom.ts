@@ -1,6 +1,7 @@
 // DOM behaviour for server-transformed article HTML (docs/design.md 7.7 and 7.8):
 // click-to-load embeds, footnote links that scroll inside the article, and nothing else.
 // No inline script, no eval; iframes exist only for the two allowed hosts and only after a tap.
+import { browserOnlineStore } from "@/lib/offlineState";
 
 // Same patterns as internal/sanitize/serve.go, which already filtered what reaches the placeholder.
 const YOUTUBE_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -97,6 +98,8 @@ const isBeacon = (img: HTMLImageElement): boolean => ["width", "height"].some((k
 
 /** Images that fired an error event, kept for the next watch of the same body. */
 const erred = new WeakSet<HTMLImageElement>();
+/** The picture an offline cue took the place of, to put back when the network returns. */
+const offlineCues = new WeakMap<HTMLElement, { box: Element; img: HTMLImageElement }>();
 
 /** An image the server sent with no address: it refused it before any request (an SVG named as one). */
 const noAddress = (img: HTMLImageElement): boolean =>
@@ -147,14 +150,16 @@ function setCueLink(cue: HTMLElement, original: string | undefined, sameTab: boo
  * the original article, where the image can be seen. Inside a link it is plain text (the link still works). Tracking
  * pixels and embed thumbnails (the embed has its own link) get no cue.
  */
-export function imageNotShown(img: HTMLImageElement, original: string | undefined, sameTab: boolean): HTMLElement | null {
+export function imageNotShown(img: HTMLImageElement, original: string | undefined, sameTab: boolean, offline = false): HTMLElement | null {
   if (!img.isConnected || isBeacon(img) || img.closest(`figure.kp-embed, .${NOT_SHOWN_CLASS}`)) return null;
   const doc = img.ownerDocument;
   const cue = doc.createElement("span");
   cue.className = NOT_SHOWN_CLASS;
   const alt = (img.getAttribute("alt") ?? "").trim();
   const label = doc.createElement("span");
-  label.textContent = alt ? `Image not shown: ${alt}` : "Image not shown";
+  // Offline the picture is only out of reach for now, not refused: the cue says so.
+  const text = offline ? "Picture not available offline" : "Image not shown";
+  label.textContent = alt ? `${text}: ${alt}` : text;
   cue.append(label);
   if (img.dataset.kp) cue.dataset.kp = img.dataset.kp; // it stands where the picture stood, centred the same
   const w = declared(img, "width");
@@ -167,6 +172,7 @@ export function imageNotShown(img: HTMLImageElement, original: string | undefine
   // A <picture> is one image: the cue takes the place of the whole of it.
   const box = img.parentElement?.tagName === "PICTURE" ? img.parentElement : img;
   box.replaceWith(cue);
+  if (offline) offlineCues.set(cue, { box, img });
   setCueLink(cue, original, sameTab);
   return cue;
 }
@@ -190,6 +196,26 @@ export function watchImages(root: HTMLElement, original: string | undefined, sam
       if (yes && !stop.signal.aborted) imageNotShown(img, original, sameTab);
     });
   };
+  // The network is back: a picture that was only out of reach is put back and asked for again (a refusal then gets its cue).
+  const restore = () => {
+    for (const cue of root.querySelectorAll<HTMLElement>(`.${NOT_SHOWN_CLASS}`)) {
+      const kept = offlineCues.get(cue);
+      if (!kept) continue;
+      offlineCues.delete(cue);
+      cue.replaceWith(kept.box);
+      asked.delete(kept.img);
+      erred.delete(kept.img);
+      const src = kept.img.getAttribute("src");
+      if (src) {
+        kept.img.removeAttribute("src");
+        kept.img.setAttribute("src", src);
+      }
+    }
+  };
+  if (browserOnlineStore.get()) restore();
+  const unsubOnline = browserOnlineStore.subscribe(() => {
+    if (browserOnlineStore.get()) restore();
+  });
   for (const cue of root.querySelectorAll<HTMLElement>(`.${NOT_SHOWN_CLASS}`)) setCueLink(cue, original, sameTab);
   // No address, or an error seen by an earlier watch of this body whose check was stopped (the link changed mid-check).
   for (const img of root.querySelectorAll("img")) if (noAddress(img) || erred.has(img)) check(img);
@@ -197,11 +223,20 @@ export function watchImages(root: HTMLElement, original: string | undefined, sam
     const img = e.target;
     if (!(img instanceof HTMLImageElement) || !root.contains(img)) return;
     erred.add(img);
+    // No network: the failure needs no check, and the cue says the picture is out of reach, not refused.
+    if (!browserOnlineStore.get()) {
+      if (!asked.has(img) && !isBeacon(img) && !img.closest("figure.kp-embed")) {
+        asked.add(img);
+        imageNotShown(img, original, sameTab, true);
+      }
+      return;
+    }
     check(img);
   };
   root.addEventListener("error", onError, true);
   return () => {
     stop.abort();
+    unsubOnline();
     root.removeEventListener("error", onError, true);
   };
 }
@@ -248,6 +283,20 @@ export function handleArticleClick(e: MouseEvent | React.MouseEvent, body: HTMLE
     return true;
   }
   return false;
+}
+
+/** Elements that are something to look at or read other than running text. */
+const SHOWS_SOMETHING = "img,picture,video,audio,iframe,figure,svg,canvas,table,pre,code";
+
+/**
+ * A feed that sent only a title: the body has no text and nothing to look at either. Told apart from an article that is
+ * all pictures. Read from the parsed body (text content, so entities such as `&#160;` count as the blank they are),
+ * never by matching the markup; parsing runs no script and loads nothing.
+ */
+export function hasNothingToRead(html: string): boolean {
+  if (html.length >= 4000) return false;
+  const body = new DOMParser().parseFromString(html, "text/html").body;
+  return !body.querySelector(SHOWS_SOMETHING) && (body.textContent ?? "").trim() === "";
 }
 
 /** A cell of a table: short text stays on one line, a number also sits on the end edge in tabular figures. */

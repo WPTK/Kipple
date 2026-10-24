@@ -324,7 +324,7 @@ describe("nested folder review fixes", () => {
     await user.selectOptions(within(dialog).getByRole("combobox", { name: "Move into" }), "5");
     const boots = calls.filter((c) => c.url.pathname === "/api/bootstrap").length;
     await user.click(within(dialog).getByRole("button", { name: "Move" }));
-    expect(await within(dialog).findByText("The server returned an error. Try again.")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Kipple's server had a problem.")).toBeInTheDocument();
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/bootstrap").length).toBeGreaterThan(boots));
   });
 
