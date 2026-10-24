@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate, useNavigationType } fr
 import { TriangleAlert, X, type LucideIcon } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
+import { useCatchupLeave } from "@/lib/catchup";
 import { focusIsLost, restoreFocusedRow, useRememberFocusedRow } from "@/lib/arrivalFocus";
 import { useRecordTrail } from "@/lib/navTrail";
 import { useStatsEnabled } from "@/lib/statsSender";
@@ -202,6 +203,7 @@ export function AppShell() {
   }, [short, wide]);
   const { pathname, search, hash, state, key } = useLocation();
   useRecordTrail(pathname);
+  useCatchupLeave();
   useRememberFocusedRow();
   const navType = useNavigationType();
   // The key of the last step through history. It stays while later pushes and replaces (typing in search, picking a feed)

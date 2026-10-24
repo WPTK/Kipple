@@ -63,6 +63,8 @@ export interface DigestView {
   rows: number;
   /** Rows have a picture (the device's Images). */
   images: boolean;
+  /** A section's heading says how many articles it holds ("3 new"): the New page. */
+  counts: boolean;
   /** "N more" was pressed in a section: show the next batch. */
   expand: (key: string) => void;
   /** Ask again for a section whose load failed. */

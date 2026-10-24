@@ -7,7 +7,7 @@
 // On the phone width of the run (the desktop pass has nothing to check) it checks:
 //   A1  the first tab is named Articles, no tab is named Unread, and it opens the Unread list;
 //   A2  Articles is the current tab on Unread, All, Starred and Muted, and not on a feed's list (that is Feeds);
-//   A3  the pills under the title are Unread, All and Starred, tapping Starred keeps Articles current, and tapping
+//   A3  the pills under the title are New, Unread, All and Starred, tapping Starred keeps Articles current, and tapping
 //       Articles from another tab opens Unread;
 //   A4  the Feeds screen lists Starred and Muted whether or not anything is muted, and each opens its list;
 //   A5  at 812x375 and at 320x568 with text size Largest the five tabs fit with their names whole.
@@ -55,7 +55,7 @@ await t.eachViewport(async (page, vp) => {
   await step(`${tag} A3`, async () => {
     await open("/l/unread");
     const pills = await page.getByRole("navigation", { name: "Show" }).getByRole("link").allInnerTexts();
-    check(JSON.stringify(pills.slice(0, 3)) === JSON.stringify(["Unread", "All", "Starred"]), `${tag} A3 pills`, `the pills start ${pills.slice(0, 3).join(", ")}`, `the pills are ${pills.join(", ")}`);
+    check(JSON.stringify(pills.slice(0, 4)) === JSON.stringify(["New", "Unread", "All", "Starred"]), `${tag} A3 pills`, `the pills start ${pills.slice(0, 4).join(", ")}`, `the pills are ${pills.join(", ")}`);
     await page.getByRole("navigation", { name: "Show" }).getByRole("link", { name: "Starred" }).click();
     await page.waitForURL((u) => u.pathname === "/l/starred", { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(400);

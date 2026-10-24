@@ -214,6 +214,8 @@ export interface Scope {
   order?: "oldest" | "rank";
   /** Reading-time filter (lib/readingLength): only articles of this length. Absent means any length. */
   length?: ReadingLength;
+  /** Only articles that arrived after this item id: the New page's lists (lib/catchup.ts). Unread only; never a search. */
+  after?: string;
   /**
    * Search-as-you-type: the unfinished last word also matches as a prefix. Only while the user is typing; a
    * submitted search, a saved-search run and every count leave it out.

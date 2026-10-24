@@ -54,6 +54,8 @@ export const MARK_ALL_RESULTS = "Mark all results as read";
 export function markAllLabel(scope: Scope, unread: number | null): string {
   if (scope.q) return MARK_ALL_RESULTS;
   if (unread === 0) return "Mark all as read";
+  // The New page marks what is new, not everything unread: its count is the visit's.
+  if (scope.after) return unread !== null && unread > 0 ? `Mark all ${unread} as read` : "Mark all as read";
   if (scope.view === "unread" && !scope.feed && !scope.folder && !scope.length) return "Mark everything unread as read";
   if (unread !== null && unread > 0) return `Mark all ${unread} as read`;
   return "Mark all as read";
@@ -64,6 +66,7 @@ export function markAllLabel(scope: Scope, unread: number | null): string {
  * reading-time filter both narrow the reach, so they are named. `place` is the feed or folder title (else "this list").
  */
 export function markAllReach(scope: Scope, place = "this list"): string {
+  if (scope.after) return "unread articles that arrived since you last looked";
   const kind = scope.view === "starred" ? "unread starred articles" : "unread articles";
   return `${kind}${scope.length ? ` (${READING_LENGTH_LABELS[scope.length]})` : ""} in ${place}`;
 }

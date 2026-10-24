@@ -341,6 +341,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/items/{id}/fulltext", s.authed(s.itemFulltext))
 	handle("POST /api/items/{id}/open", s.authed(s.openItem))
 	handle("PUT /api/items/{id}/star", s.authed(s.starItem))
+	handle("GET /api/catchup", s.authed(s.catchup))
+	handle("POST /api/catchup/seen", s.authed(s.catchupSeen))
 	handle("POST /api/maintenance/fts-rebuild", s.authed(s.ftsRebuild))
 	handle("POST /api/stats/events", s.authed(s.statsEvents))
 	handle("GET /api/stats/summary", s.authed(s.statsSummary))

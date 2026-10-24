@@ -518,6 +518,14 @@ var settingDefs = withScopes([]settingDef{
 			}
 			return strings.TrimSpace(s), ""
 		}},
+	{Key: store.SettingCatchupSeen, Label: "New page mark", Description: "The newest article the New page has shown you. It moves when you leave the page (POST /api/catchup/seen), for the whole account.",
+		Group: groupAdvanced, Kind: "text", Surface: surfaceHidden, check: func(v any) (any, string) {
+			s, ok := v.(string)
+			if n, err := strconv.ParseInt(s, 10, 64); !ok || err != nil || n < 0 {
+				return nil, "must be an article id as a string, or \"0\""
+			}
+			return s, ""
+		}},
 	{Key: "ui.device_defaults", Label: "Defaults for new devices", Description: "The client-side appearance and behavior choices new devices start from.",
 		Group: groupAdvanced, Kind: "json", Surface: surfaceHidden, check: checkDeviceDefaults},
 })
