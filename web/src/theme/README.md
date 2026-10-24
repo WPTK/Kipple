@@ -1,12 +1,13 @@
 # Theme system
 
-Source of truth: [`schemes.json`](./schemes.json) (20 schemes, 12 tokens each). Everything else is generated
+Source of truth: [`schemes.json`](./schemes.json) (20 schemes, 15 tokens each). Everything else is generated
 from it: [`css.ts`](./css.ts) emits one `:root[data-theme="<id>"]` block per scheme as the virtual stylesheet
 `virtual:kipple-themes.css`, and the theme boot script. Tailwind maps the tokens in `src/index.css`
 (`bg-bg`, `bg-surface`, `text-fg`, `text-fg2`, `border-line`, `text-accent`, `text-link`, `bg-unread`,
 `text-star`, `text-danger`, `bg-selection`). Derived in `index.css`: `--kp-toast-bg` and `--kp-hl-bg`; device tokens
 (`--kp-scale`, `--kp-reading-font`, `--kp-app-font`, `--kp-col` and the density variables) come from `lib/prefs.ts`. The
 `meta` token has no Tailwind utility; it is only used for `<meta name="theme-color">`.
+`field` (the boundary of an input, select or card, at least 3:1 against both `bg` and `surface`), `shadow` and `scrim` (the color of elevation shadows and of the dimming behind a sheet) are in the scheme file but not in the table below.
 
 ## How it works
 

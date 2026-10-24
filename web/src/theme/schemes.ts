@@ -9,6 +9,8 @@ export interface Tokens {
   text: string;
   text2: string;
   border: string;
+  /** The boundary of a control that takes input (a field, a select, a switch, a segmented control): 3:1 against the page and the surface. `border` is for decoration. */
+  field: string;
   accent: string;
   link: string;
   unread: string;
@@ -17,6 +19,10 @@ export interface Tokens {
   selection: string;
   /** Value for <meta name="theme-color">. */
   meta: string;
+  /** The shadow a floating surface (sheet, menu, toast, tab bar) casts, as a CSS color. */
+  shadow: string;
+  /** The veil behind a modal sheet, as a CSS color. */
+  scrim: string;
 }
 
 export interface Scheme {
@@ -50,6 +56,7 @@ export const TOKEN_KEYS = [
   "text",
   "text2",
   "border",
+  "field",
   "accent",
   "link",
   "unread",
@@ -57,4 +64,6 @@ export const TOKEN_KEYS = [
   "danger",
   "selection",
   "meta",
+  "shadow",
+  "scrim",
 ] as const satisfies readonly (keyof Tokens)[];

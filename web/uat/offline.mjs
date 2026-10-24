@@ -142,7 +142,7 @@ async function run(browser, vp) {
     const page = await context.newPage();
     await page.goto("/", { waitUntil: "load" });
     await page.getByLabel("Username").fill(opt.user);
-    await page.getByLabel("Password").fill(opt.password);
+    await page.getByLabel("Password", { exact: true }).fill(opt.password);
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
 

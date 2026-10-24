@@ -82,7 +82,7 @@ async function run(browser, vp) {
     const page = await context.newPage();
     await page.goto("/", { waitUntil: "load" });
     await page.getByLabel("Username").fill(opt.user);
-    await page.getByLabel("Password").fill(opt.password);
+    await page.getByLabel("Password", { exact: true }).fill(opt.password);
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
 
@@ -108,7 +108,7 @@ async function run(browser, vp) {
     await page.getByRole("button", { name: "Export backup" }).click();
     // The export asks for the web password first.
     const ask = page.getByRole("dialog", { name: "Export backup" });
-    await ask.getByLabel("Your web password").fill(opt.password);
+    await ask.getByLabel("Your web password", { exact: true }).fill(opt.password);
     await ask.getByRole("button", { name: "Export", exact: true }).click();
     const bk = page.getByRole("dialog", { name: "Download backup" });
     const link = bk.getByRole("link", { name: /kipple-backup-.*\.zip/ });

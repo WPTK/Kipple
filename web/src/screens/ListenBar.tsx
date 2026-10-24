@@ -85,7 +85,7 @@ export function ListenBar({ bodyRef, articleId }: { bodyRef: RefObject<HTMLEleme
           <select
             value={prefs.rate}
             onChange={(e) => updatePrefs({ rate: Number(e.target.value) })}
-            className="min-h-11 rounded-lg border border-line bg-bg px-2 text-fg"
+            className="min-h-11 rounded-lg border border-field bg-bg px-2 text-fg"
           >
             {RATES.map((r) => (
               <option key={r} value={r}>

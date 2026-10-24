@@ -8,7 +8,7 @@ import { bytesLabel, fullDate } from "@/lib/format";
 import { wipeOfflineData } from "@/lib/offline";
 import { buttonVariants } from "@/ui/button";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, inputCls } from "@/ui/kit";
+import { Modal, Notice, PasswordField } from "@/ui/kit";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { useSetupActions } from "@/setup/actions";
@@ -46,12 +46,10 @@ export function accountError(e: unknown): string {
 function ChangePasswordDialog({ hasPassword, onDone, onClose }: { hasPassword: boolean; onDone: () => void; onClose: () => void }) {
   const [cur, setCur] = useState("");
   const [next, setNext] = useState("");
-  const [again, setAgain] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const tooShort = next.length > 0 && next.length < MIN_PASSWORD_LEN;
-  const mismatch = again.length > 0 && again !== next;
-  const ok = (cur || !hasPassword) && next.length >= MIN_PASSWORD_LEN && next.length <= 256 && next === again;
+  const ok = (cur || !hasPassword) && next.length >= MIN_PASSWORD_LEN && next.length <= 256;
   const submit = async () => {
     setBusy(true);
     setError(null);
@@ -83,14 +81,9 @@ function ChangePasswordDialog({ hasPassword, onDone, onClose }: { hasPassword: b
     >
       {error ? <Notice tone="error">{error}</Notice> : null}
       {hasPassword ? (
-        <Field label="Current password">{(a) => <input {...a} type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} className={inputCls} />}</Field>
+        <PasswordField label="Current password" autoComplete="current-password" value={cur} onChange={setCur} />
       ) : null}
-      <Field label="New password" help={`${MIN_PASSWORD_LEN} to 256 characters.`} error={tooShort ? `Use at least ${MIN_PASSWORD_LEN} characters.` : null}>
-        {(a) => <input {...a} type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} className={inputCls} />}
-      </Field>
-      <Field label="New password again" error={mismatch ? "The passwords don't match." : null}>
-        {(a) => <input {...a} type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} className={inputCls} />}
-      </Field>
+      <PasswordField label="New password" help={`${MIN_PASSWORD_LEN} to 256 characters.`} error={tooShort ? `Use at least ${MIN_PASSWORD_LEN} characters.` : null} autoComplete="new-password" value={next} onChange={setNext} />
     </Modal>
   );
 }
@@ -130,7 +123,7 @@ function RemovePasswordDialog({ email, onDone, onClose }: { email: string; onDon
       }
     >
       {error ? <Notice tone="error">{error}</Notice> : null}
-      <Field label="Current password">{(a) => <input {...a} type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} className={inputCls} />}</Field>
+      <PasswordField label="Current password" autoComplete="current-password" value={cur} onChange={setCur} />
     </Modal>
   );
 }
@@ -200,9 +193,7 @@ function ApiPasswordDialog({ username, hasPassword, onClose }: { username: strin
           </div>
         </>
       ) : hasPassword ? (
-        <Field label="Your web password" help="Kipple asks for it before creating a new API password.">
-          {(a) => <input {...a} type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} className={inputCls} />}
-        </Field>
+        <PasswordField label="Your web password" help="Kipple asks for it before creating a new API password." autoComplete="current-password" value={cur} onChange={setCur} />
       ) : null}
     </Modal>
   );
@@ -267,19 +258,7 @@ function BackupDialog({ ready, onClose }: { ready: BackupInfo | null; onClose: (
         }
       >
         {error ? <Notice tone="error">{error}</Notice> : null}
-        <Field label="Your web password">
-          {(a) => (
-            <input
-              {...a}
-              type="password"
-              autoComplete="current-password"
-              value={cur}
-              onChange={(e) => setCur(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && void build()}
-              className={inputCls}
-            />
-          )}
-        </Field>
+        <PasswordField label="Your web password" autoComplete="current-password" value={cur} onChange={setCur} onKeyDown={(e) => e.key === "Enter" && void build()} />
       </Modal>
     );
   }
@@ -449,14 +428,14 @@ export function AccountActions() {
         <p className="mt-1 text-xs text-fg2">Trims every feed to its "articles to keep" limit right away. Starred articles are never removed.</p>
       </div>
       <div>
-        <Button onClick={runSetupAgain}>
+        <Button variant="danger" onClick={runSetupAgain}>
           Run setup again
         </Button>
         <p className="mt-1 text-xs text-fg2">Walks through the first-run steps again: time zone, look, importing feeds, recommended feeds and the address. Your account and feeds stay as they are.</p>
       </div>
       {/* Without a password there is nothing to sign out of: Kipple would sign this browser straight back in. */}
       {user?.auth_mode === "open" ? null : (
-        <Button onClick={() => void signOut()} className="self-start">
+        <Button variant="danger" onClick={() => void signOut()} className="self-start">
           Sign out
         </Button>
       )}

@@ -73,7 +73,7 @@ try {
   const lp = await login.newPage();
   await lp.goto(origin.origin + "/");
   await lp.getByLabel("Username").fill(opt.user);
-  await lp.getByLabel("Password").fill(opt.password);
+  await lp.getByLabel("Password", { exact: true }).fill(opt.password);
   await lp.getByRole("button", { name: "Sign in" }).click();
   await lp.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
   const boot = await (await lp.request.get(origin.origin + "/api/bootstrap")).json();
