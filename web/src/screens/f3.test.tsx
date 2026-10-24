@@ -13,6 +13,7 @@ import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { healthFilter, healthSort } from "./HealthScreen";
 import * as toasts from "@/shell/toasts";
 import { diffForm, grantNotice, grantsDropped, savedAddressMessage } from "./feeds/FeedEditor";
+import { deleteCopy } from "./feeds/BulkActions";
 import { addError } from "./feeds/AddFeedDialog";
 
 class NoES {
@@ -530,8 +531,13 @@ describe("Feed editor", () => {
     await user.click(await screen.findByRole("button", { name: "Edit Example Feed" }));
     await user.click(await screen.findByRole("button", { name: "Delete feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Delete Example Feed?" });
-    expect(within(dlg).getByText(/3 starred articles/)).toBeInTheDocument();
+    // The editor reads the same copy as the Feeds screen's delete dialog, and follows the box.
+    expect(within(dlg).getByText(deleteCopy(1, 3).starredWarning)).toBeInTheDocument();
+    expect(within(dlg).getByText(deleteCopy(1, 3).starredHelp)).toBeInTheDocument();
+    expect(within(dlg).getByText(deleteCopy(1, 3).consequence)).toBeInTheDocument();
     await user.click(within(dlg).getByRole("checkbox", { name: /Delete starred articles too/ }));
+    expect(within(dlg).getByText(deleteCopy(1, 3, true).starredWarning)).toBeInTheDocument();
+    expect(within(dlg).getByText(deleteCopy(1, 3, true).consequence)).toBeInTheDocument();
     await user.click(within(dlg).getByRole("button", { name: "Delete feed" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url.searchParams.get("delete_starred") === "1")).toBe(true));
   });

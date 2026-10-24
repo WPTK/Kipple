@@ -52,9 +52,9 @@ await t.eachViewport(async (page, vp) => {
       await page.waitForTimeout(400);
     }
 
-    const feedName = (await page.getByTestId("read-state").locator("xpath=..").getByRole("link").innerText()).trim();
-    const href = await page.getByTestId("read-state").locator("xpath=..").getByRole("link").getAttribute("href");
-    await page.getByTestId("read-state").locator("xpath=..").getByRole("link").click();
+    const feedName = (await page.locator("article header p").first().getByRole("link").innerText()).trim();
+    const href = await page.locator("article header p").first().getByRole("link").getAttribute("href");
+    await page.locator("article header p").first().getByRole("link").click();
     await page.waitForURL(/\/l\/\w+\?.*feed=/, { timeout: 8000 }).then(
       () => t.pass(`${tag} T1 route`, `the feed name (${feedName}, ${href}) opens ${page.url()}`),
       () => t.fail(`${tag} T1 route`, `the feed name did not open a feed list (at ${page.url()})`),

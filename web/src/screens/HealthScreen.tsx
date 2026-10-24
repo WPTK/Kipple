@@ -2,7 +2,8 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { Suspense, useMemo, useState } from "react";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Check, CheckSquare, MoreVertical } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckSquare } from "lucide-react";
+import { MoreIcon } from "@/lib/itemActionTable";
 import {
   invalidateFeeds,
   patchFeed,
@@ -142,7 +143,7 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <Button variant="ghost" size="icon" aria-label={`Actions for ${f.title}`}>
-          <MoreVertical aria-hidden="true" />
+          <MoreIcon aria-hidden="true" />
         </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
