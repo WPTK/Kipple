@@ -156,6 +156,7 @@ export function imageNotShown(img: HTMLImageElement, original: string | undefine
   const label = doc.createElement("span");
   label.textContent = alt ? `Image not shown: ${alt}` : "Image not shown";
   cue.append(label);
+  if (img.dataset.kp) cue.dataset.kp = img.dataset.kp; // it stands where the picture stood, centred the same
   const w = declared(img, "width");
   const h = declared(img, "height");
   if (w && h) {
@@ -247,4 +248,108 @@ export function handleArticleClick(e: MouseEvent | React.MouseEvent, body: HTMLE
     return true;
   }
   return false;
+}
+
+/** A cell of a table: short text stays on one line, a number also sits on the end edge in tabular figures. */
+const NUMBER = /^[(+\-\u2212$\u20ac\u00a3\u00a5\s]*\d[\d,.\s\u00a0]*(%|[kKmMbB])?\)?$/;
+const SHORT_CELL = 12;
+
+/** Mark table cells that hold a number or only a few characters (CSS reads data-kp). Cells with markup other than inline text are left alone. */
+export function enhanceTables(root: ParentNode): void {
+  for (const cell of root.querySelectorAll<HTMLElement>("td, th")) {
+    if (cell.dataset.kp || cell.querySelector("table, p, ul, ol, div, img, pre")) continue;
+    const text = (cell.textContent ?? "").trim();
+    if (text === "") continue;
+    if (NUMBER.test(text)) cell.dataset.kp = "num";
+    else if (text.length <= SHORT_CELL) cell.dataset.kp = "short";
+  }
+}
+
+/**
+ * Code blocks and tables wider than the column scroll sideways, so they need to be reachable without a mouse: while one
+ * overflows it takes focus (tabindex 0), and says what it is (a code block is a labelled region; a table keeps its
+ * role and gets a name). They are checked again when the column or the text size changes. Returns the cleanup.
+ */
+export function watchScrollRegions(root: HTMLElement): () => void {
+  const regions = [...root.querySelectorAll<HTMLElement>("pre, table")];
+  const apply = (el: HTMLElement) => {
+    const over = el.scrollWidth > el.clientWidth + 1;
+    if (over) {
+      el.tabIndex = 0;
+      if (el.tagName === "PRE") el.setAttribute("role", "region");
+      // A table with a caption or its own name already has one; a code block has none, so it gets "Code".
+      const named = el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby") || (el.tagName === "TABLE" && el.querySelector(":scope > caption") !== null);
+      if (!named) {
+        el.setAttribute("aria-label", el.tagName === "PRE" ? "Code" : "Table");
+        el.dataset.kpName = "1";
+      }
+    } else {
+      el.removeAttribute("tabindex");
+      if (el.tagName === "PRE") el.removeAttribute("role");
+      if (el.dataset.kpName) {
+        el.removeAttribute("aria-label");
+        delete el.dataset.kpName;
+      }
+    }
+  };
+  if (typeof ResizeObserver === "undefined") {
+    regions.forEach(apply);
+    return () => undefined;
+  }
+  const ro = new ResizeObserver((entries) => entries.forEach((e) => apply(e.target as HTMLElement)));
+  regions.forEach((el) => ro.observe(el));
+  return () => ro.disconnect();
+}
+
+const LINE_BREAKERS = new Set(["ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BR", "CAPTION", "DD", "DETAILS", "DIV", "DL", "DT", "FIGCAPTION", "FIGURE", "FOOTER", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR", "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION", "SUMMARY", "TABLE", "UL"]);
+
+const NOT_ALONE_MEDIA = new Set(["IMG", "VIDEO", "SVG", "PICTURE", "IFRAME"]);
+
+/** True when no text and no other inline content sits beside this node, up to a line break or the edge of its block. */
+function noneBeside(node: Node): boolean {
+  for (const dir of ["previousSibling", "nextSibling"] as const) {
+    for (let n = node[dir]; n; n = n[dir]) {
+      if (n.nodeType === Node.TEXT_NODE) {
+        if ((n.textContent ?? "").trim() !== "") return false;
+      } else if (n.nodeType === Node.ELEMENT_NODE) {
+        const el = n as Element;
+        if (LINE_BREAKERS.has(el.tagName.toUpperCase())) break;
+        if (NOT_ALONE_MEDIA.has(el.tagName.toUpperCase()) || (el.textContent ?? "").trim() !== "" || el.querySelector("img, video, svg")) return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * True when nothing else sits on the picture's line. Looks through every inline wrapper (a link, a span, a picture
+ * element, strong...): at each level nothing but the wrapper's own markup may sit beside it, until a block ends the line.
+ */
+function aloneOnItsLine(img: Element): boolean {
+  for (let node: Element | null = img; node; node = node.parentElement) {
+    if (!noneBeside(node)) return false;
+    if (node.parentElement && LINE_BREAKERS.has(node.parentElement.tagName.toUpperCase())) return true;
+  }
+  return true;
+}
+
+/**
+ * Mark a picture that stands alone on its line (data-kp="block": CSS centres it, so a picture capped in height sits in
+ * the middle of the column), and a picture or cue the same. A picture in a line of text, beside others in a row of
+ * icons, or in a table cell (where the author's cell alignment rules) is left alone. A block picture with both sizes
+ * declared also gets them as --kp-w and --kp-h, so CSS can narrow its box with its height (see index.css).
+ */
+export function enhanceImages(root: ParentNode): void {
+  for (const img of root.querySelectorAll<HTMLImageElement>(`img, .${NOT_SHOWN_CLASS}`)) {
+    if (img.dataset.kp || img.closest("figure.kp-embed, td, th")) continue;
+    if (!aloneOnItsLine(img)) continue;
+    img.dataset.kp = "block";
+    const w = declared(img, "width");
+    const h = declared(img, "height");
+    if (w && h && img.tagName === "IMG") {
+      img.dataset.sized = "";
+      img.style.setProperty("--kp-w", String(w));
+      img.style.setProperty("--kp-h", String(h));
+    }
+  }
 }

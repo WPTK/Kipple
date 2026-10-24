@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const css = readFileSync("src/index.css", "utf8");
 
 function rules(): { sel: string; body: string }[] {
-  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1]!.trim(), body: m[2]! }));
+  return [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1]!.trim(), body: m[2]! }));
 }
 
 describe("article headings", () => {
@@ -110,5 +110,15 @@ describe("long words", () => {
     expect(rules().find((x) => last(x.sel) === ".row-link::before")?.body).toMatch(/position:\s*absolute;/);
     expect(rules().find((x) => last(x.sel) === ".row-link[data-row-unread]::after")?.body).toMatch(/content:\s*", " attr\(data-row-unread\);/);
     expect(rules().some((x) => last(x.sel) === ".row-link::after")).toBe(false);
+  });
+});
+
+describe("article lists", () => {
+  it("get their bullets and numbers back from the base reset", () => {
+    const style = (sel: string) =>
+      rules().filter((r) => r.sel.split(",").some((s) => s.trim() === sel)).flatMap((r) => [...r.body.matchAll(/list-style:\s*([^;]+);/g)].map((m) => m[1]!.trim())).at(-1);
+    expect(style(".article-body ul")).toBe("disc");
+    expect(style(".article-body ol")).toBe("decimal");
+    expect(style(".article-body ul ul")).toBe("circle");
   });
 });

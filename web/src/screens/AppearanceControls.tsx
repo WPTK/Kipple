@@ -60,7 +60,7 @@ export function DensityPreview({ list, reading }: { list: Step; reading: Step })
         </div>
         <div className="size-[var(--thumb)] shrink-0 rounded-lg bg-surface" />
       </div>
-      <div data-reading-density={reading} className="article-body px-4 py-3 text-base">
+      <div data-reading-density={reading} className="kp-article article-body px-4 py-3">
         <h3>Toaster files formal grievance against the kitchen</h3>
         <p className="text-sm text-fg2">By A. Reasonable Person · The Ubiquitous Gazette</p>
         <p>
@@ -166,12 +166,12 @@ export function FontPicker({ value, onChange, label = "Reading font", help, prev
         })}
       </select>
       {preview === "large" ? (
-        <div data-testid="font-preview" aria-hidden="true" className="mt-1 flex flex-col gap-1 rounded-xl border border-line bg-surface px-3 py-2" style={{ fontFamily: stack }}>
+        <div data-testid="font-preview" aria-hidden="true" className="mt-1 flex flex-col gap-1 rounded-xl border border-line bg-surface px-3 py-2" style={{ fontFamily: stack, fontSizeAdjust: 0.5 }}>
           <p className="text-lg leading-snug font-bold">Toaster files formal grievance against the kitchen</p>
           <p className="text-base leading-snug">{FONT_SAMPLE}</p>
         </div>
       ) : (
-        <p data-testid="font-preview" className="text-xs text-fg2" style={{ fontFamily: stack }}>
+        <p data-testid="font-preview" className="text-xs text-fg2" style={{ fontFamily: stack, fontSizeAdjust: 0.5 }}>
           Sample: {FONT_SAMPLE}
         </p>
       )}
