@@ -35,7 +35,9 @@ const tabNow = "text-accent before:absolute before:inset-x-3 before:top-0 before
 const tab = "relative flex min-h-11 min-w-0 flex-1 items-center justify-center px-1 text-[length:min(0.75rem,4vw)] font-medium";
 // On a short screen the icon sits beside the name, in a tab about a fifth of 568 px wide: at Largest text the longest name
 // ("Articles") needs the room, so the gap and the side padding are as small as they can be and still read as a row.
-const tabLayout = (short: boolean) => (short ? "flex-row gap-1 px-0.5" : "flex-col gap-0.5");
+// The tabs share the bar by their content (flex-auto) there, not in equal fifths: the Articles tab also holds its badge after the
+// name, and a fifth of 568 px cannot hold all three while the shorter names leave room unused.
+const tabLayout = (short: boolean) => (short ? "flex-auto flex-row gap-1 px-0.5" : "flex-col gap-0.5");
 
 /**
  * The Articles tab's badge (the unread count): count (capped at 99+), a dot, or nothing, by the device's "Unread badge"
