@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps } from "./parts";
+import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, titleTone } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
@@ -27,11 +27,11 @@ function CardRow({ item, feed, selected, to, onOpen, onToggleStar, actions }: Ro
       )}
     >
       {item.image ? (
-        <ListImage src={item.image} failure={failure} frame={{ className: "p-2 pb-0" }} className={cn("aspect-video w-full rounded-lg bg-bg object-cover", item.read && "opacity-60")} />
+        <ListImage src={item.image} failure={failure} shaped frame={{ className: "p-2 pb-0" }} className={cn("aspect-video w-full rounded-lg bg-bg", item.read && "opacity-60")} />
       ) : null}
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-3">
-        <SourceTimeMeta item={item} icon={feed?.icon} dot={<UnreadDot unread={unread} />} />
-        <h3 className={cn("clamp-title text-base leading-snug", unread ? "font-bold text-fg" : "font-normal text-fg2")}>
+      <div className={cn("flex min-w-0 flex-1 flex-col gap-1.5 p-3", !item.image && "min-h-[8.5rem]")}>
+        <SourceTimeMeta item={item} feed={feed} dot={<UnreadDot unread={unread} />} />
+        <h3 className={cn("clamp-title text-base leading-snug", titleTone(unread))}>
           <Link
             tabIndex={tabIndex}
             to={to}

@@ -1,0 +1,1 @@
+Reader: the Gazette layout marks unread articles with the same dot as the other layouts. (#658)

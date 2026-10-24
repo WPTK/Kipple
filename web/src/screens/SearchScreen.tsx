@@ -1,10 +1,10 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
-import { BookmarkPlus } from "lucide-react";
-import { MARK_ALL_RESULTS, MarkAllIcon } from "@/lib/itemActionTable";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { BookmarkCheck, BookmarkPlus } from "lucide-react";
+import { markAllResultsLabel, MarkAllIcon } from "@/lib/itemActionTable";
 import { useMarkAllConfirm } from "./MarkAllConfirm";
-import { savedScopeOf, scopeFromSearchParams, useSavedSearches } from "@/api/savedSearches";
+import { savedScopeOf, scopeFromSearchParams, searchRoute, useSavedSearches } from "@/api/savedSearches";
 import { useBootstrap, useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
 import { visibleFeeds } from "@/lib/visibleFeeds";
@@ -50,6 +50,8 @@ export function SearchScreen() {
   const inputId = useId();
   const sortId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLFormElement>(null);
   const pref = useSearchOrder();
   const boot = useBootstrap();
   const tree = useFolderTree();
@@ -140,11 +142,25 @@ export function SearchScreen() {
           : "the whole library";
   const chip = where.feed ? (feedTitle ?? "One feed") : where.folder ? (folderName ?? "One folder") : where.view === "unread" ? "Unread only" : where.view === "starred" ? "Starred only" : null;
   const existing = ssId ? saved.searches.find((s) => s.id === ssId) : undefined;
+  // On a screen too short for the header and the results together (400% zoom, a phone held sideways) the screen scrolls as
+  // one (index.css .search-shell) with only the box held at the top; the results then fill what is left below the box, which
+  // is measured here rather than guessed.
+  useLayoutEffect(() => {
+    const shell = shellRef.current;
+    const box = boxRef.current;
+    if (!shell || !box || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => shell.style.setProperty("--search-box-h", `${box.offsetHeight}px`));
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, []);
+  // The whole results are loaded (one page, or all pages asked for), so their number is the number.
+  const total = controls && !controls.empty && !controls.more && controls.count > 0 ? controls.count : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="pt-safe shrink-0 border-b border-line bg-bg px-4 pb-3">
-        <div className="flex items-center pt-2">
+    <div className="search-screen h-full min-h-0">
+    <div ref={shellRef} className="search-shell flex h-full min-h-0 flex-col">
+      <header className="search-head pt-safe shrink-0 border-b border-line bg-bg pb-3">
+        <div className="flex items-center px-4 pt-2">
           <h1 className="min-w-0 flex-1 text-xl font-bold" tabIndex={-1} data-route-heading>
             Search
           </h1>
@@ -152,7 +168,9 @@ export function SearchScreen() {
           <SearchHelp />
         </div>
         <form
+          ref={boxRef}
           role="search"
+          className="sticky top-0 z-10 bg-bg px-4"
           onSubmit={(e) => {
             e.preventDefault();
             submit();
@@ -186,7 +204,7 @@ export function SearchScreen() {
             className={cn(inputCls, "mt-2")}
           />
         </form>
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-4">
           <div className="flex items-center gap-2">
             <label htmlFor={sortId} className="text-sm whitespace-nowrap text-fg2">
               Sort by
@@ -215,26 +233,36 @@ export function SearchScreen() {
           ) : null}
         </div>
         {ready ? (
-          <div className="mt-1 flex flex-wrap gap-x-2">
-            <Button variant="ghost" onClick={() => setSaving(true)} disabled={controls?.empty === true} title={controls?.empty ? "No results to save" : undefined} className="px-2">
-              <BookmarkPlus aria-hidden="true" />
-              Save this search
-            </Button>
-            <Button
-              variant="ghost"
-              className="px-2"
-              onClick={() => markAll.ask(MARK_ALL_RESULTS, "unread articles in these results", () => controls?.markAllRead())}
-              disabled={!controls || controls.count === 0 || typing}
-              title={typing ? "Press Enter to search first, then mark all results as read" : undefined}
-            >
-              <MarkAllIcon aria-hidden="true" />
-              {MARK_ALL_RESULTS}
-            </Button>
+          <div className="px-4">
+            <p role="status" data-testid="result-count" className="mt-2 min-h-5 text-sm text-fg2 [overflow-wrap:anywhere]">
+              {controls && !controls.empty && controls.count > 0 ? (
+                <>
+                  {controls.count}
+                  {controls.more ? "+" : ""} {controls.count === 1 && !controls.more ? "result" : "results"} for {trimmed}
+                </>
+              ) : null}
+              {existing ? <span className="ml-2 font-medium text-fg">Saved</span> : null}
+            </p>
+            <div className="mt-1 flex flex-wrap gap-x-2">
+              <Button variant="ghost" onClick={() => setSaving(true)} disabled={!existing && controls?.empty === true} title={!existing && controls?.empty ? "No results to save" : undefined} className="px-2">
+                {existing ? <BookmarkCheck aria-hidden="true" /> : <BookmarkPlus aria-hidden="true" />}
+                {existing ? "Edit saved search" : "Save this search"}
+              </Button>
+              <Button
+                variant="ghost"
+                className="px-2"
+                onClick={() => markAll.ask(markAllResultsLabel(total), "unread articles in these results", () => controls?.markAllRead())}
+                disabled={!controls || controls.count === 0 || typing}
+                title={typing ? "Press Enter to search first, then mark all results as read" : undefined}
+              >
+                <MarkAllIcon aria-hidden="true" />
+                {markAllResultsLabel(total)}
+              </Button>
+            </div>
           </div>
-        ) : null}
-        {markAll.dialog}
+        ) : null}        {markAll.dialog}
       </header>
-      <div className="min-h-0 flex-1">
+      <div className="search-results min-h-0 flex-1">
         {scope && !noFeeds ? (
           <ListPane key={`${q}|${whereKey}|${order}`} scope={scope} onControls={setControls} />
         ) : (
@@ -246,6 +274,23 @@ export function SearchScreen() {
                 <Button variant="solid" onClick={() => navigate("/feeds", { state: { open: "add" } })}>
                   Add a feed
                 </Button>
+              ) : trimmed.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 text-sm">
+                  <p className="text-fg2">
+                    Try <code className="font-mono text-fg">title:bridges</code> or <code className="font-mono text-fg">&quot;exact phrase&quot;</code>.
+                  </p>
+                  {saved.searches.length > 0 ? (
+                    <ul aria-label="Saved searches" className="flex flex-col items-center">
+                      {saved.searches.slice(0, 5).map((s) => (
+                        <li key={s.id}>
+                          <Link to={searchRoute(s)} className="inline-flex min-h-11 items-center text-link underline underline-offset-2">
+                            {s.name}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               ) : null
             }
           />
@@ -262,6 +307,7 @@ export function SearchScreen() {
           existing={existing}
         />
       ) : null}
+    </div>
     </div>
   );
 }

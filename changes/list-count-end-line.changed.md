@@ -1,0 +1,1 @@
+Reader: the list title shows the article count and the list ends with a line saying so; marking read while scrolling stays silent. (#661)

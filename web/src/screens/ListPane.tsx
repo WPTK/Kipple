@@ -19,6 +19,7 @@ import { prefersReducedMotion } from "@/gestures/tracking";
 import { COLLAPSE_MS, captureAnchor, compensate, type ScrollAnchor } from "@/lib/collapse";
 import { usePullToRefresh } from "@/gestures/usePullToRefresh";
 import { pageOf, useResolvedLayout } from "@/layouts";
+import { OneFeed, isOneFeed } from "@/layouts/parts";
 import { ROW_KEYSHORTCUTS, RowTabStop, STOP_PREFIX, useRowTabIndex } from "@/layouts/rowTabStop";
 import type { ListLayout, RowMenuActions } from "@/layouts";
 import { resolveList, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
@@ -213,6 +214,15 @@ export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed, scopeFeeds?
   return { title: "No articles yet", body: "Kipple hasn't fetched anything from these feeds yet." };
 }
 
+/** The line under the last row of a list that has been read to its end. Worded like the empty state: it names the list. */
+export function endCopy(scope: Scope): string {
+  if (scope.q) return "End of results";
+  if (scope.after) return "End of new articles";
+  if (scope.view === "muted") return "End of muted";
+  if (scope.view === "starred") return "End of starred";
+  return scope.view === "unread" ? "End of unread" : "End of articles";
+}
+
 /** What the header can ask the list to do (mark all needs the list's own loaded ids). */
 /** Why Mark all is off while a search is still being typed. */
 export const FINISH_SEARCH = "Finish your search first (press Enter)";
@@ -221,6 +231,8 @@ export interface ListControls {
   markAllRead: () => void;
   /** How many rows are loaded (0 while loading or empty). */
   count: number;
+  /** The server has more rows than are loaded. */
+  more: boolean;
   /** A search that had no exact match and shows partial matches (docs/design.md 2.4). */
   fallback: boolean;
   /** The list finished loading and has no articles at all. */
@@ -1461,6 +1473,11 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         ) : null}
       </div>
       {moreFailed}
+      {!src.more && !src.loadingMore && !src.loadMoreFailed && !src.pending && src.cards.length > 0 ? (
+        <p data-testid="list-end" className="px-4 py-6 text-center text-sm text-fg2">
+          {endCopy(scope)}
+        </p>
+      ) : null}
       </>
     );
   })();
@@ -1530,8 +1547,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     return !!id && !!parentRef.current?.contains(document.activeElement);
   }, [stopRef]);
   useEffect(() => {
-    controlsRef.current?.({ markAllRead, count: items.length, fallback, empty, focusStop });
-  }, [markAllRead, items.length, fallback, empty, focusStop]);
+    controlsRef.current?.({ markAllRead, count: items.length, more: src.more, fallback, empty, focusStop });
+  }, [markAllRead, items.length, src.more, fallback, empty, focusStop]);
   // A header outside the list must not keep acting on a list that is gone (a list remounted under the same scope).
   useEffect(() => () => controlsRef.current?.(null), [controlsRef]);
 
@@ -1599,7 +1616,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
                 <FeedFailureNote failing={noteFeeds} inFolder={!scope.feed} />
               </div>
             ) : null}
-            {body}
+            <OneFeed value={isOneFeed(scope)}>{body}</OneFeed>
           </div>
         </div>
       </div>

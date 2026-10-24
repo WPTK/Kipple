@@ -10,7 +10,7 @@ import { articleTo } from "@/lib/routes";
 import { planGazette, type Block, type GazettePlan, type PagePlan, type Slot } from "./gazettePlan";
 import { magazine } from "./magazine";
 import { ROW_KEYSHORTCUTS } from "./rowTabStop";
-import { ListImage, useImageFailure, PublishedTime, RowMenu, rowLinkProps } from "./parts";
+import { ListImage, useImageFailure, PublishedTime, RowMenu, UnreadDot, rowLinkProps, useOneFeed } from "./parts";
 import { RowTabStop } from "./rowTabStop";
 import type { ListLayout, PageProps, RowMenuActions } from "./types";
 
@@ -234,6 +234,7 @@ function headlineClass(slot: Slot, phone: boolean): string {
 
 function Story({ slot: planned, item, heading: H, to, onOpen, actions, phone, selected, tabStop }: StoryProps) {
   const press = useLongPressMenu(item.id);
+  const oneFeed = useOneFeed();
   const failure = useImageFailure(item.image);
   // A picture that cannot be shown takes the slot back to what it is without one: a lead without a picture is the
   // headline lead, a photo cell is an ordinary story with its standfirst.
@@ -258,8 +259,9 @@ function Story({ slot: planned, item, heading: H, to, onOpen, actions, phone, se
         <ListImage
           src={item.image!}
           failure={failure}
+          shaped
           frame={{ className: cn("w-full bg-surface", slot.kind === "photo" ? "aspect-[4/3]" : "aspect-video") }}
-          className={cn("size-full object-cover", item.read && "opacity-60")}
+          className={cn("size-full", item.read && "opacity-60")}
         />
       ) : null}
       <H className={cn("font-reading font-bold", headlineClass(slot, phone), item.read ? "text-fg2" : "text-fg")}>
@@ -275,10 +277,11 @@ function Story({ slot: planned, item, heading: H, to, onOpen, actions, phone, se
       </H>
       {standfirst && item.excerpt ? <p className={cn(standfirst, "font-reading text-base leading-normal break-words text-fg2")}>{item.excerpt}</p> : null}
       <p className="flex items-center gap-1.5 text-xs text-fg2">
-        <span className="truncate">{item.source}</span>
+        <UnreadDot unread={!item.read} />
+        {oneFeed ? null : <span className="truncate">{item.source}</span>}
         {brief ? null : (
           <>
-            <span aria-hidden="true">·</span>
+            {oneFeed ? null : <span aria-hidden="true">·</span>}
             <PublishedTime item={item} className="shrink-0" />
           </>
         )}
@@ -325,5 +328,5 @@ function GazetteList({ items, scope, more, width, selectedId, tabStopId, onOpen,
   return <Gazette plan={plan} items={byId} name={name} date={date} screen={screen} to={(c) => articleTo(c.id, scope)} onOpen={onOpen} actions={actions} selectedId={selectedId} focusedId={tabStopId} />;
 }
 
-/** In a search, which a paper cannot be planned from, the Gazette shows Editorial rows. */
+/** A search is never a paper (a paper is planned from a newest-first list): it reads in the results rows. */
 export const gazette: ListLayout = { ...magazine, id: "gazette", label: "Gazette", Page: GazetteList };

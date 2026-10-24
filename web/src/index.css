@@ -545,29 +545,41 @@ a.sr-only-live:focus {
 
 /* ---------- Row chrome shared by every layout ---------- */
 
-/* Row controls: 44 px hit area on touch, 32 px with a mouse. */
+/* Row controls (the star and More). One rule for when they show, keyed to what the device can do rather than to its
+   main pointer. Every row shows them at rest, quiet (the secondary tone, never faded: the star is held to 3:1), and a
+   control in the tab order is never hidden. Only a control laid over a picture or text (revealOnHover: the Gazette's and
+   Digest's More) waits for hover or focus, and only where there is a mouse. A hit area is 44 px where there is a touch
+   screen, 32 px otherwise. */
 .hit-row { min-width: 32px; min-height: 32px; }
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   .hit-row { min-width: 44px; min-height: 44px; }
 }
-
-/* Mouse users get controls on hover or keyboard focus; touch users see them always. */
-@media (hover: hover) and (pointer: fine) {
+@media (any-hover: hover) and (any-pointer: fine) {
   .row-reveal { opacity: 0; }
   .row-host:hover .row-reveal,
   .row-host:focus-within .row-reveal,
   .row-reveal[data-state="open"],
   .row-reveal:focus-visible { opacity: 1; }
 }
-/* A control for a mouse or pen. On touch it stays in the accessibility tree (a screen reader can still
+/* Where the only pointer is a finger, the overlaid control stays in the accessibility tree (a screen reader can still
    activate it) and anchors the menu a long press opens, but is neither seen nor tapped. */
-@media (pointer: coarse) {
+@media not (any-pointer: fine) {
   .row-touch-unseen { opacity: 0; pointer-events: none; }
 }
-.row-fine-only { display: none; }
-@media (hover: hover) and (pointer: fine) {
-  .row-fine-only { display: inline-flex; }
+/* Search on a screen too short for its header and its results together (400% zoom, a phone held sideways): the screen
+   scrolls as one, the title and options scroll away, and only the search box stays at the top. The header is dissolved
+   so the box is held against the screen's scroll rather than the header's; the results fill the screen below the box
+   (its height is measured by SearchScreen). 26rem is the height below which the header would take half the screen. */
+.search-screen { container: search / size; }
+@container search (max-height: 26rem) {
+  .search-shell { display: block; overflow-y: auto; overscroll-behavior: contain; }
+  .search-head { display: contents; }
+  .search-results { height: calc(100cqh - var(--search-box-h, 3.5rem)); flex: none; border-top: 1px solid var(--kp-border); }
 }
+
+/* A Headlines title is one line; with the text size above the default it may take two, so a long title is not cut to a word. */
+.headline-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: hidden; overflow-wrap: anywhere; }
+:root[data-text-large] .headline-title { -webkit-line-clamp: 2; line-clamp: 2; }
 
 /* Row heights by list density step (D1 to D5): docs round-2 section 2.2.
    Compact 44/48/56/64/72; Headlines 44 touch (28/32/36/56/64 with a mouse). */

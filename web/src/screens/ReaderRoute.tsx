@@ -217,6 +217,12 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
         >
           {above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
           {title}
+          {/* How much is unread here, beside the name. The heading's own name stays the list's name. */}
+          {unreadHere !== null && (scope.view === "unread" || scope.after) ? (
+            <span aria-hidden="true" data-testid="list-count" className="ml-2 text-sm font-normal text-fg2 tabular-nums">
+              {unreadHere}
+            </span>
+          ) : null}
         </Heading>
         {compact ? (
           <>

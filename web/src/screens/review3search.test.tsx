@@ -85,7 +85,7 @@ describe("Search typing flag follows the text it was set for", () => {
     await waitFor(() => expect(itemCalls(calls).some((c) => c.url.searchParams.get("feed") === "1")).toBe(true));
     const c = itemCalls(calls).filter((x) => x.url.searchParams.get("feed") === "1");
     expect(c.every((x) => !x.url.searchParams.has("typing"))).toBe(true);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Mark all results as read" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Mark all (\d+ )?results as read$/ })).toBeEnabled());
   });
 
   it("a saved search with a different q never sends one typing=1 request", async () => {

@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps } from "./parts";
+import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, rowState, titleTone } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
@@ -22,7 +22,7 @@ function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions 
       data-selected={selected || undefined}
       className={cn(
         "row-host @container relative flex flex-col gap-3 border-b border-line bg-bg px-4 py-[calc(var(--row-py)+0.5rem)]",
-        selected ? "bg-selection" : "hover:bg-surface",
+        rowState(selected),
       )}
     >
       <div className="flex flex-col gap-3 @[34rem]:flex-row @[34rem]:gap-5">
@@ -30,12 +30,13 @@ function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions 
           <ListImage
             src={item.image}
             failure={failure}
-            className={cn("aspect-video w-full rounded-xl bg-surface object-cover @[34rem]:w-2/5 @[34rem]:self-start", item.read && "opacity-60")}
+            shaped
+            className={cn("aspect-video w-full rounded-xl bg-surface @[34rem]:w-2/5 @[34rem]:self-start", item.read && "opacity-60")}
           />
         ) : null}
-        <div className="flex min-w-0 flex-1 flex-col gap-[calc(var(--row-gap)*2)]">
-          <SourceTimeMeta item={item} icon={feed?.icon} dot={<UnreadDot unread={unread} />} />
-          <h3 className={cn("clamp-title text-xl leading-tight", unread ? "font-bold text-fg" : "font-normal text-fg2")}>
+        <div className={cn("flex min-w-0 flex-1 flex-col gap-[calc(var(--row-gap)*2)]", !item.image && "min-h-[8rem]")}>
+          <SourceTimeMeta item={item} feed={feed} dot={<UnreadDot unread={unread} />} />
+          <h3 className={cn("clamp-title text-xl leading-tight", titleTone(unread))}>
             <Link
               tabIndex={tabIndex}
               to={to}
@@ -51,7 +52,7 @@ function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions 
       </div>
       <div className="relative z-10 -mr-2 -mb-2 flex items-center justify-end">
         <StarButton item={item} onToggleStar={onToggleStar} />
-        <RowMenu item={item} actions={actions} revealOnHover />
+        <RowMenu item={item} actions={actions} />
       </div>
     </article>
   );

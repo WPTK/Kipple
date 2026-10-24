@@ -46,6 +46,9 @@ export const MarkAllIcon = CheckCheck;
 /** A search's Mark all: the reach is the results, however many there are. */
 export const MARK_ALL_RESULTS = "Mark all results as read";
 
+/** A search's Mark all with its count, when the results are all loaded (so the count is the whole of them) and there are several. */
+export const markAllResultsLabel = (count: number | null): string => (count && count > 1 ? `Mark all ${count} results as read` : MARK_ALL_RESULTS);
+
 /**
  * The words for Mark all as read in the list `scope` is, naming how far it reaches. `unread` is the live unread count
  * of a feed, a folder or the library (null where the counts do not say, such as a reading-time filter or Starred, and

@@ -125,6 +125,9 @@ export function applyPrefs(p: Prefs, root: HTMLElement = document.documentElemen
   root.dataset.listDensity = p.listDensity;
   root.dataset.readingDensity = p.readingDensity;
   root.style.setProperty("--kp-scale", String(p.textSize));
+  // Larger text than the default lets a one-line row title (Headlines) take a second line (index.css .headline-title).
+  if (p.textSize > 1) root.dataset.textLarge = "";
+  else delete root.dataset.textLarge;
   // The reading font (the Aa menu) styles articles. Lists, the sidebar and the rest of the app keep the system UI
   // font unless "Also use it in lists and the sidebar" is on. Settings and the menus opt out in CSS (.ui-font) and always keep it.
   const stack = fontById(p.font).stack;

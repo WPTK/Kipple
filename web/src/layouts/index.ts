@@ -19,6 +19,7 @@ import { gazette } from "./gazette";
 import { headlines } from "./headlines";
 import { inbox } from "./inbox";
 import { magazine } from "./magazine";
+import { results } from "./results";
 import type { ListLayout, PageProps } from "./types";
 
 const layouts: Record<LayoutId, ListLayout> = { magazine, cards, compact, inbox, headlines, gazette, digest };
@@ -72,8 +73,9 @@ export function useSetListOverride(): <F extends ListField>(kind: "feed" | "fold
 export function useResolvedLayout(scope: Scope): { layout: ListLayout; ctx: LayoutContext } {
   const dp = useDevicePrefs();
   const ctx = useListContext(scope);
-  // The New page is always a Digest: it is a page of its own, not a list the reader laid out.
-  return { layout: getLayout(scope.after ? "digest" : resolveLayout(dp, ctx)), ctx };
+  // The New page is always a Digest: it is a page of its own, not a list the reader laid out. A search is always its
+  // fixed text rows: results are told apart by their words, not by the picture a layout would give them.
+  return { layout: scope.q ? results : getLayout(scope.after ? "digest" : resolveLayout(dp, ctx)), ctx };
 }
 
 export type { ListLayout, PageProps, RowProps, RowMenuActions } from "./types";

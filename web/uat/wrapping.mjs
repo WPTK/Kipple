@@ -11,7 +11,7 @@
 //   W1  every data-table cell keeps each word on one line (no letter-by-letter breaks), and on a phone the data table
 //       scrolls sideways inside the article; the layout table does not scroll and the page itself never does;
 //   W2  in the article list, in every layout, the title stays inside its row: it wraps where the layout shows more
-//       than one line, and the one-line layouts (Headlines, Inbox) end it with an ellipsis;
+//       than one line, and the clamped layouts (Headlines one line, Inbox two) keep it within those lines;
 //   W3  in the reader the heading's long word wraps inside the column.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
@@ -26,7 +26,8 @@ const WORDS = ["Measurement", "Uncertainty", "Calibration", "Temperature", "Obse
 const LONG = `#UATwrapping${"Unbrokenword".repeat(10)}`;
 const TITLE = `UAT wrapping ${LONG}`;
 const LAYOUTS = ["magazine", "cards", "compact", "gazette", "headlines", "inbox"];
-const ONE_LINE = ["headlines", "inbox"];
+// Layouts that cut a title to a number of lines (an ellipsis ends it), and how many.
+const CLAMPED = { headlines: 1, inbox: 2 };
 const table =
   `<table><thead><tr>${WORDS.map((w) => `<th>${w}</th>`).join("")}</tr></thead><tbody>` +
   Array.from({ length: 4 }, (_, r) => `<tr>${WORDS.map((w) => `<td>${w}${r}</td>`).join("")}</tr>`).join("") +
@@ -96,7 +97,6 @@ await t.eachViewport(async (page, vp) => {
             sw: heading.scrollWidth,
             cw: heading.clientWidth,
             lines: Math.round(r.height / parseFloat(getComputedStyle(heading).lineHeight)),
-            ellipsis: getComputedStyle(heading).textOverflow === "ellipsis" || getComputedStyle(a).textOverflow === "ellipsis",
             list: Math.round(list.getBoundingClientRect().right),
             win: window.innerWidth,
           };
@@ -106,8 +106,8 @@ await t.eachViewport(async (page, vp) => {
           continue;
         }
         const inside = row.right <= Math.min(row.list, row.win);
-        if (ONE_LINE.includes(layout)) {
-          check(inside && row.ellipsis, `${at} W2 ${layout}`, "the one-line title ends with an ellipsis inside the row", `the title runs past its row or has no ellipsis: ${JSON.stringify(row)}`);
+        if (layout in CLAMPED) {
+          check(inside && row.sw <= row.cw && row.lines <= CLAMPED[layout], `${at} W2 ${layout}`, `the title stays inside its row, in at most ${CLAMPED[layout]} line(s)`, `the title runs past its row or its lines: ${JSON.stringify(row)}`);
         } else {
           check(inside && row.sw <= row.cw && row.lines > 1, `${at} W2 ${layout}`, "the title's long word wraps inside the row", `the title runs past its row: ${JSON.stringify(row)}`);
         }

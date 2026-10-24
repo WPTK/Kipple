@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { BellOff, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, MoveUp, Pencil, Rss, RotateCcw, Share2, Star } from "lucide-react";
-import type { Card } from "@/api/types";
+import type { Card, Feed, Scope } from "@/api/types";
 import { closeRowMenu, rowMenuStore } from "@/gestures/rowMenu";
 import { cn } from "@/lib/cn";
 import { relativeTime } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import { DropdownMenu } from "@/ui/menu";
+import { FeedIcon } from "@/ui/FeedIcon";
 import { canNativeShare } from "@/lib/share";
 import { useRowTabIndex } from "./rowTabStop";
 import type { RowMenuActions } from "./types";
@@ -14,10 +15,28 @@ export function UnreadDot({ unread, className }: { unread: boolean; className?: 
   return <span aria-hidden="true" data-unread={unread} className={cn("kp-unread-dot size-2 shrink-0 rounded-full", unread ? "bg-unread" : "bg-transparent", className)} />;
 }
 
-export function SourceIcon({ src, className }: { src: string | null | undefined; className?: string }) {
-  if (!src) return null;
-  return <img src={src} alt="" width={16} height={16} loading="lazy" className={cn("size-4 shrink-0 rounded-sm", className)} />;
-}
+/**
+ * The title's unread cue, one for every layout: bold at full strength while unread, regular in the secondary tone once
+ * read. With UnreadDot it is what tells the two apart (the dot is the shape, the weight the second cue, so it is never
+ * color alone).
+ */
+export const titleTone = (unread: boolean): string => (unread ? "font-bold text-fg" : "font-normal text-fg2");
+
+/**
+ * How a row that can be selected looks. Three states, three looks: hover is the surface tone, keyboard focus is the
+ * focus ring on the row's link, and the selected row (the open article) is the selection tone with a bar on its left
+ * edge, so a hovered row and a selected one are never mistaken for each other.
+ */
+export const rowState = (selected: boolean): string => (selected ? "bg-selection shadow-[inset_3px_0_0_var(--color-accent)]" : "hover:bg-surface");
+
+/**
+ * Whether the list is of one feed. Its rows then name no source and show no feed icon: the list's title already says
+ * it. The list provides it once (OneFeed.Provider); every layout's source line reads it, so no layout is passed a flag.
+ */
+export const isOneFeed = (scope: Pick<Scope, "feed">): boolean => !!scope.feed;
+const OneFeedContext = createContext(false);
+export const OneFeed = OneFeedContext.Provider;
+export const useOneFeed = (): boolean => useContext(OneFeedContext);
 
 /** Whether a list row's lead picture could not be shown, and the handler that says so. */
 export interface ImageFailure {
@@ -44,19 +63,59 @@ export function useImageFailure(src: string | null | undefined): ImageFailure {
     },
   };
 }
+// How each lead picture was laid in its frame, kept across remounts like the failed ones: a list that comes back lays
+// the picture out as it was, with no jump from one fit to the other. Capped; the oldest is forgotten first.
+const fits = new Map<string, "cover" | "contain">();
+
+/**
+ * Whether a picture fills its frame (cropped) or sits whole in it (letterboxed). It fills when the crop keeps at least
+ * three quarters of it in both directions: a picture close to the frame's shape. A portrait, a square or a panorama in a
+ * landscape frame would lose most of itself, so it is shown whole on the frame's background instead. The frame never
+ * changes size, so the row does not move when the picture's shape is learned.
+ */
+function fitOf(img: HTMLImageElement): "cover" | "contain" {
+  const { naturalWidth: w, naturalHeight: h, clientWidth: bw, clientHeight: bh } = img;
+  if (!w || !h || !bw || !bh) return "cover";
+  const r = w / h / (bw / bh);
+  return Math.min(r, 1 / r) >= 0.75 ? "cover" : "contain";
+}
+
 /**
  * A list row's lead picture. When it cannot be shown (the image proxy refuses the format, the file is gone) the
  * picture and its `frame` (the box that holds its place) are removed together, so no layout keeps an empty box.
  * The one place that rule lives; every layout draws its picture through here and reads the same `failure` (from
  * useImageFailure) to lay the rest of the row out as a row without a picture. (The article itself says "Image not
- * shown" in place of an image; a list row just drops it.)
+ * shown" in place of an image; a list row just drops it.) `shaped`: the picture is a lead in a wide frame, cut to
+ * the frame only when its shape is close to it (fitOf); a thumbnail is always cut to its square.
  */
-export function ListImage({ src, failure, className, frame }: { src: string; failure: ImageFailure; className?: string; frame?: { className?: string } }) {
+export function ListImage({ src, failure, className, frame, shaped }: { src: string; failure: ImageFailure; className?: string; frame?: { className?: string }; shaped?: boolean }) {
+  const [, bump] = useState(0);
   if (failure.failed) return null;
-  const img = <img src={src} alt="" loading="lazy" decoding="async" className={className} onError={failure.onError} />;
+  const fit = (shaped && fits.get(src)) || "cover";
+  const img = (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className={cn(fit === "cover" ? "object-cover" : "object-contain", className)}
+      onLoad={
+        shaped
+          ? (e) => {
+              const next = fitOf(e.currentTarget);
+              if (fits.get(src) === next) return;
+              fits.delete(src);
+              fits.set(src, next);
+              if (fits.size > FAILED_MAX) fits.delete(fits.keys().next().value!);
+              bump((n) => n + 1);
+            }
+          : undefined
+      }
+      onError={failure.onError}
+    />
+  );
   return frame ? <div className={frame.className}>{img}</div> : img;
 }
-
 export function StarButton({ item, onToggleStar, className }: { item: Card; onToggleStar: (i: Card) => void; className?: string }) {
   const tabIndex = useRowTabIndex();
   return (
@@ -68,7 +127,7 @@ export function StarButton({ item, onToggleStar, className }: { item: Card; onTo
       aria-label={rowControlName("Star", item)}
       className={cn(
         "hit-row pointer-events-auto relative z-10 inline-flex items-center justify-center rounded-lg",
-        item.starred ? "text-star" : "text-fg2 opacity-70 hover:opacity-100",
+        item.starred ? "text-star" : "text-fg2 hover:text-fg",
         className,
       )}
     >
@@ -90,6 +149,7 @@ export function RowMenu({
 }: {
   item: Card;
   actions: RowMenuActions;
+  /** Laid over a picture or text: shown on hover or focus where there is a mouse (index.css, Row controls). */
   revealOnHover?: boolean;
   /** Offer Mark above and Mark below. A page that is not in date order (the Gazette) has no above or below. */
   ranges?: boolean;
@@ -223,14 +283,22 @@ export function PublishedTime({ item, className }: { item: Card; className?: str
   );
 }
 
-/** The "[dot] [icon] source · time" meta row shared by the cards, compact and magazine layouts. */
-export function SourceTimeMeta({ item, icon, dot }: { item: Card; icon: string | null | undefined; dot?: React.ReactNode }) {
+/**
+ * The "[dot] [icon] source · time" meta row shared by the cards, compact, inbox and editorial layouts. In a list of one
+ * feed (useOneFeed) the source and its icon are left out.
+ */
+export function SourceTimeMeta({ item, feed, dot }: { item: Card; feed: Feed | undefined; dot?: React.ReactNode }) {
+  const oneFeed = useOneFeed();
   return (
     <div className="flex items-center gap-1.5 text-xs text-fg2">
       {dot}
-      <SourceIcon src={icon} />
-      <span className="truncate">{item.source}</span>
-      <span aria-hidden="true">·</span>
+      {oneFeed ? null : (
+        <>
+          <FeedIcon src={feed?.icon} title={item.source} />
+          <span className="truncate">{item.source}</span>
+          <span aria-hidden="true">·</span>
+        </>
+      )}
       <PublishedTime item={item} className="shrink-0" />
     </div>
   );

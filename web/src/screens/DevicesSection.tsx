@@ -185,9 +185,9 @@ export function DevicesSection() {
               <div className="flex items-start gap-3">
                 <Icon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-fg2" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">
-                    {label(d)}
-                    {d.current ? <span className="ml-2 rounded-full border border-accent px-2 py-0.5 text-xs font-medium">This device</span> : null}
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold">
+                    <span className="min-w-0 [overflow-wrap:anywhere]">{label(d)}</span>
+                    {d.current ? <span className="rounded-full border border-accent px-2 py-0.5 text-xs font-medium">This device</span> : null}
                   </p>
                   <p className="text-xs text-fg2">
                     {d.current ? "Using it now" : `Last seen ${whenLabel(d.last_seen_at).toLowerCase()}`} ·{" "}

@@ -109,10 +109,22 @@ describe("Gazette pages", () => {
     expect(lead.querySelector("h3")!.className).toContain("text-[2.5rem]");
   });
 
+  it("gives every story the unread dot the other layouts use, and drops it once read", () => {
+    const { container, rerender } = draw(cards, p);
+    for (const c of cards) expect(container.querySelector(`article[data-item-id="${c.id}"] [data-unread="true"]`)).not.toBeNull();
+    const read = cards.map((c) => ({ ...c, read: true }));
+    rerender(
+      <MemoryRouter>
+        <Gazette plan={p} items={new Map(read.map((c) => [c.id, c]))} name="The Gazette" date={DATE} screen="wide" to={(c) => `/item/${c.id}`} onOpen={vi.fn()} actions={noActions} />
+      </MemoryRouter>,
+    );
+    for (const c of cards) expect(container.querySelector(`article[data-item-id="${c.id}"] [data-unread="true"]`)).toBeNull();
+  });
+
   it("fades a read story in place: the picture dims, the text turns secondary, nothing that sets size changes", () => {
     // Every class of every element in a story, minus the text colors that tell read from unread.
     const shape = (root: Element) =>
-      [root, ...root.querySelectorAll("*")].map((el) => [el.tagName, ...[...el.classList].filter((c) => c !== "text-fg" && c !== "text-fg2").sort()].join(" "));
+      [root, ...root.querySelectorAll("*")].map((el) => [el.tagName, ...[...el.classList].filter((c) => c !== "text-fg" && c !== "text-fg2" && c !== "bg-unread" && c !== "bg-transparent").sort()].join(" "));
     const { container, rerender } = draw(cards, p);
     const before = new Map(cards.map((c) => [c.id, shape(container.querySelector(`article[data-item-id="${c.id}"]`)!)]));
     const read = cards.map((c) => ({ ...c, read: true }));

@@ -31,7 +31,7 @@ describe("top safe-area inset", () => {
 
 describe("hit-row tap target", () => {
   it("is 44px on coarse pointers", () => {
-    expect(css).toMatch(/@media \(pointer: coarse\) \{\s*\.hit-row \{ min-width: 44px; min-height: 44px; \}/);
+    expect(css).toMatch(/@media \(any-pointer: coarse\) \{\s*\.hit-row \{ min-width: 44px; min-height: 44px; \}/);
   });
 });
 

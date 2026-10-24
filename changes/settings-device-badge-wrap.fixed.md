@@ -1,0 +1,1 @@
+Settings: the This device badge wraps instead of overflowing on narrow screens, and long Inbox titles no longer push the row wider. (#615)

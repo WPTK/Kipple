@@ -16,8 +16,8 @@
 // Each pass says which layout it checks before it checks anything: on /l/all from the list options button ("List
 // options, <layout> layout"); the search page has no such button, so there from the device default the app has stored
 // (the one value its list reads; an unset one is Editorial, "magazine"), which must be the layout the pass set.
-// The Gazette draws pages instead of rows, except in a search (a search shows it as Editorial rows), so its stories are
-// checked on /l/all, where the Gazette's Story renders; every other layout is checked on the search.
+// Every layout is checked on /l/all, where its own rows render; a search always draws its text rows (layouts/results.tsx),
+// so it is checked once more, last.
 // The layout the device started with is put back when a width is done, so later flows find the layout they expect.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
@@ -35,12 +35,14 @@ const { check, step } = t;
 const SEARCH = "/search?q=the";
 // A layout and the page that draws it as its own rows (see the header).
 const LAYOUTS = [
-  { label: "Editorial", id: "magazine", path: SEARCH },
-  { label: "Cards", id: "cards", path: SEARCH },
-  { label: "Compact", id: "compact", path: SEARCH },
-  { label: "Inbox", id: "inbox", path: SEARCH },
-  { label: "Headlines", id: "headlines", path: SEARCH },
+  { label: "Editorial", id: "magazine", path: "/l/all" },
+  { label: "Cards", id: "cards", path: "/l/all" },
+  { label: "Compact", id: "compact", path: "/l/all" },
+  { label: "Inbox", id: "inbox", path: "/l/all" },
+  { label: "Headlines", id: "headlines", path: "/l/all" },
   { label: "Gazette", id: "gazette", path: "/l/all" },
+  // A search always draws its own text rows, whatever the device reads in; the Inbox pass is the device default there.
+  { label: "Inbox", id: "inbox", path: SEARCH },
 ];
 const FEED_TITLE = "UAT feed row name";
 const WIDTHS = { desktop: [768, 1280], phone: [375] };
