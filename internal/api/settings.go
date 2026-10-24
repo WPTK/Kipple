@@ -50,6 +50,9 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	for _, k := range keys {
 		spec, known := settingDefByKey[k]
 		switch {
+		case k == store.SettingCatchupSeen:
+			// Only POST /api/catchup/seen writes it: it moves forward and never past the newest article.
+			issues = append(issues, settingIssue{k, "read-only setting"})
 		case !known && strings.HasPrefix(k, "sys."):
 			issues = append(issues, settingIssue{k, "read-only setting"})
 		case !known:

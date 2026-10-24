@@ -327,6 +327,7 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
   // The New page is a Digest of its own: a fixed few articles in each top-level folder, in the sidebar's order.
   const visit = useStore(visitStore);
   const arrivals = useMemo(() => (after && visit?.mark === after ? { visit: visit.id, counts: visit.counts } : undefined), [after, visit]);
+  const visitAsOf = after && visit?.mark === after ? visit.asOf : undefined;
   const rows = after ? NEW_ROWS : dp.digestRows;
 
   const input = useMemo<DigestInput | null>(
@@ -447,10 +448,13 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
       // With no section loaded there is no bound, and a request without one marks what arrived after the page opened,
       // which the reader never saw: no request is better than that one.
       if (!oldest) return [];
-      const whole = { scope: undefined, asOf: oldest, cards: loadedSections.flatMap((s) => s.r.cards).filter((c) => !arrivedAfter(c.id, oldest)) };
+      // On the New page the whole list stops at what the visit knew of when it opened: a section that loaded later
+      // (a folder with nothing new then) is bounded after that, and what arrived between was never shown.
+      const bound = visitAsOf && arrivedAfter(oldest, visitAsOf) ? visitAsOf : oldest;
+      const whole = { scope: undefined, asOf: bound, cards: loadedSections.flatMap((s) => s.r.cards).filter((c) => !arrivedAfter(c.id, bound)) };
       const newer = loadedSections
-        .filter((s) => oldest && s.r.asOf && arrivedAfter(s.r.asOf, oldest))
-        .map((s) => ({ scope: sectionScope(scope, s.d), asOf: s.r.asOf, cards: s.r.cards.filter((c) => arrivedAfter(c.id, oldest)) }));
+        .filter((s) => s.r.asOf && arrivedAfter(s.r.asOf, bound))
+        .map((s) => ({ scope: sectionScope(scope, s.d), asOf: s.r.asOf, cards: s.r.cards.filter((c) => arrivedAfter(c.id, bound)) }));
       return [whole, ...newer];
     },
     digest,

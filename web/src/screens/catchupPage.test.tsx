@@ -281,6 +281,67 @@ describe("the mark", () => {
   });
 });
 
+describe("the page's loading, failure and edges", () => {
+  it("keeps the header, and so focus on its pill, while the visit is not ready", async () => {
+    routes([3], { "GET /api/catchup": () => json({ error: "gone" }, 500) });
+    go("/l/new");
+    expect(await screen.findByText("Couldn't load what is new")).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Show" })).getByRole("link", { name: "New" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("forgets an earlier failure when the page is opened again", async () => {
+    let state: "down" | "hung" = "down";
+    routes([3], { "GET /api/catchup": () => (state === "down" ? json({ error: "gone" }, 500) : new Promise<Response>(() => {})) });
+    const user = userEvent.setup();
+    go("/l/new");
+    expect(await screen.findByText("Couldn't load what is new")).toBeInTheDocument();
+    await user.click(within(screen.getByRole("navigation", { name: "Show" })).getByRole("link", { name: "Unread" }));
+    await screen.findByText("Alpha story 1");
+    state = "hung";
+    await user.click(within(screen.getByRole("navigation", { name: "Show" })).getByRole("link", { name: "New" }));
+    expect(await screen.findByText("Looking for what is new.")).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't load what is new")).toBeNull();
+  });
+
+  it("has the page's counts beside an article opened by its address", async () => {
+    // A wide screen: the page's list stands beside the article.
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width: 900px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
+    routes([8, 2]);
+    const { container } = go("/i/1001?from=unread%7Cafter%3A100");
+    await waitFor(() => expect(headings(container)).toEqual(["Alpha8 new", "Beta2 new"]));
+    expect(screen.getByRole("button", { name: "5 more in Alpha" })).toBeInTheDocument();
+    expect(world.seen).toEqual([]);
+  });
+
+  it("marks all only up to what the visit knew of when it opened", async () => {
+    const { calls } = routes([3, 3], {
+      "GET /api/items": (u) => {
+        const n = u.searchParams.get("folder") === "10" ? 0 : u.searchParams.get("folder") === "11" ? 1 : -1;
+        return json(pageOf(n < 0 ? [] : articlesOf(n, 3), null, "950")); // the sections loaded after the visit began
+      },
+    });
+    const user = userEvent.setup();
+    go("/l/new");
+    await screen.findByText("Beta story 1");
+    await user.click(screen.getByRole("button", { name: "List actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Mark all as read/ }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read")).toBe(true));
+    const body = JSON.parse(String(calls.find((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read")!.init?.body));
+    expect(body.max_id).toBe("900");
+  });
+
+  it("turns Mark all as read off when nothing is new", async () => {
+    routes([0, 0]);
+    const user = userEvent.setup();
+    go("/l/new");
+    await screen.findByText("Nothing new");
+    await user.click(screen.getByRole("button", { name: "List actions" }));
+    const item = await screen.findByRole("menuitem", { name: /Mark all as read/ });
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    expect(item).toHaveTextContent("Nothing unread here");
+  });
+});
+
 describe("helpers", () => {
   it("names the sections the server counts: each top-level folder, nested ones inside it", () => {
     const folders = [

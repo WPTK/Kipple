@@ -55,8 +55,13 @@ try {
     // Ids are numbers past 2^53 / 10, so compare as BigInt.
     const gt = (a, b) => BigInt(a) > BigInt(b);
     const ready = async () => {
-      await settled(() => !document.querySelector('[data-testid="digest-skeleton"]') && !document.querySelector('[role="status"]'), 15000);
+      await settled(() => !document.querySelector('[data-testid="digest-skeleton"]'), 15000);
     };
+    // Waits until the account's mark is past `prev` (leaving the page posts it a moment after the route changes).
+    const markPast = (prev) =>
+      page
+        .waitForFunction(async (p) => BigInt((await (await fetch("/api/catchup", { headers: { Accept: "application/json" } })).json()).mark) > BigInt(p), prev, { timeout: 10000, polling: 250 })
+        .then(() => true, () => false);
     const openNew = async () => {
       await page.getByRole("link", { name: "New", exact: true }).first().click();
       await page.waitForURL("**/l/new*", { timeout: 10000 });
@@ -110,8 +115,11 @@ try {
       await page.locator("[data-digest] article[data-item-id] a").first().focus();
       const visited = [await focusId()];
       for (let i = 1; i < Math.min(drawn.length, 5); i++) {
+        const before = visited[visited.length - 1];
         await page.keyboard.press("ArrowDown");
-        await page.waitForTimeout(80);
+        await page
+          .waitForFunction((b) => (document.activeElement?.closest("[data-item-id],[data-stop-id]")?.getAttribute("data-item-id") ?? document.activeElement?.closest("[data-stop-id]")?.getAttribute("data-stop-id") ?? null) !== b, before, { timeout: 3000 })
+          .catch(() => {});
         visited.push(await focusId());
       }
       check(visited.join() === drawn.slice(0, visited.length).join(), `${tag} C4 arrows`, "ArrowDown visits stories and buttons in the drawn order", `visited ${visited.join(" ")}, drawn ${drawn.slice(0, visited.length).join(" ")}`);
@@ -129,7 +137,8 @@ try {
       // C5
       await page.locator(`article[data-item-id="${allA[0]}"] a`).first().click();
       await page.waitForURL(`**/i/${allA[0]}?*`, { timeout: 10000 });
-      await page.waitForTimeout(500);
+      // The article has drawn: any leave the page wrongly made has been posted by now.
+      await page.getByRole("heading", { name: /UAT new a story 8/ }).first().waitFor({ timeout: 10000 });
       const duringArticle = await mark();
       await page.goBack();
       await section(A).waitFor({ timeout: 15000 });
@@ -138,11 +147,7 @@ try {
       // C6
       const pageAsOf = await asOf();
       await leave();
-      let moved = false;
-      for (let i = 0; i < 30 && !moved; i++) {
-        moved = gt(await mark(), startMark);
-        if (!moved) await page.waitForTimeout(200);
-      }
+      const moved = await markPast(startMark);
       // Other feeds may have fetched since the page opened, so the mark is at least the newest story the page showed and no more than the newest there is.
       const nowMark = await mark();
       check(moved && !gt(allA[0], nowMark) && !gt(nowMark, pageAsOf), `${tag} C6 leave`, "leaving the page moves the mark to the newest story it knew of", `the mark was ${startMark}, is ${nowMark}; the page showed up to ${allA[0]}, the newest story is ${pageAsOf}`);
@@ -150,14 +155,9 @@ try {
       // C7: two stories arrive in A.
       served.a = 10;
       await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
-      const arrived = await (async () => {
-        for (let i = 0; i < 40; i++) {
-          const r = await page.request.get(`/api/items?view=all&feed=${added.a.feedId}`, { headers: { Accept: "application/json" } });
-          if (((await r.json()).items ?? []).length >= 10) return true;
-          await page.waitForTimeout(500);
-        }
-        return false;
-      })();
+      const arrived = await page
+        .waitForFunction(async (feed) => ((await (await fetch(`/api/items?view=all&feed=${feed}`, { headers: { Accept: "application/json" } })).json()).items ?? []).length >= 10, added.a.feedId, { timeout: 20000, polling: 500 })
+        .then(() => true, () => false);
       if (!arrived) return t.fail(`${tag} C7 setup`, "the two new stories never arrived");
       await openNew();
       const newA = await idsOf(A);
@@ -168,7 +168,7 @@ try {
 
       // C8: nothing new.
       await leave();
-      for (let i = 0; i < 30 && !gt(await mark(), startMark); i++) await page.waitForTimeout(200);
+      check(await markPast(nowMark), `${tag} C7 leave`, "leaving the page again moves the mark past the two new stories", `the mark stayed at ${await mark()}`);
       await openNew();
       check((await page.getByText("Nothing new").count()) >= 1, `${tag} C8 empty`, "with nothing new the page says so", "no empty message");
       await t.shot(page, `${tag}-new-empty`);

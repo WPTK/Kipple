@@ -49,8 +49,10 @@ func TestCatchupCountsAndMark(t *testing.T) {
 	// It never moves back (a second device leaving later with an older page), and never past what exists.
 	_, body, _ = h.api(c, "POST", "/api/catchup/seen", `{"as_of":"`+sid(a1)+`"}`)
 	require.Equal(t, sid(b1), body["mark"])
-	code, _, _ = h.api(c, "POST", "/api/catchup/seen", `{"as_of":"`+sid(z1+1)+`"}`)
-	require.Equal(t, http.StatusBadRequest, code)
+	// A page that knew of a newer article than exists now (a feed was deleted elsewhere) still moves the mark as far as it can.
+	code, body, _ = h.api(c, "POST", "/api/catchup/seen", `{"as_of":"`+sid(z1+1)+`"}`)
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, sid(z1), body["mark"])
 	for _, bad := range []string{`{}`, `{"as_of":"0"}`, `{"as_of":"x"}`, `{"as_of":5}`} {
 		code, _, _ = h.api(c, "POST", "/api/catchup/seen", bad)
 		require.Equal(t, http.StatusBadRequest, code, bad)
@@ -76,6 +78,13 @@ func TestCatchupMarkIsAHiddenSetting(t *testing.T) {
 			require.Equal(t, "hidden", m["surface"])
 		}
 	}
+	// Only leaving the page writes it: a settings write could move it back or past every article.
+	for _, v := range []string{`"1"`, `"9000000000000000000"`, `"0"`, `null`} {
+		code, _, _ := h.api(c, "PATCH", "/api/settings", `{"catchup.seen":`+v+`}`)
+		require.Equal(t, http.StatusBadRequest, code, v)
+	}
+	_, body, _ = h.api(c, "GET", "/api/settings", "")
+	require.Equal(t, sid(id), body["values"].(map[string]any)["catchup.seen"])
 }
 
 func TestCatchupRoutesNeedASessionAndOrigin(t *testing.T) {

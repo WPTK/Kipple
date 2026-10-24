@@ -502,8 +502,8 @@ The Stats summary tiles (previous-period figure) and a feed's Read rate (the cou
 - **One mark for the account.** Where the reader left off is kept on the server, so a phone and a laptop agree about what
   is new. It is the newest article the page knew of when it was left.
 - **It moves when you leave, not when you look.** Opening an article from the page and coming back, hiding the tab, and
-  switching windows leave it. Closing the tab or reloading leave it too, so the page shows the same articles again:
-  a catch-up that quietly forgot what you had not read would be worse than one that repeats itself.
+  switching windows do not move it. Closing the tab or reloading does not move it either, so the page shows the same
+  articles again: a catch-up that quietly forgot what you had not read would be worse than one that repeats itself.
 - **Two devices.** The later leave wins; an older page cannot move the mark back. A page left open for days keeps showing
   its own list until it is left or reloaded.
 - **Fixed look.** Three rows, folders as sections and sidebar order, whatever the Digest's settings say on that device:

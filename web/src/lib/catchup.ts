@@ -27,6 +27,8 @@ export interface CatchupVisit {
   mark: string;
   /** The newest article the server knew of then; leaving moves the mark here. */
   asOf: string;
+  /** The visit began on an article of the page (its address), not on the page: leaving it moves nothing. */
+  adopted?: boolean;
   /** Articles that arrived after the mark, by section key (digestPlan). A section missing here has none. */
   counts: ReadonlyMap<string, number>;
 }
@@ -63,6 +65,7 @@ export function catchupGroups(feeds: readonly Pick<Feed, "id" | "title" | "folde
 /** The visit the leave of the page ends: the mark moves, and the next visit waits for that to land. */
 function leave(v: CatchupVisit): void {
   visitStore.set(null);
+  if (v.adopted || v.asOf === v.mark) return; // nothing to move: an adopted visit never moves the mark, and this one has nothing past it
   pendingSeen = api("/api/catchup/seen", { method: "POST", body: { as_of: v.asOf } }).catch(() => {
     // The mark stays where it was: the page shows the same articles next time. Nothing the reader did is lost.
   });
@@ -90,7 +93,7 @@ export type VisitState = { status: "loading" } | { status: "error"; error: unkno
  * The visit of the New page while `active` (the page is open). It begins by asking the server for the mark and the
  * counts; the answer is kept for as long as the reader stays on the page or its articles.
  */
-export function useCatchupVisit(active: boolean): VisitState {
+export function useCatchupVisit(active: boolean, adopt?: string): VisitState {
   const qc = useQueryClient();
   const visit = useStore(visitStore);
   const boot = useBootstrap();
@@ -102,6 +105,12 @@ export function useCatchupVisit(active: boolean): VisitState {
     setFailure(null);
     setAttempt((n) => n + 1);
   }, []);
+  // An earlier failure is not this visit's: the page opening again asks again.
+  const [wasActive, setWasActive] = useState(active);
+  if (wasActive !== active) {
+    setWasActive(active);
+    if (active) setFailure(null);
+  }
   useEffect(() => {
     const b = bootRef.current;
     if (!active || visit || !ready || !b) return;
@@ -111,15 +120,18 @@ export function useCatchupVisit(active: boolean): VisitState {
       .then((r) => {
         if (!live) return;
         // A visit is a fresh look: whatever an earlier visit under the same mark left in the cache is not shown.
-        const tail = `|after:${r.mark}`;
-        qc.removeQueries({ queryKey: keys.itemsAll, predicate: (q) => String(q.queryKey[1]).includes(tail) });
-        visitStore.set({ id: ++visits, mark: r.mark, asOf: r.as_of, counts: new Map(r.sections.map((s) => [keyOf(s.group), s.count])) });
+        // `adopt` is a page opened on an article of the New page (a reload or a new tab): it carries the mark its link
+        // names, and leaving it moves nothing, so the page is still new on the next visit.
+        const mark = adopt ?? r.mark;
+        const tail = `|after:${mark}`;
+        if (!adopt) qc.removeQueries({ queryKey: keys.itemsAll, predicate: (q) => String(q.queryKey[1]).includes(tail) });
+        visitStore.set({ id: ++visits, mark, asOf: r.as_of, adopted: !!adopt, counts: new Map(r.sections.map((s) => [keyOf(s.group), s.count])) });
       })
       .catch((error) => live && setFailure({ error }));
     return () => {
       live = false;
     };
-  }, [active, visit, ready, attempt, qc, bootRef]);
+  }, [active, visit, ready, attempt, qc, bootRef, adopt]);
   if (visit) return { status: "ready", visit };
   if (failure) return { status: "error", error: failure.error, retry };
   return { status: "loading" };

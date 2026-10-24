@@ -30,7 +30,7 @@ import { ResizeHandle } from "@/ui/ResizeHandle";
 import { NARROW_QUERY, useMedia, useShort, useWide } from "@/lib/useMedia";
 import { ARTICLE_MIN, maxFor, useWidth } from "@/lib/useWidth";
 import { NEW_VIEW, listTo, newTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
-import { useCatchupVisit } from "@/lib/catchup";
+import { useCatchupVisit, visitStore } from "@/lib/catchup";
 import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { NOTHING_TO_UNDO, undoLast, undoStore } from "@/lib/undo";
@@ -139,7 +139,10 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
     ...(scope.feed || scope.folder || scope.q ? [] : [{ id: NEW_VIEW as string, label: "New", to: newTo(scope), active: !!scope.after }]),
     ...views.map((v) => ({ id: v.view as string, label: v.label, to: listTo({ ...plain, view: v.view }), active: !scope.after && v.view === scope.view })),
   ];
-  const nothingUnread = scopeUnread(scope, boot.data) === 0;
+  // The New page has its own count: what the visit found after its mark.
+  const visit = useStore(visitStore);
+  const newCount = scope.after && visit?.mark === scope.after ? [...visit.counts.values()].reduce((a, b) => a + b, 0) : null;
+  const nothingUnread = scope.after ? newCount === 0 : scopeUnread(scope, boot.data) === 0;
   const refreshBusy = refreshing || refresh.isPending;
   // A short phone screen (landscape) has no height to spare for a second header row: the Show pills and the feed
   // switch sit on the title row, after the title (#420).
@@ -326,7 +329,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
   );
 }
 
-function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?: string; hasFrom: boolean }) {
+function ReaderLayout({ scope, articleId, hasFrom, pending }: { scope: Scope; articleId?: string; hasFrom: boolean; pending?: { status: "loading" } | { status: "error"; retry: () => void } }) {
   const wide = useWide();
   // With an article open the article names the page (it sets its own title).
   const scopeTitle = useScopeTitle(scope).title;
@@ -359,7 +362,14 @@ function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?:
     <div className="flex h-full min-h-0 flex-col">
       <ScopeHeader scope={scope} controls={controls ?? undefined} beside={wide && !!articleId} />
       <div className="min-h-0 flex-1">
-        <ListPane key={listKey} scope={scope} activeId={articleId} onControls={setControls} />
+        {/* The New page's visit is asked for first; the header stays mounted meanwhile, so focus on its pill is kept. */}
+        {pending?.status === "loading" ? (
+          <EmptyState title="Loading" why="Looking for what is new." action={null} />
+        ) : pending?.status === "error" ? (
+          <EmptyState role="alert" title="Couldn't load what is new" why="Kipple couldn't reach the server." action={<Button onClick={pending.retry}>Try again</Button>} />
+        ) : (
+          <ListPane key={listKey} scope={scope} activeId={articleId} onControls={setControls} />
+        )}
       </div>
     </div>
   );
@@ -477,12 +487,15 @@ export function ReaderRoute() {
   const spKey = sp.toString();
   // The New page starts a visit (the server says where the mark is); its list is the unread articles after that mark.
   const isNew = view === NEW_VIEW;
-  const visit = useCatchupVisit(isNew);
+  // An article of that page opened by address (a reload, a new tab) needs the visit too: its list is the page's.
+  const articleAfter = isArticle ? scopeFromSearch(new URLSearchParams(spKey)).after : undefined;
+  const visit = useCatchupVisit(isNew || !!articleAfter, articleAfter);
   const mark = visit.status === "ready" ? visit.visit.mark : undefined;
   const base = useMemo(() => {
     if (!isNew) return baseScope(view, new URLSearchParams(spKey), isArticle);
     const len = scopeFromList("unread", new URLSearchParams(spKey)).length;
-    return { view: "unread" as const, ...(len ? { length: len } : {}), ...(mark ? { after: mark } : {}) };
+    // "0" stands in until the visit is known (no list is drawn then).
+    return { view: "unread" as const, ...(len ? { length: len } : {}), after: mark ?? "0" };
   }, [view, spKey, isArticle, isNew, mark]);
   const order = resolveOrder(dp, useListContext(base));
   const scope = useMemo(() => readerScope(base, order), [base, order]);
@@ -531,15 +544,8 @@ export function ReaderRoute() {
       />
     );
   }
-  if (isNew && visit.status === "loading") return <StatusBlock role="status" title="Loading" body="Looking for what is new." />;
-  if (isNew && visit.status === "error") {
-    return (
-      <StatusBlock role="alert" title="Couldn't load what is new" body="Kipple couldn't reach the server.">
-        <Button onClick={visit.retry}>Try again</Button>
-      </StatusBlock>
-    );
-  }
-  return <ReaderLayout scope={scope} articleId={item?.params.id} hasFrom={sp.has("from")} />;
+  const pending = (isNew || !!articleAfter) && visit.status !== "ready" ? visit : undefined;
+  return <ReaderLayout scope={scope} articleId={item?.params.id} hasFrom={sp.has("from")} pending={pending} />;
 }
 
 /**

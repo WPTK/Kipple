@@ -95,10 +95,8 @@ func (s *Server) catchupSeen(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "catchup seen", err)
 		return
 	}
-	if to > newest {
-		writeError(w, http.StatusBadRequest, "bad_request")
-		return
-	}
+	// The newest article can be lower than the page knew of (a feed deleted elsewhere): the mark then goes as far as it can.
+	to = min(to, newest)
 	mark, err := s.db.AdvanceCatchupMark(r.Context(), to)
 	if err != nil {
 		s.serverError(w, "catchup seen", err)
