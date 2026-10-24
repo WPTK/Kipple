@@ -19,7 +19,7 @@ import { prefersReducedMotion } from "@/gestures/tracking";
 import { COLLAPSE_MS, captureAnchor, compensate, type ScrollAnchor } from "@/lib/collapse";
 import { usePullToRefresh } from "@/gestures/usePullToRefresh";
 import { pageOf, useResolvedLayout } from "@/layouts";
-import { ROW_KEYSHORTCUTS, RowTabStop, useRowTabIndex } from "@/layouts/rowTabStop";
+import { ROW_KEYSHORTCUTS, RowTabStop, STOP_PREFIX, useRowTabIndex } from "@/layouts/rowTabStop";
 import type { ListLayout, RowMenuActions } from "@/layouts";
 import { resolveList, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { prefsStore } from "@/lib/prefs";
@@ -42,7 +42,8 @@ import { visibleFeeds } from "@/lib/visibleFeeds";
 import { failureCopy, failureNoteFeeds, showsFailure } from "@/lib/feedStatus";
 import { FeedFailureNote } from "./FeedFailureNote";
 import { listPlace, rememberListTop } from "@/lib/listPlace";
-import { useItemsSource } from "./listSource";
+import { useItemsSource, type ListSource } from "./listSource";
+import { useDigestSource } from "./digestSource";
 import { firstLook, keepStill, lookAgain, measurePage, readerScrolling, SCROLLING_MS, type PageLook, type ReaderInput } from "./pageSeen";
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
@@ -118,6 +119,8 @@ const MEMORY_CAP = 100;
 const OVERSCAN = 8;
 /** How far down a list a remembered place is looked for after a reload, in articles. */
 const PLACE_SEARCH_MAX = 1000;
+/** The same for the Digest, which loads up to a page of every section it asks for: about ten sections. */
+const PLACE_SEARCH_DIGEST_MAX = 200;
 
 /** The article whose row is at the top of the scrolled list (rows are absolutely placed, so the highest one in view). */
 function topItemId(scroller: HTMLElement): string | null {
@@ -287,8 +290,14 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const group = scope.q ? "day" : resolveList(dp, ctx, "group").value;
   // A page layout (the Gazette) draws the whole loaded list itself: no virtualized rows, and no row ever leaves it.
   const Page = pageOf(layout, scope);
-  // Where the articles come from (listSource.ts): the server's list, a page at a time.
-  const src = useItemsSource(scope, !!Page);
+  // Where the articles come from (listSource.ts): the server's list, a page at a time; or, for the Digest, a list for each
+  // of its sections (digestSource.ts).
+  const digestOn = layout.id === "digest" && !!Page;
+  const listSrc = useItemsSource(scope, !!Page, !digestOn);
+  const digestSrc = useDigestSource(scope, digestOn);
+  const src: ListSource = digestOn ? digestSrc : listSrc;
+  // The Digest has nothing to show only when no section is drawn (even one still loading or failed is) and none is left to ask.
+  const nothingShown = src.digest ? src.digest.sections.length === 0 && !src.more : src.cards.length === 0;
   const { startOver } = src;
   const pagedRef = useLatestRef(!!Page);
   // Only the pending-new slices: run progress and fetch ticks must not re-render every row.
@@ -725,6 +734,12 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       }
       // Loaded but not laid out yet: the pages come in a later render.
       if (src.cards.some((i) => i.id === id)) return;
+      // The Digest shows a few of a section's articles: one it holds but does not show is not found by loading more.
+      if (digestOn && digestSrc.loadedCards.some((i) => i.id === id)) {
+        place.id = null;
+        rememberListTop(key, null);
+        return;
+      }
     } else {
       const i = rowIndexOf(id);
       if (i >= 0) {
@@ -735,7 +750,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       }
     }
     if (src.pending || src.fetching) return;
-    if (src.more && !src.loadMoreFailed && src.cards.length < PLACE_SEARCH_MAX) void src.loadMore();
+    // The Digest asks for sections, not pages: it looks through a few, never every one.
+    const searched = digestOn ? digestSrc.loadedCards.length : src.cards.length;
+    if (src.more && !src.loadMoreFailed && searched < (digestOn ? PLACE_SEARCH_DIGEST_MAX : PLACE_SEARCH_MAX)) void src.loadMore();
     else {
       place.id = null;
       rememberListTop(key, null);
@@ -915,7 +932,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     if (!ROW_KEYS.has(e.key)) return;
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isDefaultPrevented()) return;
     const target = e.target instanceof HTMLElement ? e.target : null;
-    const row = target?.closest<HTMLElement>("[data-item-id]") ?? null;
+    const row = target?.closest<HTMLElement>("[data-item-id],[data-stop-id]") ?? null;
     if (!target || !row) return;
     if (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
     if (target.getAttribute("aria-expanded") === "true") return;
@@ -926,8 +943,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       target.click();
       return;
     }
-    const order = Page ? pageOrder(parentRef.current, src.cards) : items;
-    const at = order.findIndex((i) => i.id === row.dataset.itemId);
+    // A page's keys visit its stories and its buttons (the Digest's "N more") in the order they are drawn.
+    const order = Page ? pageOrder(parentRef.current) : items.map((i) => i.id);
+    const at = order.indexOf(row.dataset.itemId ?? row.dataset.stopId ?? "");
     const page = Math.max(1, Math.floor((parentRef.current?.clientHeight ?? 0) / Math.max(1, row.offsetHeight))) * cols;
     const last = order.length - 1;
     const to =
@@ -936,15 +954,15 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       : e.key === "Home" ? 0
       : e.key === "End" ? last
       : Math.min(last, Math.max(0, at + (e.key === "PageDown" ? page : -page)));
-    const item = order[to];
+    const next = order[to];
     e.preventDefault();
     e.stopPropagation();
-    if (!item || to === at) return;
-    setFocusId(item.id);
+    if (!next || to === at) return;
+    if (!next.startsWith(STOP_PREFIX)) setFocusId(next);
     pageRestored.current = true; // moving by key is the reader moving the page
-    if (Page) storyIntoView(parentRef.current, item.id);
-    else virtualizer.scrollToIndex(rowIndexOf(item.id), { align: "auto" });
-    requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, item.id)));
+    if (Page) storyIntoView(parentRef.current, next);
+    else virtualizer.scrollToIndex(rowIndexOf(next), { align: "auto" });
+    requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, next)));
   };
 
   /** The row that takes focus in the list (its own focus, or one of its controls) becomes the list's Tab stop. */
@@ -1143,6 +1161,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       // The source says how far a side reaches, or why it reaches nothing (a page whose reading order is not date order).
       const reach = srcRef.current.rangeOf(item);
       if ("why" in reach) return announce(reach.why);
+      // The server marks a side within one list: the section's, for the Digest.
+      const within = reach.scope ?? markScope;
       const gone = hiddenRef.current;
       const list = gone.size ? reach.cards.filter((i) => !gone.has(i.id)) : reach.cards;
       const at = list.findIndex((i) => i.id === item.id);
@@ -1150,7 +1170,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       const part = side === "above" ? list.slice(0, at) : list.slice(at + 1);
       const local = part.filter((i) => !i.read).map((i) => i.id);
       const restore = unreadView && local.length ? hide(local) : undefined;
-      void act.markSide({ scope: markScope, order: scope.order === "oldest" ? "oldest" : "date", side, anchor: item, maxId: asOf.current }, local, restore, unhide);
+      void act.markSide({ scope: within, order: within.order === "oldest" ? "oldest" : "date", side, anchor: item, maxId: reach.asOf ?? asOf.current }, local, restore, unhide);
     },
     [srcRef, hiddenRef, act, hide, unhide, scope, markScope, unreadView, rank],
   );
@@ -1162,10 +1182,25 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       announce(FINISH_SEARCH);
       return;
     }
-    const local = items.filter((i) => !i.read).map((i) => i.id);
-    const restore = unreadView && local.length ? hide(local) : undefined;
-    void act.markAll(markScope, asOf.current, local, restore, unhide);
-  }, [act, hide, unhide, items, scope, markScope, unreadView]);
+    // A list of lists (the Digest) is marked by one request for the whole scope and one for each loaded section that
+    // is newer than it, all as one undo group; any other list is one request.
+    const parts = srcRef.current.markAllParts?.();
+    if (!parts) {
+      const local = items.filter((i) => !i.read).map((i) => i.id);
+      const restore = unreadView && local.length ? hide(local) : undefined;
+      void act.markAll(markScope, asOf.current, local, restore, unhide);
+      return;
+    }
+    if (parts.length === 0) {
+      // No section has come back, so there is no bound: marking would take in articles the reader has not seen.
+      announce("Nothing to mark yet, no section has loaded");
+      return;
+    }
+    const requests = parts.map((part) => ({ scope: part.scope ?? markScope, maxId: part.asOf, local: part.cards.filter((i) => !i.read).map((i) => i.id) }));
+    const all = [...new Set(requests.flatMap((r) => r.local))];
+    const restore = unreadView && all.length ? hide(all) : undefined;
+    void act.markAllIn(requests, restore, unhide);
+  }, [act, hide, unhide, items, scope, markScope, unreadView, srcRef]);
 
   const menuActions: RowMenuActions = useMemo(
     () => ({
@@ -1180,9 +1215,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       restore: restoreRow,
       editRule: (item) => item.muted_by && openFilterEditor({ mode: "edit", id: item.muted_by }),
       manageFeed: (item) => (feedById.has(item.feed_id) ? openFeedEditor(item.feed_id) : toast("This feed no longer exists.", "error")),
-      noRange: rank || !!scope.typing || !!Page,
+      noRange: rank || !!scope.typing,
     }),
-    [act, range, restoreRow, feedById, rank, scope.typing, Page],
+    [act, range, restoreRow, feedById, rank, scope.typing],
   );
 
   // ---- pull to refresh ---------------------------------------------------
@@ -1330,7 +1365,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         />
       );
     }
-    if ((Page ? src.cards.length : rows.length) === 0) {
+    if (Page ? nothingShown : rows.length === 0) {
       if (boot.data && visibleFeeds(boot.data.feeds).length === 0 && !scope.q) {
         return (
           <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
@@ -1375,7 +1410,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       return (
         <>
           <div data-page-box="">
-            <Page items={src.cards} scope={scope} more={src.more} width={width} selectedId={selected} tabStopId={shown(focusId, src.cards)} onOpen={openItem} actions={menuActions} />
+            <Page items={src.cards} scope={scope} more={src.more} width={width} selectedId={selected} tabStopId={shown(focusId, src.cards)} onOpen={openItem} actions={menuActions} digest={src.digest} />
           </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
           {src.loadingMore ? (
@@ -1443,7 +1478,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     pageLook.current = firstLook(measurePage(el));
   }, [pulled, Page]);
   // Known to have nothing (not merely still loading): a search with no results has nothing to save or mark.
-  const empty = !src.pending && src.cards.length === 0;
+  const empty = !src.pending && nothingShown;
   // Each feed is judged by the new articles waiting from it, the way the pill counts them (one rule with the feed's empty list).
   const feeds = boot.data?.feeds;
   const folders = boot.data?.folders;
@@ -1703,20 +1738,22 @@ export function focusListRow(id: string): void {
   (link ?? list)?.focus({ preventScroll: true });
 }
 
-/** A page layout's stories in reading order, which is their DOM order. */
-function pageOrder(container: HTMLElement | null, items: readonly Card[]): Card[] {
-  const byId = new Map(items.map((i) => [i.id, i]));
-  const ids = [...(container?.querySelectorAll<HTMLElement>("article[data-item-id]") ?? [])].map((a) => a.dataset.itemId ?? "");
-  return ids.flatMap((id) => byId.get(id) ?? []);
+/**
+ * What the arrow keys visit on a page layout, in the order it is drawn, which is its DOM order: its stories (article
+ * ids) and the buttons it marks `data-stop-id` (the Digest's "N more" and Retry), which are not Tab stops of their own.
+ */
+function pageOrder(container: HTMLElement | null): string[] {
+  const els = container?.querySelectorAll<HTMLElement>("article[data-item-id],[data-stop-id]") ?? [];
+  return [...els].map((e) => e.dataset.itemId ?? e.dataset.stopId ?? "");
 }
 
 /** Scroll a page layout's story into view, as little as needed. */
 function storyIntoView(container: HTMLElement | null, id: string): void {
-  container?.querySelector(`[data-item-id="${CSS.escape(id)}"]`)?.scrollIntoView?.({ block: "nearest" });
+  container?.querySelector(`[data-item-id="${CSS.escape(id)}"],[data-stop-id="${CSS.escape(id)}"]`)?.scrollIntoView?.({ block: "nearest" });
 }
 
 function focusRow(container: HTMLElement | null, id: string): void {
-  const link = container?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a`);
+  const link = container?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a,[data-stop-id="${CSS.escape(id)}"] button`);
   link?.focus({ preventScroll: true });
 }
 

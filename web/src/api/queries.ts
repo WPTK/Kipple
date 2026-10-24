@@ -33,9 +33,9 @@ import { chainOf, folderTree, type FolderTree } from "@/lib/folderTree";
 import { useMemo } from "react";
 import { setUpdateReady } from "@/lib/offlineState";
 import { settleToasts, toast } from "@/shell/toasts";
-import { itemsParams, keys, patchItems, undoKept } from "./queryKeys";
+import { PAGE_SIZE, itemsParams, keys, patchItems, undoKept } from "./queryKeys";
 
-export { PAGE_SIZE, keys, scopeKey, parseScopeKey, itemsParams, patchItems, dropFromLists, invalidateLists, undoKept, type ItemPatch } from "./queryKeys";
+export { PAGE_SIZE, SECTION_SUFFIX, keys, scopeKey, parseScopeKey, itemsParams, patchItems, dropFromLists, invalidateLists, undoKept, type ItemPatch } from "./queryKeys";
 
 /** The toast for a failed change: one made offline that could not be stored says so, not "the server". */
 export function changeError(e: unknown, action: string): string {
@@ -80,25 +80,33 @@ export function useFolderTree(): FolderTree {
   return useMemo(() => folderTree(folders ?? []), [folders]);
 }
 
-/** Cursor-paged item list (design 7.1: keyset cursor, limit at most 100). */
-export function useItems(scope: Scope, enabled = true) {
-  return useInfiniteQuery({
-    queryKey: keys.items(scope),
-    queryFn: async ({ pageParam, signal }) => {
+/**
+ * The options of a cursor-paged item list (design 7.1: keyset cursor, limit at most 100): the list `scope` names, kept
+ * under `queryKey` and read `limit` articles at a time. The one place a list's request and caching are decided, for
+ * the list itself (useItems) and for a Digest section (keys.section), which is a list of its own.
+ */
+export function itemsQuery(scope: Scope, queryKey: readonly unknown[], limit = PAGE_SIZE) {
+  return {
+    queryKey,
+    queryFn: async ({ pageParam, signal }: { pageParam: string; signal: AbortSignal }) => {
       const meta: { cached?: boolean } = {};
-      const page = await api<ItemsPage>("/api/items", { params: itemsParams(scope, pageParam || undefined), signal, meta });
+      const page = await api<ItemsPage>("/api/items", { params: itemsParams(scope, pageParam || undefined, limit), signal, meta });
       return meta.cached ? { ...page, items: await overlayPending(page.items) } : page;
     },
     initialPageParam: "",
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-    enabled,
+    getNextPageParam: (last: ItemsPage) => last.next_cursor ?? undefined,
     // A search the server refuses (422 too broad) or a cursor it no longer takes (400) will not get better by asking again.
     retry: retryRead,
     // A list is a snapshot: rows read in place stay visible (dimmed) until the
     // user refreshes or leaves. SSE never refetches it behind the user's back.
     staleTime: Infinity,
     gcTime: 30 * 60_000,
-  });
+  };
+}
+
+/** The list of a scope, a page at a time. */
+export function useItems(scope: Scope, enabled = true) {
+  return useInfiniteQuery({ ...itemsQuery(scope, keys.items(scope)), enabled });
 }
 
 export function useItem(id: string | undefined) {
