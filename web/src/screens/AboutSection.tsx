@@ -59,7 +59,7 @@ export function AboutSection() {
       </dl>
       <div className="flex flex-wrap gap-2">
         <Button variant="solid" onClick={() => void copyDebug()}>Copy debug info</Button>
-        <Button onClick={(e) => openWhatsNew(e.currentTarget)}>
+        <Button onClick={openWhatsNew}>
           What's new
         </Button>
       </div>
@@ -74,7 +74,7 @@ export function AboutSection() {
           value={text}
           rows={Math.min(text.split("\n").length + 1, 22)}
           onFocus={(e) => e.currentTarget.select()}
-          className="w-full rounded-lg border border-line bg-surface p-3 font-mono text-xs text-fg"
+          className="w-full rounded-lg border border-field bg-surface p-3 font-mono text-xs text-fg"
         />
       ) : null}
       <p className="text-sm text-fg2">

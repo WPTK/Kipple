@@ -1,12 +1,14 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { browserOnlineStore } from "@/lib/offlineState";
+import { useStore } from "@/lib/store";
 import { Link, useLocation, useNavigate } from "react-router";
 import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileCheck, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { useFulltext, useItem, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
-import { enhanceEmbeds, enhanceImages, enhanceTables, handleArticleClick, watchImages, watchScrollRegions } from "@/lib/articleDom";
+import { enhanceEmbeds, enhanceImages, enhanceTables, handleArticleClick, hasNothingToRead, watchImages, watchScrollRegions } from "@/lib/articleDom";
 import { useListOrder } from "@/layouts/listOrder";
 import { useItemActions } from "@/lib/itemActions";
 import { retireUndoToastFor } from "@/lib/undo";
@@ -25,7 +27,9 @@ import { clearMarks, wrapMarks } from "@/lib/highlight";
 import { Hl, useGroups } from "@/lib/useHighlights";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
-import { StatusBlock, focusListRow, rememberListPlace } from "./ListPane";
+import { EmptyState } from "@/ui/EmptyState";
+import { NotFoundBlock } from "@/ui/NotFoundBlock";
+import { focusListRow, rememberListPlace } from "./ListPane";
 import type { Scope } from "@/api/types";
 import { ReadingMenu } from "./AppearanceControls";
 import { ListenBar } from "./ListenBar";
@@ -68,7 +72,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   // article was opened from often already has this item's card cached, url included: enough to still offer
   // "read the original" even though the article body itself could not be loaded.
   const cachedCard = useMemo(() => list.cards.find((i) => i.id === id), [list.cards, id]);
-  const browserOnline = useSyncExternalStore(subscribeOnline, () => navigator.onLine !== false);
+  const browserOnline = useStore(browserOnlineStore);
   const index = ids.indexOf(id);
   // The list order as it was while this article was in it. An article can leave its list while it is open (saving
   // "Mute similar..." from it drops it from every list but Muted), and Next and Previous then go on from where it was.
@@ -159,8 +163,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const toggleStar = () => {
     if (!item.data) return;
     const starred = !item.data.starred;
-    star.mutate({ id, starred });
-    announce(starred ? "Starred" : "Unstarred");
+    // Said once the change is made (or kept for later), not before: a failed star is not announced as done.
+    star.mutate({ id, starred }, { onSuccess: () => announce(starred ? "Starred" : "Unstarred") });
   };
   const toggleRead = () => {
     if (!item.data) return;
@@ -259,6 +263,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   // offered only online, as on the error screen below: offline it cannot open. Going on or offline re-attaches the
   // watch, which updates the cues already shown.
   const articleUrl = browserOnline ? safeHttpUrl(item.data?.url) : undefined;
+  // A feed that sent only a title: nothing to read and no picture either. Told apart from an article that is all pictures.
+  const textless = !!a && !a.trimmed && hasNothingToRead(html);
+  const originalButton = articleUrl ? <Button variant="solid" onClick={() => openOriginalAndRecord({ id, url: articleUrl })}>Open original</Button> : null;
   const sameTab = linkTarget === "same";
   const bodyCallback = useCallback(
     (el: HTMLDivElement | null) => {
@@ -326,23 +333,22 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
         {pane && toolbar(true)}
         {failed ? (
           <div className="flex min-h-0 flex-1 items-center justify-center">
-            <StatusBlock
-              role="alert"
-              asH1
-              title={gone ? "This article is no longer available" : "Couldn't open this article"}
-              body={
-                gone
-                  ? "It may have been removed by a feed's retention limit or deleted."
-                  : originalUrl
-                    ? "The article couldn't be loaded. You can read the original instead."
-                    : "The article couldn't be loaded."
-              }
-            >
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                {gone ? pane ? null : <Button onClick={back}>Back to the list</Button> : <Button onClick={() => void item.refetch()}>Try again</Button>}
-                {originalUrl ? <Button variant="ghost" onClick={() => openOriginalAndRecord({ id, url: originalUrl })}>Read the original</Button> : null}
-              </div>
-            </StatusBlock>
+            {gone ? (
+              <NotFoundBlock noun="article" why="It may have been removed by a feed's retention limit or deleted." action={pane ? null : <Button onClick={back}>Back to the list</Button>} />
+            ) : (
+              <EmptyState
+                role="alert"
+                asH1
+                title="Couldn't open this article"
+                why={originalUrl ? "The article couldn't be loaded. You can read the original instead." : "The article couldn't be loaded."}
+                action={
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Button onClick={() => void item.refetch()}>Try again</Button>
+                    {originalUrl ? <Button variant="ghost" onClick={() => openOriginalAndRecord({ id, url: originalUrl })}>Read the original</Button> : null}
+                  </div>
+                }
+              />
+            )}
           </div>
         ) : (
           <div className="p-6" aria-busy="true" role="status">
@@ -377,7 +383,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
                 {a.source || a.feed.title}
               </Link>
             </p>
-            <h1 id="article-title" ref={headingRef} tabIndex={-1} dir="auto" className="mt-1 text-[1.75rem] leading-tight font-[650] text-balance wrap-anywhere outline-none [font-family:var(--kp-reading-font)] [font-size-adjust:0.5]">
+            <h1 id="article-title" ref={headingRef} tabIndex={-1} dir="auto" className="mt-1 text-title leading-tight font-[650] text-balance wrap-anywhere outline-none [font-family:var(--kp-reading-font)] [font-size-adjust:0.5]">
               <Hl text={a.title || "Untitled"} field="title" feedId={a.feed_id} />
             </h1>
             <p dir="auto" className="mt-2 text-sm text-fg2">
@@ -414,11 +420,11 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
               </Button>
             </p>
           ) : null}
-          {a.trimmed ? null : <ListenBar bodyRef={bodyRef} articleId={id} />}
+          {a.trimmed || textless ? null : <ListenBar bodyRef={bodyRef} articleId={id} />}
           {a.trimmed ? (
-            <div className="kp-ui">
-              <StatusBlock role="status" title="This article was removed" body="Kipple keeps only the newest articles for this feed. Open the original to read it." />
-            </div>
+            <EmptyState title="This article was removed" why="Kipple keeps only the newest articles for this feed. Open the original to read it." action={originalButton} />
+          ) : textless ? (
+            <EmptyState title="This feed sent only a title" why="There is no text to show here. The original may have more." action={originalButton} />
           ) : (
             <div
               ref={bodyCallback}
@@ -436,16 +442,6 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
       {!pane && toolbar(false)}
     </div>
   );
-}
-
-/** The browser's own online state (navigator.onLine), not the app's: a request failing sets the app offline too. */
-function subscribeOnline(cb: () => void): () => void {
-  window.addEventListener("online", cb);
-  window.addEventListener("offline", cb);
-  return () => {
-    window.removeEventListener("online", cb);
-    window.removeEventListener("offline", cb);
-  };
 }
 
 function TopBar({ onBack }: { onBack: () => void }) {

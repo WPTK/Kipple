@@ -83,6 +83,12 @@ await t.eachViewport(async (page, vp) => {
         const full = Math.abs(m.width - Math.min(m.win.w, 512)) <= 1 && Math.abs(m.bottom - m.win.h) <= 1;
         check(m.sheet && full && m.top >= 0 && m.height <= 0.7 * m.win.h + 1 && m.dim, `P1 ${name}`, `the menu is a sheet ${Math.round(m.width)}x${Math.round(m.height)} px on the bottom edge`, `the menu is not a bottom sheet (sheet ${m.sheet}, ${Math.round(m.left)}-${Math.round(m.right)} x ${Math.round(m.top)}-${Math.round(m.bottom)} in ${m.win.w}x${m.win.h}, dimmed ${m.dim})`);
         check(m.focusIn, `P2 ${name} focus`, "focus is inside the sheet", "focus is outside the sheet");
+        // A toast or the save notice (both fixed, z-50) must not cover the bottom of the sheet or take its taps.
+        const z = await page.evaluate(() => {
+          const n = (el) => Number(getComputedStyle(el).zIndex);
+          return { menu: n(document.querySelector('[role="menu"]')), dim: n(document.querySelector("[data-menu-backdrop]")), toast: n(document.querySelector('[data-testid="toast-region"]')) };
+        });
+        check(z.menu > z.toast && z.dim > z.toast, `P5 ${name}`, "the sheet and its dimmed page are above the toasts", `z-index: sheet ${z.menu}, dimmed page ${z.dim}, toasts ${z.toast}`);
         if (id === "layout") {
           const text = await menu().innerText();
           check(/Layout/i.test(text) && /Order/i.test(text), `P1 ${name} sections`, "the sheet names its Layout and Order sections", `the sheet text is ${text.replace(/\s+/g, " ").slice(0, 80)}`);
@@ -102,8 +108,10 @@ await t.eachViewport(async (page, vp) => {
 
         await page.keyboard.press("Escape");
         await menu().waitFor({ state: "detached", timeout: 5000 });
-        const back = await page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName);
         const want = await b[id].getAttribute("aria-label");
+        // Radix returns focus a tick after the menu is gone, so wait for it rather than read the moment the menu detaches.
+        await page.waitForFunction((w) => document.activeElement?.getAttribute("aria-label") === w, want, { timeout: 2000 }).catch(() => {});
+        const back = await page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName);
         check(back === want, `P2 ${name} return`, `focus returns to "${want}"`, `focus is on "${back}"`);
 
         // A tap on the dimmed page closes the sheet and does not open the row under it.

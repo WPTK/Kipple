@@ -1,4 +1,5 @@
 import { useDevicePrefs, type UnreadBadge } from "@/lib/devicePrefs";
+import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 /** The count shown on a badge: capped at 99+, so a permanent backlog does not turn into a wall of digits. */
@@ -23,6 +24,27 @@ export function unreadName(name: string, n: number, mode: UnreadBadge): string {
 }
 
 /**
+ * A count in a pill: the one badge for every number beside a label (unread, muted, starred, a feed's articles).
+ * `accent` is the loud one for the tab bar's icon; `quiet` sits on a surface beside a row. The number is capped at 99+.
+ */
+export function CountBadge({ n, tone = "quiet", testid, className, before, after }: { n: number; tone?: "accent" | "quiet"; testid?: string; className?: string; /** Spoken before the number. */ before?: ReactNode; /** Spoken after it. */ after?: ReactNode }) {
+  return (
+    <span
+      data-testid={testid}
+      className={cn(
+        "shrink-0 rounded-full tabular-nums",
+        tone === "accent" ? "bg-accent px-1.5 text-micro leading-4 font-bold text-bg" : "bg-surface px-2 py-0.5 text-xs font-semibold text-fg2",
+        className,
+      )}
+    >
+      {before}
+      {badgeText(n)}
+      {after}
+    </span>
+  );
+}
+
+/**
  * The unread badge on the tab bar and in the sidebar. The device setting "Unread badge" (Count, Dot only, Off)
  * decides what shows. The unread state is never color alone: the dot has a screen reader label and the count
  * is text.
@@ -39,17 +61,7 @@ export function UnreadCount({ n, tone = "quiet", className, noun = "unread" }: {
     );
   }
   return (
-    <span
-      data-testid="unread-count"
-      className={cn(
-        "shrink-0 rounded-full tabular-nums",
-        tone === "accent" ? "bg-accent px-1.5 text-[0.6875rem] leading-4 font-bold text-bg" : "bg-surface px-2 py-0.5 text-xs font-semibold text-fg2",
-        className,
-      )}
-    >
-      {badgeText(n)}
-      {noun ? <span className="sr-only-live"> {noun}</span> : null}
-    </span>
+    <CountBadge n={n} tone={tone} testid="unread-count" className={className} after={noun ? <span className="sr-only-live"> {noun}</span> : null} />
   );
 }
 
@@ -57,10 +69,7 @@ export function UnreadCount({ n, tone = "quiet", className, noun = "unread" }: {
 function PlainCount({ n, noun, testid, className }: { n: number; noun: string; testid: string; className?: string }) {
   if (n <= 0) return null;
   return (
-    <span data-testid={testid} className={cn("shrink-0 rounded-full bg-surface px-2 py-0.5 text-xs font-semibold text-fg2 tabular-nums", className)}>
-      <span className="sr-only-live">{noun} </span>
-      {badgeText(n)}
-    </span>
+    <CountBadge n={n} testid={testid} className={className} before={<span className="sr-only-live">{noun} </span>} />
   );
 }
 

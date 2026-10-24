@@ -38,23 +38,10 @@ import { HEAT_MIX } from "@/theme/contrast";
 import { useStatsEnabled } from "@/lib/statsSender";
 import { useMedia } from "@/lib/useMedia";
 import { Button } from "@/ui/button";
-import { Modal, Notice, Skeleton } from "@/ui/kit";
+import { Modal, Notice, Section, Skeleton } from "@/ui/kit";
 import { Segmented } from "@/ui/segmented";
 import { useWrappedEnabled } from "@/lib/wrapped";
 import { StatsDataSection, StatsExportDialog } from "./StatsDataDialogs";
-
-function Section({ title, children, sub = false }: { title: string; children: ReactNode; sub?: boolean }) {
-  const id = useId();
-  const H = sub ? "h3" : "h2";
-  return (
-    <section aria-labelledby={id} className={sub ? "border-t border-line pt-4" : "border-b border-line py-5"}>
-      <H id={id} className={sub ? "mb-3 text-base font-bold" : "mb-3 text-lg font-bold"}>
-        {title}
-      </H>
-      {children}
-    </section>
-  );
-}
 
 function Empty({ children }: { children: ReactNode }) {
   return <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-fg2">{children}</p>;
@@ -365,7 +352,7 @@ export function Heatmap({ data, empty }: { data: StatsSummary; empty: boolean })
             <tr>
               <td />
               {hours.map((h) => (
-                <th key={h} scope="col" className="overflow-visible text-left text-[10px] leading-none font-normal whitespace-nowrap text-fg2">
+                <th key={h} scope="col" className="overflow-visible text-left text-micro leading-none font-normal whitespace-nowrap text-fg2">
                   <span aria-hidden="true">{h % 6 === 0 ? (h === 0 ? "12a" : h === 12 ? "12p" : h < 12 ? `${h}a` : `${h - 12}p`) : ""}</span>
                   <span className="sr-only">{hourLabel(h)}</span>
                 </th>
@@ -680,7 +667,7 @@ function FeedDetail({ feed, range }: { feed: string; range: ScreenRange }) {
   if (q.isPending) return <Skeleton rows={4} label="Loading this feed" />;
   if (!data) {
     return (
-      <div role="alert" className="flex flex-col items-start gap-3">
+      <div className="flex flex-col items-start gap-3">
         <Notice tone="error">{errorMessage(q.error)}</Notice>
         <Button onClick={() => void q.refetch()}>Try again</Button>
       </div>
@@ -765,7 +752,7 @@ export function StatsScreen() {
     body = <Skeleton rows={5} label="Loading statistics" />;
   } else if (q.isError && !data) {
     body = (
-      <div role="alert" className="flex flex-col items-start gap-3 py-6">
+      <div className="flex flex-col items-start gap-3 py-6">
         <Notice tone="error">{errorMessage(q.error)}</Notice>
         <Button onClick={() => void q.refetch()}>Try again</Button>
       </div>

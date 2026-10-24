@@ -19,12 +19,12 @@ export function DeviceSaveStatus() {
   return (
     <div
       data-testid="save-status"
-      className="pointer-events-auto fixed top-[calc(env(safe-area-inset-top)+0.5rem)] right-3 z-50 flex max-w-[calc(100vw-1.5rem)] items-center gap-2 rounded-full border border-line bg-surface py-0.5 pr-1 pl-3 text-xs text-fg shadow-md"
+      className="pointer-events-auto fixed top-[calc(env(safe-area-inset-top)+0.5rem)] right-3 z-50 flex max-w-[calc(100vw-1.5rem)] items-center gap-2 rounded-full border border-line bg-surface py-0.5 pr-1 pl-3 text-xs text-fg shadow-toast"
     >
       <span>{s.status === "error" ? "Couldn't save your settings" : (named ?? `${n} setting${n === 1 ? "" : "s"} not saved`)}</span>
       {s.status === "error" && (
         <button type="button" onClick={() => void retrySave()} className="hit inline-flex items-center rounded-full px-2 font-bold underline underline-offset-2">
-          Retry
+          Try again
         </button>
       )}
       {n > 0 && (

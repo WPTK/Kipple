@@ -92,7 +92,7 @@ await t.eachViewport(async (page, vp) => {
         const p = await ctx.newPage();
         await p.goto("/", { waitUntil: "load" });
         await p.getByLabel("Username").fill(t.opt.user);
-        await p.getByLabel("Password").fill("not-the-password");
+        await p.getByLabel("Password", { exact: true }).fill("not-the-password");
         await p.getByRole("button", { name: "Sign in" }).click();
         await p.getByRole("alert").first().waitFor({ timeout: 10000 });
         await p.waitForTimeout(200);
@@ -215,7 +215,7 @@ async function signIn(ctx) {
   const p = await ctx.newPage();
   await p.goto("/", { waitUntil: "load" });
   await p.getByLabel("Username").fill(t.opt.user);
-  await p.getByLabel("Password").fill(t.opt.password);
+  await p.getByLabel("Password", { exact: true }).fill(t.opt.password);
   await p.getByRole("button", { name: "Sign in" }).click();
   await p.waitForURL(/\/l\//, { timeout: 15000 });
   return p;

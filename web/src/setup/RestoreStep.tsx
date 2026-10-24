@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "rea
 import { ApiError } from "@/api/client";
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
-import { Field, Notice, RadioCard, inputCls } from "@/ui/kit";
+import { Field, Notice, PasswordField, RadioCard, inputCls } from "@/ui/kit";
 import { MIN_PASSWORD_LEN, passwordProblem } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import {
@@ -74,7 +74,6 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
   const [opml, setOpml] = useState<OpmlSummary | null>(null);
   const [mode, setMode] = useState<Mode>("everything");
   const [password, setPassword] = useState("");
-  const [again, setAgain] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busyUpload, setBusyUpload] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
@@ -200,7 +199,6 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
     setFile(null);
     setProgress(null);
     setPassword("");
-    setAgain("");
     setView("pick");
   };
 
@@ -244,8 +242,8 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
     const wants = passwordNeeded || password !== "";
     if (wants) {
       const problem = password === "" ? "Enter a password." : passwordProblem(password);
-      if (problem || password !== again) {
-        setPwError(problem ?? "The two passwords don't match.");
+      if (problem) {
+        setPwError(problem);
         pwInput.current?.focus();
         return;
       }
@@ -378,33 +376,20 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
                     {passwordReason(backup)}
                   </Notice>
                 ) : null}
-                <Field
+                <PasswordField
                   label={passwordNeeded ? "New password" : "Set a new password (optional)"}
                   help={passwordNeeded ? `At least ${MIN_PASSWORD_LEN} characters.` : "Leave empty to keep the password in the backup."}
                   error={pwError}
-                >
-                  {(a) => (
-                    <input
-                      {...a}
-                      ref={pwInput}
-                      name="new-password"
-                      type="password"
-                      autoComplete="new-password"
-                      required={passwordNeeded}
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        setPwError(null);
-                      }}
-                      className={inputCls}
-                    />
-                  )}
-                </Field>
-                {passwordNeeded || password !== "" ? (
-                  <Field label="Password again">
-                    {(a) => <input {...a} name="new-password-again" type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} className={inputCls} />}
-                  </Field>
-                ) : null}
+                  inputRef={pwInput}
+                  name="new-password"
+                  autoComplete="new-password"
+                  required={passwordNeeded}
+                  value={password}
+                  onChange={(v) => {
+                    setPassword(v);
+                    setPwError(null);
+                  }}
+                />
                 <p className="text-sm text-fg2">Kipple restarts to restore the backup. Images and icons are downloaded again the first time you view them.</p>
               </div>
             ) : null}

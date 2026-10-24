@@ -1,8 +1,9 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, Navigate, useMatch, useNavigate, useSearchParams } from "react-router";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, MoreVertical, RefreshCw, Settings, Timer, Undo2, X } from "lucide-react";
+import { errorMessage } from "@/api/client";
 import { keys, scopeKey, useBootstrap, useFolderTree } from "@/api/queries";
 import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib/folderTree";
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
@@ -34,15 +35,17 @@ import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { NOTHING_TO_UNDO, undoLast, undoStore } from "@/lib/undo";
 import { Button, buttonVariants } from "@/ui/button";
-import { inputCls } from "@/ui/kit";
+import { chipCls, inputCls } from "@/ui/kit";
 import { cn } from "@/lib/cn";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { ArticlePane } from "./ArticlePane";
 import { LayoutMenu } from "./LayoutMenu";
 import { LengthMenu } from "./LengthMenu";
 import { ReadingMenu } from "./AppearanceControls";
-import { FINISH_SEARCH, ListPane, StatusBlock, type ListControls } from "./ListPane";
-import { DropdownMenu } from "@/ui/menu";
+import { EmptyState } from "@/ui/EmptyState";
+import { NotFoundBlock } from "@/ui/NotFoundBlock";
+import { FINISH_SEARCH, ListPane, type ListControls } from "./ListPane";
+import { DropdownMenu, menuItemClass as menuItem } from "@/ui/menu";
 
 const VIEWS: { view: View; label: string }[] = [
   { view: "unread", label: "Unread" },
@@ -100,9 +103,6 @@ export function scopeUnread(scope: Scope, boot: Bootstrap | undefined): number |
 
 /** Why Mark all as read is off in a list with nothing unread. */
 export const NOTHING_UNREAD = "Nothing unread here";
-
-const menuItem =
-  "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-selection";
 
 export function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: ListControls; beside?: boolean }) {
   const { title, above } = useScopeTitle(scope);
@@ -311,7 +311,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
             to={listTo({ ...scope, length: undefined })}
             replace
             aria-label={`Reading time ${READING_LENGTH_LABELS[scope.length]}. Show any length`}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-accent px-3 text-sm text-fg hover:bg-selection"
+            className={cn(chipCls, "border-accent px-3 text-fg hover:bg-selection")}
           >
             <Timer className="size-4 text-accent" aria-hidden="true" />
             {READING_LENGTH_LABELS[scope.length]}
@@ -380,7 +380,8 @@ function ReaderLayout({ scope, articleId, hasFrom }: { scope: Scope; articleId?:
           <ArticlePane id={articleId} scope={scope} hasFrom={hasFrom} pane />
         ) : (
           <div className="flex h-full items-center justify-center p-6 text-center text-fg2">
-            <p>Select an article to read it here.</p>
+            {/* Not beside an empty list, a list that failed, or a library with no feeds: there is nothing to select. */}
+            {controls && controls.count > 0 ? <p>Select an article to read it here.</p> : null}
           </div>
         )
       }
@@ -411,6 +412,14 @@ function WidePane({
   const limit = maxFor(total, ARTICLE_MIN, LIST_WIDTH_MIN, LIST_WIDTH_MAX);
   const wanted = listWidth ?? Math.round(layoutRem * remPx);
   const shown = Math.min(limit, Math.max(LIST_WIDTH_MIN, wanted));
+  // The notice pill over the list stays inside the list's width (shell/OfflineNotice.tsx reads this).
+  useLayoutEffect(() => {
+    if (listOnly) return;
+    document.documentElement.style.setProperty("--list-w", `${shown}px`);
+    return () => {
+      document.documentElement.style.removeProperty("--list-w");
+    };
+  }, [listOnly, shown]);
   return (
     <div ref={box} className="flex h-full min-h-0">
       {/* The list is always the first child here, so it is never remounted when an article opens or closes. */}
@@ -496,26 +505,30 @@ export function ReaderRoute() {
   }, [missingKey, round, refetchBoot]);
   // A list whose view is not one of ours is not a list: go to Unread (and fix the address) rather than show Unread
   // under a made-up one.
-  if (view !== undefined && !VIEWS.some((v) => v.view === view) && view !== "muted" && view !== NEW_VIEW) return <Navigate to={listTo({ view: "unread" })} replace />;
+  if (view !== undefined && !VIEWS.some((v) => v.view === view) && view !== "muted" && view !== NEW_VIEW) return <NotFoundBlock noun="list" why="Kipple has no list at this address." />;
   if (missing && missingKey) {
-    if (checked?.key !== missingKey || checked.round !== round) return <StatusBlock role="status" title="Checking" body={`Looking for this ${missing.kind}.`} />;
+    if (checked?.key !== missingKey || checked.round !== round) return <EmptyState title="Checking" why={`Looking for this ${missing.kind}.`} action={null} />;
     // A bootstrap that could not be fetched again proves nothing about the feed.
     const unsure = boot.isRefetchError;
+    const toUnread = (
+      <Link to={listTo({ view: "unread" })} replace className={buttonVariants({ variant: "solid" })}>
+        Go to Unread
+      </Link>
+    );
+    if (!unsure) return <NotFoundBlock noun={missing.kind} action={toUnread} />;
     return (
-      <StatusBlock
-        role="status"
-        title={unsure ? `Couldn't check this ${missing.kind}` : `This ${missing.kind} no longer exists`}
-        body={unsure ? "Kipple couldn't reach the server to look for it." : "It may have been deleted, or the address is out of date."}
-      >
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <Link to={listTo({ view: "unread" })} replace className={buttonVariants({})}>
-            Go to Unread
-          </Link>
-          <Button variant="ghost" onClick={() => setRound((n) => n + 1)}>
-            Check again
-          </Button>
-        </div>
-      </StatusBlock>
+      <EmptyState
+        title={`Couldn't check this ${missing.kind}`}
+        why={`${errorMessage(boot.error)} Kipple could not look for it.`}
+        action={
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {toUnread}
+            <Button variant="ghost" onClick={() => setRound((n) => n + 1)}>
+              Try again
+            </Button>
+          </div>
+        }
+      />
     );
   }
   if (isNew && visit.status === "loading") return <StatusBlock role="status" title="Loading" body="Looking for what is new." />;

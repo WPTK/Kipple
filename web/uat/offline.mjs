@@ -110,10 +110,10 @@ function opened(page, title) {
 
 /** O1 and O5: screens the worker never kept end in their error screen, not a loading state that never finishes. */
 async function neverKept(page, where) {
-  // Each screen's own text next to its error ("Range" is only on Stats; the lists say the same "couldn't reach").
+  // Each screen's own text next to its error ("Range" is only on Stats; the lists say "Couldn't load articles").
   for (const [path, expect] of [
     ["/l/starred", ["Starred", "Couldn't load articles"]],
-    ["/stats", ["Range", "Kipple couldn't reach the server."]],
+    ["/stats", ["Range", "You're offline."]],
   ]) {
     await page.evaluate(pushRoute, path);
     // Visible text only: a screen React keeps hidden behind a Suspense fallback still has its innerText.
@@ -142,7 +142,7 @@ async function run(browser, vp) {
     const page = await context.newPage();
     await page.goto("/", { waitUntil: "load" });
     await page.getByLabel("Username").fill(opt.user);
-    await page.getByLabel("Password").fill(opt.password);
+    await page.getByLabel("Password", { exact: true }).fill(opt.password);
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
 
@@ -220,7 +220,7 @@ async function run(browser, vp) {
       page,
       () =>
         (document.querySelector('[data-testid="offline-notice"]')?.textContent ?? "").trim() === "" &&
-        [...document.querySelectorAll("main")].some((m) => m.checkVisibility() && m.innerText.includes("Range") && !m.innerText.includes("couldn't reach")),
+        [...document.querySelectorAll("main")].some((m) => m.checkVisibility() && m.innerText.includes("Range") && !m.innerText.includes("You're offline.")),
       undefined,
       20000,
     );

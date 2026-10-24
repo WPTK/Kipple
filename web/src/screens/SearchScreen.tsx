@@ -1,16 +1,19 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { BookmarkPlus, CheckCheck, X } from "lucide-react";
+import { BookmarkPlus, CheckCheck } from "lucide-react";
 import { savedScopeOf, scopeFromSearchParams, useSavedSearches } from "@/api/savedSearches";
 import { useBootstrap, useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
+import { visibleFeeds } from "@/lib/visibleFeeds";
 import type { Scope } from "@/api/types";
 import { SEARCH_ORDERS, SEARCH_ORDER_LABELS, scopeOrder, setSearchOrder, useSearchOrder, type SearchOrder } from "@/lib/searchPrefs";
 import { Button } from "@/ui/button";
-import { inputCls } from "@/ui/kit";
+import { cn } from "@/lib/cn";
+import { Chip, inputCls } from "@/ui/kit";
 import { ReadingMenu } from "./AppearanceControls";
-import { ListPane, StatusBlock, type ListControls } from "./ListPane";
+import { EmptyState } from "@/ui/EmptyState";
+import { ListPane, type ListControls } from "./ListPane";
 import { SaveSearchDialog } from "./search/SaveSearchDialog";
 import { SearchHelp } from "./search/SearchHelp";
 import { useLatestRef } from "@/lib/useLatestRef";
@@ -91,6 +94,7 @@ export function SearchScreen() {
   // Escape on the Search screen goes back, as it does on an open article. Not while typing (the box takes the first
   // Escape and lets go of focus), not in a menu or dialog (those take it first), not during IME composition.
   const navigate = useNavigate();
+  const noFeeds = !!boot.data && visibleFeeds(boot.data.feeds).length === 0;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing) return;
@@ -176,7 +180,7 @@ export function SearchScreen() {
               // Down from the field goes into the results, as it moves between rows in the list itself.
               else if (e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.nativeEvent.isComposing && controls?.focusStop()) e.preventDefault();
             }}
-            className="mt-2 min-h-11 w-full rounded-lg border border-line bg-surface px-3 text-base text-fg placeholder:text-fg2"
+            className={cn(inputCls, "mt-2")}
           />
         </form>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -202,17 +206,9 @@ export function SearchScreen() {
             </select>
           </div>
           {chip ? (
-            <span className="inline-flex min-h-11 items-center gap-1 rounded-full border border-line bg-surface pr-1 pl-3 text-sm">
-              <span className="max-w-40 truncate">In {chip}</span>
-              <button
-                type="button"
-                aria-label="Search the whole library instead"
-                className="hit inline-flex items-center justify-center rounded-full hover:bg-selection"
-                onClick={() => setQuery(q, ["feed", "folder", "view", "ss"])}
-              >
-                <X className="size-4" aria-hidden="true" />
-              </button>
-            </span>
+            <Chip className="max-w-52" removeLabel="Search the whole library instead" onRemove={() => setQuery(q, ["feed", "folder", "view", "ss"])}>
+              In {chip}
+            </Chip>
           ) : null}
         </div>
         {ready ? (
@@ -235,13 +231,19 @@ export function SearchScreen() {
         ) : null}
       </header>
       <div className="min-h-0 flex-1">
-        {scope ? (
+        {scope && !noFeeds ? (
           <ListPane key={`${q}|${whereKey}|${order}`} scope={scope} onControls={setControls} />
         ) : (
-          <StatusBlock
-            role="status"
-            title={trimmed.length === 0 ? "Search your articles" : "Keep typing"}
-            body={trimmed.length === 0 ? "Search covers every article Kipple has kept." : "Search needs at least two characters."}
+          <EmptyState
+            title={noFeeds ? "Add a feed first" : trimmed.length === 0 ? "Search your articles" : "Keep typing"}
+            why={noFeeds ? "Search covers the articles of your feeds, and you have none yet." : trimmed.length === 0 ? "Search covers every article Kipple has kept." : "Search needs at least two characters."}
+            action={
+              noFeeds ? (
+                <Button variant="solid" onClick={() => navigate("/feeds", { state: { open: "add" } })}>
+                  Add a feed
+                </Button>
+              ) : null
+            }
           />
         )}
       </div>

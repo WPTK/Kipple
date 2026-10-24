@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { folderPath, folderTree } from "@/lib/folderTree";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
-import { errorMessage } from "@/api/client";
+import { errorMessage, failed } from "@/api/client";
 import { deleteFilter, ruleLabel, fieldLabel, filterStatus, filtersKey, invalidateFilterData, setFilterEnabled, useFilters, type Filter, type Unmute } from "@/api/filters";
 import { useBootstrap } from "@/api/queries";
 import { devicePrefsStore } from "@/lib/devicePrefs";
@@ -107,7 +107,7 @@ export function DeleteFilterDialog({ filter, onClose }: { filter: Filter; onClos
           <Button variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="solid" onClick={() => void remove()} disabled={busy}>
+          <Button variant="danger" onClick={() => void remove()} disabled={busy}>
             {busy ? "Deleting" : "Delete filter"}
           </Button>
         </>
@@ -150,7 +150,7 @@ function FilterRow({
       announce(`${f.name} turned ${enabled ? "on" : "off"}`);
     } catch (e) {
       qc.setQueryData<Filter[]>(filtersKey, (old) => old?.map((x) => (x.id === f.id ? { ...x, enabled: !enabled } : x)));
-      toast(errorMessage(e), "error");
+      toast(failed(`turn the filter ${enabled ? "on" : "off"}`, e), "error");
     }
   };
   const terms = f.terms.slice(0, 4).join(", ") + (f.terms.length > 4 ? ` and ${f.terms.length - 4} more` : "");
@@ -175,7 +175,7 @@ function FilterRow({
           <Pencil aria-hidden="true" />
           Edit
         </Button>
-        <Button variant="ghost" onClick={() => onDelete(f)} aria-label={`Delete ${f.name || "filter"}`}>
+        <Button variant="danger" onClick={() => onDelete(f)} aria-label={`Delete ${f.name || "filter"}`}>
           <Trash2 aria-hidden="true" />
           Delete
         </Button>

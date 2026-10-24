@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLatestRef } from "@/lib/useLatestRef";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { defaultRangeExtractor, useVirtualizer, type Range, type VirtualItem } from "@tanstack/react-virtual";
@@ -7,6 +7,8 @@ import { Link, useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
 import { ApiError, SESSION_EXPIRED, errorMessage } from "@/api/client";
 import { offlineStore } from "@/lib/offlineState";
+import { feedsInFolder } from "@/lib/folderTree";
+import { listTo } from "@/lib/routes";
 import { applyRead, changeError, keys, scopeKey, useBootstrap } from "@/api/queries";
 import { clearPending, liveStore, pendingFor } from "@/api/events";
 import { CANT_REFRESH_OFFLINE, useRefreshAll, useRefreshing } from "@/api/refresh";
@@ -26,6 +28,7 @@ import { withHeaders, type Row } from "@/lib/format";
 import { useSearchHighlight } from "@/lib/useHighlights";
 import { onBecameUnread, readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
+import { EmptyState } from "@/ui/EmptyState";
 import { focusOrigin } from "@/ui/kit";
 import { articleTo } from "@/lib/routes";
 import { FirstRun } from "./FirstRun";
@@ -76,7 +79,7 @@ export async function markScrolledPast(qc: QueryClient, passed: Card[], sent: Se
   const expired = failure instanceof ApiError && (failure.code === SESSION_EXPIRED || failure.status === 401);
   if (!expired) ids.forEach((id) => sent.delete(id));
   scrollFailure.until = now + SCROLL_RETRY_MS;
-  if (!scrollFailure.streak) toast(changeError(failure), "error");
+  if (!scrollFailure.streak) toast(changeError(failure, "mark articles as read"), "error", undefined, "read");
   scrollFailure.streak = true;
 }
 
@@ -174,8 +177,20 @@ export function clearListMemory(): void {
 /** How long a row marked read on purpose stays in the Unread list (the undo toast lasts far longer). */
 export const LEAVE_MS = 1500;
 
-/** What an empty list says. `feed` is the one feed a feed list shows: a failing feed says why instead of "All caught up" (issue #476). */
-export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed): { title: string; body: string; health?: boolean } {
+/** What an empty list says, and the one next step it offers: show everything, or add a feed. */
+export interface EmptyCopy {
+  title: string;
+  body: string;
+  health?: boolean;
+  next?: "all" | "add";
+}
+
+/**
+ * What an empty list says. `feed` is the one feed a feed list shows: a failing feed says why instead of "All caught up"
+ * (issue #476). `scopeFeeds` is how many feeds the list covers (a folder with none cannot have articles), so the reason
+ * given is the real one, not the view's.
+ */
+export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed, scopeFeeds?: number): EmptyCopy {
   if (scope.q) {
     // Only a search narrowed to a feed or folder has a wider place to try (the chip on the Search screen widens it).
     const narrowed = scope.feed || scope.folder;
@@ -183,14 +198,15 @@ export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed): { title: s
   }
   if (scope.after) return { title: "Nothing new", body: "Nothing has arrived since you last looked. Unread has everything you have not read yet." };
   if (scope.view === "muted") return { title: "Nothing muted", body: "No filter has muted an article yet." };
-  if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here. Retention never removes starred articles." };
+  if (scope.view === "starred") return { title: "No starred articles", body: "Tap the star on an article to keep it here." };
+  if (scope.folder && scopeFeeds === 0) return { title: "This folder has no feeds", body: "Move a feed here or add one.", next: "add" };
   // The server sends last_error only while the feed is failing. New articles waiting mean a fetch has worked since.
   const failure = feed && showsFailure(scope.view, pendingNew, feed) ? failureCopy(feed) : null;
   if (failure) return { title: failure.title, body: failure.body, health: true };
   if (scope.view === "unread") {
     return pendingNew > 0
       ? { title: "All caught up", body: `${pendingNew} new article${pendingNew === 1 ? "" : "s"} arrived. Load ${pendingNew === 1 ? "it" : "them"} above to continue reading.` }
-      : { title: "All caught up", body: "No unread articles. New ones appear after the next refresh." };
+      : { title: "All caught up", body: "No unread articles. New ones appear after the next refresh.", next: "all" };
   }
   return { title: "No articles yet", body: "Kipple hasn't fetched anything from these feeds yet." };
 }
@@ -1325,7 +1341,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     <div role="alert" className="flex items-center justify-center gap-2 px-4 py-3 text-sm text-fg2">
       <span>Couldn&apos;t load more.</span>
       <Button variant="ghost" onClick={() => void src.loadMore()}>
-        Retry
+        Try again
       </Button>
     </div>
   ) : null;
@@ -1336,19 +1352,18 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       const error = src.error;
       // A search the server calls too broad says so in its own words; asking again would not help.
       const broad = tooBroadMessage(error);
-      if (broad) return <StatusBlock role="status" title="That search is too broad" body={broad} />;
+      if (broad) return <EmptyState title="That search is too broad" why={broad} action={null} />;
       // Only a failed connection is "couldn't reach the server"; any other answer (a 400, a 5xx) is the server's.
       const unreachable = !(error instanceof ApiError) || error.status === 0;
       const refused = error instanceof ApiError && error.status === 400;
       return (
-        <StatusBlock
+        <EmptyState
           role="alert"
           title="Couldn't load articles"
-          body={unreachable ? "Kipple couldn't reach the server. Your place in the list is saved." : refused ? "Kipple no longer recognises this place in the list." : errorMessage(error)}
-        >
-          {/* A refused request (400) repeats the same refusal: start the list from its first page instead. */}
-          {refused ? <Button onClick={() => void startOver()}>Start over</Button> : <Button onClick={src.retry}>Try again</Button>}
-        </StatusBlock>
+          why={refused ? "Kipple no longer recognises this place in the list." : `${errorMessage(error)}${unreachable ? " Your place in the list is saved." : ""}`}
+          // A refused request (400) repeats the same refusal: start the list from its first page instead.
+          action={refused ? <Button onClick={() => void startOver()}>Start over</Button> : <Button onClick={src.retry}>Try again</Button>}
+        />
       );
     }
     if (Page ? nothingShown : rows.length === 0) {
@@ -1357,20 +1372,39 @@ export function ListPane({ scope, activeId, onControls }: Props) {
           <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
         );
       }
-      const c = emptyCopy(scope, pendingNew, scope.feed ? feedById.get(scope.feed) : undefined);
+      const c = emptyCopy(
+        scope,
+        pendingNew,
+        scope.feed ? feedById.get(scope.feed) : undefined,
+        scope.folder ? feedsInFolder(scope.folder, boot.data?.feeds ?? [], boot.data?.folders ?? []).length : undefined,
+      );
       return (
-        <StatusBlock role="status" title={c.title} body={c.body}>
-          {c.health ? (
-            <Link to="/health" className="text-sm text-link underline underline-offset-2">
-              Open Feed health
-            </Link>
-          ) : null}
-          {scope.view === "muted" && !scope.q ? (
-            <Link to="/settings/filters" className="text-sm text-link underline underline-offset-2">
-              Add a filter in Settings
-            </Link>
-          ) : null}
-        </StatusBlock>
+        <EmptyState
+          title={c.title}
+          why={c.body}
+          action={
+            <>
+              {c.next === "all" ? (
+                <Link to={listTo({ ...scope, view: "all" })} replace className="text-sm text-link underline underline-offset-2">
+                  Show all articles
+                </Link>
+              ) : null}
+              {c.next === "add" ? (
+                <Button onClick={() => navigate("/feeds", { state: { open: "add" } })}>Add a feed</Button>
+              ) : null}
+              {c.health ? (
+                <Link to="/health" className="text-sm text-link underline underline-offset-2">
+                  Open Feed health
+                </Link>
+              ) : null}
+              {scope.view === "muted" && !scope.q ? (
+                <Link to="/settings/filters" className="text-sm text-link underline underline-offset-2">
+                  Add a filter in Settings
+                </Link>
+              ) : null}
+            </>
+          }
+        />
       );
     }
     if (Page) {
@@ -1549,10 +1583,10 @@ export function ListPane({ scope, activeId, onControls }: Props) {
           onFocus={onListFocus}
         >
           {/* Room at the end the size of a toast, always there (a room that came and went with the toast would move the
-              list under the reader), so the last row can be scrolled out from under the undo toast. */}
+              list under the reader), so the last row can be scrolled out from under the undo toast; more while the offline notice shows (data-pill). */}
           <div
             ref={contentRef}
-            className="pb-20"
+            className="pb-20 [[data-pill]_&]:pb-40"
             style={
               pulled
                 ? { transform: `translateY(${pullOffset}px)`, transition: pull.dragging ? "none" : "transform 200ms cubic-bezier(0.2, 0, 0, 1)" }
@@ -1742,38 +1776,3 @@ function Skeleton() {
   );
 }
 
-export function StatusBlock({
-  title,
-  body,
-  role,
-  asH1,
-  children,
-}: {
-  title: string;
-  body: string;
-  role: "status" | "alert";
-  /** A screen of its own (nothing else names it): the title is the page's h1 rather than an h2 under one. */
-  asH1?: boolean;
-  children?: ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const h1 = useRef<HTMLHeadingElement>(null);
-  // Empty and error screens move focus to the headline (design section 6): the h1 where the block is the page's own
-  // heading, else the block, which the alert role reads out.
-  useEffect(() => {
-    if (role === "alert") (h1.current ?? ref.current)?.focus({ preventScroll: true });
-  }, [role]);
-  return (
-    <div ref={ref} tabIndex={-1} role={role} className="mx-auto flex max-w-sm flex-col items-center gap-3 px-6 py-16 text-center outline-none">
-      {asH1 ? (
-        <h1 ref={h1} tabIndex={-1} className="text-lg font-semibold outline-none">
-          {title}
-        </h1>
-      ) : (
-        <h2 className="text-lg font-semibold">{title}</h2>
-      )}
-      <p className="text-sm text-fg2">{body}</p>
-      {children}
-    </div>
-  );
-}
