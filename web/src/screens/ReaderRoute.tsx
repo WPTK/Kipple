@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, Navigate, useMatch, useNavigate, useSearchParams } from "react-router";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronLeft, ChevronRight, RefreshCw, Settings, Timer, Undo2, X } from "lucide-react";
-import { MarkAllIcon, MoreIcon, markAllLabel } from "@/lib/itemActionTable";
+import { MarkAllIcon, MoreIcon, markAllLabel, markAllReach } from "@/lib/itemActionTable";
 import { useMarkAllConfirm } from "./MarkAllConfirm";
 import { keys, scopeKey, useBootstrap, useFolderTree } from "@/api/queries";
 import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib/folderTree";
@@ -275,7 +275,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
               <DropdownMenu.Item
                 className={menuItem}
                 disabled={!controls || scope.view === "muted" || !!scope.typing || nothingUnread}
-                onSelect={() => markAll.ask(markAllText, scope.feed || scope.folder ? title : "this list",() => controls?.markAllRead())}
+                onSelect={() => markAll.ask(markAllText, markAllReach(scope, scope.feed || scope.folder ? title : undefined), () => controls?.markAllRead())}
               >
                 <MarkAllIcon className="size-5" aria-hidden="true" />
                 <span className="flex flex-col">

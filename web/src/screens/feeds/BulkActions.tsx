@@ -14,15 +14,47 @@ export function deleteSummary(feeds: readonly Feed[]): { count: number; starred:
   return { count: feeds.length, starred: feeds.reduce((n, f) => n + (f.starred_count ?? 0), 0) };
 }
 
-/** The delete dialogs' wording, right for one feed and for several: the one place the singular and plural forms live. */
-export function deleteCopy(count: number, starred: number) {
+/**
+ * The delete dialogs' wording, right for one feed and for several, and right for the "Delete starred articles too"
+ * box: the one place the singular, plural and checked forms live (the Feeds screen, the folder dialog and the feed
+ * editor all read it).
+ */
+export function deleteCopy(count: number, starred: number, alsoStarred = false) {
   const one = count === 1;
+  const keptNote = starred > 0 ? (alsoStarred ? ", starred ones too" : ", apart from starred ones kept in the Archive") : "";
   return {
     feeds: one ? "feed" : "feeds",
-    consequence: `${one ? "Its articles are" : "Their articles are"} removed from Kipple, apart from starred ones kept in the Archive. Your sync apps stop seeing ${one ? "this feed" : "these feeds"}. This can't be undone.`,
-    starredWarning: `${one ? "This feed holds" : "These feeds hold"} ${starred} starred article${starred === 1 ? "" : "s"}${one ? "" : " in total"}. By default ${starred === 1 ? "it is" : "they are"} kept in the Archive.`,
+    consequence: `${one ? "Its articles are" : "Their articles are"} removed from Kipple${keptNote}. Your sync apps stop seeing ${one ? "this feed" : "these feeds"}. This can't be undone.`,
+    starredWarning: `${one ? "This feed holds" : "These feeds hold"} ${starred} starred article${starred === 1 ? "" : "s"}${one ? "" : " in total"}. ${
+      alsoStarred ? `${starred === 1 ? "It is" : "They are"} deleted too.` : `By default ${starred === 1 ? "it is" : "they are"} kept in the Archive.`
+    }`,
+    /** The line under the box beside the warning. */
+    starredHelp: "Removes them from the Archive too.",
     noStarred: one ? "This feed has no starred articles." : "None of these feeds has starred articles.",
   };
+}
+
+/** The starred notice and the box that decides their fate, shared by every delete dialog. */
+export function StarredChoice({
+  count,
+  starred,
+  alsoStarred,
+  onAlsoStarred,
+  disabled,
+}: {
+  count: number;
+  starred: number;
+  alsoStarred: boolean;
+  onAlsoStarred: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  const copy = deleteCopy(count, starred, alsoStarred);
+  return (
+    <>
+      <Notice tone="warn">{copy.starredWarning}</Notice>
+      <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={onAlsoStarred} disabled={disabled} help={copy.starredHelp} />
+    </>
+  );
 }
 
 /** Move the selected feeds to the end of another folder: one atomic POST /api/reorder. */
@@ -220,12 +252,7 @@ function FeedsToDelete({
   return (
     <>
       {starred > 0 ? (
-        <>
-          <Notice tone="warn">
-            {copy.starredWarning}
-          </Notice>
-          <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={onAlsoStarred} disabled={disabled} help="Removes them from the Archive too." />
-        </>
+        <StarredChoice count={feeds.length} starred={starred} alsoStarred={alsoStarred} onAlsoStarred={onAlsoStarred} disabled={disabled} />
       ) : noneNote ? (
         <p className="text-sm text-fg2">{copy.noStarred}</p>
       ) : null}
@@ -306,7 +333,7 @@ export function DeleteDialog({
       open
       onOpenChange={(o) => !o && !busy && onClose()}
       title={`Delete ${count} ${deleteCopy(count, starred).feeds}?`}
-      description={deleteCopy(count, starred).consequence}
+      description={deleteCopy(count, starred, alsoStarred).consequence}
       footer={
         <>
           <Button onClick={onClose} disabled={busy}>
@@ -420,7 +447,9 @@ export function DeleteFolderDialog({
           ) : null}
           {all ? (
             <>
-              <Notice tone="warn">This deletes {plural} and their articles, apart from starred ones kept in the Archive, and your sync apps stop seeing them. This can't be undone.</Notice>
+              <Notice tone="warn">
+                This deletes {plural} and their articles{starred === 0 ? "" : alsoStarred ? ", starred ones too" : ", apart from starred ones kept in the Archive"}, and your sync apps stop seeing them. This can't be undone.
+              </Notice>
               <FeedsToDelete feeds={feeds} starred={starred} alsoStarred={alsoStarred} onAlsoStarred={setAlsoStarred} disabled={working || feedsGone} />
               <Field label={`Type ${folder.name} to confirm`}>
                 {(a) => <input {...a} type="text" autoComplete="off" autoCapitalize="off" value={typed} onChange={(e) => setTyped(e.target.value)} className={inputCls} />}

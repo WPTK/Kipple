@@ -284,6 +284,21 @@ describe("read state in the Unread list", () => {
     await userEvent.setup().click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
     expect(await screen.findByRole("menuitem", { name: "Mark as unread" })).toBeInTheDocument();
   });
+
+  it("an unread article says Unread in the byline as plain text, not as a pill (#425)", async () => {
+    routes({ "POST /api/items/mark-read": () => json({ changed: ["1001"], restored: [] }) });
+    media(WIDE);
+    go("/i/1001?from=unread");
+    await screen.findByTestId("article-body");
+    await waitFor(() => expect(screen.queryByTestId("read-state")).toBeNull());
+    const user = userEvent.setup();
+    await user.click(within(screen.getByRole("toolbar", { name: "Article actions" })).getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mark as unread" }));
+    const state = await screen.findByTestId("read-state");
+    expect(state).toHaveTextContent("Unread");
+    // No border or pill shape that would make it look like a second button.
+    expect(state.className).not.toMatch(/\b(border|rounded-full)\b/);
+  });
 });
 
 describe("sidebar", () => {

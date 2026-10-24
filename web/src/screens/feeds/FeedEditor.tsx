@@ -11,7 +11,7 @@ import { AutoReadCatchUp } from "../AutoReadCatchUp";
 import { ListOverrideFields, useListOverrideDraft } from "./ListOverrideFields";
 import { Checkbox, Disclosure, Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
-import { deleteCopy } from "./BulkActions";
+import { StarredChoice, deleteCopy } from "./BulkActions";
 import { announce, toast } from "@/shell/toasts";
 import { intervalLabel } from "@/lib/interval";
 
@@ -208,7 +208,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
         open
         onOpenChange={(o) => !o && setConfirmDelete(false)}
         title={`Delete ${feed.title}?`}
-        description={deleteCopy(1, feed.starred_count).consequence}
+        description={deleteCopy(1, feed.starred_count, alsoStarred).consequence}
         footer={
           <>
             <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
@@ -219,14 +219,9 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
         }
       >
         {feed.starred_count > 0 ? (
-          <>
-            <Notice tone="warn">
-              This feed has {feed.starred_count} starred article{feed.starred_count === 1 ? "" : "s"}. By default they are kept in the Archive.
-            </Notice>
-            <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={setAlsoStarred} help="This can't be undone." />
-          </>
+          <StarredChoice count={1} starred={feed.starred_count} alsoStarred={alsoStarred} onAlsoStarred={setAlsoStarred} />
         ) : (
-          <p className="text-sm text-fg2">This feed has no starred articles.</p>
+          <p className="text-sm text-fg2">{deleteCopy(1, 0).noStarred}</p>
         )}
       </Modal>
     );

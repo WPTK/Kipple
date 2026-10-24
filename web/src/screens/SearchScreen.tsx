@@ -227,7 +227,7 @@ export function SearchScreen() {
             <Button
               variant="ghost"
               className="px-2"
-              onClick={() => markAll.ask(MARK_ALL_RESULTS, "these results", () => controls?.markAllRead())}
+              onClick={() => markAll.ask(MARK_ALL_RESULTS, "unread articles in these results", () => controls?.markAllRead())}
               disabled={!controls || controls.count === 0 || typing}
               title={typing ? "Press Enter to search first, then mark all results as read" : undefined}
             >

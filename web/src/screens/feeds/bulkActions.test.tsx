@@ -52,6 +52,25 @@ describe("deleteCopy", () => {
     expect(c.starredWarning).toBe("These feeds hold 4 starred articles in total. By default they are kept in the Archive.");
     expect(c.noStarred).toBe("None of these feeds has starred articles.");
   });
+  it("follows the delete-starred box and says nothing about starred when there are none", () => {
+    expect(deleteCopy(1, 2, true).consequence).toBe("Its articles are removed from Kipple, starred ones too. Your sync apps stop seeing this feed. This can't be undone.");
+    expect(deleteCopy(3, 4, true).starredWarning).toBe("These feeds hold 4 starred articles in total. They are deleted too.");
+    expect(deleteCopy(1, 1, true).starredWarning).toBe("This feed holds 1 starred article. It is deleted too.");
+    expect(deleteCopy(1, 0).consequence).toBe("Its articles are removed from Kipple. Your sync apps stop seeing this feed. This can't be undone.");
+  });
+  it("changes the dialog's words when the box is ticked", async () => {
+    mockFetch({});
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <DeleteDialog feeds={[{ ...feed("1"), starred_count: 2 } as Feed]} onClose={() => undefined} onDone={() => undefined} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText(/apart from starred ones kept in the Archive/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("checkbox", { name: /Delete starred articles too/ }));
+    expect(screen.queryByText(/kept in the Archive/)).toBeNull();
+    expect(screen.getByText(/removed from Kipple, starred ones too/)).toBeInTheDocument();
+    expect(screen.getByText("This feed holds 2 starred articles. They are deleted too.")).toBeInTheDocument();
+  });
   it("shows the single-feed copy in the dialog", () => {
     mockFetch({});
     render(

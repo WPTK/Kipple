@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionLabel, actionShort, markAllLabel } from "./itemActionTable";
+import { actionLabel, actionShort, markAllLabel, markAllReach } from "./itemActionTable";
 
 describe("the item action table", () => {
   it("names a toggle by what it does next", () => {
@@ -16,6 +16,14 @@ describe("the item action table", () => {
 });
 
 describe("Mark all words name the reach", () => {
+  it("is the plain words at zero, even in the Unread view of the library", () => {
+    expect(markAllLabel({ view: "unread" }, 0)).toBe("Mark all as read");
+  });
+  it("the dialog names the narrowing of the Starred view and a length filter", () => {
+    expect(markAllReach({ view: "all", feed: "f1" }, "Feed X")).toBe("unread articles in Feed X");
+    expect(markAllReach({ view: "starred", feed: "f1" }, "Feed X")).toBe("unread starred articles in Feed X");
+    expect(markAllReach({ view: "unread", length: "medium" })).toBe("unread articles (6 to 15 min) in this list");
+  });
   it("counts a feed, a folder or the library", () => {
     expect(markAllLabel({ view: "all", feed: "f1" }, 214)).toBe("Mark all 214 as read");
     expect(markAllLabel({ view: "all" }, 7)).toBe("Mark all 7 as read");

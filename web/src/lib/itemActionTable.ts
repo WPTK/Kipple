@@ -1,10 +1,12 @@
 import { CheckCheck, Mail, MailOpen, MoreHorizontal, Star, type LucideIcon } from "lucide-react";
 import type { Scope } from "@/api/types";
+import { READING_LENGTH_LABELS } from "@/lib/readingLength";
 
 /**
  * The table of what can be done to an article: its words and glyph. A surface draws an action with `actionLabel` and
- * `ActionIcon`, so a name or a glyph is changed here and nowhere else. Today the swipe panel and the list header draw
- * from it; the row menu and the open article's menus join as their files adopt it (issue #613 lists what is left).
+ * `ActionIcon`, so a name or a glyph is changed here and nowhere else. Today the swipe panel, the list header, Search and
+ * Feed health draw from it; the row menu and the open article's menus join as their files adopt it (issue #613 lists
+ * what is left).
  */
 
 export type ActionId = "star" | "read" | "more";
@@ -51,7 +53,17 @@ export const MARK_ALL_RESULTS = "Mark all results as read";
  */
 export function markAllLabel(scope: Scope, unread: number | null): string {
   if (scope.q) return MARK_ALL_RESULTS;
+  if (unread === 0) return "Mark all as read";
   if (scope.view === "unread" && !scope.feed && !scope.folder && !scope.length) return "Mark everything unread as read";
   if (unread !== null && unread > 0) return `Mark all ${unread} as read`;
   return "Mark all as read";
+}
+
+/**
+ * What the Mark all dialog says it marks: the unread articles of the list `scope` is. The Starred view and a
+ * reading-time filter both narrow the reach, so they are named. `place` is the feed or folder title (else "this list").
+ */
+export function markAllReach(scope: Scope, place = "this list"): string {
+  const kind = scope.view === "starred" ? "unread starred articles" : "unread articles";
+  return `${kind}${scope.length ? ` (${READING_LENGTH_LABELS[scope.length]})` : ""} in ${place}`;
 }
