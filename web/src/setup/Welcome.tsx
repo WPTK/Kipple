@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 import { useBootstrap } from "@/api/queries";
 import { announce, LiveRegion, toast, Toasts } from "@/shell/toasts";
-import { errorMessage } from "@/api/client";
+import { failed } from "@/api/client";
 import { useSetupActions } from "./actions";
 import { useStore } from "@/lib/store";
 import { forgetWizardMemory, rerunStore, revertUnsavedTheme } from "./session";
@@ -56,7 +56,7 @@ export function Welcome() {
       await actions.finish();
       announce("Setup finished");
     } catch (e) {
-      toast(errorMessage(e), "error");
+      toast(failed("finish setup", e), "error");
       endingNow.current = false;
       setEnding(false);
     }

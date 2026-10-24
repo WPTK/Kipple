@@ -39,6 +39,8 @@
   --color-fg: var(--kp-text);
   --color-fg2: var(--kp-text2);
   --color-line: var(--kp-border);
+  --color-field: var(--kp-field);
+  --color-scrim: var(--kp-scrim);
   --color-accent: var(--kp-accent);
   --color-link: var(--kp-link);
   --color-unread: var(--kp-unread);
@@ -47,6 +49,13 @@
   --color-selection: var(--kp-selection);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-reading: var(--kp-reading-font);
+  /* What a floating surface casts: the scheme's own shadow color (schemes.json), so a dark scheme's shadows read. */
+  --shadow-sheet: 0 20px 40px -12px var(--kp-shadow);
+  --shadow-toast: 0 8px 24px var(--kp-shadow);
+  --shadow-bar: 0 -6px 10px -8px var(--kp-shadow);
+  /* The one small type size below text-xs (counts, chart axis labels). A rem, so it follows the text size setting. */
+  --text-micro: 0.6875rem;
+  --text-title: 1.75rem;
 }
 
 /* ---------- Device appearance tokens ---------- */
@@ -145,16 +154,40 @@ body {
   background: var(--kp-selection);
 }
 
+/* The one focus ring, two-toned so it shows on any surface: the accent outline over a ring of the page color that
+   fills the gap between the control and the outline. Components do not draw their own: a wrapper that shows focus for
+   a hidden input inside it uses the kp-ring utility (has-[:focus-visible]:kp-ring), a control that clips its ring
+   inside itself kp-ring-inset. The ring's width and colors are variables so high contrast and forced colors change them
+   in one place. */
+:root {
+  --kp-ring-w: 2px;
+  --kp-ring-gap: 2px;
+  --kp-ring-color: var(--kp-accent);
+}
 :focus-visible {
-  outline: 2px solid var(--kp-accent);
-  outline-offset: 2px;
+  outline: var(--kp-ring-w) solid var(--kp-ring-color);
+  outline-offset: var(--kp-ring-gap);
+}
+/* A sheet or menu that takes focus keeps its own shadow: the ring is its outline alone. */
+:focus-visible:not([role="dialog"], [role="alertdialog"], [role="menu"]) {
+  box-shadow: 0 0 0 var(--kp-ring-gap) var(--kp-bg);
+}
+@utility kp-ring {
+  outline: var(--kp-ring-w) solid var(--kp-ring-color);
+  outline-offset: var(--kp-ring-gap);
+  box-shadow: 0 0 0 var(--kp-ring-gap) var(--kp-bg);
+}
+@utility kp-ring-inset {
+  outline: var(--kp-ring-w) solid var(--kp-ring-color);
+  outline-offset: calc(var(--kp-ring-w) * -1);
+  box-shadow: inset 0 0 0 calc(var(--kp-ring-w) * 2) var(--kp-bg);
 }
 
 /* Signal, Inkwell and Teletype draw their borders as full-contrast outlines. */
-:root[data-theme="signal"] :focus-visible,
-:root[data-theme="inkwell"] :focus-visible,
-:root[data-theme="teletype"] :focus-visible {
-  outline-width: 3px;
+:root[data-theme="signal"],
+:root[data-theme="inkwell"],
+:root[data-theme="teletype"] {
+  --kp-ring-w: 3px;
 }
 
 /* A list row's title link covers the whole row with its ::before (the row is the containing block), which makes the
@@ -182,16 +215,11 @@ body {
 .row-link { overflow-wrap: anywhere; }
 .row-link:focus-visible {
   outline: none;
+  box-shadow: none;
 }
 .row-link:focus-visible::before {
-  outline: 2px solid var(--kp-accent);
-  outline-offset: -2px;
-}
-:root[data-theme="signal"] .row-link:focus-visible::before,
-:root[data-theme="inkwell"] .row-link:focus-visible::before,
-:root[data-theme="teletype"] .row-link:focus-visible::before {
-  outline-width: 3px;
-  outline-offset: -3px;
+  outline: var(--kp-ring-w) solid var(--kp-ring-color);
+  outline-offset: calc(var(--kp-ring-w) * -1);
 }
 
 /* A focusable scroll region that fills its pane (Your year): the ring goes inside, where the screen edges and
@@ -432,9 +460,7 @@ a.sr-only-live:focus {
    focus ring, and underlined links everywhere. */
 @media (prefers-contrast: more) {
   :root[data-theme] { --kp-border: var(--kp-text); --kp-text2: var(--kp-text); }
-  :focus-visible { outline-width: 3px; outline-offset: 3px; }
-  .row-link:focus-visible { outline: none; }
-  .row-link:focus-visible::before { outline-width: 3px; outline-offset: -3px; }
+  :root { --kp-ring-w: 3px; --kp-ring-gap: 3px; }
   a { text-decoration: underline; }
   .clamp-snippet { color: var(--kp-text); }
 }
@@ -442,9 +468,7 @@ a.sr-only-live:focus {
 /* Forced colors (Windows High Contrast): system colors for focus, borders and state. Nothing carries
    meaning through a background image or color alone (unread and starred also have shape and text). */
 @media (forced-colors: active) {
-  :focus-visible { outline: 3px solid Highlight; outline-offset: 2px; }
-  .row-link:focus-visible { outline: none; }
-  .row-link:focus-visible::before { outline: 3px solid Highlight; outline-offset: -3px; }
+  :root { --kp-ring-w: 3px; --kp-ring-color: Highlight; }
   .kp-unread-dot[data-unread="true"] { forced-color-adjust: none; background: CanvasText; }
   [aria-current="page"], [aria-checked="true"], label:has(input:checked) { outline: 2px solid Highlight; }
   label:has(input:checked) { forced-color-adjust: none; background: Highlight; color: HighlightText; }
@@ -511,8 +535,10 @@ a.sr-only-live:focus {
   scroll-behavior: auto !important;
 }
 
-/* Headings that receive programmatic focus on navigation do not need a ring. */
+/* Headings that receive programmatic focus on navigation do not need a ring. (The `outline-none` utility cannot do
+   this: the unlayered :focus-visible rule above beats a layered utility.) */
 [data-route-heading]:focus,
+[data-focus-quiet]:focus,
 #article-title:focus {
   outline: none;
 }

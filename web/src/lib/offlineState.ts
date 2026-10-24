@@ -56,3 +56,21 @@ export function noteResponse(res: Pick<Response, "headers">, quiet = false): voi
   const server = Number(res.headers.get("X-Kipple-API"));
   if (Number.isFinite(server) && server > API_VERSION) setUpdateReady();
 }
+
+/**
+ * What the browser itself says about its network (navigator.onLine), kept in step by its `online` and `offline` events.
+ * `offlineStore.online` is corrected by what requests did, so it also goes false when Kipple alone stopped answering;
+ * this one is the single place that tells those two apart: "You're offline" when it is false, "Kipple can't be reached"
+ * when it is true.
+ */
+export const browserOnlineStore = createStore<boolean>(typeof navigator === "undefined" ? true : navigator.onLine !== false);
+
+/** The browser's `online` and `offline` events (and tests, which move the same flag) set it. */
+export function setBrowserOnline(online: boolean): void {
+  browserOnlineStore.set(online);
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("online", () => setBrowserOnline(true));
+  window.addEventListener("offline", () => setBrowserOnline(false));
+}

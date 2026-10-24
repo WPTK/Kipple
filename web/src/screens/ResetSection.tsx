@@ -5,7 +5,7 @@ import { wipeOfflineData } from "@/lib/offline";
 import { UNCLAIMED_NOTICE } from "@/setup/RestoreWaiting";
 import { openRestoreAfterReset, resetting } from "@/setup/session";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, inputCls } from "@/ui/kit";
+import { Field, Modal, Notice, PasswordField, inputCls } from "@/ui/kit";
 import { accountError } from "./AccountSection";
 
 /** The phrase that confirms a reset (the server compares it without regard to case or surrounding spaces). */
@@ -54,7 +54,7 @@ function ResetDialog({ purpose, hasPassword, envAccount, onClose }: { purpose: P
           <Button disabled={busy} onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="solid" disabled={!ready || busy} onClick={() => void submit()}>
+          <Button variant="danger" disabled={!ready || busy} onClick={() => void submit()}>
             {restoring ? "Set aside and choose a backup" : "Reset Kipple"}
           </Button>
         </>
@@ -67,7 +67,7 @@ function ResetDialog({ purpose, hasPassword, envAccount, onClose }: { purpose: P
       <Notice tone="warn">{UNCLAIMED_NOTICE}</Notice>
       {envAccount ? <Notice>Until you create a new account, Kipple ignores the account set in your server&apos;s settings. You can remove it there whenever convenient.</Notice> : null}
       {hasPassword ? (
-        <Field label="Your web password">{(a) => <input {...a} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} />}</Field>
+        <PasswordField label="Your web password" autoComplete="current-password" value={password} onChange={setPassword} />
       ) : null}
       <Field label={`Type "${RESET_PHRASE}" to confirm`}>
         {(a) => <input {...a} type="text" autoComplete="off" autoCapitalize="none" spellCheck={false} value={phrase} onChange={(e) => setPhrase(e.target.value)} className={inputCls} />}
@@ -119,7 +119,7 @@ export function ResetSection({ hasPassword }: { hasPassword: boolean }) {
         Danger zone
       </h3>
       <p className="text-xs text-fg2">Erases your feeds, folders, history, settings and account, and starts over in setup. A safety copy is kept.</p>
-      <Button className="self-start" onClick={r.start} disabled={r.checking}>
+      <Button variant="danger" className="self-start" onClick={r.start} disabled={r.checking}>
         {r.checking ? "Checking" : "Reset Kipple and start over"}
       </Button>
       {r.dialog}

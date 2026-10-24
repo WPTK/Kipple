@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { Dialog } from "radix-ui";
 import { usePatchSettings } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import { BUNDLE } from "@/lib/buildInfo";
@@ -8,66 +7,56 @@ import { WHATS_NEW_SEEN, releasesToShow, whatsNewDue } from "@/lib/whatsNew";
 import { loadReleases } from "@/lib/whatsNewData";
 import type { Release } from "@/lib/whatsNewParse";
 import { Button } from "@/ui/button";
+import { Modal } from "@/ui/kit";
 
 /** Set by About's "What's new" button: show the latest releases on request (nothing is remembered from that). */
 const whatsNewRequest = createStore(0);
-/** The button that asked, so closing the dialog can give focus back to it (the dialog has no Trigger of its own). */
-let opener: HTMLElement | null = null;
-export const openWhatsNew = (from?: HTMLElement): void => {
-  opener = from ?? null;
-  whatsNewRequest.set((n) => n + 1);
-};
-
-/** Where focus goes when the dialog closes: the button that opened it, else the screen's heading, else the page. */
-function returnFocus(from: HTMLElement | null): void {
-  const target = from?.isConnected ? from : (document.querySelector<HTMLElement>("[data-route-heading]") ?? document.getElementById("main"));
-  target?.focus({ preventScroll: true });
-}
+export const openWhatsNew = (): void => whatsNewRequest.set((n) => n + 1);
 
 const MANUAL_RELEASES = 3;
 
-/** The panel: the sections of the releases it is given, newest first. A real dialog (focus trapped, Esc closes). */
-function WhatsNewDialog({ releases, onClose, returnTo }: { releases: Release[]; onClose: () => void; returnTo: HTMLElement | null }) {
+/**
+ * Where focus goes once the sheet has closed and nothing has it: the sheet is opened by state, often with no control
+ * focused (an upgrade shown on a cold load), so the screen's heading, else the page's main region.
+ */
+function focusFallback(): void {
+  const a = document.activeElement;
+  if (a && a !== document.body) return;
+  (document.querySelector<HTMLElement>("[data-route-heading]") ?? document.getElementById("main"))?.focus({ preventScroll: true });
+}
+
+/** The panel: the sections of the releases it is given, newest first, in the app's sheet (focus trapped, Esc closes). */
+export function WhatsNewDialog({ releases, onClose }: { releases: Release[]; onClose: () => void }) {
   return (
-    <Dialog.Root open onOpenChange={(o) => (o ? undefined : onClose())}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
-        <Dialog.Content
-          onCloseAutoFocus={(e) => {
-            e.preventDefault();
-            returnFocus(returnTo);
-          }}
-          className="fixed inset-x-4 top-[8vh] z-50 mx-auto max-h-[84dvh] max-w-lg overflow-y-auto rounded-2xl border border-line bg-bg p-5 text-fg shadow-xl">
-          <Dialog.Title className="text-lg font-bold">What's new in Kipple</Dialog.Title>
-          <Dialog.Description className="mb-3 text-sm text-fg2">
-            {releases.length === 1 ? "What changed in this version." : "What changed since you last looked."}
-          </Dialog.Description>
-          {releases.length === 0 ? <p className="py-4 text-sm text-fg2">There is nothing to show.</p> : null}
-          {releases.map((r) => (
-            <section key={r.version} aria-labelledby={`wn-${r.version}`} className="mb-4">
-              <h3 id={`wn-${r.version}`} className="text-base font-bold">
-                {r.version}
-                {r.date ? <span className="ml-2 text-sm font-normal text-fg2">{r.date}</span> : null}
-              </h3>
-              {r.intro ? <p className="mt-1 text-sm text-fg2">{r.intro}</p> : null}
-              {r.groups.map((g) => (
-                <div key={g.kind} className="mt-2">
-                  <h4 className="text-xs font-semibold tracking-wide text-fg2 uppercase">{g.kind}</h4>
-                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
-                    {g.items.map((it, i) => (
-                      <li key={i}>{it}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </section>
+    <Modal
+      open
+      onOpenChange={(o) => (o ? undefined : onClose())}
+      onClosed={focusFallback}
+      title="What's new in Kipple"
+      description={releases.length === 1 ? "What changed in this version." : "What changed since you last looked."}
+      footer={<Button onClick={onClose}>Close</Button>}
+    >
+      {releases.length === 0 ? <p className="py-4 text-sm text-fg2">There is nothing to show.</p> : null}
+      {releases.map((r) => (
+        <section key={r.version} aria-labelledby={`wn-${r.version}`}>
+          <h3 id={`wn-${r.version}`} className="text-base font-bold">
+            {r.version}
+            {r.date ? <span className="ml-2 text-sm font-normal text-fg2">{r.date}</span> : null}
+          </h3>
+          {r.intro ? <p className="mt-1 text-sm text-fg2">{r.intro}</p> : null}
+          {r.groups.map((g) => (
+            <div key={g.kind} className="mt-2">
+              <h4 className="text-xs font-semibold tracking-wide text-fg2 uppercase">{g.kind}</h4>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                {g.items.map((it, i) => (
+                  <li key={i}>{it}</li>
+                ))}
+              </ul>
+            </div>
           ))}
-          <Dialog.Close asChild>
-            <Button className="mt-2">Close</Button>
-          </Dialog.Close>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        </section>
+      ))}
+    </Modal>
   );
 }
 
@@ -120,7 +109,6 @@ export function WhatsNewHost() {
     return (
       <WhatsNewDialog
         releases={shown}
-        returnTo={null}
         onClose={() => {
           setShown(null);
           markSeen();
@@ -128,6 +116,6 @@ export function WhatsNewHost() {
       />
     );
   }
-  if (manual) return <WhatsNewDialog releases={manual} returnTo={opener} onClose={() => setManual(null)} />;
+  if (manual) return <WhatsNewDialog releases={manual} onClose={() => setManual(null)} />;
   return null;
 }

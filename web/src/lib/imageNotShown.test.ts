@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { imageNotShown, watchImages } from "./articleDom";
 import { chunksOf } from "./speech";
+import { setBrowserOnline } from "./offlineState";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  setBrowserOnline(true);
+});
 
 const body = (html: string) => {
   const d = document.createElement("div");
@@ -35,6 +39,46 @@ describe("images refused for good", () => {
     expect(root.querySelector("p")?.textContent?.startsWith("Before ")).toBe(true);
     stop();
     root.remove();
+  });
+
+  it("a picture that fails while the browser is offline says it is out of reach, with no request", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    setBrowserOnline(false);
+    const root = body('<img src="/img/a" alt="Harbour">');
+    watchImages(root, undefined, false);
+    fail(root.querySelector("img"));
+    await settle();
+    expect(root.querySelector(".kp-img-off")?.textContent).toBe("Picture not available offline: Harbour");
+    expect(fetchMock).not.toHaveBeenCalled();
+    root.remove();
+  });
+
+  it("puts the picture back when the network returns, with the same watch or a new one", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    setBrowserOnline(false);
+    const root = body('<img src="/img/a" alt="Harbour">');
+    const stop = watchImages(root, undefined, false);
+    fail(root.querySelector("img"));
+    await settle();
+    expect(root.querySelector(".kp-img-off")).not.toBeNull();
+    setBrowserOnline(true);
+    expect(root.querySelector(".kp-img-off")).toBeNull();
+    expect(root.querySelector("img")?.getAttribute("src")).toBe("/img/a");
+    stop();
+    // The article pane attaches a fresh watch on the flip: it restores what the old one could not hear.
+    setBrowserOnline(false);
+    const root2 = body('<img src="/img/b" alt="Quay">');
+    const stop2 = watchImages(root2, undefined, false);
+    fail(root2.querySelector("img"));
+    await settle();
+    stop2();
+    setBrowserOnline(true);
+    watchImages(root2, "https://example.com/a/1", false);
+    expect(root2.querySelector(".kp-img-off")).toBeNull();
+    expect(root2.querySelector("img")).not.toBeNull();
+    root.remove();
+    root2.remove();
   });
 
   it("an image with no address gets the cue when the watch begins, with no error event and no request", async () => {

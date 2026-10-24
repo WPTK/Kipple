@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { onlineManager, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import { useRefreshAll } from "@/api/refresh";
 import { applyCounts } from "@/api/events";
@@ -34,9 +35,16 @@ import {
 } from "./offline";
 import { devicePrefsStore } from "./devicePrefs";
 import * as toasts from "@/shell/toasts";
-import { offlineStore, setOnline, setPending } from "./offlineState";
+import { offlineStore, setBrowserOnline, setOnline, setPending } from "./offlineState";
+
+/** The browser's own network state: what navigator.onLine says and what the app's store holds (it follows the events). */
+function browser(on: boolean) {
+  vi.spyOn(navigator, "onLine", "get").mockReturnValue(on);
+  setBrowserOnline(on);
+}
 
 function fresh() {
+  setBrowserOnline(true);
   resetOfflineForTests();
   resetPrefetchForTests();
   authStore.set("in");
@@ -416,7 +424,7 @@ describe("changes made offline", () => {
     expect(c.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(false);
     await expect(applyStar(c, "1001", true)).resolves.toBe(false);
     expect(c.getQueryData<{ starred: boolean }>(keys.item("1001"))?.starred).toBe(false);
-    expect(toast).toHaveBeenCalledWith("Kipple couldn't save that change on this device.", "error");
+    expect(toast).toHaveBeenCalledWith("Couldn't save that change on this device.", "error", undefined, expect.any(String));
 
     const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={c}>{children}</QueryClientProvider>;
     const star = renderHook(() => useToggleStar(), { wrapper });
@@ -461,7 +469,7 @@ describe("an expired access-proxy session", () => {
     c.setQueryData(keys.item("1001"), detail(1));
     await expect(applyRead(c, ["1001"], true, "key")).resolves.toBeUndefined();
     expect(c.getQueryData<{ read: boolean }>(keys.item("1001"))?.read).toBe(false);
-    expect(toast).toHaveBeenCalledWith("Your sign-in has expired. Reload Kipple to sign in again.", "error");
+    expect(toast).toHaveBeenCalledWith("Couldn't mark as read. Your sign-in has expired. Reload Kipple to sign in again.", "error", undefined, "read");
     await flushQueue();
     expect(offlineStore.get().pending).toBe(1);
   });
@@ -563,11 +571,11 @@ describe("prefetch for offline reading", () => {
 
   it("does not run offline, and retries after a failure", async () => {
     setOnline(false);
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    browser(false);
     const { calls } = mockFetch({});
     await prefetchUnread(5_000_000);
     expect(calls).toHaveLength(0);
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    browser(true);
     netFail();
     await prefetchUnread(5_000_000);
     const again = mockFetch({ "GET /api/items": () => json({ items: [], next_cursor: null }) });
@@ -583,7 +591,7 @@ describe("<OfflineNotice />", () => {
     expect(region).toHaveAttribute("aria-live", "polite");
     expect(region).toBeEmptyDOMElement();
     expect(screen.getByTestId("offline-notice")).toHaveClass("sr-only-live");
-    expect(screen.getByTestId("offline-notice")).not.toHaveClass("pt-safe");
+    expect(screen.getByTestId("offline-notice")).toHaveClass("sr-only-live");
   });
 
   it("puts the text into the region that was mounted before it, and keeps the button out of it", () => {
@@ -592,8 +600,8 @@ describe("<OfflineNotice />", () => {
     act(() => setOnline(false));
     rerender(<OfflineNotice />);
     expect(screen.getByRole("status")).toBe(region); // the same node: an announcement, not a new region
-    expect(region).toHaveTextContent("You're offline.");
-    expect(screen.getByTestId("offline-notice")).toHaveClass("pt-safe");
+    expect(region).toHaveTextContent("Kipple can't be reached.");
+    expect(screen.getByTestId("offline-notice")).not.toHaveClass("sr-only-live");
     act(() => offlineStore.set((s) => ({ ...s, updateReady: true })));
     expect(screen.getByRole("status")).toBe(region);
     expect(region).toHaveTextContent("A newer version of Kipple is ready.");
@@ -601,7 +609,41 @@ describe("<OfflineNotice />", () => {
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
   });
 
+  it("says Kipple can't be reached when the browser has a network but Kipple does not answer", () => {
+    setOnline(false);
+    render(<OfflineNotice />);
+    expect(screen.getByRole("status")).toHaveTextContent("Kipple can't be reached. Reading what's on this device.");
+  });
+
+  it("follows the browser's offline and online events, not only what it saw at render", () => {
+    setOnline(false);
+    render(<OfflineNotice />);
+    expect(screen.getByRole("status")).toHaveTextContent("Kipple can't be reached. Reading");
+    act(() => void window.dispatchEvent(new Event("offline")));
+    expect(screen.getByRole("status")).toHaveTextContent("You're offline. Reading");
+    act(() => void window.dispatchEvent(new Event("online")));
+    expect(screen.getByRole("status")).toHaveTextContent("Kipple can't be reached. Reading");
+  });
+
+  it("names the changes waiting to be sent when asked", async () => {
+    browser(false);
+    const c = makeQueryClient();
+    c.setQueryData(keys.item("7"), { id: "7", feed_id: "1", read: false, title: "Ember" });
+    await queueStar("7", true);
+    setOnline(false);
+    setPending(1);
+    render(
+      <QueryClientProvider client={c}>
+        <OfflineNotice />
+      </QueryClientProvider>,
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: /Show changes/ }));
+    expect(await screen.findByText("Starred Ember")).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
   it("explains offline, with and without waiting changes, and while sending", () => {
+    browser(false);
     setOnline(false);
     const { rerender } = render(<OfflineNotice />);
     expect(screen.getByRole("status")).toHaveTextContent("You're offline. Reading what's on this device.");
@@ -658,7 +700,7 @@ describe("new builds", () => {
 // the offline queue never ran.
 describe("the query client offline", () => {
   const offline = () => {
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    browser(false);
     onlineManager.setOnline(false);
   };
   afterEach(() => {
@@ -715,7 +757,7 @@ describe("the query client offline", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     fetchMock.mockResolvedValue(json(detail(1)));
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    browser(true);
     act(() => onlineManager.setOnline(true));
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -742,11 +784,11 @@ describe("the query client offline", () => {
     const refresh = renderHook(() => useRefreshAll(), { wrapper: wrapperFor(makeQueryClient()) });
     refresh.result.current.mutate();
     await waitFor(() => expect(refresh.result.current.isError).toBe(true));
-    expect(toast).toHaveBeenCalledWith("Can't refresh while offline", "error");
+    expect(toast).toHaveBeenCalledWith("Couldn't refresh. You're offline.", "error");
   });
 
   it("the online state starts from the browser's, so a launch offline still sees the network come back", () => {
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    browser(false);
     const stop = initOffline(new QueryClient());
     try {
       expect(onlineManager.isOnline()).toBe(false);
@@ -771,7 +813,7 @@ describe("the queue laid over the worker's stored copy", () => {
   const cached = { "X-Kipple-Cache": "1" };
   const unread = { view: "unread" } as const;
   const goOffline = () => {
-    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    browser(false);
     onlineManager.setOnline(false);
   };
 
@@ -899,7 +941,7 @@ describe("the badges while offline", () => {
       vi.restoreAllMocks();
       onlineManager.setOnline(live);
       if (!live) {
-        vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+        browser(false);
       }
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(answer, 200, live ? {} : { "X-Kipple-Cache": "1" })));
       const c = makeQueryClient();

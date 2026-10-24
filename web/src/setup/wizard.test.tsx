@@ -156,7 +156,6 @@ describe("Step 1: the first screen is the account", () => {
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText("User name"), "reader");
     await user.type(screen.getByLabelText("Password"), "long enough");
-    await user.type(screen.getByLabelText("Password again"), "long enough");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(await findAlert()).toHaveTextContent("Reload the page to sign in");
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
@@ -176,7 +175,6 @@ describe("Step 1: account", () => {
     expect(await axe(container)).toHaveNoViolations();
     await user.type(screen.getByLabelText("User name"), "reader");
     await user.type(screen.getByLabelText("Password"), "correct horse");
-    await user.type(screen.getByLabelText("Password again"), "correct horse");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     await headingIs("Choose your time zone");
     expect(document.title).toBe("Step 2 of 7: Choose your time zone - Kipple");
@@ -204,21 +202,14 @@ describe("Step 1: account", () => {
     expect(screen.getByText(/example password/)).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Password"));
     await user.type(screen.getByLabelText("Password"), "long enough");
-    await user.type(screen.getByLabelText("Password again"), "different");
-    expect(screen.getByText("The two passwords don't match.")).toBeInTheDocument();
+    // An empty password has no live check: the submit says what is missing, once, and puts the cursor there.
+    await user.clear(screen.getByLabelText("Password"));
     await user.click(screen.getByRole("button", { name: "Create my account" }));
+    expect(screen.getAllByText("Enter a password.")).toHaveLength(1);
+    expect(screen.getByLabelText("Password")).toHaveFocus();
     expect(callTo(calls, "POST", "/api/setup/account")).toHaveLength(0);
-    // Announced once, not by both the submit check and the field's own check.
-    expect(screen.getAllByText("The two passwords don't match.")).toHaveLength(1);
-    expect(screen.getByLabelText("Password again")).toHaveFocus();
-    // An empty "Password again" has no live check: the submit says what is missing there.
-    await user.clear(screen.getByLabelText("Password again"));
-    await user.click(screen.getByRole("button", { name: "Create my account" }));
-    expect(screen.getByText("Enter the password again.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Password again")).toHaveFocus();
-    expect(callTo(calls, "POST", "/api/setup/account")).toHaveLength(0);
-    await user.type(screen.getByLabelText("Password again"), "l");
-    expect(screen.queryByText("Enter the password again.")).toBeNull();
+    await user.type(screen.getByLabelText("Password"), "l");
+    expect(screen.queryByText("Enter a password.")).toBeNull();
   });
 
   it("shows the server's word on a bad password and keeps what was typed", async () => {
@@ -227,7 +218,6 @@ describe("Step 1: account", () => {
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText("User name"), "reader");
     await user.type(screen.getByLabelText("Password"), "long enough");
-    await user.type(screen.getByLabelText("Password again"), "long enough");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(await screen.findByText("The password must not be the example value.")).toBeInTheDocument();
     expect(screen.getByLabelText("User name")).toHaveValue("reader");
@@ -239,7 +229,6 @@ describe("Step 1: account", () => {
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText("User name"), "reader");
     await user.type(screen.getByLabelText("Password"), "long enough");
-    await user.type(screen.getByLabelText("Password again"), "long enough");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(await findAlert()).toHaveTextContent(/set up a moment ago/);
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
@@ -252,9 +241,8 @@ describe("Step 1: account", () => {
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText("User name"), "reader");
     await user.type(screen.getByLabelText("Password"), "long enough");
-    await user.type(screen.getByLabelText("Password again"), "long enough");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
-    expect(await screen.findByText("Kipple couldn't reach the server.")).toBeInTheDocument();
+    expect(await screen.findByText("Kipple can't be reached.")).toBeInTheDocument();
     expect(screen.getByLabelText("User name")).toHaveValue("reader");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(await screen.findByText("No.")).toBeInTheDocument();
@@ -505,7 +493,7 @@ describe("routing into and out of /welcome", () => {
     server(signedIn(), { "POST /api/onboarding/complete": () => json({ error: "internal" }, 500) });
     go("/welcome/import");
     await userEvent.setup().click(await screen.findByRole("button", { name: "Skip the rest of setup" }));
-    expect(await screen.findByText("The server returned an error. Try again.")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn't finish setup. Kipple's server had a problem.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Bring your feeds along");
   });
 });
@@ -635,7 +623,7 @@ describe("Step 2: time zone", () => {
     go("/welcome/timezone");
     await screen.findByTestId("selected-zone");
     await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    expect(await findAlert()).toHaveTextContent("The server returned an error");
+    expect(await findAlert()).toHaveTextContent("server had a problem");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Choose your time zone");
   });
 
@@ -777,7 +765,7 @@ describe("Step 3: theme", () => {
     go("/welcome/theme");
     await heading();
     await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    expect(await findAlert()).toHaveTextContent("The server returned an error");
+    expect(await findAlert()).toHaveTextContent("server had a problem");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Look and feel");
   });
 
@@ -964,7 +952,7 @@ describe("Step 5: recommended feeds", () => {
   it.each([
     [{ error: "unknown_id", message: "not a recommended feed: zz" }, 400, /list of recommended feeds changed/],
     [{ error: "unavailable" }, 503, /no recommended feeds to add right now/],
-    [{ error: "internal" }, 500, /server returned an error/],
+    [{ error: "internal" }, 500, /server had a problem/],
   ])("explains a failed add (%j) and stays on the step", async (body, status, text) => {
     server(signedIn({ starter }), { "POST /api/starter-feeds": () => json(body, status) });
     go("/welcome/feeds");
@@ -1047,7 +1035,7 @@ describe("Step 7: finish", () => {
     go("/welcome/finish");
     await heading();
     await userEvent.setup().click(screen.getByRole("button", { name: "Finish" }));
-    await waitFor(() => expect(screen.getAllByText("The server returned an error. Try again.").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("Couldn't finish setup. Kipple's server had a problem.").length).toBeGreaterThan(0));
     expect(screen.getByRole("button", { name: "Finish" })).toBeEnabled();
   });
 });
@@ -1117,7 +1105,6 @@ describe("the whole run", () => {
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText("User name"), "reader");
     await user.type(screen.getByLabelText("Password"), "correct horse");
-    await user.type(screen.getByLabelText("Password again"), "correct horse");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     await headingIs("Choose your time zone");
     await screen.findByTestId("selected-zone");
@@ -1246,7 +1233,6 @@ describe("a stale /welcome/<step> address before the account exists", () => {
     expect(window.location.pathname).toBe("/");
     await user.type(screen.getByLabelText("User name"), "reader");
     await user.type(screen.getByLabelText("Password"), "correct horse");
-    await user.type(screen.getByLabelText("Password again"), "correct horse");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     await headingIs("Choose your time zone");
     expect(window.location.pathname).toBe("/welcome/timezone");
@@ -1255,9 +1241,9 @@ describe("a stale /welcome/<step> address before the account exists", () => {
 
 describe("the signed-out screen when GET /api/instance does not answer", () => {
   it.each([
-    ["a server error", () => json({ error: "internal" }, 500), /answered with something unexpected/],
+    ["a server error", () => json({ error: "internal" }, 500), /server had a problem/],
     ["a refused address", () => json({ error: "misdirected" }, 421), /Other names for this server in Settings/],
-    ["no network", () => Promise.reject(new TypeError("offline")) as never, /couldn't reach the server/],
+    ["no network", () => Promise.reject(new TypeError("offline")) as never, /can't be reached/],
   ])("says so, with Try again, instead of a password form (%s)", async (_n, answer, text) => {
     const w = makeWorld({ instance: { setup: false, auth: "open" }, authMode: "open", pending: false, passwordSet: false });
     let broken = true;
@@ -1372,7 +1358,7 @@ describe("open-mode sign-in edge cases", () => {
       },
     });
     go("/");
-    await screen.findByText("Kipple couldn't sign you in");
+    await screen.findByText("Kipple's server had a problem");
     const before = callTo(calls, "GET", "/api/instance").length;
     fail = false;
     await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
@@ -1492,11 +1478,8 @@ describe("step 1: accessibility and small things", () => {
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText("Password"), "ab");
     expect(screen.queryByText("Use at least 8 characters.")).toBeNull();
-    await user.type(screen.getByLabelText("Password again"), "x");
-    expect(screen.queryByText("The two passwords don't match.")).toBeNull();
     await user.tab();
-    expect(await screen.findByText("The two passwords don't match.")).toBeInTheDocument();
-    expect(screen.getByText("Use at least 8 characters.")).toBeInTheDocument();
+    expect(await screen.findByText("Use at least 8 characters.")).toBeInTheDocument();
   });
 });
 

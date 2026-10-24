@@ -211,7 +211,7 @@ describe("the bootstrap device profile", () => {
     await user.click(screen.getByRole("radio", { name: "Larger" }));
     const status = await screen.findByTestId("save-status");
     expect(status).toHaveTextContent("Couldn't save your settings");
-    expect(within(status).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(within(status).getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(prefsStore.get().textSize).toBe(1.25); // the local value stays
   }, 15000);
 });

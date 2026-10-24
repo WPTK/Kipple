@@ -124,7 +124,7 @@ describe("Saved searches in the Feeds list", () => {
   it("lists them under Favorites with lazy counts: 999+ when capped, a dash when not counted", async () => {
     const { calls } = base();
     go("/feeds");
-    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    const nav = await screen.findByRole("group", { name: "Saved searches" });
     expect(within(nav).getByRole("link", { name: /Rust news/ })).toBeInTheDocument();
     // The names paint from ?counts=0; the counts follow in a second request.
     await waitFor(() => expect(within(nav).getByText("999+")).toBeInTheDocument());
@@ -144,7 +144,7 @@ describe("Saved searches in the Feeds list", () => {
   it("running one loads its scope and order without typing=1", async () => {
     const { calls } = base();
     go("/feeds");
-    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    const nav = await screen.findByRole("group", { name: "Saved searches" });
     await userEvent.setup().click(within(nav).getByRole("link", { name: /Starred go/ }));
     await screen.findByRole("searchbox", { name: "Search articles" });
     await waitFor(() => expect(calls.some((c) => c.url.pathname === "/api/items")).toBe(true));
@@ -159,12 +159,12 @@ describe("Saved searches in the Feeds list", () => {
   it("collapses, and stays collapsed on this device", async () => {
     base();
     const { unmount } = go("/feeds");
-    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    const nav = await screen.findByRole("group", { name: "Saved searches" });
     await userEvent.setup().click(within(nav).getByRole("button", { name: "Saved searches" }));
     expect(within(nav).queryByRole("link", { name: /Rust news/ })).toBeNull();
     unmount();
     go("/feeds");
-    const again = await screen.findByRole("region", { name: "Saved searches" });
+    const again = await screen.findByRole("group", { name: "Saved searches" });
     expect(within(again).getByRole("button", { name: "Saved searches" })).toHaveAttribute("aria-expanded", "false");
   });
 
@@ -172,7 +172,7 @@ describe("Saved searches in the Feeds list", () => {
     base({ "GET /api/saved-searches": () => json({ saved_searches: [] }) });
     const { container } = go("/feeds");
     await screen.findByRole("link", { name: /Example Feed/ });
-    expect(screen.queryByRole("region", { name: "Saved searches" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Saved searches" })).toBeNull();
     expect(await axe(container)).toHaveNoViolations();
   });
 
@@ -185,7 +185,7 @@ describe("Saved searches in the Feeds list", () => {
           : json({ saved_searches: u.searchParams.get("counts") === "0" ? SAVED : withCounts(SAVED) }),
     });
     go("/feeds");
-    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    const nav = await screen.findByRole("group", { name: "Saved searches" });
     expect(within(nav).getByRole("status")).toHaveTextContent(/Couldn't load your saved searches\./);
     const retry = within(nav).getByRole("button", { name: /^Try again/ });
     retry.focus();
@@ -211,7 +211,7 @@ describe("Saved searches in the Feeds list", () => {
       },
     });
     go("/feeds");
-    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    const nav = await screen.findByRole("group", { name: "Saved searches" });
     const retry = within(nav).getByRole("button", { name: /^Try again/ });
     retry.focus();
     await userEvent.setup().keyboard("{Enter}");
@@ -234,7 +234,7 @@ describe("Saved searches in the Feeds list", () => {
     const client = makeQueryClient({ retry: false });
     window.history.replaceState({ idx: 0 }, "", "/feeds");
     render(<App client={client} />);
-    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    const nav = await screen.findByRole("group", { name: "Saved searches" });
     await within(nav).findByRole("link", { name: /Rust news/ });
     fail = true;
     await act(async () => {
@@ -247,7 +247,7 @@ describe("Saved searches in the Feeds list", () => {
   it("keeps the names and offers a retry when only the counts failed", async () => {
     base({ "GET /api/saved-searches": (u) => (u.searchParams.get("counts") === "0" ? json({ saved_searches: SAVED }) : json({ error: "boom" }, 500)) });
     go("/feeds");
-    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    const nav = await screen.findByRole("group", { name: "Saved searches" });
     expect(within(nav).getByRole("link", { name: /Rust news/ })).toBeInTheDocument();
     expect(await within(nav).findByText(/Couldn't count unread articles\./, undefined, { timeout: 8000 })).toBeInTheDocument();
     expect(within(nav).queryByText(/Couldn't load your saved searches/)).toBeNull();
@@ -745,7 +745,7 @@ describe("Saved search counts (review 3)", () => {
       },
     });
     go("/feeds");
-    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    const nav = await screen.findByRole("group", { name: "Saved searches" });
     expect(within(nav).getByRole("link", { name: /Rust news/ })).toBeInTheDocument();
     expect(within(nav).queryByText("Unread count unavailable")).toBeNull();
     expect(within(nav).queryAllByTestId("saved-count")).toHaveLength(0);
@@ -767,7 +767,7 @@ describe("Saved search counts (review 3)", () => {
       },
     });
     go("/feeds");
-    const nav = await screen.findByRole("region", { name: "Saved searches" });
+    const nav = await screen.findByRole("group", { name: "Saved searches" });
     await waitFor(() => expect(within(nav).getByRole("button", { name: /^Try again/ })).toBeInTheDocument());
     expect(countCalls).toBe(3); // the first try and two retries
     expect(within(nav).queryByText("Unread count unavailable")).toBeNull();

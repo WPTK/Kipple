@@ -212,7 +212,7 @@ export function SavedSearchesSection() {
                 className={cn(
                   "flex flex-col gap-1 rounded-xl border border-line bg-surface p-3",
                   DND_ROW_CLASS,
-                  dragged && "relative z-10 opacity-90 shadow-lg",
+                  dragged && "relative z-10 opacity-90 shadow-toast",
                   before && "border-t-2 border-t-accent",
                   atEnd && "border-b-2 border-b-accent",
                 )}
@@ -241,15 +241,17 @@ export function SavedSearchesSection() {
                     <Pencil aria-hidden="true" />
                     Edit
                   </Button>
-                  <Button variant="ghost" onClick={() => setDeleting(s)} aria-label={`Delete ${s.name}`}>
-                    <Trash2 aria-hidden="true" />
-                    Delete
-                  </Button>
                   <Button variant="ghost" size="icon" aria-label={`Move ${s.name} up`} disabled={i === 0} onClick={() => step(s.id, -1)}>
                     <ArrowUp aria-hidden="true" />
                   </Button>
                   <Button variant="ghost" size="icon" aria-label={`Move ${s.name} down`} disabled={i === searches.length - 1} onClick={() => step(s.id, 1)}>
                     <ArrowDown aria-hidden="true" />
+                  </Button>
+                  {/* Last, with room before it, so it is not hit while reordering. */}
+                  <span className="ml-auto" />
+                  <Button variant="danger" onClick={() => setDeleting(s)} aria-label={`Delete ${s.name}`}>
+                    <Trash2 aria-hidden="true" />
+                    Delete
                   </Button>
                 </div>
               </li>
@@ -274,7 +276,7 @@ export function SavedSearchesSection() {
               <Button variant="ghost" onClick={() => setDeleting(null)} disabled={busy}>
                 Cancel
               </Button>
-              <Button variant="solid" onClick={() => void remove()} disabled={busy}>
+              <Button variant="danger" onClick={() => void remove()} disabled={busy}>
                 {busy ? "Deleting" : "Delete"}
               </Button>
             </>

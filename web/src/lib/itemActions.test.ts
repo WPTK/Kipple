@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import { arrivedAfter, itemActions, restoredMessage } from "./itemActions";
+import { UNDO_IDS_PER_REQUEST, UNDO_LEDGER_PER_REQUEST, arrivedAfter, itemActions, restoredMessage, undoRequests } from "./itemActions";
 import { UNDO_WAIT_MS, resetUndo, undoLast, undoStore, undoToast } from "./undo";
 import type { InfiniteData } from "@tanstack/react-query";
 import { keys } from "@/api/queries";
@@ -475,5 +475,61 @@ describe("restoredMessage", () => {
     expect(restoredMessage(3, 0)).toBe("Restored 3 articles. They stay read, as they were before they were muted.");
     expect(restoredMessage(3, 1)).toBe("Restored 3 articles. 1 of them is unread again; the others stay read, as they were before they were muted.");
     expect(restoredMessage(0, 0)).toBe("Nothing to restore");
+  });
+});
+
+describe("Mark all over several lists is one undo group", () => {
+  const body = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body)) as Record<string, unknown>;
+  const req = (id: string) => ({ scope: { view: "unread" as const, folder: id }, maxId: "9000", local: [] as string[] });
+  const ids = (n: number, from = 0) => Array.from({ length: n }, (_, i) => String(1_000_000 + from + i));
+
+  it("a request over the server cap does not drop the undo of the others, and says part is too large", async () => {
+    const announce = vi.spyOn(toasts, "announce");
+    const { calls } = mockFetch({
+      "POST /api/items/mark-read": (_u, init) => {
+        const b = body({ init });
+        if (b.undo) return json({ changed: b.ids, restored: [] });
+        return (b.scope as { folder_id?: string }).folder_id === "big" ? json({ changed: [], restored: [], count: 12000, undoable: false }) : json({ changed: ["1001", "1002"], restored: [], count: 2, undoable: true });
+      },
+      "GET /api/items": () => json(pageOf([])),
+    });
+    await itemActions(new QueryClient()).markAllIn([req("big"), req("small")]);
+    expect(undoStore.get().toast?.text).toBe("Marked 2 as read");
+    expect(announce).toHaveBeenLastCalledWith("Marked 12002 as read. Part of it is too large to undo.");
+    await undoLast();
+    const undo = calls.map(body).filter((b) => b.undo);
+    expect(undo).toHaveLength(1);
+    expect(undo[0]!.ids).toEqual(["1001", "1002"]);
+    announce.mockRestore();
+  });
+
+  it("splits an undo into requests within the server caps, losing no id", () => {
+    const rs = undoRequests(ids(25000), ids(45000, 100000));
+    expect(rs).toHaveLength(3);
+    for (const r of rs) {
+      expect(r.ids.length).toBeLessThanOrEqual(UNDO_IDS_PER_REQUEST);
+      expect(r.ledger.length).toBeLessThanOrEqual(UNDO_LEDGER_PER_REQUEST);
+    }
+    expect(rs.flatMap((r) => r.ids)).toEqual(ids(25000));
+    expect(rs.flatMap((r) => r.ledger)).toEqual(ids(45000, 100000));
+    expect(undoRequests([], [])).toEqual([{ ids: [], ledger: [] }]);
+  });
+
+  it("sends a union over the cap as several undo requests, each within it", async () => {
+    const all = ids(10000).concat(ids(10000, 20000)); // two requests of 10000 changed each: 20000 in the group
+    const { calls } = mockFetch({
+      "POST /api/items/mark-read": (_u, init) => {
+        const b = body({ init });
+        if (b.undo) return json({ changed: b.ids, restored: [] });
+        const first = (b.scope as { folder_id?: string }).folder_id === "a";
+        return json({ changed: first ? all.slice(0, 10000) : all.slice(10000), restored: [], count: 10000, undoable: true });
+      },
+    });
+    await itemActions(new QueryClient()).markAllIn([req("a"), req("b")]);
+    await undoLast();
+    const undo = calls.map(body).filter((b) => b.undo);
+    expect(undo).toHaveLength(2);
+    for (const b of undo) expect((b.ids as string[]).length).toBeLessThanOrEqual(UNDO_IDS_PER_REQUEST);
+    expect(undo.flatMap((b) => b.ids as string[])).toEqual(all);
   });
 });

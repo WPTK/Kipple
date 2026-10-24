@@ -146,6 +146,8 @@ export function loopbackOrigin(url) {
 export function designSession(browser, origin, user = SEED_USER, password = SEED_PASSWORD) {
   const WRITE = { "X-Kipple-Client": "web", Origin: origin };
   const deviceList = [];
+  const mine = new Set();
+  const devicesOf = async (ctx) => (await (await ctx.request.get("/api/devices", { headers: { Accept: "application/json" } })).json()).devices ?? [];
   async function context(device, signedOutScheme, extra = {}) {
     const d = DEVICES[device] ?? device;
     const ctx = await browser.newContext({
@@ -156,11 +158,13 @@ export function designSession(browser, origin, user = SEED_USER, password = SEED
     const page = await ctx.newPage();
     await page.goto("/");
     await page.getByLabel("Username").fill(user);
-    await page.getByLabel("Password").fill(password);
+    await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByRole("navigation", { name: "Primary" }).first().waitFor({ timeout: 15000 });
     await page.close();
     deviceList.push(device);
+    const me = (await devicesOf(ctx)).find((x) => x.current);
+    if (me) mine.add(me.id);
     return ctx;
   }
   const setProfile = async (ctx, patch) => {
@@ -177,12 +181,18 @@ export function designSession(browser, origin, user = SEED_USER, password = SEED
     };
     return { feed: (p) => find(boot.feeds, "title", p), folder: (p) => find(boot.folders, "name", p) };
   }
-  /** Removes every device but the one asking, so repeated runs stay under the server's 50-device limit. */
+  /**
+   * Removes the devices this run signed in, so repeated runs stay under the server's 50-device limit. Devices of other
+   * runs (probes can run in parallel) and other sessions are left alone. The device asking cannot remove itself, so one
+   * stays per run; above the limit the server evicts the least recently seen.
+   */
   async function removeDevices() {
     const ctx = await context(deviceList[0] ?? "desktop");
     try {
-      const all = await (await ctx.request.get("/api/devices", { headers: { Accept: "application/json" } })).json();
-      for (const d of (all.devices ?? []).filter((x) => !x.current)) await ctx.request.delete(`/api/devices/${d.id}`, { headers: WRITE });
+      for (const d of (await devicesOf(ctx)).filter((x) => !x.current && mine.has(x.id))) {
+        await ctx.request.delete(`/api/devices/${d.id}`, { headers: WRITE });
+        mine.delete(d.id);
+      }
     } finally {
       await ctx.close();
     }

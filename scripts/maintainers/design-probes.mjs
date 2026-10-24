@@ -573,6 +573,8 @@ const run = {
       const errors = [];
       page.on("pageerror", (e) => errors.push(String(e).split("\n")[0]));
       try {
+        // Every other pair of rounds changes the device's layout first, as the captures do between surfaces.
+        if (round % 4 >= 2) await session.setProfile(ctx, { "client.layout": round % 8 < 4 ? "cards" : "magazine" });
         await page.goto(`/l/all?feed=${lib.feed(feeds[round % feeds.length])}`);
         const rows = page.locator('main article[data-item-id] a[href^="/i/"]');
         await rows.first().waitFor({ timeout: 20000 });

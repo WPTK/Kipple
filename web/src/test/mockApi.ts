@@ -67,7 +67,7 @@ export const bootstrap: Bootstrap = {
 type Handler = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>;
 
 export const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } });
+  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "X-Kipple-API": "1", ...headers } });
 
 /**
  * The browser's session marker (docs/design.md §7). Every test starts with it, as a browser with a session does

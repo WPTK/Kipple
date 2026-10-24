@@ -1,7 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { useLocation } from "react-router";
 import { ChunkLoadError, resetFailedScreens, retryFailedScreens } from "@/lib/lazyScreen";
-import { StatusBlock } from "@/screens/ListPane";
+import { EmptyState } from "@/ui/EmptyState";
 import { Button } from "@/ui/button";
 
 interface State {
@@ -49,14 +49,19 @@ export class ErrorBoundary extends Component<Props, State> {
   override render(): ReactNode {
     if (!this.state.failed) return this.props.children;
     return (
-      <StatusBlock role="alert" title="Something went wrong" body="Kipple couldn't show this page. Try again, or go back to Unread.">
-        <div className="flex flex-wrap justify-center gap-2">
-          <Button onClick={this.tryAgain}>Try again</Button>
-          <Button onClick={() => window.location.assign("/l/unread")}>
-            Go to Unread
-          </Button>
-        </div>
-      </StatusBlock>
+      <EmptyState
+        role="alert"
+        title="Something went wrong"
+        why="Kipple couldn't show this page. Try again, or go back to Unread."
+        action={
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button onClick={this.tryAgain}>Try again</Button>
+            <Button onClick={() => window.location.assign("/l/unread")}>
+              Go to Unread
+            </Button>
+          </div>
+        }
+      />
     );
   }
 }

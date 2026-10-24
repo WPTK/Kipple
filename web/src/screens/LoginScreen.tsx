@@ -1,11 +1,12 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, busyMessage, SESSION_EXPIRED, sessionLostStore, setSignedIn } from "@/api/client";
+import { ApiError, api, busyMessage, errorMessage, SESSION_EXPIRED, sessionLostStore, setSignedIn } from "@/api/client";
 import { reloadToSignIn } from "@/lib/reload";
 import { useStore } from "@/lib/store";
 import { INSTANCE_KEY } from "@/setup/api";
 import { Button } from "@/ui/button";
+import { PasswordField, inputCls } from "@/ui/kit";
 
 /**
  * Sign-in (POST /api/auth/login). A 401 anywhere in the app lands here. The password may be left empty: the server
@@ -25,7 +26,6 @@ export function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const lost = useStore(sessionLostStore);
   const uid = useId();
-  const pid = useId();
   const eid = useId();
   const fieldError = { "aria-describedby": error ? eid : undefined, "aria-invalid": badCredentials || undefined };
 
@@ -67,8 +67,7 @@ export function LoginScreen() {
       }
       else if (err instanceof ApiError && err.code === "access_unavailable")
         setError("Kipple can't check your Cloudflare Access sign-in right now. Try again in a moment.");
-      else if (err instanceof ApiError && err.status === 0) setError("Kipple couldn't reach the server.");
-      else setError("Something went wrong. Try again.");
+      else setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -96,7 +95,7 @@ export function LoginScreen() {
           </div>
         ) : null}
         <div className="flex flex-col gap-1">
-          <label htmlFor={uid} className="text-sm font-medium">
+          <label htmlFor={uid} className="text-sm font-semibold">
             Username
           </label>
           <input
@@ -110,25 +109,10 @@ export function LoginScreen() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             {...fieldError}
-            className="min-h-11 rounded-lg border border-line bg-surface px-3 text-base text-fg aria-[invalid=true]:border-danger"
+            className={inputCls}
           />
         </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor={pid} className="text-sm font-medium">
-            Password
-          </label>
-          <input
-            id={pid}
-            ref={passwordRef}
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            {...fieldError}
-            className="min-h-11 rounded-lg border border-line bg-surface px-3 text-base text-fg aria-[invalid=true]:border-danger"
-          />
-        </div>
+        <PasswordField label="Password" name="password" value={password} onChange={setPassword} autoComplete="current-password" inputRef={passwordRef} {...fieldError} />
         <Button type="submit" variant="solid" className="w-full" disabled={busy}>
           {busy ? "Signing in" : "Sign in"}
         </Button>

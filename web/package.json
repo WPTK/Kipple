@@ -19,6 +19,7 @@
     "uat:feeds": "node uat/feeds.mjs",
     "uat:feed-rows": "node uat/feed-rows.mjs",
     "uat:states": "node uat/states.mjs",
+    "uat:kit": "node uat/kit.mjs",
     "uat:all": "node uat/all.mjs",
     "uat:wizard": "node uat/wizard.mjs",
     "uat:offline": "node uat/offline.mjs",
@@ -56,6 +57,7 @@
     "uat:article-toolbar": "node uat/article-toolbar.mjs",
     "uat:group-by": "node uat/group-by.mjs",
     "uat:settings-pages": "node uat/settings-pages.mjs",
+    "uat:digest": "node uat/digest.mjs",
     "uat:reading": "node uat/reading.mjs"
   },
   "dependencies": {

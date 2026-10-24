@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
 import { Dialog } from "radix-ui";
 import { Collapsible } from "radix-ui";
-import { ChevronDown, TriangleAlert } from "lucide-react";
+import { ChevronDown, CircleAlert, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "./button";
 import { useLatestRef } from "@/lib/useLatestRef";
@@ -96,12 +96,12 @@ export function Modal({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <Dialog.Content
           {...returnFocus}
           onOpenAutoFocus={holdWhileLoading}
           className={cn(
-            "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full flex-col rounded-t-2xl outline-none border border-line bg-bg text-fg shadow-xl min-[640px]:inset-y-auto min-[640px]:top-[6vh] min-[640px]:bottom-auto min-[640px]:rounded-2xl",
+            "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full flex-col rounded-t-2xl outline-none border border-line bg-bg text-fg shadow-sheet min-[640px]:inset-y-auto min-[640px]:top-[6vh] min-[640px]:bottom-auto min-[640px]:rounded-2xl",
             size === "lg" ? "max-w-2xl min-[640px]:top-[3vh]" : "max-w-lg",
           )}
         >
@@ -117,8 +117,23 @@ export function Modal({
   );
 }
 
+/** A text field, select or textarea. Its boundary is the scheme's field color (3:1 against the page), not the decorative line color. */
 export const inputCls =
-  "min-h-11 w-full rounded-lg border border-line bg-surface px-3 text-base text-fg placeholder:text-fg2 aria-[invalid=true]:border-danger";
+  "min-h-11 w-full rounded-lg border border-field bg-surface px-3 text-base text-fg placeholder:text-fg2 aria-[invalid=true]:border-danger";
+
+/**
+ * The one way a control says what is wrong with its value: a single message under the control, with an icon (so it is
+ * not colour alone), announced when it appears. `id` is what the control's aria-describedby names. A control shows at
+ * most one message; the form's own Notice is for a failure that belongs to no one field.
+ */
+export function FieldError({ id, children, className }: { id: string; children: ReactNode; className?: string }) {
+  return (
+    <p id={id} role="alert" className={cn("flex items-start gap-1 text-sm text-danger", className)}>
+      <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <span>{children}</span>
+    </p>
+  );
+}
 
 /** A labelled control with optional help and an inline error, wired with aria-describedby. */
 export function Field({
@@ -145,13 +160,55 @@ export function Field({
           {help}
         </p>
       ) : null}
-      {error ? (
-        <p id={`${id}-e`} role="alert" className="flex items-start gap-1 text-sm text-danger">
-          <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          <span>{error}</span>
-        </p>
-      ) : null}
+      {error ? <FieldError id={`${id}-e`}>{error}</FieldError> : null}
     </div>
+  );
+}
+
+/**
+ * A password input with a Show control: one field for every password in the app (sign in, set, change, confirm). It is
+ * asked for once, with the Show control for checking what was typed, so there is no second "again" field to fill in.
+ */
+export function PasswordField({
+  label,
+  help,
+  error,
+  value,
+  onChange,
+  autoComplete,
+  inputRef,
+  ...rest
+}: {
+  label: string;
+  help?: ReactNode;
+  error?: string | null;
+  value: string;
+  onChange: (v: string) => void;
+  autoComplete: "current-password" | "new-password" | "off";
+  inputRef?: Ref<HTMLInputElement>;
+} & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type" | "autoComplete" | "className" | "id" | "ref">) {
+  const [shown, setShown] = useState(false);
+  // Named after its field when the label ends in "password" ("Show new password"), so two fields in one dialog have two
+  // different Show buttons.
+  const what = /password$/i.test(label) ? label.replace(/^./, (c) => c.toLowerCase()) : "password";
+  return (
+    <Field label={label} help={help} error={error}>
+      {(a) => (
+        <div className="relative">
+          <input {...a} {...rest} ref={inputRef} type={shown ? "text" : "password"} autoComplete={autoComplete} autoCapitalize="none" spellCheck={false} value={value} onChange={(e) => onChange(e.target.value)} className={cn(inputCls, "pr-16")} />
+          <button
+            type="button"
+            aria-label={`${shown ? "Hide" : "Show"} ${what}`}
+            aria-controls={a.id}
+            disabled={rest.disabled}
+            onClick={() => setShown((s) => !s)}
+            className="absolute inset-y-0 right-0 inline-flex min-w-11 items-center justify-center rounded-lg px-3 text-sm font-medium text-link disabled:opacity-50"
+          >
+            {shown ? "Hide" : "Show"}
+          </button>
+        </div>
+      )}
+    </Field>
   );
 }
 
@@ -188,11 +245,11 @@ export function Switch({
         <span
           aria-hidden="true"
           className={cn(
-            "relative mt-0.5 h-7 w-12 shrink-0 rounded-full border border-line transition-colors peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
+            "relative mt-0.5 h-7 w-12 shrink-0 rounded-full border border-field transition-colors peer-focus-visible:kp-ring",
             checked ? "bg-accent" : "bg-surface",
           )}
         >
-          <span className={cn("absolute top-0.5 size-5 rounded-full border border-line bg-bg transition-[left]", checked ? "left-6" : "left-0.5")} />
+          <span className={cn("absolute top-0.5 size-5 rounded-full border border-field bg-bg transition-[left]", checked ? "left-6" : "left-0.5")} />
         </span>
         <span className="min-w-0">
           <span className="font-semibold">{label}</span>
@@ -207,12 +264,7 @@ export function Switch({
       ) : (
         <span id={`${id}-h`} hidden />
       )}
-      {error ? (
-        <p id={`${id}-e`} role="alert" className="ml-15 flex items-start gap-1 text-sm text-danger">
-          <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          <span>{error}</span>
-        </p>
-      ) : null}
+      {error ? <FieldError id={`${id}-e`} className="ml-15">{error}</FieldError> : null}
     </div>
   );
 }
@@ -273,15 +325,13 @@ export function Checkbox({
       ) : (
         <span id={`${id}-h`} hidden />
       )}
-      {error ? (
-        <p id={`${id}-e`} role="alert" className="flex items-start gap-1 pb-2 pl-8 text-sm text-danger">
-          <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          <span>{error}</span>
-        </p>
-      ) : null}
+      {error ? <FieldError id={`${id}-e`} className="pb-2 pl-8">{error}</FieldError> : null}
     </div>
   );
 }
+
+/** A chosen card (a radio card, a theme card): the selection fill and a 2 px accent ring, so the choice is not colour alone. */
+export const selectedCard = "border-accent bg-selection ring-1 ring-accent";
 
 const radioBox = "size-5 shrink-0 accent-[var(--kp-accent)]";
 
@@ -319,8 +369,8 @@ export function RadioCard({
   const radio = useRef<HTMLInputElement>(null);
   const roomy = children != null && children !== false;
   const card = cn(
-    "rounded-xl border p-3 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent",
-    checked ? "border-accent bg-selection" : "border-line bg-surface",
+    "rounded-xl border p-3 has-[:focus-visible]:kp-ring",
+    checked ? selectedCard : "border-field bg-surface",
     disabled ? "opacity-60" : "hover:bg-selection",
   );
   const label = cn("flex min-h-11 items-start gap-3", disabled ? "cursor-not-allowed" : "cursor-pointer");
@@ -505,11 +555,7 @@ export function Stepper({
         </Button>
         {unit ? <span className="text-sm text-fg2">{unit}</span> : null}
       </div>
-      {problem ? (
-        <p id={errId} role="alert" className="mt-1 text-sm text-danger">
-          {problem}
-        </p>
-      ) : null}
+      {problem ? <FieldError id={errId!} className="mt-1">{problem}</FieldError> : null}
     </>
   );
 }
@@ -530,14 +576,52 @@ export function Disclosure({ label, children, defaultOpen = false, tone }: { lab
   );
 }
 
+/**
+ * A titled section of a screen (Settings, Statistics): a heading that names the region, a rule under it and the content.
+ * `level` is the heading level the page's outline needs; `sub` is a section inside another (a rule above, a smaller
+ * heading); `stack` lays the content out as a column of settings.
+ */
+export function Section({ title, children, level = 2, sub = false, stack = false }: { title: string; children: ReactNode; level?: 2 | 3; sub?: boolean; stack?: boolean }) {
+  const id = useId();
+  const H = sub || level === 3 ? "h3" : "h2";
+  return (
+    <section aria-labelledby={id} className={sub ? "border-t border-line pt-4" : "border-b border-line py-5"}>
+      <H id={id} className={cn("mb-3 font-semibold", sub ? "text-base" : "text-lg")}>
+        {title}
+      </H>
+      {stack ? <div className="flex flex-col gap-5">{children}</div> : children}
+    </section>
+  );
+}
+
+/** The look of a chip: a pill with a boundary, 44 px tall, for a filter that is on or a term in a list. */
+export const chipCls = "inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full border border-field bg-surface text-sm";
+
+/** A removable chip: the word, and a button that takes it away. */
+export function Chip({ children, removeLabel, onRemove, className }: { children: ReactNode; removeLabel: string; onRemove: () => void; className?: string }) {
+  return (
+    <span className={cn(chipCls, "gap-1 pr-1 pl-3", className)}>
+      <span className="min-w-0 truncate">{children}</span>
+      <button type="button" aria-label={removeLabel} onClick={onRemove} className="hit-row inline-flex shrink-0 items-center justify-center rounded-full hover:bg-selection">
+        <X aria-hidden="true" className="size-4" />
+      </button>
+    </span>
+  );
+}
+
 /** Empty, error and loading blocks share one look. */
 export function Notice({ tone = "info", children, role }: { tone?: "info" | "warn" | "error"; children: ReactNode; role?: "status" | "alert" }) {
   return (
     <div
       role={role ?? (tone === "error" ? "alert" : "status")}
-      className={cn("flex items-start gap-2 rounded-xl border px-3 py-2 text-sm", tone === "info" ? "border-line bg-surface text-fg" : "border-danger bg-surface text-fg")}
+      data-tone={tone}
+      className={cn(
+        "flex items-start gap-2 rounded-xl border px-3 py-2 text-sm bg-surface text-fg",
+        tone === "info" ? "border-line" : tone === "warn" ? "border-accent" : "border-danger",
+      )}
     >
-      {tone !== "info" ? <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-danger" /> : null}
+      {tone === "warn" ? <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" /> : null}
+      {tone === "error" ? <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-danger" /> : null}
       <div className="min-w-0">{children}</div>
     </div>
   );
