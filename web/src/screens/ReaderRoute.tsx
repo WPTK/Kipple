@@ -2,7 +2,9 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, Navigate, useMatch, useNavigate, useSearchParams } from "react-router";
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckCheck, ChevronLeft, ChevronRight, MoreVertical, RefreshCw, Settings, Timer, Undo2, X } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronLeft, ChevronRight, RefreshCw, Settings, Timer, Undo2, X } from "lucide-react";
+import { MarkAllIcon, MoreIcon, markAllLabel, markAllReach } from "@/lib/itemActionTable";
+import { useMarkAllConfirm } from "./MarkAllConfirm";
 import { errorMessage } from "@/api/client";
 import { keys, scopeKey, useBootstrap, useFolderTree } from "@/api/queries";
 import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib/folderTree";
@@ -131,7 +133,10 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
   const mutedCount = boot.data?.counts.muted ?? 0;
   // The Muted pill appears when there is something muted, or when you are in it.
   const views = scope.view === "muted" || mutedCount > 0 ? [...VIEWS, { view: "muted" as View, label: "Muted" }] : VIEWS;
-  const nothingUnread = scopeUnread(scope, boot.data) === 0;
+  const unreadHere = scopeUnread(scope, boot.data);
+  const nothingUnread = unreadHere === 0;
+  const markAllText = markAllLabel(scope, unreadHere);
+  const markAll = useMarkAllConfirm();
   const refreshBusy = refreshing || refresh.isPending;
   // A short phone screen (landscape) has no height to spare for a second header row: the Show pills and the feed
   // switch sit on the title row, after the title (#420).
@@ -249,7 +254,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
           <DropdownMenu.Trigger asChild>
             <Button variant="ghost" size="icon" aria-label="List actions">
               {/* With no Refresh button here, the trigger shows that a refresh is running. */}
-              {refreshing && !wide ? <RefreshCw aria-hidden="true" className="animate-spin" /> : <MoreVertical aria-hidden="true" />}
+              {refreshing && !wide ? <RefreshCw aria-hidden="true" className="animate-spin" /> : <MoreIcon aria-hidden="true" />}
             </Button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
@@ -270,11 +275,11 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
               <DropdownMenu.Item
                 className={menuItem}
                 disabled={!controls || scope.view === "muted" || !!scope.typing || nothingUnread}
-                onSelect={() => controls?.markAllRead()}
+                onSelect={() => markAll.ask(markAllText, markAllReach(scope, scope.feed || scope.folder ? title : undefined), () => controls?.markAllRead())}
               >
-                <CheckCheck className="size-5" aria-hidden="true" />
+                <MarkAllIcon className="size-5" aria-hidden="true" />
                 <span className="flex flex-col">
-                  Mark all as read
+                  {markAllText}
                   {scope.typing ? <span className="text-xs text-fg2">{FINISH_SEARCH}</span> : nothingUnread ? <span className="text-xs text-fg2">{NOTHING_UNREAD}</span> : null}
                 </span>
               </DropdownMenu.Item>
@@ -314,6 +319,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
       {scope.view === "muted" ? (
         <p className="mt-1 max-w-[25rem] text-xs text-fg2">Articles your filters muted. Restore brings one back as it was before it was muted. Muting keeps them here instead of deleting them.</p>
       ) : null}
+      {markAll.dialog}
     </header>
   );
 }
