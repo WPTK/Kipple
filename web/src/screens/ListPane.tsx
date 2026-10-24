@@ -19,7 +19,8 @@ import { prefersReducedMotion } from "@/gestures/tracking";
 import { COLLAPSE_MS, captureAnchor, compensate, type ScrollAnchor } from "@/lib/collapse";
 import { usePullToRefresh } from "@/gestures/usePullToRefresh";
 import { pageOf, useResolvedLayout } from "@/layouts";
-import { ROW_KEYSHORTCUTS, RowTabStop, STOP_PREFIX, useRowTabIndex } from "@/layouts/rowTabStop";
+import { RowTabStop, STOP_PREFIX, useRowTabIndex } from "@/layouts/rowTabStop";
+import { focusRow, pageOrder, rowKeyMove, storyIntoView } from "@/layouts/rowKeys";
 import type { ListLayout, RowMenuActions } from "@/layouts";
 import { resolveList, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { prefsStore } from "@/lib/prefs";
@@ -925,43 +926,18 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     };
   }, [markOnScroll, qc, virtualizer, pagedScroll, lookAtStories]);
 
-  // ArrowUp and ArrowDown move focus between rows from any control in a row (its link, star or menu button), Home and
-  // End to the first and last loaded row, PageUp and PageDown by a screenful of rows; they only move focus: they select
-  // nothing and open nothing, so looking through the list marks nothing read. The list is one Tab stop (and Safari's
-  // Tab skips links), so these keys are how the keyboard reaches the other rows. Space on a row's link opens it, as Enter
-  // does (a link alone would scroll the page). Taken in the capture phase so a closed menu button does not turn
-  // ArrowDown into "open the menu" (Enter and Space still do). Left alone: text fields, an open menu button, and
-  // anything inside an open menu or dialog (those are not in a row).
+  // The arrow keys between rows (layouts/rowKeys.ts). They only move focus: they select nothing and open nothing, so
+  // looking through the list marks nothing read. The list is one Tab stop (and Safari's Tab skips links), so these keys
+  // are how the keyboard reaches the other rows.
   const onRowKey = (e: React.KeyboardEvent) => {
-    if (!ROW_KEYS.has(e.key)) return;
-    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isDefaultPrevented()) return;
-    const target = e.target instanceof HTMLElement ? e.target : null;
-    const row = target?.closest<HTMLElement>("[data-item-id],[data-stop-id]") ?? null;
-    if (!target || !row) return;
-    if (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
-    if (target.getAttribute("aria-expanded") === "true") return;
-    if (target.closest('[role="menu"],[role="dialog"]')) return;
-    if (e.key === " ") {
-      if (target.tagName !== "A") return; // a row's buttons take Space themselves
-      e.preventDefault();
-      target.click();
-      return;
-    }
     // A page's keys visit its stories and its buttons (the Digest's "N more") in the order they are drawn.
-    const order = Page ? pageOrder(parentRef.current) : items.map((i) => i.id);
-    const at = order.indexOf(row.dataset.itemId ?? row.dataset.stopId ?? "");
-    const page = Math.max(1, Math.floor((parentRef.current?.clientHeight ?? 0) / Math.max(1, row.offsetHeight))) * cols;
-    const last = order.length - 1;
-    const to =
-      e.key === "ArrowDown" ? at + 1
-      : e.key === "ArrowUp" ? at - 1
-      : e.key === "Home" ? 0
-      : e.key === "End" ? last
-      : Math.min(last, Math.max(0, at + (e.key === "PageDown" ? page : -page)));
-    const next = order[to];
-    e.preventDefault();
-    e.stopPropagation();
-    if (!next || to === at) return;
+    const moved = rowKeyMove(
+      e,
+      () => (Page ? pageOrder(parentRef.current) : items.map((i) => i.id)),
+      (row) => Math.max(1, Math.floor((parentRef.current?.clientHeight ?? 0) / Math.max(1, row.offsetHeight))) * cols,
+    );
+    const next = moved?.to;
+    if (!next) return;
     if (!next.startsWith(STOP_PREFIX)) setFocusId(next);
     pageRestored.current = true; // moving by key is the reader moving the page
     if (Page) storyIntoView(parentRef.current, next);
@@ -1731,33 +1707,11 @@ export function windowReach(range: { endIndex: number } | null | undefined, coun
   return range ? Math.min(count - 1, range.endIndex + OVERSCAN) : 0;
 }
 
-/** The keys a list row takes (onRowKey): the ones its link advertises, and Space. */
-const ROW_KEYS = new Set([...ROW_KEYSHORTCUTS.split(" "), " "]);
-
 /** Put keyboard focus back on a list row (Esc or u in the reader pane); the list itself when the row is not rendered. */
 export function focusListRow(id: string): void {
   const list = document.querySelector<HTMLElement>('[data-testid="list-scroll"]');
   const link = list?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a`);
   (link ?? list)?.focus({ preventScroll: true });
-}
-
-/**
- * What the arrow keys visit on a page layout, in the order it is drawn, which is its DOM order: its stories (article
- * ids) and the buttons it marks `data-stop-id` (the Digest's "N more" and Retry), which are not Tab stops of their own.
- */
-function pageOrder(container: HTMLElement | null): string[] {
-  const els = container?.querySelectorAll<HTMLElement>("article[data-item-id],[data-stop-id]") ?? [];
-  return [...els].map((e) => e.dataset.itemId ?? e.dataset.stopId ?? "");
-}
-
-/** Scroll a page layout's story into view, as little as needed. */
-function storyIntoView(container: HTMLElement | null, id: string): void {
-  container?.querySelector(`[data-item-id="${CSS.escape(id)}"],[data-stop-id="${CSS.escape(id)}"]`)?.scrollIntoView?.({ block: "nearest" });
-}
-
-function focusRow(container: HTMLElement | null, id: string): void {
-  const link = container?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a,[data-stop-id="${CSS.escape(id)}"] button`);
-  link?.focus({ preventScroll: true });
 }
 
 function Skeleton() {

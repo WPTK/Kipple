@@ -207,7 +207,7 @@ export function RowMenu({
 const UNREAD_WORD = "unread";
 
 /** What every layout's row link takes: the row-link class (the whole row is its hit area), any layout classes, and the unread flag. */
-export function rowLinkProps(item: Card, className = ""): { className: string; "data-row-unread": string | undefined } {
+export function rowLinkProps(item: Pick<Card, "read">, className = ""): { className: string; "data-row-unread": string | undefined } {
   return { className: className ? `row-link ${className}` : "row-link", "data-row-unread": item.read ? undefined : UNREAD_WORD };
 }
 
@@ -215,7 +215,7 @@ export function rowLinkProps(item: Card, className = ""): { className: string; "
 export const rowControlName = (action: string, item: Card): string => `${action}: ${item.title || "Untitled"}`;
 
 /** The publish time as a machine-readable <time> (ISO date) with the relative text. One place for every layout. */
-export function PublishedTime({ item, className }: { item: Card; className?: string }) {
+export function PublishedTime({ item, className }: { item: Pick<Card, "published_at">; className?: string }) {
   return (
     <time dateTime={new Date(item.published_at * 1000).toISOString()} className={className}>
       {relativeTime(item.published_at)}

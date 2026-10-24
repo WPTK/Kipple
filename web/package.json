@@ -63,6 +63,7 @@
     "uat:state-remainders": "node uat/state-remainders.mjs",
     "uat:digest": "node uat/digest.mjs",
     "uat:catchup": "node uat/catchup.mjs",
+    "uat:feed-index": "node uat/feed-index.mjs",
     "uat:reading": "node uat/reading.mjs"
   },
   "dependencies": {

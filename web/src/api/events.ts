@@ -337,6 +337,8 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
   // The run's kind is in `finished` when a status poll already ended it.
   const runKind = ev.type === "run.done" ? (liveStore.get().runs[String(ev.data.run_id)]?.kind ?? liveStore.get().finished[String(ev.data.run_id)]?.kind) : undefined;
   liveStore.set((s) => reduceEvent(s, ev, id));
+  // The Feed index shows each feed's newest articles with their read state: whatever moves a count or a feed makes it stale.
+  if (ev.type === "items.state" || ev.type === "counts" || ev.type === "feed.changed" || ev.type === "resync") void qc.invalidateQueries({ queryKey: keys.feedsLatest });
   switch (ev.type) {
     case "items.state": {
       const { ids, read, starred, muted } = ev.data;
