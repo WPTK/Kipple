@@ -79,7 +79,7 @@ export function whenLabel(unix: number | null | undefined, nowMs: number = Date.
   if (!unix) return "Never";
   const diff = Math.round(unix - nowMs / 1000);
   const abs = Math.abs(diff);
-  const [n, unit] = abs < 60 ? [abs, "second"] : abs < 3600 ? [Math.round(abs / 60), "minute"] : abs < DAY ? [Math.round(abs / 3600), "hour"] : [Math.round(abs / DAY), "day"];
+  const [n, unit] = abs < 60 ? [abs, "second"] : Math.round(abs / 60) < 60 ? [Math.round(abs / 60), "minute"] : abs < DAY ? [Math.round(abs / 3600), "hour"] : [Math.round(abs / DAY), "day"];
   if (abs < 45) return diff <= 0 ? "Just now" : "Any moment";
   const span = `${n} ${unit}${n === 1 ? "" : "s"}`;
   return diff < 0 ? `${span} ago` : `in ${span}`;

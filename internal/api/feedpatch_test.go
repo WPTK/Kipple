@@ -235,10 +235,10 @@ func TestPatchFeedEnableDisable(t *testing.T) {
 	require.True(t, h.sched.submits[before].Full)
 	require.Len(t, feedChanged(t, sub), 1)
 
-	// disabling an already disabled feed keeps its reason
+	// pausing a feed the site said is gone makes that the person's choice
 	h.exec("UPDATE feeds SET enabled = 0, disabled_reason = 'gone' WHERE id = ?", id)
 	h.api(c, "PATCH", path, `{"enabled":false}`)
-	require.Equal(t, "gone", h.feedRow(id, "disabled_reason").String)
+	require.Equal(t, "user", h.feedRow(id, "disabled_reason").String)
 }
 
 func TestPatchFeedURLChange(t *testing.T) {

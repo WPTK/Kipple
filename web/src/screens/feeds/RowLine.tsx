@@ -18,7 +18,7 @@ export function FeedLine({ feed, status }: { feed: Feed; status?: boolean }) {
       <FeedIcon src={feed.icon} title={feed.title} />
       <span className={cn("min-w-0", feed.unread <= 0 && "text-fg2")}>
         <FeedRowName feed={feed} />{" "}
-        {status ? <FeedRowStatus status={feed.status} error={feed.last_error} /> : null}
+        {status ? <FeedRowStatus feed={feed} /> : null}
       </span>
       <span className="ml-auto" />
       <UnreadCount n={feed.unread} />

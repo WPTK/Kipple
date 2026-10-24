@@ -304,6 +304,17 @@ export interface FetchLogRow {
 export const useHealth = () =>
   useQuery({ queryKey: ["health", "feeds"], queryFn: ({ signal }) => api<HealthResponse>("/api/health/feeds", { signal }), staleTime: 15_000 });
 
+/** How many articles deleting these feeds would remove (undefined while it is being counted, or if it could not be): what the delete confirmations say. */
+export const useDeleteArticleCount = (ids: readonly string[], enabled = true) =>
+  useQuery({
+    queryKey: ["delete-preview", ids.join(",")],
+    queryFn: ({ signal }) => api<{ articles: number }>("/api/feeds/delete-preview", { method: "POST", body: { ids }, signal }).then((r) => r.articles),
+    enabled: enabled && ids.length > 0,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  }).data;
+
 export const useFeedLog = (id: string | null) =>
   useQuery({
     queryKey: ["health", "log", id],

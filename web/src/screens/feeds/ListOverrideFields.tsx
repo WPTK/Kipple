@@ -27,7 +27,7 @@ const CHOICES: { field: ListField; label: string; ids: readonly string[]; names:
 
  * options menu sets), as a draft: nothing is written until the dialog's Save calls `apply` from
  * useListOverrideDraft, so Cancel leaves them as they were. The first choice of each clears the list's own value and
- * names what it then gets, as the menu does: "Inherited from Tech (Cards)", or the device default.
+ * names what it then gets: "Inherited from Tech (Cards)", or "Use device default (Cards)".
  */
 export interface OverrideDraft {
   /** The fields changed in the dialog; a null value clears the override. */
@@ -56,7 +56,8 @@ export function ListOverrideFields({ kind, id, draft: state }: { kind: "feed" | 
   const stored = useDevicePrefs().overrides[kind][id];
   const own = (field: ListField): string | null => (field in state.draft ? (state.draft[field] ?? null) : ((stored?.[field] as string | undefined) ?? null));
   const ctx = useListContext(kind === "feed" ? { feed: id } : { folder: id });
-  const fallback: Record<ListField, string> = {
+  // The first choice of each clears the list's own value and names what it then gets (the list options menu's words).
+  const fallbacks: Record<ListField, string> = {
     layout: useFallbackLabel(ctx, "layout"),
     order: useFallbackLabel(ctx, "order"),
     group: useFallbackLabel(ctx, "group"),
@@ -77,7 +78,7 @@ export function ListOverrideFields({ kind, id, draft: state }: { kind: "feed" | 
               onChange={(e) => state.setDraft(c.field, e.target.value === "default" ? null : e.target.value)}
               className={inputCls}
             >
-              <option value="default">{fallback[c.field]}</option>
+              <option value="default">{fallbacks[c.field]}</option>
               {c.ids.map((v) => (
                 <option key={v} value={v}>
                   {c.names[v]}

@@ -375,6 +375,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("PATCH /api/feeds/{id}", s.authed(s.patchFeed))
 	handle("DELETE /api/feeds/{id}", s.authed(s.deleteFeed))
 	handle("POST /api/feeds/delete", s.authed(s.deleteFeeds))
+	handle("POST /api/feeds/delete-preview", s.authed(s.deletePreview))
 	handle("POST /api/feeds/{id}/refresh", s.authed(s.refreshFeed))
 	handle("POST /api/feeds/{id}/mark-fetch-read", s.authed(s.markFetchRead))
 	handle("POST /api/feeds/{id}/trimmed-unread/reset", s.authed(s.resetTrimmedUnread))

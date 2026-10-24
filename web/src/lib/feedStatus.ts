@@ -1,5 +1,6 @@
 import type { Feed, Folder, Scope } from "@/api/types";
 import { feedsInFolder } from "@/lib/folderTree";
+import { whenLabel } from "@/lib/format";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 
 // Feed health statuses (docs/design.md 4.6) in plain English. The label always carries the state, never
@@ -19,10 +20,10 @@ const T: Record<string, StatusInfo> = {
   silent: { label: "Quiet for 3 months", tone: "muted", hint: "Working, but nothing new for 90 days." },
   redirecting: { label: "Moved", tone: "warn", hint: "The site says this feed has a new address." },
   throttled: { label: "Waiting", tone: "warn", hint: "The site asked Kipple to slow down, so this feed is paused for a while." },
-  erroring: { label: "Having trouble", tone: "warn", hint: "The last fetch failed. Kipple will retry with longer waits." },
+  erroring: { label: "Having trouble", tone: "warn", hint: "Kipple can't fetch this feed. It keeps trying, with longer waits." },
   failing: { label: "Failing", tone: "bad", hint: "Failed 14 or more times in a row. Check the address." },
   dead: { label: "Gone", tone: "bad", hint: "The site says this feed no longer exists." },
-  disabled: { label: "Turned off", tone: "muted", hint: "Kipple isn't checking this feed." },
+  disabled: { label: "Paused", tone: "muted", hint: "Kipple isn't checking this feed." },
   archive: { label: "Archive", tone: "muted", hint: "Holds starred articles from deleted feeds." },
 };
 
@@ -37,29 +38,73 @@ export const STATUS_RANK: Record<string, number> = { dead: 0, failing: 1, errori
 export const feedName = (feed: { title?: string | null }): string => feed.title || "Unnamed feed";
 
 /**
- * Why Kipple can't fetch a feed, in words, for a feed's own empty list. The server sends `last_error` only while the
- * feed is failing; a feed without one has nothing to say.
+ * Why a fetch failed, in a reader's words. The server sends the kind of failure (`last_error_class`) with its own text;
+ * the text is for Feed health's Details and never shown as the reason. An HTTP failure is told by its status code.
  */
-export function failureCopy(feed: { status: string; last_error?: string | null }): { title: string; body: string } | null {
-  if (!feed.last_error) return null;
-  const erroring = feed.status === "erroring";
-  const title = feed.status === "dead" ? "This feed is gone" : erroring ? "The last fetch of this feed failed" : "Kipple can't fetch this feed";
-  // The title already says the last fetch failed; the body says what happens next and why.
-  const next = erroring ? "Kipple will retry with longer waits." : statusInfo(feed.status).hint;
-  return { title, body: `${next} Last error: ${feed.last_error}` };
+export function failureReason(feed: { last_error?: string | null; last_error_class?: string | null }): string {
+  switch (feed.last_error_class) {
+    case "timeout":
+      return "The site took too long to answer";
+    case "dns":
+      return "This address does not exist";
+    case "connect":
+      return "Kipple can't connect to this address";
+    case "tls":
+      return "The site's security certificate isn't valid";
+    case "cloudflare":
+      return "The site blocked Kipple";
+    case "too_large":
+      return "The feed is too big for Kipple to read";
+    case "empty":
+      return "The site sent an empty reply";
+    case "parse":
+      return "The reply isn't a feed";
+    case "ssrf":
+      return "Kipple is not allowed to fetch this address";
+    case "redirect_loop":
+      return "The address keeps redirecting";
+    case "gone":
+      return "The site says this feed no longer exists";
+    case "http": {
+      const code = Number(/HTTP (\d{3})/.exec(feed.last_error ?? "")?.[1]);
+      if (code === 404 || code === 410) return "The site says this feed isn't there";
+      if (code === 401 || code === 403) return "The site won't let Kipple read this feed";
+      if (code === 429) return "The site asked Kipple to slow down";
+      if (code >= 500) return "The site had a problem answering";
+      return "The site answered with an error";
+    }
+    default:
+      return "Kipple couldn't read this feed";
+  }
 }
 
-/** One short line for the note in a feed's own list: what happened and the reason, worded like the feed's empty list. */
-export function failureLine(feed: { status: string; last_error?: string | null }): string {
+/** "Trying again in 1 hour" for a feed's next fetch time (unix seconds); "" when there is none or the feed is off. */
+export function retryLabel(next: number | null | undefined, nowMs: number = Date.now()): string {
+  if (!next) return "";
+  const when = whenLabel(next, nowMs);
+  return when.startsWith("in ") ? `Trying again ${when}` : "Trying again shortly";
+}
+
+/**
+ * Why Kipple can't fetch a feed, in words, for a feed's own empty list. The server sends `last_error` only while the
+ * feed is failing; a feed without one has nothing to say. The one name for the state is "can't fetch" (a gone feed
+ * says it is gone).
+ */
+export function failureCopy(feed: { status: string; last_error?: string | null; last_error_class?: string | null }): { title: string; body: string } | null {
+  if (!feed.last_error) return null;
+  return { title: feed.status === "dead" ? "This feed is gone" : "Kipple can't fetch this feed", body: `${failureReason(feed)}.` };
+}
+
+/** The note in a feed's own list: what happened and the reason, then when Kipple tries again (when known). */
+export function failureLine(feed: { status: string; last_error?: string | null; last_error_class?: string | null }, retry = ""): string {
   const copy = failureCopy(feed);
-  return copy ? `${copy.title}: ${feed.last_error}` : "";
+  return copy ? [`${copy.title}: ${failureReason(feed)}.`, retry ? `${retry}.` : ""].filter(Boolean).join(" ") : "";
 }
 
 /** The same line for a note in a folder's list, which names the feed. */
-export function namedFailureLine(feed: { status: string; title?: string | null; last_error?: string | null }): string {
+export function namedFailureLine(feed: { status: string; title?: string | null; last_error?: string | null; last_error_class?: string | null }): string {
   if (!feed.last_error) return "";
-  const what = feed.status === "dead" ? "is gone" : feed.status === "erroring" ? "failed its last fetch" : "can't be fetched";
-  return `${feedName(feed)} ${what}: ${feed.last_error}`;
+  return `${feedName(feed)} ${feed.status === "dead" ? "is gone" : "can't be fetched"}: ${failureReason(feed)}.`;
 }
 
 /** The feeds a list shows: its one feed, or every feed in its folder and the folders inside. */
@@ -94,10 +139,10 @@ export function failureNoteFeeds(o: { scope: Scope; pendingOf: (feedId: string) 
 }
 
 /** The text of the note: one feed in words, or a folder's count once with up to three names. */
-export function failureNoteText(failing: readonly Feed[], inFolder: boolean): string {
+export function failureNoteText(failing: readonly Feed[], inFolder: boolean, retry = ""): string {
   const one = failing[0];
   if (!one) return "";
-  if (!inFolder || failing.length === 1) return inFolder ? namedFailureLine(one) : failureLine(one);
+  if (!inFolder || failing.length === 1) return inFolder ? namedFailureLine(one) : failureLine(one, retry);
   const names = failing.slice(0, 3).map(feedName);
   const more = failing.length - names.length;
   return `${failing.length} feeds in this folder have fetch problems: ${names.join(", ")}${more > 0 ? ` and ${more} more` : ""}.`;
