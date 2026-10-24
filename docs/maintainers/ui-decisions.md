@@ -508,3 +508,21 @@ Exactly one destination is current at a time, and the sidebar, the tab bar and t
 read one function (`currentDestination(pathname, search)`): a list scoped to a feed or a folder belongs to Feeds,
 not to Unread; Feed health belongs to Feeds; Your year belongs to Stats. Other screens (an article, setup) have no
 current destination.
+## The Digest (#39, Phase C)
+
+- **What it is.** One page of sections, a section for each folder (or feed, a device setting), each with its name in the
+  theme accent as a level 2 heading, its first few unread articles and "N more in <name>". It is for reading a little of
+  everything: a quiet folder is as visible as a busy one.
+- **Row.** Title first (the reading font, bold while unread), then source and time; a picture at the right when Images is
+  on and the article has one. Text only is a choice, not a fallback.
+- **Order.** Sidebar order, or Quiet Feeds First (sections that get the fewest new articles a day first, a folder's pace being the sum of its feeds; a section with any feed under a week old has no pace yet and goes last). The name is
+  plain on purpose; no print vocabulary.
+- **Settings, for this device, in the layout menu.** Order, Sections (Folders or Feeds), Images (Show images or Text
+  only) and Rows per section (3, 5 or 10). They are not per-list overrides.
+- **"N more" opens the section in place**, 20 at a time, rather than going to the section's list: the reader keeps their
+  place on the page.
+- **Sections load as they are reached** (6, then 4 at a time), and one that fails shows its own Retry.
+- **Mark above and below stay inside a section.** The page is not one date-ordered list, so "above" means above in the
+  section the article is in.
+- **Rejected:** one merged list cut by headings (a long folder would push every other out of reach and the count under
+  each heading would be wrong); a fixed number of articles with no way to open the rest.
