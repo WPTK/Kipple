@@ -91,7 +91,7 @@ await t.eachViewport(async (page, vp) => {
   // The root's own feed alone: the root is left with no feeds but stays, and so does the subfolder that still holds feeds.
   await pick(1);
   let r = await deleteSelected(1);
-  check(/Removes (\d+ articles?|no articles|its articles|their articles)\. This can't be undone/.test(r.text) && /this feed/.test(r.text) && !/these feeds/i.test(r.text), `${tag} F2 copy one`, "a single feed is described in the singular", `the dialog says "${r.text.slice(0, 200)}"`);
+  check(/Removes (\d+ articles?|no articles|its articles|their articles)\. This can't be undone/.test(r.text) && /this feed/i.test(r.text) && !/these feeds/i.test(r.text), `${tag} F2 copy one`, "a single feed is described in the singular", `the dialog says "${r.text.slice(0, 200)}"`);
   check(!/folder/i.test(r.text), `${tag} F2 one`, "the dialog says nothing about folders", `the dialog says "${r.text.slice(0, 160)}"`);
   let s = await t.settle(page, (b) => !b.feeds.some((f) => f.title === titleOf(1)));
   check(s.ok && s.b.folders.some((f) => f.name === root) && s.b.folders.some((f) => f.name === child), `${tag} F2 kept`, "both folders stay", "a folder with feeds below it went");
