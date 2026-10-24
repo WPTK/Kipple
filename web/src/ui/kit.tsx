@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
 import { Dialog } from "radix-ui";
 import { Collapsible } from "radix-ui";
-import { ChevronDown, TriangleAlert, X } from "lucide-react";
+import { ChevronDown, CircleAlert, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "./button";
 import { useLatestRef } from "@/lib/useLatestRef";
@@ -614,9 +614,14 @@ export function Notice({ tone = "info", children, role }: { tone?: "info" | "war
   return (
     <div
       role={role ?? (tone === "error" ? "alert" : "status")}
-      className={cn("flex items-start gap-2 rounded-xl border px-3 py-2 text-sm", tone === "info" ? "border-line bg-surface text-fg" : "border-danger bg-surface text-fg")}
+      data-tone={tone}
+      className={cn(
+        "flex items-start gap-2 rounded-xl border px-3 py-2 text-sm bg-surface text-fg",
+        tone === "info" ? "border-line" : tone === "warn" ? "border-accent" : "border-danger",
+      )}
     >
-      {tone !== "info" ? <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-danger" /> : null}
+      {tone === "warn" ? <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" /> : null}
+      {tone === "error" ? <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-danger" /> : null}
       <div className="min-w-0">{children}</div>
     </div>
   );

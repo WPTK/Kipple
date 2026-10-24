@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import type { To } from "react-router";
 import type { Card, Feed, Scope } from "@/api/types";
 import type { LayoutId } from "@/lib/devicePrefs";
+import type { DigestSection } from "./digestPlan";
 
 /**
  * A list layout is a row component plus sizing hints, or a page that draws the whole list (Page). The list screen
@@ -42,6 +43,32 @@ export interface RowProps {
   showThumb?: boolean;
 }
 
+/** One section of a Digest page as the page draws it (digestPlan's section, plus what loading it has come to). */
+export interface DigestSectionView extends DigestSection {
+  /** The section's first load failed (null when it did not, or when it has cards to show whatever failed after). */
+  error: unknown;
+  /** The cards pressed for are being loaded. */
+  loadingMore: boolean;
+  /** Any request for this section is out (its first page, a retry, a next page). */
+  busy: boolean;
+  /** The last attempt at more cards failed (the cards shown stay). */
+  moreFailed: boolean;
+}
+
+/** What the Digest page is given besides the list: its sections, and what the page can ask of them. */
+export interface DigestView {
+  /** The sections to draw, in order; sections not asked for yet are left out (they load as the end of the page nears). */
+  sections: DigestSectionView[];
+  /** Cards each section shows before "N more" (the device's Rows per section). */
+  rows: number;
+  /** Rows have a picture (the device's Images). */
+  images: boolean;
+  /** "N more" was pressed in a section: show the next batch. */
+  expand: (key: string) => void;
+  /** Ask again for a section whose load failed. */
+  retry: (key: string) => void;
+}
+
 /** What a page layout is given: the whole loaded list, not one row. */
 export interface PageProps {
   /** Every loaded article of the list in the server's order. Articles marked read stay (they fade in place). */
@@ -59,6 +86,8 @@ export interface PageProps {
   onOpen: (item: Card) => void;
   /** What a story's menu does (the list's own, as for a row). */
   actions: RowMenuActions;
+  /** Set by a list that is cut into sections of its own (the Digest); `items` are then the cards its sections show. */
+  digest?: DigestView;
 }
 
 export interface ListLayout {

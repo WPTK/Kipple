@@ -1,6 +1,6 @@
 // The restore calls of the setup wizard (before there is an account). Nothing here knows about React. Every call
 // carries this browser's owner key (restoreKey.ts): the server shows and acts on an upload only for the key that sent it.
-import { ApiError, api, clientKind } from "@/api/client";
+import { ApiError, api, clientKind, errorMessage } from "@/api/client";
 import { restoreKey, restoreKeyHeaders } from "./restoreKey";
 
 export type PasswordState = "password" | "none_access" | "open";
@@ -79,7 +79,9 @@ export function uploadRestoreFile(file: File, onProgress: (sent: number, total: 
         return;
       }
       const code = typeof body?.error === "string" ? body.error : "http_" + xhr.status;
-      reject(new ApiError(xhr.status, code, body));
+      const err = new ApiError(xhr.status, code, body);
+      err.fromKipple = xhr.getResponseHeader("X-Kipple-API") !== null;
+      reject(err);
     };
     signal?.addEventListener("abort", () => xhr.abort(), { once: true });
     xhr.send(file);
@@ -115,7 +117,9 @@ export async function fetchBackupFeeds(): Promise<File> {
     } catch {
       /* not JSON */
     }
-    throw new ApiError(res.status, code, body);
+    const err = new ApiError(res.status, code, body);
+    err.fromKipple = res.headers.has("X-Kipple-API");
+    throw err;
   }
   return new File([await res.text()], "feeds.opml", { type: "text/x-opml" });
 }
@@ -123,11 +127,12 @@ export async function fetchBackupFeeds(): Promise<File> {
 /** The server's own message for a failed restore call (it is written for the reader), else a plain fallback. */
 export function restoreErrorText(e: unknown): string {
   if (e instanceof ApiError) {
-    if (e.status === 0) return "Kipple couldn't reach the server.";
+    // No answer at all is said by cause; any answer from Kipple has its own message (a 507 no_space says how much room).
+    if (e.status === 0) return errorMessage(e);
     const m = e.body?.message;
     if (typeof m === "string" && m) return m;
   }
-  return "Something went wrong. Try again.";
+  return errorMessage(e);
 }
 
 /** Whole minutes, at least one, for "about N minutes". */

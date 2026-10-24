@@ -3,6 +3,7 @@ import { flattenItems, useBootstrap, useItems } from "@/api/queries";
 import type { Card, Scope } from "@/api/types";
 import { useFavorites } from "@/lib/favorites";
 import { pageOf, useResolvedLayout } from "@/layouts";
+import { useDigestSource } from "@/screens/digestSource";
 import { planGazette, readingOrder } from "./gazettePlan";
 
 /** An open article's list in reading order, for its previous and next. */
@@ -22,12 +23,16 @@ export interface ListOrder {
  * no list mounted. In the Gazette (#315) that is the order the page prints the stories, from the same plan the list
  * draws over the loaded list; the plan is the same on a phone and on a wide screen up to its columns, so the order does
  * not depend on the screen. Until the paper has a front page (it waits for the lead window), and for an article
- * outside the plan (not laid out yet), the loaded order stands. Every other layout, and a search, reads the loaded
- * order (newest first, as the server sends it, or the order the list was asked for).
+ * outside the plan (not laid out yet), the loaded order stands. In the Digest it is the sections in order and the
+ * articles each shows (a section opened out with "N more" counts the articles it shows then); paging past the last one
+ * asks for the next sections. Every other layout, and a search, reads the loaded order (newest first, as the server
+ * sends it, or the order the list was asked for).
  */
 export function useListOrder(scope: Scope, id: string, enabled: boolean): ListOrder {
-  const list = useItems(scope, enabled);
   const { layout } = useResolvedLayout(scope);
+  const digested = layout.id === "digest" && !!pageOf(layout, scope);
+  const list = useItems(scope, enabled && !digested);
+  const digest = useDigestSource(scope, digested, enabled);
   const boot = useBootstrap();
   const { favorites } = useFavorites();
   const feeds = boot.data?.feeds;
@@ -44,10 +49,18 @@ export function useListOrder(scope: Scope, id: string, enabled: boolean): ListOr
     },
     [paged, feeds, folders, favorites, feed, folder, id],
   );
-  const cards = useMemo(() => flattenItems(list.data), [list.data]);
-  const more = !!list.hasNextPage;
-  const ids = useMemo(() => (enabled ? orderOf(cards, more) : []), [cards, more, enabled, orderOf]);
+  const listed = useMemo(() => flattenItems(list.data), [list.data]);
+  const cards = digested ? digest.loadedCards : listed;
+  const more = digested ? digest.more : !!list.hasNextPage;
+  const ids = useMemo(() => {
+    if (!enabled) return [];
+    return digested ? digest.cards.map((c) => c.id) : orderOf(listed, more);
+  }, [listed, digest.cards, digested, more, enabled, orderOf]);
   const fetchMore = async () => {
+    if (digested) {
+      const r = await digest.loadMore();
+      return { ids: r.cards.map((c) => c.id), more: r.more };
+    }
     const r = await list.fetchNextPage();
     return { ids: orderOf(flattenItems(r.data), !!r.hasNextPage), more: !!r.hasNextPage && !r.isFetchNextPageError };
   };

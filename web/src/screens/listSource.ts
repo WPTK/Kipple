@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { flattenItems, keys, useItems } from "@/api/queries";
 import type { Card, Scope } from "@/api/types";
+import type { DigestView } from "@/layouts/types";
 
 /** Why mark above and below do nothing in a page layout (the Gazette). */
 export const NO_RANGE_IN_PAGES = "Mark above and below are off in the Gazette: its pages are not in date order";
@@ -43,19 +44,31 @@ export interface ListSource {
   startOver: () => Promise<void>;
   /**
    * The articles mark above and below may reach from `item`, in the date order the server marks a side by; or, where
-   * the list's reading order is not date order, why they reach nothing (what the list announces instead).
+   * the list's reading order is not date order, why they reach nothing (what the list announces instead). A list made of
+   * lists of its own (the Digest) says which one `item` is in: `scope` is the list the server marks within, and `asOf`
+   * the bound of that list.
    */
-  rangeOf: (item: Card) => { cards: readonly Card[] } | { why: string };
+  rangeOf: (item: Card) => { cards: readonly Card[]; scope?: Scope; asOf?: string } | { why: string };
+  /**
+   * Where "mark all" goes when the list is made of lists of its own (the Digest): one request for the whole list (no
+   * `scope`) bounded by the oldest `as_of` among them, and one for each loaded list whose own bound is newer, so the
+   * articles it shows are marked too. `cards` are the articles each request covers. A list that is one list has none:
+   * mark all goes to its scope with its `asOf`.
+   */
+  markAllParts?: () => { scope: Scope | undefined; asOf: string | undefined; cards: readonly Card[] }[];
+  /** A list cut into sections of its own (the Digest): the sections the page draws. */
+  digest?: DigestView;
 }
 
 /**
  * The list as the server sends it, a page at a time (useItems). `paged`: a page layout (the Gazette) draws it, whose
  * reading order is not date order (the lead can be older than stories printed on later pages), and the server marks a
  * side by date, so "above" would reach stories the reader has not seen: mark above and below reach nothing.
+ * `enabled` false asks for nothing (the list is drawn from another source).
  */
-export function useItemsSource(scope: Scope, paged: boolean): ListSource {
+export function useItemsSource(scope: Scope, paged: boolean, enabled = true): ListSource {
   const qc = useQueryClient();
-  const q = useItems(scope);
+  const q = useItems(scope, enabled);
   const cards = useMemo(() => flattenItems(q.data), [q.data]);
   const startOver = useCallback(() => qc.resetQueries({ queryKey: keys.items(scope) }), [qc, scope]);
   const first = q.data?.pages[0];

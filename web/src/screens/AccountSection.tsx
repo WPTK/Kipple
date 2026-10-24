@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, authStore, busyMessage, chooseSignOut, errorMessage, SIGN_OUT_MS, SIGN_OUT_PATH } from "@/api/client";
+import { ApiError, api, authStore, busyMessage, CAUSE_PHRASE, chooseSignOut, errorMessage, failed, SIGN_OUT_MS, SIGN_OUT_PATH } from "@/api/client";
 import { applyRetention, changePassword, exportBackup, fetchMe, generateApiPassword, removePassword, type BackupInfo } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import { keys } from "@/api/queryKeys";
@@ -356,7 +356,7 @@ export function AccountActions() {
       await applyRetention();
       toast("Kipple is trimming feeds to their retention limits now.");
     } catch (e) {
-      toast(errorMessage(e), "error");
+      toast(failed("trim the feeds", e), "error");
     } finally {
       setBusy(null);
     }
@@ -373,7 +373,7 @@ export function AccountActions() {
       // 401: the session had ended already, so the sign-out goes on.
       if (!(e instanceof ApiError && e.status === 401 && e.code === "auth")) {
         chooseSignOut(false);
-        toast(ctl.signal.aborted ? "The server didn't answer. Try again." : errorMessage(e), "error");
+        toast(ctl.signal.aborted ? `Couldn't sign out. ${CAUSE_PHRASE.unreachable}.` : failed("sign out", e), "error");
         return;
       }
     } finally {

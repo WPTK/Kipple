@@ -99,7 +99,7 @@ describe("Wrapped screen", () => {
   it("shows a not-found page for an address nothing answers, not the Unread list", async () => {
     setup();
     go("/wrapped");
-    expect(await screen.findByText("Kipple has nothing at /wrapped.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go to Unread" })).toHaveAttribute("href", "/l/unread");
   });
 
@@ -173,7 +173,7 @@ describe("Wrapped screen", () => {
     });
     go();
     const retry = await screen.findByRole("button", { name: "Try again" });
-    expect(within(retry.parentElement!).getByRole("alert")).toHaveTextContent(/error/i);
+    expect(within(retry.parentElement!).getByRole("alert")).toHaveTextContent(/problem/i);
     expect(screen.queryByText("Loading your year")).toBeNull();
     fail = false;
     await user.click(retry);

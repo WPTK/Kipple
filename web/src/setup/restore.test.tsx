@@ -37,6 +37,9 @@ class FakeXHR {
   onerror: (() => void) | null = null;
   onabort: (() => void) | null = null;
   withCredentials = false;
+  getResponseHeader(name: string) {
+    return name === "X-Kipple-API" ? "1" : null;
+  }
   open() {}
   setRequestHeader(k: string, v: string) {
     sentHeaders[k] = v;

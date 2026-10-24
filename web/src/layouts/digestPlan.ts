@@ -23,7 +23,7 @@ export interface SectionDef extends Section {
   feedIds: string[];
   /** Cards in the section for the view (unread, or starred); null where the bootstrap does not say (All, Muted). */
   count: number | null;
-  /** New articles a day, summed over the section's feeds that have a pace; null when none has one. */
+  /** New articles a day, summed over the section's feeds; null when any of its feeds has no pace yet (the sum would count it as quiet). */
   pace: number | null;
 }
 
@@ -55,29 +55,31 @@ function sidebarOrder(feeds: readonly FeedLike[], folders: readonly FolderLike[]
  */
 export function groupFeeds(feeds: readonly FeedLike[], folders: readonly FolderLike[], keyOf: SectionOf, view: View = "unread"): SectionDef[] {
   const defs = new Map<string, SectionDef>();
+  const unpaced = new Set<string>();
   const archive: FeedLike[] = [];
   for (const f of sidebarOrder(feeds, folders)) {
     if (f.is_archive) {
       if (view === "starred") archive.push(f);
       continue;
     }
-    add(defs, keyOf(f.id), f, view);
+    add(defs, unpaced, keyOf(f.id), f, view);
   }
-  for (const f of archive) add(defs, { key: `feed:${f.id}`, title: f.title, scope: { feed: f.id } }, f, view);
-  return [...defs.values()];
+  for (const f of archive) add(defs, unpaced, { key: `feed:${f.id}`, title: f.title, scope: { feed: f.id } }, f, view);
+  return [...defs.values()].map((d) => ({ ...d, pace: unpaced.has(d.key) ? null : d.pace }));
 }
 
-function add(defs: Map<string, SectionDef>, s: Section, f: FeedLike, view: View): void {
+function add(defs: Map<string, SectionDef>, unpaced: Set<string>, s: Section, f: FeedLike, view: View): void {
   let d = defs.get(s.key);
   if (!d) defs.set(s.key, (d = { ...s, feedIds: [], count: view === "unread" || view === "starred" ? 0 : null, pace: null }));
   d.feedIds.push(f.id);
   if (d.count !== null) d.count += view === "starred" ? f.starred_count : f.unread;
   if (typeof f.pace === "number") d.pace = (d.pace ?? 0) + f.pace;
+  else unpaced.add(s.key);
 }
 
 /**
  * "sidebar" keeps the order groupFeeds gave. "quiet": sections with a pace first, slowest first, ties in sidebar
- * order; sections without one (feeds counted for under 7 days) follow in sidebar order.
+ * order; sections without one (a section with any feed counted for under 7 days has none) follow in sidebar order.
  */
 export function orderSections(defs: readonly SectionDef[], order: SectionOrder): SectionDef[] {
   if (order === "sidebar") return [...defs];
@@ -139,7 +141,8 @@ export function layoutDigest(defs: readonly SectionDef[], opts: DigestOptions, l
     const limit = opts.rows + EXPAND_BATCH * (opts.expanded.get(d.key) ?? 0);
     const cards = (got?.cards ?? []).slice(0, limit);
     const state: SectionState = got ? "ready" : opts.activated.has(d.key) ? "loading" : "waiting";
-    const moreCount = d.count === null ? null : Math.max(0, d.count - cards.length);
+    // Exact once the whole section has loaded; before that, the count the page opened with, where there is one.
+    const moreCount = got && !got.more ? got.cards.length - cards.length : d.count === null ? null : Math.max(0, d.count - cards.length);
     const hasMore = got ? got.cards.length > cards.length || got.more : true;
     sections.push({ key: d.key, title: d.title, scope: d.scope, cards, moreCount, hasMore, state });
   }

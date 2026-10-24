@@ -297,6 +297,19 @@ describe("Stats screen", () => {
     await waitFor(() => expect(screen.queryByText(/Couldn't refresh/)).toBeNull());
   });
 
+  it("a failed first load shows one alert, worded by cause, with no alert inside another", async () => {
+    const user = userEvent.setup();
+    const m = setup(() => json({ error: "boom" }, 500));
+    window.history.replaceState({ idx: 0 }, "", "/stats");
+    render(<App client={makeQueryClient({ retry: false })} />);
+    const alert = await screen.findByText("Kipple's server had a problem.");
+    expect(alert.closest("[role=alert]")).not.toBeNull();
+    for (const a of document.querySelectorAll("[role=alert]")) expect(a.querySelector("[role=alert]")).toBeNull();
+    const before = statsCalls(m).length;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(statsCalls(m).length).toBeGreaterThan(before));
+  });
+
   it("orders heatmap rows by the week start", async () => {
     setup(() => ({ ...richStats, week_start: "monday" }));
     go();

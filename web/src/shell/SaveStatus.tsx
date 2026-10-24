@@ -24,7 +24,7 @@ export function DeviceSaveStatus() {
       <span>{s.status === "error" ? "Couldn't save your settings" : (named ?? `${n} setting${n === 1 ? "" : "s"} not saved`)}</span>
       {s.status === "error" && (
         <button type="button" onClick={() => void retrySave()} className="hit inline-flex items-center rounded-full px-2 font-bold underline underline-offset-2">
-          Retry
+          Try again
         </button>
       )}
       {n > 0 && (

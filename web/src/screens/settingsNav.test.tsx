@@ -143,11 +143,12 @@ describe("Settings on a narrow screen", () => {
     expect(window.location.pathname).toBe("/settings");
   });
 
-  it("sends an unknown group back to the list", async () => {
+  it("says an unknown group is not a settings page, with a way back", async () => {
     routes();
     go("/settings/nope");
-    expect(await screen.findByRole("navigation", { name: "Settings sections" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/settings");
+    expect(await screen.findByRole("heading", { name: "Settings page not found" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings/nope");
+    expect(screen.getByRole("link", { name: "Go to Settings" })).toHaveAttribute("href", "/settings");
   });
 
   it("every group page has its own loading and error state, and the groups that need no settings do not wait for them", async () => {

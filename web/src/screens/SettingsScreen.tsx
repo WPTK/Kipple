@@ -1,6 +1,8 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Link, Navigate, Route, Routes, useLocation, useMatch } from "react-router";
+import { buttonVariants } from "@/ui/button";
+import { NotFoundBlock } from "@/ui/NotFoundBlock";
+import { Link, Route, Routes, useLocation, useMatch } from "react-router";
 import { BarChart3, ChevronRight, Filter, Info, Palette, Rss, SlidersHorizontal, UserRound, type LucideIcon } from "lucide-react";
 import { useSettings, type SettingGroup, type SettingMeta } from "@/api/admin";
 import { AUTO_READ_PRESETS, autoReadLabel } from "@/api/autoRead";
@@ -591,6 +593,17 @@ export function SettingsScreen() {
   // The group on screen: the URL's, or on a wide screen with a bare /settings the first one (shown in place, not by
   // a redirect, so the /settings history entry is never rewritten under a back button that expects the list there).
   const shown = current ?? (wide ? FIRST_GROUP : undefined);
+  const unknownPage = (
+    <NotFoundBlock
+      noun="settings page"
+      why="Kipple has no settings page at this address."
+      action={
+        <Link to="/settings" replace className={buttonVariants({ variant: "solid" })}>
+          Go to Settings
+        </Link>
+      }
+    />
+  );
 
   // The group shown before the last navigation (state adjusted during render, so it is already right in the render
   // the shell's focus effect reads). Arrival focus then goes to the new group's heading (wide), or back to the row
@@ -627,8 +640,8 @@ export function SettingsScreen() {
         <div key={shown?.id ?? "list"} className="min-h-0 flex-1 overflow-y-auto">
           <Routes>
             <Route index element={wide ? page(FIRST_GROUP) : <GroupList returnTo={cameFrom} />} />
-            <Route path=":group" element={current ? page(current) : <Navigate to="/settings" replace />} />
-            <Route path="*" element={<Navigate to="/settings" replace />} />
+            <Route path=":group" element={current ? page(current) : unknownPage} />
+            <Route path="*" element={unknownPage} />
           </Routes>
         </div>
       </div>
