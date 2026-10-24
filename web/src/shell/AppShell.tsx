@@ -37,6 +37,9 @@ const tab = "relative flex min-h-11 min-w-0 flex-1 items-center justify-center p
 // ("Articles") needs the room, so the gap and the side padding are as small as they can be and still read as a row.
 // The tabs share the bar by their content (flex-auto) there, not in equal fifths: the Articles tab also holds its badge after the
 // name, and a fifth of 568 px cannot hold all three while the shorter names leave room unused.
+// The bar's width is also measured in rem (it is a container), which grows with the text size: below 32rem, 568 px at text
+// 1.11 times or larger, the icons give way to the names and the badge. The room is the bar's, not a guess at a font.
+const shortIconHides = "@max-[32rem]:hidden";
 const tabLayout = (short: boolean) => (short ? "flex-auto flex-row gap-1 px-0.5" : "flex-col gap-0.5");
 
 /**
@@ -60,7 +63,7 @@ function TabBar() {
     const Icon = icon;
     return (
       <Link key={label} to={to} className={cn(t, current ? tabNow : "text-fg2")} aria-current={current ? "page" : undefined}>
-        <span className="relative flex">
+        <span className={cn("relative flex", short && shortIconHides)}>
           <Icon aria-hidden="true" className="size-6" />
           {badge && !short ? <UnreadBadge inline={false} /> : null}
         </span>
@@ -73,7 +76,7 @@ function TabBar() {
   return (
     <nav
       aria-label="Primary"
-      className={cn("pb-safe pl-safe pr-safe flex shrink-0 border-t border-line bg-bg shadow-bar", short ? "pt-0" : "pt-2")}
+      className={cn("pb-safe pl-safe pr-safe flex shrink-0 border-t border-line bg-bg shadow-bar", short ? "@container pt-0" : "pt-2")}
       // The bar is its content plus the device inset: the inset below it (a home indicator) never takes from the 44 px tabs.
       style={{ minHeight: "calc(var(--tabbar-h) + env(safe-area-inset-bottom))" }}
     >

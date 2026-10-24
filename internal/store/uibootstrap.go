@@ -260,6 +260,9 @@ type UIFeed struct {
 	// LastError is why the feed is failing (the same text Feed health shows), set
 	// only while the status is erroring, failing or dead; null otherwise.
 	LastError *string `json:"last_error"`
+	// LastErrorClass is the kind of failure behind LastError (the fetch error classes: dns, connect, tls, http, ...),
+	// which the web app turns into words; set and cleared together with LastError.
+	LastErrorClass *string `json:"last_error_class"`
 	// AddressHint is the feed's address, short (no scheme, no query unless it is what tells them apart), when
 	// another listed feed has the same title (trimmed, any case): a row shows it so the two can be told apart.
 	// Null otherwise, so the bootstrap does not carry every feed's address.
@@ -354,7 +357,7 @@ func (d *DB) uiFeedsURLs(ctx context.Context, env StatusEnv, where string, args 
 		SELECT f.id, f.folder_id, `+feedTitleSQL("f")+`, f.site_url, f.url, fi.hash,
 		       COALESCE(u.n, 0), f.enabled, f.disabled_reason, f.consecutive_failures, f.fulltext, f.retention, f.interval_minutes, f.auto_read_days,
 		       f.host, f.redirect_kind, f.redirect_to, COALESCE(f.last_new_items_at, f.created_at),
-		       COALESCE(s.n, 0), f.last_error
+		       COALESCE(s.n, 0), f.last_error, f.last_error_class
 		FROM feeds f JOIN folders fo ON fo.id = f.folder_id
 		LEFT JOIN feed_icons fi ON fi.feed_id = f.id
 		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE read = 0 GROUP BY feed_id) u ON u.feed_id = f.id
@@ -370,11 +373,11 @@ func (d *DB) uiFeedsURLs(ctx context.Context, env StatusEnv, where string, args 
 	for rows.Next() {
 		var f UIFeed
 		var feedURL string
-		var hash, reason, host, rKind, rTo, lastErr sql.NullString
+		var hash, reason, host, rKind, rTo, lastErr, lastClass sql.NullString
 		var lastNew int64
 		var enabled, failures, fulltext int64
 		var retention, interval, autoRead sql.NullInt64
-		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &feedURL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval, &autoRead, &host, &rKind, &rTo, &lastNew, &f.StarredCount, &lastErr); err != nil {
+		if err := rows.Scan(&f.ID, &f.FolderID, &f.Title, &f.SiteURL, &feedURL, &hash, &f.Unread, &enabled, &reason, &failures, &fulltext, &retention, &interval, &autoRead, &host, &rKind, &rTo, &lastNew, &f.StarredCount, &lastErr, &lastClass); err != nil {
 			return nil, nil, err
 		}
 		if hash.Valid {
@@ -385,7 +388,7 @@ func (d *DB) uiFeedsURLs(ctx context.Context, env StatusEnv, where string, args 
 		f.Status = FeedStatus(StatusRow{DisabledReason: strp(reason), Enabled: enabled == 1, ConsecutiveFailures: failures,
 			RedirectKind: strp(rKind), RedirectTo: strp(rTo), LastNewItemsAt: lastNew}, env.HostUntil[host.String], env.Now)
 		if f.Status == StatusErroring || f.Status == StatusFailing || f.Status == StatusDead {
-			f.LastError = strp(lastErr)
+			f.LastError, f.LastErrorClass = strp(lastErr), strp(lastClass)
 		}
 		f.Fulltext = fulltext == 1
 		f.FulltextEffective = EffectiveFulltext(nil, f.Fulltext, all) == 1
