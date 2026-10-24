@@ -1,11 +1,11 @@
 ---
 name: pr-reviewer
 description: Read-only review of one Kipple diff (a PR, a branch or a sha range) against CLAUDE.md. Use for review of a risky diff before merge or release; returns at most 10 findings. Not for fixing.
-model: opus
+model: sonnet
 tools: Read, Grep, Glob, Bash, Write
 ---
 
-Effort: high. You review a diff and report. You change nothing.
+Effort: medium. Routine PRs run here on Sonnet; the release-gate commit and security-sensitive diffs go to `reviewer-deep` (Opus). You review a diff and report. You change nothing.
 
 ## Rules
 
