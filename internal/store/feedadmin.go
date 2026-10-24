@@ -286,10 +286,11 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 				sets = append(sets, "enabled = 1", "disabled_reason = NULL", "consecutive_failures = 0", "current_delay_s = 0")
 				set("next_fetch_at", now)
 				res.NeedsFetch = true
-			case enabled == 1:
+			case enabled == 1 || reason.String == "gone":
+				// Pausing a gone feed makes it the person's choice: it stays off if its address is corrected later.
 				sets = append(sets, "enabled = 0", "disabled_reason = 'user'")
 			}
-			if *p.Enabled || enabled == 1 {
+			if *p.Enabled || enabled == 1 || reason.String == "gone" {
 				res.Changed, res.Notify = true, true
 			}
 		}

@@ -540,3 +540,21 @@ func TestCorrectedAddressRevivesAGoneFeed(t *testing.T) {
 	require.Equal(t, 200, code)
 	require.Equal(t, 1, h.count("SELECT count(*) FROM feeds WHERE id = ? AND enabled = 1 AND disabled_reason IS NULL", id), "the corrected address switches the feed on")
 }
+
+// Pausing a gone feed turns the site's verdict into the person's choice, with or without a new address.
+func TestPausingAGoneFeedMakesItAPause(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	id := h.addFeed("Gone", 0)
+	h.exec(`UPDATE feeds SET enabled = 0, disabled_reason = 'gone' WHERE id = ?`, id)
+	code, body, _ := h.api(c, "PATCH", "/api/feeds/"+sid(id), `{"enabled":false}`)
+	require.Equal(t, 200, code, body)
+	require.Equal(t, 1, h.count("SELECT count(*) FROM feeds WHERE id = ? AND enabled = 0 AND disabled_reason = 'user'", id))
+
+	other := h.addFeed("Gone too", 0)
+	h.exec(`UPDATE feeds SET enabled = 0, disabled_reason = 'gone' WHERE id = ?`, other)
+	code, body, _ = h.api(c, "PATCH", "/api/feeds/"+sid(other), `{"enabled":false,"url":"https://gone-too-new.example/feed"}`)
+	require.Equal(t, 200, code, body)
+	require.Equal(t, 1, h.count("SELECT count(*) FROM feeds WHERE id = ? AND enabled = 0 AND disabled_reason = 'user' AND url = 'https://gone-too-new.example/feed'", other), "a pause with a new address stays paused")
+}

@@ -140,6 +140,11 @@ describe("a feed the site says is gone", () => {
     expect(summary).toHaveTextContent("1 feed needs attention. 1 working.");
     expect(within(summary).queryByRole("button", { name: /paused/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Try .* now$/ })).toBeNull();
+    // Refresh now is for feeds that are switched on; the server answers 409 for this one.
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: /^Actions for/ })[0]!);
+    expect(await screen.findByRole("menuitem", { name: "Fetch log" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Refresh now" })).toBeNull();
   });
 
   it("opens Edit feed with Pause this feed unticked", async () => {
@@ -168,21 +173,30 @@ describe("Delete feed", () => {
   });
 });
 
-describe("the empty library", () => {
-  it("opens Add feed in place, so Cancel leaves the reader where they were", async () => {
+describe("the empty library's first add", () => {
+  it("keeps the dialog through the add, so Feed added and the can't-fetch note are seen", async () => {
+    let added = false;
     mockFetch({
-      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [], folders: bootstrap.folders, counts: { unread: 0, starred: 0 } }),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: added ? [failing] : [], counts: { unread: 0, starred: 0 } }),
       "GET /api/items": () => json(pageOf([])),
+      "POST /api/feeds": () => {
+        added = true;
+        return json({ status: "ok", feed: { id: "1", title: "Brand new" }, fetch: { error: "HTTP 500", error_class: "http" } });
+      },
     });
     window.history.replaceState({ idx: 0 }, "", "/l");
     render(<App client={makeQueryClient({ retry: false })} />);
     const user = userEvent.setup();
-    const first = await screen.findByRole("button", { name: "Add your first feed" });
-    const here = window.location.pathname;
-    await user.click(first);
+    await user.click(await screen.findByRole("button", { name: "Add your first feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Add feed" });
-    await user.click(within(dlg).getByRole("button", { name: "Cancel" }));
+    await user.type(within(dlg).getByLabelText("Feed or website address"), "https://x.test/feed");
+    await user.click(within(dlg).getByRole("button", { name: "Add feed" }));
+    const done = await screen.findByRole("dialog", { name: "Feed added" });
+    expect(within(done).getByText(/Kipple can't fetch this feed yet/)).toBeInTheDocument();
+    // The list now has a feed, so the welcome is gone; the dialog is still there until it is closed.
+    await waitFor(() => expect(screen.queryByText("No feeds yet")).toBeNull());
+    expect(screen.getByRole("dialog", { name: "Feed added" })).toBeInTheDocument();
+    await user.click(within(done).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(window.location.pathname).toBe(here);
   });
 });

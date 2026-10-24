@@ -32,6 +32,7 @@ import { EmptyState } from "@/ui/EmptyState";
 import { focusOrigin } from "@/ui/kit";
 import { articleTo } from "@/lib/routes";
 import { FirstRun } from "./FirstRun";
+import { AddFeedDialog } from "./feeds/AddFeedDialog";
 import { announce, toast } from "@/shell/toasts";
 import { copyLink } from "@/lib/share";
 import { openOriginalAndRecord, shareAndRecord } from "@/lib/statsSender";
@@ -314,6 +315,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
 
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => memory.get(key)?.hidden ?? new Set());
   // Rows that are collapsing (COLLAPSE_MS) before they leave the list.
+  const [firstAdd, setFirstAdd] = useState(false);
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(() => new Set());
   const loadedIdSet = useMemo(() => new Set(src.cards.map((i) => i.id)), [src.cards]);
   const items = useMemo(() => (hidden.size ? src.cards.filter((i) => !hidden.has(i.id)) : src.cards), [src.cards, hidden]);
@@ -1369,7 +1371,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     if (Page ? nothingShown : rows.length === 0) {
       if (boot.data && visibleFeeds(boot.data.feeds).length === 0 && !scope.q) {
         return (
-          <FirstRun onImport={() => navigate("/feeds", { state: { open: "import" } })} />
+          <FirstRun onAdd={() => setFirstAdd(true)} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
         );
       }
       const failing = scope.feed ? feedById.get(scope.feed) : undefined;
@@ -1600,6 +1602,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
           </div>
         </div>
       </div>
+      {/* Owned here, not by FirstRun: the first feed ends FirstRun, and its "Feed added" step must outlive that. */}
+      {firstAdd ? <AddFeedDialog onClose={() => setFirstAdd(false)} /> : null}
     </section>
   );
 }

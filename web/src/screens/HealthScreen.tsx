@@ -150,9 +150,11 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
-          <DropdownMenu.Item className={menuItem} onSelect={() => void run(async () => { const r = await refreshFeed(f.id); if (r.error) throw new Error(`${failureReason({ last_error: r.error, last_error_class: r.error_class })}.`); }, `Refreshed ${f.title}`, "refresh the feed")}>
-            Refresh now
-          </DropdownMenu.Item>
+          {f.enabled ? (
+            <DropdownMenu.Item className={menuItem} onSelect={() => void run(async () => { const r = await refreshFeed(f.id); if (r.error) throw new Error(`${failureReason({ last_error: r.error, last_error_class: r.error_class })}.`); }, `Refreshed ${f.title}`, "refresh the feed")}>
+              Refresh now
+            </DropdownMenu.Item>
+          ) : null}
           <DropdownMenu.Item className={menuItem} onSelect={onLog}>
             Fetch log
           </DropdownMenu.Item>
