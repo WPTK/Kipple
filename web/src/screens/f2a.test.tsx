@@ -531,7 +531,7 @@ describe("mark above and below, and mark all", () => {
     await markAllFromMenu(user);
     await user.click(await within(screen.getByTestId("undo-region")).findByRole("button", { name: "Undo" }));
     await waitFor(() => expect(n).toBe(2));
-    await screen.findByText(/Couldn.t undo/);
+    await within(screen.getByTestId("toast-region")).findByText(/Couldn.t undo/);
     expect(screen.queryByText("Undone")).toBeNull();
     expect(within(screen.getByTestId("undo-region")).getByRole("button", { name: "Undo" })).toBeInTheDocument();
   });

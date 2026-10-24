@@ -680,7 +680,7 @@ function FeedDetail({ feed, range }: { feed: string; range: ScreenRange }) {
   if (q.isPending) return <Skeleton rows={4} label="Loading this feed" />;
   if (!data) {
     return (
-      <div role="alert" className="flex flex-col items-start gap-3">
+      <div className="flex flex-col items-start gap-3">
         <Notice tone="error">{errorMessage(q.error)}</Notice>
         <Button onClick={() => void q.refetch()}>Try again</Button>
       </div>
@@ -765,7 +765,7 @@ export function StatsScreen() {
     body = <Skeleton rows={5} label="Loading statistics" />;
   } else if (q.isError && !data) {
     body = (
-      <div role="alert" className="flex flex-col items-start gap-3 py-6">
+      <div className="flex flex-col items-start gap-3 py-6">
         <Notice tone="error">{errorMessage(q.error)}</Notice>
         <Button onClick={() => void q.refetch()}>Try again</Button>
       </div>

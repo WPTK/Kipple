@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { applyRead, applyStar, bumpMuted, dropFromLists, invalidateLists, keys, undoKept, patchItems } from "@/api/queries";
-import { api, errorMessage } from "@/api/client";
+import { api, failed } from "@/api/client";
 import { markAllRead, markRange, type RangeParams } from "@/api/bulk";
 import type { BulkMarkResponse, Card, ItemsPage, MarkReadResponse, Scope } from "@/api/types";
 import { announce, toast } from "@/shell/toasts";
@@ -50,19 +50,19 @@ async function undoBulk(qc: QueryClient, ids: string[], ledger: string[]): Promi
   const requests = undoRequests(ids, ledger);
   patchItems(qc, ids, { read: false });
   const sent = await Promise.allSettled(requests.map((r) => api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids: r.ids, ...(r.ledger.length ? { ledger_ids: r.ledger } : {}), read: false, reason: "bulk", undo: true } })));
-  const failed = requests.filter((_, i) => sent[i]!.status === "rejected");
+  const lost = requests.filter((_, i) => sent[i]!.status === "rejected");
   const kept: string[] = [];
   for (const s of sent) {
     if (s.status !== "fulfilled") continue;
     undoKept(qc, s.value?.kept);
     kept.push(...(s.value?.kept ?? []));
   }
-  if (failed.length) {
+  if (lost.length) {
     // What a failed request would have restored goes back to read; the rest was undone.
-    patchItems(qc, failed.flatMap((r) => r.ids), { read: true });
+    patchItems(qc, lost.flatMap((r) => r.ids), { read: true });
     const first = sent.find((s) => s.status === "rejected") as PromiseRejectedResult;
-    toast(errorMessage(first.reason), "error");
-    if (failed.length === requests.length) return false;
+    toast(failed("undo that", first.reason), "error");
+    if (lost.length === requests.length) return false;
   }
   // Ledger rows the undo flipped back are a change even when every stored article was kept.
   return ledger.length > 0 ? true : allKept(ids, kept);
@@ -266,11 +266,11 @@ export function itemActions(qc: QueryClient) {
     patchItems(qc, local, { read: true });
     try {
       ticket.settle(await finishBulk(await send(), local, asOf, restore, unhide));
-    } catch {
+    } catch (e) {
       ticket.settle(null);
       patchItems(qc, local, { read: false });
       restore?.();
-      announce("Couldn't mark those as read");
+      toast(failed("mark those as read", e), "error", undefined, "read");
     }
   }
 
@@ -287,9 +287,9 @@ export function itemActions(qc: QueryClient) {
     const ticket = beginUndo("read", { bulk: true });
     patchItems(qc, requests.flatMap((r) => r.local), { read: true });
     const sent = await Promise.allSettled(requests.map((r) => r.send()));
-    const failed = requests.filter((_, i) => sent[i]!.status === "rejected");
-    const failedLocal = failed.flatMap((r) => r.local);
-    if (failed.length === requests.length) {
+    const lost = requests.filter((_, i) => sent[i]!.status === "rejected");
+    const failedLocal = lost.flatMap((r) => r.local);
+    if (lost.length === requests.length) {
       ticket.settle(null);
       patchItems(qc, failedLocal, { read: false });
       restore?.();
@@ -311,10 +311,10 @@ export function itemActions(qc: QueryClient) {
     const ledger = [...new Set(done.flatMap((d) => d.ledger))];
     // A request over the server's cap is marked but returns no ids to undo; the others still can be undone.
     const capped = done.some((d) => d.overCap);
-    const note = (failed.length ? " Some of it could not be marked." : "") + (capped && ids.length ? " Part of it is too large to undo." : "");
+    const note = (lost.length ? " Some of it could not be marked." : "") + (capped && ids.length ? " Part of it is too large to undo." : "");
     if (ids.length === 0) {
       ticket.settle(null);
-      announce(count === 0 && !failed.length ? "Nothing to mark" : `Marked ${count} as read.${note}`.trim());
+      announce(count === 0 && !lost.length ? "Nothing to mark" : `Marked ${count} as read.${note}`.trim());
       return;
     }
     ticket.settle({ ids, restore, undo: (undoIds) => undoBulk(qc, undoIds, ledger) });
@@ -342,7 +342,7 @@ export function itemActions(qc: QueryClient) {
     try {
       res = await api("/api/items/unmute", { method: "POST", body: { ids } });
     } catch (e) {
-      toast(errorMessage(e), "error");
+      toast(failed("restore those articles", e), "error");
       restore?.();
       return false;
     }

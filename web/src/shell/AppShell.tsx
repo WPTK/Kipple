@@ -286,20 +286,20 @@ export function AppShell() {
         Skip to content
       </a>
       {wide ? <Sidebar /> : null}
-      <div className="kp-stack flex min-w-0 flex-1 flex-col">
-        <OfflineNotice />
+      <div className="kp-stack relative flex min-w-0 flex-1 flex-col">
         <WarningsBanner />
         <ApplyProgress />
         <main id="main" ref={mainRef} tabIndex={-1} className="pl-safe pr-safe min-h-0 flex-1 outline-none">
           <Outlet />
         </main>
         {showTabs ? <TabBar /> : null}
+        <Toasts inset={wide ? "none" : inArticle ? "toolbar" : "tabbar"} anchor={wide ? "column" : "window"}>
+          <OfflineNotice />
+          <UndoToast />
+        </Toasts>
       </div>
       <LiveRegion />
       <DeviceSaveStatus />
-      <Toasts inset={wide ? "none" : inArticle ? "toolbar" : "tabbar"}>
-        <UndoToast />
-      </Toasts>
       <WhatsNewHost />
       <FilterEditorHost />
       <FeedEditorHost />

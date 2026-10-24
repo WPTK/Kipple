@@ -1,4 +1,4 @@
-import { noteResponse, setOnline, setSessionExpired } from "@/lib/offlineState";
+import { browserOnlineStore, noteResponse, setOnline, setSessionExpired } from "@/lib/offlineState";
 import { createStore } from "@/lib/store";
 
 /** ApiError code for a request the access proxy in front of Kipple redirected to its login page. */
@@ -237,16 +237,43 @@ export function busyMessage(e: ApiError): string {
   return `Sign-in is paused for about ${wait}: Kipple is busy, or there were several wrong passwords from this address. A correct password is refused until then.`;
 }
 
-/** Human message for an error toast. */
+/** Why a request failed, in the three words a reader needs: no network, no answer, or an answer that was an error. */
+export type FailureCause = "offline" | "unreachable" | "server";
+
+/** The reader's phrase for each cause. */
+export const CAUSE_PHRASE: Record<FailureCause, string> = {
+  offline: "You're offline",
+  unreachable: "Kipple can't be reached",
+  server: "Kipple's server had a problem",
+};
+
+/**
+ * The cause of a failure, or null when it is none of the three (a refusal, a 404, an expired sign-in). No answer is
+ * "offline" only when the browser itself says it has no network. An error answer is the server's problem only when it
+ * came from Kipple (it carries Kipple's API header); a 502, 503, 504 or 530 from a proxy or tunnel in front of a Kipple
+ * that is not running is "can't be reached".
+ */
+export function failureCause(e: unknown): FailureCause | null {
+  if (!(e instanceof ApiError)) return null;
+  if (e.status === 0) return browserOnlineStore.get() ? "unreachable" : "offline";
+  if (e.status >= 500 && e.code !== "maintenance") return e.fromKipple ? "server" : "unreachable";
+  return null;
+}
+
+/** Human message for an error: one sentence, no retry advice (the screen's "Try again" button carries that). */
 export function errorMessage(e: unknown): string {
+  const cause = failureCause(e);
+  if (cause) return `${CAUSE_PHRASE[cause]}.`;
   if (e instanceof ApiError) {
-    if (e.status === 0) return "Kipple couldn't reach the server.";
     if (e.code === SESSION_EXPIRED) return "Your sign-in has expired. Reload Kipple to sign in again.";
-    if (e.status === 429) return "Too many attempts. Try again in a few minutes.";
-    if (e.code === "maintenance") return "Kipple is busy rebuilding its search index. Try again in a minute.";
-    if (e.status >= 500) return "The server returned an error. Try again.";
+    if (e.status === 429) return "Too many attempts. Wait a few minutes.";
+    if (e.code === "maintenance") return "Kipple is busy rebuilding its search index. Wait a minute.";
     if (e.status === 404) return "That item is no longer available.";
-    return "Something went wrong. Try again.";
   }
-  return "Something went wrong. Try again.";
+  return "Something went wrong.";
+}
+
+/** A failure told once: what could not be done, then why. `failed("star this article", e)`. */
+export function failed(action: string, e: unknown): string {
+  return `Couldn't ${action}. ${errorMessage(e)}`;
 }

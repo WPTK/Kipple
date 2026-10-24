@@ -100,8 +100,22 @@ asking: the history repo and website PRs for version text and screenshots.
 
 The global working-economy and subagent rules apply. Kipple specifics:
 
-- **Models and agents:** the global "Which agent" rules apply. Kipple's `pr-author` and `pr-reviewer` stay for the PR
-  flow. CI waiting is one blocking `gh pr checks <n> --watch --fail-fast` (or `scripts/maintainers/pr-ready.ps1`) per PR.
+- **Models and agents:** the global "Which agent" rules apply. Kipple's `pr-author` and `pr-reviewer` (both Sonnet) stay
+  for the PR flow; `release-gate` (Sonnet) runs `release-gates.ps1` on the tagged commit. Never an untyped
+  `general-purpose` agent (a hook blocks it), and `model: opus` only for `reviewer-deep`, `diagnoser`, `planner`.
+- **Review loop cap, per PR:** one `pr-reviewer` pass, `pr-triage` sorts the findings, one `pr-author` fixes blockers and
+  fixes in a single push, at most one delta review of the fix commits only. A third round goes to the owner. Nits go in the
+  PR description. `reviewer-deep` (Opus) runs once, on the release-gate commit or a security-sensitive diff, never on
+  feature PRs. Never re-review an unchanged head.
+- **CI waits:** `ci-watcher` or the main thread runs one blocking `gh pr checks <n> --watch --fail-fast`; no polling, no
+  re-running a job to see if it passes. CI already skips on prose-only PRs, cancels superseded PR runs, and fuzzes weekly;
+  do not re-run fuzz, Browser UAT or audits by hand except on the commit being tagged, and only if code changed since
+  their last run.
+- **Audits and reports:** when the owner asks for one, walk through the script plan and wait for a go before running
+  anything (global rule). Scripts first, at most one `audit` agent, no fan-out.
+- **Sessions:** start a fresh Sonnet session per PR or issue and carry state in memory and the history repo. Do not
+  rebuild state in a long "recovery" session; read the state file, then work. The main thread is Sonnet unless the owner
+  picks Opus.
 - **CI already proved it:** a release or docs-only commit needs the CI run on that commit and nothing more. Fuzz, UAT
   suites and a delta review run once, on the commit being tagged, and only if code changed since the last run.
 - **Batch small PRs:** `changes/` entries, docs and wording go in one PR. The auto-fix monitor (`bind_pr` +
