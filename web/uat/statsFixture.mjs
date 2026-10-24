@@ -73,7 +73,8 @@ function summary(mode, q) {
           avg_read_seconds: 95,
           longest_read: { item_id: "77", title: "A very long essay about the way a small server can keep a large reader, told over many words", feed_title: "Long Reads", seconds: 1320, date: addDays(now, -12) },
         },
-    sources: quiet ? [] : SOURCES,
+    // A young library has one source, and no source can have more reads than the whole library.
+    sources: quiet ? [] : mode === "low" ? [{ ...SOURCES[0], items_read: items, items_opened: items, opens: items, tracked_opens: items, active_seconds: secs, timed_seconds: secs, timed_items: items, items_original: 0, bounces: 0, stars: 0 }] : SOURCES,
     never_opened: mode === "empty" ? [] : [
       { feed_id: "8", title: "Quiet Feed", folder_name: "Misc", subscribed_on: addDays(now, -10) },
       { feed_id: "9", title: "Brand New Feed", folder_name: null, subscribed_on: addDays(now, -1) },

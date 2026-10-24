@@ -342,14 +342,14 @@ describe("Stats screen", () => {
     expect(screen.queryByRole("table", { name: /by articles read/ })).toBeNull();
   });
 
-  it("toggles Articles/Minutes and Feeds/Folders", async () => {
+  it("toggles Articles/Time and Feeds/Folders", async () => {
     const user = userEvent.setup();
     setup(() => richStats);
     go();
     await screen.findByRole("heading", { name: "Sources" });
     const rowNames = () => within(screen.getByRole("list", { name: /by (articles read|reading time)/ })).getAllByRole("listitem").map((r) => r.textContent ?? "");
     expect(rowNames()[0]).toContain("Gamma Daily"); // 44 articles
-    await user.click(screen.getByRole("radio", { name: "Minutes" }));
+    await user.click(screen.getByRole("radio", { name: "Time" }));
     expect(rowNames()[0]).toContain("Beta News"); // 50 min
     await user.click(screen.getByRole("radio", { name: "Folders" }));
     const folders = rowNames();
@@ -371,6 +371,18 @@ describe("Stats screen", () => {
     await user.click(cell);
     expect(screen.getAllByRole("status").some((s) => s.textContent === "Tuesday, 8 pm: 12 min")).toBe(true);
   });
+  it("the first arrow press in the heatmap selects the first cell", async () => {
+    const user = userEvent.setup();
+    setup(() => richStats);
+    go();
+    const grid = await screen.findByRole("group", { name: /Reading by weekday and hour/ });
+    grid.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getAllByRole("status").some((s) => s.textContent === "Sunday, 12 am: none")).toBe(true);
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getAllByRole("status").some((s) => s.textContent === "Sunday, 1 am: none")).toBe(true);
+  });
+
   it("says statistics are off and hides the nav entry", async () => {
     const m = setup(() => offStats, { "stats.enabled": false });
     go();

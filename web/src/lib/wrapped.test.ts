@@ -187,7 +187,7 @@ describe("share card and text", () => {
   it("truncates long feed names and titles on a code-point boundary, never splitting an emoji's surrogate pair", () => {
     // Placed so a naive UTF-16 `.slice(0, n - 1)` would land inside the emoji's surrogate pair: n-2 plain
     // characters, then the emoji straddling the old cut point, then more text pushing it over the clip length.
-    const sourceName = `${"A".repeat(38)}💜tail`; // clipped at 40 code points
+    const sourceName = `${"A".repeat(38)}💜tail`; // wrapped at 40 code points, broken inside the word
     const title = `${"B".repeat(44)}💜tail`; // clipped at 46 code points
     const withEmoji: WrappedModel = {
       ...model,
@@ -205,8 +205,18 @@ describe("share card and text", () => {
     };
     const textOps = ops.flatMap((op) => (op.kind === "text" ? [op.text] : []));
     for (const t of textOps) expect(hasLoneSurrogate(t)).toBe(false);
-    const nameText = textOps.find((t) => t.includes("💜"));
-    expect(nameText).toContain("…");
+    const nameText = textOps.filter((t) => t.includes("💜") || t === "tail" || /^tail/.test(t));
+    expect(textOps.join("")).toContain(sourceName.slice(0, 38) + "💜");
+    expect(nameText.length).toBeGreaterThan(0);
+  });
+
+  it("wraps a source name over 40 characters instead of cutting it", () => {
+    const name = "A feed whose title is much longer than forty characters and keeps going well past two lines of the card";
+    const ops = buildWrappedCard({ ...model, topSources: [{ feedId: "1", name, items: 3 }] }, { topSources: true, longestRead: false });
+    const lines = ops.flatMap((op) => (op.kind === "text" && op.x === 180 ? [op.text] : []));
+    expect(lines.join(" ")).toBe(name);
+    expect(lines.every((l) => Array.from(l).length <= 40)).toBe(true);
+    expect(lines.length).toBeGreaterThan(2);
   });
 });
 

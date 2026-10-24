@@ -32,7 +32,7 @@ import {
 } from "@/lib/statsFormat";
 import { articleTo } from "@/lib/routes";
 import { useStatsEnabled } from "@/lib/statsSender";
-import { useMedia } from "@/lib/useMedia";
+import { useNarrowText } from "@/lib/useNarrowText";
 import { Button } from "@/ui/button";
 import { EmptyState } from "@/ui/EmptyState";
 import { FailedBlock } from "@/ui/FailedBlock";
@@ -43,6 +43,9 @@ import { DailyChart, Empty, Heatmap, MonthlyChart } from "./StatsCharts";
 import { StatsDataSection, StatsExportDialog } from "./StatsDataDialogs";
 
 export { DailyChart, Heatmap, MonthlyChart } from "./StatsCharts";
+
+/** Under this width, counted in text-size-1 pixels (so 1.5x text on a 375 px phone is 250), the Range is a select and the tiles stack. */
+const NARROW_TEXT_PX = 360;
 
 // ---- 1. Summary -------------------------------------------------------------------------------------------------
 
@@ -61,7 +64,7 @@ function Stat({
 }) {
   const inner = (
     <>
-      <span className="block text-2xl font-bold tabular-nums">{value}</span>
+      <span className="block text-2xl font-bold whitespace-nowrap tabular-nums">{value}</span>
       <span className="block text-xs text-fg2">{label}</span>
       {note ? <span className="mt-1 block text-xs font-medium tabular-nums">{note}</span> : null}
     </>
@@ -119,6 +122,7 @@ export function SummaryTiles({ data, compare = false, feed, streaks = false }: {
   const t = data.totals;
   const legacy = t?.legacy_opens ?? 0;
   const noteId = useId();
+  const narrow = useNarrowText(NARROW_TEXT_PX);
   // Tiles show plain numbers. Tapping one shows its previous-period value; the earlier period is fetched on the first tap.
   const [open, setOpen] = useState<ReadonlySet<Tile>>(new Set());
   const period = useMemo(() => (compare && data.range ? previousPeriod(data.range) : null), [compare, data.range]);
@@ -161,7 +165,7 @@ export function SummaryTiles({ data, compare = false, feed, streaks = false }: {
   const num = (n: number) => String(n);
   return (
     <>
-      <div className="grid grid-cols-3 gap-2">
+      <div className={`grid gap-2 ${narrow ? "grid-cols-1" : "grid-cols-3"}`}>
         {tile("items", "Articles read", t?.items_read ?? 0, cur?.items_read, prev?.items_read, num)}
         {tile("time", "Active time", t?.active_seconds ?? 0, cur?.active_seconds, prev?.active_seconds, durationLabel)}
         {tile("days", "Reading days", t?.days_active ?? 0, cur?.days_active, prev?.days_active, num)}
@@ -288,7 +292,7 @@ export function Sources({ data, onOpen }: { data: StatsSummary; onOpen?: (r: Sou
           onChange={setMetric}
           options={[
             { value: "items", label: "Articles" },
-            { value: "minutes", label: "Minutes" },
+            { value: "minutes", label: "Time" },
           ]}
         />
         <Segmented
@@ -458,7 +462,7 @@ export function StatsScreen() {
   const data = q.data;
   const [exporting, setExporting] = useState(false);
   const [feed, setFeed] = useState<SourceRow | null>(null);
-  const narrow = useMedia("(max-width: 359.98px)");
+  const narrow = useNarrowText(NARROW_TEXT_PX);
   const pick = (r: ScreenRange) => {
     setRange(r);
     saveRange(r);

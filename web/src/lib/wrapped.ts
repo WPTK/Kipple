@@ -246,6 +246,26 @@ function wrapLines(s: string, width: number, lines: number): string[] {
   return [...out.slice(0, lines - 1).map((l) => clip(l, width)), clip(out.slice(lines - 1).join(" "), width)];
 }
 
+/** Words wrapped to lines of at most `width` characters, none dropped: a word longer than a line is broken across lines. */
+function wrapWhole(s: string, width: number): string[] {
+  const out: string[] = [];
+  let line = "";
+  for (const word of s.split(/\s+/).filter(Boolean)) {
+    const next = line ? `${line} ${word}` : word;
+    if (Array.from(next).length <= width) {
+      line = next;
+      continue;
+    }
+    if (line) out.push(line);
+    const points = Array.from(word);
+    let at = 0;
+    for (; points.length - at > width; at += width) out.push(points.slice(at, at + width).join(""));
+    line = points.slice(at).join("");
+  }
+  if (line) out.push(line);
+  return out.length ? out : [""];
+}
+
 const MARGIN = 90;
 const TITLE_CHARS = 46;
 const SOURCE_CHARS = 40;
@@ -270,6 +290,8 @@ export function buildWrappedCard(m: WrappedModel, o: WrappedOptions): CardOp[] {
   if (m.busiestHour != null) facts.push(["Busiest hour", hourLabel(m.busiestHour)]);
   if (m.busiestMonth != null) facts.push(["Busiest month", monthName(m.busiestMonth)]);
   const sources = o.topSources ? m.topSources : [];
+  const sourceLines = sources.map((s) => wrapWhole(s.name, SOURCE_CHARS));
+  const SRC_LINE = 38;
   const title = o.longestRead && m.longestRead ? wrapLines(m.longestRead.title, TITLE_CHARS, 2) : [];
 
   // Each block: its height, and how it draws itself from its top edge.
@@ -312,12 +334,14 @@ export function buildWrappedCard(m: WrappedModel, o: WrappedOptions): CardOp[] {
   }
   if (sources.length) {
     blocks.push({
-      h: 38 + sources.length * 46,
+      h: 38 + sourceLines.reduce((a, l) => a + l.length * SRC_LINE + 8, 0),
       draw: (top) => {
         text("Top sources", X, top + 28, 28, 400, "text2");
+        let y = top + 78;
         sources.forEach((s, i) => {
-          text(String(s.items), X, top + 78 + i * 46, 32, 700, "accent");
-          text(clip(s.name, SOURCE_CHARS), X + 90, top + 78 + i * 46, 32);
+          text(String(s.items), X, y, 32, 700, "accent");
+          sourceLines[i]!.forEach((l, j) => text(l, X + 90, y + j * SRC_LINE, 32));
+          y += sourceLines[i]!.length * SRC_LINE + 8;
         });
       },
     });

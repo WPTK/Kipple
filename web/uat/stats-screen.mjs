@@ -146,6 +146,16 @@ await t.eachViewport(async (page, vp) => {
     check(!(await overflowsX(page.locator("header").first())), `${tag} T6 header`, "the header does not scroll sideways", "the header scrolls sideways");
     await t.shot(page, `${tag}-T6-narrow`);
     await page.setViewportSize({ width: vp.width, height: vp.height });
+    if (vp.width < 500) {
+      // 1.5x text: the phone has the room of a 250 px one. The Range is a select, the tiles stack, no value wraps.
+      await page.evaluate(() => globalThis.document.documentElement.style.setProperty("--kp-scale", "1.5"));
+      await page.getByRole("combobox", { name: "Range" }).waitFor({ timeout: 10000 });
+      const wrapped = await page.locator("button[aria-expanded] > span.text-2xl").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().height > parseFloat(globalThis.getComputedStyle(e).lineHeight) * 1.5).map((e) => e.textContent));
+      check(wrapped.length === 0, `${tag} T6 large text`, "with 1.5x text the Range is a select and no tile value wraps", `tile values wrap: ${wrapped.join(", ")}`);
+      check(!(await overflowsX(page.locator("header").first())), `${tag} T6 large header`, "the header does not scroll sideways at 1.5x text", "the header scrolls sideways at 1.5x text");
+      await t.shot(page, `${tag}-T6-large-text`);
+      await page.evaluate(() => globalThis.document.documentElement.style.removeProperty("--kp-scale"));
+    }
   });
 
   await step(`${tag} T7`, async () => {
@@ -167,7 +177,7 @@ await t.eachViewport(async (page, vp) => {
     const some = [];
     for (const name of ["Longest streak", "Busiest day", "Busiest hour", "Busiest month"]) if (await page.getByRole("region", { name }).count()) some.push(name);
     check(some.length === 0 && (await page.getByRole("button", { name: "Share" }).count()) === 0, `${tag} T7 low`, "under a week: totals only, no superlatives, no Share", `under a week still shows: ${some.join(", ") || "Share"}`);
-    check((await page.getByText(/Keep reading/).count()) === 1, `${tag} T7 keep`, "a keep-reading line is shown", "no keep-reading line");
+    check((await page.getByText(/of reading in [0-9]{4} so far/).count()) === 1, `${tag} T7 keep`, "one note says how little there is so far", "the low-data note is missing or said twice");
     await t.shot(page, `${tag}-T7-low`);
 
     await open("/stats/wrapped", "empty");
@@ -193,6 +203,12 @@ await t.eachViewport(async (page, vp) => {
     check(fits, `${tag} T8 preview`, "the preview fits inside the sheet", "the preview runs past the sheet or takes over half the window");
     await dlg.getByRole("checkbox", { name: /top sources/ }).check();
     await dlg.getByRole("checkbox", { name: /longest read/ }).check();
+    const fills = await dlg.getByRole("button").evaluateAll((bs) => bs.map((b) => [b.textContent, globalThis.getComputedStyle(b).backgroundColor]));
+    const main = fills.find(([n]) => n === "Download image")?.[1];
+    const others = fills.filter(([n]) => /^(Copy as text|Share|Close)$/.test(n)).map(([, bg]) => bg);
+    check(main != null && others.length > 0 && others.every((bg) => bg !== main), `${tag} T8 primary`, "Download image is the one solid button", `button fills: ${JSON.stringify(fills)}`);
+    const order = await dlg.getByRole("button").evaluateAll((bs) => bs.map((b) => b.textContent).filter((n) => /^(Download image|Share|Copy as text|Close)$/.test(n)));
+    check(order[0] === "Download image", `${tag} T8 tab order`, "Download image is first in the tab order, matching its place on screen", `tab order: ${order.join(", ")}`);
     check(!(await overflowsX(dlg)), `${tag} T8 sideways`, "the sheet does not scroll sideways", "the sheet scrolls sideways");
     const download = dlg.getByRole("button", { name: "Download image" });
     await download.waitFor();

@@ -99,7 +99,7 @@ describe("Wrapped screen", () => {
     expect(screen.getByRole("heading", { name: "Articles read in 2026" })).toBeInTheDocument();
     // Under a week of reading: totals and a keep-reading line, no superlatives and no Share.
     for (const name of ["Longest streak", "Busiest day", "Busiest hour", "Busiest month"]) expect(screen.queryByRole("region", { name })).toBeNull();
-    expect(screen.getByText(/Keep reading/)).toBeInTheDocument();
+    expect(screen.getAllByText(/of reading in 2026 so far/)).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
   });
 

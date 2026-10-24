@@ -108,7 +108,11 @@ export function WrappedCards({ m }: { m: WrappedModel }) {
           </Sub>
         </Card>
       ) : null}
-      {low ? <p className="rounded-xl bg-surface px-3 py-2 text-sm text-fg2">Keep reading: your busiest day, hour and month and your longest streak appear after a week of reading, and then you can share your year.</p> : null}
+      {low ? (
+        <p className="rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
+          Only {plural(m.historyDays, "day")} of reading in {m.year} so far. Your busiest day, hour and month and your longest streak appear after a week of reading, and then you can share your year.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -224,22 +228,22 @@ function ShareBody({ m, onOpenChange }: { m: WrappedModel; onOpenChange: (o: boo
       title="Share your year"
       description="Only the summary below is shared, and only when you choose to share it."
       footer={
-        // Stacked on a phone with the main action on top (the column is reversed), one row from 420 px up.
-        <div className="flex w-full flex-col-reverse gap-2 min-[420px]:flex-row min-[420px]:justify-end">
-          <Button onClick={() => onOpenChange(false)}>Close</Button>
-          <Button disabled={busy} onClick={() => void doCopy()}>
-            Copy as text
-          </Button>
-          {native ? (
-            <Button disabled={busy || preparing} onClick={() => void doShare()}>
-              Share
-            </Button>
-          ) : null}
+        // The main action first, so the Tab order and the visual order agree: a column on a phone, one row from 420 px up.
+        <div className="flex w-full flex-col gap-2 min-[420px]:flex-row min-[420px]:justify-end">
           {image ? (
             <Button variant="solid" disabled={busy || preparing || !blob} onClick={doDownload}>
               Download image
             </Button>
           ) : null}
+          {native ? (
+            <Button disabled={busy || preparing} onClick={() => void doShare()}>
+              Share
+            </Button>
+          ) : null}
+          <Button disabled={busy} onClick={() => void doCopy()}>
+            Copy as text
+          </Button>
+          <Button onClick={() => onOpenChange(false)}>Close</Button>
         </div>
       }
     >
@@ -325,11 +329,6 @@ export function WrappedScreen() {
           <EmptyState title={`Nothing read in ${model.year} yet`} why={`Your year fills in as you read. ${READ_RULE}`} action={null} />
         ) : (
           <>
-            {low && model.daysActive > 0 && !q.isPlaceholderData ? (
-              <p className="mx-auto mb-4 max-w-xl rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
-                Only {plural(model.historyDays, "day")} of reading in {model.year} so far.
-              </p>
-            ) : null}
             <WrappedCards m={model} />
           </>
         )}

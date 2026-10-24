@@ -200,7 +200,7 @@ export function Heatmap({ data, empty }: { data: StatsSummary; empty: boolean })
   const untimed = (c: { active_seconds: number; opens: number }) => useTime && c.active_seconds <= 0 && c.opens > 0;
   const mixed = cells.some(untimed);
   const by = new Map(cells.map((c) => [`${c.weekday}:${c.hour}`, c]));
-  const max = Math.max(0, ...cells.map(val));
+  const ranked = cells.filter((c) => !untimed(c)).map(val).filter((v) => v > 0).sort((a, b) => a - b);
   const hours = Array.from({ length: 24 }, (_, h) => h);
   const days = weekOrder(data.week_start);
   const what = (wd: number, h: number) => {
@@ -217,10 +217,10 @@ export function Heatmap({ data, empty }: { data: StatsSummary; empty: boolean })
       setSel(null);
     } else if (d) {
       e.preventDefault();
-      const row = sel ? days.indexOf(sel.wd) : 0;
-      const col = sel ? sel.h : 0;
-      const r = Math.min(6, Math.max(0, row + d[0]));
-      const c = Math.min(23, Math.max(0, col + d[1]));
+      // With nothing selected the first press selects the first cell, like the bars.
+      if (!sel) return setSel({ wd: days[0]!, h: 0 });
+      const r = Math.min(6, Math.max(0, days.indexOf(sel.wd) + d[0]));
+      const c = Math.min(23, Math.max(0, sel.h + d[1]));
       setSel({ wd: days[r]!, h: c });
     }
   };
@@ -258,7 +258,7 @@ export function Heatmap({ data, empty }: { data: StatsSummary; empty: boolean })
                 </th>
                 {hours.map((h) => {
                   const c = by.get(`${wd}:${h}`);
-                  const level = c && untimed(c) ? 1 : heatLevel(c ? val(c) : 0, max);
+                  const level = c && untimed(c) ? 1 : heatLevel(c ? val(c) : 0, ranked);
                   const on = sel?.wd === wd && sel.h === h;
                   return (
                     <td

@@ -204,11 +204,16 @@ export function mostStarred(rows: SourceRow[], n = 3): SourceRow[] {
     .slice(0, n);
 }
 
-/** 0 (empty) to 4 (busiest): the step of the heatmap ramp for a value against the maximum. */
-export function heatLevel(value: number, max: number): 0 | 1 | 2 | 3 | 4 {
-  if (value <= 0 || max <= 0) return 0;
-  const r = value / max;
-  return r > 0.75 ? 4 : r > 0.5 ? 3 : r > 0.25 ? 2 : 1;
+/**
+ * 0 (empty) to 4 (most): the step of the heatmap ramp for a value, by its rank among the non-zero values (`positives`,
+ * sorted ascending) rather than its share of the maximum, so one very busy hour cannot flatten every other cell into the
+ * lightest shade. Equal values share a level; any non-zero value is at least 1.
+ */
+export function heatLevel(value: number, positives: readonly number[]): 0 | 1 | 2 | 3 | 4 {
+  if (value <= 0 || positives.length === 0) return 0;
+  let below = 0;
+  while (below < positives.length && positives[below]! < value) below++;
+  return (1 + Math.min(3, Math.floor((4 * below) / positives.length))) as 1 | 2 | 3 | 4;
 }
 
 /** Whole days from `from` to `to` (both "YYYY-MM-DD"), DST-proof. */

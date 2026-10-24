@@ -63,9 +63,13 @@ describe("small helpers", () => {
     expect(parseDay("2026-09-01").getDate()).toBe(1);
     expect(weekOrder("sunday")).toEqual([0, 1, 2, 3, 4, 5, 6]);
     expect(weekOrder("monday")).toEqual([1, 2, 3, 4, 5, 6, 0]);
-    expect(heatLevel(0, 10)).toBe(0);
-    expect(heatLevel(1, 10)).toBe(1);
-    expect(heatLevel(10, 10)).toBe(4);
+    expect(heatLevel(0, [1, 2])).toBe(0);
+    expect(heatLevel(5, [])).toBe(0);
+    // One huge value does not push the rest into the lightest shade: ranks spread over 1-4.
+    const spread = [1, 2, 3, 4, 5, 6, 7, 8, 9000];
+    expect([1, 3, 5, 7, 9000].map((v) => heatLevel(v, spread))).toEqual([1, 1, 2, 3, 4]);
+    expect(heatLevel(7, [7])).toBe(1);
+    expect(heatLevel(3, [3, 3, 3, 3])).toBe(1);
   });
 });
 
