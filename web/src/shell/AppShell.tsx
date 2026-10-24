@@ -101,7 +101,7 @@ function Sidebar() {
   const { unread, all, starred, muted, search: find, feeds, stats: st, settings } = DESTINATIONS;
   return (
     <div ref={box} className="relative h-full shrink-0" style={{ width }}>
-      <nav aria-label="Primary" className="pt-safe pl-safe relative flex h-full flex-col border-r border-line bg-surface pl-2 pr-3">
+      <nav aria-label="Primary" className="pt-safe pl-safe relative flex h-full flex-col border-r border-line bg-surface px-2">
         <div className="flex shrink-0 flex-col gap-1">
           <p className="px-3 py-3 text-lg font-bold">Kipple</p>
           {row(unread, <UnreadCount n={c?.unread ?? 0} noun="" />)}
@@ -117,7 +117,8 @@ function Sidebar() {
         <div className="flex shrink-0 flex-col gap-1 border-t border-line py-2">
           {stats ? row(st) : null}
           {row(settings)}
-        </div>        <ResizeHandle
+        </div>
+        <ResizeHandle
           label="Resize sidebar"
           value={width}
           min={SIDEBAR_WIDTH_MIN}
@@ -191,10 +192,11 @@ export function AppShell() {
     document.documentElement.toggleAttribute("data-short", short && !wide);
     return () => document.documentElement.removeAttribute("data-short");
   }, [short, wide]);
-  const { pathname, search, hash, state } = useLocation();
+  const { pathname, search, hash, state, key } = useLocation();
   useRecordTrail(pathname);
   useRememberFocusedRow();
   const navType = useNavigationType();
+  const stepKey = navType === "POP" ? key : "";
   const navigate = useNavigate();
   useServerEvents(true);
   useSyncHighlights();
@@ -227,8 +229,12 @@ export function AppShell() {
     const stepped = navType === "POP";
     if (section === "i") {
       // Beside the list the article does not take focus, and a step that dropped it needs it back.
-      if (stepped) requestAnimationFrame(() => focusIsLost(mainRef.current) && (restoreFocusedRow(mainRef.current) || mainRef.current?.querySelector<HTMLElement>("[data-route-heading]")?.focus({ preventScroll: true })));
-      return;
+      if (!stepped) return;
+      const frame = requestAnimationFrame(() => {
+        if (!focusIsLost(mainRef.current)) return;
+        if (!restoreFocusedRow(mainRef.current)) mainRef.current?.querySelector<HTMLElement>("[data-route-heading]")?.focus({ preventScroll: true });
+      });
+      return () => cancelAnimationFrame(frame);
     }
     if (stepped && restoreFocusedRow(mainRef.current)) return;
     const find = () => mainRef.current?.querySelector<HTMLElement>("[data-route-focus]") ?? mainRef.current?.querySelector<HTMLElement>("[data-route-heading]");
@@ -267,8 +273,9 @@ export function AppShell() {
     const timer = setTimeout(stop, 10_000);
     watch.observe(main, { childList: true, subtree: true });
     return stop;
+    // A step through history (stepKey) runs it again for the same screen with another query (feed 1 to feed 2, then Back).
     // eslint-disable-next-line react-hooks/exhaustive-deps -- read once, at the shell's first screen
-  }, [section, pathname]);
+  }, [section, pathname, stepKey]);
 
   const inArticle = pathname.startsWith("/i/");
   const showTabs = !wide && !inArticle;

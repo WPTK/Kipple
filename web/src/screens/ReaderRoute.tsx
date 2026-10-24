@@ -56,7 +56,7 @@ function useScopeTitle(scope: Scope): { title: string; above: string } {
   const tree = useFolderTree();
   if (scope.feed) return { title: boot.data?.feeds.find((f) => f.id === scope.feed)?.title ?? "Feed", above: "" };
   if (scope.folder) return { title: tree.byId.get(scope.folder)?.name ?? "Folder", above: tree.byId.has(scope.folder) ? parentPath(tree, scope.folder) : "" };
-  return { title: scope.view === "all" ? "All articles" : scope.view === "starred" ? "Starred" : scope.view === "muted" ? "Muted" : "Unread", above: "" };
+  return { title: DESTINATIONS[scope.view].label, above: "" };
 }
 
 /** Feeds (or folders, on a folder list) in sidebar order, and the neighbours of the current one. */

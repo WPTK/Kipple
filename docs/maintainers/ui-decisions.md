@@ -496,6 +496,7 @@ word for something listed.
   never swapped.
 - **This device** and **All devices** are the only scope words in Settings and in help text. "Everywhere", "locally"
   and "on the server" do not say where a setting applies.
+- **Stats**, not "Statistics", is the name of the screen and of its Settings group.
 - **Articles**, not "items" or "entries", in every sentence a reader sees. **Read** and **unread** are the states;
   "opened" is a statistic, not a state.
 - **Pause** is what a feed's off switch does ("Pause this feed"); a feed is never "disabled" or "muted".
@@ -504,10 +505,18 @@ word for something listed.
 
 ### The current destination
 
-Exactly one destination is current at a time, and the sidebar, the tab bar and the header pills agree because they
-read one function (`currentDestination(pathname, search)`): a list scoped to a feed or a folder belongs to Feeds,
-not to Unread; Feed health belongs to Feeds; Your year belongs to Stats. Other screens (an article, setup) have no
-current destination.
+At most one destination is current at a time. The sidebar and the tab bar read one function
+(`currentDestination(pathname, search)`): a list scoped to a feed or a folder belongs to Feeds, not to Unread; Feed
+health belongs to Feeds; Your year belongs to Stats. Other screens (an article, setup) have none. The sidebar shows no
+destination row as current on a feed's or a folder's list, because the tree below it marks the feed or folder itself,
+and none on an article. The tab bar marks Feeds there. The Show pills in a list header are not destinations: they read
+the list's own view (`scope.view`).
+
+### Resize handles
+
+A resize handle draws a thin line on the column's edge and has a 24 px hit area wholly outside the column, so it never
+covers the column's scrollbar, and what sits in the column stays at least 8 px clear of it. The sidebar's handle stays
+a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, and a splitter is focusable by its pattern.
 ## The Digest (#39, Phase C)
 
 - **What it is.** One page of sections, a section for each folder (or feed, a device setting), each with its name in the

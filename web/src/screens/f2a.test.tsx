@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WIDE_QUERY } from "@/lib/useMedia";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
@@ -238,7 +239,7 @@ describe("layouts", () => {
 
   it("Cards with nothing open fills the width; an open article keeps its list beside it", async () => {
     routes();
-    media("min-width: 820px");
+    media(WIDE_QUERY);
     updateDevicePrefs({ layout: "cards" });
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
@@ -250,7 +251,7 @@ describe("layouts", () => {
 
   it("switching layout with an article open keeps the article and the list (Cards included)", async () => {
     routes();
-    media("min-width: 820px");
+    media(WIDE_QUERY);
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
     await waitFor(() => expect(document.querySelector('[data-item-id="1002"]')).not.toBeNull());

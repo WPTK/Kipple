@@ -15,7 +15,6 @@ describe("currentDestination", () => {
     ["/search", "?q=x", "search"],
     ["/stats", "", "stats"],
     ["/stats/wrapped", "", "stats"],
-    ["/wrapped", "", "stats"],
     ["/settings/backup", "", "settings"],
     ["/i/12", "", null],
     ["/setup", "", null],

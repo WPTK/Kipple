@@ -8,10 +8,12 @@
 // On the desktop width of the run:
 //   A1  the sidebar marks exactly one destination: Unread on Unread, Feeds on Feed health, none on a feed's list;
 //   A2  the sidebar has no "Manage feeds", and All articles has an icon of its own;
-//   A3  "Resize sidebar" is at least 24 px wide and the sidebar's rows end at least 8 px before its edge;
+//   A3  "Resize sidebar" is at least 24 px wide, the sidebar's controls end at least 8 px before it, and "Resize article list"
+//       starts where the list ends (the list's scrollbar is not under it);
 //   A4  open an article from the list, press Back: focus is on the row left, not the body; Forward: not the body.
 // On the phone width of the run:
-//   B1  at 812x375 the unread badge follows the Articles name and is not on top of it.
+//   B1  at 812x375 the unread badge follows the Articles name and is not on top of it;
+//   B2  at 844x390 (a landscape phone) the tab bar shows and there is no sidebar.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 /* global document, NodeFilter -- used inside evaluate callbacks, which run in the browser */
@@ -53,10 +55,21 @@ await t.eachViewport(async (page, vp) => {
       const box = await handle.boundingBox();
       check(!!box && box.width >= 24, `${tag} A3 width`, `the handle is ${box?.width} px wide`, `the handle is ${box?.width} px wide, under 24`);
       const gap = await side.evaluate((nav) => {
-        const edge = nav.getBoundingClientRect().right;
-        return Math.min(...[...nav.querySelectorAll("a, button")].map((e) => edge - e.getBoundingClientRect().right));
+        const hit = nav.querySelector('[role="separator"]').getBoundingClientRect();
+        return Math.min(...[...nav.querySelectorAll("a, button")].map((e) => hit.left - e.getBoundingClientRect().right));
       });
-      check(gap >= 8, `${tag} A3 clear`, `controls end ${Math.round(gap)} px from the edge`, `a control ends ${Math.round(gap)} px from the edge`);
+      check(gap >= 8, `${tag} A3 clear`, `controls end ${Math.round(gap)} px before the handle`, `a control ends ${Math.round(gap)} px before the handle, under 8`);
+      // The list's own scrollbar (15 px where it is not an overlay) is not under the list's handle.
+      await page.locator("[data-item-id]").first().waitFor();
+      // A headless browser hides its scrollbars (the report says how wide this one is), so the check is the geometry that
+      // keeps any scrollbar clear: the handle starts at or after the right edge of the list's whole box.
+      const list = await page.evaluate(() => {
+        const col = document.querySelector('[data-testid="list-scroll"]');
+        const hit = document.querySelector('[role="separator"][aria-label="Resize article list"]');
+        if (!col || !hit) return null;
+        return { right: col.getBoundingClientRect().right, left: hit.getBoundingClientRect().left, bar: col.offsetWidth - col.clientWidth };
+      });
+      check(list !== null && list.left >= list.right - 0.5, `${tag} A3 scrollbar`, `the list handle starts at the list's edge (scrollbar ${list?.bar} px)`, `the list handle starts ${list ? Math.round(list.right - list.left) : "?"} px inside the list's edge`);
     });
     await step(`${tag} A4`, async () => {
       await open("/l/all");
@@ -91,8 +104,15 @@ await t.eachViewport(async (page, vp) => {
         range.selectNodeContents(label);
         return { badgeLeft: badge.getBoundingClientRect().left, labelRight: range.getBoundingClientRect().right };
       });
-      check(r === null || r.badgeLeft >= r.labelRight - 1, `${tag} B1`, "the badge follows the name", `the badge starts at ${r?.badgeLeft} inside the name that ends at ${r?.labelRight}`);
+      check(r !== null && r.badgeLeft >= r.labelRight - 1, `${tag} B1`, "the badge follows the name", `${r ? `the badge starts at ${r.badgeLeft} inside the name that ends at ${r.labelRight}` : "no badge or no name was found"}`);
       await t.shot(page, `${tag}-landscape-badge`);
+      // A landscape phone (844x390) stays on the phone layout: the tab bar, no sidebar.
+      await page.setViewportSize({ width: 844, height: 390 });
+      await open("/l/unread");
+      const bar = await page.locator('nav[aria-label="Primary"]').count();
+      const sidebar = await page.getByRole("separator", { name: "Resize sidebar" }).count();
+      check(bar === 1 && sidebar === 0, `${tag} B2`, "844x390 shows the tab bar and no sidebar", `${bar} Primary navs, ${sidebar} sidebar handles`);
+      await t.shot(page, `${tag}-landscape-844x390`);
     });
   }
 });

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WIDE_QUERY } from "@/lib/useMedia";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, type InfiniteData } from "@tanstack/react-query";
@@ -33,7 +34,7 @@ function go(path: string) {
 
 function wide() {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: query.includes("min-width: 820px"),
+    matches: query.includes(WIDE_QUERY),
     media: query,
     onchange: null,
     addEventListener() {},

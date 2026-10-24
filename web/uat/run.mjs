@@ -211,7 +211,7 @@ const SCREENS = [
   ...[
     ["appearance", "Appearance & Reading"],
     ["sync", "Sync & Feeds"],
-    ["statistics", "Statistics"],
+    ["statistics", "Stats"],
     ["filters", "Filters & Saved Searches"],
     ["account", "Account & Devices"],
     ["advanced", "Advanced"],

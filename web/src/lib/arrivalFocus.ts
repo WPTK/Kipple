@@ -1,38 +1,47 @@
 import { useEffect } from "react";
 
 /**
- * Where focus was in a history entry, so Back and Forward can give it back. The router keeps `{ usr, key, idx }` in
- * `history.state`; the row last focused is stored beside them (`kpRow`), in the entry the reader was on, and read when
- * that entry is arrived at again. A reload keeps it too, which a module variable would not.
+ * Where focus was in each history entry, so Back and Forward can give it back. The router stamps every entry with a
+ * `key` (in `history.state`); the list row last focused or pressed is remembered in memory against the key of the entry
+ * it happened in, and read when that entry is arrived at again. Nothing is written to the history, which a browser
+ * limits and a reload clears anyway (a reload starts at the page load, which has its own focus rule).
  */
-const KEY = "kpRow";
+const rows = new Map<string, string>();
+const LIMIT = 200;
 
-/** Records the list row that takes focus, in the current history entry. Mounted once by the app shell. */
+/** The key of the history entry being shown. */
+export function entryKey(): string {
+  return (window.history.state as { key?: string } | null)?.key ?? "default";
+}
+
+function remember(e: Event): void {
+  const id = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-item-id]")?.dataset.itemId : undefined;
+  if (!id) return;
+  const key = entryKey();
+  rows.delete(key);
+  rows.set(key, id);
+  if (rows.size > LIMIT) rows.delete(rows.keys().next().value as string);
+}
+
+/**
+ * Records the list row that takes focus or is pressed. Listening in the capture phase means the entry is still the one
+ * being left when a press starts a navigation. Mounted once by the app shell.
+ */
 export function useRememberFocusedRow(): void {
   useEffect(() => {
-    const remember = (e: Event) => {
-      const id = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-item-id]")?.dataset.itemId : undefined;
-      if (!id) return;
-      try {
-        window.history.replaceState({ ...(window.history.state as object | null), [KEY]: id }, "");
-      } catch {
-        /* a sandboxed frame may refuse; the heading takes focus instead */
-      }
-    };
-    // focusin covers the keyboard; a click covers a browser that does not focus a link when it is pressed.
-    document.addEventListener("focusin", remember);
-    document.addEventListener("click", remember);
+    document.addEventListener("focusin", remember, true);
+    document.addEventListener("pointerdown", remember, true);
     return () => {
-      document.removeEventListener("focusin", remember);
-      document.removeEventListener("click", remember);
+      document.removeEventListener("focusin", remember, true);
+      document.removeEventListener("pointerdown", remember, true);
     };
   }, []);
 }
 
 /** Gives focus back to the row the reader left this history entry on. False when there is none or it is not on the page. */
 export function restoreFocusedRow(within: HTMLElement | null): boolean {
-  const id = (window.history.state as Record<string, unknown> | null)?.[KEY];
-  if (typeof id !== "string") return false;
+  const id = rows.get(entryKey());
+  if (id === undefined) return false;
   const link = within?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a`);
   if (!link) return false;
   link.focus({ preventScroll: true });
@@ -43,4 +52,9 @@ export function restoreFocusedRow(within: HTMLElement | null): boolean {
 export function focusIsLost(main: HTMLElement | null): boolean {
   const at = document.activeElement;
   return at === null || at === document.body || at === main || !at.isConnected;
+}
+
+/** Forgets everything remembered (tests). */
+export function forgetFocusedRows(): void {
+  rows.clear();
 }

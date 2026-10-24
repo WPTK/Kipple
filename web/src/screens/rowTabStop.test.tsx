@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WIDE_QUERY } from "@/lib/useMedia";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
@@ -112,7 +113,7 @@ describe("the article list is one Tab stop", () => {
 
   it("goes back to the open article when the reader changes it, not to a row focused before", async () => {
     vi.stubGlobal("matchMedia", (query: string) => ({
-      matches: query.includes("min-width: 820px"),
+      matches: query.includes(WIDE_QUERY),
       media: query,
       onchange: null,
       addEventListener() {},

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WIDE_QUERY } from "@/lib/useMedia";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
@@ -33,7 +34,7 @@ function media(...on: string[]) {
     dispatchEvent: () => false,
   }));
 }
-const WIDE = "min-width: 820px";
+const WIDE = WIDE_QUERY;
 
 const feedBase = bootstrap.feeds[0] as Bootstrap["feeds"][number];
 const feed = (id: string, folder: string, title: string, unread = 1) => ({ ...feedBase, id, folder_id: folder, title, unread });

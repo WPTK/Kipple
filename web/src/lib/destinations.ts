@@ -60,7 +60,6 @@ export function currentDestination(pathname: string, search = ""): DestinationId
     case "search":
       return "search";
     case "stats":
-    case "wrapped":
       return "stats";
     case "settings":
       return "settings";
