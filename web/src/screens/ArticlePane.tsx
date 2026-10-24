@@ -481,7 +481,6 @@ interface ToolbarProps {
   onManageFeed: () => void;
 }
 
-const moreItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
 
 function Toolbar(p: ToolbarProps) {
   // With no article (the next one loading) More actions is switched off but keeps focus, and its menu does not open.
@@ -541,19 +540,19 @@ function Toolbar(p: ToolbarProps) {
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
-            <DropdownMenu.Item className={moreItem} onSelect={p.onRead}>
+            <DropdownMenu.Item onSelect={p.onRead}>
               {p.a?.read ? <Mail className="size-5" aria-hidden="true" /> : <MailOpen className="size-5" aria-hidden="true" />}
               {p.a?.read ? "Mark as unread" : "Mark as read"}
             </DropdownMenu.Item>
-            <DropdownMenu.Item className={moreItem} onSelect={p.onManageFeed}>
+            <DropdownMenu.Item onSelect={p.onManageFeed}>
               <Rss className="size-5" aria-hidden="true" />
               Manage this feed
             </DropdownMenu.Item>
-            <DropdownMenu.Item className={moreItem} onSelect={p.onOriginal}>
+            <DropdownMenu.Item onSelect={p.onOriginal}>
               <ExternalLink className="size-5" aria-hidden="true" />
               Open original
             </DropdownMenu.Item>
-            <DropdownMenu.Item className={moreItem} onSelect={p.onMuteSimilar}>
+            <DropdownMenu.Item onSelect={p.onMuteSimilar}>
               <BellOff className="size-5" aria-hidden="true" />
               Mute similar…
             </DropdownMenu.Item>

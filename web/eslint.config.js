@@ -6,7 +6,7 @@ import tseslint from "typescript-eslint";
 // [regex source, message] for a Tailwind arbitrary value written in a class string.
 const DESIGN_VALUES = [
   [String.raw`(^|[\s:!-])(bg|text|border|fill|stroke|ring|outline|shadow|from|via|to|decoration|accent|caret|divide)-(\[(#|rgb|hsl|oklch|color:)|black\b|white\b)`, "Use a scheme token (bg-bg, text-fg, border-field, bg-scrim ...), not a literal colour. New tokens go in src/theme/schemes.json."],
-  [String.raw`(^|[\s:!-])shadow-\[[^\]]*(#[0-9a-fA-F]{3}|(rgba?|hsla?|oklch|oklab)\()`, "Use a scheme shadow (shadow-sheet, shadow-toast, shadow-bar in src/index.css) or var(--kp-shadow), not a literal colour inside a shadow."],
+  [String.raw`(^|[\s:!-])(shadow-\[|\[box-shadow:)[^\]\s]*?(#[0-9a-fA-F]{3}|(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color-mix|color)\(|(?<![-a-zA-Z0-9])(black|white|red|green|blue|gray|grey|yellow|orange|purple|pink|silver|gold|navy|teal|maroon|olive|lime|aqua|cyan|magenta|brown)(?![-a-zA-Z0-9]))`, "Use a scheme shadow (shadow-sheet, shadow-toast, shadow-bar in src/index.css) or var(--kp-shadow), not a literal colour inside a shadow."],
   [String.raw`(^|[\s:!-])text-\[[0-9.]+(px|rem|em)\]`, "Use the type scale (text-xs, text-sm ... text-micro in src/index.css), which follows the text size setting."],
   [String.raw`(^|[\s:!-])-?(p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap|gap-x|gap-y|space-x|space-y|inset|top|right|bottom|left)-\[[0-9.]+(px|rem)\]`, "Use a step of the spacing scale (p-3, gap-2.5 ...), not an arbitrary length."],
   [String.raw`(^|[\s:!-])(min|max)-\[(?!(380|420|520|560|640)px\]|20rem\])[0-9.]+(px|rem)\]:`, "Use an existing breakpoint (380, 420, 520, 560 or 640 px, 20rem); the three-pane widths come from the pane minimums."],

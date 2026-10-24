@@ -190,7 +190,7 @@ export function PasswordField({
   const [shown, setShown] = useState(false);
   // Named after its field when the label ends in "password" ("Show new password"), so two fields in one dialog have two
   // different Show buttons.
-  const what = /password$/i.test(label) ? label.replace(/^./, (c) => c.toLowerCase()) : "password";
+  const what = /password$/i.test(label) ? label.replace(/^[A-Z](?![A-Z])/, (c) => c.toLowerCase()) : "password";
   return (
     <Field label={label} help={help} error={error}>
       {(a) => (

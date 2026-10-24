@@ -14,7 +14,7 @@ const shell = "z-60 rounded-xl border border-line bg-bg p-1 text-fg shadow-sheet
 const sheet =
   "menu-sheet mx-auto max-h-[70dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-b-none rounded-t-2xl border-x-0 border-b-0 pt-2 pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))]";
 
-/** The row of a menu item (a command, a choice): 44 px tall, with the highlight the keyboard and pointer move. */
+/** The row of a menu item (a command, a choice): 44 px tall, with the highlight the keyboard and pointer move. Every item below wears it. */
 export const menuItemClass = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-selection";
 
 /** Closes the menu of the Root around it. */
@@ -99,11 +99,12 @@ function SheetContent({ popoverWidth: _width, onClickCapture, onPointerDownOutsi
         data-menu-sheet=""
         // A non-modal menu closes when focus leaves it, and a long press opens a row menu with no focus anywhere: the
         // mouse events a browser sends after the lift (mousedown on the story's link) move focus to the page under the
-        // sheet and closed the menu the moment the finger came up. The sheet is closed by its dimmed page, Escape and a
-        // choice, and Tab cannot leave it, so focus moving elsewhere is never a reason to close it.
+        // sheet and closed the menu the moment the finger came up. That holds only while the opening press is down or
+        // just lifted; after it, focus leaving the sheet (a screen reader moving on to the page) closes it like any
+        // other non-modal menu, so the sheet and its dimmed page never stay over a page the user has moved to.
         onFocusOutside={(e) => {
           onFocusOutside?.(e);
-          e.preventDefault();
+          if (isOpeningPress(opener)) e.preventDefault();
         }}
         onPointerDownOutside={(e) => {
           onPointerDownOutside?.(e);
@@ -133,6 +134,14 @@ function Portal(props: ComponentProps<typeof Radix.Portal>) {
   return <Radix.Portal container={useMain()} {...props} />;
 }
 
+/** The one menu row: a command and a radio choice share the look; `className` adds to it (an indent for the indicator). */
+function Item({ className, ...rest }: ComponentProps<typeof Radix.Item>) {
+  return <Radix.Item {...rest} className={cn(menuItemClass, className)} />;
+}
+function RadioItem({ className, ...rest }: ComponentProps<typeof Radix.RadioItem>) {
+  return <Radix.RadioItem {...rest} className={cn(menuItemClass, className)} />;
+}
+
 /**
  * The menu parts. Nested menus (Sub) are left out on purpose: neither the popover nor the bottom sheet is built for one,
  * and ESLint keeps every other module from importing Radix's DropdownMenu directly.
@@ -142,10 +151,10 @@ export const DropdownMenu = {
   Trigger: Radix.Trigger,
   Portal,
   Content: MenuContent,
-  Item: Radix.Item,
+  Item,
   CheckboxItem: Radix.CheckboxItem,
   RadioGroup: Radix.RadioGroup,
-  RadioItem: Radix.RadioItem,
+  RadioItem,
   ItemIndicator: Radix.ItemIndicator,
   Label: Radix.Label,
   Separator: Radix.Separator,
@@ -202,6 +211,12 @@ if (typeof window !== "undefined") {
       true,
     );
   }
+}
+
+/** The press that opened the sheet is still down, or lifted less than LEFTOVER_MS ago (never for a key press). */
+function isOpeningPress(opener: { id: number }): boolean {
+  const p = presses.get(opener.id);
+  return !!p && (p.up < 0 || performance.now() - p.up <= LEFTOVER_MS);
 }
 
 function isLeftoverClick(e: MouseEvent<HTMLElement>, opener: { at: number; id: number }): boolean {

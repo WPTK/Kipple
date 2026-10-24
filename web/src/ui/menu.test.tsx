@@ -110,6 +110,21 @@ describe("MenuContent", () => {
     expect(screen.queryByRole("menu")).not.toBeNull();
   });
 
+  it("closes when focus leaves it after the opening press is over (a screen reader moving to the page)", async () => {
+    touch(true);
+    render(
+      <>
+        <button type="button">Under</button>
+        <Demo />
+      </>,
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: "List options" }));
+    await screen.findByRole("menu");
+    await new Promise((r) => setTimeout(r, 450));
+    act(() => screen.getByRole("button", { name: "Under" }).focus());
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  });
+
   it("is a popover with a mouse: sized by the caller, scrolling, no dimmed page", async () => {
     touch(false);
     const user = userEvent.setup();

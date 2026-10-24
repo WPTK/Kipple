@@ -8,6 +8,7 @@ import { useSettings, type SettingGroup, type SettingMeta } from "@/api/admin";
 import { AUTO_READ_PRESETS, autoReadLabel } from "@/api/autoRead";
 import { errorMessage } from "@/api/client";
 import { cn } from "@/lib/cn";
+import { everyLabel } from "@/lib/interval";
 import {
   ARTICLE_WIDTHS,
   ARTICLE_WIDTH_LABELS,
@@ -102,8 +103,10 @@ function Section({ title, scope, children }: { title: string; scope?: Scope; chi
   );
 }
 
-/** Number settings that get a row of presets ("Custom" opens the stepper). Everything else is drawn from the metadata alone. */
+/** Every number setting is a row of presets, and "Custom" opens the stepper for a value that is not one of them. */
 export const PRESETS: Record<string, readonly { value: number; label: string }[]> = {
+  "refresh.interval_minutes": [15, 30, 60, 120, 360, 720, 1440].map((value) => ({ value, label: everyLabel(value) })),
+  "retention.restore_days": [0, 7, 30, 90, 180].map((value) => ({ value, label: value === 0 ? "Off" : `${value} days` })),
   "library.auto_read_days": AUTO_READ_PRESETS.map((value) => ({ value, label: autoReadLabel(value) })),
   "imgproxy.cache_mb": [
     { value: 256, label: "256 MB" },

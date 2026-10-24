@@ -106,7 +106,7 @@ describe("Settings on a narrow screen", () => {
     const h1 = await screen.findByRole("heading", { level: 1, name: "Sync & Feeds" });
     await waitFor(() => expect(h1).toHaveFocus()); // arrival focus, as on every screen
     expect(screen.getByRole("heading", { level: 2, name: "Checking feeds" })).toBeInTheDocument();
-    expect(await screen.findByRole("spinbutton", { name: "How often to check feeds" })).toHaveValue(30);
+    expect(await screen.findByRole("radio", { name: "Every 30 minutes" })).toBeChecked();
     // Only this group: the list and the other groups' settings are gone.
     expect(screen.queryByRole("navigation", { name: "Settings sections" })).toBeNull();
     expect(screen.queryByRole("switch", { name: /Remove tracking from links/ })).toBeNull();
@@ -167,11 +167,11 @@ describe("Settings on a narrow screen", () => {
     window.history.replaceState({ idx: 0 }, "", "/settings/sync");
     const qc = makeQueryClient({ retry: false });
     render(<App client={qc} />);
-    expect(await screen.findByRole("spinbutton", { name: "How often to check feeds" })).toHaveValue(30);
+    expect(await screen.findByRole("radio", { name: "Every 30 minutes" })).toBeChecked();
     fail = true;
     await act(() => qc.invalidateQueries({ queryKey: settingsKey }));
     expect(await screen.findByText(/Couldn't load your settings/)).toBeInTheDocument();
-    expect(screen.getByRole("spinbutton", { name: "How often to check feeds" })).toHaveValue(30);
+    expect(screen.getByRole("radio", { name: "Every 30 minutes" })).toBeChecked();
   });
 
   it("says so when a group's server settings are all empty instead of showing a blank page", async () => {
