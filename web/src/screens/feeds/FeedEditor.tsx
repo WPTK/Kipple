@@ -11,11 +11,11 @@ import { AutoReadCatchUp } from "../AutoReadCatchUp";
 import { ListOverrideFields, useListOverrideDraft } from "./ListOverrideFields";
 import { Checkbox, Disclosure, Field, Modal, Notice, PasswordField, Skeleton, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
+import { StarredChoice, deleteCopy } from "./BulkActions";
 import { announce, toast } from "@/shell/toasts";
 import { everyLabel } from "@/lib/interval";
 import { FeedReason } from "../FeedRepair";
 import { failureReason } from "@/lib/feedStatus";
-import { deleteCopy } from "./BulkActions";
 
 const INTERVALS = [15, 30, 60, 120, 360, 720, 1440, 10080];
 const RETENTIONS = [50, 100, 250, 500, 1000, 0];
@@ -154,7 +154,7 @@ export function FeedEditor({ feed, onClose, focusAddress }: { feed: Feed; onClos
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [alsoStarred, setAlsoStarred] = useState(false);
   const articles = useDeleteArticleCount([feed.id], confirmDelete) ?? null;
-  const copy = deleteCopy(1, feed.starred_count, articles, alsoStarred);
+  const copy = deleteCopy(1, feed.starred_count, alsoStarred, articles);
   const f: Form | null = q.data ? { ...fromDetail(q.data), ...edits } : null;
 
   const patch = useMemo(() => (q.data ? diffForm(q.data, { ...fromDetail(q.data), ...edits }) : {}), [q.data, edits]);
@@ -240,12 +240,7 @@ export function FeedEditor({ feed, onClose, focusAddress }: { feed: Feed; onClos
         }
       >
         {feed.starred_count > 0 ? (
-          <>
-            <Notice tone="warn">
-              This feed has {feed.starred_count} starred article{feed.starred_count === 1 ? "" : "s"}. By default they are kept in the Archive.
-            </Notice>
-            <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={setAlsoStarred} help="Removes them from the Archive too." />
-          </>
+          <StarredChoice count={1} starred={feed.starred_count} alsoStarred={alsoStarred} onAlsoStarred={setAlsoStarred} />
         ) : (
           <p className="text-sm text-fg2">{copy.noStarred}</p>
         )}

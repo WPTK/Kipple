@@ -259,6 +259,7 @@ describe("Search: marking results read", () => {
     await user.type(box, "{Enter}");
     await waitFor(() => expect(screen.getByRole("button", { name: "Mark all results as read" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Mark all results as read" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Mark all results as read" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read")).toBe(true));
     const post = calls.find((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read");
     const sent = JSON.parse(String(post?.init?.body));
@@ -276,7 +277,9 @@ describe("Search: marking results read", () => {
     });
     go("/search?q=cat");
     await screen.findByText("Cats");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Mark all results as read" }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Mark all results as read" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Mark all results as read" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
     const sent = JSON.parse(String(calls.find((c) => c.method === "POST")?.init?.body));
     expect(sent.scope.fallback).toBe(false);

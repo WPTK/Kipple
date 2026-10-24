@@ -14,25 +14,55 @@ export function deleteSummary(feeds: readonly Feed[]): { count: number; starred:
   return { count: feeds.length, starred: feeds.reduce((n, f) => n + (f.starred_count ?? 0), 0) };
 }
 
-const articlesOf = (n: number) => `${n} article${n === 1 ? "" : "s"}`;
+export const articlesOf = (n: number) => `${n} article${n === 1 ? "" : "s"}`;
 
 /**
- * The delete dialogs' wording, right for one feed and for several: the one place the singular and plural forms live.
- * `articles` is how many the feeds hold in all (null while counting, or if it could not be counted); starred ones stay in
- * the Archive unless `alsoStarred`. The button names the outcome: "Delete feed and 312 articles".
+ * The delete dialogs' wording, right for one feed and for several, and right for the "Delete starred articles too"
+ * box: the one place the singular, plural and checked forms live (the Feeds screen, the folder dialog and the feed
+ * editor all read it). `articles` is how many articles the feeds hold in all, from the server's count (null while
+ * counting, or if it could not be counted); the starred ones stay in the Archive unless `alsoStarred`. The button
+ * names the outcome: "Delete feed and 312 articles".
  */
-export function deleteCopy(count: number, starred: number, articles: number | null = null, alsoStarred = false) {
+export function deleteCopy(count: number, starred: number, alsoStarred = false, articles: number | null = null) {
   const one = count === 1;
-  const feeds = one ? "feed" : "feeds";
+  const keptNote = starred > 0 ? (alsoStarred ? ", starred ones too" : ", apart from starred ones kept in the Archive") : "";
   const removed = articles === null ? null : Math.max(0, articles - (alsoStarred ? 0 : starred));
   return {
-    feeds,
-    consequence: `${removed === null ? `Removes ${one ? "its" : "their"} articles` : removed === 0 ? "Removes no articles" : `Removes ${articlesOf(removed)}`}. This can't be undone.`,
-    button: `Delete ${one ? "feed" : `${count} feeds`}${removed ? ` and ${articlesOf(removed)}` : ""}`,
+    feeds: one ? "feed" : "feeds",
+    consequence: `${removed === null ? `Removes ${one ? "its" : "their"} articles${keptNote}` : removed === 0 ? "Removes no articles" : `Removes ${articlesOf(removed)}`}. This can't be undone.`,
+    /** What the folder dialog's warning says follows the feeds. */
     removed,
-    starredWarning: `${one ? "This feed holds" : "These feeds hold"} ${starred} starred article${starred === 1 ? "" : "s"}${one ? "" : " in total"}. By default ${starred === 1 ? "it is" : "they are"} kept in the Archive.`,
+    button: `Delete ${one ? "feed" : `${count} feeds`}${removed ? ` and ${articlesOf(removed)}` : ""}`,
+    starredWarning: `${one ? "This feed holds" : "These feeds hold"} ${starred} starred article${starred === 1 ? "" : "s"}${one ? "" : " in total"}. ${
+      alsoStarred ? `${starred === 1 ? "It is" : "They are"} deleted too.` : `By default ${starred === 1 ? "it is" : "they are"} kept in the Archive.`
+    }`,
+    /** The line under the box beside the warning. */
+    starredHelp: "Removes them from the Archive too.",
     noStarred: one ? "This feed has no starred articles." : "None of these feeds has starred articles.",
   };
+}
+
+/** The starred notice and the box that decides their fate, shared by every delete dialog. */
+export function StarredChoice({
+  count,
+  starred,
+  alsoStarred,
+  onAlsoStarred,
+  disabled,
+}: {
+  count: number;
+  starred: number;
+  alsoStarred: boolean;
+  onAlsoStarred: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  const copy = deleteCopy(count, starred, alsoStarred);
+  return (
+    <>
+      <Notice tone="warn">{copy.starredWarning}</Notice>
+      <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={onAlsoStarred} disabled={disabled} help={copy.starredHelp} />
+    </>
+  );
 }
 
 /** Move the selected feeds to the end of another folder: one atomic POST /api/reorder. */
@@ -230,12 +260,7 @@ function FeedsToDelete({
   return (
     <>
       {starred > 0 ? (
-        <>
-          <Notice tone="warn">
-            {copy.starredWarning}
-          </Notice>
-          <Checkbox label="Delete starred articles too" checked={alsoStarred} onChange={onAlsoStarred} disabled={disabled} help="Removes them from the Archive too." />
-        </>
+        <StarredChoice count={feeds.length} starred={starred} alsoStarred={alsoStarred} onAlsoStarred={onAlsoStarred} disabled={disabled} />
       ) : noneNote ? (
         <p className="text-sm text-fg2">{copy.noStarred}</p>
       ) : null}
@@ -283,7 +308,7 @@ export function DeleteDialog({
   const { count, starred } = deleteSummary(feeds);
   const articles = useDeleteArticleCount(feeds.map((f) => f.id)) ?? null;
   const [alsoStarred, setAlsoStarred] = useState(false);
-  const copy = deleteCopy(count, starred, articles, alsoStarred);
+  const copy = deleteCopy(count, starred, alsoStarred, articles);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -365,7 +390,7 @@ export function DeleteFolderDialog({
   const [mode, setMode] = useState<"keep" | "all">("keep");
   const [alsoStarred, setAlsoStarred] = useState(false);
   const articles = useDeleteArticleCount(feeds.map((f) => f.id), mode === "all") ?? null;
-  const removed = deleteCopy(count, starred, articles, alsoStarred).removed;
+  const removed = deleteCopy(count, starred, alsoStarred, articles).removed;
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);

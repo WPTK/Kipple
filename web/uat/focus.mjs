@@ -123,14 +123,15 @@ await t.eachViewport(async (page, vp) => {
       await first.locator("a").first().click();
       await page.waitForURL(/\/i\/\d+/, { timeout: 10000 });
       // Down arrow moves focus to the next row without opening it: the open article stays in the list, the row the
-      // list remembers as focused leaves with Mark all as read.
+      // list remembers as focused leaves with Mark all as read (confirmed in its dialog).
       await page.keyboard.press("ArrowDown");
       await page.waitForTimeout(300);
       const body = page.locator("article[aria-labelledby='article-title']").first();
       await body.waitFor({ timeout: 10000 });
       await body.click({ position: { x: 40, y: 120 } });
       await page.getByRole("button", { name: "List actions" }).click();
-      await page.getByRole("menuitem", { name: /Mark all as read/ }).click();
+      await page.getByRole("menuitem", { name: /^Mark (all|everything)/ }).click();
+      await page.getByRole("dialog").getByRole("button", { name: /^Mark (all|everything)/ }).click();
       const gone = await page.waitForFunction(() => document.querySelectorAll("[data-item-id]").length === 0 || ![...document.querySelectorAll(".kp-unread-dot")].some((d) => d.dataset.unread === "true"), undefined, { timeout: 8000 }).then(() => true, () => false);
       await page.waitForTimeout(800);
       // Focus on the page itself (a click on the article, as after a toast or a menu that went away): the rows that

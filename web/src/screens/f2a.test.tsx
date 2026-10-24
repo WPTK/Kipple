@@ -286,7 +286,8 @@ async function markRowRead(user: ReturnType<typeof userEvent.setup>, n: number) 
 
 async function markAllFromMenu(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "List actions" }));
-  await user.click(await screen.findByRole("menuitem", { name: /Mark all as read/ }));
+  await user.click(await screen.findByRole("menuitem", { name: /^Mark (all \d+|everything unread) as read$/ }));
+  await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /^Mark (all \d+|everything unread) as read$/ }));
 }
 
 describe("undo toast", () => {
