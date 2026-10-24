@@ -14,9 +14,7 @@ import { welcomePath } from "./steps";
  */
 async function setPending(qc: QueryClient, pending: boolean): Promise<void> {
   await qc.cancelQueries({ queryKey: keys.bootstrap });
-  qc.setQueryData<BootstrapAnswer>(keys.bootstrap, (old) =>
-    old ? { ...old, user: { ...old.user, setup_pending: pending } } : old,
-  );
+  qc.setQueryData<BootstrapAnswer>(keys.bootstrap, (old) => (old ? { ...old, user: { ...old.user, setup_pending: pending } } : old));
   void qc.invalidateQueries({ queryKey: keys.me });
 }
 
@@ -30,16 +28,10 @@ export async function adoptBrowserZone(): Promise<void> {
   try {
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (!zone) return;
-    const { settings } = await api<SettingsResponse>("/api/settings", {
-      quiet: true,
-    });
+    const { settings } = await api<SettingsResponse>("/api/settings", { quiet: true });
     const meta = settings.find((s) => s.key === "tz");
     if (!meta || meta.value !== meta.default || meta.value === zone) return;
-    await api("/api/settings", {
-      method: "PATCH",
-      body: { tz: zone },
-      quiet: true,
-    });
+    await api("/api/settings", { method: "PATCH", body: { tz: zone }, quiet: true });
   } catch {
     /* the zone stays as it was; it is in Settings */
   }
