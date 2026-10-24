@@ -48,7 +48,6 @@ func TestEmbeddedListIsThePinnedSet(t *testing.T) {
 			require.Equal(t, "https", u.Scheme, fd.ID)
 			require.NotEmpty(t, u.Hostname(), fd.ID)
 			require.NoError(t, CheckPublicHTTPS(fd.Site), fd.ID)
-			require.True(t, fd.Checked, "%s: every starter feed is ticked by default", fd.ID)
 			require.NotContains(t, fd.URL, "example.", fd.ID)
 		}
 	}
@@ -61,7 +60,7 @@ func doc(feeds ...string) string {
 }
 
 func feed(id, u string) string {
-	return fmt.Sprintf(`{"id":%q,"title":"T","url":%q,"checked":false}`, id, u)
+	return fmt.Sprintf(`{"id":%q,"title":"T","url":%q}`, id, u)
 }
 
 func TestParseRejects(t *testing.T) {
@@ -70,7 +69,7 @@ func TestParseRejects(t *testing.T) {
 	require.NoError(t, err)
 	for name, in := range map[string]string{
 		"unknown field":     `{"version":1,"categories":[],"extra":1}`,
-		"feed unknown":      doc(`{"id":"a","title":"T","url":"https://a.example.com/f","checked":false,"weight":3}`),
+		"feed unknown":      doc(`{"id":"a","title":"T","url":"https://a.example.com/f","weight":3}`),
 		"version":           `{"version":2,"categories":[{"id":"c","title":"C","feeds":[]}]}`,
 		"no categories":     `{"version":1,"categories":[]}`,
 		"trailing":          doc(good) + `{}`,
@@ -92,11 +91,11 @@ func TestParseRejects(t *testing.T) {
 		"duplicate id":      doc(good, feed("a", "https://other.example.com/feed.xml")),
 		"duplicate url key": doc(good, feed("b", "https://news.example.com/feed.xml")),
 		"same url http key": doc(good, feed("b", "https://news.example.com:443/feed.xml")),
-		"empty title":       doc(`{"id":"a","title":"","url":"https://a.example.com/f","checked":false}`),
-		"control title":     doc(`{"id":"a","title":"a\u0007b","url":"https://a.example.com/f","checked":false}`),
-		"long description":  doc(fmt.Sprintf(`{"id":"a","title":"T","url":"https://a.example.com/f","description":%q,"checked":false}`, strings.Repeat("x", 201))),
-		"bad lang":          doc(`{"id":"a","title":"T","url":"https://a.example.com/f","checked":false,"lang":"english!"}`),
-		"bad site":          doc(`{"id":"a","title":"T","url":"https://a.example.com/f","site":"http://a.example.com/","checked":false}`),
+		"empty title":       doc(`{"id":"a","title":"","url":"https://a.example.com/f"}`),
+		"control title":     doc(`{"id":"a","title":"a\u0007b","url":"https://a.example.com/f"}`),
+		"long description":  doc(fmt.Sprintf(`{"id":"a","title":"T","url":"https://a.example.com/f","description":%q}`, strings.Repeat("x", 201))),
+		"bad lang":          doc(`{"id":"a","title":"T","url":"https://a.example.com/f","lang":"english!"}`),
+		"bad site":          doc(`{"id":"a","title":"T","url":"https://a.example.com/f","site":"http://a.example.com/"}`),
 		"dup category":      `{"version":1,"categories":[{"id":"c","title":"C","feeds":[]},{"id":"c","title":"D","feeds":[]}]}`,
 		"long category":     `{"version":1,"categories":[{"id":"c","title":"` + strings.Repeat("x", 51) + `","feeds":[]}]}`,
 	} {

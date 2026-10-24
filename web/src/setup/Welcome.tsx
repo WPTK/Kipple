@@ -1,28 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router";
+import { Navigate, useParams } from "react-router";
 import { useBootstrap } from "@/api/queries";
 import { announce, LiveRegion, toast, Toasts } from "@/shell/toasts";
 import { failed } from "@/api/client";
 import { useSetupActions } from "./actions";
 import { useStore } from "@/lib/store";
-import { forgetWizardMemory, rerunStore, revertUnsavedTheme } from "./session";
-import { AddressStep } from "./AddressStep";
+import { endRerun, rerunStore } from "./session";
 import { FeedsStep } from "./FeedsStep";
-import { FinishStep } from "./FinishStep";
-import { ImportStep } from "./ImportStep";
-import { nextWelcome, prevWelcome, welcomeGuard, welcomePath, type StepId } from "./steps";
-import { ThemeStep } from "./ThemeStep";
-import { TimeZoneStep } from "./TimeZoneStep";
+import { welcomeGuard } from "./steps";
 
 /**
- * /welcome/<step>: steps 2 to 7 of the wizard for a signed-in account whose setup is pending, or that opened the steps again. Each step writes through
- * the ordinary endpoints as it goes, and the step is in the address, so a reload or the Back button lands where you were.
- * "Skip the rest of setup" and "Finish" both end it (POST /api/onboarding/complete) and open the reader.
+ * /welcome/feeds: step 2 of the wizard, for a signed-in account whose setup is pending or that opened the step again.
+ * Adding feeds writes through the ordinary endpoint; "Continue" then ends setup (POST /api/onboarding/complete) and
+ * opens the reader.
  */
 export function Welcome() {
   const params = useParams();
   const segment = params["*"] || undefined;
-  const navigate = useNavigate();
   const boot = useBootstrap();
   const actions = useSetupActions();
   const [ending, setEnding] = useState(false);
@@ -30,24 +24,16 @@ export function Welcome() {
 
   const rerun = useStore(rerunStore);
   const over = boot.data !== undefined && boot.data.user.setup_pending !== true && !rerun;
-  // Setup ended somewhere else (another tab or device, or Skip here): drop what this page kept for it, the password
-  // typed in step 1 above all, and put a previewed theme back.
+  // Setup ended somewhere else (another tab or device): drop the rerun mark this page may hold.
   useEffect(() => {
-    if (over) {
-      revertUnsavedTheme();
-      forgetWizardMemory();
-    }
+    if (over) endRerun();
   }, [over]);
 
   // Nothing pending (finished already, or a bookmark): the reader.
   if (over) return <Navigate to="/l/unread" replace state={{ arrival: true }} />;
   const redirect = welcomeGuard(segment);
   if (redirect) return <Navigate to={redirect} replace />;
-  const id = segment as StepId;
 
-  const go = (to: StepId | null) => navigate(to ? welcomePath(to) : "/l/unread");
-  const next = () => go(nextWelcome(id)?.id ?? null);
-  const back = () => go(prevWelcome(id)?.id ?? null);
   const end = async () => {
     if (endingNow.current) return;
     endingNow.current = true;
@@ -62,15 +48,9 @@ export function Welcome() {
     }
   };
 
-  const common = { onSkipAll: () => void end(), skipAllBusy: ending };
   return (
     <>
-      {id === "timezone" ? <TimeZoneStep onNext={next} {...common} /> : null}
-      {id === "theme" ? <ThemeStep onBack={back} onNext={next} {...common} /> : null}
-      {id === "import" ? <ImportStep onBack={back} onNext={next} {...common} /> : null}
-      {id === "feeds" ? <FeedsStep onBack={back} onNext={next} {...common} /> : null}
-      {id === "address" ? <AddressStep onBack={back} onNext={next} {...common} /> : null}
-      {id === "finish" ? <FinishStep onBack={back} onFinish={() => void end()} busy={ending} /> : null}
+      <FeedsStep onDone={() => void end()} finishing={ending} />
       <LiveRegion />
       <Toasts inset="none" />
     </>

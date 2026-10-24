@@ -290,7 +290,7 @@ export function OpmlResultSummary({ result, inWizard = false }: { result: OpmlRe
 }
 
 /** Import an OPML file: file picker, the mark-older-as-read option, then the result summary. */
-export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
+export function OpmlImportDialog({ onClose, inWizard = false }: { onClose: () => void; inWizard?: boolean }) {
   const qc = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -322,7 +322,7 @@ export function OpmlImportDialog({ onClose }: { onClose: () => void }) {
   if (result) {
     return (
       <Modal open onOpenChange={(o) => !o && onClose()} title="Import finished" footer={<Button variant="solid" onClick={onClose}>Done</Button>}>
-        <OpmlResultSummary result={result} />
+        <OpmlResultSummary result={result} inWizard={inWizard} />
       </Modal>
     );
   }

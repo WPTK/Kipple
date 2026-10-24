@@ -244,24 +244,16 @@ func (h *restoreHarness) Restore() *backup.Restorer { return h.srv.restore }
 func TestRestoreUploadKindsAndErrors(t *testing.T) {
 	t.Parallel()
 	h := newRestoreHarness(t)
+	// A feeds file is not a backup: it is imported from the feeds step.
 	out := h.upload([]byte(`<opml version="2.0"><body><outline text="A" xmlUrl="http://a.test/rss"/></body></opml>`))
-	require.Equal(t, map[string]any{"status": float64(200), "kind": "opml", "feeds": float64(1)}, out)
-	require.Equal(t, "none", h.restoreState(), "an OPML file is not kept")
+	require.EqualValues(t, http.StatusBadRequest, out["status"])
+	require.Equal(t, "not_a_backup", out["error"])
+	require.Equal(t, "none", h.restoreState())
 
 	out = h.upload([]byte("just some text"))
 	require.EqualValues(t, http.StatusBadRequest, out["status"])
 	require.Equal(t, "not_a_backup", out["error"])
-	require.Equal(t, "This is not a Kipple backup zip or an OPML file.", out["message"])
-
-	// An OPML file the import would refuse is a 400 with the import's own code, not a 500 (issue #518).
-	out = h.upload([]byte(`<opml><body><outline text="Empty"/></body></opml>`))
-	require.EqualValues(t, http.StatusBadRequest, out["status"])
-	require.Equal(t, "empty_opml", out["error"])
-	require.Contains(t, out["message"], "no feeds in it")
-	out = h.upload([]byte(`<opml><body><outline text="&x;"><outline xmlUrl="http://a.test/rss"/></outline></body></opml>`))
-	require.EqualValues(t, http.StatusBadRequest, out["status"])
-	require.Equal(t, "opml_entity", out["error"])
-	require.Contains(t, out["message"], "&x; on line 1")
+	require.Equal(t, backup.ErrNotBackup.Msg, out["message"])
 
 	rec := h.req("POST", "/api/setup/restore/upload", "abc", func(r *http.Request) { r.ContentLength = -1 })
 	require.Equal(t, http.StatusLengthRequired, rec.Code)
@@ -317,23 +309,6 @@ func TestRestoreUploadKindsAndErrors(t *testing.T) {
 	require.Equal(t, "close", rec.Header().Get("Connection"))
 }
 
-func TestRestoreFeedsOnly(t *testing.T) {
-	t.Parallel()
-	h := newRestoreHarness(t)
-	rec := h.req("GET", "/api/setup/restore/feeds", "")
-	require.Equal(t, http.StatusNotFound, rec.Code)
-	require.Equal(t, "no_upload", decode(t, rec)["error"])
-
-	require.EqualValues(t, http.StatusOK, h.upload(backupZip(t, "h", store.AuthStandard))["status"], "uploaded and checked")
-	rec = h.req("GET", "/api/setup/restore/feeds", "")
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "text/x-opml; charset=utf-8", rec.Header().Get("Content-Type"))
-	require.Contains(t, rec.Body.String(), "http://a.test/rss")
-	require.Equal(t, "none", h.restoreState(), "the upload is discarded")
-	require.NoFileExists(t, filepath.Join(h.dir, backup.StagedFile))
-	require.Equal(t, http.StatusNotFound, h.req("GET", "/api/setup/restore/feeds", "").Code)
-}
-
 // The account form and a restore exclude each other: a claim after an upload
 // wins and drops the upload; afterwards every restore route is gone.
 func TestRestoreLosesToAnAccountClaim(t *testing.T) {
@@ -348,7 +323,7 @@ func TestRestoreLosesToAnAccountClaim(t *testing.T) {
 
 	for _, r := range []struct{ method, path string }{
 		{"POST", "/api/setup/restore/upload"}, {"POST", "/api/setup/restore/confirm"},
-		{"GET", "/api/setup/restore/feeds"}, {"DELETE", "/api/setup/restore"},
+		{"DELETE", "/api/setup/restore"},
 	} {
 		require.Equal(t, http.StatusNotFound, h.req(r.method, r.path, "").Code, r.path)
 	}
@@ -444,7 +419,6 @@ func TestRestoreBelongsToTheUploadingBrowser(t *testing.T) {
 		require.Equal(t, "none", decode(t, h.req("GET", "/api/instance", "", mod))["restore"])
 		require.Equal(t, map[string]any{"state": "none", "summary": nil, "error": nil, "estimate_seconds": float64(0), "refusal": nil}, h.status(mod))
 		refused("restore_replaced", h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod))
-		refused("restore_replaced", h.req("GET", "/api/setup/restore/feeds", "", mod))
 		refused("restore_elsewhere", h.req("DELETE", "/api/setup/restore", "", mod))
 	}
 	require.Zero(t, h.restarts.Load())
@@ -507,7 +481,6 @@ func TestACookieGrantsNothing(t *testing.T) {
 		rec = h.req("POST", "/api/setup/restore/confirm", `{"new_password":"`+setupPass+`"}`, mod...)
 		require.Equal(t, http.StatusConflict, rec.Code)
 		require.Equal(t, "restore_replaced", decode(t, rec)["error"])
-		require.Equal(t, http.StatusConflict, h.req("GET", "/api/setup/restore/feeds", "", mod...).Code)
 	}
 	require.Zero(t, h.restarts.Load())
 	require.Equal(t, "ready", h.status(anotherBrowser(k))["state"], "it is still the attacker's, under the header")

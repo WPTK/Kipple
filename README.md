@@ -61,9 +61,9 @@ docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v k
 This one-line command is the short form: it does not run the container read-only, drop capabilities or cap memory.
 The hardened form, and the compose files that include it, are in [the deploy guide](docs/deploy.md).
 
-Open <http://127.0.0.1:1919>. The first screen creates your account, or restores a backup from another Kipple. The
-setup wizard after the account asks for your time zone, a theme, an OPML import from your old reader, a few starter
-feeds, and the address your other devices will use. Every step after the account can be skipped.
+Open <http://127.0.0.1:1919>. The first screen creates your account, or restores a backup from another Kipple. One more step follows the account:
+a few recommended feeds, none ticked until you tick them, and a link to import a feeds file from your old reader.
+Your time zone is taken from your browser; theme, address and app password are in Settings.
 
 Kipple is on your own machine, not the one you browse from? Open the address through an SSH tunnel first:
 `ssh -L 1919:127.0.0.1:1919 you@your-server`, then open <http://127.0.0.1:1919> on your own computer.

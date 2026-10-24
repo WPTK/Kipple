@@ -2,24 +2,25 @@ import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "rea
 import { ApiError } from "@/api/client";
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
-import { Field, Notice, PasswordField, RadioCard, inputCls } from "@/ui/kit";
+import { Notice, PasswordField } from "@/ui/kit";
 import { MIN_PASSWORD_LEN, passwordProblem } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import {
   cancelRestore,
   confirmRestore,
-  fetchBackupFeeds,
   fetchRestoreStatus,
   restoreErrorText,
   sizeText,
   uploadRestoreFile,
   type BackupSummary,
-  type OpmlSummary,
   type RestoreStatus,
 } from "./restoreApi";
 import { useLatestRef } from "@/lib/useLatestRef";
 
-const RESTORE_STEP = { id: "restore", n: 0, title: "Restore from a backup" } as const;
+const RESTORE_TITLE = "Restore from a backup";
+
+/** Anything but a backup zip sent to the restore screen (a feeds file is the likely mistake): says what a backup is and where a feeds file goes. */
+const NOT_A_BACKUP = "That is not a Kipple backup. A backup is the zip made by Export backup in Settings. To bring in a feeds file, create your account, then use Import a feeds file in the feeds step.";
 
 /** A network failure during the upload has no answer to quote: the usual causes are a full disk or a proxy size limit. */
 const UPLOAD_FAILED = "The upload was refused or interrupted. Check that the server has enough free disk space and that any proxy in front of Kipple allows a file this size.";
@@ -34,19 +35,15 @@ const uploadGone = (e: unknown): boolean => e instanceof ApiError && (e.code ===
 /** How often the page asks the server whether its check of the backup is done. */
 export const CHECK_POLL_MS = 2000;
 
-type Mode = "everything" | "feeds";
-/** pick: choosing a file. sending: the upload runs. waiting: the server holds an upload (receiving or checking it). review: a backup or OPML file is ready to confirm. */
+/** pick: choosing a file. sending: the upload runs. waiting: the server holds an upload (receiving or checking it). review: a backup is ready to confirm. */
 type View = "pick" | "sending" | "waiting" | "review";
-
-const EVERYTHING_HELP = "Everything brings back your feeds and folders, your read and starred items, your settings and your account.";
-const FEEDS_HELP = "Feeds only brings your subscriptions and folders. Read and starred items, settings and your account stay behind.";
 
 /** What the restore screen hands on. */
 export interface RestoreHandlers {
   onBack: () => void;
-  /** "Feeds only" (or an OPML file): the file to offer in the import step, once the account exists. */
-  onFeedsOnly: (feeds: File) => void;
-  /** "Everything" was confirmed and the server is restarting. `username` is null when this page never saw the backup. */
+  /** Opened from the setup account form, so it counts as step 1 of the wizard; from Settings there is no wizard and no counter. */
+  inWizard: boolean;
+  /** The restore was confirmed and the server is restarting. `username` is null when this page never saw the backup. */
   onConfirmed: (info: { estimateSeconds: number; username: string | null }) => void;
 }
 
@@ -58,21 +55,18 @@ function passwordReason(s: BackupSummary): string {
 }
 
 /**
- * Before the account exists: restore a Kipple backup (a zip) or take the feeds of an OPML file. The file goes to the
- * server as it is, with a progress bar; the server then checks it, which this page waits for. A backup then offers
- * "Everything" (the server replaces itself with it and restarts) or "Feeds only" (the normal setup continues and the
- * import step is offered the feeds). Nothing can be confirmed until the backup's contents are on screen.
+ * Before the account exists: restore a Kipple backup (a zip). The file goes to the server as it is, with a progress
+ * bar; the server then checks it, which this page waits for, and shows what is in it. Confirming makes the server replace
+ * itself with the backup and restart. Nothing can be confirmed until the backup's contents are on screen.
  * `resume`: the server already holds a restore from before a reload, and this page asks it where it is.
  */
-export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: RestoreHandlers & { resume: boolean }) {
+export function RestoreStep({ resume, inWizard, onBack, onConfirmed }: RestoreHandlers & { resume: boolean }) {
   const [view, setView] = useState<View>(resume ? "waiting" : "pick");
   const viewNow = useLatestRef(view);
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<{ sent: number; total: number } | null>(null);
   const [serverState, setServerState] = useState<"uploading" | "checking">("checking");
   const [backup, setBackup] = useState<BackupSummary | null>(null);
-  const [opml, setOpml] = useState<OpmlSummary | null>(null);
-  const [mode, setMode] = useState<Mode>("everything");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busyUpload, setBusyUpload] = useState(false);
@@ -81,19 +75,18 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
   const [over, setOver] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const pwInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const handoff = useLatestRef({ onConfirmed });
 
   // An upload still in flight when this screen goes away is stopped.
   useEffect(() => () => abort.current?.abort(), []);
 
   const passwordNeeded = backup?.needs_new_password === true;
-  const everything = mode === "everything" && !opml;
 
   /** Shows what the server says about its restore. */
   const apply = (st: RestoreStatus) => {
     if (st.state === "ready" && st.summary) {
       setBackup(st.summary);
-      setMode("everything");
       setView("review");
     } else if (st.state === "failed") {
       setError(st.error?.message || "The backup could not be read. Try another file.");
@@ -148,21 +141,14 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
     setError(null);
     setBusyUpload(false);
     setBackup(null);
-    setOpml(null);
     setProgress({ sent: 0, total: f.size });
     setView("sending");
     const ctl = new AbortController();
     abort.current = ctl;
     try {
-      const r = await uploadRestoreFile(f, (sent, total) => setProgress({ sent, total }), ctl.signal);
-      if ("kind" in r) {
-        setOpml(r);
-        setMode("feeds");
-        setView("review");
-      } else {
-        setServerState("checking");
-        setView("waiting");
-      }
+      await uploadRestoreFile(f, (sent, total) => setProgress({ sent, total }), ctl.signal);
+      setServerState("checking");
+      setView("waiting");
     } catch (e) {
       if (e instanceof ApiError && e.code === "aborted") return;
       let busy = e instanceof ApiError && e.code === "restore_busy";
@@ -175,7 +161,7 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
         setError(st?.refusal?.message ? st.refusal.message : st?.state === "failed" && st.error?.message ? st.error.message : UPLOAD_FAILED);
       }
       // 411 length_required, 400 upload_incomplete, 409 restore_cancelled and the rest carry a message written for the reader.
-      else setError(restoreErrorText(e));
+      else setError(e instanceof ApiError && e.code === "not_a_backup" ? NOT_A_BACKUP : restoreErrorText(e));
       setBusyUpload(busy);
       setFile(null);
       setProgress(null);
@@ -195,7 +181,6 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
   /** Forgets the upload on screen, keeping the error, and shows the file picker. */
   const backToPick = () => {
     setBackup(null);
-    setOpml(null);
     setFile(null);
     setProgress(null);
     setPassword("");
@@ -228,17 +213,6 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
     e.preventDefault();
     setError(null);
     setPwError(null);
-    if (!everything) {
-      setBusy(true);
-      try {
-        onFeedsOnly(opml && file ? file : await fetchBackupFeeds());
-      } catch (err) {
-        setError(restoreErrorText(err));
-        setBusy(false);
-        if (uploadGone(err)) backToPick();
-      }
-      return;
-    }
     const wants = passwordNeeded || password !== "";
     if (wants) {
       const problem = password === "" ? "Enter a password." : passwordProblem(password);
@@ -265,7 +239,7 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
   };
 
   return (
-    <WizardFrame step={RESTORE_STEP} description="Restore a Kipple backup, or bring only the feeds from a backup or an OPML file.">
+    <WizardFrame step={{ id: "restore", n: inWizard ? 1 : 0, title: RESTORE_TITLE }} description="Restore a Kipple backup: your feeds and folders, read and starred items, settings and account.">
       <div className="flex flex-1 flex-col gap-5">
         {error ? (
           <Notice tone="error">
@@ -289,20 +263,25 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
               onDrop={drop}
               className={cn("flex flex-col gap-3 rounded-xl border-2 border-dashed p-4", over ? "border-accent bg-selection" : "border-line")}
             >
-              <p className="text-sm text-fg2">Drop a file here, or choose one. A Kipple backup (a .zip file) or an OPML file from another reader.</p>
-              <Field label="Backup or OPML file" help="Images and icons are downloaded again the first time you view them.">
-                {(a) => (
-                  <input
-                    {...a}
-                    type="file"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) void start(f);
-                    }}
-                    className={`${inputCls} py-2`}
-                  />
-                )}
-              </Field>
+              <input
+                ref={fileInput}
+                type="file"
+                aria-label="Backup file"
+                tabIndex={-1}
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (f) void start(f);
+                }}
+              />
+              <div className="flex flex-wrap items-center gap-3">
+                <Button variant="solid" className="min-h-11" onClick={() => fileInput.current?.click()}>
+                  Choose a backup file
+                </Button>
+                <span className="text-sm text-fg2">or drop it here</span>
+              </div>
+              <p className="text-sm text-fg2">Images and icons are downloaded again the first time you view them.</p>
             </div>
             <StepActions back={<Button onClick={onBack}>Back</Button>}>{null}</StepActions>
           </>
@@ -348,28 +327,7 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
                 <p className="text-sm">You will sign in as {backup.username}.</p>
               </section>
             ) : null}
-            {opml ? (
-              <section className="flex flex-col gap-1 rounded-xl border border-line bg-surface p-3" aria-label="File contents" data-testid="opml-summary">
-                <p className="font-semibold">OPML file</p>
-                <p className="text-sm text-fg2">{opml.feeds} feeds found.</p>
-              </section>
-            ) : null}
-
-            {opml ? (
-              <p className="text-sm text-fg2">{FEEDS_HELP}</p>
-            ) : (
-              <fieldset className="flex min-w-0 flex-col gap-3">
-                <legend className="mb-2 text-sm font-semibold">What do you want to bring back?</legend>
-                <RadioCard name="restore-mode" checked={mode === "everything"} onSelect={() => setMode("everything")} title="Everything">
-                  <p>{EVERYTHING_HELP}</p>
-                </RadioCard>
-                <RadioCard name="restore-mode" checked={mode === "feeds"} onSelect={() => setMode("feeds")} title="Feeds only">
-                  <p>{FEEDS_HELP}</p>
-                </RadioCard>
-              </fieldset>
-            )}
-
-            {everything && backup ? (
+            {backup ? (
               <div className="flex flex-col gap-3">
                 {passwordNeeded ? (
                   <Notice tone="warn" role="status">
@@ -402,7 +360,7 @@ export function RestoreStep({ resume, onBack, onFeedsOnly, onConfirmed }: Restor
               }
             >
               <Button type="submit" variant="solid" disabled={busy}>
-                {busy ? "Working" : everything ? "Restore everything" : "Continue"}
+                {busy ? "Working" : "Restore this backup"}
               </Button>
             </StepActions>
           </form>

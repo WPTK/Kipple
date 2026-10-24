@@ -6,8 +6,8 @@ import { EmptyState } from "@/ui/EmptyState";
 /** The one welcome for a library with no feeds: wherever the list is empty for that reason, this is what shows. */
 export function FirstRun({ onAdd, onImport }: { onAdd: () => void; onImport: () => void }) {
   const setup = useSetupActions();
-  // The recommended feeds are step 5 of setup: opening them starts setup again at that step (it changes nothing else).
-  const recommended = () => setup.restart("feeds");
+  // The recommended feeds are step 2 of setup: opening them starts that step again (it changes nothing else).
+  const recommended = () => setup.restart();
   return (
     <EmptyState
       title="No feeds yet"
