@@ -55,6 +55,7 @@
     "uat:gazette-place": "node uat/gazette-place.mjs",
     "uat:article-toolbar": "node uat/article-toolbar.mjs",
     "uat:group-by": "node uat/group-by.mjs",
+    "uat:digest": "node uat/digest.mjs",
     "uat:reading": "node uat/reading.mjs"
   },
   "dependencies": {

@@ -4,6 +4,7 @@ import { useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
 import { useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
+  DIGEST_ROWS,
   GROUP_BYS,
   GROUP_LABELS,
   LAYOUT_HINTS,
@@ -17,6 +18,9 @@ import {
   overrideTarget,
   updateDevicePrefs,
   useDevicePrefs,
+  type DigestOrder,
+  type DigestRows,
+  type DigestSections,
   type GroupBy,
   type LayoutContext,
   type LayoutId,
@@ -30,6 +34,10 @@ import { DropdownMenu } from "@/ui/menu";
 const item =
   "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-selection";
 const heading = "px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase";
+
+const DIGEST_ORDER_LABELS: Record<DigestOrder, string> = { sidebar: "Sidebar order", quiet: "Quiet Feeds First" };
+const DIGEST_SECTION_LABELS: Record<DigestSections, string> = { folder: "Folders", feed: "Feeds" };
+const sub = "px-3 pt-1 text-xs text-fg2";
 
 const FIELD_LABELS: { [F in ListField]: Record<string, string> } = { layout: LAYOUT_LABELS, order: ORDER_LABELS, view: LIST_VIEW_LABELS, group: GROUP_LABELS };
 
@@ -141,6 +149,64 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
           {followsOrder(layout.id) ? null : (
             <p className="px-3 pt-1 pb-2 text-xs text-fg2">The {layout.label} is always newest first. The order applies to the other layouts.</p>
           )}
+
+          {layout.id === "digest" && !scope.q ? (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-line" />
+              <DropdownMenu.Label className={heading}>Digest, for this device</DropdownMenu.Label>
+              <DropdownMenu.Label className={sub}>Order of sections</DropdownMenu.Label>
+              <DropdownMenu.RadioGroup
+                aria-label="Order of sections"
+                value={dp.digestOrder}
+                onValueChange={(v) => {
+                  updateDevicePrefs({ digestOrder: v as DigestOrder });
+                  announce(DIGEST_ORDER_LABELS[v as DigestOrder]);
+                }}
+              >
+                {(["sidebar", "quiet"] as const).map((o) => (
+                  <Radio key={o} value={o} label={DIGEST_ORDER_LABELS[o]} hint={o === "quiet" ? "The sections with the fewest new articles a day come first; a section with a feed under a week old goes last" : undefined} />
+                ))}
+              </DropdownMenu.RadioGroup>
+              <DropdownMenu.Label className={sub}>Sections</DropdownMenu.Label>
+              <DropdownMenu.RadioGroup
+                aria-label="Sections"
+                value={dp.digestSections}
+                onValueChange={(v) => {
+                  updateDevicePrefs({ digestSections: v as DigestSections });
+                  announce(`Sections are ${DIGEST_SECTION_LABELS[v as DigestSections].toLowerCase()}`);
+                }}
+              >
+                {(["folder", "feed"] as const).map((o) => (
+                  <Radio key={o} value={o} label={DIGEST_SECTION_LABELS[o]} />
+                ))}
+              </DropdownMenu.RadioGroup>
+              <DropdownMenu.Label className={sub}>Images</DropdownMenu.Label>
+              <DropdownMenu.RadioGroup
+                aria-label="Images"
+                value={dp.digestImages ? "on" : "off"}
+                onValueChange={(v) => {
+                  updateDevicePrefs({ digestImages: v === "on" });
+                  announce(v === "on" ? "Images on" : "Images off");
+                }}
+              >
+                <Radio value="on" label="Show images" />
+                <Radio value="off" label="Text only" />
+              </DropdownMenu.RadioGroup>
+              <DropdownMenu.Label className={sub}>Rows per section</DropdownMenu.Label>
+              <DropdownMenu.RadioGroup
+                aria-label="Rows per section"
+                value={String(dp.digestRows)}
+                onValueChange={(v) => {
+                  updateDevicePrefs({ digestRows: Number(v) as DigestRows });
+                  announce(`${v} rows per section`);
+                }}
+              >
+                {DIGEST_ROWS.map((n) => (
+                  <Radio key={n} value={String(n)} label={String(n)} />
+                ))}
+              </DropdownMenu.RadioGroup>
+            </>
+          ) : null}
 
           {/* The Gazette prints its own pages and a search its own headers; the other lists group under headers. */}
           {scope.q || !followsOrder(layout.id) ? null : (
