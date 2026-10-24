@@ -147,7 +147,14 @@ export function FeedsStep({ onDone, finishing }: { onDone: () => void; finishing
           </Button>
         </StepActions>
       </div>
-      {importing ? <OpmlImportDialog inWizard onClose={() => setImporting(false)} /> : null}
+      {importing ? <OpmlImportDialog
+          inWizard
+          onClose={() => {
+            setImporting(false);
+            // The file may hold recommended feeds: the list shows those as already added.
+            void qc.invalidateQueries({ queryKey: STARTER_KEY });
+          }}
+        /> : null}
     </WizardFrame>
   );
 }

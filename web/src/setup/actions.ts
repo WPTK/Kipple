@@ -4,7 +4,7 @@ import { api } from "@/api/client";
 import { keys, type BootstrapAnswer } from "@/api/queries";
 import { settingsKey, type SettingsResponse } from "@/api/admin";
 import { completeOnboarding } from "./api";
-import { endRerun, markRerun } from "./session";
+import { endRerun, markRerun, rerunStore } from "./session";
 import { welcomePath } from "./steps";
 
 /** Records in the app's copy of the account that first-run setup is (or is not) pending, so the routing follows at once. */
@@ -40,9 +40,9 @@ export function useSetupActions() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   return {
-    /** Ends the wizard, with the browser's time zone as Kipple's. */
+    /** Ends the wizard. A first run takes the browser's time zone as Kipple's; Run setup again keeps the saved one. */
     finish: async () => {
-      await adoptBrowserZone();
+      if (!rerunStore.get()) await adoptBrowserZone();
       void qc.invalidateQueries({ queryKey: settingsKey });
       await completeOnboarding();
       endRerun();

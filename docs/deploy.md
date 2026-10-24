@@ -256,19 +256,18 @@ build-from-source file, which also reads an optional `.env`.
 
 A Kipple with no account starts in **setup mode**. It is the normal server, but the browser shows the setup wizard
 instead of a sign-in screen, and its first step is the form that creates your account. Open the address and create your
-account, then the wizard takes you the rest of the way (time zone, theme, OPML import,
-recommended feeds, an optional app password). The same first screen offers "Restore from a backup" instead
-([Restore in the setup wizard](#restore-in-the-setup-wizard)). The steps of the account path, in order, each skippable after the account:
+account, then the wizard has one more step: your feeds. The same first screen offers "Restore from a backup" instead
+([Restore in the setup wizard](#restore-in-the-setup-wizard)). The two steps, in order:
 
 1. **Account**: a user name, then a password (or one of the two ways to go without, under "Open mode" below).
-2. **Time zone**, preselected from your browser.
-3. **Theme**: one look for day and one for night.
-4. **Import** an OPML file from your old reader.
-5. **Recommended feeds**, a few to start with.
-6. **Address**: the public URL your other devices open Kipple at.
-7. **Done**, with an optional app password for sync apps. Make one any time in Settings, Account & Devices, or
-   with `docker exec -it kipple /kipple api-password`. A sync app's server address is your Kipple address plus
-   `/api/greader.php`, and the user name is the one you chose.
+2. **Choose your feeds**: a few recommended feeds, none ticked until you tick them. The button reads Continue until you
+   tick one, then "Add N feeds". "Import a feeds file" on this step brings in an OPML file from your old reader.
+
+There is no step for the time zone (your browser's is saved when the wizard ends; change it in Settings), the theme, the
+address your other devices open Kipple at, or an app password. Those are in Settings: Appearance, Advanced (Address and
+access) and Account & Devices, where you can also make an app password, or with
+`docker exec -it kipple /kipple api-password`. A sync app's server address is your Kipple address plus
+`/api/greader.php`, and the user name is the one you chose.
 
 - **Who can create the account.** Whoever gets there first. An unclaimed Kipple is simply "no account yet": the one
   request that creates the account succeeds for exactly one caller, and any other that arrives at the same moment is
@@ -623,17 +622,15 @@ Start Kipple on an empty data volume and open it. The first screen offers "Creat
 backup". Pick the export zip (Settings, Account & Devices, Export backup on the old server); the upload shows a progress bar.
 Then Kipple checks the file before anything changes, while the page waits: the manifest and every checksum, the
 integrity checks, and that the database holds exactly what a Kipple of its version creates, nothing more or less. It
-then shows the Kipple version that made the backup,
-its date, the feed, item and starred counts, and the user name you will sign in with, and offers two choices:
+then shows the Kipple version that made the backup, its date, the feed, item and starred counts, and the user name you
+will sign in with. Confirm, and Kipple restores everything: the account, settings, feeds, read and starred state and
+statistics. It keeps the checked database next to the empty one and stops; your restart policy
+(`restart: unless-stopped` in the examples) starts it again, and the restore is applied before the database opens. The
+page waits, shows an estimate for the backup's size, and tells you when to sign in. Without a restart policy, start the
+container again yourself: the restore finishes on that start.
 
-- **Everything**: the account, settings, feeds, read and starred state and statistics. Confirm, and Kipple keeps the
-  checked database next to the empty one and stops; your restart policy (`restart: unless-stopped` in the examples)
-  starts it again, and the restore is applied before the database opens. The page waits, shows an estimate for the
-  backup's size, and tells you when to sign in. Without a restart policy, start the container again yourself: the
-  restore finishes on that start.
-- **Feeds only**: the zip's `feeds.opml` (subscriptions and folders). Read and starred items, settings and the account
-  stay behind; you create a new account and the import step brings the feeds in. A bare OPML file from any reader
-  takes this path too.
+Only a backup zip is accepted. To bring in just the feeds, or a feeds file from another reader, create an account and use
+"Import a feeds file" in the feeds step.
 
 Things to know:
 

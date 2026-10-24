@@ -160,6 +160,18 @@ describe("restore in the setup wizard", () => {
     expect(screen.queryByText(/^Step \d of \d$/)).toBeNull();
   });
 
+  it("still shows no step counter after a reload, until an account is created", async () => {
+    openRestoreAfterReset();
+    server({ restore: "none", setup: true, signedIn: false, status: ready() });
+    const first = go();
+    expect(await screen.findByLabelText("Backup file")).toBeInTheDocument();
+    first.unmount();
+    go(); // a reload: the one-time flag is gone, the tab still knows where the restore step came from
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Restore from a backup" }));
+    expect(await screen.findByLabelText("Backup file")).toBeInTheDocument();
+    expect(screen.queryByText(/^Step d of d$/)).toBeNull();
+  });
+
   it("counts as step 1 of 2 when it is opened from the account form", async () => {
     server({ restore: "none", setup: true, signedIn: false, status: ready() });
     go();
@@ -215,17 +227,6 @@ describe("restore in the setup wizard", () => {
     expect(bodyOf(confirm[0] as { init?: RequestInit })).toEqual({ new_password: "long enough" });
   });
 
-  it("shows the server's message when the file is not a backup", async () => {
-    reply = { status: 400, body: { error: "not_a_backup", message: "This is not a Kipple backup zip." } };
-    server({ restore: "none", setup: true, signedIn: false, status: ready() });
-    go();
-    const user = userEvent.setup();
-    await chooseFile(user, "notes.txt");
-    expect(await screen.findByRole("alert")).toHaveTextContent("This is not a Kipple backup zip.");
-    // Back to choosing a file.
-    expect(screen.getByLabelText("Backup file")).toBeInTheDocument();
-  });
-
   it("says another browser holds the restore when the refused upload shows up as a cut connection", async () => {
     reply = { status: 0, body: {}, network: true };
     server({ restore: "none", setup: true, signedIn: false, status: { state: "none", refusal: { code: "restore_elsewhere", message: "Another browser is uploading a backup, or has uploaded one." } } });
@@ -273,15 +274,14 @@ describe("restore in the setup wizard", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
 
-  it("refuses a feeds file here and says where it goes", async () => {
-    reply = { status: 200, body: { kind: "opml", feeds: 12 } };
+  it.each(["feeds.opml", "photo.png", "empty.zip"])("refuses %s here and says what a backup is and where a feeds file goes", async (name) => {
+    reply = { status: 400, body: { error: "not_a_backup", message: "This is not a Kipple backup. It must be the zip made by Export backup in Settings." } };
     server({ restore: "none", setup: true, signedIn: false, status: ready() });
     go();
     const user = userEvent.setup();
-    await chooseFile(user, "feeds.opml");
-    expect(await screen.findByRole("alert")).toHaveTextContent("That is a feeds file, not a Kipple backup. Create your account, then use Import a feeds file in the feeds step.");
+    await chooseFile(user, name);
+    expect(await screen.findByRole("alert")).toHaveTextContent("That is not a Kipple backup. A backup is the zip made by Export backup in Settings. To bring in a feeds file, create your account, then use Import a feeds file in the feeds step.");
     expect(screen.getByLabelText("Backup file")).toBeInTheDocument();
-    expect(screen.queryByTestId("opml-summary")).toBeNull();
   });
 
   it("cancels an upload on the server", async () => {

@@ -13,9 +13,12 @@ export const resetting = createStore<{ estimateSeconds: number } | null>(null);
  * that the person asked for the restore step, so setup opens on it instead of the account form. Setup forgets it once shown.
  */
 const RESTORE_NEXT_KEY = "kipple.setup.restoreNext";
+/** Outlives the one-time flag above until an account exists, so a reload of the restore screen still knows no wizard led to it. */
+const RESTORE_FROM_SETTINGS_KEY = "kipple.setup.restoreFromSettings";
 export function openRestoreAfterReset(): void {
   try {
     sessionStorage.setItem(RESTORE_NEXT_KEY, "1");
+    sessionStorage.setItem(RESTORE_FROM_SETTINGS_KEY, "1");
   } catch {
     /* no session storage: setup then opens on the account form, which has a restore link */
   }
@@ -25,6 +28,21 @@ export function wantsRestoreNext(): boolean {
     return sessionStorage.getItem(RESTORE_NEXT_KEY) === "1";
   } catch {
     return false;
+  }
+}
+/** The restore step was asked for in Settings (so it is not step 1 of the wizard), in this tab, until an account is created. */
+export function restoreFromSettings(): boolean {
+  try {
+    return sessionStorage.getItem(RESTORE_FROM_SETTINGS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+export function forgetRestoreFromSettings(): void {
+  try {
+    sessionStorage.removeItem(RESTORE_FROM_SETTINGS_KEY);
+  } catch {
+    /* nothing to forget */
   }
 }
 export function forgetRestoreNext(): void {

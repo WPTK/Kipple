@@ -19,8 +19,8 @@ import { useLatestRef } from "@/lib/useLatestRef";
 
 const RESTORE_TITLE = "Restore from a backup";
 
-/** A feeds file sent to the restore screen: the server reads it and keeps nothing, and this says where such a file goes. */
-const NOT_A_BACKUP = "That is a feeds file, not a Kipple backup. Create your account, then use Import a feeds file in the feeds step.";
+/** Anything but a backup zip sent to the restore screen (a feeds file is the likely mistake): says what a backup is and where a feeds file goes. */
+const NOT_A_BACKUP = "That is not a Kipple backup. A backup is the zip made by Export backup in Settings. To bring in a feeds file, create your account, then use Import a feeds file in the feeds step.";
 
 /** A network failure during the upload has no answer to quote: the usual causes are a full disk or a proxy size limit. */
 const UPLOAD_FAILED = "The upload was refused or interrupted. Check that the server has enough free disk space and that any proxy in front of Kipple allows a file this size.";
@@ -146,16 +146,9 @@ export function RestoreStep({ resume, inWizard, onBack, onConfirmed }: RestoreHa
     const ctl = new AbortController();
     abort.current = ctl;
     try {
-      const r = await uploadRestoreFile(f, (sent, total) => setProgress({ sent, total }), ctl.signal);
-      if ("kind" in r) {
-        setError(NOT_A_BACKUP);
-        setFile(null);
-        setProgress(null);
-        setView("pick");
-      } else {
-        setServerState("checking");
-        setView("waiting");
-      }
+      await uploadRestoreFile(f, (sent, total) => setProgress({ sent, total }), ctl.signal);
+      setServerState("checking");
+      setView("waiting");
     } catch (e) {
       if (e instanceof ApiError && e.code === "aborted") return;
       let busy = e instanceof ApiError && e.code === "restore_busy";
@@ -168,7 +161,7 @@ export function RestoreStep({ resume, inWizard, onBack, onConfirmed }: RestoreHa
         setError(st?.refusal?.message ? st.refusal.message : st?.state === "failed" && st.error?.message ? st.error.message : UPLOAD_FAILED);
       }
       // 411 length_required, 400 upload_incomplete, 409 restore_cancelled and the rest carry a message written for the reader.
-      else setError(restoreErrorText(e));
+      else setError(e instanceof ApiError && e.code === "not_a_backup" ? NOT_A_BACKUP : restoreErrorText(e));
       setBusyUpload(busy);
       setFile(null);
       setProgress(null);

@@ -11,7 +11,7 @@ import { OpenRefusedScreen } from "./OpenRefused";
 import { fetchRestoreStatus } from "./restoreApi";
 import { RestoreStep } from "./RestoreStep";
 import { RestoreWaiting } from "./RestoreWaiting";
-import { forgetRestoreNext, wantsRestoreNext } from "./session";
+import { forgetRestoreFromSettings, forgetRestoreNext, restoreFromSettings, wantsRestoreNext } from "./session";
 import { WELCOME_ENTRY } from "./steps";
 
 /**
@@ -29,11 +29,13 @@ export function SetupFlow({ options }: { options: SetupOptions }) {
     if (pathname === "/welcome" || pathname.startsWith("/welcome/")) navigate("/", { replace: true });
   }, [pathname, navigate]);
 
-  // Settings > Restore asked for the restore step: no wizard led here, so the step shows no counter. Read before it is forgotten.
-  const [fromSettings] = useState(wantsRestoreNext);
+  // Settings > Restore asked for the restore step: no wizard led here, so the step shows no counter. Kept for the tab until an
+  // account is created, so a reload of the restore screen says the same.
+  const [fromSettings] = useState(restoreFromSettings);
+  const [openRestore] = useState(wantsRestoreNext);
   // The restore screens come before the account form; a reload lands on the waiting page while a restore is being applied.
   const [view, setView] = useState<"account" | "restore">(() =>
-    options.restore === "confirmed" || options.restore === "none" || options.restore === undefined ? (fromSettings ? "restore" : "account") : "restore",
+    options.restore === "confirmed" || options.restore === "none" || options.restore === undefined ? (openRestore ? "restore" : "account") : "restore",
   );
   // Only a page that loaded with a restore under way resumes it; coming back to the restore screen later starts at the picker.
   const [resume, setResume] = useState(options.restore !== undefined && options.restore !== "none" && options.restore !== "confirmed");
@@ -69,6 +71,7 @@ export function SetupFlow({ options }: { options: SetupOptions }) {
       state={options}
       onRestore={() => setView("restore")}
       onCreated={() => {
+        forgetRestoreFromSettings();
         // The sign-in has just turned the app to signed in; step 2 comes first whatever address this page was opened at.
         navigate(WELCOME_ENTRY, { replace: true });
         void qc.invalidateQueries();

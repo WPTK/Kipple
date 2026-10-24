@@ -25,6 +25,7 @@
 // First time on a machine: `npx playwright install chromium`.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -71,7 +72,20 @@ if (opt.screenshots) mkdirSync(opt.screenshots, { recursive: true });
 
 const servers = [];
 /** A fresh server in setup mode. Resolves with its origin. */
-async function startServer(name, port) {
+/** A port nobody listens on now. A fixed one can belong to another instance on the machine, whose /healthz would pass for this run's server. */
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.once("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+async function startServer(name) {
+  const port = await freePort();
   const dir = join(tmp, name);
   mkdirSync(dir, { recursive: true });
   const env = { ...process.env, KIPPLE_ADDR: `127.0.0.1:${port}`, KIPPLE_DATA: dir, KIPPLE_LOG_LEVEL: "warn" };
@@ -178,7 +192,7 @@ const browser = await chromium.launch({ headless: !opt.headed }).catch((e) => se
 try {
   // ---------------------------------------------------------------------------------------------- Run A
   {
-    const { origin } = await startServer("a", 7191);
+    const { origin } = await startServer("a");
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, timezoneId: "Asia/Tokyo", colorScheme: "light" });
     const page = await ctx.newPage();
     const errors = [];
@@ -309,7 +323,7 @@ try {
 
   // ---------------------------------------------------------------------------------------------- Run B
   {
-    const { origin } = await startServer("b", 7192);
+    const { origin } = await startServer("b");
     const ctx = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true, colorScheme: "dark" });
     const page = await ctx.newPage();
     const errors = [];
@@ -359,7 +373,7 @@ try {
   // ---------------------------------------------------------------------------------------------- Run C
   {
     // Server trouble on the first screen, and Continue on the feeds step.
-    const { origin } = await startServer("c", 7193);
+    const { origin } = await startServer("c");
     const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, timezoneId: "Asia/Tokyo" });
     const page = await ctx.newPage();
     const errors = [];
@@ -395,7 +409,7 @@ try {
   // ---------------------------------------------------------------------------------------------- Run D
   if (!backupZip) throw new Error("lost"); // Run A said why
   {
-    const { origin } = await startServer("d", 7194);
+    const { origin } = await startServer("d");
     const phone = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
     const desk = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const pp = await phone.newPage();
@@ -410,7 +424,7 @@ try {
     await pp.getByLabel("Backup file").setInputFiles(feedsFile);
     try {
       await pp.getByRole("alert").waitFor({ timeout: 10_000 });
-      check("D phone", /feeds file, not a Kipple backup/.test((await pp.getByRole("alert").textContent()) ?? ""), "a feeds file was not refused in words");
+      check("D phone", /not a Kipple backup.*Import a feeds file/s.test((await pp.getByRole("alert").textContent()) ?? ""), "a feeds file was not refused in words");
       if (opt.screenshots) await pp.screenshot({ path: join(opt.screenshots, "D-phone-feeds-file.png"), fullPage: true });
     } catch {
       fail("D phone", "no message after a feeds file was sent to the restore screen");
@@ -438,7 +452,7 @@ try {
     try {
       await pp.getByRole("alert").waitFor({ timeout: 10_000 });
       check("D phone", /Another browser uploaded a backup, which replaced the one uploaded here/.test((await pp.getByRole("alert").textContent()) ?? ""), "the phone's confirm did not say another browser's upload replaced its own");
-      check("D phone", await pp.getByLabel("Backup file").isVisible(), "the phone did not go back to the file picker");
+      check("D phone", await pp.getByRole("button", { name: "Choose a backup file" }).isVisible(), "the phone did not go back to the file picker");
       check("D phone", (await pp.getByTestId("backup-summary").count()) === 0, "the phone still shows the replaced backup");
       await axeRun(pp, "D phone replaced");
       await overflowRun(pp, "D phone replaced");

@@ -612,8 +612,14 @@ describe("Step 2: the feeds", () => {
   });
 
   it("imports a feeds file from the link, in the dialog Settings uses, and stays on the step", async () => {
+    let imported = false; // the file holds a recommended feed: once imported, the list says it is already added
+    const afterImport = { ...starter, categories: starter.categories.map((c) => ({ ...c, feeds: c.feeds.map((f) => (f.id === "a" ? { ...f, subscribed: true } : f)) })) };
     const { calls } = server(signedIn({ starter }), {
-      "POST /api/opml": () => json({ folders_created: 0, feeds_added: 2, feeds_existing: [], folders_merged_case: [], memberships_dropped: [] }),
+      "POST /api/opml": () => {
+        imported = true;
+        return json({ folders_created: 0, feeds_added: 2, feeds_existing: [], folders_merged_case: [], memberships_dropped: [] });
+      },
+      "GET /api/starter-feeds": () => json(imported ? afterImport : starter),
     });
     go("/welcome/feeds");
     const user = userEvent.setup();
@@ -632,6 +638,9 @@ describe("Step 2: the feeds", () => {
     expect(callTo(calls, "POST", "/api/opml")).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Choose your feeds");
+    // A recommended feed that came in with the file shows as added, not as a choice still to make.
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: /Feed a/ })).toBeDisabled());
+    expect(screen.getByRole("checkbox", { name: /Feed a/ })).toBeChecked();
     expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(0);
   });
 });
@@ -660,6 +669,18 @@ describe("the time zone", () => {
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
     expect(w.tz).toBe("Asia/Tokyo");
+  });
+
+  it("is kept as saved when setup is run again", async () => {
+    browserZoneIs("America/New_York");
+    markRerun();
+    const w = signedIn({ pending: false });
+    const { calls } = server(w);
+    go("/welcome/feeds");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
+    expect(w.tz).toBe("UTC");
   });
 
   it("does not hold setup back when it cannot be saved", async () => {
