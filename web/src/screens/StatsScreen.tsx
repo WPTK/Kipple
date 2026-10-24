@@ -483,7 +483,7 @@ export function StatsScreen() {
           why="Kipple isn't recording what you read, so there is nothing to show."
           action={
             <Link to="/settings/statistics" className="text-link underline underline-offset-2">
-              Turn them on in Settings &gt; Statistics
+              Turn them on in Settings &gt; Stats
             </Link>
           }
         />

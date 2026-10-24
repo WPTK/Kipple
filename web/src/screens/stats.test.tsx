@@ -387,7 +387,7 @@ describe("Stats screen", () => {
     const m = setup(() => offStats, { "stats.enabled": false });
     go();
     expect(await screen.findByText(/Statistics are off/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Settings > Statistics/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Settings > Stats/ })).toBeInTheDocument();
     expect(statsCalls(m)).toHaveLength(0);
     expect(within(screen.getByRole("navigation", { name: "Primary" })).queryByRole("link", { name: /Stats/ })).toBeNull();
   });

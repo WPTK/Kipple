@@ -104,7 +104,7 @@ describe("rollup", () => {
     expect(tech.avg_read_seconds).toBeCloseTo(4800 / 40); // timed seconds over timed items
     expect(tech.bounce_rate).toBeCloseTo(26 / 100);
     expect(tech.open_original_rate).toBeCloseTo(6 / 40);
-    expect(rows.find((r) => r.name === "No folder")?.bounce_rate).toBeNull();
+    expect(rows.find((r) => r.name === "Uncategorized")?.bounce_rate).toBeNull();
   });
   it("rolls the average up as timed seconds over timed items, like the server", () => {
     const legacyHeavy = [

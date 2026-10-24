@@ -200,7 +200,7 @@ describe("Wrapped screen", () => {
     const m = setup({ "stats.wrapped_enabled": false });
     go();
     expect(await screen.findByRole("heading", { name: "Your year is off" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Settings > Statistics/ })).toHaveAttribute("href", "/settings/statistics");
+    expect(screen.getByRole("link", { name: /Settings > Stats/ })).toHaveAttribute("href", "/settings/statistics");
     expect(calls(m)).toHaveLength(0);
     // The link is the tab stop here; the region adds none of its own.
     expect(screen.getByRole("region", { name: "Your year" })).not.toHaveAttribute("tabindex");

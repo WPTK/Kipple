@@ -311,7 +311,7 @@ export function WrappedScreen() {
         why="Kipple isn't putting your year together."
         action={
           <Link to="/settings/statistics" className="text-link underline underline-offset-2">
-            Turn it on in Settings &gt; Statistics
+            Turn it on in Settings &gt; Stats
           </Link>
         }
       />
