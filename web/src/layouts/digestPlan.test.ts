@@ -90,13 +90,20 @@ describe("groupFeeds", () => {
     expect(JSON.stringify(rootByFolder("unread", shuffled))).toBe(base);
   });
 
-  it("a folder's pace is the sum of its feeds that have one, null when none has", () => {
+  it("a folder's pace is the sum of its feeds, null when any of them has none", () => {
     const defs = rootByFolder();
     expect(defs.map((d) => [d.key, d.pace])).toEqual([
       ["folder:tech", 1],
       ["folder:news", 15],
       ["feed:f5", null],
     ]);
+  });
+
+  it("a folder with a new feed and a paced one has no pace, so Quiet Feeds First does not take the new feed for a quiet one", () => {
+    const mixed = [feed("m1", "Old", "tech", { unread: 1, pace: 4 }), feed("m2", "New", "tech", { unread: 1 }), feed("m3", "Busy", "news", { unread: 1, pace: 30 })];
+    const defs = groupFeeds(mixed, folders, byFolder(folders, mixed, {}));
+    expect(defs.map((d) => [d.key, d.pace])).toEqual([["folder:tech", null], ["folder:news", 30]]);
+    expect(keys(orderSections(defs, "quiet"))).toEqual(["folder:news", "folder:tech"]);
   });
 });
 
@@ -156,12 +163,12 @@ describe("layoutDigest", () => {
     const loaded = loadedOf({ "folder:tech": [five] });
     const s = layoutDigest(defs, opts({ rows: 3 }), loaded).sections[0]!;
     expect(ids(s.cards)).toEqual(["a", "b", "c"]);
-    expect(s.moreCount).toBe(0); // 2 unread, 3 shown: clamped, never negative
+    expect(s.moreCount).toBe(2); // the whole section is loaded, so the count is what it holds, not the bootstrap's
     const wide = layoutDigest(defs, opts({ rows: 3, expanded: new Map([["folder:tech", 1]]) }), loaded).sections[0]!;
     expect(ids(wide.cards)).toEqual(five);
     expect(wide.moreCount).toBe(0);
-    const news = layoutDigest(defs, opts({ rows: 3 }), loadedOf({ "folder:news": [five] })).sections[1]!;
-    expect(news.moreCount).toBe(11 - 3);
+    const news = layoutDigest(defs, opts({ rows: 3 }), loadedOf({ "folder:news": [five, true] })).sections[1]!;
+    expect(news.moreCount).toBe(11 - 3); // the server has more: the count the page opened with
     expect(EXPAND_BATCH).toBe(20);
   });
 

@@ -392,6 +392,16 @@ jobs:
           # swapped for another release's.
           identity="$COSIGN_IDENTITY"
           {
+            echo "## Get it"
+            echo
+            echo "Kipple ships as a container image. Run it:"
+            echo
+            echo '```'
+            echo "docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data $IMAGE:$VERSION"
+            echo '```'
+            echo
+            echo "Hardened and compose setups: [deploy guide](https://github.com/${GH_REPO}/blob/$TAG/docs/deploy.md)."
+            echo
             echo "## Container image"
             echo
             echo '```'

@@ -139,6 +139,8 @@ bump): `0.9.0-beta.1` (the bug fixes plus those features), then `1.0.0-rc.N`, th
     `/api/greader.php` answers to a Reader API client; a refresh completes; memory stays flat after a few minutes (`docker stats`).
 11. **GitHub Release** from the tag, with the CHANGELOG section as the notes (`node scripts/changelog.mjs notes X.Y.Z > notes.md`, then `gh release create vX.Y.Z --notes-file notes.md`). `-alpha`, `-beta` and `-rc` releases are marked pre-release
     (`--prerelease`), unless the owner says otherwise for that release; that choice is per release and is not a default.
+    Write the notes by the style rules in `changes/README.md` (short, flat, no explaining); a release body is the
+    CHANGELOG section plus the image block, nothing added by hand.
     Every pushed tag has one; keep it that way. For 1.0.0 the notes carry a known-issues list.
 
     **Container image:** the Release workflow must be green first (Actions > Release). It publishes `X.Y.Z` (a stable

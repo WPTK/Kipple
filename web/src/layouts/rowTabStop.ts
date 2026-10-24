@@ -15,3 +15,10 @@ export const ROW_KEYSHORTCUTS = "ArrowDown ArrowUp Home End PageDown PageUp";
 export function useRowTabIndex(): -1 | undefined {
   return useContext(RowTabStop) ? undefined : -1;
 }
+
+/**
+ * A page layout's button that the arrow keys visit between its stories (the Digest's "N more" and Retry) carries
+ * `data-stop-id` with this prefix: the list is still one Tab stop, and these are reached with the arrow keys like a story.
+ */
+export const STOP_PREFIX = "stop:";
+export const stopId = (kind: string, key: string): string => `${STOP_PREFIX}${kind}:${key}`;

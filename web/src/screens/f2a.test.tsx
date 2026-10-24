@@ -152,9 +152,13 @@ describe("layouts", () => {
       expect(r.querySelectorAll("article[data-slot]").length).toBe(5);
       expect(r.querySelector("[data-index]")).toBeNull();
     },
-    // Until its page ships (Phase C 1c) the Digest draws the Compact rows.
     digest: (r) => {
-      expect(r.querySelector(".row-compact")).not.toBeNull();
+      // Sections of their own: a heading for each, title-first articles with a picture on the right, no excerpt.
+      expect(r.querySelector("[data-digest]")).not.toBeNull();
+      expect(r.querySelectorAll("section[data-section] > h2").length).toBeGreaterThan(0);
+      expect(r.querySelectorAll("article[data-item-id]").length).toBeGreaterThan(0);
+      expect(within(r).queryByText("Excerpt for article 1")).toBeNull();
+      expect(r.querySelector("[data-index]")).toBeNull();
     },
     headlines: (r) => {
       expect(r.querySelector(".row-headline")).not.toBeNull();
@@ -527,7 +531,7 @@ describe("mark above and below, and mark all", () => {
     await markAllFromMenu(user);
     await user.click(await within(screen.getByTestId("undo-region")).findByRole("button", { name: "Undo" }));
     await waitFor(() => expect(n).toBe(2));
-    await screen.findByText(/Couldn.t undo/);
+    await within(screen.getByTestId("toast-region")).findByText(/Couldn.t undo/);
     expect(screen.queryByText("Undone")).toBeNull();
     expect(within(screen.getByTestId("undo-region")).getByRole("button", { name: "Undo" })).toBeInTheDocument();
   });

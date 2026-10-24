@@ -1,8 +1,7 @@
-import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router";
-import { ApiError, authStore, openRefusedStore, SESSION_EXPIRED, signingOutStore } from "@/api/client";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
+import { ApiError, authStore, failureCause, openRefusedStore, SESSION_EXPIRED, signingOutStore } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
 import { prefetchUnread, retryRead } from "@/lib/offline";
@@ -19,8 +18,10 @@ import { OpenRefusedScreen } from "@/setup/OpenRefused";
 import { SignedOut } from "@/setup/SignedOut";
 import { launchAnswerStore, useSessionProbe } from "@/api/sessionProbe";
 import { lazyScreen } from "@/lib/lazyScreen";
-import { StatusBlock } from "@/screens/ListPane";
-import { Button, buttonVariants } from "@/ui/button";
+import { NotFoundBlock } from "@/ui/NotFoundBlock";
+import { LoadFailed, useKeptFailure } from "@/ui/LoadFailed";
+import { Button } from "@/ui/button";
+import { EmptyState } from "@/ui/EmptyState";
 import { Skeleton } from "@/ui/kit";
 
 // Settings, Feeds and Health load on first visit; the reader and list stay in the main chunk.
@@ -41,19 +42,11 @@ export const BOOT_RECHECK_MAX_MS = 2 * 60_000;
 
 /** A path nothing answers (a mistyped address, an old link): say so instead of silently showing Unread. */
 function NotFound() {
-  useDocumentTitle("Page not found");
-  const { pathname } = useLocation();
-  return (
-    <StatusBlock asH1 role="alert" title="Page not found" body={`Kipple has nothing at ${pathname}.`}>
-      <Link to="/l/unread" className={buttonVariants({ variant: "solid" })}>
-        Go to Unread
-      </Link>
-    </StatusBlock>
-  );
+  return <NotFoundBlock noun="page" why="Kipple has no page at this address." />;
 }
 
-function Lazy({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<Skeleton label="Loading screen" />}>{children}</Suspense>;
+function Lazy({ children, label = "Loading screen" }: { children: React.ReactNode; label?: string }) {
+  return <Suspense fallback={<Skeleton label={label} />}>{children}</Suspense>;
 }
 
 /**
@@ -81,7 +74,6 @@ export function makeQueryClient(opts: { retry?: boolean } = {}): QueryClient {
 
 function Gate() {
   const auth = useStore(authStore);
-  const { online } = useStore(offlineStore);
   const qc = useQueryClient();
   // Nothing that needs a session is asked for until the session marker, or failing it a short probe, says there may
   // be one: a signed-out launch sends no request that answers 401 (the browser logs those to the console).
@@ -93,6 +85,8 @@ function Gate() {
   const signingOut = useStore(signingOutStore);
   // A launch the probe found refused by the open gate shows that at once; the bootstrap would only be refused too.
   const boot = useBootstrap(auth === "in" || (auth === "unknown" && probed && !refused));
+  // The launch's failure is kept while it is asked again, so the failed screen stays up (see useKeptFailure).
+  const keptFailure = useKeptFailure(boot.error, !!boot.data, boot.isFetching, auth === "out");
   const reset = useStore(resetting);
   const { pathname } = useLocation();
   const rerun = useStore(rerunStore);
@@ -188,7 +182,7 @@ function Gate() {
       </div>
     );
   }
-  if (boot.isPending) {
+  if (boot.isPending && keptFailure == null) {
     return (
       <div className="flex h-full items-center justify-center" role="status">
         <span className="text-fg2">Loading Kipple</span>
@@ -197,26 +191,24 @@ function Gate() {
   }
   // The full-screen errors are for a launch with nothing to show. A background refetch that fails later keeps its
   // data (and sets isError alongside it): the reader stays up and the notice at the top explains what happened.
-  const failed = boot.isError && !boot.data;
-  if (failed && boot.error instanceof ApiError && boot.error.code === SESSION_EXPIRED) {
+  const failure = boot.data ? null : boot.isError ? boot.error : keptFailure;
+  const failed = failure != null;
+  if (failure instanceof ApiError && failure.code === SESSION_EXPIRED) {
     return (
-      <StatusBlock role="alert" title="Your sign-in has expired" body="The sign-in in front of Kipple timed out. Reload to sign in again.">
-        <Button onClick={() => reloadToSignIn()}>Reload</Button>
-      </StatusBlock>
-    );
-  }
-  if (failed && !online) {
-    return (
-      <StatusBlock role="alert" title="You're offline" body="Kipple has nothing saved on this device yet. Open it once while you're online and your unread articles will be here next time.">
-        <Button onClick={() => void boot.refetch()}>Try again</Button>
-      </StatusBlock>
+      <EmptyState role="alert" asH1 title="Your sign-in has expired" why="The sign-in in front of Kipple timed out. Reload to sign in again." action={<Button onClick={() => reloadToSignIn()}>Reload</Button>} />
     );
   }
   if (failed) {
+    // Offline only when the browser says so: Kipple not answering is "can't be reached", whatever the last request did.
+    const cause = failureCause(failure) ?? "other";
     return (
-      <StatusBlock role="alert" title="Something went wrong" body="Kipple couldn't reach the server. Try again, and check the Kipple logs if it keeps happening.">
-        <Button onClick={() => void boot.refetch()}>Try again</Button>
-      </StatusBlock>
+      <LoadFailed
+        cause={cause}
+        retryAfterMs={failure instanceof ApiError ? failure.retryAfterMs : 0}
+        busy={boot.isFetching}
+        onRetry={() => void boot.refetch()}
+        why={cause === "offline" ? "Kipple has nothing saved on this device yet. Open it once while you're online and your unread articles will be here next time." : undefined}
+      />
     );
   }
   // First-run setup pending (a fresh account): every screen but /welcome gives way to it. Not on a
@@ -232,12 +224,12 @@ function Gate() {
           <Route path="l/:view" />
           <Route path="i/:id" />
         </Route>
-        <Route path="feeds" element={<Lazy><FeedsScreen /></Lazy>} />
-        <Route path="health" element={<Lazy><HealthScreen /></Lazy>} />
+        <Route path="feeds" element={<Lazy label="Loading feeds"><FeedsScreen /></Lazy>} />
+        <Route path="health" element={<Lazy label="Loading feed health"><HealthScreen /></Lazy>} />
         <Route path="search" element={<SearchScreen />} />
-        <Route path="stats" element={<Lazy><StatsScreen /></Lazy>} />
-        <Route path="stats/wrapped" element={<Lazy><WrappedScreen /></Lazy>} />
-        <Route path="settings/*" element={<Lazy><SettingsScreen /></Lazy>} />
+        <Route path="stats" element={<Lazy label="Loading stats"><StatsScreen /></Lazy>} />
+        <Route path="stats/wrapped" element={<Lazy label="Loading your year"><WrappedScreen /></Lazy>} />
+        <Route path="settings/*" element={<Lazy label="Loading settings"><SettingsScreen /></Lazy>} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

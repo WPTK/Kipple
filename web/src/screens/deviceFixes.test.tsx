@@ -325,12 +325,30 @@ describe("sidebar", () => {
     expect(within(nav).queryByRole("button", { name: "Collapse Holding" })).toBeNull();
   });
 
+  it("with no feeds the welcome appears once: the list has it, the sidebar a link, the reader pane no placeholder, Search says to add a feed", async () => {
+    routes({ "GET /api/items": () => json(pageOf([])) }, { ...bootstrap, feeds: [], folders: bootstrap.folders });
+    media(WIDE);
+    go("/l/unread");
+    expect(await screen.findByRole("heading", { name: "No feeds yet" })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { name: "No feeds yet" })).toHaveLength(1);
+    expect(screen.queryByText("Select an article to read it here.")).toBeNull();
+  });
+
+  it("Search with no feeds says to add a feed first, not that nothing matched", async () => {
+    routes({ "GET /api/items": () => json(pageOf([])) }, { ...bootstrap, feeds: [] });
+    media(WIDE);
+    go("/search?q=news");
+    expect(await screen.findByRole("heading", { name: "Add a feed first" })).toBeInTheDocument();
+    expect(screen.queryByText(/No results/)).toBeNull();
+  });
+
   it('says "No feeds yet" when the archive feed is the only feed', async () => {
     routes({}, { ...bootstrap, feeds: [{ ...archive, folder_id: "1" }] });
     media(WIDE);
     go("/l/unread");
     const nav = await screen.findByRole("navigation", { name: "Primary" });
-    expect(await within(nav).findByRole("heading", { name: "No feeds yet" })).toBeInTheDocument();
+    expect(await within(nav).findByText(/No feeds yet\./)).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "Add a feed" })).toBeInTheDocument();
     expect(within(nav).queryByText("Unsubscribed (starred)")).toBeNull();
   });
 
@@ -711,7 +729,7 @@ describe("manage feeds", () => {
     expect(within(dlg).getByText(/hold 3 starred articles in total/)).toBeInTheDocument(); // 2 + 1
     await user.click(within(dlg).getByRole("checkbox", { name: /Delete starred articles too/ }));
     await user.click(within(dlg).getByRole("button", { name: "Delete 2 feeds" }));
-    expect(await within(dlg).findByText(/The server returned an error/)).toBeInTheDocument();
+    expect(await within(dlg).findByText(/Kipple's server had a problem/)).toBeInTheDocument();
     expect(within(dlg).getByText(/Some of the feeds may be gone already/)).toBeInTheDocument();
     expect(within(dlg).getByRole("button", { name: "Try again" })).toBeEnabled();
     expect(sent).toEqual([{ ids: ["1", "2"], delete_starred: true }]); // one call for the whole set

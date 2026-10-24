@@ -9,6 +9,7 @@ import { feedEditorStore } from "@/lib/feedEditor";
 import { initTheme } from "@/theme/theme";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
+import * as toasts from "@/shell/toasts";
 import { bootstrap, card, detail, json, mockFetch, pageOf, setSessionMarker } from "@/test/mockApi";
 import { emptyCopy } from "./ListPane";
 
@@ -147,7 +148,13 @@ describe("Unread list (Magazine)", () => {
   });
 
   it("unread empty copy doesn't claim new articles are pending when none have arrived", () => {
-    expect(emptyCopy({ view: "unread" })).toEqual({ title: "All caught up", body: "No unread articles. New ones appear after the next refresh." });
+    expect(emptyCopy({ view: "unread" })).toEqual({ title: "All caught up", body: "No unread articles. New ones appear after the next refresh.", next: "all" });
+  });
+
+  it("an empty folder with no feeds says so and offers to add one, in any view", () => {
+    expect(emptyCopy({ view: "unread", folder: "9" }, 0, undefined, 0)).toEqual({ title: "This folder has no feeds", body: "Move a feed here or add one.", next: "add" });
+    expect(emptyCopy({ view: "all", folder: "9" }, 0, undefined, 0).title).toBe("This folder has no feeds");
+    expect(emptyCopy({ view: "all", folder: "9" }, 0, undefined, 2).title).toBe("No articles yet");
   });
 
   it("unread empty copy reflects new articles already waiting, instead of contradicting the pill", () => {
@@ -321,9 +328,46 @@ describe("Reader: lists and articles that are not there", () => {
   it("says a trimmed or deleted article is no longer available, with no Try again", async () => {
     routes({ "GET /api/items/9999": () => json({ error: "not_found" }, 404) });
     go("/i/9999");
-    expect(await screen.findByText("This article is no longer available")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Article not found" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(screen.getByRole("button", { name: "Back to the list" })).toBeInTheDocument();
+  });
+
+  it("an article with no text says the feed sent only a title and offers the original", async () => {
+    routes({ "GET /api/items/1001": () => json(detail(1, { content_html: "<p> </p>" })), "POST /api/items/1001/open": () => json({ session_key: "k", item: detail(1, { content_html: "<p> </p>", read: true }) }) });
+    go("/i/1001");
+    expect(await screen.findByRole("heading", { name: "This feed sent only a title" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open original" })).toBeInTheDocument();
+    expect(screen.queryByTestId("article-body")).toBeNull();
+    expect(screen.queryByRole("button", { name: /listen/i })).toBeNull();
+  });
+
+  it("announces Starred only once the star went through, never for a star the server refused", async () => {
+    const say = vi.spyOn(toasts, "announce");
+    const body = detail(1);
+    let fail = true;
+    routes({
+      "GET /api/items/1001": () => json(body),
+      "POST /api/items/1001/open": () => json({ session_key: "k", item: { ...body, read: true } }),
+      "PUT /api/items/1001/star": () => (fail ? json({ error: "internal" }, 500) : json({ starred: true, restored: false })),
+    });
+    go("/i/1001");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Star" }));
+    expect((await screen.findAllByText(/Couldn't star/)).length).toBeGreaterThan(0);
+    expect(say).not.toHaveBeenCalledWith("Starred");
+    fail = false;
+    await user.click(await screen.findByRole("button", { name: "Star" }));
+    await waitFor(() => expect(say).toHaveBeenCalledWith("Starred"));
+    say.mockRestore();
+  });
+
+  it("an article that is only a picture is still shown as an article", async () => {
+    const withPicture = detail(1, { content_html: '<p><img src="/img/x" alt="Chart"></p>' });
+    routes({ "GET /api/items/1001": () => json(withPicture), "POST /api/items/1001/open": () => json({ session_key: "k", item: { ...withPicture, read: true } }) });
+    go("/i/1001");
+    expect(await screen.findByTestId("article-body")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "This feed sent only a title" })).toBeNull();
   });
 
   it("still offers Try again when the article failed for another reason", async () => {
@@ -336,7 +380,7 @@ describe("Reader: lists and articles that are not there", () => {
   it("says a feed or folder that is gone is gone, never an empty list", async () => {
     routes();
     go("/l/unread?feed=999");
-    expect(await screen.findByText("This feed no longer exists")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Feed not found" })).toBeInTheDocument();
     expect(screen.queryByText("All caught up")).toBeNull();
     expect(screen.getByRole("link", { name: "Go to Unread" })).toBeInTheDocument();
   });
@@ -344,15 +388,15 @@ describe("Reader: lists and articles that are not there", () => {
   it("says a malformed folder id is a missing folder, not a connection problem", async () => {
     routes();
     go("/l/unread?folder=zz");
-    expect(await screen.findByText("This folder no longer exists")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Folder not found" })).toBeInTheDocument();
     expect(screen.queryByText(/couldn't reach the server/i)).toBeNull();
   });
 
-  it("sends a made-up list name to Unread and fixes the address", async () => {
+  it("says a made-up list name is not a list, instead of quietly showing Unread", async () => {
     routes();
     go("/l/bogus");
-    expect(await screen.findByRole("navigation", { name: "Show" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/l/unread");
+    expect(await screen.findByRole("heading", { name: "List not found" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/l/bogus");
   });
 
   it("a failed list that the server answered is not called unreachable", async () => {
@@ -374,11 +418,11 @@ describe("Reader: lists and articles that are not there", () => {
     routes();
     go("/l/unread?feed=1");
     expect(await screen.findByRole("navigation", { name: "Show" })).toBeInTheDocument();
-    expect(screen.queryByText(/no longer exists/)).toBeNull();
+    expect(screen.queryByText(/not found/)).toBeNull();
     document.body.innerHTML = "";
     go("/l/unread?folder=1");
     expect(await screen.findByRole("navigation", { name: "Show" })).toBeInTheDocument();
-    expect(screen.queryByText(/no longer exists/)).toBeNull();
+    expect(screen.queryByText(/not found/)).toBeNull();
   });
 
   it("does not call a feed gone that another client just added: it fetches the bootstrap again first", async () => {
@@ -387,14 +431,16 @@ describe("Reader: lists and articles that are not there", () => {
     routes({ "GET /api/bootstrap": () => json(++calls < 2 ? bootstrap : { ...bootstrap, feeds: [...bootstrap.feeds, added] }) });
     go("/l/unread?feed=999");
     expect(await screen.findByRole("navigation", { name: "Show" })).toBeInTheDocument();
-    expect(screen.queryByText(/no longer exists/)).toBeNull();
+    expect(screen.queryByText(/not found/)).toBeNull();
   });
 
-  it("offers Check again on the gone message", async () => {
+  it("a feed that is gone sets the tab title and offers the way out, not a retry", async () => {
     routes();
     go("/l/unread?feed=999");
-    expect(await screen.findByText("This feed no longer exists")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Feed not found" })).toBeInTheDocument();
+    expect(document.title).toBe("Feed not found - Kipple");
+    expect(screen.getByRole("link", { name: "Go to Unread" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
   it("an article opened with no list has no Next or Previous, and j does not page", async () => {

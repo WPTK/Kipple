@@ -1,6 +1,6 @@
 // The setup wizard's calls (docs/design.md §7.1e) and the plain-English wording of what they
 // can answer. Nothing here knows about React.
-import { ApiError, api } from "@/api/client";
+import { ApiError, api, errorMessage } from "@/api/client";
 import { existingRestoreKeyHeaders } from "./restoreKey";
 import type { RestoreState } from "./restoreApi";
 
@@ -109,7 +109,8 @@ export type AccountFailure = { kind: "field"; field: "username" | "password" | "
 export function accountFailure(e: unknown): AccountFailure {
   if (e instanceof ApiError) {
     const msg = typeof e.body?.message === "string" ? e.body.message : "";
-    if (e.status === 0) return { kind: "form", message: "Kipple couldn't reach the server." };
+    // No answer at all is said by cause; an answer from Kipple (503 access_unavailable included) is read by its code below.
+    if (e.status === 0) return { kind: "form", message: errorMessage(e) };
     if (e.code === "bad_username") return { kind: "field", field: "username", message: "The user name can be 1 to 64 letters, digits, dots, dashes or underscores." };
     if (e.code === "bad_new_password") return { kind: "field", field: "password", message: msg ? capital(msg) + "." : `The password must be ${MIN_PASSWORD_LEN} to 256 characters.` };
     if (e.code === "ack_required") return { kind: "field", field: "open", message: "Tick the box to confirm you understand." };
@@ -121,7 +122,7 @@ export function accountFailure(e: unknown): AccountFailure {
     if (e.status === 404) return { kind: "done", message: "Kipple is already set up. Reload the page to sign in." };
     if (e.code === "origin") return { kind: "form", message: "Your browser sent this from a different address than the page came from. Open Kipple at the address you use to reach it and try again." };
   }
-  return { kind: "form", message: "Something went wrong. Try again." };
+  return { kind: "form", message: errorMessage(e) };
 }
 
 function capital(s: string): string {
