@@ -250,7 +250,7 @@ await t.eachViewport(async (page, vp) => {
     const isSummary = (u) => u.pathname === "/api/stats/summary";
     await page.route(isSummary, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ enabled: false }) }));
     await open("/stats");
-    await page.getByRole("main").getByRole("link", { name: "Settings > Statistics" }).click({ timeout: 5000 });
+    await page.getByRole("main").getByRole("link", { name: "Settings > Stats" }).click({ timeout: 5000 });
     await page.waitForURL((u) => u.pathname === "/settings/statistics", { timeout: 5000 });
     const back = chevron();
     await back.waitFor({ timeout: 5000 });

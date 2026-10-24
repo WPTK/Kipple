@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WIDE_QUERY } from "@/lib/useMedia";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
@@ -67,7 +68,7 @@ let stopStats: (() => void) | undefined;
 
 beforeEach(() => {
   vi.stubGlobal("EventSource", NoES);
-  vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width: 900px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes(WIDE_QUERY), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
   clearToasts();
   clearListMemory();
   authStore.set("unknown");

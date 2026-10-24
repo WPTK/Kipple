@@ -304,7 +304,7 @@ export function WrappedScreen() {
       <p className="py-8 text-center text-sm text-fg2" role="status">
         Wrapped is off. Turn it on in{" "}
         <Link to="/settings/statistics" className="text-link underline underline-offset-2">
-          Settings &gt; Statistics
+          Settings &gt; Stats
         </Link>
         .
       </p>
