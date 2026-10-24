@@ -214,9 +214,9 @@ if (typeof window !== "undefined") {
 }
 
 /** The press that opened the sheet is still down, or lifted less than LEFTOVER_MS ago (never for a key press). */
-function isOpeningPress(opener: { id: number }): boolean {
+function isOpeningPress(opener: { at: number; id: number }): boolean {
   const p = presses.get(opener.id);
-  return !!p && (p.up < 0 || performance.now() - p.up <= LEFTOVER_MS);
+  return !!p && p.down <= opener.at && (p.up < 0 || performance.now() - p.up <= LEFTOVER_MS);
 }
 
 function isLeftoverClick(e: MouseEvent<HTMLElement>, opener: { at: number; id: number }): boolean {
