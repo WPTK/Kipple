@@ -8,10 +8,9 @@ import { initialLive, liveStore } from "@/api/events";
 import { bootstrap, card, json, mockFetch, pageOf, setSessionMarker } from "@/test/mockApi";
 import { themeStore } from "@/theme/theme";
 import { DEFAULT_THEME_SETTINGS } from "@/theme/settings";
-import { flush, resetDeviceSync, syncStore } from "@/lib/deviceSync";
-import { FONTS } from "@/lib/fonts";
-import { prefsStore, updatePrefs } from "@/lib/prefs";
-import { forgetWizardMemory, markRerun, rerunStore, setupSecret } from "./session";
+import { resetDeviceSync } from "@/lib/deviceSync";
+import { updatePrefs } from "@/lib/prefs";
+import { endRerun, markRerun, rerunStore } from "./session";
 import { resetOpenSignInGuard } from "./SetupFlow";
 
 // jsdom has no EventSource; the shell subscribes to one.
@@ -116,7 +115,7 @@ function browserZoneIs(zone: string) {
 beforeEach(() => {
   authStore.set("unknown");
   openRefusedStore.set(null);
-  forgetWizardMemory();
+  endRerun();
   sessionStorage.clear();
   resetOpenSignInGuard();
   resetDeviceSync();
@@ -135,7 +134,7 @@ describe("Step 1: the first screen is the account", () => {
     const { calls } = server(makeWorld());
     const { container } = go("/");
     await headingIs("Create your account");
-    expect(screen.getByText("Step 1 of 7")).toBeInTheDocument();
+    expect(screen.getByText("Step 1 of 2")).toBeInTheDocument();
     expect(screen.queryByLabelText("Setup code")).toBeNull();
     expect(screen.queryByText(/setup code/i)).toBeNull();
     expect(await axe(container)).toHaveNoViolations();
@@ -154,7 +153,7 @@ describe("Step 1: the first screen is the account", () => {
     server(makeWorld(), { "POST /api/setup/account": () => json({ error: "not_found" }, 404) });
     go("/");
     const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("User name"), "reader");
+    await user.type(await screen.findByLabelText("Username"), "reader");
     await user.type(screen.getByLabelText("Password"), "long enough");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(await findAlert()).toHaveTextContent("Reload the page to sign in");
@@ -165,36 +164,34 @@ describe("Step 1: the first screen is the account", () => {
 describe("Step 1: account", () => {
   const claimed = () => makeWorld();
 
-  it("creates the account with a password, signs in and continues at the time zone", async () => {
+  it("creates the account with a password, signs in and continues at the feeds", async () => {
     const w = claimed();
     const { calls } = server(w);
     const { container } = go("/");
     const user = userEvent.setup();
     await headingIs("Create your account");
-    expect(document.title).toBe("Step 1 of 7: Create your account - Kipple");
+    expect(document.title).toBe("Step 1 of 2: Create your account - Kipple");
     expect(await axe(container)).toHaveNoViolations();
-    await user.type(screen.getByLabelText("User name"), "reader");
+    await user.type(screen.getByLabelText("Username"), "reader");
     await user.type(screen.getByLabelText("Password"), "correct horse");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
-    await headingIs("Choose your time zone");
-    expect(document.title).toBe("Step 2 of 7: Choose your time zone - Kipple");
+    await headingIs("Choose your feeds");
+    expect(document.title).toBe("Step 2 of 2: Choose your feeds - Kipple");
     expect(bodyOf(callTo(calls, "POST", "/api/setup/account")[0] as never)).toEqual({ username: "reader", password: "correct horse" });
-    expect(window.location.pathname).toBe("/welcome/timezone");
-    // Kept in memory for step 7.
-    expect(setupSecret.get()).toBe("correct horse");
+    expect(window.location.pathname).toBe("/welcome/feeds");
   });
 
-  it("checks the user name and password before sending", async () => {
+  it("checks the username and password before sending", async () => {
     const { calls } = server(claimed());
     go("/");
     const user = userEvent.setup();
-    await screen.findByLabelText("User name");
+    await screen.findByLabelText("Username");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
-    expect(await screen.findByText("Enter a user name.")).toBeInTheDocument();
-    await user.type(screen.getByLabelText("User name"), "no spaces");
+    expect(await screen.findByText("Enter a username.")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Username"), "no spaces");
     expect(screen.getByText(/1 to 64 letters, digits, dots, dashes or underscores/, { selector: "[role=alert] span" })).toBeInTheDocument();
-    await user.clear(screen.getByLabelText("User name"));
-    await user.type(screen.getByLabelText("User name"), "reader");
+    await user.clear(screen.getByLabelText("Username"));
+    await user.type(screen.getByLabelText("Username"), "reader");
     await user.type(screen.getByLabelText("Password"), "abcd");
     expect(screen.getByText("Use at least 8 characters.")).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Password"));
@@ -216,18 +213,18 @@ describe("Step 1: account", () => {
     server(claimed(), { "POST /api/setup/account": () => json({ error: "bad_new_password", message: "the password must not be the example value" }, 400) });
     go("/");
     const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("User name"), "reader");
+    await user.type(await screen.findByLabelText("Username"), "reader");
     await user.type(screen.getByLabelText("Password"), "long enough");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(await screen.findByText("The password must not be the example value.")).toBeInTheDocument();
-    expect(screen.getByLabelText("User name")).toHaveValue("reader");
+    expect(screen.getByLabelText("Username")).toHaveValue("reader");
   });
 
   it("says Kipple was set up a moment ago when someone else got there first", async () => {
     server(claimed(), { "POST /api/setup/account": () => json({ error: "already_set_up", message: "sign in instead" }, 409) });
     go("/");
     const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("User name"), "reader");
+    await user.type(await screen.findByLabelText("Username"), "reader");
     await user.type(screen.getByLabelText("Password"), "long enough");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(await findAlert()).toHaveTextContent(/set up a moment ago/);
@@ -239,11 +236,11 @@ describe("Step 1: account", () => {
     server(claimed(), { "POST /api/setup/account": () => (++n === 1 ? (Promise.reject(new TypeError("x")) as never) : json({ error: "bad_new_password", message: "no" }, 400)) });
     go("/");
     const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("User name"), "reader");
+    await user.type(await screen.findByLabelText("Username"), "reader");
     await user.type(screen.getByLabelText("Password"), "long enough");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(await screen.findByText("Kipple can't be reached.")).toBeInTheDocument();
-    expect(screen.getByLabelText("User name")).toHaveValue("reader");
+    expect(screen.getByLabelText("Username")).toHaveValue("reader");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
     expect(await screen.findByText("No.")).toBeInTheDocument();
   });
@@ -251,7 +248,7 @@ describe("Step 1: account", () => {
   describe("no password, open mode", () => {
     const choose = async () => {
       const user = userEvent.setup();
-      await user.type(await screen.findByLabelText("User name"), "reader");
+      await user.type(await screen.findByLabelText("Username"), "reader");
       await user.click(screen.getByRole("radio", { name: /No password at all/ }));
       return user;
     };
@@ -271,9 +268,8 @@ describe("Step 1: account", () => {
       expect(callTo(calls, "POST", "/api/setup/account")).toHaveLength(0);
       await user.click(screen.getByRole("checkbox", { name: /I understand/ }));
       await user.click(screen.getByRole("button", { name: "Create my account" }));
-      await headingIs("Choose your time zone");
+      await headingIs("Choose your feeds");
       expect(bodyOf(callTo(calls, "POST", "/api/setup/account")[0] as never)).toEqual({ username: "reader", passwordless: "open", acknowledge_open: true });
-      expect(setupSecret.get()).toBeNull();
     });
 
     it("says what open mode means: this computer, the local network and Tailscale, and the Docker bind rule", async () => {
@@ -298,7 +294,7 @@ describe("Step 1: account", () => {
       w.state.open = { reason };
       server(w);
       go("/");
-      await screen.findByLabelText("User name");
+      await screen.findByLabelText("Username");
       const radio = screen.getByRole("radio", { name: /No password at all/ });
       expect(radio).toBeDisabled();
       expect(screen.getByRole("note")).toHaveTextContent(text);
@@ -329,7 +325,7 @@ describe("Step 1: account", () => {
     it("is not offered without Access", async () => {
       server(claimed());
       go("/");
-      await screen.findByLabelText("User name");
+      await screen.findByLabelText("Username");
       expect(screen.queryByRole("radio", { name: /Cloudflare Access/ })).toBeNull();
     });
 
@@ -338,7 +334,7 @@ describe("Step 1: account", () => {
       w.state.access = { enabled: true, verified: false };
       server(w);
       go("/");
-      await screen.findByLabelText("User name");
+      await screen.findByLabelText("Username");
       expect(screen.getByRole("radio", { name: /Cloudflare Access/ })).toBeDisabled();
       expect(screen.getByText(/open Kipple through its Cloudflare Access address/)).toBeInTheDocument();
     });
@@ -351,10 +347,10 @@ describe("Step 1: account", () => {
       const { calls } = server(w);
       go("/");
       const user = userEvent.setup();
-      await user.type(await screen.findByLabelText("User name"), "reader");
+      await user.type(await screen.findByLabelText("Username"), "reader");
       await user.click(screen.getByRole("radio", { name: /Cloudflare Access/ }));
       await user.click(screen.getByRole("button", { name: "Create my account" }));
-      await headingIs("Choose your time zone");
+      await headingIs("Choose your feeds");
       expect(bodyOf(callTo(calls, "POST", "/api/setup/account")[0] as never)).toEqual({ username: "reader", passwordless: "access" });
     });
 
@@ -364,7 +360,7 @@ describe("Step 1: account", () => {
       server(w, { "POST /api/setup/account": () => json({ error: "access_required" }, 403) });
       go("/");
       const user = userEvent.setup();
-      await user.type(await screen.findByLabelText("User name"), "reader");
+      await user.type(await screen.findByLabelText("Username"), "reader");
       await user.click(screen.getByRole("radio", { name: /Cloudflare Access/ }));
       await user.click(screen.getByRole("button", { name: "Create my account" }));
       expect(await findAlert()).toHaveTextContent(/needs Access to be set up/);
@@ -441,444 +437,68 @@ describe("open-mode sign-in", () => {
 describe("routing into and out of /welcome", () => {
   const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
 
-  it("sends an account with setup pending to /welcome from anywhere", async () => {
+  it("sends an account with setup pending to the feeds step from anywhere", async () => {
     server(signedIn());
     go("/l/unread");
-    await headingIs("Choose your time zone");
-    expect(window.location.pathname).toBe("/welcome/timezone");
+    await headingIs("Choose your feeds");
+    expect(window.location.pathname).toBe("/welcome/feeds");
   });
 
   it("does not, once setup is done, and sends /welcome to the reader", async () => {
     server(signedIn({ pending: false }));
-    go("/welcome/theme");
+    go("/welcome/feeds");
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/l/unread");
   });
 
-  it("turns an unknown step into the first", async () => {
+  it("turns any other step address into the feeds step", async () => {
     server(signedIn());
-    go("/welcome/nowhere");
-    await headingIs("Choose your time zone");
-    expect(window.location.pathname).toBe("/welcome/timezone");
+    go("/welcome/timezone");
+    await headingIs("Choose your feeds");
+    expect(window.location.pathname).toBe("/welcome/feeds");
   });
 
-  it("resumes at the step in the address after a reload", async () => {
+  it("shows step 2 of 2", async () => {
     server(signedIn());
-    go("/welcome/import");
-    await headingIs("Bring your feeds along");
-    expect(screen.getByText("Step 4 of 7")).toBeInTheDocument();
+    go("/welcome/feeds");
+    await headingIs("Choose your feeds");
+    expect(screen.getByText("Step 2 of 2")).toBeInTheDocument();
   });
 
-  it("moves focus to the new step's heading", async () => {
+  it("moves focus to the step's heading", async () => {
     server(signedIn());
-    go("/welcome/theme");
+    go("/welcome/feeds");
     const h = await heading();
     await waitFor(() => expect(h).toHaveFocus());
   });
 
-  it("ends setup from any step with 'Skip the rest of setup'", async () => {
-    const w = signedIn();
-    const { calls } = server(w);
-    go("/welcome/import");
-    await userEvent.setup().click(await screen.findByRole("button", { name: "Skip the rest of setup" }));
-    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
-    expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(1);
-    // The reader is an arrival, not a page load: focus is on its heading, not left on the page (#499).
-    await waitFor(() => expect(document.activeElement?.hasAttribute("data-route-heading")).toBe(true));
-    // The empty states are not live regions, so nothing is read twice on arrival.
-    expect(document.querySelectorAll('[role="status"] h2')).toHaveLength(0);
-  });
-
-  it("stays on the step and says so when ending setup fails", async () => {
-    server(signedIn(), { "POST /api/onboarding/complete": () => json({ error: "internal" }, 500) });
-    go("/welcome/import");
-    await userEvent.setup().click(await screen.findByRole("button", { name: "Skip the rest of setup" }));
-    expect(await screen.findByText("Couldn't finish setup. Kipple's server had a problem.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Bring your feeds along");
+  it("offers one way out of setup: no Skip, no Back, no 'Skip the rest of setup'", async () => {
+    server(signedIn());
+    go("/welcome/feeds");
+    await heading();
+    expect(screen.queryByRole("button", { name: /skip/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
   });
 });
 
-describe("Step 2: time zone", () => {
+describe("Step 2: the feeds", () => {
   const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
-
-  it("preselects the browser's zone, saves it and goes on", async () => {
-    browserZoneIs("Asia/Tokyo");
-    const w = signedIn();
-    const { calls } = server(w);
-    const { container } = go("/welcome/timezone");
-    const sel = await screen.findByTestId("selected-zone");
-    expect(sel).toHaveTextContent("Asia/Tokyo (UTC+09:00)");
-    expect(sel).toHaveTextContent("Suggested from your browser");
-    // On this screen (the zone list makes the DOM about 450 nodes) axe's nested-interactive rule alone takes 1.8 s of the
-    // 1.9 s axe needs, and 0.07 s for everything else; the whole test took 2.6 s alone and timed out (20 s) on a loaded
-    // machine. The options are plain text with no focusable children, so the rule has nothing to find here; it still runs
-    // on every other wizard screen. With it off this test takes 0.6 s.
-    expect(await axe(container, { rules: { "nested-interactive": { enabled: false } } })).toHaveNoViolations();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Look and feel");
-    expect(bodyOf(callTo(calls, "PATCH", "/api/settings")[0] as never)).toEqual({ tz: "Asia/Tokyo" });
-    expect(w.tz).toBe("Asia/Tokyo");
-  });
-
-  it("Skip keeps the preselected zone rather than leaving UTC", async () => {
-    browserZoneIs("Europe/Berlin");
-    const w = signedIn();
-    server(w);
-    go("/welcome/timezone");
-    await screen.findByTestId("selected-zone");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Look and feel");
-    expect(w.tz).toBe("Europe/Berlin");
-  });
-
-  it("filters the list by name and by offset", async () => {
-    browserZoneIs("UTC");
-    server(signedIn());
-    go("/welcome/timezone");
-    const user = userEvent.setup();
-    const search = await screen.findByLabelText("Search time zones");
-    const list = screen.getByRole("listbox", { name: "Time zones" });
-    const all = within(list).getAllByRole("option").length;
-    expect(all).toBeGreaterThan(50);
-    await user.type(search, "tokyo");
-    expect(within(list).getAllByRole("option").map((o) => o.getAttribute("value"))).toEqual(["Asia/Tokyo"]);
-    expect(screen.getByText("1 time zone match.")).toBeInTheDocument();
-    await user.clear(search);
-    await user.type(search, "+9");
-    const nine = within(list).getAllByRole("option").map((o) => o.getAttribute("value"));
-    expect(nine).toContain("Asia/Tokyo");
-    expect(nine).toContain("Asia/Seoul");
-    expect(nine).not.toContain("America/New_York");
-    await user.clear(search);
-    await user.type(search, "qqqq");
-    expect(within(list).queryAllByRole("option")).toHaveLength(0);
-    expect(screen.getByText("No time zone matches.")).toBeInTheDocument();
-  });
-
-  it("saves the zone picked from the list", async () => {
-    browserZoneIs("UTC");
-    const w = signedIn();
-    const { calls } = server(w);
-    go("/welcome/timezone");
-    const user = userEvent.setup();
-    await screen.findByLabelText("Search time zones");
-    await user.selectOptions(screen.getByRole("listbox", { name: "Time zones" }), "Pacific/Auckland");
-    expect(screen.getByTestId("selected-zone")).toHaveTextContent("Pacific/Auckland");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await heading();
-    expect(bodyOf(callTo(calls, "PATCH", "/api/settings")[0] as never)).toEqual({ tz: "Pacific/Auckland" });
-  });
-
-  it("Skip moves on even when the zone cannot be saved", async () => {
-    browserZoneIs("Europe/Berlin");
-    server(signedIn(), { "PATCH /api/settings": () => json({ error: "internal" }, 500) });
-    go("/welcome/timezone");
-    await screen.findByTestId("selected-zone");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Look and feel");
-  });
-
-  it("keeps a zone set to UTC on purpose when setup is run again", async () => {
-    browserZoneIs("Asia/Tokyo");
-    markRerun();
-    const { calls } = server(signedIn({ tz: "UTC" }));
-    go("/welcome/timezone");
-    const sel = await screen.findByTestId("selected-zone");
-    expect(sel).toHaveTextContent("UTC");
-    expect(sel).toHaveTextContent("Kipple is already set to this zone");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Look and feel");
-    expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
-  });
-
-  it("falls back to UTC, and says so, for a browser zone that is not in the list", async () => {
-    browserZoneIs("Mars/Olympus_Mons");
-    const w = signedIn();
-    const { calls } = server(w);
-    go("/welcome/timezone");
-    const sel = await screen.findByTestId("selected-zone");
-    expect(sel).toHaveTextContent("UTC");
-    expect(screen.getByText(/reported the time zone "Mars\/Olympus_Mons"/)).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    await heading();
-    // Nothing to save: UTC is already what Kipple has.
-    expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
-  });
-
-  it("falls back to UTC when the server refuses the zone", async () => {
-    browserZoneIs("Asia/Tokyo");
-    const w = signedIn();
-    server(w, { "PATCH /api/settings": () => json({ error: "invalid_settings", keys: ["tz"], issues: [{ key: "tz", message: "unknown time zone" }] }, 400) });
-    go("/welcome/timezone");
-    await screen.findByTestId("selected-zone");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    expect(await findAlert()).toHaveTextContent(/doesn't know the time zone "Asia\/Tokyo".*UTC is selected instead/);
-    expect(screen.getByTestId("selected-zone")).toHaveTextContent("UTC");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Choose your time zone");
-  });
-
-  it("reports another failure to save and stays", async () => {
-    browserZoneIs("Asia/Tokyo");
-    server(signedIn(), { "PATCH /api/settings": () => json({ error: "internal" }, 500) });
-    go("/welcome/timezone");
-    await screen.findByTestId("selected-zone");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    expect(await findAlert()).toHaveTextContent("server had a problem");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Choose your time zone");
-  });
-
-  it("keeps a zone that was chosen before (a repeat run) instead of the browser's", async () => {
-    browserZoneIs("Asia/Tokyo");
-    const w = signedIn({ tz: "America/New_York" });
-    const { calls } = server(w);
-    go("/welcome/timezone");
-    const sel = await screen.findByTestId("selected-zone");
-    expect(sel).toHaveTextContent("America/New York");
-    expect(sel).toHaveTextContent("Kipple is already set to this zone");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    await heading();
-    expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
-  });
-
-  it("lets you move on when the settings cannot be loaded", async () => {
-    server(signedIn(), { "GET /api/settings": () => json({ error: "internal" }, 500) });
-    go("/welcome/timezone");
-    expect(await findAlert()).toHaveTextContent("couldn't load its settings");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Skip this step" }));
-    await headingIs("Look and feel");
-  });
-});
-
-describe("Step 3: theme", () => {
-  const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
-
-  it("applies the picks at once, shows both samples and saves the pair as the default", async () => {
-    const { calls } = server(signedIn());
-    const { container } = go("/welcome/theme");
-    const user = userEvent.setup();
-    await heading();
-    expect(screen.getByTestId("sample-day")).toHaveAttribute("data-scheme", "paper");
-    expect(screen.getByTestId("sample-night")).toHaveAttribute("data-scheme", "midnight");
-    await user.selectOptions(screen.getByLabelText("Day theme"), "linen");
-    await user.selectOptions(screen.getByLabelText("Night theme"), "graphite");
-    expect(screen.getByTestId("sample-day")).toHaveAttribute("data-scheme", "linen");
-    expect(themeStore.get()).toMatchObject({ mode: "follow", schedule: false, day: "linen", night: "graphite" });
-    expect(await axe(container)).toHaveNoViolations();
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Bring your feeds along");
-    const patches = callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never));
-    expect(patches).toContainEqual({ "ui.theme": "system", "ui.theme_day": "linen", "ui.theme_night": "graphite", "ui.font_body": "default" });
-  });
-
-  it("Skip puts this device's theme back the way it was", async () => {
-    const { calls } = server(signedIn());
-    go("/welcome/theme");
-    const user = userEvent.setup();
-    await heading();
-    await user.selectOptions(screen.getByLabelText("Day theme"), "linen");
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Bring your feeds along");
-    expect(themeStore.get()).toEqual(DEFAULT_THEME_SETTINGS);
-    expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
-  });
-
-  it("has a Reading font control with every font, grouped, and previews the pick at once (regression: font choice went missing)", async () => {
-    server(signedIn());
-    go("/welcome/theme");
-    const user = userEvent.setup();
-    await headingIs("Look and feel");
-    const select = screen.getByRole("combobox", { name: "Reading font" });
-    const values = within(select).getAllByRole("option").map((o) => (o as HTMLOptionElement).value);
-    expect(values).toEqual(FONTS.map((f) => f.id));
-    for (const g of ["Serif", "Sans-serif", "Monospace", "On this device"]) expect(select.querySelector(`optgroup[label="${g}"]`)).not.toBeNull();
-    await user.selectOptions(select, "vollkorn");
-    expect(prefsStore.get().font).toBe("vollkorn");
-    expect(screen.getByTestId("font-preview").style.fontFamily).toContain("Vollkorn");
-  });
-
-  it("Continue saves the reading font with the theme pair; Back shows it again (resumable)", async () => {
-    const { calls } = server(signedIn());
-    go("/welcome/theme");
-    const user = userEvent.setup();
-    await headingIs("Look and feel");
-    await user.selectOptions(screen.getByLabelText("Reading font"), "inter");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Bring your feeds along");
-    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never))).toContainEqual({ "ui.theme": "system", "ui.theme_day": "paper", "ui.theme_night": "midnight", "ui.font_body": "inter" });
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    await headingIs("Look and feel");
-    expect(screen.getByLabelText("Reading font")).toHaveValue("inter");
-    // Skip now keeps what was saved rather than going back to the font before the wizard.
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Bring your feeds along");
-    expect(prefsStore.get().font).toBe("inter");
-  });
-
-  it("Skip puts this device's reading font back, even after Back and forth", async () => {
-    updatePrefs({ font: "gentium" });
-    const { calls } = server(signedIn());
-    go("/welcome/theme");
-    const user = userEvent.setup();
-    await headingIs("Look and feel");
-    expect(screen.getByLabelText("Reading font")).toHaveValue("gentium");
-    await user.selectOptions(screen.getByLabelText("Reading font"), "jetbrains-mono");
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    await headingIs("Choose your time zone");
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Look and feel");
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Bring your feeds along");
-    expect(prefsStore.get().font).toBe("gentium");
-    expect(callTo(calls, "PATCH", "/api/settings").filter((c) => "ui.font_body" in bodyOf(c as never))).toHaveLength(0);
-  });
-
-  it("still puts the original theme back on Skip after going Back and forth", async () => {
-    server(signedIn());
-    go("/welcome/theme");
-    const user = userEvent.setup();
-    await heading();
-    await user.selectOptions(screen.getByLabelText("Night theme"), "carbon");
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    await headingIs("Choose your time zone");
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Look and feel");
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Bring your feeds along");
-    expect(themeStore.get()).toEqual(DEFAULT_THEME_SETTINGS);
-  });
-
-  it("puts an unsaved pick back when setup is ended from another step", async () => {
-    server(signedIn());
-    go("/welcome/theme");
-    const user = userEvent.setup();
-    await heading();
-    await user.selectOptions(screen.getByLabelText("Day theme"), "linen");
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    await headingIs("Choose your time zone");
-    await user.click(screen.getByRole("button", { name: "Skip the rest of setup" }));
-    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
-    expect(themeStore.get()).toEqual(DEFAULT_THEME_SETTINGS);
-  });
-
-  it("reports a failed save and stays", async () => {
-    server(signedIn(), { "PATCH /api/settings": () => json({ error: "internal" }, 500) });
-    go("/welcome/theme");
-    await heading();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    expect(await findAlert()).toHaveTextContent("server had a problem");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Look and feel");
-  });
-
-  it("goes back to the time zone", async () => {
-    server(signedIn());
-    go("/welcome/theme");
-    await heading();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Back" }));
-    await headingIs("Choose your time zone");
-  });
-});
-
-describe("Step 4: OPML import", () => {
-  const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
-  const file = (name = "feeds.opml") => new File(['<?xml version="1.0"?><opml/>'], name, { type: "text/x-opml" });
-  const result = { folders_created: 2, feeds_added: 5, feeds_existing: [{ url: "https://a.example/f", feed_id: "9" }], folders_merged_case: [], memberships_dropped: [], run_id: "r1" };
-
-  it("imports a file, shows the report and continues", async () => {
-    const { calls } = server(signedIn(), { "POST /api/opml": () => json(result) });
-    const { container } = go("/welcome/import");
-    const user = userEvent.setup();
-    await heading();
-    expect(screen.getByRole("button", { name: "Import" })).toBeDisabled();
-    await user.upload(screen.getByLabelText("OPML file"), file());
-    await user.type(screen.getByLabelText("Mark older articles as read (optional)"), "7");
-    await user.click(await waitFor(() => { const b = screen.getByRole("button", { name: "Import" }); expect(b).toBeEnabled(); return b; }));
-    const res = await screen.findByTestId("import-result");
-    expect(res).toHaveTextContent("5 feeds added");
-    expect(res).toHaveTextContent("2 folders created");
-    expect(res).toHaveTextContent("1 feed was already in Kipple");
-    expect(callTo(calls, "POST", "/api/opml")[0]?.url.searchParams.get("mark_read_older_than_days")).toBe("7");
-    expect(await axe(container)).toHaveNoViolations();
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Recommended feeds");
-  });
-
-  it("lists the feeds on my own network with the allow button, and a failure points at where I can fix it after setup", async () => {
-    const priv = { ...result, feeds_added: 1, feeds_private: [{ url: "http://nas.lan/b", feed_id: 12, reason: "lan_name", enabled: true }] };
-    const { calls } = server(signedIn(), {
-      "POST /api/opml": () => json(priv),
-      "PATCH /api/feeds/12": () => json({ error: "not_found", message: "gone" }, 404),
-    });
-    go("/welcome/import");
-    const user = userEvent.setup();
-    await heading();
-    await user.upload(screen.getByLabelText("OPML file"), file());
-    await user.click(await waitFor(() => { const b = screen.getByRole("button", { name: "Import" }); expect(b).toBeEnabled(); return b; }));
-    const res = await screen.findByTestId("import-result");
-    expect(res).toHaveTextContent("1 feed is on your own network");
-    await user.click(within(res).getByRole("button", { name: "Allow my own network for this feed" }));
-    expect(await within(res).findByText(/http:[/][/]nas[.]lan[/]b is gone/)).toHaveTextContent("once setup is finished");
-    expect(callTo(calls, "PATCH", "/api/feeds/12")[0]?.init?.body).toContain('"expected_url":"http://nas.lan/b"');
-  });
-
-  it("refuses a file that is not OPML before uploading it", async () => {
-    const { calls } = server(signedIn());
-    go("/welcome/import");
-    await heading();
-    await userEvent.setup({ applyAccept: false }).upload(screen.getByLabelText("OPML file"), new File(["hello"], "notes.txt", { type: "text/plain" }));
-    expect(await findAlert()).toHaveTextContent("doesn't look like an OPML file");
-    expect(callTo(calls, "POST", "/api/opml")).toHaveLength(0);
-  });
-
-  it("says what was wrong with a file the server cannot read", async () => {
-    server(signedIn(), { "POST /api/opml": () => json({ error: "not_opml" }, 400) });
-    go("/welcome/import");
-    const user = userEvent.setup();
-    await heading();
-    await user.upload(screen.getByLabelText("OPML file"), file());
-    await user.click(await waitFor(() => { const b = screen.getByRole("button", { name: "Import" }); expect(b).toBeEnabled(); return b; }));
-    expect(await findAlert()).toHaveTextContent("That is not an OPML file");
-  });
-
-  it("checks the days number", async () => {
-    server(signedIn());
-    go("/welcome/import");
-    const user = userEvent.setup();
-    await heading();
-    await user.upload(screen.getByLabelText("OPML file"), file());
-    await user.type(screen.getByLabelText("Mark older articles as read (optional)"), "9000");
-    expect(screen.getByText("Enter a whole number from 1 to 365, or leave empty.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Import" })).toBeDisabled();
-  });
-
-  it("can be skipped, and goes back", async () => {
-    server(signedIn());
-    go("/welcome/import");
-    const user = userEvent.setup();
-    await heading();
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Recommended feeds");
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    await headingIs("Bring your feeds along");
-  });
-});
-
-describe("Step 5: recommended feeds", () => {
-  const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
-  const feed = (id: string, over: Record<string, unknown> = {}) => ({ id, title: `Feed ${id}`, url: `https://${id}.example.com/feed.xml`, site: `https://www.${id}.example.com/`, description: `About ${id}`, checked: true, subscribed: false, ...over });
+  const feed = (id: string, over: Record<string, unknown> = {}) => ({ id, title: `Feed ${id}`, url: `https://${id}.example.com/feed.xml`, site: `https://www.${id}.example.com/`, description: `About ${id}`, subscribed: false, ...over });
   const starter = {
     available: true,
     categories: [
-      { id: "tech", title: "Technology", feeds: [feed("a"), feed("b", { checked: false, lang: "fr" }), feed("c", { subscribed: true })] },
-      { id: "news", title: "News", feeds: [feed("d"), feed("e", { checked: false })] },
+      { id: "tech", title: "Technology", feeds: [feed("a"), feed("b", { lang: "fr" }), feed("c", { subscribed: true })] },
+      { id: "news", title: "News", feeds: [feed("d"), feed("e")] },
     ],
   };
 
-  it("lists every category with its feeds, ticks the suggested ones and passes axe", async () => {
+  it("lists every category with its feeds, ticks none and passes axe", async () => {
     server(signedIn({ starter }));
     const { container } = go("/welcome/feeds");
     await screen.findByText("Feed a");
     const tech = screen.getByRole("group", { name: "Technology" });
-    expect(within(tech).getByRole("checkbox", { name: /Feed a/ })).toBeChecked();
+    expect(within(tech).getByRole("checkbox", { name: /Feed a/ })).not.toBeChecked();
     expect(within(tech).getByRole("checkbox", { name: /Feed b/ })).not.toBeChecked();
     expect(within(tech).getByRole("checkbox", { name: /Feed c/ })).toBeChecked();
     expect(within(tech).getByRole("checkbox", { name: /Feed c/ })).toBeDisabled();
@@ -886,8 +506,23 @@ describe("Step 5: recommended feeds", () => {
     expect(within(tech).getByText(/a\.example\.com/)).toBeInTheDocument();
     expect(screen.queryByText(/^FR$/i)).not.toBeInTheDocument();
     expect(screen.getByRole("group", { name: "News" })).toBeInTheDocument();
-    expect(screen.getByText("2 feeds selected.")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("says Continue until something is ticked, then Add N feeds", async () => {
+    server(signedIn({ starter }));
+    go("/welcome/feeds");
+    const user = userEvent.setup();
+    await screen.findByText("Feed a");
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /^Add/ })).toBeNull();
+    await user.click(screen.getByRole("checkbox", { name: /Feed a/ }));
+    expect(screen.getByRole("button", { name: "Add 1 feed" })).toBeEnabled();
+    await user.click(screen.getByRole("checkbox", { name: /Feed d/ }));
+    expect(screen.getByRole("button", { name: "Add 2 feeds" })).toBeEnabled();
+    await user.click(screen.getByRole("checkbox", { name: /Feed a/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Feed d/ }));
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
   });
 
   it("has one select all or none for the whole list and sends the chosen ids with the folders choice", async () => {
@@ -897,46 +532,39 @@ describe("Step 5: recommended feeds", () => {
     await screen.findByText("Feed a");
     expect(screen.getAllByRole("button", { name: /^Select (all|none)$/ })).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "Select all" }));
-    expect(screen.getByText("4 feeds selected.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add 4 feeds" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Select none" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Select none" }));
-    expect(screen.getByText("No feeds selected.")).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: /Feed a/ }));
     await user.click(screen.getByRole("checkbox", { name: /Feed b/ }));
     await user.click(screen.getByRole("checkbox", { name: /Feed e/ }));
     await user.click(screen.getByRole("checkbox", { name: /own folder/ }));
     await user.click(screen.getByRole("button", { name: "Add 3 feeds" }));
-    await headingIs("Your Kipple's address");
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(bodyOf(callTo(calls, "POST", "/api/starter-feeds")[0] as never)).toEqual({ ids: ["a", "b", "e"], folders: false });
+    expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(1);
   });
 
-  it("adds nothing until asked, and Skip sends nothing", async () => {
+  it("Continue with nothing ticked adds nothing and ends setup in the reader", async () => {
     const { calls } = server(signedIn({ starter }));
     go("/welcome/feeds");
     await screen.findByText("Feed a");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Your Kipple's address");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(callTo(calls, "POST", "/api/starter-feeds")).toHaveLength(0);
+    expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(1);
+    // The reader is an arrival, not a page load: focus is on its heading, not left on the page (#499).
+    await waitFor(() => expect(document.activeElement?.hasAttribute("data-route-heading")).toBe(true));
+    // The empty states are not live regions, so nothing is read twice on arrival.
+    expect(document.querySelectorAll('[role="status"] h2')).toHaveLength(0);
   });
 
-  it("can have everything unticked", async () => {
-    server(signedIn({ starter }));
-    go("/welcome/feeds");
-    const user = userEvent.setup();
-    await screen.findByText("Feed a");
-    await user.click(screen.getByRole("button", { name: "Select all" }));
-    await user.click(screen.getByRole("button", { name: "Select none" }));
-    expect(screen.getByText("No feeds selected.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add feeds" })).toBeDisabled();
-  });
-
-  it("shows an empty state when there are no recommendations", async () => {
+  it("shows an empty state when there are no recommendations, and Continue still ends setup", async () => {
     server(signedIn({ starter: { available: false, categories: [] } }));
     go("/welcome/feeds");
     expect(await screen.findByText("No recommended feeds are available.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add feeds" })).toBeDisabled();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Your Kipple's address");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
   });
 
   it("offers a retry when the list cannot be loaded", async () => {
@@ -957,172 +585,111 @@ describe("Step 5: recommended feeds", () => {
     server(signedIn({ starter }), { "POST /api/starter-feeds": () => json(body, status) });
     go("/welcome/feeds");
     await screen.findByText("Feed a");
-    await userEvent.setup().click(screen.getByRole("button", { name: /^Add \d feeds?$/ }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("checkbox", { name: /Feed a/ }));
+    await user.click(screen.getByRole("button", { name: "Add 1 feed" }));
     expect(await findAlert()).toHaveTextContent(text);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Recommended feeds");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Choose your feeds");
+  });
+
+  it("stays on the step and says so when ending setup fails", async () => {
+    server(signedIn(), { "POST /api/onboarding/complete": () => json({ error: "internal" }, 500) });
+    go("/welcome/feeds");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("Couldn't finish setup. Kipple's server had a problem.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Choose your feeds");
+  });
+
+  it("disables the button while adding saves", async () => {
+    const never = () => new Promise<Response>(() => undefined);
+    server(signedIn({ starter }), { "POST /api/starter-feeds": never as Handler });
+    go("/welcome/feeds");
+    await screen.findByText("Feed a");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("checkbox", { name: /Feed a/ }));
+    await user.click(screen.getByRole("button", { name: "Add 1 feed" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Adding" })).toBeDisabled());
+  });
+
+  it("imports a feeds file from the link, in the dialog Settings uses, and stays on the step", async () => {
+    const { calls } = server(signedIn({ starter }), {
+      "POST /api/opml": () => json({ folders_created: 0, feeds_added: 2, feeds_existing: [], folders_merged_case: [], memberships_dropped: [] }),
+    });
+    go("/welcome/feeds");
+    const user = userEvent.setup();
+    await screen.findByText("Feed a");
+    await user.click(screen.getByRole("button", { name: "Import a feeds file" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.upload(within(dialog).getByLabelText("OPML file"), new File(['<?xml version="1.0"?><opml version="2.0"><body/></opml>'], "feeds.opml"));
+    await user.click(
+      await waitFor(() => {
+        const b = within(dialog).getByRole("button", { name: "Import" });
+        expect(b).toBeEnabled();
+        return b;
+      }),
+    );
+    expect(await screen.findByRole("heading", { name: "Import finished" })).toBeInTheDocument();
+    expect(callTo(calls, "POST", "/api/opml")).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Choose your feeds");
+    expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(0);
   });
 });
 
-describe("Step 7: finish", () => {
+describe("the time zone", () => {
   const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
 
-  it("generates the API password with the web password from step 1, shows it once with a copy button", async () => {
-    setupSecret.set("correct horse");
-    const { calls } = server(signedIn(), { "POST /api/account/api-password": () => json({ api_password: "abcd-efgh-ijkl" }) });
-    const user = userEvent.setup();
-    const writeText = vi.spyOn(navigator.clipboard, "writeText");
-    const { container } = go("/welcome/finish");
-    await heading();
-    // No second prompt for the password.
-    expect(screen.queryByLabelText("Your web password")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Generate API password" }));
-    expect(await screen.findByTestId("api-password")).toHaveTextContent("abcd-efgh-ijkl");
-    expect(bodyOf(callTo(calls, "POST", "/api/account/api-password")[0] as never)).toEqual({ current: "correct horse", generate: true });
-    expect(screen.getByText(/can't show it again/)).toBeInTheDocument();
-    expect(screen.getByText(/\/api\/greader\.php/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Copy" }));
-    expect(writeText).toHaveBeenCalledWith("abcd-efgh-ijkl");
-    expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
-    expect(await axe(container)).toHaveNoViolations();
+  it("is the browser's, saved when setup ends and before it is marked done", async () => {
+    browserZoneIs("America/New_York");
+    const w = signedIn();
+    const { calls } = server(w);
+    go("/welcome/feeds");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    expect(w.tz).toBe("America/New_York");
+    const order = calls.filter((c) => (c.method === "PATCH" && c.url.pathname === "/api/settings") || c.url.pathname === "/api/onboarding/complete").map((c) => c.url.pathname);
+    expect(order).toEqual(["/api/settings", "/api/onboarding/complete"]);
   });
 
-  it("asks for the web password again after a reload", async () => {
-    const { calls } = server(signedIn(), { "POST /api/account/api-password": () => json({ api_password: "zzzz" }) });
-    go("/welcome/finish");
-    const user = userEvent.setup();
-    await heading();
-    expect(screen.getByRole("button", { name: "Generate API password" })).toBeDisabled();
-    await user.type(screen.getByLabelText("Your web password"), "correct horse");
-    await user.click(screen.getByRole("button", { name: "Generate API password" }));
-    await screen.findByTestId("api-password");
-    expect(bodyOf(callTo(calls, "POST", "/api/account/api-password")[0] as never)).toEqual({ current: "correct horse", generate: true });
+  it("leaves a zone somebody chose alone", async () => {
+    browserZoneIs("America/New_York");
+    const w = signedIn({ tz: "Asia/Tokyo" });
+    const { calls } = server(w);
+    go("/welcome/feeds");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
+    expect(w.tz).toBe("Asia/Tokyo");
   });
 
-  it("needs no password in open mode", async () => {
-    const { calls } = server(signedIn({ authMode: "open", passwordSet: false }), { "POST /api/account/api-password": () => json({ api_password: "open-one" }) });
-    go("/welcome/finish");
-    const user = userEvent.setup();
-    await heading();
-    expect(screen.queryByLabelText("Your web password")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Generate API password" }));
-    await screen.findByTestId("api-password");
-    expect(bodyOf(callTo(calls, "POST", "/api/account/api-password")[0] as never)).toEqual({ generate: true });
-  });
-
-  it("shows why a refused password was refused", async () => {
-    setupSecret.set("wrong");
-    server(signedIn(), { "POST /api/account/api-password": () => json({ error: "bad_password" }, 403) });
-    go("/welcome/finish");
-    await heading();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Generate API password" }));
-    expect(await findAlert()).toHaveTextContent("The current password isn't right.");
-  });
-
-  it("finishes without an API password, forgets the remembered one and opens the reader", async () => {
-    setupSecret.set("correct horse");
-    const { calls } = server(signedIn());
-    go("/welcome/finish");
-    await heading();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Finish" }));
+  it("does not hold setup back when it cannot be saved", async () => {
+    browserZoneIs("America/New_York");
+    const { calls } = server(signedIn(), { "PATCH /api/settings": () => json({ error: "internal" }, 500) });
+    go("/welcome/feeds");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Continue" }));
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(1);
-    expect(callTo(calls, "POST", "/api/account/api-password")).toHaveLength(0);
-    expect(setupSecret.get()).toBeNull();
-  });
-
-  it("stays and says so when finishing fails", async () => {
-    server(signedIn(), { "POST /api/onboarding/complete": () => json({ error: "internal" }, 500) });
-    go("/welcome/finish");
-    await heading();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Finish" }));
-    await waitFor(() => expect(screen.getAllByText("Couldn't finish setup. Kipple's server had a problem.").length).toBeGreaterThan(0));
-    expect(screen.getByRole("button", { name: "Finish" })).toBeEnabled();
-  });
-});
-
-describe("Step 6: the address", () => {
-  const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
-
-  it("saves a typed address and goes on, and passes axe", async () => {
-    const { calls } = server(signedIn());
-    const { container } = go("/welcome/address");
-    await screen.findByLabelText("Public URL (optional)");
-    expect(screen.getByText("Step 6 of 7")).toBeInTheDocument();
-    expect(await axe(container)).toHaveNoViolations();
-    const user = userEvent.setup();
-    await user.type(screen.getByLabelText("Public URL (optional)"), "  https://rss.example.com ");
-    await user.keyboard("{Enter}");
-    await headingIs("You're all set");
-    expect(callTo(calls, "PATCH", "/api/settings").map(bodyOf)).toEqual([{ "server.public_url": "https://rss.example.com" }]);
-  });
-
-  it("Skip saves nothing, and Continue with nothing typed saves nothing", async () => {
-    const { calls } = server(signedIn());
-    go("/welcome/address");
-    await screen.findByLabelText("Public URL (optional)");
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("You're all set");
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    await user.type(await screen.findByLabelText("Public URL (optional)"), "https://typed.example.com");
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("You're all set");
-    expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
-  });
-
-  it("shows the server's reason for a refused address and stays", async () => {
-    server(signedIn(), {
-      "PATCH /api/settings": () =>
-        json({ error: "invalid_settings", message: "invalid settings: server.public_url", keys: ["server.public_url"], issues: [{ key: "server.public_url", message: "\"rss.example.com\" must start with http:// or https://" }] }, 400),
-    });
-    go("/welcome/address");
-    const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("Public URL (optional)"), "rss.example.com");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(await findAlert()).toHaveTextContent("must start with http:// or https://");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Your Kipple's address");
-  });
-
-  it("suggests the address the page was opened at only when it is a name no device on the network can claim", async () => {
-    const { suggestedAddress } = await import("./AddressStep");
-    expect(suggestedAddress({ origin: "https://rss.example.com", hostname: "rss.example.com" })).toBe("https://rss.example.com");
-    expect(suggestedAddress({ origin: "https://box.tail1234.ts.net", hostname: "box.tail1234.ts.net" })).toBe("https://box.tail1234.ts.net");
-    for (const h of ["localhost", "app.localhost", "192.168.1.10", "[::1]", "[fe80::1]", "nas", "nas.local", "NAS.LOCAL.", "box.lan", "x.home.arpa", "svc.internal", "nas.home", "box.localdomain", "fritz.box", "nas.fritz.box", "intranet.corp"]) {
-      expect(suggestedAddress({ origin: `http://${h}:1919`, hostname: h })).toBe("");
-    }
   });
 });
 
 describe("the whole run", () => {
-  it("walks all seven steps with a password", async () => {
+  it("is two steps: the account, then the feeds", async () => {
     browserZoneIs("Asia/Tokyo");
     const w = makeWorld();
     const { calls } = server(w, {
-      "GET /api/starter-feeds": () => json({ available: true, categories: [{ id: "x", title: "Sample", feeds: [{ id: "f1", title: "Sample feed", url: "https://f1.example.com/feed", checked: true, subscribed: false }] }] }),
+      "GET /api/starter-feeds": () => json({ available: true, categories: [{ id: "x", title: "Sample", feeds: [{ id: "f1", title: "Sample feed", url: "https://f1.example.com/feed", subscribed: false }] }] }),
       "POST /api/starter-feeds": () => json({ added: 1, existing: 0, run_id: null }),
     });
     go("/");
     const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("User name"), "reader");
+    await user.type(await screen.findByLabelText("Username"), "reader");
     await user.type(screen.getByLabelText("Password"), "correct horse");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
-    await headingIs("Choose your time zone");
-    await screen.findByTestId("selected-zone");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Look and feel");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Bring your feeds along");
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Recommended feeds");
-    await user.click(await screen.findByRole("button", { name: "Add 1 feed" }));
-    await headingIs("Your Kipple's address");
-    await user.type(screen.getByLabelText("Public URL (optional)"), "https://rss.example.com");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("You're all set");
-    await user.click(screen.getByRole("button", { name: "Finish" }));
+    await headingIs("Choose your feeds");
+    await user.click(await screen.findByRole("checkbox", { name: /Sample feed/ }));
+    await user.click(screen.getByRole("button", { name: "Add 1 feed" }));
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(w.tz).toBe("Asia/Tokyo");
-    expect(callTo(calls, "PATCH", "/api/settings").map(bodyOf)).toContainEqual({ "server.public_url": "https://rss.example.com" });
     expect(w.pending).toBe(false);
     expect(callTo(calls, "POST", "/api/setup/account")).toHaveLength(1);
   });
@@ -1131,14 +698,14 @@ describe("the whole run", () => {
 describe("Settings: run setup again", () => {
   const done = () => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, pending: false });
 
-  it("opens the steps in this tab and tells the server nothing", async () => {
+  it("opens the feeds step in this tab and tells the server nothing", async () => {
     const { calls } = server(done());
     go("/settings/account");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Run setup again" }));
-    await headingIs("Choose your time zone");
+    await headingIs("Choose your feeds");
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
-    expect(window.location.pathname).toBe("/welcome/timezone");
+    expect(window.location.pathname).toBe("/welcome/feeds");
   });
 
   it("ends the rerun when the person leaves the steps with Back", async () => {
@@ -1146,7 +713,7 @@ describe("Settings: run setup again", () => {
     go("/settings/account");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Run setup again" }));
-    await headingIs("Choose your time zone");
+    await headingIs("Choose your feeds");
     expect(rerunStore.get()).toBe(true);
     act(() => window.history.back());
     await waitFor(() => expect(window.location.pathname).toBe("/settings/account"));
@@ -1158,9 +725,9 @@ describe("Settings: run setup again", () => {
     go("/settings/account");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Run setup again" }));
-    await headingIs("Choose your time zone");
+    await headingIs("Choose your feeds");
     expect(rerunStore.get()).toBe(true);
-    await user.click(screen.getByRole("button", { name: "Skip the rest of setup" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(1);
     expect(rerunStore.get()).toBe(false);
@@ -1173,69 +740,36 @@ describe("Settings: run setup again", () => {
     expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
   });
 
-  it("drops what the wizard remembered when the app signs out", async () => {
-    setupSecret.set("correct horse");
+  it("drops the rerun when the app signs out", async () => {
+    markRerun();
     server(done());
     go("/settings/account");
     await screen.findByRole("button", { name: "Sign out" });
     act(() => authStore.set("out"));
-    await waitFor(() => expect(setupSecret.get()).toBeNull());
+    await waitFor(() => expect(rerunStore.get()).toBe(false));
   });
 
   it("starts at the recommended feeds from the empty state", async () => {
     server(done(), { "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [], folders: [], counts: { unread: 0, starred: 0 }, user: { ...bootstrap.user, setup_pending: false } }), "GET /api/items": () => json(pageOf([])), "GET /api/starter-feeds": () => json({ available: false, categories: [] }) });
     go("/l/unread");
     await userEvent.setup().click(await screen.findByRole("button", { name: "Recommended feeds" }));
-    await headingIs("Recommended feeds");
+    await headingIs("Choose your feeds");
     expect(window.location.pathname).toBe("/welcome/feeds");
-  });
-});
-
-// ---- review fixes: the signed-out screen, skip-all, the theme preview and the small things around them ----
-
-describe("Skip the rest of setup from step 2 keeps the time zone", () => {
-  const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
-
-  it("saves the preselected zone before it ends setup", async () => {
-    browserZoneIs("America/New_York");
-    const w = signedIn();
-    const { calls } = server(w);
-    go("/welcome/timezone");
-    await headingIs("Choose your time zone");
-    await userEvent.setup().click(await screen.findByRole("button", { name: "Skip the rest of setup" }));
-    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
-    expect(w.tz).toBe("America/New_York");
-    const order = calls.filter((c) => (c.method === "PATCH" && c.url.pathname === "/api/settings") || c.url.pathname === "/api/onboarding/complete").map((c) => c.url.pathname);
-    expect(order).toEqual(["/api/settings", "/api/onboarding/complete"]);
-  });
-
-  it("still ends setup when the zone cannot be saved", async () => {
-    browserZoneIs("America/New_York");
-    const { calls } = server(signedIn(), { "PATCH /api/settings": () => json({ error: "internal" }, 500) });
-    go("/welcome/timezone");
-    await headingIs("Choose your time zone");
-    await userEvent.setup().click(await screen.findByRole("button", { name: "Skip the rest of setup" }));
-    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
-    expect(callTo(calls, "POST", "/api/onboarding/complete")).toHaveLength(1);
-    // The reader is an arrival, not a page load: focus is on its heading, not left on the page (#499).
-    await waitFor(() => expect(document.activeElement?.hasAttribute("data-route-heading")).toBe(true));
-    // The empty states are not live regions, so nothing is read twice on arrival.
-    expect(document.querySelectorAll('[role="status"] h2')).toHaveLength(0);
   });
 });
 
 describe("a stale /welcome/<step> address before the account exists", () => {
   it("does not carry the new account past step 2", async () => {
     server(makeWorld());
-    go("/welcome/theme");
+    go("/welcome/feeds");
     const user = userEvent.setup();
     await headingIs("Create your account");
     expect(window.location.pathname).toBe("/");
-    await user.type(screen.getByLabelText("User name"), "reader");
+    await user.type(screen.getByLabelText("Username"), "reader");
     await user.type(screen.getByLabelText("Password"), "correct horse");
     await user.click(screen.getByRole("button", { name: "Create my account" }));
-    await headingIs("Choose your time zone");
-    expect(window.location.pathname).toBe("/welcome/timezone");
+    await headingIs("Choose your feeds");
+    expect(window.location.pathname).toBe("/welcome/feeds");
   });
 });
 
@@ -1367,108 +901,6 @@ describe("open-mode sign-in edge cases", () => {
   });
 });
 
-describe("a step that is saving cannot be left", () => {
-  const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
-  const never = () => new Promise<Response>(() => undefined);
-
-  it("theme: Back, Skip and Skip the rest are disabled while Continue saves", async () => {
-    server(signedIn(), { "PATCH /api/settings": never as Handler });
-    go("/welcome/theme");
-    await heading();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Saving" })).toBeDisabled());
-    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Skip the rest of setup" })).toHaveAttribute("aria-disabled", "true"); // keeps focus
-  });
-
-  it("feeds: Back, Skip and Skip the rest are disabled while Add saves", async () => {
-    const starter = { available: true, categories: [{ id: "c", title: "News", feeds: [{ id: "f1", title: "One", url: "https://one.example/feed", checked: true, subscribed: false }] }] };
-    server(signedIn({ starter }), { "POST /api/starter-feeds": never as Handler });
-    go("/welcome/feeds");
-    await screen.findByText("One");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Add 1 feed" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Adding" })).toBeDisabled());
-    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Skip the rest of setup" })).toHaveAttribute("aria-disabled", "true"); // keeps focus
-  });
-
-  it("import: Back, Skip and Skip the rest are disabled while the file uploads", async () => {
-    server(signedIn(), { "POST /api/opml": never as Handler });
-    go("/welcome/import");
-    await heading();
-    const user = userEvent.setup();
-    await user.upload(screen.getByLabelText("OPML file"), new File(['<?xml version="1.0"?><opml/>'], "feeds.opml"));
-    await user.click(
-      await waitFor(() => {
-        const b = screen.getByRole("button", { name: "Import" });
-        expect(b).toBeEnabled();
-        return b;
-      }),
-    );
-    await waitFor(() => expect(screen.getByRole("button", { name: "Importing" })).toBeDisabled());
-    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Skip the rest of setup" })).toHaveAttribute("aria-disabled", "true"); // keeps focus
-  });
-
-  it("import: refuses a file over the server's 8 MB limit before uploading it", async () => {
-    const { calls } = server(signedIn());
-    go("/welcome/import");
-    await heading();
-    const big = new File(["<opml/>"], "huge.opml");
-    Object.defineProperty(big, "size", { value: 9 * 1024 * 1024 });
-    await userEvent.setup().upload(screen.getByLabelText("OPML file"), big);
-    expect(await findAlert()).toHaveTextContent(/too large.*8 MB/);
-    expect(screen.getByRole("button", { name: "Import" })).toBeDisabled();
-    expect(callTo(calls, "POST", "/api/opml")).toHaveLength(0);
-  });
-});
-
-describe("what the wizard keeps in memory", () => {
-  const signedIn = (over: Partial<World> = {}) => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true, ...over });
-
-  it("drops the step 1 password when setup turns out to be over", async () => {
-    setupSecret.set("correct horse");
-    server(signedIn({ pending: false }));
-    go("/welcome/finish");
-    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
-    expect(setupSecret.get()).toBeNull();
-  });
-
-  it("warns before a second API password replaces the one shown once", async () => {
-    setupSecret.set("correct horse");
-    server(signedIn(), { "POST /api/account/api-password": () => json({ api_password: "abcd-efgh-ijkl" }) });
-    go("/welcome/finish");
-    await heading();
-    const user = userEvent.setup();
-    expect(screen.queryByText(/already made an API password/)).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Generate API password" }));
-    await screen.findByTestId("api-password");
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    await headingIs("Your Kipple's address");
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("You're all set");
-    expect(screen.getByText(/already made an API password.*can't show it again/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Replace API password" })).toBeInTheDocument();
-  });
-
-  it("shows no web password field for an account whose password is not known yet", async () => {
-    mockFetch({ "GET /api/bootstrap": () => new Promise<Response>(() => undefined) });
-    const { FinishStep } = await import("./FinishStep");
-    const { QueryClientProvider } = await import("@tanstack/react-query");
-    render(
-      <QueryClientProvider client={makeQueryClient({ retry: false })}>
-        <FinishStep onBack={() => undefined} onFinish={() => undefined} />
-      </QueryClientProvider>,
-    );
-    await headingIs("You're all set");
-    expect(screen.queryByLabelText("Your web password")).toBeNull();
-    expect(screen.getByRole("button", { name: "Generate API password" })).toBeDisabled();
-  });
-});
-
 describe("step 1: accessibility and small things", () => {
   const claimed = () => makeWorld();
 
@@ -1483,135 +915,3 @@ describe("step 1: accessibility and small things", () => {
   });
 });
 
-describe("previewing a theme does not write this device's profile", () => {
-  const signedIn = () => makeWorld({ instance: { setup: false, auth: "password" }, signedIn: true });
-  const d = DEFAULT_THEME_SETTINGS;
-  const merged = { "ui.theme": "system", "ui.theme_day": d.day, "ui.theme_night": d.night, "ui.theme_schedule": d.schedule, "ui.theme_night_start": d.nightStart, "ui.theme_day_start": d.dayStart };
-  const deviceRoutes = (w: World) => ({
-    "GET /api/bootstrap": () =>
-      json({ ...bootstrap, device: { id: "dev1", name: "This device", profile: {}, merged }, user: { ...bootstrap.user, username: "reader", password_set: true, auth_mode: "password", setup_pending: w.pending } }),
-    "PATCH /api/device": () => json({ id: "dev1", name: "This device", profile: {}, merged }),
-  });
-  const themeKeys = (calls: { method: string; url: URL; init?: RequestInit }[]) => callTo(calls, "PATCH", "/api/device").flatMap((c) => Object.keys(bodyOf(c as never)).filter((k) => k.startsWith("ui.theme")));
-  const hydrated = () => waitFor(() => expect(syncStore.get().status).toBe("idle"));
-
-  it("Skip after a preview leaves the profile without theme overrides", async () => {
-    const w = signedIn();
-    const { calls } = server(w, deviceRoutes(w));
-    go("/welcome/theme");
-    await heading();
-    await hydrated();
-    const user = userEvent.setup();
-    await user.selectOptions(screen.getByLabelText("Day theme"), "linen");
-    expect(themeStore.get().day).toBe("linen");
-    await flush();
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Bring your feeds along");
-    await flush();
-    expect(themeStore.get()).toEqual(DEFAULT_THEME_SETTINGS);
-    expect(themeKeys(calls)).toEqual([]);
-  });
-
-  it("Continue saves the default and does not pin the device to it either", async () => {
-    const w = signedIn();
-    const { calls } = server(w, deviceRoutes(w));
-    go("/welcome/theme");
-    await heading();
-    await hydrated();
-    const user = userEvent.setup();
-    await user.selectOptions(screen.getByLabelText("Day theme"), "linen");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Bring your feeds along");
-    await flush();
-    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never))).toContainEqual({ "ui.theme": "system", "ui.theme_day": "linen", "ui.theme_night": "midnight", "ui.font_body": "default" });
-    expect(themeKeys(calls)).toEqual([]);
-    expect(themeStore.get().day).toBe("linen");
-  });
-
-  it("Continue still writes a pick to a device that already overrides that theme (a changed default would not move it)", async () => {
-    const w = signedIn();
-    const own = { ...merged, "ui.theme_day": "graphite" };
-    const { calls } = server(w, {
-      "GET /api/bootstrap": () => json({ ...bootstrap, device: { id: "dev1", name: "This device", profile: { "ui.theme_day": "graphite" }, merged: own }, user: { ...bootstrap.user, username: "reader", password_set: true, auth_mode: "password", setup_pending: w.pending } }),
-      "PATCH /api/device": () => json({ id: "dev1", name: "This device", profile: { "ui.theme_day": "linen" }, merged: { ...own, "ui.theme_day": "linen" } }),
-    });
-    go("/welcome/theme");
-    await heading();
-    await hydrated();
-    const user = userEvent.setup();
-    await user.selectOptions(screen.getByLabelText("Day theme"), "linen");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Bring your feeds along");
-    await flush();
-    expect(themeKeys(calls)).toEqual(["ui.theme_day"]);
-  });
-
-  const fontKeys = (calls: { method: string; url: URL; init?: RequestInit }[]) => callTo(calls, "PATCH", "/api/device").flatMap((c) => Object.keys(bodyOf(c as never)).filter((k) => k === "ui.font_body"));
-
-  it("a reading-font preview and Skip leave no font override in the profile", async () => {
-    const w = signedIn();
-    const { calls } = server(w, deviceRoutes(w));
-    go("/welcome/theme");
-    await heading();
-    await hydrated();
-    const user = userEvent.setup();
-    await user.selectOptions(screen.getByLabelText("Reading font"), "manrope");
-    expect(prefsStore.get().font).toBe("manrope");
-    await flush();
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Bring your feeds along");
-    await flush();
-    expect(prefsStore.get().font).toBe("default");
-    expect(fontKeys(calls)).toEqual([]);
-  });
-
-  it("Continue saves the font as the default and does not pin the device to it", async () => {
-    const w = signedIn();
-    const { calls } = server(w, deviceRoutes(w));
-    go("/welcome/theme");
-    await heading();
-    await hydrated();
-    const user = userEvent.setup();
-    await user.selectOptions(screen.getByLabelText("Reading font"), "source-serif");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await headingIs("Bring your feeds along");
-    await flush();
-    expect(callTo(calls, "PATCH", "/api/settings").map((c) => bodyOf(c as never)["ui.font_body"])).toEqual(["source-serif"]);
-    expect(fontKeys(calls)).toEqual([]);
-    expect(prefsStore.get().font).toBe("source-serif");
-  });
-
-  it("a font change outside the wizard still syncs normally once the preview is over", async () => {
-    const w = signedIn();
-    const { calls } = server(w, deviceRoutes(w));
-    go("/welcome/theme");
-    await heading();
-    await hydrated();
-    const user = userEvent.setup();
-    await user.selectOptions(screen.getByLabelText("Reading font"), "arvo");
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await headingIs("Bring your feeds along");
-    act(() => updatePrefs({ font: "inter" }));
-    await flush();
-    expect(fontKeys(calls)).toEqual(["ui.font_body"]);
-  });
-
-  it("ending setup elsewhere with an unsaved preview leaves the profile alone too", async () => {
-    const w = signedIn();
-    const { calls } = server(w, deviceRoutes(w));
-    go("/welcome/theme");
-    await heading();
-    await hydrated();
-    const user = userEvent.setup();
-    await user.selectOptions(screen.getByLabelText("Night theme"), "carbon");
-    await user.selectOptions(screen.getByLabelText("Reading font"), "vollkorn");
-    await flush();
-    await user.click(screen.getByRole("button", { name: "Skip the rest of setup" }));
-    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
-    await flush();
-    expect(themeStore.get()).toEqual(DEFAULT_THEME_SETTINGS);
-    expect(prefsStore.get().font).toBe("default");
-    expect(themeKeys(calls)).toEqual([]);
-    expect(fontKeys(calls)).toEqual([]);
-  });
-});

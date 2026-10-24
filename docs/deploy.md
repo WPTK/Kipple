@@ -439,11 +439,11 @@ open mode: sync apps still sign in with the app password, which is then the only
 
 ## Time zone
 
-The time zone is one setting, `tz` (Settings, Account & Devices, and wizard step 2). It is the zone for daily reading
+The time zone is one setting, `tz` (Settings, Account & Devices). It is the zone for daily reading
 statistics, the nightly 04:10 maintenance and the weekly snapshot, backup file names and log timestamps. Log timestamps follow
 the zone from the next start, and within that start the first lines are still UTC (they end in `Z`) before later ones are
 local. Everything else is read live, so a change takes effect at the next statistics write, summary request and nightly
-tick, with no restart. The default for a new install is UTC, and the wizard preselects your browser's zone.
+tick, with no restart. The default for a new install is UTC; when the setup wizard ends with that default still saved, it saves your browser's zone instead.
 
 The `TZ` environment variable (IANA name) only gives a new install its first value: on a start where no `tz` setting
 exists yet, Kipple stores `TZ` as the setting. After that `TZ` is not read for the zone, so changing or removing it does
@@ -455,9 +455,9 @@ effect when they were written, so a day never moves. Dates in the web app follow
 server zone is.
 
 **Known limitation.** Kipple cannot tell an explicit choice of UTC from the untouched default, because both are stored as
-`UTC`. So the wizard's time zone step, when it opens with `UTC` saved, treats it as "not chosen yet" and suggests your
-browser's zone; that suggestion is only saved if you press Continue. (In a Run setup again session the saved zone is kept
-as the choice.) A `TZ` of `UTC` on a new install is stored as `UTC`, so it behaves the same way.
+`UTC`. So the wizard, when it ends with `UTC` saved, treats it as "not chosen yet" and saves your browser's zone;
+change it in Settings if that is not what you want. (Run setup again keeps whatever zone is saved.) A `TZ` of `UTC` on a
+new install is stored as `UTC`, so it behaves the same way.
 
 ## About, debug info and versions
 

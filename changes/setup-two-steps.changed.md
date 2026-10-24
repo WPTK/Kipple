@@ -1,0 +1,1 @@
+Setup: the wizard has two steps, your account and your feeds. The time zone comes from the browser, theme, address and app password live in Settings, nothing is pre-ticked, the button reads Continue until you tick a feed, and a feeds file is imported from a link in the feeds step. (#698, #700, #703)

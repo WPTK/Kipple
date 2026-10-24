@@ -1,26 +1,20 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { Button } from "@/ui/button";
 import { STEP_COUNT, type StepInfo } from "./steps";
 
 /**
- * The page every wizard step sits in: a narrow column with "Step 2 of 7", the step's heading (focused when the step
+ * The page every wizard step sits in: a narrow column with "Step 2 of 2", the step's heading (focused when the step
  * appears, so a screen reader says where it is) and the step's content. Scrolls on its own so a phone's keyboard or
  * a long list never traps the buttons.
  */
 export function WizardFrame({
   step,
   description,
-  onSkipAll,
-  skipAllBusy,
   children,
 }: {
   step: Pick<StepInfo, "n" | "title"> & { id: string };
   description?: ReactNode;
-  /** Finishes setup without the remaining steps (POST /api/onboarding/complete). Offered on the signed-in steps. */
-  onSkipAll?: () => void;
-  skipAllBusy?: boolean;
   children: ReactNode;
 }) {
   useDocumentTitle(step.n > 0 ? `Step ${step.n} of ${STEP_COUNT}: ${step.title}` : step.title);
@@ -32,14 +26,7 @@ export function WizardFrame({
     <main className="pt-safe pb-safe h-full overflow-y-auto" data-testid="wizard" data-step={step.id}>
       <div className="mx-auto flex min-h-full w-full max-w-xl flex-col gap-5 px-4 py-6">
         <header className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-fg2">Kipple setup</p>
-            {onSkipAll ? (
-              <Button variant="link" className="min-h-11" aria-disabled={skipAllBusy || undefined} onClick={skipAllBusy ? undefined : onSkipAll}>
-                Skip the rest of setup
-              </Button>
-            ) : null}
-          </div>
+          <p className="text-sm font-semibold text-fg2">Kipple setup</p>
           {step.n > 0 ? <Progress n={step.n} /> : null}
           <h1 ref={heading} tabIndex={-1} data-route-heading className="text-2xl font-bold">
             {step.title}
@@ -67,7 +54,7 @@ function Progress({ n }: { n: number }) {
   );
 }
 
-/** The row of buttons under a step: Back on the left, Skip and the main button on the right (wrapping on a phone). */
+/** The row of buttons under a step: Back on the left, the main button on the right (wrapping on a phone). */
 export function StepActions({ children, back }: { children: ReactNode; back?: ReactNode }) {
   return (
     <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">

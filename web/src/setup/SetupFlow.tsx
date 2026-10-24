@@ -11,11 +11,12 @@ import { OpenRefusedScreen } from "./OpenRefused";
 import { fetchRestoreStatus } from "./restoreApi";
 import { RestoreStep } from "./RestoreStep";
 import { RestoreWaiting } from "./RestoreWaiting";
-import { forgetRestoreNext, restoredFeeds, wantsRestoreNext, welcomeEntry } from "./session";
+import { forgetRestoreNext, wantsRestoreNext } from "./session";
+import { WELCOME_ENTRY } from "./steps";
 
 /**
  * Step 1, before there is an account: the account form is the first screen. It signs the browser in; the app then
- * continues at /welcome.
+ * continues at /welcome/feeds.
  */
 export function SetupFlow({ options }: { options: SetupOptions }) {
   const qc = useQueryClient();
@@ -23,19 +24,20 @@ export function SetupFlow({ options }: { options: SetupOptions }) {
   const { pathname } = useLocation();
 
   // Before there is an account there is no /welcome: a stale address (a bookmark, or a tab left from an earlier run)
-  // would otherwise carry the new account past step 2 the moment it signs in. The first signed-in step always follows.
+  // would otherwise carry the new account past step 2 the moment it signs in. The feeds step always follows.
   useEffect(() => {
     if (pathname === "/welcome" || pathname.startsWith("/welcome/")) navigate("/", { replace: true });
   }, [pathname, navigate]);
 
+  // Settings > Restore asked for the restore step: no wizard led here, so the step shows no counter. Read before it is forgotten.
+  const [fromSettings] = useState(wantsRestoreNext);
   // The restore screens come before the account form; a reload lands on the waiting page while a restore is being applied.
   const [view, setView] = useState<"account" | "restore">(() =>
-    options.restore === "confirmed" || options.restore === "none" || options.restore === undefined ? (wantsRestoreNext() ? "restore" : "account") : "restore",
+    options.restore === "confirmed" || options.restore === "none" || options.restore === undefined ? (fromSettings ? "restore" : "account") : "restore",
   );
   // Only a page that loaded with a restore under way resumes it; coming back to the restore screen later starts at the picker.
   const [resume, setResume] = useState(options.restore !== undefined && options.restore !== "none" && options.restore !== "confirmed");
   useEffect(() => forgetRestoreNext(), []);
-  const [seeded, setSeeded] = useState(false);
   const [applying, setApplying] = useState<{ estimateSeconds: number; username: string | null } | null>(
     options.restore === "confirmed" ? { estimateSeconds: 300, username: null } : null,
   );
@@ -53,13 +55,8 @@ export function SetupFlow({ options }: { options: SetupOptions }) {
     return (
       <RestoreStep
         resume={resume}
+        inWizard={!fromSettings}
         onBack={() => {
-          setResume(false);
-          setView("account");
-        }}
-        onFeedsOnly={(f) => {
-          restoredFeeds.set(f);
-          setSeeded(true);
           setResume(false);
           setView("account");
         }}
@@ -70,11 +67,10 @@ export function SetupFlow({ options }: { options: SetupOptions }) {
   return (
     <AccountStep
       state={options}
-      feedsReady={seeded}
       onRestore={() => setView("restore")}
       onCreated={() => {
         // The sign-in has just turned the app to signed in; step 2 comes first whatever address this page was opened at.
-        navigate(welcomeEntry(), { replace: true });
+        navigate(WELCOME_ENTRY, { replace: true });
         void qc.invalidateQueries();
       }}
       onDone={() => window.location.reload()}

@@ -1903,7 +1903,7 @@ Host gate (`421`) in setup and open mode, the `TZ` seeding of the `tz` setting a
 
 ### 7.1f Address and access settings (`internal/reach`)
 
-How people reach Kipple and who may are settings, not environment variables, set in the setup wizard (the public URL, step 6) and in Settings, Advanced, Address and access (all four):
+How people reach Kipple and who may are settings, not environment variables, set in Settings, Advanced, Address and access (all four):
 
 | Key | Value | Default | Used by |
 |---|---|---|---|
