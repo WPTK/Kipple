@@ -6,10 +6,10 @@ import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
-import type { Bootstrap, Card, Feed } from "@/api/types";
+import type { Bootstrap, Feed, Headline } from "@/api/types";
 import { resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { clearToasts } from "@/shell/toasts";
-import { bootstrap, card, json, mockFetch } from "@/test/mockApi";
+import { bootstrap, json, mockFetch } from "@/test/mockApi";
 import { wide } from "@/test/media";
 
 // The Feed index: one block for each feed with its unread count and its newest headlines.
@@ -29,10 +29,10 @@ function library(feeds: Feed[]): Bootstrap {
   return { ...bootstrap, feeds, counts: { unread: feeds.reduce((a, f) => a + f.unread, 0), starred: 0 } };
 }
 
-const headlines = (feedId: number, n: number, read: number[] = []): Card[] =>
-  Array.from({ length: n }, (_, k) => card(k, { id: String(feedId * 100 + k), feed_id: String(feedId), title: `Feed ${feedId} story ${k + 1}`, published_at: BASE - k * 3600, sort_at: BASE - k * 3600, read: read.includes(k) }));
+const headlines = (feedId: number, n: number, read: number[] = []): Headline[] =>
+  Array.from({ length: n }, (_, k) => ({ id: String(feedId * 100 + k), feed_id: String(feedId), title: `Feed ${feedId} story ${k + 1}`, published_at: BASE - k * 3600, read: read.includes(k), starred: false }));
 
-function routes(feeds: Feed[], latest: Record<number, Card[]>, extra: Parameters<typeof mockFetch>[0] = {}) {
+function routes(feeds: Feed[], latest: Record<number, Headline[]>, extra: Parameters<typeof mockFetch>[0] = {}) {
   return mockFetch({
     "GET /api/bootstrap": () => json(library(feeds)),
     "GET /api/feeds/latest": () => json({ feeds: Object.entries(latest).map(([id, items]) => ({ feed_id: id, items })) }),
@@ -107,17 +107,20 @@ describe("the Feed index", () => {
 
   it("says a failing feed can't be fetched, in the words its own list uses, and says nothing for the others", async () => {
     const feeds = [feed(1, "Broken", { status: "failing", last_error: "dial tcp: no such host", last_error_class: "dns" }), feed(2, "Fine")];
-    routes(feeds, { 1: headlines(1, 2), 2: headlines(2, 1) });
+    const retryAt = Math.floor(Date.now() / 1000) + 7200;
+    routes(feeds, { 1: headlines(1, 2), 2: headlines(2, 1) }, { "GET /api/health/feeds": () => json({ feeds: [{ id: "1", enabled: true, next_fetch_at: retryAt }] }) });
     const { container } = go();
     await screen.findByText("Feed 1 story 1");
     expect(within(block(container, 1)).getByTestId("feed-index-failure")).toHaveTextContent(/Kipple can't fetch this feed/);
+    await waitFor(() => expect(within(block(container, 1)).getByTestId("feed-index-failure")).toHaveTextContent(/Trying again in/)); // when the feed's own list says it
     expect(within(block(container, 2)).queryByTestId("feed-index-failure")).toBeNull();
   });
 
-  it("says so for a feed with no articles", async () => {
-    const { container } = (routes([feed(1, "Empty")], {}), go());
-    await screen.findByText("No articles yet.");
-    expect(within(block(container, 1)).getByText("No articles yet.")).toBeInTheDocument();
+  it("says so for a feed the answer leaves out (no articles, or only muted ones)", async () => {
+    const { container } = (routes([feed(1, "Empty"), feed(2, "Fine")], { 2: headlines(2, 1) }), go());
+    await screen.findByText("Feed 2 story 1");
+    expect(within(block(container, 1)).getByText("No articles to show.")).toBeInTheDocument();
+    expect(within(block(container, 1)).queryByText(/No articles yet/)).toBeNull();
   });
 
   it("is one Tab stop, and the arrow keys visit the feed names and the headlines in the order drawn", async () => {
@@ -155,6 +158,40 @@ describe("the Feed index", () => {
     fail = false;
     await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
     await screen.findByText("Feed 1 story 1");
+  });
+
+  it("keeps what it shows when a later refresh fails, and only says it can't load when it has nothing", async () => {
+    let fail = false;
+    routes([feed(1, "Alpha", { unread: 1 })], { 1: headlines(1, 2) }, {
+      "GET /api/feeds/latest": () => (fail ? json({ error: "internal" }, 500) : json({ feeds: [{ feed_id: "1", items: headlines(1, 2) }] })),
+    });
+    const client = makeQueryClient({ retry: false });
+    window.history.replaceState({ idx: 0 }, "", "/feeds/index");
+    render(<App client={client} />);
+    await screen.findByText("Feed 1 story 1");
+    fail = true;
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["feeds-latest"] });
+    });
+    expect(screen.getByText("Feed 1 story 1")).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't load the feed index/)).toBeNull();
+  });
+
+  it("puts the scroll position and the row last visited back after an article, and starts at the top when opened afresh", async () => {
+    const feeds = Array.from({ length: 30 }, (_, i) => feed(i + 1, `Feed ${String(i + 1).padStart(2, "0")}`));
+    routes(feeds, Object.fromEntries(feeds.map((f) => [Number(f.id), headlines(Number(f.id), 3)])));
+    const user = userEvent.setup();
+    go();
+    await screen.findByText("Feed 20 story 1");
+    const scroller = screen.getByTestId("feed-index-scroll");
+    scroller.scrollTop = 900;
+    scroller.dispatchEvent(new Event("scroll"));
+    await user.click(screen.getByRole("link", { name: "Feed 20 story 2" }));
+    await screen.findByRole("heading", { name: "Feed 20 story 2" }).catch(() => undefined);
+    window.history.back();
+    await screen.findByText("Feed 20 story 2");
+    await waitFor(() => expect(screen.getByTestId("feed-index-scroll").scrollTop).toBe(900));
+    expect(screen.getByRole("link", { name: "Feed 20 story 2" })).toHaveFocus();
   });
 
   it("offers adding a feed when there are none", async () => {

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Link, type To } from "react-router";
 import { useLongPressMenu } from "@/gestures/useLongPressMenu";
-import type { Card } from "@/api/types";
+import type { Card, Headline } from "@/api/types";
 import { cn } from "@/lib/cn";
 import { articleTo } from "@/lib/routes";
 import { Button } from "@/ui/button";
@@ -16,10 +16,13 @@ import type { DigestSectionView, ListLayout, PageProps, RowMenuActions } from ".
 // it, in that order, so the DOM order is the reading order. A read article keeps its place: its title turns to the
 // secondary color (which meets 4.5:1 in every theme) and its picture fades.
 
-interface RowProps {
-  item: Card;
+/** What a row draws of an article. A Card has all of it; the Feed index sends only the headline. */
+export type RowItem = Headline & { source?: string; image?: string | null };
+
+interface RowProps<T extends RowItem> {
+  item: T;
   to: To;
-  onOpen: (item: Card) => void;
+  onOpen: (item: T) => void;
   /** The row's menu (More actions, long press). Without it the row has none. */
   actions?: RowMenuActions;
   /** Show the picture on the right, when the article has one. */
@@ -32,7 +35,7 @@ interface RowProps {
 }
 
 /** An article: its title first, then its source and time, and a picture on the right when there is one and pictures are on. */
-export function DigestRow({ item, to, onOpen, actions, images, source = true, selected, tabStop }: RowProps) {
+export function DigestRow<T extends RowItem>({ item, to, onOpen, actions, images, source = true, selected, tabStop }: RowProps<T>) {
   const press = useLongPressMenu(item.id);
   const failure = useImageFailure(item.image);
   const unread = !item.read;
@@ -71,7 +74,7 @@ export function DigestRow({ item, to, onOpen, actions, images, source = true, se
       {picture ? <ListImage src={item.image!} failure={failure} className={cn("size-16 shrink-0 rounded-lg bg-surface object-cover", item.read && "opacity-60")} /> : null}
       {actions ? (
         <RowTabStop.Provider value={tabStop}>
-          <RowMenu item={item} actions={actions} revealOnHover className="row-touch-unseen absolute right-1 bottom-1 bg-bg/80" />
+          <RowMenu item={item as unknown as Card /* a row with a menu is only given Cards */} actions={actions} revealOnHover className="row-touch-unseen absolute right-1 bottom-1 bg-bg/80" />
         </RowTabStop.Provider>
       ) : null}
     </article>

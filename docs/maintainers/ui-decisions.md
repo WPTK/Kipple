@@ -571,6 +571,9 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 - **Failing feeds** keep their block and add the line their own list shows; the page does not hide a feed that is
   broken.
 - **Keys.** The Digest's: one Tab stop, arrows, Home, End and Page keys through names and headlines.
-- **Back.** A headline opens its article inside the feed's own list, so Back goes to that feed's list.
+- **Back.** A headline opens its article inside the feed's own list, so next and previous stay with that feed. Back (the
+  button, the swipe, Esc, the browser's Back) returns to the index, as history does, scrolled where it was left with
+  the headline that was opened focused.
+- **Nothing to show.** A feed with no article, or only muted ones, says "No articles to show." under its name.
 - **Rejected:** a layout of the list screen (its mark-all and scope belong to one list of articles); showing only
   unread headlines (a quiet library would show empty blocks).

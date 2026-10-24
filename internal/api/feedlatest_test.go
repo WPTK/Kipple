@@ -56,8 +56,11 @@ func TestFeedsLatest(t *testing.T) {
 	require.Equal(t, []string{sid(a4), sid(a2), sid(a3), sid(a1)}, latestFeeds(t, body)[sid(a)])
 
 	first := body["feeds"].([]any)[0].(map[string]any)["items"].([]any)[0].(map[string]any)
-	for _, k := range []string{"id", "feed_id", "title", "url", "read", "starred", "source", "published_at"} {
-		require.Contains(t, first, k, "a card, as the lists send it")
+	for _, k := range []string{"id", "feed_id", "title", "read", "starred", "published_at"} {
+		require.Contains(t, first, k, "what a headline row draws")
+	}
+	for _, k := range []string{"excerpt", "image", "url", "author", "source"} {
+		require.NotContains(t, first, k, "a headline carries no excerpt, picture or link: the page draws none of them")
 	}
 
 	for _, bad := range []string{"n=0", "n=-1", "n=11", "n=x", "n=1.5"} {

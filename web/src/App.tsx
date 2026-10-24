@@ -28,7 +28,7 @@ import { Skeleton } from "@/ui/kit";
 // A failed download can be tried again (lib/lazyScreen.ts): React.lazy alone would keep the failure for good.
 const FeedsScreen = lazyScreen(() => import("@/screens/FeedsScreen").then((m) => ({ default: m.FeedsScreen })));
 const FeedIndexScreen = lazyScreen(() => import("@/screens/FeedIndexScreen").then((m) => ({ default: m.FeedIndexScreen })));
-const HealthScreen =lazyScreen(() => import("@/screens/HealthScreen").then((m) => ({ default: m.HealthScreen })));
+const HealthScreen = lazyScreen(() => import("@/screens/HealthScreen").then((m) => ({ default: m.HealthScreen })));
 const StatsScreen = lazyScreen(() => import("@/screens/StatsScreen").then((m) => ({ default: m.StatsScreen })));
 const WrappedScreen = lazyScreen(() => import("@/screens/WrappedScreen").then((m) => ({ default: m.WrappedScreen })));
 const Welcome = lazyScreen(() => import("@/setup/Welcome").then((m) => ({ default: m.Welcome })));
