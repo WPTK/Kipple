@@ -47,10 +47,10 @@ const SNAPSHOT_KEEP_MS = 5 * 60_000;
 /**
  * What each list showed when it was opened: its sections in order, the unread count of each as the bootstrap said then
  * (the page counts "N more" from it, so a count that moves under the reader does not), the Sections and Order settings
- * it came from (a change of either makes a new page; Rows and Images do not change which sections there are), and when
- * the reader left it.
+ * it came from (a change of either makes a new page; Rows and Images do not change which sections there are), the
+ * `as_of` each section first came back with (what a mark over it is bounded by), and when the reader left it.
  */
-const opened = new Map<string, { sig: string; keys: string[]; counts: Map<string, number | null>; left: number | null }>();
+const opened = new Map<string, { sig: string; keys: string[]; counts: Map<string, number | null>; bounds: Map<string, string>; left: number | null }>();
 /** How many mounted hooks (the list, and the reader's previous and next) use each list's page. The reader has left it only when none does. */
 const consumers = new Map<string, number>();
 /** A hook starts using the list's page: it is no longer away. Returns the call that stops. */
@@ -144,7 +144,7 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
   if (fixed && (fixed.sig !== sig || away)) fixed = undefined;
   if (!fixed) {
     const kept = live.filter((d) => !(scope.view === "unread" && d.count === 0));
-    fixed = { sig, keys: kept.map((d) => d.key), counts: new Map(kept.map((d) => [d.key, d.count])), left: null };
+    fixed = { sig, keys: kept.map((d) => d.key), counts: new Map(kept.map((d) => [d.key, d.count])), bounds: new Map(), left: null };
     opened.delete(listKey);
     opened.set(listKey, fixed);
     while (opened.size > PLACES_MAX) opened.delete(opened.keys().next().value!);
@@ -164,8 +164,15 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
   const loaded = new Map<string, LoadedSection>();
   for (const d of defs) {
     if (!askedFor.has(d.key)) continue;
-    const r = read(sectionScope(scope, d));
+    let r = read(sectionScope(scope, d));
     if (!r) continue;
+    // A section's bound is the as_of of the first list the page had of it: a refetch moves the list's own as_of on, and
+    // a mark bounded by that would take in articles the page never showed.
+    if (r.data?.asOf) {
+      const bound = fixed.bounds.get(d.key) ?? r.data.asOf;
+      fixed.bounds.set(d.key, bound);
+      r = { ...r, data: { ...r.data, asOf: bound } };
+    }
     results.set(d.key, r);
     if (r.data) loaded.set(d.key, { cards: r.data.cards, more: r.data.more });
   }
@@ -421,6 +428,9 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
         return r ? [{ d, r }] : [];
       });
       const oldest = oldestAsOf(loadedSections.map((s) => s.r.asOf));
+      // With no section loaded there is no bound, and a request without one marks what arrived after the page opened,
+      // which the reader never saw: no request is better than that one.
+      if (!oldest) return [];
       const whole = { scope: undefined, asOf: oldest, cards: loadedSections.flatMap((s) => s.r.cards).filter((c) => !arrivedAfter(c.id, oldest)) };
       const newer = loadedSections
         .filter((s) => oldest && s.r.asOf && arrivedAfter(s.r.asOf, oldest))

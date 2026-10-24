@@ -241,23 +241,26 @@ try {
 
         // G9: the sections below the first six load when the end of the page is reached.
         // Tall sections (ten rows), so the first six fill more than the page and its look-ahead and the rest are left unasked.
-        if ((await patch({ "client.digest_rows": 10 })) !== 200) return t.fail(`${tag} G9 setup`, "Rows per section was not set");
-        // The page remembers where the reader was, and opening it again goes back there, loading what it needs to; this checks a first visit.
-        await page.evaluate(() => localStorage.removeItem("kipple.listPlace.v1"));
-        await open();
-        const last = `UAT Digest ${EXTRA[EXTRA.length - 1].toUpperCase()}`;
         const scroller = page.getByTestId("list-scroll");
-        const beforeScroll = await loaded();
-        check(!beforeScroll.includes(last), `${tag} G9 not yet`, "the last section has no articles before the end of the page is reached", `the sections with articles at open are: ${beforeScroll.join(", ")}`);
-        for (let i = 0; i < 6 && !(await loaded()).includes(last); i++) {
-          const n = (await loaded()).length;
-          await scroller.evaluate((e) => e.scrollTo(0, e.scrollHeight));
-          await settled(`document.querySelectorAll("section[data-section]:has(article[data-item-id])").length > ${n}`, 3000);
+        try {
+          if ((await patch({ "client.digest_rows": 10 })) !== 200) return t.fail(`${tag} G9 setup`, "Rows per section was not set");
+          // The page remembers where the reader was, and opening it again goes back there, loading what it needs to; this checks a first visit.
+          await page.evaluate(() => localStorage.removeItem("kipple.listPlace.v1"));
+          await open();
+          const last = `UAT Digest ${EXTRA[EXTRA.length - 1].toUpperCase()}`;
+          const beforeScroll = await loaded();
+          check(!beforeScroll.includes(last), `${tag} G9 not yet`, "the last section has no articles before the end of the page is reached", `the sections with articles at open are: ${beforeScroll.join(", ")}`);
+          for (let i = 0; i < 6 && !(await loaded()).includes(last); i++) {
+            const n = (await loaded()).length;
+            await scroller.evaluate((e) => e.scrollTo(0, e.scrollHeight));
+            await settled(`document.querySelectorAll("section[data-section]:has(article[data-item-id])").length > ${n}`, 3000);
+          }
+          await settled(() => !document.querySelector('[data-testid="digest-skeleton"]'), 15000);
+          check((await loaded()).includes(last), `${tag} G9 later sections`, "a section past the sixth loads when the end of the page is reached", `the sections with articles are: ${(await loaded()).join(", ")}`);
+          await t.shot(page, `${tag}-digest-later-sections`);
+        } finally {
+          await patch({ "client.digest_rows": 3 });
         }
-        await settled(() => !document.querySelector('[data-testid="digest-skeleton"]'), 15000);
-        check((await loaded()).includes(last), `${tag} G9 later sections`, "a section past the sixth loads when the end of the page is reached", `the sections with articles are: ${(await loaded()).join(", ")}`);
-        await t.shot(page, `${tag}-digest-later-sections`);
-        await patch({ "client.digest_rows": 3 });
 
         // G10: mark as read while scrolling marks what was scrolled past, in the Digest too. What it marked is put back.
         const wasRead = new Set();
@@ -289,7 +292,8 @@ try {
             if (n === seen) break;
             seen = n;
             await page.waitForTimeout(250);
-          }          const flags = await readOf(shown);
+          }
+          const flags = await readOf(shown);
           const marked = shown.filter((_, i) => flags[i]);
           marked.forEach((id) => wasRead.add(id));
           const firstMarked = shown.indexOf(marked[0]);

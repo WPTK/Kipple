@@ -47,17 +47,38 @@ function allKept(ids: string[], kept: string[] | undefined): true | "kept" {
 
 /** Undo a scope mark: the changed ids plus the trimmed-ledger ids it flipped (design 7.1). */
 async function undoBulk(qc: QueryClient, ids: string[], ledger: string[]): Promise<boolean | "kept"> {
+  const requests = undoRequests(ids, ledger);
   patchItems(qc, ids, { read: false });
-  try {
-    const res = await api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids, ...(ledger.length ? { ledger_ids: ledger } : {}), read: false, reason: "bulk", undo: true } });
-    undoKept(qc, res?.kept);
-    // Ledger rows the undo flipped back are a change even when every stored article was kept.
-    return ledger.length > 0 ? true : allKept(ids, res?.kept);
-  } catch (e) {
-    patchItems(qc, ids, { read: true });
-    toast(errorMessage(e), "error");
-    return false;
+  const sent = await Promise.allSettled(requests.map((r) => api<MarkReadResponse>("/api/items/mark-read", { method: "POST", body: { ids: r.ids, ...(r.ledger.length ? { ledger_ids: r.ledger } : {}), read: false, reason: "bulk", undo: true } })));
+  const failed = requests.filter((_, i) => sent[i]!.status === "rejected");
+  const kept: string[] = [];
+  for (const s of sent) {
+    if (s.status !== "fulfilled") continue;
+    undoKept(qc, s.value?.kept);
+    kept.push(...(s.value?.kept ?? []));
   }
+  if (failed.length) {
+    // What a failed request would have restored goes back to read; the rest was undone.
+    patchItems(qc, failed.flatMap((r) => r.ids), { read: true });
+    const first = sent.find((s) => s.status === "rejected") as PromiseRejectedResult;
+    toast(errorMessage(first.reason), "error");
+    if (failed.length === requests.length) return false;
+  }
+  // Ledger rows the undo flipped back are a change even when every stored article was kept.
+  return ledger.length > 0 ? true : allKept(ids, kept);
+}
+
+/** The most ids, and ledger ids, one mark-read request takes (the server's caps). */
+export const UNDO_IDS_PER_REQUEST = 10000;
+export const UNDO_LEDGER_PER_REQUEST = 20000;
+
+/** Split an undo into requests the server takes: the ids and the ledger ids each within their cap. At least one request. */
+export function undoRequests(ids: readonly string[], ledger: readonly string[]): { ids: string[]; ledger: string[] }[] {
+  const n = Math.max(1, Math.ceil(ids.length / UNDO_IDS_PER_REQUEST), Math.ceil(ledger.length / UNDO_LEDGER_PER_REQUEST));
+  return Array.from({ length: n }, (_, i) => ({
+    ids: ids.slice(i * UNDO_IDS_PER_REQUEST, (i + 1) * UNDO_IDS_PER_REQUEST),
+    ledger: ledger.slice(i * UNDO_LEDGER_PER_REQUEST, (i + 1) * UNDO_LEDGER_PER_REQUEST),
+  }));
 }
 
 /**
@@ -288,14 +309,16 @@ export function itemActions(qc: QueryClient) {
     const count = done.reduce((n, d) => n + d.count, 0);
     const ids = [...new Set(done.flatMap((d) => d.changed))];
     const ledger = [...new Set(done.flatMap((d) => d.ledger))];
-    const note = failed.length ? " Some of it could not be marked." : "";
-    if (done.some((d) => d.overCap) || ids.length === 0) {
+    // A request over the server's cap is marked but returns no ids to undo; the others still can be undone.
+    const capped = done.some((d) => d.overCap);
+    const note = (failed.length ? " Some of it could not be marked." : "") + (capped && ids.length ? " Part of it is too large to undo." : "");
+    if (ids.length === 0) {
       ticket.settle(null);
       announce(count === 0 && !failed.length ? "Nothing to mark" : `Marked ${count} as read.${note}`.trim());
       return;
     }
     ticket.settle({ ids, restore, undo: (undoIds) => undoBulk(qc, undoIds, ledger) });
-    if (failed.length) announce(`Marked ${count} as read.${note}`);
+    if (note) announce(`Marked ${count} as read.${note}`);
   }
 
   function markSide(p: RangeParams, local: string[], restore?: () => void, unhide?: (ids: string[]) => void): Promise<void> {

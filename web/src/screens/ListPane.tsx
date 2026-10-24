@@ -1175,6 +1175,11 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       void act.markAll(markScope, asOf.current, local, restore, unhide);
       return;
     }
+    if (parts.length === 0) {
+      // No section has come back, so there is no bound: marking would take in articles the reader has not seen.
+      announce("Nothing to mark yet, no section has loaded");
+      return;
+    }
     const requests = parts.map((part) => ({ scope: part.scope ?? markScope, maxId: part.asOf, local: part.cards.filter((i) => !i.read).map((i) => i.id) }));
     const all = [...new Set(requests.flatMap((r) => r.local))];
     const restore = unreadView && all.length ? hide(all) : undefined;

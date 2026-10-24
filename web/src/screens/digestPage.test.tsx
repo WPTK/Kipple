@@ -8,6 +8,7 @@ import { initialLive, liveStore } from "@/api/events";
 import type { Bootstrap, Card, Feed } from "@/api/types";
 import { devicePrefsStore, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { resetUndo, undoLast } from "@/lib/undo";
+import * as toasts from "@/shell/toasts";
 import { clearToasts } from "@/shell/toasts";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 import { clearListMemory, resetScrollReadForTests } from "./ListPane";
@@ -341,17 +342,17 @@ describe("Digest marking", () => {
     expect(screen.getAllByRole("button", { name: "Undo" })).toHaveLength(1);
   });
 
-  it("marks the whole list even when every loaded section failed", async () => {
-    const { calls } = routes({ boot: library([3, 3]), counts: [3, 3], fail: new Set([0, 1]), extra: { "POST /api/items/mark-read": () => json({ changed: [], count: 6, restored: [] }) } });
+  it("sends nothing when no section has loaded, since there is no bound, and says so", async () => {
+    const announce = vi.spyOn(toasts, "announce");
+    const { calls } = routes({ boot: library([3, 3]), counts: [3, 3], fail: new Set([0, 1]) });
     const user = userEvent.setup();
     go("/l/unread");
     await screen.findByText("Couldn't load articles");
     await markAll(user);
-    await waitFor(() => expect(marks(calls)).toHaveLength(1));
-    expect(marks(calls)[0].scope).toMatchObject({ all: true, view: "unread" });
-    expect(marks(calls)[0].max_id).toBeUndefined();
-  });
-});
+    await waitFor(() => expect(announce).toHaveBeenCalledWith("Nothing to mark yet, no section has loaded"));
+    expect(marks(calls)).toHaveLength(0);
+    announce.mockRestore();
+  });});
 
 describe("Digest keys", () => {
   it("the page is one Tab stop, and the arrow keys visit the articles and the More buttons in the order drawn", async () => {

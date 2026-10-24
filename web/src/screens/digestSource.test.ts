@@ -84,3 +84,25 @@ describe("the page a reader left", () => {
     expect(sections(3)).toEqual(["Alpha"]);
   });
 });
+
+describe("a section's bound", () => {
+  const folders = [{ id: "10", name: "Alpha", parent_id: null }];
+  const feeds = [{ id: "1", title: "F1", folder_id: "10", unread: 2, starred_count: 0, is_archive: false, pace: null }];
+  const input = (): DigestInput => ({ scope: { view: "unread" }, feeds, folders, sections: "folder", order: "sidebar", rows: 3, place: { steps: 0, presses: new Map() } });
+  const read = (asOf: string) => () => ({ data: { cards: [], more: false, asOf }, error: null, fetching: false, fetchingMore: false, moreFailed: false });
+
+  beforeEach(() => clearDigestPlaces());
+
+  it("stays the as_of the section first came back with when it is fetched again", () => {
+    const first = planDigest(input(), read("500"));
+    expect([...first.results.values()][0]?.data?.asOf).toBe("500");
+    const again = planDigest(input(), read("900")); // every section refetched: its list now has a newer as_of
+    expect([...again.results.values()][0]?.data?.asOf).toBe("500");
+  });
+
+  it("is taken afresh when the page is rebuilt", () => {
+    planDigest(input(), read("500"));
+    clearDigestPlaces();
+    expect([...planDigest(input(), read("900")).results.values()][0]?.data?.asOf).toBe("900");
+  });
+});
