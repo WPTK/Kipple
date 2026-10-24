@@ -72,7 +72,8 @@ export function useSetListOverride(): <F extends ListField>(kind: "feed" | "fold
 export function useResolvedLayout(scope: Scope): { layout: ListLayout; ctx: LayoutContext } {
   const dp = useDevicePrefs();
   const ctx = useListContext(scope);
-  return { layout: getLayout(resolveLayout(dp, ctx)), ctx };
+  // The New page is always a Digest: it is a page of its own, not a list the reader laid out.
+  return { layout: getLayout(scope.after ? "digest" : resolveLayout(dp, ctx)), ctx };
 }
 
 export type { ListLayout, PageProps, RowProps, RowMenuActions } from "./types";

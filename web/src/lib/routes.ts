@@ -5,12 +5,19 @@ import { isReadingLength } from "./readingLength";
 
 /** List route for a scope: /l/:view?feed=&folder=&len= */
 export function listTo(scope: Scope): To {
+  if (scope.after) return newTo(scope);
   const sp = new URLSearchParams();
   if (scope.feed) sp.set("feed", scope.feed);
   if (scope.folder) sp.set("folder", scope.folder);
   if (scope.length) sp.set("len", scope.length);
   const search = sp.toString();
   return { pathname: `/l/${scope.view}`, search: search ? `?${search}` : "" };
+}
+
+/** The route of the New page (it takes only the reading-time filter; the page reads its mark from the server). */
+export const NEW_VIEW = "new";
+export function newTo(scope: Pick<Scope, "length"> = {}): To {
+  return { pathname: `/l/${NEW_VIEW}`, search: scope.length ? `?len=${scope.length}` : "" };
 }
 
 /**

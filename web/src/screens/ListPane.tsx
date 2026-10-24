@@ -181,6 +181,7 @@ export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed): { title: s
     const narrowed = scope.feed || scope.folder;
     return { title: `No results for "${scope.q}"`, body: narrowed ? "Try fewer words, or search the whole library." : "Try fewer words." };
   }
+  if (scope.after) return { title: "Nothing new", body: "Nothing has arrived since you last looked. Unread has everything you have not read yet." };
   if (scope.view === "muted") return { title: "Nothing muted", body: "No filter has muted an article yet." };
   if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here. Retention never removes starred articles." };
   // The server sends last_error only while the feed is failing. New articles waiting mean a fetch has worked since.

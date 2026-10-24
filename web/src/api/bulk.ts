@@ -17,6 +17,8 @@ export interface ScopeBody {
   /** The list's reading-time filter, so rows it hides are never marked. */
   min_minutes?: number;
   max_minutes?: number;
+  /** The New page's mark: only articles that arrived after it are marked. */
+  after_id?: string;
 }
 
 export function scopeBody(scope: Scope): ScopeBody {
@@ -29,6 +31,7 @@ export function scopeBody(scope: Scope): ScopeBody {
     if (scope.fallback !== undefined) b.fallback = scope.fallback;
   }
   if (scope.length) Object.assign(b, READING_LENGTH_MINUTES[scope.length]);
+  if (scope.after) b.after_id = scope.after;
   return b;
 }
 

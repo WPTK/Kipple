@@ -491,3 +491,26 @@ The Stats summary tiles (previous-period figure) and a feed's Read rate (the cou
   section the article is in.
 - **Rejected:** one merged list cut by headings (a long folder would push every other out of reach and the count under
   each heading would be wrong); a fixed number of articles with no way to open the rest.
+
+## The New page (#39, Phase C)
+
+- **What it is.** A page for catching up: the unread articles that arrived since the last visit, a section for each
+  top-level folder, the newest three of each, "N new" in its heading and "N more in <name>" to open the rest in place.
+  It is the Digest with a different list, not a second layout: the same rows, headings, keys and Mark above and below.
+- **Name and place.** "New", the first of the Show pills on the library (not on a feed or a folder, where the question
+  is not "what is new to me"). Not a view in the sidebar: it is a way of looking at Unread.
+- **One mark for the account.** Where the reader left off is kept on the server, so a phone and a laptop agree about what
+  is new. It is the newest article the page knew of when it was left.
+- **It moves when you leave, not when you look.** Opening an article from the page and coming back, hiding the tab, and
+  switching windows leave it. Closing the tab or reloading leave it too, so the page shows the same articles again:
+  a catch-up that quietly forgot what you had not read would be worse than one that repeats itself.
+- **Two devices.** The later leave wins; an older page cannot move the mark back. A page left open for days keeps showing
+  its own list until it is left or reloaded.
+- **Fixed look.** Three rows, folders as sections and sidebar order, whatever the Digest's settings say on that device:
+  the page answers one question and has no layout menu. "N new" is the server's count at the time the page opened and
+  does not change as the reader reads.
+- **Ends.** A line closes the page ("That's every folder with something new.") once every section is listed, and when nothing arrived it says "Nothing new" and points
+  to Unread.
+- **Mark all** marks only what arrived after the mark, not older unread articles the page does not show.
+- **Rejected:** moving the mark on opening (a phone call would lose the page); on every scroll (a half-read page would
+  not come back); a per-device mark (the point is that the second device knows what the first showed).

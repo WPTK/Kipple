@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from
 import { BarChart3, BellOff, Inbox, List, Newspaper, Rss, Search, Settings, Star, TriangleAlert, X } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
+import { useCatchupLeave } from "@/lib/catchup";
 import { useRecordTrail } from "@/lib/navTrail";
 import { useStatsEnabled } from "@/lib/statsSender";
 import { useSyncHighlights } from "@/lib/useHighlights";
@@ -224,6 +225,7 @@ export function AppShell() {
   }, [short, wide]);
   const { pathname, search, hash, state } = useLocation();
   useRecordTrail(pathname);
+  useCatchupLeave();
   const navigate = useNavigate();
   useServerEvents(true);
   useSyncHighlights();

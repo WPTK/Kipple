@@ -28,7 +28,8 @@ import { announce } from "@/shell/toasts";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { NARROW_QUERY, useMedia, useShort, useWide } from "@/lib/useMedia";
 import { ARTICLE_MIN, maxFor, useWidth } from "@/lib/useWidth";
-import { listTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
+import { NEW_VIEW, listTo, newTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
+import { useCatchupVisit } from "@/lib/catchup";
 import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { NOTHING_TO_UNDO, undoLast, undoStore } from "@/lib/undo";
@@ -53,6 +54,7 @@ const VIEWS: { view: View; label: string }[] = [
 function useScopeTitle(scope: Scope): { title: string; above: string } {
   const boot = useBootstrap();
   const tree = useFolderTree();
+  if (scope.after) return { title: "New", above: "" };
   if (scope.feed) return { title: boot.data?.feeds.find((f) => f.id === scope.feed)?.title ?? "Feed", above: "" };
   if (scope.folder) return { title: tree.byId.get(scope.folder)?.name ?? "Folder", above: tree.byId.has(scope.folder) ? parentPath(tree, scope.folder) : "" };
   return { title: scope.view === "all" ? "All articles" : scope.view === "starred" ? "Starred" : scope.view === "muted" ? "Muted" : "Unread", above: "" };
@@ -90,7 +92,7 @@ function useNeighbours(scope: Scope): { prev?: Scope; next?: Scope } {
  * say (a search, a reading-time filter, Starred or Muted), so Mark all as read stays on there.
  */
 export function scopeUnread(scope: Scope, boot: Bootstrap | undefined): number | null {
-  if (!boot || scope.q || scope.length || scope.view === "starred" || scope.view === "muted") return null;
+  if (!boot || scope.q || scope.length || scope.after || scope.view === "starred" || scope.view === "muted") return null;
   if (scope.feed) return boot.feeds.find((f) => f.id === scope.feed)?.unread ?? null;
   if (scope.folder) return boot.folders.find((f) => f.id === scope.folder)?.unread ?? null;
   return boot.counts.unread;
@@ -131,6 +133,12 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
   const mutedCount = boot.data?.counts.muted ?? 0;
   // The Muted pill appears when there is something muted, or when you are in it.
   const views = scope.view === "muted" || mutedCount > 0 ? [...VIEWS, { view: "muted" as View, label: "Muted" }] : VIEWS;
+  // New is the whole library's page, so it is a pill only there (not on a feed or a folder), and the other pills leave it.
+  const plain: Scope = { ...scope, after: undefined };
+  const pillList = [
+    ...(scope.feed || scope.folder || scope.q ? [] : [{ id: NEW_VIEW as string, label: "New", to: newTo(scope), active: !!scope.after }]),
+    ...views.map((v) => ({ id: v.view as string, label: v.label, to: listTo({ ...plain, view: v.view }), active: !scope.after && v.view === scope.view })),
+  ];
   const nothingUnread = scopeUnread(scope, boot.data) === 0;
   const refreshBusy = refreshing || refresh.isPending;
   // A short phone screen (landscape) has no height to spare for a second header row: the Show pills and the feed
@@ -144,24 +152,24 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
   const pills = asSelect ? (
     <select
       aria-label="Show"
-      value={scope.view}
-      onChange={(e) => navigate(listTo({ ...scope, view: e.target.value as View }), { replace: true })}
+      value={pillList.find((p) => p.active)?.id ?? scope.view}
+      onChange={(e) => navigate(pillList.find((p) => p.id === e.target.value)?.to ?? listTo({ ...plain, view: e.target.value as View }), { replace: true })}
       className={cn(inputCls, "min-h-11 w-auto shrink-0 py-0 text-base font-medium")}
     >
-      {views.map((v) => (
-        <option key={v.view} value={v.view}>
-          {v.label}
+      {pillList.map((p) => (
+        <option key={p.id} value={p.id}>
+          {p.label}
         </option>
       ))}
     </select>
   ) : (
     <nav aria-label="Show" className={cn("flex gap-1", compact ? "shrink-0" : "min-w-0 flex-wrap")}>
-      {views.map((v) => {
-        const active = v.view === scope.view;
+      {pillList.map((p) => {
+        const active = p.active;
         return (
           <Link
-            key={v.view}
-            to={listTo({ ...scope, view: v.view })}
+            key={p.id}
+            to={p.to}
             replace
             aria-current={active ? "page" : undefined}
             className={cn(
@@ -170,7 +178,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
               active ? "bg-accent text-bg" : "text-fg hover:bg-selection",
             )}
           >
-            {v.label}
+            {p.label}
           </Link>
         );
       })}
@@ -225,7 +233,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
           </Button>
         ) : null}
         <LengthMenu scope={scope} />
-        <LayoutMenu scope={scope} />
+        {scope.after ? null : <LayoutMenu scope={scope} />}
         <ReadingMenu />
         {/* On a phone Refresh is a pull on the list and an item in the menu after this one, which leaves four controls
             at most: the header is no wider than the title and what the list is. */}
@@ -440,7 +448,7 @@ function baseScope(view: string | undefined, sp: URLSearchParams, isArticle: boo
  * the cache is keyed by them.
  */
 export function readerScope(base: Scope, order: OrderPref): Scope {
-  if (base.q) return base;
+  if (base.q || base.after) return base; // a search keeps its own order; the New page is newest first
   const { order: _drop, ...rest } = base;
   void _drop;
   return order === "oldest" ? { ...rest, order: "oldest" } : rest;
@@ -458,7 +466,15 @@ export function ReaderRoute() {
   const isArticle = !!item;
   const view = list?.params.view;
   const spKey = sp.toString();
-  const base = useMemo(() => baseScope(view, new URLSearchParams(spKey), isArticle), [view, spKey, isArticle]);
+  // The New page starts a visit (the server says where the mark is); its list is the unread articles after that mark.
+  const isNew = view === NEW_VIEW;
+  const visit = useCatchupVisit(isNew);
+  const mark = visit.status === "ready" ? visit.visit.mark : undefined;
+  const base = useMemo(() => {
+    if (!isNew) return baseScope(view, new URLSearchParams(spKey), isArticle);
+    const len = scopeFromList("unread", new URLSearchParams(spKey)).length;
+    return { view: "unread" as const, ...(len ? { length: len } : {}), ...(mark ? { after: mark } : {}) };
+  }, [view, spKey, isArticle, isNew, mark]);
   const order = resolveOrder(dp, useListContext(base));
   const scope = useMemo(() => readerScope(base, order), [base, order]);
   const boot = useBootstrap();
@@ -480,7 +496,7 @@ export function ReaderRoute() {
   }, [missingKey, round, refetchBoot]);
   // A list whose view is not one of ours is not a list: go to Unread (and fix the address) rather than show Unread
   // under a made-up one.
-  if (view !== undefined && !VIEWS.some((v) => v.view === view) && view !== "muted") return <Navigate to={listTo({ view: "unread" })} replace />;
+  if (view !== undefined && !VIEWS.some((v) => v.view === view) && view !== "muted" && view !== NEW_VIEW) return <Navigate to={listTo({ view: "unread" })} replace />;
   if (missing && missingKey) {
     if (checked?.key !== missingKey || checked.round !== round) return <StatusBlock role="status" title="Checking" body={`Looking for this ${missing.kind}.`} />;
     // A bootstrap that could not be fetched again proves nothing about the feed.
@@ -499,6 +515,14 @@ export function ReaderRoute() {
             Check again
           </Button>
         </div>
+      </StatusBlock>
+    );
+  }
+  if (isNew && visit.status === "loading") return <StatusBlock role="status" title="Loading" body="Looking for what is new." />;
+  if (isNew && visit.status === "error") {
+    return (
+      <StatusBlock role="alert" title="Couldn't load what is new" body="Kipple couldn't reach the server.">
+        <Button onClick={visit.retry}>Try again</Button>
       </StatusBlock>
     );
   }
