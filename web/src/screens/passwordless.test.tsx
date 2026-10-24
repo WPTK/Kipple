@@ -100,11 +100,11 @@ describe("Passwordless account (Cloudflare Access)", () => {
     base({ password_set: false, access_enabled: true, access_email: "owner@example.com" }, { "POST /api/account/api-password": () => json({ api_password: "fresh-api-password-xyz" }) });
     go("/settings/account");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Generate API password" }));
-    const dlg = await screen.findByRole("dialog", { name: "Generate API password" });
+    await user.click(await screen.findByRole("button", { name: "Generate new app password" }));
+    const dlg = await screen.findByRole("dialog", { name: "Generate a new app password" });
     expect(within(dlg).queryByLabelText("Your web password")).toBeNull();
     await user.click(within(dlg).getByRole("button", { name: "Generate" }));
-    const shown = await screen.findByRole("dialog", { name: "Your new API password" });
+    const shown = await screen.findByRole("dialog", { name: "Your new app password" });
     expect(within(shown).getByTestId("api-password")).toHaveTextContent("fresh-api-password-xyz");
   });
 

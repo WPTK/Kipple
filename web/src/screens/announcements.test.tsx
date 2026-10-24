@@ -106,7 +106,7 @@ describe("switch names (#497)", () => {
         <FontSelect />
       </QueryClientProvider>,
     );
-    const sw = screen.getByRole("switch", { name: "Use it everywhere" });
+    const sw = screen.getByRole("switch", { name: "Also use it in lists and the sidebar" });
     expect(sw).toBeDisabled();
     expect(sw).toHaveAccessibleDescription(/Choose a reading font above/);
   });

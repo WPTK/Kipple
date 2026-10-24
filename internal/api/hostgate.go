@@ -147,7 +147,7 @@ const hostRefusedText = "Kipple refused this request because of the address it w
 	"this computer's address and steer your browser into Kipple (DNS rebinding), so in open mode each such name\n" +
 	"has to be allowed by name, even when it is the public URL's.\n\n" +
 	"To allow a name, open Kipple by its IP address (that always works), then add the name under Allowed host\n" +
-	"names in Settings, Account & Devices, Address and access (e.g. nas.local, rss.example.com or *.example.com).\n" +
+	"names in Settings, Advanced, Address and access (e.g. nas.local, rss.example.com or *.example.com).\n" +
 	"It applies at once. Without a browser on the network (a headless install), KIPPLE_ALLOWED_HOSTS works on a\n" +
 	"first start: it gives the setting its first value.\n"
 
@@ -186,7 +186,7 @@ func (s *Server) warnHost() {
 	}
 	s.hostWarnMu.Unlock()
 	if warn {
-		s.log.Warn("a request named a host that is not in the allowed list; it is served because Kipple has a password, but setup and open mode would refuse it: add the name under Allowed host names in Settings (Account & Devices)")
+		s.log.Warn("a request named a host that is not in the allowed list; it is served because Kipple has a password, but setup and open mode would refuse it: add the name under Other names for this server in Settings (Advanced)")
 	}
 }
 
@@ -215,7 +215,7 @@ func writeOpenRefused(w http.ResponseWriter, reason string) {
 	msg := "open mode (no password) only works from this computer, your local network or Tailscale"
 	switch reason {
 	case setup.RefuseHost:
-		msg = "open mode does not answer this name: open Kipple by its IP address or localhost, then allow the name under Allowed host names in Settings (Account & Devices, Address and access)"
+		msg = "open mode does not answer this name: open Kipple by its IP address or localhost, then allow the name under Other names for this server in Settings (Advanced, Address and access)"
 	case setup.RefuseForwarded:
 		msg = "open mode refuses requests through a proxy or tunnel: reach Kipple directly (localhost, your local network or Tailscale), or set a password"
 	case setup.RefusePeer:

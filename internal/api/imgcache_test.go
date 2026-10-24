@@ -187,7 +187,7 @@ func TestImageSettingsMetadata(t *testing.T) {
 	require.EqualValues(t, 1024, size["value"])
 	require.EqualValues(t, 1024, size["default"])
 	require.True(t, strings.HasPrefix(size["description"].(string),
-		"Images are stored on the server so they load fast and sites can't track you. The oldest are removed when the cache is full."))
+		"Images are kept on the server so they load fast. The oldest go when the cache is full."))
 	mode := byKey["imgproxy.mode"]
 	require.Equal(t, "Load images through Kipple", mode["label"])
 	require.Equal(t, "images", mode["group"])

@@ -104,7 +104,7 @@ func TestOpenModeHostGateRefusesLANAnsweredNames(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	refused := decode(t, rec)
 	require.Equal(t, "host", refused["reason"])
-	require.Contains(t, refused["message"], "Allowed host names", "the refusal says how to allow a name")
+	require.Contains(t, refused["message"], "Other names for this server", "the refusal says how to allow a name")
 	// The refused claim left nothing behind: no account, no allowed name (a
 	// rebinding page that could claim and get its name kept would have lasting
 	// access).

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PREFS, applyPrefs } from "./prefs";
 
 describe("the reading font", () => {
-  it("styles articles only unless Use it everywhere is on, and Default clears both", () => {
+  it("styles articles only unless Also use it in lists and the sidebar is on, and Default clears both", () => {
     const root = document.createElement("div");
     applyPrefs({ ...DEFAULT_PREFS, font: "inter" }, root);
     expect(root.style.getPropertyValue("--kp-reading-font")).toContain("Inter Variable");

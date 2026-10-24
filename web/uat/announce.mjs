@@ -11,7 +11,7 @@
 //       the error, and the password field has focus.
 //   A4  Manage feeds > Add feed with "not a url !!": the address field is aria-invalid, described by the error, focused.
 //   A5  Opens an article, marks it unread from the toolbar, then Next: the "Marked unread" toast is gone.
-//   A6  Settings > Account & Devices: the Cloudflare Access state is not a live region.
+//   A6  Settings > Advanced > Address and access (proxy section opened): the Cloudflare Access state is not a live region.
 //   A7  The list: a row's Star and More actions name its article, its link starts with the title, and the Unread
 //       link in the sidebar (desktop) reads "Unread N", the word once.
 //   A8  (desktop) Cocoa Mid: a selected row's secondary text is at least 4.5:1 on the selection; the theme is put back.
@@ -153,8 +153,10 @@ await t.eachViewport(async (page, vp) => {
       check(before.includes("Marked unread") && !after.includes("Marked unread"), `${tag} A5`, "Next takes down the Marked unread toast", `before "${before}", after Next "${after}"`);
     });
     await step(`${tag} A6`, async () => {
-      await page.goto("/settings", { waitUntil: "load" });
-      await page.getByRole("link", { name: /Account & Devices/ }).first().click();
+      await page.goto("/settings/advanced", { waitUntil: "load" });
+      const fold = page.getByRole("button", { name: "For servers behind a proxy" });
+      await fold.waitFor({ timeout: 15000 });
+      if ((await fold.getAttribute("aria-expanded")) === "false") await fold.click();
       await page.getByText(/Kipple (does not check|checks the) Access token/).first().waitFor({ timeout: 15000 });
       const live = await page.evaluate(() => [...document.querySelectorAll('[role="status"],[aria-live]')].some((r) => /Access token/.test(r.textContent ?? "")));
       check(!live, `${tag} A6`, "the Access state is not in a live region", "the Access state is inside a live region");

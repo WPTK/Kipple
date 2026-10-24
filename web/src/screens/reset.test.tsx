@@ -5,7 +5,7 @@ import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
-import { resetting } from "@/setup/session";
+import { resetting, wantsRestoreNext } from "@/setup/session";
 
 class NoES {
   addEventListener() {}
@@ -56,7 +56,7 @@ describe("reset Kipple", () => {
     const user = await openDialog();
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveTextContent(/erases all your feeds, folders, reading history, settings and your account/);
-    expect(dialog).toHaveTextContent("backup/pre-restore-*");
+    expect(dialog).toHaveTextContent("Kipple keeps a safety copy of your library on the server");
     const go = within(dialog).getByRole("button", { name: "Reset Kipple" });
     expect(go).toBeDisabled();
     await user.type(within(dialog).getByLabelText("Your web password"), "pw-pw-pw");
@@ -93,7 +93,7 @@ describe("reset Kipple", () => {
     const { calls } = server(true);
     const user = await openDialog();
     const dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveTextContent("Kipple will ignore KIPPLE_USERNAME and KIPPLE_PASSWORD until you create a new account. You can delete them from your compose file whenever convenient.");
+    expect(dialog).toHaveTextContent("Until you create a new account, Kipple ignores the account set in your server's settings. You can remove it there whenever convenient.");
     expect(within(dialog).queryByRole("radio")).toBeNull();
     await user.type(within(dialog).getByLabelText("Your web password"), "pw-pw-pw");
     await user.type(within(dialog).getByLabelText(/Type "reset kipple"/), "reset kipple");
@@ -107,6 +107,42 @@ describe("reset Kipple", () => {
     server(false);
     await openDialog();
     expect(screen.getByRole("dialog")).toHaveTextContent("stays open to first-time setup for anyone who can reach it until setup is finished");
+  });
+});
+
+describe("storage figures in Settings", () => {
+  it("shows the database, backups, image cache and unread total under Backup and data", async () => {
+    server(false, {
+      "GET /api/health/feeds": () => json({ feeds: [], reader_last_seen_at: null, snapshot: { last_at: null, last_error: null }, clock: { ahead_s: 0 }, db: { db_bytes: 3_000_000, wal_bytes: 1_000_000, backup_bytes: 2_000_000, imgcache_bytes: 5_000_000 }, unread_total: 1234 }),
+    });
+    window.history.replaceState({ idx: 0 }, "", "/settings/account");
+    render(<App client={makeQueryClient({ retry: false })} />);
+    const figures = await screen.findByTestId("storage-figures");
+    expect(figures).toHaveTextContent("Database3.8 MB");
+    expect(figures).toHaveTextContent(/Image cache/);
+    expect(figures).toHaveTextContent("1,234");
+  });
+});
+
+describe("restore from a backup in Settings", () => {
+  it("erases first with the same checks as a reset, then asks setup to open on the restore step", async () => {
+    sessionStorage.clear();
+    const { calls } = server(false);
+    window.history.replaceState({ idx: 0 }, "", "/settings/account");
+    render(<App client={makeQueryClient({ retry: false })} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Restore from a backup" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Kipple erases your current library first and keeps a safety copy on the server");
+    const go = within(dialog).getByRole("button", { name: "Erase and choose a backup" });
+    expect(go).toBeDisabled();
+    await user.type(within(dialog).getByLabelText("Your web password"), "pw-pw-pw");
+    await user.type(within(dialog).getByLabelText(/Type "reset kipple"/), "reset kipple");
+    await user.click(go);
+    await waitFor(() => expect(resetting.get()).not.toBeNull());
+    expect(calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/reset")).toHaveLength(1);
+    expect(wantsRestoreNext()).toBe(true);
+    sessionStorage.clear();
   });
 });
 

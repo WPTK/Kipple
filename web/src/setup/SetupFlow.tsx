@@ -11,7 +11,7 @@ import { OpenRefusedScreen } from "./OpenRefused";
 import { fetchRestoreStatus } from "./restoreApi";
 import { RestoreStep } from "./RestoreStep";
 import { RestoreWaiting } from "./RestoreWaiting";
-import { restoredFeeds, welcomeEntry } from "./session";
+import { forgetRestoreNext, restoredFeeds, wantsRestoreNext, welcomeEntry } from "./session";
 
 /**
  * Step 1, before there is an account: the account form is the first screen. It signs the browser in; the app then
@@ -29,9 +29,12 @@ export function SetupFlow({ options }: { options: SetupOptions }) {
   }, [pathname, navigate]);
 
   // The restore screens come before the account form; a reload lands on the waiting page while a restore is being applied.
-  const [view, setView] = useState<"account" | "restore">(options.restore === "confirmed" || options.restore === "none" || options.restore === undefined ? "account" : "restore");
+  const [view, setView] = useState<"account" | "restore">(() =>
+    options.restore === "confirmed" || options.restore === "none" || options.restore === undefined ? (wantsRestoreNext() ? "restore" : "account") : "restore",
+  );
   // Only a page that loaded with a restore under way resumes it; coming back to the restore screen later starts at the picker.
   const [resume, setResume] = useState(options.restore !== undefined && options.restore !== "none" && options.restore !== "confirmed");
+  useEffect(() => forgetRestoreNext(), []);
   const [seeded, setSeeded] = useState(false);
   const [applying, setApplying] = useState<{ estimateSeconds: number; username: string | null } | null>(
     options.restore === "confirmed" ? { estimateSeconds: 300, username: null } : null,

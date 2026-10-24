@@ -209,7 +209,7 @@ const SCREENS = [
   // a wide one), and each group is its own page, whose h1 is the group's name below 900 px and "Settings" beside the rail.
   { id: "settings", title: "Settings", path: "/settings", heading: "Settings" },
   ...[
-    ["appearance", "Appearance & Reading"],
+    ["appearance", "Appearance"],
     ["sync", "Sync & Feeds"],
     ["statistics", "Stats"],
     ["filters", "Filters & Saved Searches"],

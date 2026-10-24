@@ -821,10 +821,10 @@ describe("Settings and the Aa menu", () => {
     media(WIDE);
     go("/settings");
     const user = userEvent.setup();
-    // Wide: the rail and the first group, Appearance & Reading, side by side.
+    // Wide: the rail and the first group, Appearance, side by side.
     await screen.findByRole("heading", { name: "Settings" });
-    expect(await screen.findByRole("heading", { level: 2, name: "Appearance & Reading" })).toBeInTheDocument();
-    expect(within(screen.getByRole("navigation", { name: "Settings sections" })).getByRole("link", { name: "Appearance & Reading" })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByRole("heading", { level: 2, name: "Appearance" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Settings sections" })).getByRole("link", { name: "Appearance" })).toHaveAttribute("aria-current", "page");
     // The Reading font is back in Settings (it had been dropped for the Aa menu only): one control, no Interface font.
     expect(screen.getAllByRole("combobox", { name: /font/i })).toHaveLength(1);
     expect(screen.getByRole("combobox", { name: "Reading font" })).toBeInTheDocument();
@@ -842,7 +842,7 @@ describe("Settings and the Aa menu", () => {
     expect(screen.queryByText("Reading spacing")).toBeNull();
   });
 
-  it("a font chosen in the Aa menu applies to articles at once, and to the whole app with Use it everywhere", async () => {
+  it("a font chosen in the Aa menu applies to articles at once, and to the whole app with Also use it in lists and the sidebar", async () => {
     routes();
     media(WIDE);
     go("/l/unread");
@@ -856,7 +856,7 @@ describe("Settings and the Aa menu", () => {
     const root = document.documentElement;
     expect(root.style.getPropertyValue("--kp-reading-font")).toContain("Inter");
     expect(root.style.getPropertyValue("--kp-app-font")).toBe("");
-    await user.click(within(dlg).getByRole("switch", { name: /Use it everywhere/ }));
+    await user.click(within(dlg).getByRole("switch", { name: /Also use it in lists and the sidebar/ }));
     applyPrefs(prefsStore.get());
     expect(root.style.getPropertyValue("--kp-app-font")).toContain("Inter");
     // Text spacing lives in Settings, so the Aa menu has one density control only.

@@ -356,6 +356,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /api/device/copy-from/{id}", s.authed(s.copyDeviceFrom))
 	handle("GET /api/devices", s.authed(s.listDevices))
 	handle("DELETE /api/devices/{id}", s.authed(s.deleteDevice))
+	handle("GET /api/retention/preview", s.authed(s.retentionPreview))
 	handle("POST /api/retention/apply", s.authed(s.retentionApply))
 	handle("POST /api/account/password", s.authed(s.accountPassword))
 	handle("POST /api/account/api-password", s.authed(s.accountAPIPassword))

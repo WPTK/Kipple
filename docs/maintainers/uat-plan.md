@@ -71,7 +71,7 @@ screen (feed list in each of the 6 layouts, article view, search, settings (the 
 | S4 | Responsive | No horizontal scroll or clipped content at iPhone width (390px), at the narrowest supported width (320px) and at a small-tablet width (768px) |
 | S5 | Data integrity | No literal `undefined`, `NaN`, or `[object Object]` rendered anywhere |
 | S6 | Theme contrast | Reuses the existing CI contrast check across all 20 schemes, not just the 2 spot-checked above |
-| S7 | Font choice reachable | The Aa menu above every list screen (each layout, Unread, Starred, Search) and the article, and Settings > Appearance & Reading, each have one visible "Reading font" select with every font (at least 12: Default and the 11 bundled). Not waivable |
+| S7 | Font choice reachable | The Aa menu above every list screen (each layout, Unread, Starred, Search) and the article, and Settings > Appearance, each have one visible "Reading font" select with every font (at least 12: Default and the 11 bundled). Not waivable |
 
 S8 (touch targets) is checked at the three touch widths: every control of Kipple's (not the feed's article HTML) has a
 hit area of at least 44 x 44 px. The probe (`tapProbe` in `web/uat/probes.mjs`) hit-tests around each control with
@@ -196,7 +196,7 @@ afterwards the subtree is gone and the feed is in the default folder (N5). The f
 folders a stopped run left behind are removed first. Same address and credential rules and exit codes as above.
 
 Downloads (`npm run uat:downloads`, `web/uat/downloads.mjs`, same instance, credentials and exit codes), at 1280x800 and
-375x812: Feeds, Feed actions, Export OPML saves an OPML document, not a JSON error (D1); Settings, Statistics, Export…,
+375x812: Feeds, Feed actions, Export OPML saves an OPML document, not a JSON error (D1); Settings, Stats, Export…,
 Download saves a CSV with a header row (D2); Settings, Account & Devices, Export backup, the web password, then the
 download link saves a zip (D3).
 
@@ -277,7 +277,7 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
 
 **Settings and accounts**
 - TC-C1: Cloudflare Access sign-in (shipped in #40; design §7.0): with Cloudflare Access set in Settings
-  (Account & Devices, Address and access), Settings shows the Access email and offers Remove web password (asking for the
+  (Advanced, Address and access), Settings shows the Access email and offers Remove web password (asking for the
   current password); afterwards sign-in with an empty password succeeds only through Access with a verified
   token, and a LAN request that bypasses Access is refused. Negative cases: with Access off a password is
   always required, Settings refuses to change or turn off Access while the account has no password (`access_in_use`), and an account that still has a password always needs it. Setting a password again (Settings,
@@ -465,7 +465,7 @@ Defects are numbered B2-1 to B2-9 below for the findings doc.
 
 What changed since 2026-09-27:
 
-- Settings in six groups **pass.** Bare `/settings` opens Appearance & Reading; each of the six addresses shows its
+- Settings in six groups **pass.** Bare `/settings` opens Appearance; each of the six addresses shows its
   group with the rail's current item marked; a rail click puts focus on the group heading. On a phone, `/settings`
   is the group list with "Paper / Midnight · Default font", the check interval and "Recording on" under their groups;
   a group opens on its own page with a back button, focus on its heading, and back returns focus to the group row.
