@@ -20,6 +20,22 @@ changes/health-selection.fixed.md
 Feed Health: a search or filter that hid feeds you had ticked no longer leaves them selected. (#61)
 ```
 
+### Style
+
+Short and flat. A reader scanning a release should get each entry in one glance.
+
+- One sentence, two at most. Lead with where (`Reader:`, `Settings:`) and what changed, in the product's words.
+- No explaining why it was wrong, no "now", no "so that", no "this means". State the new behavior.
+- No filler openers ("This release", "We're excited"), no "improved/enhanced/streamlined", no triplets, no
+  contrast pairs ("not X, but Y"), no em dashes, no bold lead-ins.
+- No file, package or function names unless the reader types them. Merge entries that say one thing.
+- An intro (`_intro.md`) is one plain sentence naming the theme, or none.
+
+```
+Before: Settings: the what-if number of days under mark-all-read now says what it does and that nothing is saved.
+After:  Settings: the mark-all-read preview says that nothing is saved.
+```
+
 A change with two entries of different kinds gets two files. A change nobody would notice (a refactor, a test, CI)
 needs none.
 
