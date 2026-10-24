@@ -1,5 +1,5 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { BookmarkCheck, BookmarkPlus } from "lucide-react";
 import { markAllLabel, markAllReach, MarkAllIcon } from "@/lib/itemActionTable";
@@ -147,27 +147,29 @@ export function SearchScreen() {
   // On a screen too short for the header and the results together (400% zoom, a phone held sideways) the screen scrolls as
   // one (index.css .search-shell[data-short]) with only the box held at the top, and the results fill what is left below
   // the box. Both are measured: the screen is short when the header would take more than half of it, and the box height
-  // is what the results subtract. The header's own height is read from the shell's scroll height while it is dissolved.
-  useLayoutEffect(() => {
+  // is what the results subtract. The header is measured as the sum of its children, which is the same in both layouts
+  // (the dissolved header loses its own padding and border, so its own height would not be), so the answer cannot flip
+  // itself at a height near the cutoff.
+  const measure = useCallback(() => {
     const shell = shellRef.current;
     const box = boxRef.current;
     const head = headRef.current;
     if (!shell || !box || !head) return;
-    const measure = () => {
-      const boxH = box.offsetHeight;
-      shell.style.setProperty("--search-box-h", `${boxH}px`);
-      const short = shell.hasAttribute("data-short");
-      const headH = short ? shell.scrollHeight - (shell.clientHeight - boxH) : head.offsetHeight;
-      shell.toggleAttribute("data-short", headH > shell.clientHeight / 2);
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
+    shell.style.setProperty("--search-box-h", `${box.offsetHeight}px`);
+    let headH = 0;
+    for (const c of Array.from(head.children) as HTMLElement[]) headH += c.offsetHeight + parseFloat(getComputedStyle(c).marginTop || "0");
+    shell.toggleAttribute("data-short", headH > shell.clientHeight / 2);
+  }, []);
+  useLayoutEffect(() => measure());
+  useLayoutEffect(() => {
+    const shell = shellRef.current;
+    const box = boxRef.current;
+    if (!shell || !box || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(measure);
     ro.observe(shell);
     ro.observe(box);
-    ro.observe(head);
     return () => ro.disconnect();
-  });
+  }, [measure]);
   // In that layout the results are their own scroller, so a wheel or a swipe over them would scroll the list while the
   // header stays over most of the screen. The screen takes the gesture first: down moves the screen until the header is
   // gone, up moves it back once the list is at its top. Only a gesture the screen can use is taken; the rest is the list's.
@@ -175,8 +177,8 @@ export function SearchScreen() {
     const results = resultsRef.current;
     const shell = shellRef.current;
     if (!results || !shell) return;
-    const take = (dy: number): boolean => {
-      if (!shell.hasAttribute("data-short") || dy === 0) return false;
+    const take = (dy: number, cancelable: boolean): boolean => {
+      if (!shell.hasAttribute("data-short") || dy === 0 || !cancelable) return false;
       const room = shell.scrollHeight - shell.clientHeight;
       const list = results.querySelector<HTMLElement>("[data-list-scroller]");
       const can = dy > 0 ? shell.scrollTop < room - 1 : shell.scrollTop > 0 && (list?.scrollTop ?? 0) <= 0;
@@ -185,7 +187,7 @@ export function SearchScreen() {
     };
     const onWheel = (e: WheelEvent) => {
       const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * shell.clientHeight : e.deltaY;
-      if (take(px)) e.preventDefault();
+      if (take(px, e.cancelable)) e.preventDefault();
     };
     let lastY = 0;
     const onTouchStart = (e: TouchEvent) => {
@@ -195,7 +197,7 @@ export function SearchScreen() {
       const y = e.touches[0]?.clientY ?? lastY;
       const dy = lastY - y;
       lastY = y;
-      if (take(dy) && e.cancelable) e.preventDefault();
+      if (take(dy, e.cancelable)) e.preventDefault();
     };
     results.addEventListener("wheel", onWheel, { passive: false });
     results.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -211,7 +213,9 @@ export function SearchScreen() {
   // What the line says. The screen reader hears it once per search, when the first results have settled, not as the
   // count moves with every keystroke and every page that loads.
   const summary =
-    controls && !controls.empty && controls.count > 0
+    controls?.error
+      ? controls.error
+      : controls && !controls.empty && controls.count > 0
       ? `${controls.count}${controls.more ? "+" : ""} ${controls.count === 1 && !controls.more ? "result" : "results"} for ${trimmed}`
       : controls?.empty
         ? `No results for ${trimmed}`

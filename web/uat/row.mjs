@@ -368,6 +368,7 @@ await t.eachViewport(async (page, vp) => {
       check(back.shell === 0 && back.list === 0, `${tag} W8 back`, "wheeling back up returns the list, then the header", JSON.stringify(back));
       {
         const cdp = await page.context().newCDPSession(page).catch(() => null);
+        check(!!cdp, `${tag} W8 touch`, "a touch session is available to drive the swipe", "the browser gave no CDP session");
         if (cdp) {
           await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 }).catch(() => {});
           await swipe(cdp, 160, 200, 50);
@@ -380,6 +381,15 @@ await t.eachViewport(async (page, vp) => {
           await cdp.detach().catch(() => {});
         }
       }
+      // Heights either side of the cutoff: the layout is short up to some height and not short above it, never both in turn.
+      const seen = [];
+      for (let h = 240; h <= 640; h += 8) {
+        await page.setViewportSize({ width: 320, height: h });
+        await page.waitForTimeout(60);
+        seen.push(await page.evaluate(() => document.querySelector(".search-shell").hasAttribute("data-short")));
+      }
+      const flips = seen.filter((v, i) => i > 0 && v !== seen[i - 1]).length;
+      check(seen[0] === true && flips <= 1, `${tag} W8 cutoff`, "the short layout holds up to one height and then lets go, with no flicker around it", `flips ${flips}: ${seen.map((v) => (v ? 1 : 0)).join("")}`);
       await page.setViewportSize({ width: vp.width, height: vp.height });
     });
   } finally {

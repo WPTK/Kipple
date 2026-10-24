@@ -239,6 +239,8 @@ export interface ListControls {
   fallback: boolean;
   /** The list finished loading and has no articles at all. */
   empty: boolean;
+  /** The first load failed (the list shows the error instead of rows): what it says. */
+  error: string | null;
   /** Focus the list's Tab stop row; false when there is none. */
   focusStop: () => boolean;
 }
@@ -1498,7 +1500,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     pageLook.current = firstLook(measurePage(el));
   }, [pulled, Page]);
   // Known to have nothing (not merely still loading): a search with no results has nothing to save or mark.
-  const empty = !src.pending && nothingShown;
+  const empty = !src.pending && nothingShown && !(src.error != null && !src.hasData);
+  const failedText = !src.pending && src.error != null && !src.hasData ? (tooBroadMessage(src.error) ?? errorMessage(src.error)) : null;
   // Each feed is judged by the new articles waiting from it, the way the pill counts them (one rule with the feed's empty list).
   const feeds = boot.data?.feeds;
   const folders = boot.data?.folders;
@@ -1549,8 +1552,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     return !!id && !!parentRef.current?.contains(document.activeElement);
   }, [stopRef]);
   useEffect(() => {
-    controlsRef.current?.({ markAllRead, count: items.length, unread: items.filter((i) => !i.read).length, more: src.more, fallback, empty, focusStop });
-  }, [markAllRead, items, src.more, fallback, empty, focusStop]);
+    controlsRef.current?.({ markAllRead, count: items.length, unread: items.filter((i) => !i.read).length, more: src.more, fallback, empty, error: failedText, focusStop });
+  }, [markAllRead, items, src.more, fallback, empty, failedText, focusStop]);
   // A header outside the list must not keep acting on a list that is gone (a list remounted under the same scope).
   useEffect(() => () => controlsRef.current?.(null), [controlsRef]);
 

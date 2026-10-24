@@ -67,6 +67,23 @@ describe("Search: the results line", () => {
   });
 });
 
+describe("Search: a failed search", () => {
+  it("announces the error, not that there were no results", async () => {
+    mockFetch({ ...api(page()), "GET /api/items": () => json({ error: "boom" }, 500) });
+    go("/search?q=cats");
+    const live = await screen.findByTestId("result-announce");
+    await waitFor(() => expect(live.textContent).not.toBe(""), { timeout: 4000 });
+    expect(live).not.toHaveTextContent("No results");
+  });
+
+  it("announces no results when the search worked and found none", async () => {
+    mockFetch(api(page([])));
+    go("/search?q=cats");
+    const live = await screen.findByTestId("result-announce");
+    await waitFor(() => expect(live).toHaveTextContent("No results for cats"), { timeout: 4000 });
+  });
+});
+
 describe("Search: Mark all names what it will mark", () => {
   it("counts the unread results, not the read ones that are loaded", async () => {
     mockFetch(api(page([card(1), card(2), card(3, { read: true }), card(4, { read: true })])));

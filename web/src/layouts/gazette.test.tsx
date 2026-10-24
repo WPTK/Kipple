@@ -124,7 +124,7 @@ describe("Gazette pages", () => {
   it("fades a read story in place: the picture dims, the text turns secondary, nothing that sets size changes", () => {
     // Every class of every element in a story, minus the text colors that tell read from unread.
     const shape = (root: Element) =>
-      [root, ...root.querySelectorAll("*")].map((el) => [el.tagName, ...[...el.classList].filter((c) => c !== "text-fg" && c !== "text-fg2" && c !== "font-bold" && c !== "font-normal" && c !== "bg-unread" && c !== "bg-transparent").sort()].join(" "));
+      [root, ...root.querySelectorAll("*")].map((el) => [el.tagName, ...[...el.classList].filter((c) => c !== "text-fg" && c !== "text-fg2" && c !== "bg-unread" && c !== "bg-transparent").sort()].join(" "));
     const { container, rerender } = draw(cards, p);
     const before = new Map(cards.map((c) => [c.id, shape(container.querySelector(`article[data-item-id="${c.id}"]`)!)]));
     const read = cards.map((c) => ({ ...c, read: true }));
@@ -139,7 +139,7 @@ describe("Gazette pages", () => {
       expect(shape(el).map((s) => s.replace(" opacity-60", ""))).toEqual(before.get(c.id));
       expect(el.className).not.toMatch(/opacity|transition/);
       expect(el.querySelector("h3, h4")!.classList).toContain("text-fg2");
-      expect(el.querySelector("h3, h4")!.classList).toContain("font-normal");
+      expect(el.querySelector("h3, h4")!.classList).toContain("font-bold");
       const img = el.querySelector("img");
       if (img) expect(img.classList).toContain("opacity-60");
     }

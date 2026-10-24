@@ -10,7 +10,7 @@ import { articleTo } from "@/lib/routes";
 import { planGazette, type Block, type GazettePlan, type PagePlan, type Slot } from "./gazettePlan";
 import { magazine } from "./magazine";
 import { ROW_KEYSHORTCUTS } from "./rowTabStop";
-import { ListImage, useImageFailure, PublishedTime, RowMenu, UnreadDot, rowLinkProps, titleTone, useOneFeed } from "./parts";
+import { ListImage, useImageFailure, PublishedTime, RowMenu, UnreadDot, rowLinkProps, useOneFeed } from "./parts";
 import { RowTabStop } from "./rowTabStop";
 import type { ListLayout, PageProps, RowMenuActions } from "./types";
 
@@ -264,7 +264,8 @@ function Story({ slot: planned, item, heading: H, to, onOpen, actions, phone, se
           className={cn("size-full", item.read && "opacity-60")}
         />
       ) : null}
-      <H className={cn("font-reading", headlineClass(slot, phone), titleTone(!item.read))}>
+      {/* The weight stays bold read or unread: a lighter weight rewraps these large headlines and moves the page. Read is the colour alone. */}
+      <H className={cn("font-reading font-bold", headlineClass(slot, phone), item.read ? "text-fg2" : "text-fg")}>
         <Link
           to={to}
           tabIndex={tabStop ? undefined : -1}
