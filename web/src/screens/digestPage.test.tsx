@@ -285,7 +285,9 @@ describe("Digest marking", () => {
     });
   const markAll = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(screen.getByRole("button", { name: "List actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: /Mark all as read/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Mark (all|everything)/ }));
+    // Mark all always asks first, naming the reach.
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /^Mark (all|everything)/ }));
   };
   const marks = (calls: { method: string; url: URL; init?: RequestInit }[], read = true) => bodies(calls).filter((b) => b.read === read);
 

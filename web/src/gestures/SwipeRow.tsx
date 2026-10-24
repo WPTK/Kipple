@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { Mail, MailOpen, MoreHorizontal, Star } from "lucide-react";
 import type { Card } from "@/api/types";
+import { actionLabel, actionShort } from "@/lib/itemActionTable";
+import { ActionIcon } from "@/ui/ActionIcon";
 import { LongPress, ROW, RowSwipe, prefersReducedMotion, rubberBand } from "./tracking";
 import { gestureLock } from "./lock";
 import { useLatestRef } from "@/lib/useLatestRef";
@@ -308,7 +309,8 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
 
   if (!enabled) return <>{children}</>;
 
-  const willRead = !item.read;
+  // The panel says what the same action says in the row menu (lib/itemActionTable.ts).
+  const readState = { on: item.read };
   return (
     <div ref={host} data-swipe-row className="relative overflow-hidden">
       <div
@@ -318,11 +320,11 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
         style={{ width: 0, visibility: "hidden" }}
         className="swipe-panel absolute inset-y-0 left-0 overflow-hidden bg-accent text-bg"
       >
-        <div className="flex h-full w-28 items-center gap-2 pl-4 text-sm font-semibold">
+        <div className="flex h-full w-32 items-center gap-1.5 pr-1 pl-3 text-sm leading-tight font-semibold">
           <span className="swipe-icon inline-flex transition-transform [[data-armed=true]_&]:scale-115">
-            {willRead ? <MailOpen className="size-6" /> : <Mail className="size-6" />}
+            <ActionIcon id="read" state={readState} className="size-5" />
           </span>
-          <span className="[[data-armed=true]_&]:underline">{willRead ? "Read" : "Unread"}</span>
+          <span>{actionLabel("read", readState)}</span>
         </div>
       </div>
       <div
@@ -340,8 +342,8 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
           }}
           className="flex min-w-[72px] flex-1 flex-col items-center justify-center gap-1 text-xs font-semibold"
         >
-          <Star className="size-6" fill={item.starred ? "currentColor" : "none"} aria-hidden="true" />
-          {item.starred ? "Unstar" : "Star"}
+          <ActionIcon id="star" state={{ on: item.starred }} className="size-6" fill={item.starred ? "currentColor" : "none"} />
+          {actionLabel("star", { on: item.starred })}
         </button>
         <button
           type="button"
@@ -352,8 +354,8 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
           }}
           className="flex w-[72px] shrink-0 flex-col items-center justify-center gap-1 bg-fg2 text-xs font-semibold text-bg"
         >
-          <MoreHorizontal className="size-6" aria-hidden="true" />
-          More
+          <ActionIcon id="more" className="size-6" />
+          {actionShort("more")}
         </button>
       </div>
       <div

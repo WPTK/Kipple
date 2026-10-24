@@ -15,7 +15,7 @@
 //   C3  with the undo toast on screen, the end of the list scrolls clear of it (the last row is above the toast);
 //   C4  in a list with nothing unread, List actions offers Mark all as read off with "Nothing unread here", and after
 //       a reload Undo is off with "Nothing to undo";
-//   C5  the reader's Read or Unread is plain text, not a pill that looks like a button.
+//   C5  the reader's Unread word (shown after Mark as unread) is plain text, not a pill that looks like a button.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
@@ -148,13 +148,14 @@ await t.eachViewport(async (page, vp) => {
   await step(`${tag} C4`, async () => {
     await open(feedList);
     await page.getByRole("button", { name: "List actions" }).click();
-    await page.getByRole("menuitem", { name: /Mark all as read/ }).click();
+    await page.getByRole("menuitem", { name: /^Mark (all|everything)/ }).click();
+    await page.getByRole("dialog").getByRole("button", { name: /^Mark (all|everything)/ }).click();
     const settled = await t.settle(page, (b) => b.feeds.find((f) => f.id === feedId)?.unread === 0);
     if (!settled.ok) return t.fail(`${tag} C4 setup`, "the feed did not reach 0 unread");
     await page.reload({ waitUntil: "load" });
     await page.locator("main h1, main h2").first().waitFor({ timeout: 15000 });
     await page.getByRole("button", { name: "List actions" }).click();
-    const mark = page.getByRole("menuitem", { name: /Mark all as read/ });
+    const mark = page.getByRole("menuitem", { name: /^Mark (all|everything)/ });
     const undo = page.getByRole("menuitem", { name: /^Undo/ });
     check(
       (await mark.getAttribute("aria-disabled")) === "true" && /Nothing unread here/.test(await mark.innerText()),
@@ -175,16 +176,20 @@ await t.eachViewport(async (page, vp) => {
   await step(`${tag} C5`, async () => {
     await open(feedList);
     await page.locator("a.row-link").filter({ hasText: TITLES[1] }).first().click();
+    // Opening marks it read, and a read article carries no state word; marked unread it says so, in plain text.
+    await page.getByRole("toolbar", { name: "Article actions" }).getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Mark as unread" }).click();
     const state = page.getByTestId("read-state");
     await state.waitFor({ timeout: 15000 });
+    const word = (await state.innerText()).trim();
     const s = await state.evaluate((el) => {
       const cs = getComputedStyle(el);
       return { border: cs.borderTopWidth, radius: cs.borderTopLeftRadius, bg: cs.backgroundColor, tag: el.tagName, role: el.getAttribute("role") };
     });
     check(
-      s.border === "0px" && s.radius === "0px" && s.tag === "SPAN" && !s.role,
+      word === "Unread" && s.border === "0px" && s.radius === "0px" && s.tag === "SPAN" && !s.role,
       `${tag} C5`,
-      "the read state is plain text",
+      "an unread article says Unread in plain text",
       `the read state looks like a control: ${JSON.stringify(s)}`,
     );
   });
