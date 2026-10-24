@@ -83,7 +83,7 @@ await t.eachViewport(async (page, vp) => {
     await dialog.getByRole("heading", { name: `Delete ${n} feed${n === 1 ? "" : "s"}?` }).waitFor({ timeout: 5000 });
     const text = await textOf(dialog, 2000);
     await progressSpy();
-    await dialog.getByRole("button", { name: `Delete ${n} feed${n === 1 ? "" : "s"}`, exact: true }).click();
+    await dialog.getByRole("button", { name: new RegExp(`^Delete ${n === 1 ? "feed" : `${n} feeds`}( and \\d+ articles?)?$`) }).click();
     await dialog.waitFor({ state: "detached", timeout: 15000 });
     return { text, spy: await page.evaluate(() => ({ max: [...window.__progress.max], most: window.__progress.most })) };
   };
@@ -91,7 +91,7 @@ await t.eachViewport(async (page, vp) => {
   // The root's own feed alone: the root is left with no feeds but stays, and so does the subfolder that still holds feeds.
   await pick(1);
   let r = await deleteSelected(1);
-  check(/Its articles are removed/.test(r.text) && /this feed/.test(r.text) && !/Their articles|these feeds/i.test(r.text), `${tag} F2 copy one`, "a single feed is described in the singular", `the dialog says "${r.text.slice(0, 200)}"`);
+  check(/Removes (\d+ articles?|no articles|its articles|their articles)\. This can't be undone/.test(r.text) && /this feed/i.test(r.text) && !/these feeds/i.test(r.text), `${tag} F2 copy one`, "a single feed is described in the singular", `the dialog says "${r.text.slice(0, 200)}"`);
   check(!/folder/i.test(r.text), `${tag} F2 one`, "the dialog says nothing about folders", `the dialog says "${r.text.slice(0, 160)}"`);
   let s = await t.settle(page, (b) => !b.feeds.some((f) => f.title === titleOf(1)));
   check(s.ok && s.b.folders.some((f) => f.name === root) && s.b.folders.some((f) => f.name === child), `${tag} F2 kept`, "both folders stay", "a folder with feeds below it went");
@@ -102,7 +102,7 @@ await t.eachViewport(async (page, vp) => {
   if (await done.isVisible()) await done.click();
   await pick(2, 3);
   r = await deleteSelected(2);
-  check(/Their articles are removed/.test(r.text) && /these feeds/.test(r.text) && !/folder/i.test(r.text), `${tag} F2 copy two`, "several feeds are described in the plural, with nothing about folders", `the dialog says "${r.text.slice(0, 200)}"`);
+  check(/Removes (\d+ articles?|no articles|its articles|their articles)\. This can't be undone/.test(r.text) && /these feeds/i.test(r.text) && !/folder/i.test(r.text), `${tag} F2 copy two`, "several feeds are described in the plural, with nothing about folders", `the dialog says "${r.text.slice(0, 200)}"`);
   check(r.spy.max.join() === "moving" && r.spy.most === 1, `${tag} F2 bar two`, "one moving progress bar, with no count", `bars: ${r.spy.max.length ? `totals ${r.spy.max.join(",")}` : "none shown"}, at most ${r.spy.most} at once`);
   s = await t.settle(page, (b) => !b.feeds.some((f) => f.title.startsWith("UAT feed ")));
   check(s.ok, `${tag} F2 deleted`, "the feeds are gone", "a disposable feed is still there");

@@ -89,6 +89,8 @@ export interface Feed {
   starred_count: number;
   /** Why the feed is failing (what Feed health shows): the server sends it only while the status is erroring, failing or dead. */
   last_error?: string | null;
+  /** The kind of failure behind `last_error` (dns, connect, tls, http, parse, ...): the app words it for the reader. */
+  last_error_class?: string | null;
 }
 
 export interface RunStatus {

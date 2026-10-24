@@ -43,14 +43,14 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("button", { name: /^Edit / }).first().click();
     const dlg = page.getByRole("dialog", { name: "Edit feed" });
     await dlg.waitFor({ timeout: 10000 });
-    const enabled = dlg.getByRole("checkbox", { name: /^Check this feed/ });
+    const enabled = dlg.getByRole("checkbox", { name: /^Pause this feed/ });
     await enabled.waitFor({ timeout: 10000 });
     check((await dlg.getByRole("switch").count()) === 0, `${tag} K1 no switch`, "no switch in the feed editor", "a switch is still in the feed editor");
     await enabled.scrollIntoViewIfNeeded();
     const was = await enabled.isChecked();
     writes.length = 0;
     await enabled.click();
-    check((await enabled.isChecked()) !== was, `${tag} K1 ticks`, "Check this feed ticks and unticks", "Check this feed did not change");
+    check((await enabled.isChecked()) !== was, `${tag} K1 ticks`, "Pause this feed ticks and unticks", "Pause this feed did not change");
     check(writes.length === 0, `${tag} K1 held`, "nothing is sent until Save", `sent ${writes.join(", ")}`);
     await t.shot(page, `${tag}-K1-feed-editor`);
     await page.keyboard.press("Escape");
@@ -116,7 +116,7 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     await page.getByRole("button", { name: /^Edit / }).first().click();
     const dlg = page.getByRole("dialog", { name: "Edit feed" });
-    const box = dlg.getByRole("checkbox", { name: /^Check this feed/ });
+    const box = dlg.getByRole("checkbox", { name: /^Pause this feed/ });
     await box.waitFor({ timeout: 10000 });
     await box.scrollIntoViewIfNeeded();
     for (const large of [false, true]) {
@@ -159,7 +159,8 @@ await t.eachViewport(async (page, vp) => {
     await dlg.getByRole("textbox", { name: "Feed or website address" }).first().fill("http://127.0.0.1:9/uat-private.xml");
     await dlg.getByRole("button", { name: "Add feed", exact: true }).click();
     const opt = dlg.getByRole("checkbox", { name: /^Allow addresses on my own network/ });
-    await opt.waitFor({ timeout: 15000 });
+    // The option shows as soon as the address is typed; the refusal is what the add answers with.
+    await dlg.getByText(/tick "Allow addresses on my own network"/).waitFor({ timeout: 15000 });
     check(!(await opt.isChecked()) && (await dlg.getByRole("switch").count()) === 0, `${tag} K5`, "the private-network option is an unticked checkbox", "the private-network option is not an unticked checkbox");
     check(/tick "Allow addresses on my own network"/.test(await dlg.innerText()), `${tag} K5 words`, "the refusal says to tick it", "the refusal does not say to tick it");
     await t.shot(page, `${tag}-K5-add-feed`);

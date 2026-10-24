@@ -8,10 +8,11 @@
 // width (desktop 1280x800, phone 375x812) it checks:
 //   X1  the feed's row on Manage feeds shows its status and the reason the last fetch failed;
 //   X2  the feed's own list says its last fetch failed, with the reason, instead of "All caught up";
-//   X3  the list's "Open Feed health" link opens Feed health;
+//   X3  the list's Edit address button opens Edit feed with the reason on top and the address field focused, and Try now
+//       fetches the feed at once;
 //   X4  a second failing feed that still has an article shows a note at the top of its list, and its folder's list
-//       shows one too (issue #511): the feed's own reason, a count of at least two with the feed named, one clamped
-//       line, not a live region, scrolling away with the list (the list keeps its height), and a link to Feed health;
+//       shows one too (issue #511): the feed's own reason, a count of at least two with the feed named, two clamped
+//       lines, not a live region, scrolling away with the list (the list keeps its height), and a link to Feed health;
 //   X5  a long list scrolled past the note comes back to the same article when the note is gone on return (the feed
 //       recovered while the reader was on Feed health) and when it is the same.
 // Each width adds its own two feeds and finds them by the id the add returned (never by title), then deletes them, so
@@ -26,6 +27,8 @@ const { check, step } = t;
 
 const TITLE = "UAT feed failing";
 const TITLE2 = "UAT feed failing with articles";
+// What an HTTP 500 is called for the reader.
+const REASON_500 = "The site had a problem answering";
 
 // Each feed is its own small server on 127.0.0.1 (its own port, so Kipple's slow-down of a host that keeps failing
 // treats them apart) and answers only /feed.xml. Adding a feed checks that it answers, so it works until `broken` is
@@ -106,26 +109,37 @@ async function viewport(page, vp, added) {
     const row = page.getByRole("main").getByRole("link", { name: new RegExp(`^${TITLE}`) }).first();
     await row.waitFor({ timeout: 10000 });
     const text = await t.textOf(row);
-    check(text.includes("Having trouble") && text.includes(feed.last_error), `${tag} X1`, `the row says "${text}"`, `the row says "${text}", without the status and the reason "${feed.last_error}"`);
+    check(text.includes("Having trouble") && text.includes(REASON_500) && !text.includes(feed.last_error), `${tag} X1`, `the row says "${text}"`, `the row says "${text}", without the status and the reason in words "${REASON_500}" (or with the server's own text "${feed.last_error}")`);
     await t.shot(page, `${tag}-feed-failure-row`);
   });
 
   await step(`${tag} X2`, async () => {
     await page.goto(`/l?feed=${feed.id}`);
-    const box = page.getByRole("status").filter({ hasText: "The last fetch of this feed failed" }).first();
+    const box = page.getByRole("status").filter({ hasText: "Kipple can't fetch this feed" }).first();
     const shown = await box.waitFor({ timeout: 10000 }).then(() => true, () => false);
     const text = shown ? await t.textOf(box, 400) : await t.textOf(page.getByRole("main").first(), 400);
-    check(shown && text.includes(feed.last_error), `${tag} X2`, `the list says "${text}"`, `the list says "${text}", not that the feed can't be fetched and why`);
+    check(shown && text.includes(REASON_500) && !text.includes(feed.last_error), `${tag} X2`, `the list says "${text}"`, `the list says "${text}", not that the feed can't be fetched and why in words`);
     const caughtUp = await page.getByText("All caught up").count();
     check(caughtUp === 0, `${tag} X2`, `no "All caught up"`, `"All caught up" is still shown`);
     await t.shot(page, `${tag}-feed-failure-list`);
   });
 
   await step(`${tag} X3`, async () => {
-    await page.getByRole("link", { name: "Open Feed health" }).click();
-    const h = page.getByRole("heading", { name: "Feed health", level: 1 });
-    const there = await h.waitFor({ timeout: 10000 }).then(() => true, () => false);
-    check(there && /\/health(\?|#|$)/.test(page.url()), `${tag} X3`, "the link opens Feed health", `the link went to ${page.url()}`);
+    const repair = page.getByTestId("feed-repair");
+    check(await repair.getByRole("button", { name: /^Try .* now$/ }).isVisible(), `${tag} X3`, "the list has Try now", "the list has no Try now");
+    await t.shot(page, `${tag}-feed-failure-repair`);
+    await repair.getByRole("button", { name: /^Edit address/ }).click();
+    const dlg = page.getByRole("dialog", { name: "Edit feed" });
+    const reason = await dlg.getByTestId("feed-reason").waitFor({ timeout: 10000 }).then(() => true, () => false);
+    check(reason && (await t.textOf(dlg.getByTestId("feed-reason"))).includes(REASON_500), `${tag} X3`, "Edit feed opens with the reason on top", "Edit feed shows no reason on top");
+    const focused = await dlg.getByLabel("Feed address").evaluate((el) => el === el.ownerDocument.activeElement).catch(() => false);
+    check(focused, `${tag} X3`, "the address field is focused", "the address field is not focused");
+    await t.shot(page, `${tag}-feed-failure-edit`);
+    await page.keyboard.press("Escape");
+    await dlg.waitFor({ state: "hidden", timeout: 10000 });
+    const refresh = page.waitForResponse((r) => /\/api\/feeds\/[^/]+\/refresh/.test(r.url()) && r.request().method() === "POST", { timeout: 20000 });
+    await repair.getByRole("button", { name: /^Try .* now$/ }).click();
+    check(!!(await refresh.catch(() => null)), `${tag} X3`, "Try now fetches the feed at once", "Try now sent no fetch");
   });
 
   await step(`${tag} X4`, async () => {
@@ -145,15 +159,15 @@ async function viewport(page, vp, added) {
       // The feed's own reason (its 410, not the other feed's 500); a folder says its count once (as many as are failing in it,
       // at least this width's two) and names up to three, the rest as " and N more." at the end.
       const folderOk = () => {
-        const m = /^(\d+) feeds in this folder have fetch problems: (.*)$/.exec(text.replace(/\s*Open Feed health\s*$/, ""));
+        const m = /^(\d+) feeds in this folder have fetch problems: (.*)$/.exec(text.replace(/\s*Feed health\s*$/, ""));
         if (!m || Number(m[1]) !== expected || expected < 2) return false;
         return expected > 3 ? m[2].endsWith(` and ${expected - 3} more.`) : m[2].endsWith(".") && !/ and \d+ more/.test(m[2]) && m[2].includes(TITLE2) && m[2].includes(TITLE);
       };
-      const reasons = what === "feed" ? text.includes("This feed is gone: 410 Gone") && !text.includes("HTTP 500") : folderOk();
-      check(shown && reasons && text.includes("Open Feed health"), `${tag} X4`, `the ${what} list's note says "${text}"`, `the ${what} list's note says "${text}", not its own reason (feed) or the count once (${expected} expected) with the failing feeds named (folder), with the Feed health link`);
+      const reasons = what === "feed" ? text.includes("This feed is gone: The site says this feed no longer exists.") && !text.includes(REASON_500) : folderOk();
+      check(shown && reasons && text.includes("Feed health"), `${tag} X4`, `the ${what} list's note says "${text}"`, `the ${what} list's note says "${text}", not its own reason (feed) or the count once (${expected} expected) with the failing feeds named (folder), with the Feed health link`);
       check(shown && (await note.evaluate((el) => !el.closest("[role=status],[aria-live]"))), `${tag} X4`, `the ${what} note is not a live region`, `the ${what} note is a live region`);
-      const line = shown ? await note.locator("p").evaluate((el) => el.scrollHeight <= el.clientHeight + 1 || globalThis.getComputedStyle(el).webkitLineClamp === "1") : false;
-      check(line, `${tag} X4`, `the ${what} note is one clamped line`, `the ${what} note is more than one line`);
+      const line = shown ? await note.locator("p").evaluate((el) => el.scrollHeight <= el.clientHeight + 1 || globalThis.getComputedStyle(el).webkitLineClamp === "2") : false;
+      check(line, `${tag} X4`, `the ${what} note is at most two lines`, `the ${what} note is more than two lines`);
       const row = await page.getByText("An older article").first().waitFor({ timeout: 10000 }).then(() => true, () => false);
       check(row, `${tag} X4`, `the ${what} list still shows its article`, `the ${what} list lost its article`);
       // The note is part of the scrolling content: the list keeps its whole height, and the note leaves when the list scrolls.
@@ -174,7 +188,7 @@ async function viewport(page, vp, added) {
       check(before != null && after != null && after < before, `${tag} X4`, `the ${what} note scrolls away with the list`, `the ${what} note stayed in place when the list scrolled (${before} -> ${after})`);
     }
     await page.goto(`/l/all?feed=${f2.id}`);
-    await page.getByTestId("feed-failure-note").getByRole("link", { name: "Open Feed health" }).click();
+    await page.getByTestId("feed-failure-note").getByRole("link", { name: "Feed health" }).click();
     const there = await page.getByRole("heading", { name: "Feed health", level: 1 }).waitFor({ timeout: 10000 }).then(() => true, () => false);
     check(there, `${tag} X4`, "the note's link opens Feed health", `the note's link went to ${page.url()}`);
   });
