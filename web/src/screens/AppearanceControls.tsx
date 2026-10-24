@@ -281,7 +281,7 @@ export function HighlightToggle() {
 /**
  * The Kindle-style "Aa" panel: theme, font, text size and density. Everything applies at once (the page behind is
  * the live preview), is stored per device, and has no sliders. The font chosen here is the same setting as
- * Settings > Appearance & Reading > Reading font: it styles articles, and "Also use it in lists and the sidebar" extends it to the
+ * Settings > Appearance > Reading font: it styles articles, and "Also use it in lists and the sidebar" extends it to the
  * lists and the sidebar (Settings and menus keep the system font). It sits above every list (feeds, folders, Unread, All, Starred,
  * Search) and every article. Text spacing, an accessibility control, lives in Settings so it never looks like a
  * second density picker.

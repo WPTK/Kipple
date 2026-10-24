@@ -10,7 +10,7 @@ import { themeStore } from "@/theme/theme";
 import { DEFAULT_THEME_SETTINGS } from "@/theme/settings";
 import { resetDeviceSync } from "@/lib/deviceSync";
 import { updatePrefs } from "@/lib/prefs";
-import { forgetWizardMemory, restoredFeeds } from "./session";
+import { forgetWizardMemory, openRestoreAfterReset, restoredFeeds, wantsRestoreNext } from "./session";
 import { resetOpenSignInGuard } from "./SetupFlow";
 import { RestoreWaiting, silenceLimitSeconds } from "./RestoreWaiting";
 import { forgetRestoreKeyForTests } from "./restoreKey";
@@ -150,6 +150,15 @@ afterEach(() => {
 });
 
 describe("restore in the setup wizard", () => {
+  it("opens on the restore step when Settings asked for it, once", async () => {
+    openRestoreAfterReset();
+    server({ restore: "none", setup: true, signedIn: false, status: ready() });
+    go();
+    expect(await screen.findByLabelText("Backup or OPML file")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: "Create your account" })).toBeNull();
+    expect(wantsRestoreNext()).toBe(false);
+  });
+
   it("offers the restore on the first screen and keeps the account form", async () => {
     server({ restore: "none", setup: true, signedIn: false, status: ready() });
     const { container } = go();

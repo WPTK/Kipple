@@ -316,8 +316,8 @@ export function ConnectionSection() {
     <div className="flex flex-col gap-6">
       <p className="text-sm text-fg2">How your other devices reach Kipple. Changes apply at once.</p>
       {url ? <PublicUrlField meta={url} /> : null}
-      <Disclosure label="For servers behind a proxy" defaultOpen={[hosts, proxies, access].some((m) => m && m.value !== null && m.value !== undefined && JSON.stringify(m.value) !== "[]" && JSON.stringify(m.value) !== "{}")}>
-        {hosts ? <ListField meta={hosts} placeholder="For example nas.local" /> : null}
+      {hosts ? <ListField meta={hosts} placeholder="For example nas.local" /> : null}
+      <Disclosure label="For servers behind a proxy" defaultOpen={[proxies, access].some((m) => m && m.value !== null && m.value !== undefined && JSON.stringify(m.value) !== "[]" && JSON.stringify(m.value) !== "{}")}>
         {proxies ? <ListField meta={proxies} placeholder="For example 192.0.2.10" guarded /> : null}
         {access ? <AccessField meta={access} /> : null}
       </Disclosure>

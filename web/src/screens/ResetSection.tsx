@@ -46,7 +46,7 @@ function ResetDialog({ purpose, hasPassword, envAccount, onClose }: { purpose: P
       title={TITLES[purpose]}
       description={
         restoring
-          ? "A backup takes the place of everything in this Kipple: feeds, folders, reading history, settings and your account. Kipple sets your current library aside first, then asks you to choose the backup file."
+          ? "A backup takes the place of everything in this Kipple: feeds, folders, reading history, settings and your account. Kipple erases your current library first and keeps a safety copy on the server, then asks you to choose the backup file."
           : "This erases all your feeds, folders, reading history, settings and your account, and returns Kipple to setup, where you create a new account or restore a backup."
       }
       footer={
@@ -55,7 +55,7 @@ function ResetDialog({ purpose, hasPassword, envAccount, onClose }: { purpose: P
             Cancel
           </Button>
           <Button variant="danger" disabled={!ready || busy} onClick={() => void submit()}>
-            {restoring ? "Set aside and choose a backup" : "Reset Kipple"}
+            {restoring ? "Erase and choose a backup" : "Reset Kipple"}
           </Button>
         </>
       }
@@ -96,7 +96,7 @@ function useResetDialog(purpose: Purpose, hasPassword: boolean) {
   };
 }
 
-/** Settings, Backup and data: restoring a backup. Kipple restores only while it is in setup, so this first sets the library aside. */
+/** Settings, Backup and data: restoring a backup. Kipple restores only while it is in setup, so this first erases the library (a safety copy is kept). */
 export function RestoreRow({ hasPassword }: { hasPassword: boolean }) {
   const r = useResetDialog("restore", hasPassword);
   return (

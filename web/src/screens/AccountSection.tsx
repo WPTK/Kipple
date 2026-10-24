@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, authStore, busyMessage, CAUSE_PHRASE, chooseSignOut, errorMessage, failed, SIGN_OUT_MS, SIGN_OUT_PATH } from "@/api/client";
-import { changePassword, exportBackup, fetchMe, removePassword, type BackupInfo } from "@/api/admin";
+import { changePassword, exportBackup, fetchMe, removePassword, useHealth, type BackupInfo } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import { keys } from "@/api/queryKeys";
 import { bytesLabel, fullDate } from "@/lib/format";
@@ -318,6 +318,32 @@ export function SignInSection() {
 }
 
 /** Settings, Account, Backup and data: export, restore, setup again, and the reset in its own danger block. */
+/** What Kipple keeps on the server, so a person sizing a backup or a disk can see it: the database, the backups, the image cache and the unread total. */
+function StorageFigures() {
+  const health = useHealth();
+  const d = health.data;
+  if (!d) return null;
+  const rows: [string, string][] = [
+    ["Database", bytesLabel(d.db.db_bytes + (d.db.wal_bytes ?? 0))],
+    ["Backups kept on the server", bytesLabel(d.db.backup_bytes)],
+    ...(typeof d.db.imgcache_bytes === "number" ? ([["Image cache", bytesLabel(d.db.imgcache_bytes)]] as [string, string][]) : []),
+    ["Unread articles", d.unread_total.toLocaleString()],
+  ];
+  return (
+    <div>
+      <h3 className="text-sm font-semibold">Storage used</h3>
+      <dl data-testid="storage-figures" className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-sm">
+        {rows.map(([k, v]) => (
+          <div key={k} className="contents">
+            <dt className="text-fg2">{k}</dt>
+            <dd>{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 export function BackupSection() {
   const { hasPassword } = useAccount();
   const setupActions = useSetupActions();
@@ -345,6 +371,7 @@ export function BackupSection() {
 
   return (
     <>
+      <StorageFigures />
       <div>
         {/* aria-disabled, not disabled: a disabled button drops the keyboard's place, so the dialog it opens would have nothing to return focus to. */}
         <Button aria-disabled={busy || undefined} onClick={() => void doBackup()}>
@@ -359,7 +386,7 @@ export function BackupSection() {
       </div>
       <RestoreRow hasPassword={hasPassword} />
       <div>
-        <Button variant="danger" onClick={() => setupActions.restart()}>Run setup again</Button>
+        <Button variant="link" className="px-0" onClick={() => setupActions.restart()}>Run setup again</Button>
         <p className="mt-1 text-xs text-fg2">Opens the setup steps again. Your account and feeds stay as they are.</p>
       </div>
       <ResetSection hasPassword={hasPassword} />

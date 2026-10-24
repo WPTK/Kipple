@@ -147,7 +147,7 @@ const hostRefusedText = "Kipple refused this request because of the address it w
 	"this computer's address and steer your browser into Kipple (DNS rebinding), so in open mode each such name\n" +
 	"has to be allowed by name, even when it is the public URL's.\n\n" +
 	"To allow a name, open Kipple by its IP address (that always works), then add the name under Allowed host\n" +
-	"names in Settings, Account & Devices, Address and access (e.g. nas.local, rss.example.com or *.example.com).\n" +
+	"names in Settings, Advanced, Address and access (e.g. nas.local, rss.example.com or *.example.com).\n" +
 	"It applies at once. Without a browser on the network (a headless install), KIPPLE_ALLOWED_HOSTS works on a\n" +
 	"first start: it gives the setting its first value.\n"
 

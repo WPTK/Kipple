@@ -648,12 +648,24 @@ func TestRetentionPreview(t *testing.T) {
 	// a number that is not a choice is refused
 	code, _, _ = h.api(c, "GET", "/api/retention/preview?keep=7", "")
 	require.Equal(t, http.StatusBadRequest, code)
-	// a feed with its own cap keeps it, whatever the default is
+	// a feed with its own cap keeps it, and a change of the default does not measure it
 	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `UPDATE feeds SET retention = 100 WHERE id = ?`, a)
 		return err
 	}))
 	_, out, _ = h.api(c, "GET", "/api/retention/preview?keep=50", "")
-	require.EqualValues(t, 30, out["articles"], "Alpha 20 over its own cap of 100, Beta 10 over 50")
-	require.EqualValues(t, 2, out["feeds"])
+	require.EqualValues(t, 10, out["articles"], "Alpha follows its own cap, so only Beta's 10 are over 50")
+	require.EqualValues(t, 1, out["feeds"])
+	// Apply retention now measures every feed against its own cap: Alpha is 20 over 100, Beta is within the default 250
+	_, out, _ = h.api(c, "GET", "/api/retention/preview", "")
+	require.EqualValues(t, 20, out["articles"])
+	require.EqualValues(t, 1, out["feeds"])
+	// a feed that is off, and one being deleted, are not trimmed
+	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE feeds SET enabled = 0, disabled_reason = 'user' WHERE id = ?`, b)
+		return err
+	}))
+	_, out, _ = h.api(c, "GET", "/api/retention/preview?keep=50", "")
+	require.EqualValues(t, 0, out["articles"])
+	require.EqualValues(t, 0, out["feeds"])
 }

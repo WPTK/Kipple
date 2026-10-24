@@ -326,7 +326,7 @@ export function FeedEditor({ feed, onClose }: { feed: Feed; onClose: () => void 
           {fulltextAll ? (
             <Checkbox
               label="Fetch full article text"
-              help="On for all feeds. Settings > Sync & Feeds > Library fetches the full article for every feed, so this option has no effect until that is turned off."
+              help={'On for all feeds. "Fetch the full article for every feed" in Settings > Sync & Feeds is on, so this option has no effect until that is turned off.'}
               checked
               disabled
               onChange={() => undefined}

@@ -84,7 +84,7 @@ func (d *DB) MergeAllowedHostsOnce(ctx context.Context, names []string) error {
 		return setSettingsTx(ctx, tx, set)
 	})
 	if err == nil && len(dropped) > 0 {
-		d.log.Error("store: KIPPLE_ALLOWED_HOSTS names not added to the allowed host names: the list holds at most 64; remove some in Settings, Account & Devices, Address and access, then add these",
+		d.log.Error("store: KIPPLE_ALLOWED_HOSTS names not added to the allowed host names: the list holds at most 64; remove some in Settings, Advanced, Address and access, then add these",
 			"names", dropped)
 	}
 	return err

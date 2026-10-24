@@ -26,7 +26,7 @@ export const restoredFeeds = createStore<File | null>(null);
 export const resetting = createStore<{ estimateSeconds: number } | null>(null);
 
 /**
- * "Restore from a backup" in Settings sets the library aside and restarts into setup. This remembers, across that restart,
+ * "Restore from a backup" in Settings erases the library (keeping a safety copy) and restarts into setup. This remembers, across that restart,
  * that the person asked for the restore step, so setup opens on it instead of the account form. Setup forgets it once shown.
  */
 const RESTORE_NEXT_KEY = "kipple.setup.restoreNext";

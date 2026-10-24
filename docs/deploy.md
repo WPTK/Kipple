@@ -169,7 +169,7 @@ database that `kipple restore` accepts as it is. The export zip is the same data
 ## Export a backup (the button)
 
 Settings, Account & Devices, Export backup. The app asks for your web password first (an account without one confirms
-the same way it does for a new API password: a Cloudflare Access sign-in, or nothing in open mode). It then calls
+the same way it does for a new app password: a Cloudflare Access sign-in, or nothing in open mode). It then calls
 `POST /api/backup` with `{"current": "<web password>"}`, which answers at once when the build is quick and otherwise with `202 {job_id}`; the app then polls `GET /api/backup/jobs/<id>` until it is `ready` (the build carries on if the browser tab closes or Cloudflare cuts the request at about 100 s; a big database can take minutes). It shows the `warning` text and the size,
 then starts the download of `GET /api/backup/<token>`, which saves as
 `kipple-backup-YYYYMMDD-HHMMSS.zip`. Save it somewhere other than the server (another machine, an external drive, cloud storage).
@@ -177,7 +177,7 @@ then starts the download of `GET /api/backup/<token>`, which saves as
 - The zip holds `kipple.db` (a consistent snapshot), `feeds.opml` (imports into any reader),
   `settings.json` (readable copy), `manifest.json` (versions, counts, SHA-256 of every file) and
   `RESTORE.txt`. It is roughly a third of the database size.
-- **The file is sensitive.** It contains the web and API password hashes, the account secret
+- **The file is sensitive.** It contains the web and app password hashes, the account secret
   that signs Reader tokens and image links, hashed session ids, and any feed logins (HTTP Basic
   `user:password`, stored in plain text). Anyone with the file can use the Reader API as you until you set a new API
   password. Store it privately, where nobody else can open it.
@@ -257,7 +257,7 @@ build-from-source file, which also reads an optional `.env`.
 A Kipple with no account starts in **setup mode**. It is the normal server, but the browser shows the setup wizard
 instead of a sign-in screen, and its first step is the form that creates your account. Open the address and create your
 account, then the wizard takes you the rest of the way (time zone, theme, OPML import,
-recommended feeds, an optional API password). The same first screen offers "Restore from a backup" instead
+recommended feeds, an optional app password). The same first screen offers "Restore from a backup" instead
 ([Restore in the setup wizard](#restore-in-the-setup-wizard)). The steps of the account path, in order, each skippable after the account:
 
 1. **Account**: a user name, then a password (or one of the two ways to go without, under "Open mode" below).
@@ -266,7 +266,7 @@ recommended feeds, an optional API password). The same first screen offers "Rest
 4. **Import** an OPML file from your old reader.
 5. **Recommended feeds**, a few to start with.
 6. **Address**: the public URL your other devices open Kipple at.
-7. **Done**, with an optional API password for sync apps. Make one any time in Settings, Account & Devices, or
+7. **Done**, with an optional app password for sync apps. Make one any time in Settings, Account & Devices, or
    with `docker exec -it kipple /kipple api-password`. A sync app's server address is your Kipple address plus
    `/api/greader.php`, and the user name is the one you chose.
 
@@ -329,7 +329,7 @@ the host:
 
 The example compose files and the README's `docker run` command publish `127.0.0.1:1919:1919`, this machine only. For the LAN use `1919:1919`, for Tailscale
 your `100.x.y.z:1919:1919`. A reverse proxy or tunnel (Cloudflare Tunnel, Caddy, nginx) is what gives Kipple HTTPS; in
-Settings, Account & Devices, Address and access, add the address it connects from to **Trusted proxies** and set the
+Settings, Advanced, Address and access, add the address it connects from to **Proxy addresses** and set the
 **Public URL** to the public address. Both apply at once, without a restart. (For a scripted first start,
 `KIPPLE_TRUSTED_PROXY_IPS` and `KIPPLE_PUBLIC_URL` seed the two settings; see .env.example.)
 
@@ -340,7 +340,7 @@ proxy that says `X-Forwarded-Proto: http` is believed. HTTPS gets the `Secure` f
 proxy's `X-Forwarded-Proto: https` also gets `Strict-Transport-Security`, because browsers apply it to every port of a
 host. Plain http gets neither, so a LAN address such as `http://192.168.1.20:1919`, or the public name on Kipple's own
 port (`http://rss.example.com:1919`, as Tailscale Serve or local DNS may reach it), keeps working next to the public
-one. If you reach the public name over plain http through a local proxy, add that proxy to Trusted proxies so it can
+one. If you reach the public name over plain http through a local proxy, add that proxy to Proxy addresses so it can
 say `X-Forwarded-Proto: http`.
 
 The trusted proxies are a list of single addresses and CIDR ranges (`192.0.2.10`, `198.51.100.0/24`,
@@ -435,7 +435,7 @@ Changing your mind: **Settings, Account & Devices, Set web password** (or `kippl
 returns it to normal mode; either signs every other session out. Going from a password account to open mode is not in
 the Settings screen (it is `POST /api/account/password` with `{"current": ..., "open": true}`, which needs the current
 password and passes the same gate); choose open mode in the wizard on a new install. The Reader API is unaffected in
-open mode: sync apps still sign in with the API password, which is then the only credential that exists.
+open mode: sync apps still sign in with the app password, which is then the only credential that exists.
 
 ## Time zone
 
@@ -538,7 +538,7 @@ Almost everything is set in the browser, in the wizard or in Settings. Environme
 | Variable | Purpose |
 | --- | --- |
 | `KIPPLE_ADDR` | Listen address, default `:1919`. Change the container side of the port mapping with it (see [Ports](#ports)). |
-| `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, `KIPPLE_ALLOWED_HOSTS`, `KIPPLE_ACCESS_TEAM_DOMAIN` / `KIPPLE_ACCESS_AUD` | Seeds for a scripted first start: the public URL, the reverse proxy addresses, extra host names and Cloudflare Access. Each is stored as its setting once, when that setting was never set. After that, Settings, Account & Devices, Address and access decides, with no restart. |
+| `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, `KIPPLE_ALLOWED_HOSTS`, `KIPPLE_ACCESS_TEAM_DOMAIN` / `KIPPLE_ACCESS_AUD` | Seeds for a scripted first start: the public URL, the reverse proxy addresses, extra host names and Cloudflare Access. Each is stored as its setting once, when that setting was never set. After that, Settings, Advanced, Address and access decides, with no restart. |
 | `TZ` | IANA time zone for a new install. Stored as the time zone setting on the first start only. Choose it in Kipple afterwards. |
 | `KIPPLE_USERNAME` / `KIPPLE_PASSWORD` | Create the account from the environment instead of the wizard (scripted deploys). |
 
@@ -564,7 +564,7 @@ From a script or a pipe (one line on standard input; mind shell history and the 
 
 Rules: 8 to 256 characters (a shorter password set earlier still signs in until you change it). It signs out every web session **and revokes every Reader API token**
 (it rotates the account secret), so afterwards: sign in again in the browser, and re-enter the
-API password in your sync apps (that password itself is unchanged; if you have lost
+app password in your sync apps (that password itself is unchanged; if you have lost
 it too, `docker exec kipple /kipple api-password` sets a new one). The failed-login pacing is in
 memory: it clears after an hour with no failure or on a restart. If `KIPPLE_PASSWORD` is still in
 your `.env`, remove it: it is read only when the account is first created. On an account in open mode
@@ -578,7 +578,7 @@ validation was then turned off (see "Cloudflare Access (optional)" below).
 ## Cloudflare Access (optional)
 
 If Cloudflare Access sits in front of Kipple, Kipple can verify the `Cf-Access-Jwt-Assertion` header Access adds
-to every request it lets through (design §7.0). In Settings, Account & Devices, Address and access, fill in both
+to every request it lets through (design §7.0). In Settings, Advanced, Address and access, fill in both
 fields under **Cloudflare Access** and save:
 
 - Team domain: Zero Trust > Settings > Custom Pages, for example `yourteam.cloudflareaccess.com` (`https://` optional,
@@ -593,7 +593,7 @@ seed the setting instead:
 The log says `Cloudflare Access token validation on` with the issuer, and Settings, Account & Devices shows the Access email you are
 signed in with. Kipple checks the RS256 signature against `https://<team domain>/cdn-cgi/access/certs` (cached for
 an hour and refreshed in the background), the issuer, the audience and the expiry; a verified token never replaces
-the session cookie. The Reader API keeps its own API password either way, and its path (`/api/greader.php`) is
+the session cookie. The Reader API keeps its own app password either way, and its path (`/api/greader.php`) is
 normally left outside Access (a bypass), since sync apps cannot sign in to Access.
 
 With validation on, the web password becomes optional: Settings, Account & Devices, Remove web password (offered only when
@@ -643,7 +643,7 @@ Things to know:
   You can set a new password in any case.
 - **The address is not restored.** The public URL, allowed host names and trusted proxies describe the old server, so
   a wizard restore drops the backup's and keeps this server's own (from `KIPPLE_PUBLIC_URL`, `KIPPLE_ALLOWED_HOSTS` and
-  `KIPPLE_TRUSTED_PROXY_IPS`, or set in Settings, Account & Devices, Address and access, before the restore, as after a
+  `KIPPLE_TRUSTED_PROXY_IPS`, or set in Settings, Advanced, Address and access, before the restore, as after a
   reset). The same goes for the Cloudflare Access sign-in settings: the backup's are dropped, which is why a backup whose
   account has no password asks for a new one here.
 - **Disk space.** The data volume needs room for the zip while it arrives, then for the database inside it (its size is
@@ -787,7 +787,7 @@ directory at `/data`) needs `chown 65532:65532` on that directory first.
     # 3. Start it.
     docker compose up -d kipple && docker logs --tail 20 kipple
 
-The account comes from the backup: sign in with the web password and use the API password
+The account comes from the backup: sign in with the web password and use the app password
 that were current when the backup was taken. `KIPPLE_USERNAME`, `KIPPLE_PASSWORD` and
 `KIPPLE_API_PASSWORD` in `.env` are ignored because the account already exists. The restore prints
 "There was no previous database to keep." on an empty volume. If a Reader API client reports an

@@ -73,10 +73,10 @@ func human(n int64) string {
 
 // Warning is what the export dialog shows: what a backup file contains that is
 // sensitive.
-const Warning = "This file is a complete copy of your Kipple database. It contains your web and Reader API " +
-	"password hashes, the account secret that signs Reader API tokens and image links, hashed session " +
+const Warning = "This file is a complete copy of your Kipple database. It contains your web and app " +
+	"password hashes, the account secret that signs sync app sign-ins and image links, hashed session " +
 	"identifiers, and any HTTP Basic logins (user:password) saved for feeds, which are stored as plain text. " +
-	"Anyone with this file can use the Reader API as you until you set a new API password. " +
+	"Anyone with this file can sign in from a sync app as you until you generate a new app password. " +
 	"Keep it private and store it only where nobody else can open it. Restoring it brings those logins back."
 
 // Options configures New. Only DB is required.

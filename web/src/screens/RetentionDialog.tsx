@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { applyRetention, fetchRetentionPreview, useSettings } from "@/api/admin";
-import { errorMessage } from "@/api/client";
+import { errorMessage, failed } from "@/api/client";
 import { toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton } from "@/ui/kit";
@@ -58,7 +58,7 @@ export function RetentionDialog({ keep, apply, onConfirm, onClose }: { keep?: nu
   );
 }
 
-/** Library: trims every feed to its limit now, after saying what that removes. */
+/** Storage: trims every feed to its limit now, after saying what that removes. */
 export function ApplyRetentionNow() {
   const [open, setOpen] = useState(false);
   const run = async () => {
@@ -66,7 +66,7 @@ export function ApplyRetentionNow() {
       await applyRetention();
       toast("Kipple is removing older articles now.");
     } catch (e) {
-      toast(errorMessage(e), "error");
+      toast(failed("apply retention", e), "error");
     }
   };
   return (

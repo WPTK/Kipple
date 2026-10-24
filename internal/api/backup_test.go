@@ -49,7 +49,7 @@ func TestBackupCreateAndDownload(t *testing.T) {
 	require.Regexp(t, `^kipple-backup-\d{8}-\d{6}\.zip$`, body["filename"])
 	require.Contains(t, body["warning"], "password hashes")
 	require.Contains(t, body["warning"], "HTTP Basic")
-	require.Contains(t, body["warning"], "use the Reader API as you")
+	require.Contains(t, body["warning"], "sign in from a sync app as you")
 	require.EqualValues(t, 300, body["expires_in"])
 	require.InDelta(t, time.Now().Add(5*time.Minute).Unix(), body["expires_at"], 10)
 	require.EqualValues(t, 1, body["contents"].(map[string]any)["items"])
