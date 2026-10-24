@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WIDE_QUERY } from "@/lib/useMedia";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
@@ -57,7 +58,7 @@ function go(path: string) {
 
 function wide(on: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: on && query.includes("min-width: 900px"),
+    matches: on && query.includes(WIDE_QUERY),
     media: query,
     onchange: null,
     addEventListener() {},
@@ -132,7 +133,7 @@ describe("Settings on a narrow screen", () => {
     routes();
     go("/settings");
     const user = userEvent.setup();
-    await user.click(within(await screen.findByRole("navigation", { name: "Settings sections" })).getByRole("link", { name: /^Stats$/ }));
+    await user.click(await within(await screen.findByRole("main")).findByRole("link", { name: /^Stats/ }));
     await screen.findByRole("heading", { level: 1, name: "Stats" });
     expect(screen.getByRole("region", { name: "Your stats data" })).toBeInTheDocument();
     window.history.back();

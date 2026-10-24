@@ -739,7 +739,7 @@ export function StatsScreen() {
         <p className="text-sm text-fg2" role="status">
           Statistics are off. Turn them on in{" "}
           <Link to="/settings/statistics" className="text-link underline underline-offset-2">
-            Settings &gt; Statistics
+            Settings &gt; Stats
           </Link>
           .
         </p>

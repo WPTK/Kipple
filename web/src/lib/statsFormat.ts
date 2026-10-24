@@ -165,7 +165,7 @@ export function folderRows(sources: StatsSource[]): SourceRow[] {
   }
   return [...groups.entries()].map(([key, list]) => ({
     key,
-    name: list[0]?.folder_name ?? "No folder",
+    name: list[0]?.folder_name ?? "Uncategorized",
     items_read: list.reduce((a, s) => a + s.items_read, 0),
     opens: list.reduce((a, s) => a + s.opens, 0),
     active_seconds: list.reduce((a, s) => a + s.active_seconds, 0),
