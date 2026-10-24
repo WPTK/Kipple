@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Link, type To } from "react-router";
 import { useLongPressMenu } from "@/gestures/useLongPressMenu";
-import type { Card } from "@/api/types";
+import type { Card, Headline } from "@/api/types";
 import { cn } from "@/lib/cn";
 import { articleTo } from "@/lib/routes";
 import { Button } from "@/ui/button";
@@ -16,20 +16,26 @@ import type { DigestSectionView, ListLayout, PageProps, RowMenuActions } from ".
 // it, in that order, so the DOM order is the reading order. A read article keeps its place: its title turns to the
 // secondary color (which meets 4.5:1 in every theme) and its picture fades.
 
-interface RowProps {
-  item: Card;
+/** What a row draws of an article. A Card has all of it; the Feed index sends only the headline. */
+export type RowItem = Headline & { source?: string; image?: string | null };
+
+interface RowProps<T extends RowItem> {
+  item: T;
   to: To;
-  onOpen: (item: Card) => void;
-  actions: RowMenuActions;
+  onOpen: (item: T) => void;
+  /** The row's menu (More actions, long press). Without it the row has none. */
+  actions?: RowMenuActions;
   /** Show the picture on the right, when the article has one. */
   images: boolean;
+  /** Name the article's source before its time. A page under the source's own name leaves it out. */
+  source?: boolean;
   selected: boolean;
   /** This article's link is the page's one Tab stop. */
   tabStop: boolean;
 }
 
 /** An article: its title first, then its source and time, and a picture on the right when there is one and pictures are on. */
-function DigestRow({ item, to, onOpen, actions, images, selected, tabStop }: RowProps) {
+export function DigestRow<T extends RowItem>({ item, to, onOpen, actions, images, source = true, selected, tabStop }: RowProps<T>) {
   const press = useLongPressMenu(item.id);
   const failure = useImageFailure(item.image);
   const unread = !item.read;
@@ -39,7 +45,7 @@ function DigestRow({ item, to, onOpen, actions, images, selected, tabStop }: Row
       data-item-id={item.id}
       data-read={item.read || undefined}
       data-selected={selected || undefined}
-      {...press}
+      {...(actions ? press : {})}
       // The menu button is laid over the row's corner, so it takes no room (and a hidden one none at all).
       className={cn(
         "row-host relative flex min-h-[var(--row-min)] items-start gap-3 border-b border-line py-[var(--row-py)] pr-4 pl-3 [-webkit-touch-callout:none]",
@@ -60,15 +66,17 @@ function DigestRow({ item, to, onOpen, actions, images, selected, tabStop }: Row
           </Link>
         </h3>
         <p className="flex items-center gap-1.5 text-xs text-fg2">
-          <span className="truncate">{item.source}</span>
-          <span aria-hidden="true">·</span>
+          {source ? <span className="truncate">{item.source}</span> : null}
+          {source ? <span aria-hidden="true">·</span> : null}
           <PublishedTime item={item} className="shrink-0" />
         </p>
       </div>
       {picture ? <ListImage src={item.image!} failure={failure} className={cn("size-16 shrink-0 rounded-lg bg-surface object-cover", item.read && "opacity-60")} /> : null}
-      <RowTabStop.Provider value={tabStop}>
-        <RowMenu item={item} actions={actions} revealOnHover className="row-touch-unseen absolute right-1 bottom-1 bg-bg/80" />
-      </RowTabStop.Provider>
+      {actions ? (
+        <RowTabStop.Provider value={tabStop}>
+          <RowMenu item={item as unknown as Card /* a row with a menu is only given Cards */} actions={actions} revealOnHover className="row-touch-unseen absolute right-1 bottom-1 bg-bg/80" />
+        </RowTabStop.Provider>
+      ) : null}
     </article>
   );
 }

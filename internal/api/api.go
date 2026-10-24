@@ -331,6 +331,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("GET /api/bootstrap", s.authed(s.bootstrap))
 	handle("GET /api/about", s.authed(s.about))
 	handle("GET /img/{sig}/{flags}/{u}", s.authed(s.image))
+	handle("GET /api/feeds/latest", s.authed(s.feedsLatest))
 	handle("GET /api/feeds/{id}/icon", s.authed(s.feedIcon))
 	handle("GET /api/imgcache", s.authed(s.imgcacheStats))
 	handle("POST /api/imgcache/clear", s.authed(s.imgcacheClear))

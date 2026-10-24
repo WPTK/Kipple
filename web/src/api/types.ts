@@ -45,6 +45,15 @@ export interface ItemDetail extends Card {
   trimmed: boolean;
 }
 
+/** What the Feed index draws of an article: no excerpt, picture or link (GET /api/feeds/latest). */
+export type Headline = Pick<Card, "id" | "feed_id" | "title" | "published_at" | "read" | "starred">;
+
+/** One feed's newest headlines, newest first, read or not (GET /api/feeds/latest). */
+export interface FeedLatest {
+  feed_id: string;
+  items: Headline[];
+}
+
 export interface ItemsPage {
   items: Card[];
   next_cursor: string | null;

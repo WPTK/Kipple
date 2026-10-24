@@ -1,10 +1,10 @@
-import { BarChart3, BellOff, Inbox, Library, Newspaper, Rss, Search, Settings, Star, type LucideIcon } from "lucide-react";
+import { BarChart3, BellOff, Inbox, LayoutList, Library, Newspaper, Rss, Search, Settings, Star, type LucideIcon } from "lucide-react";
 
 /**
  * Every place the sidebar and the tab bar lead to, in one list: the name, the icon and the address are written once,
  * and `currentDestination` says which one the reader is in. The words are the glossary in docs/maintainers/ui-decisions.md.
  */
-export type DestinationId = "unread" | "all" | "starred" | "muted" | "search" | "feeds" | "stats" | "settings";
+export type DestinationId = "unread" | "all" | "starred" | "muted" | "search" | "feeds" | "feedIndex" | "stats" | "settings";
 
 export interface Destination {
   id: DestinationId;
@@ -22,6 +22,7 @@ export const DESTINATIONS: Record<DestinationId, Destination> = {
   muted: { id: "muted", label: "Muted", pill: "Muted", icon: BellOff, to: "/l/muted" },
   search: { id: "search", label: "Search", pill: "Search", icon: Search, to: "/search" },
   feeds: { id: "feeds", label: "Feeds", pill: "Feeds", icon: Rss, to: "/feeds" },
+  feedIndex: { id: "feedIndex", label: "Feed index", pill: "Feed index", icon: LayoutList, to: "/feeds/index" },
   stats: { id: "stats", label: "Stats", pill: "Stats", icon: BarChart3, to: "/stats" },
   settings: { id: "settings", label: "Settings", pill: "Settings", icon: Settings, to: "/settings" },
 };
@@ -37,6 +38,9 @@ export function isScopedList(search: string): boolean {
   const q = new URLSearchParams(search);
   return q.has("feed") || q.has("folder");
 }
+
+/** The Feed index is inside Feeds: on a phone the Feeds tab stays the current one there. */
+export const isFeeds = (id: DestinationId | null): boolean => id === "feeds" || id === "feedIndex";
 
 /** True for the destinations that are one of the four whole-library lists. */
 export function isList(id: DestinationId | null): boolean {
@@ -55,6 +59,7 @@ export function currentDestination(pathname: string, search = ""): DestinationId
       if (isScopedList(search)) return "feeds";
       return second === "all" || second === "starred" || second === "muted" ? second : "unread";
     case "feeds":
+      return second === "index" ? "feedIndex" : "feeds";
     case "health":
       return "feeds";
     case "search":
