@@ -11,14 +11,16 @@
 //       nothing scrolls sideways at 375 and, on the phone, at 280;
 //   W2  a list of one feed names no source on its rows; the whole library does;
 //   W3  the Gazette gives an unread story the unread dot;
-//   W4  the star and More show at rest, at full strength: Compact's star and Inbox's More, an unstarred star unfaded;
+//   W4  the star and More show at rest, at full strength: Compact's star and Inbox's More, an unstarred star unfaded; Tab onto a
+//       Gazette story's More draws it;
 //   W5  the unread list shows its count beside the title, and a short list ends with "End of unread";
 //   W6  Editorial's lead pictures keep one frame (16:9) whatever their shape, fill it when close to it and sit whole in
 //       it when not (a portrait or a panorama), and a row with no picture keeps a minimum height;
-//   W7  search results are text rows with no picture, say how many results there are, and Mark all names the count;
+//   W7  search results are text rows with no picture, say how many results there are, and Mark all counts the unread results;
 //       a saved search says Saved and offers Edit;
 //   W8  on a short screen (320x256, 400% zoom) the search results are reachable: the screen scrolls, the box stays at
-//       the top, and the first result is on screen below it.
+//       the top, and the first result is on screen below it; a real wheel and a touch swipe over the results move the screen
+//       first (the header goes), then the list.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { Buffer } from "node:buffer";
@@ -110,6 +112,16 @@ async function setLayout(page, label) {
   await page.getByRole("group", { name: "Layout" }).getByRole("menuitemradio", { name: new RegExp(`^${label}\\b`) }).click();
   await page.locator(`button[aria-label="List options, ${label} layout"]`).first().waitFor({ timeout: 10000 });
   if (await page.getByRole("menu").isVisible().catch(() => false)) await page.keyboard.press("Escape");
+}
+/** A finger drag from y0 to y1 as real touch events, in steps. */
+async function swipe(cdp, x, y0, y1) {
+  const point = (y) => [{ x, y, id: 1 }];
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: point(y0) });
+  for (let i = 1; i <= 10; i++) {
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: point(y0 + ((y1 - y0) * i) / 10) });
+    await new Promise((r) => setTimeout(r, 16));
+  }
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
 }
 async function layoutOf(page) {
   await page.goto("/l/all", { waitUntil: "load" });
@@ -205,6 +217,29 @@ await t.eachViewport(async (page, vp) => {
       await r2.waitFor({ timeout: 15000 });
       check((await o(r2.getByRole("button", { name: /^More actions:/ }))) === 1, `${tag} W4 inbox more`, "Inbox's More shows at rest", "it is faded");
       check((await o(r2.getByRole("button", { name: /^Star:/ }))) === 1, `${tag} W4 star`, "an unstarred star is drawn at full strength", "it is faded");
+      // The Gazette's More is laid over the story: it may wait for hover, but never while a keyboard has it. Tab onto it.
+      await setLayout(page, "Gazette");
+      await page.goto("/l/all", { waitUntil: "load" });
+      await page.locator("article[data-slot]").first().waitFor({ timeout: 20000 });
+      await page.locator("body").click({ position: { x: 1, y: 1 } }).catch(() => {});
+      let landed = false;
+      for (let i = 0; i < 60 && !landed; i++) {
+        await page.keyboard.press("Tab");
+        landed = await page.evaluate(() => {
+          const a = document.activeElement;
+          return !!a && /^More actions:/.test(a.getAttribute("aria-label") ?? "") && !!a.closest("article[data-slot]");
+        });
+      }
+      check(landed, `${tag} W4 gazette tab`, "Tab reaches a Gazette story's More", "Tab never landed on it");
+      if (landed) {
+        const shown = await page.evaluate(() => {
+          const a = document.activeElement;
+          const r = a.getBoundingClientRect();
+          return { opacity: Number(getComputedStyle(a).opacity), pointer: getComputedStyle(a).pointerEvents, w: r.width, h: r.height };
+        });
+        check(shown.opacity === 1 && shown.w > 0 && shown.h > 0, `${tag} W4 gazette focus`, "the Gazette's More is drawn while it has keyboard focus", JSON.stringify(shown));
+        await t.shot(page, `${tag}-W4-gazette-focus`);
+      }
     });
 
     await step(`${tag} W5`, async () => {
@@ -255,10 +290,12 @@ await t.eachViewport(async (page, vp) => {
       check(/^\d+\+? results? for xylograph/.test(said), `${tag} W7 count`, 'the results say how many: "N results for xylograph"', `says ${JSON.stringify(said)}`);
       const imgs = await page.locator("article[data-item-id] img").count();
       check(imgs === 0, `${tag} W7 text rows`, "result rows carry no picture", `${imgs} pictures`);
-      const mark = await page.getByRole("button", { name: /^Mark all .*results as read$/ }).innerText();
+      const mark = (await page.getByRole("button", { name: /^Mark all .*results as read$/ }).innerText()).trim();
       const n = said.match(/^(\d+)(\+?)/);
-      const expect = n && !n[2] && Number(n[1]) > 1 ? `Mark all ${n[1]} results as read` : "Mark all results as read";
-      check(mark.trim() === expect, `${tag} W7 mark all`, `Mark all names its reach: ${expect}`, `says ${JSON.stringify(mark)}`);
+      const unreadRows = await page.locator('article[data-item-id] [data-unread="true"]').count();
+      const loadedAll = !!n && !n[2];
+      const expect = loadedAll && unreadRows > 1 ? `Mark all ${unreadRows} unread results as read` : "Mark all results as read";
+      check(mark === expect, `${tag} W7 mark all`, `Mark all counts what it will mark (unread results): ${expect}`, `says ${JSON.stringify(mark)} with ${unreadRows} unread of ${said}`);
       await t.shot(page, `${tag}-W7-search`);
       const made = await page.request.post("/api/saved-searches", { headers: t.WRITE, data: { name: "UAT row saved", q: WORD } });
       if (made.ok()) {
@@ -279,8 +316,36 @@ await t.eachViewport(async (page, vp) => {
       await page.goto(`/search?q=${WORD}`, { waitUntil: "load" });
       await page.locator("article[data-item-id]").first().waitFor({ timeout: 20000, state: "attached" });
       await t.shot(page, `${tag}-W8-top`);
-      await page.locator(".search-shell").evaluate((el) => (el.scrollTop = el.scrollHeight));
-      await page.waitForTimeout(300);
+      // Real gestures, not scrollTop: a wheel over the results (the part of the screen under the finger) and a touch swipe.
+      const tops = () =>
+        page.evaluate(() => ({
+          shell: document.querySelector(".search-shell").scrollTop,
+          room: document.querySelector(".search-shell").scrollHeight - document.querySelector(".search-shell").clientHeight,
+          list: document.querySelector("[data-list-scroller]").scrollTop,
+          short: document.querySelector(".search-shell").hasAttribute("data-short"),
+        }));
+      const start = await tops();
+      check(start.short && start.room > 0, `${tag} W8 short`, "a screen this short scrolls as one", JSON.stringify(start));
+      // Over the header the screen scrolls itself. That brings the top of the results into view, a strip of them.
+      await page.mouse.move(160, 100);
+      await page.mouse.wheel(0, 150);
+      await page.waitForTimeout(250);
+      const strip = await page.locator(".search-results").boundingBox();
+      const at = { x: 160, y: Math.min(strip.y + 20, 246) };
+      check(strip.y < 246 && strip.y > 120, `${tag} W8 strip`, "a small strip of the results is on screen over the header", `results start at ${strip.y} of 256`);
+      await page.mouse.move(at.x, at.y);
+      const before = await tops();
+      await page.mouse.wheel(0, 40);
+      await page.waitForTimeout(250);
+      const first = await tops();
+      check(first.shell > before.shell && first.list === 0, `${tag} W8 wheel`, "a wheel over the strip of results moves the header away before it scrolls the list", JSON.stringify({ before, first }));
+      for (let i = 0; i < 12 && (await tops()).shell < first.room - 1; i++) {
+        await page.mouse.wheel(0, 40);
+        await page.waitForTimeout(80);
+      }
+      await page.waitForTimeout(250);
+      const gone = await tops();
+      check(gone.shell >= gone.room - 1, `${tag} W8 header gone`, "wheeling over the results brings the box to the top", JSON.stringify(gone));
       const view = await page.evaluate(() => {
         const input = document.querySelector("[data-search-input]").getBoundingClientRect();
         const row = document.querySelector("article[data-item-id]").getBoundingClientRect();
@@ -290,6 +355,31 @@ await t.eachViewport(async (page, vp) => {
       check(view.rowTop >= view.inputBottom - 1 && view.rowBottom <= view.h + 1, `${tag} W8 result`, "the first result is on screen below the box", JSON.stringify(view));
       check(view.over <= 0, `${tag} W8 width`, "nothing scrolls sideways", `${view.over}px`);
       await t.shot(page, `${tag}-W8-bottom`);
+      await page.mouse.wheel(0, 150);
+      await page.waitForTimeout(300);
+      const listed = await tops();
+      check(listed.list > 0, `${tag} W8 list`, "once the header is gone the wheel scrolls the list", JSON.stringify(listed));
+      for (let i = 0; i < 12; i++) {
+        await page.mouse.wheel(0, -200);
+        await page.waitForTimeout(80);
+      }
+      await page.waitForTimeout(250);
+      const back = await tops();
+      check(back.shell === 0 && back.list === 0, `${tag} W8 back`, "wheeling back up returns the list, then the header", JSON.stringify(back));
+      {
+        const cdp = await page.context().newCDPSession(page).catch(() => null);
+        if (cdp) {
+          await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 }).catch(() => {});
+          await swipe(cdp, 160, 200, 50);
+          await page.waitForTimeout(400);
+          const mid = await tops();
+          await swipe(cdp, Math.round(at.x), Math.round(at.y), Math.round(at.y) - 30);
+          await page.waitForTimeout(400);
+          const swiped = await tops();
+          check(swiped.shell > mid.shell && swiped.list === 0, `${tag} W8 swipe`, "a swipe over the results moves the header away before it scrolls the list", JSON.stringify({ mid, swiped }));
+          await cdp.detach().catch(() => {});
+        }
+      }
       await page.setViewportSize({ width: vp.width, height: vp.height });
     });
   } finally {

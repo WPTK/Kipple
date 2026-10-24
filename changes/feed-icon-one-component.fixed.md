@@ -1,1 +1,1 @@
-Reader: feed icons come from one component, and an unstarred star shows at full strength. (#630)
+Reader: every layout draws a feed's icon the same way, and an unstarred star shows at full strength. (#630)

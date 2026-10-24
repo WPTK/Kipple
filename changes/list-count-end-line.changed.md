@@ -1,1 +1,1 @@
-Reader: the list title shows the article count and the list ends with a line saying so; marking read while scrolling stays silent. (#661)
+Reader: Unread and New show their count beside the list title, and every list ends with a line naming it. (#661)

@@ -2,7 +2,7 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { BookmarkCheck, BookmarkPlus } from "lucide-react";
-import { markAllResultsLabel, MarkAllIcon } from "@/lib/itemActionTable";
+import { markAllLabel, markAllReach, MarkAllIcon } from "@/lib/itemActionTable";
 import { useMarkAllConfirm } from "./MarkAllConfirm";
 import { savedScopeOf, scopeFromSearchParams, searchRoute, useSavedSearches } from "@/api/savedSearches";
 import { useBootstrap, useFolderTree } from "@/api/queries";
@@ -52,6 +52,8 @@ export function SearchScreen() {
   const inputRef = useRef<HTMLInputElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLFormElement>(null);
+  const headRef = useRef<HTMLElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
   const pref = useSearchOrder();
   const boot = useBootstrap();
   const tree = useFolderTree();
@@ -143,23 +145,90 @@ export function SearchScreen() {
   const chip = where.feed ? (feedTitle ?? "One feed") : where.folder ? (folderName ?? "One folder") : where.view === "unread" ? "Unread only" : where.view === "starred" ? "Starred only" : null;
   const existing = ssId ? saved.searches.find((s) => s.id === ssId) : undefined;
   // On a screen too short for the header and the results together (400% zoom, a phone held sideways) the screen scrolls as
-  // one (index.css .search-shell) with only the box held at the top; the results then fill what is left below the box, which
-  // is measured here rather than guessed.
+  // one (index.css .search-shell[data-short]) with only the box held at the top, and the results fill what is left below
+  // the box. Both are measured: the screen is short when the header would take more than half of it, and the box height
+  // is what the results subtract. The header's own height is read from the shell's scroll height while it is dissolved.
   useLayoutEffect(() => {
     const shell = shellRef.current;
     const box = boxRef.current;
-    if (!shell || !box || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => shell.style.setProperty("--search-box-h", `${box.offsetHeight}px`));
+    const head = headRef.current;
+    if (!shell || !box || !head) return;
+    const measure = () => {
+      const boxH = box.offsetHeight;
+      shell.style.setProperty("--search-box-h", `${boxH}px`);
+      const short = shell.hasAttribute("data-short");
+      const headH = short ? shell.scrollHeight - (shell.clientHeight - boxH) : head.offsetHeight;
+      shell.toggleAttribute("data-short", headH > shell.clientHeight / 2);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(shell);
     ro.observe(box);
+    ro.observe(head);
     return () => ro.disconnect();
+  });
+  // In that layout the results are their own scroller, so a wheel or a swipe over them would scroll the list while the
+  // header stays over most of the screen. The screen takes the gesture first: down moves the screen until the header is
+  // gone, up moves it back once the list is at its top. Only a gesture the screen can use is taken; the rest is the list's.
+  useEffect(() => {
+    const results = resultsRef.current;
+    const shell = shellRef.current;
+    if (!results || !shell) return;
+    const take = (dy: number): boolean => {
+      if (!shell.hasAttribute("data-short") || dy === 0) return false;
+      const room = shell.scrollHeight - shell.clientHeight;
+      const list = results.querySelector<HTMLElement>("[data-list-scroller]");
+      const can = dy > 0 ? shell.scrollTop < room - 1 : shell.scrollTop > 0 && (list?.scrollTop ?? 0) <= 0;
+      if (can) shell.scrollTop += dy;
+      return can;
+    };
+    const onWheel = (e: WheelEvent) => {
+      const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * shell.clientHeight : e.deltaY;
+      if (take(px)) e.preventDefault();
+    };
+    let lastY = 0;
+    const onTouchStart = (e: TouchEvent) => {
+      lastY = e.touches[0]?.clientY ?? 0;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY ?? lastY;
+      const dy = lastY - y;
+      lastY = y;
+      if (take(dy) && e.cancelable) e.preventDefault();
+    };
+    results.addEventListener("wheel", onWheel, { passive: false });
+    results.addEventListener("touchstart", onTouchStart, { passive: true });
+    results.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => {
+      results.removeEventListener("wheel", onWheel);
+      results.removeEventListener("touchstart", onTouchStart);
+      results.removeEventListener("touchmove", onTouchMove);
+    };
   }, []);
-  // The whole results are loaded (one page, or all pages asked for), so their number is the number.
-  const total = controls && !controls.empty && !controls.more && controls.count > 0 ? controls.count : null;
+  // Once the whole results are loaded (one page, or all pages asked for) their unread number is the number Mark all marks.
+  const unread = controls && !controls.empty && !controls.more ? controls.unread : null;
+  // What the line says. The screen reader hears it once per search, when the first results have settled, not as the
+  // count moves with every keystroke and every page that loads.
+  const summary =
+    controls && !controls.empty && controls.count > 0
+      ? `${controls.count}${controls.more ? "+" : ""} ${controls.count === 1 && !controls.more ? "result" : "results"} for ${trimmed}`
+      : controls?.empty
+        ? `No results for ${trimmed}`
+        : "";
+  const searchKey = `${q}|${whereKey}|${order}`;
+  const [said, setSaid] = useState<{ key: string; text: string } | null>(null);
+  useEffect(() => {
+    if (!ready || text !== urlQ || !summary || said?.key === searchKey) return;
+    const h = setTimeout(() => setSaid({ key: searchKey, text: summary }), 700);
+    return () => clearTimeout(h);
+  }, [ready, text, urlQ, summary, searchKey, said]);
+  const markAllText = markAllLabel(scope ?? { ...where, q }, unread);
 
   return (
     <div className="search-screen h-full min-h-0">
     <div ref={shellRef} className="search-shell flex h-full min-h-0 flex-col">
-      <header className="search-head pt-safe shrink-0 border-b border-line bg-bg pb-3">
+      <header ref={headRef} className="search-head pt-safe shrink-0 border-b border-line bg-bg pb-3">
         <div className="flex items-center px-4 pt-2">
           <h1 className="min-w-0 flex-1 text-xl font-bold" tabIndex={-1} data-route-heading>
             Search
@@ -234,13 +303,8 @@ export function SearchScreen() {
         </div>
         {ready ? (
           <div className="px-4">
-            <p role="status" data-testid="result-count" className="mt-2 min-h-5 text-sm text-fg2 [overflow-wrap:anywhere]">
-              {controls && !controls.empty && controls.count > 0 ? (
-                <>
-                  {controls.count}
-                  {controls.more ? "+" : ""} {controls.count === 1 && !controls.more ? "result" : "results"} for {trimmed}
-                </>
-              ) : null}
+            <p data-testid="result-count" className="mt-2 min-h-5 text-sm text-fg2 [overflow-wrap:anywhere]">
+              {controls && !controls.empty && controls.count > 0 ? summary : null}
               {existing ? <span className="ml-2 font-medium text-fg">Saved</span> : null}
             </p>
             <div className="mt-1 flex flex-wrap gap-x-2">
@@ -251,18 +315,22 @@ export function SearchScreen() {
               <Button
                 variant="ghost"
                 className="px-2"
-                onClick={() => markAll.ask(markAllResultsLabel(total), "unread articles in these results", () => controls?.markAllRead())}
+                onClick={() => markAll.ask(markAllText, markAllReach(scope ?? { ...where, q }, "these results"), () => controls?.markAllRead())}
                 disabled={!controls || controls.count === 0 || typing}
                 title={typing ? "Press Enter to search first, then mark all results as read" : undefined}
               >
                 <MarkAllIcon aria-hidden="true" />
-                {markAllResultsLabel(total)}
+                {markAllText}
               </Button>
             </div>
           </div>
-        ) : null}        {markAll.dialog}
+        ) : null}
+        <p role="status" className="sr-only-live" data-testid="result-announce">
+          {said?.key === searchKey ? said.text : ""}
+        </p>
+        {markAll.dialog}
       </header>
-      <div className="search-results min-h-0 flex-1">
+      <div ref={resultsRef} className="search-results min-h-0 flex-1">
         {scope && !noFeeds ? (
           <ListPane key={`${q}|${whereKey}|${order}`} scope={scope} onControls={setControls} />
         ) : (

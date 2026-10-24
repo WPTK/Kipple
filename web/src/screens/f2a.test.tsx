@@ -64,7 +64,7 @@ function media(...on: string[]) {
   }));
 }
 const REDUCED = "prefers-reduced-motion";
-const COARSE = "pointer: coarse";
+const COARSE = "any-pointer: coarse";
 
 /** Gesture time: pointer handlers read performance.now(), so tests move it by hand. */
 const clock = { t: 1000 };

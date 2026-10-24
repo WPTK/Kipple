@@ -106,7 +106,7 @@ describe("Search: what is sent", () => {
     const box = await screen.findByRole("searchbox", { name: "Search articles" });
     await user.type(box, "cat{Enter}");
     await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.has("typing")).toBe(false));
-    const markAll = screen.getByRole("button", { name: /^Mark all (\d+ )?results as read$/ });
+    const markAll = screen.getByRole("button", { name: /^Mark all 2 unread results as read$/ });
     await waitFor(() => expect(markAll).toBeEnabled());
     await user.type(box, "s");
     await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.get("typing")).toBe("1"));
@@ -114,7 +114,7 @@ describe("Search: what is sent", () => {
     await user.keyboard("{Backspace}");
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("q")).toBe("cat"));
     // Back at the submitted text: the exact search again, so Mark all is allowed.
-    expect(screen.getByRole("button", { name: /^Mark all (\d+ )?results as read$/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Mark all 2 unread results as read$/ })).toBeEnabled();
   });
 
   it("a search opened from the URL (a saved search, a reload) is a submitted search: no typing", async () => {
@@ -252,14 +252,14 @@ describe("Search: marking results read", () => {
     const user = userEvent.setup();
     const box = await screen.findByRole("searchbox", { name: "Search articles" });
     await user.type(box, "big red");
-    const markAll = await screen.findByRole("button", { name: /^Mark all (\d+ )?results as read$/ });
+    const markAll = await screen.findByRole("button", { name: /^Mark all 2 unread results as read$/ });
     await screen.findByText("No exact matches: showing partial matches");
     // Still typing: what is shown is a wider set than the exact one the server would mark.
     expect(markAll).toBeDisabled();
     await user.type(box, "{Enter}");
-    await waitFor(() => expect(screen.getByRole("button", { name: /^Mark all (\d+ )?results as read$/ })).toBeEnabled());
-    await user.click(screen.getByRole("button", { name: /^Mark all (\d+ )?results as read$/ }));
-    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /^Mark all (\d+ )?results as read$/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Mark all 2 unread results as read$/ })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: /^Mark all 2 unread results as read$/ }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /^Mark all 2 unread results as read$/ }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read")).toBe(true));
     const post = calls.find((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read");
     const sent = JSON.parse(String(post?.init?.body));
@@ -278,8 +278,8 @@ describe("Search: marking results read", () => {
     go("/search?q=cat");
     await screen.findByText("Cats");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^Mark all (\d+ )?results as read$/ }));
-    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /^Mark all (\d+ )?results as read$/ }));
+    await user.click(screen.getByRole("button", { name: /^Mark all 2 unread results as read$/ }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /^Mark all 2 unread results as read$/ }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
     const sent = JSON.parse(String(calls.find((c) => c.method === "POST")?.init?.body));
     expect(sent.scope.fallback).toBe(false);

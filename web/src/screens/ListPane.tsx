@@ -231,6 +231,8 @@ export interface ListControls {
   markAllRead: () => void;
   /** How many rows are loaded (0 while loading or empty). */
   count: number;
+  /** How many of the loaded rows are unread (what Mark all will mark when nothing more is to load). */
+  unread: number;
   /** The server has more rows than are loaded. */
   more: boolean;
   /** A search that had no exact match and shows partial matches (docs/design.md 2.4). */
@@ -287,7 +289,7 @@ function columnsFor(width: number): number {
 
 const isTouch = (): boolean => {
   try {
-    return window.matchMedia("(pointer: coarse)").matches;
+    return window.matchMedia("(any-pointer: coarse)").matches;
   } catch {
     return false;
   }
@@ -1547,8 +1549,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     return !!id && !!parentRef.current?.contains(document.activeElement);
   }, [stopRef]);
   useEffect(() => {
-    controlsRef.current?.({ markAllRead, count: items.length, more: src.more, fallback, empty, focusStop });
-  }, [markAllRead, items.length, src.more, fallback, empty, focusStop]);
+    controlsRef.current?.({ markAllRead, count: items.length, unread: items.filter((i) => !i.read).length, more: src.more, fallback, empty, focusStop });
+  }, [markAllRead, items, src.more, fallback, empty, focusStop]);
   // A header outside the list must not keep acting on a list that is gone (a list remounted under the same scope).
   useEffect(() => () => controlsRef.current?.(null), [controlsRef]);
 
@@ -1594,6 +1596,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
           aria-busy={src.pending || src.loadingMore}
           // A page layout's scroll position moves only when something scrolls it (pageSeen.ts): the browser's scroll
           // anchoring would also move it when a story above the screen changes height.
+          data-list-scroller
           className={`@container h-full overflow-y-auto overscroll-y-contain${Page ? " [overflow-anchor:none]" : ""}`}
           tabIndex={-1}
           onKeyDownCapture={onRowKey}

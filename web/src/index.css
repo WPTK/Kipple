@@ -283,7 +283,7 @@ body {
   height: max(100%, 24px);
   transform: translate(-50%, -50%);
 }
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   .hit-pad::before {
     width: max(100%, 44px);
     height: max(100%, 44px);
@@ -562,20 +562,21 @@ a.sr-only-live:focus {
   .row-reveal:focus-visible { opacity: 1; }
 }
 /* Where the only pointer is a finger, the overlaid control stays in the accessibility tree (a screen reader can still
-   activate it) and anchors the menu a long press opens, but is neither seen nor tapped. */
+   activate it) and anchors the menu a long press opens, but is neither seen nor tapped. A keyboard or switch user who
+   tabs onto it sees it: a control that can take focus is never hidden while it has focus. */
 @media not (any-pointer: fine) {
   .row-touch-unseen { opacity: 0; pointer-events: none; }
+  .row-touch-unseen:focus-visible { opacity: 1; pointer-events: auto; }
 }
-/* Search on a screen too short for its header and its results together (400% zoom, a phone held sideways): the screen
-   scrolls as one, the title and options scroll away, and only the search box stays at the top. The header is dissolved
-   so the box is held against the screen's scroll rather than the header's; the results fill the screen below the box
-   (its height is measured by SearchScreen). 26rem is the height below which the header would take half the screen. */
+/* Search on a screen too short for its header and its results together (400% zoom, a phone held sideways): SearchScreen
+   measures the header and marks the shell data-short when the header would take more than half the screen. The screen
+   then scrolls as one, the title and options scroll away, and only the search box stays at the top. The header is
+   dissolved so the box is held against the screen's scroll rather than the header's; the results fill the screen below
+   the box (its height is measured by SearchScreen). */
 .search-screen { container: search / size; }
-@container search (max-height: 26rem) {
-  .search-shell { display: block; overflow-y: auto; overscroll-behavior: contain; }
-  .search-head { display: contents; }
-  .search-results { height: calc(100cqh - var(--search-box-h, 3.5rem)); flex: none; border-top: 1px solid var(--kp-border); }
-}
+.search-shell[data-short] { display: block; overflow-y: auto; overscroll-behavior: contain; }
+.search-shell[data-short] .search-head { display: contents; }
+.search-shell[data-short] .search-results { height: calc(100cqh - var(--search-box-h, 3.5rem)); flex: none; border-top: 1px solid var(--kp-border); }
 
 /* A Headlines title is one line; with the text size above the default it may take two, so a long title is not cut to a word. */
 .headline-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: hidden; overflow-wrap: anywhere; }
@@ -591,7 +592,7 @@ a.sr-only-live:focus {
 [data-list-density="airy"] { --compact-row: 4.5rem; --head-row: 4rem; }
 .row-compact { min-height: var(--compact-row); }
 .row-headline { min-height: var(--head-row); }
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   .row-compact, .row-headline { min-height: max(44px, var(--compact-row)); }
   .row-headline { min-height: max(44px, calc(var(--head-row) + 0.5rem)); }
 }
