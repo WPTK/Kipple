@@ -1,5 +1,5 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { browserOnlineStore } from "@/lib/offlineState";
 import { useStore } from "@/lib/store";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -8,7 +8,7 @@ import { ApiError } from "@/api/client";
 import { useFulltext, useItem, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
-import { enhanceEmbeds, handleArticleClick, hasNothingToRead, watchImages } from "@/lib/articleDom";
+import { enhanceEmbeds, enhanceImages, enhanceTables, handleArticleClick, hasNothingToRead, watchImages, watchScrollRegions } from "@/lib/articleDom";
 import { useListOrder } from "@/layouts/listOrder";
 import { useItemActions } from "@/lib/itemActions";
 import { retireUndoToastFor } from "@/lib/undo";
@@ -35,10 +35,10 @@ import { ReadingMenu } from "./AppearanceControls";
 import { ListenBar } from "./ListenBar";
 import { DropdownMenu } from "@/ui/menu";
 
-/** The article column's max width for the "Article width" setting (Medium is the density's own measure). */
-export function columnWidth(w: keyof typeof ARTICLE_WIDTH_REM): string {
+/** The article column's max width for the "Article width" setting; Medium is undefined: the stylesheet gives it the density's own measure (.kp-article). */
+export function columnWidth(w: keyof typeof ARTICLE_WIDTH_REM): string | undefined {
   const rem = ARTICLE_WIDTH_REM[w];
-  return w === "medium" ? "min(var(--kp-measure), 46rem)" : rem === null ? "100%" : `${rem}rem`;
+  return w === "medium" ? undefined : rem === null ? "100%" : `${rem}rem`;
 }
 
 interface Props {
@@ -248,9 +248,14 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   });
 
   // Embed placeholders get a real Play button once the HTML is in the DOM.
+  // A layout effect, so a picture that stands alone is centred before the first paint, not after it.
   const bodyRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (bodyRef.current) enhanceEmbeds(bodyRef.current);
+  useLayoutEffect(() => {
+    if (!bodyRef.current) return;
+    enhanceEmbeds(bodyRef.current);
+    enhanceTables(bodyRef.current);
+    enhanceImages(bodyRef.current);
+    return watchScrollRegions(bodyRef.current);
   }, [html, item.data?.trimmed]);
 
   // An image refused for good gets the "Image not shown" cue instead of a blank gap. The watch follows the body element
@@ -366,8 +371,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
       {!pane && <TopBar onBack={back} />}
       {pane && toolbar(true)}
       <div ref={scrollerRef} className="swipe-back-area min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
-        <article className="px-4 pt-4 pb-10 md:px-6" aria-labelledby="article-title" style={{ "--kp-col": columnWidth(dp.articleWidth) } as CSSProperties}>
-          <header className="mx-auto mb-5 max-w-[min(var(--kp-col),100%)]">
+        <article className="kp-article px-4 pt-4 pb-10 md:px-6" aria-labelledby="article-title" style={{ "--kp-col": columnWidth(dp.articleWidth) } as CSSProperties}>
+          <header className="kp-ui mx-auto mb-5 max-w-[min(var(--kp-col),100%)]">
             <p className="text-sm text-fg2">
               {/* Plain text, not a pill: the toolbar's read toggle is the one control, so nothing here looks tappable. */}
               <span data-testid="read-state" className={cn(a.read ? "font-medium text-fg2" : "font-semibold text-fg")}>
@@ -378,10 +383,10 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
                 {a.source || a.feed.title}
               </Link>
             </p>
-            <h1 id="article-title" ref={headingRef} tabIndex={-1} className="mt-1 text-2xl leading-tight font-bold wrap-anywhere outline-none [font-family:var(--kp-reading-font)]">
+            <h1 id="article-title" ref={headingRef} tabIndex={-1} dir="auto" className="mt-1 text-[1.75rem] leading-tight font-[650] text-balance wrap-anywhere outline-none [font-family:var(--kp-reading-font)] [font-size-adjust:0.5]">
               <Hl text={a.title || "Untitled"} field="title" feedId={a.feed_id} />
             </h1>
-            <p className="mt-2 text-sm text-fg2">
+            <p dir="auto" className="mt-2 text-sm text-fg2">
               {a.author ? (
                 <>
                   <Hl text={a.author} field="author" feedId={a.feed_id} />
@@ -393,7 +398,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           </header>
           {/* Not a live region: whatever muted the open article (a filter saved from it) says so in its own toast. */}
           {a.muted_by !== null && a.muted_by !== undefined ? (
-            <div data-testid="muted-banner" className="mx-auto mb-4 flex max-w-[min(var(--kp-col),100%)] flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1 text-sm">
+            <div data-testid="muted-banner" className="kp-ui mx-auto mb-4 flex max-w-[min(var(--kp-col),100%)] flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1 text-sm">
               <span className="min-w-0 flex-1">
                 {a.muted_by_name ? (
                   <>
@@ -408,7 +413,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
             </div>
           ) : null}
           {a.fulltext.error && ftOn ? (
-            <p role="status" className="mx-auto mb-4 flex max-w-[min(var(--kp-col),100%)] items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-sm">
+            <p role="status" className="kp-ui mx-auto mb-4 flex max-w-[min(var(--kp-col),100%)] items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-sm">
               <span className="flex-1">Couldn't load full text. Showing the version from the feed instead.</span>
               <Button size="default" onClick={() => fulltext.mutate({ id, refresh: true })}>
                 Try again
@@ -424,6 +429,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
             <div
               ref={bodyCallback}
               className="article-body"
+              dir="auto"
               data-testid="article-body"
               onClick={(e) => {
                 if (bodyRef.current) handleArticleClick(e, bodyRef.current, scroller.current, !prefersReducedMotion());

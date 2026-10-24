@@ -58,7 +58,7 @@
 
   /* Reading density, Standard (T3). Overridden below. */
   --kp-lh: 1.6;
-  --kp-measure: 35rem;
+  --kp-measure: 66ch;
   --kp-pgap: 1em;
   --kp-hgap: 1.6em;
   --kp-ls: 0em;
@@ -90,11 +90,11 @@
 }
 
 /* Reading density: Dense, Snug, Standard, Relaxed, Airy (T1-T5). */
-[data-reading-density="dense"] { --kp-lh: 1.4; --kp-measure: 41rem; --kp-pgap: 0.6em; --kp-hgap: 1.2em; --kp-ls: 0em; }
-[data-reading-density="snug"] { --kp-lh: 1.5; --kp-measure: 38rem; --kp-pgap: 0.8em; --kp-hgap: 1.4em; --kp-ls: 0em; }
-[data-reading-density="standard"] { --kp-lh: 1.6; --kp-measure: 35rem; --kp-pgap: 1em; --kp-hgap: 1.6em; --kp-ls: 0em; }
-[data-reading-density="relaxed"] { --kp-lh: 1.7; --kp-measure: 33rem; --kp-pgap: 1.25em; --kp-hgap: 1.8em; --kp-ls: 0.005em; }
-[data-reading-density="airy"] { --kp-lh: 1.8; --kp-measure: 31rem; --kp-pgap: 1.5em; --kp-hgap: 2em; --kp-ls: 0.01em; }
+[data-reading-density="dense"] { --kp-lh: 1.4; --kp-measure: 78ch; --kp-pgap: 0.6em; --kp-hgap: 1.2em; --kp-ls: 0em; }
+[data-reading-density="snug"] { --kp-lh: 1.5; --kp-measure: 72ch; --kp-pgap: 0.8em; --kp-hgap: 1.4em; --kp-ls: 0em; }
+[data-reading-density="standard"] { --kp-lh: 1.6; --kp-measure: 66ch; --kp-pgap: 1em; --kp-hgap: 1.6em; --kp-ls: 0em; }
+[data-reading-density="relaxed"] { --kp-lh: 1.7; --kp-measure: 62ch; --kp-pgap: 1.25em; --kp-hgap: 1.8em; --kp-ls: 0.005em; }
+[data-reading-density="airy"] { --kp-lh: 1.8; --kp-measure: 58ch; --kp-pgap: 1.5em; --kp-hgap: 2em; --kp-ls: 0.01em; }
 
 /* List density: Dense, Snug, Standard, Relaxed, Airy (D1-D5). Row heights are
    max(--row-min, content), never fixed, so wrapped text grows the row. */
@@ -316,12 +316,26 @@ a.sr-only-live:focus {
 
 /* ---------- Article body ---------- */
 
+/* At the Medium width the column is a count of characters of the reading face (--kp-measure, in ch): a wide face gets a
+   wider column and a narrow one a narrower, so a line holds about the same number of characters in any font. (Narrow
+   and Wide are fixed widths in rem, set by the article.) A registered length is computed where it is set, the article,
+   whose font is the reading font at the body size; the header, banners and body below all read the same pixel width. */
+@property --kp-col {
+  syntax: "<length-percentage>";
+  inherits: true;
+  initial-value: 100%;
+}
+/* The article is set in the reading font so ch means the body text's ch. font-size-adjust gives every face the same
+   x-height, so one text size looks the same in all bundled fonts (a face's own x-height ranges from 0.45 to 0.55 em). */
+.kp-article { --kp-col: min(var(--kp-measure), 46rem); font-family: var(--kp-reading-font); font-size: 1.0625rem; font-size-adjust: 0.5; }
+/* The parts of an article that are interface, not reading: back in the app font. */
+.kp-ui { font-family: var(--kp-app-font, var(--font-sans)); font-size-adjust: none; }
+
 .article-body {
   font-family: var(--kp-reading-font);
-  font-size: 1.0625rem;
   line-height: var(--kp-lh);
   letter-spacing: var(--kp-ls);
-  max-width: min(var(--kp-col, min(var(--kp-measure), 46rem)), 100%);
+  max-width: min(var(--kp-col), 100%);
   margin-inline: auto;
   /* A long address breaks only where it would run past the column. break-word, not anywhere: anywhere also shrinks
      the narrowest width a table cell can take, so cells broke words letter by letter instead of the table scrolling. */
@@ -329,31 +343,70 @@ a.sr-only-live:focus {
 }
 
 .article-body > * + * { margin-block-start: 0; }
+.article-body p { text-wrap: pretty; }
 .article-body p, .article-body ul, .article-body ol, .article-body blockquote, .article-body pre,
 .article-body figure, .article-body table { margin-block: 0 var(--kp-pgap); }
 .article-body h1, .article-body h2, .article-body h3, .article-body h4, .article-body h5, .article-body h6 {
   line-height: 1.25;
+  font-weight: 650;
+  text-wrap: balance;
   margin-block: var(--kp-hgap) 0.5em;
 }
-.article-body h1 { font-size: 1.5em; }
-.article-body h2 { font-size: 1.3em; }
-.article-body h3 { font-size: 1.15em; }
-.article-body h4 { font-size: 1.05em; }
-.article-body h5 { font-size: 1em; }
+/* One heading scale, tied to the article title (1.75rem, set on the title itself): h1 to h3 step down from it. */
+.article-body h1 { font-size: 1.35em; }
+.article-body h2 { font-size: 1.2em; }
+.article-body h3 { font-size: 1.08em; }
+.article-body h4, .article-body h5 { font-size: 1em; }
 .article-body h6 { font-size: 0.9em; }
 .article-body a { color: var(--kp-link); text-decoration: underline; text-underline-offset: 0.15em; }
 .article-body img, .article-body video, .article-body svg { max-width: 100%; height: auto; border-radius: 0.5rem; }
+/* A picture never grows taller than most of a screen: a tall one keeps its shape, narrower, centred, instead of
+   pushing the text away. Pictures and video only; the embed poster is a 16:9 frame and is not capped (below). */
+.article-body img, .article-body video { max-height: min(70dvh, 40rem); object-fit: contain; }
+/* The base style makes every img a block, which would cut a line of text around an icon in two: pictures flow with the
+   text unless they stand alone (below). */
+.article-body img { display: inline; }
+/* A picture that stands alone on its line (enhanceImages in articleDom.ts) is centred; one in a line of text or in a row
+   of icons stays where it is. */
+.article-body img[data-kp="block"], .article-body figure > video { display: block; margin-inline: auto; }
+/* A capped picture's box narrows with its height (enhanceImages gives --kp-w and --kp-h from the width and height
+   attributes), so its rounded corners and its link are the picture's own, not a full-width bar around it. */
+.article-body img[data-kp="block"][data-sized] { width: min(calc(var(--kp-w) * 1px), calc(min(70dvh, 40rem) * var(--kp-w) / var(--kp-h))); }
 .article-body figure { margin-inline: 0; }
 .article-body figcaption { color: var(--kp-text2); font-size: 0.875em; margin-block-start: 0.4em; }
 .article-body blockquote { border-inline-start: 3px solid var(--kp-border); padding-inline-start: 1em; color: var(--kp-text2); margin-inline: 0; }
 .article-body pre, .article-body code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
 .article-body pre { background: var(--kp-surface); padding: 0.75em 1em; border-radius: 0.5rem; overflow-x: auto; }
 .article-body table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+/* Code and tables that run past the column scroll sideways. A shadow at an edge says there is more there (the shadow
+   is drawn only while the content is scrolled away from that edge); both take keyboard focus (articleDom.ts). */
+.article-body :is(pre, table) {
+  --cover: var(--kp-surface);
+  --edge: color-mix(in srgb, var(--kp-text) 28%, transparent);
+  background:
+    linear-gradient(to right, var(--cover) 30%, transparent) left center / 2rem 100% no-repeat local,
+    linear-gradient(to left, var(--cover) 30%, transparent) right center / 2rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, var(--edge), transparent) left center / 0.6rem 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, var(--edge), transparent) right center / 0.6rem 100% no-repeat scroll,
+    var(--cover);
+}
+.article-body table { --cover: var(--kp-bg); }
+.article-body :is(pre, table):focus-visible { outline: 2px solid var(--kp-accent); outline-offset: 2px; }
+/* Table cells: headers start-aligned, short cells and numbers on one line, numbers on the end edge in tabular figures. */
+.article-body th { text-align: start; }
+.article-body :is(td, th)[data-kp="short"] { white-space: nowrap; }
+.article-body :is(td, th)[data-kp="num"] { white-space: nowrap; text-align: end; font-variant-numeric: tabular-nums; }
 /* A one-column table is page layout (a newsletter's wrapper), not data: its text wraps like a paragraph, a long
    address included, so the whole article never scrolls sideways. */
 .article-body table:not(:has(tr > :nth-child(2))) td { overflow-wrap: anywhere; }
 .article-body th, .article-body td { border: 1px solid var(--kp-border); padding: 0.35em 0.6em; }
 .article-body ul, .article-body ol { padding-inline-start: 1.5em; }
+/* The base reset clears list-style on every list; an article's lists need their bullets and numbers back. */
+.article-body ul { list-style: disc; }
+.article-body ol { list-style: decimal; }
+.article-body ul ul, .article-body ol ul { list-style: circle; }
+.article-body ul ul ul, .article-body ol ul ul, .article-body ul ol ul, .article-body ol ol ul { list-style: square; }
+.article-body li > ul, .article-body li > ol { margin-block: 0.25em 0; }
 .article-body hr { border: 0; border-top: 1px solid var(--kp-border); margin-block: var(--kp-hgap); }
 
 /* ---------- List rows ---------- */
@@ -526,7 +579,7 @@ a.sr-only-live:focus {
   background: var(--kp-surface);
   border: 1px solid var(--kp-border);
 }
-.article-body figure.kp-embed > img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 0; }
+.article-body figure.kp-embed > img { display: block; width: 100%; max-height: none; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 0; }
 .article-body figure.kp-embed:not(:has(> img)):not([data-loaded="1"]) { padding-block: 0.75rem; text-align: center; }
 .article-body figure.kp-embed > a { display: block; padding: 0.5rem 0.75rem; font-size: 0.875em; }
 .article-body .kp-embed-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }
@@ -580,6 +633,9 @@ a.sr-only-live:focus {
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
+/* The same height cap and centring as the picture it replaced, so a late failure moves no text. */
+.article-body .kp-img-off { max-height: min(70dvh, 40rem); }
+.article-body .kp-img-off[data-kp="block"] { display: flex; width: fit-content; margin-inline: auto; }
 /* Holding a declared image size (width and aspect-ratio set by imageNotShown): the text sits in the middle. */
 .article-body .kp-img-off[data-sized] { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 /* Inside a link the cue is part of that link, so it looks like one (an underline does not reach an inline-flex box). */
