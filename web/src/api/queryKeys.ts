@@ -22,6 +22,8 @@ export const keys = {
    */
   section: (scope: Scope) => ["items", `${scopeKey(scope)}${SECTION_SUFFIX}`] as const,
   itemsAll: ["items"] as const,
+  /** Each feed's newest articles, for the Feed index. Not under "items": it is a list of feeds, not of articles. */
+  feedsLatest: ["feeds-latest"] as const,
   item: (id: string) => ["item", id] as const,
   stats: (range: string) => ["stats", range] as const,
 };

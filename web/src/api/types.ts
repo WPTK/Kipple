@@ -45,6 +45,12 @@ export interface ItemDetail extends Card {
   trimmed: boolean;
 }
 
+/** One feed's newest articles, newest first, read or not (GET /api/feeds/latest). */
+export interface FeedLatest {
+  feed_id: string;
+  items: Card[];
+}
+
 export interface ItemsPage {
   items: Card[];
   next_cursor: string | null;

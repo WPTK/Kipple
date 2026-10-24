@@ -20,16 +20,19 @@ interface RowProps {
   item: Card;
   to: To;
   onOpen: (item: Card) => void;
-  actions: RowMenuActions;
+  /** The row's menu (More actions, long press). Without it the row has none. */
+  actions?: RowMenuActions;
   /** Show the picture on the right, when the article has one. */
   images: boolean;
+  /** Name the article's source before its time. A page under the source's own name leaves it out. */
+  source?: boolean;
   selected: boolean;
   /** This article's link is the page's one Tab stop. */
   tabStop: boolean;
 }
 
 /** An article: its title first, then its source and time, and a picture on the right when there is one and pictures are on. */
-function DigestRow({ item, to, onOpen, actions, images, selected, tabStop }: RowProps) {
+export function DigestRow({ item, to, onOpen, actions, images, source = true, selected, tabStop }: RowProps) {
   const press = useLongPressMenu(item.id);
   const failure = useImageFailure(item.image);
   const unread = !item.read;
@@ -39,7 +42,7 @@ function DigestRow({ item, to, onOpen, actions, images, selected, tabStop }: Row
       data-item-id={item.id}
       data-read={item.read || undefined}
       data-selected={selected || undefined}
-      {...press}
+      {...(actions ? press : {})}
       // The menu button is laid over the row's corner, so it takes no room (and a hidden one none at all).
       className={cn(
         "row-host relative flex min-h-[var(--row-min)] items-start gap-3 border-b border-line py-[var(--row-py)] pr-4 pl-3 [-webkit-touch-callout:none]",
@@ -60,15 +63,17 @@ function DigestRow({ item, to, onOpen, actions, images, selected, tabStop }: Row
           </Link>
         </h3>
         <p className="flex items-center gap-1.5 text-xs text-fg2">
-          <span className="truncate">{item.source}</span>
-          <span aria-hidden="true">·</span>
+          {source ? <span className="truncate">{item.source}</span> : null}
+          {source ? <span aria-hidden="true">·</span> : null}
           <PublishedTime item={item} className="shrink-0" />
         </p>
       </div>
       {picture ? <ListImage src={item.image!} failure={failure} className={cn("size-16 shrink-0 rounded-lg bg-surface object-cover", item.read && "opacity-60")} /> : null}
-      <RowTabStop.Provider value={tabStop}>
-        <RowMenu item={item} actions={actions} revealOnHover className="row-touch-unseen absolute right-1 bottom-1 bg-bg/80" />
-      </RowTabStop.Provider>
+      {actions ? (
+        <RowTabStop.Provider value={tabStop}>
+          <RowMenu item={item} actions={actions} revealOnHover className="row-touch-unseen absolute right-1 bottom-1 bg-bg/80" />
+        </RowTabStop.Provider>
+      ) : null}
     </article>
   );
 }

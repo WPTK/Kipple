@@ -27,7 +27,8 @@ import { Skeleton } from "@/ui/kit";
 // Settings, Feeds and Health load on first visit; the reader and list stay in the main chunk.
 // A failed download can be tried again (lib/lazyScreen.ts): React.lazy alone would keep the failure for good.
 const FeedsScreen = lazyScreen(() => import("@/screens/FeedsScreen").then((m) => ({ default: m.FeedsScreen })));
-const HealthScreen = lazyScreen(() => import("@/screens/HealthScreen").then((m) => ({ default: m.HealthScreen })));
+const FeedIndexScreen = lazyScreen(() => import("@/screens/FeedIndexScreen").then((m) => ({ default: m.FeedIndexScreen })));
+const HealthScreen =lazyScreen(() => import("@/screens/HealthScreen").then((m) => ({ default: m.HealthScreen })));
 const StatsScreen = lazyScreen(() => import("@/screens/StatsScreen").then((m) => ({ default: m.StatsScreen })));
 const WrappedScreen = lazyScreen(() => import("@/screens/WrappedScreen").then((m) => ({ default: m.WrappedScreen })));
 const Welcome = lazyScreen(() => import("@/setup/Welcome").then((m) => ({ default: m.Welcome })));
@@ -225,6 +226,7 @@ function Gate() {
           <Route path="i/:id" />
         </Route>
         <Route path="feeds" element={<Lazy label="Loading feeds"><FeedsScreen /></Lazy>} />
+        <Route path="feeds/index" element={<Lazy label="Loading the feed index"><FeedIndexScreen /></Lazy>} />
         <Route path="health" element={<Lazy label="Loading feed health"><HealthScreen /></Lazy>} />
         <Route path="search" element={<SearchScreen />} />
         <Route path="stats" element={<Lazy label="Loading stats"><StatsScreen /></Lazy>} />
