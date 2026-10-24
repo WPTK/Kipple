@@ -14,6 +14,7 @@ import { FolderSelect } from "@/ui/FolderSelect";
 import { announce, toast } from "@/shell/toasts";
 import { everyLabel } from "@/lib/interval";
 import { FeedReason } from "../FeedRepair";
+import { failureReason } from "@/lib/feedStatus";
 import { deleteCopy } from "./BulkActions";
 
 const INTERVALS = [15, 30, 60, 120, 360, 720, 1440, 10080];
@@ -49,7 +50,8 @@ const fromDetail = (d: FeedDetail): Form => ({
   retention: d.retention == null ? "" : String(d.retention),
   autoRead: d.auto_read_days == null ? "" : String(d.auto_read_days),
   fulltext: d.fulltext,
-  enabled: d.enabled,
+  // A gone feed (the site answered 410) is off for its address, not paused by choice: its form does not show it paused.
+  enabled: d.enabled || d.disabled_reason === "gone",
   dedup: d.dedup_mode,
   userAgent: d.user_agent ?? "",
   auth: "",
@@ -191,7 +193,7 @@ export function FeedEditor({ feed, onClose, focusAddress }: { feed: Feed; onClos
       const r = await refreshFeed(feed.id);
       invalidateFeeds(qc);
       if (r.pending) announce("Still fetching. Check Feed health in a moment.");
-      else if (r.error) toast(`Couldn't fetch this feed: ${r.error}`, "error");
+      else if (r.error) toast(`Couldn't fetch this feed. ${failureReason({ last_error: r.error, last_error_class: r.error_class })}.`, "error");
       else toast(r.new_items ? `${r.new_items} new article${r.new_items === 1 ? "" : "s"}` : "No new articles");
     } catch (e) {
       toast(failed("fetch this feed", e), "error");

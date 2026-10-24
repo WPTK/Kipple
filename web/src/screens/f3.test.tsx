@@ -389,7 +389,7 @@ describe("Add feed", () => {
     expect(title).toHaveValue("📰".repeat(200));
     expect(within(dlg).getByRole("button", { name: "Add feed" })).toBeEnabled();
     await user.paste("x");
-    expect(within(dlg).getByText(/at most 200 characters; this one has 201/)).toBeInTheDocument();
+    expect(title).toHaveAccessibleDescription(/at most 200 characters; this one has 201/);
     expect(within(dlg).getByRole("button", { name: "Add feed" })).toBeDisabled();
     await user.clear(title);
     await user.clear(within(dlg).getByLabelText("Feed or website address"));
@@ -904,6 +904,7 @@ describe("Feed health", () => {
     expect(healthSort(HEALTH.feeds, "status", 1).map((f) => f.title)).toEqual(["NPR", "Moved Site", "Zed Blog"]);
     expect(healthSort(HEALTH.feeds, "title", 1).map((f) => f.title)).toEqual(["Moved Site", "NPR", "Zed Blog"]);
     expect(healthFilter(HEALTH.feeds, "attention", "").map((f) => f.title)).toEqual(["NPR", "Moved Site"]);
+    expect(healthFilter(HEALTH.feeds, "redirects", "").map((f) => f.title)).toEqual(["Moved Site"]);
     expect(healthFilter(HEALTH.feeds, "all", "zed").map((f) => f.title)).toEqual(["Zed Blog"]);
   });
 
@@ -991,14 +992,14 @@ describe("Feed health", () => {
     expect(screen.queryByRole("dialog", { name: "Delete 1 feed?" })).toBeNull();
   });
 
-  it("names a fetch's outcome in words", async () => {
+  it("counts the write-ahead log in the database size, and names a fetch's outcome in words", async () => {
     base({
       "GET /api/health/feeds": () => json({ ...HEALTH, db: { db_bytes: 4096, wal_bytes: 3 * 1024 * 1024, backup_bytes: 0, imgcache_bytes: 0 } }),
       "GET /api/health/feeds/1/log": () => json({ log: [{ id: "9", trigger: "schedule", started_at: 900, duration_ms: 10, outcome: "not_modified", http_status: 304, error_class: null, error: null, new_items: 0, updated_items: 0, trimmed_items: 0, first_item_id: null, last_item_id: null, bytes: null, final_url: null, note: null, keep: false }] }),
     });
     go("/health");
     const user = userEvent.setup();
-    await screen.findByText("Zed Blog");
+    expect(await screen.findByText(/Database 3\.0 MB/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Actions for Zed Blog" }));
     await user.click(await screen.findByRole("menuitem", { name: "Fetch log" }));
     const dlg = await screen.findByRole("dialog", { name: "Fetch log for Zed Blog" });

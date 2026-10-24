@@ -270,6 +270,11 @@ func (d *DB) PatchFeed(ctx context.Context, id int64, p FeedPatch) (PatchResult,
 					// The new URL has never been fetched: its first success brings a backlog, not
 					// arrivals, so feed_daily_new leaves it out like a new subscription's.
 					"url_succeeded = 0")
+				// A feed the site said is gone (410) was switched off for that address; a corrected address is
+				// the way back, so it is switched on and fetched at once unless the same patch says otherwise.
+				if reason.String == "gone" && p.Enabled == nil {
+					sets = append(sets, "enabled = 1", "disabled_reason = NULL")
+				}
 				set("next_fetch_at", now)
 				res.Changed, res.NeedsFetch, res.Notify = true, true, true
 			}

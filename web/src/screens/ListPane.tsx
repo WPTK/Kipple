@@ -1369,7 +1369,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     if (Page ? nothingShown : rows.length === 0) {
       if (boot.data && visibleFeeds(boot.data.feeds).length === 0 && !scope.q) {
         return (
-          <FirstRun onAdd={() => navigate("/feeds", { state: { open: "add" } })} onImport={() => navigate("/feeds", { state: { open: "import" } })} />
+          <FirstRun onImport={() => navigate("/feeds", { state: { open: "import" } })} />
         );
       }
       const failing = scope.feed ? feedById.get(scope.feed) : undefined;
@@ -1393,11 +1393,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
               {c.next === "add" ? (
                 <Button onClick={() => navigate("/feeds", { state: { open: "add" } })}>Add a feed</Button>
               ) : null}
-              {c.health && failing ? <FeedRepair feed={failing} /> : c.health ? (
-                <Link to="/health" className="text-sm text-link underline underline-offset-2">
-                  Open Feed health
-                </Link>
-              ) : null}
+              {c.health && failing ? <FeedRepair feed={failing} /> : null}
               {scope.view === "muted" && !scope.q ? (
                 <Link to="/settings/filters" className="text-sm text-link underline underline-offset-2">
                   Add a filter in Settings

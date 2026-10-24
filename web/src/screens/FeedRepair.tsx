@@ -1,7 +1,7 @@
 import { Suspense, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateFeeds, refreshFeed, useHealth } from "@/api/admin";
-import { errorMessage } from "@/api/client";
+import { failed } from "@/api/client";
 import { lazyScreen } from "@/lib/lazyScreen";
 import type { Feed } from "@/api/types";
 import { failureReason, retryLabel } from "@/lib/feedStatus";
@@ -40,7 +40,7 @@ export function FeedReason({ feed }: { feed: Pick<Feed, "id" | "last_error" | "l
  * Edit address and Try now, the two ways to repair a failing feed. Try now fetches the feed at once and says what came
  * of it. `onEdit` opens Edit feed with its address field focused.
  */
-export function RepairButtons({ feedId, title, onEdit }: { feedId: string; title: string; onEdit: () => void }) {
+export function RepairButtons({ feedId, title, canTry = true, onEdit }: { feedId: string; title: string; /** False for a feed that is switched off (a gone feed or a paused one): the server will not fetch it. */ canTry?: boolean; onEdit: () => void }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const tryNow = async () => {
@@ -53,7 +53,7 @@ export function RepairButtons({ feedId, title, onEdit }: { feedId: string; title
       else if (r.error || r.outcome === "error") toast(`${title} still can't be fetched: ${failureReason({ last_error: r.error, last_error_class: r.error_class }).toLowerCase()}.`, "error");
       else toast(r.new_items ? `${title} works again: ${r.new_items} new article${r.new_items === 1 ? "" : "s"}.` : `${title} works again.`);
     } catch (e) {
-      toast(errorMessage(e), "error");
+      toast(failed("try that", e), "error");
     } finally {
       setBusy(false);
     }
@@ -63,9 +63,11 @@ export function RepairButtons({ feedId, title, onEdit }: { feedId: string; title
       <Button onClick={onEdit} aria-label={`Edit address of ${title}`}>
         Edit address
       </Button>
-      <Button disabled={busy} onClick={() => void tryNow()} aria-label={`Try ${title} now`}>
-        Try now
-      </Button>
+      {canTry ? (
+        <Button disabled={busy} onClick={() => void tryNow()} aria-label={`Try ${title} now`}>
+          Try now
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -76,7 +78,7 @@ export function FeedRepair({ feed }: { feed: Feed }) {
   return (
     <div data-testid="feed-repair" className="flex flex-col items-center gap-3">
       <FeedFacts id={feed.id} />
-      <RepairButtons feedId={feed.id} title={feed.title} onEdit={() => setEditing(true)} />
+      <RepairButtons feedId={feed.id} title={feed.title} canTry={feed.status !== "dead" && feed.status !== "disabled"} onEdit={() => setEditing(true)} />
       {editing ? (
         <Suspense fallback={null}>
           <FeedEditor feed={feed} focusAddress onClose={() => setEditing(false)} />

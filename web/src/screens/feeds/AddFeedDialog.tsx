@@ -228,14 +228,12 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
               onChange={setPrivateNet}
             />
           ) : null}
-          <Disclosure label="Options">
-            <Field label="Title (optional)" help={title.trim() ? "Kipple uses this title instead of the feed's own. You can change it later." : "Left empty, the title is filled in from the feed. You can change it later."}>
+          <Disclosure label="Options" tone={titleTooLong ? "warn" : undefined}>
+            <Field label="Title (optional)" error={titleTooLong ? `A title can be at most ${MAX_TITLE_CHARS} characters; this one has ${titleChars}.` : null} help={title.trim() ? "Kipple uses this title instead of the feed's own. You can change it later." : "Left empty, the title is filled in from the feed. You can change it later."}>
               {(a) => <input {...a} type="text" placeholder="Filled in from the feed" value={title} readOnly={busy} onChange={(e) => setTitle(e.target.value)} className={inputCls} />}
             </Field>
             <Field label="Folder">{(a) => <FolderSelect {...a} value={folder} onChange={setFolder} none="Default folder" disabled={busy} />}</Field>
           </Disclosure>
-          {/* Outside the closed Options, so a too-long title is never a silent reason the button is off. */}
-          {titleTooLong ? <Notice tone="error">{`A title can be at most ${MAX_TITLE_CHARS} characters; this one has ${titleChars}.`}</Notice> : null}
         </form>
       )}
     </Modal>

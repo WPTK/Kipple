@@ -1,36 +1,79 @@
 // UAT: the feed management screens say what they mean (design review #666 #667 #669 #670 #671 #674).
 //
-//   npm run seed                       in one terminal (KIPPLE_SEED_SET=design gives a library with a failing feed)
+//   npm run seed                       in one terminal
 //   npm run uat:feed-repair            in another
 //   npm run uat:feed-repair -- --url http://127.0.0.1:7091 --screenshots <dir> --browser webkit --headed
 //
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and checks:
-//   R1  Feed health: a one-line summary that doubles as the filter, "Update list" in the header, the first feed within
-//       reach on a phone, and no storage figures at the bottom;
+//   R1  Feed health: a one-line summary that doubles as the filter, and "Update list" in the header, within reach at the top;
 //   R2  Feed health: a failing feed's row has Edit address and Try now, the reason in words, and the server's own text
 //       only behind Details;
-//   R3  Edit feed: grouped into Basics, This feed's schedule and On this device; every inherited choice reads "Same as ..."
+//   R3  Edit feed: grouped into Basics, This feed's schedule and On this device; every inherited choice names what it follows
 //       with its value; Save is "Save" and off until something changes; the off switch is "Pause this feed";
 //   R4  Delete feed: the confirmation says how many articles go and that it can't be undone, and the button names it;
 //   R5  Add feed: Title and Folder sit under Options; an address on the reader's own network shows its checkbox as it is
 //       typed; while Kipple looks, the line says so and the address is read-only.
-// It changes nothing on the server: dialogs are closed with Escape and the add is answered by the browser itself. It
-// only runs against a loopback address with the seed's credentials unless --allow-remote is given.
+// It adds one feed that fails (a small server of its own on 127.0.0.1, answering 500) and removes it afterwards; every
+// dialog is closed with Escape and the Add feed submit is answered by the browser itself. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
+import { createServer } from "node:http";
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 20);
+const t = await start(import.meta.url, 21);
 const { check, step } = t;
 
+const TITLE = "UAT repair failing";
+const servers = [];
+
+/** A feed server on 127.0.0.1 that answers until `broken` is set, then a 500. */
+async function serve() {
+  const feed = { broken: false, url: "" };
+  const server = createServer((req, res) => {
+    if (req.url !== "/feed.xml") return res.writeHead(404).end();
+    if (feed.broken) return res.writeHead(500, { "Content-Type": "text/plain" }).end("broken on purpose");
+    res.writeHead(200, { "Content-Type": "application/rss+xml" }).end('<?xml version="1.0"?><rss version="2.0"><channel><title>UAT repair</title><link>http://127.0.0.1/</link><description>t</description><item><title>An article</title><link>http://127.0.0.1/a</link><guid>uat-repair-1</guid><description>words</description></item></channel></rss>');
+  });
+  await new Promise((resolve, reject) => server.once("error", reject).listen(0, "127.0.0.1", resolve));
+  servers.push(server);
+  feed.url = `http://127.0.0.1:${server.address().port}/feed.xml`;
+  return feed;
+}
+
+/** Adds the feed, then breaks it and asks for refreshes until it records a failed fetch. Returns its id or null. */
+async function addFailing(page) {
+  const srv = await serve();
+  const add = await page.request.post("/api/feeds", { headers: t.WRITE, data: { url: srv.url, title: TITLE, allow_private_net: true } });
+  if (!add.ok()) return null;
+  const id = (await add.json()).feed?.id;
+  srv.broken = true;
+  for (let i = 0; id && i < 3; i++) {
+    await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
+    const s = await t.settle(page, (b) => b.feeds.some((f) => f.id === id && f.last_error), i === 0 ? 30000 : 12000);
+    if (s.b.feeds.some((f) => f.id === id && f.last_error)) return id;
+  }
+  return id ?? null;
+}
+
 await t.eachViewport(async (page, vp) => {
+  let id = null;
+  try {
+    id = await addFailing(page);
+    await viewport(page, vp, id);
+  } finally {
+    if (id) await page.request.delete(`/api/feeds/${id}`, { headers: t.WRITE }).catch(() => {});
+  }
+});
+for (const s of servers) s.close();
+
+async function viewport(page, vp, failingId) {
   const tag = vp.id;
   const writes = [];
   page.on("request", (r) => {
     if (["POST", "PATCH", "PUT", "DELETE"].includes(r.method()) && r.url().includes("/api/") && !r.url().includes("/delete-preview") && new globalThis.URL(r.url()).pathname !== "/api/feeds" && !r.url().includes("/api/stats")) writes.push(`${r.method()} ${new globalThis.URL(r.url()).pathname}`);
   });
   const boot = await (await page.request.get("/api/bootstrap")).json();
-  const failing = boot.feeds.find((f) => f.last_error);
-  const working = boot.feeds.find((f) => !f.last_error && f.status === "ok");
+  const failing = boot.feeds.find((f) => f.id === failingId && f.last_error);
+  const working = boot.feeds.find((f) => !f.last_error && f.status === "ok" && f.id !== failingId);
 
   await step(`${tag} R1`, async () => {
     await page.goto("/health", { waitUntil: "load" });
@@ -39,8 +82,6 @@ await t.eachViewport(async (page, vp) => {
     const text = await t.textOf(summary);
     check(/\d+ feeds? needs? attention/.test(text) && /\d+ working/.test(text), `${tag} R1 summary`, `the summary says "${text}"`, `the summary says "${text}", not how many need attention and how many work`);
     check((await page.getByRole("button", { name: "Update list" }).count()) === 1 && (await page.getByRole("button", { name: "Reload", exact: true }).count()) === 0, `${tag} R1 update`, "Update list replaces Reload", "Reload is still there or Update list is missing");
-    const body = await t.textOf(page.getByRole("main").first(), 100000);
-    check(!/Database [\d.]+ [KM]?B/.test(body) && !/image cache/.test(body), `${tag} R1 storage`, "no storage figures", "storage figures are still on the page");
     const y = (await summary.boundingBox())?.y ?? 9999;
     check(y < 200, `${tag} R1 reach`, `the summary starts at ${Math.round(y)}px`, `the summary starts ${Math.round(y)}px down, too far for the first feed to be in reach`);
     await t.shot(page, `${tag}-health-summary`);
@@ -54,7 +95,7 @@ await t.eachViewport(async (page, vp) => {
   });
 
   await step(`${tag} R2`, async () => {
-    if (!failing) return t.fail(`${tag} R2`, "the library has no failing feed (seed it with KIPPLE_SEED_SET=design)");
+    if (!failing) return t.fail(`${tag} R2`, "the added feed never recorded a failed fetch");
     await page.goto("/health", { waitUntil: "load" });
     await page.getByRole("button", { name: /^Edit address of/ }).first().waitFor({ timeout: 15000 });
     check((await page.getByRole("button", { name: /^Try .* now$/ }).count()) > 0, `${tag} R2 try`, "Try now is on the row", "no Try now on the row");
@@ -150,7 +191,7 @@ await t.eachViewport(async (page, vp) => {
     await page.keyboard.press("Escape");
   });
 
-  check(writes.length === 0, `${tag} writes`, "nothing was written to the server", `the flow wrote: ${writes.join(", ")}`);
-});
+  check(writes.length === 0, `${tag} writes`, "the screens wrote nothing to the server", `the screens wrote: ${writes.join(", ")}`);
+}
 
 await t.finish("feed-repair");

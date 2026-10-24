@@ -159,7 +159,8 @@ await t.eachViewport(async (page, vp) => {
     await dlg.getByRole("textbox", { name: "Feed or website address" }).first().fill("http://127.0.0.1:9/uat-private.xml");
     await dlg.getByRole("button", { name: "Add feed", exact: true }).click();
     const opt = dlg.getByRole("checkbox", { name: /^Allow addresses on my own network/ });
-    await opt.waitFor({ timeout: 15000 });
+    // The option shows as soon as the address is typed; the refusal is what the add answers with.
+    await dlg.getByText(/tick "Allow addresses on my own network"/).waitFor({ timeout: 15000 });
     check(!(await opt.isChecked()) && (await dlg.getByRole("switch").count()) === 0, `${tag} K5`, "the private-network option is an unticked checkbox", "the private-network option is not an unticked checkbox");
     check(/tick "Allow addresses on my own network"/.test(await dlg.innerText()), `${tag} K5 words`, "the refusal says to tick it", "the refusal does not say to tick it");
     await t.shot(page, `${tag}-K5-add-feed`);

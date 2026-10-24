@@ -122,3 +122,67 @@ describe("the repair surface", () => {
     expect(screen.getByText("Fine")).toBeInTheDocument();
   });
 });
+
+describe("a feed the site says is gone", () => {
+  const dead: Feed = { ...failing, status: "dead", last_error: "HTTP 410", last_error_class: "gone" };
+  const deadHealth = (): HealthFeed => health({ status: "dead", enabled: false, disabled_reason: "gone", last_error: "HTTP 410", last_error_class: "gone", next_fetch_at: nowS + 3600 });
+
+  it("offers Edit address but no Try now, which the server would refuse", async () => {
+    go("/l?feed=1", [deadHealth()], { "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [dead], counts: { unread: 0, starred: 0 } }) });
+    const box = await screen.findByTestId("feed-repair");
+    expect(within(box).getByRole("button", { name: /^Edit address of/ })).toBeInTheDocument();
+    expect(within(box).queryByRole("button", { name: /^Try .* now$/ })).toBeNull();
+  });
+
+  it("is counted once on Feed health, as needing attention and not as paused", async () => {
+    go("/health", [deadHealth(), health({ id: "9", title: "Fine", status: "ok", last_error: null, last_error_class: null, consecutive_failures: 0 })]);
+    const summary = await screen.findByTestId("health-summary");
+    expect(summary).toHaveTextContent("1 feed needs attention. 1 working.");
+    expect(within(summary).queryByRole("button", { name: /paused/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Try .* now$/ })).toBeNull();
+  });
+
+  it("opens Edit feed with Pause this feed unticked", async () => {
+    go("/l?feed=1", [deadHealth()], {
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [dead], counts: { unread: 0, starred: 0 } }),
+      "GET /api/feeds/1": () => json({ ...detail, status: "dead", enabled: false, disabled_reason: "gone" }),
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Edit address of/ }));
+    const dlg = await screen.findByRole("dialog", { name: "Edit feed" });
+    expect(await within(dlg).findByRole("checkbox", { name: /^Pause this feed/ })).not.toBeChecked();
+  });
+});
+
+describe("Delete feed", () => {
+  it("counts the articles it removes before it asks, and says so on the button", async () => {
+    const m = go("/l?feed=1", [health()], { "POST /api/feeds/delete-preview": () => json({ articles: 12 }) });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Edit address of/ }));
+    const dlg = await screen.findByRole("dialog", { name: "Edit feed" });
+    await user.click(await within(dlg).findByRole("button", { name: "Delete feed" }));
+    const ask = await screen.findByRole("dialog", { name: /^Delete / });
+    expect(await within(ask).findByRole("button", { name: "Delete feed and 12 articles" })).toBeInTheDocument();
+    expect(ask).toHaveTextContent("Removes 12 articles. This can't be undone.");
+    expect(m.calls.some((c) => c.method === "POST" && c.url.pathname === "/api/feeds/delete-preview")).toBe(true);
+  });
+});
+
+describe("the empty library", () => {
+  it("opens Add feed in place, so Cancel leaves the reader where they were", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [], folders: bootstrap.folders, counts: { unread: 0, starred: 0 } }),
+      "GET /api/items": () => json(pageOf([])),
+    });
+    window.history.replaceState({ idx: 0 }, "", "/l");
+    render(<App client={makeQueryClient({ retry: false })} />);
+    const user = userEvent.setup();
+    const first = await screen.findByRole("button", { name: "Add your first feed" });
+    const here = window.location.pathname;
+    await user.click(first);
+    const dlg = await screen.findByRole("dialog", { name: "Add feed" });
+    await user.click(within(dlg).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(window.location.pathname).toBe(here);
+  });
+});

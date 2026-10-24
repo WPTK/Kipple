@@ -131,7 +131,7 @@ describe("a failing feed", () => {
 });
 
 describe("which failures are current", () => {
-  const dead: Feed = { ...failing, id: "2", title: "Gone Feed", status: "dead", last_error: "HTTP 410", last_error_class: "http" };
+  const dead: Feed = { ...failing, id: "2", title: "Gone Feed", status: "dead", last_error: "HTTP 410", last_error_class: "gone" };
   const fine: Feed = { ...failing, id: "3", title: "Fine Feed", status: "ok", last_error: null };
   const all = [failing, dead, fine];
   const folders = bootstrap.folders;
@@ -178,20 +178,20 @@ describe("which failures are current", () => {
     const five = ["A", "B", "C", "D", "E"].map((t, i) => ({ ...failing, id: `x${i}`, title: t }));
     expect(failureNoteText(five, true)).toBe("5 feeds in this folder have fetch problems: A, B, C and 2 more.");
     expect(failureNoteText(five.slice(0, 3), true)).toBe("3 feeds in this folder have fetch problems: A, B, C.");
-    expect(failureNoteText([dead], true)).toBe("Gone Feed is gone: The site says this feed isn't there.");
-    expect(failureNoteText([dead], false)).toBe("This feed is gone: The site says this feed isn't there.");
+    expect(failureNoteText([dead], true)).toBe("Gone Feed is gone: The site says this feed no longer exists.");
+    expect(failureNoteText([dead], false)).toBe("This feed is gone: The site says this feed no longer exists.");
   });
 
   it("names a feed whose title is empty", () => {
     const untitled = { ...dead, title: "" };
     expect(feedName(untitled)).toBe("Unnamed feed");
-    expect(namedFailureLine(untitled)).toBe("Unnamed feed is gone: The site says this feed isn't there.");
-    expect(failureNoteText([untitled], true)).toBe("Unnamed feed is gone: The site says this feed isn't there.");
+    expect(namedFailureLine(untitled)).toBe("Unnamed feed is gone: The site says this feed no longer exists.");
+    expect(failureNoteText([untitled], true)).toBe("Unnamed feed is gone: The site says this feed no longer exists.");
     expect(failureNoteText([untitled, { ...failing, title: "" }], true)).toBe("2 feeds in this folder have fetch problems: Unnamed feed, Unnamed feed.");
   });
 
   it("words a feed's own line like its empty list, and a folder's line with the feed's name", () => {
-    expect(failureLine(dead)).toBe(`${failureCopy(dead)?.title}: The site says this feed isn't there.`);
+    expect(failureLine(dead)).toBe(`${failureCopy(dead)?.title}: The site says this feed no longer exists.`);
     expect(failureLine({ ...dead, last_error: null })).toBe("");
     expect(namedFailureLine(failing)).toBe(`${failing.title} can't be fetched: This address does not exist.`);
     expect(namedFailureLine({ ...failing, status: "failing" })).toBe(`${failing.title} can't be fetched: This address does not exist.`);

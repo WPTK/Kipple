@@ -21,6 +21,7 @@ import { useWide } from "@/lib/useMedia";
 import { BackButton } from "@/ui/BackButton";
 import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
+import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { StatusChip } from "./StatusChip";
 import { RepairButtons } from "./FeedRepair";
@@ -32,7 +33,7 @@ const FeedEditor = lazyScreen(() => import("./feeds/FeedEditor").then((m) => ({ 
 
 
 type SortKey = "status" | "title" | "last_success_at" | "next_fetch_at";
-type Filter = "all" | "attention" | "off";
+type Filter = "all" | "attention" | "redirects" | "off";
 
 const SORT_LABEL: Record<SortKey, string> = { status: "Status", title: "Feed", last_success_at: "Last success", next_fetch_at: "Next fetch" };
 
@@ -58,8 +59,10 @@ export function healthFilter(feeds: HealthFeed[], filter: Filter, q: string): He
     switch (filter) {
       case "attention":
         return ["dead", "failing", "erroring", "throttled", "redirecting"].includes(f.status);
+      case "redirects":
+        return f.redirect_pending || f.notices.some((n) => n.includes("redirect"));
       case "off":
-        return !f.enabled;
+        return !f.enabled && f.status !== "dead"; // a gone feed is off too, but it needs attention and is counted there
       default:
         return true;
     }
@@ -146,7 +149,7 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
-          <DropdownMenu.Item className={menuItem} onSelect={() => void run(async () => { const r = await refreshFeed(f.id); if (r.error) throw new Error(r.error); }, `Refreshed ${f.title}`, "refresh the feed")}>
+          <DropdownMenu.Item className={menuItem} onSelect={() => void run(async () => { const r = await refreshFeed(f.id); if (r.error) throw new Error(`${failureReason({ last_error: r.error, last_error_class: r.error_class })}.`); }, `Refreshed ${f.title}`, "refresh the feed")}>
             Refresh now
           </DropdownMenu.Item>
           <DropdownMenu.Item className={menuItem} onSelect={onLog}>
@@ -262,7 +265,7 @@ function ErrorLine({ f, onEdit }: { f: HealthFeed; onEdit: () => void }) {
         <>
           <p className="break-words text-danger">{reason}.</p>
           <p className="text-fg2">{[f.last_success_at ? `Last worked ${whenLabel(f.last_success_at).toLowerCase()}.` : "", retry ? `${retry}.` : ""].filter(Boolean).join(" ")}</p>
-          <RepairButtons feedId={f.id} title={f.title} onEdit={onEdit} />
+          <RepairButtons feedId={f.id} title={f.title} canTry={f.enabled} onEdit={onEdit} />
         </>
       )}
       <details>
@@ -322,8 +325,9 @@ export function HealthScreen() {
   const tally = useMemo(() => {
     const all = (h.data?.feeds ?? []).filter((f) => f.status !== "archive");
     const attention = healthFilter(all, "attention", "").length;
-    const off = all.filter((f) => !f.enabled).length;
-    return { total: all.length, attention, off, working: all.length - attention - off };
+    const off = healthFilter(all, "off", "").length;
+    const moved = healthFilter(all, "redirects", "").length;
+    return { total: all.length, attention, off, moved, working: all.length - attention - off };
   }, [h.data]);
   const editing = edit ? boot.data?.feeds.find((f) => f.id === edit.id) : undefined;
   const exitSelect = () => {
@@ -411,12 +415,12 @@ export function HealthScreen() {
                 placeholder="Search feeds"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                className={`${inputCls} min-w-0 flex-1`}
+                className={cn(inputCls, "min-w-0 flex-1")}
                 autoComplete="off"
               />
               {!wide ? (
                 <>
-                  <select aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className={`${inputCls} w-auto shrink-0`}>
+                  <select aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className={cn(inputCls, "w-auto shrink-0")}>
                     {(Object.keys(SORT_LABEL) as SortKey[]).map((k) => (
                       <option key={k} value={k}>
                         {SORT_LABEL[k]}
@@ -433,6 +437,8 @@ export function HealthScreen() {
               <SummaryPart n={tally.attention} label={tally.attention === 1 ? "feed needs attention" : "feeds need attention"} on={filter === "attention"} onToggle={() => setFilter(filter === "attention" ? "all" : "attention")} urgent />
               <SummaryPart n={tally.off} label="paused" on={filter === "off"} onToggle={() => setFilter(filter === "off" ? "all" : "off")} />
               <span>{tally.attention + tally.off === 0 ? `All ${tally.working} feeds working.` : `${tally.working} working.`} </span>
+              {/* Moved feeds are counted again here: a feed can be moved and still work. */}
+              <SummaryPart n={tally.moved} label="moved" on={filter === "redirects"} onToggle={() => setFilter(filter === "redirects" ? "all" : "redirects")} />
               {filter !== "all" ? (
                 <button type="button" className="hit-row inline-flex items-center text-link underline underline-offset-2" onClick={() => setFilter("all")}>
                   Show all
@@ -541,6 +547,10 @@ export function HealthScreen() {
                 ))}
               </ul>
             )}
+            <p className="mt-4 text-xs text-fg2">
+              Database {bytesLabel(d.db.db_bytes + (d.db.wal_bytes ?? 0))}, backups {bytesLabel(d.db.backup_bytes)}
+              {typeof d.db.imgcache_bytes === "number" ? `, image cache ${bytesLabel(d.db.imgcache_bytes)}` : ""}, {d.unread_total} unread.
+            </p>
             {d.reader_last_seen_at ? <p className="mt-4 text-xs text-fg2">A sync app was last seen {whenLabel(Math.min(d.reader_last_seen_at, Date.now() / 1000)).toLowerCase()}.</p> : null}
           </>
         ) : null}
