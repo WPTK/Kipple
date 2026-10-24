@@ -33,7 +33,7 @@ const meta = (m: Partial<SettingMeta> & Pick<SettingMeta, "key" | "kind">): Sett
 const SETTINGS: SettingMeta[] = [
   meta({ key: "links.strip_tracking", kind: "bool", label: "Remove tracking from links", value: true, default: true }),
   meta({ key: "refresh.interval_minutes", kind: "int", group: "sync", label: "How often to check feeds", value: 30, default: 30, min: 5, max: 1440, step: 5, unit: "minutes" }),
-  meta({ key: "stats.enabled", kind: "bool", group: "stats", label: "Reading statistics", value: true, default: true }),
+  meta({ key: "stats.enabled", kind: "bool", group: "stats", label: "Record my reading", value: true, default: true }),
   meta({ key: "tz", kind: "text", group: "account", label: "Time zone", value: "America/New_York", default: "America/New_York" }),
   meta({ key: "greader.icon_urls", kind: "bool", group: "advanced", label: "Send feed icons to sync apps", value: true, default: true }),
 ];
@@ -68,7 +68,7 @@ function wide(on: boolean) {
   }));
 }
 
-const GROUPS = ["Appearance & Reading", "Sync & Feeds", "Statistics", "Filters & Saved Searches", "Account & Devices", "Advanced", "About"];
+const GROUPS = ["Appearance", "Sync & Feeds", "Stats", "Filters & Saved Searches", "Account & Devices", "Advanced", "About"];
 
 beforeEach(() => {
   authStore.set("unknown");
@@ -82,16 +82,13 @@ afterEach(() => {
 });
 
 describe("Settings on a narrow screen", () => {
-  it("opens on the list of the seven groups, with a current value under the ones where it is cheap; passes axe", async () => {
+  it("opens on the list of the seven groups; passes axe", async () => {
     routes();
     const { container } = go("/settings");
     const nav = await screen.findByRole("navigation", { name: "Settings sections" });
     const links = within(nav).getAllByRole("link");
     expect(links.map((l) => l.getAttribute("href"))).toEqual(["appearance", "sync", "statistics", "filters", "account", "advanced", "about"].map((g) => `/settings/${g}`));
     GROUPS.forEach((g, i) => expect(links[i]).toHaveTextContent(g));
-    expect(links[0]).toHaveTextContent("Paper / Midnight · Default font");
-    expect(await within(nav).findByText("Every 30 minutes")).toBeInTheDocument();
-    expect(within(nav).getByText("Recording on")).toBeInTheDocument();
     // The list is the whole page: no group's settings yet.
     expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Appearance" })).toBeNull();
@@ -107,7 +104,7 @@ describe("Settings on a narrow screen", () => {
     expect(window.location.pathname).toBe("/settings/sync");
     const h1 = await screen.findByRole("heading", { level: 1, name: "Sync & Feeds" });
     await waitFor(() => expect(h1).toHaveFocus()); // arrival focus, as on every screen
-    expect(screen.getByRole("heading", { level: 2, name: "Sync" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Checking feeds" })).toBeInTheDocument();
     expect(await screen.findByRole("spinbutton", { name: "How often to check feeds" })).toHaveValue(30);
     // Only this group: the list and the other groups' settings are gone.
     expect(screen.queryByRole("navigation", { name: "Settings sections" })).toBeNull();
@@ -125,7 +122,7 @@ describe("Settings on a narrow screen", () => {
     go("/settings/account");
     const user = userEvent.setup();
     await screen.findByRole("heading", { level: 1, name: "Account & Devices" });
-    expect(await screen.findByRole("textbox", { name: "Time zone" })).toHaveValue("America/New_York");
+    expect(await screen.findByRole("button", { name: "Generate new app password" })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Back to Settings" }));
     expect(await screen.findByRole("navigation", { name: "Settings sections" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings");
@@ -135,9 +132,9 @@ describe("Settings on a narrow screen", () => {
     routes();
     go("/settings");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("link", { name: /^Statistics/ }));
-    await screen.findByRole("heading", { level: 1, name: "Statistics" });
-    expect(screen.getByRole("region", { name: "Your statistics data" })).toBeInTheDocument();
+    await user.click(within(await screen.findByRole("navigation", { name: "Settings sections" })).getByRole("link", { name: /^Stats$/ }));
+    await screen.findByRole("heading", { level: 1, name: "Stats" });
+    expect(screen.getByRole("region", { name: "Your stats data" })).toBeInTheDocument();
     window.history.back();
     expect(await screen.findByRole("navigation", { name: "Settings sections" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings");
@@ -194,24 +191,24 @@ describe("Settings on a wide screen", () => {
     // A bare /settings shows the first group in place (no redirect, so its history entry stays the list's).
     expect(window.location.pathname).toBe("/settings");
     expect(within(rail).getAllByRole("link").map((l) => l.textContent)).toEqual(GROUPS);
-    await waitFor(() => expect(within(rail).getByRole("link", { name: "Appearance & Reading" })).toHaveAttribute("aria-current", "page"));
+    await waitFor(() => expect(within(rail).getByRole("link", { name: "Appearance" })).toHaveAttribute("aria-current", "page"));
     // The rail and the page at once: the h1 stays "Settings" and the group is an h2 with its sections under it.
     expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Appearance & Reading" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Appearance" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 3, name: "Accessibility" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Back to Settings" })).toBeNull();
     expect(await axe(container)).toHaveNoViolations();
 
     const user = userEvent.setup();
-    await user.click(within(rail).getByRole("link", { name: "Statistics" }));
+    await user.click(within(rail).getByRole("link", { name: "Stats" }));
     expect(window.location.pathname).toBe("/settings/statistics");
-    const h2 = await screen.findByRole("heading", { level: 2, name: "Statistics" });
+    const h2 = await screen.findByRole("heading", { level: 2, name: "Stats" });
     await waitFor(() => expect(h2).toHaveFocus()); // moving between groups lands on the group's heading
-    expect(await screen.findByRole("switch", { name: /Reading statistics/ })).toBeChecked();
-    expect(screen.getByRole("region", { name: "Your statistics data" })).toBeInTheDocument();
+    expect(await screen.findByRole("switch", { name: /Record my reading/ })).toBeChecked();
+    expect(screen.getByRole("region", { name: "Your stats data" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Accessibility" })).toBeNull();
-    expect(within(rail).getByRole("link", { name: "Statistics" })).toHaveAttribute("aria-current", "page");
-    expect(within(rail).getByRole("link", { name: "Appearance & Reading" })).not.toHaveAttribute("aria-current");
+    expect(within(rail).getByRole("link", { name: "Stats" })).toHaveAttribute("aria-current", "page");
+    expect(within(rail).getByRole("link", { name: "Appearance" })).not.toHaveAttribute("aria-current");
     // The rail stays put.
     expect(screen.getByRole("navigation", { name: "Settings sections" })).toBe(rail);
   });

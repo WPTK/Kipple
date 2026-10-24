@@ -56,7 +56,7 @@ describe("reset Kipple", () => {
     const user = await openDialog();
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveTextContent(/erases all your feeds, folders, reading history, settings and your account/);
-    expect(dialog).toHaveTextContent("backup/pre-restore-*");
+    expect(dialog).toHaveTextContent("Kipple keeps a safety copy of your library on the server");
     const go = within(dialog).getByRole("button", { name: "Reset Kipple" });
     expect(go).toBeDisabled();
     await user.type(within(dialog).getByLabelText("Your web password"), "pw-pw-pw");
@@ -93,7 +93,7 @@ describe("reset Kipple", () => {
     const { calls } = server(true);
     const user = await openDialog();
     const dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveTextContent("Kipple will ignore KIPPLE_USERNAME and KIPPLE_PASSWORD until you create a new account. You can delete them from your compose file whenever convenient.");
+    expect(dialog).toHaveTextContent("Until you create a new account, Kipple ignores the account set in your server's settings. You can remove it there whenever convenient.");
     expect(within(dialog).queryByRole("radio")).toBeNull();
     await user.type(within(dialog).getByLabelText("Your web password"), "pw-pw-pw");
     await user.type(within(dialog).getByLabelText(/Type "reset kipple"/), "reset kipple");

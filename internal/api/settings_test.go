@@ -618,3 +618,42 @@ func TestNewSettingDefaultsAndBootstrap(t *testing.T) {
 	_, out, _ = h.api(c, "GET", "/api/settings", "")
 	require.Equal(t, false, vals(out)["greader.icon_urls"])
 }
+
+func TestRetentionPreview(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	a := h.addFeed("Alpha", 0)
+	b := h.addFeed("Beta", 0)
+	for range 120 {
+		h.addItem(a, seedItem{})
+	}
+	h.addItem(a, seedItem{Starred: true}) // starred stays whatever the number
+	for range 60 {
+		h.addItem(b, seedItem{})
+	}
+	// the saved default (250) removes nothing
+	code, out, _ := h.api(c, "GET", "/api/retention/preview", "")
+	require.Equal(t, http.StatusOK, code)
+	require.EqualValues(t, 0, out["articles"])
+	require.EqualValues(t, 0, out["feeds"])
+	// 50 per feed: 70 from Alpha (the starred one stays), 10 from Beta
+	code, out, _ = h.api(c, "GET", "/api/retention/preview?keep=50", "")
+	require.Equal(t, http.StatusOK, code)
+	require.EqualValues(t, 80, out["articles"])
+	require.EqualValues(t, 2, out["feeds"])
+	// unlimited removes nothing
+	_, out, _ = h.api(c, "GET", "/api/retention/preview?keep=0", "")
+	require.EqualValues(t, 0, out["articles"])
+	// a number that is not a choice is refused
+	code, _, _ = h.api(c, "GET", "/api/retention/preview?keep=7", "")
+	require.Equal(t, http.StatusBadRequest, code)
+	// a feed with its own cap keeps it, whatever the default is
+	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE feeds SET retention = 100 WHERE id = ?`, a)
+		return err
+	}))
+	_, out, _ = h.api(c, "GET", "/api/retention/preview?keep=50", "")
+	require.EqualValues(t, 30, out["articles"], "Alpha 20 over its own cap of 100, Beta 10 over 50")
+	require.EqualValues(t, 2, out["feeds"])
+}

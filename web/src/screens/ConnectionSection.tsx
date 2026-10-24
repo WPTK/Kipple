@@ -7,7 +7,7 @@ import { accountError } from "./AccountSection";
 import { keys } from "@/api/queries";
 import { announce } from "@/shell/toasts";
 import { Button } from "@/ui/button";
-import { Field, Notice, PasswordField, Skeleton, inputCls } from "@/ui/kit";
+import { Disclosure, Field, Notice, PasswordField, Skeleton, inputCls } from "@/ui/kit";
 
 /** The reachability settings: how other devices reach Kipple and who may. */
 export const CONNECTION_KEYS = {
@@ -32,7 +32,7 @@ export function parseList(text: string): string[] {
 
 /** What the server's access_in_use refusal means for the person. */
 const ACCESS_IN_USE =
-  "This account has no web password and signs in through Cloudflare Access. Set a web password first (under Account, above), then change or turn off Access.";
+  "This account has no web password and signs in through Cloudflare Access. Set a web password first (Settings, Account & Devices, Sign-in), then change or turn off Access.";
 
 /** What the server's proxy_is_you refusal means for the person. */
 const PROXY_IS_YOU =
@@ -290,7 +290,7 @@ function AccessField({ meta }: { meta: SettingMeta }) {
 }
 
 /**
- * Settings, Account & Devices, "Address and access": the public URL, the allowed host names, the trusted proxies and
+ * Settings, Advanced, "Address and access": the public URL, the allowed host names, the trusted proxies and
  * Cloudflare Access. Each saves on its own, and the server applies it at once.
  */
 export function ConnectionSection() {
@@ -314,11 +314,13 @@ export function ConnectionSection() {
   const access = meta(CONNECTION_KEYS.access);
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-sm text-fg2">How your other devices reach Kipple, and who may. Changes apply at once; Kipple does not need a restart.</p>
+      <p className="text-sm text-fg2">How your other devices reach Kipple. Changes apply at once.</p>
       {url ? <PublicUrlField meta={url} /> : null}
-      {hosts ? <ListField meta={hosts} placeholder="For example nas.local" /> : null}
-      {proxies ? <ListField meta={proxies} placeholder="For example 192.0.2.10" guarded /> : null}
-      {access ? <AccessField meta={access} /> : null}
+      <Disclosure label="For servers behind a proxy" defaultOpen={[hosts, proxies, access].some((m) => m && m.value !== null && m.value !== undefined && JSON.stringify(m.value) !== "[]" && JSON.stringify(m.value) !== "{}")}>
+        {hosts ? <ListField meta={hosts} placeholder="For example nas.local" /> : null}
+        {proxies ? <ListField meta={proxies} placeholder="For example 192.0.2.10" guarded /> : null}
+        {access ? <AccessField meta={access} /> : null}
+      </Disclosure>
     </div>
   );
 }

@@ -622,6 +622,7 @@ describe("Images (Settings)", () => {
     expect(within(card).getByText("256.0 MB")).toBeInTheDocument();
     expect(within(card).getByText(/of 1\.00 GB used/)).toBeInTheDocument();
     expect(within(card).getByRole("progressbar", { name: "Image cache used" })).toHaveAttribute("aria-valuenow", String(256 * 1024 ** 2));
+    await userEvent.setup().click(within(card).getByRole("button", { name: "Details" }));
     expect(within(card).getByText("4,321")).toBeInTheDocument();
     expect(within(card).getByText("90%")).toBeInTheDocument(); // 90 hits of 100 requests
     expect(calls.filter((c) => c.url.pathname === "/api/imgcache")).toHaveLength(1);
@@ -695,7 +696,7 @@ describe("The unsaved default device (id empty)", () => {
     // A local change is kept and still sends nothing. The layout is in another group: back to the list, then in.
     const user = userEvent.setup();
     await user.click(screen.getByRole("link", { name: "Back to Settings" }));
-    await user.click(await screen.findByRole("link", { name: /^Appearance & Reading/ }));
+    await user.click(await screen.findByRole("link", { name: /^Appearance/ }));
     await user.click(await screen.findByRole("radio", { name: /^Compact/ }));
     await new Promise((r) => setTimeout(r, 700));
     expect(calls.filter((c) => c.url.pathname === "/api/device")).toHaveLength(0);

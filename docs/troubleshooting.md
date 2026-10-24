@@ -75,8 +75,8 @@ single-word name such as `nas`, `.localhost`, `.local`, `.lan`, `.home.arpa`, `.
 the public URL, and the names you allowed. Without a password (open mode) it answers an IP address, `localhost`, `.localhost` and `.ts.net` names, the host of
 the public URL, and the names you allowed; other single-word and `.local`-style names are refused because any
 device on your network could answer them with your computer's address. To allow a name, open Kipple by its IP
-address, then add the name (for example `nas.local` or `rss.example.com`) under **Allowed host names** in Settings,
-Account & Devices, Address and access. It applies at once. On a headless install with no browser on the network, set
+address, then add the name (for example `nas.local` or `rss.example.com`) under **Other names for this server** in Settings,
+Advanced, Address and access. It applies at once. On a headless install with no browser on the network, set
 `KIPPLE_ALLOWED_HOSTS` (comma-separated) for the first start instead: it gives the setting its first value, and Settings
 decides after that. With a password the check only logs.
 

@@ -436,3 +436,20 @@ func capFetchLog(ctx context.Context, tx *sql.Tx, feedID, now int64) error {
 		feedID, now)
 	return err
 }
+
+// RetentionPreview is what a trim would remove if every feed without its own cap kept its newest keep articles (keep < 0:
+// the saved default; 0: unlimited): the articles that would go and the feeds they come from. It counts the way the trim
+// does (starred and held articles stay), except that it ignores the muted allowance, so the figure is "about". A feed with
+// its own cap uses it, whatever keep is.
+func (d *DB) RetentionPreview(ctx context.Context, keep int) (articles, feeds int64, err error) {
+	if keep < 0 {
+		keep = LoadFetchSettings(ctx, d.reader).RetentionDefault
+	}
+	err = d.reader.QueryRowContext(ctx, `WITH c AS (
+		SELECT count(*) AS n, COALESCE(f.retention, ?1) AS cap
+		FROM feeds f JOIN items i ON i.feed_id = f.id
+		WHERE i.starred = 0 AND (i.retain_until IS NULL OR i.retain_until <= ?2)
+		GROUP BY f.id)
+		SELECT COALESCE(sum(n - cap), 0), count(*) FROM c WHERE cap > 0 AND n > cap`, keep, d.clock.Now().Unix()).Scan(&articles, &feeds)
+	return articles, feeds, err
+}

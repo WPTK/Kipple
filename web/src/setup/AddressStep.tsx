@@ -12,7 +12,7 @@ import { stepById } from "./steps";
  * Never a suggestion: an IP address or localhost (only this computer or this network uses them), and a name any device
  * on the local network can answer (a single-word name, or one under .local, .lan, .home.arpa, .internal, .home,
  * .localdomain, .fritz.box or .corp). Such a name is still accepted when typed, but open mode answers it only once it is
- * listed under Allowed host names, so suggesting it would offer an address that may not open without a password.
+ * listed under Other names for this server, so suggesting it would offer an address that may not open without a password.
  */
 function notSuggested(hostname: string): boolean {
   const h = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
@@ -85,7 +85,7 @@ export function AddressStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack
       proceed();
     } catch (e) {
       if (skipping) {
-        toast("Kipple couldn't save the address. You can set it in Settings, Account & Devices.", "error");
+        toast("Kipple couldn't save the address. You can set it in Settings, Advanced.", "error");
         proceed();
         return;
       }
@@ -135,7 +135,7 @@ export function AddressStep({ onBack, onNext, onSkipAll, skipAllBusy }: { onBack
           )}
         </Field>
         <p className="text-sm text-fg2">
-          Behind a reverse proxy or Cloudflare Access, or opening Kipple by another name on your network? Set that up later in Settings, Account &amp; Devices, Address and access. Changes there apply at once.
+          Behind a reverse proxy or Cloudflare Access, or opening Kipple by another name on your network? Set that up later in Settings, Advanced, Address and access. Changes there apply at once.
         </p>
         <StepActions back={<Button onClick={onBack}>Back</Button>}>
           <Button type="button" disabled={busy} onClick={onNext}>

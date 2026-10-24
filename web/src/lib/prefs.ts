@@ -126,7 +126,7 @@ export function applyPrefs(p: Prefs, root: HTMLElement = document.documentElemen
   root.dataset.readingDensity = p.readingDensity;
   root.style.setProperty("--kp-scale", String(p.textSize));
   // The reading font (the Aa menu) styles articles. Lists, the sidebar and the rest of the app keep the system UI
-  // font unless "Use it everywhere" is on. Settings and the menus opt out in CSS (.ui-font) and always keep it.
+  // font unless "Also use it in lists and the sidebar" is on. Settings and the menus opt out in CSS (.ui-font) and always keep it.
   const stack = fontById(p.font).stack;
   if (stack) root.style.setProperty("--kp-reading-font", stack);
   else root.style.removeProperty("--kp-reading-font");

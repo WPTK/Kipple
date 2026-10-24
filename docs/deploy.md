@@ -383,7 +383,7 @@ the request passes the **open gate**:
    `421 Misdirected Request`, which says how to allow the name. `http://<ip>:1919` always works.
 
    To use a local network name such as `nas.local` or `nas` without a password, allow it: open Kipple by its IP
-   address, then add the name under **Allowed host names** in Settings, Account & Devices, Address and access. It
+   address, then add the name under **Other names for this server** in Settings, Advanced, Address and access. It
    applies at once.
 
    This defeats DNS rebinding, where a hostile web page points a name it controls at your computer so your browser

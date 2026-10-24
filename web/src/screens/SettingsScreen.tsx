@@ -8,7 +8,6 @@ import { useSettings, type SettingGroup, type SettingMeta } from "@/api/admin";
 import { AUTO_READ_PRESETS, autoReadLabel } from "@/api/autoRead";
 import { errorMessage } from "@/api/client";
 import { cn } from "@/lib/cn";
-import { everyLabel } from "@/lib/interval";
 import {
   ARTICLE_WIDTHS,
   ARTICLE_WIDTH_LABELS,
@@ -24,7 +23,6 @@ import {
   type LinkTarget,
   type UnreadBadge,
 } from "@/lib/devicePrefs";
-import { fontById } from "@/lib/fonts";
 import { DEFAULT_PAPER_NAME } from "@/layouts/gazette";
 import { resolveLinkTarget } from "@/lib/links";
 import { MOTIONS, MOTION_LABELS, RATES, prefsStore, updatePrefs, type Motion } from "@/lib/prefs";
@@ -32,18 +30,18 @@ import { listVoices, speechSupported } from "@/lib/speech";
 import { useStore } from "@/lib/store";
 import { useWide } from "@/lib/useMedia";
 import { ThemePicker } from "@/theme/ThemePicker";
-import { schemeById } from "@/theme/schemes";
-import { themeStore } from "@/theme/theme";
 import { navItemClass } from "@/ui/navItem";
 import { Segmented } from "@/ui/segmented";
 import { BackButton } from "@/ui/BackButton";
 import { Button } from "@/ui/button";
-import { Disclosure, FieldError, Notice, RadioCard, Section as KitSection, Skeleton, Switch, inputCls } from "@/ui/kit";
+import { Disclosure, FieldError, Notice, RadioCard, Skeleton, Switch, inputCls } from "@/ui/kit";
 import { DensityControl, FontSelect, SpacingControl, TextSizeControl } from "./AppearanceControls";
 import { DevicesSection } from "./DevicesSection";
+import { ApplyRetentionNow } from "./RetentionDialog";
+import { SyncAppsSection } from "./SyncAppsSection";
 import { FiltersSection } from "./filters/FiltersSection";
 import { AboutSection } from "./AboutSection";
-import { AccountActions } from "./AccountSection";
+import { BackupSection, SignInSection, useAccount } from "./AccountSection";
 import { ConnectionSection } from "./ConnectionSection";
 import { AutoReadCatchUp } from "./AutoReadCatchUp";
 import { ImageCachePanel } from "./ImageCachePanel";
@@ -60,9 +58,9 @@ import { loadRange } from "@/lib/statsFormat";
 
 /** The seven groups, in rail order. `id` is the URL segment. */
 export const SETTINGS_GROUPS = [
-  { id: "appearance", label: "Appearance & Reading", icon: Palette },
+  { id: "appearance", label: "Appearance", icon: Palette },
   { id: "sync", label: "Sync & Feeds", icon: Rss },
-  { id: "statistics", label: "Statistics", icon: BarChart3 },
+  { id: "statistics", label: "Stats", icon: BarChart3 },
   { id: "filters", label: "Filters & Saved Searches", icon: Filter },
   { id: "account", label: "Account & Devices", icon: UserRound },
   { id: "advanced", label: "Advanced", icon: SlidersHorizontal },
@@ -78,11 +76,29 @@ const groupById = (id: string | undefined) => SETTINGS_GROUPS.find((g) => g.id =
 /** The heading level of a Section: 2 under a page's h1 (narrow), 3 under the group's h2 beside the rail (wide). */
 const SectionLevel = createContext<2 | 3>(2);
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * Where a setting is kept: "This device" (only this browser) or "All devices" (the account, on the server). One pair of
+ * words, shown once per section, or on a single row where one section holds both.
+ */
+type Scope = "device" | "all";
+const SCOPE_LABELS: Record<Scope, string> = { device: "This device", all: "All devices" };
+function ScopeMark({ scope }: { scope: Scope }) {
+  return <span className="inline-block self-start rounded-full border border-line px-2 py-0.5 text-xs text-fg2">{SCOPE_LABELS[scope]}</span>;
+}
+
+function Section({ title, scope, children }: { title: string; scope?: Scope; children: ReactNode }) {
+  const id = useId();
+  const Heading = useContext(SectionLevel) === 3 ? "h3" : "h2";
   return (
-    <KitSection title={title} level={useContext(SectionLevel)} stack>
-      {children}
-    </KitSection>
+    <section aria-labelledby={id} className="border-b border-line py-5">
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <Heading id={id} className="text-lg font-bold">
+          {title}
+        </Heading>
+        {scope ? <ScopeMark scope={scope} /> : null}
+      </div>
+      <div className="flex flex-col gap-5">{children}</div>
+    </section>
   );
 }
 
@@ -144,14 +160,15 @@ function settingsOf(settings: SettingMeta[], group: SettingGroup): SettingMeta[]
   return settings.filter((s) => s.group === group && s.surface === "settings" && s.scope !== "device" && s.kind !== "json");
 }
 
-function SettingRows({ list, all }: { list: SettingMeta[]; all: SettingMeta[] }) {
+function SettingRows({ list, all, rowScope }: { list: SettingMeta[]; all: SettingMeta[]; rowScope?: Scope }) {
   const imgWatch = `${all.find((s) => s.key === "imgproxy.cache_mb")?.value}|${all.find((s) => s.key === "imgproxy.mode")?.value}`;
   const extra = (s: SettingMeta): ReactNode =>
-    s.key === "library.auto_read_days" ? <AutoReadPanel days={Number(s.value) || 0} /> : s.key === "imgproxy.cache_mb" ? <ImageCachePanel watch={imgWatch} /> : null;
+    s.key === "library.auto_read_days" ? <AutoReadPanel days={Number(s.value) || 0} /> : s.key === "imgproxy.cache_mb" ? <ImageCachePanel watch={imgWatch} /> : s.key === "retention.default" ? <ApplyRetentionNow /> : null;
   return (
     <>
       {list.map((s) => (
         <div key={s.key} className="flex flex-col gap-3">
+          {rowScope ? <ScopeMark scope={rowScope} /> : null}
           <SettingField meta={s} presets={PRESETS[s.key]} />
           {extra(s)}
         </div>
@@ -167,7 +184,21 @@ function SettingRows({ list, all }: { list: SettingMeta[]; all: SettingMeta[] })
  * one of them is empty (a page with no other content). `inline` draws the rows bare, for use inside a Section.
  * A failed refetch keeps the settings already loaded on screen under the error, as the single page did.
  */
-function ServerPart({ groups, empty, inline = false }: { groups: { id: SettingGroup; title?: string }[]; empty?: string; inline?: boolean }) {
+function ServerPart({
+  groups,
+  empty,
+  inline = false,
+  scope,
+  rowScope,
+}: {
+  groups: { id: SettingGroup; title?: string }[];
+  empty?: string;
+  inline?: boolean;
+  /** Where every setting shown here is kept, said once per section. */
+  scope?: Scope;
+  /** Where each setting is kept, said on its own row (a section that also holds settings of the other kind). */
+  rowScope?: Scope;
+}) {
   const settings = useSettings();
   if (settings.isPending) return <Skeleton rows={3} label="Loading settings" />;
   const error = settings.isError ? (
@@ -189,14 +220,15 @@ function ServerPart({ groups, empty, inline = false }: { groups: { id: SettingGr
       {parts.length === 0 && empty ? <p className="py-5 text-sm text-fg2">{empty}</p> : null}
       {parts.map((g) =>
         g.title ? (
-          <Section key={g.id} title={g.title}>
-            <SettingRows list={g.list} all={all} />
+          <Section key={g.id} title={g.title} scope={scope}>
+            <SettingRows list={g.list} all={all} rowScope={rowScope} />
           </Section>
         ) : inline ? (
-          <SettingRows key={g.id} list={g.list} all={all} />
+          <SettingRows key={g.id} list={g.list} all={all} rowScope={rowScope} />
         ) : (
           <div key={g.id} className="flex flex-col gap-5 border-b border-line py-5">
-            <SettingRows list={g.list} all={all} />
+            {scope ? <ScopeMark scope={scope} /> : null}
+            <SettingRows list={g.list} all={all} rowScope={rowScope} />
           </div>
         ),
       )}
@@ -280,11 +312,8 @@ function AccessibilitySection({ scrollHelp }: { scrollHelp: string | undefined }
   const supported = speechSupported();
   const titlesOnly = dp.layout === "headlines";
   return (
-    <Section title="Accessibility">
-      <p className="text-sm text-fg2">Kipple follows your device's text, motion and contrast settings. These are extra controls for this device.</p>
-      <p className="text-sm text-fg2">
-        For a font designed for clear letter shapes, choose Atkinson Hyperlegible Next ("Easy to read") as the Reading font under Appearance.
-      </p>
+    <Section title="Accessibility" scope="device">
+      <p className="text-sm text-fg2">Kipple follows your device's text, motion and contrast settings. These are extra controls.</p>
       <SpacingControl />
       <Segmented<Motion>
         legend="Reduce motion"
@@ -345,52 +374,24 @@ function AppearancePage() {
   const scrollHelp = settings.data?.settings.find((s) => s.key === "ui.mark_read_on_scroll")?.description;
   return (
     <>
-      <Section title="Appearance">
-        <p className="text-sm text-fg2">Saved for this device. The Aa button above any list or article has the same theme, font and text size.</p>
+      <Section title="Look" scope="device">
+        <p className="text-sm text-fg2">The Aa button above any list or article has the same theme, font and text size.</p>
         <ThemePicker />
         <FontSelect preview="large" />
         <TextSizeControl />
         <DensityControl />
       </Section>
 
-      <AccessibilitySection scrollHelp={scrollHelp} />
-
-      <Section title="Lists and reading">
+      <Section title="Lists" scope="device">
         <fieldset className="min-w-0" aria-describedby="layout-hint">
           <legend className="text-sm font-semibold">Layout</legend>
-          <p id="layout-hint" className="mb-2 text-xs text-fg2">The default for this device. Each feed and folder can override it from the layout button in its list.</p>
+          <p id="layout-hint" className="mb-2 text-xs text-fg2">Each feed and folder can override it from the layout button in its list.</p>
           <div className="flex flex-col gap-2">
             {LAYOUT_IDS.map((id) => (
               <RadioCard key={id} name="default-layout" value={id} checked={dp.layout === id} onSelect={() => updateDevicePrefs({ layout: id })} title={LAYOUT_LABELS[id]} help={LAYOUT_HINTS[id]} />
             ))}
           </div>
         </fieldset>
-        <PaperNameField />
-        <Segmented<ArticleWidth>
-          legend="Article width"
-          hint="How wide the text of an article is. Full uses the whole pane."
-          value={dp.articleWidth}
-          onChange={(articleWidth) => updateDevicePrefs({ articleWidth })}
-          options={ARTICLE_WIDTHS.map((w) => ({ value: w, label: ARTICLE_WIDTH_LABELS[w] }))}
-        />
-        <Segmented<LinkTarget>
-          legend="Open links in"
-          hint="Same tab lets a link that an installed app claims open in the app cleanly, and Back returns here. It is the default on iPhone and iPad. Undo is not available after you leave Kipple."
-          value={resolveLinkTarget(dp.linkTarget)}
-          onChange={(linkTarget) => updateDevicePrefs({ linkTarget })}
-          options={[
-            { value: "new", label: "New tab" },
-            { value: "same", label: "Same tab" },
-          ]}
-        />
-        <Segmented<UnreadBadge>
-          legend="Unread badge"
-          hint="On the Articles tab and in the sidebar. Counts show up to 99+."
-          value={dp.unreadBadge}
-          onChange={(unreadBadge) => updateDevicePrefs({ unreadBadge })}
-          options={UNREAD_BADGES.map((b) => ({ value: b, label: b === "count" ? "Count" : b === "dot" ? "Dot only" : "Off" }))}
-        />
-        <p className="text-xs text-fg2">Drag the edge of the sidebar or of the article list to resize them on a wide screen. Double-click an edge to reset it.</p>
         <Segmented<"auto" | "off">
           legend="Thumbnails in Inbox"
           value={dp.inboxThumbs}
@@ -400,6 +401,14 @@ function AppearancePage() {
             { value: "off", label: "Off" },
           ]}
         />
+        <Segmented<UnreadBadge>
+          legend="Unread badge"
+          hint="On the Articles tab and in the sidebar. Counts show up to 99+."
+          value={dp.unreadBadge}
+          onChange={(unreadBadge) => updateDevicePrefs({ unreadBadge })}
+          options={UNREAD_BADGES.map((b) => ({ value: b, label: b === "count" ? "Count" : b === "dot" ? "Dot only" : "Off" }))}
+        />
+        <PaperNameField />
         <div>
           <Button onClick={() => updateDevicePrefs({ peekSeen: false })} className="self-start">
             Show swipe tips again
@@ -411,7 +420,28 @@ function AppearancePage() {
         </Link>
       </Section>
 
-      <ServerPart groups={[{ id: "reading", title: "Reading" }]} />
+      <Section title="Articles" scope="device">
+        <Segmented<ArticleWidth>
+          legend="Article width"
+          hint="How wide the text of an article is. Full uses the whole pane."
+          value={dp.articleWidth}
+          onChange={(articleWidth) => updateDevicePrefs({ articleWidth })}
+          options={ARTICLE_WIDTHS.map((w) => ({ value: w, label: ARTICLE_WIDTH_LABELS[w] }))}
+        />
+        <Segmented<LinkTarget>
+          legend="Open links in"
+          hint="Same tab lets a link that an installed app claims open in the app, and Back returns here."
+          value={resolveLinkTarget(dp.linkTarget)}
+          onChange={(linkTarget) => updateDevicePrefs({ linkTarget })}
+          options={[
+            { value: "new", label: "New tab" },
+            { value: "same", label: "Same tab" },
+          ]}
+        />
+        <ServerPart groups={[{ id: "reading" }]} inline rowScope="all" />
+      </Section>
+
+      <AccessibilitySection scrollHelp={scrollHelp} />
     </>
   );
 }
@@ -419,9 +449,10 @@ function AppearancePage() {
 function SyncPage() {
   return (
     <ServerPart
+      scope="all"
       groups={[
-        { id: "sync", title: "Sync" },
-        { id: "library", title: "Library" },
+        { id: "sync", title: "Checking feeds" },
+        { id: "library", title: "Storage" },
         { id: "images", title: "Images" },
       ]}
       empty="No sync or feed settings to change yet."
@@ -432,9 +463,9 @@ function SyncPage() {
 function StatisticsPage() {
   return (
     <>
-      <ServerPart groups={[{ id: "stats" }]} />
+      <ServerPart scope="all" groups={[{ id: "stats" }, { id: "account" }]} />
       {/* A fixed slot after the server part, whether settings are loading, failed or loaded: it never remounts, so an open dialog survives. */}
-      <Section title="Your statistics data">
+      <Section title="Your stats data" scope="all">
         <StatsDataSection defaultRange={loadRange()} hideTitle />
       </Section>
     </>
@@ -444,10 +475,10 @@ function StatisticsPage() {
 function FiltersPage() {
   return (
     <>
-      <Section title="Filters">
+      <Section title="Filters" scope="all">
         <FiltersSection />
       </Section>
-      <Section title="Saved searches">
+      <Section title="Saved searches" scope="all">
         <SavedSearchesSection />
       </Section>
     </>
@@ -455,17 +486,20 @@ function FiltersPage() {
 }
 
 function AccountPage() {
+  const { hasPassword } = useAccount();
   return (
     <>
       <Section title="Devices">
         <DevicesSection />
       </Section>
-      <Section title="Account">
-        <ServerPart groups={[{ id: "account" }]} inline />
-        <AccountActions />
+      <Section title="Sign-in">
+        <SignInSection />
       </Section>
-      <Section title="Address and access">
-        <ConnectionSection />
+      <Section title="Sync apps (Google Reader compatible)">
+        <SyncAppsSection hasPassword={hasPassword} />
+      </Section>
+      <Section title="Backup and data" scope="all">
+        <BackupSection />
       </Section>
     </>
   );
@@ -475,16 +509,19 @@ function AdvancedPage() {
   return (
     <>
       <p className="pt-5 text-sm text-fg2">Most people never need to change these.</p>
-      <ServerPart groups={[{ id: "advanced" }]} empty="No advanced settings to change yet." />
+      <ServerPart scope="all" groups={[{ id: "advanced" }]} empty="No advanced settings to change yet." />
+      <Section title="Address and access" scope="all">
+        <ConnectionSection />
+      </Section>
     </>
   );
 }
 
 function AboutPage() {
   return (
-    <Section title="About Kipple">
+    <div className="flex flex-col gap-5 py-5">
       <AboutSection />
-    </Section>
+    </div>
   );
 }
 
@@ -497,26 +534,6 @@ const PAGES: Record<SettingsGroupId, () => ReactNode> = {
   advanced: AdvancedPage,
   about: AboutPage,
 };
-
-/* ---------- Group list previews ---------- */
-
-/** The one-line current value under a group in the narrow list, for the groups where it is cheap to say. */
-function useGroupPreviews(): Partial<Record<SettingsGroupId, string>> {
-  const t = useStore(themeStore);
-  const p = useStore(prefsStore);
-  const settings = useSettings();
-  const value = (key: string) => settings.data?.settings.find((s) => s.key === key)?.value;
-  const theme = t.mode === "fixed" ? schemeById(t.fixed).name : `${schemeById(t.day).name} / ${schemeById(t.night).name}`;
-  const font = fontById(p.font);
-  const out: Partial<Record<SettingsGroupId, string>> = {
-    appearance: `${theme} · ${font.id === "default" ? "Default font" : font.label}`,
-  };
-  const interval = value("refresh.interval_minutes");
-  if (typeof interval === "number" && interval > 0) out.sync = everyLabel(interval);
-  const stats = value("stats.enabled");
-  if (typeof stats === "boolean") out.statistics = stats ? "Recording on" : "Recording off";
-  return out;
-}
 
 /* ---------- Navigation ---------- */
 
@@ -541,7 +558,6 @@ function Rail({ shown }: { shown: SettingsGroupId }) {
 
 /** Narrow: the list of groups, each with its current value where that is cheap. Focus returns to the group just left. */
 function GroupList({ returnTo }: { returnTo: SettingsGroupId | undefined }) {
-  const previews = useGroupPreviews();
   return (
     <nav aria-label="Settings sections" className="mx-auto w-full max-w-[720px] px-4 py-3">
       <ul className="flex flex-col">
@@ -557,7 +573,6 @@ function GroupList({ returnTo }: { returnTo: SettingsGroupId | undefined }) {
               </span>
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="text-base font-medium">{label}</span>
-                {previews[id] ? <span className="truncate text-sm text-fg2">{previews[id]}</span> : null}
               </span>
               <ChevronRight aria-hidden="true" className="size-5 shrink-0 text-fg2" />
             </Link>

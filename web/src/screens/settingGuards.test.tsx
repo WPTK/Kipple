@@ -3,7 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { SettingMeta } from "@/api/admin";
-import { settingWarning } from "@/lib/settingGuards";
+import { lowersRetention, settingWarning } from "@/lib/settingGuards";
 import { Segmented } from "@/ui/segmented";
 import { json, mockFetch } from "@/test/mockApi";
 import { PRESETS } from "./SettingsScreen";
@@ -31,7 +31,7 @@ const restoreDays = (value: number): SettingMeta =>
   ({ key: "retention.restore_days", label: "Days you can restore removed articles", description: "", kind: "int", value, default: 90, min: 0, max: 365, step: 1, unit: "days", group: "library", surface: "settings" }) as SettingMeta;
 
 function mount(meta: SettingMeta, presets?: (typeof PRESETS)[string]) {
-  const api = mockFetch({ "PATCH /api/settings": (_u, init) => json({ settings: [meta], values: JSON.parse(String(init?.body)) }) });
+  const api = mockFetch({ "GET /api/retention/preview": () => json({ articles: 120, feeds: 3 }), "GET /api/settings": () => json({ settings: [restoreDays(90)], values: {} }), "PATCH /api/settings": (_u, init) => json({ settings: [meta], values: JSON.parse(String(init?.body)) }) });
   render(
     <QueryClientProvider client={new QueryClient()}>
       <SettingField meta={meta} presets={presets} />
@@ -48,16 +48,16 @@ describe("settingWarning", () => {
     expect(settingWarning("imgproxy.cache_mb", 0, 256)).toBeNull();
     expect(settingWarning("imgproxy.cache_mb", 512, 512)).toBeNull();
   });
-  it("asks when retention keeps fewer articles, treating 0 as unlimited", () => {
-    expect(settingWarning("retention.default", 250, 100)).not.toBeNull();
-    expect(settingWarning("retention.default", 0, 1000)).not.toBeNull();
-    expect(settingWarning("retention.default", 250, 500)).toBeNull();
-    expect(settingWarning("retention.default", 250, 0)).toBeNull();
+  it("retention keeps fewer articles only when the number drops, treating 0 as unlimited", () => {
+    expect(lowersRetention(250, 100)).toBe(true);
+    expect(lowersRetention(0, 1000)).toBe(true);
+    expect(lowersRetention(250, 500)).toBe(false);
+    expect(lowersRetention(250, 0)).toBe(false);
   });
   it("asks when restore days are lowered, not when raised", () => {
     const w = settingWarning("retention.restore_days", 90, 30);
-    expect(w?.body).toBe("Restore stubs older than 30 days are removed tonight and can't come back.");
-    expect(settingWarning("retention.restore_days", 90, 0)?.body).toMatch(/Every restore stub/);
+    expect(w?.body).toBe("Articles removed more than 30 days ago can no longer be brought back after tonight.");
+    expect(settingWarning("retention.restore_days", 90, 0)?.body).toMatch(/No removed article/);
     expect(settingWarning("retention.restore_days", 30, 90)).toBeNull();
     expect(settingWarning("retention.restore_days", 0, 30)).toBeNull();
   });
@@ -122,9 +122,10 @@ describe("Destructive settings", () => {
     const calls = mount(retention(250));
     const user = userEvent.setup();
     await user.selectOptions(screen.getByRole("combobox", { name: "Articles to keep per feed" }), "50");
-    expect(await screen.findByRole("dialog")).toHaveTextContent(/removed now/);
+    const dlg = await screen.findByRole("dialog", { name: "Remove older articles?" });
+    expect(dlg).toHaveTextContent(/About 120 articles from 3 feeds will be removed now/);
     expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(0);
-    await user.click(screen.getByRole("button", { name: "Keep fewer" }));
+    await user.click(screen.getByRole("button", { name: "Remove 120 articles" }));
     await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1));
   });
 });
@@ -154,8 +155,8 @@ describe("restore days guard", () => {
     const calls = mount({ ...restoreDays(180), default: 90 } as SettingMeta);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /Reset .* to default/ }));
-    const dlg = await screen.findByRole("dialog", { name: "Keep restore stubs for fewer days?" });
-    expect(dlg).toHaveTextContent("older than 90 days are removed tonight");
+    const dlg = await screen.findByRole("dialog", { name: "Keep removed articles for fewer days?" });
+    expect(dlg).toHaveTextContent("more than 90 days ago can no longer be brought back after tonight");
     expect(calls.some((c) => c.method === "PATCH")).toBe(false);
   });
 });

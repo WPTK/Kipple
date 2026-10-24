@@ -25,7 +25,34 @@ export const restoredFeeds = createStore<File | null>(null);
  */
 export const resetting = createStore<{ estimateSeconds: number } | null>(null);
 
-/** An API password was made in step 7 during this setup (it is shown once, so a second one would silently replace it). */
+/**
+ * "Restore from a backup" in Settings sets the library aside and restarts into setup. This remembers, across that restart,
+ * that the person asked for the restore step, so setup opens on it instead of the account form. Setup forgets it once shown.
+ */
+const RESTORE_NEXT_KEY = "kipple.setup.restoreNext";
+export function openRestoreAfterReset(): void {
+  try {
+    sessionStorage.setItem(RESTORE_NEXT_KEY, "1");
+  } catch {
+    /* no session storage: setup then opens on the account form, which has a restore link */
+  }
+}
+export function wantsRestoreNext(): boolean {
+  try {
+    return sessionStorage.getItem(RESTORE_NEXT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+export function forgetRestoreNext(): void {
+  try {
+    sessionStorage.removeItem(RESTORE_NEXT_KEY);
+  } catch {
+    /* nothing to forget */
+  }
+}
+
+/** An app password was made in step 7 during this setup (it is shown once, so a second one would silently replace it). */
 export const apiPasswordMade = createStore<boolean>(false);
 
 /** The theme this device had before the wizard touched it, so a Skip (or leaving setup unsaved) can put it back. */
