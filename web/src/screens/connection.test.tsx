@@ -34,9 +34,9 @@ function world(values: Record<string, unknown> = {}) {
   };
   const body = () => ({
     settings: [
-      meta("server.public_url", "Public URL", "text", v["server.public_url"], ""),
-      meta("security.allowed_hosts", "Allowed host names", "json", v["security.allowed_hosts"], []),
-      meta("security.trusted_proxies", "Trusted proxies", "json", v["security.trusted_proxies"], []),
+      meta("server.public_url", "Public address", "text", v["server.public_url"], ""),
+      meta("security.allowed_hosts", "Other names for this server", "json", v["security.allowed_hosts"], []),
+      meta("security.trusted_proxies", "Proxy addresses", "json", v["security.trusted_proxies"], []),
       meta("security.cloudflare_access", "Cloudflare Access", "json", v["security.cloudflare_access"], {}),
     ],
     values: v,
@@ -77,36 +77,43 @@ describe("parseList", () => {
   });
 });
 
+/** The proxy fields sit behind a disclosure that starts closed unless one of them already holds something. */
+async function openProxyFold(user: ReturnType<typeof userEvent.setup>) {
+  const t = await screen.findByRole("button", { name: "For servers behind a proxy" });
+  if (t.getAttribute("aria-expanded") === "false") await user.click(t);
+}
+
 describe("Address and access", () => {
   it("shows the saved values, says changes apply at once, and passes axe", async () => {
     const w = world({ "server.public_url": "https://rss.example.com", "security.allowed_hosts": ["nas.local", "*.example.org"], "security.cloudflare_access": { team_domain: "myteam.cloudflareaccess.com", aud: "abc" } });
     const { container } = show(w);
-    expect(await screen.findByLabelText("Public URL")).toHaveValue("https://rss.example.com");
-    expect(screen.getByLabelText("Allowed host names")).toHaveValue("nas.local\n*.example.org");
-    expect(screen.getByLabelText("Trusted proxies")).toHaveValue("");
+    expect(await screen.findByLabelText("Public address")).toHaveValue("https://rss.example.com");
+    expect(screen.getByLabelText("Other names for this server")).toHaveValue("nas.local\n*.example.org");
+    expect(screen.getByLabelText("Proxy addresses")).toHaveValue("");
     expect(screen.getByLabelText("Team domain")).toHaveValue("myteam.cloudflareaccess.com");
     expect(screen.getByText(/On: Kipple checks the Access token of/)).toBeInTheDocument();
-    expect(screen.getByText(/Changes apply at once; Kipple does not need a restart/)).toBeInTheDocument();
+    expect(screen.getByText(/Changes apply at once/)).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });
 
   it("saves each one on its own: the address trimmed, lists as lists, Access as one value", async () => {
     const { calls } = show(world());
     const user = userEvent.setup();
-    const url = await screen.findByLabelText("Public URL");
+    const url = await screen.findByLabelText("Public address");
     // Nothing changed: nothing to save.
-    expect(screen.getByRole("button", { name: "Save Public URL" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save Public address" })).toBeDisabled();
     await user.type(url, " https://rss.example.com ");
     await user.keyboard("{Enter}");
-    await screen.findByRole("button", { name: "Remove the public url" });
+    await screen.findByRole("button", { name: "Remove the public address" });
 
-    const hosts = screen.getByLabelText("Allowed host names");
+    await openProxyFold(user);
+    const hosts = screen.getByLabelText("Other names for this server");
     await user.type(hosts, "nas.local{Enter}rss.example.com");
-    await user.click(screen.getByRole("button", { name: "Save Allowed host names" }));
+    await user.click(screen.getByRole("button", { name: "Save Other names for this server" }));
 
-    const proxies = screen.getByLabelText("Trusted proxies");
+    const proxies = screen.getByLabelText("Proxy addresses");
     await user.type(proxies, "192.0.2.10, 198.51.100.0/24");
-    await user.click(screen.getByRole("button", { name: "Save Trusted proxies" }));
+    await user.click(screen.getByRole("button", { name: "Save Proxy addresses" }));
 
     const access = screen.getByRole("group", { name: "Cloudflare Access" });
     await user.type(within(access).getByLabelText("Team domain"), "myteam.cloudflareaccess.com");
@@ -134,9 +141,9 @@ describe("Address and access", () => {
       return undefined as unknown as Response;
     });
     const user = userEvent.setup();
-    const proxies = await screen.findByLabelText("Trusted proxies");
+    const proxies = await screen.findByLabelText("Proxy addresses");
     await user.type(proxies, "0.0.0.0/0");
-    await user.click(screen.getByRole("button", { name: "Save Trusted proxies" }));
+    await user.click(screen.getByRole("button", { name: "Save Proxy addresses" }));
     expect(await screen.findByText(/it covers every address/)).toBeInTheDocument();
     expect(proxies).toHaveAttribute("aria-invalid", "true");
     expect(proxies).toHaveValue("0.0.0.0/0");
@@ -153,14 +160,15 @@ describe("Address and access: the web password", () => {
     const { calls } = show(world(), undefined, true);
     const user = userEvent.setup();
     // The public URL needs no password.
-    await user.type(await screen.findByLabelText("Public URL"), "https://rss.example.com{Enter}");
-    await screen.findByRole("button", { name: "Remove the public url" });
+    await user.type(await screen.findByLabelText("Public address"), "https://rss.example.com{Enter}");
+    await screen.findByRole("button", { name: "Remove the public address" });
 
-    const proxies = screen.getByLabelText("Trusted proxies");
+    await openProxyFold(user);
+    const proxies = screen.getByLabelText("Proxy addresses");
     await user.type(proxies, "192.0.2.10");
-    const save = screen.getByRole("button", { name: "Save Trusted proxies" });
+    const save = screen.getByRole("button", { name: "Save Proxy addresses" });
     expect(save).toBeDisabled();
-    await user.type(await screen.findByLabelText("Your web password, to save trusted proxies"), "correct-horse");
+    await user.type(await screen.findByLabelText("Your web password, to save proxy addresses"), "correct-horse");
     await user.click(save);
     await screen.findByText(/^Off/);
 
@@ -190,10 +198,11 @@ describe("Address and access: the web password", () => {
       true,
     );
     const user = userEvent.setup();
-    const proxies = await screen.findByLabelText("Trusted proxies");
+    await openProxyFold(user);
+    const proxies = await screen.findByLabelText("Proxy addresses");
     await user.type(proxies, "127.0.0.1");
-    await user.type(await screen.findByLabelText("Your web password, to save trusted proxies"), "pw");
-    await user.click(screen.getByRole("button", { name: "Save Trusted proxies" }));
+    await user.type(await screen.findByLabelText("Your web password, to save proxy addresses"), "pw");
+    await user.click(screen.getByRole("button", { name: "Save Proxy addresses" }));
     expect(await screen.findByText(/Your own address is in this list/)).toBeInTheDocument();
 
     const access = screen.getByRole("group", { name: "Cloudflare Access" });

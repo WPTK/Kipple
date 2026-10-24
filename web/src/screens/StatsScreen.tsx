@@ -64,15 +64,15 @@ function Stat({
 }) {
   const inner = (
     <>
-      {/* The value shrinks to the room the tile has (its width less the padding and the chevron), so "12h 40m" never runs under the chevron or wraps. */}
+      {/* The value has the tile's whole content box (the chevron sits by the label, below it) and shrinks to it, sized for a wide fallback font, so "12h 40m" never overflows or wraps. */}
       <span
         className="block text-2xl font-bold whitespace-nowrap tabular-nums"
-        style={{ fontSize: `min(1.5rem, calc((100cqw - 2.5rem) / ${(Math.max(value.length, 3) * 0.68).toFixed(2)}))` }}
+        style={{ fontSize: `min(1.5rem, calc((100cqw - 1.5rem) / ${(Math.max(value.length, 3) * 0.85).toFixed(2)}))` }}
       >
         {value}
       </span>
-      <span className="block text-xs text-fg2">{label}</span>
-      {note ? <span className="mt-1 block text-xs font-medium tabular-nums">{note}</span> : null}
+      <span className="block pr-5 text-xs text-fg2">{label}</span>
+      {note ? <span className="mt-1 block pr-5 text-xs font-medium tabular-nums">{note}</span> : null}
     </>
   );
   return (
@@ -83,10 +83,10 @@ function Stat({
           onClick={onToggle}
           aria-expanded={note != null}
           aria-describedby={note != null ? describedBy : undefined}
-          className="hit relative block min-h-11 w-full min-w-0 rounded-xl py-3 pl-3 pr-7 text-left hover:bg-selection active:bg-selection"
+          className="hit relative block min-h-11 w-full min-w-0 rounded-xl p-3 text-left hover:bg-selection active:bg-selection"
         >
           {inner}
-          <ChevronDown aria-hidden="true" data-cue="tile" className={`absolute right-2 top-3.5 size-4 text-fg2 transition-transform ${note != null ? "rotate-180" : ""}`} />
+          <ChevronDown aria-hidden="true" data-cue="tile" className={`absolute right-2 bottom-3 size-4 text-fg2 transition-transform ${note != null ? "rotate-180" : ""}`} />
         </button>
       ) : (
         <div className="px-3 py-3">{inner}</div>

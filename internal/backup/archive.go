@@ -69,8 +69,8 @@ first.
 Either way every web session is signed out, and images and icons are
 downloaded again when they are first shown.
 
-This file contains credentials. It holds your web and Reader API password
-hashes, the account secret that signs Reader API sign-ins (anyone with this
-file can use the Reader API as you until you set a new API password), and any
+This file contains credentials. It holds your web and app password
+hashes, the account secret that signs sync app sign-ins (anyone with this
+file can sign in from a sync app as you until you generate a new app password), and any
 feed logins in plain text. Store it privately, where nobody else can open it.
 `

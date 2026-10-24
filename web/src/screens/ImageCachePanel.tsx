@@ -5,7 +5,7 @@ import { errorMessage } from "@/api/client";
 import { bytesLabel, whenLabel } from "@/lib/format";
 import { announce, toast } from "@/shell/toasts";
 import { Button } from "@/ui/button";
-import { Modal, Notice, Skeleton } from "@/ui/kit";
+import { Disclosure, Modal, Notice, Skeleton } from "@/ui/kit";
 
 /**
  * The image cache stats card under "Image cache size": used against the cap as a bar, how many files, the hit rate
@@ -85,6 +85,7 @@ export function ImageCachePanel({ watch }: { watch: string }) {
               <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
             </div>
           </div>
+          <Disclosure label="Details">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
             <dt className="text-fg2">Images stored</dt>
             <dd className="tabular-nums">
@@ -95,6 +96,7 @@ export function ImageCachePanel({ watch }: { watch: string }) {
             <dd className="tabular-nums">{rate === null ? "No requests yet" : `${Math.round(rate * 100)}%`}</dd>
           </dl>
           <p className="text-xs text-fg2">Since the server started {whenLabel(s.since).toLowerCase()}. Free space on the disk: {bytesLabel(s.disk_free_bytes)}.</p>
+          </Disclosure>
         </>
       ) : (
         <p className="text-sm">The image cache is off. Images are passed through without being stored, so they load slower and use more of the servers that host them.</p>

@@ -90,7 +90,7 @@ describe("Settings > About", () => {
     const { container } = go("/settings/about");
     expect(await screen.findByText("v0.5.0-beta.1")).toBeInTheDocument();
     expect(screen.getByText("0123456789abcdef0123456789abcdef01234567")).toBeInTheDocument();
-    expect(screen.getByText("go1.27.0 (linux/amd64)")).toBeInTheDocument();
+    expect(screen.queryByText("go1.27.0 (linux/amd64)")).toBeNull(); // technical rows are in the debug info only
     expect(screen.getByText("Database schema")).toBeInTheDocument();
     expect(screen.getByText("Web build in this page")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();

@@ -97,7 +97,7 @@ describe("open mode availability", () => {
   it("works from here, or cannot work and says why", () => {
     expect(openAvailability({ reason: null })).toEqual({ ok: true, why: null });
     expect(openAvailability({ reason: "forwarded" })).toMatchObject({ ok: false, why: openReasonText("forwarded") });
-    expect(openAvailability({ reason: "host" }).why).toMatch(/Allowed host names in Settings/);
+    expect(openAvailability({ reason: "host" }).why).toMatch(/Other names for this server in Settings/);
   });
 });
 

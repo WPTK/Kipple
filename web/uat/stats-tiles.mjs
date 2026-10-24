@@ -200,8 +200,8 @@ await t.eachViewport(async (page, vp) => {
           const v = b.querySelector("span.text-2xl").getBoundingClientRect();
           const r = b.getBoundingClientRect();
           const chev = b.querySelector("svg[data-cue]").getBoundingClientRect();
-          // Text can wrap but must stay inside the tile and clear of the chevron.
-          return { overflow: b.scrollWidth - b.clientWidth, rightGap: chev.left - v.right, inside: v.right <= r.right && v.left >= r.left };
+          // Text can wrap but must stay inside the tile and clear of the chevron (which sits by the label, below the value).
+          return { overflow: b.scrollWidth - b.clientWidth, rightGap: v.bottom <= chev.top ? Infinity : chev.left - v.right, inside: v.right <= r.right && v.left >= r.left };
         });
         if (m.overflow > 0 || !m.inside) clipped.push(`tile ${i} overflows by ${m.overflow}`);
         if (i === 1 && m.rightGap < 0) clipped.push(`the long value runs ${-Math.round(m.rightGap)} px under the chevron`);

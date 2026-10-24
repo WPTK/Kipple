@@ -435,42 +435,42 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupSync, Kind: "int", Min: ip(5), Max: ip(1440), Step: ip(5), Unit: "minutes", Surface: surfaceSettings, check: intIn(5, 1440)},
 	{Key: "fetch.user_agent_mode", Label: "Browser identity for feeds", Description: "Some sites block feed readers; this controls when Kipple presents itself as an ordinary web browser instead.",
 		Group: groupSync, Kind: "enum", Options: uaModeOptions, Surface: surfaceSettings, check: oneOf(optValues(uaModeOptions)...)},
-	{Key: "fetch.user_agent", Label: "Custom user agent", Description: "Optional. Replaces the built-in browser identity when Kipple needs to look like a browser. Leave empty for the default.",
+	{Key: "fetch.user_agent", Label: "Custom browser identity", Description: "Optional. Replaces the built-in identity when Kipple needs to look like a browser. Leave empty for the default.",
 		Group: groupSync, Kind: "text", Surface: surfaceSettings, check: func(v any) (any, string) {
 			s, ok := v.(string)
 			if !ok || len(s) > 200 || hasControl(s) {
-				return nil, "must be a string of at most 200 characters without line breaks"
+				return nil, "must be one line of at most 200 characters"
 			}
 			return strings.TrimSpace(s), ""
 		}},
 
 	// Library.
-	{Key: "retention.default", Label: "Articles to keep per feed", Description: "Only the newest N articles per feed are kept, read or unread. Starred articles are always kept.",
+	{Key: "retention.default", Label: "Articles to keep per feed", Description: "Only the newest articles of each feed are kept, read or unread. Starred articles are always kept.",
 		Group: groupLibrary, Kind: "enum", Options: retentionOptions(), Surface: surfaceSettings, check: func(v any) (any, string) {
 			if f, ok := v.(float64); ok && f == math.Trunc(f) && f >= 0 && f <= math.MaxInt32 && isRetentionChoice(int64(f)) {
 				return int(f), ""
 			}
 			return nil, "must be " + retentionChoicesText() + ", or 0 (unlimited)"
 		}},
-	{Key: "retention.restore_days", Label: "Days you can restore removed articles", Description: "How long a removed article can be brought back. Zero turns this off.",
+	{Key: "retention.restore_days", Label: "Days you can restore removed articles", Description: "How long a removed article can still be brought back by a sync app. Zero turns this off.",
 		Group: groupLibrary, Kind: "int", Min: ip(0), Max: ip(store.MaxRestoreDays), Step: ip(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, store.MaxRestoreDays)},
 
-	{Key: "imgproxy.mode", Label: "Load images through Kipple", Description: "Kipple fetches each image and serves it from its own address, so the sites that host images never see you and cannot track what you read. Choose \"Only insecure images\" to let your device load secure (https) images straight from their sites.",
+	{Key: "imgproxy.mode", Label: "Load images through Kipple", Description: "Kipple fetches each image and serves it itself, so the sites that host images never see you. \"Only insecure images\" lets your device load secure images straight from their sites.",
 		Group: groupImages, Kind: "enum", Options: imgModeOptions, Surface: surfaceSettings, check: oneOf(optValues(imgModeOptions)...)},
-	{Key: "imgproxy.cache_mb", Label: "Image cache size", Description: "Images are stored on the server so they load fast and sites can't track you. The oldest are removed when the cache is full. Zero turns the cache off.",
+	{Key: "imgproxy.cache_mb", Label: "Image cache size", Description: "Images are kept on the server so they load fast. The oldest go when the cache is full. Zero turns the cache off.",
 		Group: groupImages, Kind: "int", Min: ip(0), Max: ip(imgCacheMaxMB), Step: ip(64), Unit: "MB", Surface: surfaceSettings, check: checkImgCacheMB},
 
-	{Key: "fetch.fulltext_all", Label: "Fetch the full article for every feed", Description: "Download the page of each new article and show its full text, whatever a feed's own setting says. This uses a little more bandwidth and time on each refresh. Feeds that block extraction fall back to the feed's own content. A big refresh can take a while to extract every article; sync apps show the feed's own text for any that are not ready yet. Articles already saved are not changed; you can still turn full text on or off for a single article.",
+	{Key: "fetch.fulltext_all", Label: "Fetch the full article for every feed", Description: "Download each new article's page and show its full text, whatever a feed's own setting says. This uses more time and bandwidth on each check.",
 		Group: groupLibrary, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 	{Key: "library.favorites", Label: "Sidebar favorites", Description: "The folders and feeds you pinned to the top of the sidebar.",
 		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkFavorites},
-	{Key: "library.auto_read_days", Label: "Mark old articles as read after…", Description: "Articles you have not read are marked read once they are this many days old, which keeps your unread list (and the one some sync apps load) from growing without end. Starred articles and muted ones are never touched, and an article you mark unread again stays unread. Zero turns this off. A feed can set its own number in its settings. Changing this never marks anything at once: use the catch-up button to clear what is already older.",
+	{Key: "library.auto_read_days", Label: "Mark old articles as read after…", Description: "Unread articles are marked read once they are this many days old. Starred and muted articles are never touched. Zero turns this off. Changing it marks nothing until you clear the older ones below.",
 		Group: groupLibrary, Kind: "int", Min: ip(0), Max: ip(365), Step: ip(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, 365)},
 	{Key: "library.saved_searches", Label: "Saved searches", Description: "The searches you saved to the sidebar.",
 		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkSavedSearches},
 
 	// Account.
-	{Key: store.SettingTZ, Label: "Time zone", Description: "Used for daily statistics and the nightly maintenance job.",
+	{Key: store.SettingTZ, Label: "Time zone", Description: "Used for the days in Stats and for the nightly cleanup.",
 		Group: groupAccount, Kind: "text", Surface: surfaceSettings, check: func(v any) (any, string) {
 			s, ok := v.(string)
 			if !ok || s == "" || s == "Local" || len(s) > 64 {
@@ -483,20 +483,20 @@ var settingDefs = withScopes([]settingDef{
 		}},
 
 	// Address and access (package reach): applied at once, no restart.
-	{Key: store.SettingPublicURL, Label: "Public URL", Description: "The address you reach Kipple at from other devices, such as https://rss.example.com. Sync apps get feed icons from it, and feed sites see it in Kipple's User-Agent. Its host name is answered too, except a name any device on your network could claim (such as nas.local), which must also be under Allowed host names. Leave empty if Kipple has no such address.",
+	{Key: store.SettingPublicURL, Label: "Public address", Description: "The address you reach Kipple at from other devices, such as https://rss.example.com. Leave empty if Kipple has no such address.",
 		Group: groupConnection, Kind: "text", Surface: surfaceSettings, check: checkPublicURL},
-	{Key: store.SettingAllowedHosts, Label: "Allowed host names", Description: "Extra names Kipple answers to during setup and when it has no password, such as rss.example.com, nas.local or *.example.com. IP addresses, localhost, .ts.net names and the public URL's host are always answered. Setup also answers single-word names and .local, .lan, .home.arpa and .internal names.",
+	{Key: store.SettingAllowedHosts, Label: "Other names for this server", Description: "Extra names you open Kipple by, such as nas.local or *.example.com. They matter during setup and when Kipple has no password.",
 		Group: groupConnection, Kind: "json", Surface: surfaceSettings, check: checkAllowedHosts},
-	{Key: store.SettingTrustedProxies, Label: "Trusted proxies", Description: "The addresses or ranges your reverse proxy or tunnel connects from, as Kipple sees them, such as 192.0.2.10 or 198.51.100.0/24. Only these may tell Kipple the visitor's real address (X-Forwarded-For, CF-Connecting-IP) and that the connection was https (X-Forwarded-Proto). Never list a range that clients can reach Kipple from directly. Leave empty without a proxy.",
+	{Key: store.SettingTrustedProxies, Label: "Proxy addresses", Description: "The addresses your reverse proxy or tunnel connects from, such as 192.0.2.10 or 198.51.100.0/24. Only these may tell Kipple a visitor's real address. Never list a range that devices can reach Kipple from directly. Leave empty without a proxy.",
 		Group: groupConnection, Kind: "json", Surface: surfaceSettings, check: checkTrustedProxies},
-	{Key: store.SettingCloudflareAccess, Label: "Cloudflare Access", Description: "Only if Cloudflare Access protects Kipple: your team domain (such as yourteam.cloudflareaccess.com) and the application's audience (AUD) tag. Kipple then checks the Access token on each request, shows who you are signed in as, and lets you remove the web password. Empty turns it off.",
+	{Key: store.SettingCloudflareAccess, Label: "Cloudflare Access", Description: "Only if Cloudflare Access protects Kipple: your team domain (such as yourteam.cloudflareaccess.com) and the application's audience (AUD) tag. Kipple then shows who you are signed in as and lets you remove the web password. Empty turns it off.",
 		Group: groupConnection, Kind: "json", Surface: surfaceSettings, check: checkCloudflareAccess},
 	// Statistics.
-	{Key: "stats.enabled", Label: "Reading statistics", Description: "Record which articles you open and how long you read them. Turning it off keeps what is already recorded.",
+	{Key: "stats.enabled", Label: "Record my reading", Description: "Record which articles you open and how long you read them. Turning it off keeps what is already recorded.",
 		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
-	{Key: "stats.week_start", Label: "First day of the week", Description: "Which day the week starts on in your statistics.",
+	{Key: "stats.week_start", Label: "First day of the week", Description: "Which day the week starts on in Stats.",
 		Group: groupStats, Kind: "enum", Options: opts("sunday", "Sunday", "monday", "Monday"), Surface: surfaceSettings, check: oneOf("sunday", "monday")},
-	{Key: "stats.wrapped_enabled", Label: "Yearly Wrapped", Description: "A yearly summary of your reading that you can share as an image or text. Turning it off hides it and keeps your statistics.",
+	{Key: "stats.wrapped_enabled", Label: "Your year", Description: "A yearly summary of your reading that you can share as an image or text. Turning it off hides it and keeps your stats.",
 		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
 	// Advanced: shown in an Advanced section of the Settings screen.

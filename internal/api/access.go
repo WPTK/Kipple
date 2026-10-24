@@ -78,7 +78,7 @@ func (s *Server) writeProofError(w http.ResponseWriter, t *try, p accessProof, r
 	case proofNotConfigured:
 		if removing {
 			writeErrorMsg(w, http.StatusBadRequest, "access_not_configured",
-				"a web password can only be removed when Cloudflare Access validation is on (Settings, Account & Devices, Address and access)")
+				"a web password can only be removed when Cloudflare Access validation is on (Settings, Advanced, Address and access)")
 			return
 		}
 		writeErrorMsg(w, http.StatusForbidden, "access_not_configured",

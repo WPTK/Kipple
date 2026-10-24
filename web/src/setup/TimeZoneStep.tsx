@@ -85,7 +85,7 @@ export function TimeZoneStep({ onNext, onSkipAll, skipAllBusy }: { onNext: () =>
       proceed();
     } catch (e) {
       if (skipping) {
-        toast("Kipple couldn't save the time zone. You can set it in Settings, Account & Devices.", "error");
+        toast("Kipple couldn't save the time zone. You can set it in Settings, Stats.", "error");
         proceed();
         return;
       }

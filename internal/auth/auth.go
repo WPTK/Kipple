@@ -624,7 +624,7 @@ func WarnUntrustedProxyHeaders(next http.Handler, trusted func() []netip.Prefix,
 			}
 			mu.Unlock()
 			if warn {
-				log.Warn("proxy headers from an untrusted peer are ignored; if this peer is your reverse proxy or tunnel, add its address to the trusted proxies (Settings, Account & Devices)",
+				log.Warn("proxy headers from an untrusted peer are ignored; if this peer is your reverse proxy or tunnel, add its address to the trusted proxies (Settings, Advanced, Address and access)",
 					"peer", r.RemoteAddr, "headers", strings.Join(hdrs, ","))
 			}
 		}
