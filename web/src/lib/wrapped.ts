@@ -269,6 +269,7 @@ function wrapWhole(s: string, width: number): string[] {
 const MARGIN = 90;
 const TITLE_CHARS = 46;
 const SOURCE_CHARS = 40;
+const MIN_GAP = 20;
 
 /**
  * Draw instructions for the share card: pure, so the preview, the PNG and the tests all read the same list. The blocks
@@ -290,9 +291,26 @@ export function buildWrappedCard(m: WrappedModel, o: WrappedOptions): CardOp[] {
   if (m.busiestHour != null) facts.push(["Busiest hour", hourLabel(m.busiestHour)]);
   if (m.busiestMonth != null) facts.push(["Busiest month", monthName(m.busiestMonth)]);
   const sources = o.topSources ? m.topSources : [];
-  const sourceLines = sources.map((s) => wrapWhole(s.name, SOURCE_CHARS));
-  const SRC_LINE = 38;
   const title = o.longestRead && m.longestRead ? wrapLines(m.longestRead.title, TITLE_CHARS, 2) : [];
+  // Source names are wrapped whole, never cut, so the rows take whatever height the names need. The other blocks have
+  // fixed heights; the sources get what is left after them and the smallest gap, shrinking their type until every
+  // name fits.
+  const titleH = title.length ? 38 + title.length * 42 + 44 : 0;
+  const otherH = 100 + 240 + 190 + (facts.length ? 100 : 0) + titleH;
+  const blockCount = 3 + (facts.length ? 1 : 0) + (title.length ? 1 : 0) + (sources.length ? 1 : 0);
+  const budget = CARD_H - 2 * MARGIN - otherH - MIN_GAP * (blockCount - 1);
+  const sourceRows = (scale: number) => {
+    const lines = sources.map((s) => wrapWhole(s.name, Math.floor(SOURCE_CHARS / scale)));
+    const line = Math.round(38 * scale);
+    const pad = Math.round(8 * scale);
+    return { lines, line, pad, font: Math.round(32 * scale), h: 38 + lines.reduce((a, l) => a + l.length * line + pad, 0) };
+  };
+  let scale = 1;
+  let rows = sourceRows(scale);
+  while (rows.h > budget && scale > 0.3) {
+    scale = Math.round((scale - 0.05) * 100) / 100;
+    rows = sourceRows(scale);
+  }
 
   // Each block: its height, and how it draws itself from its top edge.
   const blocks: { h: number; draw: (top: number) => void }[] = [
@@ -334,14 +352,14 @@ export function buildWrappedCard(m: WrappedModel, o: WrappedOptions): CardOp[] {
   }
   if (sources.length) {
     blocks.push({
-      h: 38 + sourceLines.reduce((a, l) => a + l.length * SRC_LINE + 8, 0),
+      h: rows.h,
       draw: (top) => {
         text("Top sources", X, top + 28, 28, 400, "text2");
-        let y = top + 78;
+        let y = top + 40 + rows.line;
         sources.forEach((s, i) => {
-          text(String(s.items), X, y, 32, 700, "accent");
-          sourceLines[i]!.forEach((l, j) => text(l, X + 90, y + j * SRC_LINE, 32));
-          y += sourceLines[i]!.length * SRC_LINE + 8;
+          text(String(s.items), X, y, rows.font, 700, "accent");
+          rows.lines[i]!.forEach((l, j) => text(l, X + 90, y + j * rows.line, rows.font));
+          y += rows.lines[i]!.length * rows.line + rows.pad;
         });
       },
     });
@@ -349,7 +367,7 @@ export function buildWrappedCard(m: WrappedModel, o: WrappedOptions): CardOp[] {
   if (title.length && m.longestRead) {
     const l = m.longestRead;
     blocks.push({
-      h: 38 + title.length * 42 + 44,
+      h: titleH,
       draw: (top) => {
         text("Longest read", X, top + 28, 28, 400, "text2");
         title.forEach((t, i) => text(t, X, top + 78 + i * 42, 32));
@@ -359,7 +377,7 @@ export function buildWrappedCard(m: WrappedModel, o: WrappedOptions): CardOp[] {
   }
   const used = blocks.reduce((a, b) => a + b.h, 0);
   const free = CARD_H - 2 * MARGIN - used;
-  const gap = Math.max(20, Math.min(150, free / (blocks.length - 1)));
+  const gap = Math.max(MIN_GAP, Math.min(150, free / (blocks.length - 1)));
   let top = MARGIN;
   for (const b of blocks) {
     b.draw(Math.round(top));

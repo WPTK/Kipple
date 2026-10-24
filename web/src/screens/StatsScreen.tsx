@@ -64,13 +64,19 @@ function Stat({
 }) {
   const inner = (
     <>
-      <span className="block text-2xl font-bold whitespace-nowrap tabular-nums">{value}</span>
+      {/* The value shrinks to the room the tile has (its width less the padding and the chevron), so "12h 40m" never runs under the chevron or wraps. */}
+      <span
+        className="block text-2xl font-bold whitespace-nowrap tabular-nums"
+        style={{ fontSize: `min(1.5rem, calc((100cqw - 2.5rem) / ${(Math.max(value.length, 3) * 0.62).toFixed(2)}))` }}
+      >
+        {value}
+      </span>
       <span className="block text-xs text-fg2">{label}</span>
       {note ? <span className="mt-1 block text-xs font-medium tabular-nums">{note}</span> : null}
     </>
   );
   return (
-    <div className="min-w-0 rounded-xl bg-surface">
+    <div className="@container min-w-0 rounded-xl bg-surface">
       {onToggle ? (
         <button
           type="button"

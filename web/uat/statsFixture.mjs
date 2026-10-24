@@ -3,6 +3,7 @@
 // and sources would show nothing to look at. Everything else (sign-in, the shell, the feed sheet, the share dialog) is the
 // real app on the real server; only the summary is answered here, in the shape the server sends (internal/api/statssummary.go).
 //
+// `route(page, mode)` ("long" is "rich" with 12h 40m of active time, the longest value a tile shows):
 // `route(page, mode)`: "rich" (a month of reading, twelve active days), "empty" (nothing ever read), "quiet" (earlier
 // reading, none in the range) or "low" (three days of history).
 
@@ -61,7 +62,7 @@ function summary(mode, q) {
     read_rate_from: addDays(now, -30),
     read_rate_to: addDays(now, -1),
     read_rate: { items_read: 10, new_items: 40, rate: 0.25 },
-    totals: { items_read: items, opens: quiet ? 0 : items + 8, active_seconds: secs, days_active: active, legacy_opens: 0 },
+    totals: { items_read: items, opens: quiet ? 0 : items + 8, active_seconds: mode === "long" ? 45_600 : secs, days_active: active, legacy_opens: 0 },
     daily,
     streaks: quiet ? { current: 0, longest: 0, longest_end: null } : { current: 3, longest: 9, longest_end: addDays(now, -20) },
     heatmap: heat,

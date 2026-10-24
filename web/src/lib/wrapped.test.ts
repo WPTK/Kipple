@@ -237,6 +237,23 @@ describe("share card layout", () => {
     }
   });
 
+  it("fits the card with five sources, three of them long, the facts and the longest read", () => {
+    const longName = "A feed whose title is much longer than forty characters and keeps going well past two lines of the card, then some more";
+    const worst: WrappedModel = {
+      ...long,
+      topSources: Array.from({ length: 5 }, (_, i) => ({ feedId: String(i), name: i % 2 === 0 ? longName : `Short ${i}`, items: 40 - i })),
+    };
+    const ops = textOps(buildWrappedCard(worst, { topSources: true, longestRead: true }));
+    expect(Math.max(...ops.map((o) => o.y))).toBeLessThanOrEqual(CARD_H - 90);
+    expect(Math.min(...ops.map((o) => o.y))).toBeGreaterThan(0);
+    // Every word of every name is drawn: nothing was cut.
+    const drawn = ops.filter((o) => o.x === 180).map((o) => o.text).join(" ");
+    for (const w of longName.split(" ")) expect(drawn).toContain(w);
+    // The longest read and the sources do not overlap.
+    const ys = ops.map((o) => o.y);
+    expect(new Set(ys.map((y, i) => `${y}:${ops[i]!.x}`)).size).toBe(ys.length);
+  });
+
   it("lists every source the text lists, and shows the title whole on two lines", () => {
     const o = { topSources: true, longestRead: true };
     const texts = textOps(buildWrappedCard(long, o)).map((t) => t.text);

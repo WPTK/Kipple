@@ -158,6 +158,30 @@ await t.eachViewport(async (page, vp) => {
     }
   });
 
+  await step(`${tag} T6b`, async () => {
+    // At default text the three tiles keep a long value ("12h 40m") on one line and clear of their chevron.
+    if (vp.width >= 500) return;
+    for (const width of [360, 375, 430]) {
+      await page.setViewportSize({ width, height: vp.height });
+      await open("/stats", "long");
+      await page.locator("button[aria-expanded] > span.text-2xl").first().waitFor({ timeout: 10000 });
+      const bad = await page.locator("button[aria-expanded]").evaluateAll((tiles) =>
+        tiles.flatMap((b) => {
+          const v = b.querySelector("span.text-2xl");
+          const chev = b.querySelector("[data-cue]").getBoundingClientRect();
+          const r = globalThis.document.createRange();
+          r.selectNodeContents(v);
+          const t = r.getBoundingClientRect();
+          const line = parseFloat(globalThis.getComputedStyle(v).lineHeight) || t.height;
+          return t.right > chev.left + 1 || t.height > line * 1.5 || v.scrollWidth > v.clientWidth + 1 ? [`${v.textContent} (${Math.round(t.right)} vs ${Math.round(chev.left)})`] : [];
+        }),
+      );
+      check(bad.length === 0, `${tag} T6b ${width}`, `at ${width} px a long tile value stays on one line, clear of its chevron`, `tile values overflow: ${bad.join("; ")}`);
+      if (width === 360) await t.shot(page, `${tag}-T6b-tiles-360`);
+    }
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+  });
+
   await step(`${tag} T7`, async () => {
     await open("/stats/wrapped", "rich");
     const hero = page.getByRole("region", { name: /Articles read in \d{4}/ });
