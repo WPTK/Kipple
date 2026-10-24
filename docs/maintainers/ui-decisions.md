@@ -558,3 +558,19 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 - **Mark all** marks only what arrived after the mark, not older unread articles the page does not show.
 - **Rejected:** moving the mark on opening (a phone call would lose the page); on every scroll (a half-read page would
   not come back); a per-device mark (the point is that the second device knows what the first showed).
+
+## The Feed index (#39, Phase C)
+
+- **What it is.** One block for every feed: its name (a link to the feed), "N unread" or "All read", and its newest
+  three headlines. It answers "what is each of my feeds up to", which no list of articles does.
+- **Name and place.** "Feed index", under Feeds: a row after Feeds in the sidebar and a link on the Feeds screen, where
+  the Feeds tab stays current. It is not a list view, so it has no pills.
+- **Newest means newest of all.** Read articles count, so a feed that is all read still shows its last three. The
+  unread count beside the name says what is left to read.
+- **Order.** Sidebar order or Quiet Feeds First, the Digest's setting, with an Order menu on the page itself.
+- **Failing feeds** keep their block and add the line their own list shows; the page does not hide a feed that is
+  broken.
+- **Keys.** The Digest's: one Tab stop, arrows, Home, End and Page keys through names and headlines.
+- **Back.** A headline opens its article inside the feed's own list, so Back goes to that feed's list.
+- **Rejected:** a layout of the list screen (its mark-all and scope belong to one list of articles); showing only
+  unread headlines (a quiet library would show empty blocks).
