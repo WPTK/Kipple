@@ -37,15 +37,22 @@ const AUTH_LABELS: Record<About["auth_mode"], string> = {
   open: "open (no password)",
 };
 
-/** The rows the About screen shows and the debug text repeats, in order. */
-export function aboutRows(a: About, c: ClientFacts): { label: string; value: string }[] {
+/** One fact about this Kipple. `technical` rows are for a bug report: the debug text has them, the screen does not. */
+interface Row {
+  label: string;
+  value: string;
+  technical?: boolean;
+}
+
+/** Every row, in order. */
+function allRows(a: About, c: ClientFacts): Row[] {
   return [
     { label: "Version", value: a.version },
     { label: "Commit", value: a.commit },
     { label: "Built", value: a.build_date },
-    { label: "Go", value: `${a.go_version} (${a.os_arch})` },
+    { label: "Go", value: `${a.go_version} (${a.os_arch})`, technical: true },
     { label: "Database schema", value: a.schema_version === a.schema_latest ? String(a.schema_version) : `${a.schema_version} (this build expects ${a.schema_latest})` },
-    { label: "SQLite", value: a.sqlite_version || "unknown" },
+    { label: "SQLite", value: a.sqlite_version || "unknown", technical: true },
     { label: "Running for", value: `${uptimeText(a.uptime_s)} (since ${startedText(a.started_at)})` },
     { label: "Time zone", value: a.tz },
     { label: "Data folder writable", value: yes(a.data_dir_writable) },
@@ -54,16 +61,21 @@ export function aboutRows(a: About, c: ClientFacts): { label: string; value: str
     { label: "Public URL set", value: yes(a.public_url_set) },
     { label: "Web build on the server", value: a.web_build || "unknown" },
     { label: "Web build in this page", value: `${c.bundleVersion} (${c.bundleBuild})` },
-    { label: "Service worker", value: c.workerShell },
-    { label: "Opened as", value: c.standalone ? "installed app" : "browser tab" },
+    { label: "Service worker", value: c.workerShell, technical: true },
+    { label: "Opened as", value: c.standalone ? "installed app" : "browser tab", technical: true },
     { label: "Browser", value: c.userAgent },
   ];
+}
+
+/** The rows the About screen shows, in order. */
+export function aboutRows(a: About, c: ClientFacts): { label: string; value: string }[] {
+  return allRows(a, c).filter((r) => !r.technical);
 }
 
 /** The plain-text block for a bug report. Nothing in it identifies the person or where Kipple runs. */
 export function debugText(a: About, c: ClientFacts): string {
   // The exact start time stays in UTC: a local rendering alone is ambiguous in a bug report.
-  return ["Kipple debug info", ...aboutRows(a, c).map((r) => `${r.label}: ${r.value}`), `Started (UTC): ${a.started_at}`].join("\n");
+  return ["Kipple debug info", ...allRows(a, c).map((r) => `${r.label}: ${r.value}`), `Started (UTC): ${a.started_at}`].join("\n");
 }
 
 /** The browser-side facts, read once when the About screen opens. Never throws. */

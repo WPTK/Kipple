@@ -618,3 +618,68 @@ func TestNewSettingDefaultsAndBootstrap(t *testing.T) {
 	_, out, _ = h.api(c, "GET", "/api/settings", "")
 	require.Equal(t, false, vals(out)["greader.icon_urls"])
 }
+
+func TestRetentionPreview(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	a := h.addFeed("Alpha", 0)
+	b := h.addFeed("Beta", 0)
+	for range 120 {
+		h.addItem(a, seedItem{})
+	}
+	h.addItem(a, seedItem{Starred: true}) // starred stays whatever the number
+	for range 60 {
+		h.addItem(b, seedItem{})
+	}
+	// the saved default (250) removes nothing
+	code, out, _ := h.api(c, "GET", "/api/retention/preview", "")
+	require.Equal(t, http.StatusOK, code)
+	require.EqualValues(t, 0, out["articles"])
+	require.EqualValues(t, 0, out["feeds"])
+	// 50 per feed: 70 from Alpha (the starred one stays), 10 from Beta
+	code, out, _ = h.api(c, "GET", "/api/retention/preview?keep=50", "")
+	require.Equal(t, http.StatusOK, code)
+	require.EqualValues(t, 80, out["articles"])
+	require.EqualValues(t, 2, out["feeds"])
+	// unlimited removes nothing
+	_, out, _ = h.api(c, "GET", "/api/retention/preview?keep=0", "")
+	require.EqualValues(t, 0, out["articles"])
+	// a number that is not a choice is refused
+	code, _, _ = h.api(c, "GET", "/api/retention/preview?keep=7", "")
+	require.Equal(t, http.StatusBadRequest, code)
+	// a feed with its own cap keeps it, and a change of the default does not measure it
+	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE feeds SET retention = 100 WHERE id = ?`, a)
+		return err
+	}))
+	_, out, _ = h.api(c, "GET", "/api/retention/preview?keep=50", "")
+	require.EqualValues(t, 10, out["articles"], "Alpha follows its own cap, so only Beta's 10 are over 50")
+	require.EqualValues(t, 1, out["feeds"])
+	// Apply retention now measures every feed against its own cap: Alpha is 20 over 100, Beta is within the default 250
+	_, out, _ = h.api(c, "GET", "/api/retention/preview", "")
+	require.EqualValues(t, 20, out["articles"])
+	require.EqualValues(t, 1, out["feeds"])
+	// a feed that is turned off is not trimmed
+	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE feeds SET enabled = 0, disabled_reason = 'user' WHERE id = ?`, b)
+		return err
+	}))
+	_, out, _ = h.api(c, "GET", "/api/retention/preview?keep=50", "")
+	require.EqualValues(t, 0, out["articles"])
+	require.EqualValues(t, 0, out["feeds"])
+	// a feed being deleted is not trimmed either
+	d := h.addFeed("Delta", 0)
+	for range 60 {
+		h.addItem(d, seedItem{})
+	}
+	_, out, _ = h.api(c, "GET", "/api/retention/preview?keep=50", "")
+	require.EqualValues(t, 10, out["articles"], "Delta is over 50 while it is still a feed")
+	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE feeds SET url = 'kipple:deleting:' || id, url_key = 'kipple:deleting:' || id WHERE id = ?`, d)
+		return err
+	}))
+	_, out, _ = h.api(c, "GET", "/api/retention/preview?keep=50", "")
+	require.EqualValues(t, 0, out["articles"])
+	require.EqualValues(t, 0, out["feeds"])
+}

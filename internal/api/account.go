@@ -208,7 +208,7 @@ func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request) {
 				"the Cloudflare Access setting changed while this was checked: open Kipple through Access again and retry")
 		case errors.Is(err, errAccessOff):
 			writeErrorMsg(w, http.StatusBadRequest, "access_not_configured",
-				"a web password can only be removed when Cloudflare Access validation is on (Settings, Account & Devices, Address and access)")
+				"a web password can only be removed when Cloudflare Access validation is on (Settings, Advanced, Address and access)")
 		case err != nil:
 			s.serverError(w, "set password", err)
 		default:

@@ -204,7 +204,7 @@ describe("the bootstrap device profile", () => {
       "PATCH /api/device": () => new Response("no", { status: 500 }),
     });
     go("/settings/appearance");
-    await screen.findByRole("heading", { name: "Appearance & Reading" });
+    await screen.findByRole("heading", { name: "Appearance" });
     await waitFor(() => expect(themeStore.get()).toMatchObject({ mode: "fixed", fixed: "linen" }));
     expect(prefsStore.get().font).toBe("default"); // the server wins
     const user = userEvent.setup();

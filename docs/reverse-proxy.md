@@ -15,7 +15,7 @@ proxy, because a wrong setup does not fail loudly: it makes every visitor look l
 ## What Kipple needs from a proxy
 
 Kipple decides who the client is in one place. A connection from an address that is **not** in the trusted proxies
-(Settings, Account & Devices, Address and access) is the client itself, and every forwarding header it sends is ignored. For a connection from
+(Settings, Advanced, Address and access) is the client itself, and every forwarding header it sends is ignored. For a connection from
 a listed address:
 
 - The client is the rightmost `X-Forwarded-For` hop that is not itself a listed proxy. Each proxy appends the address
@@ -28,7 +28,7 @@ a listed address:
 That client address keys the web sign-in and Reader API login budgets (see "Ports" in [deploy.md](deploy.md#ports)). So
 a proxy **must**:
 
-1. Connect from an address you list under **Trusted proxies** (a single address or a CIDR range, one per line).
+1. Connect from an address you list under **Proxy addresses** (a single address or a CIDR range, one per line).
 2. Pass the original `Host` header through unchanged. Kipple refuses a state-changing request whose `Origin` does not
    match the host it was sent to.
 3. Send `X-Forwarded-For` containing the address it received the connection from, appended after whatever the client
@@ -71,7 +71,7 @@ read the log:
     docker logs kipple 2>&1 | grep "untrusted peer"
 
 The line is a `WARN` that names the peer, for example `"peer":"172.18.0.1:53422"`. Take the address without the port
-(`172.18.0.1`) and add it under **Trusted proxies** in Settings, Account & Devices, Address and access. It applies at
+(`172.18.0.1`) and add it under **Proxy addresses** in Settings, Advanced, Address and access. It applies at
 once. (Kipple logs this warning at most once an hour. For a scripted first start, `KIPPLE_TRUSTED_PROXY_IPS=172.18.0.1`
 in `.env` seeds the setting.) The usual cases:
 

@@ -238,8 +238,8 @@ func TestSettingHelpTexts(t *testing.T) {
 	for _, d := range settingDefs {
 		text[d.Key] = d.Description
 	}
-	require.Equal(t, "Only the newest N articles per feed are kept, read or unread. Starred articles are always kept.", text["retention.default"])
-	require.Equal(t, "Used for daily statistics and the nightly maintenance job.", text["tz"])
+	require.Equal(t, "Only the newest articles of each feed are kept, read or unread. Starred articles are always kept.", text["retention.default"])
+	require.Equal(t, "Used for the days in Stats and for the nightly cleanup.", text["tz"])
 }
 
 func TestNewSettingsMetadata(t *testing.T) {
@@ -258,7 +258,6 @@ func TestNewSettingsMetadata(t *testing.T) {
 	require.Equal(t, "bool", ft["kind"])
 	require.Equal(t, false, ft["default"])
 	require.Contains(t, ft["description"], "bandwidth")
-	require.Contains(t, ft["description"], "fall back")
 	fav := by["library.favorites"]
 	require.Equal(t, "library", fav["group"])
 	require.Equal(t, "hidden", fav["surface"])

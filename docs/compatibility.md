@@ -35,11 +35,11 @@ on which client is calling.
   feed URL given in the path (`stream/contents/feed/<url>`) is restored only after its scheme: a URL with an
   unencoded `?` or another `//` cannot be recovered there. Send such a stream as an encoded `s=` value, which always
   works.
-- **Sign-in.** `ClientLogin` with the account's user name as `Email` and its API password (set in Settings or
+- **Sign-in.** `ClientLogin` with the account's user name as `Email` and its app password (set in Settings or
   with `kipple api-password`) as `Passwd`. The `Auth` value it returns is the token.
 - **Authentication.** Send `Authorization: GoogleLogin auth=<token>` on every call. A `POST` may instead carry the token
   as `T` in the body or the query. With the header, `T` may also be absent, empty or `x`. A `GET` authenticates only by
-  the header. Tokens do not expire; changing the API password revokes every token at once.
+  the header. Tokens do not expire; changing the app password revokes every token at once.
 - **Parameters.** A `POST` may carry its parameters in the body, the query string or both (body first). Bodies are read
   as `application/x-www-form-urlencoded` whatever the `Content-Type` says, or as `multipart/form-data` when they are.
   Repeated keys (`i`, `s`, `a`, `r`, `t`, `it`, `xt`) are kept in order. Values may leave `=`, `;`, `,` and `$`
@@ -253,7 +253,7 @@ pull to refresh, and Move to folder for reordering feeds.
 
 ### Sync clients
 
-Kipple speaks the Google Reader API at `/api/greader.php`. Add a Google Reader compatible account and enter the full server URL, `/api/greader.php` included; if Kipple sits behind Cloudflare Access, bypass `/api/greader.php` (see [deploy.md](deploy.md#cloudflare-access-optional)); that bypass does not cover the root forms such as `/accounts/ClientLogin`, so a client that drops the path cannot sign in there. Sign in with the API password from Settings, Account & Devices (Generate API password). The request sequences the protocol uses are replayed against each release by the contract tests in CI; no client is promised beyond what those tests cover.
+Kipple speaks the Google Reader API at `/api/greader.php`. Add a Google Reader compatible account and enter the full server URL, `/api/greader.php` included; if Kipple sits behind Cloudflare Access, bypass `/api/greader.php` (see [deploy.md](deploy.md#cloudflare-access-optional)); that bypass does not cover the root forms such as `/accounts/ClientLogin`, so a client that drops the path cannot sign in there. Sign in with the app password from Settings, Account & Devices (Generate new app password). The request sequences the protocol uses are replayed against each release by the contract tests in CI; no client is promised beyond what those tests cover.
 
 ### Still checked by a person
 

@@ -86,8 +86,8 @@ compatible account with:
 
 - Server: your Kipple address plus `/api/greader.php`
 - User name: the one you chose during setup
-- Password: the API password, a second password used only by sync apps, so your web password never leaves the browser.
-  Make one in the last setup step or under Settings, Account & Devices, Generate API password. Kipple shows it once.
+- Password: the app password, a second password used only by sync apps, so your web password never leaves the browser.
+  Make one in the last setup step or under Settings, Account & Devices, Generate new app password. Kipple shows it once.
 
 ## What Kipple leaves out
 

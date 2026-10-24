@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/WPTK/kipple/internal/auth"
@@ -175,6 +176,27 @@ func (s *Server) writeSettings(w http.ResponseWriter, ctx context.Context, code 
 		out = append(out, v)
 	}
 	writeJSON(w, code, map[string]any{"settings": out, "values": merged})
+}
+
+// retentionPreview is GET /api/retention/preview[?keep=N]: how many articles from how many feeds a trim would remove now.
+// Without keep it is the saved limits ("Apply retention now"); with keep it is that number as the default for the feeds
+// that have no limit of their own (the retention setting, before it is changed). Nothing is changed.
+func (s *Server) retentionPreview(w http.ResponseWriter, r *http.Request) {
+	keep := -1
+	if v := r.URL.Query().Get("keep"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || !isRetentionChoice(int64(n)) {
+			writeErrorMsg(w, http.StatusBadRequest, "bad_request", "keep must be one of "+retentionChoicesText()+".")
+			return
+		}
+		keep = n
+	}
+	articles, feeds, err := s.db.RetentionPreview(r.Context(), keep)
+	if err != nil {
+		s.serverError(w, "retention preview", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"articles": articles, "feeds": feeds})
 }
 
 // retentionApply is POST /api/retention/apply: "Apply retention now" over every feed.
