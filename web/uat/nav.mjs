@@ -14,6 +14,7 @@
 //   B1  at 812x375 the unread badge follows the Articles name and is not on top of it.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
+/* global document, NodeFilter -- used inside evaluate callbacks, which run in the browser */
 import { start } from "./common.mjs";
 
 const t = await start(import.meta.url, 16);
