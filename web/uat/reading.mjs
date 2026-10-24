@@ -247,7 +247,7 @@ try {
         const body = document.querySelector("[data-testid=article-body]");
         const title = document.getElementById("article-title");
         const dir = (e) => getComputedStyle(e).direction;
-        return { title: dir(title), byline: dir(title.nextElementSibling), body: dir(body), p: dir(body.querySelector("p")), pAttr: body.querySelector("p").getAttribute("dir"), read: dir(document.querySelector("[data-testid=read-state]").parentElement) };
+        return { title: dir(title), byline: dir(title.nextElementSibling), body: dir(body), p: dir(body.querySelector("p")), pAttr: body.querySelector("p").getAttribute("dir"), read: dir(title.previousElementSibling) };
       });
       check(d.pAttr === null && d.title === "rtl" && d.byline === "rtl" && d.body === "rtl" && d.p === "rtl", `${tag} R6 rtl`, "an Arabic article's title, byline, body and paragraphs run right to left", JSON.stringify(d));
       check(d.read === "ltr", `${tag} R6 read line`, "the Read line stays left to right", d.read);
