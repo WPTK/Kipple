@@ -154,19 +154,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
             <>
               <DropdownMenu.Separator className="my-1 h-px bg-line" />
               <DropdownMenu.Label className={heading}>Digest, for this device</DropdownMenu.Label>
-              <DropdownMenu.Label className={sub}>Order of sections</DropdownMenu.Label>
-              <DropdownMenu.RadioGroup
-                aria-label="Order of sections"
-                value={dp.digestOrder}
-                onValueChange={(v) => {
-                  updateDevicePrefs({ digestOrder: v as DigestOrder });
-                  announce(DIGEST_ORDER_LABELS[v as DigestOrder]);
-                }}
-              >
-                {(["sidebar", "quiet"] as const).map((o) => (
-                  <Radio key={o} value={o} label={DIGEST_ORDER_LABELS[o]} hint={o === "quiet" ? "The sections with the fewest new articles a day come first; a section with a feed under a week old goes last" : undefined} />
-                ))}
-              </DropdownMenu.RadioGroup>
+              <SectionOrderChoice name="sections" />
               <DropdownMenu.Label className={sub}>Sections</DropdownMenu.Label>
               <DropdownMenu.RadioGroup
                 aria-label="Sections"
@@ -251,6 +239,32 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
+  );
+}
+
+/**
+ * The device's order for the Digest's sections and the Feed index's blocks (one setting, `digestOrder`): the sidebar's
+ * order, or the feeds that post least first. `name` is what the order is of ("sections", "feeds").
+ */
+export function SectionOrderChoice({ name }: { name: "sections" | "feeds" }) {
+  const dp = useDevicePrefs();
+  const label = `Order of ${name}`;
+  return (
+    <>
+      <DropdownMenu.Label className={sub}>{label}</DropdownMenu.Label>
+      <DropdownMenu.RadioGroup
+        aria-label={label}
+        value={dp.digestOrder}
+        onValueChange={(v) => {
+          updateDevicePrefs({ digestOrder: v as DigestOrder });
+          announce(DIGEST_ORDER_LABELS[v as DigestOrder]);
+        }}
+      >
+        {(["sidebar", "quiet"] as const).map((o) => (
+          <Radio key={o} value={o} label={DIGEST_ORDER_LABELS[o]} hint={o === "quiet" ? `The ${name} with the fewest new articles a day come first; ${name === "feeds" ? "a feed" : "a section with a feed"} under a week old goes last` : undefined} />
+        ))}
+      </DropdownMenu.RadioGroup>
+    </>
   );
 }
 

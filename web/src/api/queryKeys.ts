@@ -1,5 +1,5 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
-import type { Card, ItemDetail, ItemsPage, Scope } from "./types";
+import type { Card, Headline, ItemDetail, ItemsPage, Scope } from "./types";
 import { READING_LENGTH_MINUTES, isReadingLength } from "@/lib/readingLength";
 
 /**
@@ -22,6 +22,8 @@ export const keys = {
    */
   section: (scope: Scope) => ["items", `${scopeKey(scope)}${SECTION_SUFFIX}`] as const,
   itemsAll: ["items"] as const,
+  /** Each feed's newest articles, for the Feed index. Not under "items": it is a list of feeds, not of articles. */
+  feedsLatest: ["feeds-latest"] as const,
   item: (id: string) => ["item", id] as const,
   stats: (range: string) => ["stats", range] as const,
 };
@@ -103,6 +105,14 @@ export function patchItems(qc: QueryClient, ids: string[], patch: ItemPatch): vo
   for (const id of ids) {
     qc.setQueryData<ItemDetail>(keys.item(id), (old) => (old ? { ...old, ...patch } : old));
   }
+  // The Feed index's headlines: read and starred show in place; a mute or restore changes which articles are the newest.
+  qc.setQueriesData<Map<string, Headline[]>>({ queryKey: keys.feedsLatest }, (old) => {
+    if (!old) return old;
+    const next = new Map<string, Headline[]>();
+    for (const [feed, cards] of old) next.set(feed, cards.some((c) => set.has(c.id)) ? cards.map((c) => (set.has(c.id) ? { ...c, ...patch } : c)) : cards);
+    return next;
+  });
+  if ("muted_by" in patch) void qc.invalidateQueries({ queryKey: keys.feedsLatest });
 }
 
 /** Take these ids out of the cached lists whose scope key passes `match` (a Muted list after a restore, All after a mute). */

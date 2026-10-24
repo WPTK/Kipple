@@ -33,6 +33,7 @@ import { useFavorites } from "@/lib/favorites";
 import { clickRow, groupState, toggleGroup } from "@/lib/selection";
 import { cn } from "@/lib/cn";
 import { listTo, openListTo } from "@/lib/routes";
+import { DESTINATIONS } from "@/lib/destinations";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { feedLabel } from "./feeds/FeedRowName";
 import { FeedLine, FolderLine } from "./feeds/RowLine";
@@ -888,6 +889,11 @@ export function FeedsScreen() {
                   <Link to={listTo({ view: "muted" })} className={row}>
                     Muted
                     <MutedCount n={c?.muted ?? 0} className="ml-auto" />
+                  </Link>
+                </li>
+                <li>
+                  <Link to={DESTINATIONS.feedIndex.to} className={row}>
+                    {DESTINATIONS.feedIndex.label}
                   </Link>
                 </li>
               </ul>

@@ -11,7 +11,7 @@ import { useSyncHighlights } from "@/lib/useHighlights";
 import { SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, DEFAULT_DEVICE_PREFS, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { useShort, useWide } from "@/lib/useMedia";
 import { cn } from "@/lib/cn";
-import { ARTICLES_TAB, currentDestination, DESTINATIONS, isList, isScopedList, type Destination } from "@/lib/destinations";
+import { ARTICLES_TAB, currentDestination, DESTINATIONS, isFeeds, isList, isScopedList, type Destination } from "@/lib/destinations";
 import { navItemClass } from "@/ui/navItem";
 import { FeedTree } from "@/screens/FeedTree";
 import { WhatsNewHost } from "./WhatsNew";
@@ -82,7 +82,7 @@ function TabBar() {
       style={{ minHeight: "calc(var(--tabbar-h) + env(safe-area-inset-bottom))" }}
     >
       {link(ARTICLES_TAB.to, isList(here), ARTICLES_TAB.icon, ARTICLES_TAB.label, true)}
-      {[feeds, find, ...(stats ? [st] : []), settings].map((d) => link(d.to, here === d.id, d.icon, d.label))}
+      {[feeds, find, ...(stats ? [st] : []), settings].map((d) => link(d.to, d === feeds ? isFeeds(here) : here === d.id, d.icon, d.label))}
     </nav>
   );
 }
@@ -107,7 +107,7 @@ function Sidebar() {
       {count}
     </Link>
   );
-  const { unread, all, starred, muted, search: find, feeds, stats: st, settings } = DESTINATIONS;
+  const { unread, all, starred, muted, search: find, feeds, feedIndex, stats: st, settings } = DESTINATIONS;
   return (
     <div ref={box} className="relative h-full shrink-0" style={{ width }}>
       <nav aria-label="Primary" className="pt-safe pl-safe relative flex h-full flex-col border-r border-line bg-surface px-2">
@@ -119,6 +119,7 @@ function Sidebar() {
           {row(muted, <MutedCount n={c?.muted ?? 0} />)}
           {row(find)}
           {row(feeds)}
+          {row(feedIndex)}
         </div>
         <div data-reveal-root="" className="min-h-0 flex-1 overflow-y-auto pb-2">
           <FeedTree />

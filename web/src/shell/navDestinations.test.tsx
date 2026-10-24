@@ -46,6 +46,7 @@ describe("the sidebar marks one destination (#638)", () => {
     ["/l/all", "All articles"],
     ["/l/starred", "Starred"],
     ["/feeds", "Feeds"],
+    ["/feeds/index", "Feed index"],
     ["/health", "Feeds"],
     ["/search", "Search"],
     ["/settings", "Settings"],

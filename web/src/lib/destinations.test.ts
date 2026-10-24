@@ -11,6 +11,7 @@ describe("currentDestination", () => {
     ["/l/unread", "?feed=3", "feeds"],
     ["/l/all", "?folder=2", "feeds"],
     ["/feeds", "", "feeds"],
+    ["/feeds/index", "", "feedIndex"],
     ["/health", "", "feeds"],
     ["/search", "?q=x", "search"],
     ["/stats", "", "stats"],

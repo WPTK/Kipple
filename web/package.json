@@ -62,6 +62,7 @@
     "uat:item-actions": "node uat/item-actions.mjs",
     "uat:digest": "node uat/digest.mjs",
     "uat:catchup": "node uat/catchup.mjs",
+    "uat:feed-index": "node uat/feed-index.mjs",
     "uat:reading": "node uat/reading.mjs",
     "uat:row": "node uat/row.mjs"
   },

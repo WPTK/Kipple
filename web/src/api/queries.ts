@@ -10,6 +10,7 @@ import { api, failed, signingOutStore } from "./client";
 import type {
   Bootstrap,
   Card,
+  FeedLatest,
   FulltextResponse,
   ItemDetail,
   ItemsPage,
@@ -107,6 +108,21 @@ export function itemsQuery(scope: Scope, queryKey: readonly unknown[], limit = P
 /** The list of a scope, a page at a time. */
 export function useItems(scope: Scope, enabled = true) {
   return useInfiniteQuery({ ...itemsQuery(scope, keys.items(scope)), enabled });
+}
+
+/** How many of each feed's newest articles the Feed index shows. */
+export const LATEST_PER_FEED = 3;
+
+/**
+ * Each feed's newest articles, read or not, in one request. Stale at once: the Feed index asks again whenever it opens
+ * (the stream marks it stale when counts move), and keeps what it has on screen while it does.
+ */
+export function useFeedsLatest(n = LATEST_PER_FEED) {
+  return useQuery({
+    queryKey: [...keys.feedsLatest, n],
+    queryFn: ({ signal }) => api<{ feeds: FeedLatest[] }>("/api/feeds/latest", { params: { n }, signal }).then((r) => new Map(r.feeds.map((f) => [f.feed_id, f.items]))),
+    retry: retryRead,
+  });
 }
 
 export function useItem(id: string | undefined) {
