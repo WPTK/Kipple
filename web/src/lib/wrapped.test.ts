@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { StatsSummary } from "@/api/types";
 import {
+  CARD_H,
   buildWrappedCard,
   deriveWrapped,
   hoursLabel,
@@ -186,8 +187,8 @@ describe("share card and text", () => {
   it("truncates long feed names and titles on a code-point boundary, never splitting an emoji's surrogate pair", () => {
     // Placed so a naive UTF-16 `.slice(0, n - 1)` would land inside the emoji's surrogate pair: n-2 plain
     // characters, then the emoji straddling the old cut point, then more text pushing it over the clip length.
-    const sourceName = `${"A".repeat(28)}💜tail`; // clipped at 30 code points
-    const title = `${"B".repeat(42)}💜tail`; // clipped at 44 code points
+    const sourceName = `${"A".repeat(38)}💜tail`; // wrapped at 40 code points, broken inside the word
+    const title = `${"B".repeat(44)}💜tail`; // clipped at 46 code points
     const withEmoji: WrappedModel = {
       ...model,
       topSources: [{ feedId: "1", name: sourceName, items: 3 }],
@@ -204,8 +205,62 @@ describe("share card and text", () => {
     };
     const textOps = ops.flatMap((op) => (op.kind === "text" ? [op.text] : []));
     for (const t of textOps) expect(hasLoneSurrogate(t)).toBe(false);
-    const nameText = textOps.find((t) => t.includes("💜"));
-    expect(nameText).toContain("…");
+    const nameText = textOps.filter((t) => t.includes("💜") || t === "tail" || /^tail/.test(t));
+    expect(textOps.join("")).toContain(sourceName.slice(0, 38) + "💜");
+    expect(nameText.length).toBeGreaterThan(0);
+  });
+
+  it("wraps a source name over 40 characters instead of cutting it", () => {
+    const name = "A feed whose title is much longer than forty characters and keeps going well past two lines of the card";
+    const ops = buildWrappedCard({ ...model, topSources: [{ feedId: "1", name, items: 3 }] }, { topSources: true, longestRead: false });
+    const lines = ops.flatMap((op) => (op.kind === "text" && op.x === 180 ? [op.text] : []));
+    expect(lines.join(" ")).toBe(name);
+    expect(lines.every((l) => Array.from(l).length <= 40)).toBe(true);
+    expect(lines.length).toBeGreaterThan(2);
+  });
+});
+
+describe("share card layout", () => {
+  const long: WrappedModel = {
+    ...model,
+    topSources: Array.from({ length: 5 }, (_, i) => ({ feedId: String(i), name: `A feed with a fairly long name number ${i}`, items: 40 - i })),
+    longestRead: { title: "A long article title that needs a second line to be shown whole, not cut", feed: "F", seconds: 1320 },
+  };
+  const textOps = (ops: ReturnType<typeof buildWrappedCard>) => ops.flatMap((op) => (op.kind === "text" ? [op] : []));
+  const lowest = (ops: ReturnType<typeof buildWrappedCard>) => Math.max(...textOps(ops).map((o) => o.y));
+
+  it("fills the card whatever is switched on, and never runs off the bottom", () => {
+    for (const o of [{ topSources: false, longestRead: false }, { topSources: true, longestRead: false }, { topSources: true, longestRead: true }]) {
+      const y = lowest(buildWrappedCard(long, o));
+      expect(y).toBeLessThanOrEqual(CARD_H - 60);
+      expect(y).toBeGreaterThan(CARD_H - 330); // no empty bottom eighth
+    }
+  });
+
+  it("fits the card with five sources, three of them long, the facts and the longest read", () => {
+    const longName = "A feed whose title is much longer than forty characters and keeps going well past two lines of the card, then some more";
+    const worst: WrappedModel = {
+      ...long,
+      topSources: Array.from({ length: 5 }, (_, i) => ({ feedId: String(i), name: i % 2 === 0 ? longName : `Short ${i}`, items: 40 - i })),
+    };
+    const ops = textOps(buildWrappedCard(worst, { topSources: true, longestRead: true }));
+    expect(Math.max(...ops.map((o) => o.y))).toBeLessThanOrEqual(CARD_H - 90);
+    expect(Math.min(...ops.map((o) => o.y))).toBeGreaterThan(0);
+    // Every word of every name is drawn: nothing was cut.
+    const drawn = ops.filter((o) => o.x === 180).map((o) => o.text).join(" ");
+    for (const w of longName.split(" ")) expect(drawn).toContain(w);
+    // The longest read and the sources do not overlap.
+    const ys = ops.map((o) => o.y);
+    expect(new Set(ys.map((y, i) => `${y}:${ops[i]!.x}`)).size).toBe(ys.length);
+  });
+
+  it("lists every source the text lists, and shows the title whole on two lines", () => {
+    const o = { topSources: true, longestRead: true };
+    const texts = textOps(buildWrappedCard(long, o)).map((t) => t.text);
+    for (const s of long.topSources) expect(texts).toContain(s.name);
+    expect(wrappedText(long, o)).toContain(long.topSources[4]!.name);
+    expect(texts.filter((t) => long.longestRead!.title.includes(t) && t.length > 20).join(" ")).toBe(long.longestRead!.title);
+    expect(texts.some((t) => t.endsWith("…"))).toBe(false);
   });
 });
 

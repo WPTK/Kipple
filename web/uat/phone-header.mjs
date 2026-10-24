@@ -20,7 +20,7 @@
 //   B2  from the Settings list into a group the chevron goes back to the list with focus on the row just left; from
 //       Stats (off) through its Settings link the chevron lands on the screen its label names, and the system Back
 //       does not return to the group;
-//   R1  the Stats ranges are Week, Month, Year, Monthly and All, each on one line, at 375 and 320 wide;
+//   R1  the Stats ranges are Week, Month, Year, Monthly and All, each on one line, each on one line at 375 wide, and a select with the same five under 360;
 //   D1  (desktop) the Refresh button is in the list header and the actions menu does not repeat it.
 //
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
@@ -269,6 +269,12 @@ await t.eachViewport(async (page, vp) => {
     for (const w of [375, 320]) {
       await page.setViewportSize({ width: w, height: 812 });
       await open("/stats");
+      if (w < 360) {
+        // Under 360 px the Range is a select, which cannot wrap.
+        const options = await page.getByRole("combobox", { name: "Range" }).locator("option").allInnerTexts();
+        check(JSON.stringify(options) === JSON.stringify(["Week", "Month", "Year", "Monthly", "All"]), `${tag} R1 ${w} labels`, `the Range select offers ${options.join(", ")}`, `the Range select offers ${options.join(", ")}`);
+        continue;
+      }
       const radios = await page.getByRole("radio").evaluateAll((rs) => rs.map((r) => ({ name: (r.closest("label") ?? r).innerText.trim(), h: (r.closest("label") ?? r).getBoundingClientRect().height })));
       const labels = radios.map((r) => r.name);
       check(JSON.stringify(labels.slice(0, 5)) === JSON.stringify(["Week", "Month", "Year", "Monthly", "All"]), `${tag} R1 ${w} labels`, `the ranges are ${labels.slice(0, 5).join(", ")}`, `the ranges are ${labels.join(", ")}`);

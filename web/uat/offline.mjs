@@ -113,7 +113,7 @@ async function neverKept(page, where) {
   // Each screen's own text next to its error ("Range" is only on Stats; the lists say "Couldn't load articles").
   for (const [path, expect] of [
     ["/l/starred", ["Starred", "Couldn't load articles"]],
-    ["/stats", ["Range", "You're offline."]],
+    ["/stats", ["Range", "You're offline"]],
   ]) {
     await page.evaluate(pushRoute, path);
     // Visible text only: a screen React keeps hidden behind a Suspense fallback still has its innerText.
@@ -220,7 +220,7 @@ async function run(browser, vp) {
       page,
       () =>
         (document.querySelector('[data-testid="offline-notice"]')?.textContent ?? "").trim() === "" &&
-        [...document.querySelectorAll("main")].some((m) => m.checkVisibility() && m.innerText.includes("Range") && !m.innerText.includes("You're offline.")),
+        [...document.querySelectorAll("main")].some((m) => m.checkVisibility() && m.innerText.includes("Range") && !m.innerText.includes("You're offline")),
       undefined,
       20000,
     );
