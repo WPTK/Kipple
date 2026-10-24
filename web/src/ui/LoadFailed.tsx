@@ -26,7 +26,7 @@ export function useKeptFailure(error: unknown, hasData: boolean, fetching: boole
   return kept;
 }
 
-const WHY: Record<FailureCause | "other", string> = {
+export const WHY: Record<FailureCause | "other", string> = {
   offline: "Check your connection.",
   unreachable: "Kipple isn't answering. Check that it is running and that you can reach it.",
   server: "Kipple answered with an error.",

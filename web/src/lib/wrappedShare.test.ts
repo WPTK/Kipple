@@ -112,7 +112,7 @@ describe("shareWrappedBlob", () => {
     expect(r).toBe("shared");
     const arg = share.mock.calls[0]![0] as { files?: File[]; text: string };
     expect(arg.files).toBeUndefined();
-    expect(arg.text).toContain("12 items");
+    expect(arg.text).toContain("12 articles");
   });
 
   it("falls back to text-only when canShare throws", async () => {
