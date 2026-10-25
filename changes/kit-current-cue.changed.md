@@ -1,1 +1,1 @@
-The current page in the sidebar and the Settings list is now marked with an accent bar and semibold text as well as the selection fill, so it no longer depends on color alone. (#610)
+Navigation: the current page in the sidebar and the Settings list is marked with an accent bar and semibold text as well as the selection fill, and the current tab in the phone tab bar with an accent bar and a filled icon as well as color. (#610)

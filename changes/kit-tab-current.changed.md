@@ -1,1 +1,0 @@
-The current tab in the phone tab bar is marked with an accent bar and a filled icon as well as color. (#610)

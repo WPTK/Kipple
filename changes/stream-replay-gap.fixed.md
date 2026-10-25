@@ -1,1 +1,1 @@
-A fetch that ended while the page was still opening is now reported with its result instead of being noticed up to a minute later, and a stream that has to start over after a long outage no longer skips the events it never received. (#540)
+Progress: a fetch that ends while the page is still opening is reported with its result right away, and a stream that starts over after a long outage does not skip the events it never received. (#540)

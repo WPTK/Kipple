@@ -1,1 +1,1 @@
-Layouts: a new Coffee break layout groups unread articles by reading time (under 3 minutes, 3 to 7, 8 and up, unknown length), each group opening in place with "N more". Mark above and below act within a group, and it shares the Digest's rows per section and image settings. (#39)
+Layouts: Coffee break groups unread articles by reading time (under 3 minutes, 3 to 7, 8 and up, unknown length), each group opening in place with "N more". Mark above and below work within a group, and rows per section and the image setting are shared with the Digest. (#39)

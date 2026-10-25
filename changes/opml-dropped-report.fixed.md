@@ -1,1 +1,1 @@
-The import report no longer grows without bound for a hostile OPML file: a feed listed in many folders names at most 20 of the other folders (`more` counts the rest), a path is cut at 200 bytes, at most 1,000 such feeds are listed, and `memberships_dropped_more` counts the rest. (#517)
+Import: the report for a feed listed in many folders names at most 20 of the other folders, cuts a path at 200 bytes and lists at most 1,000 such feeds, and counts the rest. (#517)
