@@ -4,6 +4,7 @@
 //   KIPPLE_SEED_SET=site npm run seed              (in one terminal; wait a minute for the feeds to fetch)
 //   node ../scripts/maintainers/site-shots.mjs --out ../../kipple-website/screenshots [--site ../../kipple-website]
 //   node ../scripts/maintainers/site-shots.mjs --readme ../docs/screenshots
+// --url <address> names the seeded instance when it is not on 127.0.0.1:1919 (a seed picks another port when 1919 is taken).
 // Run from web/: the output paths are relative to it, and Playwright is the one web/ installs.
 //
 // --readme writes the four WebP files README.md shows, deliberately not the site's: the Inbox layout with an article
@@ -25,7 +26,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 // Playwright lives in web/node_modules, which a script outside web/ does not see by itself.
-const { chromium } = await import(pathToFileURL(createRequire(new URL("../../web/package.json", import.meta.url)).resolve("@playwright/test")).href);
+const { chromium } = createRequire(new URL("../../web/package.json", import.meta.url))("@playwright/test");
 
 const { values: opt } = parseArgs({
   options: {
