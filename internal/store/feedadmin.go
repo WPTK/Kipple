@@ -346,7 +346,7 @@ func (d *DB) DeleteFeed(ctx context.Context, id int64, deleteStarred bool) error
 // the purge (a request for thousands of feeds) call the two themselves. The ids actually removed are returned, also
 // when a later feed fails.
 func (d *DB) DeleteFeeds(ctx context.Context, ids []int64, deleteStarred bool) ([]int64, error) {
-	present, err := d.MarkFeedsDeleting(ctx, ids, deleteStarred)
+	present, _, err := d.MarkFeedsDeleting(ctx, ids, deleteStarred)
 	if err != nil {
 		return nil, err
 	}
@@ -354,15 +354,16 @@ func (d *DB) DeleteFeeds(ctx context.Context, ids []int64, deleteStarred bool) (
 }
 
 // MarkFeedsDeleting is step 1 of deleting the feeds in ids: in a single short transaction every feed that exists is
-// marked for deletion (never fetched again, hidden from every list, see deletingURLPrefix) and its id returned. A
-// request that cannot be honoured (the archive feed holds starred items and deleteStarred is not set) is refused with
+// marked for deletion (never fetched again, hidden from every list, see deletingURLPrefix). It returns the ids to pass
+// to FinishFeedDeletes and how many of them it marked: the archive feed is among the ids when it was asked for, but it
+// is never marked (it is removed last, and only if the other feeds leave it empty), so it is not counted. A request that
+// cannot be honoured (the archive feed holds starred items and deleteStarred is not set) is refused with
 // ErrArchiveHasStarred before anything is marked. Ids that are gone are skipped. Once the marks are committed the set
 // is decided: FinishFeedDeletes, a repeat of the call or the next start (ResumeFeedDeletes) completes it.
-func (d *DB) MarkFeedsDeleting(ctx context.Context, ids []int64, deleteStarred bool) ([]int64, error) {
+func (d *DB) MarkFeedsDeleting(ctx context.Context, ids []int64, deleteStarred bool) (present []int64, marked int, err error) {
 	now := d.clock.Now().Unix()
-	var present []int64
-	err := d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		present = present[:0]
+	err = d.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		present, marked = present[:0], 0
 		for _, id := range ids {
 			var reason sql.NullString
 			switch err := tx.QueryRowContext(ctx, "SELECT disabled_reason FROM feeds WHERE id = ?", id).Scan(&reason); {
@@ -381,13 +382,16 @@ func (d *DB) MarkFeedsDeleting(ctx context.Context, ids []int64, deleteStarred b
 				}
 			}
 			present = append(present, id)
+			if reason.String != "archive" {
+				marked++
+			}
 		}
 		return markFeedsDeleting(ctx, tx, present, now)
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return present, nil
+	return present, marked, nil
 }
 
 // FinishFeedDeletes is steps 2 and 3 for feeds MarkFeedsDeleting marked: each feed's items and ledger are deleted in

@@ -1417,8 +1417,9 @@ func (s *Server) deletePreview(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/feeds/delete {ids, delete_starred}: delete many feeds as one server-side commitment. The whole set is
 // marked in one transaction, then removed here without the request's cancellation: closing the tab part-way
-// cannot leave the library half deleted (see store.DeleteFeeds). Answers {"deleted": n}; ids that are already gone
-// are not counted.
+// cannot leave the library half deleted (see store.DeleteFeeds). Answers {"deleted": n}, the feeds marked: ids that
+// are already gone are not counted, and neither is the archive feed, which is never marked (it is removed last, and
+// only when the other feeds' starred items did not fill it).
 func (s *Server) deleteFeeds(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		IDs           []json.RawMessage `json:"ids"`
@@ -1431,7 +1432,7 @@ func (s *Server) deleteFeeds(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	marked, err := s.db.MarkFeedsDeleting(r.Context(), ids, body.DeleteStarred)
+	present, marked, err := s.db.MarkFeedsDeleting(r.Context(), ids, body.DeleteStarred)
 	if errors.Is(err, store.ErrArchiveHasStarred) {
 		writeErrorMsg(w, http.StatusConflict, "archive_has_starred", "the archive feed holds starred items; set delete_starred to really delete them")
 		return
@@ -1442,22 +1443,22 @@ func (s *Server) deleteFeeds(w http.ResponseWriter, r *http.Request) {
 	}
 	// The feeds are gone from every list now. Purging their items can take minutes for thousands of feeds, longer than a
 	// request may last, so the server finishes it on its own; a stop in the middle is finished by the next start.
-	s.announceFeedsChanged(marked)
+	s.announceFeedsChanged(present)
 	s.noteCounts()
-	if len(marked) > 0 && s.bgStart() {
+	if len(present) > 0 && s.bgStart() {
 		go func() {
 			defer s.apply.wg.Done()
 			ctx, cancel := context.WithTimeout(s.apply.ctx, time.Hour)
 			defer cancel()
-			if _, err := s.db.FinishFeedDeletes(ctx, marked, body.DeleteStarred); err != nil && ctx.Err() == nil {
+			if _, err := s.db.FinishFeedDeletes(ctx, present, body.DeleteStarred); err != nil && ctx.Err() == nil {
 				s.log.Warn("finishing a bulk feed delete", "err", err)
 			}
 			s.noteCounts()
 		}()
-	} else if len(marked) > 0 {
-		s.log.Warn("api: bulk feed delete: shutting down, the purge of the marked feeds finishes at the next start", "feeds", len(marked))
+	} else if len(present) > 0 {
+		s.log.Warn("api: bulk feed delete: shutting down, the purge of the marked feeds finishes at the next start", "feeds", len(present))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"deleted": len(marked)})
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": marked})
 }
 
 // bulkAnnounceMax is the most feeds announced one event each: a client's event buffer holds 64 (events.subBuffer), so

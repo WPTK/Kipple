@@ -46,7 +46,10 @@ A proxy **must not**:
   only to go back to the previous version ([deploy.md](deploy.md#roll-back-an-upgrade-that-migrated-the-schema)).
 - Rewrite `Host` to the upstream's address (`proxy_set_header Host $proxy_host` in nginx, a `Host` rewrite in a
   Caddy `header_up`, and so on).
-- Strip `X-Forwarded-Proto` when it terminates TLS, or forward a client's `X-Forwarded-Proto` unchanged.
+- Strip `X-Forwarded-Proto` when it terminates TLS, or forward a client's `X-Forwarded-Proto` unchanged. Without a trusted
+  `https` there, Kipple takes the page for plain http: its cookies are not `Secure` and use their plain-http names, and
+  the app, which looks for the signed-in marker under the name for the address it was opened at, does not find it and
+  asks Kipple who is signed in on every launch (up to 2 seconds before the app appears).
 - Buffer or time out the live-update stream `/api/events`. Kipple sends a heartbeat every 15 seconds and the
   `X-Accel-Buffering: no` header, so the default timeouts of the proxies below are fine.
 
