@@ -155,6 +155,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
   // and up to five controls), the pills are one select: the title truncates before anything is dropped.
   const narrow = useMedia(NARROW_QUERY);
   const asSelect = compact && narrow;
+  const counted = unreadHere !== null && (scope.view === "unread" || !!scope.after);
   const pills = asSelect ? (
     <select
       aria-label="Show"
@@ -210,20 +211,20 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
           a line of their own. */}
       <div className={cn("flex max-w-full flex-wrap items-center gap-x-0.5", compact ? "w-full pt-1" : "w-fit min-w-[min(100%,25rem)] pt-2")}>
         <Heading
-          className={cn("truncate text-xl font-bold", asSelect ? "mr-2 min-w-[3rem] flex-1" : compact ? "mr-2 min-w-[6.5rem] max-w-[40%]" : "min-w-[6.5rem] max-w-full flex-1")}
+          className={cn("truncate text-xl font-bold", asSelect ? "mr-2 min-w-[3rem]" : compact ? "mr-2 min-w-[6.5rem] max-w-[40%]" : "min-w-[6.5rem] max-w-full", counted ? "mr-1 flex-initial" : !compact || asSelect ? "flex-1" : "")}
           tabIndex={-1}
           data-route-heading
           aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}
         >
           {above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
           {title}
-          {/* How much is unread here, beside the name. The heading's own name stays the list's name. */}
-          {unreadHere !== null && (scope.view === "unread" || scope.after) ? (
-            <span aria-hidden="true" data-testid="list-count" className="ml-2 text-sm font-normal text-fg2 tabular-nums">
-              {unreadHere}
-            </span>
-          ) : null}
         </Heading>
+        {/* How much is unread here, beside the name and outside the heading, whose text stays the list's name alone. */}
+        {counted ? (
+          <span aria-hidden="true" data-testid="list-count" className="mr-2 shrink-0 text-sm font-normal text-fg2 tabular-nums">
+            {unreadHere}
+          </span>
+        ) : null}
         {compact ? (
           <>
             {pills}

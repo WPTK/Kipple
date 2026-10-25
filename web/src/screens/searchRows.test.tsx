@@ -162,6 +162,8 @@ describe("The list's end line and count", () => {
     mockFetch(api(page()));
     const first = go("/l/unread");
     expect(await screen.findByTestId("list-count")).toBeInTheDocument();
+    // The count sits beside the heading, not in it: the heading reads as the list's name alone.
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Unread");
     first.unmount();
     go("/l/all");
     await screen.findByText("Cats");
