@@ -1,1 +1,0 @@
-Sign-out: signing out sends nothing that needs the session it is ending (the reading data, queued changes, other requests), and the browser console logs no 401 error. The sign-in screen shows once this device's offline copies are deleted, even when a request already on its way answers first. (#549)

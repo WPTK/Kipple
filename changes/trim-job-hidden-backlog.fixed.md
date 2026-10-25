@@ -1,1 +1,0 @@
-Notices: the "unread items trimmed" notice counts the unread items trimmed from a feed that already works when one update brings more than 500 new items. A new subscription's first update is never counted, including a first document larger than one trim batch. (#527, #316)

@@ -1,1 +1,0 @@
-Navigation: the sidebar and the tab bar use one rule for the current place (a feed's list and Feed health belong to Feeds, Your year to Stats), All articles has its own icon, and the sidebar's link to feeds is named Feeds. The Stats settings group is named Stats, and a source with no folder is called Uncategorized in Stats. (#638)

@@ -1,1 +1,0 @@
-Feeds: an address over 4,096 characters, or with a server name over 253 characters (or 63 between two dots), is refused when it is added, edited or imported, with a message that says so. An OPML file of very long addresses does not grow the database or memory: none is stored, and each is listed in the import report with its reason. (#470)

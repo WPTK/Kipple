@@ -1,1 +1,0 @@
-Forms: yes-or-no options in forms and dialogs (the feed editor, Add feed, Import OPML, the filter editor, Export statistics, Wrapped sharing and the setup wizard's feed step) are checkboxes that Save or the dialog's button applies. Switches remain for settings that take effect when flipped. (#286)

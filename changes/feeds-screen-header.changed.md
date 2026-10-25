@@ -1,1 +1,0 @@
-Feeds: a plain visit to the Feeds screen shows the list with no help sentence, the header holds Edit, Add feed and the Feed actions menu, and Select is "Select feeds" in that menu. Favorites show a folder icon for folders and no "Feed" or "Folder" labels.

@@ -1,1 +1,0 @@
-Import: feeds on a private address or a local-network name (such as .lan) are listed once, in one place, with a single button that allows them all and a switch in each feed's settings; a feed on a public name whose file asked to reach your network keeps its own line. Turning on a feed's own-network access, from that button or the feed editor, fetches the feed at once. (#485)

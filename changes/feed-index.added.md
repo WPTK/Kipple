@@ -1,1 +1,0 @@
-Feeds: Feed index lists every feed as a block with its name (a link to the feed), its unread count and its three newest headlines, read ones included, in sidebar order or Quiet Feeds First. A feed that cannot be fetched says so in the words its own list uses; Feed index is a row in the sidebar and a link on the Feeds screen. (#39)

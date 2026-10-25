@@ -1,1 +1,0 @@
-Reader: a tall picture in an article is capped at 70% of the window (40 rem at most) and centred when it stands alone on its line, while icons and pictures inside a line of text keep their own size. (#648)

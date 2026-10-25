@@ -1,1 +1,0 @@
-Feeds: Manage feeds and the sidebar do less work on a very long library, drawing fewer rows and rebuilding their lists less often, and the Down arrow in the sidebar tree focuses the right row when it draws more. (#516)

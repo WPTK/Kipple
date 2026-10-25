@@ -1,1 +1,0 @@
-Menus: on a touch screen every menu (list options, reading time, a row's actions, the reader's more menu, the Feeds and Health menus) opens as a bottom sheet over a dimmed page. A tap on the dimmed page only closes the menu, the press that opens a menu never picks a choice, and menus are unchanged with a mouse. (#423)

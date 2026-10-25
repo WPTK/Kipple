@@ -1,1 +1,0 @@
-Phone: at the largest text size on a narrow screen the five tabs fit with their names whole and the unread count on the Unread icon's corner, the Feeds title stays visible with its buttons on a row of their own, and the Unread, All and Starred choices wrap. (#480)

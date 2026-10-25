@@ -1,1 +1,0 @@
-Requests: a definite 4xx answer from the server (any except a timeout or too-many-requests) is final after one request, and Try again on the "Kipple can't let you in from here" screen sends one request. (#572)

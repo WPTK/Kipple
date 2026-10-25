@@ -1,1 +1,0 @@
-Feeds: deleting many feeds at once is one request; every selected feed leaves Manage feeds and your lists at once and its articles are removed on the server, even if you close the page. The dialog says it keeps going on the server, and "Delete the folder and its feeds" works the same way. (#486)

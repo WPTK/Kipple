@@ -1,1 +1,0 @@
-Menus: open menus leave the rest of the page available to assistive technology, stay open when focus lands on the page under a bottom sheet, and draw above toasts and the save notice. The Saved searches list is a group. (#611)

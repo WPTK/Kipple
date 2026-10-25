@@ -1,1 +1,0 @@
-Search: on a short screen only the search box stays fixed and the header scrolls with the results. (#608)

@@ -1,1 +1,0 @@
-Feeds: a feed that can't be fetched gives its reason in plain words, when it last worked and when Kipple tries again, on its empty list and its Feed health row, with Edit address and Try now buttons. Edit feed opens with the same reason and the address field focused, and the server's own error text is behind Details on Feed health. (#666, #667)

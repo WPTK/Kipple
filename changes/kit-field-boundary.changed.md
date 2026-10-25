@@ -1,1 +1,0 @@
-Forms: inputs, selects and option cards have a border with 3:1 contrast against the page in every color scheme, and the selected option card and segmented control are marked with tint and weight as well as an outline. (#609 #686)

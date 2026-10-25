@@ -1,1 +1,0 @@
-Reader: row buttons stay visible on touch screens and appear on hover with a mouse, decided by the devices you have. (#659)

@@ -1,1 +1,0 @@
-Import: the fetch of the feeds an OPML import adds shows its progress in the dialog and under the top of the screen until it ends, also after you close the dialog or finish setup, and ends with how many could not be fetched. The fetches queue behind the fetch workers and do not all start at once. (#464)

@@ -1,1 +1,0 @@
-Feeds: delete dialogs, in the same words on the Feeds screen, for a folder and in the feed editor, say how many articles go, whether starred articles stay in the Archive or go too, and that it can't be undone. The button names the outcome ("Delete feed and 312 articles"). (#669)

@@ -1,1 +1,0 @@
-Lists: Mark all as read asks first and names how far it reaches ("Mark all 214 as read", "Mark everything unread as read", "Mark all results as read"). Its dialog says which unread articles it marks, naming the Starred view or a reading-time filter when one narrows it, and reads "Mark all as read" when nothing is unread. (#656)

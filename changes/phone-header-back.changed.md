@@ -1,1 +1,0 @@
-Navigation: Feed health, the Settings groups and Your year go back with the same chevron before the title, which returns to the screen you came from. The Stats range that draws one bar per month is called Monthly. (#424)
