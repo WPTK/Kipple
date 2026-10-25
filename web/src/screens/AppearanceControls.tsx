@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Popover } from "radix-ui";
 import { CaseSensitive } from "lucide-react";
 import { useSettings } from "@/api/admin";
@@ -22,6 +22,8 @@ import { chooseFixed, choosePair, themeChoice } from "@/theme/settings";
 import { Segmented } from "@/ui/segmented";
 import { Icon } from "@/ui/Icon";
 import { useMain } from "@/ui/useMain";
+import { TOUCH_QUERY } from "@/ui/menu";
+import { mediaMatches } from "@/lib/useMedia";
 import { Disclosure, Switch, inputCls } from "@/ui/kit";
 import { updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { cn } from "@/lib/cn";
@@ -77,7 +79,7 @@ export function DensityPreview({ list, reading }: { list: Step; reading: Step })
   );
 }
 
-/** A compact theme picker for the reading menu: Match my device and On a schedule first, then every scheme by group. */
+/** A compact theme picker for the reading menu: Follow system and On a schedule first, then every scheme by group. */
 export function ThemeSelect() {
   const t = useStore(themeStore);
   const id = useId();
@@ -105,7 +107,7 @@ export function ThemeSelect() {
         }}
         className={inputCls}
       >
-        <option value="__follow">Match my device</option>
+        <option value="__follow">Follow system</option>
         <option value="__schedule">On a schedule</option>
         {groups.map(([g, label]) => (
           <optgroup key={g} label={label}>
@@ -285,32 +287,51 @@ export function HighlightToggle() {
  * lists and the sidebar (Settings and menus keep the system font). It sits above every list (feeds, folders, Unread, All, Starred,
  * Search) and every article. Text spacing, an accessibility control, lives in Settings so it never looks like a
  * second density picker.
+ *
+ * With a touch screen the panel is a short sheet along the bottom edge, no taller than 45% of the screen and with no
+ * dimmed page, so the title and the first lines of the article above it show each change as it is made. With a mouse it
+ * is a popover beside its button.
  */
 export function ReadingMenu({ className }: { className?: string }) {
   const main = useMain();
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button type="button" aria-label="Reading appearance" title="Theme, font and text size" className={cn("hit inline-flex items-center justify-center rounded-lg text-fg hover:bg-selection", className)}>
+        <button type="button" aria-label="Reading appearance" title="Reading appearance" className={cn("hit inline-flex items-center justify-center rounded-lg text-fg hover:bg-selection", className)}>
           <Icon of={CaseSensitive} />
         </button>
       </Popover.Trigger>
       <Popover.Portal container={main}>
-        <Popover.Content
-          align="end"
-          sideOffset={4}
-          collisionPadding={8}
-          aria-label="Reading appearance"
-          className="z-50 flex max-h-[min(80dvh,var(--radix-popover-content-available-height))] w-[min(22rem,calc(100vw-1rem))] flex-col gap-4 overflow-y-auto rounded-xl border border-line bg-bg p-4 text-fg shadow-sheet"
-        >
-          <ThemeSelect />
-          <FontSelect />
-          <TextSizeControl />
-          <DensityControl preview={false} />
-          <HighlightToggle />
-          <p className="text-xs text-fg2">Saved for this device.</p>
-        </Popover.Content>
+        <ReadingPanel />
       </Popover.Portal>
     </Popover.Root>
+  );
+}
+
+/** The panel's content. It mounts only while the panel is open, so the pointer is read then and kept until it closes. */
+function ReadingPanel() {
+  const [touch] = useState(() => mediaMatches(TOUCH_QUERY));
+  return (
+    <Popover.Content
+      align="end"
+      sideOffset={4}
+      collisionPadding={8}
+      aria-label="Reading appearance"
+      // data-menu-sheet pins the wrapper to the bottom edge, as for a touch menu (index.css).
+      data-menu-sheet={touch ? "" : undefined}
+      className={cn(
+        "z-50 flex flex-col gap-4 overflow-y-auto overscroll-contain border border-line bg-bg p-4 text-fg shadow-sheet",
+        touch
+          ? "mx-auto max-h-[45dvh] w-full max-w-lg rounded-t-2xl border-x-0 border-b-0 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]"
+          : "max-h-[min(80dvh,var(--radix-popover-content-available-height))] w-[min(22rem,calc(100vw-1rem))] rounded-xl",
+      )}
+    >
+      <ThemeSelect />
+      <FontSelect />
+      <TextSizeControl />
+      <DensityControl preview={false} />
+      <HighlightToggle />
+      <p className="text-xs text-fg2">Saved for this device.</p>
+    </Popover.Content>
   );
 }

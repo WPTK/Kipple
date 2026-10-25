@@ -129,7 +129,7 @@ describe("Settings renderer", () => {
     const { container } = go("/settings/appearance");
     // Settings is a lazy chunk: under a busy full run its first import can take longer than findBy's default.
     await screen.findByRole("heading", { level: 1, name: "Appearance" });
-    for (const h of ["Look", "Lists", "Articles", "Accessibility"]) expect(screen.getByRole("heading", { level: 2, name: h })).toBeInTheDocument();
+    for (const h of ["Reading appearance", "Lists", "Articles", "Accessibility"]) expect(screen.getByRole("heading", { level: 2, name: h })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Reading" })).toBeNull();
     expect(await screen.findByRole("switch", { name: /Remove tracking from links/ })).toBeChecked();
     expect(await axe(container)).toHaveNoViolations();
