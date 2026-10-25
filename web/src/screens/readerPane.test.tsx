@@ -94,6 +94,34 @@ describe("reader pane: per-article state", () => {
   });
 });
 
+describe("Next on the last loaded article", () => {
+  const list = (fail: () => boolean) => ({
+    "GET /api/items": (u: URL) => {
+      if (!u.searchParams.get("cursor")) return json(pageOf(items(), "c1", "2000"));
+      return fail() ? json({ error: "down" }, 500) : json(pageOf([card(6, { published_at: BASE - 6 * 3600, sort_at: BASE - 6 * 3600 })]));
+    },
+    "GET /api/items/1006": () => json(detail(6)),
+    "POST /api/items/1006/open": () => json({ session_key: "k", item: detail(6, { read: true }) }),
+  });
+
+  it("says the next page could not be loaded, not that the list ended, and goes on once it loads", async () => {
+    media(); // a phone: the article stands alone, so only its own Next asks for more
+    let down = true;
+    routes(list(() => down));
+    go("/i/1005?from=unread");
+    await screen.findByTestId("article-body");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Next article" }));
+    expect((await screen.findAllByText(/Couldn.t load more articles/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText("End of list")).toBeNull();
+    expect(window.location.pathname).toBe("/i/1005");
+    // The list has more; Next asks again and goes on.
+    down = false;
+    await user.click(screen.getByRole("button", { name: "Next article" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1006"));
+  });
+});
+
 describe("addresses from the feed", () => {
   it("a non-http article or site address is never opened or linked, from the list or the article", async () => {
     const bad = "javascript:alert(1)";

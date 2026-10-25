@@ -4,7 +4,7 @@ import { browserOnlineStore } from "@/lib/offlineState";
 import { useStore } from "@/lib/store";
 import { Link, useLocation, useNavigate } from "react-router";
 import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileCheck, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
-import { ApiError } from "@/api/client";
+import { ApiError, failed as failedToast } from "@/api/client";
 import { useFulltext, useItem, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
 import { prefersReducedMotion } from "@/gestures/tracking";
@@ -144,7 +144,10 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
         const n = all.includes(id) ? all[all.indexOf(id) + 1] : all.find((x) => !known.has(x));
         return n ?? (r.more ? more() : undefined);
       };
-      void more().then((n) => (n ? go(n) : toast("End of list")));
+      void more().then(
+        (n) => (n ? go(n) : toast("End of list")),
+        (e) => toast(failedToast("load more articles", e), "error"),
+      );
       return;
     }
     if (canPage) toast("End of list");

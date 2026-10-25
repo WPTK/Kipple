@@ -35,7 +35,7 @@ import {
 } from "./offline";
 import { devicePrefsStore } from "./devicePrefs";
 import * as toasts from "@/shell/toasts";
-import { offlineStore, setBrowserOnline, setOnline, setPending } from "./offlineState";
+import { API_VERSION, offlineStore, setBrowserOnline, setOnline, setPending } from "./offlineState";
 
 /** The browser's own network state: what navigator.onLine says and what the app's store holds (it follows the events). */
 function browser(on: boolean) {
@@ -506,9 +506,9 @@ describe("an expired access-proxy session", () => {
 describe("the handshake and the connection state", () => {
   it("a server on a newer API asks for a reload; the same or an older one does not", async () => {
     mockFetch({
-      "GET /api/a": () => json({}, 200, { "X-Kipple-API": "1" }),
-      "GET /api/older": () => json({}, 200, { "X-Kipple-API": "0" }),
-      "GET /api/b": () => json({}, 200, { "X-Kipple-API": "2" }),
+      "GET /api/a": () => json({}, 200, { "X-Kipple-API": String(API_VERSION) }),
+      "GET /api/older": () => json({}, 200, { "X-Kipple-API": String(API_VERSION - 1) }),
+      "GET /api/b": () => json({}, 200, { "X-Kipple-API": String(API_VERSION + 1) }),
     });
     await api("/api/older");
     expect(offlineStore.get().updateReady).toBe(false);

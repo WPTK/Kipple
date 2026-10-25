@@ -280,6 +280,23 @@ describe("the mark", () => {
     expect(calls.filter((c) => c.url.pathname === "/api/catchup")).toHaveLength(2);
     expect(world.seen).toEqual([]);
   });
+
+  it("moves once the reader goes back to the page from an article opened by its address", async () => {
+    // A wide screen: the page's list stands beside the article, with the pills above it.
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("min-width: 900px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
+    const { calls } = routes([3, 3]);
+    const user = userEvent.setup();
+    go("/i/1001?from=unread%7Cafter%3A100"); // a reload on an article of the page: the visit is adopted with mark 100
+    await screen.findByTestId("article-body");
+    const show = () => within(screen.getByRole("navigation", { name: "Show" }));
+    // Going to the page itself leaves nothing: the visit goes on, now as the page's own.
+    await user.click(show().getByRole("link", { name: "New" }));
+    await screen.findByText("Beta story 1");
+    expect(calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/catchup/seen")).toHaveLength(0);
+    // The page was read; leaving it now moves the mark to what the visit knew of.
+    await user.click(show().getByRole("link", { name: "Unread" }));
+    await waitFor(() => expect(world.seen).toEqual(["900"]));
+  });
 });
 
 describe("the page's loading, failure and edges", () => {

@@ -27,7 +27,7 @@ export interface CatchupVisit {
   mark: string;
   /** The newest article the server knew of then; leaving moves the mark here. */
   asOf: string;
-  /** The visit began on an article of the page (its address), not on the page: leaving it moves nothing. */
+  /** The visit began on an article of the page (its address) and the page itself has not been shown since: leaving it moves nothing. */
   adopted?: boolean;
   /** Articles that arrived after the mark, by section key (digestPlan). A section missing here has none. */
   counts: ReadonlyMap<string, number>;
@@ -65,7 +65,7 @@ export function catchupGroups(feeds: readonly Pick<Feed, "id" | "title" | "folde
 /** The visit the leave of the page ends: the mark moves, and the next visit waits for that to land. */
 function leave(v: CatchupVisit): void {
   visitStore.set(null);
-  if (v.adopted || v.asOf === v.mark) return; // nothing to move: an adopted visit never moves the mark, and this one has nothing past it
+  if (v.adopted || v.asOf === v.mark) return; // nothing to move: the page was never shown in an adopted visit, and this one has nothing past it
   pendingSeen = api("/api/catchup/seen", { method: "POST", body: { as_of: v.asOf } }).catch(() => {
     // The mark stays where it was: the page shows the same articles next time. Nothing the reader did is lost.
   });
@@ -121,7 +121,8 @@ export function useCatchupVisit(active: boolean, adopt?: string): VisitState {
         if (!live) return;
         // A visit is a fresh look: whatever an earlier visit under the same mark left in the cache is not shown.
         // `adopt` is a page opened on an article of the New page (a reload or a new tab): it carries the mark its link
-        // names, and leaving it moves nothing, so the page is still new on the next visit.
+        // names, and leaving it moves nothing, so the page is still new on the next visit (until the reader goes back to
+        // the page itself: see below).
         const mark = adopt ?? r.mark;
         const tail = `|after:${mark}`;
         if (!adopt) qc.removeQueries({ queryKey: keys.itemsAll, predicate: (q) => String(q.queryKey[1]).includes(tail) });
@@ -132,6 +133,11 @@ export function useCatchupVisit(active: boolean, adopt?: string): VisitState {
       live = false;
     };
   }, [active, visit, ready, attempt, qc, bootRef, adopt]);
+  // The page itself opening over a visit that began on one of its articles (Back after a reload) shows the reader the
+  // page, so the visit is the page's own now: leaving it moves the mark like any other.
+  useEffect(() => {
+    if (active && !adopt && visit?.adopted) visitStore.set({ ...visit, adopted: false });
+  }, [active, adopt, visit]);
   if (visit) return { status: "ready", visit };
   if (failure) return { status: "error", error: failure.error, retry };
   return { status: "loading" };

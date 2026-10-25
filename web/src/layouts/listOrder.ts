@@ -14,7 +14,7 @@ export interface ListOrder {
   cards: Card[];
   /** The server has more articles than are loaded. */
   more: boolean;
-  /** Load the next page: the reading order after it, and whether there is still more to load. */
+  /** Load the next page: the reading order after it, and whether there is still more to load. Rejects when the page could not be loaded. */
   fetchMore: () => Promise<{ ids: string[]; more: boolean }>;
 }
 
@@ -63,7 +63,8 @@ export function useListOrder(scope: Scope, id: string, enabled: boolean): ListOr
       return { ids: r.cards.map((c) => c.id), more: r.more };
     }
     const r = await list.fetchNextPage();
-    return { ids: orderOf(flattenItems(r.data), !!r.hasNextPage), more: !!r.hasNextPage && !r.isFetchNextPageError };
+    if (r.isFetchNextPageError) throw r.error; // a page that failed to load is not the end of the list
+    return { ids: orderOf(flattenItems(r.data), !!r.hasNextPage), more: !!r.hasNextPage };
   };
   return { ids, cards, more, fetchMore };
 }
