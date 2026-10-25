@@ -395,12 +395,14 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
       <div ref={scrollerRef} className="swipe-back-area min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <article className="kp-article px-4 pt-4 pb-10 md:px-6" aria-labelledby="article-title" style={{ "--kp-col": columnWidth(dp.articleWidth) } as CSSProperties}>
           <header className="kp-ui mx-auto mb-5 max-w-[min(var(--kp-col),100%)]">
-            <p className="text-sm text-fg2">
+            {/* The line runs in the feed name's direction: "Unread" has a dir of its own, so dir="auto" skips it and an
+                Arabic feed's line sits on the right like its title. */}
+            <p dir="auto" className="text-sm text-fg2">
               {/* Only an unread article says so, in plain text, not a pill: a "Read" word beside the toolbar's read toggle
                   looked like a second button, and a read article is the ordinary case that needs no mark. */}
               {a.read ? null : (
                 <>
-                  <span data-testid="read-state" className="font-semibold text-fg">
+                  <span dir="ltr" data-testid="read-state" className="font-semibold text-fg">
                     Unread
                   </span>
                   <span aria-hidden="true">{" · "}</span>

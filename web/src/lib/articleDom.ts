@@ -303,7 +303,7 @@ export function hasNothingToRead(html: string): boolean {
 const NUMBER = /^[(+\-\u2212$\u20ac\u00a3\u00a5\s]*\d[\d,.\s\u00a0]*(%|[kKmMbB])?\)?$/;
 const SHORT_CELL = 12;
 
-/** Mark table cells that hold a number or only a few characters (CSS reads data-kp). Cells with markup other than inline text are left alone. */
+/** Mark table cells that hold a number, only a few characters, or running text (CSS reads data-kp). Cells with markup other than inline text are left alone. */
 export function enhanceTables(root: ParentNode): void {
   for (const cell of root.querySelectorAll<HTMLElement>("td, th")) {
     if (cell.dataset.kp || cell.querySelector("table, p, ul, ol, div, img, pre")) continue;
@@ -311,13 +311,15 @@ export function enhanceTables(root: ParentNode): void {
     if (text === "") continue;
     if (NUMBER.test(text)) cell.dataset.kp = "num";
     else if (text.length <= SHORT_CELL) cell.dataset.kp = "short";
+    else cell.dataset.kp = "text";
   }
 }
 
 /**
  * Code blocks and tables wider than the column scroll sideways, so they need to be reachable without a mouse: while one
  * overflows it takes focus (tabindex 0), and says what it is (a code block is a labelled region; a table keeps its
- * role and gets a name). They are checked again when the column or the text size changes. Returns the cleanup.
+ * role and gets a name). They are checked again whenever the article body changes size: a region's own box does not
+ * change when only the text size does (its content grows inside it), but the body's height does. Returns the cleanup.
  */
 export function watchScrollRegions(root: HTMLElement): () => void {
   const regions = [...root.querySelectorAll<HTMLElement>("pre, table")];
@@ -345,8 +347,10 @@ export function watchScrollRegions(root: HTMLElement): () => void {
     regions.forEach(apply);
     return () => undefined;
   }
-  const ro = new ResizeObserver((entries) => entries.forEach((e) => apply(e.target as HTMLElement)));
-  regions.forEach((el) => ro.observe(el));
+  // A change that leaves the body's size alone (a web font that swaps in at the same line height) is not seen.
+  if (regions.length === 0) return () => undefined;
+  const ro = new ResizeObserver(() => regions.forEach(apply));
+  ro.observe(root);
   return () => ro.disconnect();
 }
 
@@ -386,7 +390,9 @@ function aloneOnItsLine(img: Element): boolean {
  * Mark a picture that stands alone on its line (data-kp="block": CSS centres it, so a picture capped in height sits in
  * the middle of the column), and a picture or cue the same. A picture in a line of text, beside others in a row of
  * icons, or in a table cell (where the author's cell alignment rules) is left alone. A block picture with both sizes
- * declared also gets them as --kp-w and --kp-h, so CSS can narrow its box with its height (see index.css).
+ * declared also gets them as --kp-w and --kp-h, so CSS can narrow its box with its height (see index.css); one with
+ * only a width gets --kp-w, which CSS turns into a cap so the picture's own shape sets the box. Either way data-kp-w
+ * says the width is known before the file loads, so a figure may take the picture's width (index.css).
  */
 export function enhanceImages(root: ParentNode): void {
   for (const img of root.querySelectorAll<HTMLImageElement>(`img, .${NOT_SHOWN_CLASS}`)) {
@@ -395,9 +401,11 @@ export function enhanceImages(root: ParentNode): void {
     img.dataset.kp = "block";
     const w = declared(img, "width");
     const h = declared(img, "height");
-    if (w && h && img.tagName === "IMG") {
+    if (!w || img.tagName !== "IMG") continue;
+    img.dataset.kpW = "";
+    img.style.setProperty("--kp-w", String(w));
+    if (h) {
       img.dataset.sized = "";
-      img.style.setProperty("--kp-w", String(w));
       img.style.setProperty("--kp-h", String(h));
     }
   }

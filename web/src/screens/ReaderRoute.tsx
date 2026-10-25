@@ -209,7 +209,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
           layout has no reader pane, and used to push them to the far right). The title keeps at least 6.5rem and truncates
           beyond that, so at normal text size on a phone the header is one row in every list; only where the pane is
           too narrow for 6.5rem and the controls together (a narrow list pane, a large text size) do the controls drop to
-          a line of their own. */}
+          a line of their own, and wrap again where even that line is too narrow. */}
       <div data-title-row className={cn("flex max-w-full flex-wrap items-center gap-x-0.5", compact ? "w-full pt-1" : "w-fit min-w-[min(100%,25rem)] pt-2")}>
         {/* The title and the unread count are one flex item with the sizing the heading alone used to have (a basis of zero,
             so a long title truncates in place and never pushes the controls to a line of their own). The count sits beside
@@ -236,7 +236,9 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
             {switcher}
           </>
         ) : null}
-        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        {/* The controls wrap within the column rather than run past it: a list column at its floor is narrower than
+            all of them with Large targets or a larger text size. */}
+        <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-0.5">
         {/* A layout that is always newest first has no order to toggle (the list options menu says why). On a phone
             the order lives only in the Layout menu, which leaves the title room in a one-row header. */}
         {wide && followsOrder(layout.id, scope) ? (
