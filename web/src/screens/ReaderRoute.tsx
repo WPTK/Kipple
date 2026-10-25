@@ -30,7 +30,7 @@ import { READING_LENGTH_LABELS } from "@/lib/readingLength";
 import { announce } from "@/shell/toasts";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { NARROW_QUERY, useMedia, useShort, useWide } from "@/lib/useMedia";
-import { ARTICLE_MIN, maxFor, useWidth } from "@/lib/useWidth";
+import { ARTICLE_MIN, HANDLE_GUTTER, maxFor, useWidth } from "@/lib/useWidth";
 import { DESTINATIONS, LISTS } from "@/lib/destinations";
 import { NEW_VIEW, listTo, newTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
 import { useCatchupVisit, visitStore } from "@/lib/catchup";
@@ -434,7 +434,7 @@ function WidePane({
   const textSize = useStore(prefsStore).textSize;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const remPx = useMemo(() => (typeof document === "undefined" ? 16 : parseFloat(getComputedStyle(document.documentElement).fontSize) || 16), [textSize]);
-  const limit = maxFor(total, ARTICLE_MIN, LIST_WIDTH_MIN, LIST_WIDTH_MAX);
+  const limit = maxFor(total, ARTICLE_MIN + HANDLE_GUTTER, LIST_WIDTH_MIN, LIST_WIDTH_MAX);
   const wanted = listWidth ?? Math.round(layoutRem * remPx);
   const shown = Math.min(limit, Math.max(LIST_WIDTH_MIN, wanted));
   // The notice pill over the list stays inside the list's width (shell/OfflineNotice.tsx reads this).

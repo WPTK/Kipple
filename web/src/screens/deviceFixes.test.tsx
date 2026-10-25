@@ -483,20 +483,21 @@ describe("sidebar", () => {
     expect(within(tabs).queryByTestId("unread-count")).toBeNull();
   });
 
-  it("at the 900 px breakpoint a wide saved sidebar is capped so the list and article keep their room, and the handle says so", async () => {
+  it("a wide saved sidebar is capped so the list and article keep their room and their gutters, and the handle says so", async () => {
     routes();
     media(WIDE);
-    vi.stubGlobal("innerWidth", 900);
+    vi.stubGlobal("innerWidth", 1000);
     updateDevicePrefs({ sidebarWidth: 420 });
     go("/l/unread");
     await screen.findByText("Article number 1");
     const side = screen.getByRole("separator", { name: "Resize sidebar" });
-    expect(side).toHaveAttribute("aria-valuemax", "320");
-    expect(side).toHaveAttribute("aria-valuenow", "320");
-    expect((side.closest("nav")?.parentElement as HTMLElement).style.width).toBe("320px");
+    // 1000 less the list (336), the article (316) and the two 24 px gutters.
+    expect(side).toHaveAttribute("aria-valuemax", "300");
+    expect(side).toHaveAttribute("aria-valuenow", "300");
+    expect((side.closest("nav")?.parentElement as HTMLElement).style.width).toBe("300px");
   });
 
-  it("the list handle never offers more than leaves the article 320 px, and its value is the width on screen", async () => {
+  it("the list handle never offers more than leaves the article its 316 px and its gutter, and its value is the width on screen", async () => {
     routes();
     media(WIDE);
     boxWidth(700);
@@ -504,9 +505,9 @@ describe("sidebar", () => {
     go("/l/unread");
     await screen.findByText("Article number 1");
     const list = screen.getByRole("separator", { name: "Resize article list" });
-    expect(list).toHaveAttribute("aria-valuemax", "380");
-    expect(list).toHaveAttribute("aria-valuenow", "380");
-    expect((list.parentElement as HTMLElement).style.width).toBe("380px");
+    expect(list).toHaveAttribute("aria-valuemax", "360");
+    expect(list).toHaveAttribute("aria-valuenow", "360");
+    expect((list.parentElement as HTMLElement).style.width).toBe("360px");
   });
 
   it("dragging the article list does not write the preference until release", async () => {

@@ -2,10 +2,11 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_DEVICE_PREFS, parseDevicePrefs, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
+import { DEFAULT_DEVICE_PREFS, SIDEBAR_WIDTH_MIN, parseDevicePrefs, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { Segmented } from "./segmented";
 import { Switch } from "./kit";
-import { maxFor } from "@/lib/useWidth";
+import { ARTICLE_MIN, HANDLE_GUTTER, LIST_MIN_FOR_SIDEBAR, maxFor } from "@/lib/useWidth";
+import { WIDE_QUERY } from "@/lib/useMedia";
 import { ResizeHandle, dragWidth, keyWidth } from "./ResizeHandle";
 import { UnreadCount, badgeKind, badgeText, unreadName } from "./UnreadCount";
 
@@ -139,8 +140,15 @@ describe("column limits", () => {
     expect(maxFor(1000, 320, 260, 720)).toBe(680);
     expect(maxFor(2000, 320, 260, 720)).toBe(720);
     expect(maxFor(400, 320, 260, 720)).toBe(260);
-    // At the 900 px breakpoint the sidebar leaves 260 + 320 for the list and the article.
     expect(maxFor(900, 580, 200, 420)).toBe(320);
+  });
+
+  it("fits the sidebar, the list and the article, each with its gutter, at the narrowest wide screen", () => {
+    const breakpoint = Number(/\d+/.exec(WIDE_QUERY)?.[0]);
+    // The main area and the article column each start HANDLE_GUTTER to the right of their neighbour, so the sidebar, at its
+    // narrowest, leaves exactly what the list and the article need (the article toolbar's seven buttons are 316 px).
+    expect(maxFor(breakpoint, LIST_MIN_FOR_SIDEBAR + ARTICLE_MIN + 2 * HANDLE_GUTTER, SIDEBAR_WIDTH_MIN, 420)).toBe(SIDEBAR_WIDTH_MIN);
+    expect(SIDEBAR_WIDTH_MIN + LIST_MIN_FOR_SIDEBAR + ARTICLE_MIN + 2 * HANDLE_GUTTER).toBeLessThanOrEqual(breakpoint);
   });
 });
 

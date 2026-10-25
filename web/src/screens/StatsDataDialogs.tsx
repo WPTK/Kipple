@@ -144,7 +144,7 @@ function ExportBody({ onOpenChange, defaultRange }: { onOpenChange: (o: boolean)
         onChange={setTitles}
       />
       <p className="text-sm">
-        <a href={DICTIONARY_MD_URL} download className="text-link underline underline-offset-2">
+        <a href={DICTIONARY_MD_URL} download className="hit-pad text-link underline underline-offset-2">
           Download data dictionary
         </a>
         <span className="mt-1 block text-xs text-fg2">Explains every column in the file.</span>

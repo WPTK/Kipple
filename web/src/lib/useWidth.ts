@@ -16,9 +16,15 @@ export function useWidth(ref: React.RefObject<HTMLElement | null>): number {
   return w;
 }
 
-/** Room to leave for the article beside the list, and for the list and article beside the sidebar. */
-export const ARTICLE_MIN = 320;
-export const LIST_MIN_FOR_SIDEBAR = 260;
+/**
+ * The strip a resize handle lies over (ui/ResizeHandle.tsx): each wide column after the first starts this far to the
+ * right of its neighbour (`pl-6` on the main area and on the article column), and what a column needs is on top of it.
+ */
+export const HANDLE_GUTTER = 24;
+/** What the article needs beside the list: its toolbar's seven 44 px buttons and the toolbar's 4 px side padding. */
+export const ARTICLE_MIN = 316;
+/** What the list needs beside the sidebar: its header's seven 44 px controls (320 px with their gaps) and the 16 px left padding. */
+export const LIST_MIN_FOR_SIDEBAR = 336;
 
 /**
  * The widest a resizable column may be inside `total` px when `rest` px must stay for what is beside it. The
