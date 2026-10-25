@@ -254,7 +254,7 @@ describe("layouts", () => {
     go("/i/1001?from=unread");
     await screen.findByTestId("article-body");
     // Wide screens always show the list next to an open article (a single column of cards in the pane).
-    expect(screen.queryByRole("button", { name: "Back to list" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
     await waitFor(() => expect(document.querySelector('[data-item-id="1002"]')).not.toBeNull());
     expect(screen.getByRole("separator", { name: "Resize article list" })).toBeInTheDocument();
   });

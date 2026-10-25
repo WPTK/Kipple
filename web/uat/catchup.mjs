@@ -198,7 +198,7 @@ try {
       await asked;
       await page.getByTestId("article-body").waitFor({ timeout: 15000 });
       await page.waitForTimeout(500);
-      const backToList = page.getByRole("button", { name: "Back to list" }).first();
+      const backToList = page.getByRole("button", { name: "Back", exact: true }).first();
       if (await backToList.isVisible().catch(() => false)) await backToList.click();
       else await page.getByRole("link", { name: "New", exact: true }).first().click();
       await page.waitForURL("**/l/new*", { timeout: 10000 });

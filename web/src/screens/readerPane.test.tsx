@@ -122,6 +122,50 @@ describe("Next on the last loaded article", () => {
   });
 });
 
+describe("the end of an article (#650)", () => {
+  it("names the next article and the position, and Next goes there", async () => {
+    media();
+    routes();
+    go("/i/1002?from=unread");
+    const end = await screen.findByTestId("article-end");
+    expect(end).toHaveTextContent("Article 2 of 5");
+    const user = userEvent.setup();
+    await user.click(within(end).getByRole("button", { name: "Next: Article number 3" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1003"));
+  });
+
+  it("on the last article with nothing more, Next is off, the footer names the list it ended, and no toast shows", async () => {
+    media();
+    routes();
+    go("/i/1005?from=unread");
+    const end = await screen.findByTestId("article-end");
+    expect(end).toHaveTextContent("Article 5 of 5");
+    expect(end).toHaveTextContent("End of unread");
+    expect(within(end).queryByRole("button")).toBeNull();
+    const next = screen.getByRole("button", { name: "Next article" });
+    expect(next).toHaveAttribute("aria-disabled", "true");
+    await userEvent.setup().click(next);
+    expect(window.location.pathname).toBe("/i/1005");
+    expect(screen.queryByText("End of list")).toBeNull();
+  });
+
+  it("with more on the server, the last loaded article counts so far and its footer loads the next", async () => {
+    media();
+    routes({
+      "GET /api/items": (u: URL) =>
+        u.searchParams.get("cursor") ? json(pageOf([card(6, { published_at: BASE - 6 * 3600, sort_at: BASE - 6 * 3600 })])) : json(pageOf(items(), "c1", "2000")),
+      "GET /api/items/1006": () => json(detail(6)),
+      "POST /api/items/1006/open": () => json({ session_key: "k", item: detail(6, { read: true }) }),
+    });
+    go("/i/1005?from=unread");
+    const end = await screen.findByTestId("article-end");
+    expect(end).toHaveTextContent("Article 5 of 5 so far");
+    expect(screen.getByRole("button", { name: "Next article" })).not.toHaveAttribute("aria-disabled");
+    await userEvent.setup().click(within(end).getByRole("button", { name: "Next: more articles" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1006"));
+  });
+});
+
 describe("addresses from the feed", () => {
   it("a non-http article or site address is never opened or linked, from the list or the article", async () => {
     const bad = "javascript:alert(1)";
@@ -193,7 +237,7 @@ describe("reader pane: one persistent list", () => {
     await waitFor(() => expect(screen.queryByText("Article number 5")).toBeNull());
     await user.click(screen.getByText("Article number 1"));
     await screen.findByTestId("article-body");
-    await user.click(screen.getByRole("button", { name: "Back to list" }));
+    await user.click(screen.getByRole("button", { name: "Back" }));
     await screen.findByText("Article number 1");
     expect(screen.queryByText("Article number 5")).toBeNull();
   });
@@ -271,7 +315,7 @@ describe("an article that fails to load", () => {
     try {
       await userEvent.setup().click(screen.getByText("Article number 1"));
       await screen.findByRole("heading", { name: "Couldn't open this article" });
-      expect(screen.getByRole("button", { name: "Back to list" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
       // The original is on the web: offline it cannot open either, so it is not offered.
       expect(screen.queryByRole("button", { name: "Read the original" })).toBeNull();
@@ -287,6 +331,6 @@ describe("an article that fails to load", () => {
     routes({ "GET /api/items/1001": () => new Promise<Response>(() => {}) });
     go("/i/1001");
     await screen.findByText("Loading article");
-    expect(screen.getByRole("button", { name: "Back to list" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
   });
 });
