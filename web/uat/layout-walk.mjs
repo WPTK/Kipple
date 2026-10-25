@@ -13,14 +13,16 @@
 // On the phone width (900, 912 and 956 wide, held sideways) and the desktop width (1000, 1100 and 1280 wide):
 //   W3  an article open beside the list: the article toolbar fits its pane (More actions whole, the toolbar not
 //       scrolled), the list header's controls stay inside the list column, and opening More leaves the toolbar where it was;
-//       again with Large targets and with a larger text size (the controls grow, so the columns need more), and, in
-//       Chromium, on a phone with a notch at both sides (the window is narrower by the insets).
+//       again with Large targets and with larger text sizes (the controls grow, so the columns need more; where the window
+//       cannot hold even their floors, the toolbar still shows every control and reaches each by scrolling), and, in
+//       Chromium, on a phone with a notch at both sides (the window is narrower by the insets). Each row first waits for
+//       its setting to be in force on the page and fails with what it saw if it never is.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { deadFeed, start } from "./common.mjs";
 import { installPageHelpers, tapProbe } from "./probes.mjs";
 
-const t = await start(import.meta.url, 19);
+const t = await start(import.meta.url, 21);
 const { check, step } = t;
 
 const LONG = "UAT feed with a name too long to fit beside its unread count on a phone";
@@ -106,14 +108,21 @@ await t.eachViewport(async (page, vp) => {
     });
   }
 
+  // How many controls the article toolbar has at the default settings; the rows that cannot fit must still show them all.
+  const ctl = { count: null };
   const geometry = () =>
     page.evaluate(() => {
       const tb = document.querySelector('[role="toolbar"][aria-label="Article actions"]');
       const col = document.querySelector('[role="separator"][aria-label="Resize article list"]')?.parentElement;
       const edge = (e) => Math.round(e.getBoundingClientRect().right);
       const buttons = tb.querySelectorAll("button");
+      const root = document.documentElement;
       return {
         vw: innerWidth,
+        rem: parseFloat(getComputedStyle(root).fontSize),
+        targets: root.dataset.targets,
+        count: buttons.length,
+        scrollable: ["auto", "scroll"].includes(getComputedStyle(tb).overflowX),
         need: tb.scrollWidth,
         have: tb.clientWidth,
         scrolled: tb.scrollLeft,
@@ -129,32 +138,72 @@ await t.eachViewport(async (page, vp) => {
   const headerFits = (g) => g.columnRight !== null && g.actionsRight <= g.columnRight;
   /**
    * Opens the first article beside its list at w x h and checks the article toolbar (and with `header` the list header)
-   * against its column. The columns follow the window through a ResizeObserver, so it polls the condition under test, to a
-   * cap, and checks what it ended with. Returns the geometry and the toolbar.
+   * against its column. Device settings reach the page after it loads, and the columns follow the window through a
+   * ResizeObserver, so it first waits until the setting under test is in force on the page (`targets` and `text` are the
+   * Large targets and text size wanted, `inset` the right safe-area inset in px, or null), failing loudly with what it saw
+   * if it never is, and then polls the condition under test, to a cap, and checks what it ended with.
+   * With `degrade` the window cannot hold the columns at their floors, so no fit is asked: the toolbar must still show
+   * every control and reach each of them by scrolling. Returns the geometry and the toolbar.
    */
-  const beside = async (where, w, h, { header = true } = {}) => {
+  const beside = async (where, w, h, { header = true, targets = "normal", text = 1, inset = null, degrade = false } = {}) => {
     await at(w, h, "/l/all");
     const row = page.locator("[data-testid=list-scroll] [data-item-id]").first();
     await row.waitFor({ timeout: 15000 });
-    await row.locator("a").first().click();
+    // Opened by its address: a click would scroll the row into view, and at the largest text size on a short screen that
+    // scrolls the (hidden-overflow) shell itself, which no one using the app can do.
+    await page.goto(await row.locator("a").first().getAttribute("href"), { waitUntil: "load" });
     await page.waitForURL(/\/i\/\d+/, { timeout: 10000 });
     const bar = page.getByRole("toolbar", { name: "Article actions" });
     await bar.waitFor({ timeout: 10000 });
+    const inForce = async () => {
+      const seen = await page.evaluate(() => {
+        const main = document.getElementById("main");
+        return { targets: document.documentElement.dataset.targets, rem: parseFloat(getComputedStyle(document.documentElement).fontSize), inset: main ? parseFloat(getComputedStyle(main).paddingRight) : null };
+      });
+      return { seen, ok: seen.targets === targets && Math.abs(seen.rem - 16 * text) < 0.05 && (inset === null || (seen.inset !== null && Math.abs(seen.inset - inset) < 0.5)) };
+    };
+    let force;
+    await until(async () => (force = await inForce()).ok, 5000);
+    if (!force.ok) throw new Error(`${where}: the setting never took effect (wanted targets ${targets}, root ${16 * text} px${inset === null ? "" : `, right inset ${inset} px`}; the page has targets ${force.seen.targets}, root ${force.seen.rem} px, right padding of #main ${force.seen.inset})`);
     let g;
+    if (degrade) {
+      // What the toolbar shows with its end scrolled to: where its last control lies against its own edge.
+      const reach = () =>
+        page.evaluate(() => {
+          const tb = document.querySelector('[role="toolbar"][aria-label="Article actions"]');
+          tb.scrollLeft = tb.scrollWidth;
+          const out = { lastRight: Math.round([...tb.querySelectorAll("button")].at(-1).getBoundingClientRect().right), toolbarRight: Math.round(tb.getBoundingClientRect().right) };
+          tb.scrollLeft = 0;
+          return out;
+        });
+      let r;
+      const holds = async () => {
+        g = await geometry();
+        r = await reach();
+        return g.count === ctl.count && g.scrollable && g.toolbarRight <= g.vw && r.lastRight <= r.toolbarRight;
+      };
+      await until(holds, 3000);
+      const state = `root ${g.rem} px, Large targets ${g.targets === "large" ? "on" : "off"}`;
+      check(await holds(), `${where} degrades`, `the window is too narrow for the columns at their floors (${state}), and the toolbar still has all ${g.count} controls, inside the screen, the last one reached by scrolling`, `${g.count} of ${ctl.count} controls, scrollable ${g.scrollable}, the toolbar ends at ${g.toolbarRight} of ${g.vw}, the last control ends at ${r.lastRight} of ${r.toolbarRight} once scrolled (${state})`);
+      return { g, bar };
+    }
     await until(async () => {
       g = await geometry();
       return toolbarFits(g) && (!header || headerFits(g));
     }, 3000);
-    check(toolbarFits(g), `${where} toolbar`, "the article toolbar fits its pane, More actions whole", `the toolbar needs ${g.need} px of ${g.have}, starts at ${g.firstLeft} (pane ${g.toolbarLeft}), More actions ends at ${g.moreRight}, the pane at ${g.toolbarRight}, the screen at ${g.vw}`);
-    if (header) check(headerFits(g), `${where} list header`, "the list header's last control is inside the list column", `List actions ends at ${g.actionsRight}, the list column at ${g.columnRight}`);
+    const state = `root ${g.rem} px, Large targets ${g.targets === "large" ? "on" : "off"}`;
+    check(toolbarFits(g), `${where} toolbar`, `the article toolbar fits its pane, More actions whole (${state}, ${g.need} of ${g.have} px)`, `the toolbar needs ${g.need} px of ${g.have}, starts at ${g.firstLeft} (pane ${g.toolbarLeft}), More actions ends at ${g.moreRight}, the pane at ${g.toolbarRight}, the screen at ${g.vw} (${state})`);
+    if (header) check(headerFits(g), `${where} list header`, `the list header's last control is inside the list column (${state})`, `List actions ends at ${g.actionsRight}, the list column at ${g.columnRight} (${state})`);
     return { g, bar };
   };
   const device = (body) => page.request.patch("/api/device", { headers: t.WRITE, data: body });
+  const DEFAULTS = { "client.large_targets": false, "client.text_size": 1 };
 
   await step(`${tag} W3`, async () => {
     for (const [w, h] of PANES[vp.mobile ? "phone" : "desktop"]) {
       const where = `${tag} W3 ${w}x${h}`;
       const { g, bar } = await beside(where, w, h);
+      ctl.count = g.count;
       await t.shot(page, `${tag}-reader-${w}x${h}`);
       await bar.getByRole("button", { name: "More actions" }).click();
       await page.getByRole("menu").waitFor({ timeout: 5000 });
@@ -165,23 +214,34 @@ await t.eachViewport(async (page, vp) => {
   });
 
   // The controls grow with Large targets (56 px) and with the text size (their size is in rem), and the columns need
-  // more. The article keeps what its toolbar needs and the list gives way first, so the list header is asked to fit only
-  // where the window can hold the sidebar at its floor, the list and the article (a 1280 px window, not 956 px).
-  const sizes = vp.mobile ? [[956, 440, false], [912, 420, false]] : [[1280, 800, true], [1000, 440, false]];
-  for (const [what, prefs] of [
-    ["Large targets", { "client.large_targets": true }],
-    ["larger text", { "client.text_size": vp.mobile ? 1.25 : 1.5 }],
-  ]) {
+  // more. The article keeps what its toolbar needs and the list gives way to its 260 px floor, after the sidebar has
+  // gone to its 200 px floor, so a window holds the columns whole when 200 + 260 + two gutters (1.5rem each) + the
+  // toolbar fits in it: 908 px with Large targets (400 px toolbar), 870 px at text 1.125 (356), 915 px at 1.25 (395) and
+  // 1006 px at 1.5 (474). The rows below sit on one side of that: they ask the toolbar to fit (and, in a window wide enough
+  // for the list as well, the list header), or, where the window is too narrow, that it degrades without hiding a control.
+  // (The toolbar's buttons may shrink a few px before it overflows, so a window a few px under the floor still shows a
+  // whole toolbar; the rows keep clear of that margin.)
+  // mode: "fit" asks the toolbar, "header" the toolbar and the list header, "degrade" the controls and their reach.
+  const SETTINGS = [
+    { what: "Large targets", prefs: { "client.large_targets": true }, targets: "large", text: 1, rows: vp.mobile ? [[956, 440, "fit"], [912, 420, "fit"]] : [[1280, 800, "header"], [1000, 440, "fit"]] },
+    vp.mobile
+      ? { what: "larger text", prefs: { "client.text_size": 1.125 }, targets: "normal", text: 1.125, rows: [[956, 440, "fit"], [912, 420, "fit"]] }
+      : { what: "larger text", prefs: { "client.text_size": 1.25 }, targets: "normal", text: 1.25, rows: [[1280, 800, "header"], [1000, 440, "fit"]] },
+    { what: "largest text", prefs: { "client.text_size": 1.5 }, targets: "normal", text: 1.5, rows: vp.mobile ? [[956, 440, "degrade"], [912, 420, "degrade"]] : [[1280, 800, "header"], [920, 440, "degrade"]] },
+  ];
+  for (const { what, prefs, targets, text, rows } of SETTINGS) {
     await step(`${tag} W3 ${what}`, async () => {
       const set = await device(prefs);
       if (!set.ok()) return t.fail(`${tag} W3 ${what} setup`, `the setting was not saved (${set.status()})`);
       try {
-        for (const [w, h, header] of sizes) {
-          await beside(`${tag} W3 ${what} ${w}x${h}`, w, h, { header });
+        for (const [w, h, mode] of rows) {
+          await beside(`${tag} W3 ${what} ${w}x${h}`, w, h, { header: mode === "header", degrade: mode === "degrade", targets, text });
           await t.shot(page, `${tag}-reader-${what.replace(" ", "-")}-${w}x${h}`);
         }
       } finally {
-        await device({ "client.large_targets": false, "client.text_size": 1 });
+        // A setting left behind would carry into the later flows on the same instance, so a failed reset is a finding.
+        const reset = await device(DEFAULTS);
+        if (!reset.ok()) t.fail(`${tag} W3 ${what} reset`, `the device settings were not restored (${reset.status()})`);
       }
     });
   }
@@ -196,7 +256,7 @@ await t.eachViewport(async (page, vp) => {
         // 47 px leaves room for everything at 956; 62 px (the widest phone) is 6 px short of the list header, so only the toolbar is asked.
         for (const [inset, header] of [[47, true], [62, false]]) {
           await insets(inset);
-          await beside(`${tag} W3 notch ${inset} px 956x440`, 956, 440, { header });
+          await beside(`${tag} W3 notch ${inset} px 956x440`, 956, 440, { header, inset });
           await t.shot(page, `${tag}-reader-notch-${inset}`);
         }
       } finally {

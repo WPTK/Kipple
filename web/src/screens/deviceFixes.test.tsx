@@ -509,7 +509,7 @@ describe("sidebar", () => {
     await screen.findByText("Article number 1");
     const side = screen.getByRole("separator", { name: "Resize sidebar" });
     expect(side).toHaveAttribute("aria-valuemax", "241"); // 1000 - 59 - (336 + 316 + 48)
-    // Large targets: the list header and the toolbar need 420 and 400 px, so the sidebar is down to its floor.
+    // Large targets: the list header and the toolbar need 408 and 400 px, so the sidebar is down to its floor.
     act(() => prefsStore.set({ ...DEFAULT_PREFS, largeTargets: true }));
     await waitFor(() => expect(side).toHaveAttribute("aria-valuemax", "200"));
   });

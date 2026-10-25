@@ -19,14 +19,17 @@ export function useWidth(ref: React.RefObject<HTMLElement | null>): number {
 }
 
 // A control is 2.75rem square (Button size "icon", `size-11`); Large targets make every button at least 3.5rem
-// (index.css, `data-targets="large"`). Everything below is in rem: it scales with the root font size (the text size).
+// (index.css, `data-targets="large"`), but not a link. The rule that keeps header controls at 2.75rem with Large targets
+// needs `data-short`, which the shell sets only below the wide breakpoint, so it does not reach these columns.
+// Everything below is in rem: it scales with the root font size (the text size).
 const CONTROL_REM = 2.75;
 const CONTROL_REM_LARGE = 3.5;
-// The article toolbar (ArticlePane.tsx, `Toolbar`): seven controls and 0.25rem of padding on each side.
+// The article toolbar (ArticlePane.tsx, `Toolbar`): seven buttons and 0.25rem of padding on each side.
 const TOOLBAR_CONTROLS = 7;
 const TOOLBAR_PAD_REM = 0.5;
-// The list header (ReaderRoute.tsx, `ScopeHeader`, wide): seven controls with six 0.125rem gaps, after 1rem of padding.
-const HEADER_CONTROLS = 7;
+// The list header (ReaderRoute.tsx, `ScopeHeader`, wide): six buttons and the Settings link, with six 0.125rem gaps,
+// after 1rem of padding. The link keeps 2.75rem with Large targets.
+const HEADER_BUTTONS = 6;
 const HEADER_PAD_REM = 6 * 0.125 + 1;
 // The strip a resize handle lies over (ui/ResizeHandle.tsx): each wide column after the first starts this far to the
 // right of its neighbour (`pl-6` on the main area and on the article column).
@@ -41,7 +44,7 @@ export interface ColumnNeeds {
 
 /**
  * What the article toolbar and the list header need to show their controls whole, for a root font size of `remPx` (44 px
- * controls at 16 px: 316 and 336, with 24 px gutters). The sidebar yields to these first and then the list does, so at
+ * controls at 16 px: 316 and 336, with 24 px gutters; with Large targets 400 and 408). The sidebar yields to these first and then the list does, so at
  * the 900 px breakpoint the default text size shows all three columns whole. They are what the layout reserves, not a
  * promise about what is on screen: where the window cannot hold the sidebar at its 200 px floor, the list and the article
  * (Large targets or a larger text size on a phone held sideways), the article keeps its need and the list gives way to its
@@ -52,7 +55,7 @@ export function columnNeeds(remPx: number, largeTargets: boolean): ColumnNeeds {
   const control = largeTargets ? CONTROL_REM_LARGE : CONTROL_REM;
   return {
     article: Math.ceil((TOOLBAR_CONTROLS * control + TOOLBAR_PAD_REM) * remPx),
-    list: Math.ceil((HEADER_CONTROLS * control + HEADER_PAD_REM) * remPx),
+    list: Math.ceil((HEADER_BUTTONS * control + CONTROL_REM + HEADER_PAD_REM) * remPx),
     gutter: Math.ceil(GUTTER_REM * remPx),
   };
 }

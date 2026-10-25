@@ -154,7 +154,7 @@ describe("column limits", () => {
   });
 
   it("what the columns need follows the size of the controls: the text size scales it and Large targets raise it", () => {
-    expect(columnNeeds(16, true)).toEqual({ article: 400, list: 420, gutter: 24 }); // 56 px controls
+    expect(columnNeeds(16, true)).toEqual({ article: 400, list: 408, gutter: 24 }); // 56 px buttons, and the Settings link stays 44 px
     expect(columnNeeds(18, false)).toEqual({ article: 356, list: 378, gutter: 27 }); // Large text: 1rem is 18 px, and the 1.5rem gutters grow with it
     expect(columnNeeds(24, true).article).toBeGreaterThan(columnNeeds(24, false).article);
   });
