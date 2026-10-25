@@ -116,6 +116,20 @@ describe("Settings > Devices", () => {
     expect(body(calls.find((c) => c.method === "PUT") as never)).toEqual({ name: "Desk" });
   });
 
+  it("names a rename error in the field's description", async () => {
+    routes({
+      "GET /api/devices": () => json({ devices: [me] }),
+      "PUT /api/device/name": () => json({ message: "That name is taken." }, 400),
+    });
+    go();
+    const user = userEvent.setup();
+    const input = await screen.findByLabelText("This device's name");
+    await user.type(input, "Desk");
+    await user.click(screen.getByRole("button", { name: "Save name" }));
+    await screen.findByText("That name is taken.");
+    expect(input).toHaveAccessibleDescription(/That name is taken./);
+  });
+
   it("copies another device's settings here after a confirm, and adopts them", async () => {
     updatePrefs({ font: "literata" });
     const { calls } = routes({
