@@ -90,7 +90,7 @@ exact commands, backup, verification and GHCR steps are in `docs/maintainers/REL
 
 ## Work tracking (how sessions avoid each other)
 
-- Remaining design-review work is one tracker issue per area (label `tracker`, milestone "Design review follow-ups").
+- Remaining design-review work is one tracker issue per area (label `tracker`, milestone "1.6 - Design review follow-ups").
   The tracker is the only list of an area's remaining work; the Decision comment on each linked issue is the spec.
 - GitHub is the only record of who is working on what, not memory. Before starting, read the open trackers, the open
   pull requests and the `in-progress` label. Set **Working now** in the tracker body and add `in-progress` when you
