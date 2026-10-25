@@ -144,7 +144,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
               <Radio key={o} value={o} label={ORDER_LABELS[o]} />
             ))}
           </DropdownMenu.RadioGroup>
-          {followsOrder(layout.id) ? null : (
+          {followsOrder(layout.id, scope) ? null : (
             <p className="px-3 pt-1 pb-2 text-xs text-fg2">The {layout.label} is always newest first. The order applies to the other layouts.</p>
           )}
 
@@ -177,13 +177,13 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
               {pageOf(layout, scope) ? (
                 <SectionLookChoices />
               ) : (
-                <p className="px-3 pt-1 pb-2 text-xs text-fg2">The Coffee break groups unread articles by how long they take. This list is not that, so it shows rows.</p>
+                <p className="px-3 pt-1 pb-2 text-xs text-fg2">Shown as rows: the Coffee break groups Unread when no length filter is set.</p>
               )}
             </>
           ) : null}
 
           {/* The Gazette prints its own pages and a search its own headers; the other lists group under headers. */}
-          {scope.q || !followsOrder(layout.id) ? null : (
+          {scope.q || !followsOrder(layout.id, scope) ? null : (
             <>
               <DropdownMenu.Separator className="my-1 h-px bg-line" />
               <DropdownMenu.Label className={heading}>Group by</DropdownMenu.Label>

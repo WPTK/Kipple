@@ -1,3 +1,4 @@
+import { breaksIntoSections } from "./readingLength";
 import { createStore, useStore } from "./store";
 
 // Per-device layout, ordering and first-run flags. Everything device-scoped that is
@@ -451,14 +452,24 @@ export function resolveLayout(p: DevicePrefs, ctx: LayoutContext): LayoutId {
 /**
  * The order a list is fetched and shown in. The Gazette is always newest first: it plans its pages from the newest
  * articles, and a page it has shown stays the same only while what is loaded is the start of a newest-first list
- * (layouts/gazettePlan.ts). So in that layout the list's and the device's order settings do not apply.
+ * (layouts/gazettePlan.ts). So in that layout the list's and the device's order settings do not apply. The Digest and the
+ * Coffee break plan sections the same way, but the Coffee break is only a page where `breaksIntoSections` says so: in
+ * All, Starred, Muted, a search or a length-filtered list it shows rows, and the reader's order applies.
  */
-export function resolveOrder(p: DevicePrefs, ctx: LayoutContext): OrderPref {
-  return followsOrder(resolveLayout(p, ctx)) ? resolveList(p, ctx, "order").value : "newest";
+export function resolveOrder(p: DevicePrefs, ctx: LayoutContext, scope: ListShape): OrderPref {
+  return followsOrder(resolveLayout(p, ctx), scope) ? resolveList(p, ctx, "order").value : "newest";
 }
 
-/** Whether a layout shows the list in the order the reader set (every layout but the Gazette). */
-export const followsOrder = (layout: LayoutId): boolean => layout !== "gazette" && layout !== "digest" && layout !== "coffee";
+/** The parts of a list that decide whether a layout is drawn as a page. */
+export interface ListShape {
+  view: string;
+  length?: unknown;
+  q?: unknown;
+}
+
+/** Whether a layout shows this list in the order the reader set (every layout but the Gazette, the Digest and a Coffee break page). */
+export const followsOrder = (layout: LayoutId, scope: ListShape): boolean =>
+  layout !== "gazette" && layout !== "digest" && !(layout === "coffee" && breaksIntoSections(scope));
 
 /** Which override a list can carry, if any (a feed list or a folder list). */
 export function overrideTarget(ctx: LayoutContext): { kind: "feed" | "folder"; id: string } | null {

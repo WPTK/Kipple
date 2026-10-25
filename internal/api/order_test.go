@@ -150,14 +150,33 @@ func TestListItemsUnknownLength(t *testing.T) {
 	code, body, _ := h.api(c, "GET", "/api/items?view=all&order=oldest&unknown_length=1", "")
 	require.Equal(t, 200, code)
 	require.Equal(t, strs(none, none2), itemIDs(t, body))
-	// The three ranges and the unknown list together hold every article once.
-	var total int
-	for _, q := range []string{"max_minutes=2", "min_minutes=3&max_minutes=7", "min_minutes=8", "unknown_length=1"} {
+	// The four sections partition the articles. The edges are 460 and 461 words (2 and 3 minutes) and 1610 and 1611
+	// (7 and 8 minutes): each article lands in exactly one.
+	edge := map[int]int64{
+		460:  h.addItem(f, seedItem{Words: 460, SortAt: 5}),
+		461:  h.addItem(f, seedItem{Words: 461, SortAt: 6}),
+		1610: h.addItem(f, seedItem{Words: 1610, SortAt: 7}),
+		1611: h.addItem(f, seedItem{Words: 1611, SortAt: 8}),
+	}
+	buckets := []string{"max_minutes=2", "min_minutes=3&max_minutes=7", "min_minutes=8", "unknown_length=1"}
+	seen := map[string]int{}
+	inBucket := map[string][]string{}
+	for _, q := range buckets {
 		code, body, _ := h.api(c, "GET", "/api/items?view=all&"+q, "")
 		require.Equal(t, 200, code)
-		total += len(itemIDs(t, body))
+		for _, id := range itemIDs(t, body) {
+			seen[id]++
+			inBucket[q] = append(inBucket[q], id)
+		}
 	}
-	require.Equal(t, 4, total)
+	for id, n := range seen {
+		require.Equal(t, 1, n, "article %s is in %d sections", id, n)
+	}
+	require.Len(t, seen, 8) // every article seeded above
+	require.Contains(t, inBucket["max_minutes=2"], strs(edge[460])[0])
+	require.Contains(t, inBucket["min_minutes=3&max_minutes=7"], strs(edge[461])[0])
+	require.Contains(t, inBucket["min_minutes=3&max_minutes=7"], strs(edge[1610])[0])
+	require.Contains(t, inBucket["min_minutes=8"], strs(edge[1611])[0])
 }
 
 // A mark-read scope with unknown_length marks only the articles with no extracted text, bound and all.

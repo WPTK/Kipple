@@ -173,21 +173,31 @@ describe("the Gazette's order and name (#39)", () => {
     updateDevicePrefs({ order: "oldest" });
     setListOverride("folder", "12", "order", "oldest");
     setListOverride("feed", "4", "order", "oldest");
-    expect(resolveOrder(p(), ctx4)).toBe("oldest");
+    expect(resolveOrder(p(), ctx4, { view: "unread" })).toBe("oldest");
     // The Gazette from a folder above, from the or from the device default.
     setListOverride("folder", "13", "layout", "gazette");
-    expect(resolveOrder(p(), ctx4)).toBe("newest");
+    expect(resolveOrder(p(), ctx4, { view: "unread" })).toBe("newest");
     setListOverride("folder", "13", "layout", null);
     updateDevicePrefs({ layout: "gazette" });
-    expect(resolveOrder(p(), ctx4)).toBe("newest");
+    expect(resolveOrder(p(), ctx4, { view: "unread" })).toBe("newest");
     // The settings are kept for the other layouts.
     updateDevicePrefs({ layout: "compact" });
-    expect(resolveOrder(p(), ctx4)).toBe("oldest");
+    expect(resolveOrder(p(), ctx4, { view: "unread" })).toBe("oldest");
+  });
+
+  it("the Coffee break follows the reader's order wherever it shows rows, and is newest first where it is a page", () => {
+    updateDevicePrefs({ layout: "coffee", order: "oldest" });
+    const p = devicePrefsStore.get();
+    expect(resolveOrder(p, {}, { view: "unread" })).toBe("newest");
+    expect(resolveOrder(p, {}, { view: "all" })).toBe("oldest");
+    expect(resolveOrder(p, {}, { view: "starred" })).toBe("oldest");
+    expect(resolveOrder(p, {}, { view: "unread", length: "short" })).toBe("oldest");
+    expect(resolveOrder(p, {}, { view: "unread", q: "x" })).toBe("oldest");
   });
 
   it("the Digest follows no sort order and its settings fall back to their defaults", () => {
     updateDevicePrefs({ layout: "digest", order: "oldest" });
-    expect(resolveOrder(devicePrefsStore.get(), {})).toBe("newest");
+    expect(resolveOrder(devicePrefsStore.get(), {}, { view: "unread" })).toBe("newest");
     const d = parseDevicePrefs(null);
     expect([d.digestSections, d.digestOrder, d.digestImages, d.digestRows]).toEqual(["folder", "sidebar", true, 3]);
     const ok = parseDevicePrefs(JSON.stringify({ digestSections: "feed", digestOrder: "quiet", digestImages: false, digestRows: 10 }));

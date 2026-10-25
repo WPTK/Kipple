@@ -52,7 +52,7 @@ const SNAPSHOT_KEEP_MS = 5 * 60_000;
  * it came from (a change of either makes a new page; Rows and Images do not change which sections there are), the
  * `as_of` each section first came back with (what a mark over it is bounded by), and when the reader left it.
  */
-const opened = new Map<string, { sig: string; keys: string[]; counts: Map<string, number | null>; bounds: Map<string, string>; left: number | null }>();
+const opened = new Map<string, { sig: string; keys: string[]; counts: Map<string, number | null>; bounds: Map<string, string>; shown: Set<string>; left: number | null }>();
 /** How many mounted hooks (the list, and the reader's previous and next) use each list's page. The reader has left it only when none does. */
 const consumers = new Map<string, number>();
 /** A hook starts using the list's page: it is no longer away. Returns the call that stops. */
@@ -161,7 +161,7 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
     // On the New page a section's count is what arrived since the mark; a section the visit did not list has none.
     const countOf = (d: (typeof live)[number]): number | null => (input.arrivals ? (input.arrivals.counts.get(d.key) ?? 0) : d.count);
     const kept = live.filter((d) => !(scope.view === "unread" && countOf(d) === 0));
-    fixed = { sig, keys: kept.map((d) => d.key), counts: new Map(kept.map((d) => [d.key, countOf(d)])), bounds: new Map(), left: null };
+    fixed = { sig, keys: kept.map((d) => d.key), counts: new Map(kept.map((d) => [d.key, countOf(d)])), bounds: new Map(), shown: new Set(), left: null };
     opened.delete(listKey);
     opened.set(listKey, fixed);
     while (opened.size > PLACES_MAX) opened.delete(opened.keys().next().value!);
@@ -191,19 +191,26 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
       r = { ...r, data: { ...r.data, asOf: bound } };
     }
     results.set(d.key, r);
-    if (r.data) loaded.set(d.key, { cards: r.data.cards, more: r.data.more });
+    if (r.data) {
+      loaded.set(d.key, { cards: r.data.cards, more: r.data.more });
+      if (r.data.cards.length > 0) fixed.shown.add(d.key);
+    }
   }
   const layout = layoutDigest(defs, { view: scope.view, rows: input.rows, expanded: place.presses, activated: askedFor }, loaded);
-  return { defs, askedFor, results, layout, waiting: defs.length > askedFor.size };
+  return { defs, askedFor, results, layout, shown: fixed.shown, waiting: defs.length > askedFor.size };
 }
 export type Plan = ReturnType<typeof planDigest>;
 
-/** The sections the page draws: the ones asked for that have something to show or to say. */
-function sectionViews(plan: Plan): DigestSectionView[] {
+/**
+ * The sections the page draws: the ones asked for that have something to show or to say. A section that once showed
+ * cards on this page stays, even when a refetch or a resync brings it back empty (everything in it was read), so a
+ * section never disappears under the reader.
+ */
+export function sectionViews(plan: Plan): DigestSectionView[] {
   const out: DigestSectionView[] = [];
   for (const s of plan.layout.sections) {
     if (s.state === "waiting") continue;
-    if (s.state === "ready" && s.cards.length === 0) continue;
+    if (s.state === "ready" && s.cards.length === 0 && !plan.shown.has(s.key)) continue;
     const r = plan.results.get(s.key);
     out.push({
       ...s,

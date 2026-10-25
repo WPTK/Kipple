@@ -36,8 +36,9 @@ Kipple 1.0 is a release candidate. [CHANGELOG.md](CHANGELOG.md) lists what chang
 
 ## What you get
 
-- Six layouts: Editorial (large lead images with an excerpt), Cards (a grid of photo cards), Gazette (a newspaper-style
-  front page), Inbox (email-style rows), Compact (a plain list without pictures) and Headlines (one line per title).
+- Eight layouts: Editorial (large lead images with an excerpt), Cards (a grid of photo cards), Gazette (a newspaper-style
+  front page), Inbox (email-style rows), Compact (a plain list without pictures), Headlines (one line per title),
+  Digest (a few articles from each folder or feed) and Coffee break (unread articles grouped by how long they take).
   Set it per device, per folder or per feed.
 - 20 color themes, with separate picks for day and night, and 11 bundled reading fonts.
 - Nested folders for organizing feeds.

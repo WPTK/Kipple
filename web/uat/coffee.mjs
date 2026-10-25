@@ -10,7 +10,9 @@
 //   K1  the four sections are drawn in order, each with its articles: Under 3 minutes, 3 to 7 minutes, 8 minutes and up,
 //       Unknown length; and the first shows three rows and "1 more" (the Rows per section setting, an exact count);
 //   K2  "1 more" opens the section in place and its button goes;
-//   K3  Mark below on an article marks the rest of its section and no other; Mark above likewise, in the section with no length;
+//   K3  Mark below on an article marks the rest of its section and no other; Mark above likewise, in a section other than the
+//       first (the newer article of the first section stays unread); and a mark-read request scoped to the folder with
+//       unknown_length marks the article with no text and nothing else;
 //   K4  Mark all (confirmed in its dialog) marks every section, and one Undo puts them all back;
 //   K5  the arrow keys visit the articles and the "more" button in the order they are drawn, and the page has one Tab stop;
 //   K6  the Layout menu offers Images and Rows per section for the device, and a choice changes the page;
@@ -152,8 +154,13 @@ try {
           mid.slice(0, -1),
           { timeout: 8000 },
         ).then(() => true, () => false);
-        const others = await readState([mid[mid.length - 1], idOf(7), idOf(8)]);
+        const others = await readState([mid[mid.length - 1], idOf(1), idOf(7), idOf(8)]);
         check(above && others.every((r) => !r), `${tag} K3 above`, "Mark above marks the earlier articles of its section and no other", `above read: ${above}; the article and the other sections read: ${others.join()}`);
+        await unreadAll(STORIES.map(({ n }) => idOf(n)));
+        // The mark-read request the Unknown length section sends for Mark all in it: the folder, and unknown_length.
+        const unknown = await page.request.post("/api/items/mark-read", { headers: t.WRITE, data: { scope: { view: "unread", folder_id: folder.id, unknown_length: true }, read: true } });
+        const afterUnknown = await readState(STORIES.map(({ n }) => idOf(n)));
+        check(unknown.ok() && afterUnknown.join() === STORIES.map(({ n }) => n === 8).join(), `${tag} K3 unknown`, "marking the unknown-length scope reads the article with no text and nothing else", `status ${unknown.status()}, read: ${afterUnknown.join()}`);
         await unreadAll(STORIES.map(({ n }) => idOf(n)));
 
         // K4: Mark all, then Undo.

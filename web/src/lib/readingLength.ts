@@ -30,6 +30,9 @@ export const READING_LENGTH_QUERY: Record<SectionLength, { min_minutes?: number;
   unknown: { unknown: true },
 };
 
+/** Whether the Coffee break draws a list as its sections: Unread, with no search and no length filter already set. Anything else shows rows. */
+export const breaksIntoSections = (scope: { view: string; length?: unknown; q?: unknown }): boolean => scope.view === "unread" && !scope.length && !scope.q;
+
 export const READING_LENGTH_LABELS: Record<SectionLength, string> = {
   short: "5 min or less",
   medium: "6 to 15 min",

@@ -3,6 +3,7 @@ import { Link, type To } from "react-router";
 import { useLongPressMenu } from "@/gestures/useLongPressMenu";
 import type { Card, Headline } from "@/api/types";
 import { cn } from "@/lib/cn";
+import { breaksIntoSections } from "@/lib/readingLength";
 import { articleTo } from "@/lib/routes";
 import { Button } from "@/ui/button";
 import { compact } from "./compact";
@@ -253,5 +254,5 @@ export const coffee: ListLayout = {
   label: "Coffee break",
   Page: DigestPage,
   cut: "length",
-  pageFor: (scope) => scope.view === "unread" && !scope.length,
+  pageFor: breaksIntoSections,
 };

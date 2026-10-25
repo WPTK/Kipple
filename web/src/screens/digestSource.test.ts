@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearDigestPlaces, digestPageLeftAt, holdPage, oldestAsOf, planDigest, type DigestInput } from "./digestSource";
+import { clearDigestPlaces, digestPageLeftAt, holdPage, oldestAsOf, planDigest, sectionViews, type DigestInput } from "./digestSource";
 
 describe("oldestAsOf", () => {
   it("is the smallest as_of, compared as numbers", () => {
@@ -145,5 +145,18 @@ describe("the Coffee break's sections", () => {
     expect(by["len:under3"]).toMatchObject({ state: "loading", moreCount: null, total: null });
     expect(by["len:3to7"]).toMatchObject({ state: "ready", moreCount: 2, total: 5 });
     expect(plan.layout.cards).toHaveLength(3);
+  });
+
+  it("draws a section that came back empty only if it once showed cards on this page", () => {
+    clearDigestPlaces();
+    const cards = (n: number) => Array.from({ length: n }, (_, i) => ({ id: String(i), read: false }) as never);
+    const result = (n: number) => ({ data: { cards: cards(n), more: false, asOf: "9" }, error: null, fetching: false, fetchingMore: false, moreFailed: false });
+    const titles = (n3to7: number) => sectionViews(planDigest(input({ view: "unread" }), (sc) => (sc.length === "3to7" ? result(n3to7) : result(0)))).map((s) => s.key);
+    // Never had a card: dropped. 3 to 7 shows its cards, is refetched empty (all read elsewhere) and stays.
+    expect(titles(2)).toEqual(["len:3to7"]);
+    expect(titles(0)).toEqual(["len:3to7"]);
+    // A page built afresh has no memory of it.
+    clearDigestPlaces();
+    expect(titles(0)).toEqual([]);
   });
 });
