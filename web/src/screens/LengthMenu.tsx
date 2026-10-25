@@ -4,9 +4,9 @@ import type { Scope } from "@/api/types";
 import { cn } from "@/lib/cn";
 import { READING_LENGTHS, READING_LENGTH_LABELS, isReadingLength } from "@/lib/readingLength";
 import { listTo } from "@/lib/routes";
-import { DropdownMenu, menuItemClass } from "@/ui/menu";
+import { DropdownMenu } from "@/ui/menu";
 
-const item = cn(menuItemClass, "relative pr-3 pl-9");
+const item = "relative pr-3 pl-9";
 
 /**
  * The reading-time filter in the list header: only articles of one length. It lives in the list's address (`?len=`), so

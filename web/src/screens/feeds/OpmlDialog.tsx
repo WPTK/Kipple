@@ -163,8 +163,8 @@ function PrivateFeeds({ feeds, where }: { feeds: PrivateFeed[]; where: string })
             {busy ? `Allowing ${done.toLocaleString()} of ${left.length.toLocaleString()}` : left.length < n ? "Try the rest again" : `Allow my own network for ${n === 1 ? "this feed" : `these ${n} feeds`}`}
           </Button>
         )}
-        {error ? <p role="alert" className="text-danger">{error}</p> : null}
-        {refused.length ? <p role="alert" className="text-danger">Not changed: {refused.join("; ")}. {where}</p> : null}
+        {error ? <Notice tone="error">{error}</Notice> : null}
+        {refused.length ? <Notice tone="error">Not changed: {refused.join("; ")}. {where}</Notice> : null}
       </div>
     </div>
   );
