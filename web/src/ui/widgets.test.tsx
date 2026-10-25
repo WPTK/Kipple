@@ -2,10 +2,11 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_DEVICE_PREFS, parseDevicePrefs, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
+import { DEFAULT_DEVICE_PREFS, SIDEBAR_WIDTH_MIN, parseDevicePrefs, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { Segmented } from "./segmented";
 import { Switch } from "./kit";
-import { maxFor } from "@/lib/useWidth";
+import { columnNeeds, maxFor } from "@/lib/useWidth";
+import { WIDE_QUERY } from "@/lib/useMedia";
 import { ResizeHandle, dragWidth, keyWidth } from "./ResizeHandle";
 import { UnreadCount, badgeKind, badgeText, unreadName } from "./UnreadCount";
 
@@ -139,8 +140,23 @@ describe("column limits", () => {
     expect(maxFor(1000, 320, 260, 720)).toBe(680);
     expect(maxFor(2000, 320, 260, 720)).toBe(720);
     expect(maxFor(400, 320, 260, 720)).toBe(260);
-    // At the 900 px breakpoint the sidebar leaves 260 + 320 for the list and the article.
     expect(maxFor(900, 580, 200, 420)).toBe(320);
+  });
+
+  it("fits the sidebar, the list and the article, each with its gutter, at the narrowest wide screen", () => {
+    const breakpoint = Number(/\d+/.exec(WIDE_QUERY)?.[0]);
+    const need = columnNeeds(16, false);
+    // The main area and the article column each start one gutter to the right of their neighbour, so the sidebar, at its
+    // narrowest, leaves exactly what the list and the article need (seven 44 px buttons in the toolbar and in the header).
+    expect(need).toEqual({ article: 316, list: 336, gutter: 24 });
+    expect(maxFor(breakpoint, need.list + need.article + 2 * need.gutter, SIDEBAR_WIDTH_MIN, 420)).toBe(SIDEBAR_WIDTH_MIN);
+    expect(SIDEBAR_WIDTH_MIN + need.list + need.article + 2 * need.gutter).toBeLessThanOrEqual(breakpoint);
+  });
+
+  it("what the columns need follows the size of the controls: the text size scales it and Large targets raise it", () => {
+    expect(columnNeeds(16, true)).toEqual({ article: 400, list: 408, gutter: 24 }); // 56 px buttons, and the Settings link stays 44 px
+    expect(columnNeeds(18, false)).toEqual({ article: 356, list: 378, gutter: 27 }); // Large text: 1rem is 18 px, and the 1.5rem gutters grow with it
+    expect(columnNeeds(24, true).article).toBeGreaterThan(columnNeeds(24, false).article);
   });
 });
 

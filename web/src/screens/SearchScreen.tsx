@@ -181,7 +181,8 @@ export function SearchScreen() {
       if (!shell.hasAttribute("data-short") || dy === 0 || !cancelable) return false;
       const room = shell.scrollHeight - shell.clientHeight;
       const list = results.querySelector<HTMLElement>("[data-list-scroller]");
-      const can = dy > 0 ? shell.scrollTop < room - 1 : shell.scrollTop > 0 && (list?.scrollTop ?? 0) <= 0;
+      // What scrolls under the finger is the list, or the results box itself when it holds a message (the empty state).
+      const can = dy > 0 ? shell.scrollTop < room - 1 : shell.scrollTop > 0 && (list ?? results).scrollTop <= 0;
       if (can) shell.scrollTop += dy;
       return can;
     };
@@ -334,7 +335,7 @@ export function SearchScreen() {
         </p>
         {markAll.dialog}
       </header>
-      <div ref={resultsRef} className="search-results min-h-0 flex-1">
+      <div ref={resultsRef} className="search-results min-h-0 flex-1 overflow-y-auto">
         {scope && !noFeeds ? (
           <ListPane key={`${q}|${whereKey}|${order}`} scope={scope} onControls={setControls} />
         ) : (

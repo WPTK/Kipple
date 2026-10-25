@@ -62,9 +62,10 @@ const FeedBlock = memo(function FeedBlock({ feed, unread, cards, tabStopId }: Bl
             tabIndex={sid === tabStopId ? undefined : -1}
             aria-keyshortcuts={ROW_KEYSHORTCUTS}
             title={feed.address_hint ? `${name} (${feed.address_hint})` : undefined}
-            className="hit inline-flex max-w-full items-center truncate font-semibold tracking-wide text-accent uppercase underline-offset-2 hover:underline"
+            className="hit inline-flex max-w-full items-center font-semibold tracking-wide text-accent uppercase underline-offset-2 hover:underline"
           >
-            {name}
+            {/* The ellipsis goes on the text's own box: text-overflow does nothing on the flex box that centres it in the hit area. */}
+            <span className="truncate">{name}</span>
           </Link>
         </span>
         <span data-testid="feed-index-unread" className="shrink-0 text-xs font-normal text-fg2">
