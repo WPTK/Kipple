@@ -28,7 +28,7 @@ import { StatusChip } from "./StatusChip";
 import { RepairButtons } from "./FeedRepair";
 import { DeleteDialog, ToggleDialog } from "./feeds/BulkActions";
 import { BottomBar } from "@/ui/BottomBar";
-import { DropdownMenu, menuItemClass as menuItem } from "@/ui/menu";
+import { DropdownMenu } from "@/ui/menu";
 
 const FeedEditor = lazyScreen(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
 
@@ -151,21 +151,21 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
           {f.enabled ? (
-            <DropdownMenu.Item className={menuItem} onSelect={() => void run(async () => { const r = await refreshFeed(f.id); if (r.error) throw new Error(`${failureReason({ last_error: r.error, last_error_class: r.error_class })}.`); }, `Refreshed ${f.title}`, "refresh the feed")}>
+            <DropdownMenu.Item onSelect={() => void run(async () => { const r = await refreshFeed(f.id); if (r.error) throw new Error(`${failureReason({ last_error: r.error, last_error_class: r.error_class })}.`); }, `Refreshed ${f.title}`, "refresh the feed")}>
               Refresh now
             </DropdownMenu.Item>
           ) : null}
-          <DropdownMenu.Item className={menuItem} onSelect={onLog}>
+          <DropdownMenu.Item onSelect={onLog}>
             Fetch log
           </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} onSelect={onEdit}>
+          <DropdownMenu.Item onSelect={onEdit}>
             Edit feed
           </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} onSelect={() => void run(() => patchFeed(f.id, { enabled: !f.enabled }), f.enabled ? `Paused ${f.title}` : `Resumed ${f.title}`, f.enabled ? "pause the feed" : "resume the feed")}>
+          <DropdownMenu.Item onSelect={() => void run(() => patchFeed(f.id, { enabled: !f.enabled }), f.enabled ? `Paused ${f.title}` : `Resumed ${f.title}`, f.enabled ? "pause the feed" : "resume the feed")}>
             {f.enabled ? "Pause this feed" : "Resume this feed"}
           </DropdownMenu.Item>
           {f.trimmed_unread_count > 0 ? (
-            <DropdownMenu.Item className={menuItem} onSelect={() => void run(() => api(`/api/feeds/${f.id}/trimmed-unread/reset`, { method: "POST" }), "Reset the trimmed-unread count", "reset the count")}>
+            <DropdownMenu.Item onSelect={() => void run(() => api(`/api/feeds/${f.id}/trimmed-unread/reset`, { method: "POST" }), "Reset the trimmed-unread count", "reset the count")}>
               Reset trimmed-unread count
             </DropdownMenu.Item>
           ) : null}

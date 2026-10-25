@@ -9,7 +9,10 @@
 //   K2  the password fields of Settings have a Show control that reveals and hides the value, and no "again" field;
 //   K3  a keyboard-focused control draws the accent outline with a page-colored gap (the one focus ring);
 //   K4  an input's border is the field color, not the hairline color;
-//   K5  a keyboard-focused list row draws its ring around the row and the link gets no box of its own.
+//   K5  a keyboard-focused list row draws its ring around the row and the link gets no box of its own;
+//   K6  a destructive button underlines on hover while it has keyboard focus (#728);
+//   K7  a number setting (how often to check feeds) is a row of choices with Custom, not a bare stepper (#686);
+//   K8  every row of the List options and Reading time menus is the one menu row (44 px tall, rounded, highlight on focus) (#627).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { readFileSync } from "node:fs";
@@ -107,7 +110,7 @@ await t.eachViewport(async (page, vp) => {
   });
 
   await step(`${tag} K5`, async () => {
-    await page.goto("/", { waitUntil: "load" });
+    await page.goto("/l/unread", { waitUntil: "load" });
     const row = page.locator("a.row-link").first();
     await row.waitFor({ timeout: 15000 });
     await page.keyboard.press("Tab");
@@ -119,6 +122,48 @@ await t.eachViewport(async (page, vp) => {
     });
     // The row draws its ring on the row's ::before: the link itself has neither an outline nor the two-tone gap's box (#619).
     check(r.focused && r.shadow === "none" && r.outline === "none" && r.ring >= 2 && r.ringStyle === "solid", `${tag} K5`, "a focused row link has no box of its own and draws the ring around the row", `focused row link: ${JSON.stringify(r)}`);
+  });
+
+  // Hover exists with a mouse only: on the phone the browser reports hover: none and the hover styles are off.
+  if (tag === "desktop") await step(`${tag} K6`, async () => {
+    await page.goto("/settings/account", { waitUntil: "load" });
+    const danger = page.locator("button.text-danger").first();
+    await danger.waitFor({ timeout: 15000 });
+    await danger.scrollIntoViewIfNeeded();
+    await page.keyboard.press("Tab");
+    await danger.focus();
+    await danger.hover();
+    const r = await danger.evaluate((el) => ({ focused: el.matches(":focus-visible"), line: getComputedStyle(el).textDecorationLine }));
+    check(r.focused && r.line.includes("underline"), `${tag} K6`, "a focused destructive button underlines on hover", `focused ${r.focused}, text-decoration ${r.line}`);
+    await t.shot(page, `${tag}-danger-hover-focus`);
+  });
+
+  await step(`${tag} K7`, async () => {
+    await page.goto("/settings/sync", { waitUntil: "load" });
+    const group = page.getByRole("group", { name: "How often to check feeds" });
+    await group.waitFor({ timeout: 15000 });
+    const checked = await group.getByRole("radio", { checked: true }).count();
+    const custom = await group.getByRole("radio", { name: "Custom" }).count();
+    const stepper = await page.getByRole("spinbutton", { name: "How often to check feeds" }).count();
+    check(checked === 1 && custom === 1 && stepper === 0, `${tag} K7`, "the interval is one chosen preset with Custom, and no stepper until asked", `checked ${checked}, custom ${custom}, steppers ${stepper}`);
+    await t.shot(page, `${tag}-number-presets`);
+  });
+
+  await step(`${tag} K8`, async () => {
+    await page.goto("/l/unread", { waitUntil: "load" });
+    for (const name of [/^List options/, /^Reading time/]) {
+      const opener = page.getByRole("button", { name });
+      await opener.waitFor({ timeout: 15000 });
+      await opener.click();
+      const menu = page.getByRole("menu");
+      await menu.waitFor({ timeout: 10000 });
+      const rows = await menu.locator("[role=menuitem],[role=menuitemradio]").evaluateAll((els) => els.map((e) => ({ h: Math.round(e.getBoundingClientRect().height), r: getComputedStyle(e).borderTopLeftRadius })));
+      const bad = rows.filter((r) => r.h < 44 || r.r === "0px");
+      check(rows.length > 0 && bad.length === 0, `${tag} K8 ${name.source.slice(1, 8)}`, `${rows.length} rows, each at least 44 px tall and rounded`, `rows off the menu row: ${JSON.stringify(bad)}`);
+      await t.shot(page, `${tag}-menu-${name.source.slice(1, 5).trim()}`);
+      await page.keyboard.press("Escape");
+      await menu.waitFor({ state: "detached", timeout: 5000 });
+    }
   });
 });
 

@@ -12,7 +12,8 @@
 //   P2  focus is inside the sheet when it opens, Escape closes it and focus returns to the button that opened it;
 //   P3  a tap on the dimmed page closes the sheet and does not reach the page under it (the address does not change);
 //   P4  a tap on a choice applies it, and in landscape, where the sheet is shorter than its content, the last choice of
-//       List options can be scrolled to.
+//       List options can be scrolled to;
+//   P6  focus moving to the page behind an open sheet, after the press that opened it is over, closes the sheet (#727).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { start } from "./common.mjs";
@@ -141,6 +142,20 @@ await t.eachViewport(async (page, vp) => {
     check(oldest === "true", `${tag} P4 oldest`, "a tap on Oldest first applies it", `Oldest first is aria-checked ${oldest}`);
     await menu().getByRole("menuitemradio", { name: "Newest first" }).tap();
     await menu().waitFor({ state: "detached", timeout: 5000 });
+  });
+
+  await step(`${tag} P6 focus leaves`, async () => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await open("/l/unread");
+    await page.getByRole("button", { name: LAYOUT }).tap();
+    await menu().waitFor({ timeout: 5000 });
+    // A screen reader moving to an article row: well after the opening tap, focus lands on the page behind the sheet.
+    await page.waitForTimeout(700);
+    await page.evaluate(() => document.querySelector("a.row-link")?.focus());
+    await menu().waitFor({ state: "detached", timeout: 5000 }).catch(() => {});
+    const still = await menu().count();
+    check(still === 0, `${tag} P6`, "the sheet closes when focus moves to the page behind it", "the sheet is still open over the page");
+    await t.shot(page, `${tag}-focus-left-sheet`);
   });
 });
 
