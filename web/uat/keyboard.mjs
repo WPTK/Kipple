@@ -15,7 +15,7 @@
 //       The arrow keys move focus between rows from any control in a row, and a separator still takes them.
 // At 390x844 as a touch device:
 //   K4  Every swipe or long-press action has an alternative that needs no gesture: a row's Star button and its
-//       More actions menu (mark read or unread, star), the article's Back to list button, and the Refresh all feeds
+//       More actions menu (mark read or unread, star), the article's Back button, and the Refresh all feeds
 //       button for pull to refresh; and the feed list's drag to reorder works from the keyboard (Move to folder).
 //
 // It opens, stars and marks articles on the seed's account (and undoes what it can), so it only runs against a
@@ -583,10 +583,10 @@ async function phone(cookies) {
   await page.keyboard.press("Escape");
   await row.locator("a[href^='/i/']").first().click();
   await page.waitForURL((u) => u.pathname.startsWith("/i/"), { timeout: 10000 });
-  await page.getByRole("button", { name: "Back to list" }).first().waitFor({ timeout: 10000 }).catch(() => {});
+  await page.getByRole("button", { name: "Back", exact: true }).first().waitFor({ timeout: 10000 }).catch(() => {});
   await page.getByRole("button", { name: "Next article" }).first().waitFor({ timeout: 10000 }).catch(() => {});
-  const backBtn = page.getByRole("button", { name: "Back to list" });
-  check(await backBtn.first().isVisible().catch(() => false), where("swipe back"), "a Back to list button", "no visible Back to list button on the article");
+  const backBtn = page.getByRole("button", { name: "Back", exact: true });
+  check(await backBtn.first().isVisible().catch(() => false), where("swipe back"), "a Back button", "no visible Back button on the article");
   const articleButtons = await page.evaluate(() => [...document.querySelectorAll("button")].filter((b) => b.checkVisibility()).map((b) => b.getAttribute("aria-label") || b.textContent.trim()));
   check(["Star", "Previous article", "Next article"].every((n) => articleButtons.some((t) => t.startsWith(n))), where("article actions"), "Star, Previous and Next article buttons", `the article has: ${articleButtons.join(", ")}`);
   // Reordering feeds by dragging: Move to folder reaches the same result with no drag (Select mode).

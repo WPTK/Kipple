@@ -463,7 +463,7 @@ describe("Reader: lists and articles that are not there", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Next article" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Next article" }));
     await waitFor(() => expect(window.location.pathname).toBe("/i/1002"));
-    await user.click(screen.getByRole("button", { name: "Back to list" }));
+    await user.click(screen.getByRole("button", { name: "Back" }));
     await waitFor(() => expect(window.location.pathname).toBe("/l/unread"));
     await waitFor(() => expect(document.activeElement?.closest("[data-item-id]")?.getAttribute("data-item-id")).toBe("1002"));
   });

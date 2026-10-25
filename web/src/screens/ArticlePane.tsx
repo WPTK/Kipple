@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { browserOnlineStore } from "@/lib/offlineState";
 import { useStore } from "@/lib/store";
 import { Link, useLocation, useNavigate } from "react-router";
-import { BellOff, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, FileCheck, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
+import { BellOff, ChevronDown, ChevronLeft, ChevronUp, ExternalLink, FileCheck, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
 import { ApiError, failed as failedToast } from "@/api/client";
 import { useFulltext, useItem, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
@@ -30,7 +30,7 @@ import { announce, toast } from "@/shell/toasts";
 import { EmptyState } from "@/ui/EmptyState";
 import { NotFoundBlock } from "@/ui/NotFoundBlock";
 import { ListImage, useImageFailure } from "@/layouts/parts";
-import { focusListRow, rememberListPlace } from "./ListPane";
+import { endCopy, focusListRow, rememberListPlace } from "./ListPane";
 import type { Card, Scope } from "@/api/types";
 import { ReadingMenu } from "./AppearanceControls";
 import { ListenBar } from "./ListenBar";
@@ -84,6 +84,11 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const prevId = at > 0 ? order[at - 1] : undefined;
   const nextId = at >= 0 ? order[at + 1] : undefined;
   const canPage = at >= 0;
+  // Next is off only at the real end: no next article loaded and nothing more on the server.
+  const canNext = canPage && (!!nextId || list.more);
+  // The footer names the next article; with none loaded yet its Next loads the next page.
+  const nextCard = nextId ? list.cards.find((c) => c.id === nextId) : undefined;
+  const nextLabel = !nextId ? "Next: more articles" : `Next: ${nextCard ? nextCard.title || "Untitled" : "the next article"}`;
 
   // Mark read on open, once per article (design 7.1: POST /open, never a stat elsewhere).
   const opened = useRef<string | null>(null);
@@ -145,13 +150,14 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
         const n = all.includes(id) ? all[all.indexOf(id) + 1] : all.find((x) => !known.has(x));
         return n ?? (r.more ? more() : undefined);
       };
+      // The end is said aloud, not in a toast: the switched-off Next and the footer already show it.
       void more().then(
-        (n) => (n ? go(n) : toast("End of list")),
+        (n) => (n ? go(n) : announce(endCopy(scope))),
         (e) => toast(failedToast("load more articles", e), "error"),
       );
       return;
     }
-    if (canPage) toast("End of list");
+    if (canPage) announce(endCopy(scope));
   };
   const prev = () => go(prevId);
 
@@ -239,6 +245,12 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const frameRef = useCallback((el: HTMLDivElement | null) => setFrameEl(el), []);
   useSwipeBack(frameEl, { enabled: !pane && !!item.data, onBack: back });
 
+  // Beside the list the footer goes away while the next article loads: focus moves to the toolbar's Next, which stays.
+  const footerNext = () => {
+    if (pane) frameEl?.querySelector<HTMLElement>('[role="toolbar"] [aria-label="Next article"]')?.focus();
+    next();
+  };
+
   // Reading stats (design 8, rule 5): one session per open, keyed by the open's answer. Only this article's own
   // open counts: a result left over from the previous article in the wide pane has another id. Activity counts only
   // inside this pane (never over the list beside it).
@@ -309,7 +321,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
       ftBusy={ftBusy}
       paging={paging}
       canPrev={!!prevId}
-      canNext={canPage}
+      canNext={canNext}
       onPrev={() => prev()}
       onNext={() => next()}
       onStar={toggleStar}
@@ -452,6 +464,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
               dangerouslySetInnerHTML={{ __html: html }}
             />
           )}
+          {paging && canPage ? (
+            <ArticleEnd at={at + 1} of={order.length} more={list.more} canNext={canNext} label={nextLabel} end={endCopy(scope)} onNext={footerNext} />
+          ) : null}
         </article>
       </div>
       {!pane && toolbar(false)}
@@ -459,10 +474,28 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   );
 }
 
+/** The end of an article: where it sits in its list and the next one by name, so a long read ends without a scroll back to the toolbar. */
+function ArticleEnd(p: { at: number; of: number; more: boolean; canNext: boolean; label: string; end: string; onNext: () => void }) {
+  return (
+    <footer data-testid="article-end" className="kp-ui mx-auto mt-10 max-w-[min(var(--kp-col),100%)] border-t border-line pt-4 text-sm text-fg2">
+      <p>{p.more ? `Article ${p.at} of ${p.of} so far` : `Article ${p.at} of ${p.of}`}</p>
+      {p.canNext ? (
+        <Button variant="ghost" onClick={p.onNext} className="mt-2 h-auto min-h-11 max-w-full justify-start gap-2 px-2 py-2 text-left text-base">
+          <ChevronDown aria-hidden="true" className="shrink-0" />
+          <span className="line-clamp-2 min-w-0">{p.label}</span>
+        </Button>
+      ) : (
+        <p className="mt-2">{p.end}</p>
+      )}
+    </footer>
+  );
+}
+
 function TopBar({ onBack }: { onBack: () => void }) {
   return (
     <header className="pt-safe flex shrink-0 items-center border-b border-line bg-bg px-1">
-      <Button variant="ghost" onClick={onBack} aria-label="Back to list" className="px-2">
+      {/* History back: it may return to a feed, a search or the Feeds screen, so it is named for what it does, not "Back to list". */}
+      <Button variant="ghost" onClick={onBack} className="px-2">
         <ChevronLeft aria-hidden="true" />
         <span>Back</span>
       </Button>
@@ -507,10 +540,10 @@ function Toolbar(p: ToolbarProps) {
       {p.paging ? (
         <>
           <Button variant="ghost" size="icon" onClick={p.onPrev} aria-disabled={!p.canPrev || undefined} aria-label="Previous article">
-            {p.top ? <ChevronUp aria-hidden="true" /> : <ChevronLeft aria-hidden="true" />}
+            <ChevronUp aria-hidden="true" />
           </Button>
           <Button variant="ghost" size="icon" onClick={p.onNext} aria-disabled={!p.canNext || undefined} aria-label="Next article">
-            {p.top ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+            <ChevronDown aria-hidden="true" />
           </Button>
         </>
       ) : null}
