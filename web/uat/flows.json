@@ -1,5 +1,5 @@
 {
-  "comment": "Every web/uat/*.mjs is either a flow below or listed in excluded with the reason. `node uat/all.mjs --check` fails otherwise, so a new flow cannot be silently left out of CI. Order matters: flows that mark articles read (keyboard) come last. To add a flow to chromium, insert its line above the last entry (never after it) and keep the trailing comma: .gitattributes merges this file by union, so two PRs adding different lines both stay.",
+  "comment": "Every web/uat/*.mjs is either a flow below or listed in excluded with the reason. `node uat/all.mjs --check` fails otherwise, so a new flow cannot be silently left out of CI. Order matters: flows that mark articles read (keyboard) come last. To add a flow to chromium, insert its line above the last entry (never after it) and keep the trailing comma: .gitattributes merges this file by union, so two PRs adding different lines both stay. A new flow adds a line here and nothing else: no npm script in package.json and no eslint line (uat/*.mjs is one glob); run it with `node uat/<name>.mjs`.",
   "chromium": [
     "run.mjs",
     "offline.mjs",
