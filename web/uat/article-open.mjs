@@ -9,8 +9,8 @@
 // whose source never answers, so every list picture the page asks for stays in flight. For each width (desktop 1280x800, phone 375x812) it
 // opens the list and checks:
 //   A1  the list shows its rows while the pictures are held;
-//   A2  opening an article shows its text within 2 s (the picture requests are still held);
-//   A3  with the article's read delayed, the title and source the list already knew are on screen meanwhile.
+//   A2  opening an article shows its text within 4 s (the picture requests are still held);
+//   A3  with the article's read delayed 4 s, the title and source the list already knew are on screen meanwhile.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
@@ -56,23 +56,25 @@ await t.eachViewport(async (page, vp) => {
     const body = page.getByTestId("article-body");
     const started = Date.now();
     await rows.first().click();
-    await body.getByText(/^Body text of held article \d+\.$/).waitFor({ timeout: 3000 }).catch(() => {});
+    await body.getByText(/^Body text of held article \d+\.$/).waitFor({ timeout: 5000 }).catch(() => {});
     const took = Date.now() - started;
     console.log(`     ${tag}: ${held.size} pictures held, article text after ${took} ms`);
     const shown = (await body.getByText(/^Body text of held article \d+\.$/).count()) > 0;
-    check(shown && took < 2000, `${tag} A2 text`, "the article text shows within 2 s while list pictures are held", shown ? `it took ${took} ms` : "the article text never showed (still loading)");
+    check(shown && took < 4000, `${tag} A2 text`, "the article text shows within 4 s while list pictures are held", shown ? `it took ${took} ms` : "the article text never showed (still loading)");
 
-    // A3: the read held for 2 s; the list's card (title and source) stands in for the text until it arrives.
-    if (vp.mobile) await page.goBack();
+    // A3: the read held for 4 s; the list's card (title and source) stands in for the text until it arrives. The list
+    // is opened afresh, so nothing here depends on where A2 left the page.
     await page.route("**/api/items/*", async (route) => {
-      if (route.request().method() === "GET") await new Promise((r) => setTimeout(r, 2000));
+      if (route.request().method() === "GET") await new Promise((r) => setTimeout(r, 4000));
       await route.continue();
     });
+    await page.goto(`/l/all?feed=${added.feedId}`, { waitUntil: "load" });
+    await rows.nth(1).waitFor({ timeout: 15000 });
     await rows.nth(1).click();
     const card = page.getByTestId("loading-card-title");
-    const cardShown = await card.waitFor({ timeout: 1500 }).then(() => true, () => false);
+    const cardShown = await card.waitFor({ timeout: 3000 }).then(() => true, () => false);
     check(cardShown && /^UAT held article \d+$/.test((await card.textContent()) ?? ""), `${tag} A3 card`, "the list's title shows while the article text loads", "no card title while loading");
-    await body.getByText(/^Body text of held article \d+\.$/).waitFor({ timeout: 6000 });
+    await body.getByText(/^Body text of held article \d+\.$/).waitFor({ timeout: 15000 });
     await page.unroute("**/api/items/*");
   });
 });

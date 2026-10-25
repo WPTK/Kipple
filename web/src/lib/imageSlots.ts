@@ -6,6 +6,9 @@
  */
 export const MAX_LIST_IMAGES = 3;
 
+/** A picture whose source hangs gives its place back after this long; the picture keeps loading. */
+export const SLOT_HOLD_MS = 8_000;
+
 let active = 0;
 const waiting: (() => void)[] = [];
 
@@ -20,17 +23,22 @@ function pump() {
  */
 export function takeImageSlot(go: () => void): () => void {
   let state: "waiting" | "held" | "done" = "waiting";
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const grant = () => {
     state = "held";
     active++;
+    timer = setTimeout(release, SLOT_HOLD_MS);
     go();
   };
   if (active < MAX_LIST_IMAGES) grant();
   else waiting.push(grant);
-  return () => {
+  function release() {
+    clearTimeout(timer);
     if (state === "held") active--;
     else if (state === "waiting") waiting.splice(waiting.indexOf(grant), 1);
+    else return;
     state = "done";
     pump();
-  };
+  }
+  return release;
 }

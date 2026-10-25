@@ -91,13 +91,24 @@ function fitOf(img: HTMLImageElement): "cover" | "contain" {
  * shown" in place of an image; a list row just drops it.) `shaped`: the picture is a lead in a wide frame, cut to
  * the frame only when its shape is close to it (fitOf); a thumbnail is always cut to its square.
  */
+/** The nearest ancestor that scrolls on its own (the list pane), or null for the page: an observer's margin only widens its root. */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY;
+    if (o === "auto" || o === "scroll") return p;
+  }
+  return null;
+}
+
 export function ListImage({ src, failure, className, frame, shaped }: { src: string; failure: ImageFailure; className?: string; frame?: { className?: string }; shaped?: boolean }) {
   const [, bump] = useState(0);
   const el = useRef<HTMLImageElement>(null);
   const release = useRef<() => void>(() => undefined);
   // The address is given to the picture only when it is near the screen and a place to load is free (takeImageSlot),
   // so a list never holds all the browser's connections. One already loaded once comes from the cache, with no wait.
-  const [ready, setReady] = useState(() => loaded.has(src));
+  // Keyed on the address: a row reused for another picture starts again, waiting for the screen and a place.
+  const [readyFor, setReadyFor] = useState<string | null>(() => (loaded.has(src) ? src : null));
+  const ready = readyFor === src;
   useEffect(() => {
     if (ready || failure.failed) return;
     let granted = false;
@@ -105,7 +116,7 @@ export function ListImage({ src, failure, className, frame, shaped }: { src: str
     const ask = () => {
       cancel = takeImageSlot(() => {
         granted = true;
-        setReady(true);
+        setReadyFor(src);
       });
       release.current = cancel;
     };
@@ -121,7 +132,7 @@ export function ListImage({ src, failure, className, frame, shaped }: { src: str
         watch.disconnect();
         ask();
       },
-      { rootMargin: "600px 0px" },
+      { root: scrollParent(el.current), rootMargin: "600px 0px" },
     );
     watch.observe(el.current);
     return () => {
@@ -130,7 +141,7 @@ export function ListImage({ src, failure, className, frame, shaped }: { src: str
     };
   }, [src, ready, failure.failed]);
   // The place a loading picture holds is given back when its row leaves the page.
-  useEffect(() => () => release.current(), []);
+  useEffect(() => () => release.current(), [src]);
   if (failure.failed) return null;
   const fit = (shaped && fits.get(src)) || "cover";
   const img = (
