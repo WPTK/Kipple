@@ -95,7 +95,7 @@ describe("malformed footnote hrefs", () => {
 });
 
 describe("enhanceTables", () => {
-  it("marks numbers and short cells, and leaves long text and rich cells alone", () => {
+  it("marks numbers, short cells and running text, and leaves rich cells alone", () => {
     const root = document.createElement("div");
     root.innerHTML =
       "<table><tr><th>Name</th><th>Price</th><th>Notes</th></tr>" +
@@ -103,7 +103,7 @@ describe("enhanceTables", () => {
       "<tr><td>Gadget</td><td>-12%</td><td><p>Block</p></td></tr></table>";
     enhanceTables(root);
     const kp = [...root.querySelectorAll("td, th")].map((c) => (c as HTMLElement).dataset.kp ?? "");
-    expect(kp).toEqual(["short", "short", "short", "short", "num", "", "short", "num", ""]);
+    expect(kp).toEqual(["short", "short", "short", "short", "num", "text", "short", "num", ""]);
   });
 });
 describe("enhanceImages", () => {
@@ -155,5 +155,14 @@ describe("enhanceImages", () => {
     expect(img.style.getPropertyValue("--kp-w")).toBe("400");
     expect(img.style.getPropertyValue("--kp-h")).toBe("1000");
     expect(img.hasAttribute("data-sized")).toBe(true);
+  });
+  it("gives a picture with only a width that width as a cap, not a size", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<p><img src="a.png" width="400"></p>';
+    enhanceImages(root);
+    const img = root.querySelector("img") as HTMLImageElement;
+    expect(img.style.getPropertyValue("--kp-w")).toBe("400");
+    expect(img.hasAttribute("data-sized")).toBe(false);
+    expect(img.hasAttribute("data-kp-w")).toBe(true);
   });
 });

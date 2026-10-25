@@ -111,9 +111,12 @@ asking: the history repo and website PRs for version text and screenshots.
 
 The global working-economy and subagent rules apply. Kipple specifics:
 
-- **Models and agents:** the global "Which agent" rules apply. Kipple's `pr-author` and `pr-reviewer` (both Sonnet) stay
-  for the PR flow; `release-gate` (Sonnet) runs `release-gates.ps1` on the tagged commit. Never an untyped
-  `general-purpose` agent (a hook blocks it), and `model: opus` only for `reviewer-deep`, `diagnoser`, `planner`.
+- **Models and agents:** the global "Which agent" rules apply, with Kipple's project agents in place of the global
+  ones: `pr-author` (not `worker`) for edits, `pr-reviewer` (not `reviewer`) for reviews and delta reviews,
+  `release-gate` to run `release-gates.ps1` on the tagged commit, `history-writer` for history repo updates (all
+  Sonnet). `reviewer-deep` only for the release gate or a security-sensitive diff, and the prompt must say which. Never
+  an untyped `general-purpose` agent, and `model: opus` only for `reviewer-deep`, `diagnoser`, `planner`. A hook
+  (`agent-economy-guard.py` on the dev machine) blocks all of these.
 - **Review loop cap, per PR:** one `pr-reviewer` pass, `pr-triage` sorts the findings, one `pr-author` fixes blockers and
   fixes in a single push, at most one delta review of the fix commits only. A third round goes to the owner. Nits go in the
   PR description. `reviewer-deep` (Opus) runs once, on the release-gate commit or a security-sensitive diff, never on
