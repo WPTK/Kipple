@@ -89,11 +89,6 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   // The footer names the next article; with none loaded yet its Next loads the next page.
   const nextCard = nextId ? list.cards.find((c) => c.id === nextId) : undefined;
   const nextLabel = !nextId ? "Next: more articles" : `Next: ${nextCard ? nextCard.title || "Untitled" : "the next article"}`;
-  // Beside the list the footer goes away while the next article loads: focus moves to the toolbar's Next, which stays.
-  const footerNext = () => {
-    if (pane) frameEl?.querySelector<HTMLElement>('[role="toolbar"] [aria-label="Next article"]')?.focus();
-    next();
-  };
 
   // Mark read on open, once per article (design 7.1: POST /open, never a stat elsewhere).
   const opened = useRef<string | null>(null);
@@ -249,6 +244,12 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
   const frameRef = useCallback((el: HTMLDivElement | null) => setFrameEl(el), []);
   useSwipeBack(frameEl, { enabled: !pane && !!item.data, onBack: back });
+
+  // Beside the list the footer goes away while the next article loads: focus moves to the toolbar's Next, which stays.
+  const footerNext = () => {
+    if (pane) frameEl?.querySelector<HTMLElement>('[role="toolbar"] [aria-label="Next article"]')?.focus();
+    next();
+  };
 
   // Reading stats (design 8, rule 5): one session per open, keyed by the open's answer. Only this article's own
   // open counts: a result left over from the previous article in the wide pane has another id. Activity counts only
