@@ -66,8 +66,13 @@ Open <http://127.0.0.1:1919>. The first screen creates your account, or restores
 a few recommended feeds, none ticked until you tick them, and a link to import a feeds file from your old reader.
 Your time zone is taken from your browser; theme, address and app password are in Settings.
 
-Kipple is on your own machine, not the one you browse from? Open the address through an SSH tunnel first:
-`ssh -L 1919:127.0.0.1:1919 you@your-server`, then open <http://127.0.0.1:1919> on your own computer.
+Kipple runs on another machine? Open an SSH tunnel to it from the computer you browse on, and leave it open:
+
+```
+ssh -L 1919:127.0.0.1:1919 you@your-server
+```
+
+Then open <http://127.0.0.1:1919> on that computer.
 
 Until you create the account, anyone who can reach the port can. The command above publishes the port on `127.0.0.1`
 only, so only this machine can. Widen it after you have an account.

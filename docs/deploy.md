@@ -6,8 +6,14 @@
 2. Download [`docker-compose.pull.example.yml`](../docker-compose.pull.example.yml), save it as `docker-compose.yml`,
    set the image tag to the newest version on the [releases page](https://github.com/WPTK/Kipple/releases), and run
    `docker compose up -d kipple`.
-3. Open <http://127.0.0.1:1919> on that machine and create your account. If Kipple runs on another machine, tunnel
-   first: `ssh -L 1919:127.0.0.1:1919 you@your-server`, then open the same address on your own computer.
+3. Open <http://127.0.0.1:1919> on that machine and create your account. If Kipple runs on another machine, open an
+   SSH tunnel to it from the computer you browse on, and leave it open:
+
+   ```
+   ssh -L 1919:127.0.0.1:1919 you@your-server
+   ```
+
+   Then open the same address on that computer.
 4. Only after you have an account, widen the port (see [Ports](#ports)).
 
 The rest of this page is the operations manual: backups, upgrades, proxies and recovery.
