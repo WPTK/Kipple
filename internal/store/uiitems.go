@@ -117,14 +117,21 @@ type CardQuery struct {
 	// extracted text (word_count 0) never match either filter.
 	MinMinutes int
 	MaxMinutes int
+	// UnknownLength keeps only items with no extracted text (word_count 0), which no minutes range matches.
+	// It never combines with MinMinutes or MaxMinutes.
+	UnknownLength bool
 	// AfterID (0 = unset) keeps items with an id above it: what arrived after that item (the New page).
 	AfterID int64
 }
 
 // ReadingWhere is the SQL for the reading-time filters on column col
-// (word_count), or "" when neither is set. Minutes m means word_count in
-// ((m-1)*230, m*230].
-func ReadingWhere(col string, minM, maxM int) (string, []any) {
+// (word_count), or "" when none is set. Minutes m means word_count in
+// ((m-1)*230, m*230]; unknown keeps the items with no words at all, the ones
+// no minutes range holds.
+func ReadingWhere(col string, minM, maxM int, unknown bool) (string, []any) {
+	if unknown {
+		return col + " = 0", nil
+	}
 	if minM <= 0 && maxM <= 0 {
 		return "", nil
 	}
@@ -347,7 +354,7 @@ func listCardsSQL(q CardQuery) (string, []any, int, error) {
 			where = append(where, inFolderTreeSQL("i.feed_id", "?"))
 			args = append(args, q.FolderID)
 		}
-		if w, a := ReadingWhere("i.word_count", q.MinMinutes, q.MaxMinutes); w != "" {
+		if w, a := ReadingWhere("i.word_count", q.MinMinutes, q.MaxMinutes, q.UnknownLength); w != "" {
 			where = append(where, w)
 			args = append(args, a...)
 		}
@@ -549,13 +556,15 @@ type MarkFilter struct {
 	Fallback   *bool
 	MinMinutes int
 	MaxMinutes int
-	Bound      *Bound
+	// UnknownLength keeps only items with no extracted text (see CardQuery).
+	UnknownLength bool
+	Bound         *Bound
 	// AfterID (0 = unset) leaves out items with an id at or below it: the New page marks only what arrived after its mark.
 	AfterID int64
 }
 
 func (f MarkFilter) any() bool {
-	return f.Query != "" || f.MinMinutes > 0 || f.MaxMinutes > 0 || f.Bound != nil || f.AfterID > 0
+	return f.Query != "" || f.MinMinutes > 0 || f.MaxMinutes > 0 || f.UnknownLength || f.Bound != nil || f.AfterID > 0
 }
 
 // MarkScopeRead marks the unread items inside scope with id <= maxID read and
@@ -629,7 +638,7 @@ func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64, match string, pro
 		extra += " AND id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH :match)"
 		args = append(args, sql.Named("match", match))
 	}
-	if w, a := ReadingWhere("word_count", f.MinMinutes, f.MaxMinutes); w != "" {
+	if w, a := ReadingWhere("word_count", f.MinMinutes, f.MaxMinutes, f.UnknownLength); w != "" {
 		for i, v := range a {
 			w = strings.Replace(w, "?", fmt.Sprintf(":wc%d", i), 1)
 			args = append(args, sql.Named(fmt.Sprintf("wc%d", i), v))

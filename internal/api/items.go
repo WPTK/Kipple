@@ -137,7 +137,14 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		if v := qv.Get("max_minutes"); v != "" {
 			q.MaxMinutes, errMax = strconv.Atoi(v)
 		}
-		if errMin != nil || errMax != nil || !validMinutes(q.MinMinutes, q.MaxMinutes) {
+		if v := qv.Get("unknown_length"); v != "" {
+			if v != "1" {
+				writeError(w, http.StatusBadRequest, "bad_request")
+				return
+			}
+			q.UnknownLength = true
+		}
+		if errMin != nil || errMax != nil || !validMinutes(q.MinMinutes, q.MaxMinutes, q.UnknownLength) {
 			writeError(w, http.StatusBadRequest, "bad_request")
 			return
 		}
@@ -420,6 +427,8 @@ type markReadRequest struct {
 		Fallback *bool           `json:"fallback"`
 		MinMin   int             `json:"min_minutes"`
 		MaxMin   int             `json:"max_minutes"`
+		// UnknownLength limits the mark to articles with no extracted text; never with min_minutes or max_minutes.
+		UnknownLength bool `json:"unknown_length"`
 		// AfterID limits the mark to articles that arrived after this item (the New page).
 		AfterID json.RawMessage `json:"after_id"`
 	} `json:"scope"`
@@ -500,8 +509,8 @@ func (s *Server) markRead(w http.ResponseWriter, r *http.Request) {
 		filter.Query = searchText(sc.Q)
 		filter.Unread = sc.View == "unread"
 		filter.Fallback = sc.Fallback
-		filter.MinMinutes, filter.MaxMinutes = sc.MinMin, sc.MaxMin
-		if len(sc.Q) > maxSearchQuery || !validMinutes(sc.MinMin, sc.MaxMin) {
+		filter.MinMinutes, filter.MaxMinutes, filter.UnknownLength = sc.MinMin, sc.MaxMin, sc.UnknownLength
+		if len(sc.Q) > maxSearchQuery || !validMinutes(sc.MinMin, sc.MaxMin, sc.UnknownLength) {
 			bad()
 			return
 		}
@@ -857,7 +866,11 @@ func (s *Server) Close() {
 // maxMinutes bounds the reading-time filters to something a person could type.
 const maxMinutes = 10000
 
-func validMinutes(minM, maxM int) bool {
+// unknown (articles with no extracted text) is a length of its own, so it never combines with a range.
+func validMinutes(minM, maxM int, unknown bool) bool {
+	if unknown && (minM != 0 || maxM != 0) {
+		return false
+	}
 	return minM >= 0 && maxM >= 0 && minM <= maxMinutes && maxM <= maxMinutes && (maxM == 0 || minM <= maxM)
 }
 

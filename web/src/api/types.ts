@@ -1,7 +1,7 @@
 // Types for the UI JSON API (docs/design.md section 7). Ids are strings in
 // every JSON body; times are unix seconds.
 
-import type { ReadingLength } from "@/lib/readingLength";
+import type { SectionLength } from "@/lib/readingLength";
 
 export type View = "unread" | "all" | "starred" | "muted";
 
@@ -222,7 +222,7 @@ export interface Scope {
   /** Oldest first (device preference), or relevance (search only). Absent means newest first. */
   order?: "oldest" | "rank";
   /** Reading-time filter (lib/readingLength): only articles of this length. Absent means any length. */
-  length?: ReadingLength;
+  length?: SectionLength;
   /** Only articles that arrived after this item id: the New page's lists (lib/catchup.ts). Unread only; never a search. */
   after?: string;
   /**

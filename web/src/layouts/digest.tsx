@@ -3,6 +3,7 @@ import { Link, type To } from "react-router";
 import { useLongPressMenu } from "@/gestures/useLongPressMenu";
 import type { Card, Headline } from "@/api/types";
 import { cn } from "@/lib/cn";
+import { breaksIntoSections } from "@/lib/readingLength";
 import { articleTo } from "@/lib/routes";
 import { Button } from "@/ui/button";
 import { compact } from "./compact";
@@ -103,8 +104,9 @@ function SectionSkeleton({ rows }: { rows: number }) {
   );
 }
 
-/** "7 more in Tech", or "More in Tech" where the number is not known. */
-export const moreLabel = (s: Pick<DigestSectionView, "title" | "moreCount">): string => (s.moreCount ? `${s.moreCount} more in ${s.title}` : `More in ${s.title}`);
+/** "7 more in Tech", or "More in Tech" where the number is not known. Unnamed, the heading above is the name: "7 more", "More". */
+export const moreLabel = (s: Pick<DigestSectionView, "title" | "moreCount">, named = true): string =>
+  s.moreCount ? `${s.moreCount} more${named ? ` in ${s.title}` : ""}` : named ? `More in ${s.title}` : "More";
 
 interface SectionProps {
   section: DigestSectionView;
@@ -112,6 +114,8 @@ interface SectionProps {
   images: boolean;
   /** The heading says how many articles the section holds ("3 new"). */
   counts: boolean;
+  /** The "more" button names its section. */
+  named: boolean;
   scope: PageProps["scope"];
   onOpen: (item: Card) => void;
   actions: RowMenuActions;
@@ -121,7 +125,7 @@ interface SectionProps {
   retry: (key: string) => void;
 }
 
-function DigestSection({ section: s, rows, images, counts, scope, onOpen, actions, selectedId, tabStopId, expand, retry }: SectionProps) {
+function DigestSection({ section: s, rows, images, counts, named, scope, onOpen, actions, selectedId, tabStopId, expand, retry }: SectionProps) {
   const box = useRef<HTMLElement>(null);
   // Pressing "N more" or Retry takes its button away (or moves it): focus goes to the first article the press brought in.
   // The press is forgotten once its request has settled without bringing any (a failed Retry), or after a while, so a
@@ -190,8 +194,8 @@ function DigestSection({ section: s, rows, images, counts, scope, onOpen, action
         </div>
       ) : s.state === "ready" && s.hasMore ? (
         <Stop id={stopId("more", s.key)}>
-          <Button variant="ghost" tabIndex={-1} aria-keyshortcuts={ROW_KEYSHORTCUTS} aria-busy={s.loadingMore || undefined} aria-disabled={s.loadingMore || undefined} onClick={() => press(expand)} className="text-link">
-            {s.loadingMore ? "Loading" : moreLabel(s)}
+          <Button variant="ghost" tabIndex={-1} aria-keyshortcuts={ROW_KEYSHORTCUTS} aria-busy={s.loadingMore || undefined} aria-disabled={s.loadingMore || undefined} onClick={() => press(expand)} className="text-link" aria-label={s.loadingMore || named ? undefined : `${moreLabel(s, false)}, ${s.title}`}>
+            {s.loadingMore ? "Loading" : moreLabel(s, named)}
           </Button>
         </Stop>
       ) : null}
@@ -217,6 +221,7 @@ function DigestPage({ items, scope, more, selectedId, tabStopId, onOpen, actions
           rows={digest.rows}
           images={digest.images}
           counts={digest.counts}
+          named={digest.named}
           scope={scope}
           onOpen={onOpen}
           actions={actions}
@@ -236,4 +241,18 @@ function DigestPage({ items, scope, more, selectedId, tabStopId, onOpen, actions
 }
 
 /** In a search, which has no sections, the Digest shows Compact rows. */
-export const digest: ListLayout = { ...compact, id: "digest", label: "Digest", Page: DigestPage };
+export const digest: ListLayout = { ...compact, id: "digest", label: "Digest", Page: DigestPage, cut: "folders" };
+
+/**
+ * The Coffee break (docs/maintainers/ui-decisions.md): the Digest's page with the list cut by reading time instead of by
+ * folder. It groups unread articles, so Unread is where it is a page; All, Starred, Muted, a search and a list the reader
+ * has already filtered by length show Compact rows.
+ */
+export const coffee: ListLayout = {
+  ...compact,
+  id: "coffee",
+  label: "Coffee break",
+  Page: DigestPage,
+  cut: "length",
+  pageFor: breaksIntoSections,
+};

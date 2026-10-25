@@ -1,16 +1,26 @@
 import type { Feed, Folder, Scope } from "@/api/types";
 import { chainOf, folderTree } from "@/lib/folderTree";
+import { BREAK_LENGTHS, READING_LENGTH_LABELS } from "@/lib/readingLength";
 
 // The one section rule: a list is cut into sections one level below its scope. The Gazette and the Digest both use it,
 // so a folder's stories are grouped the same way wherever they are drawn.
 
-/** One section of a list: a folder (with everything inside it) or a single feed. */
+/** One section of a list: a folder (with everything inside it), a single feed, or one reading length of the list (the Coffee break). */
 export interface Section {
   /** Stable across renders and loads; also the key a section's own state is kept under. */
   key: string;
   title: string;
   /** What a list of just this section is scoped to. */
-  scope: Pick<Scope, "feed" | "folder">;
+  scope: Pick<Scope, "feed" | "folder" | "length">;
+}
+
+/**
+ * The Coffee break's sections: the same list as `scope` (its feed or folder), cut by reading time, in the order the page
+ * draws them. A length is a section's whole definition (the server filters by it), so no feed or folder is grouped.
+ */
+export function byLength(scope: Pick<Scope, "feed" | "folder">): Section[] {
+  const of = scope.feed ? { feed: scope.feed } : scope.folder ? { folder: scope.folder } : {};
+  return BREAK_LENGTHS.map((length) => ({ key: `len:${length}`, title: READING_LENGTH_LABELS[length], scope: { ...of, length } }));
 }
 
 /** Which section a feed belongs to, by the feed's id. */

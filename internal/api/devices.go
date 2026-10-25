@@ -107,7 +107,7 @@ func floatOneOf(vals ...float64) func(any) (any, string) {
 	}
 }
 
-var layoutIDs = []string{"magazine", "cards", "compact", "inbox", "headlines", "gazette", "digest"}
+var layoutIDs = []string{"magazine", "cards", "compact", "inbox", "headlines", "gazette", "digest", "coffee"}
 
 // maxPaperName is the longest name, in characters, a device can give the Gazette layout.
 const maxPaperName = 60
@@ -226,7 +226,7 @@ var clientDefs = map[string]clientDef{
 		}
 		return s, ""
 	}, ""},
-	// The Digest layout's device settings: what a section is (a folder or a feed), the order of the sections
+	// The Digest layout's device settings (the Coffee break uses the pictures and rows ones too): what a section is (a folder or a feed), the order of the sections
 	// (as the sidebar lists them, or the quietest feeds first), whether its rows show pictures, and how many
 	// articles each section shows before "more".
 	"client.digest_sections": {oneOf("folder", "feed"), "folder"},

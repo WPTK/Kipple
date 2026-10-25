@@ -4,17 +4,18 @@ import { itemsQuery, keys, scopeKey, SECTION_SUFFIX, useBootstrap } from "@/api/
 import type { Card, Feed, Folder, ItemsPage, Scope } from "@/api/types";
 import { useDevicePrefs, type DigestOrder, type DigestSections } from "@/lib/devicePrefs";
 import { chainOf, folderTree } from "@/lib/folderTree";
-import { byFeed, byFolder } from "@/lib/sections";
+import { byFeed, byFolder, byLength, type Section } from "@/lib/sections";
 import { createStore, useStore, useStoreSelector } from "@/lib/store";
 import { arrivedAfter } from "@/lib/itemActions";
 import { useLatestRef } from "@/lib/useLatestRef";
 import { NEW_ROWS, visitStore } from "@/lib/catchup";
-import { EXPAND_BATCH, groupFeeds, layoutDigest, orderSections, type LoadedSection } from "@/layouts/digestPlan";
-import type { DigestSectionView, DigestView } from "@/layouts/types";
+import { EXPAND_BATCH, fixedSections, groupFeeds, layoutDigest, orderSections, type LoadedSection } from "@/layouts/digestPlan";
+import type { DigestSectionView, DigestView, SectionCut } from "@/layouts/types";
 import type { ListSource } from "./listSource";
 
 /**
- * The Digest page's data: every folder (or feed) is a list of its own, asked for lazily. The first FIRST_SECTIONS are
+ * The Digest page's data: every folder (or feed) is a list of its own, asked for lazily. In the Coffee break the sections
+ * are the list's four reading lengths instead, each the same scope with a length (the server filters it). The first FIRST_SECTIONS are
  * asked for at open and STEP_SECTIONS more each time the end of the page comes near; a section shows its first few
  * cards and EXPAND_BATCH more for each press of "N more". What the page shows is digestPlan's layout over what has loaded.
  *
@@ -51,7 +52,7 @@ const SNAPSHOT_KEEP_MS = 5 * 60_000;
  * it came from (a change of either makes a new page; Rows and Images do not change which sections there are), the
  * `as_of` each section first came back with (what a mark over it is bounded by), and when the reader left it.
  */
-const opened = new Map<string, { sig: string; keys: string[]; counts: Map<string, number | null>; bounds: Map<string, string>; left: number | null }>();
+const opened = new Map<string, { sig: string; keys: string[]; counts: Map<string, number | null>; bounds: Map<string, string>; shown: Set<string>; left: number | null }>();
 /** How many mounted hooks (the list, and the reader's previous and next) use each list's page. The reader has left it only when none does. */
 const consumers = new Map<string, number>();
 /** A hook starts using the list's page: it is no longer away. Returns the call that stops. */
@@ -94,7 +95,8 @@ export interface DigestInput {
   scope: Scope;
   feeds: readonly FeedLike[];
   folders: readonly FolderLike[];
-  sections: DigestSections;
+  /** What a section is: a folder, a feed, or (the Coffee break) a reading length of the list. */
+  sections: DigestSections | "length";
   order: DigestOrder;
   rows: number;
   place: Place;
@@ -117,8 +119,8 @@ export interface SectionResult {
   refetch?: () => void;
 }
 
-/** The list a section is: its view, length and the folder or feed it is. */
-export const sectionScope = (scope: Pick<Scope, "view" | "length" | "after">, s: { scope: Pick<Scope, "feed" | "folder"> }): Scope => ({
+/** The list a section is: its view, and the folder, feed or reading length it is (a length of the section replaces the list's). */
+export const sectionScope = (scope: Pick<Scope, "view" | "length" | "after">, s: { scope: Section["scope"] }): Scope => ({
   view: scope.view,
   length: scope.length,
   ...(scope.after ? { after: scope.after } : {}),
@@ -144,8 +146,10 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
   const { scope, feeds, folders, place } = input;
   const tree = folderTree(folders);
   const inScope = feeds.filter((f) => (scope.feed ? f.id === scope.feed : scope.folder ? chainOf(tree, f.folder_id).includes(scope.folder) : true));
-  const keyOf = input.sections === "feed" ? byFeed(inScope) : byFolder(folders, inScope, scope);
-  const live = orderSections(groupFeeds(inScope, folders, keyOf, scope.view), input.order);
+  const live =
+    input.sections === "length"
+      ? fixedSections(byLength(scope))
+      : orderSections(groupFeeds(inScope, folders, input.sections === "feed" ? byFeed(inScope) : byFolder(folders, inScope, scope), scope.view), input.order);
   // A section with nothing unread is not asked for. Which sections there are, and their order, are fixed when the page opens.
   const listKey = scopeKey(scope);
   const sig = `${input.sections}|${input.order}|${input.arrivals?.visit ?? ""}`;
@@ -157,7 +161,7 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
     // On the New page a section's count is what arrived since the mark; a section the visit did not list has none.
     const countOf = (d: (typeof live)[number]): number | null => (input.arrivals ? (input.arrivals.counts.get(d.key) ?? 0) : d.count);
     const kept = live.filter((d) => !(scope.view === "unread" && countOf(d) === 0));
-    fixed = { sig, keys: kept.map((d) => d.key), counts: new Map(kept.map((d) => [d.key, countOf(d)])), bounds: new Map(), left: null };
+    fixed = { sig, keys: kept.map((d) => d.key), counts: new Map(kept.map((d) => [d.key, countOf(d)])), bounds: new Map(), shown: new Set(), left: null };
     opened.delete(listKey);
     opened.set(listKey, fixed);
     while (opened.size > PLACES_MAX) opened.delete(opened.keys().next().value!);
@@ -187,19 +191,26 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
       r = { ...r, data: { ...r.data, asOf: bound } };
     }
     results.set(d.key, r);
-    if (r.data) loaded.set(d.key, { cards: r.data.cards, more: r.data.more });
+    if (r.data) {
+      loaded.set(d.key, { cards: r.data.cards, more: r.data.more });
+      if (r.data.cards.length > 0) fixed.shown.add(d.key);
+    }
   }
   const layout = layoutDigest(defs, { view: scope.view, rows: input.rows, expanded: place.presses, activated: askedFor }, loaded);
-  return { defs, askedFor, results, layout, waiting: defs.length > askedFor.size };
+  return { defs, askedFor, results, layout, shown: fixed.shown, waiting: defs.length > askedFor.size };
 }
 export type Plan = ReturnType<typeof planDigest>;
 
-/** The sections the page draws: the ones asked for that have something to show or to say. */
-function sectionViews(plan: Plan): DigestSectionView[] {
+/**
+ * The sections the page draws: the ones asked for that have something to show or to say. A section that once showed
+ * cards on this page stays, even when a refetch or a resync brings it back empty (everything in it was read), so a
+ * section never disappears under the reader.
+ */
+export function sectionViews(plan: Plan): DigestSectionView[] {
   const out: DigestSectionView[] = [];
   for (const s of plan.layout.sections) {
     if (s.state === "waiting") continue;
-    if (s.state === "ready" && s.cards.length === 0) continue;
+    if (s.state === "ready" && s.cards.length === 0 && !plan.shown.has(s.key)) continue;
     const r = plan.results.get(s.key);
     out.push({
       ...s,
@@ -313,7 +324,7 @@ const EMPTY_CARDS: Card[] = [];
  * hook is called either way). `live` false only reads what is cached, for the reader's previous and next with no list
  * mounted.
  */
-export function useDigestSource(scope: Scope, on: boolean, live = true): DigestSource {
+export function useDigestSource(scope: Scope, on: boolean, live = true, cut: SectionCut = "folders"): DigestSource {
   const qc = useQueryClient();
   const boot = useBootstrap();
   const dp = useDevicePrefs();
@@ -331,8 +342,8 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
   const rows = after ? NEW_ROWS : dp.digestRows;
 
   const input = useMemo<DigestInput | null>(
-    () => (on && feeds && folders ? { scope: { view, feed, folder, length, after }, feeds, folders, sections: after ? "folder" : dp.digestSections, order: after ? "sidebar" : dp.digestOrder, rows, place, arrivals } : null),
-    [on, feeds, folders, view, feed, folder, length, after, dp.digestSections, dp.digestOrder, rows, place, arrivals],
+    () => (on && feeds && folders ? { scope: { view, feed, folder, length, after }, feeds, folders, sections: cut === "length" ? "length" : after ? "folder" : dp.digestSections, order: after ? "sidebar" : dp.digestOrder, rows, place, arrivals } : null),
+    [on, cut, feeds, folders, view, feed, folder, length, after, dp.digestSections, dp.digestOrder, rows, place, arrivals],
   );
   // `version` is not read here: it says that the observers' results moved.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -404,7 +415,7 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
   const asOf = useMemo(() => oldestAsOf(results.map((r) => r.data?.asOf)), [results]);
   const shownViews = useMemo(() => (plan ? sectionViews(plan) : []), [plan]);
   const allCards = useMemo(() => (plan ? plan.defs.flatMap((d) => plan.results.get(d.key)?.data?.cards ?? []) : EMPTY_CARDS), [plan]);
-  const digest = useMemo<DigestView>(() => ({ sections: shownViews, rows, images: dp.digestImages, counts: !!after, expand, retry }), [shownViews, rows, dp.digestImages, after, expand, retry]);
+  const digest = useMemo<DigestView>(() => ({ sections: shownViews, rows, images: dp.digestImages, counts: !!after, named: cut !== "length", expand, retry }), [shownViews, rows, dp.digestImages, after, cut, expand, retry]);
 
   // The sections asked for came back with nothing to show (a length filter can empty them all) and there are more to
   // ask for: ask, so the page is never empty while a section that has articles has not been looked at. With nothing

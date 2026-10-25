@@ -1,6 +1,6 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import type { Card, Headline, ItemDetail, ItemsPage, Scope } from "./types";
-import { READING_LENGTH_MINUTES, isReadingLength } from "@/lib/readingLength";
+import { READING_LENGTH_QUERY, isReadingLength } from "@/lib/readingLength";
 
 /**
  * Query keys, scope keys and list parameters. A leaf module (it imports only types) so that lib/offline.ts can use
@@ -69,6 +69,11 @@ export function parseScopeKey(key: string | null | undefined): Scope {
   return scope;
 }
 
+function lengthParams(len: NonNullable<Scope["length"]>) {
+  const { unknown, ...range } = READING_LENGTH_QUERY[len];
+  return { ...range, ...(unknown ? { unknown_length: 1 } : {}) };
+}
+
 export function itemsParams(scope: Scope, cursor?: string, limit = PAGE_SIZE) {
   return {
     view: scope.view,
@@ -80,7 +85,7 @@ export function itemsParams(scope: Scope, cursor?: string, limit = PAGE_SIZE) {
     order: scope.order,
     // Only while the user is typing (docs/design.md 7.1): a submitted or saved search never sends it.
     typing: scope.typing && scope.q ? 1 : undefined,
-    ...(scope.length ? READING_LENGTH_MINUTES[scope.length] : {}),
+    ...(scope.length ? lengthParams(scope.length) : {}),
     after: scope.after,
     cursor,
     limit,

@@ -44,15 +44,18 @@ func TestBoundOperatorTable(t *testing.T) {
 
 func TestReadingWhere(t *testing.T) {
 	t.Parallel()
-	w, a := ReadingWhere("w", 0, 0)
+	w, a := ReadingWhere("w", 0, 0, false)
 	require.Empty(t, w)
 	require.Empty(t, a)
-	w, a = ReadingWhere("w", 1, 0)
+	w, a = ReadingWhere("w", 1, 0, false)
 	require.Equal(t, "w > 0", w)
 	require.Empty(t, a)
-	w, a = ReadingWhere("w", 3, 5)
+	w, a = ReadingWhere("w", 3, 5, false)
 	require.Equal(t, "w > 0 AND w > ? AND w <= ?", w)
 	require.Equal(t, []any{int64(460), int64(1150)}, a)
+	w, a = ReadingWhere("w", 0, 0, true)
+	require.Equal(t, "w = 0", w)
+	require.Empty(t, a)
 }
 
 // The ascending keyset scans the same indexes as the descending one, for every

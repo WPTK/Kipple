@@ -227,7 +227,7 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
         {/* A layout that is always newest first has no order to toggle (the list options menu says why). On a phone
             the order lives only in the Layout menu, which leaves the title room in a one-row header. */}
-        {wide && followsOrder(layout.id) ? (
+        {wide && followsOrder(layout.id, scope) ? (
           <Button
             variant="ghost"
             size="icon"
@@ -501,7 +501,7 @@ export function ReaderRoute() {
     // "0" stands in until the visit is known (no list is drawn then).
     return { view: "unread" as const, ...(len ? { length: len } : {}), after: mark ?? "0" };
   }, [view, spKey, isArticle, isNew, mark]);
-  const order = resolveOrder(dp, useListContext(base));
+  const order = resolveOrder(dp, useListContext(base), base);
   const scope = useMemo(() => readerScope(base, order), [base, order]);
   const boot = useBootstrap();
   const tree = useFolderTree();

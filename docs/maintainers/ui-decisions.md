@@ -577,3 +577,20 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 - **Nothing to show.** A feed with no article, or only muted ones, says "No articles to show." under its name.
 - **Rejected:** a layout of the list screen (its mark-all and scope belong to one list of articles); showing only
   unread headlines (a quiet library would show empty blocks).
+
+## The Coffee break (#39, Phase C)
+
+- **What it is.** Unread articles grouped by how long they take: Under 3 minutes, 3 to 7 minutes, 8 minutes and up,
+  and Unknown length. It answers "what can I read in the time I have", which no date-ordered list does.
+- **Name and place.** A layout in the layout menu, like the Digest. It only groups Unread; Search, All, Starred, Muted
+  and a length filter show Compact rows, and the menu says so.
+- **Fixed order and no empty groups.** Shortest first. A group with nothing to read is not drawn; one the reader has
+  just finished stays until they leave, so a mark is never a disappearing act.
+- **Same look as the Digest.** The rows, "N more" opening a group in place, keys, and Mark above and below within a
+  group. Rows per section and Images are the Digest's device settings.
+- **Design twice.** A: each group is an ordinary list of the same scope plus a reading-time bucket, so it reuses the
+  Digest's planner, lazy loading and mark rules, and the server learns one parameter (`unknown_length`). B: a new
+  endpoint returning pre-grouped buckets with exact counts. B gives exact "N more" numbers at once, but costs a second
+  list contract, a second set of keys and mark scopes, and a page that behaves like no other list. A won; the cost is
+  that "N more" says "More" until a group is loaded.
+- **Rejected:** a length slider (the filter menu already has lengths); time badges only (no grouping).
