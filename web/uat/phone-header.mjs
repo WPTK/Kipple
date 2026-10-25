@@ -67,7 +67,7 @@ await t.eachViewport(async (page, vp) => {
     page.evaluate(() => {
       const header = document.querySelector("main header");
       const h1 = header.querySelector("h1");
-      const titleRow = h1.parentElement;
+      const titleRow = h1.closest("[data-title-row]");
       const show = header.querySelector('nav[aria-label="Show"], select[aria-label="Show"]');
       const nav = [...document.querySelectorAll('nav[aria-label="Primary"]')].pop();
       const links = [...nav.querySelectorAll("a")];

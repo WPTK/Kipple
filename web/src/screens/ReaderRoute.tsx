@@ -209,22 +209,26 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
           beyond that, so at normal text size on a phone the header is one row in every list; only where the pane is
           too narrow for 6.5rem and the controls together (a narrow list pane, a large text size) do the controls drop to
           a line of their own. */}
-      <div className={cn("flex max-w-full flex-wrap items-center gap-x-0.5", compact ? "w-full pt-1" : "w-fit min-w-[min(100%,25rem)] pt-2")}>
-        <Heading
-          className={cn("truncate text-xl font-bold", asSelect ? "mr-2 min-w-[3rem]" : compact ? "mr-2 min-w-[6.5rem] max-w-[40%]" : "min-w-[6.5rem] max-w-full", counted ? "mr-1 flex-initial" : !compact || asSelect ? "flex-1" : "")}
-          tabIndex={-1}
-          data-route-heading
-          aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}
-        >
-          {above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
-          {title}
-        </Heading>
-        {/* How much is unread here, beside the name and outside the heading, whose text stays the list's name alone. */}
-        {counted ? (
-          <span aria-hidden="true" data-testid="list-count" className="mr-2 shrink-0 text-sm font-normal text-fg2 tabular-nums">
-            {unreadHere}
-          </span>
-        ) : null}
+      <div data-title-row className={cn("flex max-w-full flex-wrap items-center gap-x-0.5", compact ? "w-full pt-1" : "w-fit min-w-[min(100%,25rem)] pt-2")}>
+        {/* The title and the unread count are one flex item with the sizing the heading alone used to have (a basis of zero,
+            so a long title truncates in place and never pushes the controls to a line of their own). The count sits beside
+            the heading, outside it, so the heading's text is the list's name alone. */}
+        <div className={cn("flex items-baseline", asSelect ? "mr-2 min-w-[3rem] flex-1" : compact ? "mr-2 min-w-[6.5rem] max-w-[40%]" : "min-w-[6.5rem] max-w-full flex-1")}>
+          <Heading
+            className="min-w-0 truncate text-xl font-bold"
+            tabIndex={-1}
+            data-route-heading
+            aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}
+          >
+            {above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
+            {title}
+          </Heading>
+          {counted ? (
+            <span aria-hidden="true" data-testid="list-count" className="ml-2 shrink-0 text-sm font-normal text-fg2 tabular-nums">
+              {unreadHere}
+            </span>
+          ) : null}
+        </div>
         {compact ? (
           <>
             {pills}
