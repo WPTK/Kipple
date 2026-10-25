@@ -93,31 +93,35 @@ await t.eachViewport(async (page, vp) => {
           // pipeline only in Chromium (a DevTools command), so the other engines leave this to the scroll below.
           if (t.opt.browser === "chromium") {
             const box = page.getByRole("searchbox").first();
+            // The seed's Go Blog feed always matches.
             await box.fill("go");
-            await page.locator(".search-results [data-list-scroller] [data-item-id]").first().waitFor({ timeout: 10000 });
-            const cdp = await page.context().newCDPSession(page);
-            const where2 = await page.evaluate(() => {
-              const r = document.querySelector(".search-results").getBoundingClientRect();
-              const bar = [...document.querySelectorAll('nav[aria-label="Primary"]')].pop().getBoundingClientRect();
-              return { x: Math.round(r.left + r.width / 2), y: Math.round((Math.max(r.top, 0) + Math.min(r.bottom, bar.top)) / 2) };
-            });
-            const swipe = async (dy) => {
-              const pt = (y) => [{ x: where2.x, y }];
-              await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: pt(where2.y) });
-              for (let i = 1; i <= 6; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: pt(where2.y - (dy * i) / 6) });
-              await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-              await page.waitForTimeout(200);
-              return page.evaluate(() => {
-                const shell = document.querySelector(".search-shell");
-                return { top: Math.round(shell.scrollTop), list: Math.round(shell.querySelector("[data-list-scroller]").scrollTop), short: shell.hasAttribute("data-short") };
+            const found = await page.locator(".search-results [data-list-scroller] [data-item-id]").first().waitFor({ timeout: 10000 }).then(() => true, () => false);
+            check(found, `${where} swipe results`, "a search for go has results to swipe over", "no result row appeared within 10 s");
+            if (found) {
+              const cdp = await page.context().newCDPSession(page);
+              const where2 = await page.evaluate(() => {
+                const r = document.querySelector(".search-results").getBoundingClientRect();
+                const bar = [...document.querySelectorAll('nav[aria-label="Primary"]')].pop().getBoundingClientRect();
+                return { x: Math.round(r.left + r.width / 2), y: Math.round((Math.max(r.top, 0) + Math.min(r.bottom, bar.top)) / 2) };
               });
-            };
-            const up = await swipe(60);
-            const down = await swipe(-60);
-            await cdp.detach();
+              const swipe = async (dy) => {
+                const pt = (y) => [{ x: where2.x, y }];
+                await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: pt(where2.y) });
+                for (let i = 1; i <= 6; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: pt(where2.y - (dy * i) / 6) });
+                await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+                await page.waitForTimeout(200);
+                return page.evaluate(() => {
+                  const shell = document.querySelector(".search-shell");
+                  return { top: Math.round(shell.scrollTop), list: Math.round(shell.querySelector("[data-list-scroller]").scrollTop), short: shell.hasAttribute("data-short") };
+                });
+              };
+              const up = await swipe(60);
+              const down = await swipe(-60);
+              await cdp.detach();
+              check(up.short && up.top > 0 && up.list === 0 && down.top === 0, `${where} swipe`, "a swipe up over the results moves the page, not the list, and a swipe down brings it back", `after up the page is at ${up.top} px and the list at ${up.list} (short layout ${up.short}), after down the page is at ${down.top} px`);
+            }
             await box.fill("");
             await page.getByRole("heading", { name: "Search your articles" }).waitFor({ timeout: 5000 });
-            check(up.short && up.top > 0 && up.list === 0 && down.top === 0, `${where} swipe`, "a swipe up over the results moves the page, not the list, and a swipe down brings it back", `after up the page is at ${up.top} px and the list at ${up.list} (short layout ${up.short}), after down the page is at ${down.top} px`);
           }
           // The page's own scrolling brings it into view (a page that cannot scroll leaves it where it was).
           await link.scrollIntoViewIfNeeded();
@@ -172,8 +176,8 @@ await t.eachViewport(async (page, vp) => {
   const toolbarFits = (g) => g.need <= g.have && g.firstLeft >= g.toolbarLeft && g.moreRight <= g.toolbarRight && g.toolbarRight <= g.vw;
   const headerFits = (g) => g.columnRight !== null && g.headerRight <= g.columnRight;
   /**
-   * Opens the first article beside its list at w x h and checks the article toolbar (and with `header` the list header)
-   * against its column. Device settings reach the page after it loads, and the columns follow the window through a
+   * Opens the first article beside its list at w x h and checks the article toolbar and (unless `header` is false) the
+   * list header against its column. Device settings reach the page after it loads, and the columns follow the window through a
    * ResizeObserver, so it first waits until the setting under test is in force on the page (`targets` and `text` are the
    * Large targets and text size wanted, `inset` the right safe-area inset in px, or null), failing loudly with what it saw
    * if it never is, and then polls the condition under test, to a cap, and checks what it ended with.

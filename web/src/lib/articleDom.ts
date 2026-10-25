@@ -347,6 +347,7 @@ export function watchScrollRegions(root: HTMLElement): () => void {
     regions.forEach(apply);
     return () => undefined;
   }
+  // A change that leaves the body's size alone (a web font that swaps in at the same line height) is not seen.
   if (regions.length === 0) return () => undefined;
   const ro = new ResizeObserver(() => regions.forEach(apply));
   ro.observe(root);
@@ -390,7 +391,8 @@ function aloneOnItsLine(img: Element): boolean {
  * the middle of the column), and a picture or cue the same. A picture in a line of text, beside others in a row of
  * icons, or in a table cell (where the author's cell alignment rules) is left alone. A block picture with both sizes
  * declared also gets them as --kp-w and --kp-h, so CSS can narrow its box with its height (see index.css); one with
- * only a width gets --kp-w, which CSS turns into a cap so the picture's own shape sets the box.
+ * only a width gets --kp-w, which CSS turns into a cap so the picture's own shape sets the box. Either way data-kp-w
+ * says the width is known before the file loads, so a figure may take the picture's width (index.css).
  */
 export function enhanceImages(root: ParentNode): void {
   for (const img of root.querySelectorAll<HTMLImageElement>(`img, .${NOT_SHOWN_CLASS}`)) {
@@ -400,6 +402,7 @@ export function enhanceImages(root: ParentNode): void {
     const w = declared(img, "width");
     const h = declared(img, "height");
     if (!w || img.tagName !== "IMG") continue;
+    img.dataset.kpW = "";
     img.style.setProperty("--kp-w", String(w));
     if (h) {
       img.dataset.sized = "";

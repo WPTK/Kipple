@@ -163,5 +163,6 @@ describe("enhanceImages", () => {
     const img = root.querySelector("img") as HTMLImageElement;
     expect(img.style.getPropertyValue("--kp-w")).toBe("400");
     expect(img.hasAttribute("data-sized")).toBe(false);
+    expect(img.hasAttribute("data-kp-w")).toBe(true);
   });
 });
