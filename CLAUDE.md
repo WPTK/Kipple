@@ -88,6 +88,17 @@ exact commands, backup, verification and GHCR steps are in `docs/maintainers/REL
   daily and after every release, meeting or incident: fetch first, never force-push, and apply the scrub rules (no
   host names or labels, `rss.example.com`, account names, IPs or emails).
 
+## Work tracking (how sessions avoid each other)
+
+- Remaining design-review work is one tracker issue per area (label `tracker`, milestone "Design review follow-ups").
+  The tracker is the only list of an area's remaining work; the Decision comment on each linked issue is the spec.
+- GitHub is the only record of who is working on what, not memory. Before starting, read the open trackers, the open
+  pull requests and the `in-progress` label. Set **Working now** in the tracker body and add `in-progress` when you
+  start; clear both when you stop. If a tracker is taken, work another or ask.
+- One writer on `web/` at a time. A second session may work outside `web/` (Go, docs, CI, history repo).
+- A pull request ticks the tracker lines it finishes. Review leftovers and nits go in the pull request description or stay
+  as unticked tracker lines; never a new "leftovers" issue. A defect that is on no tracker gets its own issue.
+
 ## Unattended work
 
 The global unattended-work rules apply (branches, PRs, merge on green CI, a denied command stops that item). Also without
