@@ -15,13 +15,14 @@
 //       List options can be scrolled to;
 //   P6  focus moving to the page behind an open sheet, after the press that opened it is over, closes the sheet (#727);
 //   A1  (phone, portrait and landscape) the Reading appearance panel of an open article is a short sheet: touching the
-//       bottom edge, no taller than 45% of the screen, with no dimmed page, and the article title shows above it;
+//       bottom edge, no taller than 45% of the screen, with no dimmed page, and the article title shows above it; a tap
+//       on the feed name above it (a link to the feed) closes the sheet and goes no further;
 //   A2  (desktop) beside an open article there is one Reading appearance button, and its panel is a popover.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 21);
+const t = await start(import.meta.url, 22);
 const { check, step } = t;
 
 const LAYOUT = /^List options/;
@@ -184,8 +185,19 @@ await t.eachViewport(async (page, vp) => {
       check(m.sheet && Math.abs(m.bottom - m.h) <= 1 && m.height <= 0.45 * m.h + 1 && !m.dim, `${tag} A1 ${label} sheet`, "the panel is a short sheet on the bottom edge over an undimmed page", JSON.stringify(m));
       check(m.titleBottom <= m.top, `${tag} A1 ${label} title`, "the article title shows above the sheet", `title ends at ${Math.round(m.titleBottom)}, the sheet starts at ${Math.round(m.top)}`);
       await t.shot(page, `${tag}-aa-sheet-${label}`);
-      await page.keyboard.press("Escape");
-      await panel().waitFor({ state: "detached", timeout: 5000 });
+      // A real touch on the feed name over the title (a link to the feed): the clear layer over the page takes it, so the
+      // sheet closes and the link does not open.
+      const title = await page.locator("#article-title").locator("xpath=preceding-sibling::p[1]//a").first().boundingBox();
+      const url = page.url();
+      const pages = page.context().pages().length;
+      await page.touchscreen.tap(title.x + Math.min(40, title.width / 2), title.y + title.height / 2);
+      const closed = await panel().waitFor({ state: "detached", timeout: 5000 }).then(() => true, () => false);
+      await page.waitForTimeout(500);
+      const went = page.url() !== url || page.context().pages().length !== pages;
+      check(closed && !went, `${tag} A1 ${label} tap above`, "a tap above the sheet closes it and goes no further", `closed: ${closed}, address or tabs changed: ${went}`);
+      for (const p of page.context().pages()) if (p !== page) await p.close();
+      if (page.url() !== url) await page.goBack();
+      if (!closed) await page.keyboard.press("Escape");
     });
   }
 

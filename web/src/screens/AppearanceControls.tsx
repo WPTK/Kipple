@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Popover } from "radix-ui";
 import { CaseSensitive } from "lucide-react";
 import { useSettings } from "@/api/admin";
@@ -289,49 +289,77 @@ export function HighlightToggle() {
  * second density picker.
  *
  * With a touch screen the panel is a short sheet along the bottom edge, no taller than 45% of the screen and with no
- * dimmed page, so the title and the first lines of the article above it show each change as it is made. With a mouse it
- * is a popover beside its button.
+ * dimmed page, so the title and the first lines of the article above it show each change as it is made. A clear layer over
+ * the page above it takes a tap there whole and closes the sheet on that tap's click, as the dimmed page of a touch menu
+ * does (ui/menu.tsx, `SheetContent`), so the tap cannot also open a link or press a button under it. With a mouse it is
+ * a popover beside its button.
  */
 export function ReadingMenu({ className }: { className?: string }) {
   const main = useMain();
+  const [open, setOpen] = useState(false);
+  // The pointer is read as the panel opens and kept until it closes.
+  const [touch, setTouch] = useState(false);
+  const change = (next: boolean) => {
+    if (next) setTouch(mediaMatches(TOUCH_QUERY));
+    setOpen(next);
+  };
   return (
-    <Popover.Root>
+    <Popover.Root open={open} onOpenChange={change}>
       <Popover.Trigger asChild>
         <button type="button" aria-label="Reading appearance" title="Reading appearance" className={cn("hit inline-flex items-center justify-center rounded-lg text-fg hover:bg-selection", className)}>
           <Icon of={CaseSensitive} />
         </button>
       </Popover.Trigger>
       <Popover.Portal container={main}>
-        <ReadingPanel />
+        <ReadingPanel touch={touch} close={() => setOpen(false)} />
       </Popover.Portal>
     </Popover.Root>
   );
 }
 
-/** The panel's content. It mounts only while the panel is open, so the pointer is read then and kept until it closes. */
-function ReadingPanel() {
-  const [touch] = useState(() => mediaMatches(TOUCH_QUERY));
+function ReadingPanel({ touch, close }: { touch: boolean; close: () => void }) {
+  const pressed = useRef(false);
   return (
-    <Popover.Content
-      align="end"
-      sideOffset={4}
-      collisionPadding={8}
-      aria-label="Reading appearance"
-      // data-menu-sheet pins the wrapper to the bottom edge, as for a touch menu (index.css).
-      data-menu-sheet={touch ? "" : undefined}
-      className={cn(
-        "z-50 flex flex-col gap-4 overflow-y-auto overscroll-contain border border-line bg-bg p-4 text-fg shadow-sheet",
-        touch
-          ? "mx-auto max-h-[45dvh] w-full max-w-lg rounded-t-2xl border-x-0 border-b-0 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]"
-          : "max-h-[min(80dvh,var(--radix-popover-content-available-height))] w-[min(22rem,calc(100vw-1rem))] rounded-xl",
-      )}
-    >
-      <ThemeSelect />
-      <FontSelect />
-      <TextSizeControl />
-      <DensityControl preview={false} />
-      <HighlightToggle />
-      <p className="text-xs text-fg2">Saved for this device.</p>
-    </Popover.Content>
+    <>
+      {touch ? (
+        <div
+          aria-hidden="true"
+          data-sheet-catcher=""
+          // touch-none and overscroll-none: a drag that starts above the sheet must not scroll the page behind it.
+          className="pointer-events-auto fixed inset-0 z-55 touch-none overscroll-none"
+          // Only a press that began on it, as for the dimmed page of a touch menu.
+          onPointerDown={() => (pressed.current = true)}
+          onClick={() => {
+            if (pressed.current) close();
+          }}
+        />
+      ) : null}
+      <Popover.Content
+        align="end"
+        sideOffset={4}
+        collisionPadding={8}
+        aria-label="Reading appearance"
+        // data-menu-sheet pins the wrapper to the bottom edge, as for a touch menu (index.css).
+        data-menu-sheet={touch ? "" : undefined}
+        // The press on the clear layer is not outside: the layer closes the sheet on its click, once the tap is whole.
+        onPointerDownOutside={(e) => {
+          if ((e.detail.originalEvent.target as Element | null)?.closest?.("[data-sheet-catcher]")) e.preventDefault();
+        }}
+        className={cn(
+          // z-60 as for a menu (ui/menu.tsx), so a toast does not draw over the open panel.
+          "z-60 flex flex-col gap-4 overflow-y-auto overscroll-contain border border-line bg-bg p-4 text-fg shadow-sheet",
+          touch
+            ? "mx-auto max-h-[45dvh] w-full max-w-lg rounded-t-2xl border-x-0 border-b-0 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]"
+            : "max-h-[min(80dvh,var(--radix-popover-content-available-height))] w-[min(22rem,calc(100vw-1rem))] rounded-xl",
+        )}
+      >
+        <ThemeSelect />
+        <FontSelect />
+        <TextSizeControl />
+        <DensityControl preview={false} />
+        <HighlightToggle />
+        <p className="text-xs text-fg2">Saved for this device.</p>
+      </Popover.Content>
+    </>
   );
 }
