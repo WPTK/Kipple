@@ -12,3 +12,6 @@
 *.webp binary
 *.avif binary
 internal/fetch/testdata/charset-*.xml binary
+
+# The UAT flow list gets a line from most PRs; keep every side instead of conflicting (see the comment in the file).
+web/uat/flows.json merge=union
