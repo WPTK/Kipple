@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
+import { offlineStore } from "@/lib/offlineState";
 import type { StatsRange, StatsSummary } from "@/api/types";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { renderHook } from "@testing-library/react";
@@ -110,6 +111,24 @@ describe("Stats screen", () => {
     expect(screen.queryByRole("link", { name: /Your year/ })).toBeNull();
   });
 
+  it("with no feeds, nothing read yet says to add a feed first", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [], settings: {} }),
+      "GET /api/stats/summary": () => json(emptyStats),
+    });
+    go();
+    expect(await screen.findByRole("heading", { name: "Add a feed first" })).toBeInTheDocument();
+    const add = screen.getByRole("button", { name: "Add a feed" });
+    expect(screen.queryByRole("heading", { name: "Nothing read yet" })).toBeNull();
+    // The dialog opens over Stats, and closing it gives focus back to the button that opened it.
+    const user = userEvent.setup();
+    await user.click(add);
+    const dlg = await screen.findByRole("dialog");
+    expect(window.location.pathname).toBe("/stats");
+    await user.click(within(dlg).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add a feed" })));
+  });
   it("a quiet range after earlier reading keeps the numbers and says so once", async () => {
     setup(() => ({ ...emptyStats, first_event_date: "2026-08-01", never_opened: richStats.never_opened }));
     go();
@@ -310,6 +329,23 @@ describe("Stats screen", () => {
     await waitFor(() => expect(statsCalls(m).length).toBeGreaterThan(before));
   });
 
+  it("offline, Stats says the cause once (the notice) and the block names only what is missing", async () => {
+    mockFetch({
+      "GET /api/bootstrap": () => json({ ...bootstrap, settings: {} }),
+      "GET /api/stats/summary": () => {
+        throw new TypeError("Failed to fetch");
+      },
+      "GET /api/items": () => json({ items: [], next_cursor: null }),
+    });
+    window.history.replaceState({ idx: 0 }, "", "/stats");
+    render(<App client={makeQueryClient({ retry: false })} />);
+    await screen.findByRole("heading", { name: "Kipple can't be reached" });
+    act(() => offlineStore.set((s) => ({ ...s, online: false })));
+    await screen.findByRole("heading", { name: "Stats didn't load" });
+    await screen.findByText(/Reading what's on this device/);
+    expect(screen.getAllByText(/Kipple can't be reached|You're offline/)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
   it("orders heatmap rows by the week start", async () => {
     setup(() => ({ ...richStats, week_start: "monday" }));
     go();

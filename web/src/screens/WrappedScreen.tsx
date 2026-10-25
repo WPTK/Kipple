@@ -319,7 +319,7 @@ export function WrappedScreen() {
   } else if (q.isError && !dataForYear) {
     // Before the skeleton: a failed request (or a failed switch to another year, where `data` may still be the old
     // year's) never becomes this year's data, so the skeleton would stay up for good with no way to retry.
-    body = <FailedBlock error={q.error} busy={q.isFetching} onRetry={() => void q.refetch()} />;
+    body = <FailedBlock what="Your year" error={q.error} busy={q.isFetching} onRetry={() => void q.refetch()} />;
   } else if (q.isPending || !dataForYear) {
     body = <Skeleton rows={4} label="Loading your year" />;
   } else if (model) {

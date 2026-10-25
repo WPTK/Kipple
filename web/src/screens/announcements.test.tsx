@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WIDE_QUERY } from "@/lib/useMedia";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App, { makeQueryClient } from "@/App";
@@ -8,7 +8,7 @@ import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
-import { resetUndo } from "@/lib/undo";
+import { beginUndo, resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
 import { Switch } from "@/ui/kit";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
@@ -181,7 +181,22 @@ describe("add feed: an error from picking a feed stays with the pick", () => {
 });
 
 describe("status text that is not stale or repeated (#499)", () => {
-  it("Next retires the reader's Marked unread toast, which would name no article any more", async () => {
+  it("Next retires an Undo toast for the open article, which would name no article any more", async () => {
+    routes();
+    go("/l/unread");
+    await screen.findByText("Article number 2");
+    const user = userEvent.setup();
+    await user.click(document.querySelector<HTMLElement>('[data-item-id="1001"] a') as HTMLElement);
+    const toolbar = within(await screen.findByRole("toolbar", { name: "Article actions" }));
+    // The article was marked read from its row menu beside it.
+    act(() => beginUndo("read").settle({ ids: ["1001"], undo: () => true }));
+    await waitFor(() => expect(screen.getByTestId("undo-region")).toHaveTextContent("Marked read"));
+    await user.click(toolbar.getByRole("button", { name: "Next article" }));
+    await screen.findByRole("heading", { level: 1, name: "Article number 2" });
+    expect(screen.getByTestId("undo-region")).toHaveTextContent("");
+  });
+
+  it("the reader's read toggle says so aloud and offers no Undo toast: the Unread word is the state and the item undoes itself", async () => {
     routes();
     go("/l/unread");
     await screen.findByText("Article number 2");
@@ -190,13 +205,11 @@ describe("status text that is not stale or repeated (#499)", () => {
     const toolbar = within(await screen.findByRole("toolbar", { name: "Article actions" }));
     await user.click(await toolbar.findByRole("button", { name: "More actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Mark as unread" }));
-    await waitFor(() => expect(screen.getByTestId("undo-region")).toHaveTextContent("Marked unread"));
-    await user.click(toolbar.getByRole("button", { name: "Next article" }));
-    await screen.findByRole("heading", { level: 1, name: "Article number 2" });
+    await waitFor(() => expect(screen.getByTestId("live-region")).toHaveTextContent("Marked unread"));
     expect(screen.getByTestId("undo-region")).toHaveTextContent("");
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });
 });
-
 describe("names that tell rows apart (#500)", () => {
   it("row buttons carry the article's title; the row link starts with it; the Unread link reads its count once", async () => {
     routes();

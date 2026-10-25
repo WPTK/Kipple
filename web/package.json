@@ -60,6 +60,7 @@
     "uat:group-by": "node uat/group-by.mjs",
     "uat:settings-pages": "node uat/settings-pages.mjs",
     "uat:item-actions": "node uat/item-actions.mjs",
+    "uat:state-remainders": "node uat/state-remainders.mjs",
     "uat:digest": "node uat/digest.mjs",
     "uat:catchup": "node uat/catchup.mjs",
     "uat:feed-index": "node uat/feed-index.mjs",

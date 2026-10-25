@@ -121,16 +121,20 @@ export function restoredMessage(n: number, unread: number): string {
 const IDS_PER_QUERY = 100;
 
 export function itemActions(qc: QueryClient) {
-  /** Set read state for ids and record an undo (mark-read undone = mark-unread through the API). */
-  async function setRead(ids: string[], read: boolean, reason: "swipe" | "key", restore?: () => void): Promise<void> {
+  /**
+   * Set read state for ids and record an undo (mark-read undone = mark-unread through the API). A row can leave its
+   * list (a swipe, or its menu in Unread), so those offer Undo. `undoable` is false for the open article: it stays put,
+   * its Unread word shows the state and its read item undoes itself, as its star button does. The change is announced.
+   */
+  async function setRead(ids: string[], read: boolean, reason: "swipe" | "key", restore?: () => void, undoable = true): Promise<void> {
     if (ids.length === 0) return;
-    const ticket = beginUndo(read ? "read" : "unread");
+    const ticket = undoable ? beginUndo(read ? "read" : "unread") : null;
     const res = await applyRead(qc, ids, read, reason).catch((e: unknown) => {
-      ticket.settle(null);
+      ticket?.settle(null);
       throw e;
     });
     if (!res) {
-      ticket.settle(null);
+      ticket?.settle(null);
       restore?.();
       return;
     }
@@ -139,6 +143,10 @@ export function itemActions(qc: QueryClient) {
     if (!read) {
       invalidateUnreadLists(qc);
       notifyUnread(ids);
+    }
+    if (!ticket) {
+      announce(read ? "Marked read" : "Marked unread");
+      return;
     }
     ticket.settle({
       ids,
@@ -157,8 +165,8 @@ export function itemActions(qc: QueryClient) {
     });
   }
 
-  function toggleRead(item: Card, reason: "swipe" | "key" = "key", restore?: () => void): Promise<void> {
-    return setRead([item.id], !item.read, reason, restore);
+  function toggleRead(item: Card, reason: "swipe" | "key" = "key", restore?: () => void, undoable = true): Promise<void> {
+    return setRead([item.id], !item.read, reason, restore, undoable);
   }
 
   /** Resolves to whether the server took it. */
