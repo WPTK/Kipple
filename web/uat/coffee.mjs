@@ -217,7 +217,7 @@ try {
           await page.locator("article[data-item-id]").first().waitFor({ timeout: 20000 });
           const sections = await page.locator("section[data-section]").count();
           await layoutMenu();
-          const said = await page.getByText(/groups unread articles by how long they take/).count();
+          const said = await page.getByText(/Shown as rows: the Coffee break groups Unread/).count();
           await page.keyboard.press("Escape");
           check(sections === 0 && said === 1, `${tag} K7 ${what}`, `${what} is a plain list, and the menu says why`, `${sections} section(s); explanation shown: ${said}`);
         }

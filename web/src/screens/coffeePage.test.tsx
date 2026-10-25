@@ -234,7 +234,7 @@ describe("Coffee break menu", () => {
     await screen.findByText("Short story 1");
     await user.click(screen.getByRole("button", { name: /^List options, Coffee break layout/ }));
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getByText(/groups unread articles by how long they take/)).toBeInTheDocument();
+    expect(within(menu).getByText(/Shown as rows: the Coffee break groups Unread/)).toBeInTheDocument();
     expect(within(menu).queryByRole("group", { name: "Rows per section" })).toBeNull();
   });
 });
