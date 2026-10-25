@@ -1,0 +1,1 @@
+Reader: Unread and New show their count beside the list title, and every list ends with a line naming it. (#661)

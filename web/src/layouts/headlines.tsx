@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { PublishedTime, RowMenu, StarButton, UnreadDot, rowLinkProps } from "./parts";
+import { PublishedTime, RowMenu, StarButton, UnreadDot, rowLinkProps, rowState, titleTone, useOneFeed } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
@@ -14,24 +14,25 @@ import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 function HeadlineRow({ item, selected, to, onOpen, onToggleStar, actions }: RowProps) {
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
+  const one = useOneFeed();
   return (
     <article
       data-item-id={item.id}
       data-selected={selected || undefined}
       className={cn(
         "row-host row-headline relative flex items-center gap-2 border-b border-line bg-bg px-4",
-        selected ? "bg-selection" : "hover:bg-surface",
+        rowState(selected),
       )}
     >
       <UnreadDot unread={unread} />
-      <span className="hidden w-40 shrink-0 truncate text-xs text-fg2 @[32rem]:inline">{item.source}</span>
-      <h3 className={cn("min-w-0 flex-1 truncate text-sm", unread ? "font-bold text-fg" : "font-normal text-fg2")}>
+      {one ? null : <span className="hidden w-40 shrink-0 truncate text-xs text-fg2 @[32rem]:inline">{item.source}</span>}
+      <h3 className={cn("min-w-0 flex-1 text-sm", titleTone(unread))}>
         <Link
           tabIndex={tabIndex}
           to={to}
           onClick={() => onOpen(item)}
           aria-keyshortcuts={ROW_KEYSHORTCUTS}
-          {...rowLinkProps(item, "block truncate")}
+          {...rowLinkProps(item, "headline-title block")}
         >
           <Hl text={item.title || "Untitled"} field="title" feedId={item.feed_id} />
         </Link>
@@ -39,7 +40,7 @@ function HeadlineRow({ item, selected, to, onOpen, onToggleStar, actions }: RowP
       <PublishedTime item={item} className="w-10 shrink-0 text-right text-xs text-fg2 tabular-nums" />
       <div className="-mr-2 flex shrink-0 items-center">
         {item.starred ? <StarButton item={item} onToggleStar={onToggleStar} /> : null}
-        <RowMenu item={item} actions={actions} revealOnHover />
+        <RowMenu item={item} actions={actions} />
       </div>
     </article>
   );

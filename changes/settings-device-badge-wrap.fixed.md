@@ -1,0 +1,1 @@
+Settings: the This device badge wraps instead of overflowing on narrow screens. (#615)

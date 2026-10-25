@@ -87,7 +87,7 @@ const header = () => screen.getByRole("banner");
 const buttonNames = () => within(header()).getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent);
 
 const showPills = () => within(header()).getByRole("navigation", { name: "Show" });
-const titleRow = () => within(header()).getByRole("heading", { level: 1 }).parentElement;
+const titleRow = () => within(header()).getByRole("heading", { level: 1 }).closest("[data-title-row]");
 const tabs = () => within(screen.getByRole("navigation", { name: "Primary" })).getAllByRole("link");
 const actionsMenu = () => within(header()).getByRole("button", { name: "List actions" });
 

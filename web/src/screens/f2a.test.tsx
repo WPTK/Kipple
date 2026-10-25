@@ -64,7 +64,7 @@ function media(...on: string[]) {
   }));
 }
 const REDUCED = "prefers-reduced-motion";
-const COARSE = "pointer: coarse";
+const COARSE = "any-pointer: coarse";
 
 /** Gesture time: pointer handlers read performance.now(), so tests move it by hand. */
 const clock = { t: 1000 };
@@ -139,13 +139,14 @@ describe("layouts", () => {
       expect(r.querySelector('img[src="/img/x.jpg"]')).toBeNull();
     },
     inbox: (r) => {
-      // sender (feed) in bold while unread, subject, snippet, thumb
+      // subject in bold while unread, then the source, snippet, thumb
       const row = r.querySelector('[data-item-id="1001"]') as HTMLElement;
-      expect(within(row).getByText("Example Feed")).toHaveClass("font-bold");
+      expect(row.querySelector("h3")).toHaveClass("font-bold");
+      expect(within(row).getByText("Example Feed")).toBeInTheDocument();
       expect(within(row).getByText("Excerpt for article 1")).toBeInTheDocument();
       expect(row.querySelector('img[src="/img/x.jpg"]')).not.toBeNull();
       const read = r.querySelector('[data-item-id="1002"]') as HTMLElement;
-      expect(within(read).getByText("Example Feed")).not.toHaveClass("font-bold");
+      expect(read.querySelector("h3")).not.toHaveClass("font-bold");
     },
     gazette: (r) => {
       // The whole list as one page: a masthead, stories as articles, no virtualized rows.

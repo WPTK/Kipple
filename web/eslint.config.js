@@ -51,23 +51,19 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node } },
   },
   {
+    // Every UAT flow is Node, with functions that run in the page (page.evaluate) written inline. A glob, so a new flow
+    // needs no line here; the two blocks after it narrow the files that are only one of the two.
+    files: ["uat/*.mjs"],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+  {
     // The UAT runner is Node; the probes it hands to page.evaluate run in the page and only see the page.
     files: ["uat/run.mjs", "uat/measure-unload-refusal.mjs"],
     languageOptions: { globals: { ...globals.node } },
   },
   {
-    // Node, with functions that run in the page (page.evaluate) written inline.
-    files: ["uat/wizard.mjs", "uat/offline.mjs", "uat/keyboard.mjs", "uat/folders.mjs", "uat/downloads.mjs", "uat/focus.mjs", "uat/keys.mjs", "uat/announce.mjs", "uat/controls.mjs", "uat/stats.mjs", "uat/stats-tiles.mjs", "uat/gazette-order.mjs", "uat/gazette-menu.mjs", "uat/gazette-place.mjs", "uat/group-by.mjs", "uat/reading.mjs", "uat/digest.mjs", "uat/kit.mjs", "uat/item-actions.mjs", "uat/catchup.mjs", "uat/feed-index.mjs", "uat/state-remainders.mjs", "uat/coffee.mjs"],
-    languageOptions: { globals: { ...globals.node, ...globals.browser } },
-  },
-  {
     files: ["uat/probes.mjs"],
     languageOptions: { globals: { ...globals.browser } },
-  },
-  {
-    // The single-purpose flows: Node, with the functions they hand to page.evaluate written inline.
-    files: ["uat/common.mjs", "uat/chrome.mjs", "uat/phone-shell.mjs", "uat/phone-header.mjs", "uat/phone-tabs.mjs", "uat/wrapping.mjs", "uat/phone-chrome.mjs", "uat/touch-menus.mjs", "uat/scroll-restore.mjs", "uat/rotate.mjs", "uat/feeds.mjs", "uat/states.mjs", "uat/wait-ready.mjs", "uat/all.mjs", "uat/row-name.mjs", "uat/opml-report.mjs"],
-    languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {
     // A ref refreshed in a passive effect is stale until the browser has run the effect, which React may defer past

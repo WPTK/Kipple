@@ -19,6 +19,7 @@ import { prefersReducedMotion } from "@/gestures/tracking";
 import { COLLAPSE_MS, captureAnchor, compensate, type ScrollAnchor } from "@/lib/collapse";
 import { usePullToRefresh } from "@/gestures/usePullToRefresh";
 import { pageOf, useResolvedLayout } from "@/layouts";
+import { OneFeed, isOneFeed } from "@/layouts/parts";
 import { RowTabStop, STOP_PREFIX, useRowTabIndex } from "@/layouts/rowTabStop";
 import { focusRow, pageOrder, rowKeyMove, storyIntoView } from "@/layouts/rowKeys";
 import type { ListLayout, RowMenuActions } from "@/layouts";
@@ -214,6 +215,15 @@ export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed, scopeFeeds?
   return { title: "No articles yet", body: "Kipple hasn't fetched anything from these feeds yet." };
 }
 
+/** The line under the last row of a list that has been read to its end. Worded like the empty state: it names the list. */
+export function endCopy(scope: Scope): string {
+  if (scope.q) return "End of results";
+  if (scope.after) return "End of new articles";
+  if (scope.view === "muted") return "End of muted";
+  if (scope.view === "starred") return "End of starred";
+  return scope.view === "unread" ? "End of unread" : "End of articles";
+}
+
 /** What the header can ask the list to do (mark all needs the list's own loaded ids). */
 /** Why Mark all is off while a search is still being typed. */
 export const FINISH_SEARCH = "Finish your search first (press Enter)";
@@ -222,10 +232,16 @@ export interface ListControls {
   markAllRead: () => void;
   /** How many rows are loaded (0 while loading or empty). */
   count: number;
+  /** How many of the loaded rows are unread (what Mark all will mark when nothing more is to load). */
+  unread: number;
+  /** The server has more rows than are loaded. */
+  more: boolean;
   /** A search that had no exact match and shows partial matches (docs/design.md 2.4). */
   fallback: boolean;
   /** The list finished loading and has no articles at all. */
   empty: boolean;
+  /** The first load failed (the list shows the error instead of rows): what it says. */
+  error: string | null;
   /** Focus the list's Tab stop row; false when there is none. */
   focusStop: () => boolean;
 }
@@ -276,7 +292,7 @@ function columnsFor(width: number): number {
 
 const isTouch = (): boolean => {
   try {
-    return window.matchMedia("(pointer: coarse)").matches;
+    return window.matchMedia("(any-pointer: coarse)").matches;
   } catch {
     return false;
   }
@@ -1437,6 +1453,11 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         ) : null}
       </div>
       {moreFailed}
+      {!src.more && !src.loadingMore && !src.loadMoreFailed && !src.pending && src.cards.length > 0 ? (
+        <p data-testid="list-end" className="px-4 py-6 text-center text-sm text-fg2">
+          {endCopy(scope)}
+        </p>
+      ) : null}
       </>
     );
   })();
@@ -1455,7 +1476,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     pageLook.current = firstLook(measurePage(el));
   }, [pulled, Page]);
   // Known to have nothing (not merely still loading): a search with no results has nothing to save or mark.
-  const empty = !src.pending && nothingShown;
+  const empty = !src.pending && nothingShown && !(src.error != null && !src.hasData);
+  const failedText = !src.pending && src.error != null && !src.hasData ? (tooBroadMessage(src.error) ?? errorMessage(src.error)) : null;
   // Each feed is judged by the new articles waiting from it, the way the pill counts them (one rule with the feed's empty list).
   const feeds = boot.data?.feeds;
   const folders = boot.data?.folders;
@@ -1506,8 +1528,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     return !!id && !!parentRef.current?.contains(document.activeElement);
   }, [stopRef]);
   useEffect(() => {
-    controlsRef.current?.({ markAllRead, count: items.length, fallback, empty, focusStop });
-  }, [markAllRead, items.length, fallback, empty, focusStop]);
+    controlsRef.current?.({ markAllRead, count: items.length, unread: items.filter((i) => !i.read).length, more: src.more, fallback, empty, error: failedText, focusStop });
+  }, [markAllRead, items, src.more, fallback, empty, failedText, focusStop]);
   // A header outside the list must not keep acting on a list that is gone (a list remounted under the same scope).
   useEffect(() => () => controlsRef.current?.(null), [controlsRef]);
 
@@ -1553,6 +1575,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
           aria-busy={src.pending || src.loadingMore}
           // A page layout's scroll position moves only when something scrolls it (pageSeen.ts): the browser's scroll
           // anchoring would also move it when a story above the screen changes height.
+          data-list-scroller
           className={`@container h-full overflow-y-auto overscroll-y-contain${Page ? " [overflow-anchor:none]" : ""}`}
           tabIndex={-1}
           onKeyDownCapture={onRowKey}
@@ -1575,7 +1598,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
                 <FeedFailureNote failing={noteFeeds} inFolder={!scope.feed} />
               </div>
             ) : null}
-            {body}
+            <OneFeed value={isOneFeed(scope)}>{body}</OneFeed>
           </div>
         </div>
       </div>

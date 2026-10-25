@@ -1,0 +1,1 @@
+Reader: a long Inbox title no longer pushes its row wider. (#615)

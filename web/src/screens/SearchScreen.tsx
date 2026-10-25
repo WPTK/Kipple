@@ -1,10 +1,10 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
-import { BookmarkPlus } from "lucide-react";
-import { MARK_ALL_RESULTS, MarkAllIcon } from "@/lib/itemActionTable";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { BookmarkCheck, BookmarkPlus } from "lucide-react";
+import { markAllLabel, markAllReach, MarkAllIcon } from "@/lib/itemActionTable";
 import { useMarkAllConfirm } from "./MarkAllConfirm";
-import { savedScopeOf, scopeFromSearchParams, useSavedSearches } from "@/api/savedSearches";
+import { savedScopeOf, scopeFromSearchParams, searchRoute, useSavedSearches } from "@/api/savedSearches";
 import { useBootstrap, useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
 import { visibleFeeds } from "@/lib/visibleFeeds";
@@ -50,6 +50,10 @@ export function SearchScreen() {
   const inputId = useId();
   const sortId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLFormElement>(null);
+  const headRef = useRef<HTMLElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
   const pref = useSearchOrder();
   const boot = useBootstrap();
   const tree = useFolderTree();
@@ -140,11 +144,96 @@ export function SearchScreen() {
           : "the whole library";
   const chip = where.feed ? (feedTitle ?? "One feed") : where.folder ? (folderName ?? "One folder") : where.view === "unread" ? "Unread only" : where.view === "starred" ? "Starred only" : null;
   const existing = ssId ? saved.searches.find((s) => s.id === ssId) : undefined;
+  // On a screen too short for the header and the results together (400% zoom, a phone held sideways) the screen scrolls as
+  // one (index.css .search-shell[data-short]) with only the box held at the top, and the results fill what is left below
+  // the box. Both are measured: the screen is short when the header would take more than half of it, and the box height
+  // is what the results subtract. The header is measured as the sum of its children, which is the same in both layouts
+  // (the dissolved header loses its own padding and border, so its own height would not be), so the answer cannot flip
+  // itself at a height near the cutoff.
+  const measure = useCallback(() => {
+    const shell = shellRef.current;
+    const box = boxRef.current;
+    const head = headRef.current;
+    if (!shell || !box || !head) return;
+    shell.style.setProperty("--search-box-h", `${box.offsetHeight}px`);
+    let headH = 0;
+    for (const c of Array.from(head.children) as HTMLElement[]) headH += c.offsetHeight + parseFloat(getComputedStyle(c).marginTop || "0");
+    shell.toggleAttribute("data-short", headH > shell.clientHeight / 2);
+  }, []);
+  useLayoutEffect(() => measure());
+  useLayoutEffect(() => {
+    const shell = shellRef.current;
+    const box = boxRef.current;
+    if (!shell || !box || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(shell);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [measure]);
+  // In that layout the results are their own scroller, so a wheel or a swipe over them would scroll the list while the
+  // header stays over most of the screen. The screen takes the gesture first: down moves the screen until the header is
+  // gone, up moves it back once the list is at its top. Only a gesture the screen can use is taken; the rest is the list's.
+  useEffect(() => {
+    const results = resultsRef.current;
+    const shell = shellRef.current;
+    if (!results || !shell) return;
+    const take = (dy: number, cancelable: boolean): boolean => {
+      if (!shell.hasAttribute("data-short") || dy === 0 || !cancelable) return false;
+      const room = shell.scrollHeight - shell.clientHeight;
+      const list = results.querySelector<HTMLElement>("[data-list-scroller]");
+      const can = dy > 0 ? shell.scrollTop < room - 1 : shell.scrollTop > 0 && (list?.scrollTop ?? 0) <= 0;
+      if (can) shell.scrollTop += dy;
+      return can;
+    };
+    const onWheel = (e: WheelEvent) => {
+      const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * shell.clientHeight : e.deltaY;
+      if (take(px, e.cancelable)) e.preventDefault();
+    };
+    let lastY = 0;
+    const onTouchStart = (e: TouchEvent) => {
+      lastY = e.touches[0]?.clientY ?? 0;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY ?? lastY;
+      const dy = lastY - y;
+      lastY = y;
+      if (take(dy, e.cancelable)) e.preventDefault();
+    };
+    results.addEventListener("wheel", onWheel, { passive: false });
+    results.addEventListener("touchstart", onTouchStart, { passive: true });
+    results.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => {
+      results.removeEventListener("wheel", onWheel);
+      results.removeEventListener("touchstart", onTouchStart);
+      results.removeEventListener("touchmove", onTouchMove);
+    };
+  }, []);
+  // Once the whole results are loaded (one page, or all pages asked for) their unread number is the number Mark all marks.
+  const unread = controls && !controls.empty && !controls.more ? controls.unread : null;
+  // What the line says. The screen reader hears it once per search, when the first results have settled, not as the
+  // count moves with every keystroke and every page that loads.
+  const summary =
+    controls?.error
+      ? controls.error
+      : controls && !controls.empty && controls.count > 0
+      ? `${controls.count}${controls.more ? "+" : ""} ${controls.count === 1 && !controls.more ? "result" : "results"} for ${trimmed}`
+      : controls?.empty
+        ? `No results for ${trimmed}`
+        : "";
+  const searchKey = `${q}|${whereKey}|${order}`;
+  const [said, setSaid] = useState<{ key: string; text: string } | null>(null);
+  useEffect(() => {
+    if (!ready || text !== urlQ || !summary || said?.key === searchKey) return;
+    const h = setTimeout(() => setSaid({ key: searchKey, text: summary }), 700);
+    return () => clearTimeout(h);
+  }, [ready, text, urlQ, summary, searchKey, said]);
+  const markAllText = markAllLabel(scope ?? { ...where, q }, unread);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="pt-safe shrink-0 border-b border-line bg-bg px-4 pb-3">
-        <div className="flex items-center pt-2">
+    <div className="search-screen h-full min-h-0">
+    <div ref={shellRef} className="search-shell flex h-full min-h-0 flex-col">
+      <header ref={headRef} className="search-head pt-safe shrink-0 border-b border-line bg-bg pb-3">
+        <div className="flex items-center px-4 pt-2">
           <h1 className="min-w-0 flex-1 text-xl font-bold" tabIndex={-1} data-route-heading>
             Search
           </h1>
@@ -152,7 +241,9 @@ export function SearchScreen() {
           <SearchHelp />
         </div>
         <form
+          ref={boxRef}
           role="search"
+          className="sticky top-0 z-10 bg-bg px-4"
           onSubmit={(e) => {
             e.preventDefault();
             submit();
@@ -186,7 +277,7 @@ export function SearchScreen() {
             className={cn(inputCls, "mt-2")}
           />
         </form>
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-4">
           <div className="flex items-center gap-2">
             <label htmlFor={sortId} className="text-sm whitespace-nowrap text-fg2">
               Sort by
@@ -215,26 +306,35 @@ export function SearchScreen() {
           ) : null}
         </div>
         {ready ? (
-          <div className="mt-1 flex flex-wrap gap-x-2">
-            <Button variant="ghost" onClick={() => setSaving(true)} disabled={controls?.empty === true} title={controls?.empty ? "No results to save" : undefined} className="px-2">
-              <BookmarkPlus aria-hidden="true" />
-              Save this search
-            </Button>
-            <Button
-              variant="ghost"
-              className="px-2"
-              onClick={() => markAll.ask(MARK_ALL_RESULTS, "unread articles in these results", () => controls?.markAllRead())}
-              disabled={!controls || controls.count === 0 || typing}
-              title={typing ? "Press Enter to search first, then mark all results as read" : undefined}
-            >
-              <MarkAllIcon aria-hidden="true" />
-              {MARK_ALL_RESULTS}
-            </Button>
+          <div className="px-4">
+            <p data-testid="result-count" className="mt-2 min-h-5 text-sm text-fg2 [overflow-wrap:anywhere]">
+              {controls && !controls.empty && controls.count > 0 ? summary : null}
+              {existing ? <span className="ml-2 font-medium text-fg">Saved</span> : null}
+            </p>
+            <div className="mt-1 flex flex-wrap gap-x-2">
+              <Button variant="ghost" onClick={() => setSaving(true)} disabled={!existing && controls?.empty === true} title={!existing && controls?.empty ? "No results to save" : undefined} className="px-2">
+                {existing ? <BookmarkCheck aria-hidden="true" /> : <BookmarkPlus aria-hidden="true" />}
+                {existing ? "Edit saved search" : "Save this search"}
+              </Button>
+              <Button
+                variant="ghost"
+                className="px-2"
+                onClick={() => markAll.ask(markAllText, markAllReach(scope ?? { ...where, q }, "these results"), () => controls?.markAllRead())}
+                disabled={!controls || controls.count === 0 || typing}
+                title={typing ? "Press Enter to search first, then mark all results as read" : undefined}
+              >
+                <MarkAllIcon aria-hidden="true" />
+                {markAllText}
+              </Button>
+            </div>
           </div>
         ) : null}
+        <p role="status" className="sr-only-live" data-testid="result-announce">
+          {said?.key === searchKey ? said.text : ""}
+        </p>
         {markAll.dialog}
       </header>
-      <div className="min-h-0 flex-1">
+      <div ref={resultsRef} className="search-results min-h-0 flex-1">
         {scope && !noFeeds ? (
           <ListPane key={`${q}|${whereKey}|${order}`} scope={scope} onControls={setControls} />
         ) : (
@@ -246,6 +346,23 @@ export function SearchScreen() {
                 <Button variant="solid" onClick={() => navigate("/feeds", { state: { open: "add" } })}>
                   Add a feed
                 </Button>
+              ) : trimmed.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 text-sm">
+                  <p className="text-fg2">
+                    Try <code className="font-mono text-fg">title:bridges</code> or <code className="font-mono text-fg">&quot;exact phrase&quot;</code>.
+                  </p>
+                  {saved.searches.length > 0 ? (
+                    <ul aria-label="Saved searches" className="flex flex-col items-center">
+                      {saved.searches.slice(0, 5).map((s) => (
+                        <li key={s.id}>
+                          <Link to={searchRoute(s)} className="inline-flex min-h-11 items-center text-link underline underline-offset-2">
+                            {s.name}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               ) : null
             }
           />
@@ -262,6 +379,7 @@ export function SearchScreen() {
           existing={existing}
         />
       ) : null}
+    </div>
     </div>
   );
 }

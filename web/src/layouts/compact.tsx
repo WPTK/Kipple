@@ -1,14 +1,13 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps } from "./parts";
+import { RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, rowState, titleTone } from "./parts";
 import type { ListLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 
 /**
  * Compact: unread dot, a small source and time line over a 1-2 line title, no
- * image. The star shows only when starred (or on hover/focus); everything else
- * is in the row menu. Rows are min 44 px on touch (see .row-compact).
+ * image, then the star and the row menu. Rows are min 44 px on touch (see .row-compact).
  */
 function CompactRow({ item, feed, selected, to, onOpen, onToggleStar, actions }: RowProps) {
   const tabIndex = useRowTabIndex();
@@ -19,13 +18,13 @@ function CompactRow({ item, feed, selected, to, onOpen, onToggleStar, actions }:
       data-selected={selected || undefined}
       className={cn(
         "row-host row-compact relative flex items-center gap-2 border-b border-line bg-bg px-4",
-        selected ? "bg-selection" : "hover:bg-surface",
+        rowState(selected),
       )}
     >
       <UnreadDot unread={unread} />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-1">
-        <SourceTimeMeta item={item} icon={feed?.icon} />
-        <h3 className={cn("line-clamp-2 text-sm leading-snug", unread ? "font-bold text-fg" : "font-normal text-fg2")}>
+        <SourceTimeMeta item={item} feed={feed} />
+        <h3 className={cn("line-clamp-2 text-sm leading-snug [overflow-wrap:anywhere]", titleTone(unread))}>
           <Link
             tabIndex={tabIndex}
             to={to}
@@ -38,8 +37,8 @@ function CompactRow({ item, feed, selected, to, onOpen, onToggleStar, actions }:
         </h3>
       </div>
       <div className="-mr-2 flex shrink-0 items-center">
-        {item.starred ? <StarButton item={item} onToggleStar={onToggleStar} /> : <StarButton item={item} onToggleStar={onToggleStar} className="row-fine-only row-reveal" />}
-        <RowMenu item={item} actions={actions} revealOnHover />
+        <StarButton item={item} onToggleStar={onToggleStar} />
+        <RowMenu item={item} actions={actions} />
       </div>
     </article>
   );

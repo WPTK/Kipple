@@ -289,7 +289,7 @@ describe("Save this search", () => {
     go("/search?q=cats&feed=1&order=date&ss=s2");
     const user = userEvent.setup();
     await screen.findByText("Article number 1");
-    await user.click(screen.getByRole("button", { name: "Save this search" }));
+    await user.click(screen.getByRole("button", { name: "Edit saved search" }));
     const dlg = await screen.findByRole("dialog", { name: "Save this search" });
     await user.click(within(dlg).getByRole("button", { name: /^Update/ }));
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));

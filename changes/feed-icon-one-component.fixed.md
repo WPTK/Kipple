@@ -1,0 +1,1 @@
+Reader: every layout draws a feed's icon the same way, and an unstarred star shows at full strength. (#630)
