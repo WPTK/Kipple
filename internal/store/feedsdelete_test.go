@@ -112,7 +112,7 @@ func TestDeleteFolderLeavesMarkedFeedsAlone(t *testing.T) {
 	a := e.loadFeed("http://a.example/feed", 2)
 	b := e.loadFeed("http://b.example/feed", 2)
 	e.exec("UPDATE feeds SET folder_id = ? WHERE id IN (?, ?)", fo.ID, a, b)
-	_, err = e.db.MarkFeedsDeleting(e.ctx, []int64{a}, false)
+	_, _, err = e.db.MarkFeedsDeleting(e.ctx, []int64{a}, false)
 	require.NoError(t, err)
 
 	moved, err := e.db.DeleteFolder(e.ctx, fo.ID)

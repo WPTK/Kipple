@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import type { Bootstrap, Card, ItemDetail, ItemsPage } from "@/api/types";
 import { markerCookie } from "@/api/sessionProbe";
+import { API_VERSION } from "@/lib/offlineState";
 
 export function card(n: number, over: Partial<Card> = {}): Card {
   return {
@@ -67,7 +68,7 @@ export const bootstrap: Bootstrap = {
 type Handler = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>;
 
 export const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "X-Kipple-API": "1", ...headers } });
+  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "X-Kipple-API": String(API_VERSION), ...headers } });
 
 /**
  * The browser's session marker (docs/design.md §7). Every test starts with it, as a browser with a session does

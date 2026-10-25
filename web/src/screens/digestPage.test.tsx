@@ -417,6 +417,45 @@ describe("Digest article order", () => {
     await user.click(screen.getByRole("button", { name: "Previous article" }));
     await waitFor(() => expect(window.location.pathname).toBe("/i/1002"));
   });
+
+  it("Next past the last section on the page says the next section could not be loaded, not that the list ended", async () => {
+    // FIRST_SECTIONS sections are on the page; the one after them fails to load. The article is opened by its address, so
+    // no list is mounted to ask for that section first: the reader's own Next does.
+    const counts = Array.from({ length: FIRST_SECTIONS + 1 }, () => 3);
+    const fail = new Set([FIRST_SECTIONS]);
+    const { calls } = routes({
+      boot: library(counts),
+      counts,
+      fail,
+      extra: {
+        "GET /api/status": () => json({ runs: [], inflight: 0, unread_total: 21 }),
+        ...Object.fromEntries(
+          [FIRST_SECTIONS - 1, FIRST_SECTIONS].flatMap((n) =>
+            articlesOf(n, 3).flatMap((c) => [
+              [`GET /api/items/${c.id}`, () => json(detail(1, { id: c.id, title: c.title }))],
+              [`POST /api/items/${c.id}/open`, () => json({ session_key: "k", item: detail(1, { id: c.id, read: true }) })],
+            ]),
+          ),
+        ),
+      },
+    });
+    const user = userEvent.setup();
+    const lastId = 1000 * FIRST_SECTIONS + 2; // the third story of the last section on the page
+    go(`/i/${lastId}?from=unread`);
+    await screen.findByTestId("article-body");
+    await waitFor(() => expect(itemCalls(calls)).toHaveLength(FIRST_SECTIONS)); // the page's sections, asked for by the reader's list
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50)); // and answered
+    });
+    await user.click(screen.getByRole("button", { name: "Next article" }));
+    expect((await screen.findAllByText(/Couldn.t load more articles/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText("End of list")).toBeNull();
+    expect(window.location.pathname).toBe(`/i/${lastId}`);
+    // The section loads on the next try, and Next goes on to its first story.
+    fail.clear();
+    await user.click(screen.getByRole("button", { name: "Next article" }));
+    await waitFor(() => expect(window.location.pathname).toBe(`/i/${1000 * (FIRST_SECTIONS + 1)}`));
+  });
 });
 
 describe("Digest settings in the list options menu", () => {

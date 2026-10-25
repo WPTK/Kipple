@@ -14,7 +14,7 @@ export interface ListOrder {
   cards: Card[];
   /** The server has more articles than are loaded. */
   more: boolean;
-  /** Load the next page: the reading order after it, and whether there is still more to load. */
+  /** Load the next page: the reading order after it, and whether there is still more to load. Rejects when the page could not be loaded. */
   fetchMore: () => Promise<{ ids: string[]; more: boolean }>;
 }
 
@@ -52,7 +52,8 @@ export function useListOrder(scope: Scope, id: string, enabled: boolean): ListOr
   );
   const listed = useMemo(() => flattenItems(list.data), [list.data]);
   const cards = digested ? digest.loadedCards : listed;
-  const more = digested ? digest.more : !!list.hasNextPage;
+  // A Digest section that failed to load is still to come: asking again retries it, so Next never calls that the end.
+  const more = digested ? digest.more || digest.digest.sections.some((s) => s.error != null) : !!list.hasNextPage;
   const ids = useMemo(() => {
     if (!enabled) return [];
     return digested ? digest.cards.map((c) => c.id) : orderOf(listed, more);
@@ -63,7 +64,8 @@ export function useListOrder(scope: Scope, id: string, enabled: boolean): ListOr
       return { ids: r.cards.map((c) => c.id), more: r.more };
     }
     const r = await list.fetchNextPage();
-    return { ids: orderOf(flattenItems(r.data), !!r.hasNextPage), more: !!r.hasNextPage && !r.isFetchNextPageError };
+    if (r.isFetchNextPageError) throw r.error; // a page that failed to load is not the end of the list
+    return { ids: orderOf(flattenItems(r.data), !!r.hasNextPage), more: !!r.hasNextPage };
   };
   return { ids, cards, more, fetchMore };
 }

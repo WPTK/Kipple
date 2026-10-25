@@ -313,7 +313,7 @@ export interface DigestSource extends ListSource {
   digest: DigestView;
   /** Every article the sections hold, shown or not, in the page's order. */
   loadedCards: Card[];
-  /** Ask for the next sections; resolves once they are in, with the articles shown then and whether sections are still left. */
+  /** Ask for the next sections; resolves once they are in, with the articles shown then and whether sections are still left. Rejects when a section could not be loaded and the page grew by nothing. */
   loadMore: () => Promise<{ cards: Card[]; more: boolean }>;
 }
 
@@ -388,9 +388,10 @@ export function useDigestSource(scope: Scope, on: boolean, live = true, cut: Sec
   const loadMore = useCallback(async () => {
     const inp = latest.current.input;
     if (!inp) return { cards: [], more: false };
+    const shownBefore = snapshot().cards.length;
     setPlace(listKey, (p) => ({ ...p, steps: p.steps + 1 }));
     const next = planDigest({ ...inp, place: placeOf(listKey) }, (sc) => fromCache(qc, sc));
-    await Promise.allSettled(
+    const settled = await Promise.allSettled(
       next.defs
         .filter((d) => next.askedFor.has(d.key))
         .map((d) => {
@@ -398,7 +399,11 @@ export function useDigestSource(scope: Scope, on: boolean, live = true, cut: Sec
           return qc.fetchInfiniteQuery(itemsQuery(sc, keys.section(sc), SECTION_PAGE));
         }),
     );
-    return snapshot();
+    const now = snapshot();
+    // Sections that failed leave the page as it was: that is not the end of the list, and the caller says so.
+    const failed = settled.find((s): s is PromiseRejectedResult => s.status === "rejected");
+    if (failed && now.cards.length <= shownBefore) throw failed.reason;
+    return now;
   }, [qc, listKey, snapshot, latest]);
 
   const startOver = useCallback(async () => {

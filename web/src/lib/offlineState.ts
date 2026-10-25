@@ -42,7 +42,7 @@ export function setUpdateReady(): void {
 }
 
 /** The web API contract this build speaks; the server announces its own in X-Kipple-API (internal/httpx). Keep it a plain `export const API_VERSION = N;`: internal/httpx/headers_test.go reads it from this source. */
-export const API_VERSION = 1;
+export const API_VERSION = 2;
 
 /** Read the handshake headers of an /api response. */
 export function noteResponse(res: Pick<Response, "headers">, quiet = false): void {

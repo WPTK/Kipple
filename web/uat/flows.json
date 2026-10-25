@@ -52,6 +52,7 @@
     "catchup.mjs",
     "wizard.mjs",
     "feed-index.mjs",
+    "next-page-failure.mjs",
     "article-open.mjs",
     "row.mjs"
   ],

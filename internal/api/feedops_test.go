@@ -500,6 +500,39 @@ func TestBulkDeleteFeeds(t *testing.T) {
 	require.Equal(t, 1, h.count("SELECT count(*) FROM feeds WHERE id = ?", keep))
 }
 
+// The archive feed is never marked and may stay (here the other feed's starred item fills it), so the answer does not
+// count it: "deleted" is the feeds that are gone from every list.
+func TestBulkDeleteDoesNotCountTheArchiveFeed(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	seed := h.addFeed("Seed", 0)
+	h.addItem(seed, seedItem{Starred: true})
+	code, body, _ := h.api(c, "POST", "/api/feeds/delete", fmt.Sprintf(`{"ids":["%d"]}`, seed)) // creates the archive feed
+	require.Equal(t, 200, code)
+	require.EqualValues(t, 1, body["deleted"])
+	require.Eventually(t, func() bool { return h.count("SELECT count(*) FROM feeds WHERE id = ?", seed) == 0 }, 10*time.Second, 20*time.Millisecond)
+	var arch int64
+	require.NoError(t, h.db.Reader().QueryRow("SELECT id FROM feeds WHERE disabled_reason = 'archive'").Scan(&arch))
+	h.exec("UPDATE items SET starred = 0 WHERE feed_id = ?", arch) // nothing starred in the archive: it may be deleted
+
+	b := h.addFeed("B", 0)
+	h.addItem(b, seedItem{Starred: true})
+	code, body, _ = h.api(c, "POST", "/api/feeds/delete", fmt.Sprintf(`{"ids":["%d","%d"]}`, arch, b))
+	require.Equal(t, 200, code)
+	require.EqualValues(t, 1, body["deleted"], "b was marked; the archive never is")
+	require.Eventually(t, func() bool { return h.count("SELECT count(*) FROM feeds WHERE id = ?", b) == 0 }, 10*time.Second, 20*time.Millisecond)
+	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE feed_id = ? AND starred = 1", arch), "b's starred item went to the archive")
+	require.Never(t, func() bool { return h.count("SELECT count(*) FROM feeds WHERE id = ?", arch) == 0 }, 250*time.Millisecond, 25*time.Millisecond, "the archive stays, holding b's starred item")
+
+	// Nothing starred is left in it and nothing else is in the set: it goes, and still counts for nothing.
+	h.exec("UPDATE items SET starred = 0 WHERE feed_id = ?", arch)
+	code, body, _ = h.api(c, "POST", "/api/feeds/delete", fmt.Sprintf(`{"ids":["%d"]}`, arch))
+	require.Equal(t, 200, code)
+	require.EqualValues(t, 0, body["deleted"], "the archive alone marks nothing")
+	require.Eventually(t, func() bool { return h.count("SELECT count(*) FROM feeds WHERE id = ?", arch) == 0 }, 10*time.Second, 20*time.Millisecond)
+}
+
 func TestDeletePreviewCountsArticles(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)

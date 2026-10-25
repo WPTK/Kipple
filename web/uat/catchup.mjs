@@ -13,7 +13,8 @@
 //   C5  opening a story from the page and coming back leaves the account's mark where it was;
 //   C6  leaving the page moves the mark to the newest story the page showed;
 //   C7  after two more stories arrive in one folder, the page shows that folder with "2 new" and the other not at all;
-//   C8  with nothing new the page says so.
+//   C8  with nothing new the page says so;
+//   C9  a story opened by its address (a new tab), then back on the page: leaving it moves the mark.
 // Chromium only. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
@@ -57,11 +58,23 @@ try {
     const ready = async () => {
       await settled(() => !document.querySelector('[data-testid="digest-skeleton"]'), 15000);
     };
+    // Polls `holds` from here until it is true, for at most `ms`. Anything that must ask the server is polled this way: a
+    // waitForFunction whose function is async is satisfied at once by the promise it returns, and so never waits.
+    const until = async (holds, ms = 10000) => {
+      for (const end = Date.now() + ms; Date.now() < end; await page.waitForTimeout(250)) if (await holds()) return true;
+      return false;
+    };
     // Waits until the account's mark is past `prev` (leaving the page posts it a moment after the route changes).
-    const markPast = (prev) =>
-      page
-        .waitForFunction(async (p) => BigInt((await (await fetch("/api/catchup", { headers: { Accept: "application/json" } })).json()).mark) > BigInt(p), prev, { timeout: 10000, polling: 250 })
-        .then(() => true, () => false);
+    const markPast = (prev) => until(async () => gt(await mark(), prev));
+    // Waits until the feed holds `n` stories. A refresh that joins a fetch already under way brings the old stories, so it asks again.
+    const storiesIn = (feedId, n) =>
+      until(async () => {
+        const have = await page.evaluate(async (feed) => ((await (await fetch(`/api/items?view=all&feed=${feed}`, { headers: { Accept: "application/json" } })).json()).items ?? []).length, feedId);
+        if (have >= n) return true;
+        await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
+        await page.waitForTimeout(750);
+        return false;
+      }, 30000);
     const openNew = async () => {
       await page.getByRole("link", { name: "New", exact: true }).first().click();
       await page.waitForURL("**/l/new*", { timeout: 10000 });
@@ -155,10 +168,7 @@ try {
       // C7: two stories arrive in A.
       served.a = 10;
       await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
-      const arrived = await page
-        .waitForFunction(async (feed) => ((await (await fetch(`/api/items?view=all&feed=${feed}`, { headers: { Accept: "application/json" } })).json()).items ?? []).length >= 10, added.a.feedId, { timeout: 20000, polling: 500 })
-        .then(() => true, () => false);
-      if (!arrived) return t.fail(`${tag} C7 setup`, "the two new stories never arrived");
+      if (!(await storiesIn(added.a.feedId, 10))) return t.fail(`${tag} C7 setup`, "the two new stories never arrived");
       await openNew();
       const newA = await idsOf(A);
       check(/2 new/.test(await heading(A)) && newA.length === 2 && (await section(B).count()) === 0, `${tag} C7 later`, '"2 new" with the two newest stories, and the other folder not shown', `heading "${await heading(A)}", ${newA.length} stories, ${await section(B).count()} section B`);
@@ -173,6 +183,29 @@ try {
       check((await page.getByText("Nothing new").count()) >= 1, `${tag} C8 empty`, "with nothing new the page says so", "no empty message");
       await t.shot(page, `${tag}-new-empty`);
       await leave();
+
+      // C9: a story of the page opened by its address (a new tab or a reload), then back on the page: leaving it moves the mark.
+      served.a = 12;
+      await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
+      if (!(await storiesIn(added.a.feedId, 12))) return t.fail(`${tag} C9 setup`, "the two newest stories never arrived");
+      await openNew();
+      const beforeAdopted = await mark();
+      await page.locator("article[data-item-id] a").first().click();
+      await page.waitForURL("**/i/*", { timeout: 10000 });
+      // The visit begins when the server's answer is read; going back before that would start an ordinary visit instead.
+      const asked = page.waitForResponse((r) => r.request().method() === "GET" && new URL(r.url()).pathname === "/api/catchup", { timeout: 15000 });
+      await page.goto(page.url(), { waitUntil: "load" });
+      await asked;
+      await page.getByTestId("article-body").waitFor({ timeout: 15000 });
+      await page.waitForTimeout(500);
+      const backToList = page.getByRole("button", { name: "Back to list" }).first();
+      if (await backToList.isVisible().catch(() => false)) await backToList.click();
+      else await page.getByRole("link", { name: "New", exact: true }).first().click();
+      await page.waitForURL("**/l/new*", { timeout: 10000 });
+      await section(A).waitFor({ timeout: 15000 });
+      await ready();
+      await leave();
+      check(await markPast(beforeAdopted), `${tag} C9 adopted`, "back on the page after opening a story by its address, leaving it moves the mark", `the mark stayed at ${await mark()}`);
     });
     served.a = 8;
   });
