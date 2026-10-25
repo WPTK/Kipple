@@ -85,9 +85,12 @@ await t.eachViewport(async (page, vp) => {
       const row = page.locator("[data-item-id]", { hasText: "UAT bmp lead" }).first();
       await row.waitFor({ timeout: 15000 });
       await row.scrollIntoViewIfNeeded();
+      // A list picture is given its address only near the screen and three at a time, so one without an address is
+      // not yet asked for (an img with no src reports complete with no width); only pictures that have one are judged.
+      await page.waitForFunction((id) => [...document.querySelectorAll(`[data-item-id="${id}"] img`)].every((i) => i.closest("a") || i.hasAttribute("src")), await row.getAttribute("data-item-id"), { timeout: 10000 }).catch(() => {});
       // Give each picture time to be refused, then look for what is left of it.
       await page.waitForFunction(
-        () => [...document.querySelectorAll("[data-item-id] img")].every((i) => i.closest("a") || i.complete),
+        () => [...document.querySelectorAll("[data-item-id] img")].every((i) => i.closest("a") || !i.hasAttribute("src") || i.complete),
         undefined,
         { timeout: 10000 },
       ).catch(() => {});
@@ -95,7 +98,7 @@ await t.eachViewport(async (page, vp) => {
       const left = await page.locator("[data-item-id]").evaluateAll((rows, ids) =>
         rows
           .filter((r) => ids.includes(r.getAttribute("data-item-id")))
-          .flatMap((r) => [...r.querySelectorAll("img")].filter((i) => !i.src.includes("/icon") && i.complete).map((i) => ({ box: i.parentElement.getBoundingClientRect().height, shown: i.naturalWidth > 0 })))
+          .flatMap((r) => [...r.querySelectorAll("img")].filter((i) => !i.src.includes("/icon") && i.hasAttribute("src") && i.complete).map((i) => ({ box: i.parentElement.getBoundingClientRect().height, shown: i.naturalWidth > 0 })))
           .filter((x) => !x.shown),
       ids);
       const boxes = await page.locator("[data-item-id]").evaluateAll(
@@ -103,7 +106,7 @@ await t.eachViewport(async (page, vp) => {
           rows
             .filter((r) => ids.includes(r.getAttribute("data-item-id")))
             .flatMap((r) => [...r.querySelectorAll('div[class*="aspect-"]')])
-            .filter((el) => ![...el.querySelectorAll("img")].some((i) => i.naturalWidth > 0 || !i.complete)).length,
+            .filter((el) => ![...el.querySelectorAll("img")].some((i) => i.naturalWidth > 0 || !i.complete || !i.hasAttribute("src"))).length,
         ids,
       );
       check(left.length === 0 && boxes === 0, `${tag} G1 ${layout}`, `${layout}: no picture or empty box is left for a picture that cannot be shown`, `${layout}: ${left.length} failed picture(s) and ${boxes} empty box(es) remain`);

@@ -1,8 +1,9 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { BellOff, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, MoveUp, Pencil, Rss, RotateCcw, Share2, Star } from "lucide-react";
 import type { Card, Feed, Scope } from "@/api/types";
 import { closeRowMenu, rowMenuStore } from "@/gestures/rowMenu";
 import { cn } from "@/lib/cn";
+import { takeImageSlot } from "@/lib/imageSlots";
 import { relativeTime } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import { DropdownMenu } from "@/ui/menu";
@@ -66,6 +67,8 @@ export function useImageFailure(src: string | null | undefined): ImageFailure {
 // How each lead picture was laid in its frame, kept across remounts like the failed ones: a list that comes back lays
 // the picture out as it was, with no jump from one fit to the other. Capped; the oldest is forgotten first.
 const fits = new Map<string, "cover" | "contain">();
+// The pictures that have loaded in this page, kept like the failed ones: shown again at once when a list comes back.
+const loaded = new Set<string>();
 
 /**
  * Whether a picture fills its frame (cropped) or sits whole in it (letterboxed). It fills when the crop keeps at least
@@ -88,30 +91,83 @@ function fitOf(img: HTMLImageElement): "cover" | "contain" {
  * shown" in place of an image; a list row just drops it.) `shaped`: the picture is a lead in a wide frame, cut to
  * the frame only when its shape is close to it (fitOf); a thumbnail is always cut to its square.
  */
+/** The nearest ancestor that scrolls on its own (the list pane), or null for the page: an observer's margin only widens its root. */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY;
+    if (o === "auto" || o === "scroll") return p;
+  }
+  return null;
+}
+
 export function ListImage({ src, failure, className, frame, shaped }: { src: string; failure: ImageFailure; className?: string; frame?: { className?: string }; shaped?: boolean }) {
   const [, bump] = useState(0);
+  const el = useRef<HTMLImageElement>(null);
+  const release = useRef<() => void>(() => undefined);
+  // The address is given to the picture only when it is near the screen and a place to load is free (takeImageSlot),
+  // so a list never holds all the browser's connections. One already loaded once comes from the cache, with no wait.
+  // Keyed on the address: a row reused for another picture starts again, waiting for the screen and a place.
+  const [readyFor, setReadyFor] = useState<string | null>(() => (loaded.has(src) ? src : null));
+  const ready = readyFor === src || loaded.has(src);
+  useEffect(() => {
+    if (ready || failure.failed) return;
+    let granted = false;
+    let cancel: () => void = () => undefined;
+    const ask = () => {
+      cancel = takeImageSlot(() => {
+        granted = true;
+        setReadyFor(src);
+      });
+      release.current = cancel;
+    };
+    if (!el.current || typeof IntersectionObserver === "undefined") {
+      ask();
+      return () => {
+        if (!granted) cancel();
+      };
+    }
+    const watch = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        watch.disconnect();
+        ask();
+      },
+      { root: scrollParent(el.current), rootMargin: "600px 0px" },
+    );
+    watch.observe(el.current);
+    return () => {
+      watch.disconnect();
+      if (!granted) cancel();
+    };
+  }, [src, ready, failure.failed]);
+  // The place a loading picture holds is given back when its row leaves the page.
+  useEffect(() => () => release.current(), [src]);
   if (failure.failed) return null;
   const fit = (shaped && fits.get(src)) || "cover";
   const img = (
     <img
-      src={src}
+      ref={el}
+      src={ready ? src : undefined}
       alt=""
-      loading="lazy"
       decoding="async"
       className={cn(fit === "cover" ? "object-cover" : "object-contain", className)}
-      onLoad={
-        shaped
-          ? (e) => {
-              const next = fitOf(e.currentTarget);
-              if (fits.get(src) === next) return;
-              fits.delete(src);
-              fits.set(src, next);
-              if (fits.size > FAILED_MAX) fits.delete(fits.keys().next().value!);
-              bump((n) => n + 1);
-            }
-          : undefined
-      }
-      onError={failure.onError}
+      onLoad={(e) => {
+        release.current();
+        loaded.delete(src);
+        loaded.add(src);
+        if (loaded.size > FAILED_MAX) loaded.delete(loaded.values().next().value!);
+        if (!shaped) return;
+        const next = fitOf(e.currentTarget);
+        if (fits.get(src) === next) return;
+        fits.delete(src);
+        fits.set(src, next);
+        if (fits.size > FAILED_MAX) fits.delete(fits.keys().next().value!);
+        bump((n) => n + 1);
+      }}
+      onError={() => {
+        release.current();
+        failure.onError();
+      }}
     />
   );
   return frame ? <div className={frame.className}>{img}</div> : img;
