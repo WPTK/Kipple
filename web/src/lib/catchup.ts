@@ -65,7 +65,7 @@ export function catchupGroups(feeds: readonly Pick<Feed, "id" | "title" | "folde
 /** The visit the leave of the page ends: the mark moves, and the next visit waits for that to land. */
 function leave(v: CatchupVisit): void {
   visitStore.set(null);
-  if (v.adopted || v.asOf === v.mark) return; // nothing to move: the page was never shown in an adopted visit, and this one has nothing past it
+  if (v.adopted || v.asOf === v.mark) return; // nothing to move: the page itself was not opened in an adopted visit, and this one has nothing past it
   pendingSeen = api("/api/catchup/seen", { method: "POST", body: { as_of: v.asOf } }).catch(() => {
     // The mark stays where it was: the page shows the same articles next time. Nothing the reader did is lost.
   });

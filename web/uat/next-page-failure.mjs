@@ -13,7 +13,7 @@
 import { URL } from "node:url";
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 10, { serviceWorkers: "block" }); // the service worker would answer what page.route fails
+const t = await start(import.meta.url, 12, { serviceWorkers: "block" }); // the service worker would answer what page.route fails
 const { check, step } = t;
 
 await t.eachViewport(async (page, vp) => {

@@ -58,12 +58,23 @@ try {
     const ready = async () => {
       await settled(() => !document.querySelector('[data-testid="digest-skeleton"]'), 15000);
     };
-    // Waits until the account's mark is past `prev` (leaving the page posts it a moment after the route changes).
-    // (Polled from here: a waitForFunction whose function is async is satisfied at once by the promise it returns.)
-    const markPast = async (prev) => {
-      for (const end = Date.now() + 10000; Date.now() < end; await page.waitForTimeout(250)) if (gt(await mark(), prev)) return true;
+    // Polls `holds` from here until it is true, for at most `ms`. Anything that must ask the server is polled this way: a
+    // waitForFunction whose function is async is satisfied at once by the promise it returns, and so never waits.
+    const until = async (holds, ms = 10000) => {
+      for (const end = Date.now() + ms; Date.now() < end; await page.waitForTimeout(250)) if (await holds()) return true;
       return false;
     };
+    // Waits until the account's mark is past `prev` (leaving the page posts it a moment after the route changes).
+    const markPast = (prev) => until(async () => gt(await mark(), prev));
+    // Waits until the feed holds `n` stories. A refresh that joins a fetch already under way brings the old stories, so it asks again.
+    const storiesIn = (feedId, n) =>
+      until(async () => {
+        const have = await page.evaluate(async (feed) => ((await (await fetch(`/api/items?view=all&feed=${feed}`, { headers: { Accept: "application/json" } })).json()).items ?? []).length, feedId);
+        if (have >= n) return true;
+        await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
+        await page.waitForTimeout(750);
+        return false;
+      }, 30000);
     const openNew = async () => {
       await page.getByRole("link", { name: "New", exact: true }).first().click();
       await page.waitForURL("**/l/new*", { timeout: 10000 });
@@ -157,10 +168,7 @@ try {
       // C7: two stories arrive in A.
       served.a = 10;
       await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
-      const arrived = await page
-        .waitForFunction(async (feed) => ((await (await fetch(`/api/items?view=all&feed=${feed}`, { headers: { Accept: "application/json" } })).json()).items ?? []).length >= 10, added.a.feedId, { timeout: 20000, polling: 500 })
-        .then(() => true, () => false);
-      if (!arrived) return t.fail(`${tag} C7 setup`, "the two new stories never arrived");
+      if (!(await storiesIn(added.a.feedId, 10))) return t.fail(`${tag} C7 setup`, "the two new stories never arrived");
       await openNew();
       const newA = await idsOf(A);
       check(/2 new/.test(await heading(A)) && newA.length === 2 && (await section(B).count()) === 0, `${tag} C7 later`, '"2 new" with the two newest stories, and the other folder not shown', `heading "${await heading(A)}", ${newA.length} stories, ${await section(B).count()} section B`);
@@ -179,10 +187,7 @@ try {
       // C9: a story of the page opened by its address (a new tab or a reload), then back on the page: leaving it moves the mark.
       served.a = 12;
       await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
-      const arrivedAgain = await page
-        .waitForFunction(async (feed) => ((await (await fetch(`/api/items?view=all&feed=${feed}`, { headers: { Accept: "application/json" } })).json()).items ?? []).length >= 12, added.a.feedId, { timeout: 20000, polling: 500 })
-        .then(() => true, () => false);
-      if (!arrivedAgain) return t.fail(`${tag} C9 setup`, "the two newest stories never arrived");
+      if (!(await storiesIn(added.a.feedId, 12))) return t.fail(`${tag} C9 setup`, "the two newest stories never arrived");
       await openNew();
       const beforeAdopted = await mark();
       await page.locator("article[data-item-id] a").first().click();

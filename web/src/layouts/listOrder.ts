@@ -52,7 +52,8 @@ export function useListOrder(scope: Scope, id: string, enabled: boolean): ListOr
   );
   const listed = useMemo(() => flattenItems(list.data), [list.data]);
   const cards = digested ? digest.loadedCards : listed;
-  const more = digested ? digest.more : !!list.hasNextPage;
+  // A Digest section that failed to load is still to come: asking again retries it, so Next never calls that the end.
+  const more = digested ? digest.more || digest.digest.sections.some((s) => s.error != null) : !!list.hasNextPage;
   const ids = useMemo(() => {
     if (!enabled) return [];
     return digested ? digest.cards.map((c) => c.id) : orderOf(listed, more);

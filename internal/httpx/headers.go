@@ -72,7 +72,7 @@ func PageCSP(imgMode string, secure bool) string {
 }
 
 // APIVersion is the version of the web API contract (/api/*, not the Reader API). It is bumped when a
-// change would break a web app built for the previous one; the app reloads itself when the server's is newer.
+// change would break a web app built for the previous one; the app offers a reload when the server's is newer.
 const APIVersion = "2"
 
 // Secure wraps h so every response carries the security headers of

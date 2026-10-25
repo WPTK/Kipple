@@ -298,6 +298,9 @@ const isTouch = (): boolean => {
   }
 };
 
+/** Ask for the next page of the list. One that fails says so itself (the list's "Couldn't load more", a Digest section's own retry), so the rejection is not reported twice. */
+const askForMore = (src: ListSource): void => void src.loadMore().catch(() => undefined);
+
 export function ListPane({ scope, activeId, onControls }: Props) {
   const key = scopeKey(scope);
   const qc = useQueryClient();
@@ -773,7 +776,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     if (src.pending || src.fetching) return;
     // The Digest asks for sections, not pages: it looks through a few, never every one.
     const searched = digestOn ? digestSrc.loadedCards.length : src.cards.length;
-    if (src.more && !src.loadMoreFailed && searched < (digestOn ? PLACE_SEARCH_DIGEST_MAX : PLACE_SEARCH_MAX)) void src.loadMore();
+    if (src.more && !src.loadMoreFailed && searched < (digestOn ? PLACE_SEARCH_DIGEST_MAX : PLACE_SEARCH_MAX)) askForMore(src);
     else {
       place.id = null;
       rememberListTop(key, null);
@@ -830,7 +833,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     // Not while the list itself is being refetched (an on-mount refetch of an invalidated list): fetchNextPage would
     // cancel it and append a page to the stale rows, leaving both the stale rows and a restored offset in place.
     const nearTail = Page ? nearEnd : rows.length > 0 && lastIndex >= rows.length - 10;
-    if (src.more && !src.fetching && !src.loadMoreFailed && nearTail) void src.loadMore();
+    if (src.more && !src.fetching && !src.loadMoreFailed && nearTail) askForMore(src);
   }, [lastIndex, rows.length, src, Page, nearEnd]);
 
   // The selection is committed to memory before the route changes: on a phone the list unmounts in the
@@ -1335,7 +1338,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const moreFailed = src.loadMoreFailed ? (
     <div role="alert" className="flex items-center justify-center gap-2 px-4 py-3 text-sm text-fg2">
       <span>Couldn&apos;t load more.</span>
-      <Button variant="ghost" onClick={() => void src.loadMore()}>
+      <Button variant="ghost" onClick={() => askForMore(src)}>
         Try again
       </Button>
     </div>
