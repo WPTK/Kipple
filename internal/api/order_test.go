@@ -131,10 +131,75 @@ func TestListItemsReadingTime(t *testing.T) {
 	require.Equal(t, strs(two, five), list("min_minutes=2&max_minutes=5"))
 	require.Equal(t, strs(short, one, two, five, six), list("min_minutes=1"))
 	require.Equal(t, strs(five), list("min_minutes=5&max_minutes=5"))
-	for _, bad := range []string{"min_minutes=x", "max_minutes=-1", "min_minutes=5&max_minutes=2", "min_minutes=-3"} {
+	for _, bad := range []string{"min_minutes=x", "max_minutes=-1", "min_minutes=5&max_minutes=2", "min_minutes=-3", "unknown_length=0", "unknown_length=yes", "unknown_length=1&min_minutes=1", "unknown_length=1&max_minutes=5"} {
 		code, _, _ := h.api(c, "GET", "/api/items?"+bad, "")
 		require.Equal(t, 400, code, bad)
 	}
+}
+
+// unknown_length is the one list no minutes range can ask for: the articles with no extracted text.
+func TestListItemsUnknownLength(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	none := h.addItem(f, seedItem{Words: 0, SortAt: 1})
+	h.addItem(f, seedItem{Words: 50, SortAt: 2})
+	h.addItem(f, seedItem{Words: 5000, SortAt: 3})
+	none2 := h.addItem(f, seedItem{Words: 0, SortAt: 4})
+	code, body, _ := h.api(c, "GET", "/api/items?view=all&order=oldest&unknown_length=1", "")
+	require.Equal(t, 200, code)
+	require.Equal(t, strs(none, none2), itemIDs(t, body))
+	// The three ranges and the unknown list together hold every article once.
+	var total int
+	for _, q := range []string{"max_minutes=2", "min_minutes=3&max_minutes=7", "min_minutes=8", "unknown_length=1"} {
+		code, body, _ := h.api(c, "GET", "/api/items?view=all&"+q, "")
+		require.Equal(t, 200, code)
+		total += len(itemIDs(t, body))
+	}
+	require.Equal(t, 4, total)
+}
+
+// A mark-read scope with unknown_length marks only the articles with no extracted text, bound and all.
+func TestMarkReadUnknownLength(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	none := h.addItem(f, seedItem{Words: 0, SortAt: 1})
+	h.addItem(f, seedItem{Words: 5000, SortAt: 2})
+	none2 := h.addItem(f, seedItem{Words: 0, SortAt: 3})
+	none3 := h.addItem(f, seedItem{Words: 0, SortAt: 4})
+	mark := func(scope map[string]any, extra map[string]any) (int, map[string]any) {
+		req := map[string]any{"scope": scope, "read": true}
+		for k, v := range extra {
+			req[k] = v
+		}
+		code, out, _ := h.api(c, "POST", "/api/items/mark-read", jsonStr(req))
+		return code, out
+	}
+	// Combined with a range it is a 400.
+	for _, bad := range []map[string]any{
+		{"all": true, "view": "unread", "unknown_length": true, "min_minutes": 3},
+		{"all": true, "view": "unread", "unknown_length": true, "max_minutes": 7},
+	} {
+		code, _ := mark(bad, nil)
+		require.Equal(t, 400, code)
+	}
+	// Below none2 in the newest-first list: the older rows, of which only the unknown-length one is marked.
+	code, out := mark(map[string]any{"all": true, "view": "unread", "unknown_length": true},
+		map[string]any{"bound": map[string]any{"order": "date", "side": "below", "inclusive": false,
+			"anchor": map[string]any{"sort_at": 3, "id": fmt.Sprint(none2)}}})
+	require.Equal(t, 200, code)
+	require.Equal(t, strs(none), anyStrs(out["changed"]))
+	code, out = mark(map[string]any{"all": true, "view": "unread", "unknown_length": true}, nil)
+	require.Equal(t, 200, code)
+	got := anyStrs(out["changed"])
+	slices.Sort(got)
+	want := strs(none2, none3)
+	slices.Sort(want)
+	require.Equal(t, want, got)
+	require.Equal(t, 1, h.count("SELECT count(*) FROM items WHERE read = 0"), "the long article stays unread")
 }
 
 func TestMarkReadBoundTable(t *testing.T) {

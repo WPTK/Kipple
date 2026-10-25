@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Card, Feed, View } from "@/api/types";
 import { feedsInFolder } from "@/lib/folderTree";
 import { byFeed, byFolder } from "@/lib/sections";
-import { EXPAND_BATCH, groupFeeds, layoutDigest, orderSections, type DigestOptions, type LoadedSection, type SectionDef } from "./digestPlan";
+import { EXPAND_BATCH, fixedSections, groupFeeds, layoutDigest, orderSections, type DigestOptions, type LoadedSection, type SectionDef } from "./digestPlan";
 
 const folders = [
   { id: "tech", name: "Tech", parent_id: null },
@@ -199,5 +199,33 @@ describe("layoutDigest", () => {
   it("more is false once every section is loaded and fully shown", () => {
     const loaded = loadedOf({ "folder:tech": [["a"]], "folder:news": [["b"]], "feed:f5": [["c"]] });
     expect(layoutDigest(defs, opts(), loaded).more).toBe(false);
+  });
+});
+
+describe("fixedSections", () => {
+  const defs = fixedSections([
+    { key: "a", title: "A", scope: { length: "under3" } },
+    { key: "b", title: "B", scope: { length: "unknown" } },
+  ]);
+
+  it("are sections of no feed, with no count and no pace", () => {
+    expect(defs.map((d) => [d.key, d.feedIds, d.count, d.pace])).toEqual([
+      ["a", [], null, null],
+      ["b", [], null, null],
+    ]);
+  });
+
+  it("are all kept once asked for: a count of null never drops one, the page drops those that load empty", () => {
+    const l = layoutDigest(defs, opts({ activated: new Set(["a", "b"]) }), loadedOf({ a: [["1", "2", "3", "4"], true], b: [[]] }));
+    expect(l.sections.map((s) => [s.key, s.state, s.cards.length, s.moreCount, s.hasMore])).toEqual([
+      ["a", "ready", 3, null, true],
+      ["b", "ready", 0, 0, false],
+    ]);
+  });
+
+  it("keep a section whose cards were marked read, since reading never removes a section", () => {
+    const read = new Map<string, LoadedSection>([["a", { cards: [{ ...card("1", "f1"), read: true }], more: false }]]);
+    const l = layoutDigest(defs, opts({ activated: new Set(["a"]) }), read);
+    expect(l.sections[0]!.cards.map((c) => c.id)).toEqual(["1"]);
   });
 });

@@ -1,0 +1,1 @@
+A new Coffee break layout in the layout menu groups unread articles by how long they take to read: Under 3 minutes, 3 to 7 minutes, 8 minutes and up, and Unknown length. A group with nothing in it is not shown. Each group opens in place with "N more", and Mark above, Mark below and Mark all act within a group. It shares the Digest's rows per section and image settings. (#39)

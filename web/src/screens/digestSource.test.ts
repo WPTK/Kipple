@@ -106,3 +106,44 @@ describe("a section's bound", () => {
     expect([...planDigest(input(), read("900")).results.values()][0]?.data?.asOf).toBe("900");
   });
 });
+
+describe("the Coffee break's sections", () => {
+  const input = (scope: DigestInput["scope"]): DigestInput => ({
+    scope,
+    feeds: [{ id: "1", title: "F1", folder_id: "10", unread: 4, starred_count: 0, is_archive: false, pace: null }],
+    folders: [{ id: "10", name: "Alpha", parent_id: null }],
+    sections: "length",
+    order: "sidebar",
+    rows: 3,
+    place: { steps: 0, presses: new Map() },
+  });
+
+  it("are the four reading lengths of the same list, in order, whatever the folders hold", () => {
+    clearDigestPlaces();
+    const plan = planDigest(input({ view: "unread", folder: "10" }), () => undefined);
+    expect(plan.defs.map((d) => [d.key, d.title, d.scope, d.count])).toEqual([
+      ["len:under3", "Under 3 minutes", { folder: "10", length: "under3" }, null],
+      ["len:3to7", "3 to 7 minutes", { folder: "10", length: "3to7" }, null],
+      ["len:8up", "8 minutes and up", { folder: "10", length: "8up" }, null],
+      ["len:unknown", "Unknown length", { folder: "10", length: "unknown" }, null],
+    ]);
+    // All four are asked for at once, each as the scope with its length.
+    expect(plan.askedFor.size).toBe(4);
+    expect(plan.waiting).toBe(false);
+  });
+
+  it("have no count until they load, then say exactly how many more", () => {
+    clearDigestPlaces();
+    const seen: string[] = [];
+    const cards = (n: number) => Array.from({ length: n }, (_, i) => ({ id: String(i), read: false }) as never);
+    const plan = planDigest(input({ view: "unread" }), (sc) => {
+      seen.push(`${sc.length}|${sc.folder ?? ""}`);
+      return sc.length === "3to7" ? { data: { cards: cards(5), more: false, asOf: "9" }, error: null, fetching: false, fetchingMore: false, moreFailed: false } : undefined;
+    });
+    expect(seen).toEqual(["under3|", "3to7|", "8up|", "unknown|"]);
+    const by = Object.fromEntries(plan.layout.sections.map((s) => [s.key, s]));
+    expect(by["len:under3"]).toMatchObject({ state: "loading", moreCount: null, total: null });
+    expect(by["len:3to7"]).toMatchObject({ state: "ready", moreCount: 2, total: 5 });
+    expect(plan.layout.cards).toHaveLength(3);
+  });
+});

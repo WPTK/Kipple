@@ -4,7 +4,7 @@ import { createStore, useStore } from "./store";
 // not appearance lives here, behind ONE storage seam (`storage` below): localStorage is the
 // instant-paint cache of the server's device profile, which lib/deviceSync.ts keeps in step.
 
-export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines", "gazette", "digest"] as const;
+export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines", "gazette", "digest", "coffee"] as const;
 export type LayoutId = (typeof LAYOUT_IDS)[number];
 // The ids are what devices have stored, so they never change; only the labels do. "magazine" is shown as
 // Editorial; "headlines" is Headlines (title-only rows).
@@ -16,6 +16,7 @@ export const LAYOUT_LABELS: Record<LayoutId, string> = {
   headlines: "Headlines",
   gazette: "Gazette",
   digest: "Digest",
+  coffee: "Coffee break",
 };
 
 /**
@@ -30,6 +31,7 @@ export const LAYOUT_HINTS: Record<LayoutId, string> = {
   headlines: "One line per article, titles only",
   gazette: "Newspaper-style pages",
   digest: "Each folder or feed as its own section, a few articles each",
+  coffee: "Unread articles grouped by how long they take",
 };
 
 export type DigestSections = "folder" | "feed";
@@ -142,9 +144,9 @@ export interface DevicePrefs {
   digestSections: DigestSections;
   /** The order of the Digest sections: as the sidebar lists them, or the quietest feeds first (`client.digest_order`). */
   digestOrder: DigestOrder;
-  /** Whether Digest rows show pictures (`client.digest_images`). */
+  /** Whether Digest and Coffee break rows show pictures (`client.digest_images`). */
   digestImages: boolean;
-  /** How many articles a Digest section shows before "more" (`client.digest_rows`). */
+  /** How many articles a Digest or Coffee break section shows before "more" (`client.digest_rows`). */
   digestRows: DigestRows;
   /** The layout to go back to when "Titles only in lists" is turned off. Local to this device (no profile key). */
   layoutBeforeTitlesOnly: LayoutId | null;
@@ -456,7 +458,7 @@ export function resolveOrder(p: DevicePrefs, ctx: LayoutContext): OrderPref {
 }
 
 /** Whether a layout shows the list in the order the reader set (every layout but the Gazette). */
-export const followsOrder = (layout: LayoutId): boolean => layout !== "gazette" && layout !== "digest";
+export const followsOrder = (layout: LayoutId): boolean => layout !== "gazette" && layout !== "digest" && layout !== "coffee";
 
 /** Which override a list can carry, if any (a feed list or a folder list). */
 export function overrideTarget(ctx: LayoutContext): { kind: "feed" | "folder"; id: string } | null {

@@ -253,7 +253,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	d := h.newDev()
 	body := `{"ui.theme":"system","ui.theme_schedule":true,"ui.theme_day":"linen","ui.theme_night":"carbon","ui.theme_night_start":"22:30","ui.theme_day_start":"06:15","ui.font_body":"Atkinson Hyperlegible Next",
 	 "ui.reading_density":"airy","ui.list_density":"dense","ui.mark_read_on_scroll":true,
-	 "client.layout":"digest","client.group":"week","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","group":"none","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"},"5":{"layout":"gazette"}}},
+	 "client.layout":"digest","client.group":"week","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","group":"none","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"},"5":{"layout":"gazette"},"6":{"layout":"coffee"}}},
 	 "client.paper_name":"` + strings.Repeat("é", 60) + `",
 	 "client.order":"oldest","client.search_order":"relevance","client.inbox_thumbs":"off","client.peek_seen":true,"client.article_width":"full",
 	 "client.list_width":400,"client.sidebar_width":300,"client.link_target":"same","client.unread_badge":"dot",
@@ -279,7 +279,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	}
 	require.Equal(t, map[string]any{
 		"feed":   map[string]any{"12": map[string]any{"layout": "inbox", "order": "oldest", "group": "none", "view": "all"}},
-		"folder": map[string]any{"3": map[string]any{"layout": "compact"}, "8": map[string]any{"view": "unread"}, "5": map[string]any{"layout": "gazette"}},
+		"folder": map[string]any{"3": map[string]any{"layout": "compact"}, "8": map[string]any{"view": "unread"}, "5": map[string]any{"layout": "gazette"}, "6": map[string]any{"layout": "coffee"}},
 	}, m["client.list_overrides"])
 	require.Equal(t, strings.Repeat("é", 60), m["client.paper_name"], "60 characters, not 60 bytes")
 	_, other, _ := h.newDev().call("GET", "/api/device", "")
