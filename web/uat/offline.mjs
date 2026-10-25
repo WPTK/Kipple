@@ -113,7 +113,7 @@ async function neverKept(page, where) {
   // Each screen's own text next to its error ("Range" is only on Stats; the lists say "Couldn't load articles").
   for (const [path, expect] of [
     ["/l/starred", ["Starred", "Couldn't load articles"]],
-    ["/stats", ["Range", "You're offline"]],
+    ["/stats", ["Range", "Stats didn't load"]],
   ]) {
     await page.evaluate(pushRoute, path);
     // Visible text only: a screen React keeps hidden behind a Suspense fallback still has its innerText.
@@ -125,6 +125,7 @@ async function neverKept(page, where) {
     );
     await shot(page, `${where.replace(/\W+/g, "-")}-${path.replace(/\W+/g, "-")}`);
     if (!ok) fail(`${where} ${path}`, `no "${expect[1]}" after 15 s offline; it shows: ${await mainText(page)}`);
+    else if (path === "/stats" && /offline/i.test(await mainText(page))) fail(`${where} ${path}`, `the screen repeats the cause the offline notice already gives; it shows: ${await mainText(page)}`);
     else pass(`${where} ${path}`, `"${expect[1]}", not a skeleton`);
   }
 }

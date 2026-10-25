@@ -1185,7 +1185,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const menuActions: RowMenuActions = useMemo(
     () => ({
       toggleRead: (item) => void act.toggleRead(item, "key"),
-      toggleStar: (item) => void act.toggleStar(item),
+      toggleStar: (item) => void act.toggleStar(item, true),
       markAbove: (item) => range(item, "above"),
       markBelow: (item) => range(item, "below"),
       openOriginal: (item) => void openOriginalAndRecord(item),

@@ -2,6 +2,7 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { useBootstrap } from "@/api/queries";
 import { useSpanSummary, useStatsSummary } from "@/api/stats";
 import type { StatsSummary } from "@/api/types";
 import {
@@ -31,6 +32,7 @@ import {
   type SourceRow,
 } from "@/lib/statsFormat";
 import { articleTo } from "@/lib/routes";
+import { visibleFeeds } from "@/lib/visibleFeeds";
 import { useStatsEnabled } from "@/lib/statsSender";
 import { useNarrowText } from "@/lib/useNarrowText";
 import { Button } from "@/ui/button";
@@ -39,6 +41,7 @@ import { FailedBlock } from "@/ui/FailedBlock";
 import { Modal, Notice, Section, Skeleton, inputCls } from "@/ui/kit";
 import { Segmented } from "@/ui/segmented";
 import { useWrappedEnabled } from "@/lib/wrapped";
+import { AddFeedDialog } from "./feeds/AddFeedDialog";
 import { DailyChart, Empty, Heatmap, MonthlyChart } from "./StatsCharts";
 import { StatsDataSection, StatsExportDialog } from "./StatsDataDialogs";
 
@@ -413,7 +416,7 @@ function FeedDetail({ feed, range }: { feed: string; range: ScreenRange }) {
   const q = useStatsSummary(apiRange(range), true, feed);
   const data = q.data;
   if (q.isPending) return <Skeleton rows={4} label="Loading this feed" />;
-  if (!data) return <FailedBlock error={q.error} busy={q.isFetching} onRetry={() => void q.refetch()} />;
+  if (!data) return <FailedBlock what="These numbers" error={q.error} busy={q.isFetching} onRetry={() => void q.refetch()} />;
   const t = data.totals;
   const empty = !t || (t.items_read === 0 && t.opens === 0 && t.active_seconds === 0);
   const s = data.sources?.[0];
@@ -463,6 +466,10 @@ export function StatsScreen() {
   useDocumentTitle("Stats");
   const on = useStatsEnabled();
   const wrapped = useWrappedEnabled();
+  // Owned by the screen, not the empty block: the first feed ends the block, and the dialog's last step must outlive it.
+  const [adding, setAdding] = useState(false);
+  const boot = useBootstrap();
+  const noFeeds = !!boot.data && visibleFeeds(boot.data.feeds).length === 0;
   const [range, setRange] = useState<ScreenRange>(loadScreenRange);
   const q = useStatsSummary(apiRange(range), on);
   const data = q.data;
@@ -495,7 +502,7 @@ export function StatsScreen() {
   } else if (q.isPending) {
     body = <Skeleton rows={5} label="Loading statistics" />;
   } else if (q.isError && !data) {
-    body = <FailedBlock error={q.error} busy={q.isFetching} onRetry={() => void q.refetch()} />;
+    body = <FailedBlock what="Stats" error={q.error} busy={q.isFetching} onRetry={() => void q.refetch()} />;
   } else if (data) {
     const t = data.totals;
     const empty = !t || (t.items_read === 0 && t.opens === 0 && t.active_seconds === 0);
@@ -516,11 +523,19 @@ export function StatsScreen() {
     body = never ? (
       <div aria-busy={q.isPlaceholderData}>
         {refreshFailed}
-        <EmptyState
-          title="Nothing read yet"
-          why={`Your reading shows up here as you go. ${READ_RULE}`}
-          action={null}
-        />
+        {noFeeds ? (
+          <EmptyState
+            title="Add a feed first"
+            why="Your reading shows up here once you have feeds to read."
+            action={
+              <Button variant="solid" onClick={() => setAdding(true)}>
+                Add a feed
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState title="Nothing read yet" why={`Your reading shows up here as you go. ${READ_RULE}`} action={null} />
+        )}
       </div>
     ) : (
       <div aria-busy={q.isPlaceholderData} className={q.isPlaceholderData ? "opacity-60" : undefined}>
@@ -597,6 +612,7 @@ export function StatsScreen() {
         ) : null}
       </header>
       <div className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-6">{body}</div>
+      {adding ? <AddFeedDialog onClose={() => setAdding(false)} /> : null}
       <StatsExportDialog open={exporting} onOpenChange={setExporting} defaultRange={apiRange(range)} />
       <FeedSheet feed={feed} range={range} onClose={() => setFeed(null)} />
     </div>
