@@ -1,1 +1,0 @@
-Reader: turning a phone between portrait and landscape, or resizing the window, keeps the article list on the article you were looking at, and Mark as read while scrolling marks no article that the new layout moved above the top. Coming back to a list after changing the text size returns to the same article.

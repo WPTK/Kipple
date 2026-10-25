@@ -1,1 +1,0 @@
-Setup: Run setup again in Settings opens the setup steps in that browser tab only, changes nothing on the server, sends no other device to them and locks nobody out until the steps are finished. The time zone list also finds a zone by its current name when the browser lists it under an old one (Kolkata for Calcutta, Kyiv for Kiev). (#489, #488)

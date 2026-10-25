@@ -1,1 +1,0 @@
-Feeds: Edit feed is grouped into Basics, This feed's schedule and On this device. Every "use the default" choice reads "Same as Settings (every 30 minutes)" with its real value, Save is always "Save" and stays off until something changes, and the off switch is "Pause this feed". (#670)

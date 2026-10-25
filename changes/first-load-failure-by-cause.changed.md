@@ -1,1 +1,0 @@
-Launch: when the app can't load, the failed screen stays up and asks again by itself with a "Trying again" line; it stops asking for causes that will not pass (a refusal, a rate limit) and waits as long as the server asks. (#705)

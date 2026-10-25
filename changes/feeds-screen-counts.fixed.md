@@ -1,1 +1,0 @@
-Feeds: favorites on the Feeds screen show unread counts, and the feeds under a favorite folder show theirs. The "Unread badge" setting (Count, Dot, Off) and the 99+ cap apply to every row on the Feeds screen and in the sidebar, and a feed with nothing unread is dimmed.

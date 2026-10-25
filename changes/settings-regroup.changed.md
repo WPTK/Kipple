@@ -1,1 +1,0 @@
-Settings: each page has named sections and says once whether a setting is for this device or all devices, and the proxy settings sit in a folded section under Advanced, Address and access, with Other names for this server above it. Technical rows moved from About into the debug text, and the font switch reads "Also use it in lists and the sidebar". (#677, #678, #680)

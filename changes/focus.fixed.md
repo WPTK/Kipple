@@ -1,1 +1,0 @@
-Keyboard: Next article, Previous article, Full text, Refresh all feeds and Oldest first keep focus on the button you pressed; beside the list, the article that arrives is announced. Enter or Space on a feed or folder in the sidebar opens it with focus still on it. (#492, #495)

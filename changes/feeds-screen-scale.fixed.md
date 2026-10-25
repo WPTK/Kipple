@@ -1,1 +1,0 @@
-Feeds: Manage feeds and the sidebar open quickly with thousands of feeds, drawing the first few hundred rows and the rest as you scroll, and Select all still selects every feed. Feeds that share a title show their address under it on Manage feeds, in the delete confirmation and in the sidebar, where it is part of the feed's name too. (#463, #484, #516)

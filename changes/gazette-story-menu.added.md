@@ -1,1 +1,0 @@
-Gazette: a story has the same menu as a list row, without Mark above and below, opened by a long press on a touch screen or, with a mouse, by the More button that shows on hover or the right-click menu. A story stays where it is on the page whatever the menu does, and the Gazette has no swipe. (#314)

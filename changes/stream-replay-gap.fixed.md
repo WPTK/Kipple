@@ -1,1 +1,0 @@
-Progress: a fetch that ends while the page is still opening is reported with its result right away, and a stream that starts over after a long outage does not skip the events it never received. (#540)

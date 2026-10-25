@@ -1,1 +1,0 @@
-Reader: lead pictures are cropped or fitted by their own shape, and rows without a picture keep a minimum height. (#662)

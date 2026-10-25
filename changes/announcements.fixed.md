@@ -1,1 +1,0 @@
-Screen readers: the refresh button says Refreshing as soon as you tap it, the "Marked unread" toast clears when you go to the next article, and empty lists and the Cloudflare Access state are not announced on arrival. After skipping the rest of setup, focus is on the list's heading. (#482, #499)

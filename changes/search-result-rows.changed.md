@@ -1,1 +1,0 @@
-Search: results use the list rows, show an N results line, offer Saved and Edit, and Mark all names the unread results it will mark. (#664)

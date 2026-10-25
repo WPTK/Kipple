@@ -1,1 +1,0 @@
-Sign-in: over https the signed-in marker cookie carries the __Host- prefix, which stops a parent-domain cookie of the same name from ending every launch in a 401; signing in or out clears the marker under the old name too. (#553)

@@ -1,1 +1,0 @@
-Layouts: Digest is a page of sections, one per folder or feed, each with its first few unread articles and an "N more" button that opens the rest in place; sections load independently as you reach them. The layout menu sets, for this device, the section order (sidebar order or Quiet Feeds First), folders or feeds as sections, pictures or text only, and rows per section. (#39)

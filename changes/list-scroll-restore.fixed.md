@@ -1,1 +1,0 @@
-Reader: reloading the page or reopening the app returns the article list to the article that was at its top, also when Back leads to the list from an article the reload opened and when you opened an article soon after scrolling. A list left at its top, a list whose top article has since left it, lists opened later in the visit and searches start at the top. (#481, #578)

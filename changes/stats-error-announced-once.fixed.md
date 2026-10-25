@@ -1,1 +1,0 @@
-Stats: a screen that fails to load shows one error message, announced once, and when Kipple is offline or not answering the offline notice gives the cause and the screen says only that the numbers did not load. (#624)

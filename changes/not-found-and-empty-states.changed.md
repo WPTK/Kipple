@@ -1,1 +1,0 @@
-Empty, missing and failed screens share one shape: what this is, why, and a next step. A library with no feeds shows one welcome that the reader pane, sidebar and Search do not repeat, an empty folder says it has no feeds, and an article that is only a title says so and offers the original. (#617, #647)

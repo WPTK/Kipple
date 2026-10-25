@@ -1,1 +1,0 @@
-Lists: the end of the article list scrolls clear of the undo message, and List actions turns Mark all as read off in a list with nothing unread and says why Undo is off. In the open article, Read or Unread is plain text and the toolbar holds the toggle. (#483, #425)

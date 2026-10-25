@@ -1,1 +1,0 @@
-Sign-in: a launch while signed out asks the server once and sends no request that answers 401, on the sign-in page and the setup wizard alike; changes saved offline wait for your next sign-in. A no-password Kipple opened from a network it does not allow shows why at once. (#551, #552, #465)

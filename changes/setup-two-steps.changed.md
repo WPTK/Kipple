@@ -1,1 +1,0 @@
-Setup: two steps, your account and your feeds, with nothing pre-ticked; the time zone comes from your browser and theme, address and app password are in Settings. The Skip buttons and Restore's Feeds only are removed, and a feeds file is imported from the feeds step. (#698, #700, #703)

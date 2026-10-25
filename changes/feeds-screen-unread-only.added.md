@@ -1,1 +1,0 @@
-Feeds: Feed actions has "Show only unread feeds" for the Feeds screen, with a note under the title that brings the full list back, and a folder's menu has "Mark all as read" for the folder and its subfolders, with an undo toast.

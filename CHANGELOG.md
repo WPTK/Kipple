@@ -8,6 +8,152 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [1.5.0] - 2026-10-25
+
+Kipple gains new ways to read, with a New page, the Digest, Coffee break and Feed index layouts and grouping by day or week, and a design pass across the whole app.
+
+### Added
+
+- Library: a New pill before Unread opens a page of the unread articles that arrived since you last looked, the newest three for each top-level folder, with "N new" in its heading and "N more" to open the rest in place. The page remembers where you left off for the whole account; leaving it moves the mark, while opening one of its articles, reloading or hiding the tab keeps the mark where it was. (#39)
+- Layouts: Coffee break groups unread articles by reading time (under 3 minutes, 3 to 7, 8 and up, unknown length), each group opening in place with "N more". Mark above and below work within a group, and rows per section and the image setting are shared with the Digest. (#39)
+- Layouts: Digest is a page of sections, one per folder or feed, each with its first few unread articles and an "N more" button that opens the rest in place; sections load independently as you reach them. The layout menu sets, for this device, the section order (sidebar order or Quiet Feeds First), folders or feeds as sections, pictures or text only, and rows per section. (#39)
+- Feeds: Feed index lists every feed as a block with its name (a link to the feed), its unread count and its three newest headlines, read ones included, in sidebar order or Quiet Feeds First. A feed that cannot be fetched says so in the words its own list uses; Feed index is a row in the sidebar and a link on the Feeds screen. (#39)
+- Feeds: Feed actions has "Show only unread feeds" for the Feeds screen, with a note under the title that brings the full list back, and a folder's menu has "Mark all as read" for the folder and its subfolders, with an undo toast.
+- Gazette: a story has the same menu as a list row, without Mark above and below, opened by a long press on a touch screen or, with a mouse, by the More button that shows on hover or the right-click menu. A story stays where it is on the page whatever the menu does, and the Gazette has no swipe. (#314)
+- Lists: group articles under headers by day (the default), by week (Today, Yesterday, This week, Earlier) or not at all, under Group by in the list options menu, for this device or for one feed or folder; the choice syncs with the device profile. (#39)
+- Site: a page description and a robots.txt that asks every crawler to stay away; the web build ships source maps, which let a stack trace in the browser tools name the real source files. (#466)
+
+### Changed
+
+- Reader: the default article column holds about 66 characters of the reading font at the Standard density, wider for wide fonts and narrower for narrow ones. Narrow and Wide are unchanged. (#616)
+- Reader: the feed name above an article's title opens that feed's list; Share is a toolbar button, Mark as read and unread are in the More menu, and More is the last button.
+- Reader: one text size looks the same in every reading font, each face sized to a common x-height. (#654)
+- Reader: article headings follow one scale from the title (1.75 rem) down to h3, all in a medium-bold weight, and balance their lines. (#646)
+- Reader: a tall picture in an article is capped at 70% of the window (40 rem at most) and centred when it stands alone on its line, while icons and pictures inside a line of text keep their own size. (#648)
+- Reader: article paragraphs wrap without a one-word last line, table headers start-align, and short and numeric table cells stay on one line, with numbers on the end edge. (#655)
+- Errors: failures name the action and the cause in three phrases: "You're offline" (the browser has no network), "Kipple can't be reached" (no answer, or a proxy or tunnel error in front of a Kipple that is not running) and "Kipple's server had a problem" (an error from Kipple itself). Warnings look different from errors, "Try again" is the one retry word, and an error toast clears when the same change later succeeds. (#704)
+- Feeds: a feed that can't be fetched gives its reason in plain words, when it last worked and when Kipple tries again, on its empty list and its Feed health row, with Edit address and Try now buttons. Edit feed opens with the same reason and the address field focused, and the server's own error text is behind Details on Feed health. (#666, #667)
+- Feeds: Add feed shows "Looking for a feed at..." while it works, keeps Title and Folder under Options, and offers the own-network option as soon as a private-looking address is typed. The empty library's "Add your first feed" opens it in place. (#671)
+- Feeds: delete dialogs, in the same words on the Feeds screen, for a folder and in the feed editor, say how many articles go, whether starred articles stay in the Archive or go too, and that it can't be undone. The button names the outcome ("Delete feed and 312 articles"). (#669)
+- Feeds: Edit feed is grouped into Basics, This feed's schedule and On this device. Every "use the default" choice reads "Same as Settings (every 30 minutes)" with its real value, Save is always "Save" and stays off until something changes, and the off switch is "Pause this feed". (#670)
+- Feeds: a feed the site says is gone switches back on when its address is corrected, and Feed health counts it once.
+- Feeds: Feed health has a one-line summary that doubles as the filter ("1 feed needs attention. 10 working.") and "Update list" in the header. (#674)
+- Feeds: a plain visit to the Feeds screen shows the list with no help sentence, the header holds Edit, Add feed and the Feed actions menu, and Select is "Select feeds" in that menu. Favorites show a folder icon for folders and no "Feed" or "Folder" labels.
+- Launch: when the app can't load, the failed screen stays up and asks again by itself with a "Trying again" line; it stops asking for causes that will not pass (a refusal, a rate limit) and waits as long as the server asks. (#705)
+- Reader: Inbox rows lead with the title on up to two lines and put the source on the meta line, which is hidden in a one-feed list. (#657)
+- Lists: Mark all as read asks first and names how far it reaches ("Mark all 214 as read", "Mark everything unread as read", "Mark all results as read"). Its dialog says which unread articles it marks, naming the Starred view or a reading-time filter when one narrows it, and reads "Mark all as read" when nothing is unread. (#656)
+- Reader: marking the open article read or unread is announced aloud and shows no Undo toast, and the row menu and a swipe still offer Undo; the article says "Unread" only while it is unread. The list header and Feed health menus use the horizontal three-dot icon. (#651, #613)
+- Lists: the swipe panel uses the menu's words ("Mark as read", "Mark as unread") and fits narrow phones. (#663)
+- Navigation: the current page in the sidebar and the Settings list is marked with an accent bar and semibold text as well as the selection fill, and the current tab in the phone tab bar with an accent bar and a filled icon as well as color. (#610)
+- Buttons: destructive buttons (delete, sign out, reset, forget) share one outlined red style whose hover thickens the border, keeping the red text on the page color. (#626)
+- Forms: inputs, selects and option cards have a border with 3:1 contrast against the page in every color scheme, and the selected option card and segmented control are marked with tint and weight as well as an outline. (#609 #686)
+- Forms: filter, setting and device-name errors, and the messages from the allow-my-own-network import step, show the same warning icon and message style as every other field error. (#609)
+- Keyboard: focus is one two-tone ring everywhere, visible on any background and thicker with the high-contrast preference. (#619)
+- Passwords: password fields have a Show/Hide button named after the field (for example "Show new password"), and setup, restore and the account settings drop the "password again" field. (#699)
+- What's new: opens as a standard dialog sheet, and closing it with nothing focused puts focus on the screen's heading. (#627)
+- Reader: Unread and New show their count beside the list title, and every list ends with a line naming it. (#661)
+- Navigation: the sidebar and the tab bar use one rule for the current place (a feed's list and Feed health belong to Feeds, Your year to Stats), All articles has its own icon, and the sidebar's link to feeds is named Feeds. The Stats settings group is named Stats, and a source with no folder is called Uncategorized in Stats. (#638)
+- Navigation: Back and Forward return focus to the row you left, also between two lists of the same screen. (#641)
+- Navigation: the unread count on the landscape tab bar follows the Articles name, and the pane resize handles have a 24 px hit area outside the column. (#643, #631)
+- Empty, missing and failed screens share one shape: what this is, why, and a next step. A library with no feeds shows one welcome that the reader pane, sidebar and Search do not repeat, an empty folder says it has no feeds, and an article that is only a title says so and offers the original. (#617, #647)
+- Each screen announces its own loading. (#612, #625)
+- A missing page, feed, folder, article, list or settings page says "<Thing> not found", with its own tab title and a way out. (#642)
+- Settings: how often to check feeds and the days you can restore removed articles are a row of choices with Custom, like the other number settings. (#686)
+- Offline: the offline notice says why Kipple is not answering (You're offline, or Kipple can't be reached), floats above the tab bar, and can list the changes waiting to be sent; a picture that fails offline says Picture not available offline. Error toasts show an alert icon, only one toast per kind shows at a time, and on a wide window they sit at the bottom left beside the sidebar. (#708, #709)
+- Import: feeds on a private address or a local-network name (such as .lan) are listed once, in one place, with a single button that allows them all and a switch in each feed's settings; a feed on a public name whose file asked to reach your network keeps its own line. Turning on a feed's own-network access, from that button or the feed editor, fetches the feed at once. (#485)
+- Phone: the first tab is called Articles and holds Unread, All, Starred and Muted; it opens on Unread and carries the unread count. (#421)
+- Phone: held sideways, the list header keeps the title, the Show pills (a Show menu on a narrow screen) and the feed switch on one row, and the tab bar is one row of icon and name. (#420)
+- Navigation: Feed health, the Settings groups and Your year go back with the same chevron before the title, which returns to the screen you came from. The Stats range that draws one bar per month is called Monthly. (#424)
+- Phone: the list header has no Refresh button; pull the list down, or choose Refresh all feeds in the actions menu, whose icon spins while a refresh runs. (#422)
+- Forms: choice cards (the options in Add feed, the filter editor, Delete filter and the setup steps) share one look: the chosen card is tinted, an unchosen one tints on hover, a focused one gets an outline and a disabled one is dimmed. A card with fields under it can be picked by clicking anywhere on it, and the plain choices in Delete folder are dimmed when disabled too. (#561)
+- Reader: row buttons stay visible on touch screens and appear on hover with a mouse, decided by the devices you have. (#659)
+- Reader: the Gazette layout marks unread articles with the same dot as the other layouts. (#658)
+- Search: results use the list rows, show an N results line, offer Saved and Edit, and Mark all names the unread results it will mark. (#664)
+- Settings: Layout lists each layout with a short description. (#564)
+- Settings: each page has named sections and says once whether a setting is for this device or all devices, and the proxy settings sit in a folded section under Advanced, Address and access, with Other names for this server above it. Technical rows moved from About into the debug text, and the font switch reads "Also use it in lists and the sidebar". (#677, #678, #680)
+- Settings: Account & Devices gains Sync apps (the address, your username and a new app password, the one name for what sync apps sign in with) and a Backup and data section with the storage figures (database, backups, image cache, unread total), Restore from a backup and Run setup again as a plain link. Restore from a backup erases the library after a password and phrase check, keeps a safety copy and opens setup on its restore step. (#679, #681, #674)
+- Settings: changing the articles kept per feed, or Apply retention now, first shows how many articles would be removed. (#683)
+- Setup: two steps, your account and your feeds, with nothing pre-ticked; the time zone comes from your browser and theme, address and app password are in Settings. The Skip buttons and Restore's Feeds only are removed, and a feeds file is imported from the feeds step. (#698, #700, #703)
+- Forms: yes-or-no options in forms and dialogs (the feed editor, Add feed, Import OPML, the filter editor, Export statistics, Wrapped sharing and the setup wizard's feed step) are checkboxes that Save or the dialog's button applies. Switches remain for settings that take effect when flipped. (#286)
+- Stats: with no feeds it says Add a feed first and opens the add dialog from the button. (#617)
+- Stats: an empty library explains what counts as a read, and the daily bars and the heatmap show their day and number on a tap or the arrow keys. (#687, #688, #690, #696)
+- Stats: Never opened sits under Sources, Export is the last section, and the Range is a select on narrow screens and large text. (#691, #692, #695)
+- Stats: Sources is one list with a unit on every number, and Skimmed, Went to the original and Read rate are in each feed's sheet; folder rows show articles or time only. (#689, #693, #694)
+- Menus: on a touch screen every menu (list options, reading time, a row's actions, the reader's more menu, the Feeds and Health menus) opens as a bottom sheet over a dimmed page. A tap on the dimmed page only closes the menu, the press that opens a menu never picks a choice, and menus are unchanged with a mouse. (#423)
+- Your year: cards follow the order of the share image, a young year shows totals and one note without Share, and the Share sheet puts its options first. (#697)
+
+### Fixed
+
+- Screen readers: the refresh button says Refreshing as soon as you tap it, the "Marked unread" toast clears when you go to the next article, and empty lists and the Cloudflare Access state are not announced on arrival. After skipping the rest of setup, focus is on the list's heading. (#482, #499)
+- Screen readers: a switch is named by its label alone and says why when it is off for a reason; add-feed and sign-in errors attach to their fields, which are marked invalid and take focus. (#497, #498)
+- Screen readers: row buttons name their article ("Star: <title>"), article links start with the title, and the sidebar's Unread link reads its count once. (#500)
+- Reader: articles in Arabic or Hebrew lay out right to left, with the title, byline and text each following the direction of their script. (#649)
+- Reader: bulleted and numbered lists in articles show their bullets and numbers, with open circles for nested bullets. (#645)
+- Reader: an article opens at once while list pictures are still loading (pictures load three at a time, near the screen), shows its title, source and picture from the list while its text loads, and after 8 seconds without an answer asks again once and then offers Try again; a failed article read retries once instead of up to three times. (#718, #754)
+- Reader: a table in an article keeps its words whole and scrolls sideways when wider than the column (a one-column layout table wraps like text). Code blocks and tables wider than the column can be reached with the keyboard, are named for screen readers and show a shadow where more is hidden. (#621, #477)
+- Feeds: deleting many feeds at once is one request; every selected feed leaves Manage feeds and your lists at once and its articles are removed on the server, even if you close the page. The dialog says it keeps going on the server, and "Delete the folder and its feeds" works the same way. (#486)
+- Cocoa Mid: the selected row has a darker highlight, and its secondary text meets 4.5:1 contrast. (#491)
+- Buttons: a destructive button keeps its hover cue while it has keyboard focus. (#728)
+- Settings: the devices list shows a placeholder as tall as the name form, this device and one other while it loads. (#730)
+- Feeds: editing a feed saved with an over-long address keeps its private-network and certificate exceptions when you stay on the same site. (#537)
+- Settings: the Download data dictionary link in the Export dialog is a 44 px touch target on a phone. (#767)
+- Feeds: a feed's or folder's list that still has articles says at the top when a feed in it can't be fetched, with the reason and a link to Feed health. (#511)
+- Feeds: a feed address is measured at the length Kipple stores it, with letters outside A to Z in their longer web-encoded form and any fragment or surrounding spaces dropped. An address that fits once cleaned up is accepted, one that does not fit is refused at once with a message that the limit counts the encoded form, and a redirect to an address over the limit is noted in the fetch log. (#519)
+- Feeds: a feed Kipple cannot fetch shows why: its row on Manage feeds shows the reason the last fetch failed, and its empty list says the fetch failed, with the reason and a link to Feed health. (#476)
+- Feeds: an address over 4,096 characters, or with a server name over 253 characters (or 63 between two dots), is refused when it is added, edited or imported, with a message that says so. An OPML file of very long addresses does not grow the database or memory: none is stored, and each is listed in the import report with its reason. (#470)
+- Feeds: when a feed's network exceptions (full-text extraction, image proxying) follow it to its bare or www. twin, a single-label name such as app has no twin, and neither does a public suffix such as co.uk. (#472)
+- Reader: every layout draws a feed's icon the same way, a feed with no icon or one that fails to load shows a neutral letter tile, and an unstarred star shows at full strength. (#630)
+- Feeds: Manage feeds and the sidebar do less work on a very long library, drawing fewer rows and rebuilding their lists less often, and the Down arrow in the sidebar tree focuses the right row when it draws more. (#516)
+- Feeds: favorites on the Feeds screen show unread counts, and the feeds under a favorite folder show theirs. The "Unread badge" setting (Count, Dot, Off) and the 99+ cap apply to every row on the Feeds screen and in the sidebar, and a feed with nothing unread is dimmed.
+- Feeds: an empty default folder is hidden on Manage feeds except in Edit, where it says that feeds added without a folder go there. (#469)
+- Feeds: Manage feeds and the sidebar open quickly with thousands of feeds, drawing the first few hundred rows and the rest as you scroll, and Select all still selects every feed. Feeds that share a title show their address under it on Manage feeds, in the delete confirmation and in the sidebar, where it is part of the feed's name too. (#463, #484, #516)
+- Settings: the device name field reads its error aloud with the field. (#728)
+- First run: the pull compose file says to create your account before widening the port and does not call for Compose 2.24 (only the build-from-source file needs it). A password mismatch in setup is announced once, and the Manage feeds and filter-suggestion help says "Click" when you use a mouse. (#490)
+- Keyboard: Next article, Previous article, Full text, Refresh all feeds and Oldest first keep focus on the button you pressed; beside the list, the article that arrives is announced. Enter or Space on a feed or folder in the sidebar opens it with focus still on it. (#492, #495)
+- Keyboard: in the article list, Home, End, PageUp and PageDown move focus between rows and Space opens the focused row. After Next, Shift+Tab back into the list lands on the open article, and a focused card's ring follows its rounded corners. (#494, #390)
+- Keyboard: the Edit feed sheet opens on itself, with Tab reaching its first field before the buttons. (#493)
+- Keyboard: ArrowDown in the search field moves into the results, Home and End pick the first and last choice of a segmented setting, and the Reading appearance panel fits the window. (#495)
+- Reader: the Full text button shows when it is on with an icon, a page with a check mark, as well as its tint. (#563)
+- Gazette: an open article's Previous and Next follow the order the page prints its stories (the lead, the front page, then the sections), on a phone and beside the list. (#315)
+- Sign-in: over https the signed-in marker cookie carries the __Host- prefix, which stops a parent-domain cookie of the same name from ending every launch in a 401; signing in or out clears the marker under the old name too. (#553)
+- Import: the web import gives its own message for an empty file, a file that is not OPML, a file with only empty folders and a file naming an entity XML and HTML do not define, and a name like "&x;" never becomes a folder. Reader API clients and the import command refuse files with no feeds and files naming an undefined entity too, and a Reader API client importing an empty or folders-only file gets 400 and the reason. (#518, #467, #487)
+- Reader: a long Inbox title stays within its row. (#615)
+- Menus: open menus leave the rest of the page available to assistive technology and draw above toasts and the save notice. The Saved searches list is a group. (#611)
+- Reader: lead pictures are cropped or fitted by their own shape, and rows without a picture keep a minimum height. (#662)
+- Reader: reloading the page or reopening the app returns the article list to the article that was at its top, also when Back leads to the list from an article the reload opened and when you opened an article soon after scrolling. A list left at its top, a list whose top article has since left it, lists opened later in the visit and searches start at the top. (#481, #578)
+- Reader: Next on the last loaded article says "Couldn't load more articles" when the next page fails to load.
+- Import: the report for a feed listed in many folders names at most 20 of the other folders, cuts a path at 200 bytes and lists at most 1,000 such feeds, and counts the rest. (#517)
+- Import: the fetch of the feeds an OPML import adds shows its progress in the dialog and under the top of the screen until it ends, also after you close the dialog or finish setup, and ends with how many could not be fetched. The fetches queue behind the fetch workers and do not all start at once. (#464)
+- Import: skipped feeds say why in words that fit an import, and a feed listed twice in the file is counted. (#487)
+- Feeds: moving selected feeds starts with no folder chosen. (#487)
+- Gazette: with mark as read while scrolling, a story you scroll past is marked read even when the page is laid out again at that moment (taller stories in another column, a text size change), and a story the page moves above the top without a scroll is never marked. When the page changes above the screen (smaller or larger text, a failed picture, a removed story, the note about failing feeds), the story at the top stays where it was once you stop scrolling, and at the very top of the list you see what appears there. (#39)
+- Sign-in: a malformed saved password hash (zero rounds, trailing text after a number, text before the first $, or a salt or tag too short to be real) is refused as a wrong password. (#471)
+- Phone: at the largest text size on a narrow screen the five tabs fit with their names whole and the unread count on the Unread icon's corner, the Feeds title stays visible with its buttons on a row of their own, and the Unread, All and Starred choices wrap. (#480)
+- Lists: the end of the article list scrolls clear of the undo message, and List actions turns Mark all as read off in a list with nothing unread and says why Undo is off. In the open article, Read or Unread is plain text and the toolbar holds the toggle. (#483, #425)
+- Settings: a setting changed while offline is saved when the connection is back, and shows no "Couldn't save your settings" over the offline notice. (#479)
+- Reader: a title with a long unbroken word, such as an address or hashtag, wraps in the article list and the reader, and the one-line Headlines and Inbox layouts end it with an ellipsis. (#478)
+- Requests: a definite 4xx answer from the server (any except a timeout or too-many-requests) is final after one request, and Try again on the "Kipple can't let you in from here" screen sends one request. (#572)
+- App: a tab left open from an earlier version offers a reload after the upgrade.
+- Reader: turning a phone between portrait and landscape, or resizing the window, keeps the article list on the article you were looking at, and Mark as read while scrolling marks no article that the new layout moved above the top. Coming back to a list after changing the text size returns to the same article.
+- Reader: a list row's link is named by its title, with "unread" added to its name, and on a narrow screen a title cut short with a search word marked in it matches its accessible name. (#513)
+- Search: on a short screen only the search box stays fixed and the header scrolls with the results. (#608)
+- Settings: the This device badge wraps on narrow screens. (#615)
+- Setup: Run setup again in Settings opens the setup steps in that browser tab only, changes nothing on the server, sends no other device to them and locks nobody out until the steps are finished. The time zone list also finds a zone by its current name when the browser lists it under an old one (Kolkata for Calcutta, Kyiv for Kiev). (#489, #488)
+- Menus: on a touch screen, a sheet menu closes when focus moves to the page behind it, and a drag that starts on the dimmed page behind it does not scroll that page. (#727, #567)
+- Sign-out: changes made offline that wait to be sent are kept if the sign-out does not go through, and sent then. A sign-out that gets no answer within 10 seconds is given up and says so, and signing out of a session that had already ended still signs the browser out. (#549)
+- Sign-out: signing out sends nothing that needs the session it is ending (the reading data, queued changes, other requests), and the browser console logs no 401 error. The sign-in screen shows once this device's offline copies are deleted, even when a request already on its way answers first. (#549)
+- Sign-in: a launch while signed out asks the server once and sends no request that answers 401, on the sign-in page and the setup wizard alike; changes saved offline wait for your next sign-in. A no-password Kipple opened from a network it does not allow shows why at once. (#551, #552, #465)
+- Progress: a run's progress bar (an import's fetch, a refresh, the auto-read catch-up) leaves the screen when the run finishes and never reports a finished run while it is still going, even when a server reply arrives late or the server is too busy to say which runs are active. When Kipple loses track of how a run ended, the import and the auto-read catch-up say so without claiming a result and show the result if it arrives later; a filter apply cancelled while it counts ends its run. (#536, #539)
+- Stats: a screen that fails to load shows one error message, announced once, and when Kipple is offline or not answering the offline notice gives the cause and the screen says only that the numbers did not load. (#624)
+- Stats: the three summary tiles and a feed's Read rate show a small chevron that turns over when you open the previous-period figure or the counts behind the rate, and the tile darkens while pressed. (#562)
+- Progress: a fetch that ends while the page is still opening is reported with its result right away, and a stream that starts over after a long outage does not skip the events it never received. (#540)
+- Notices: the "unread items trimmed" notice counts the unread items trimmed from a feed that already works when one update brings more than 500 new items. A new subscription's first update is never counted, including a first document larger than one trim batch. (#527, #316)
+
+### Security
+
+- Built with Go 1.27.3, which fixes a certificate-verification vulnerability in the standard library (GO-2026-6809).
+- Sign-in: over https the session cookie carries the __Host- prefix, which stops a cookie of the same name set for the parent domain by another site on a sibling subdomain from standing in for your session. Everyone is signed out once over https and signs in again, signing in or out ends every session the browser holds a cookie for under either name, and plain http (a LAN address) is unchanged. (#571)
+
 ## [1.0.0] - 2026-10-19
 
 ### Changed
@@ -1068,7 +1214,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/WPTK/Kipple/compare/v1.0.0...v1.5.0
 [1.0.0]: https://github.com/WPTK/Kipple/compare/v1.0.0-rc.2...v1.0.0
 [1.0.0-rc.2]: https://github.com/WPTK/Kipple/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/WPTK/Kipple/compare/v0.9.0-beta.1...v1.0.0-rc.1
