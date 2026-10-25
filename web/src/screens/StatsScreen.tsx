@@ -46,7 +46,7 @@ import { AddFeedDialog } from "./feeds/AddFeedDialog";
 import { DailyChart, Empty, Heatmap, MonthlyChart } from "./StatsCharts";
 import { StatsDataSection, StatsExportDialog } from "./StatsDataDialogs";
 
-const activityTitle = (data: StatsSummary) => (activityBars(data.daily ?? []).unit === "week" ? "Weekly activity" : "Daily activity");
+const activityTitle = (data: StatsSummary) => (activityBars(data.daily ?? [], data.week_start).unit === "week" ? "Weekly activity" : "Daily activity");
 
 export { DailyChart, Heatmap, MonthlyChart } from "./StatsCharts";
 

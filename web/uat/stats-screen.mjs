@@ -87,6 +87,7 @@ await t.eachViewport(async (page, vp) => {
   });
 
   await step(`${tag} T9`, async () => {
+    try {
     for (const [m, unit, min] of [["month", "day", 28], ["year", "week", 50]]) {
       await open("/stats", m);
       await page.locator("label", { hasText: /^Year$/ }).click();
@@ -102,7 +103,9 @@ await t.eachViewport(async (page, vp) => {
       check(unit === "week" ? / to /.test(said) : /^[A-Z][a-z]{2} \d+: /.test(said), `${tag} T9 tap ${m}`, `a tap shows "${said}"`, `a tap on a ${unit} bar shows "${said}"`);
       await t.shot(page, `${tag}-T9-${m}`);
     }
-    await page.locator("label", { hasText: /^Month$/ }).click();
+    } finally {
+      await page.locator("label", { hasText: /^Month$/ }).click();
+    }
   });
 
   await step(`${tag} T3`, async () => {

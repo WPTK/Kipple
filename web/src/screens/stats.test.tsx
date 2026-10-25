@@ -143,6 +143,21 @@ describe("Stats screen", () => {
     expect(await screen.findByText("Quiet Feed")).toBeInTheDocument();
     expect(screen.queryByText("Fresh Feed")).toBeNull();
   });
+  it("a year of reading is drawn as weeks, named so", async () => {
+    const days = Array.from({ length: 365 }, (_, i) => {
+      const d = new Date(2025, 9, 26 + i);
+      const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      return { date, items_read: 2, active_seconds: 120 };
+    });
+    setup(() => ({ ...richStats, daily: days }));
+    go();
+    await screen.findByRole("heading", { name: "Weekly activity" });
+    expect(screen.queryByRole("heading", { name: "Daily activity" })).toBeNull();
+    expect(screen.getByRole("group", { name: /Articles read per week/ })).toBeInTheDocument();
+    expect(screen.getByText("Tap a bar for its week.")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Week of" })).toBeInTheDocument();
+  });
+
   it("switches range, refetches and remembers the choice", async () => {
     const user = userEvent.setup();
     const m = setup(() => richStats);

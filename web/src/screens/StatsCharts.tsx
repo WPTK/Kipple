@@ -107,19 +107,21 @@ function BarChart({ bars, summary, slot, hint }: { bars: Bar[]; summary: string;
 }
 
 export function DailyChart({ data, empty }: { data: StatsSummary; empty: boolean }) {
-  const { unit, rows: daily } = activityBars(data.daily ?? []);
+  const { unit, rows: daily } = activityBars(data.daily ?? [], data.week_start);
   if (empty || daily.length === 0) return <Empty>No reading in this range.</Empty>;
   const week = unit === "week";
   const when = (d: { date: string; end: string }) => (week ? `${shortDate(d.date)} to ${shortDate(d.end)}` : shortDate(d.date));
   const total = daily.reduce((a, d) => a + d.items_read, 0);
   const busiest = daily.reduce((a, d) => (d.items_read > a.items_read ? d : a), daily[0]!);
   const summary = `Articles read per ${unit}, ${shortDate(daily[0]!.date)} to ${shortDate(daily[daily.length - 1]!.end)}. ${plural(total, "article")} in total. Most in one ${unit}: ${busiest.items_read}, ${week ? "" : "on "}${when(busiest)}. Use the arrow keys to hear a ${unit}.`;
-  const bars = daily.map((d) => ({
+  const bars = daily.map((d, i) => ({
     key: d.date,
     value: d.items_read,
-    label: shortDate(d.date),
+    // The axis ends where the data does: the last week's end, not its start.
+    label: shortDate(week && i === daily.length - 1 ? d.end : d.date),
     detail: `${when(d)}: ${plural(d.items_read, "article")}, ${durationLabel(d.active_seconds)}`,
-  }));  return (
+  }));
+  return (
     <div>
       <BarChart bars={bars} summary={summary} slot={week ? WEEK_SLOT : DAY_SLOT} hint={week ? "Tap a bar for its week." : "Tap a bar for its day."} />
       <div className="sr-only"><table>

@@ -185,11 +185,24 @@ describe("activityBars", () => {
     expect(r.rows[0]!.date).toBe(addDays("2025-10-26", 335));
   });
 
-  it("folds a full year into runs of seven days that keep the totals", () => {
+  it("folds a full year into calendar weeks that keep the totals", () => {
+    // 2025-10-26 is a Sunday: the first week is whole, the last (today's) is partial.
     const r = activityBars(year(0));
     expect(r.unit).toBe("week");
     expect(r.rows).toHaveLength(53);
     expect(r.rows[0]).toMatchObject({ date: "2025-10-26", end: "2025-11-01", items_read: 7 });
+    expect(r.rows[52]).toMatchObject({ items_read: 1 });
     expect(r.rows.reduce((a, d) => a + d.items_read, 0)).toBe(365);
+  });
+
+  it("starts each week on the reader's week start", () => {
+    const r = activityBars(year(0), "monday");
+    expect(r.rows[0]).toMatchObject({ date: "2025-10-26", end: "2025-10-26", items_read: 1 });
+    expect(r.rows[1]).toMatchObject({ date: "2025-10-27", end: "2025-11-02", items_read: 7 });
+  });
+
+  it("folds only past 120 days", () => {
+    expect(activityBars(year(0).slice(0, 120)).unit).toBe("day");
+    expect(activityBars(year(0).slice(0, 121)).unit).toBe("week");
   });
 });
