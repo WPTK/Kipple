@@ -174,8 +174,12 @@ await t.eachViewport(async (page, vp) => {
 
     // I5: an article of 30 lazy images below the fold sends no image request, and no check, until it is scrolled.
     const asked = [];
+    // The row's lead picture is the article's first image: the opening article shows it (as the list card) while its text
+    // loads, so that one address is asked for at once. The images below the fold are the ones counted.
+    const lead = Buffer.from(`${base}/photo.gif?n=1`).toString("base64url");
     const onRequest = (r) => {
-      if (new URL(r.url()).pathname.startsWith("/img/")) asked.push(r.resourceType());
+      const { pathname } = new URL(r.url());
+      if (pathname.startsWith("/img/") && !pathname.endsWith(`/${lead}`)) asked.push(r.resourceType());
     };
     if (vp.mobile) await page.goBack();
     const lazyRow = page.getByText("UAT thirty pictures").first();

@@ -29,8 +29,9 @@ import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { EmptyState } from "@/ui/EmptyState";
 import { NotFoundBlock } from "@/ui/NotFoundBlock";
+import { ListImage, useImageFailure } from "@/layouts/parts";
 import { focusListRow, rememberListPlace } from "./ListPane";
-import type { Scope } from "@/api/types";
+import type { Card, Scope } from "@/api/types";
 import { ReadingMenu } from "./AppearanceControls";
 import { ListenBar } from "./ListenBar";
 import { DropdownMenu } from "@/ui/menu";
@@ -354,8 +355,14 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           <div className="p-6" aria-busy="true" role="status">
             <span className="sr-only-live">Loading article</span>
             <div aria-hidden="true" className="mx-auto max-w-[46rem] space-y-3">
-              <div className="h-7 w-4/5 rounded bg-surface" />
-              <div className="h-4 w-1/3 rounded bg-surface" />
+              {cachedCard ? (
+                <LoadingCard card={cachedCard} />
+              ) : (
+                <>
+                  <div className="h-7 w-4/5 rounded bg-surface" />
+                  <div className="h-4 w-1/3 rounded bg-surface" />
+                </>
+              )}
               <div className="h-4 w-full rounded bg-surface" />
               <div className="h-4 w-full rounded bg-surface" />
               <div className="h-4 w-2/3 rounded bg-surface" />
@@ -563,3 +570,15 @@ function Toolbar(p: ToolbarProps) {
   );
 }
 
+
+/** What the list already knew of the article (title, source, lead picture), shown while the full text loads. */
+function LoadingCard({ card }: { card: Card }) {
+  const failure = useImageFailure(card.image);
+  return (
+    <>
+      <p data-testid="loading-card-title" className="kp-ui text-2xl leading-tight font-semibold text-balance wrap-anywhere text-fg">{card.title || "Untitled"}</p>
+      <p className="kp-ui text-sm text-fg2">{card.source}</p>
+      {card.image ? <ListImage src={card.image} failure={failure} className="aspect-video w-full rounded-lg bg-surface" /> : null}
+    </>
+  );
+}

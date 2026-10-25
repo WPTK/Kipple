@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
+import { MAX_LIST_IMAGES, takeImageSlot } from "@/lib/imageSlots";
 import { ListImage, useImageFailure } from "./parts";
 
 function Pic({ src, frame }: { src: string; frame?: { className?: string } }) {
@@ -41,5 +42,17 @@ describe("ListImage", () => {
     first.unmount();
     const { container } = render(<Pic src="/remount.bmp" frame={{ className: "frame" }} />);
     expect(container.querySelector(".frame, img")).toBeNull();
+  });
+
+  it("a reused row given another picture waits for a place again", () => {
+    const { container, rerender } = render(<Pic src="/a-reuse.jpg" />);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("/a-reuse.jpg");
+    fireEvent.load(container.querySelector("img")!);
+    const held = Array.from({ length: MAX_LIST_IMAGES }, () => takeImageSlot(() => undefined));
+    rerender(<Pic src="/b-reuse.jpg" />);
+    expect(container.querySelector("img")?.getAttribute("src")).toBeNull();
+    act(() => held[0]!());
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("/b-reuse.jpg");
+    held.forEach((r) => r());
   });
 });
