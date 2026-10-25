@@ -400,7 +400,18 @@ a.sr-only-live:focus {
 /* A capped picture's box narrows with its height (enhanceImages gives --kp-w and --kp-h from the width and height
    attributes), so its rounded corners and its link are the picture's own, not a full-width bar around it. */
 .article-body img[data-kp="block"][data-sized] { width: min(calc(var(--kp-w) * 1px), calc(min(70dvh, 40rem) * var(--kp-w) / var(--kp-h))); }
+/* With only a width given, the width is a cap and the picture's own shape sizes the box: both sizes auto, so a capped
+   height narrows the box with it. */
+.article-body img[data-kp="block"]:not([data-sized]) { width: auto; max-width: min(100%, calc(var(--kp-w, 100000) * 1px)); }
 .article-body figure { margin-inline: 0; }
+/* A figure around a picture is as wide as the picture, so a narrowed picture's caption starts under it. The caption
+   wraps inside that width instead of widening it (its own width does not count). */
+.article-body figure:has(> img[data-kp="block"], > :is(a, picture) > img[data-kp="block"]) {
+  display: grid;
+  grid-template-columns: fit-content(100%);
+  justify-content: center;
+}
+.article-body figure:has(> img[data-kp="block"], > :is(a, picture) > img[data-kp="block"]) > figcaption { contain: inline-size; }
 .article-body figcaption { color: var(--kp-text2); font-size: 0.875em; margin-block-start: 0.4em; }
 .article-body blockquote { border-inline-start: 3px solid var(--kp-border); padding-inline-start: 1em; color: var(--kp-text2); margin-inline: 0; }
 .article-body pre, .article-body code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
@@ -424,6 +435,9 @@ a.sr-only-live:focus {
 .article-body th { text-align: start; }
 .article-body :is(td, th)[data-kp="short"] { white-space: nowrap; }
 .article-body :is(td, th)[data-kp="num"] { white-space: nowrap; text-align: end; font-variant-numeric: tabular-nums; }
+/* A cell of running text keeps a few words to a line: on a phone the table scrolls sideways rather than squeezing it to
+   one word per line beside the cells that do not wrap. */
+.article-body td[data-kp="text"] { min-width: 10em; }
 /* A one-column table is page layout (a newsletter's wrapper), not data: its text wraps like a paragraph, a long
    address included, so the whole article never scrolls sideways. */
 .article-body table:not(:has(tr > :nth-child(2))) td { overflow-wrap: anywhere; }

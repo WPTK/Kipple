@@ -4,22 +4,23 @@
 //   npm run uat:reading                in another
 //   npm run uat:reading -- --url http://127.0.0.1:7091 --screenshots <dir> --headed
 //
-// The flow serves its own feed on a loopback port (three articles: one with every block an article can have, one in
-// Arabic, one with a tall picture), so it needs no particular seed. On a phone (375x812) and a desktop (1280x800) it
+// The flow serves its own feeds on a loopback port (two articles: one with every block an article can have, one with a
+// tall picture; and a feed with an Arabic name and one Arabic article), so it needs no particular seed. On a phone (375x812) and a desktop (1280x800) it
 // opens them and checks what the browser computes:
 //   R1  bullet lists show discs (circles when nested) and numbered lists decimals (the base style reset clears them);
 //   R2  the title is 1.75 rem, the body headings step down from it (h2 1.2 em) and all are weight 650;
 //   R3  (the embed poster keeps 16:9 in landscape) a tall picture on its own line, bare or in a div, a figure or a link, is capped at min(70% of the window,
 //       40 rem), is drawn contained and centred; an icon in a line of text and a row of icons keep their own size and
 //       are not centred; a picture keeps the width attribute it was given (12 px on a 24 px file), and a capped one is as narrow
-//       as its drawn shape;
+//       as its drawn shape, also when it was given only a width; a caption starts under its picture's edge;
 //   R4  code and tables wider than the column are focusable and named ("Code"; a table keeps its caption as its name,
 //       otherwise "Table"), axe's scrollable-region-focusable finds nothing, and a table in a figure is not centred text;
+//       a table that starts to overflow when the text grows becomes focusable;
 //   R5  on a wide desktop, where the column is narrower than the pane, in a reading font far wider than the app font,
 //       the header and the body are one width and the column holds about 66 characters of that font (the Standard density);
-//   R6  an Arabic article lays out right to left (its title, byline, and the body, whose paragraphs have no dir of
-//       their own) while the "Read" line stays left to right;
-//   R7  table headers start-align and a number cell sits on the end edge.
+//   R6  an Arabic article from a feed with an Arabic name lays out right to left (the feed line, its title, byline, and
+//       the body, whose paragraphs have no dir of their own) while the word "Unread" stays left to right;
+//   R7  table headers start-align, a number cell sits on the end edge, and a cell of running text keeps at least 10 em.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { readFileSync } from "node:fs";
@@ -30,13 +31,15 @@ import { start } from "./common.mjs";
 
 const require = createRequire(import.meta.url);
 const AXE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
-const t = await start(import.meta.url, 24);
+const t = await start(import.meta.url, 25);
 const { check, step } = t;
 
 const FEED = "UAT feed reading";
 const ESSAY = "UAT reading essay with every block";
 const ARABIC = "عنوان باللغة العربية يمتد عبر السطر";
 const PICTURES = "UAT reading a tall picture";
+// The cleanup every flow runs removes it by its address (uat-feed-), as the name cannot start with "UAT feed".
+const ARABIC_FEED = "مدونة عربية للتجربة";
 
 /** A solid-colour PNG, so the flow needs no image files. */
 function png(w, h, [r, g, b]) {
@@ -90,32 +93,36 @@ const essayHtml = () =>
     tall(),
     `<div>${tall()}</div>`,
     `<figure>${tall()}<figcaption>A tall picture</figcaption></figure>`,
+    // Only a width: the width is a cap, the file's own shape sets the box.
+    `<figure><img src="${base}/img/tall.png" width="300" alt=""><figcaption>A tall picture given only a width</figcaption></figure>`,
     `<p><a href="https://example.com/">${tall()}</a></p>`,
     `<p><img src="${base}/img/wide.png" width="200" height="100" alt=""></p>`,
+    "<table><thead><tr><th>River</th><th>Length</th><th>Bridges</th><th>Notes</th></tr></thead><tbody><tr><td>Long one</td><td>6,650 km</td><td>41</td><td>A cell with more text than the others</td></tr></tbody></table>",
+    // Fits the column at the normal text size; R4 grows the text until it does not.
+    "<table><tr><td>Alpha</td><td>Beta</td><td>Gamma</td></tr></table>",
     "<p>The last paragraph.</p>",
   ].join("");
 const server = createServer((req, res) => {
   const path = new URL(req.url ?? "/", "http://x").pathname;
   if (IMAGES[path]) return void res.writeHead(200, { "Content-Type": "image/png" }).end(IMAGES[path]);
-  if (path !== "/feed.xml") return void res.writeHead(404).end();
+  if (path !== "/feed.xml" && path !== "/uat-feed-arabic.xml") return void res.writeHead(404).end();
   const item = (title, n, html, author = "") =>
     `<item><title>${esc(title)}</title><link>${base}/page/${n}</link><guid isPermaLink="false">uat-reading-${n}</guid><pubDate>${new Date(Date.now() - n * 60000).toUTCString()}</pubDate>${author ? `<dc:creator>${esc(author)}</dc:creator>` : ""}<description>${esc(html)}</description></item>`;
+  const channel = (title, items) => `<?xml version="1.0"?><rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><title>${title}</title><link>${base}/</link><description>t</description>${items}</channel></rss>`;
   res
     .writeHead(200, { "Content-Type": "application/rss+xml; charset=utf-8" })
     .end(
-      `<?xml version="1.0"?><rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><title>${FEED}</title><link>${base}/</link><description>t</description>` +
-        item(ESSAY, 1, essayHtml()) +
-        item(ARABIC, 2, "<p>نص عربي في المقالة، فقرة كاملة من اليمين إلى اليسار، من غير سمة اتجاه.</p>", "كاتب عربي") +
-        item(PICTURES, 3, `<p>${tall()}</p>`) +
-        "</channel></rss>",
+      path === "/uat-feed-arabic.xml"
+        ? channel(ARABIC_FEED, item(ARABIC, 2, "<p>نص عربي في المقالة، فقرة كاملة من اليمين إلى اليسار، من غير سمة اتجاه.</p>", "كاتب عربي"))
+        : channel(FEED, item(ESSAY, 1, essayHtml()) + item(PICTURES, 3, `<p>${tall()}</p>`)),
     );
 });
 await new Promise((resolve, reject) => server.once("error", reject).listen(0, "127.0.0.1", resolve));
 base = `http://127.0.0.1:${server.address().port}`;
 
-async function addFeed(page) {
-  for (const f of (await t.boot(page)).feeds.filter((x) => x.title === FEED)) await page.request.delete(`/api/feeds/${f.id}`, { headers: t.WRITE });
-  const added = await t.addLocalFeed(page, `${base}/feed.xml`, FEED, (items) => items.length >= 3);
+async function addFeed(page, path, title, count) {
+  for (const f of (await t.boot(page)).feeds.filter((x) => x.title === title)) await page.request.delete(`/api/feeds/${f.id}`, { headers: t.WRITE });
+  const added = await t.addLocalFeed(page, `${base}${path}`, title, (items) => items.length >= count);
   if (added.error) throw new Error(added.error);
   return added.feedId;
 }
@@ -127,6 +134,8 @@ async function open(page, feedId, title) {
   await rows.filter({ hasText: title }).first().locator("a").first().click();
   await page.waitForURL(/\/i\/\d+/, { timeout: 10000 });
   await page.getByTestId("article-body").waitFor({ timeout: 10000 });
+  // Article pictures load lazily; the checks measure every one, the last of them far down a long article.
+  await page.evaluate(() => document.querySelectorAll("[data-testid=article-body] img").forEach((i) => (i.loading = "eager")));
   await page.waitForFunction(() => [...document.querySelectorAll("[data-testid=article-body] img")].every((i) => i.complete));
   await page.waitForTimeout(500); // the observers and enhancers run after the first paint
 }
@@ -135,10 +144,12 @@ try {
   await t.eachViewport(async (page, vp) => {
     const tag = vp.id;
     let feedId;
+    let arabicFeedId;
     await step(`${tag} setup`, async () => {
-      feedId = await addFeed(page);
+      feedId = await addFeed(page, "/feed.xml", FEED, 2);
+      arabicFeedId = await addFeed(page, "/uat-feed-arabic.xml", ARABIC_FEED, 1);
     });
-    if (feedId === undefined) return;
+    if (feedId === undefined || arabicFeedId === undefined) return;
 
     await step(`${tag} essay`, async () => {
       await open(page, feedId, ESSAY);
@@ -168,7 +179,7 @@ try {
         };
         const icons = [...el.querySelectorAll("img[width=\"24\"]")].map(box);
         const talls = [...el.querySelectorAll("img[width=\"400\"]")].map((i) => ({ ...box(i), nw: i.naturalWidth, nh: i.naturalHeight, fit: getComputedStyle(i).objectFit, where: i.parentElement.tagName.toLowerCase() }));
-        return { icons, talls, vh: window.innerHeight, rem: parseFloat(getComputedStyle(document.documentElement).fontSize), small: [...el.querySelectorAll("img[width=\"12\"]")].map(box), alone: [...el.querySelectorAll("img[width=\"200\"]")].map(box) };
+        return { icons, talls, vh: window.innerHeight, rem: parseFloat(getComputedStyle(document.documentElement).fontSize), small: [...el.querySelectorAll("img[width=\"12\"]")].map(box), alone: [...el.querySelectorAll("img[width=\"200\"]")].map(box), only: [...el.querySelectorAll("img[width=\"300\"]")].map(box), captions: [...el.querySelectorAll("figure:has(img) > figcaption")].map((c) => ({ cap: Math.round(c.getBoundingClientRect().left), img: Math.round(c.parentElement.querySelector("img").getBoundingClientRect().left), text: c.textContent })) };
       });
       const cap = Math.min(0.7 * pics.vh, 40 * pics.rem);
       check(pics.icons.length === 4 && pics.icons.every((i) => i.w === 24 && i.h === 24 && Math.abs(i.mid) > 10), `${tag} R3 icons`, "an icon in text and a row of icons keep the 24 px they were given and are not centred", JSON.stringify(pics.icons));
@@ -180,6 +191,9 @@ try {
         check(Math.abs(p.w - cap * (400 / 1000)) <= 2, `${tag} R3 box ${n + 1} ${p.where}`, `a capped picture in a ${p.where} is as wide as its drawn shape (${Math.round(cap * 0.4)}), not the 400 it was given`, JSON.stringify(p));
         check(p.display === "block" && Math.abs(p.mid) <= 2, `${tag} R3 centred ${n + 1} ${p.where}`, `a tall picture in a ${p.where} is centred`, JSON.stringify(p));
       }
+      const only = pics.only[0];
+      check(pics.only.length === 1 && Math.abs(only.w - cap * 0.4) <= 2 && only.h <= cap + 1 && Math.abs(only.mid) <= 2, `${tag} R3 width only`, `a tall picture given only a width is as wide as its drawn shape (${Math.round(cap * 0.4)}) and centred`, JSON.stringify(pics.only));
+      check(pics.captions.length === 2 && pics.captions.every((c) => Math.abs(c.cap - c.img) <= 2), `${tag} R3 captions`, "a caption starts under its narrowed picture's edge", JSON.stringify(pics.captions));
 
       // The embed poster is a 16:9 frame, not a picture to cap: in a phone held sideways (844 x 390) the height cap would crop it.
       if (tag === "phone") {
@@ -215,6 +229,17 @@ try {
       check(regions.plain.over ? regions.plain.tab === "0" && regions.plain.name === "Table" : regions.plain.tab === null, `${tag} R4 table`, "a wide table is focusable and named Table", JSON.stringify(regions.plain));
       check(regions.captioned.over ? regions.captioned.tab === "0" && regions.captioned.name === null : true, `${tag} R4 caption`, "a captioned table keeps its caption as its name (no aria-label)", JSON.stringify(regions.captioned));
       check(regions.figureAlign !== "center", `${tag} R4 figure`, "a table in a figure is not centred text", regions.figureAlign);
+      // The text size grows (as the Aa panel does it, through the font size the body inherits): a table that fitted
+      // now overflows and takes focus, and lets go of it when the text comes back.
+      const small = () => body.evaluate((el) => { const tb = [...el.querySelectorAll("table")].at(-1); return { over: tb.scrollWidth > tb.clientWidth, tab: tb.getAttribute("tabindex") }; });
+      const before = await small();
+      await body.evaluate((el) => (el.style.fontSize = "4em"));
+      await page.waitForTimeout(300);
+      const grown = await small();
+      await body.evaluate((el) => (el.style.fontSize = ""));
+      await page.waitForTimeout(300);
+      const back = await small();
+      check(!before.over && before.tab === null && grown.over && grown.tab === "0" && back.tab === null, `${tag} R4 text size`, "a table that overflows only at a larger text size takes focus then, and lets go when the text is smaller", JSON.stringify({ before, grown, back }));
       if (regions.pre.over) {
         await page.keyboard.press("Shift"); // the last input was the keyboard, so :focus-visible applies
         await body.locator("pre").focus();
@@ -233,7 +258,14 @@ try {
       const numCell = cells.num.find(([text]) => text === "6,650");
       check(cells.th === "start" || cells.th === "left", `${tag} R7 th`, "table headers start-align", cells.th);
       check(numCell !== undefined && numCell[1] === "num" && (numCell[2] === "right" || numCell[2] === "end"), `${tag} R7 numbers`, "a number cell is marked and sits on the end edge", JSON.stringify(cells.num));
+      const notes = await body.evaluate((el) => { const td = [...el.querySelectorAll("td")].find((c) => c.textContent.startsWith("A cell with more text")); return { w: td.getBoundingClientRect().width, em: parseFloat(getComputedStyle(td).fontSize), kp: td.dataset.kp }; });
+      check(notes.kp === "text" && notes.w >= 10 * notes.em - 1, `${tag} R7 running text`, "a cell of running text beside cells that do not wrap keeps at least 10 em", JSON.stringify(notes));
       await t.shot(page, `${tag}-essay`);
+      await body.locator("figure:has(img[width='300'])").scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      await t.shot(page, `${tag}-width-only-picture`);
+      await body.locator("table").nth(3).scrollIntoViewIfNeeded();
+      await t.shot(page, `${tag}-running-text-table`);
     });
 
     await step(`${tag} pictures`, async () => {
@@ -242,15 +274,16 @@ try {
     });
 
     await step(`${tag} arabic`, async () => {
-      await open(page, feedId, ARABIC);
+      await open(page, arabicFeedId, ARABIC);
       const d = await page.evaluate(() => {
         const body = document.querySelector("[data-testid=article-body]");
         const title = document.getElementById("article-title");
         const dir = (e) => getComputedStyle(e).direction;
-        return { title: dir(title), byline: dir(title.nextElementSibling), body: dir(body), p: dir(body.querySelector("p")), pAttr: body.querySelector("p").getAttribute("dir"), read: dir(title.previousElementSibling) };
+        const unread = document.querySelector("[data-testid=read-state]");
+        return { feed: dir(title.previousElementSibling), title: dir(title), byline: dir(title.nextElementSibling), body: dir(body), p: dir(body.querySelector("p")), pAttr: body.querySelector("p").getAttribute("dir"), unread: unread ? dir(unread) : "ltr" };
       });
-      check(d.pAttr === null && d.title === "rtl" && d.byline === "rtl" && d.body === "rtl" && d.p === "rtl", `${tag} R6 rtl`, "an Arabic article's title, byline, body and paragraphs run right to left", JSON.stringify(d));
-      check(d.read === "ltr", `${tag} R6 read line`, "the Read line stays left to right", d.read);
+      check(d.pAttr === null && d.feed === "rtl" && d.title === "rtl" && d.byline === "rtl" && d.body === "rtl" && d.p === "rtl", `${tag} R6 rtl`, "an Arabic feed's article runs right to left: the feed line, title, byline, body and paragraphs", JSON.stringify(d));
+      check(d.unread === "ltr", `${tag} R6 unread`, "the word Unread stays left to right", d.unread);
       await t.shot(page, `${tag}-arabic`);
     });
 
