@@ -86,7 +86,14 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   const canPage = at >= 0;
   // Next is off only at the real end: no next article loaded and nothing more on the server.
   const canNext = canPage && (!!nextId || list.more);
-  const nextTitle = nextId ? list.cards.find((c) => c.id === nextId)?.title : undefined;
+  // The footer names the next article; with none loaded yet its Next loads the next page.
+  const nextCard = nextId ? list.cards.find((c) => c.id === nextId) : undefined;
+  const nextLabel = !nextId ? "Next: more articles" : `Next: ${nextCard ? nextCard.title || "Untitled" : "the next article"}`;
+  // Beside the list the footer goes away while the next article loads: focus moves to the toolbar's Next, which stays.
+  const footerNext = () => {
+    if (pane) frameEl?.querySelector<HTMLElement>('[role="toolbar"] [aria-label="Next article"]')?.focus();
+    next();
+  };
 
   // Mark read on open, once per article (design 7.1: POST /open, never a stat elsewhere).
   const opened = useRef<string | null>(null);
@@ -457,7 +464,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
             />
           )}
           {paging && canPage ? (
-            <ArticleEnd at={at + 1} of={order.length} more={list.more} canNext={canNext} nextTitle={nextTitle} end={endCopy(scope)} onNext={next} />
+            <ArticleEnd at={at + 1} of={order.length} more={list.more} canNext={canNext} label={nextLabel} end={endCopy(scope)} onNext={footerNext} />
           ) : null}
         </article>
       </div>
@@ -467,14 +474,14 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
 }
 
 /** The end of an article: where it sits in its list and the next one by name, so a long read ends without a scroll back to the toolbar. */
-function ArticleEnd(p: { at: number; of: number; more: boolean; canNext: boolean; nextTitle: string | undefined; end: string; onNext: () => void }) {
+function ArticleEnd(p: { at: number; of: number; more: boolean; canNext: boolean; label: string; end: string; onNext: () => void }) {
   return (
     <footer data-testid="article-end" className="kp-ui mx-auto mt-10 max-w-[min(var(--kp-col),100%)] border-t border-line pt-4 text-sm text-fg2">
       <p>{p.more ? `Article ${p.at} of ${p.of} so far` : `Article ${p.at} of ${p.of}`}</p>
       {p.canNext ? (
         <Button variant="ghost" onClick={p.onNext} className="mt-2 h-auto min-h-11 max-w-full justify-start gap-2 px-2 py-2 text-left text-base">
           <ChevronDown aria-hidden="true" className="shrink-0" />
-          <span className="line-clamp-2 min-w-0">{p.nextTitle ? `Next: ${p.nextTitle}` : "Next: more articles"}</span>
+          <span className="line-clamp-2 min-w-0">{p.label}</span>
         </Button>
       ) : (
         <p className="mt-2">{p.end}</p>

@@ -149,6 +149,23 @@ describe("the end of an article (#650)", () => {
     expect(screen.queryByText("End of list")).toBeNull();
   });
 
+  it("beside the list, the footer's Next leaves focus on the toolbar's Next while the next article loads", async () => {
+    routes(); // wide: the pane
+    go("/i/1002?from=unread");
+    const end = await screen.findByTestId("article-end");
+    await userEvent.setup().click(within(end).getByRole("button", { name: "Next: Article number 3" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/i/1003"));
+    expect(screen.getByRole("button", { name: "Next article" })).toHaveFocus();
+  });
+
+  it("names an untitled next article Untitled, not more articles", async () => {
+    media();
+    routes({ "GET /api/items": () => json(pageOf([card(1, { published_at: BASE - 3600, sort_at: BASE - 3600 }), card(2, { title: "", published_at: BASE - 7200, sort_at: BASE - 7200 })], null, "2000")) });
+    go("/i/1001?from=unread");
+    const end = await screen.findByTestId("article-end");
+    expect(within(end).getByRole("button", { name: "Next: Untitled" })).toBeInTheDocument();
+  });
+
   it("with more on the server, the last loaded article counts so far and its footer loads the next", async () => {
     media();
     routes({
