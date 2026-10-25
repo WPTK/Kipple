@@ -1,0 +1,1 @@
+Keyboard: in the article list, Home, End, PageUp and PageDown move focus between rows and Space opens the focused row. After Next, Shift+Tab back into the list lands on the open article, and a focused card's ring follows its rounded corners. (#494, #390)

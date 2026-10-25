@@ -1,1 +1,1 @@
-The article toolbar's Full text button now shows when it is on by its icon, a page with a check mark, as well as by its tint, so the state reads in every color scheme and without color. (#563)
+Reader: the Full text button shows when it is on with an icon, a page with a check mark, as well as its tint. (#563)

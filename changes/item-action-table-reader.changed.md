@@ -1,0 +1,1 @@
+Reader: marking the open article read or unread is announced aloud and shows no Undo toast, and the row menu and a swipe still offer Undo; the article says "Unread" only while it is unread. The list header and Feed health menus use the horizontal three-dot icon. (#651, #613)

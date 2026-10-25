@@ -1,1 +1,1 @@
-Code blocks and tables wider than the column can be reached with the keyboard, are named for screen readers and show a shadow where more is hidden. (#621)
+Reader: a table in an article keeps its words whole and scrolls sideways when wider than the column (a one-column layout table wraps like text). Code blocks and tables wider than the column can be reached with the keyboard, are named for screen readers and show a shadow where more is hidden. (#621, #477)

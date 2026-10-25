@@ -1,1 +1,1 @@
-A feed Kipple cannot fetch now says why: its row on Manage feeds shows the reason the last fetch failed, and its empty list says the fetch failed, with the reason and a link to Feed health, instead of "All caught up". (#476)
+Feeds: a feed Kipple cannot fetch shows why: its row on Manage feeds shows the reason the last fetch failed, and its empty list says the fetch failed, with the reason and a link to Feed health. (#476)

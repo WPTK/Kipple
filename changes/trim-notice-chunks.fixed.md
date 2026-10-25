@@ -1,1 +1,0 @@
-The notice about unread items trimmed before you read them now also counts the unread items of a feed that already works when one update brings more than 500 new items and the feed's limit trims some of them; the reading statistics already counted those items as new. A new subscription's first update is still never counted. (#316)

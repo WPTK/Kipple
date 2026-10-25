@@ -1,1 +1,1 @@
-In an article, the feed name above the title opens that feed's list instead of the website; Share is a button in the toolbar, Mark as read and unread moved into the More menu, and More is the last button.
+Reader: the feed name above an article's title opens that feed's list; Share is a toolbar button, Mark as read and unread are in the More menu, and More is the last button.

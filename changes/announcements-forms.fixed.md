@@ -1,0 +1,1 @@
+Screen readers: a switch is named by its label alone and says why when it is off for a reason; add-feed and sign-in errors attach to their fields, which are marked invalid and take focus. (#497, #498)

@@ -1,1 +1,1 @@
-An article in Arabic or Hebrew lays out right to left: its title, byline and text follow the direction of their own script. (#649)
+Reader: articles in Arabic or Hebrew lay out right to left, with the title, byline and text each following the direction of their script. (#649)
