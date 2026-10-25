@@ -6,7 +6,7 @@ import {
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
-import { api, failed, signingOutStore } from "./client";
+import { api, ApiError, failed, signingOutStore } from "./client";
 import type {
   Bootstrap,
   Card,
@@ -125,15 +125,41 @@ export function useFeedsLatest(n = LATEST_PER_FEED) {
   });
 }
 
+/**
+ * How long one article read may take before it is dropped and asked again. The server answers in milliseconds; a longer
+ * wait is the request sitting in the browser's own queue (six connections per host on plain http), where a fresh
+ * request can get a free one.
+ */
+export const ITEM_DEADLINE_MS = 8_000;
+
 export function useItem(id: string | undefined) {
   return useQuery({
     queryKey: keys.item(id ?? ""),
     queryFn: async ({ signal }) => {
       const meta: { cached?: boolean } = {};
-      const d = await api<ItemDetail>(`/api/items/${id}`, { signal, meta });
-      return meta.cached ? (await overlayPending([d]))[0]! : d;
+      // The query's own signal still cancels the read (a route change); the deadline is a second reason to cancel.
+      const own = new AbortController();
+      const onAbort = () => own.abort();
+      signal.addEventListener("abort", onAbort, { once: true });
+      let late = false;
+      const timer = setTimeout(() => {
+        late = true;
+        own.abort();
+      }, ITEM_DEADLINE_MS);
+      try {
+        const d = await api<ItemDetail>(`/api/items/${id}`, { signal: own.signal, meta });
+        return meta.cached ? (await overlayPending([d]))[0]! : d;
+      } catch (e) {
+        if (late && !signal.aborted) throw new ApiError(0, "timeout");
+        throw e;
+      } finally {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+      }
     },
     enabled: !!id,
+    // One fresh request after a failure or a missed deadline, then the article's error screen.
+    retry: (attempt, e) => attempt < 1 && retryRead(attempt, e),
     // Asked even when the browser says it is offline (networkMode "always", the client default in App.tsx): the
     // service worker may hold this article, and when it does not the article shows its error screen (#95).
     staleTime: 5 * 60_000,

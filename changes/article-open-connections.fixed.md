@@ -1,0 +1,1 @@
+Reader: an article opens at once while list pictures are still loading, shows its title, source and picture from the list while its text loads, and after 8 seconds without an answer asks again once and then offers Try again. (#718, #754)
