@@ -1,0 +1,1 @@
+Feeds: Add feed shows "Looking for a feed at..." while it works, keeps Title and Folder under Options, and offers the own-network option as soon as a private-looking address is typed. The empty library's "Add your first feed" opens it in place. (#671)

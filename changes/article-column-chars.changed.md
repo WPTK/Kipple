@@ -1,1 +1,1 @@
-At the default article width the column is a count of characters of the reading font (about 66 at the Standard density): a wide font gets a wider column and a narrow font a narrower one, so a line holds about the same number of characters in any font. Narrow and Wide are unchanged. (#616)
+Reader: the default article column holds about 66 characters of the reading font at the Standard density, wider for wide fonts and narrower for narrow ones. Narrow and Wide are unchanged. (#616)

@@ -1,1 +1,1 @@
-Stats: the three summary tiles and a feed's Read rate now show a small chevron that turns over when you open the previous-period figure or the counts behind the rate, and the tile darkens while pressed, so they read as tappable on a phone as well as with a mouse. (#562)
+Stats: the three summary tiles and a feed's Read rate show a small chevron that turns over when you open the previous-period figure or the counts behind the rate, and the tile darkens while pressed. (#562)

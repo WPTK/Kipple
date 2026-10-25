@@ -1,1 +1,1 @@
-The "unread items trimmed" notice no longer counts the backlog of a first document that is larger than one trim batch: the fetch finishes its own trim, with its own boundary, instead of leaving it to a trim job. (#527)
+Notices: the "unread items trimmed" notice counts the unread items trimmed from a feed that already works when one update brings more than 500 new items. A new subscription's first update is never counted, including a first document larger than one trim batch. (#527, #316)

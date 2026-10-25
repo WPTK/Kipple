@@ -1,1 +1,1 @@
-Manage feeds and the sidebar do less work when you interact with a very long library: a row moved or created far down the list no longer keeps every row above it drawn once you scroll away from it, the Down arrow in the sidebar tree focuses the right row when it draws more, and the lists they build are not rebuilt on every focus move or tick. (#516)
+Feeds: Manage feeds and the sidebar do less work on a very long library, drawing fewer rows and rebuilding their lists less often, and the Down arrow in the sidebar tree focuses the right row when it draws more. (#516)

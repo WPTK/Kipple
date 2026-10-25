@@ -1,1 +1,1 @@
-Lists can be grouped under headers by day (the default), by week (Today, Yesterday, This week, Earlier) or not at all. Choose it under Group by in the list options menu, for this device or for one feed or folder; the choice syncs with the device profile. (#39)
+Lists: group articles under headers by day (the default), by week (Today, Yesterday, This week, Earlier) or not at all, under Group by in the list options menu, for this device or for one feed or folder; the choice syncs with the device profile. (#39)

@@ -1,0 +1,1 @@
+Sign-out: changes made offline that wait to be sent are kept if the sign-out does not go through, and sent then. A sign-out that gets no answer within 10 seconds is given up and says so, and signing out of a session that had already ended still signs the browser out. (#549)
