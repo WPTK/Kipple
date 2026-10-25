@@ -5,7 +5,8 @@
 //
 // `route(page, mode)` ("long" is "rich" with 12h 40m of active time, the longest value a tile shows):
 // `route(page, mode)`: "rich" (a month of reading, twelve active days), "empty" (nothing ever read), "quiet" (earlier
-// reading, none in the range) or "low" (three days of history).
+// reading, none in the range), "low" (three days of history), "month" (a month of history, whatever the range) or "year"
+// (more than a year of reading).
 
 const pad = (n) => String(n).padStart(2, "0");
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -39,7 +40,7 @@ function summary(mode, q) {
   const base = { enabled: true, tz: "UTC", week_start: "sunday" };
   const key = range ?? "all";
   const rangeOut = { key, from, to, days: daysBetween(from, to) + 1 };
-  const first = mode === "empty" ? null : mode === "low" ? addDays(now, -3) : addDays(now, -90);
+  const first = mode === "empty" ? null : mode === "low" ? addDays(now, -3) : mode === "month" ? addDays(now, -30) : mode === "year" ? addDays(now, -400) : addDays(now, -90);
   const quiet = mode === "empty" || mode === "quiet";
   const days = Math.min(400, Math.max(0, daysBetween(from, to) + 1));
   const daily = Array.from({ length: days }, (_, i) => {

@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { StatsSource } from "@/api/types";
 import {
+  activityBars,
+  addDays,
   durationLabel,
   feedRows,
   folderRows,
@@ -163,5 +165,44 @@ describe("day arithmetic with a pinned time zone", () => {
     expect(addDays("2028-03-01", -1)).toBe("2028-02-29");
     expect(previousPeriod({ key: "month", from: "2026-03-20", to: "2026-04-18" })).toEqual({ current: { from: "2026-03-20", to: "2026-04-17" }, from: "2026-02-19", to: "2026-03-19", label: "the previous 29 days" });
     expect(previousPeriod({ key: "year", from: "2028-03-01", to: "2029-02-28" })?.to).toBe("2028-02-29");
+  });
+});
+
+describe("activityBars", () => {
+  const year = (readFrom: number) =>
+    Array.from({ length: 365 }, (_, i) => ({ date: addDays("2025-10-26", i), items_read: i >= readFrom ? 1 : 0, active_seconds: 0 }));
+
+  it("keeps a short range one bar per day, empty days included", () => {
+    const r = activityBars(year(0).slice(0, 30));
+    expect(r.unit).toBe("day");
+    expect(r.rows).toHaveLength(30);
+  });
+
+  it("cuts the empty lead of a long range when the rest fits as days", () => {
+    const r = activityBars(year(335));
+    expect(r.unit).toBe("day");
+    expect(r.rows).toHaveLength(30);
+    expect(r.rows[0]!.date).toBe(addDays("2025-10-26", 335));
+  });
+
+  it("folds a full year into calendar weeks that keep the totals", () => {
+    // 2025-10-26 is a Sunday: the first week is whole, the last (today's) is partial.
+    const r = activityBars(year(0));
+    expect(r.unit).toBe("week");
+    expect(r.rows).toHaveLength(53);
+    expect(r.rows[0]).toMatchObject({ date: "2025-10-26", end: "2025-11-01", items_read: 7 });
+    expect(r.rows[52]).toMatchObject({ items_read: 1 });
+    expect(r.rows.reduce((a, d) => a + d.items_read, 0)).toBe(365);
+  });
+
+  it("starts each week on the reader's week start", () => {
+    const r = activityBars(year(0), "monday");
+    expect(r.rows[0]).toMatchObject({ date: "2025-10-26", end: "2025-10-26", items_read: 1 });
+    expect(r.rows[1]).toMatchObject({ date: "2025-10-27", end: "2025-11-02", items_read: 7 });
+  });
+
+  it("folds only past 120 days", () => {
+    expect(activityBars(year(0).slice(0, 120)).unit).toBe("day");
+    expect(activityBars(year(0).slice(0, 121)).unit).toBe("week");
   });
 });

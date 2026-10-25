@@ -21,6 +21,8 @@
 //       no superlative cards and no Share; with nothing read one "Nothing read in <year> yet";
 //   T8  the share sheet: the two options come before the preview, the preview fits the sheet, Download image is the one
 //       solid button, nothing scrolls sideways, and the downloaded image is a 1080x1350 PNG named for the year.
+//   T9  a long range stays legible: Year over a month of history draws that month as day bars (not a line at the right
+//       edge), Year over a full year draws weeks, no bar under 2 px, and a tap still names the bar's day or week.
 // Chromium only. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { readFileSync } from "node:fs";
@@ -82,6 +84,28 @@ await t.eachViewport(async (page, vp) => {
     check(wide <= 40, `${tag} T2 monthly`, `monthly bars are at most ${Math.round(wide)} px wide`, `a monthly bar is ${Math.round(wide)} px wide`);
     await page.locator("label", { hasText: /^Month$/ }).click();
     await t.shot(page, `${tag}-T2-bars`);
+  });
+
+  await step(`${tag} T9`, async () => {
+    try {
+    for (const [m, unit, min] of [["month", "day", 28], ["year", "week", 50]]) {
+      await open("/stats", m);
+      await page.locator("label", { hasText: /^Year$/ }).click();
+      const chart = page.getByRole("group", { name: new RegExp(`Articles read per ${unit}`) });
+      await chart.waitFor({ timeout: 10000 });
+      const bars = await chart.locator("> div").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width));
+      check(bars.length >= min && Math.min(...bars) >= 2, `${tag} T9 ${m}`, `${bars.length} ${unit} bars, narrowest ${Math.floor(Math.min(...bars))} px`, `${m}: ${bars.length} ${unit} bars, narrowest ${Math.min(...bars).toFixed(1)} px`);
+      const title = unit === "week" ? "Weekly activity" : "Daily activity";
+      await page.getByRole("heading", { name: title, exact: true }).waitFor({ timeout: 5000 });
+      const box = await chart.boundingBox();
+      await page.mouse.click(box.x + box.width * 0.5, box.y + box.height - 2);
+      const said = await page.getByRole("region", { name: title }).getByRole("status").innerText();
+      check(unit === "week" ? / to /.test(said) : /^[A-Z][a-z]{2} \d+: /.test(said), `${tag} T9 tap ${m}`, `a tap shows "${said}"`, `a tap on a ${unit} bar shows "${said}"`);
+      await t.shot(page, `${tag}-T9-${m}`);
+    }
+    } finally {
+      await page.locator("label", { hasText: /^Month$/ }).click();
+    }
   });
 
   await step(`${tag} T3`, async () => {

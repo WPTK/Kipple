@@ -265,6 +265,48 @@ export function monthlyBars(daily: { date: string; items_read: number; active_se
   return out;
 }
 
+export interface ActivityRow {
+  /** First day of the bar ("YYYY-MM-DD"). */
+  date: string;
+  /** Last day of the bar; equal to `date` for a single day. */
+  end: string;
+  items_read: number;
+  active_seconds: number;
+}
+
+/** More bars than this in the chart width is under a pixel each, so the days are folded or the empty lead is cut. */
+const MAX_DAY_BARS = 120;
+
+/**
+ * The rows the activity chart draws. A short range is one bar per day. A long one starts at the first day with
+ * reading, since a stretch of empty days before it only shrinks every bar; if that still leaves too many days, they
+ * are folded into calendar weeks starting on the reader's week start, so a bar keeps its days from one visit to the
+ * next (the first and last can be partial).
+ */
+export function activityBars(
+  daily: { date: string; items_read: number; active_seconds: number }[],
+  weekStart: WeekStart = "sunday",
+): { unit: "day" | "week"; rows: ActivityRow[] } {
+  const days = daily.map((d) => ({ ...d, end: d.date }));
+  if (days.length <= MAX_DAY_BARS) return { unit: "day", rows: days };
+  const first = days.findIndex((d) => d.items_read > 0 || d.active_seconds > 0);
+  const live = first > 0 ? days.slice(first) : days;
+  if (live.length <= MAX_DAY_BARS) return { unit: "day", rows: live };
+  const startDay = weekStart === "monday" ? 1 : 0;
+  const rows: ActivityRow[] = [];
+  for (const d of live) {
+    const cur = rows[rows.length - 1];
+    if (cur && parseDay(d.date).getDay() !== startDay) {
+      cur.end = d.date;
+      cur.items_read += d.items_read;
+      cur.active_seconds += d.active_seconds;
+    } else {
+      rows.push({ date: d.date, end: d.date, items_read: d.items_read, active_seconds: d.active_seconds });
+    }
+  }
+  return { unit: "week", rows };
+}
+
 export function monthName(month: string, style: "short" | "long" = "short"): string {
   const [y = 1970, m = 1] = month.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: style, year: "numeric" });

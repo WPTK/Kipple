@@ -30,6 +30,7 @@ import {
   weekdayName,
   type SourceMetric,
   type SourceRow,
+  activityBars,
 } from "@/lib/statsFormat";
 import { articleTo } from "@/lib/routes";
 import { visibleFeeds } from "@/lib/visibleFeeds";
@@ -44,6 +45,8 @@ import { useWrappedEnabled } from "@/lib/wrapped";
 import { AddFeedDialog } from "./feeds/AddFeedDialog";
 import { DailyChart, Empty, Heatmap, MonthlyChart } from "./StatsCharts";
 import { StatsDataSection, StatsExportDialog } from "./StatsDataDialogs";
+
+const activityTitle = (data: StatsSummary) => (activityBars(data.daily ?? [], data.week_start).unit === "week" ? "Weekly activity" : "Daily activity");
 
 export { DailyChart, Heatmap, MonthlyChart } from "./StatsCharts";
 
@@ -430,7 +433,7 @@ function FeedDetail({ feed, range }: { feed: string; range: ScreenRange }) {
           <MonthlyChart data={data} empty={empty} />
         </Section>
       ) : (
-        <Section sub title="Daily activity">
+        <Section sub title={activityTitle(data)}>
           <DailyChart data={data} empty={empty} />
         </Section>
       )}
@@ -565,7 +568,7 @@ export function StatsScreen() {
                 <MonthlyChart data={data} empty={empty} />
               </Section>
             ) : (
-              <Section title="Daily activity">
+              <Section title={activityTitle(data)}>
                 <DailyChart data={data} empty={empty} />
               </Section>
             )}
