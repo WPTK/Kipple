@@ -5,6 +5,7 @@ import {
   durationLabel,
   heatLevel,
   hourLabel,
+  activityBars,
   monthName,
   monthlyBars,
   plural,
@@ -31,6 +32,7 @@ interface Bar {
 
 /** The widest a bar's column gets: a chart of one bar is one bar wide, never a stretched block. */
 const DAY_SLOT = 24;
+const WEEK_SLOT = 12;
 const MONTH_SLOT = 40;
 
 /**
@@ -105,25 +107,26 @@ function BarChart({ bars, summary, slot, hint }: { bars: Bar[]; summary: string;
 }
 
 export function DailyChart({ data, empty }: { data: StatsSummary; empty: boolean }) {
-  const daily = data.daily ?? [];
+  const { unit, rows: daily } = activityBars(data.daily ?? []);
   if (empty || daily.length === 0) return <Empty>No reading in this range.</Empty>;
+  const week = unit === "week";
+  const when = (d: { date: string; end: string }) => (week ? `${shortDate(d.date)} to ${shortDate(d.end)}` : shortDate(d.date));
   const total = daily.reduce((a, d) => a + d.items_read, 0);
   const busiest = daily.reduce((a, d) => (d.items_read > a.items_read ? d : a), daily[0]!);
-  const summary = `Articles read per day, ${shortDate(daily[0]!.date)} to ${shortDate(daily[daily.length - 1]!.date)}. ${plural(total, "article")} in total. Most in one day: ${busiest.items_read}, on ${shortDate(busiest.date)}. Use the arrow keys to hear a day.`;
+  const summary = `Articles read per ${unit}, ${shortDate(daily[0]!.date)} to ${shortDate(daily[daily.length - 1]!.end)}. ${plural(total, "article")} in total. Most in one ${unit}: ${busiest.items_read}, ${week ? "" : "on "}${when(busiest)}. Use the arrow keys to hear a ${unit}.`;
   const bars = daily.map((d) => ({
     key: d.date,
     value: d.items_read,
     label: shortDate(d.date),
-    detail: `${shortDate(d.date)}: ${plural(d.items_read, "article")}, ${durationLabel(d.active_seconds)}`,
-  }));
-  return (
+    detail: `${when(d)}: ${plural(d.items_read, "article")}, ${durationLabel(d.active_seconds)}`,
+  }));  return (
     <div>
-      <BarChart bars={bars} summary={summary} slot={DAY_SLOT} hint="Tap a bar for its day." />
+      <BarChart bars={bars} summary={summary} slot={week ? WEEK_SLOT : DAY_SLOT} hint={week ? "Tap a bar for its week." : "Tap a bar for its day."} />
       <div className="sr-only"><table>
-        <caption>Articles read and active time per day</caption>
+        <caption>Articles read and active time per {unit}</caption>
         <thead>
           <tr>
-            <th scope="col">Date</th>
+            <th scope="col">{week ? "Week of" : "Date"}</th>
             <th scope="col">Articles read</th>
             <th scope="col">Active time</th>
           </tr>
