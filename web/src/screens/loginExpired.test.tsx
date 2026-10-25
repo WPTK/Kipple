@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App, { makeQueryClient } from "@/App";
@@ -75,6 +75,23 @@ describe("the sign-in screen", () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it("a sign-in that could not reach Kipple names the cause, and trying again signs in", async () => {
+    let tries = 0;
+    mockFetch({
+      "POST /api/auth/login": () => {
+        tries++;
+        if (tries === 1) throw new TypeError("Failed to fetch");
+        return json({ ok: true });
+      },
+      "GET /api/bootstrap": () => new Promise<Response>(() => {}),
+    });
+    const user = await signIn();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Kipple can't be reached");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(authStore.get()).toBe("in"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(tries).toBe(2);
+  });
   it("a wrong password is still a wrong password, with no reload offered", async () => {
     mockFetch({ "POST /api/auth/login": () => json({ error: "auth" }, 401) });
     await signIn();
