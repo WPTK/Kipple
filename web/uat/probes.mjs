@@ -272,6 +272,7 @@ export function tapProbe({ feed, min, root }) {
   const out = [];
   const covered = [];
   let measured = 0;
+  const seen = [];
   const vw = document.documentElement.clientWidth;
   const vh = window.innerHeight;
   for (const el of targets) {
@@ -302,6 +303,7 @@ export function tapProbe({ feed, min, root }) {
       continue;
     }
     measured++;
+    seen.push(describe(el));
     // The hit area: how far the control's own hit-testing runs from the centre along each axis.
     const lim = Math.max(r.width, r.height) / 2 + min;
     const run = (dx, dy) => {
@@ -320,7 +322,7 @@ export function tapProbe({ feed, min, root }) {
     el.scrollLeft = left;
     el.scrollTop = top;
   }
-  return { small: out, measured, covered };
+  return { small: out, measured, covered, seen };
 }
 // Where an open menu lies, and in which mode: whether the browser reports a finger as the pointer (`coarse`, the
 // bottom sheet's condition in ui/menu.tsx) and whether the menu is the sheet; its edges against the window's height;

@@ -497,6 +497,23 @@ describe("sidebar", () => {
     expect((side.closest("nav")?.parentElement as HTMLElement).style.width).toBe("300px");
   });
 
+  it("the sidebar cap leaves the room a notch takes at the right, and its Large targets and text size take", async () => {
+    routes();
+    media(WIDE);
+    vi.stubGlobal("innerWidth", 1000);
+    updateDevicePrefs({ sidebarWidth: 420 });
+    // The main area applies the right safe-area inset as padding; the sidebar reads it from there.
+    const real = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => (el.id === "main" ? ({ paddingRight: "59px" } as CSSStyleDeclaration) : real(el, pseudo)));
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const side = screen.getByRole("separator", { name: "Resize sidebar" });
+    expect(side).toHaveAttribute("aria-valuemax", "241"); // 1000 - 59 - (336 + 316 + 48)
+    // Large targets: the list header and the toolbar need 420 and 400 px, so the sidebar is down to its floor.
+    act(() => prefsStore.set({ ...DEFAULT_PREFS, largeTargets: true }));
+    await waitFor(() => expect(side).toHaveAttribute("aria-valuemax", "200"));
+  });
+
   it("the list handle never offers more than leaves the article its 316 px and its gutter, and its value is the width on screen", async () => {
     routes();
     media(WIDE);

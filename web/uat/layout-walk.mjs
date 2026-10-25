@@ -12,13 +12,15 @@
 //   W4  Settings > Statistics > Export at 375x667, 402x874 and 440x956: Download data dictionary is a 44 px target.
 // On the phone width (900, 912 and 956 wide, held sideways) and the desktop width (1000, 1100 and 1280 wide):
 //   W3  an article open beside the list: the article toolbar fits its pane (More actions whole, the toolbar not
-//       scrolled), the list header's controls stay inside the list column, and opening More leaves the toolbar where it was.
+//       scrolled), the list header's controls stay inside the list column, and opening More leaves the toolbar where it was;
+//       again with Large targets and with a larger text size (the controls grow, so the columns need more), and, in
+//       Chromium, on a phone with a notch at both sides (the window is narrower by the insets).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { deadFeed, start } from "./common.mjs";
 import { installPageHelpers, tapProbe } from "./probes.mjs";
 
-const t = await start(import.meta.url, 17);
+const t = await start(import.meta.url, 19);
 const { check, step } = t;
 
 const LONG = "UAT feed with a name too long to fit beside its unread count on a phone";
@@ -81,6 +83,7 @@ await t.eachViewport(async (page, vp) => {
           // The last of the saved searches the empty page lists (the seed may already have some, and it lists five).
           const link = page.getByRole("list", { name: "Saved searches" }).getByRole("link").last();
           await link.waitFor({ timeout: 15000 });
+          // The page's own scrolling brings it into view (a page that cannot scroll leaves it where it was).
           await link.scrollIntoViewIfNeeded();
           const place = () =>
             link.evaluate((a) => {
@@ -89,12 +92,12 @@ await t.eachViewport(async (page, vp) => {
               const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
               return { top: Math.round(r.top), bottom: Math.round(r.bottom), bar: Math.round(bar.top), onTop: a.contains(hit) };
             });
-          let p = await place();
+          const p = await place();
           check(p.bottom <= p.bar && p.onTop, `${where} reach`, "scrolled to, the saved search is above the tab bar and is what a tap hits", `the saved search is at ${p.top}..${p.bottom}, the tab bar starts at ${p.bar}, a tap there ${p.onTop ? "hits it" : "hits something else"}`);
           if (p.bottom > p.bar || !p.onTop) continue;
           await t.shot(page, `${tag}-search-${w}x${h}`);
           await link.click();
-          const opened = await until(async () => new URL(page.url()).searchParams.has("ss"));
+          const opened = await page.waitForURL((u) => u.searchParams.has("ss"), { timeout: 5000 }).then(() => true, () => false);
           check(opened, `${where} opens`, "a tap on the saved search opens it", `the address is ${page.url()}`);
         }
       } finally {
@@ -103,44 +106,55 @@ await t.eachViewport(async (page, vp) => {
     });
   }
 
+  const geometry = () =>
+    page.evaluate(() => {
+      const tb = document.querySelector('[role="toolbar"][aria-label="Article actions"]');
+      const col = document.querySelector('[role="separator"][aria-label="Resize article list"]')?.parentElement;
+      const edge = (e) => Math.round(e.getBoundingClientRect().right);
+      const buttons = tb.querySelectorAll("button");
+      return {
+        vw: innerWidth,
+        need: tb.scrollWidth,
+        have: tb.clientWidth,
+        scrolled: tb.scrollLeft,
+        toolbarLeft: Math.round(tb.getBoundingClientRect().left),
+        toolbarRight: edge(tb),
+        firstLeft: Math.round(buttons[0].getBoundingClientRect().left),
+        moreRight: edge(tb.querySelector('button[aria-label="More actions"]')),
+        columnRight: col ? edge(col) : null,
+        actionsRight: edge(document.querySelector('main header button[aria-label="List actions"]')),
+      };
+    });
+  const toolbarFits = (g) => g.need <= g.have && g.firstLeft >= g.toolbarLeft && g.moreRight <= g.toolbarRight && g.toolbarRight <= g.vw;
+  const headerFits = (g) => g.columnRight !== null && g.actionsRight <= g.columnRight;
+  /**
+   * Opens the first article beside its list at w x h and checks the article toolbar (and with `header` the list header)
+   * against its column. The columns follow the window through a ResizeObserver, so it polls the condition under test, to a
+   * cap, and checks what it ended with. Returns the geometry and the toolbar.
+   */
+  const beside = async (where, w, h, { header = true } = {}) => {
+    await at(w, h, "/l/all");
+    const row = page.locator("[data-testid=list-scroll] [data-item-id]").first();
+    await row.waitFor({ timeout: 15000 });
+    await row.locator("a").first().click();
+    await page.waitForURL(/\/i\/\d+/, { timeout: 10000 });
+    const bar = page.getByRole("toolbar", { name: "Article actions" });
+    await bar.waitFor({ timeout: 10000 });
+    let g;
+    await until(async () => {
+      g = await geometry();
+      return toolbarFits(g) && (!header || headerFits(g));
+    }, 3000);
+    check(toolbarFits(g), `${where} toolbar`, "the article toolbar fits its pane, More actions whole", `the toolbar needs ${g.need} px of ${g.have}, starts at ${g.firstLeft} (pane ${g.toolbarLeft}), More actions ends at ${g.moreRight}, the pane at ${g.toolbarRight}, the screen at ${g.vw}`);
+    if (header) check(headerFits(g), `${where} list header`, "the list header's last control is inside the list column", `List actions ends at ${g.actionsRight}, the list column at ${g.columnRight}`);
+    return { g, bar };
+  };
+  const device = (body) => page.request.patch("/api/device", { headers: t.WRITE, data: body });
+
   await step(`${tag} W3`, async () => {
     for (const [w, h] of PANES[vp.mobile ? "phone" : "desktop"]) {
       const where = `${tag} W3 ${w}x${h}`;
-      await at(w, h, "/l/all");
-      const row = page.locator("[data-testid=list-scroll] [data-item-id]").first();
-      await row.waitFor({ timeout: 15000 });
-      await row.locator("a").first().click();
-      await page.waitForURL(/\/i\/\d+/, { timeout: 10000 });
-      const bar = page.getByRole("toolbar", { name: "Article actions" });
-      await bar.waitFor({ timeout: 10000 });
-      const geometry = () =>
-        page.evaluate(() => {
-          const tb = document.querySelector('[role="toolbar"][aria-label="Article actions"]');
-          const col = document.querySelector('[role="separator"][aria-label="Resize article list"]')?.parentElement;
-          const edge = (e) => Math.round(e.getBoundingClientRect().right);
-          return {
-            vw: innerWidth,
-            need: tb.scrollWidth,
-            have: tb.clientWidth,
-            scrolled: tb.scrollLeft,
-            toolbarRight: edge(tb),
-            moreRight: edge(tb.querySelector('button[aria-label="More actions"]')),
-            columnRight: col ? edge(col) : null,
-            actionsRight: edge(document.querySelector('main header button[aria-label="List actions"]')),
-          };
-        });
-      // The columns follow the window through a ResizeObserver: read them once two reads agree.
-      let last = "";
-      let g = null;
-      await until(async () => {
-        g = await geometry();
-        const now = JSON.stringify(g);
-        const same = now === last;
-        last = now;
-        return same;
-      });
-      check(g.need <= g.have && g.moreRight <= g.toolbarRight && g.toolbarRight <= g.vw, `${where} toolbar`, "the article toolbar fits its pane, More actions whole", `the toolbar needs ${g.need} px of ${g.have}, More actions ends at ${g.moreRight}, the pane at ${g.toolbarRight}, the screen at ${g.vw}`);
-      check(g.columnRight !== null && g.actionsRight <= g.columnRight, `${where} list header`, "the list header's last control is inside the list column", `List actions ends at ${g.actionsRight}, the list column at ${g.columnRight}`);
+      const { g, bar } = await beside(where, w, h);
       await t.shot(page, `${tag}-reader-${w}x${h}`);
       await bar.getByRole("button", { name: "More actions" }).click();
       await page.getByRole("menu").waitFor({ timeout: 5000 });
@@ -149,6 +163,47 @@ await t.eachViewport(async (page, vp) => {
       await page.keyboard.press("Escape");
     }
   });
+
+  // The controls grow with Large targets (56 px) and with the text size (their size is in rem), and the columns need
+  // more. The article keeps what its toolbar needs and the list gives way first, so the list header is asked to fit only
+  // where the window can hold the sidebar at its floor, the list and the article (a 1280 px window, not 956 px).
+  const sizes = vp.mobile ? [[956, 440, false], [912, 420, false]] : [[1280, 800, true], [1000, 440, false]];
+  for (const [what, prefs] of [
+    ["Large targets", { "client.large_targets": true }],
+    ["larger text", { "client.text_size": vp.mobile ? 1.25 : 1.5 }],
+  ]) {
+    await step(`${tag} W3 ${what}`, async () => {
+      const set = await device(prefs);
+      if (!set.ok()) return t.fail(`${tag} W3 ${what} setup`, `the setting was not saved (${set.status()})`);
+      try {
+        for (const [w, h, header] of sizes) {
+          await beside(`${tag} W3 ${what} ${w}x${h}`, w, h, { header });
+          await t.shot(page, `${tag}-reader-${what.replace(" ", "-")}-${w}x${h}`);
+        }
+      } finally {
+        await device({ "client.large_targets": false, "client.text_size": 1 });
+      }
+    });
+  }
+
+  // A phone with a notch held sideways: the window the columns share is narrower by the safe-area insets at both sides.
+  // Only Chromium can set them (a DevTools command), so the other engines leave this to the unit tests.
+  if (vp.mobile && t.opt.browser === "chromium") {
+    await step(`${tag} W3 notch`, async () => {
+      const cdp = await page.context().newCDPSession(page);
+      const insets = (n) => cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 0, left: n, right: n, bottom: 0 } });
+      try {
+        // 47 px leaves room for everything at 956; 62 px (the widest phone) is 6 px short of the list header, so only the toolbar is asked.
+        for (const [inset, header] of [[47, true], [62, false]]) {
+          await insets(inset);
+          await beside(`${tag} W3 notch ${inset} px 956x440`, 956, 440, { header });
+          await t.shot(page, `${tag}-reader-notch-${inset}`);
+        }
+      } finally {
+        await insets(0).catch(() => {});
+      }
+    });
+  }
 
   if (vp.mobile) {
     await step(`${tag} W4`, async () => {
@@ -159,9 +214,17 @@ await t.eachViewport(async (page, vp) => {
         const link = page.getByRole("link", { name: /data dictionary/ });
         await link.waitFor({ timeout: 10000 });
         await page.evaluate(installPageHelpers);
-        const { small, measured } = await page.evaluate(tapProbe, { feed: { body: ".no-feed-html", own: ".no-feed-html" }, min: 44, root: '[role="dialog"]' });
-        const mine = small.filter((s) => /data dictionary/i.test(s.desc));
-        check(measured > 0 && mine.length === 0, `${where} target`, "Download data dictionary is a 44 px target", mine.length ? `it is ${mine[0].w} x ${mine[0].h} px` : "the dialog's controls could not be measured");
+        const isLink = (d) => /data dictionary/i.test(d);
+        // The dialog opens with a short animation, so the probe runs again until it has measured the link itself (to a cap).
+        let probe;
+        await until(async () => {
+          probe = await page.evaluate(tapProbe, { feed: { body: ".no-feed-html", own: ".no-feed-html" }, min: 44, root: '[role="dialog"]' });
+          return probe.seen.some(isLink);
+        }, 3000);
+        const { small, seen, covered } = probe;
+        const mine = small.filter((s) => isLink(s.desc));
+        check(seen.some(isLink), `${where} measured`, "the data dictionary link itself was measured", covered.some(isLink) ? "the link is covered at its centre, so it could not be measured" : "the link was not among the controls measured");
+        check(mine.length === 0, `${where} target`, "Download data dictionary is a 44 px target", `it is ${mine[0]?.w} x ${mine[0]?.h} px`);
         await t.shot(page, `${tag}-export-${w}x${h}`);
       }
     });

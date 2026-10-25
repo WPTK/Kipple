@@ -16,7 +16,7 @@ import { navItemClass } from "@/ui/navItem";
 import { FeedTree } from "@/screens/FeedTree";
 import { WhatsNewHost } from "./WhatsNew";
 import { ResizeHandle } from "@/ui/ResizeHandle";
-import { ARTICLE_MIN, HANDLE_GUTTER, LIST_MIN_FOR_SIDEBAR, maxFor, useViewportWidth } from "@/lib/useWidth";
+import { maxFor, useColumnNeeds, useSafeInsetRight, useViewportWidth } from "@/lib/useWidth";
 import { MutedCount, UnreadCount } from "@/ui/UnreadCount";
 import { ApplyProgress, FeedEditorHost, FilterEditorHost } from "./FilterHost";
 import { OfflineNotice } from "./OfflineNotice";
@@ -95,8 +95,10 @@ function Sidebar() {
   const { pathname, search } = useLocation();
   // A feed's or a folder's list marks its own row in the tree below, so the Feeds row above it stays plain: one selection.
   const here = isScopedList(search) ? null : currentDestination(pathname, search);
-  // The sidebar leaves the list and the article their minimums, so at the breakpoint it cannot squeeze them.
-  const limit = maxFor(useViewportWidth(), LIST_MIN_FOR_SIDEBAR + ARTICLE_MIN + 2 * HANDLE_GUTTER, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
+  // The sidebar leaves the list and the article what their controls need (and the notch of a phone held sideways its
+  // room), so at the breakpoint it cannot squeeze them.
+  const need = useColumnNeeds();
+  const limit = maxFor(useViewportWidth() - useSafeInsetRight(), need.list + need.article + 2 * need.gutter, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
   const width = Math.min(limit, dp.sidebarWidth);
   const box = useRef<HTMLDivElement>(null);
   const row = (d: Destination, count?: ReactNode) => (

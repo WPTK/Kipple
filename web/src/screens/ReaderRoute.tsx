@@ -30,11 +30,10 @@ import { READING_LENGTH_LABELS } from "@/lib/readingLength";
 import { announce } from "@/shell/toasts";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { NARROW_QUERY, useMedia, useShort, useWide } from "@/lib/useMedia";
-import { ARTICLE_MIN, HANDLE_GUTTER, maxFor, useWidth } from "@/lib/useWidth";
+import { maxFor, useColumnNeeds, useRemPx, useWidth } from "@/lib/useWidth";
 import { DESTINATIONS, LISTS } from "@/lib/destinations";
 import { NEW_VIEW, listTo, newTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
 import { useCatchupVisit, visitStore } from "@/lib/catchup";
-import { prefsStore } from "@/lib/prefs";
 import { useStore } from "@/lib/store";
 import { NOTHING_TO_UNDO, undoLast, undoStore } from "@/lib/undo";
 import { Button, buttonVariants } from "@/ui/button";
@@ -203,7 +202,9 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
       </div>
     ) : null;
   return (
-    <header className={cn("pt-safe shrink-0 border-b border-line bg-bg pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]", compact ? "pb-1" : "pb-2")}>
+    // A wide screen has the sidebar on its left (which takes the left inset) and the main area on the right (which takes the
+    // right one), so this header pads by 1rem there. With a notch on both sides it would otherwise take the inset a second time.
+    <header className={cn("pt-safe shrink-0 border-b border-line bg-bg", wide ? "px-4" : "pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]", compact ? "pb-1" : "pb-2")}>
       {/* The title row is 25rem wide and left-aligned, so the controls sit in the same place in every layout (a grid
           layout has no reader pane, and used to push them to the far right). The title keeps at least 6.5rem and truncates
           beyond that, so at normal text size on a phone the header is one row in every list; only where the pane is
@@ -392,7 +393,7 @@ function ReaderLayout({ scope, articleId, hasFrom, pending }: { scope: Scope; ar
   if (!wide) return articleId ? <ArticlePane key={articleId} id={articleId} scope={scope} hasFrom={hasFrom} pane={false} /> : list;
 
   // The list column's width is the device's choice (drag the handle or use the arrow keys); until then the
-  // layout's own width. It never takes more than leaves the article ARTICLE_MIN px, and the handle reports the
+  // layout's own width. It never takes more than leaves the article what its toolbar needs, and the handle reports the
   // width that is really on screen.
   return (
     <WidePane
@@ -430,11 +431,9 @@ function WidePane({
   const box = useRef<HTMLDivElement>(null);
   const col = useRef<HTMLDivElement>(null);
   const total = useWidth(box);
-  // The root font size only changes with the text-size preference, so it is read then, not on every render.
-  const textSize = useStore(prefsStore).textSize;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const remPx = useMemo(() => (typeof document === "undefined" ? 16 : parseFloat(getComputedStyle(document.documentElement).fontSize) || 16), [textSize]);
-  const limit = maxFor(total, ARTICLE_MIN + HANDLE_GUTTER, LIST_WIDTH_MIN, LIST_WIDTH_MAX);
+  const remPx = useRemPx();
+  const need = useColumnNeeds();
+  const limit = maxFor(total, need.article + need.gutter, LIST_WIDTH_MIN, LIST_WIDTH_MAX);
   const wanted = listWidth ?? Math.round(layoutRem * remPx);
   const shown = Math.min(limit, Math.max(LIST_WIDTH_MIN, wanted));
   // The notice pill over the list stays inside the list's width (shell/OfflineNotice.tsx reads this).

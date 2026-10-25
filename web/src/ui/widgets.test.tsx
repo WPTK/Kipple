@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_DEVICE_PREFS, SIDEBAR_WIDTH_MIN, parseDevicePrefs, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { Segmented } from "./segmented";
 import { Switch } from "./kit";
-import { ARTICLE_MIN, HANDLE_GUTTER, LIST_MIN_FOR_SIDEBAR, maxFor } from "@/lib/useWidth";
+import { columnNeeds, maxFor } from "@/lib/useWidth";
 import { WIDE_QUERY } from "@/lib/useMedia";
 import { ResizeHandle, dragWidth, keyWidth } from "./ResizeHandle";
 import { UnreadCount, badgeKind, badgeText, unreadName } from "./UnreadCount";
@@ -145,10 +145,18 @@ describe("column limits", () => {
 
   it("fits the sidebar, the list and the article, each with its gutter, at the narrowest wide screen", () => {
     const breakpoint = Number(/\d+/.exec(WIDE_QUERY)?.[0]);
-    // The main area and the article column each start HANDLE_GUTTER to the right of their neighbour, so the sidebar, at its
-    // narrowest, leaves exactly what the list and the article need (the article toolbar's seven buttons are 316 px).
-    expect(maxFor(breakpoint, LIST_MIN_FOR_SIDEBAR + ARTICLE_MIN + 2 * HANDLE_GUTTER, SIDEBAR_WIDTH_MIN, 420)).toBe(SIDEBAR_WIDTH_MIN);
-    expect(SIDEBAR_WIDTH_MIN + LIST_MIN_FOR_SIDEBAR + ARTICLE_MIN + 2 * HANDLE_GUTTER).toBeLessThanOrEqual(breakpoint);
+    const need = columnNeeds(16, false);
+    // The main area and the article column each start one gutter to the right of their neighbour, so the sidebar, at its
+    // narrowest, leaves exactly what the list and the article need (seven 44 px buttons in the toolbar and in the header).
+    expect(need).toEqual({ article: 316, list: 336, gutter: 24 });
+    expect(maxFor(breakpoint, need.list + need.article + 2 * need.gutter, SIDEBAR_WIDTH_MIN, 420)).toBe(SIDEBAR_WIDTH_MIN);
+    expect(SIDEBAR_WIDTH_MIN + need.list + need.article + 2 * need.gutter).toBeLessThanOrEqual(breakpoint);
+  });
+
+  it("what the columns need follows the size of the controls: the text size scales it and Large targets raise it", () => {
+    expect(columnNeeds(16, true)).toEqual({ article: 400, list: 420, gutter: 24 }); // 56 px controls
+    expect(columnNeeds(18, false)).toEqual({ article: 356, list: 378, gutter: 27 }); // Large text: 1rem is 18 px, and the 1.5rem gutters grow with it
+    expect(columnNeeds(24, true).article).toBeGreaterThan(columnNeeds(24, false).article);
   });
 });
 
