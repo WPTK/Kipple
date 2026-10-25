@@ -38,7 +38,7 @@ from it: [`css.ts`](./css.ts) emits one `:root[data-theme="<id>"]` block per sch
   the rest under "More themes", and the accessibility group collapsed under its own fold.
   The offered schemes are narrowed to the ids the server lists in the `ui.theme_day` options
   (`theme/serverThemes.ts`), and the fold is labelled "Accessibility themes". The Aa menu has a compact grouped select
-  of every theme with "Match my device" and "On a schedule" first. Unread state is always a dot plus a bold title, never color alone.
+  of every theme with "Follow system" and "On a schedule" first. Unread state is always a dot plus a bold title, never color alone.
 
 ## Changes from the round-2 research (the owner's decisions)
 

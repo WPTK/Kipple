@@ -87,9 +87,9 @@ await t.eachViewport(async (page, vp) => {
     await step(`${tag} F3`, async () => {
       // In All the live update of the mute takes the row out while the editor is still open, so the button that opened
       // it is gone when it closes: focus goes to the list around it, not to the page.
-      const list = ((await (await page.request.get("/api/items", { params: { view: "all", limit: 40, feed }, headers: JSON_ACCEPT })).json()).items ?? []);
-      const it = list.find((i) => /\p{L}{5,}/u.test(i.title ?? "") && !i.muted_by);
-      if (!it) return t.setupError(`${tag}: the feed has no article left in All for F3`);
+      // An unread one: a new filter mutes only unread articles, and an earlier flow may have opened (read) any of them.
+      const it = (await unreadOf(page, feed)).find((i) => /\p{L}{5,}/u.test(i.title ?? ""));
+      if (!it) return t.setupError(`${tag}: the feed has no unread article left for F3`);
       await page.goto(`/l/all?feed=${feed}`, { waitUntil: "load" });
       const row = page.locator(`[data-item-id="${it.id}"]`).first();
       await row.waitFor({ timeout: 15000 });

@@ -109,7 +109,7 @@ feed, with its note about bandwidth and refresh time) appears under Library like
 feed editor shows that feed's own switch as "On for all feeds". The screen is capped at 720 px wide.
 
 **Reading appearance** (the "Aa" button in every list header, Search included, and the article toolbar, and Settings > Appearance):
-theme (including "Match my device" (Follow system in Settings) and "On a schedule", both with any day and night
+theme (including "Follow system" and "On a schedule", both with any day and night
 pair; the schedule switches at "Night starts" (default 21:00) and "Day starts" (default 07:00) on the device's
 clock, whatever the OS says), font, text size, one Density choice with an
 "Adjust separately" disclosure, and "Highlight keywords" (the Aa menu; Settings > Appearance has theme, the Reading

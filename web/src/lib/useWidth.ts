@@ -28,7 +28,8 @@ const CONTROL_REM_LARGE = 3.5;
 const TOOLBAR_CONTROLS = 7;
 const TOOLBAR_PAD_REM = 0.5;
 // The list header (ReaderRoute.tsx, `ScopeHeader`, wide): six buttons and the Settings link, with six 0.125rem gaps,
-// after 1rem of padding. The link keeps 2.75rem with Large targets.
+// after 1rem of padding. The link keeps 2.75rem with Large targets. Beside an open article the header drops its Aa
+// button; the budget keeps it, so it is a ceiling.
 const HEADER_BUTTONS = 6;
 const HEADER_PAD_REM = 6 * 0.125 + 1;
 // The strip a resize handle lies over (ui/ResizeHandle.tsx): each wide column after the first starts this far to the

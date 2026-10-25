@@ -5,7 +5,7 @@
 //   npm run uat:settings-pages -- --url http://127.0.0.1:7091 --screenshots <dir> --browser webkit --headed
 //
 // For each width (desktop 1280x800, phone 375x812) it opens each group's page and checks:
-//   S1  Appearance has Look, Lists, Articles and Accessibility, and the font switch is named by what it does;
+//   S1  Appearance has Reading appearance, Lists, Articles and Accessibility, and the font switch is named by what it does;
 //   S2  Sync & Feeds has Checking feeds and Storage; Apply retention now says nothing is removed; choosing 50 with a 60-article feed present opens "Remove older articles?" with the count, and Cancel keeps the old choice;
 //   S3  Account & Devices has Devices, Sign-in, Sync apps and Backup and data (with the storage figures), shows the address
 //       and username, offers Restore from a backup, and its dialog asks for the phrase and is cancelled without erasing;
@@ -41,7 +41,7 @@ await t.eachViewport(async (page, vp) => {
 
   await open("appearance");
   let hs = await h2s();
-  check(["Look", "Lists", "Articles", "Accessibility"].every((h) => hs.includes(h)), `${tag} S1 sections`, "Appearance has its four sections", JSON.stringify(hs));
+  check(["Reading appearance", "Lists", "Articles", "Accessibility"].every((h) => hs.includes(h)), `${tag} S1 sections`, "Appearance has its four sections", JSON.stringify(hs));
   check((await page.getByRole("switch", { name: "Also use it in lists and the sidebar" }).count()) === 1, `${tag} S1 font`, "the font switch says what it does", "no switch named 'Also use it in lists and the sidebar'");
   await t.shot(page, `${tag}-appearance`);
 

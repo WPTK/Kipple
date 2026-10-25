@@ -17,7 +17,7 @@ export const STEP_LABELS: Record<Step, string> = {
 };
 
 export const TEXT_SIZES = [0.875, 1, 1.125, 1.25, 1.5] as const;
-export const TEXT_SIZE_LABELS = ["Smaller", "Default", "Large", "Larger", "Largest"] as const;
+export const TEXT_SIZE_LABELS = ["Small", "Default", "Large", "Larger", "Largest"] as const;
 
 /** Text spacing (WCAG 1.4.12): Default follows the Density step; Less and More override it. Stored ids are unchanged. */
 export const SPACINGS = ["snug", "normal", "roomy"] as const;

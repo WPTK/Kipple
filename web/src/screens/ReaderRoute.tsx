@@ -254,7 +254,8 @@ export function ScopeHeader({ scope, controls, beside }: { scope: Scope; control
         ) : null}
         <LengthMenu scope={scope} />
         {scope.after ? null : <LayoutMenu scope={scope} />}
-        <ReadingMenu />
+        {/* Beside an open article its toolbar has the Aa control: one per screen. */}
+        {beside ? null : <ReadingMenu />}
         {/* On a phone Refresh is a pull on the list and an item in the menu after this one, which leaves four controls
             at most: the header is no wider than the title and what the list is. */}
         {wide ? (

@@ -38,7 +38,7 @@ export function choosePair(choice: "follow" | "schedule"): Partial<ThemeSettings
 
 /**
  * The settings change for picking one fixed theme. It turns the schedule off: an older client that later picks
- * "Match my device" cannot see or clear the flag, and would otherwise resume a schedule its UI does not show.
+ * "Follow system" cannot see or clear the flag, and would otherwise resume a schedule its UI does not show.
  */
 export function chooseFixed(id: string): Partial<ThemeSettings> {
   return { mode: "fixed", fixed: id, schedule: false };

@@ -377,7 +377,7 @@ function AppearancePage() {
   const scrollHelp = settings.data?.settings.find((s) => s.key === "ui.mark_read_on_scroll")?.description;
   return (
     <>
-      <Section title="Look" scope="device">
+      <Section title="Reading appearance" scope="device">
         <p className="text-sm text-fg2">The Aa button above any list or article has the same theme, font and text size.</p>
         <ThemePicker />
         <FontSelect preview="large" />
