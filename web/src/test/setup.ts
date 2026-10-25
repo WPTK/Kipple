@@ -22,6 +22,9 @@ afterEach(() => {
 // jsdom has no layout: give the virtualizer a viewport, and stub the rest.
 Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 800 });
 Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, value: 375 });
+// virtual-core 3.19 measures the viewport with client dimensions, which jsdom leaves at 0.
+Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, value: 800 });
+Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, value: 375 });
 Element.prototype.getBoundingClientRect = function () {
   return { x: 0, y: 0, top: 0, left: 0, right: 375, bottom: 800, width: 375, height: 800, toJSON() {} } as DOMRect;
 };
