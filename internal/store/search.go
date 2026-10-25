@@ -47,7 +47,7 @@ func searchScope(q CardQuery) (where []string, args []any) {
 		where = append(where, inFolderTreeSQL("i.feed_id", "?"))
 		args = append(args, q.FolderID)
 	}
-	if w, a := ReadingWhere("i.word_count", q.MinMinutes, q.MaxMinutes); w != "" {
+	if w, a := ReadingWhere("i.word_count", q.MinMinutes, q.MaxMinutes, q.UnknownLength); w != "" {
 		where = append(where, w)
 		args = append(args, a...)
 	}

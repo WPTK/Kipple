@@ -2,7 +2,7 @@ import { Check, LayoutGrid, Star } from "lucide-react";
 import type { Scope } from "@/api/types";
 import { useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
-import { useResolvedLayout, useSetListOverride } from "@/layouts";
+import { pageOf, useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
   DIGEST_ROWS,
   GROUP_BYS,
@@ -144,7 +144,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
               <Radio key={o} value={o} label={ORDER_LABELS[o]} />
             ))}
           </DropdownMenu.RadioGroup>
-          {followsOrder(layout.id) ? null : (
+          {followsOrder(layout.id, scope) ? null : (
             <p className="px-3 pt-1 pb-2 text-xs text-fg2">The {layout.label} is always newest first. The order applies to the other layouts.</p>
           )}
 
@@ -166,36 +166,24 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
                   <Radio key={o} value={o} label={DIGEST_SECTION_LABELS[o]} />
                 ))}
               </DropdownMenu.RadioGroup>
-              <DropdownMenu.Label className={sub}>Images</DropdownMenu.Label>
-              <DropdownMenu.RadioGroup
-                aria-label="Images"
-                value={dp.digestImages ? "on" : "off"}
-                onValueChange={(v) => {
-                  updateDevicePrefs({ digestImages: v === "on" });
-                  announce(v === "on" ? "Images on" : "Images off");
-                }}
-              >
-                <Radio value="on" label="Show images" />
-                <Radio value="off" label="Text only" />
-              </DropdownMenu.RadioGroup>
-              <DropdownMenu.Label className={sub}>Rows per section</DropdownMenu.Label>
-              <DropdownMenu.RadioGroup
-                aria-label="Rows per section"
-                value={String(dp.digestRows)}
-                onValueChange={(v) => {
-                  updateDevicePrefs({ digestRows: Number(v) as DigestRows });
-                  announce(`${v} rows per section`);
-                }}
-              >
-                {DIGEST_ROWS.map((n) => (
-                  <Radio key={n} value={String(n)} label={String(n)} />
-                ))}
-              </DropdownMenu.RadioGroup>
+              <SectionLookChoices />
+            </>
+          ) : null}
+
+          {layout.id === "coffee" && !scope.q ? (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-line" />
+              <DropdownMenu.Label className={heading}>Coffee break, for this device</DropdownMenu.Label>
+              {pageOf(layout, scope) ? (
+                <SectionLookChoices />
+              ) : (
+                <p className="px-3 pt-1 pb-2 text-xs text-fg2">Shown as rows: the Coffee break groups Unread when no length filter is set.</p>
+              )}
             </>
           ) : null}
 
           {/* The Gazette prints its own pages and a search its own headers; the other lists group under headers. */}
-          {scope.q || !followsOrder(layout.id) ? null : (
+          {scope.q || !followsOrder(layout.id, scope) ? null : (
             <>
               <DropdownMenu.Separator className="my-1 h-px bg-line" />
               <DropdownMenu.Label className={heading}>Group by</DropdownMenu.Label>
@@ -237,6 +225,40 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
+  );
+}
+
+/** Images and Rows per section: the look of a sectioned page's rows, one setting for the Digest and the Coffee break. */
+function SectionLookChoices() {
+  const dp = useDevicePrefs();
+  return (
+    <>
+      <DropdownMenu.Label className={sub}>Images</DropdownMenu.Label>
+      <DropdownMenu.RadioGroup
+        aria-label="Images"
+        value={dp.digestImages ? "on" : "off"}
+        onValueChange={(v) => {
+          updateDevicePrefs({ digestImages: v === "on" });
+          announce(v === "on" ? "Images on" : "Images off");
+        }}
+      >
+        <Radio value="on" label="Show images" />
+        <Radio value="off" label="Text only" />
+      </DropdownMenu.RadioGroup>
+      <DropdownMenu.Label className={sub}>Rows per section</DropdownMenu.Label>
+      <DropdownMenu.RadioGroup
+        aria-label="Rows per section"
+        value={String(dp.digestRows)}
+        onValueChange={(v) => {
+          updateDevicePrefs({ digestRows: Number(v) as DigestRows });
+          announce(`${v} rows per section`);
+        }}
+      >
+        {DIGEST_ROWS.map((n) => (
+          <Radio key={n} value={String(n)} label={String(n)} />
+        ))}
+      </DropdownMenu.RadioGroup>
+    </>
   );
 }
 

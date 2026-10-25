@@ -1,10 +1,11 @@
+import { breaksIntoSections } from "./readingLength";
 import { createStore, useStore } from "./store";
 
 // Per-device layout, ordering and first-run flags. Everything device-scoped that is
 // not appearance lives here, behind ONE storage seam (`storage` below): localStorage is the
 // instant-paint cache of the server's device profile, which lib/deviceSync.ts keeps in step.
 
-export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines", "gazette", "digest"] as const;
+export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines", "gazette", "digest", "coffee"] as const;
 export type LayoutId = (typeof LAYOUT_IDS)[number];
 // The ids are what devices have stored, so they never change; only the labels do. "magazine" is shown as
 // Editorial; "headlines" is Headlines (title-only rows).
@@ -16,6 +17,7 @@ export const LAYOUT_LABELS: Record<LayoutId, string> = {
   headlines: "Headlines",
   gazette: "Gazette",
   digest: "Digest",
+  coffee: "Coffee break",
 };
 
 /**
@@ -30,6 +32,7 @@ export const LAYOUT_HINTS: Record<LayoutId, string> = {
   headlines: "One line per article, titles only",
   gazette: "Newspaper-style pages",
   digest: "Each folder or feed as its own section, a few articles each",
+  coffee: "Unread articles grouped by how long they take",
 };
 
 export type DigestSections = "folder" | "feed";
@@ -142,9 +145,9 @@ export interface DevicePrefs {
   digestSections: DigestSections;
   /** The order of the Digest sections: as the sidebar lists them, or the quietest feeds first (`client.digest_order`). */
   digestOrder: DigestOrder;
-  /** Whether Digest rows show pictures (`client.digest_images`). */
+  /** Whether Digest and Coffee break rows show pictures (`client.digest_images`). */
   digestImages: boolean;
-  /** How many articles a Digest section shows before "more" (`client.digest_rows`). */
+  /** How many articles a Digest or Coffee break section shows before "more" (`client.digest_rows`). */
   digestRows: DigestRows;
   /** The layout to go back to when "Titles only in lists" is turned off. Local to this device (no profile key). */
   layoutBeforeTitlesOnly: LayoutId | null;
@@ -449,14 +452,24 @@ export function resolveLayout(p: DevicePrefs, ctx: LayoutContext): LayoutId {
 /**
  * The order a list is fetched and shown in. The Gazette is always newest first: it plans its pages from the newest
  * articles, and a page it has shown stays the same only while what is loaded is the start of a newest-first list
- * (layouts/gazettePlan.ts). So in that layout the list's and the device's order settings do not apply.
+ * (layouts/gazettePlan.ts). So in that layout the list's and the device's order settings do not apply. The Digest and the
+ * Coffee break plan sections the same way, but the Coffee break is only a page where `breaksIntoSections` says so: in
+ * All, Starred, Muted, a search or a length-filtered list it shows rows, and the reader's order applies.
  */
-export function resolveOrder(p: DevicePrefs, ctx: LayoutContext): OrderPref {
-  return followsOrder(resolveLayout(p, ctx)) ? resolveList(p, ctx, "order").value : "newest";
+export function resolveOrder(p: DevicePrefs, ctx: LayoutContext, scope: ListShape): OrderPref {
+  return followsOrder(resolveLayout(p, ctx), scope) ? resolveList(p, ctx, "order").value : "newest";
 }
 
-/** Whether a layout shows the list in the order the reader set (every layout but the Gazette). */
-export const followsOrder = (layout: LayoutId): boolean => layout !== "gazette" && layout !== "digest";
+/** The parts of a list that decide whether a layout is drawn as a page. */
+export interface ListShape {
+  view: string;
+  length?: unknown;
+  q?: unknown;
+}
+
+/** Whether a layout shows this list in the order the reader set (every layout but the Gazette, the Digest and a Coffee break page). */
+export const followsOrder = (layout: LayoutId, scope: ListShape): boolean =>
+  layout !== "gazette" && layout !== "digest" && !(layout === "coffee" && breaksIntoSections(scope));
 
 /** Which override a list can carry, if any (a feed list or a folder list). */
 export function overrideTarget(ctx: LayoutContext): { kind: "feed" | "folder"; id: string } | null {

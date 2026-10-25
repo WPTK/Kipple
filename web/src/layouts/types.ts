@@ -55,6 +55,9 @@ export interface DigestSectionView extends DigestSection {
   moreFailed: boolean;
 }
 
+/** How a sectioned page cuts its list: into folders or feeds (the Digest), or by reading time (the Coffee break). */
+export type SectionCut = "folders" | "length";
+
 /** What the Digest page is given besides the list: its sections, and what the page can ask of them. */
 export interface DigestView {
   /** The sections to draw, in order; sections not asked for yet are left out (they load as the end of the page nears). */
@@ -65,6 +68,8 @@ export interface DigestView {
   images: boolean;
   /** A section's heading says how many articles it holds ("3 new"): the New page. */
   counts: boolean;
+  /** The "N more" button names its section ("7 more in Tech"); else the heading above it does ("7 more"). */
+  named: boolean;
   /** "N more" was pressed in a section: show the next batch. */
   expand: (key: string) => void;
   /** Ask again for a section whose load failed. */
@@ -102,6 +107,13 @@ export interface ListLayout {
    * newest-first list, and a search is ordered by relevance or by the reader's choice.
    */
   Page?: ComponentType<PageProps>;
+  /**
+   * Set by a page that is cut into sections, each a list of its own (digestSource.ts): by folder or feed, or by reading
+   * time. Without it the page is one list.
+   */
+  cut?: SectionCut;
+  /** Where the Page is drawn, when not in every list but a search. A list it is not drawn for shows `Row`s. */
+  pageFor?: (scope: Scope) => boolean;
   Row: ComponentType<RowProps>;
   /**
    * Initial size guess in px for the virtualizer; rows are measured after render. `ctx` is the list's measured

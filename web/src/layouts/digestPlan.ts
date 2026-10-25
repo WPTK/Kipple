@@ -6,7 +6,8 @@ import type { Section, SectionOf } from "@/lib/sections";
 // order they arrive in. A section is a folder or a feed (any grouping of feeds the section function makes); each shows
 // its first few cards and "N more", and loads on its own, so loading a later section never changes an earlier one.
 // Nothing here knows about React or the network. It is generic over the section function so another layout can group
-// feeds some other way (for example by reading time) and reuse the ordering and the layout.
+// feeds some other way and reuse the ordering and the layout, or give it sections that are not feeds at all (fixedSections:
+// the Coffee break's reading lengths).
 
 /** Cards per section ("Rows per section" setting). */
 export const ROW_CHOICES = [3, 5, 10] as const;
@@ -25,6 +26,14 @@ export interface SectionDef extends Section {
   count: number | null;
   /** New articles a day, summed over the section's feeds; null when any of its feeds has no pace yet (the sum would count it as quiet). */
   pace: number | null;
+}
+
+/**
+ * Sections that are not made of feeds (the Coffee break's reading lengths): the server filters each, so no feed belongs
+ * to one, and the bootstrap has no count for it (null until the section has loaded).
+ */
+export function fixedSections(sections: readonly Section[]): SectionDef[] {
+  return sections.map((s) => ({ ...s, feedIds: [], count: null, pace: null }));
 }
 
 /** Feeds in the order the sidebar lists them: folders in tree order (subfolders, then own feeds), then feeds in no known folder. */

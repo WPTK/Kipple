@@ -555,7 +555,7 @@ export async function prefetchUnread(now = Date.now()): Promise<void> {
   if (!navigator.onLine || nav.connection?.saveData || now - lastPrefetch < PREFETCH_EVERY_MS) return;
   lastPrefetch = now;
   // The list the app itself asks for first, so the worker files the answer under the same address.
-  const order = resolveOrder(devicePrefsStore.get(), {}) === "oldest" ? "oldest" : undefined;
+  const order = resolveOrder(devicePrefsStore.get(), {}, { view: "unread" }) === "oldest" ? "oldest" : undefined;
   const params = itemsParams({ view: "unread", order }, undefined, PAGE_SIZE);
   try {
     await api(buildPath("/api/items", params) + "&include=content", { quiet: true });

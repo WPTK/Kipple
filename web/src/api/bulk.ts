@@ -1,6 +1,6 @@
 import { api } from "./client";
 import type { BulkMarkResponse, Card, Scope } from "./types";
-import { READING_LENGTH_MINUTES } from "@/lib/readingLength";
+import { READING_LENGTH_QUERY } from "@/lib/readingLength";
 
 // Bulk read marking. Both calls go to POST /api/items/mark-read with a `scope` (the
 // backend's shape is in docs/design.md §7.1). Keeping them
@@ -17,6 +17,8 @@ export interface ScopeBody {
   /** The list's reading-time filter, so rows it hides are never marked. */
   min_minutes?: number;
   max_minutes?: number;
+  /** Only the articles with no extracted text (never with min_minutes or max_minutes). */
+  unknown_length?: true;
   /** The New page's mark: only articles that arrived after it are marked. */
   after_id?: string;
 }
@@ -30,7 +32,10 @@ export function scopeBody(scope: Scope): ScopeBody {
     b.q = scope.q;
     if (scope.fallback !== undefined) b.fallback = scope.fallback;
   }
-  if (scope.length) Object.assign(b, READING_LENGTH_MINUTES[scope.length]);
+  if (scope.length) {
+    const { unknown, ...range } = READING_LENGTH_QUERY[scope.length];
+    Object.assign(b, range, unknown ? { unknown_length: true } : {});
+  }
   if (scope.after) b.after_id = scope.after;
   return b;
 }

@@ -312,9 +312,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const Page = pageOf(layout, scope);
   // Where the articles come from (listSource.ts): the server's list, a page at a time; or, for the Digest, a list for each
   // of its sections (digestSource.ts).
-  const digestOn = layout.id === "digest" && !!Page;
+  const digestOn = !!layout.cut && !!Page;
   const listSrc = useItemsSource(scope, !!Page, !digestOn);
-  const digestSrc = useDigestSource(scope, digestOn);
+  const digestSrc = useDigestSource(scope, digestOn, true, layout.cut);
   const src: ListSource = digestOn ? digestSrc : listSrc;
   // The Digest has nothing to show only when no section is drawn (even one still loading or failed is) and none is left to ask.
   const nothingShown = src.digest ? src.digest.sections.length === 0 && !src.more : src.cards.length === 0;
