@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { act } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { MAX_LIST_IMAGES, takeImageSlot } from "@/lib/imageSlots";
-import { fireEvent, render } from "@testing-library/react";
 import { ListImage, useImageFailure } from "./parts";
 
 function Pic({ src, frame }: { src: string; frame?: { className?: string } }) {

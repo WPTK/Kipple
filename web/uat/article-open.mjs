@@ -68,14 +68,17 @@ await t.eachViewport(async (page, vp) => {
       if (route.request().method() === "GET") await new Promise((r) => setTimeout(r, 4000));
       await route.continue();
     });
-    await page.goto(`/l/all?feed=${added.feedId}`, { waitUntil: "load" });
-    await rows.nth(1).waitFor({ timeout: 15000 });
-    await rows.nth(1).click();
-    const card = page.getByTestId("loading-card-title");
-    const cardShown = await card.waitFor({ timeout: 3000 }).then(() => true, () => false);
-    check(cardShown && /^UAT held article \d+$/.test((await card.textContent()) ?? ""), `${tag} A3 card`, "the list's title shows while the article text loads", "no card title while loading");
-    await body.getByText(/^Body text of held article \d+\.$/).waitFor({ timeout: 15000 });
-    await page.unroute("**/api/items/*");
+    try {
+      await page.goto(`/l/all?feed=${added.feedId}`, { waitUntil: "load" });
+      await rows.nth(1).waitFor({ timeout: 15000 });
+      await rows.nth(1).click();
+      const card = page.getByTestId("loading-card-title");
+      const cardShown = await card.waitFor({ timeout: 3000 }).then(() => true, () => false);
+      check(cardShown && /^UAT held article \d+$/.test((await card.textContent()) ?? ""), `${tag} A3 card`, "the list's title shows while the article text loads", "no card title while loading");
+      await body.getByText(/^Body text of held article \d+\.$/).waitFor({ timeout: 15000 });
+    } finally {
+      await page.unroute("**/api/items/*");
+    }
   });
 });
 

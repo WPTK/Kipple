@@ -108,7 +108,7 @@ export function ListImage({ src, failure, className, frame, shaped }: { src: str
   // so a list never holds all the browser's connections. One already loaded once comes from the cache, with no wait.
   // Keyed on the address: a row reused for another picture starts again, waiting for the screen and a place.
   const [readyFor, setReadyFor] = useState<string | null>(() => (loaded.has(src) ? src : null));
-  const ready = readyFor === src;
+  const ready = readyFor === src || loaded.has(src);
   useEffect(() => {
     if (ready || failure.failed) return;
     let granted = false;
