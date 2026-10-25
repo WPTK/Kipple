@@ -31,8 +31,6 @@ import { cn } from "@/lib/cn";
 import { announce } from "@/shell/toasts";
 import { DropdownMenu } from "@/ui/menu";
 
-const item =
-  "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-selection";
 const heading = "px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase";
 
 const DIGEST_ORDER_LABELS: Record<DigestOrder, string> = { sidebar: "Sidebar order", quiet: "Quiet Feeds First" };
@@ -270,7 +268,7 @@ export function SectionOrderChoice({ name }: { name: "sections" | "feeds" }) {
 
 function Radio({ value, label, hint, className }: { value: string; label: string; hint?: string; className?: string }) {
   return (
-    <DropdownMenu.RadioItem value={value} className={cn(item, "relative pl-9", className)}>
+    <DropdownMenu.RadioItem value={value} className={cn("relative py-1.5 pl-9", className)}>
       <DropdownMenu.ItemIndicator className="absolute left-3 inline-flex">
         <Check className="size-4" aria-hidden="true" />
       </DropdownMenu.ItemIndicator>

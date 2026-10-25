@@ -57,7 +57,7 @@ function ThisDeviceName({ device }: { device: DeviceRow }) {
           value={value}
           maxLength={64}
           placeholder={describeUserAgent(device.user_agent, device.client)}
-          aria-describedby={`${id}-h`}
+          aria-describedby={error ? `${id}-h ${id}-e` : `${id}-h`}
           aria-invalid={error ? true : undefined}
           onChange={(e) => setTyped(e.target.value)}
           className={inputCls}

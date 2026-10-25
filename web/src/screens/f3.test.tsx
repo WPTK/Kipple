@@ -177,7 +177,7 @@ describe("Settings renderer", () => {
     const { container } = go("/settings/sync");
     await screen.findByRole("heading", { level: 2, name: "Checking feeds" });
     expect(screen.getByRole("heading", { level: 2, name: "Storage" })).toBeInTheDocument();
-    expect(screen.getByRole("spinbutton", { name: "How often to check feeds" })).toHaveValue(30);
+    expect(screen.getByRole("radio", { name: "Every 30 minutes" })).toBeChecked(); // a number: presets
     expect(screen.getByRole("radio", { name: "Always identify as Kipple" })).toBeInTheDocument(); // enum with 3 options: segmented
     expect(screen.getByRole("combobox", { name: "Articles to keep per feed" })).toHaveValue("500"); // enum with 6: select
     expect(screen.queryByRole("heading", { name: "Images" })).toBeNull(); // a server group with nothing in it is left out
@@ -223,6 +223,7 @@ describe("Settings renderer", () => {
     // The refresh interval is in another group: back to the list, then into Sync & Feeds.
     await user.click(screen.getByRole("link", { name: "Back to Settings" }));
     await user.click(await screen.findByRole("link", { name: /^Sync & Feeds/ }));
+    await user.click(within(await screen.findByRole("group", { name: "How often to check feeds" })).getByRole("radio", { name: "Custom" }));
     await user.click(await screen.findByRole("button", { name: "Increase How often to check feeds" }));
     const alert = (await screen.findByText("must be an integer from 5 to 1440")).closest("[role=alert]");
     expect(alert).not.toBeNull();
