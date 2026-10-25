@@ -15,7 +15,7 @@ require (
 	cloud.google.com/go/auth v0.24.1 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
-	github.com/anthropics/anthropic-sdk-go v1.80.0 // indirect
+	github.com/anthropics/anthropic-sdk-go v1.82.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/ccojocar/zxcvbn-go v1.0.4 // indirect
@@ -29,10 +29,10 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect
 	github.com/googleapis/gax-go/v2 v2.26.2 // indirect
-	github.com/gookit/color v1.6.2 // indirect
+	github.com/gookit/color v1.6.3 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
-	github.com/openai/openai-go/v3 v3.76.0 // indirect
+	github.com/openai/openai-go/v3 v3.81.0 // indirect
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/securego/gosec/v2 v2.29.0 // indirect
@@ -55,14 +55,14 @@ require (
 	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260924152758-ed294f943157 // indirect
+	golang.org/x/telemetry v0.0.0-20261010193011-f71dc92da45e // indirect
 	golang.org/x/text v0.43.0 // indirect
-	golang.org/x/tools v0.51.0 // indirect
-	golang.org/x/vuln v1.8.0 // indirect
-	google.golang.org/api v0.301.0 // indirect
-	google.golang.org/genai v1.73.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
+	golang.org/x/tools v0.52.0 // indirect
+	golang.org/x/vuln v1.9.0 // indirect
+	google.golang.org/api v0.304.0 // indirect
+	google.golang.org/genai v1.75.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8 // indirect
 	google.golang.org/grpc v1.84.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	honnef.co/go/tools v0.8.1 // indirect
+	honnef.co/go/tools v0.8.2 // indirect
 )
