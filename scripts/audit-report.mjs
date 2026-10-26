@@ -64,8 +64,14 @@ function detail(f) {
   return [`- The check did not complete (${f.status}); see the run log.`];
 }
 
-// currency: the text of scripts/settled-check.mjs, shown as its own section. It is not part of the fingerprint: it changes
-// with every merge, and a changed currency alone is not a reason to notify anyone.
+// The issue body with its Currency section replaced, or added before the "Last changed by" line. All else is kept, so the
+// link to the run that last changed the findings stays true.
+export function withCurrency(oldBody, currency) {
+  const section = ['### Currency', '', currency.trim(), '', ''].join('\n');
+  const without = oldBody.replace(/### Currency\n\n[\s\S]*?\n\n(?=Last changed by:)/, '');
+  return without.replace(/(?=Last changed by:)/, section);
+}
+
 export function body(failed, { runUrl, ref, sha, currency }) {
   const lines = ['The weekly audit found the following. This issue is updated when the findings change and closed by the first clean run.', ''];
   for (const f of failed) lines.push(`### ${f.label}`, ...detail(f), '');
@@ -120,7 +126,12 @@ export function report({ dir, runUrl, ref = 'unknown', sha = 'unknown', assignee
       return 'open a new issue (without an assignee)';
     }
   }
-  if ((open.body ?? '').includes(`${MARK} ${fingerprint(failed)} `)) return `#${open.number} already lists these findings: nothing to do`;
+  if ((open.body ?? '').includes(`${MARK} ${fingerprint(failed)} `)) {
+    // Same findings: nobody is notified. Only the Currency section may be refreshed, by editing the body in place.
+    const fresh = currency ? withCurrency(open.body ?? '', currency) : open.body;
+    if (fresh === open.body) return `#${open.number} already lists these findings: nothing to do`;
+    return act(`refresh the Currency section of #${open.number}`, [[['issue', 'edit', String(open.number), '--body-file', '-'], fresh]]);
+  }
   const note = `The findings changed. The description now lists them. Run: ${runUrl}`;
   return act(`update #${open.number}`, [
     [['issue', 'edit', String(open.number), '--body-file', '-'], text],

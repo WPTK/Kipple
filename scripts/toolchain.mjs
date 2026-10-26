@@ -5,7 +5,12 @@
 export const dockerfileNodeMajor = (dockerfile) => /^FROM\b[^\n]*\bnode:(\d+)(?:\.\d+)*-alpine/m.exec(dockerfile)?.[1] ?? null;
 
 // Every Node major a workflow sets with `node-version:`.
-export const workflowNodeMajors = (workflow) => [...workflow.matchAll(/node-version:\s*"?(\d+)(?:\.\d+)*"?/g)].map((m) => m[1]);
+// A commented-out line does not set anything, so it is skipped.
+export const workflowNodeMajors = (workflow) =>
+  workflow
+    .split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .flatMap((l) => [...l.matchAll(/node-version:\s*"?(\d+)(?:\.\d+)*"?/g)].map((m) => m[1]));
 
 // "1.27" from the `go 1.27` line of go.mod.
 export const goModCycle = (goMod) => /^go (\d+\.\d+)(?:\.\d+)?\s*$/m.exec(goMod)?.[1] ?? null;

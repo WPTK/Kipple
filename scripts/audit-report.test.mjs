@@ -73,6 +73,26 @@ test('the currency report is a section of the issue body', () => {
   assert.match(issues[0].body, /### Currency\n\nChecked 2026-10-26: 1 pass\.\n\n- PASS: A\. ok\n\nLast changed by/);
 });
 
+test('same findings, changed currency: the body is edited in place, with no comment', () => {
+  const { gh, issues, writes } = fakeGh();
+  report({ dir: results(vulnerable), ...OPTS, currency: 'Checked 2026-10-26: old', gh });
+  const before = issues[0].body;
+  // Same currency again: nothing at all.
+  report({ dir: results(vulnerable), ...OPTS, runUrl: 'https://example.invalid/run/2', currency: 'Checked 2026-10-26: old', gh });
+  assert.equal(writes.length, 1);
+  // New currency: one edit, no comment, the run link of the last findings change is kept.
+  report({ dir: results(vulnerable), ...OPTS, runUrl: 'https://example.invalid/run/3', currency: 'Checked 2026-11-02: new', gh });
+  assert.equal(writes.length, 2);
+  assert.deepEqual(writes[1].slice(0, 2), ['issue', 'edit']);
+  assert.equal(issues[0].comments.length, 0);
+  assert.match(issues[0].body, /### Currency\n\nChecked 2026-11-02: new\n\nLast changed by: https:\/\/example\.invalid\/run\/1/);
+  assert.doesNotMatch(issues[0].body, /old/);
+  assert.equal(issues[0].body.replace(/Checked 2026-11-02: new/, 'Checked 2026-10-26: old'), before);
+  // A run without a currency file leaves the issue alone.
+  report({ dir: results(vulnerable), ...OPTS, gh });
+  assert.equal(writes.length, 2);
+});
+
 test('no assignee flag when none is given', () => {
   const { gh, issues } = fakeGh();
   report({ dir: results(vulnerable), runUrl: RUN, gh });

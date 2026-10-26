@@ -112,11 +112,6 @@ jobs:
       issues: read
       pull-requests: read
       actions: read
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      IMAGE: ghcr.io/wptk/kipple
-      COSIGN_ISSUER: https://token.actions.githubusercontent.com
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -126,27 +121,38 @@ jobs:
         with:
           cosign-release: v3.0.6
 
+      - name: Find the latest release
+        id: release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: echo "tag=$(gh release view --json tagName -q .tagName)" >> "$GITHUB_OUTPUT"
+
       # The signature identity names the release tag, so the check also fails for an image another release signed.
-      # The tag is written before the check so the report can name it when the check fails.
+      # Skipped when there is no tag to verify; the script reads a skipped or failed step as "not checked", never as green.
       - name: Verify the latest release image
         id: cosign
+        if: steps.release.outputs.tag != ''
         continue-on-error: true
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          IMAGE: ghcr.io/wptk/kipple
+          COSIGN_ISSUER: https://token.actions.githubusercontent.com
         run: |
-          tag="$(gh release view --json tagName -q .tagName)"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          cosign verify "$IMAGE:${tag#v}" \
-            --certificate-identity "https://github.com/WPTK/Kipple/.github/workflows/release.yml@refs/tags/$tag" \
+          cosign verify "$IMAGE:${TAG#v}" \
+            --certificate-identity "https://github.com/WPTK/Kipple/.github/workflows/release.yml@refs/tags/$TAG" \
             --certificate-oidc-issuer "$COSIGN_ISSUER" >/dev/null
 
       - name: Currency checks
         env:
-          COSIGN_TAG: ${{ steps.cosign.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COSIGN_TAG: ${{ steps.release.outputs.tag }}
           COSIGN_OUTCOME: ${{ steps.cosign.outcome }}
         run: |
           mkdir -p currency
-          args=()
-          if [ -n "$COSIGN_TAG" ]; then args=(--cosign-tag "$COSIGN_TAG" --cosign-outcome "$COSIGN_OUTCOME"); fi
-          node scripts/settled-check.mjs --out currency/currency.md "${args[@]}"
+          node scripts/settled-check.mjs --out currency/currency.md --cosign-tag "$COSIGN_TAG" --cosign-outcome "$COSIGN_OUTCOME"
           { echo '### Currency'; echo; cat currency/currency.md; } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

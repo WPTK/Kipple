@@ -22,7 +22,8 @@ const DAY = 86_400_000;
 const pass = (name, evidence) => ({ name, status: 'pass', evidence });
 const fail = (name, evidence) => ({ name, status: 'fail', evidence });
 const unknown = (name, evidence) => ({ name, status: 'unknown', evidence });
-const days = (from, to) => Math.floor((to - from) / DAY);
+// Whole calendar days (UTC) from one instant to another, so "exactly 180 days away" is 180 whatever the time of day.
+const days = (from, to) => Math.floor(to / DAY) - Math.floor(from / DAY);
 const date = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 // ---- 1. CI on main's head, and the latest release -------------------------------------------------------------------
@@ -46,30 +47,35 @@ export function checkCi({ sha, runs, selfName = 'Weekly audit' }) {
   return pass(name, `${head}: ${mine.length} workflow runs, all green`);
 }
 
-// latestRelease: tag of GitHub's latest release (stable only). tagNames: every tag name. cosign: { tag, outcome } from the
-// workflow's verify step, or null when it did not run.
+// latestRelease: tag of GitHub's latest release (stable only). tagNames: every tag name, in any order. cosign: null when
+// the caller did not run the verify at all (a local run), otherwise { tag, outcome } from the workflow's steps. The
+// outcome is what the step ended as: success and failure are answers; anything else (skipped, cancelled, no tag to
+// verify) means the signature was not checked, which is unknown, never green.
 export function checkRelease({ latestRelease, tagNames, cosign }) {
   const name = 'Latest release is the newest tag';
   const stable = tagNames.map(parseTag).filter((t) => t && !t.pre).sort(cmpTags);
   const newest = stable.at(-1)?.tag;
   if (!latestRelease || !newest) return unknown(name, 'no release or no version tag found');
-  const sig = !cosign
-    ? 'cosign not checked'
-    : cosign.outcome === 'success'
-      ? `cosign verify passed for ${cosign.tag}`
-      : `cosign verify ended as ${cosign.outcome} for ${cosign.tag}`;
-  if (latestRelease !== newest) return fail(name, `latest release ${latestRelease}, newest stable tag ${newest}; ${sig}`);
-  if (cosign && cosign.outcome !== 'success') return fail(name, `${newest} is the latest release; ${sig}`);
-  return pass(name, `${newest} is the latest release and the newest stable tag; ${sig}`);
+  const tagText = latestRelease === newest ? `${newest} is the latest release and the newest stable tag` : `latest release ${latestRelease}, newest stable tag ${newest}`;
+  if (latestRelease !== newest) return fail(name, tagText);
+  if (!cosign) return pass(name, `${tagText}; cosign not checked`);
+  if (cosign.outcome === 'failure') return fail(name, `${tagText}; cosign verify failed for ${cosign.tag}`);
+  if (cosign.outcome !== 'success') return unknown(name, `${tagText}; cosign not checked (step ${cosign.outcome || 'did not run'})`);
+  if (cosign.tag !== newest) return unknown(name, `${tagText}; cosign verified ${cosign.tag}, not ${newest}`);
+  return pass(name, `${tagText}; cosign verify passed for ${cosign.tag}`);
 }
 
 // ---- 2. The audit issue ---------------------------------------------------------------------------------------------
 
-// openIssues: open issues (number, title). The tracking issue is found by its exact title, as audit-report.mjs does.
+// openIssues: open issues labelled `security` (number, title). The tracking issue this run is maintaining (found by its
+// exact title, as audit-report.mjs does) is the audit's own state, not a second advisory, so it is left out: counting it
+// would make a failing audit always fail this check as well. A person's duplicate with the same title is not the run's
+// and still counts.
 export function checkAuditIssue({ openIssues }) {
-  const name = 'Weekly audit has no open advisory';
-  const open = openIssues.filter((i) => i.title === AUDIT_TITLE);
-  return open.length === 0 ? pass(name, 'no open audit issue') : fail(name, `open: ${open.map((i) => `#${i.number}`).join(', ')}`);
+  const name = 'No other open security advisory';
+  const tracked = openIssues.filter((i) => i.title === AUDIT_TITLE).sort((a, b) => a.number - b.number)[0];
+  const other = openIssues.filter((i) => i !== tracked);
+  return other.length === 0 ? pass(name, 'none open besides the audit issue') : fail(name, `open: ${other.map((i) => `#${i.number}`).join(', ')}`);
 }
 
 // ---- 3. P0, P1 and the freeze list ----------------------------------------------------------------------------------
@@ -103,7 +109,9 @@ export function checkSupport({ label, cycle, rows, now }) {
   if (!row) return unknown(name, `cycle ${cycle} not listed by endoflife.date`);
   if (row.eol === false) return pass(name, `${cycle}: no end-of-life date`);
   if (row.eol === true) return fail(name, `${cycle}: end of life`);
-  const left = days(now, Date.parse(row.eol));
+  const end = typeof row.eol === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.eol) ? Date.parse(row.eol) : NaN;
+  if (Number.isNaN(end)) return unknown(name, `${cycle}: unreadable end-of-life value`);
+  const left = days(now, end);
   const text = `${cycle}: end of life ${row.eol} (${left} days left)`;
   return left >= SUPPORT_DAYS ? pass(name, text) : fail(name, text);
 }
@@ -130,7 +138,8 @@ export function checkNodeMajor({ dockerfile, workflows }) {
   const seen = Object.entries(workflows).flatMap(([f, text]) => workflowNodeMajors(text).map((v) => [f, v]));
   const odd = seen.filter(([, v]) => v !== image).map(([f, v]) => `${f}: ${v}`);
   if (odd.length > 0) return fail(name, `Dockerfile ${image}; differs in ${[...new Set(odd)].join(', ')}`);
-  return pass(name, `Dockerfile and ${new Set(seen.map(([f]) => f)).size} workflows all use ${image}`);
+  const files = new Set(seen.map(([f]) => f)).size;
+  return pass(name, `Dockerfile and ${seen.length} node-version settings in ${files} of ${Object.keys(workflows).length} workflows all use ${image}`);
 }
 
 // ---- 7. Scheduled workflows still run -------------------------------------------------------------------------------
@@ -156,11 +165,13 @@ export function checkSchedules({ runsByFile, now }) {
 // the restore drill and carries a YYYY-MM-DD date.
 export function checkRestoreDrill({ handover, now }) {
   const name = 'Restore drill is recent';
-  const line = (handover ?? '').split('\n').find((l) => /restore\s+drill/i.test(l) && /\d{4}-\d{2}-\d{2}/.test(l));
-  if (!line) return unknown(name, 'handover page not present');
+  if (handover === null || handover === undefined) return unknown(name, 'handover page not present');
+  const line = handover.split('\n').find((l) => /restore\s+drill/i.test(l) && /\d{4}-\d{2}-\d{2}/.test(l));
+  if (!line) return unknown(name, 'no dated restore-drill line in the handover page');
   const when = Date.parse(/\d{4}-\d{2}-\d{2}/.exec(line)[0]);
-  if (Number.isNaN(when)) return unknown(name, 'handover page not present');
+  if (Number.isNaN(when)) return unknown(name, 'no dated restore-drill line in the handover page');
   const age = days(when, now);
+  if (age < 0) return unknown(name, `the drill date ${date(when)} is in the future`);
   const text = `last drill ${date(when)} (${age} days ago)`;
   return age <= RESTORE_DRILL_DAYS ? pass(name, text) : fail(name, `${text}; older than ${RESTORE_DRILL_DAYS} days`);
 }
@@ -213,14 +224,11 @@ export async function settledChecks({ repo, root, now, cosign = null, gh = defau
   );
   out.push(
     await guarded('Latest release is the newest tag', () =>
-      checkRelease({ latestRelease: api('releases/latest').tag_name, tagNames: api('tags?per_page=100').map((t) => t.name), cosign }),
+      // Every page of tags: the API lists them in no version order, so a newest tag past the first 100 must not be missed.
+      checkRelease({ latestRelease: api('releases/latest').tag_name, tagNames: gh(['api', '--paginate', '--jq', '.[].name', `repos/${repo}/tags?per_page=100`]).split('\n').filter(Boolean), cosign }),
     ),
   );
-  out.push(
-    await guarded('Weekly audit has no open advisory', () =>
-      checkAuditIssue({ openIssues: JSON.parse(gh(['issue', 'list', '--repo', repo, '--state', 'open', '--search', `"${AUDIT_TITLE}" in:title`, '--json', 'number,title', '--limit', '20'])) }),
-    ),
-  );
+  out.push(await guarded('No other open security advisory', () => checkAuditIssue({ openIssues: issues('security') })));
   out.push(await guarded('No open P0 or P1, freeze list resolved', () => checkBlockers({ byLabel: { P0: issues('P0'), P1: issues('P1'), freeze: issues('freeze') } })));
   out.push(
     await guarded(`No Dependabot PR older than ${STALE_PR_DAYS} days`, () =>
@@ -231,12 +239,14 @@ export async function settledChecks({ repo, root, now, cosign = null, gh = defau
   const eol = {};
   for (const product of ['nodejs', 'go', 'debian', 'alpine-linux']) {
     try {
-      eol[product] = await fetchJson(`https://endoflife.date/api/${product}.json`);
+      const body = await fetchJson(`https://endoflife.date/api/${product}.json`);
+      eol[product] = Array.isArray(body) ? body : null; // an error object or a redirect notice is a failed lookup
     } catch {
       eol[product] = null;
     }
   }
-  out.push(...checkRuntimes({ dockerfile, goMod: read('go.mod'), eol, now }));
+  const runtimes = await guarded('Runtimes supported', () => checkRuntimes({ dockerfile, goMod: read('go.mod'), eol, now }));
+  out.push(...[runtimes].flat());
 
   const wfDir = join(root, '.github', 'workflows');
   const workflows = Object.fromEntries(readdirSync(wfDir).filter((f) => /\.ya?ml$/.test(f)).map((f) => [f, read(`.github/workflows/${f}`)]));
@@ -266,7 +276,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const repo = arg('--repo') ?? JSON.parse(defaultGh(['repo', 'view', '--json', 'nameWithOwner'])).nameWithOwner;
   const tag = arg('--cosign-tag');
   const outcome = arg('--cosign-outcome');
-  const cosign = tag && outcome ? { tag, outcome } : null;
+  // No outcome flag means the caller did not try to verify (a local run). Any outcome, even with an empty tag, is passed
+  // on, so a step that failed or was skipped can never read as "not checked, so fine".
+  const cosign = outcome === undefined ? null : { tag: tag ?? '', outcome };
   const now = Date.now();
   const root = fileURLToPath(new URL('..', import.meta.url));
   const text = render(await settledChecks({ repo, root, now, cosign }), { now });

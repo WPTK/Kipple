@@ -1,1 +1,1 @@
-Weekly audit: a Currency section lists whether CI is green, the latest release is signed, the pinned runtimes stay supported for 180 days, Dependabot and scheduled workflows are current. (#820)
+Weekly audit: a Currency section lists whether CI is green, the latest release is signed, the pinned runtimes stay supported for 180 days, and Dependabot and scheduled workflows are current. It appears in the audit issue while an advisory is open, is refreshed in place without a notification, and is always in the run summary. (#820)
