@@ -51,7 +51,7 @@ the owner's password or a shell on the host; denial of service by someone who ca
 ## Residual risks (accepted)
 
 - **No absolute session lifetime.** A session slides 90 days on use and never expires while it is used at least that
-  often. A stolen cookie is valid until sign-out or a password change. Tracked in #223.
+  often. A stolen cookie is valid until sign-out or a password change.
 - **Cookie is not `__Host-` prefixed**, because Secure must stay conditional so plain-HTTP LAN use works.
 - **`style-src 'unsafe-inline'`** in the page CSP (component library inline styles). Scripts stay `'self'` only.
 - **Open mode** means anything that reaches the port is signed in. It is limited to loopback, tailnet and private
