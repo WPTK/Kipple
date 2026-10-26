@@ -8,7 +8,9 @@ name: Fuzz
 # Two tiers: the merge-blocking one is ci.yml (every committed and f.Add seed runs as an ordinary test under -race, on
 # every pull request); this is the deep one. Its targets are split over the matrix's runners (same total compute, a
 # fraction of the wall time), and each target restores the previous run's mutation corpus, so a week's coverage builds on the last
-# instead of starting cold. A failing target no longer hides the ones after it.
+# instead of starting cold. A failing target no longer hides the ones after it. Targets are listed once, by the Plan step;
+# the fuzz step reads that plan. Slow targets run a multiple of the base seconds (Get-FuzzBudget in scripts/fuzz.ps1), and each
+# job prints a results table and the corpus cache health (restored slots) in its summary.
 on:
   schedule:
     - cron: "17 5 * * 1" # Mondays 05:17 UTC
@@ -19,6 +21,11 @@ on:
         required: false
         default: "60"
         type: string
+      release:
+        description: "Also run the release-only targets (FuzzAPISequence, 300 s)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -40,6 +47,7 @@ jobs:
       fail-fast: false
       matrix:
         # Contiguous 1..N: the script is given "<shard>/<number of shards>", so a gap would leave a slice of targets unrun.
+        # 4 shards of 12 cache slots hold 48 targets; a 49th target needs a fifth shard here.
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,7 +67,8 @@ jobs:
         shell: pwsh
         env:
           SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
-        run: scripts/fuzz-cache.ps1 -Action Plan -ShardSpec $env:SHARD
+          RELEASE: ${{ inputs.release && 'true' || 'false' }}
+        run: scripts/fuzz-cache.ps1 -Action Plan -ShardSpec $env:SHARD -ReleaseRun:($env:RELEASE -eq 'true')
 
       - id: restore1
         if: ${{ steps.plan.outputs.key1 != '' }}
@@ -146,13 +155,21 @@ jobs:
           key: ${{ steps.plan.outputs.key12 }}${{ github.run_id }}
           restore-keys: ${{ steps.plan.outputs.key12 }}
 
+      # How many of the shard's slots found a corpus to start from (a cache-hit output is false for prefix matches, so the
+      # matched key is what counts).
+      - if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          STEPS_JSON: ${{ toJSON(steps) }}
+        run: scripts/fuzz-cache.ps1 -Action Report
+
       # web/dist holds only the committed placeholder, which is all the Go packages need (see web/embed.go).
       - name: Fuzz this shard's targets
         shell: pwsh
         env:
           SECONDS_PER_TARGET: ${{ inputs.seconds || '60' }}
-          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
-        run: scripts/fuzz.ps1 -Seconds ([int]$env:SECONDS_PER_TARGET) -Shard $env:SHARD -ContinueOnFailure
+          PLAN_FILE: ${{ steps.plan.outputs.plan_file }}
+        run: scripts/fuzz.ps1 -Seconds ([int]$env:SECONDS_PER_TARGET) -TargetFile $env:PLAN_FILE -ContinueOnFailure
 
       # Save each target's grown corpus even when a target failed (the other targets' coverage is still worth keeping). A
       # corpus over 10 MiB is not saved (the previous, smaller one stays in the cache).

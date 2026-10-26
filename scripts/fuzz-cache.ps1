@@ -1,13 +1,17 @@
 <#
 .SYNOPSIS
   Keeps each fuzz target's mutation corpus in the GitHub Actions cache under its own key, for the weekly Fuzz workflow
-  (.github/workflows/fuzz.yml). Three steps of one shard job call it:
-    -Action Plan   before fuzzing: writes the cache key and corpus directory of each of the shard's targets as step outputs
+  (.github/workflows/fuzz.yml). Four steps of one shard job call it:
+    -Action Plan   before fuzzing: writes the cache key and corpus directory of each of the shard's targets as step outputs,
+                   and the plan file (plan_file output) that scripts/fuzz.ps1 -TargetFile reads, so the targets are listed once
+    -Action Report after the restore steps: writes how many slots restored a corpus to the job summary (env STEPS_JSON holds
+                   the workflow's `steps` context as JSON)
     -Action Cap    after fuzzing: marks which targets' corpora may be saved (non-empty, at most -MaxMiB)
     -Action Prune  after saving: deletes every fuzz-corpus key of a target except the newest
 .EXAMPLE
   scripts/fuzz-cache.ps1 -Action Plan -ShardSpec 2/4     # in the workflow; writes to $GITHUB_OUTPUT
   scripts/fuzz-cache.ps1 -Action Plan -ShardSpec 2/4 -WhatIfOnly   # prints the plan and writes nothing
+  scripts/fuzz-cache.ps1 -Action Plan -ShardSpec 2/4 -ReleaseRun   # also plans the release-only targets (FuzzAPISequence)
 Why per target: a shard's targets change whenever the target list does (the round-robin split in scripts/fuzz.ps1 moves
 later targets to another shard), and a corpus cached per shard stays behind on the old shard. A key per target follows the
 target to whichever runner gets it. The workflow has a fixed number of restore and save steps (one per slot, because a step
@@ -15,7 +19,7 @@ cannot loop); the plan fails when a shard has more targets than slots.
 #>
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory)][ValidateSet('Plan', 'Cap', 'Prune')][string]$Action,
+  [Parameter(Mandatory)][ValidateSet('Plan', 'Report', 'Cap', 'Prune')][string]$Action,
   [ValidatePattern('^[1-9]\d*/[1-9]\d*$')][string]$ShardSpec = '1/1',
   [ValidateRange(1, 64)][int]$Slots = 12,
   # A corpus above this is not saved (the previous, smaller one stays in the cache). Dev-machine corpora average about
@@ -23,6 +27,8 @@ param(
   [ValidateRange(1, 1024)][int]$MaxMiB = 10,
   [string]$PlanFile = $(Join-Path ($env:RUNNER_TEMP ?? [IO.Path]::GetTempPath()) 'fuzz-cache-plan.json'),
   [string]$Module = 'github.com/WPTK/kipple',
+  # Plan only: also plan the release-only targets (fuzz.ps1 -Release).
+  [switch]$ReleaseRun,
   [switch]$WhatIfOnly
 )
 
@@ -65,6 +71,39 @@ function Select-StaleFuzzCache {
     ForEach-Object { $_.Group | Sort-Object { [datetime]$_.createdAt } -Descending | Select-Object -Skip 1 }
 }
 
+# Get-FuzzCacheReport: how many planned slots restored a corpus. Input is the workflow's `steps` context as JSON and the
+# plan; slot N counts as restored when step restoreN has a non-empty cache-matched-key output (the restores match by key
+# prefix, so cache-hit is false for them even when they restored something).
+function Get-FuzzCacheReport {
+  [CmdletBinding()]
+  param([string]$StepsJson, [object[]]$Plan)
+  $steps = if ($StepsJson) { $StepsJson | ConvertFrom-Json -AsHashtable } else { @{} }
+  $rows = @(foreach ($p in $Plan) {
+      $outputs = $steps["restore$($p.Slot)"].outputs
+      $matched = $outputs ? $outputs['cache-matched-key'] : $null
+      [pscustomobject]@{ Slot = $p.Slot; Target = $p.Name; Restored = [bool]$matched }
+    })
+  [pscustomobject]@{ Restored = @($rows | Where-Object Restored).Count; Total = $rows.Count; Row = $rows }
+}
+
+# Format-FuzzCacheReport: the report as plain lines or (-Markdown) a heading and a markdown table.
+function Format-FuzzCacheReport {
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][object]$Report, [switch]$Markdown)
+  $title = "Fuzz corpus cache: restored $($Report.Restored) of $($Report.Total) slots"
+  $yes = { if ($_.Restored) { 'yes' } else { 'no' } }
+  if ($Markdown) {
+    "### $title"
+    ''
+    '| Slot | Target | Restored |'
+    '| ---: | --- | --- |'
+    foreach ($r in $Report.Row) { '| {0} | {1} | {2} |' -f $r.Slot, $r.Target, ($r | ForEach-Object $yes) }
+    return
+  }
+  $title
+  foreach ($r in $Report.Row) { 'slot {0,-2} {1,-28} {2}' -f $r.Slot, $r.Target, ($r | ForEach-Object $yes) }
+}
+
 function Write-StepOutput {
   param([string]$Name, [string]$Value)
   if ($WhatIfOnly -or -not $env:GITHUB_OUTPUT) { Write-Information -InformationAction Continue "output $Name=$Value" } else { "$Name=$Value" | Add-Content -Path $env:GITHUB_OUTPUT }
@@ -78,7 +117,7 @@ if ($MyInvocation.InvocationName -ne '.') {
   switch ($Action) {
     'Plan' {
       $cacheRoot = (go env GOCACHE)
-      $targets = @(Select-FuzzTarget -Target @(Get-FuzzTargetList) -Shard $ShardSpec | Sort-Object Package, Name)
+      $targets = @(Select-FuzzTarget -Target @(Get-FuzzTargetList) -Shard $ShardSpec -Release:$ReleaseRun | Sort-Object Package, Name)
       if ($targets.Count -eq 0) { throw "no fuzz targets in shard $ShardSpec" }
       if ($targets.Count -gt $Slots) { throw "shard $ShardSpec has $($targets.Count) targets but fuzz.yml has $Slots cache slots; add slots there and raise -Slots" }
       $plan = @(for ($i = 0; $i -lt $targets.Count; $i++) {
@@ -93,7 +132,18 @@ if ($MyInvocation.InvocationName -ne '.') {
         Write-StepOutput "path$($p.Slot)" $p.Path
         Write-Information -InformationAction Continue ("slot {0,-2} {1,-28} {2}" -f $p.Slot, $p.Name, $p.Key)
       }
+      Write-StepOutput 'plan_file' $PlanFile
       if (-not $WhatIfOnly) { $plan | ConvertTo-Json -AsArray | Set-Content -Path $PlanFile }
+    }
+    'Report' {
+      $plan = @(Get-Content -Raw -Path $PlanFile | ConvertFrom-Json)
+      $report = Get-FuzzCacheReport -StepsJson $env:STEPS_JSON -Plan $plan
+      if ($WhatIfOnly -or -not $env:GITHUB_STEP_SUMMARY) {
+        Format-FuzzCacheReport -Report $report | ForEach-Object { Write-Information -InformationAction Continue $_ }
+      } else {
+        Format-FuzzCacheReport -Report $report -Markdown | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+        Write-Information -InformationAction Continue (Format-FuzzCacheReport -Report $report)[0]
+      }
     }
     'Cap' {
       $plan = @(Get-Content -Raw -Path $PlanFile | ConvertFrom-Json)

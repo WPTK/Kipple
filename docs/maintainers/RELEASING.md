@@ -69,7 +69,7 @@ bump): `0.9.0-beta.1` (the bug fixes plus those features), then `1.0.0-rc.N`, th
    before, and re-run them only if code changed after the last run. `scripts/maintainers/release-gates.ps1 [-Ref <sha>]` runs everything except
    Suite 1 and Suite 4, one at a time (timing tests flake under load), on a detached worktree of a printed full sha and prints a
    pass/fail table.
-   **Fuzz, by hand:** `scripts\fuzz.ps1` (60 s per target; `-List` shows them; `-Shard 2/4` runs one slice and `-ContinueOnFailure` reports every failing
+   **Fuzz, by hand:** `scripts\fuzz.ps1 -Release` (60 s per target, slow ones 2 to 3 times longer, and the release-only FuzzAPISequence for 300 s; `-List` shows them; `-Shard 2/4` runs one slice and `-ContinueOnFailure` reports every failing
    target instead of stopping at the first). It must finish clean. The weekly
    `Fuzz` workflow runs the same script on the default branch in four shards, but until it has run green for several weeks the
    manual run stays the gate.
