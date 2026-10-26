@@ -15,7 +15,7 @@
 //   T4  Sources: a name (two lines at most), a bar and one number with its unit per row; Skimmed, Went to the original and
 //       Read rate are in the feed's sheet, with "Not enough data yet" where there is no figure; nothing scrolls sideways;
 //   T5  the summary values are in reader words (Articles read), Never opened is under Sources and leaves out a feed added
-//       yesterday, and Export is the last thing on the page;
+//       yesterday, and the last section points to Settings for export and delete;
 //   T6  under 360 px the Range is a select and the header does not scroll sideways;
 //   T7  Your year: the value alone under each card's title, in the order of the share image; with under a week of reading
 //       no superlative cards and no Share; with nothing read one "Nothing read in <year> yet";
@@ -158,10 +158,11 @@ await t.eachViewport(async (page, vp) => {
     check((await sources.getByText("Quiet Feed").count()) === 1 && (await sources.getByText("Brand New Feed").count()) === 0, `${tag} T5 never opened`, "Never opened is under Sources and leaves out a feed from yesterday", "Never opened is misplaced or lists a feed from yesterday");
     const last = await page.getByRole("region").last().getAttribute("aria-labelledby");
     const heading = await page.locator(`[id="${last}"]`).innerText();
-    check(heading === "Your data" && (await page.getByRole("button", { name: "Export" }).count()) === 1, `${tag} T5 export`, "Export is the last thing on the page", `the last section is "${heading}"`);
-    await page.getByRole("button", { name: "Export" }).click();
-    check(await page.getByRole("dialog", { name: "Export statistics" }).isVisible(), `${tag} T5 dialog`, "Export opens its dialog", "Export did not open its dialog");
-    await page.keyboard.press("Escape");
+    const settingsLink = page.getByRole("region").last().getByRole("link", { name: "Open Settings > Stats" });
+    check(heading === "Your data" && (await page.getByRole("button", { name: /^(Export|Delete)/ }).count()) === 0 && (await settingsLink.count()) === 1, `${tag} T5 export`, "the last section links to Settings and has no export or delete button", `the last section is "${heading}"`);
+    await settingsLink.click();
+    await page.getByRole("button", { name: "Export…" }).waitFor({ timeout: 10000 });
+    check(new URL(page.url()).pathname === "/settings/statistics", `${tag} T5 dialog`, "the link opens Settings > Stats, where Export is", `the link went to ${page.url()}`);
   });
 
   await step(`${tag} T6`, async () => {

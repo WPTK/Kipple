@@ -53,8 +53,8 @@ export function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
 }
 
 /**
- * The list options menu in the list header (its button names the layout in effect). Layout: one list; the star beside each
- * layout makes it this device's default (a filled star is the default). Order, and on a feed or folder list the view it
+ * The list options menu in the list header (its button names the layout in effect). Layout: one list; on a feed or folder list the star
+ * beside each layout makes it this device's default (a filled star is the default; on the other lists the radio is the default). Order, and on a feed or folder list the view it
  * opens in. On a feed or folder list each radio choice is that list's own override (the first choice clears it), under
  * its own heading; on the other lists the layout and order choices are the device defaults themselves. Everything is
  * stored per device (src/lib/devicePrefs).
@@ -109,6 +109,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
             {LAYOUT_IDS.map((id) => (
               <div key={id} className="flex items-center">
                 <Radio value={id} label={LAYOUT_LABELS[id]} hint={LAYOUT_HINTS[id]} className="min-w-0 flex-1" />
+                {target ? (
                 <DropdownMenu.CheckboxItem
                   checked={dp.layout === id}
                   aria-label={dp.layout === id ? `${LAYOUT_LABELS[id]} is the device default` : `Make ${LAYOUT_LABELS[id]} the device default`}
@@ -122,10 +123,11 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
                 >
                   <Star className="size-5" fill={dp.layout === id ? "currentColor" : "none"} aria-hidden="true" />
                 </DropdownMenu.CheckboxItem>
+                ) : null}
               </div>
             ))}
           </DropdownMenu.RadioGroup>
-          <p className="px-3 pt-1 pb-2 text-xs text-fg2">The star sets this device's default layout.</p>
+          {target ? <p className="px-3 pt-1 pb-2 text-xs text-fg2">The star sets this device's default layout.</p> : null}
 
           <DropdownMenu.Separator className="my-1 h-px bg-line" />
           <DropdownMenu.Label className={heading}>Order</DropdownMenu.Label>

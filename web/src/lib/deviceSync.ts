@@ -167,8 +167,7 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     digestImages: g("client.digest_images"),
     digestRows: g("client.digest_rows"),
   };
-  // Only the layout to return to from "Titles only" has no profile key.
-  const dp = { ...parseDevicePrefs(JSON.stringify(dpRaw)), layoutBeforeTitlesOnly: cur.dp.layoutBeforeTitlesOnly };
+  const dp = parseDevicePrefs(JSON.stringify(dpRaw));
   return { theme, prefs, dp };
 }
 

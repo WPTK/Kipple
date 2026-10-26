@@ -9,7 +9,7 @@
 //   A2  Articles is the current tab on Unread, All, Starred and Muted, and not on a feed's list (that is Feeds);
 //   A3  the pills under the title are New, Unread, All and Starred, tapping Starred keeps Articles current, and tapping
 //       Articles from another tab opens Unread;
-//   A4  the Feeds screen lists Starred and Muted whether or not anything is muted, and each opens its list;
+//   A4  the Feeds screen lists Feed index and Feed health (each opens its screen) and repeats none of the whole-library lists;
 //   A5  at 812x375 and at 320x568 with text size Largest the five tabs fit with their names whole.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
@@ -69,13 +69,16 @@ await t.eachViewport(async (page, vp) => {
 
   await step(`${tag} A4`, async () => {
     await open("/feeds");
-    for (const [name, to] of [["Starred", "/l/starred"], ["Muted", "/l/muted"]]) {
-      const link = page.getByRole("main").getByRole("link", { name: new RegExp(`^${name}`) }).first();
+    for (const [name, to] of [["Feed index", "/feeds/index"], ["Feed health", "/health"]]) {
+      const link = page.getByRole("main").getByRole("link", { name, exact: true }).first();
       check(await link.isVisible().catch(() => false), `${tag} A4 ${name} listed`, `Feeds lists ${name}`, `Feeds does not list ${name}`);
       await link.click().catch(() => {});
       await page.waitForURL((u) => u.pathname === to, { timeout: 5000 }).catch(() => {});
       check(new URL(page.url()).pathname === to, `${tag} A4 ${name} opens`, `${name} opens ${to}`, `${name} opened ${new URL(page.url()).pathname}`);
       await open("/feeds");
+    }
+    for (const name of ["Unread", "All articles", "Starred", "Muted"]) {
+      check((await page.getByRole("main").getByRole("link", { name: new RegExp(`^${name}`) }).count()) === 0, `${tag} A4 no ${name}`, `Feeds does not repeat ${name}`, `Feeds lists ${name}`);
     }
     await t.shot(page, `${tag}-feeds-lists`);
   });

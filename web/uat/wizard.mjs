@@ -225,6 +225,9 @@ try {
     check("A step 2", (await page.getByRole("button", { name: "Continue", exact: true }).count()) === 1, "no Continue button");
     check("A step 2", (await page.locator('fieldset[data-category] input[type="checkbox"]:checked:not(:disabled)').count()) === 0, "a feed was ticked before anyone chose it");
     check("A step 2", (await page.getByText(/time zone/i).count()) === 0, "the wizard talks about a time zone");
+    // Until someone chooses one the zone is empty (UTC is used meanwhile); the wizard's end takes the browser's.
+    const zoneBefore = await page.evaluate(async () => ((await (await fetch("/api/settings")).json()).settings ?? []).find((s) => s.key === "tz")?.value);
+    check("A step 2 tz", zoneBefore === "", `the time zone is "${zoneBefore}" before the feeds step ends, expected empty`);
     check("A step 2", (await page.getByRole("button", { name: /skip|back/i }).count()) === 0, "a Skip or Back button is still offered");
     // Import a feeds file: the dialog Settings uses, over this step.
     await page.getByRole("button", { name: "Import a feeds file" }).click();

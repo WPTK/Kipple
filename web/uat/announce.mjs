@@ -65,18 +65,16 @@ await t.eachViewport(async (page, vp) => {
         await p.goto("/l/all", { waitUntil: "load" });
         await p.locator("[data-testid=list-scroll] [data-item-id]").first().waitFor({ timeout: 15000 });
         const answered = p.waitForResponse("**/api/refresh", { timeout: 10000 }).catch(() => null);
-        // Wide: the header button. A phone has no such button: the actions menu has the item, and its trigger spins.
-        if (vp.mobile) {
-          await p.getByRole("button", { name: "List actions" }).click();
-          await p.getByRole("menuitem", { name: "Refresh all feeds" }).click();
-        } else await p.getByRole("button", { name: "Refresh all feeds" }).first().click();
+        // The actions menu has the item at every width, and its trigger spins.
+        await p.getByRole("button", { name: "List actions" }).click();
+        await p.getByRole("menuitem", { name: "Refresh all feeds" }).click();
         // The request is held, so the spinning state lasts: wait for it rather than for a time.
-        await p.waitForFunction((mobile) => !!document.querySelector(mobile ? 'button[aria-label="List actions"] svg.animate-spin' : 'button[aria-label="Refreshing"] svg.animate-spin'), vp.mobile, { timeout: 5000 }).catch(() => {}); // the check below reports it if it never spins
-        const state = await p.evaluate((mobile) => {
-          const b = document.querySelector(mobile ? 'button[aria-label="List actions"]' : 'button[aria-label="Refreshing"]');
-          return { label: mobile ? true : !!b, spin: !!b?.querySelector("svg.animate-spin") };
-        }, vp.mobile);
-        check(state.label && state.spin, `${tag} A1`, vp.mobile ? "the actions menu button spins after the tap" : "the button spins and says Refreshing after the tap", `after the tap: ${JSON.stringify(state)}`);
+        await p.waitForFunction(() => !!document.querySelector('button[aria-label="List actions"] svg.animate-spin'), null, { timeout: 5000 }).catch(() => {}); // the check below reports it if it never spins
+        const state = await p.evaluate(() => {
+          const b = document.querySelector('button[aria-label="List actions"]');
+          return { label: !!b, spin: !!b?.querySelector("svg.animate-spin") };
+        });
+        check(state.label && state.spin, `${tag} A1`, "the actions menu button spins after the tap", `after the tap: ${JSON.stringify(state)}`);
         await t.shot(p, `${tag}-A1`);
         release();
         await answered;

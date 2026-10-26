@@ -69,8 +69,8 @@ await t.eachViewport(async (page, vp) => {
     await t.shot(page, `${tag}-K2-import`);
     await page.keyboard.press("Escape");
     await imp.waitFor({ state: "detached", timeout: 5000 });
-    await page.goto("/stats", { waitUntil: "load" });
-    await page.getByRole("button", { name: "Export", exact: true }).click();
+    await page.goto("/settings/statistics", { waitUntil: "load" });
+    await page.getByRole("button", { name: "Export…", exact: true }).click();
     const exp = page.getByRole("dialog", { name: "Export statistics" });
     const titles = exp.getByRole("checkbox", { name: /^Include article titles and links/ });
     await titles.waitFor({ timeout: 10000 });

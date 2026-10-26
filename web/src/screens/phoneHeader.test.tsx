@@ -108,14 +108,17 @@ describe("the list header on a phone (#422)", () => {
     expect(buttonNames().length).toBeLessThanOrEqual(4);
   });
 
-  it("keeps the Refresh button where there is room (wide)", async () => {
+  it("has no Refresh button on a wide screen either: it is in the menu, and five controls at most", async () => {
     media(WIDE_QUERY);
     go("/l/unread");
     await screen.findByText("Article number 1");
-    expect(within(header()).getByRole("button", { name: "Refresh all feeds" })).toBeInTheDocument();
+    expect(buttonNames().filter((n) => /Refresh/.test(n ?? ""))).toEqual([]);
+    expect(buttonNames().length).toBeLessThanOrEqual(5);
+    expect(within(header()).queryByRole("link", { name: "Settings" })).toBeNull();
     await userEvent.setup().click(actionsMenu());
-    expect(screen.queryByRole("menuitem", { name: "Refresh all feeds" })).toBeNull();
+    expect(await screen.findByRole("menuitem", { name: "Refresh all feeds" })).toBeInTheDocument();
   });
+
 });
 
 describe("Refresh all feeds in the actions menu (#422)", () => {

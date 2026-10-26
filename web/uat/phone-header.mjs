@@ -21,7 +21,8 @@
 //       Stats (off) through its Settings link the chevron lands on the screen its label names, and the system Back
 //       does not return to the group;
 //   R1  the Stats ranges are Week, Month, Year, Monthly and All, each on one line, each on one line at 375 wide, and a select with the same five under 360;
-//   D1  (desktop) the Refresh button is in the list header and the actions menu does not repeat it.
+//   D1  (desktop) the list header has five controls or fewer, no Refresh button and no Settings link; the actions menu has
+//       Refresh all feeds.
 //
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
@@ -58,10 +59,13 @@ await t.eachViewport(async (page, vp) => {
     await step(`${tag} D1`, async () => {
       await open("/l/unread");
       const header = page.locator("main header").first();
-      check(await header.getByRole("button", { name: "Refresh all feeds" }).isVisible(), `${tag} D1 button`, "the list header has Refresh all feeds", "the list header has no Refresh all feeds");
+      const names = await header.getByRole("button").evaluateAll((bs) => bs.filter((b) => b.getClientRects().length).map((b) => b.getAttribute("aria-label") || b.textContent));
+      check(names.length <= 5, `${tag} D1 count`, `${names.length} controls: ${names.join(", ")}`, `${names.length} controls: ${names.join(", ")}`);
+      check(!names.some((n) => /Refresh/.test(n)), `${tag} D1 button`, "the list header has no Refresh button", "the list header has a Refresh button");
+      check((await header.getByRole("link", { name: "Settings" }).count()) === 0, `${tag} D1 settings`, "the list header has no Settings link", "the list header has a Settings link");
       await header.getByRole("button", { name: "List actions" }).click();
       const items = await page.getByRole("menuitem").allInnerTexts();
-      check(!items.some((s) => /Refresh/.test(s)), `${tag} D1 menu`, "the actions menu does not repeat Refresh", `the actions menu has ${items.join(", ")}`);
+      check(items.some((s) => /Refresh all feeds/.test(s)), `${tag} D1 menu`, "the actions menu has Refresh all feeds", `the actions menu has ${items.join(", ")}`);
       await page.keyboard.press("Escape");
       await t.shot(page, `${tag}-list-header`);
     });

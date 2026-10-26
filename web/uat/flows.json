@@ -59,6 +59,7 @@
     "layout-walk.mjs",
     "article-end.mjs",
     "feeds-organize.mjs",
+    "time-zone.mjs",
     "row.mjs"
   ],
   "webkit": ["feeds.mjs", "states.mjs", "downloads.mjs", "images.mjs", "row-name.mjs", "wrapping.mjs", "touch-menus.mjs", "stats.mjs", "stats-tiles.mjs", "rotate.mjs", "phone-header.mjs", "gazette-place.mjs", "nav.mjs", "layout-walk.mjs"],

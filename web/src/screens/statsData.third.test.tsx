@@ -218,6 +218,6 @@ describe("in the app", () => {
     const status = (await screen.findByText(/Statistics are off/)).closest("[role=status]") as HTMLElement;
     expect(status).not.toBeNull();
     expect(within(status).queryByRole("button")).toBeNull();
-    expect(screen.getByRole("button", { name: "Export…" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export…" })).toBeNull();
   });
 });

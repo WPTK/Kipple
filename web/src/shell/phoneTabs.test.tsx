@@ -99,7 +99,7 @@ describe("the phone's first tab holds the whole-library lists (#421)", () => {
     expect(within(tab).getByTestId("unread-count")).toHaveTextContent("3");
   });
 
-  it("shows the Muted pill once something is muted, and the Feeds screen always lists Muted and Starred", async () => {
+  it("shows the Muted pill once something is muted, and the Feeds screen lists the Feed index and Feed health only", async () => {
     mockFetch({
       "GET /api/bootstrap": () => json({ ...bootstrap, counts: { ...bootstrap.counts, muted: 2 } }),
       "GET /api/items": () => json(pageOf([card(1)])),
@@ -120,7 +120,8 @@ describe("the phone's first tab holds the whole-library lists (#421)", () => {
     window.history.replaceState({ idx: 0 }, "", "/feeds");
     render(<App client={makeQueryClient({ retry: false })} />);
     const main = await screen.findByRole("main");
-    expect(await within(main).findByRole("link", { name: /^Muted/ })).toHaveAttribute("href", "/l/muted");
-    expect(within(main).getByRole("link", { name: /^Starred/ })).toHaveAttribute("href", "/l/starred");
+    expect(await within(main).findByRole("link", { name: "Feed index" })).toHaveAttribute("href", "/feeds/index");
+    expect(within(main).getByRole("link", { name: "Feed health" })).toHaveAttribute("href", "/health");
+    expect(within(main).queryByRole("link", { name: /^(Muted|Starred|Unread|All articles)/ })).toBeNull();
   });
 });

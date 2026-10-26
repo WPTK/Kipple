@@ -149,8 +149,6 @@ export interface DevicePrefs {
   digestImages: boolean;
   /** How many articles a Digest or Coffee break section shows before "more" (`client.digest_rows`). */
   digestRows: DigestRows;
-  /** The layout to go back to when "Titles only in lists" is turned off. Local to this device (no profile key). */
-  layoutBeforeTitlesOnly: LayoutId | null;
 }
 
 export const SIDEBAR_WIDTH_MIN = 200;
@@ -176,7 +174,6 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   digestOrder: "sidebar",
   digestImages: true,
   digestRows: 3,
-  layoutBeforeTitlesOnly: null,
 };
 
 /**
@@ -258,7 +255,6 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       digestOrder: v?.digestOrder === "quiet" ? "quiet" : d.digestOrder,
       digestImages: v?.digestImages !== false,
       digestRows: DIGEST_ROWS.includes(v?.digestRows as DigestRows) ? (v?.digestRows as DigestRows) : d.digestRows,
-      layoutBeforeTitlesOnly: isLayoutId(v?.layoutBeforeTitlesOnly) && v.layoutBeforeTitlesOnly !== "headlines" ? v.layoutBeforeTitlesOnly : null,
     };
   } catch {
     return { ...d, overrides: { feed: {}, folder: {} } };

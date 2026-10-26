@@ -253,7 +253,7 @@ Decisions are recorded in full in the private history repository. Summary of wha
   never opened. A feed's row opens its drill-down sheet.
 - **Settings:** first day of week (Sunday or Monday, default Sunday); stats on/off (off stops recording and hides the
   screen, keeps data); Wrapped on/off; delete a range; delete all (typed confirmation).
-- **Export:** raw events as CSV, JSON or JSON Lines; the summary is JSON only (a summary is several tables, so a CSV or JSON Lines summary was not built). Range, a toggle to leave out article titles and links (feed and folder names, times and the time zone stay), and a data dictionary. Export and delete stay available with statistics off.
+- **Export:** raw events as CSV, JSON or JSON Lines; the summary is JSON only (a summary is several tables, so a CSV or JSON Lines summary was not built). Range, a toggle to leave out article titles and links (feed and folder names, times and the time zone stay), and a data dictionary. Export and delete stay available with statistics off. They live in Settings > Stats only; the Stats screen links there.
 - **Sender:** 15 s flush, visibilitychange primary and pagehide backup, 2 minute idle cutoff, a random id on every event
   (unique index) for dedup, offline events queued, losses accepted.
 - **Delivery:** alpha.4 sender and settings, alpha.5 screen, alpha.6 export and data controls, alpha.7 Wrapped.
@@ -424,9 +424,9 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
   and the tab bar becomes one row of icon and name (44 px instead of 56). Header and tab bar together went from about
   44% of a 375 px screen to about 28%. Rejected: a navigation rail down the left edge, which frees the most height but
   changes the geometry that the menus, the toasts and the safe areas measure from.
-- **A phone's list header has at most four controls**: Reading time, List options, Aa and the actions menu. Refresh is
-  the pull on the list and the first item of the actions menu; the Refresh button stays on a wide screen, where there is
-  room. Rejected: one "View" sheet holding every list control, which adds a tap to each of them and waits on the
+- **A phone's list header has at most four controls and a wide screen's at most five**: Reading time, List options, Aa
+  and the actions menu (and Oldest first on a wide screen). Refresh is the pull on the list and the first item of the
+  actions menu at every width; there is no Settings icon in the header (the sidebar and the tab bar lead there). Rejected: one "View" sheet holding every list control, which adds a tap to each of them and waits on the
   bottom-sheet menus.
 - **One way back**: a chevron before the title of any screen inside another (a Settings group, Feed health, Your year).
   It is the `BackButton` in `web/src/ui`. Rejected: a text link or breadcrumb ("Stats > Your year"), which is a second
@@ -466,8 +466,9 @@ The Stats summary tiles (previous-period figure) and a feed's Read rate (the cou
   Rejected: patching the Favorites rows in place, which left two drawings of one row to drift apart again.
 - **A plain visit is the list.** No help sentence under the title; the sentences for Edit and for Select stay, where a
   mode needs them. The header is Edit, Add feed and the Feed actions menu; Select feeds, Show only unread feeds, New
-  folder, OPML, move buttons and Feed health are in that menu. Muted, Starred and All articles stay listed at the top
-  (phone tabs decision above), and the star stays on every row (the Feeds screen is where favorites are made).
+  folder, OPML and move buttons are in that menu. The top of the screen lists only the Feed index and Feed health (the
+  whole-library lists are the Articles tab's pills, so the Feeds screen does not repeat them; Settings > Sync & Feeds also
+  links to Feed health), and the star stays on every row (the Feeds screen is where favorites are made).
 - **Show only unread feeds** is a view of this screen for this visit, not a device setting. Edit and Select always show
   every feed, because a reorder is saved against the whole tree.
 - **Mark all as read** is in each folder's menu (the folder and its subfolders, with the usual undo toast), shown only
