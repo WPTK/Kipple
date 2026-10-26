@@ -218,7 +218,12 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 	if err != nil {
 		body = bytes.NewReader(raw)
 	}
-	final := resp.Request.URL
+	return readable(body, u.String(), resp.Request.URL)
+}
+
+// readable turns an HTML page into the reading view. It is the part of Extract that handles untrusted markup, split
+// out so it can be fuzzed without a server. pageURL is the article address from the feed item, final where redirects ended.
+func readable(body io.Reader, pageURL string, final *url.URL) (Result, error) {
 	p := readability.NewParser()
 	p.MaxElemsToParse = maxElems
 	art, err := p.Parse(body, final)
@@ -234,14 +239,14 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 	}
 	// The same pipeline as feed content: absolutize against the article URL
 	// (the item link first, then where redirects ended), then the feed policy.
-	htmlOut, text := sanitize.Content(buf.String(), u.String(), final.String())
+	htmlOut, text := sanitize.Content(buf.String(), pageURL, final.String())
 	wc := sanitize.WordCount(text)
 	if wc == 0 {
 		return Result{}, fail("no readable content found")
 	}
-	img := sanitize.LeadImage(htmlOut, u.String(), final.String())
+	img := sanitize.LeadImage(htmlOut, pageURL, final.String())
 	if img == "" {
-		img = sanitize.ResolveURL(art.ImageURL(), u.String(), final.String())
+		img = sanitize.ResolveURL(art.ImageURL(), pageURL, final.String())
 	}
 	return Result{HTML: htmlOut, Text: text, WordCount: wc, ImageURL: img, SourceURL: final.String()}, nil
 }
