@@ -112,6 +112,23 @@ export async function waitForStillFor(page, ms, read, opts = {}) {
   return last;
 }
 
+/** Lets two animation frames pass, so a render or style change the last action queued has been drawn. */
+export const waitForFrames = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
+/**
+ * Waits until the page has stopped changing for `ms`: its height, how many elements it has, how many animations or
+ * transitions are running, and which element has focus. The state to wait for after a load or a route change when the
+ * page has no one element to wait on; unlike waitForAnimationsDone it also passes while an infinite animation (a
+ * spinner, an entrance that never ends) is running, because a constant count is still.
+ */
+export const waitForPageStill = (page, ms = 200) =>
+  waitForStillFor(
+    page,
+    ms,
+    () => page.evaluate(() => [document.documentElement.scrollHeight, document.getElementsByTagName("*").length, document.getAnimations().length, document.activeElement?.tagName ?? null]),
+    { label: "the page's height, elements, animations and focus to stop changing" },
+  );
+
 export const VIEWPORTS = [
   { id: "desktop", width: 1280, height: 800, mobile: false },
   { id: "phone", width: 375, height: 812, mobile: true },

@@ -18,7 +18,7 @@
 // It opens articles on the seed's account and marks the ones that were unread unread again afterwards. It only runs
 // against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0 clean,
 // 1 findings, 2 setup error. First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
-import { start } from "./common.mjs";
+import { start, waitForAnimationsDone, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 20);
 const { check, step } = t;
@@ -53,10 +53,13 @@ await t.eachViewport(async (page, vp) => {
     await step(`${tag} A1`, async () => {
       // Its own browser with the service worker blocked: WebKit's request routing does not see what the worker sends.
       const ctx = await page.context().browser().newContext({ baseURL: t.origin, viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile, serviceWorkers: "block" });
+      // The refresh request is held on a promise this step releases once it has looked at the spinner (and in finally).
+      let release;
+      const held = new Promise((r) => (release = r));
       try {
         const p = await signIn(ctx);
         await p.route("**/api/refresh", async (route) => {
-          await new Promise((r) => setTimeout(r, 3000));
+          await held;
           await route.continue().catch(() => {});
         });
         await p.goto("/l/all", { waitUntil: "load" });
@@ -67,15 +70,18 @@ await t.eachViewport(async (page, vp) => {
           await p.getByRole("button", { name: "List actions" }).click();
           await p.getByRole("menuitem", { name: "Refresh all feeds" }).click();
         } else await p.getByRole("button", { name: "Refresh all feeds" }).first().click();
-        await p.waitForTimeout(300);
+        // The request is held, so the spinning state lasts: wait for it rather than for a time.
+        await p.waitForFunction((mobile) => !!document.querySelector(mobile ? 'button[aria-label="List actions"] svg.animate-spin' : 'button[aria-label="Refreshing"] svg.animate-spin'), vp.mobile, { timeout: 5000 }).catch(() => {}); // the check below reports it if it never spins
         const state = await p.evaluate((mobile) => {
           const b = document.querySelector(mobile ? 'button[aria-label="List actions"]' : 'button[aria-label="Refreshing"]');
           return { label: mobile ? true : !!b, spin: !!b?.querySelector("svg.animate-spin") };
         }, vp.mobile);
-        check(state.label && state.spin, `${tag} A1`, vp.mobile ? "the actions menu button spins 0.3 s after the tap" : "the button spins and says Refreshing 0.3 s after the tap", `0.3 s after the tap: ${JSON.stringify(state)}`);
+        check(state.label && state.spin, `${tag} A1`, vp.mobile ? "the actions menu button spins after the tap" : "the button spins and says Refreshing after the tap", `after the tap: ${JSON.stringify(state)}`);
         await t.shot(p, `${tag}-A1`);
+        release();
         await answered;
       } finally {
+        release();
         await ctx.close();
       }
     });
@@ -95,7 +101,8 @@ await t.eachViewport(async (page, vp) => {
         await p.getByLabel("Password", { exact: true }).fill("not-the-password");
         await p.getByRole("button", { name: "Sign in" }).click();
         await p.getByRole("alert").first().waitFor({ timeout: 10000 });
-        await p.waitForTimeout(200);
+        // The fields take aria-invalid and focus in the same commit as the alert; the check below reports it if they never do.
+        await p.waitForFunction(() => document.querySelector("input[name=password]") === document.activeElement && document.querySelector("input[name=username]")?.getAttribute("aria-invalid") === "true", null, { timeout: 5000 }).catch(() => {});
         const user = await described(p, "input[name=username]");
         const pass = await described(p, "input[name=password]");
         check(
@@ -118,8 +125,8 @@ await t.eachViewport(async (page, vp) => {
       await field.fill("not a url !!");
       await field.press("Enter");
       await dlg.getByRole("alert").first().waitFor({ timeout: 15000 });
-      await page.waitForTimeout(200);
       const id = await field.getAttribute("id");
+      await page.waitForFunction((i) => { const f = document.getElementById(i); return f === document.activeElement && f?.getAttribute("aria-invalid") === "true"; }, id, { timeout: 5000 }).catch(() => {}); // the check below reports it if they never do
       const d = await described(page, `#${CSS_escape(id)}`);
       check(d?.invalid === "true" && d.text.length > 0 && d.focused, `${tag} A4`, `the address field is invalid, described ("${d?.text}") and focused`, `field ${JSON.stringify(d)}`);
       await t.shot(page, `${tag}-A4`);
@@ -139,11 +146,13 @@ await t.eachViewport(async (page, vp) => {
       await read.waitFor({ timeout: 10000 });
       if ((await read.textContent())?.trim() === "Mark as read") { // uat-labels: ignore (a menu item's text, not an aria-label)
         await read.click();
-        await page.waitForTimeout(500);
+        await page.getByRole("menu").waitFor({ state: "hidden", timeout: 5000 }); // the menu closes before it can be opened again
         await more.click();
       }
       await page.getByRole("menuitem", { name: "Mark as unread" }).click(); // uat-labels: ignore (a menu item's text, not an aria-label)
-      await page.waitForTimeout(400);
+      await page.waitForFunction(() => /Marked unread/.test(document.querySelector("[data-testid=live-region]")?.textContent ?? ""), null, { timeout: 5000 }).catch(() => {}); // the check below reports it if it is never said
+      // No Undo toast may follow: it would come with the announcement, so hold the window the old pause gave it.
+      await waitForStillFor(page, 400, () => page.getByTestId("undo-region").textContent(), { label: "the Undo toast region to stop changing" });
       const said = (await page.getByTestId("live-region").textContent()) ?? "";
       const toastText = (await page.getByTestId("undo-region").textContent()) ?? "";
       check(said.includes("Marked unread") && toastText.trim() === "", `${tag} A5`, "marking unread from the toolbar is announced and shows no Undo toast", `announced "${said}", toast "${toastText}"`);
@@ -182,7 +191,8 @@ await t.eachViewport(async (page, vp) => {
           await page.keyboard.press("Escape");
           await page.locator("[data-testid=list-scroll] [data-item-id] a").first().click();
           await page.waitForURL(/\/i\/\d+/, { timeout: 10000 });
-          await page.waitForTimeout(500);
+          await page.locator("[data-testid=list-scroll] [data-selected]").first().waitFor({ timeout: 10000 });
+          await waitForAnimationsDone(page); // the selected row's colours transition
           const colors = await page.evaluate(() => {
             const row = document.querySelector("[data-testid=list-scroll] [data-selected]");
             if (!row) return null;

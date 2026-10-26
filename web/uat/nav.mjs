@@ -16,7 +16,7 @@
 //   B2  at 844x390 (a landscape phone) the tab bar shows and there is no sidebar.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
-import { start } from "./common.mjs";
+import { start, waitForPageStill, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 16);
 const { check, step } = t;
@@ -28,7 +28,7 @@ await t.eachViewport(async (page, vp) => {
   const open = async (path) => {
     await page.goto(path, { waitUntil: "load" });
     await page.locator("main h1, main h2").first().waitFor({ timeout: 15000 });
-    await page.waitForTimeout(600);
+    await waitForPageStill(page);
   };
   if (!vp.mobile) {
     const side = page.locator('nav[aria-label="Primary"]').first();
@@ -93,14 +93,14 @@ await t.eachViewport(async (page, vp) => {
       await page.waitForURL(/\/i\//, { timeout: 5000 });
       await page.goBack();
       await page.waitForURL(/\/l\/all/, { timeout: 5000 });
-      await page.waitForTimeout(600);
       const where = () => page.evaluate(() => ({ body: document.activeElement === document.body, row: document.activeElement?.closest("[data-item-id]")?.dataset.itemId ?? null, tag: document.activeElement?.tagName }));
-      let w = await where();
+      // Focus is put back on the row a frame or two after the route changes: wait until it has stopped moving.
+      let w = await waitForStillFor(page, 300, where, { label: "focus to stop moving after Back" });
       check(!w.body && w.row === id, `${tag} A4 back`, "Back puts focus on the row left", `focus is on ${w.row ?? w.tag}`);
       await page.goForward();
       await page.waitForURL(/\/i\//, { timeout: 5000 });
-      await page.waitForTimeout(600);
-      w = await where();
+      // A negative ("focus is not dropped to the body"): hold the window as long as the 600 ms it replaces.
+      w = await waitForStillFor(page, 600, where, { label: "focus to stop moving after Forward" });
       check(!w.body, `${tag} A4 forward`, "Forward does not drop focus to the body", "Forward left focus on the body");
     });
   } else {

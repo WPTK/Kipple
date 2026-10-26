@@ -13,7 +13,7 @@
 //   M1  at 874x402 the opened row More menu (a bottom sheet on touch, #423) lies inside the screen (#431).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
-import { start } from "./common.mjs";
+import { start, waitForAnimationsDone, waitForPageStill, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 15);
 const { check, step } = t;
@@ -28,7 +28,7 @@ await t.eachViewport(async (page, vp) => {
   const open = async (path) => {
     await page.goto(path, { waitUntil: "load" });
     await page.locator("main h1").first().waitFor({ timeout: 15000 });
-    await page.waitForTimeout(600);
+    await waitForPageStill(page);
   };
   const current = () => page.locator('nav[aria-label="Primary"] a[aria-current="page"]').first().innerText().then((s) => s.replace(/[\d+]/g, "").trim());
 
@@ -36,8 +36,7 @@ await t.eachViewport(async (page, vp) => {
     for (const w of WIDTHS) {
       await size(w);
       await open("/stats");
-      await page.waitForTimeout(1000);
-      const m = await page.evaluate(() => ({ doc: document.documentElement.scrollHeight, win: window.innerHeight }));
+      const m = await waitForStillFor(page, 500, () => page.evaluate(() => ({ doc: document.documentElement.scrollHeight, win: window.innerHeight })), { label: "the document and window heights to stop changing" });
       check(m.doc === m.win, `${tag} S1 ${w}`, `Stats leaves the document at ${m.win} px`, `the document is ${m.doc} px tall in a ${m.win} px window`);
       if (w === 402) await t.shot(page, `${tag}-stats`);
     }
@@ -88,8 +87,7 @@ await t.eachViewport(async (page, vp) => {
     await link.waitFor({ timeout: 15000 });
     await link.click();
     await page.locator("#article-title").waitFor({ timeout: 15000 });
-    await page.waitForTimeout(800);
-    const m = await page.evaluate(() => ({ title: document.querySelector("#article-title").getBoundingClientRect().left, body: document.querySelector(".article-body")?.getBoundingClientRect().left ?? null }));
+    const m = await waitForStillFor(page, 300, () => page.evaluate(() => ({ title: document.querySelector("#article-title").getBoundingClientRect().left, body: document.querySelector(".article-body")?.getBoundingClientRect().left ?? null })), { label: "the title and body positions to stop changing" });
     check(m.body !== null && Math.abs(m.title - m.body) <= 1, `${tag} R1`, `title and body start at ${Math.round(m.title)} px`, `the title starts at ${Math.round(m.title)} px and the body at ${m.body === null ? "(no body)" : Math.round(m.body)} px`);
     await t.shot(page, `${tag}-landscape-reader`);
   });
@@ -102,7 +100,7 @@ await t.eachViewport(async (page, vp) => {
     await row.getByRole("button", { name: "More actions" }).click();
     const menu = page.getByRole("menu");
     await menu.waitFor({ timeout: 5000 });
-    await page.waitForTimeout(500);
+    await waitForAnimationsDone(page); // the menu opens with a transition
     const m = await page.evaluate(() => {
       const r = document.querySelector('[role="menu"]').getBoundingClientRect();
       return { top: r.top, bottom: r.bottom, limit: window.innerHeight };

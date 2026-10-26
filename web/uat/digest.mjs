@@ -25,8 +25,9 @@
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
+import { expect } from "@playwright/test";
 import { URL } from "node:url";
-import { start } from "./common.mjs";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 20);
 const { check, step } = t;
@@ -77,12 +78,12 @@ try {
       await row.scrollIntoViewIfNeeded();
       if (vp.mobile) {
         // A long press, as a real touch sequence: the More button is not tapped on touch.
-        await page.waitForTimeout(300);
+        await waitForStillFor(page, 150, () => row.getByRole("link").boundingBox(), { label: "the row to stop moving after scrolling to it" });
         const box = await row.getByRole("link").boundingBox();
         const cdp = await page.context().newCDPSession(page);
         const touch = (type, points) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points });
         await touch("touchStart", [{ x: Math.round(box.x + 10), y: Math.round(box.y + box.height / 2) }]);
-        await page.waitForTimeout(800);
+        await page.getByRole("menu").waitFor({ timeout: 5000 }); // the menu opens while the finger is still down, when the long-press timer fires
         await touch("touchEnd", []);
       } else {
         await row.hover();
@@ -180,11 +181,13 @@ try {
         check(stops === 1, `${tag} G6 tab stop`, "the page has one Tab stop", `${stops} story links are in the Tab order`);
         const drawn = await page.locator("[data-digest] article[data-item-id], [data-digest] [data-stop-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId ?? e.dataset.stopId));
         const focusId = () => page.evaluate(() => document.activeElement?.closest("[data-item-id],[data-stop-id]")?.getAttribute("data-item-id") ?? document.activeElement?.closest("[data-stop-id]")?.getAttribute("data-stop-id") ?? null);
+        // After an arrow key, focus has landed on another row; if it never does, the check that follows reports what it found.
+        const focusLeft = (id) => expect.poll(async () => { const now = await focusId(); return now !== null && now !== id; }, { timeout: 3000, intervals: [50] }).toBe(true).catch(() => {});
         await page.locator("[data-digest] article[data-item-id] a").first().focus();
         const visited = [await focusId()];
         for (let i = 1; i < Math.min(drawn.length, 6); i++) {
           await page.keyboard.press("ArrowDown");
-          await page.waitForTimeout(80);
+          await focusLeft(visited[visited.length - 1]);
           visited.push(await focusId());
         }
         check(visited.join() === drawn.slice(0, visited.length).join(), `${tag} G6 arrows`, "ArrowDown visits stories and \"more\" buttons in the drawn order", `visited ${visited.join(" ")}, drawn ${drawn.slice(0, visited.length).join(" ")}`);
@@ -284,15 +287,9 @@ try {
           );
           await scroller.evaluate((e) => e.scrollTo(0, 700));
           // Wait for the server to show the first article read (the page marks what was passed once scrolling settles).
-          for (let i = 0; i < 40 && !(await isRead(shown[0])); i++) await page.waitForTimeout(250);
+          await expect.poll(() => isRead(shown[0]), { timeout: 10000, intervals: [250] }).toBe(true).catch(() => {}); // the check below reports it if the first never turns read
           // Then for the marking to finish: the count of read articles stops changing.
-          let seen = -1;
-          for (let i = 0; i < 20; i++) {
-            const n = (await readOf(shown)).filter(Boolean).length;
-            if (n === seen) break;
-            seen = n;
-            await page.waitForTimeout(250);
-          }
+          await waitForStillFor(page, 250, async () => (await readOf(shown)).filter(Boolean).length, { timeout: 5000, label: "the count of read articles to stop changing" });
           const flags = await readOf(shown);
           const marked = shown.filter((_, i) => flags[i]);
           marked.forEach((id) => wasRead.add(id));

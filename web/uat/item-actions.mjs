@@ -16,7 +16,8 @@
 //   A6  an unread article shows "Unread" in plain text and a read one shows no state word.
 // It opens one article and toggles its read state (A6), leaving it read. It only runs against a loopback address with the seed's credentials unless
 // --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
-import { start } from "./common.mjs";
+import { expect } from "@playwright/test";
+import { start, waitForAnimationsDone } from "./common.mjs";
 
 const t = await start(import.meta.url, 16);
 const { check, step } = t;
@@ -82,7 +83,8 @@ await t.eachViewport(async (page, vp) => {
     const marked = await unreadCount();
     await t.shot(page, `${tag}-mark-all-undo`);
     await undo.click();
-    await page.waitForTimeout(1000);
+    // The count comes back once the server has taken the Undo; the check below reports it if it never does.
+    await expect.poll(unreadCount, { timeout: 10000, intervals: [200] }).toBe(before).catch(() => {});
     const back = await unreadCount();
     check(marked === 0 && back === before, `${tag} A4`, "confirming marks the list read and Undo brings the count back", `unread ${before} -> ${marked} -> ${back}`);
   });
@@ -103,7 +105,8 @@ await t.eachViewport(async (page, vp) => {
         const to = Math.round(from + armAt(box.width) + 12);
         await touch("touchStart", [{ x: from, y }]);
         for (let x = from; x <= to; x += 8) await touch("touchMove", [{ x, y }]);
-        await page.waitForTimeout(150);
+        await row.locator(".swipe-panel[data-armed='true']").waitFor({ timeout: 3000 }).catch(() => {}); // the check below reports it if the panel never arms
+        await waitForAnimationsDone(page);
         const seen = await row.evaluate((el) => {
           const panel = el.querySelector(".swipe-panel");
           const label = panel?.querySelector("span:not(.swipe-icon)");
@@ -114,7 +117,7 @@ await t.eachViewport(async (page, vp) => {
         await t.shot(page, `${tag}-swipe-${width}`);
         await touch("touchCancel", []);
         check(/^Mark as (un)?read$/.test(seen.text) && seen.fits && seen.armed === "true", `${tag} A5 ${width}`, `a swipe at ${width} px wide shows the whole "Mark as read" or "Mark as unread" in an armed panel`, `panel: ${JSON.stringify(seen)}`);
-        await page.waitForTimeout(400);
+        await waitForAnimationsDone(page); // the row springs back
       });
     }
     await page.setViewportSize({ width: vp.width, height: vp.height });
