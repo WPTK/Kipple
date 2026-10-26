@@ -16,7 +16,7 @@
 //       unticked (nothing is added);
 //   K4  Settings > Appearance & Reading: Larger buttons stays a switch (it applies the moment it is flipped), and flipping it (uat-labels: ignore)
 //       sends nothing to the server (it is a device setting) and is put back;
-//   K8  Settings > Appearance & Reading: Layout is eight radio cards in one column (none wraps beside another or runs past (uat-labels: ignore)
+//   K8  Settings > Appearance & Reading: Layout is seven radio cards in one column (none wraps beside another or runs past (uat-labels: ignore)
 //       the screen), each 44 px tall (56 px with Large targets) and named with what it looks like; picking one writes
 //       only the device's own profile (PATCH /api/device) and is put back.
 // It changes nothing on the server: every dialog is closed with Escape. It only runs against a loopback address with the
@@ -221,7 +221,7 @@ await t.eachViewport(async (page, vp) => {
     const group = page.getByRole("group", { name: "Layout", exact: true });
     await group.waitFor({ timeout: 10000 });
     const radios = group.getByRole("radio");
-    check((await radios.count()) === 8, `${tag} K8 eight`, "eight layouts", `${await radios.count()} layouts`);
+    check((await radios.count()) === 7, `${tag} K8 seven`, "seven layouts", `${await radios.count()} layouts`);
     await group.scrollIntoViewIfNeeded();
     for (const large of [false, true]) {
       await page.evaluate((on) => (on ? document.documentElement.setAttribute("data-targets", "large") : document.documentElement.removeAttribute("data-targets")), large);
