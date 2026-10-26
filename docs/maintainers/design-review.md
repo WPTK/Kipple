@@ -25,7 +25,7 @@ The design library (`web/scripts/design-feeds.mjs`) has a feed with hundreds of 
 three lines, a long feed name, pictures in landscape, portrait, panorama, square and too small to lead, articles with no
 picture or no body, a long article with every block type, Unicode and right-to-left text, three nested folders, an empty
 folder, an empty feed, a quiet feed, an unfiled feed and a feed that fails. The seed also stars, reads and mutes some
-articles and saves a search. Statistics start empty, because the seed records no reading.
+articles and saves a search. Stats start empty, because the seed records no reading.
 
 ### Surfaces and areas
 
@@ -37,7 +37,7 @@ articles and saves a search. Statistics start empty, because the seed records no
 | menus | the article's More actions, a row's More actions, List options |
 | navigation | the Feeds screen (on a desktop the sidebar is in every list capture) |
 | search | nothing typed, results |
-| stats | Statistics, Wrapped |
+| stats | Stats, Wrapped |
 | settings | Feed health, each settings group |
 | setup | the sign-in screen |
 
