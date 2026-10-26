@@ -43,6 +43,7 @@ await t.eachViewport(async (page, vp) => {
         const r = m?.getBoundingClientRect();
         return [Math.round(r?.width ?? 0), Math.round(r?.height ?? 0), m?.scrollHeight ?? 0, document.querySelectorAll("*").length, innerWidth, innerHeight];
       }),
+      { label: "the page layout to stop changing" },
     );
   const open = async (path) => {
     await page.goto(path, { waitUntil: "load" });
@@ -201,24 +202,27 @@ await t.eachViewport(async (page, vp) => {
     // the menu button is looked at.
     let release;
     const held = new Promise((r) => (release = r));
-    await page.route("**/api/refresh", async (route) => {
-      await held;
-      await route.continue().catch(() => {});
-    });
-    const asked = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname === "/api/refresh", { timeout: 5000 }).then(() => true, () => false);
-    await header.getByRole("button", { name: "List actions" }).click();
-    await page.getByRole("menuitem", { name: "Refresh all feeds" }).click();
-    check(await asked, `${tag} I1 refresh`, "Refresh all feeds in the menu asks for a refresh", "Refresh all feeds in the menu sent no request");
-    await header.getByRole("button", { name: "List actions" }).locator("svg.animate-spin").waitFor({ timeout: 3000 }).catch(() => {});
-    check(await header.getByRole("button", { name: "List actions" }).evaluate((b) => !!b.querySelector("svg.animate-spin")), `${tag} I1 spin`, "the actions menu button spins while the refresh runs", "nothing shows that a refresh is running");
-    await header.getByRole("button", { name: "List actions" }).focus();
-    await page.keyboard.press("Enter");
-    const busy = page.getByRole("menuitem", { name: "Refreshing" });
-    await busy.waitFor({ timeout: 5000 });
-    check((await busy.getAttribute("aria-disabled")) === "true" && (await busy.evaluate((e) => e === document.activeElement)), `${tag} I1 busy`, "while it runs the item is reached by the keyboard and marked disabled", "while it runs the item is skipped by the keyboard or not marked disabled");
-    await page.keyboard.press("Escape");
-    release();
-    await page.unroute("**/api/refresh");
+    try {
+      await page.route("**/api/refresh", async (route) => {
+        await held;
+        await route.continue().catch(() => {});
+      });
+      const asked = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname === "/api/refresh", { timeout: 5000 }).then(() => true, () => false);
+      await header.getByRole("button", { name: "List actions" }).click();
+      await page.getByRole("menuitem", { name: "Refresh all feeds" }).click();
+      check(await asked, `${tag} I1 refresh`, "Refresh all feeds in the menu asks for a refresh", "Refresh all feeds in the menu sent no request");
+      await header.getByRole("button", { name: "List actions" }).locator("svg.animate-spin").waitFor({ timeout: 3000 }).catch(() => {});
+      check(await header.getByRole("button", { name: "List actions" }).evaluate((b) => !!b.querySelector("svg.animate-spin")), `${tag} I1 spin`, "the actions menu button spins while the refresh runs", "nothing shows that a refresh is running");
+      await header.getByRole("button", { name: "List actions" }).focus();
+      await page.keyboard.press("Enter");
+      const busy = page.getByRole("menuitem", { name: "Refreshing" });
+      await busy.waitFor({ timeout: 5000 });
+      check((await busy.getAttribute("aria-disabled")) === "true" && (await busy.evaluate((e) => e === document.activeElement)), `${tag} I1 busy`, "while it runs the item is reached by the keyboard and marked disabled", "while it runs the item is skipped by the keyboard or not marked disabled");
+      await page.keyboard.press("Escape");
+    } finally {
+      release(); // a throwing step must not leave the held request hanging
+      await page.unroute("**/api/refresh").catch(() => {});
+    }
   });
 
   await step(`${tag} B1`, async () => {
@@ -257,7 +261,7 @@ await t.eachViewport(async (page, vp) => {
     await chevron().click({ timeout: 5000 });
     await page.waitForURL((u) => u.pathname === "/settings", { timeout: 5000 }).catch(() => {});
     const focusText = () => page.evaluate(() => document.activeElement?.textContent?.trim().slice(0, 40) ?? "");
-    await waitForStillFor(page, 200, focusText); // focus arrives on the row a frame or two after the route changes
+    await waitForStillFor(page, 200, focusText, { label: "the focused element to stop changing" }); // focus arrives on the row a frame or two after the route changes
     check(pathOf() === "/settings", `${tag} B2 list`, "the chevron in a group opened from the Settings list goes back to the list", `it went to ${pathOf()}`);
     const focused = await focusText();
     check(/^Appearance/.test(focused), `${tag} B2 focus`, "focus arrives on the row of the group just left", `focus is on "${focused}"`);
@@ -272,11 +276,11 @@ await t.eachViewport(async (page, vp) => {
     const label = (await back.getAttribute("aria-label")) ?? "";
     await back.click({ timeout: 5000 });
     await page.waitForURL((u) => u.pathname !== "/settings/statistics", { timeout: 5000 }).catch(() => {});
-    await waitForStillFor(page, 200, pathOf);
+    await waitForStillFor(page, 200, pathOf, { label: "the pathname to stop changing after the chevron" });
     const landed = pathOf() === "/settings" ? "Settings" : pathOf() === "/stats" ? "Stats" : pathOf();
     check(label === `Back to ${landed}`, `${tag} B2 label`, `the chevron lands where its label says (${label})`, `the label says "${label}" and it landed on ${landed}`);
     await page.goBack();
-    await waitForStillFor(page, 200, pathOf);
+    await waitForStillFor(page, 200, pathOf, { label: "the pathname to stop changing after Back" });
     check(pathOf() !== "/settings/statistics", `${tag} B2 history`, "the system Back does not return to the group just left", "the system Back returned to the group");
     await page.unroute(isSummary);
   });

@@ -123,8 +123,21 @@ async function swipe(cdp, x, y0, y1) {
   }
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
 }
-/** The lead pictures have loaded: how many are complete has held still for 300 ms (the ones far down load lazily and may never). */
-const picsLoaded = (page) => waitForStillFor(page, 300, () => page.locator("article[data-item-id] img").evaluateAll((imgs) => imgs.filter((i) => i.complete && i.naturalWidth).length));
+/**
+ * The lead pictures have loaded: there are some, every one within a browser's lazy-load distance of the screen (about
+ * 1250 px) is complete, and how many hold a picture has then stopped changing. The ones far down load lazily and may never.
+ */
+const picsLoaded = async (page) => {
+  await page.waitForFunction(
+    () => {
+      const imgs = [...document.querySelectorAll("article[data-item-id] img")];
+      return imgs.length > 0 && imgs.filter((i) => i.getBoundingClientRect().top < innerHeight + 1250).every((i) => i.complete);
+    },
+    undefined,
+    { timeout: 20000 },
+  );
+  await waitForStillFor(page, 300, () => page.locator("article[data-item-id] img").evaluateAll((imgs) => imgs.filter((i) => i.complete && i.naturalWidth).length), { label: "the count of loaded pictures to stop changing" });
+};
 async function layoutOf(page) {
   await page.goto("/l/all", { waitUntil: "load" });
   const btn = page.locator('button[aria-label^="List options, "]').first();
@@ -327,7 +340,7 @@ await t.eachViewport(async (page, vp) => {
           short: document.querySelector(".search-shell").hasAttribute("data-short"),
         }));
       /** The scroll positions once they have stopped moving (a wheel or a swipe is applied a frame or more later). */
-      const settled = (ms = 150) => waitForStillFor(page, ms, tops);
+      const settled = (ms = 150) => waitForStillFor(page, ms, tops, { label: "the scroll positions to stop changing" });
       const start = await tops();
       check(start.short && start.room > 0, `${tag} W8 short`, "a screen this short scrolls as one", JSON.stringify(start));
       // Over the header the screen scrolls itself. That brings the top of the results into view, a strip of them.
@@ -383,7 +396,7 @@ await t.eachViewport(async (page, vp) => {
       const seen = [];
       for (let h = 240; h <= 640; h += 8) {
         await page.setViewportSize({ width: 320, height: h });
-        const [, short] = await waitForStillFor(page, 60, () => page.evaluate(() => [innerHeight, document.querySelector(".search-shell").hasAttribute("data-short")]));
+        const [, short] = await waitForStillFor(page, 60, () => page.evaluate(() => [innerHeight, document.querySelector(".search-shell").hasAttribute("data-short")]), { label: "the short-layout flag to stop changing after a resize" });
         seen.push(short);
       }
       const flips = seen.filter((v, i) => i > 0 && v !== seen[i - 1]).length;
