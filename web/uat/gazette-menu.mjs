@@ -21,7 +21,7 @@
 import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
 import { URL } from "node:url";
-import { start } from "./common.mjs";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 20);
 const { check, step } = t;
@@ -91,7 +91,7 @@ try {
       try {
         await page.goto(`/l/all?feed=${added.feedId}`, { waitUntil: "load" });
         await page.locator("[data-gazette] article[data-item-id]").first().waitFor({ timeout: 20000 });
-        await page.waitForTimeout(500);
+        await waitForStillFor(page, 200, places, { label: "the stories to hold their places" });
         const ids = await page.locator("[data-gazette] article[data-item-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId));
         if (ids.length !== COUNT) return t.fail(`${tag} M setup`, `the page prints ${ids.length} stories, not ${COUNT}`);
         const home = await places();
@@ -121,12 +121,11 @@ try {
           check(seen.opacity === "0" && seen.events === "none", `${tag} M4 button`, "the More button is not seen or tapped on touch, and is in the accessibility tree", `opacity ${seen.opacity}, pointer-events ${seen.events}`);
           // A touch lands on whatever is at the point, so the story must be on screen.
           await storyOf(first).getByRole("link").scrollIntoViewIfNeeded();
-          await page.waitForTimeout(300);
-          const box = await storyOf(first).getByRole("link").boundingBox();
+          const box = await waitForStillFor(page, 200, () => storyOf(first).getByRole("link").boundingBox(), { label: "the story link to stop moving" });
           const cdp = await page.context().newCDPSession(page);
           const touch = (type, points) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points });
           await touch("touchStart", [{ x: Math.round(box.x + 10), y: Math.round(box.y + box.height / 2) }]);
-          await page.waitForTimeout(800);
+          await page.getByRole("menu").waitFor({ timeout: 5000 }); // the press itself opens the menu; release only after it is up
           await touch("touchEnd", []);
           await checkMenu(`${tag} M4 menu`);
           check(page.url().includes("/l/all"), `${tag} M4 not opened`, "the long press did not open the article", `now at ${page.url()}`);

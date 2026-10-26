@@ -19,7 +19,8 @@
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
 import { URL } from "node:url";
-import { start } from "./common.mjs";
+import { setTimeout as delay } from "node:timers/promises";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 20);
 const { check, step } = t;
@@ -61,7 +62,7 @@ try {
     // Polls `holds` from here until it is true, for at most `ms`. Anything that must ask the server is polled this way: a
     // waitForFunction whose function is async is satisfied at once by the promise it returns, and so never waits.
     const until = async (holds, ms = 10000) => {
-      for (const end = Date.now() + ms; Date.now() < end; await page.waitForTimeout(250)) if (await holds()) return true;
+      for (const end = Date.now() + ms; Date.now() < end; await delay(250)) if (await holds()) return true;
       return false;
     };
     // Waits until the account's mark is past `prev` (leaving the page posts it a moment after the route changes).
@@ -72,7 +73,7 @@ try {
         const have = await page.evaluate(async (feed) => ((await (await fetch(`/api/items?view=all&feed=${feed}`, { headers: { Accept: "application/json" } })).json()).items ?? []).length, feedId);
         if (have >= n) return true;
         await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
-        await page.waitForTimeout(750);
+        await delay(750); // paces the next refresh request; the server needs real time to fetch
         return false;
       }, 30000);
     const openNew = async () => {
@@ -197,7 +198,7 @@ try {
       await page.goto(page.url(), { waitUntil: "load" });
       await asked;
       await page.getByTestId("article-body").waitFor({ timeout: 15000 });
-      await page.waitForTimeout(500);
+      await waitForStillFor(page, 300, mark, { label: "the account's mark to hold still on the opened story" });
       const backToList = page.getByRole("button", { name: "Back", exact: true }).first();
       if (await backToList.isVisible().catch(() => false)) await backToList.click();
       else await page.getByRole("link", { name: "New", exact: true }).first().click();

@@ -21,7 +21,8 @@
 //       its setting to be in force on the page and fails with what it saw if it never is.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
-import { deadFeed, start } from "./common.mjs";
+import { setTimeout as delay } from "node:timers/promises";
+import { deadFeed, start, waitForStillFor } from "./common.mjs";
 import { installPageHelpers, tapProbe } from "./probes.mjs";
 
 const t = await start(import.meta.url, 23);
@@ -43,7 +44,7 @@ await t.eachViewport(async (page, vp) => {
   };
   /** Polls `holds` until it is true, for at most `ms`; the answer may need the page, so it is asked here and not in a waitForFunction. */
   const until = async (holds, ms = 10000) => {
-    for (const end = Date.now() + ms; Date.now() < end; await page.waitForTimeout(100)) if (await holds()) return true;
+    for (const end = Date.now() + ms; Date.now() < end; await delay(100)) if (await holds()) return true;
     return false;
   };
 
@@ -109,11 +110,13 @@ await t.eachViewport(async (page, vp) => {
                 await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: pt(where2.y) });
                 for (let i = 1; i <= 6; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: pt(where2.y - (dy * i) / 6) });
                 await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-                await page.waitForTimeout(200);
-                return page.evaluate(() => {
-                  const shell = document.querySelector(".search-shell");
-                  return { top: Math.round(shell.scrollTop), list: Math.round(shell.querySelector("[data-list-scroller]").scrollTop), short: shell.hasAttribute("data-short") };
-                });
+                await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); // the scroll starts on a frame
+                return waitForStillFor(page, 150, () =>
+                  page.evaluate(() => {
+                    const shell = document.querySelector(".search-shell");
+                    return { top: Math.round(shell.scrollTop), list: Math.round(shell.querySelector("[data-list-scroller]").scrollTop), short: shell.hasAttribute("data-short") };
+                  }),
+                { label: "the swipe's scroll to come to rest" });
               };
               const up = await swipe(60);
               const down = await swipe(-60);

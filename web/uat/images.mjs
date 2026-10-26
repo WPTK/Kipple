@@ -20,7 +20,8 @@
 import { Buffer } from "node:buffer";
 import { createServer } from "node:http";
 import { URL } from "node:url";
-import { start } from "./common.mjs";
+import { setTimeout as delay } from "node:timers/promises";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 20);
 const { check, step } = t;
@@ -53,13 +54,13 @@ const finished = async (page, img, seen) => {
     const src = await img.evaluate((el) => el.src, undefined, { timeout: left() });
     while (!seen.has(src)) {
       if (Date.now() > deadline) return "unfetched";
-      await page.waitForTimeout(100);
+      await delay(100); // a poll interval
     }
     for (;;) {
       const state = await img.evaluate((el) => (!el.isConnected ? "gone" : el.complete && el.currentSrc ? (el.naturalWidth > 0 ? "loaded" : "failed") : ""), undefined, { timeout: left() });
       if (state) return state;
       if (Date.now() > deadline) return "timeout";
-      await page.waitForTimeout(50);
+      await delay(50); // a poll interval
     }
   } catch (e) {
     if ((await img.count().catch(() => 1)) === 0) return "gone";
@@ -186,7 +187,8 @@ await t.eachViewport(async (page, vp) => {
     page.on("request", onRequest);
     await lazyRow.click();
     await body.getByText("Picture 30 ends the article.").waitFor({ timeout: 15000 });
-    await page.waitForTimeout(1500);
+    // Negative check: no request for 1000 ms after the article rendered, longer than the lazy-load observer and a fetch need.
+    await waitForStillFor(page, 1000, () => asked.length, { label: "the below-the-fold image requests to stop" });
     check(asked.length === 0, `${tag} I5 lazy`, "no image below the fold is requested or checked before scrolling", `${asked.length} requests: ${JSON.stringify(asked)}`);
     await body.getByText("Picture 30 ends the article.").scrollIntoViewIfNeeded();
     const last = body.locator('img[alt="Picture 30"]');
