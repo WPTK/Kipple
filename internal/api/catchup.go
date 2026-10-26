@@ -43,8 +43,8 @@ func parseCatchupGroups(v string) ([]store.CatchupGroup, bool) {
 
 // catchup is GET /api/catchup?groups=d1,f2[&mark=N]: the mark, the page's as_of (the newest article the server knew
 // of, read before the counts so no count includes an article above it) and, for each group in the order asked, how many
-// unread articles arrived after the mark. The mark is the server's own unless mark=N (a non-negative article id) asks
-// about an earlier visit's mark: the counts then follow that one and it is the mark answered. The articles themselves are read as any list is, with /api/items?after=<mark>.
+// unread articles arrived after the mark. The mark is the server's own unless mark=N (a non-negative article id, empty is
+// rejected) asks about an earlier visit's mark: the counts then follow that one, capped at as_of, and it is the mark answered. The articles themselves are read as any list is, with /api/items?after=<mark>.
 func (s *Server) catchup(w http.ResponseWriter, r *http.Request) {
 	groups, ok := parseCatchupGroups(r.URL.Query().Get("groups"))
 	if !ok {
@@ -52,8 +52,9 @@ func (s *Server) catchup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var mark int64
-	if v := r.URL.Query().Get("mark"); v != "" {
-		m, err := strconv.ParseInt(v, 10, 64)
+	given := r.URL.Query().Has("mark")
+	if given {
+		m, err := strconv.ParseInt(r.URL.Query().Get("mark"), 10, 64)
 		if err != nil || m < 0 {
 			writeError(w, http.StatusBadRequest, "bad_request")
 			return
@@ -70,6 +71,9 @@ func (s *Server) catchup(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.serverError(w, "catchup", err)
 		return
+	}
+	if given {
+		mark = min(mark, asOf) // as POST /api/catchup/seen: never past the newest article
 	}
 	counts, err := s.db.CatchupCounts(r.Context(), mark, asOf, groups)
 	if err != nil {

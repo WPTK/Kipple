@@ -55,6 +55,8 @@ func TestCatchupCountsAndMark(t *testing.T) {
 	_, body, _ = h.api(c, "GET", "/api/catchup"+groups+"&mark="+sid(z1), "")
 	require.Equal(t, sid(z1), body["mark"])
 	require.Equal(t, float64(0), body["sections"].([]any)[1].(map[string]any)["count"])
+	_, body, _ = h.api(c, "GET", "/api/catchup"+groups+"&mark="+sid(z1+100), "")
+	require.Equal(t, sid(z1), body["mark"], "a mark above as_of is capped to it, as POST /api/catchup/seen does")
 	_, body, _ = h.api(c, "GET", "/api/catchup"+groups, "")
 	require.Equal(t, sid(b1), body["mark"], "asking about another mark leaves the server's alone")
 
@@ -69,7 +71,7 @@ func TestCatchupCountsAndMark(t *testing.T) {
 		code, _, _ = h.api(c, "POST", "/api/catchup/seen", bad)
 		require.Equal(t, http.StatusBadRequest, code, bad)
 	}
-	for _, bad := range []string{"?groups=x1", "?groups=d", "?groups=d0", "?groups=d1,,f2", "?groups=g3", "?mark=x", "?mark=-1", "?mark=5x"} {
+	for _, bad := range []string{"?groups=x1", "?groups=d", "?groups=d0", "?groups=d1,,f2", "?groups=g3", "?mark=x", "?mark=-1", "?mark=5x", "?mark="} {
 		code, _, _ = h.api(c, "GET", "/api/catchup"+bad, "")
 		require.Equal(t, http.StatusBadRequest, code, bad)
 	}
