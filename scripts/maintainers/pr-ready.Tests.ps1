@@ -159,3 +159,56 @@ Describe 'Invoke-PrReady' {
     Should -Invoke Invoke-Native -Times 0
   }
 }
+
+Describe 'advisory checks' {
+  It 'matches a matrix leg of an advisory workflow but not a look-alike' {
+    Test-AdvisoryCheck -Name 'Browser UAT' | Should -BeTrue
+    Test-AdvisoryCheck -Name 'Browser UAT (webkit)' | Should -BeTrue
+    Test-AdvisoryCheck -Name 'Browser UATX' | Should -BeFalse
+    Test-AdvisoryCheck -Name 'go test (api)' | Should -BeFalse
+  }
+  It 'does not block on a failing leg' {
+    $roll = @([pscustomobject]@{ name = 'Browser UAT (firefox)'; status = 'COMPLETED'; conclusion = 'FAILURE' })
+    $v = Get-PrVerdict -Pr (New-Pr @{ statusCheckRollup = $roll }) -AncestorStatus 'ahead'
+    $v.Ready | Should -BeTrue
+    $v.Text | Should -Match 'Browser UAT \(firefox\): failing'
+  }
+}
+
+Describe 'failure detail' {
+  It 'reads the job id from an Actions details URL and nothing else' {
+    Get-JobIdFromUrl -Url 'https://github.com/o/r/actions/runs/123/job/456' | Should -Be '456'
+    Get-JobIdFromUrl -Url 'https://codecov.io/gh/o/r' | Should -BeNullOrEmpty
+    Get-JobIdFromUrl -Url '' | Should -BeNullOrEmpty
+  }
+  It 'names the first failed step' {
+    $job = [pscustomobject]@{ name = 'web'; steps = @(
+        [pscustomobject]@{ name = 'Checkout'; conclusion = 'success' },
+        [pscustomobject]@{ name = 'Unit tests'; conclusion = 'failure' },
+        [pscustomobject]@{ name = 'Upload'; conclusion = 'skipped' }) }
+    Get-FailedStepName -Job $job | Should -Be 'Unit tests'
+    Get-FailedStepName -Job ([pscustomobject]@{ name = 'x'; steps = @() }) | Should -BeNullOrEmpty
+  }
+  It 'keeps the last N non-empty log lines without timestamps or escapes' {
+    $log = (1..50 | ForEach-Object { "2026-10-25T10:00:00.0000000Z line $_" }) -join "`n"
+    $log += "`n`n2026-10-25T10:00:01.0000000Z `e[31mred`e[0m"
+    $tail = Get-LogTail -Text $log -Lines 30
+    $tail.Count | Should -Be 30
+    $tail[-1] | Should -Be 'red'
+    $tail[0] | Should -Be 'line 22'
+  }
+  It 'prints the job, step and tail of a failed required check, and skips advisory and passing ones' {
+    Mock Invoke-Native {
+      if ($Arguments -contains 'repos/o/r/actions/jobs/9') { [pscustomobject]@{ Output = @('{"name":"web","steps":[{"name":"Unit tests","conclusion":"failure"}]}') } }
+      else { [pscustomobject]@{ Output = @('2026-10-25T10:00:00.0000000Z boom') } }
+    }
+    $roll = @(
+      [pscustomobject]@{ name = 'web'; status = 'COMPLETED'; conclusion = 'FAILURE'; detailsUrl = 'https://github.com/o/r/actions/runs/1/job/9' },
+      [pscustomobject]@{ name = 'Browser UAT (webkit)'; status = 'COMPLETED'; conclusion = 'FAILURE'; detailsUrl = 'https://github.com/o/r/actions/runs/1/job/10' },
+      [pscustomobject]@{ name = 'go'; status = 'COMPLETED'; conclusion = 'SUCCESS'; detailsUrl = 'https://github.com/o/r/actions/runs/1/job/11' })
+    $out = @(Get-FailureDetail -Repo 'o/r' -Rollup $roll)
+    $out.Count | Should -Be 1
+    $out[0] | Should -Match 'FAILED: web / step: Unit tests'
+    $out[0] | Should -Match 'boom'
+  }
+}
