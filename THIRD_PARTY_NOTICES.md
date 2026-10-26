@@ -16,13 +16,13 @@ Charter is not bundled; it is used only when the operating system provides it.
 | @fontsource-variable/jetbrains-mono | 5.3.0 | OFL-1.1 | Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) JetBrainsMono-Italic[wght].ttf: Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) |
 | @fontsource-variable/literata | 5.3.0 | OFL-1.1 | Copyright 2017 The Literata Project Authors (https://github.com/googlefonts/literata) Literata-Italic[opsz,wght].ttf: Copyright 2017 The Literata Project Authors (https://github.com/googlefonts/literata) |
 | @fontsource-variable/manrope | 5.3.0 | OFL-1.1 | Copyright 2019 The Manrope Project Authors (https://github.com/sharanda/manrope) |
-| @fontsource-variable/source-sans-3 | 5.3.0 | OFL-1.1 | Google Inc. |
-| @fontsource-variable/source-serif-4 | 5.3.0 | OFL-1.1 | Google Inc. |
+| @fontsource-variable/source-sans-3 | 5.3.1 | OFL-1.1 | Google Inc. |
+| @fontsource-variable/source-serif-4 | 5.3.1 | OFL-1.1 | Google Inc. |
 | @fontsource-variable/vollkorn | 5.3.0 | OFL-1.1 | Copyright 2018 The Vollkorn Project Authors (https://github.com/FAlthausen/Vollkorn-Typeface) Vollkorn-Italic[wght].ttf: Copyright 2018 The Vollkorn Project Authors (https://github.com/FAlthausen/Vollkorn-Typeface) |
 | @fontsource/arvo | 5.3.0 | OFL-1.1 | Copyright 2010 Anton Koovit. Arvo-Italic.ttf: Copyright 2010 Anton Koovit, Yassin Baggar. Arvo-Bold.ttf: Copyright (c) 2010 by Anton Koovit. Arvo-BoldItalic.ttf: Copyright 2010 Anton Koovit, Yassin Baggar. |
 | @fontsource/atkinson-hyperlegible-next | 5.3.0 | OFL-1.1 | Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next) AtkinsonHyperlegibleNext-Italic[wght].ttf: Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next) |
 | @fontsource/gentium-book-plus | 5.3.0 | OFL-1.1 | Copyright (c) 2003-2022 SIL International GentiumBookPlus-Italic.ttf: Copyright (c) 2003-2022 SIL International GentiumBookPlus-Bold.ttf: Copyright (c) 2003-2022 SIL International GentiumBookPlus-BoldItalic.ttf: Copyright (c) 2003-2022 SIL International |
-| @fontsource/source-code-pro | 5.3.0 | OFL-1.1 | Google Inc. |
+| @fontsource/source-code-pro | 5.3.1 | OFL-1.1 | Google Inc. |
 
 Reserved Font Names, where declared in the copyright lines of the OFL text below, apply to the
 original font software. The fonts are redistributed unmodified apart from Fontsource packaging.
@@ -161,70 +161,70 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @floating-ui/react-dom | 2.1.9 | MIT |
 | @floating-ui/utils | 0.2.12 | MIT |
 | @radix-ui/number | 1.1.3 | MIT |
-| @radix-ui/primitive | 1.1.7 | MIT |
-| @radix-ui/react-accessible-icon | 1.1.16 | MIT |
-| @radix-ui/react-accordion | 1.2.21 | MIT |
-| @radix-ui/react-alert-dialog | 1.1.24 | MIT |
-| @radix-ui/react-arrow | 1.1.16 | MIT |
-| @radix-ui/react-aspect-ratio | 1.1.16 | MIT |
-| @radix-ui/react-avatar | 1.2.7 | MIT |
-| @radix-ui/react-checkbox | 1.3.12 | MIT |
-| @radix-ui/react-collapsible | 1.1.21 | MIT |
-| @radix-ui/react-collection | 1.1.16 | MIT |
+| @radix-ui/primitive | 1.2.0 | MIT |
+| @radix-ui/react-accessible-icon | 1.2.0 | MIT |
+| @radix-ui/react-accordion | 1.3.1 | MIT |
+| @radix-ui/react-alert-dialog | 1.2.1 | MIT |
+| @radix-ui/react-arrow | 1.1.17 | MIT |
+| @radix-ui/react-aspect-ratio | 1.2.0 | MIT |
+| @radix-ui/react-avatar | 1.3.1 | MIT |
+| @radix-ui/react-checkbox | 1.4.1 | MIT |
+| @radix-ui/react-collapsible | 1.2.1 | MIT |
+| @radix-ui/react-collection | 1.2.0 | MIT |
 | @radix-ui/react-compose-refs | 1.1.5 | MIT |
-| @radix-ui/react-context | 1.2.2 | MIT |
-| @radix-ui/react-context-menu | 2.3.8 | MIT |
-| @radix-ui/react-dialog | 1.2.0 | MIT |
-| @radix-ui/react-direction | 1.1.5 | MIT |
-| @radix-ui/react-dismissable-layer | 1.1.20 | MIT |
-| @radix-ui/react-dropdown-menu | 2.1.25 | MIT |
-| @radix-ui/react-focus-guards | 1.1.6 | MIT |
-| @radix-ui/react-focus-scope | 1.2.0 | MIT |
-| @radix-ui/react-form | 0.2.0 | MIT |
-| @radix-ui/react-hover-card | 1.1.24 | MIT |
+| @radix-ui/react-context | 1.3.0 | MIT |
+| @radix-ui/react-context-menu | 2.4.1 | MIT |
+| @radix-ui/react-dialog | 1.3.1 | MIT |
+| @radix-ui/react-direction | 1.2.0 | MIT |
+| @radix-ui/react-dismissable-layer | 1.2.1 | MIT |
+| @radix-ui/react-dropdown-menu | 2.2.1 | MIT |
+| @radix-ui/react-focus-guards | 1.2.0 | MIT |
+| @radix-ui/react-focus-scope | 1.3.1 | MIT |
+| @radix-ui/react-form | 0.3.0 | MIT |
+| @radix-ui/react-hover-card | 1.2.1 | MIT |
 | @radix-ui/react-id | 1.1.4 | MIT |
-| @radix-ui/react-label | 2.1.16 | MIT |
-| @radix-ui/react-menu | 2.1.25 | MIT |
-| @radix-ui/react-menubar | 1.1.25 | MIT |
-| @radix-ui/react-navigation-menu | 1.3.0 | MIT |
-| @radix-ui/react-one-time-password-field | 0.1.17 | MIT |
-| @radix-ui/react-password-toggle-field | 0.1.12 | MIT |
-| @radix-ui/react-popover | 1.2.0 | MIT |
-| @radix-ui/react-popper | 1.3.8 | MIT |
-| @radix-ui/react-portal | 1.1.18 | MIT |
+| @radix-ui/react-label | 2.1.17 | MIT |
+| @radix-ui/react-menu | 2.2.1 | MIT |
+| @radix-ui/react-menubar | 1.2.1 | MIT |
+| @radix-ui/react-navigation-menu | 1.4.1 | MIT |
+| @radix-ui/react-one-time-password-field | 0.2.1 | MIT |
+| @radix-ui/react-password-toggle-field | 0.2.1 | MIT |
+| @radix-ui/react-popover | 1.3.1 | MIT |
+| @radix-ui/react-popper | 1.4.0 | MIT |
+| @radix-ui/react-portal | 1.2.0 | MIT |
 | @radix-ui/react-presence | 1.1.11 | MIT |
-| @radix-ui/react-primitive | 2.1.11 | MIT |
-| @radix-ui/react-progress | 1.1.17 | MIT |
-| @radix-ui/react-radio-group | 1.4.8 | MIT |
-| @radix-ui/react-roving-focus | 1.1.20 | MIT |
-| @radix-ui/react-scroll-area | 1.3.0 | MIT |
-| @radix-ui/react-select | 2.3.8 | MIT |
-| @radix-ui/react-separator | 1.1.16 | MIT |
-| @radix-ui/react-slider | 1.5.0 | MIT |
-| @radix-ui/react-slot | 1.4.0 | MIT |
-| @radix-ui/react-switch | 1.3.8 | MIT |
-| @radix-ui/react-tabs | 1.1.22 | MIT |
-| @radix-ui/react-toast | 1.2.24 | MIT |
-| @radix-ui/react-toggle | 1.1.19 | MIT |
-| @radix-ui/react-toggle-group | 1.1.20 | MIT |
-| @radix-ui/react-toolbar | 1.1.20 | MIT |
-| @radix-ui/react-tooltip | 1.3.0 | MIT |
-| @radix-ui/react-use-callback-ref | 1.1.4 | MIT |
-| @radix-ui/react-use-controllable-state | 1.2.6 | MIT |
+| @radix-ui/react-primitive | 2.2.0 | MIT |
+| @radix-ui/react-progress | 1.2.1 | MIT |
+| @radix-ui/react-radio-group | 1.5.1 | MIT |
+| @radix-ui/react-roving-focus | 1.2.1 | MIT |
+| @radix-ui/react-scroll-area | 1.4.0 | MIT |
+| @radix-ui/react-select | 2.4.1 | MIT |
+| @radix-ui/react-separator | 1.2.0 | MIT |
+| @radix-ui/react-slider | 1.6.1 | MIT |
+| @radix-ui/react-slot | 1.5.0 | MIT |
+| @radix-ui/react-switch | 1.4.1 | MIT |
+| @radix-ui/react-tabs | 1.2.1 | MIT |
+| @radix-ui/react-toast | 1.3.1 | MIT |
+| @radix-ui/react-toggle | 1.2.1 | MIT |
+| @radix-ui/react-toggle-group | 1.2.1 | MIT |
+| @radix-ui/react-toolbar | 1.2.1 | MIT |
+| @radix-ui/react-tooltip | 1.4.1 | MIT |
+| @radix-ui/react-use-callback-ref | 1.1.5 | MIT |
+| @radix-ui/react-use-controllable-state | 1.3.0 | MIT |
 | @radix-ui/react-use-effect-event | 0.0.5 | MIT |
-| @radix-ui/react-use-escape-keydown | 1.1.5 | MIT |
+| @radix-ui/react-use-escape-keydown | 1.1.6 | MIT |
 | @radix-ui/react-use-is-hydrated | 0.1.3 | MIT |
 | @radix-ui/react-use-layout-effect | 1.1.4 | MIT |
 | @radix-ui/react-use-previous | 1.1.4 | MIT |
 | @radix-ui/react-use-rect | 1.1.4 | MIT |
 | @radix-ui/react-use-size | 1.1.5 | MIT |
-| @radix-ui/react-visually-hidden | 1.2.12 | MIT |
+| @radix-ui/react-visually-hidden | 1.2.13 | MIT |
 | @radix-ui/rect | 1.1.3 | MIT |
 | @remix-run/route-pattern | 0.22.1 | MIT |
-| @tanstack/query-core | 5.104.1 | MIT |
-| @tanstack/react-query | 5.104.1 | MIT |
-| @tanstack/react-virtual | 3.14.14 | MIT |
-| @tanstack/virtual-core | 3.18.0 | MIT |
+| @tanstack/query-core | 5.104.4 | MIT |
+| @tanstack/react-query | 5.104.4 | MIT |
+| @tanstack/react-virtual | 3.14.21 | MIT |
+| @tanstack/virtual-core | 3.19.6 | MIT |
 | @types/trusted-types | 2.0.7 | MIT |
 | aria-hidden | 1.2.6 | MIT |
 | class-variance-authority | 0.7.1 | Apache-2.0 |
@@ -233,10 +233,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | detect-node-es | 1.1.0 | MIT |
 | dompurify | 3.4.17 | (MPL-2.0 OR Apache-2.0) |
 | get-nonce | 1.0.1 | MIT |
-| lucide-react | 1.55.0 | MIT |
-| radix-ui | 1.7.0 | MIT |
-| react | 19.3.0 | MIT |
-| react-dom | 19.3.0 | MIT |
+| lucide-react | 1.59.0 | MIT |
+| radix-ui | 1.8.1 | MIT |
+| react | 19.3.1 | MIT |
+| react-dom | 19.3.1 | MIT |
 | react-remove-scroll | 2.7.2 | MIT |
 | react-remove-scroll-bar | 2.3.8 | MIT |
 | react-router | 8.4.0 | MIT |
@@ -277,77 +277,77 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 - **@floating-ui/react-dom** 2.1.9: Copyright (c) 2021-present Floating UI contributors
 - **@floating-ui/utils** 0.2.12: Copyright (c) 2021-present Floating UI contributors
 - **@radix-ui/number** 1.1.3: Copyright (c) 2022 WorkOS
-- **@radix-ui/primitive** 1.1.7: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-accessible-icon** 1.1.16: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-accordion** 1.2.21: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-alert-dialog** 1.1.24: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-arrow** 1.1.16: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-aspect-ratio** 1.1.16: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-avatar** 1.2.7: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-checkbox** 1.3.12: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-collapsible** 1.1.21: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-collection** 1.1.16: Copyright (c) 2022 WorkOS
+- **@radix-ui/primitive** 1.2.0: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-accessible-icon** 1.2.0: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-accordion** 1.3.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-alert-dialog** 1.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-arrow** 1.1.17: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-aspect-ratio** 1.2.0: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-avatar** 1.3.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-checkbox** 1.4.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-collapsible** 1.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-collection** 1.2.0: Copyright (c) 2022 WorkOS
 - **@radix-ui/react-compose-refs** 1.1.5: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-context** 1.2.2: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-context-menu** 2.3.8: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-dialog** 1.2.0: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-direction** 1.1.5: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-dismissable-layer** 1.1.20: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-dropdown-menu** 2.1.25: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-focus-guards** 1.1.6: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-focus-scope** 1.2.0: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-form** 0.2.0: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-hover-card** 1.1.24: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-context** 1.3.0: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-context-menu** 2.4.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-dialog** 1.3.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-direction** 1.2.0: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-dismissable-layer** 1.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-dropdown-menu** 2.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-focus-guards** 1.2.0: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-focus-scope** 1.3.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-form** 0.3.0: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-hover-card** 1.2.1: Copyright (c) 2022 WorkOS
 - **@radix-ui/react-id** 1.1.4: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-label** 2.1.16: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-menu** 2.1.25: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-menubar** 1.1.25: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-navigation-menu** 1.3.0: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-one-time-password-field** 0.1.17: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-password-toggle-field** 0.1.12: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-popover** 1.2.0: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-popper** 1.3.8: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-portal** 1.1.18: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-label** 2.1.17: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-menu** 2.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-menubar** 1.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-navigation-menu** 1.4.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-one-time-password-field** 0.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-password-toggle-field** 0.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-popover** 1.3.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-popper** 1.4.0: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-portal** 1.2.0: Copyright (c) 2022 WorkOS
 - **@radix-ui/react-presence** 1.1.11: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-primitive** 2.1.11: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-progress** 1.1.17: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-radio-group** 1.4.8: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-roving-focus** 1.1.20: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-scroll-area** 1.3.0: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-select** 2.3.8: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-separator** 1.1.16: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-slider** 1.5.0: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-slot** 1.4.0: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-switch** 1.3.8: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-tabs** 1.1.22: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-toast** 1.2.24: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-toggle** 1.1.19: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-toggle-group** 1.1.20: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-toolbar** 1.1.20: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-tooltip** 1.3.0: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-use-callback-ref** 1.1.4: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-use-controllable-state** 1.2.6: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-primitive** 2.2.0: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-progress** 1.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-radio-group** 1.5.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-roving-focus** 1.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-scroll-area** 1.4.0: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-select** 2.4.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-separator** 1.2.0: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-slider** 1.6.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-slot** 1.5.0: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-switch** 1.4.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-tabs** 1.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-toast** 1.3.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-toggle** 1.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-toggle-group** 1.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-toolbar** 1.2.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-tooltip** 1.4.1: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-use-callback-ref** 1.1.5: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-use-controllable-state** 1.3.0: Copyright (c) 2022 WorkOS
 - **@radix-ui/react-use-effect-event** 0.0.5: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-use-escape-keydown** 1.1.5: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-use-escape-keydown** 1.1.6: Copyright (c) 2022 WorkOS
 - **@radix-ui/react-use-is-hydrated** 0.1.3: Copyright (c) 2022 WorkOS
 - **@radix-ui/react-use-layout-effect** 1.1.4: Copyright (c) 2022 WorkOS
 - **@radix-ui/react-use-previous** 1.1.4: Copyright (c) 2022 WorkOS
 - **@radix-ui/react-use-rect** 1.1.4: Copyright (c) 2022 WorkOS
 - **@radix-ui/react-use-size** 1.1.5: Copyright (c) 2022 WorkOS
-- **@radix-ui/react-visually-hidden** 1.2.12: Copyright (c) 2022 WorkOS
+- **@radix-ui/react-visually-hidden** 1.2.13: Copyright (c) 2022 WorkOS
 - **@radix-ui/rect** 1.1.3: Copyright (c) 2022 WorkOS
 - **@remix-run/route-pattern** 0.22.1: Copyright (c) 2025 Shopify Inc.
-- **@tanstack/query-core** 5.104.1: Copyright (c) 2021-present Tanner Linsley
-- **@tanstack/react-query** 5.104.1: Copyright (c) 2021-present Tanner Linsley
-- **@tanstack/react-virtual** 3.14.14: Copyright (c) 2021-present Tanner Linsley
-- **@tanstack/virtual-core** 3.18.0: Copyright (c) 2021-present Tanner Linsley
+- **@tanstack/query-core** 5.104.4: Copyright (c) 2021-present Tanner Linsley
+- **@tanstack/react-query** 5.104.4: Copyright (c) 2021-present Tanner Linsley
+- **@tanstack/react-virtual** 3.14.21: Copyright (c) 2021-present Tanner Linsley
+- **@tanstack/virtual-core** 3.19.6: Copyright (c) 2021-present Tanner Linsley
 - **aria-hidden** 1.2.6: Copyright (c) 2017 Anton Korzunov
 - **class-variance-authority** 0.7.1: Copyright 2022 Joe Bell
 - **cookie-es** 3.1.1: Copyright (c) 2012-2014 Roman Shtylman <shtylman@gmail.com>; Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>; Copyright (c) 2015 Nathan Friedly <nathan@nfriedly.com> (http://nfriedly.com/)
 - **detect-node-es** 1.1.0: Copyright (c) 2017 Ilya Kantor
 - **get-nonce** 1.0.1: Copyright (c) 2020 Anton Korzunov
-- **lucide-react** 1.55.0: Copyright (c) 2026 Lucide Icons and Contributors; Copyright (c) 2013-present Cole Bemis
-- **radix-ui** 1.7.0: Copyright (c) 2022 WorkOS
+- **lucide-react** 1.59.0: Copyright (c) 2026 Lucide Icons and Contributors; Copyright (c) 2013-present Cole Bemis
+- **radix-ui** 1.8.1: Copyright (c) 2022 WorkOS
 - **react-remove-scroll** 2.7.2: Copyright (c) 2017 Anton Korzunov
 - **react-style-singleton** 2.2.3: Copyright (c) 2017 Anton Korzunov
 - **tailwind-merge** 3.7.0: Copyright (c) 2021 Dany Castillo

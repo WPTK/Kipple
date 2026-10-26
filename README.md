@@ -74,8 +74,8 @@ ssh -L 1919:127.0.0.1:1919 you@your-server
 
 Then open <http://127.0.0.1:1919> on that computer.
 
-Until you create the account, anyone who can reach the port can. The command above publishes the port on `127.0.0.1`
-only, so only this machine can. Widen it after you have an account.
+Until you create the account, anyone who can reach the port can. The `docker run` command above publishes the port on `127.0.0.1`
+only, so only the machine Kipple runs on can reach it. Widen it after you have an account.
 
 To reach Kipple from other devices, put it behind HTTPS (see the [reverse proxy guide](docs/reverse-proxy.md)) or on a
 private network such as Tailscale. Do not publish it on the open internet over plain http. For a safe setup: publish on

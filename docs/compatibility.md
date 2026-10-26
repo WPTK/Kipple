@@ -248,7 +248,7 @@ Notes on browser behavior:
 | Phone widths in the desktop browsers above | Suite 1 at 390 px as a touch device, and the keyboard run's gesture check. | Clean. |
 
 Every swipe or long-press action also has a button or menu, so none is gesture-only: the row's Star button and its
-More actions menu (mark read or unread, mark above or below), Back to list on an open article, Refresh all feeds for
+More actions menu (mark read or unread, mark above or below), Back on an open article, Refresh all feeds for
 pull to refresh, and Show move buttons for reordering feeds.
 
 ### Sync clients

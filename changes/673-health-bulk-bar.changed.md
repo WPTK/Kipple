@@ -1,1 +1,0 @@
-Feed health: the selection bar has Retry now, which fetches the selected feeds one by one and says how many still fail. Delete is red on the selection bars of Feed health and Feeds, and the Feeds bar says Move. (#673)
