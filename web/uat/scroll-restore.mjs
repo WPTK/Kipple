@@ -16,38 +16,42 @@
 //       marks the stories it passes.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
-import { start } from "./common.mjs";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 15);
 const { check, step } = t;
 
 const scroller = (page) => page.getByTestId("list-scroll");
 /** The article whose row is highest in view in the list, and how far the list is scrolled. */
-const topOf = (page) =>
-  scroller(page).evaluate((el) => {
-    const top = el.getBoundingClientRect().top + 1;
-    let best = null;
-    for (const row of el.querySelectorAll("[data-item-id]")) {
-      const r = row.getBoundingClientRect();
-      if (r.bottom <= top) continue;
-      if (!best || r.top < best.y) best = { id: row.getAttribute("data-item-id"), y: r.top };
-    }
-    return { id: best?.id ?? null, scrollTop: Math.round(el.scrollTop) };
-  });
+const topIn = (el) => {
+  const top = el.getBoundingClientRect().top + 1;
+  let best = null;
+  for (const row of el.querySelectorAll("[data-item-id]")) {
+    const r = row.getBoundingClientRect();
+    if (r.bottom <= top) continue;
+    if (!best || r.top < best.y) best = { id: row.getAttribute("data-item-id"), y: r.top };
+  }
+  return { id: best?.id ?? null, scrollTop: Math.round(el.scrollTop) };
+};
+const topOf = (page) => scroller(page).evaluate(topIn);
 /** Waits until `id` is the top article (the restore pages in and scrolls); returns the last top seen. */
 const waitForTop = async (page, id, ms = 8000) => {
-  const end = Date.now() + ms;
-  let now = await topOf(page);
-  while (now.id !== id && Date.now() < end) {
-    await page.waitForTimeout(250);
-    now = await topOf(page);
-  }
-  return now;
+  await page
+    .waitForFunction(`(${topIn})(document.querySelector('[data-testid="list-scroll"]'))?.id === ${JSON.stringify(id)}`, undefined, { timeout: ms })
+    .catch(() => {}); // the caller's check says what the top was instead
+  return topOf(page);
 };
+const LIST_PLACE_KEY = "kipple.listPlace.v1";
+/** The list has stopped moving: its scroll position, height and rows are unchanged for 200 ms. */
 const ready = async (page) => {
   await scroller(page).locator("[data-item-id]").first().waitFor({ timeout: 15000 });
-  await page.waitForTimeout(300);
+  await waitForStillFor(page, 200, () => scroller(page).evaluate((el) => [Math.round(el.scrollTop), el.scrollHeight, el.querySelectorAll("[data-item-id]").length]));
 };
+/**
+ * The place the list has remembered on the device. It is written at most 400 ms after the last scroll event (ListPane),
+ * so a value that has held still for 500 ms with the list itself still is the place the scroll left.
+ */
+const placeSaved = (page) => waitForStillFor(page, 500, async () => [await page.evaluate((k) => localStorage.getItem(k), LIST_PLACE_KEY), await topOf(page)]);
 /**
  * Scrolls the list by `px` as a reader would, and lets the place be recorded: a wheel event first (the app remembers
  * only what the reader moved), then the scroll, in steps. A real wheel is not available in every engine (mobile WebKit).
@@ -59,15 +63,18 @@ const readerScroll = async (page, px) => {
       el.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: dy }));
       el.scrollBy(0, dy);
     }, step);
-    await page.waitForTimeout(60);
+    await page.waitForTimeout(60); // real time: the steps are paced like a hand on a wheel, the app throttles on the clock
   }
-  await page.waitForTimeout(1200);
+  await placeSaved(page);
 };
 
 await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
   const patch = (b) =>
     page.evaluate((x) => fetch("/api/device", { method: "PATCH", headers: { "Content-Type": "application/json", "X-Kipple-Client": "web" }, body: JSON.stringify(x) }).then((r) => r.status), b);
+
+  /** Marking on scroll waits 700 ms after the scroll settles, then sends: the unread count holds still for a second once it is done. */
+  const marksLanded = () => waitForStillFor(page, 1000, async () => (await t.boot(page)).counts.unread);
 
   let place = null;
   await step(`${tag} P1`, async () => {
@@ -92,13 +99,15 @@ await t.eachViewport(async (page, vp) => {
     if (!vp.mobile) {
       // Beside the list, the open article decides what the list shows: its row is in view.
       await ready(page);
-      await page.waitForTimeout(1500);
-      const row = scroller(page).locator(`[data-item-id="${place.id}"]`).first();
-      const inView = await row.evaluate((r) => {
+      const inViewNow = (id) => {
+        const r = document.querySelector(`[data-testid="list-scroll"] [data-item-id="${id}"]`);
+        if (!r) return false;
         const s = r.closest('[data-testid="list-scroll"]').getBoundingClientRect();
         const b = r.getBoundingClientRect();
         return b.bottom > s.top && b.top < s.bottom;
-      }).catch(() => false);
+      };
+      await page.waitForFunction(inViewNow, place.id, { timeout: 8000 }).catch(() => {}); // the check below says if it never came
+      const inView = await page.evaluate(inViewNow, place.id);
       check(inView, `${tag} P2`, "reloaded with an article open beside the list, its row is in view", "the open article's row is not in view after the reload");
       return;
     }
@@ -115,8 +124,7 @@ await t.eachViewport(async (page, vp) => {
     await readerScroll(page, -(at + 800));
     await page.reload({ waitUntil: "load" });
     await ready(page);
-    await page.waitForTimeout(1500);
-    const now = await topOf(page);
+    const now = await waitForStillFor(page, 800, () => topOf(page)); // nothing may move a list left at its top
     check(now.scrollTop === 0, `${tag} P3`, "a list left at its top starts at the top", `the list starts scrolled ${now.scrollTop} px`);
   });
 
@@ -128,12 +136,12 @@ await t.eachViewport(async (page, vp) => {
       await ready(page);
       await readerScroll(page, 2400);
       const here = await topOf(page);
-      await page.waitForTimeout(1500); // the marks of the scroll itself land
+      await marksLanded(); // the marks of the scroll itself land
       const before = (await t.boot(page)).counts.unread;
       await page.reload({ waitUntil: "load" });
       await ready(page);
       const back = await waitForTop(page, here.id);
-      await page.waitForTimeout(2000);
+      await marksLanded(); // a restore that marked anything would show as a change here
       const after = (await t.boot(page)).counts.unread;
       check(back.id === here.id, `${tag} P4 place`, "Unread comes back to its place", `top was ${here.id}, now ${back.id}`);
       check(after === before, `${tag} P4 marks`, "the restore marks nothing read", `unread went from ${before} to ${after}`);
@@ -189,6 +197,7 @@ await t.eachViewport(async (page, vp) => {
       if (room < 600) return t.fail(`${tag} P5 setup`, `only ${room} px are left to scroll from the restored place`);
       const opened = await readIds();
       await readerScroll(page, room - 100);
+      await marksLanded();
       const here = await topOf(page);
       const marked = [...(await readIds())].filter((x) => !opened.has(x));
       check(here.scrollTop > back.scrollTop + 400 && marked.length > 0, `${tag} P5`, "after the restore, scrolling on marks the stories it passes", `scrolled from ${back.scrollTop} to ${here.scrollTop} px and ${marked.length} story(ies) were marked read`);

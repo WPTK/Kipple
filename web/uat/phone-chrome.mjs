@@ -19,7 +19,7 @@
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
-import { start } from "./common.mjs";
+import { start, waitForAnimationsDone, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 19);
 const { check, step } = t;
@@ -55,7 +55,7 @@ await t.eachViewport(async (page, vp) => {
   const open = async (path) => {
     await page.goto(path, { waitUntil: "load" });
     await page.locator("main h1, main h2").first().waitFor({ timeout: 15000 });
-    await page.waitForTimeout(500);
+    await waitForAnimationsDone(page);
   };
 
   if (vp.mobile) {
@@ -101,24 +101,22 @@ await t.eachViewport(async (page, vp) => {
     const context = page.context();
     await context.setOffline(true);
     try {
-      await page.waitForTimeout(500);
+      await page.waitForFunction(() => navigator.onLine === false, undefined, { timeout: 5000 });
       const layoutBtn = page.locator('button[aria-label^="List options, "]').first();
       await layoutBtn.click();
+      // The save is tried while offline and fails: that is the moment a save error would show.
+      const tried = page.waitForEvent("requestfailed", { predicate: (r) => r.method() !== "GET" && new URL(r.url()).pathname.startsWith("/api/"), timeout: 10000 }).then((r) => `${r.method()} ${new URL(r.url()).pathname}`, () => null);
       await page.getByRole("menuitemradio", { name: /^Cards(?![A-Za-z])/ }).click();
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(3000);
+      const attempt = await tried;
+      if (!attempt) t.fail(`${tag} C2 attempt`, "no save request was tried while offline (waited 10 s)");
+      await waitForStillFor(page, 300, () => page.getByTestId("save-status").count()); // a save error, if there is one, shows right after the failed request
       check((await page.getByTestId("save-status").count()) === 0, `${tag} C2 offline`, "a setting changed offline shows no save error", `"${await t.textOf(page.getByTestId("save-status"))}" is shown while offline`);
       await t.shot(page, `${tag}-offline-change`);
     } finally {
       await context.setOffline(false);
     }
-    let saved = false;
-    const end = Date.now() + 10000;
-    while (!saved && Date.now() < end) {
-      await page.waitForTimeout(500);
-      const b = await t.boot(page);
-      saved = b.device?.merged?.["client.layout"] === "cards";
-    }
+    const { ok: saved } = await t.settle(page, (b) => b.device?.merged?.["client.layout"] === "cards");
     check(saved, `${tag} C2 online`, "back online, the change is saved", "the layout chosen offline never reached the server");
     check((await page.getByTestId("save-status").count()) === 0, `${tag} C2 no error`, "no save error after coming back", "a save error is shown after coming back online");
     await patchDevice(page, { "client.layout": null });
@@ -134,7 +132,7 @@ await t.eachViewport(async (page, vp) => {
     const toast = page.getByTestId("undo-region").getByRole("button", { name: "Undo" });
     await toast.waitFor({ timeout: 10000 });
     await page.getByTestId("list-scroll").evaluate((el) => el.scrollTo(0, el.scrollHeight));
-    await page.waitForTimeout(400);
+    await waitForStillFor(page, 200, () => page.getByTestId("list-scroll").evaluate((el) => el.scrollTop)); // the scroll to the end has landed
     const m = await page.evaluate(() => {
       const rs = [...document.querySelectorAll("[data-item-id]")];
       const last = rs[rs.length - 1]?.getBoundingClientRect();

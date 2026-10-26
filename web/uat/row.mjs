@@ -27,7 +27,7 @@ import { Buffer } from "node:buffer";
 import { createServer } from "node:http";
 import { deflateSync } from "node:zlib";
 import { URL } from "node:url";
-import { start } from "./common.mjs";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 26);
 const { check, step } = t;
@@ -123,6 +123,8 @@ async function swipe(cdp, x, y0, y1) {
   }
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
 }
+/** The lead pictures have loaded: how many are complete has held still for 300 ms (the ones far down load lazily and may never). */
+const picsLoaded = (page) => waitForStillFor(page, 300, () => page.locator("article[data-item-id] img").evaluateAll((imgs) => imgs.filter((i) => i.complete && i.naturalWidth).length));
 async function layoutOf(page) {
   await page.goto("/l/all", { waitUntil: "load" });
   const btn = page.locator('button[aria-label^="List options, "]').first();
@@ -260,7 +262,7 @@ await t.eachViewport(async (page, vp) => {
       await setLayout(page, "Editorial");
       await page.goto(own, { waitUntil: "load" });
       await page.locator("article[data-item-id] img").first().waitFor({ timeout: 20000 });
-      await page.waitForTimeout(1500);
+      await picsLoaded(page);
       const pics = await page.locator("article[data-item-id] img").evaluateAll((imgs) =>
         imgs.filter((i) => i.complete && i.naturalWidth).map((i) => {
           const r = i.getBoundingClientRect();
@@ -277,7 +279,7 @@ await t.eachViewport(async (page, vp) => {
       await t.shot(page, `${tag}-W6-portrait`);
       await page.goto(own, { waitUntil: "load" });
       await page.locator("article[data-item-id] img").first().waitFor({ timeout: 20000 });
-      await page.waitForTimeout(1500);
+      await picsLoaded(page);
       await t.shot(page, `${tag}-W6-wide`);
     });
 
@@ -324,27 +326,27 @@ await t.eachViewport(async (page, vp) => {
           list: document.querySelector("[data-list-scroller]").scrollTop,
           short: document.querySelector(".search-shell").hasAttribute("data-short"),
         }));
+      /** The scroll positions once they have stopped moving (a wheel or a swipe is applied a frame or more later). */
+      const settled = (ms = 150) => waitForStillFor(page, ms, tops);
       const start = await tops();
       check(start.short && start.room > 0, `${tag} W8 short`, "a screen this short scrolls as one", JSON.stringify(start));
       // Over the header the screen scrolls itself. That brings the top of the results into view, a strip of them.
       await page.mouse.move(160, 100);
       await page.mouse.wheel(0, 150);
-      await page.waitForTimeout(250);
+      await settled();
       const strip = await page.locator(".search-results").boundingBox();
       const at = { x: 160, y: Math.min(strip.y + 20, 246) };
       check(strip.y < 246 && strip.y > 120, `${tag} W8 strip`, "a small strip of the results is on screen over the header", `results start at ${strip.y} of 256`);
       await page.mouse.move(at.x, at.y);
       const before = await tops();
       await page.mouse.wheel(0, 40);
-      await page.waitForTimeout(250);
-      const first = await tops();
+      const first = await settled();
       check(first.shell > before.shell && first.list === 0, `${tag} W8 wheel`, "a wheel over the strip of results moves the header away before it scrolls the list", JSON.stringify({ before, first }));
       for (let i = 0; i < 12 && (await tops()).shell < first.room - 1; i++) {
         await page.mouse.wheel(0, 40);
-        await page.waitForTimeout(80);
+        await settled(60);
       }
-      await page.waitForTimeout(250);
-      const gone = await tops();
+      const gone = await settled();
       check(gone.shell >= gone.room - 1, `${tag} W8 header gone`, "wheeling over the results brings the box to the top", JSON.stringify(gone));
       const view = await page.evaluate(() => {
         const input = document.querySelector("[data-search-input]").getBoundingClientRect();
@@ -356,15 +358,13 @@ await t.eachViewport(async (page, vp) => {
       check(view.over <= 0, `${tag} W8 width`, "nothing scrolls sideways", `${view.over}px`);
       await t.shot(page, `${tag}-W8-bottom`);
       await page.mouse.wheel(0, 150);
-      await page.waitForTimeout(300);
-      const listed = await tops();
+      const listed = await settled();
       check(listed.list > 0, `${tag} W8 list`, "once the header is gone the wheel scrolls the list", JSON.stringify(listed));
       for (let i = 0; i < 12; i++) {
         await page.mouse.wheel(0, -200);
-        await page.waitForTimeout(80);
+        await settled(60);
       }
-      await page.waitForTimeout(250);
-      const back = await tops();
+      const back = await settled();
       check(back.shell === 0 && back.list === 0, `${tag} W8 back`, "wheeling back up returns the list, then the header", JSON.stringify(back));
       {
         const cdp = await page.context().newCDPSession(page).catch(() => null);
@@ -372,11 +372,9 @@ await t.eachViewport(async (page, vp) => {
         if (cdp) {
           await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 }).catch(() => {});
           await swipe(cdp, 160, 200, 50);
-          await page.waitForTimeout(400);
-          const mid = await tops();
+          const mid = await settled(200); // the swipe ends in a fling
           await swipe(cdp, Math.round(at.x), Math.round(at.y), Math.round(at.y) - 30);
-          await page.waitForTimeout(400);
-          const swiped = await tops();
+          const swiped = await settled(200);
           check(swiped.shell > mid.shell && swiped.list === 0, `${tag} W8 swipe`, "a swipe over the results moves the header away before it scrolls the list", JSON.stringify({ mid, swiped }));
           await cdp.detach().catch(() => {});
         }
@@ -385,8 +383,8 @@ await t.eachViewport(async (page, vp) => {
       const seen = [];
       for (let h = 240; h <= 640; h += 8) {
         await page.setViewportSize({ width: 320, height: h });
-        await page.waitForTimeout(60);
-        seen.push(await page.evaluate(() => document.querySelector(".search-shell").hasAttribute("data-short")));
+        const [, short] = await waitForStillFor(page, 60, () => page.evaluate(() => [innerHeight, document.querySelector(".search-shell").hasAttribute("data-short")]));
+        seen.push(short);
       }
       const flips = seen.filter((v, i) => i > 0 && v !== seen[i - 1]).length;
       check(seen[0] === true && flips <= 1, `${tag} W8 cutoff`, "the short layout holds up to one height and then lets go, with no flicker around it", `flips ${flips}: ${seen.map((v) => (v ? 1 : 0)).join("")}`);

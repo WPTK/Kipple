@@ -27,7 +27,7 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { deflateSync } from "node:zlib";
-import { start } from "./common.mjs";
+import { start, waitForStillFor } from "./common.mjs";
 
 const require = createRequire(import.meta.url);
 const AXE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
@@ -137,8 +137,22 @@ async function open(page, feedId, title) {
   // Article pictures load lazily; the checks measure every one, the last of them far down a long article.
   await page.evaluate(() => document.querySelectorAll("[data-testid=article-body] img").forEach((i) => (i.loading = "eager")));
   await page.waitForFunction(() => [...document.querySelectorAll("[data-testid=article-body] img")].every((i) => i.complete));
-  await page.waitForTimeout(500); // the observers and enhancers run after the first paint
+  await bodyStill(page); // the observers and enhancers run after the first paint
 }
+
+/**
+ * The article body has stopped changing: its rectangle (so also the pane's scroll and any resize), its running
+ * animations and the size of its markup (the observers and enhancers add attributes and wrappers after the first paint)
+ * are unchanged for 200 ms.
+ */
+const bodyStill = (page) =>
+  waitForStillFor(page, 200, () =>
+    page.evaluate(() => {
+      const b = document.querySelector("[data-testid=article-body]");
+      const r = b?.getBoundingClientRect();
+      return [r ? [r.x, r.y, r.width, r.height].map(Math.round) : null, b?.scrollHeight, b?.innerHTML.length, document.getAnimations().length];
+    }),
+  );
 
 try {
   await t.eachViewport(async (page, vp) => {
@@ -198,7 +212,7 @@ try {
       // The embed poster is a 16:9 frame, not a picture to cap: in a phone held sideways (844 x 390) the height cap would crop it.
       if (tag === "phone") {
         await page.setViewportSize({ width: 844, height: 390 });
-        await page.waitForTimeout(300);
+        await bodyStill(page);
         // The server builds the poster from a thumbnail it fetches from the video site, so the flow builds the same markup.
         const poster = await body.evaluate(async (el) => {
           const fig = document.createElement("figure");
@@ -215,7 +229,7 @@ try {
         });
         check(Math.abs(poster.h - (poster.w * 9) / 16) <= 1, `${tag} R3 poster`, "in landscape the embed poster keeps its 16:9 frame (not cropped by the picture cap)", JSON.stringify(poster));
         await page.setViewportSize({ width: vp.width, height: vp.height });
-        await page.waitForTimeout(300);
+        await bodyStill(page);
       }
 
       // R4: code and tables.
@@ -234,10 +248,10 @@ try {
       const small = () => body.evaluate((el) => { const tb = [...el.querySelectorAll("table")].at(-1); return { over: tb.scrollWidth > tb.clientWidth, tab: tb.getAttribute("tabindex") }; });
       const before = await small();
       await body.evaluate((el) => (el.style.fontSize = "4em"));
-      await page.waitForTimeout(300);
+      await bodyStill(page);
       const grown = await small();
       await body.evaluate((el) => (el.style.fontSize = ""));
-      await page.waitForTimeout(300);
+      await bodyStill(page);
       const back = await small();
       check(!before.over && before.tab === null && grown.over && grown.tab === "0" && back.tab === null, `${tag} R4 text size`, "a table that overflows only at a larger text size takes focus then, and lets go when the text is smaller", JSON.stringify({ before, grown, back }));
       if (regions.pre.over) {
@@ -262,7 +276,7 @@ try {
       check(notes.kp === "text" && notes.w >= 10 * notes.em - 1, `${tag} R7 running text`, "a cell of running text beside cells that do not wrap keeps at least 10 em", JSON.stringify(notes));
       await t.shot(page, `${tag}-essay`);
       await body.locator("figure:has(img[width='300'])").scrollIntoViewIfNeeded();
-      await page.waitForTimeout(300);
+      await bodyStill(page);
       await t.shot(page, `${tag}-width-only-picture`);
       await body.locator("table").nth(3).scrollIntoViewIfNeeded();
       await t.shot(page, `${tag}-running-text-table`);
@@ -293,7 +307,8 @@ try {
         await page.setViewportSize({ width: 2200, height: 900 });
         await open(page, feedId, ESSAY);
         await page.evaluate(() => document.documentElement.style.setProperty("--kp-reading-font", '"JetBrains Mono Variable", ui-monospace, monospace'));
-        await page.waitForTimeout(400);
+        await page.evaluate(() => document.fonts.ready); // the face has loaded
+        await bodyStill(page);
         await t.shot(page, `${tag}-wide-mono-column`);
         const col = await page.evaluate(() => {
           const b = document.querySelector("[data-testid=article-body]");

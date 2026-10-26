@@ -17,7 +17,7 @@
 // Afterwards it deletes the filter it made with unmute=unread and marks the articles it used unread again. It only
 // runs against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0 clean,
 // 1 findings, 2 setup error. First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
-import { start } from "./common.mjs";
+import { start, waitForAnimationsDone, waitForSavedWith, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 18);
 const { check, step, textOf } = t;
@@ -37,6 +37,9 @@ const focusOf = (page) =>
     if (a.closest("[data-testid=list-scroll]")) return "list";
     return `${a.tagName.toLowerCase()}${a.getAttribute("aria-label") ? ` "${a.getAttribute("aria-label")}"` : ""}`;
   });
+
+/** Where focus is once it has stopped moving (a closing dialog or a leaving row hands it over a frame or two later). */
+const settledFocus = (page) => waitForStillFor(page, 200, () => focusOf(page));
 
 await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
@@ -70,8 +73,7 @@ await t.eachViewport(async (page, vp) => {
       await open();
       await page.keyboard.press("Escape");
       await dialog.waitFor({ state: "detached", timeout: 10000 });
-      await page.waitForTimeout(300);
-      const cancelled = await focusOf(page);
+      const cancelled = await settledFocus(page);
       check(cancelled === `row ${it.id}`, `${tag} F1 cancel`, "Escape gives focus back to the row", `focus is on ${cancelled}, not on row ${it.id}`);
       await open();
       await dialog.getByRole("region", { name: "Suggestions from this article" }).getByRole("button").first().click();
@@ -79,8 +81,7 @@ await t.eachViewport(async (page, vp) => {
       await dialog.waitFor({ state: "detached", timeout: 10000 });
       const left = await row.waitFor({ state: "detached", timeout: 5000 }).then(() => true, () => false);
       check(left, `${tag} F1 list`, "the muted row leaves Unread", "the muted row is still in the Unread list");
-      await page.waitForTimeout(500);
-      const at = await focusOf(page);
+      const at = await settledFocus(page);
       check(at.startsWith("row ") && at !== `row ${it.id}`, `${tag} F1 focus`, `focus moves to the row that took its place (${at})`, `focus is on ${at}, not on a row of the list`);
       await t.shot(page, `${tag}-F1`);
     });
@@ -103,8 +104,7 @@ await t.eachViewport(async (page, vp) => {
       await dialog.getByRole("button", { name: "Save filter" }).click();
       await dialog.waitFor({ state: "detached", timeout: 10000 });
       const left = await row.waitFor({ state: "detached", timeout: 5000 }).then(() => true, () => false);
-      await page.waitForTimeout(500);
-      const at = await focusOf(page);
+      const at = await settledFocus(page);
       check(left && (at === "list" || (at.startsWith("row ") && at !== `row ${it.id}`)), `${tag} F3 focus`, `the row leaves All and focus stays in the list (${at})`, `left=${left}; focus is on ${at}`);
     });
     if (vp.mobile) return;
@@ -125,7 +125,7 @@ await t.eachViewport(async (page, vp) => {
       // Down arrow moves focus to the next row without opening it: the open article stays in the list, the row the
       // list remembers as focused leaves with Mark all as read (confirmed in its dialog).
       await page.keyboard.press("ArrowDown");
-      await page.waitForTimeout(300);
+      await settledFocus(page);
       const body = page.locator("article[aria-labelledby='article-title']").first();
       await body.waitFor({ timeout: 10000 });
       await body.click({ position: { x: 40, y: 120 } });
@@ -133,7 +133,7 @@ await t.eachViewport(async (page, vp) => {
       await page.getByRole("menuitem", { name: /^Mark (all|everything)/ }).click();
       await page.getByRole("dialog").getByRole("button", { name: /^Mark (all|everything)/ }).click();
       const gone = await page.waitForFunction(() => document.querySelectorAll("[data-item-id]").length === 0 || ![...document.querySelectorAll(".kp-unread-dot")].some((d) => d.dataset.unread === "true"), undefined, { timeout: 8000 }).then(() => true, () => false);
-      await page.waitForTimeout(800);
+      await waitForAnimationsDone(page); // the rows that left collapse out
       // Focus on the page itself (a click on the article, as after a toast or a menu that went away): the rows that
       // left must not pull it into the list, and Space must scroll the article, not move through the list.
       await body.click({ position: { x: 40, y: 120 } });
@@ -147,14 +147,13 @@ await t.eachViewport(async (page, vp) => {
       });
       const before = await scrollerOf();
       await page.keyboard.press("Space");
-      await page.waitForTimeout(600);
-      const after = await page.evaluate(() => document.querySelector("[data-uat-scroller]")?.scrollTop ?? null);
+      const after = await waitForStillFor(page, 200, () => page.evaluate(() => document.querySelector("[data-uat-scroller]")?.scrollTop ?? null)); // the scroll is smooth
+
       const at = await focusOf(page);
       check(gone && !at.startsWith("row ") && at !== "list", `${tag} F2 focus`, `focus stays out of the list (${at} after)`, `marked=${gone}; focus is ${at}`);
       check(before === null || before.room < 40 || (after !== null && after > before.top), `${tag} F2 space`, "Space scrolls the article", `scrollTop ${before?.top} -> ${after} (room ${before?.room})`);
       await t.shot(page, `${tag}-F2`);
-      await page.getByRole("button", { name: "Undo" }).first().click();
-      await page.waitForTimeout(1500);
+      await waitForSavedWith(page, (r) => r.request().method() !== "GET" && /\/api\//.test(r.url()), () => page.getByRole("button", { name: "Undo" }).first().click());
       const back = (await unreadOf(page, feed)).length;
       check(back > 0, `${tag} F2 undo`, `Undo marks them unread again (${back})`, `nothing unread in the feed after Undo (page: ${await textOf(page.locator("[role=status]"))})`);
     });

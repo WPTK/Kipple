@@ -6,7 +6,7 @@ import { expect, it } from "vitest";
 // A ratchet: the fixed sleeps in the UAT flows may only go down. Each one is a guess at how long the app takes; wait for
 // the state instead (the waitFor* helpers in common.mjs, or locator and expect waits). A sleep that measures real time
 // stays, with a one-line comment saying why.
-const BASELINE = 173;
+const BASELINE = 107;
 
 it("the number of fixed sleeps in web/uat does not grow", () => {
   const dir = dirname(fileURLToPath(import.meta.url));

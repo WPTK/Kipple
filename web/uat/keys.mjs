@@ -25,7 +25,7 @@
 // It opens articles on the seed's account and marks the ones that were unread unread again afterwards. It only runs
 // against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0 clean,
 // 1 findings, 2 setup error. First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
-import { start } from "./common.mjs";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 26);
 const { check, step } = t;
@@ -34,6 +34,8 @@ const JSON_ACCEPT = { Accept: "application/json" };
 const unreadIds = async (page) =>
   ((await (await page.request.get("/api/items", { params: { view: "unread", limit: 500 }, headers: JSON_ACCEPT })).json()).items ?? []).map((i) => i.id);
 /** What has focus: "body", "row <id>", the button's or heading's name, or a short description of anything else. */
+/** Where focus is once it has stopped moving (a route change or a closing sheet hands it over a frame or two later). */
+const settledFocus = (page) => waitForStillFor(page, 200, () => focusOf(page));
 const focusOf = (page) =>
   page.evaluate(() => {
     const a = document.activeElement;
@@ -87,8 +89,7 @@ await t.eachViewport(async (page, vp) => {
         await page.waitForURL((u) => u.href !== url, { timeout: 10000 });
         const early = await focusOf(page);
         await page.locator("#article-title").waitFor({ timeout: 10000 });
-        await page.waitForTimeout(400);
-        const late = await focusOf(page);
+        const late = await settledFocus(page);
         const want = vp.mobile ? ["h1", 'button "Next article"'] : ['button "Next article"'];
         check(
           (vp.mobile || early === 'button "Next article"') && want.includes(late),
@@ -130,7 +131,7 @@ await t.eachViewport(async (page, vp) => {
       await t.shot(page, `${tag}-R2-fulltext-${now ? "on" : "off"}-after`);
       if (now !== on) {
         await page.keyboard.press("Enter");
-        await page.waitForTimeout(500);
+        await settledFocus(page);
       }
       check((await focusOf(page)) === 'button "Full text"', `${tag} R2 back`, "Enter again works from the same place", `focus is on ${await focusOf(page)}`);
     });
@@ -138,10 +139,8 @@ await t.eachViewport(async (page, vp) => {
       await openFirst(1);
       await toolbarButton(page, "Previous article").focus();
       await page.keyboard.press("Enter");
-      await page.waitForTimeout(800);
       const prev = toolbarButton(page, "Previous article");
-      const off = await prev.getAttribute("aria-disabled");
-      const at = await focusOf(page);
+      const [off, at] = await waitForStillFor(page, 300, async () => [await prev.getAttribute("aria-disabled"), await focusOf(page)]);
       const ok = vp.mobile ? off === "true" && (at === "h1" || at === 'button "Previous article"') : off === "true" && at === 'button "Previous article"';
       check(ok, `${tag} R3`, `on the first article Previous is aria-disabled and focus is on ${at}`, `aria-disabled=${off}; focus is on ${at}`);
     });
@@ -150,9 +149,10 @@ await t.eachViewport(async (page, vp) => {
         await openFirst();
         await toolbarButton(page, "Next article").click();
         await toolbarButton(page, "Next article").click();
-        await page.waitForTimeout(800);
-        const open = page.url().match(/\/i\/(\d+)/)?.[1];
-        const stops = await page.evaluate(() => [...document.querySelectorAll('[data-testid=list-scroll] [data-item-id] a:not([tabindex="-1"])')].map((a) => a.closest("[data-item-id]").getAttribute("data-item-id")));
+        const [open, stops] = await waitForStillFor(page, 300, async () => [
+          page.url().match(/\/i\/(\d+)/)?.[1],
+          await page.evaluate(() => [...document.querySelectorAll('[data-testid=list-scroll] [data-item-id] a:not([tabindex="-1"])')].map((a) => a.closest("[data-item-id]").getAttribute("data-item-id"))),
+        ]);
         check(stops.length === 1 && stops[0] === open, `${tag} R4`, `the list's Tab stop is the open article (${open})`, `Tab stops ${stops.join(",")}, open article ${open}`);
       });
       await step(`${tag} H1`, async () => {
@@ -172,11 +172,9 @@ await t.eachViewport(async (page, vp) => {
         const was = await order.getAttribute("aria-pressed");
         await order.focus();
         await page.keyboard.press("Enter");
-        await page.waitForTimeout(600);
-        const a1 = await focusOf(page);
+        const a1 = await settledFocus(page);
         await page.keyboard.press("Enter");
-        await page.waitForTimeout(600);
-        const a2 = await focusOf(page);
+        const a2 = await settledFocus(page);
         const back = await order.getAttribute("aria-pressed");
         check(a1 === 'button "Oldest first"' && a2 === a1 && back === was, `${tag} H1 order`, "Oldest first keeps focus both ways", `focus ${a1}, then ${a2}; pressed ${was} -> ${back}`);
       });
@@ -191,8 +189,8 @@ await t.eachViewport(async (page, vp) => {
       let end = await focusOf(page);
       for (let i = 0; i < 10; i++) {
         await page.keyboard.press("End");
-        await page.waitForTimeout(700);
-        const at = await focusOf(page);
+        // A next page may load, so focus and the number of rows both have to hold still.
+        const [at] = await waitForStillFor(page, 300, async () => [await focusOf(page), await page.locator("[data-testid=list-scroll] [data-item-id]").count()]);
         if (at === end) break;
         end = at;
       }
@@ -205,12 +203,10 @@ await t.eachViewport(async (page, vp) => {
       });
       check(end.startsWith("row ") && end !== `row ${ids[0]}` && end === `row ${lowest}` && (await inView()), `${tag} L1 End`, `End focuses the last loaded row (${end})`, `End: focus on ${end}, last row drawn ${lowest}`);
       await page.keyboard.press("Home");
-      await page.waitForTimeout(500);
-      const home = await focusOf(page);
+      const home = await settledFocus(page);
       check(home === `row ${ids[0]}` && (await inView()), `${tag} L1 Home`, "Home focuses the first row", `Home: focus on ${home}`);
       await page.keyboard.press("PageDown");
-      await page.waitForTimeout(500);
-      const pd = await focusOf(page);
+      const pd = await settledFocus(page);
       check(pd.startsWith("row ") && pd !== home && (await inView()), `${tag} L1 PageDown`, `PageDown focuses a later row on screen (${pd})`, `PageDown: focus on ${pd}`);
       await page.keyboard.press("Space");
       const opened = await page.waitForURL(/\/i\/\d+/, { timeout: 5000 }).then(() => true, () => false);
@@ -227,14 +223,15 @@ await t.eachViewport(async (page, vp) => {
         await link.focus();
         await page.keyboard.press("ArrowDown");
         await page.keyboard.press("ArrowUp");
-        await page.waitForTimeout(300);
-        const ring = await page.evaluate(() => {
-          const a = document.activeElement;
-          if (!a?.classList.contains("row-link")) return null;
-          const s = getComputedStyle(a, "::before");
-          const host = getComputedStyle(a.closest("[data-item-id]"));
-          return { outline: s.outlineStyle, radius: s.borderTopLeftRadius, host: host.borderTopLeftRadius };
-        });
+        const ring = await waitForStillFor(page, 200, () =>
+          page.evaluate(() => {
+            const a = document.activeElement;
+            if (!a?.classList.contains("row-link")) return null;
+            const s = getComputedStyle(a, "::before");
+            const host = getComputedStyle(a.closest("[data-item-id]"));
+            return { outline: s.outlineStyle, radius: s.borderTopLeftRadius, host: host.borderTopLeftRadius };
+          }),
+        );
         check(!!ring && ring.outline === "solid" && ring.radius !== "0px" && ring.radius === ring.host, `${tag} C1`, `the card's ring is rounded like the card (${ring?.radius})`, `ring ${JSON.stringify(ring)}`);
         await t.shot(page, `${tag}-C1`);
       });
@@ -248,8 +245,7 @@ await t.eachViewport(async (page, vp) => {
       await page.keyboard.press("Enter");
       const dialog = page.getByRole("dialog", { name: "Edit feed" });
       await dialog.waitFor({ timeout: 10000 });
-      await page.waitForTimeout(150);
-      const first = await focusOf(page);
+      const first = await settledFocus(page);
       await dialog.getByRole("textbox", { name: "Title" }).waitFor({ timeout: 10000 });
       // Tab from the sheet reaches Title before any footer button. (Firefox stops on the scrolling body first, as it does
       // on every scrollable region.)
@@ -281,22 +277,19 @@ await t.eachViewport(async (page, vp) => {
         await feed.focus();
         await page.keyboard.press("Enter");
         await page.waitForURL(/feed=/, { timeout: 10000 });
-        await page.waitForTimeout(600);
-        const a1 = await focusOf(page);
+        const a1 = await settledFocus(page);
         check(a1 === `treeitem ${name}`, `${tag} T1 Enter`, "Enter on a feed opens it and focus stays on the feed", `focus is on ${a1}`);
         const folder = tree.locator("[role=treeitem][data-folder-id]").first();
         const fname = await folder.getAttribute("aria-label");
         await folder.focus();
         await page.keyboard.press("Space");
         await page.waitForURL(/folder=/, { timeout: 10000 });
-        await page.waitForTimeout(600);
-        const a2 = await focusOf(page);
+        const a2 = await settledFocus(page);
         check(a2 === `treeitem ${fname}`, `${tag} T1 Space`, "Space on a folder opens it and focus stays on the folder", `focus is on ${a2}`);
         // A click is not walking the tree: focus goes to the new list's heading, as for any arrival.
         await tree.locator("[role=treeitem]:not([data-folder-id]) a").last().click();
         await page.waitForURL(/feed=/, { timeout: 10000 });
-        await page.waitForTimeout(600);
-        const a3 = await focusOf(page);
+        const a3 = await settledFocus(page);
         check(a3 === "h1", `${tag} T1 click`, "a click on a feed moves focus to the list's heading", `focus is on ${a3}`);
       });
     }
@@ -305,8 +298,7 @@ await t.eachViewport(async (page, vp) => {
       await page.locator("[data-testid=list-scroll] [data-item-id]").first().waitFor({ timeout: 15000 });
       await page.getByRole("searchbox", { name: "Search articles" }).focus();
       await page.keyboard.press("ArrowDown");
-      await page.waitForTimeout(300);
-      const at = await focusOf(page);
+      const at = await settledFocus(page);
       check(at.startsWith("row "), `${tag} S1`, `ArrowDown goes into the results (${at})`, `focus is on ${at}`);
     });
     await step(`${tag} G1`, async () => {
