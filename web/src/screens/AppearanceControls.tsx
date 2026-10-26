@@ -227,8 +227,8 @@ export function DensityControl({ preview = true }: { preview?: boolean }) {
   return (
     <div className="flex flex-col gap-3">
       <Segmented<Step>
-        legend="Density"
-        hint="How much fits on screen, and how much space there is in articles."
+        legend="Spacing"
+        hint="How much fits on screen and how much room articles get. Cards and Gazette keep their own list spacing."
         value={p.listDensity}
         onChange={(v) => updatePrefs({ listDensity: v, readingDensity: v, adjustSeparately: false })}
         options={stepOptions}
@@ -237,7 +237,7 @@ export function DensityControl({ preview = true }: { preview?: boolean }) {
       <Disclosure label="Adjust separately" defaultOpen={p.adjustSeparately}>
         <Segmented<Step>
           legend="Lists"
-          hint="How much fits on screen."
+          hint="Not used by Cards or Gazette."
           value={p.listDensity}
           onChange={(listDensity) => updatePrefs({ listDensity, adjustSeparately: true })}
           options={stepOptions}
@@ -281,12 +281,12 @@ function HighlightToggle() {
 }
 
 /**
- * The Kindle-style "Aa" panel: theme, font, text size and density. Everything applies at once (the page behind is
+ * The Kindle-style "Aa" panel: theme, font, text size and spacing. Everything applies at once (the page behind is
  * the live preview), is stored per device, and has no sliders. The font chosen here is the same setting as
  * Settings > Appearance > Reading font: it styles articles, and "Also use it in lists and the sidebar" extends it to the
  * lists and the sidebar (Settings and menus keep the system font). It sits above every list (feeds, folders, Unread, All, Starred,
  * Search) and every article. Text spacing, an accessibility control, lives in Settings so it never looks like a
- * second density picker.
+ * second spacing picker.
  *
  * With a touch screen the panel is a short sheet along the bottom edge, no taller than 45% of the screen and with no
  * dimmed page, so the title and the first lines of the article above it show each change as it is made. A clear layer over

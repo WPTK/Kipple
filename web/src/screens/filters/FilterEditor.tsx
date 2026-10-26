@@ -480,7 +480,7 @@ function EditorForm({
           <p aria-hidden="true" hidden={!!whyNot} data-busy={previewStale || undefined} className={cn("min-w-0 flex-1 text-xs text-fg2", previewStale && "opacity-60")}>
             {d.terms.length === 0 ? "" : preview.data ? previewSummary(preview.data, d.action) : preview.status === "loading" ? "Checking…" : ""}
           </p>
-          <Button variant="ghost" onClick={closeFilterEditor} disabled={busy}>
+          <Button onClick={closeFilterEditor} disabled={busy}>
             Cancel
           </Button>
           <Button variant="solid" onClick={() => void save()} aria-describedby={whyNot ? whyId : undefined} disabled={busy || !ok || (apply && canApply && previewStale)}>

@@ -5,7 +5,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type C
 import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Check, CheckCheck, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, ListFilter, MoreVertical, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, ListFilter, MoreVertical, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
 import { createFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { ApiError, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
@@ -37,6 +37,7 @@ import { DESTINATIONS } from "@/lib/destinations";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { feedLabel } from "./feeds/FeedRowName";
 import { FeedLine, FolderLine } from "./feeds/RowLine";
+import { markAllLabel, MarkAllIcon } from "@/lib/itemActionTable";
 import { useItemActions } from "@/lib/itemActions";
 import { RevealMore, useReveal } from "@/lib/reveal";
 import { FavStar } from "@/ui/FavStar";
@@ -703,8 +704,8 @@ export function FeedsScreen() {
                   <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-48">
                     {fo.unread > 0 ? (
                       <DropdownMenu.Item className={menuItem} onSelect={() => void markFolderRead(fo)}>
-                        <CheckCheck className="size-5" aria-hidden="true" />
-                        Mark all as read
+                        <MarkAllIcon className="size-5" aria-hidden="true" />
+                        {markAllLabel({ view: "unread", folder: fo.id }, fo.unread)}
                       </DropdownMenu.Item>
                     ) : null}
                     <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "rename", folder: fo })}>

@@ -35,7 +35,7 @@ function partialCount(e: unknown): number {
 }
 
 /**
- * Today in the statistics time zone: the server's `range.to` of a cached week, month or year summary (never the "all"
+ * Today in the stats time zone: the server's `range.to` of a cached week, month or year summary (never the "all"
  * one, whose end can be a future date after a time zone change), else the browser's date. Never later than the
  * browser's tomorrow.
  */
@@ -51,7 +51,7 @@ function serverToday(qc: QueryClient): string {
 }
 
 const LATE_NOTE = "Reading from other devices that hasn't synced yet can still show up later.";
-const ZONE_NOTE = "Days follow the statistics time zone.";
+const ZONE_NOTE = "Days follow the stats time zone.";
 
 interface DialogProps {
   open: boolean;
@@ -92,8 +92,8 @@ function ExportBody({ onOpenChange, defaultRange }: { onOpenChange: (o: boolean)
     <Modal
       open
       onOpenChange={onOpenChange}
-      title="Export statistics"
-      description="Download your reading statistics as a file."
+      title="Export stats"
+      description="Download your reading stats as a file."
       footer={
         <>
           <Button onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -232,7 +232,7 @@ function DeleteRangeBody({ onOpenChange, onSettled }: { onOpenChange: (o: boolea
         onOpenChange(o);
       }}
       title="Delete a date range"
-      description="Deletes the statistics for these days. Your articles and read state stay."
+      description="Deletes the stats for these days. Your articles and read state stay."
       footer={
         <>
           <Button disabled={busy} onClick={() => onOpenChange(false)}>
@@ -300,15 +300,15 @@ function DeleteAllBody({ onOpenChange, onSettled }: { onOpenChange: (o: boolean)
         if (!o && busy) return;
         onOpenChange(o);
       }}
-      title="Delete all statistics"
-      description="Deletes all your statistics: reading time, opens, stars and shares. Your articles and read state stay. This can't be undone."
+      title="Delete all stats"
+      description="Deletes all your stats: reading time, opens, stars and shares. Your articles and read state stay. This can't be undone."
       footer={
         <>
           <Button disabled={busy} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button variant="danger" disabled={busy || !matches} onClick={() => void run()}>
-            {busy ? "Deleting…" : "Delete all statistics"}
+            {busy ? "Deleting…" : "Delete all stats"}
           </Button>
         </>
       }
@@ -362,12 +362,12 @@ export function StatsDataSection({ defaultRange }: { defaultRange: StatsRange })
   };
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs text-fg2">Export or delete what Kipple has recorded. Works with statistics on or off.</p>
+      <p className="text-xs text-fg2">Export or delete what Kipple has recorded. Works with stats on or off.</p>
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => setDlg("export")}>Export…</Button>
         <Button onClick={() => setDlg("range")}>Delete a date range…</Button>
         <Button variant="danger" onClick={() => setDlg("all")}>
-          Delete all statistics…
+          Delete all stats…
         </Button>
       </div>
       <StatsExportDialog open={dlg === "export"} onOpenChange={close} defaultRange={defaultRange} />

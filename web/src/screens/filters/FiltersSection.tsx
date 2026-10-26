@@ -100,11 +100,11 @@ function DeleteFilterDialog({ filter, onClose }: { filter: Filter; onClose: () =
     <Modal
       open
       onOpenChange={(o) => !o && !busy && onClose()}
-      title="Delete this filter?"
-      description={`“${filter.name}” stops running. Articles it already changed are not touched unless you choose so below.`}
+      title={`Delete “${filter.name}”?`}
+      description="It stops running. Articles it already changed are not touched unless you choose so below."
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+          <Button onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button variant="danger" onClick={() => void remove()} disabled={busy}>

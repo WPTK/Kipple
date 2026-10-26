@@ -6,7 +6,7 @@
 //
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and:
 //   K1  Edit feed: its yes/no options are checkboxes (none is a switch), and ticking one sends nothing until Save;
-//   K2  Import OPML and Export statistics: the options are checkboxes, 44 px tall rows on a phone;
+//   K2  Import OPML and Export stats: the options are checkboxes, 44 px tall rows on a phone;
 //   K3  New filter: Use this filter and the Options rows are all checkboxes, one control for the same job;
 //   K6  A checkbox row is one hit area (a tap in the box column or the gap toggles it), 44 px tall (56 px with Large targets),
 //       with the box centred on the text, at both widths;
@@ -71,7 +71,7 @@ await t.eachViewport(async (page, vp) => {
     await imp.waitFor({ state: "detached", timeout: 5000 });
     await page.goto("/settings/statistics", { waitUntil: "load" });
     await page.getByRole("button", { name: "Export…", exact: true }).click();
-    const exp = page.getByRole("dialog", { name: "Export statistics" });
+    const exp = page.getByRole("dialog", { name: "Export stats" });
     const titles = exp.getByRole("checkbox", { name: /^Include article titles and links/ });
     await titles.waitFor({ timeout: 10000 });
     check((await exp.getByRole("switch").count()) === 0, `${tag} K2 export`, "no switch in the export dialog", "a switch is in the export dialog");

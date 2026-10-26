@@ -81,7 +81,7 @@ function EditDialog({ search, onClose }: { search: SavedSearch; onClose: () => v
       title="Edit saved search"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+          <Button onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button variant="solid" onClick={() => void save()} disabled={busy || !name.trim() || !q.trim()}>
@@ -269,15 +269,15 @@ export function SavedSearchesSection() {
               setFailure(null);
             }
           }}
-          title="Delete this saved search?"
-          description={`"${deleting.name}" is removed from Favorites. Your articles are not touched.`}
+          title={`Delete “${deleting.name}”?`}
+          description="It is removed from Favorites. Your articles are not touched."
           footer={
             <>
-              <Button variant="ghost" onClick={() => setDeleting(null)} disabled={busy}>
+              <Button onClick={() => setDeleting(null)} disabled={busy}>
                 Cancel
               </Button>
               <Button variant="danger" onClick={() => void remove()} disabled={busy}>
-                {busy ? "Deleting" : "Delete"}
+                {busy ? "Deleting" : "Delete saved search"}
               </Button>
             </>
           }

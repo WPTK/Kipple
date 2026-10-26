@@ -489,7 +489,7 @@ export function StatsScreen() {
     body = (
       <div className="py-8">
         <EmptyState
-          title="Statistics are off"
+          title="Stats are off"
           why="Kipple isn't recording what you read, so there is nothing to show."
           action={
             <Link to="/settings/statistics" className="text-link underline underline-offset-2">
@@ -500,7 +500,7 @@ export function StatsScreen() {
       </div>
     );
   } else if (q.isPending) {
-    body = <Skeleton rows={5} label="Loading statistics" />;
+    body = <Skeleton rows={5} label="Loading stats" />;
   } else if (q.isError && !data) {
     body = <FailedBlock what="Stats" error={q.error} busy={q.isFetching} onRetry={() => void q.refetch()} />;
   } else if (data) {

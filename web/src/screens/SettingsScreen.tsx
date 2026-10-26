@@ -87,6 +87,16 @@ function ScopeMark({ scope }: { scope: Scope }) {
   return <span className="inline-block self-start rounded-full border border-line px-2 py-0.5 text-xs text-fg2">{SCOPE_LABELS[scope]}</span>;
 }
 
+/** One setting with its own scope mark, in a section that holds settings of both kinds. */
+function Scoped({ scope, children }: { scope: Scope; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <ScopeMark scope={scope} />
+      {children}
+    </div>
+  );
+}
+
 function Section({ title, scope, children }: { title: string; scope?: Scope; children: ReactNode }) {
   const id = useId();
   const Heading = useContext(SectionLevel) === 3 ? "h3" : "h2";
@@ -412,24 +422,28 @@ function AppearancePage() {
         </Link>
       </Section>
 
-      <Section title="Articles" scope="device">
-        <Segmented<ArticleWidth>
-          legend="Article width"
-          hint="How wide the text of an article is. Full uses the whole pane."
-          value={dp.articleWidth}
-          onChange={(articleWidth) => updateDevicePrefs({ articleWidth })}
-          options={ARTICLE_WIDTHS.map((w) => ({ value: w, label: ARTICLE_WIDTH_LABELS[w] }))}
-        />
-        <Segmented<LinkTarget>
-          legend="Open links in"
-          hint="Same tab lets a link that an installed app claims open in the app, and Back returns here."
-          value={resolveLinkTarget(dp.linkTarget)}
-          onChange={(linkTarget) => updateDevicePrefs({ linkTarget })}
-          options={[
-            { value: "new", label: "New tab" },
-            { value: "same", label: "Same tab" },
-          ]}
-        />
+      <Section title="Articles">
+        <Scoped scope="device">
+          <Segmented<ArticleWidth>
+            legend="Article width"
+            hint="How wide the text of an article is. Full uses the whole pane."
+            value={dp.articleWidth}
+            onChange={(articleWidth) => updateDevicePrefs({ articleWidth })}
+            options={ARTICLE_WIDTHS.map((w) => ({ value: w, label: ARTICLE_WIDTH_LABELS[w] }))}
+          />
+        </Scoped>
+        <Scoped scope="device">
+          <Segmented<LinkTarget>
+            legend="Open links in"
+            hint="Same tab lets a link that an installed app claims open in the app, and Back returns here."
+            value={resolveLinkTarget(dp.linkTarget)}
+            onChange={(linkTarget) => updateDevicePrefs({ linkTarget })}
+            options={[
+              { value: "new", label: "New tab" },
+              { value: "same", label: "Same tab" },
+            ]}
+          />
+        </Scoped>
         <ServerPart groups={[{ id: "reading" }]} inline rowScope="all" />
       </Section>
 

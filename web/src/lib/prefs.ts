@@ -18,7 +18,7 @@ export const STEP_LABELS: Record<Step, string> = {
 export const TEXT_SIZES = [0.875, 1, 1.125, 1.25, 1.5] as const;
 export const TEXT_SIZE_LABELS = ["Small", "Default", "Large", "Larger", "Largest"] as const;
 
-/** Text spacing (WCAG 1.4.12): Default follows the Density step; Less and More override it. Stored ids are unchanged. */
+/** Text spacing (WCAG 1.4.12): Default follows the Spacing step; Less and More override it. Stored ids are unchanged. */
 export const SPACINGS = ["snug", "normal", "roomy"] as const;
 export type Spacing = (typeof SPACINGS)[number];
 export const SPACING_LABELS: Record<Spacing, string> = { snug: "Less", normal: "Default", roomy: "More" };
@@ -35,7 +35,7 @@ export interface Prefs {
   /** Also use the reading font for lists, the sidebar and the rest of the app (off: only articles use it). */
   fontEverywhere: boolean;
   textSize: number;
-  /** One "Density" choice drives both by default; "Adjust separately" splits them. */
+  /** One "Spacing" choice drives both by default; "Adjust separately" splits them. */
   listDensity: Step;
   readingDensity: Step;
   adjustSeparately: boolean;
@@ -110,7 +110,7 @@ export const prefsStore = createStore<Prefs>(load());
 export function updatePrefs(patch: Partial<Prefs>): void {
   prefsStore.set((p) => {
     const next = { ...p, ...patch };
-    // One Density choice drives both unless "Adjust separately" is on.
+    // One Spacing choice drives both unless "Adjust separately" is on.
     if (!next.adjustSeparately) {
       if (patch.listDensity && !patch.readingDensity) next.readingDensity = patch.listDensity;
       if (patch.readingDensity && !patch.listDensity) next.listDensity = patch.readingDensity;

@@ -24,13 +24,13 @@ export const LAYOUT_LABELS: Record<LayoutId, string> = {
  * one line at the narrowest phone width (the menu is 288 px wide there); it wraps rather than cuts when text is larger.
  */
 export const LAYOUT_HINTS: Record<LayoutId, string> = {
-  magazine: "Big lead picture, large titles",
-  cards: "A grid of picture cards",
-  compact: "Source over title, no pictures",
-  inbox: "Source, title and a preview",
-  headlines: "One line per article, titles only",
-  gazette: "Newspaper-style pages",
-  digest: "Sections by folder, feed or reading time, a few articles each",
+  magazine: "For browsing with pictures",
+  cards: "For picking by picture",
+  compact: "For scanning many sources",
+  inbox: "For working through a queue",
+  headlines: "For catching up fast",
+  gazette: "For a sit-down read in pages",
+  digest: "For a quick pass by section",
 };
 
 export type DigestSections = "folder" | "feed" | "length";

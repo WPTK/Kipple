@@ -178,7 +178,7 @@ describe("delete all statistics", () => {
     const m = mockFetch({ "POST /api/stats/delete": () => json({ count: 12, deleted: 12 }) });
     const settled = vi.fn();
     wrap(<DeleteAllDialog open onOpenChange={() => {}} onSettled={settled} />);
-    const btn = screen.getByRole("button", { name: "Delete all statistics" });
+    const btn = screen.getByRole("button", { name: "Delete all stats" });
     expect(screen.getByText(/Your articles and read state stay/)).toBeInTheDocument();
     expect(btn).toBeDisabled();
     const input = screen.getByLabelText(/Type DELETE ALL/);
@@ -199,7 +199,7 @@ describe("delete all statistics", () => {
     const close = vi.fn();
     wrap(<DeleteAllDialog open onOpenChange={close} onSettled={() => {}} />);
     await user.type(screen.getByLabelText(/Type DELETE ALL/), "DELETE ALL");
-    await user.click(screen.getByRole("button", { name: "Delete all statistics" }));
+    await user.click(screen.getByRole("button", { name: "Delete all stats" }));
     expect(await screen.findByText("Kipple's server had a problem.")).toBeInTheDocument();
     expect(close).not.toHaveBeenCalled();
   });

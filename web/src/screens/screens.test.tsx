@@ -209,13 +209,13 @@ describe("Article view", () => {
     closeFilterEditor();
   });
 
-  it("offers Manage this feed in the open article's More menu, opening the editor for its feed (#97)", async () => {
+  it("offers Edit feed in the open article's More menu, opening the editor for its feed (#97)", async () => {
     routes();
     go("/i/1001?from=unread");
     const bar = await screen.findByRole("toolbar", { name: "Article actions" });
     const user = userEvent.setup();
     await user.click(within(bar).getByRole("button", { name: "More actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage this feed" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit feed" }));
     expect(feedEditorStore.get()).toBe("1");
     feedEditorStore.set(null);
   });

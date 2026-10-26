@@ -10,7 +10,7 @@ were resolved in round 2 and what shipped; each is annotated below.
   and enabling any option must never break anything else.
 - Implement everything the research file lists for **phase 2 and phase 3**, including read-aloud,
   `prefers-contrast`, reduced motion, text scaling, focus and semantics, live region for new items.
-- More **density** options than the three presets (TODO, resolved: Dense, Snug, Standard, Relaxed and Airy steps, see
+- More **spacing** options than the three presets (TODO, resolved: Dense, Snug, Standard, Relaxed and Airy steps, see
   Round 2).
 - Font: add **Atkinson Hyperlegible Next** as a font option, labelled "Easy to read". OpenDyslexic is
   dropped (weak evidence). Font file size is not a concern.
@@ -39,7 +39,7 @@ were resolved in round 2 and what shipped; each is annotated below.
 - Must be iOS compliant in the least annoying way (nothing starting in the left ~24 px; no fighting Safari's
   back gesture; every gesture has a button).
 - Haptics not needed; visual snap plus **undo toast** is approved.
-- **Row swipe: full swipe with undo. Swipe left = mark read, swipe right = mark unread.** (Star: a row button, a swipe and the row menu.)
+- **Row swipe:** swipe right toggles read and unread; swipe left reveals Star and More; a full swipe left stars. Each commits with undo. (Star also has a row button and the row menu.)
 - **Article swipe: swipe back to the previous screen** (the article list you came from, not always the feed
   list), i.e. drill-in navigation stack. Keep next/previous **buttons**.
 - Keys: **no single-key shortcuts** (owner decision, final). Keyboard use is Tab order, the list's one Tab stop,
@@ -136,8 +136,8 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
 - Layout is choosable **per feed and per folder** (override), plus a global/device default. UI in phase 2.
 - A folder's layout override applies to its subfolders and their feeds too; the nearest override up the tree wins
   (feed, then its folder, then each folder above, then the device default).
-- Density: the owner doubts sliders. Use **named steps in a segmented picker with a live preview**
-  (Dense / Snug / Standard / Relaxed / Airy). One "Density" choice drives both list rows and reading text;
+- Spacing: the owner doubts sliders. Use **named steps in a segmented picker with a live preview**
+  (Dense / Snug / Standard / Relaxed / Airy). One "Spacing" choice drives both list rows and reading text (Cards and Gazette keep their own list spacing, and the help text says so);
   an "Adjust separately" disclosure splits them. No sliders, no "link" toggle. Must not look messy.
 
 ### Folders (nested, #209)
@@ -169,8 +169,8 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
   return to the list on a wide screen is undecided (asked in `docs/maintainers/uat-plan.md`, "Open questions for the
   owner"). Record the answer here.
 - **Swipe directions match iOS Mail everywhere** (this supersedes round 1's "read left, unread right"):
-  swipe right (leading) = toggle read/unread; swipe left (trailing) = star, plus a "More" action opening the
-  row menu. Full swipe commits with undo. Star also has a row button and the long-press menu.
+  swipe right (leading) = toggle read/unread; swipe left (trailing) reveals Star and More (the row menu), and a
+  full swipe left stars. A full swipe commits with undo. Star also has a row button and the long-press menu.
 - Undo toast lasts **15 seconds** from when the change is saved (merged toast). The Undo button undoes the newest change, up to 20
   changes back within 60 s (bulk marks 2 minutes), waiting for one that is still saving; the full model is
   docs/design.md §7.11.

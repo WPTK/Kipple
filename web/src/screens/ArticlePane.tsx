@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { browserOnlineStore } from "@/lib/offlineState";
 import { useStore } from "@/lib/store";
 import { Link, useLocation, useNavigate } from "react-router";
+import { actionLabel } from "@/lib/itemActionTable";
 import { BellOff, ChevronDown, ChevronLeft, ChevronUp, ExternalLink, FileCheck, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
 import { ApiError, failed as failedToast } from "@/api/client";
 import { useFulltext, useItem, useOpenItem, useToggleStar } from "@/api/queries";
@@ -587,11 +588,11 @@ function Toolbar(p: ToolbarProps) {
           <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
             <DropdownMenu.Item onSelect={p.onRead}>
               {p.a?.read ? <Mail className="size-5" aria-hidden="true" /> : <MailOpen className="size-5" aria-hidden="true" />}
-              {p.a?.read ? "Mark as unread" : "Mark as read"}
+              {actionLabel("read", { on: p.a?.read })}
             </DropdownMenu.Item>
             <DropdownMenu.Item onSelect={p.onManageFeed}>
               <Rss className="size-5" aria-hidden="true" />
-              Manage this feed
+              Edit feed
             </DropdownMenu.Item>
             <DropdownMenu.Item onSelect={p.onOriginal}>
               <ExternalLink className="size-5" aria-hidden="true" />

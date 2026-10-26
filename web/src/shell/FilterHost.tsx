@@ -24,7 +24,7 @@ export function FilterEditorHost() {
   );
 }
 
-/** The feed editor opened from an article's "Manage this feed" menu action, through `openFeedEditor`. */
+/** The feed editor opened from an article's "Edit feed" menu action, through `openFeedEditor`. */
 export function FeedEditorHost() {
   const feedId = useStore(feedEditorStore);
   const boot = useBootstrap();

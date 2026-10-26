@@ -417,7 +417,7 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupReading, Kind: "enum", Options: fontOptions(), Surface: surfaceReader, check: checkFont},
 	{Key: "ui.reading_density", Label: "Spacing", Description: "How tightly lines are spaced and how wide the text column is.",
 		Group: groupReading, Kind: "enum", Options: stepOptions(), Surface: surfaceReader, check: checkDensity},
-	{Key: "ui.list_density", Label: "List spacing", Description: "How tightly the article lists are spaced.",
+	{Key: "ui.list_density", Label: "Spacing", Description: "How tightly the article lists are spaced. Cards and Gazette keep their own spacing.",
 		Group: groupReading, Kind: "enum", Options: stepOptions(), Surface: surfaceSettings, check: checkDensity},
 
 	// Settings screen: reading extras.

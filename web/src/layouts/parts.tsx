@@ -3,6 +3,7 @@ import { BellOff, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, 
 import type { Card, Feed, Scope } from "@/api/types";
 import { closeRowMenu, rowMenuStore } from "@/gestures/rowMenu";
 import { cn } from "@/lib/cn";
+import { actionLabel, markRangeLabel } from "@/lib/itemActionTable";
 import { takeImageSlot } from "@/lib/imageSlots";
 import { relativeTime } from "@/lib/format";
 import { useStore } from "@/lib/store";
@@ -272,17 +273,17 @@ export function RowMenu({
             <>
               <DropdownMenu.Item className={menuItem} onSelect={() => actions.toggleRead(item)}>
                 {item.read ? <Mail className="size-5" aria-hidden="true" /> : <MailOpen className="size-5" aria-hidden="true" />}
-                {item.read ? "Mark as unread" : "Mark as read"}
+                {actionLabel("read", { on: item.read })}
               </DropdownMenu.Item>
               {ranges ? (
                 <>
                   <DropdownMenu.Item className={menuItem} disabled={actions.noRange} onSelect={() => actions.markAbove(item)}>
                     <MoveUp className="size-5" aria-hidden="true" />
-                    Mark above as read
+                    {markRangeLabel("above")}
                   </DropdownMenu.Item>
                   <DropdownMenu.Item className={menuItem} disabled={actions.noRange} onSelect={() => actions.markBelow(item)}>
                     <MoveDown className="size-5" aria-hidden="true" />
-                    Mark below as read
+                    {markRangeLabel("below")}
                   </DropdownMenu.Item>
                 </>
               ) : null}
@@ -295,7 +296,7 @@ export function RowMenu({
           <DropdownMenu.Separator className="my-1 h-px bg-line" />
           <DropdownMenu.Item className={menuItem} onSelect={() => actions.manageFeed(item)}>
             <Rss className="size-5" aria-hidden="true" />
-            Manage this feed
+            Edit feed
           </DropdownMenu.Item>
           <DropdownMenu.Item className={menuItem} onSelect={() => actions.openOriginal(item)}>
             <ExternalLink className="size-5" aria-hidden="true" />
