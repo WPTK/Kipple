@@ -23,7 +23,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium } from "@playwright/test";
-import { startSelect } from "./common.mjs";
+import { poll, startSelect } from "./common.mjs";
 
 const require = createRequire(import.meta.url);
 const setupError = (m) => {
@@ -147,7 +147,7 @@ async function settle(page, fn, ms = 10000) {
   do {
     b = await boot(page);
     if (fn(b)) return { b, ok: true };
-    await page.waitForTimeout(250);
+    await poll(250); // the gap between two reads of the server, not a guess about the page
   } while (Date.now() < end);
   return { b, ok: false };
 }
