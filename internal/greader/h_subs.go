@@ -20,8 +20,6 @@ const (
 	stateReadingList = "user/-/state/com.google/reading-list"
 	stateStarred     = "user/-/state/com.google/starred"
 	stateRead        = "user/-/state/com.google/read"
-	stateUnread      = "user/-/state/com.google/unread"
-	stateKeptUnread  = "user/-/state/com.google/kept-unread"
 	labelPrefix      = "user/-/label/"
 )
 

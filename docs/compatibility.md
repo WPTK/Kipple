@@ -112,7 +112,7 @@ and `content.content` (both the article HTML), `categories` (`reading-list`, the
 `user/<any user id>/…` is the same as `user/-/…`. `it` keeps only items in a state stream and `xt` drops them (`read`,
 `unread`, `kept-unread`, `starred`); both repeat and combine. `ot` and `nt` are Unix seconds: `ot` returns items crawled
 from two minutes before it (so a client clock that is slightly ahead loses nothing), `nt` items crawled at or before
-it. `c` is the `continuation` of the previous page. `r=o` lists oldest first.
+it. A value of 0 for `nt` or `c` means absent. `c` is the `continuation` of the previous page. `r=o` lists oldest first.
 
 **Item ids** may be sent in any of these forms, mixed in one request: `tag:google.com,2005:reader/item/<hex>` (padded
 to 16 digits or not), 16 bare hex digits, decimal, or `0x<hex>`. An id that cannot be parsed is skipped.

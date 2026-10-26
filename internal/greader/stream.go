@@ -118,8 +118,57 @@ const (
 	maxContentsN = 1000
 )
 
-// pageParams parses n, r, c, ot and nt (design §3, §6.5). c must be all digits
-// or it is ignored; n is clamped to [1, maxN], defaulting to 20.
+// streamID returns the s= stream id and its raw form; stream/contents also
+// accepts the stream as a path suffix when s is absent.
+func (c *call) streamID() (sid, raw string) {
+	sid, raw = c.p.Get("s"), firstOrEmpty(c.p.AllRaw("s"))
+	if rest := strings.TrimPrefix(c.name, "stream/contents"); rest != c.name && sid == "" {
+		if path := strings.TrimPrefix(rest, "/"); path != "" {
+			sid = pathStream(path)
+			raw = sid
+		}
+	}
+	return sid, raw
+}
+
+// streamFilter resolves the request's stream (design §6.4).
+func (c *call) streamFilter() (store.StreamFilter, error) {
+	sid, raw := c.streamID()
+	return c.resolveStream(sid, raw)
+}
+
+// streamReq is the shared start of stream/items/ids and stream/contents: the
+// stream filter with it/xt states applied and the hold cut set, plus the page.
+func (c *call) streamReq(maxN int) (store.StreamFilter, store.IDPage, error) {
+	f, err := c.streamFilter()
+	if err != nil {
+		return f, store.IDPage{}, err
+	}
+	f = applyStates(f, c.p.All("it"), c.p.All("xt"))
+	page := c.pageParams(maxN)
+	f.HoldCut = c.a.holdCut()
+	return f, page, nil
+}
+
+// maxSeconds clamps ot and nt to year 2100 so the microsecond arithmetic cannot overflow.
+const maxSeconds = 4102444800
+
+// unixSeconds parses an ot or nt value: all digits, else ok is false. A value
+// too large for int64 clamps to maxSeconds.
+func unixSeconds(s string) (secs int64, ok bool) {
+	if !allDigits(s) {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return maxSeconds, true
+	}
+	return min(n, maxSeconds), true
+}
+
+// pageParams parses n, r, c, ot and nt (design §3, §6.5). c and nt must be all
+// digits or they are ignored; 0 is also no cursor and no upper bound, as in the
+// reference servers. n is clamped to [1, maxN], defaulting to 20.
 func (c *call) pageParams(maxN int) store.IDPage {
 	p := store.IDPage{N: defaultN}
 	if n, err := strconv.Atoi(c.p.Get("n")); err == nil && n > 0 {
@@ -129,32 +178,20 @@ func (c *call) pageParams(maxN int) store.IDPage {
 		p.N = maxN
 	}
 	p.Asc = c.p.Get("r") == "o"
-	p.UserChanges = c.a.db.BoolSetting(c.r.Context(), "greader.ot_includes_user_changes", false)
 	if s := c.p.Get("c"); allDigits(s) {
-		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil && n > 0 {
 			p.Cont, p.HasCont = n, true
 		}
 	}
-	// Seconds beyond year 2100 are clamped so the microsecond arithmetic cannot overflow.
-	const maxSeconds = 4102444800
-	if s := c.p.Get("ot"); allDigits(s) {
-		if n, err := strconv.ParseInt(s, 10, 64); err == nil || len(s) > 10 {
-			p.OT, p.HasOT = min(n, maxSeconds), true
-			if err != nil {
-				p.OT = maxSeconds
-			}
-		}
+	p.OT, p.HasOT = unixSeconds(c.p.Get("ot"))
+	if p.HasOT { // the setting only shapes the ot query
+		p.UserChanges = c.a.db.BoolSetting(c.r.Context(), "greader.ot_includes_user_changes", false)
 	}
-	if s := c.p.Get("nt"); allDigits(s) {
-		if n, err := strconv.ParseInt(s, 10, 64); err == nil || len(s) > 10 {
-			p.NT, p.HasNT = min(n, maxSeconds), true
-			if err != nil {
-				p.NT = maxSeconds
-			}
-		}
+	if nt, ok := unixSeconds(c.p.Get("nt")); ok && nt > 0 {
+		p.NT, p.HasNT = nt, true
 	}
 	if (p.HasOT && p.OT == maxSeconds) || (p.HasNT && p.NT == maxSeconds) {
-		// Seconds are the unit (design §3); a millisecond value lands here and matches nothing.
+		// Seconds are the unit (design §3); a millisecond value lands here: a clamped ot matches nothing, a clamped nt bounds nothing.
 		c.a.log.Warn("greader: ot/nt beyond year 2100 clamped; expected unix seconds", "ot", c.p.Get("ot"), "nt", c.p.Get("nt"))
 	}
 	return p

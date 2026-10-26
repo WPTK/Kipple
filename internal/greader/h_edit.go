@@ -56,12 +56,7 @@ func (c *call) editTag() {
 	if len(raw) > maxEditIDs {
 		raw = raw[:maxEditIDs] // process the first maxEditIDs, still 200 (never wedge a client's queue)
 	}
-	ids := make([]int64, 0, len(raw))
-	for _, v := range raw {
-		if id, ok := ParseItemID(v); ok {
-			ids = append(ids, id)
-		}
-	}
+	ids := c.parseItemIDs(raw)
 	c.warnNoIDs(len(ids))
 	ops := tagOps(c.p.All("a"), c.p.All("r"))
 	if len(ids) == 0 || len(ops) == 0 {
@@ -137,7 +132,7 @@ const maxEditIDs = 10000
 func idStrings(ids []int64) []string {
 	out := make([]string, len(ids))
 	for i, id := range ids {
-		out[i] = strconv.FormatInt(id, 10)
+		out[i] = FormatDecimal(id)
 	}
 	return out
 }
@@ -172,7 +167,7 @@ func normalizeTS(s string) (us int64, ok bool) {
 // read, broadcast and unknown streams are no-ops.
 func (c *call) markAllAsRead() {
 	ctx := c.r.Context()
-	f, err := c.resolveStream(c.p.Get("s"), firstOrEmpty(c.p.AllRaw("s")))
+	f, err := c.streamFilter()
 	if err != nil {
 		c.serverError("mark-all-as-read", err)
 		return
