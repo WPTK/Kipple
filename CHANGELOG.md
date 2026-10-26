@@ -17,9 +17,9 @@ Changes not yet in a release are one file each in [`changes/`](changes/); they a
 ### Changed
 
 - Reading appearance: the theme choice is named Follow system, the smallest text size Small, and the Settings section Reading appearance. (#652)
-- Reader: on a phone, Reading appearance opens as a short sheet with the start of the article still in view; a tap above it closes it. Beside an open article it is only in the article toolbar. (#652)
+- Reader: on a touch screen, Reading appearance opens as a short sheet with the start of the article still in view; a tap above it closes it. Beside an open article it is only in the article toolbar. (#652)
 - Feeds: the header has Edit, Add feed and a feed actions menu; while editing it has the saved note, Done and the menu. The menu groups its items under Organize and Files. (#668)
-- Feeds: a folder's dialog is titled Folder settings, and an empty folder says Empty in place of an unread count. (#672)
+- Feeds: a folder's dialog is titled Folder settings, an empty folder says Empty in place of an unread count, and read folders are no longer dimmed. (#672)
 - Feed health: the selection bar has Retry now, which fetches the selected feeds one by one and says how many still fail. Delete is red on the selection bars of Feed health and Feeds, and the Feeds bar says Move. (#673)
 - Feeds: edit mode has a Show move buttons link beside the reordering help, and hides Add feed until Done. (#675)
 - Feeds: the menu items are Import feeds from a file (OPML) and Export feeds to a file (OPML). The import dialog's file picker looks like the other controls and its days field says what it does. (#676)
@@ -33,17 +33,17 @@ Changes not yet in a release are one file each in [`changes/`](changes/); they a
 
 ### Fixed
 
-- Feed health: turning Select on no longer moves the feed names. (#673)
-- Your year: with large text the Share sheet's buttons stack instead of running off the edge. (#691)
+- Feed health: turning Select on no longer moves the feed names in the table. (#673)
+- Your year: with large text the Share sheet's buttons stack and stay inside the window. (#691)
 - Add feed: Options stays open while the title is too long. (#735)
-- Feeds: a folder's note about one failing feed says when Kipple tries it again. (#735)
+- Folder list: a folder's note about one failing feed says when Kipple tries it again. (#735)
 - List header: with Large targets or a larger text size, its controls wrap to a second line in a narrow list column. (#757)
 - Reader: a picture given only a width keeps its own shape when capped, and a caption starts under its picture. (#757)
 - Reader: the feed name line above a right-to-left article sits on the right with its title. (#649)
 - Reader: a code block or table that overflows only at a larger text size can be reached with the keyboard. (#757)
 - Reader: a table cell of running text keeps a few words to a line on a phone, and the table scrolls sideways. (#757)
-- Feed health: a failing feed's card shows the last-success and next-fetch times once, not twice. (#759)
-- Stats: the activity chart for a long range starts at the first day with reading and, past about four months, shows one bar per week, so a year no longer draws as a line at the right edge. (#779)
+- Feed health: the last-success and next-fetch times show in one place on a failing feed's card. (#759)
+- Stats: the activity chart for a long range starts at the first day with reading and, past about four months, shows one bar per week. (#779)
 
 ## [1.5.0] - 2026-10-25
 
