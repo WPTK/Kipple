@@ -1,6 +1,6 @@
 import { useEffect, useState, type RefObject } from "react";
 import { gestureLock } from "./lock";
-import { PULL, PullTracker } from "./tracking";
+import { PullTracker } from "./tracking";
 import { useLatestRef } from "@/lib/useLatestRef";
 
 export interface PullState {
@@ -79,5 +79,3 @@ export function usePullToRefresh(
 
   return state;
 }
-
-export { PULL };

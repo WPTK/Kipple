@@ -33,7 +33,7 @@ const UPLOAD_FAILED = "The upload was refused or interrupted. Check that the ser
 const uploadGone = (e: unknown): boolean => e instanceof ApiError && (e.code === "restore_replaced" || e.code === "no_upload");
 
 /** How often the page asks the server whether its check of the backup is done. */
-export const CHECK_POLL_MS = 2000;
+const CHECK_POLL_MS = 2000;
 
 /** pick: choosing a file. sending: the upload runs. waiting: the server holds an upload (receiving or checking it). review: a backup is ready to confirm. */
 type View = "pick" | "sending" | "waiting" | "review";

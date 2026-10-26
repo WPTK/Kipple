@@ -29,7 +29,7 @@ export function focusOrigin(el: Element | null): HTMLElement | null {
  * page. `onClosed` runs once focus is back: a change that takes the opener off the page (the editor muting the article
  * whose row opened it) waits for it, so the list can hand focus on from there.
  */
-export function useReturnFocus(open: boolean, onClosed?: () => void) {
+function useReturnFocus(open: boolean, onClosed?: () => void) {
   const [wasOpen, setWasOpen] = useState(false);
   const [places, setPlaces] = useState<HTMLElement[]>([]);
   if (open !== wasOpen) {

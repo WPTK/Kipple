@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { accessControlUrl, isResizeObserverNotice, unloadRefusal } from "./common.mjs";
+import { accessControlUrl, animationsTimeout, isResizeObserverNotice, unloadRefusal, waitForStillFor } from "./common.mjs";
 
 // What Playwright's WebKit driver hands to `pageerror` for a console error: its splitErrorMessage cuts the text at the
 // first colon, the part before is the name and the part from two characters after it is the message.
@@ -105,5 +105,23 @@ describe("isResizeObserverNotice", () => {
     expect(isResizeObserverNotice(new Error("ResizeObserver loop limit exceeded"))).toBe(false);
     expect(isResizeObserverNotice(new Error("x ResizeObserver loop completed with undelivered notifications. y"))).toBe(false);
     expect(isResizeObserverNotice(new TypeError("Cannot read properties of undefined"))).toBe(false);
+  });
+});
+
+describe("waitForStillFor", () => {
+  it("returns the value once it has held for the time", async () => {
+    let n = 0;
+    const v = await waitForStillFor(null, 120, () => (n++ < 3 ? n : 99));
+    expect(v).toBe(99);
+  });
+  it("throws with the values seen when it keeps changing", async () => {
+    let n = 0;
+    await expect(waitForStillFor(null, 500, () => n++, 300)).rejects.toThrow(/hold still for 500 ms, last values: \d+ -> \d+/);
+  });
+});
+
+describe("animationsTimeout", () => {
+  it("says what the last poll saw, not that nothing was running", () => {
+    expect(animationsTimeout(3000, ["opacity", "fade", "x", "y", "z", "w"])).toBe("waited 3000 ms for animations and transitions to finish, but the last poll still saw 6: opacity, fade, x, y, z");
   });
 });

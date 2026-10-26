@@ -62,7 +62,7 @@ const readerScroll = async (page, px) => {
 /** Turns the page to `w` x `h` and waits well past the mark-on-scroll settle (700 ms). */
 const turn = async (page, w, h) => {
   await page.setViewportSize({ width: w, height: h });
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(2000); // real time: must outlast the 700 ms mark-on-scroll settle, which has no DOM signal
 };
 
 await t.eachViewport(async (page, vp) => {

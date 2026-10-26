@@ -23,7 +23,7 @@ export interface About {
   last_version?: string;
 }
 
-export const aboutKey = ["about"] as const;
+const aboutKey = ["about"] as const;
 
 export function useAbout() {
   return useQuery({

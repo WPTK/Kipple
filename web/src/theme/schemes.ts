@@ -1,7 +1,7 @@
 import data from "./schemes.json" with { type: "json" };
 
-export type SchemeKind = "light" | "dark";
-export type SchemeGroup = "light" | "color" | "dark" | "accessibility";
+type SchemeKind = "light" | "dark";
+type SchemeGroup = "light" | "color" | "dark" | "accessibility";
 
 export interface Tokens {
   bg: string;
@@ -37,7 +37,7 @@ export interface Scheme {
 }
 
 export const SCHEMES = data as Scheme[];
-export const SCHEME_IDS = SCHEMES.map((s) => s.id);
+const SCHEME_IDS = SCHEMES.map((s) => s.id);
 
 export const DEFAULT_DAY = "paper";
 export const DEFAULT_NIGHT = "midnight";

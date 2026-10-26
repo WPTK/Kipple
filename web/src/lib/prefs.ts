@@ -1,7 +1,6 @@
 import { createStore } from "./store";
 import { fontById, isFontId, type FontId } from "./fonts";
 
-export type { FontId };
 
 // Per-device appearance and behavior. The server's device profile is the truth (lib/deviceSync.ts);
 // localStorage is the instant-paint cache of it.

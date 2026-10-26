@@ -9,7 +9,6 @@ package testseed
 import (
 	"bufio"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -35,24 +34,6 @@ func Lines(path string) []string {
 			}
 		}
 		out = append(out, l)
-	}
-	return out
-}
-
-// Files returns the contents of every regular file in dir (not recursive), in name order, skipping README files.
-func Files(dir string) [][]byte {
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var out [][]byte
-	for _, e := range ents {
-		if e.IsDir() || strings.HasPrefix(strings.ToLower(e.Name()), "readme") {
-			continue
-		}
-		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil {
-			out = append(out, b)
-		}
 	}
 	return out
 }

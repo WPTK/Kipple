@@ -78,4 +78,4 @@ export function useResolvedLayout(scope: Scope): { layout: ListLayout; ctx: Layo
   return { layout: scope.q ? results : getLayout(scope.after ? "digest" : resolveLayout(dp, ctx)), ctx };
 }
 
-export type { ListLayout, PageProps, RowProps, RowMenuActions } from "./types";
+export type { ListLayout, PageProps, RowMenuActions } from "./types";

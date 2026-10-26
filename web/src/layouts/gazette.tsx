@@ -296,7 +296,7 @@ function Story({ slot: planned, item, heading: H, to, onOpen, actions, phone, se
 }
 
 /** A list narrower than this (a phone, or the column beside the reader pane) gets the phone page. */
-export const PHONE_BELOW = 600;
+const PHONE_BELOW = 600;
 
 /**
  * The Gazette as a list layout: it plans the loaded list and draws the pages. The edition's date is the time the list

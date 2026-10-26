@@ -58,7 +58,7 @@ await t.eachViewport(async (page, vp) => {
     await page.getByTestId("article-body").waitFor({ timeout: 15000 });
     // The service worker controls the page, as it does for a reader: the beacon has to get past it.
     check(await page.evaluate(() => !!navigator.serviceWorker?.controller), `${tag} worker`, "the service worker controls the page", "no service worker controls the page, so the check below would not cover it");
-    await page.waitForTimeout(12500);
+    await page.waitForTimeout(12500); // real time: the flow reads active reading seconds, which only pass on the clock
     await leave();
     // The beacon is delivered by the browser after the unload (0.5 to 2 s): wait until the totals have been still for 3 s.
     return (await settled(3000, 15000)) - before;

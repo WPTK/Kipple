@@ -115,7 +115,7 @@ export function buildPath(path: string, params?: RequestOptions["params"]): stri
 }
 
 /** How long a request keeps retrying while the server answers 503 maintenance (a search-index rebuild, up to 45 s). */
-export const MAINTENANCE_WAIT_MS = 60_000;
+const MAINTENANCE_WAIT_MS = 60_000;
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {

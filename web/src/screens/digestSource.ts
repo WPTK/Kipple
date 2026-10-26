@@ -29,7 +29,7 @@ export const FIRST_SECTIONS = 6;
 /** Sections asked for each time the end of the page comes near. */
 export const STEP_SECTIONS = 4;
 /** Cards a section's request returns: one "N more" batch, so a press needs at most one more request. */
-export const SECTION_PAGE = EXPAND_BATCH;
+const SECTION_PAGE = EXPAND_BATCH;
 
 /** What a Digest page remembers about a list while the app runs: how far it has loaded, which sections were opened out. */
 interface Place {
@@ -120,7 +120,7 @@ export interface SectionResult {
 }
 
 /** The list a section is: its view, and the folder, feed or reading length it is (a length of the section replaces the list's). */
-export const sectionScope = (scope: Pick<Scope, "view" | "length" | "after">, s: { scope: Section["scope"] }): Scope => ({
+const sectionScope = (scope: Pick<Scope, "view" | "length" | "after">, s: { scope: Section["scope"] }): Scope => ({
   view: scope.view,
   length: scope.length,
   ...(scope.after ? { after: scope.after } : {}),

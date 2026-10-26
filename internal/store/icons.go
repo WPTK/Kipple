@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/WPTK/kipple/internal/feedurl"
 )
 
 // IconJob is one feed due for a favicon lookup (design §4.11), with the
@@ -53,7 +55,7 @@ func IconSiteKey(siteURL, feedURL string) string {
 // unless that is 80 or 443.
 func hostKey(raw string) string {
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if err != nil || !feedurl.IsHTTP(u) {
 		return ""
 	}
 	h := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")

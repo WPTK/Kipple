@@ -1,6 +1,6 @@
 #requires -Version 7.2
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
-# Tests for the target selection of scripts/fuzz.ps1 (-Filter and -Shard). Run: Invoke-Pester scripts/fuzz.Tests.ps1
+# Tests for the target selection, budgets and summary of scripts/fuzz.ps1. Run: Invoke-Pester scripts/fuzz.Tests.ps1
 # The script is dot-sourced (it only defines Select-FuzzTarget then); no go command runs.
 
 BeforeAll {
@@ -42,7 +42,72 @@ Describe 'Select-FuzzTarget' {
   }
 }
 
+Describe 'budgets and release-only targets' {
+  BeforeAll {
+    $script:withApi = @($script:targets) + [pscustomobject]@{ Package = 'example/api'; Name = 'FuzzAPISequence' }
+  }
+  It 'leaves the release-only target out unless -Release is given' {
+    @(Select-FuzzTarget -Target $script:withApi | Where-Object Name -eq 'FuzzAPISequence').Count | Should -Be 0
+    @(Select-FuzzTarget -Target $script:withApi -Release | Where-Object Name -eq 'FuzzAPISequence').Count | Should -Be 1
+  }
+  It 'drops it before sharding, so a normal run has the same slices with or without it in the list' {
+    $a = Get-NameList (Select-FuzzTarget -Target $script:withApi -Shard '2/4')
+    $b = Get-NameList (Select-FuzzTarget -Target $script:targets -Shard '2/4')
+    $a | Should -Be $b
+  }
+  It 'multiplies -Seconds by a slow target''s weight, gives the release-only target a fixed budget, and leaves others alone' {
+    Get-FuzzBudgetSecond -Target ([pscustomobject]@{ Name = 'FuzzFolderOps' }) -Seconds 60 | Should -Be 180
+    Get-FuzzBudgetSecond -Target ([pscustomobject]@{ Name = 'FuzzCheckRestoreRaw' }) -Seconds 60 | Should -Be 120
+    Get-FuzzBudgetSecond -Target ([pscustomobject]@{ Name = 'FuzzAPISequence' }) -Seconds 60 | Should -Be 300
+    Get-FuzzBudgetSecond -Target ([pscustomobject]@{ Name = 'FuzzOther' }) -Seconds 60 | Should -Be 60
+  }
+}
+
+Describe 'summary' {
+  It 'reads the last execs and new-interesting counts from go''s progress lines' {
+    $log = @('fuzz: elapsed: 0s, gathering baseline coverage: 0/5 completed', 'fuzz: elapsed: 3s, execs: 1200 (400/sec), new interesting: 2 (total: 90)', 'fuzz: elapsed: 6s, execs: 5000 (600/sec), new interesting: 7 (total: 95)', 'PASS')
+    $p = Get-FuzzProgress -Log $log
+    $p.Execs | Should -Be 5000
+    $p.New | Should -Be 7
+  }
+  It 'has null counts when go printed no progress' {
+    (Get-FuzzProgress -Log @('build failed')).Execs | Should -BeNullOrEmpty
+  }
+  It 'formats a row and a plain and a markdown table' {
+    $t = [pscustomobject]@{ Package = 'example/pkg'; Name = 'FuzzX' }
+    $ok = Get-FuzzSummaryRow -Target $t -Seconds 120 -Log @('fuzz: elapsed: 3s, execs: 10 (3/sec), new interesting: 1 (total: 2)') -Result PASS
+    $bad = Get-FuzzSummaryRow -Target $t -Seconds 60 -Log @() -Result FAIL
+    Format-FuzzSummaryRow -Row $ok | Should -Match '^FuzzX\s+120\s+10\s+1\s+PASS$'
+    Format-FuzzSummaryRow -Row $bad | Should -Match '^FuzzX\s+60\s+-\s+-\s+FAIL$'
+    @(Format-FuzzSummaryTable -Row $ok, $bad).Count | Should -Be 3
+    $md = @(Format-FuzzSummaryTable -Row $ok, $bad -Markdown)
+    $md[0] | Should -Be '| Target | Seconds | Execs | New interesting | Result |'
+    $md[2] | Should -Be '| FuzzX | 120 | 10 | 1 | PASS |'
+    $md[3] | Should -Be '| FuzzX | 60 | - | - | FAIL |'
+  }
+}
+
+Describe 'Read-FuzzTargetFile' {
+  It 'reads package and name from a plan file and refuses a missing or empty one' {
+    $f = Join-Path $TestDrive 'plan.json'
+    '[{"Slot":1,"Name":"FuzzA","Package":"example/p","Key":"k","Path":"x"},{"Slot":2,"Name":"FuzzB","Package":"example/q","Key":"k","Path":"x"}]' | Set-Content $f
+    $t = @(Read-FuzzTargetFile -Path $f)
+    $t.Count | Should -Be 2
+    "$($t[1].Package) $($t[1].Name)" | Should -Be 'example/q FuzzB'
+    { Read-FuzzTargetFile -Path (Join-Path $TestDrive 'nope.json') } | Should -Throw '*no such file*'
+    '[]' | Set-Content $f
+    { Read-FuzzTargetFile -Path $f } | Should -Throw '*no targets*'
+  }
+}
+
 Describe 'the script' {
+  It 'refuses -TargetFile together with -Shard, -Filter, -List or -Release' {
+    foreach ($extra in @('-Shard', '1/2'), @('-Filter', 'x'), @('-List'), @('-Release')) {
+      $out = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -TargetFile x.json @extra 2>&1
+      $LASTEXITCODE | Should -Not -Be 0
+      ($out -join ' ') | Should -Match 'cannot be combined'
+    }
+  }
   It 'refuses a malformed -Shard before any work' {
     $out = & $script:pwshExe -NoProfile -NonInteractive -File $script:script -List -Shard 'x/4' 2>&1
     $LASTEXITCODE | Should -Not -Be 0
@@ -65,8 +130,8 @@ Describe 'long mode helpers' {
   }
   It 'builds the go test arguments for a target' {
     $t = [pscustomobject]@{ Package = 'example/pkg'; Name = 'FuzzX' }
-    (Get-FuzzArgument -Target $t -FuzzTime '5m' -ParallelCount 4) -join ' ' | Should -Be 'test -run ^$ -fuzz ^FuzzX$ -fuzztime 5m -parallel 4 example/pkg'
-    (Get-FuzzArgument -Target $t -FuzzTime '60s') -join ' ' | Should -Be 'test -run ^$ -fuzz ^FuzzX$ -fuzztime 60s example/pkg'
+    (Get-FuzzArgument -Target $t -FuzzTime '5m' -ParallelCount 4) -join ' ' | Should -Be 'test -run ^$ -fuzz ^FuzzX$ -fuzztime 5m -fuzzminimizetime 10s -timeout 600s -parallel 4 example/pkg'
+    (Get-FuzzArgument -Target $t -FuzzTime '60s') -join ' ' | Should -Be 'test -run ^$ -fuzz ^FuzzX$ -fuzztime 60s -fuzzminimizetime 10s -timeout 360s example/pkg'
   }
   It 'prints one line per verdict with the short package path' {
     $t = [pscustomobject]@{ Package = 'github.com/WPTK/kipple/internal/opml'; Name = 'FuzzParse' }

@@ -21,7 +21,7 @@ import { SearchHelp } from "./search/SearchHelp";
 import { useLatestRef } from "@/lib/useLatestRef";
 
 /** Debounce of the search box: the query is sent this long after the last keystroke. */
-export const SEARCH_DEBOUNCE_MS = 250;
+const SEARCH_DEBOUNCE_MS = 250;
 
 /**
  * Search across all articles (FTS on the server), or across the scope of a saved search.

@@ -86,7 +86,7 @@ export function undoRequests(ids: readonly string[], ledger: readonly string[]):
  * unread from All, from Starred, from the reader) would be missing when the list is opened. Mark those lists
  * stale, without refetching the one on screen: they reload when next shown.
  */
-export function invalidateUnreadLists(qc: QueryClient): void {
+function invalidateUnreadLists(qc: QueryClient): void {
   void qc.invalidateQueries({
     queryKey: keys.itemsAll,
     predicate: (q) => String(q.queryKey[1]).startsWith("unread"),

@@ -3,6 +3,10 @@
 //
 // A flow's file starts with `const t = await start(import.meta.url, 16)` (the second argument is how many header
 // lines `--help` prints) and ends with `await t.finish("what passed")`.
+//
+// Waiting: wait for a state, not for a time. The waitFor* helpers below cover the common ones. The number of fixed
+// sleeps in web/uat is capped by sleeps.test.mjs (a ratchet that only goes down); a sleep that must stay because the
+// flow measures real time carries a one-line comment saying so.
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,7 +23,93 @@ const SESSION_COOKIES = ["__Host-kipple_session", "kipple_session"];
  * server, so either name counts.
  */
 export const isSessionCookie = (name) => SESSION_COOKIES.includes(name);
-export const SEP = " › ";
+const poll = (ms) => new Promise((r) => setTimeout(r, ms));
+const describe = (v) => (typeof v === "string" ? JSON.stringify(v) : (JSON.stringify(v) ?? String(v)));
+
+/**
+ * Waits until the element (a Locator or a selector) is the page's active element, for at most `ms` in total; throws
+ * saying what was waited for and what had focus. The element is looked up again on every poll, so a React remount
+ * that replaces it does not leave the wait holding a detached node.
+ */
+export async function waitForFocusReturned(page, locatorOrSelector, ms = 3000) {
+  const loc = (typeof locatorOrSelector === "string" ? page.locator(locatorOrSelector) : locatorOrSelector).first();
+  const deadline = Date.now() + ms;
+  let found = false;
+  do {
+    const left = Math.max(1, Math.min(250, deadline - Date.now()));
+    const focused = await loc.evaluate((el) => el === document.activeElement, undefined, { timeout: left }).catch(() => null);
+    if (focused) return;
+    if (focused === false) {
+      found = true;
+      await poll(50);
+    }
+  } while (Date.now() < deadline);
+  const seen = await page.evaluate(() => {
+    const a = document.activeElement;
+    return a ? `${a.tagName.toLowerCase()}${a.id ? `#${a.id}` : ""}${a.getAttribute("aria-label") ? ` "${a.getAttribute("aria-label")}"` : ""}` : "nothing";
+  });
+  throw new Error(`waited ${ms} ms for focus to return to ${String(locatorOrSelector)}, but ${found ? `it stayed on ${seen}` : `the element was not there (focus was on ${seen})`}`);
+}
+
+/**
+ * Waits until no CSS animation or transition is running in the document, polling every 50 ms for at most `ms`, then
+ * lets two frames pass; throws saying how many were running at the last poll and what they were.
+ */
+export async function waitForAnimationsDone(page, ms = 3000) {
+  const deadline = Date.now() + ms;
+  const names = () => page.evaluate(() => document.getAnimations().map((a) => a.transitionProperty || a.animationName || a.constructor.name));
+  let running = await names();
+  while (running.length && Date.now() < deadline) {
+    await poll(50);
+    running = await names();
+  }
+  if (running.length) throw new Error(animationsTimeout(ms, running));
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+
+/** The message for animations still running when the wait ran out; `running` is what the last poll saw. */
+export const animationsTimeout = (ms, running) => `waited ${ms} ms for animations and transitions to finish, but the last poll still saw ${running.length}: ${running.slice(0, 5).join(", ")}`;
+
+/**
+ * Runs `action` and waits for the response to the request `match(response)` accepts (for example a PUT to a settings
+ * URL), returning that response; throws saying what was not seen. The wait starts before the action, so a fast reply is not missed.
+ */
+export async function waitForSavedWith(page, match, action, ms = 10000) {
+  const seen = [];
+  const onResponse = (r) => seen.push(`${r.request().method()} ${new URL(r.url()).pathname} ${r.status()}`);
+  page.on("response", onResponse);
+  try {
+    const [response] = await Promise.all([page.waitForResponse(match, { timeout: ms }), action()]);
+    return response;
+  } catch (e) {
+    throw new Error(`waited ${ms} ms for the save response, saw ${seen.length ? seen.slice(-5).join("; ") : "no responses"} (${String(e.message).split("\n")[0]})`, { cause: e });
+  } finally {
+    page.off("response", onResponse);
+  }
+}
+
+/**
+ * Waits until `read()` (sync or async) has returned the same value for `ms` in a row, polling every 50 ms, and returns
+ * it; throws with the last values seen if it keeps changing for `timeout`. For "the totals have settled".
+ */
+export async function waitForStillFor(page, ms, read, timeout = 20000) {
+  const start = Date.now();
+  let last = await read();
+  let since = Date.now();
+  const history = [describe(last)];
+  while (Date.now() - since < ms) {
+    if (Date.now() - start > timeout) throw new Error(`waited ${timeout} ms for a value to hold still for ${ms} ms, last values: ${history.slice(-5).join(" -> ")}`);
+    await poll(50);
+    const now = await read();
+    if (describe(now) !== describe(last)) {
+      last = now;
+      since = Date.now();
+      history.push(describe(now));
+    }
+  }
+  return last;
+}
+
 export const VIEWPORTS = [
   { id: "desktop", width: 1280, height: 800, mobile: false },
   { id: "phone", width: 375, height: 812, mobile: true },

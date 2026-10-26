@@ -67,17 +67,18 @@ jobs:
           echo "scripts=$scripts" >> "$GITHUB_OUTPUT"
           echo "code=$code scripts=$scripts"
 
-  # The Go tests run on three runners at once: internal/api and internal/store, the two slowest packages under -race,
-  # each get their own, and `rest` takes every other package (so a new package is never left out). The required check
-  # is the `go` job below, which passes only when every leg passed.
+  # The Go tests run on four runners at once: internal/api and internal/store, the two slowest packages under -race,
+  # each get their own, `rest-a` takes the slow packages listed in the step below, and `rest-b` takes every other package
+  # (so a new package is never left out). The required check is the `go` job below, which passes only when every leg
+  # passed.
   go-test:
     name: go test (${{ matrix.leg }})
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     # Longer than the go test -timeout values the leg runs back to back, plus 10 minutes for setup, the build and vet,
-    # so a hung test is stopped by Go (whose panic names it) before the runner kills the job: api and store run one
-    # 15-minute step, rest runs a 15-minute and a 10-minute one.
+    # so a hung test is stopped by Go (whose panic names it) before the runner kills the job: api, store and rest-a run
+    # one 15-minute step, rest-b runs a 15-minute and a 10-minute one.
     timeout-minutes: ${{ matrix.minutes }}
     strategy:
       fail-fast: false
@@ -85,7 +86,8 @@ jobs:
         include:
           - { leg: api, minutes: 25 }
           - { leg: store, minutes: 25 }
-          - { leg: rest, minutes: 35 }
+          - { leg: rest-a, minutes: 25 }
+          - { leg: rest-b, minutes: 35 }
     env:
       # Job-level so the step-level `if` below can see it (a step's own env is not in scope for its `if`).
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -103,7 +105,7 @@ jobs:
           go-version-file: go.mod
 
       - name: gofmt
-        if: matrix.leg == 'rest'
+        if: matrix.leg == 'rest-b'
         run: |
           out="$(gofmt -l .)"
           if [ -n "$out" ]; then
@@ -112,7 +114,7 @@ jobs:
 
       # web/dist only has the committed .gitkeep placeholder here; the Go
       # build and tests must succeed against that (see web/embed.go).
-      - if: matrix.leg == 'rest'
+      - if: matrix.leg == 'rest-b'
         run: go vet ./...
 
       # Coverage is visibility only (SQA plan): printed per package and uploaded to Codecov, not a gate.
@@ -122,7 +124,10 @@ jobs:
           mod="$(go list -m)"
           case "$LEG" in
             api | store) pkgs="./internal/$LEG" ;;
-            rest) pkgs="$(go list ./... | grep -v -x -e "$mod/internal/api" -e "$mod/internal/store")" ;;
+            # rest-a: the slow packages (measured under -race: 75 to 280 s each), about half of what is left.
+            rest-a) pkgs="$mod/internal/backup $mod/internal/greader $mod/internal/hunt $mod/internal/opml $mod/scripts/scalegen" ;;
+            # rest-b: everything else, so a package nobody listed still runs.
+            rest-b) pkgs="$(go list ./... | grep -v -x -e "$mod/internal/api" -e "$mod/internal/store" -e "$mod/internal/backup" -e "$mod/internal/greader" -e "$mod/internal/hunt" -e "$mod/internal/opml" -e "$mod/scripts/scalegen")" ;;
             *) echo "unknown leg $LEG"; exit 1 ;;
           esac
           # shellcheck disable=SC2086 # one package path per word
@@ -133,11 +138,11 @@ jobs:
       # The thumbnail memory-limit tests skip under -race (the detector's own allocations break the measurement), so
       # without this step no CI run would execute them.
       - name: go test internal/imgproxy (no -race)
-        if: matrix.leg == 'rest'
+        if: matrix.leg == 'rest-b'
         run: go test -count=1 -shuffle=on -timeout 10m ./internal/imgproxy
 
       # Skipped without the CODECOV_TOKEN secret (fork PRs, or before it is set); never fails the build. Codecov merges
-      # the three legs' uploads for the commit.
+      # the legs' uploads for the commit.
       - name: Upload Go coverage to Codecov
         if: env.CODECOV_TOKEN != ''
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1

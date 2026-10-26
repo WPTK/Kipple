@@ -10,7 +10,7 @@ const rows = new Map<string, string>();
 const LIMIT = 200;
 
 /** The key of the history entry being shown. */
-export function entryKey(): string {
+function entryKey(): string {
   return (window.history.state as { key?: string } | null)?.key ?? "default";
 }
 

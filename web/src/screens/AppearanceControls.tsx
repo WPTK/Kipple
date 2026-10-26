@@ -41,7 +41,7 @@ function useMeta(key: string, label: string, help?: string) {
  * by data attributes. It has a FIXED height and is painted in its own layout box, so a step that makes the
  * text taller or shorter can never move the controls above or below it.
  */
-export function DensityPreview({ list, reading }: { list: Step; reading: Step }) {
+function DensityPreview({ list, reading }: { list: Step; reading: Step }) {
   return (
     <div
       aria-hidden="true"
@@ -124,14 +124,14 @@ export function ThemeSelect() {
 }
 
 /** The sentence every font preview shows: it has the letters that tell typefaces apart (1 I l 0 O, a g). */
-export const FONT_SAMPLE = "Pack my box with five dozen liquor jugs, 1 Il0O.";
+const FONT_SAMPLE = "Pack my box with five dozen liquor jugs, 1 Il0O.";
 
 /**
  * The reading-font list, grouped as everywhere else (Default, Easy to read, Serif, Sans-serif, Monospace, On this
  * device), with a live preview. `value` and `onChange` are font ids from lib/fonts. The "large" preview is a sample
  * paragraph in a box, for Settings and the setup wizard; the compact one is a single line, for the Aa menu.
  */
-export function FontPicker({ value, onChange, label = "Reading font", help, preview = "compact" }: { value: string; onChange: (id: string) => void; label?: string; help?: string; preview?: "compact" | "large" }) {
+function FontPicker({ value, onChange, label = "Reading font", help, preview = "compact" }: { value: string; onChange: (id: string) => void; label?: string; help?: string; preview?: "compact" | "large" }) {
   const id = useId();
   const helpId = useId();
   const stack = fontById(value).stack ?? "var(--kp-reading-font)";
@@ -268,7 +268,7 @@ export function SpacingControl() {
 }
 
 /** "Highlight keywords": draw the words of Highlight filters in lists and articles. */
-export function HighlightToggle() {
+function HighlightToggle() {
   const on = useDevicePrefs().highlightKeywords;
   return (
     <Switch

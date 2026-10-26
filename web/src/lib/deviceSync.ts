@@ -41,7 +41,7 @@ export interface LocalState {
   dp: DevicePrefs;
 }
 
-export const DEBOUNCE_MS = 500;
+const DEBOUNCE_MS = 500;
 /** localStorage keys: the one-time migration flag, and the unsent changes (so a reload does not lose them). */
 export const SYNC_FLAG_KEY = "kipple.deviceSync.v1";
 export const SYNC_DIRTY_KEY = "kipple.deviceSync.dirty.v1";

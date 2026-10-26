@@ -7,7 +7,7 @@ import { Field, Modal, Notice, inputCls } from "@/ui/kit";
 import { accountError } from "./AccountSection";
 
 /** The path a Google Reader compatible app is pointed at. */
-export const SYNC_PATH = "/api/greader.php";
+const SYNC_PATH = "/api/greader.php";
 
 /** One value for a sync app's form, with the button that copies it. */
 function CopyRow({ label, value }: { label: string; value: string }) {

@@ -105,7 +105,7 @@ function SectionSkeleton({ rows }: { rows: number }) {
 }
 
 /** "7 more in Tech", or "More in Tech" where the number is not known. Unnamed, the heading above is the name: "7 more", "More". */
-export const moreLabel = (s: Pick<DigestSectionView, "title" | "moreCount">, named = true): string =>
+const moreLabel = (s: Pick<DigestSectionView, "title" | "moreCount">, named = true): string =>
   s.moreCount ? `${s.moreCount} more${named ? ` in ${s.title}` : ""}` : named ? `More in ${s.title}` : "More";
 
 interface SectionProps {
