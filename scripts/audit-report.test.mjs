@@ -67,6 +67,12 @@ test('a failing check opens one issue naming the advisories, with labels, assign
   for (const want of ['--assignee', 'octo', 'security', 'area:infra']) assert.ok(issues[0].args.includes(want), want);
 });
 
+test('the currency report is a section of the issue body', () => {
+  const { gh, issues } = fakeGh();
+  report({ dir: results(vulnerable), ...OPTS, currency: 'Checked 2026-10-26: 1 pass.\n\n- PASS: A. ok\n', gh });
+  assert.match(issues[0].body, /### Currency\n\nChecked 2026-10-26: 1 pass\.\n\n- PASS: A\. ok\n\nLast changed by/);
+});
+
 test('no assignee flag when none is given', () => {
   const { gh, issues } = fakeGh();
   report({ dir: results(vulnerable), runUrl: RUN, gh });

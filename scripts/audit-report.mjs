@@ -1,4 +1,4 @@
-// node scripts/audit-report.mjs --dir <results> --run-url <url> --ref <ref> --sha <sha> [--assignee <login>]
+// node scripts/audit-report.mjs --dir <results> --run-url <url> --ref <ref> --sha <sha> [--assignee <login>] [--currency <file>]
 //                               --default-branch <name> --event <name> [--dry-run-input true]
 //
 // The weekly audit (.github/workflows/audit.yml) runs govulncheck, npm audit and Trivy and leaves, per check, a
@@ -64,9 +64,12 @@ function detail(f) {
   return [`- The check did not complete (${f.status}); see the run log.`];
 }
 
-export function body(failed, { runUrl, ref, sha }) {
+// currency: the text of scripts/settled-check.mjs, shown as its own section. It is not part of the fingerprint: it changes
+// with every merge, and a changed currency alone is not a reason to notify anyone.
+export function body(failed, { runUrl, ref, sha, currency }) {
   const lines = ['The weekly audit found the following. This issue is updated when the findings change and closed by the first clean run.', ''];
   for (const f of failed) lines.push(`### ${f.label}`, ...detail(f), '');
+  if (currency) lines.push('### Currency', '', currency.trim(), '');
   lines.push(`Last changed by: ${runUrl}`, `Audited: ${ref} @ ${sha}`, '', `<!-- ${MARK} ${fingerprint(failed)} -->`);
   return lines.join('\n');
 }
@@ -84,7 +87,7 @@ export function decideDryRun({ ref, defaultBranch, eventName, dryRunInput }) {
 const defaultGh =(args, input) => execFileSync('gh', args, { encoding: 'utf8', input });
 
 // `gh` is injected so the decision logic can be tested without a repository. Returns the actions taken, as text.
-export function report({ dir, runUrl, ref = 'unknown', sha = 'unknown', assignee, dryRun, gh = defaultGh }) {
+export function report({ dir, runUrl, ref = 'unknown', sha = 'unknown', assignee, currency, dryRun, gh = defaultGh }) {
   const failed = collect(dir);
   // The title is the identity; labels can be edited by hand and must not hide the issue from the audit.
   const found = JSON.parse(
@@ -101,7 +104,7 @@ export function report({ dir, runUrl, ref = 'unknown', sha = 'unknown', assignee
     if (!open) return 'clean run, no open issue: nothing to do';
     return act(`close #${open.number}`, [[['issue', 'close', String(open.number), '--comment', `Clean run, closing: ${runUrl}`]]]);
   }
-  const text = body(failed, { runUrl, ref, sha });
+  const text = body(failed, { runUrl, ref, sha, currency });
   if (!open) {
     const args = ['issue', 'create', '--title', TITLE, '--body-file', '-'];
     for (const l of LABELS) args.push('--label', l);
@@ -142,5 +145,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     eventName: arg('--event'),
     dryRunInput: arg('--dry-run-input') === 'true',
   });
-  console.log(report({ dir, runUrl, ref: arg('--ref'), sha: arg('--sha'), assignee: arg('--assignee'), dryRun }));
+  console.log(report({ dir, runUrl, ref: arg('--ref'), sha: arg('--sha'), assignee: arg('--assignee'), currency: arg('--currency') ? readFileSync(arg('--currency'), 'utf8') : undefined, dryRun }));
 }
