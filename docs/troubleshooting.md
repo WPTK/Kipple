@@ -71,15 +71,11 @@ Then check, in order:
 
 ## "Kipple refused this request because of the address it was sent to" (421)
 
-This is the Host check; it protects against DNS rebinding. During setup Kipple answers an IP address, `localhost`, a
-single-word name such as `nas`, `.localhost`, `.local`, `.lan`, `.home.arpa`, `.internal` and `.ts.net` names, the host of
-the public URL, and the names you allowed. Without a password (open mode) it answers an IP address, `localhost`, `.localhost` and `.ts.net` names, the host of
-the public URL, and the names you allowed; other single-word and `.local`-style names are refused because any
-device on your network could answer them with your computer's address. To allow a name, open Kipple by its IP
-address, then add the name (for example `nas.local` or `rss.example.com`) under **Other names for this server** in Settings,
-Advanced, Address and access. It applies at once. On a headless install with no browser on the network, set
-`KIPPLE_ALLOWED_HOSTS` (comma-separated) for the first start instead: it gives the setting its first value, and Settings
-decides after that. With a password the check only logs.
+This is the Host check; it protects against DNS rebinding. The name in the address bar is not one Kipple expects.
+Open Kipple by its IP address, then add the name (for example `nas.local` or `rss.example.com`) under **Other names for
+this server** in Settings, Advanced, Address and access; it applies at once. On a headless install with no browser on the
+network, set `KIPPLE_ALLOWED_HOSTS` for the first start instead. Which names are answered in each mode is in
+[deploy.md](deploy.md#open-mode-no-password).
 
 ## Sign-in says "busy"
 
@@ -148,16 +144,8 @@ a trusted `X-Forwarded-Proto: https`, makes every action fail with 403 while the
 
 ## Restore a backup
 
-With the zip in the current directory and the service stopped (this verifies first, then replaces the database):
-
-    docker compose stop kipple
-    docker compose run --rm -T --no-deps kipple restore - < kipple-backup-YYYYMMDD-HHMMSS.zip
-    docker compose run --rm -T --no-deps kipple restore - --yes < kipple-backup-YYYYMMDD-HHMMSS.zip
-    docker compose up -d kipple
-
-On PowerShell wrap the lines with `cmd /c "..."`, because PowerShell has no `<`. "kipple is running" means the service is
-still up. Everything else about restoring, including a new empty volume and undoing a restore, is in
-[deploy.md](deploy.md#restore-a-backup).
+You have a backup zip (or a snapshot) and need the library back: [restore.md](restore.md) has the browser route, the
+command-line route, a new empty volume and how to undo a restore.
 
 ## Reset a forgotten password
 

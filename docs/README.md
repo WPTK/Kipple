@@ -9,6 +9,8 @@ the project's shape. Each links to more detail; nothing here duplicates it.
 | [ui-decisions.md](maintainers/ui-decisions.md) | The record of every UI/UX and project-scope decision made in planning meetings, in the order they were decided. |
 | [uat-plan.md](maintainers/uat-plan.md) | The user-acceptance-testing plan: roles, entry/exit criteria, test suites, defect severity, sign-off. |
 | [sqa-plan.md](maintainers/sqa-plan.md) | The software-quality-assurance plan, mapped to IEEE 730: what already ensures quality (CI, reviews, release discipline) and open candidate additions. |
+| [test-plan.md](maintainers/test-plan.md) | How Kipple is tested: what each package's tests cover, the property and plan-regression tests, fuzzing, and the manual checks. |
+| [release-checklist.md](maintainers/release-checklist.md) | The blank go/no-go template for a major release; the filled-in copy for a release is kept in the history repo. |
 | [design-review.md](maintainers/design-review.md) | How the whole-app design review works: what is captured, how it is judged, and how findings become issues. |
 | [risk-register.md](maintainers/risk-register.md) | Currently open risks and their mitigations, kept live rather than scattered across old phase notes. |
 | [RELEASING.md](maintainers/RELEASING.md) | The release checklist for every version, including alphas, and the alpha/beta/rc/1.0 promotion criteria. |
@@ -20,6 +22,7 @@ the project's shape. Each links to more detail; nothing here duplicates it.
 | [deploy.md](deploy.md) | Backups, recovery, migrations, optional Cloudflare Access setup, and how a deploy and a rollback actually work. Also the first-run account form and setup mode, ports (1919 by default), open mode (no password), the time zone rules, the published image, and the disk space an upgrade needs. |
 | [cli.md](cli.md) | The command-line subcommands and where each one lives in the web app; why password recovery stays on the command line. |
 | [handover.md](maintainers/handover.md) | Picking Kipple up after months away: what runs by itself, the 60-day rule for scheduled workflows, accounts and the restore-drill record. |
+| [restore.md](restore.md) | Bringing a library back: in the setup wizard, from the command line, onto a new volume, resetting Kipple, and undoing a restore. |
 | [../README.md](../README.md) | What Kipple is, a screenshot, the one-command install, the Reader API address, and what is left out on purpose. |
 | [../docker-compose.pull.example.yml](../docker-compose.pull.example.yml), [../docker-compose.example.yml](../docker-compose.example.yml) | The ready-to-run compose file for the published image, and the build-from-source one with resource limits and full hardening. |
 | [../.env.example](../.env.example) | The optional advanced overrides (listen address, host names, proxies, time zone, Cloudflare Access, scheduler, logging). Nothing needs a `.env` to get started. |
