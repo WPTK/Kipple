@@ -165,7 +165,7 @@ is the address field: `PATCH /api/feeds/{id}` with `url`.
 
 **Reordering, favorites and bulk actions.** Grab a feed or folder anywhere on its row and drag (mouse: past 6 px; touch:
 press and hold, or touch the grip at once; `lib/dnd.ts`); the grip also moves with the arrow keys, and "Show move
-buttons" in the menu adds Move up and Move down buttons. A drop is one `POST /api/reorder` (a feed dropped in another
+buttons" beside the help text in edit mode adds Move up and Move down buttons. A drop is one `POST /api/reorder` (a feed dropped in another
 folder moves there), painted at once and confirmed with "Saved". The star on a folder or feed pins it to Favorites at the
 top of the sidebar and Manage feeds (drag those to order them). Favorites live in the server setting
 `library.favorites` (at most 500 `{t, id}` items); a save the server refuses is taken back and shown as an error. "Select" adds checkboxes (shift-click ranges, a checkbox per folder) and a bar with Move (one

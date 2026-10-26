@@ -11,8 +11,11 @@
 // `aria-label=` / `ariaLabel=` value is taken ("Select ${title}" gives the fragment "Select "). A removed fragment that
 // no longer appears in any aria-label in web/src now is "gone"; if a gone fragment (3 or more characters once trimmed)
 // still appears in a web/uat/*.mjs file, the run fails and names the file and line. Put `uat-labels: ignore` in a
-// comment on a UAT line to exempt it (for a word that only happens to match). A removed label is not "gone" when the
-// same words are added as plain text in the diff: a control whose label became its visible text keeps its name. A label a shared component receives as a prop is seen when the prop is spelled `ariaLabel` (`<BottomBar ariaLabel="Selected feeds">`); that spelling is the marker, any other prop name is not read. Limits: only values written on the same
+// comment on a UAT line to exempt it (for a word that only happens to match). A control whose aria-label became its
+// visible text in the same file keeps its accessible name, so a UAT line that finds it by role and name still works; a line
+// that finds it by the attribute itself (`[aria-label=...]`, getByLabel) fails as before. A label a shared component
+// receives as a prop is seen when the prop is spelled `ariaLabel` (`<BottomBar ariaLabel="Selected feeds">`); that
+// spelling is the marker, any other prop name is not read. Limits: only values written on the same
 // line as the attribute are seen; labels built elsewhere (a helper that returns the string) are not.
 //
 // Exit codes: 0 clean, 1 a gone label is still used by the UAT scripts, 2 usage or git error.
@@ -63,7 +66,7 @@ export function extractFragments(line) {
 /**
  * Reads a unified diff (-U0) and returns the fragments on removed and added lines, with the file they came from.
  * @param {string} diffText
- * @returns {{file: string, removed: string[], added: string[]}[]}
+ * @returns {{file: string, removed: string[], added: string[], shown: Set<string>}[]} `shown` is the plain text the file adds
  */
 export function parseDiff(diffText) {
   const files = [];
@@ -76,7 +79,7 @@ export function parseDiff(diffText) {
     // hand-written input without that line.
     const git = /^diff --git a\/.+ b\/(.+)$/.exec(line);
     if (git) {
-      current = { file: git[1], removed: [], added: [] };
+      current = { file: git[1], removed: [], added: [], shown: new Set() };
       files.push(current);
       inHeader = true;
       sawGitHeader = true;
@@ -88,31 +91,32 @@ export function parseDiff(diffText) {
     }
     const plain = !sawGitHeader && /^\+\+\+ b\/(.+)$/.exec(line);
     if (plain) {
-      current = { file: plain[1], removed: [], added: [] };
+      current = { file: plain[1], removed: [], added: [], shown: new Set() };
       files.push(current);
       continue;
     }
     if (!current || line.startsWith('---') || line.startsWith('@@')) continue;
     if (line.startsWith('-')) current.removed.push(...extractFragments(line.slice(1)));
-    else if (line.startsWith('+')) current.added.push(...extractFragments(line.slice(1)));
+    else if (line.startsWith('+')) {
+      current.added.push(...extractFragments(line.slice(1)));
+      const text = plainText(line.slice(1));
+      if (text) current.shown.add(text);
+    }
   }
   return files;
 }
 
+// A UAT line that finds a control by its aria-label attribute rather than by role and name.
+const LABEL_LOOKUP = /aria-label|getByLabel/;
+
 /**
- * The plain text lines a diff adds (a button's visible label, say), trimmed. A control that loses its aria-label and shows
- * the same words as text has the same accessible name, so the UAT scripts that look it up by that name still work.
- * @param {string} diffText
- * @returns {Set<string>}
+ * The words a source line shows as plain text (a button's visible label, say), trimmed; '' for code or markup.
+ * @param {string} line a source line without its diff marker
+ * @returns {string}
  */
-export function addedText(diffText) {
-  const out = new Set();
-  for (const line of diffText.replace(/\r\n/g, '\n').split('\n')) {
-    if (!line.startsWith('+') || line.startsWith('+++')) continue;
-    const text = line.slice(1).trim();
-    if (text && !/[<>{}=;()`]/.test(text)) out.add(text);
-  }
-  return out;
+export function plainText(line) {
+  const text = line.trim();
+  return /[<>{}=;()`]/.test(text) ? '' : text;
 }
 
 /** True when a fragment is long enough to be a meaningful search string. */
@@ -122,15 +126,14 @@ export const isSearchable = (fragment) => fragment.trim().length >= MIN_LENGTH;
  * Removed fragments that no aria-label in the current source has any more.
  * @param {{file: string, removed: string[]}[]} diffFiles
  * @param {Set<string>} currentFragments every fragment in web/src now
- * @param {Set<string>} [shownText] plain text the diff adds (see addedText): a label it repeats is still the name
  * @returns {{fragment: string, file: string}[]}
  */
-export function goneFragments(diffFiles, currentFragments, shownText = new Set()) {
+export function goneFragments(diffFiles, currentFragments) {
   const gone = [];
   const seen = new Set();
   for (const f of diffFiles) {
     for (const fragment of f.removed) {
-      if (!isSearchable(fragment) || currentFragments.has(fragment) || shownText.has(fragment.trim())) continue;
+      if (!isSearchable(fragment) || currentFragments.has(fragment)) continue;
       const key = `${f.file}\u0000${fragment}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -162,8 +165,13 @@ export function findUsages(fragment, uatFiles) {
  */
 export function check(diffText, currentFragments, uatFiles) {
   const problems = [];
-  for (const g of goneFragments(parseDiff(diffText), currentFragments, addedText(diffText))) {
-    const usages = findUsages(g.fragment, uatFiles);
+  const files = parseDiff(diffText);
+  const shown = new Map(files.map((f) => [f.file, f.shown]));
+  for (const g of goneFragments(files, currentFragments)) {
+    let usages = findUsages(g.fragment, uatFiles);
+    // The same words are now the control's visible text (whole label, same file), so its role and name are unchanged:
+    // only a lookup by the attribute itself breaks.
+    if (shown.get(g.file)?.has(g.fragment)) usages = usages.filter((u) => LABEL_LOOKUP.test(u.text));
     if (usages.length) problems.push({ ...g, usages });
   }
   return problems;

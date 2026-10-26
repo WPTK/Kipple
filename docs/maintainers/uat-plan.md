@@ -152,7 +152,7 @@ reached, the focused one shows an indicator, no trap forward or back), K2 opens 
 checks that focus stays inside a modal dialog, Escape closes it and focus returns to what opened it, and K3 presses
 that letter and symbol keys do nothing (there are no single-key shortcuts), arrow keys move focus between rows and the search box takes typed letters. At 390x844 as a touch
 device K4 checks that each swipe or long-press action has a button or menu: Star, the row's More actions menu (mark
-read or unread), Back to list, Refresh all feeds, and Move to folder for reordering. Exit code 0 clean, 1 findings, 2
+read or unread), Back to list, Refresh all feeds, and Show move buttons for reordering. Exit code 0 clean, 1 findings, 2
 setup error. WebKit leaves links out of the Tab order unless the reader turns on Safari's "Press Tab to highlight each
 item" (or uses Option+Tab), so its K1 expects buttons and fields only.
 
@@ -169,7 +169,7 @@ Feeds screen (`npm run uat:feeds`, `web/uat/feeds.mjs`, same instance, credentia
 375x812, on disposable feeds that point at an address that never resolves (a stopped run's leftovers are removed first):
 tapping a feed's title in select mode ticks it and never opens it (F1); deleting selected feeds shows one progress bar
 with a fixed total, keeps every folder, including one the delete left with no feeds, and touches
-nothing else (F2); New folder and Rename folder save on Enter (F3); Import OPML refuses a file that is not OPML, by its
+nothing else (F2); New folder and Folder settings save on Enter (F3); Import feeds from a file (OPML) refuses a file that is not OPML, by its
 look, as an RSS feed and as JSON named `.opml`, in plain words and adds nothing (F4).
 
 Saved search and out-of-date addresses (`npm run uat:states`, `web/uat/states.mjs`, same rules): saving the same search
@@ -196,7 +196,7 @@ afterwards the subtree is gone and the feed is in the default folder (N5). The f
 folders a stopped run left behind are removed first. Same address and credential rules and exit codes as above.
 
 Downloads (`npm run uat:downloads`, `web/uat/downloads.mjs`, same instance, credentials and exit codes), at 1280x800 and
-375x812: Feeds, Feed actions, Export OPML saves an OPML document, not a JSON error (D1); Settings, Stats, Export…,
+375x812: Feeds, Feed actions, Export feeds to a file (OPML) saves an OPML document, not a JSON error (D1); Settings, Stats, Export…,
 Download saves a CSV with a header row (D2); Settings, Account & Devices, Export backup, the web password, then the
 download link saves a zip (D3).
 

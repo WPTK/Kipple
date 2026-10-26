@@ -24,7 +24,7 @@
 //   O8  turning Select on does not move the feed names (desktop);
 //   O9  the selection bar has Retry now (off until a feed is ticked), Resume, Pause and a red Delete inside the window;
 //       Retry now fetches the ticked feed and says how many were retried;
-//   O10 axe (the WCAG 2.0 and 2.1 A and AA rules) finds nothing on Feed health, with Select off and with Select on.
+//   O10 axe (the WCAG 2.0 A and AA rules) finds nothing on Feed health, with Select off and with Select on.
 // The folder and the feed are removed when the width is done. It changes nothing else (O11 asks for one refresh of every
 // feed so the disposable feed records its failed fetch): every dialog is closed with
 // Escape and nothing is exported. It only runs against a loopback address with the seed's credentials unless
