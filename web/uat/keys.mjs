@@ -117,6 +117,7 @@ await t.eachViewport(async (page, vp) => {
       await page.keyboard.press("Enter");
       const samples = [];
       for (const ms of [100, 900, 2500]) {
+        // real time: the check samples where focus is at fixed delays after the press
         await page.waitForTimeout(ms - (samples.length ? [100, 900][samples.length - 1] : 0));
         samples.push(await focusOf(page));
       }
@@ -162,6 +163,7 @@ await t.eachViewport(async (page, vp) => {
         await page.keyboard.press("Enter");
         const r = [];
         for (const ms of [50, 400, 1500]) {
+          // real time: sampled at fixed delays after the press
           await page.waitForTimeout(ms);
           r.push(await focusOf(page));
         }
