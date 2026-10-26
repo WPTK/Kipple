@@ -8,7 +8,8 @@ name: Browser UAT
 # Its own workflow, not a job of ci.yml: release.yml calls ci.yml, and a slow or flaky browser run must not hold up a
 # release or the go, web, security and docker checks. It is not a required check yet (do not add it to the branch
 # protection until it has run green for a few weeks), and scripts/maintainers/pr-ready.ps1 prints its result without
-# blocking on it (its AdvisoryChecks list: take "Browser UAT" off when the check becomes required).
+# blocking on it (its AdvisoryChecks list: take "Browser UAT" off when the check becomes required). The exception is a
+# pull request that changes web/uat/** or this file: pr-ready then blocks on every engine leg (Test-UatTouched).
 #
 # No outside network: the seed's feeds are served by web/scripts/fixture-feeds.mjs on loopback. The prose-only skip is
 # the one ci.yml uses (scripts/ci-changes.sh against the base commit's rules, fail-open): the job still reports, with
