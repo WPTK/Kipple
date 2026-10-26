@@ -212,3 +212,36 @@ Describe 'failure detail' {
     $out[0] | Should -Match 'boom'
   }
 }
+
+Describe 'Browser UAT blocks a PR that changes it' {
+  BeforeAll {
+    $script:uatFail = @([pscustomobject]@{ name = 'Browser UAT (webkit)'; status = 'COMPLETED'; conclusion = 'FAILURE' })
+  }
+  It 'recognises the flow files and the workflow, and nothing else' {
+    Test-UatTouched -Path @('web/uat/gazette-place.mjs') | Should -BeTrue
+    Test-UatTouched -Path @('README.md', '.github/workflows/browser-uat.yml') | Should -BeTrue
+    Test-UatTouched -Path @('web/src/App.tsx', '.github/workflows/ci.yml') | Should -BeFalse
+    Test-UatTouched -Path @() | Should -BeFalse
+  }
+  It 'stays advisory when the PR touches neither' {
+    $pr = New-Pr @{ statusCheckRollup = $script:uatFail; files = @([pscustomobject]@{ path = 'web/src/App.tsx' }) }
+    (Get-PrVerdict -Pr $pr -AncestorStatus 'ahead').Ready | Should -BeTrue
+  }
+  It 'blocks on a failing or pending leg when the PR changes web/uat' {
+    $pr = New-Pr @{ statusCheckRollup = $script:uatFail; files = @([pscustomobject]@{ path = 'web/uat/all.mjs' }) }
+    $v = Get-PrVerdict -Pr $pr -AncestorStatus 'ahead'
+    $v.Ready | Should -BeFalse
+    $v.Text | Should -Match 'failing checks: Browser UAT \(webkit\)'
+    $pr.statusCheckRollup = @([pscustomobject]@{ name = 'Browser UAT (webkit)'; status = 'IN_PROGRESS'; conclusion = '' })
+    (Get-PrVerdict -Pr $pr -AncestorStatus 'ahead').Text | Should -Match 'pending checks: Browser UAT \(webkit\)'
+  }
+}
+
+Describe 'log tail ends at the runner error' {
+  It 'drops the cleanup after the ##[error] line' {
+    $log = "flow output 1`nFAIL something`n##[error]Process completed with exit code 1.`nPost job cleanup.`nCleaning up orphan processes"
+    $tail = Get-LogTail -Text $log -Lines 30
+    $tail[-1] | Should -Be '##[error]Process completed with exit code 1.'
+    $tail | Should -Not -Contain 'Post job cleanup.'
+  }
+}
