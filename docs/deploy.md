@@ -30,10 +30,8 @@ subcommand is `docker exec kipple /kipple <command>` on the running container, o
 `docker compose run --rm -T --no-deps kipple <command>` on a stopped service (it starts a throwaway
 container on the same volume, publishes no port and ignores the restart policy).
 
-**The commands are written for a POSIX shell (`VAR=x command`, `printf`, command substitution), and the ones that pipe a file in (`... < file`) need a POSIX shell or cmd, not PowerShell.** PowerShell refuses the line
-with `ParserError: The '<' operator is reserved for future use` before anything runs. From a PowerShell prompt, wrap the
-whole line: `cmd /c "docker exec -i kipple /kipple import - < feeds.opml"` (cmd passes the bytes through unchanged; do
-not use a PowerShell pipe, which can re-encode them).
+The commands are written for a POSIX shell. PowerShell has no `<`, so wrap a line that pipes a file in:
+`cmd /c "docker exec -i kipple /kipple import - < feeds.opml"` (cmd passes the bytes through unchanged; a PowerShell pipe can re-encode them).
 
 ## Contents
 
@@ -884,7 +882,7 @@ every release you skip in `CHANGELOG.md`.
 Kipple keeps the newest N articles per feed (the global `retention.default`, 250 unless you change it, or a per-feed
 value) and trims after each fetch and when you lower a value. Starred articles are never trimmed. Trimmed articles leave
 small stubs so that read state and Reader API ids stay consistent, and `retention.restore_days` (90 by default) keeps
-enough to bring a recently trimmed article back; a nightly job removes the trimmed records once they are at least 180 days old. Statistics events are never
+enough to bring a recently trimmed article back; a nightly job removes the trimmed records once they are at least 180 days old. Stats events are never
 trimmed.
 
 SQLite reuses space freed by trimming for new articles, but it does not shrink the file by itself: Kipple does not run
