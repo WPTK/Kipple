@@ -53,6 +53,7 @@ function Get-FuzzBudget {
     FuzzCheckRestoreStructured = @{ Weight = 3 }
     FuzzCheckRestoreRaw        = @{ Weight = 2 }
     FuzzParseFeedStructured    = @{ Weight = 2 }
+    FuzzStatsDelete            = @{ Weight = 2 }
     FuzzAPISequence            = @{ Seconds = 300; ReleaseOnly = $true }
   }
 }
