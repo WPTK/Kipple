@@ -19,7 +19,7 @@
 // against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0 clean, 1
 // findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
-import { start } from "./common.mjs";
+import { start, waitForSavedWith, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 20);
 const { check, step, textOf } = t;
@@ -83,7 +83,10 @@ await t.eachViewport(async (page, vp) => {
       check(left, `${tag} M1 list`, "the row leaves Unread", "the muted row is still in the Unread list");
       await page.goto(`/l/unread?feed=${unread.feed_id}`, { waitUntil: "load" });
       await page.getByRole("main").waitFor({ timeout: 10000 }).catch(() => {});
-      await page.waitForTimeout(1000);
+      // The list must show a row or its empty state first, so an empty list that has not loaded does not pass for a held one.
+      await page.locator('[data-item-id], main [role="status"]').first().waitFor({ timeout: 10000 });
+      // Negative check: the list must have rendered and held its rows for 1000 ms before an absent row means anything.
+      await waitForStillFor(page, 1000, () => page.locator("[data-item-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId).join(",")), { label: "the reloaded list to hold its rows" });
       check((await row().count()) === 0, `${tag} M1 reload`, "the row stays out of Unread after a reload", "the muted row came back after a reload");
     });
     await step(`${tag} M2`, async () => {
@@ -147,8 +150,10 @@ await t.eachViewport(async (page, vp) => {
         });
         const res = await made.json();
         check(res.source?.result === "muted", `${tag} M6 setup`, "a filter muted the article behind the page's back", `the filter did not mute it: ${JSON.stringify(res).slice(0, 200)}`);
-        await undo.click();
-        await page.waitForTimeout(1500);
+        // The undo's own answer first, then a negative window longer than the page's refetch.
+        await waitForSavedWith(page, (r) => r.request().method() !== "GET" && new URL(r.url()).pathname === "/api/items/mark-read", () => undo.click());
+        // Negative check: 1200 ms with the article still read and muted and the row still gone, longer than the undo's round trip and the page's refetch.
+        await waitForStillFor(page, 1200, async () => JSON.stringify([await item(page, other.id).then((i) => [i.read, !!i.muted_by]), await row.count()]), { label: "the undone article and its row to hold still" });
         const it = await item(page, other.id);
         check(it.read === true && !!it.muted_by, `${tag} M6 state`, "Undo left it read and muted", `read=${it.read} muted_by=${it.muted_by}: the undo un-muted it`);
         const shown = await row.count();

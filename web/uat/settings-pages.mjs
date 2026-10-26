@@ -13,7 +13,7 @@
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
-import { start } from "./common.mjs";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 16);
 const { check } = t;
@@ -36,7 +36,7 @@ await t.eachViewport(async (page, vp) => {
   const open = async (id) => {
     await page.goto(`/settings/${id}`, { waitUntil: "load" });
     await page.locator("main :is(h2, h3)").first().waitFor({ timeout: 15000 });
-    await page.waitForTimeout(800);
+    await waitForStillFor(page, 300, () => page.locator("main").innerText(), { label: "the settings page to finish loading" });
   };
 
   await open("appearance");
@@ -57,7 +57,8 @@ await t.eachViewport(async (page, vp) => {
   await rd.getByRole("button", { name: "Cancel" }).click();
   // Lowering the default to 50 with a 60-article feed present: the dialog counts the 10 that would go.
   const added = await t.addLocalFeed(page, feedUrl, FEED_TITLE, (items) => items.length >= 50); // one page is at most 50 articles
-  await page.waitForTimeout(2000); // the rest of the 60 are stored in the same fetch
+  // The 50 seen are one page of the 60 stored in the same fetch; wait for the feed to count all 60.
+  if (!added.error && !(await t.settle(page, (b) => b.feeds.some((f) => f.id === added.feedId && f.unread >= 60), 15000)).ok) added.error = "the feed never counted all 60 articles";
   if (added.error) t.fail(`${tag} S2 setup`, added.error);
   else {
     await page.reload({ waitUntil: "load" });

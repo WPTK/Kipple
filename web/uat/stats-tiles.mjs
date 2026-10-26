@@ -20,6 +20,15 @@
 import { readFileSync } from "node:fs";
 import { start } from "./common.mjs";
 
+/** Waits for the finite transitions and animations in the page (the chevron's turn, a tile's growth) to end; endless ones, such as an entrance loop, are not waited on. */
+const transitionsEnded = (page, ms = 3000) =>
+  page.evaluate(async (limit) => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); // the turn starts on the frame after the class changes
+    const running = document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity);
+    const ended = await Promise.race([Promise.all(running.map((a) => a.finished.catch(() => {}))).then(() => true), new Promise((r) => setTimeout(() => r(false), limit))]);
+    if (!ended) throw new Error(`waited ${limit} ms for ${running.length} transitions to end, but some were still running: ${running.map((a) => a.transitionProperty || a.animationName).join(", ")}`);
+  }, ms);
+
 const SCHEMES = JSON.parse(readFileSync(new URL("../src/theme/schemes.json", import.meta.url), "utf8"));
 const t = await start(import.meta.url, 19);
 const { check, step } = t;
@@ -139,7 +148,7 @@ await t.eachViewport(async (page, vp) => {
       check(NOTE.test(text), `${tag} T2 note`, `the note reads "${text}"`, `the note reads "${text}", not a comparison or "Not enough history"`);
       check((await first.boundingBox()).height > idleHeight, `${tag} T2 grew`, "the tile grows to hold the note", "the tile did not grow when it opened");
       check(await first.locator("svg[data-cue]").evaluate((s) => s.classList.contains("rotate-180")), `${tag} T2 turned`, "the chevron turns over", "the chevron did not turn over");
-      await page.waitForTimeout(400); // the chevron's turn is a short transition
+      await transitionsEnded(page);
       await away();
       await t.shot(page, `${tag}-T2-open`);
       await first.click();
@@ -176,7 +185,7 @@ await t.eachViewport(async (page, vp) => {
       await rate.click();
       check((await rate.getAttribute("aria-expanded")) === "true", `${tag} T3 open`, "a tap shows the counts behind the rate", "a tap did not show the counts");
       check(await cue.evaluate((s) => s.classList.contains("rotate-180")), `${tag} T3 turned`, "the chevron turns over", "the chevron did not turn over");
-      await page.waitForTimeout(400);
+      await transitionsEnded(page);
       await away();
       await t.shot(page, `${tag}-T3-read-rate`);
       await page.keyboard.press("Escape");
