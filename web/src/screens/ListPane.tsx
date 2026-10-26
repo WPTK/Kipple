@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLatestRef } from "@/lib/useLatestRef";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { defaultRangeExtractor, useVirtualizer, type Range, type VirtualItem } from "@tanstack/react-virtual";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { remeasureMounted } from "@/lib/remeasure";
 import { Link, useNavigate } from "react-router";
 import { RefreshCw, X } from "lucide-react";
@@ -20,15 +20,15 @@ import { COLLAPSE_MS, captureAnchor, compensate, type ScrollAnchor } from "@/lib
 import { usePullToRefresh } from "@/gestures/usePullToRefresh";
 import { pageOf, useResolvedLayout } from "@/layouts";
 import { OneFeed, isOneFeed } from "@/layouts/parts";
-import { RowTabStop, STOP_PREFIX, useRowTabIndex } from "@/layouts/rowTabStop";
-import { focusRow, pageOrder, rowKeyMove, storyIntoView } from "@/layouts/rowKeys";
+import { RowTabStop } from "@/layouts/rowTabStop";
+import { focusRow, storyIntoView } from "@/layouts/rowKeys";
 import type { ListLayout, RowMenuActions } from "@/layouts";
 import { resolveList, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { prefsStore } from "@/lib/prefs";
 import { useStore, useStoreSelector } from "@/lib/store";
 import { withHeaders, type Row } from "@/lib/format";
 import { useSearchHighlight } from "@/lib/useHighlights";
-import { onBecameUnread, readIntent, useItemActions } from "@/lib/itemActions";
+import { readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
 import { EmptyState } from "@/ui/EmptyState";
 import { focusOrigin } from "@/ui/kit";
@@ -42,10 +42,17 @@ import { openFilterEditor, similarSeed } from "@/lib/similar";
 import { openFeedEditor } from "@/lib/feedEditor";
 import { useWidth } from "@/lib/useWidth";
 import { visibleFeeds } from "@/lib/visibleFeeds";
-import { failureCopy, failureNoteFeeds, showsFailure } from "@/lib/feedStatus";
+import { failureNoteFeeds } from "@/lib/feedStatus";
 import { FeedFailureNote } from "./FeedFailureNote";
 import { FeedRepair } from "./FeedRepair";
 import { listPlace, rememberListTop } from "@/lib/listPlace";
+import { emptyCopy, endCopy, tooBroadMessage } from "./listCopy";
+import { memory, memoryFor, placeState, topItemId } from "./listMemory";
+import { MutedStrip } from "./MutedStrip";
+import { NewArticlesPill } from "./NewArticlesPill";
+import { Skeleton } from "./Skeleton";
+import { useListSelection, type VRow } from "./useListSelection";
+import { useListKeyboard } from "./useListKeyboard";
 import { useItemsSource, type ListSource } from "./listSource";
 import { useDigestSource } from "./digestSource";
 import { firstLook, keepStill, lookAgain, measurePage, readerScrolling, SCROLLING_MS, type PageLook, type ReaderInput } from "./pageSeen";
@@ -87,38 +94,6 @@ export async function markScrolledPast(qc: QueryClient, passed: Card[], sent: Se
   scrollFailure.streak = true;
 }
 
-// Scroll and selection memory per list, so "back" lands where you were
-// (design 3.4: one restore path). Module scope: survives route changes.
-interface ListMemory {
-  offset: number;
-  /** The list's `as_of` when `offset` was recorded: a mismatch (checked once the query settles, not only at
-   * mount) means the list was refetched since (new arrivals, a resync, mark-all) and `offset` no longer
-   * points at the rows it used to. */
-  offsetAsOf?: string;
-  /** The failing-feed note's height above the rows when `offset` was recorded: the note may be gone or another height
-   * when the list comes back, and the rows must land where they were. */
-  offsetNoteH?: number;
-  /** What the rows' heights were measured for when `offset` was taken (`sizes.sig` below). */
-  offsetSig?: string;
-  /** Row heights measured on the last visit, and what they were measured for (layout, columns, width bucket, text
-   * size). `offset` was taken over these heights: without them the rows above it come back at their estimates, so
-   * the same offset lands rows away from where the reader was (#94). */
-  sizes?: { sig: string; items: VirtualItem[] };
-  /** The article at the top of the list when `offset` was recorded: where the list goes back to when the saved heights
-   * no longer apply (the list came back at another width or text size), since `offset` then points at other rows. */
-  topId?: string | null;
-  selectedId?: string;
-  /** A row the list must scroll to when it next mounts (the article reached by paging Next or Previous). */
-  reveal?: string;
-  /** Rows swiped or marked away in Unread, so leaving the list and coming back keeps them gone. */
-  hidden: ReadonlySet<string>;
-  /** Ids already sent by mark-read-on-scroll. */
-  sentByScroll: Set<string>;
-  /** Rows actually rendered in the visible window at some point (not just overscan), so a mark-on-scroll
-   * settle after a remount still knows what was genuinely seen before the list was last unmounted. */
-  seenByScroll: Set<string>;
-}
-const MEMORY_CAP = 100;
 /** Rows rendered past each end of the visible window. */
 const OVERSCAN = 8;
 /** How far down a list a remembered place is looked for after a reload, in articles. */
@@ -126,103 +101,15 @@ const PLACE_SEARCH_MAX = 1000;
 /** The same for the Digest, which loads up to a page of every section it asks for: about ten sections. */
 const PLACE_SEARCH_DIGEST_MAX = 200;
 
-/** The article whose row is at the top of the scrolled list (rows are absolutely placed, so the highest one in view). */
-function topItemId(scroller: HTMLElement): string | null {
-  const top = scroller.getBoundingClientRect().top + 1;
-  let best: { id: string; y: number } | null = null;
-  for (const row of scroller.querySelectorAll<HTMLElement>("[data-item-id]")) {
-    const r = row.getBoundingClientRect();
-    if (r.bottom <= top) continue;
-    const id = row.dataset.itemId;
-    if (id && (!best || r.top < best.y)) best = { id, y: r.top };
-  }
-  return best?.id ?? null;
-}
-const memory = new Map<string, ListMemory>();
-/** The page load has shown its first list, which is the only one that goes back to a remembered place. */
-let pageRestoredPlace = false;
-const memoryFor = (key: string): ListMemory => {
-  let m = memory.get(key);
-  if (!m) {
-    m = { offset: 0, hidden: new Set(), sentByScroll: new Set(), seenByScroll: new Set() };
-    memory.set(key, m);
-    // Bounded: every scope (each partial search string too) adds an entry. Map order is insertion order, so the
-    // oldest go first; a touched entry is re-inserted below to stay recent.
-    while (memory.size > MEMORY_CAP) {
-      const oldest = memory.keys().next().value;
-      if (oldest === undefined) break;
-      memory.delete(oldest);
-    }
-  } else {
-    memory.delete(key);
-    memory.set(key, m);
-  }
-  return m;
-};
-
-// An article that becomes unread again (undo, mark unread) while its list is not mounted must not stay hidden.
-onBecameUnread((ids) => {
-  for (const m of memory.values()) if (ids.some((id) => m.hidden.has(id))) m.hidden = new Set([...m.hidden].filter((x) => !ids.includes(x)));
-});
-
-/** The article reached by Next or Previous is where the list should be when the reader goes back to it. */
-export function rememberListPlace(scope: Scope, id: string): void {
-  const m = memoryFor(scopeKey(scope));
-  m.selectedId = id;
-  m.reveal = id;
-}
-
-/** Forget remembered scroll and selection (tests). */
-export function clearListMemory(): void {
-  memory.clear();
-  pageRestoredPlace = false;
-}
-
 /** How long a row marked read on purpose stays in the Unread list (the undo toast lasts far longer). */
 const LEAVE_MS = 1500;
 
-/** What an empty list says, and the one next step it offers: show everything, or add a feed. */
-export interface EmptyCopy {
-  title: string;
-  body: string;
-  health?: boolean;
-  next?: "all" | "add";
-}
-
-/**
- * What an empty list says. `feed` is the one feed a feed list shows: a failing feed says why instead of "All caught up"
- * (issue #476). `scopeFeeds` is how many feeds the list covers (a folder with none cannot have articles), so the reason
- * given is the real one, not the view's.
- */
-export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed, scopeFeeds?: number): EmptyCopy {
-  if (scope.q) {
-    // Only a search narrowed to a feed or folder has a wider place to try (the chip on the Search screen widens it).
-    const narrowed = scope.feed || scope.folder;
-    return { title: `No results for "${scope.q}"`, body: narrowed ? "Try fewer words, or search the whole library." : "Try fewer words." };
-  }
-  if (scope.after) return { title: "Nothing new", body: "Nothing has arrived since you last looked. Unread has everything you have not read yet." };
-  if (scope.view === "muted") return { title: "Nothing muted", body: "No filter has muted an article yet." };
-  if (scope.view === "starred") return { title: "No starred articles", body: "Tap the star on an article to keep it here." };
-  if (scope.folder && scopeFeeds === 0) return { title: "This folder has no feeds", body: "Move a feed here or add one.", next: "add" };
-  // The server sends last_error only while the feed is failing. New articles waiting mean a fetch has worked since.
-  const failure = feed && showsFailure(scope.view, pendingNew, feed) ? failureCopy(feed) : null;
-  if (failure) return { title: failure.title, body: failure.body, health: true };
-  if (scope.view === "unread") {
-    return pendingNew > 0
-      ? { title: "All caught up", body: `${pendingNew} new article${pendingNew === 1 ? "" : "s"} arrived. Load ${pendingNew === 1 ? "it" : "them"} above to continue reading.` }
-      : { title: "All caught up", body: "No unread articles. New ones appear after the next refresh.", next: "all" };
-  }
-  return { title: "No articles yet", body: "Kipple hasn't fetched anything from these feeds yet." };
-}
-
-/** The line under the last row of a list that has been read to its end. Worded like the empty state: it names the list. */
-export function endCopy(scope: Scope): string {
-  if (scope.q) return "End of results";
-  if (scope.after) return "End of new articles";
-  if (scope.view === "muted") return "End of muted";
-  if (scope.view === "starred") return "End of starred";
-  return scope.view === "unread" ? "End of unread" : "End of articles";
-}
+// Moved to their own files; re-exported so importers of the list keep one entry point.
+export { emptyCopy, endCopy, type EmptyCopy } from "./listCopy";
+export { clearListMemory, rememberListPlace } from "./listMemory";
+export { MutedStrip } from "./MutedStrip";
+export { NewArticlesPill } from "./NewArticlesPill";
+export { keepMounted } from "./useListSelection";
 
 /** What the header can ask the list to do (mark all needs the list's own loaded ids). */
 /** Why Mark all is off while a search is still being typed. */
@@ -246,13 +133,6 @@ export interface ListControls {
   focusStop: () => boolean;
 }
 
-/** What a search that came back 422 says: the server's own message, or a plain one. */
-function tooBroadMessage(e: unknown): string | null {
-  if (!(e instanceof ApiError) || e.status !== 422 || e.code !== "search_too_broad") return null;
-  const m = e.body && typeof e.body.message === "string" ? e.body.message : "";
-  return m || "That search matches too much. Add a longer or more specific word.";
-}
-
 interface Props {
   scope: Scope;
   /** Item open in the reader pane (or route), highlighted in the list. */
@@ -260,8 +140,6 @@ interface Props {
   /** Called when what the header (outside the list, which is remounted per scope) can offer changes: the loaded count, the fallback flag, mark all; null once this list is gone. */
   onControls?: (c: ListControls | null) => void;
 }
-
-type VRow = Row<Card> | { kind: "group"; key: string; items: Card[] };
 
 /** Group consecutive item rows into `cols`-wide rows (cards grid). */
 function chunkRows(rows: Row<Card>[], cols: number): VRow[] {
@@ -376,31 +254,14 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // the reader has moved the list, so its top is theirs to remember (the list's own scrolling on the way never is).
   const placeable = !scope.q;
   const [place] = useState(() => ({
-    id: placeable && !saved && !pageRestoredPlace ? (activeId ?? listPlace(key)) : null,
+    id: placeable && !saved && !placeState.restored ? (activeId ?? listPlace(key)) : null,
     index: null as number | null,
     moved: false,
   }));
   useEffect(() => {
-    pageRestoredPlace = true;
+    placeState.restored = true;
   }, []);
-  const [selectedId, setSelectedId] = useState<string | undefined>(saved?.selectedId);
-  const selected = activeId ?? selectedId;
-  // The list is one Tab stop (rowTabStop.ts): the row that last had focus, else the selected row, else the first. Its
-  // row is always rendered, so Tab into the list finds it wherever the list is scrolled. Opening another article (Next
-  // in the reader, say) makes it the selected row again: Shift+Tab from the reader comes back to the open article.
-  const [focusId, setFocusId] = useState<string | undefined>(undefined);
-  const [stopFor, setStopFor] = useState(activeId);
-  if (stopFor !== activeId) {
-    setStopFor(activeId);
-    setFocusId(undefined);
-  }
-  const shown = (id: string | undefined, of: readonly Card[]) => (id && of.some((i) => i.id === id) ? id : undefined);
-  const tabStopId = shown(focusId, items) ?? shown(selected, items) ?? items[0]?.id;
-  const stopIndex = useMemo(
-    () => (tabStopId ? rows.findIndex((r) => (r.kind === "item" ? r.item.id === tabStopId : r.kind === "group" && r.items.some((i) => i.id === tabStopId))) : -1),
-    [rows, tabStopId],
-  );
-  const rangeExtractor = useCallback((range: Range) => keepMounted(range, stopIndex), [stopIndex]);
+  const { selectedId, setSelectedId, selected, setFocusId, shown, focusId, tabStopId, rangeExtractor } = useListSelection(activeId, saved?.selectedId, items, rows);
 
   // The list's measured width and root font size, for layouts whose rows change shape with width (Editorial).
   const sizeCtx = useRef({ width: 0, rem: 16 });
@@ -809,7 +670,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     if (pagedRef.current) return storyIntoView(parentRef.current, activeId);
     const i = rowIndexOf(activeId);
     if (i >= 0) virtualizer.scrollToIndex(i, { align: "auto" });
-  }, [activeId, rowIndexOf, virtualizer]);
+  }, [activeId, rowIndexOf, virtualizer, setFocusId]);
 
   // Infinite scroll: fetch the next page when the tail comes into view. A page layout has no virtual rows: a marker
   // after its last page says when the end is within reach (and stays in reach while the first page is being planned).
@@ -843,7 +704,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       memoryFor(key).selectedId = item.id;
       setSelectedId(item.id);
     },
-    [key],
+    [key, setSelectedId],
   );
 
   // "Mark as read while scrolling" (Accessibility, off by default): rows that have scrolled past the top of
@@ -945,31 +806,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     };
   }, [markOnScroll, qc, virtualizer, pagedScroll, lookAtStories]);
 
-  // The arrow keys between rows (layouts/rowKeys.ts). They only move focus: they select nothing and open nothing, so
-  // looking through the list marks nothing read. The list is one Tab stop (and Safari's Tab skips links), so these keys
-  // are how the keyboard reaches the other rows.
-  const onRowKey = (e: React.KeyboardEvent) => {
-    // A page's keys visit its stories and its buttons (the Digest's "N more") in the order they are drawn.
-    const moved = rowKeyMove(
-      e,
-      () => (Page ? pageOrder(parentRef.current) : items.map((i) => i.id)),
-      (row) => Math.max(1, Math.floor((parentRef.current?.clientHeight ?? 0) / Math.max(1, row.offsetHeight))) * cols,
-    );
-    const next = moved?.to;
-    if (!next) return;
-    if (!next.startsWith(STOP_PREFIX)) setFocusId(next);
-    pageRestored.current = true; // moving by key is the reader moving the page
-    if (Page) storyIntoView(parentRef.current, next);
-    else virtualizer.scrollToIndex(rowIndexOf(next), { align: "auto" });
-    requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, next)));
-  };
-
-  /** The row that takes focus in the list (its own focus, or one of its controls) becomes the list's Tab stop. */
-  const onListFocus = (e: React.FocusEvent) => {
-    const id = e.target instanceof HTMLElement ? e.target.closest<HTMLElement>("[data-item-id],[data-muted-for]") : null;
-    const rowId = id?.dataset.itemId ?? id?.dataset.mutedFor;
-    if (rowId) setFocusId(rowId);
-  };
+  const { onRowKey, onListFocus } = useListKeyboard({ paged: !!Page, parentRef, items, cols, setFocusId, pageRestored, virtualizer, rowIndexOf });
 
   // ---- actions -----------------------------------------------------------
 
@@ -1030,7 +867,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       setLeaving((l) => new Set([...l].filter((x) => !ids.includes(x))));
       setHidden((h) => new Set([...h].filter((x) => !ids.includes(x))));
     };
-  }, [key]);
+  }, [key, setSelectedId]);
 
   /** Bring some hidden rows back (the server did not mark them). */
   const unhide = useCallback((ids: string[]) => {
@@ -1072,7 +909,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       setFocusId(next);
       requestAnimationFrame(() => requestAnimationFrame(() => focusRow(parentRef.current, next)));
     } else requestAnimationFrame(() => parentRef.current?.focus({ preventScroll: true }));
-  }, [shownIds, held]);
+  }, [shownIds, held, setFocusId]);
 
   // After rows are removed, put the first visible row back where it was on screen.
   useLayoutEffect(() => {
@@ -1611,31 +1448,6 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   );
 }
 
-/**
- * "N new articles". It is always mounted and fades and slides on transform and opacity only (compositor
- * work: nothing in the list reflows, and the list is never pushed down), and it keeps the last count while
- * it fades out so the text does not blank. Reduced motion is honoured by the global rule in index.css.
- */
-export function NewArticlesPill({ count, onClick }: { count: number; onClick: () => void }) {
-  const [n, setN] = useState(count);
-  if (count > 0 && count !== n) setN(count);
-  const open = count > 0;
-  return (
-    <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center" data-testid="new-pill-wrap">
-      <button
-        type="button"
-        className="kp-pill pointer-events-auto min-h-11 rounded-full bg-accent px-5 text-sm font-medium text-bg tabular-nums shadow-lg"
-        data-open={open}
-        aria-hidden={!open}
-        tabIndex={open ? 0 : -1}
-        onClick={onClick}
-      >
-        {n} new article{n === 1 ? "" : "s"}
-      </button>
-    </div>
-  );
-}
-
 interface ListRowProps {
   item: Card;
   feed: Feed | undefined;
@@ -1693,40 +1505,6 @@ const ListRow = memo(function ListRow(p: ListRowProps) {
   );
 });
 
-/** "Muted by <rule>" under a row of the Muted list, with the two things you can do about it. */
-export function MutedStrip({ item, onRestore, onEditRule }: { item: Card; onRestore: () => void; onEditRule: () => void }) {
-  const name = item.muted_by_name;
-  const tabIndex = useRowTabIndex();
-  return (
-    <div data-testid="muted-strip" data-muted-for={item.id} className="flex flex-wrap items-center gap-x-3 border-b border-line bg-surface px-4 text-xs">
-      <span className="min-w-0 flex-1 py-1 text-fg2">
-        {name ? (
-          <>
-            Muted by <strong className="font-semibold text-fg">{name}</strong>
-          </>
-        ) : (
-          "Muted by a filter that was deleted"
-        )}
-      </span>
-      <Button variant="ghost" tabIndex={tabIndex} onClick={onRestore} aria-label={`Restore ${item.title || "article"}`}>
-        Restore
-      </Button>
-      {name ? (
-        <Button variant="ghost" tabIndex={tabIndex} onClick={onEditRule} aria-label={`Edit the rule that muted ${item.title || "this article"}`}>
-          Edit rule
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
-/** The rows to render: the visible window and its overscan, plus the list's Tab stop row wherever it is. */
-export function keepMounted(range: Range, stopIndex: number): number[] {
-  const indexes = defaultRangeExtractor(range);
-  if (stopIndex < 0 || indexes.includes(stopIndex)) return indexes;
-  return stopIndex < (indexes[0] ?? 0) ? [stopIndex, ...indexes] : [...indexes, stopIndex];
-}
-
 /** The last row the visible window and its overscan reach, which decides when the next page loads: not the Tab stop
  * row keepMounted adds, which can be far below. */
 export function windowReach(range: { endIndex: number } | null | undefined, count: number): number {
@@ -1738,23 +1516,5 @@ export function focusListRow(id: string): void {
   const list = document.querySelector<HTMLElement>('[data-testid="list-scroll"]');
   const link = list?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"] a`);
   (link ?? list)?.focus({ preventScroll: true });
-}
-
-function Skeleton() {
-  return (
-    <div aria-hidden="true" data-testid="list-skeleton">
-      {Array.from({ length: 7 }, (_, i) => (
-        <div key={i} className="flex min-h-28 gap-3 border-b border-line px-4 py-3">
-          <div className="flex flex-1 flex-col gap-2">
-            <div className="h-3 w-1/3 rounded bg-surface" />
-            <div className="h-4 w-11/12 rounded bg-surface" />
-            <div className="h-4 w-3/4 rounded bg-surface" />
-            <div className="h-3 w-2/3 rounded bg-surface" />
-          </div>
-          <div className="size-[var(--thumb)] rounded-lg bg-surface" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
