@@ -11,9 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-//go:fix inline
-func iptr(n int) *int { return new(n) }
-
 func TestEffectiveFulltextTable(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

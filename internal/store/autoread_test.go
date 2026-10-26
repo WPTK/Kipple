@@ -214,9 +214,6 @@ func TestAutoReadCatchUpEqualsPreviewAndInheritsTheGlobalDefault(t *testing.T) {
 	require.Zero(t, again.Total)
 }
 
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
-
 func TestAutoReadMarksTheTrimmedLedgerAndUnreadCountsAgree(t *testing.T) {
 	t.Parallel()
 	e := newAREnv(t)

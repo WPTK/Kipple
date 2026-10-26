@@ -22,9 +22,6 @@ type tagOp struct {
 	starred *bool // set starred state
 }
 
-//go:fix inline
-func boolp(b bool) *bool { return new(b) }
-
 // tagOps maps a= (add) and r= (remove) tag values to state changes (design §6.7).
 // Labels, broadcast, like, tracking-* and unknown tags are ignored.
 func tagOps(add, remove []string) []tagOp {

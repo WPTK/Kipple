@@ -198,9 +198,6 @@ func checkCloudflareAccess(v any) (any, string) {
 	return map[string]any{"team_domain": host, "aud": aud}, ""
 }
 
-//go:fix inline
-func ip(n int) *int { return new(n) }
-
 func intIn(lo, hi int) func(any) (any, string) {
 	return func(v any) (any, string) {
 		f, ok := v.(float64)
