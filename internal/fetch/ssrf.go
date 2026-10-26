@@ -40,7 +40,7 @@ var blockedPrefixes = func() []netip.Prefix {
 // anycast), Teredo, unique-local, site-local, IPv4-compatible and the other
 // reserved ranges.
 func Blocked(ip netip.Addr) bool {
-	ip = ip.Unmap()
+	ip = ip.WithZone("").Unmap() // a zone makes netip.Prefix.Contains and == comparisons miss
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
 		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
 		return true

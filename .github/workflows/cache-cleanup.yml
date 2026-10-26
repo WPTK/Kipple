@@ -7,7 +7,7 @@ name: Cache cleanup
 # (scripts/fuzz-cache.ps1).
 on:
   schedule:
-    - cron: "43 6 * * 1" # Mondays 06:43 UTC, after the Fuzz workflow
+    - cron: "43 6 * * *" # daily 06:43 UTC; main writes about 3.5 GB of CodeQL overlay databases a day
   workflow_dispatch:
 
 permissions:
