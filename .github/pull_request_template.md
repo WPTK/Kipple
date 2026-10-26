@@ -2,6 +2,8 @@
 
 <!-- What changed and why. -->
 
+Closes #N <!-- One keyword per issue ("Closes #1, closes #2"); "(#N)" in a title does not close anything. -->
+
 ## Checklist
 
 - [ ] Behavior change? Added a `changes/<slug>.<kind>.md` fragment (see `changes/README.md`; don't edit `CHANGELOG.md`)
