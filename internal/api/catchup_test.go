@@ -46,6 +46,18 @@ func TestCatchupCountsAndMark(t *testing.T) {
 	require.Equal(t, float64(1), secs[1].(map[string]any)["count"])
 	_ = a1
 
+	// mark= counts against that mark instead of the server's, and is the mark answered.
+	_, body, _ = h.api(c, "GET", "/api/catchup"+groups+"&mark=0", "")
+	require.Equal(t, "0", body["mark"])
+	secs = body["sections"].([]any)
+	require.Equal(t, float64(2), secs[0].(map[string]any)["count"], "against mark 0, a1 and b1 count again")
+	require.Equal(t, float64(1), secs[1].(map[string]any)["count"])
+	_, body, _ = h.api(c, "GET", "/api/catchup"+groups+"&mark="+sid(z1), "")
+	require.Equal(t, sid(z1), body["mark"])
+	require.Equal(t, float64(0), body["sections"].([]any)[1].(map[string]any)["count"])
+	_, body, _ = h.api(c, "GET", "/api/catchup"+groups, "")
+	require.Equal(t, sid(b1), body["mark"], "asking about another mark leaves the server's alone")
+
 	// It never moves back (a second device leaving later with an older page), and never past what exists.
 	_, body, _ = h.api(c, "POST", "/api/catchup/seen", `{"as_of":"`+sid(a1)+`"}`)
 	require.Equal(t, sid(b1), body["mark"])
@@ -57,7 +69,7 @@ func TestCatchupCountsAndMark(t *testing.T) {
 		code, _, _ = h.api(c, "POST", "/api/catchup/seen", bad)
 		require.Equal(t, http.StatusBadRequest, code, bad)
 	}
-	for _, bad := range []string{"?groups=x1", "?groups=d", "?groups=d0", "?groups=d1,,f2", "?groups=g3"} {
+	for _, bad := range []string{"?groups=x1", "?groups=d", "?groups=d0", "?groups=d1,,f2", "?groups=g3", "?mark=x", "?mark=-1", "?mark=5x"} {
 		code, _, _ = h.api(c, "GET", "/api/catchup"+bad, "")
 		require.Equal(t, http.StatusBadRequest, code, bad)
 	}
