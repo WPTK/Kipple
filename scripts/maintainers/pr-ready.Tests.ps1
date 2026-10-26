@@ -237,7 +237,27 @@ Describe 'Browser UAT blocks a PR that changes it' {
   }
 }
 
+Describe 'Browser UAT blocking edge cases' {
+  It 'fails closed when the file list is at gh''s 100-file cap' {
+    $files = @(1..100 | ForEach-Object { [pscustomobject]@{ path = "src/f$_.go" } })
+    $roll = @([pscustomobject]@{ name = 'Browser UAT (firefox)'; status = 'COMPLETED'; conclusion = 'FAILURE' })
+    (Get-PrVerdict -Pr (New-Pr @{ statusCheckRollup = $roll; files = $files }) -AncestorStatus 'ahead').Ready | Should -BeFalse
+  }
+  It 'stays advisory with an empty file list' {
+    $roll = @([pscustomobject]@{ name = 'Browser UAT (firefox)'; status = 'COMPLETED'; conclusion = 'FAILURE' })
+    (Get-PrVerdict -Pr (New-Pr @{ statusCheckRollup = $roll; files = @() }) -AncestorStatus 'ahead').Ready | Should -BeTrue
+  }
+  It 'blocks a commit-status shaped Browser UAT check too when UAT is touched' {
+    $s = Get-CheckSummary -Rollup @([pscustomobject]@{ context = 'Browser UAT'; state = 'FAILURE' }) -UatBlocking
+    $s.Failing | Should -Contain 'Browser UAT'
+  }
+}
+
 Describe 'log tail ends at the runner error' {
+  It 'ends at the last ##[error] line when there are several' {
+    $tail = Get-LogTail -Text "a`n##[error]first`nb`n##[error]second`ncleanup" -Lines 30
+    $tail[-1] | Should -Be '##[error]second'
+  }
   It 'drops the cleanup after the ##[error] line' {
     $log = "flow output 1`nFAIL something`n##[error]Process completed with exit code 1.`nPost job cleanup.`nCleaning up orphan processes"
     $tail = Get-LogTail -Text $log -Lines 30

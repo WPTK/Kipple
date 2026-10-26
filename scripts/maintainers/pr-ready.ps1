@@ -36,7 +36,7 @@
   Exit codes: 0 READY (and merged and verified, with -Merge), 1 BLOCKED or the post-merge verification failed,
   2 usage or environment error.
   If this breaks: it depends on `gh pr view --json` fields number,state,isDraft,headRefOid,baseRefName,
-  mergeStateStatus,reviewDecision,statusCheckRollup,closingIssuesReferences (Get-PullRequestState), on the compare
+  mergeStateStatus,reviewDecision,statusCheckRollup,closingIssuesReferences,files (Get-PullRequestState), on the compare
   API's `status` field (Get-AncestorStatus), and on `gh pr merge --match-head-commit`. The decision logic is
   Get-PrVerdict. Tests: Invoke-Pester scripts/maintainers/pr-ready.Tests.ps1
 #>
@@ -136,7 +136,9 @@ function Get-PrVerdict {
   if ($Pr.isDraft) { $reasons.Add('it is a draft') }
   $files = @()
   if ($Pr.PSObject.Properties['files'] -and $Pr.files) { $files = @($Pr.files | ForEach-Object { $_.path }) }
-  $checks = Get-CheckSummary -Rollup @($Pr.statusCheckRollup) -UatBlocking:(Test-UatTouched -Path $files)
+  # `gh pr view --json files` lists at most 100 files; a PR that large may hide a web/uat change, so it fails closed.
+  $uat = ($files.Count -ge 100) -or (Test-UatTouched -Path $files)
+  $checks = Get-CheckSummary -Rollup @($Pr.statusCheckRollup) -UatBlocking:$uat
   if ($checks.Failing.Count) { $reasons.Add("failing checks: $($checks.Failing -join ', ')") }
   if ($checks.Pending.Count) { $reasons.Add("pending checks: $($checks.Pending -join ', ')") }
   if ($checks.Total -eq 0) { $reasons.Add('no checks have reported') }
