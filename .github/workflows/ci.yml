@@ -235,7 +235,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "22"
+          node-version: "24"
           # No npm install runs on a prose-only pull request, so there is nothing to restore or save.
           cache: ${{ needs.changes.outputs.code != 'false' && 'npm' || '' }}
           cache-dependency-path: web/package-lock.json
@@ -346,7 +346,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "22"
+          node-version: "24"
 
       - run: node --test scripts/uat-labels.test.mjs
       - run: node scripts/uat-labels.mjs HEAD^1..HEAD
