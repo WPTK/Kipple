@@ -36,9 +36,7 @@ A self-hosted RSS reader for one person: web app plus a Google Reader compatible
 
 ## Features
 
-- Eight layouts: Editorial, Cards, Gazette, Inbox, Compact, Headlines, Digest and Coffee break (unread articles grouped by
-  reading time). Set one per device, folder or feed.
-- 20 color themes with separate day and night picks, and 11 bundled reading fonts.
+- Layouts, color themes (separate day and night picks) and reading fonts. Set a layout per device, folder or feed.
 - Nested folders. OPML import and export.
 - Search, saved searches, and keyword filters that mute, star, highlight or mark articles read.
 - Per-feed retention from 50 articles to unlimited. Starred articles are never deleted.
