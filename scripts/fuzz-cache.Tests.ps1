@@ -1,6 +1,6 @@
 #requires -Version 7.2
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.5.0' }
-# Tests for the pure parts of scripts/fuzz-cache.ps1 (keys, corpus paths, size, pruning). Run: Invoke-Pester scripts/fuzz-cache.Tests.ps1
+# Tests for the pure parts of scripts/fuzz-cache.ps1 (keys, corpus paths, size, pruning, restore report). Run: Invoke-Pester scripts/fuzz-cache.Tests.ps1
 # The script is dot-sourced, so it only defines functions; no go or gh command runs.
 
 BeforeAll {
@@ -60,5 +60,30 @@ Describe 'Select-StaleFuzzCache' {
   It 'lists nothing when every target has one key' {
     $c = @(Get-CacheEntry 1 'fuzz-corpus-p-FuzzA-100' '2026-10-05T05:30:00Z')
     @(Select-StaleFuzzCache -Cache $c).Count | Should -Be 0
+  }
+}
+
+Describe 'Get-FuzzCacheReport' {
+  BeforeAll {
+    $script:plan = 1..3 | ForEach-Object { [pscustomobject]@{ Slot = $_; Name = "FuzzT$_" } }
+    $script:steps = '{"plan":{"outputs":{"key1":"k"}},"restore1":{"outputs":{"cache-hit":"false","cache-matched-key":"fuzz-corpus-p-FuzzT1-9"}},"restore2":{"outputs":{"cache-hit":"false","cache-matched-key":""}},"restore3":{"outputs":{}}}'
+  }
+  It 'counts a slot as restored when its matched key is non-empty' {
+    $r = Get-FuzzCacheReport -StepsJson $script:steps -Plan $script:plan
+    $r.Restored | Should -Be 1
+    $r.Total | Should -Be 3
+    @($r.Row.Restored) | Should -Be @($true, $false, $false)
+  }
+  It 'reports nothing restored when the steps context is missing' {
+    (Get-FuzzCacheReport -StepsJson '' -Plan $script:plan).Restored | Should -Be 0
+  }
+  It 'formats the headline, a plain table and a markdown table' {
+    $r = Get-FuzzCacheReport -StepsJson $script:steps -Plan $script:plan
+    @(Format-FuzzCacheReport -Report $r)[0] | Should -Be 'Fuzz corpus cache: restored 1 of 3 slots'
+    @(Format-FuzzCacheReport -Report $r)[1] | Should -Match '^slot 1\s+FuzzT1\s+yes$'
+    $md = @(Format-FuzzCacheReport -Report $r -Markdown)
+    $md[0] | Should -Be '### Fuzz corpus cache: restored 1 of 3 slots'
+    $md[4] | Should -Be '| 1 | FuzzT1 | yes |'
+    $md[5] | Should -Be '| 2 | FuzzT2 | no |'
   }
 }
