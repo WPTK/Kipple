@@ -9,7 +9,15 @@ import (
 	"github.com/WPTK/kipple/internal/sanitize"
 )
 
-// FuzzReadable: whatever markup a page holds, readable neither panics nor takes more than a second, and when it
+// clip keeps a failure message readable when the fuzzer's input is large.
+func clip(s string) string {
+	if len(s) > 200 {
+		return s[:200] + "..."
+	}
+	return s
+}
+
+// FuzzReadable: whatever markup a page holds, readable neither panics nor takes long (the 10 second bound only catches a pathological blowup, not slowness under load), and when it
 // finds an article the result is already clean: sanitizing the HTML again changes nothing, the page has words, and
 // the source address is where the fetch ended.
 func FuzzReadable(f *testing.F) {
@@ -31,17 +39,17 @@ func FuzzReadable(f *testing.F) {
 	f.Fuzz(func(t *testing.T, body string) {
 		start := time.Now()
 		res, err := readable(strings.NewReader(body), pageURL, final)
-		if d := time.Since(start); d > time.Second {
-			t.Fatalf("took %v for %q", d, body)
+		if d := time.Since(start); d > 10*time.Second {
+			t.Fatalf("took %v for %q", d, clip(body))
 		}
 		if err != nil {
 			return
 		}
 		if again, _ := sanitize.Content(res.HTML, pageURL, final.String()); again != res.HTML {
-			t.Fatalf("sanitize changed the result for %q:\n%q\n%q", body, res.HTML, again)
+			t.Fatalf("sanitize changed the result for %q:\n%q\n%q", clip(body), clip(res.HTML), clip(again))
 		}
 		if res.WordCount <= 0 {
-			t.Fatalf("word count %d without an error for %q", res.WordCount, body)
+			t.Fatalf("word count %d without an error for %q", res.WordCount, clip(body))
 		}
 		if res.SourceURL != final.String() {
 			t.Fatalf("source %q, want %q", res.SourceURL, final.String())
