@@ -62,7 +62,14 @@ const settled = (page) =>
     height: el.scrollHeight,
     read: el.querySelectorAll("article[data-read]").length,
   }));
-const STILL = 400;
+// Longer than the delay before the page reports marks read (about 700 ms) plus the round trip, so a mark a wrong move
+// caused would show up inside the window.
+const STILL = 1000;
+/** Waits for the change just made to reach the page (two frames), then until the page has held still for STILL. */
+async function settle(page) {
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+  return waitForStillFor(page, STILL, () => settled(page));
+}
 /** Waits until the page's height is no longer `was` (a change the test made has reached the layout), then until it settles. */
 async function settleAfterHeightChange(page, was, what) {
   await page
@@ -70,7 +77,7 @@ async function settleAfterHeightChange(page, was, what) {
     .catch(() => {
       throw new Error(`waited 5000 ms for the page's height to change from ${was} after ${what}, it did not`);
     });
-  return waitForStillFor(page, STILL, () => settled(page));
+  return settle(page);
 }
 const readerScroll = async (page, px) => {
   for (let done = 0; done < px; done += 400) {
@@ -80,7 +87,7 @@ const readerScroll = async (page, px) => {
       return new Promise((r) => requestAnimationFrame(() => r()));
     }, Math.min(400, px - done));
   }
-  await waitForStillFor(page, STILL, () => settled(page));
+  await settle(page);
 };
 const same = (a, b) => a.id === b.id && Math.abs(a.y - b.y) <= 2;
 
@@ -104,7 +111,7 @@ await t.eachViewport(async (page, vp) => {
       await page.evaluate(() => localStorage.removeItem("kipple.listPlace.v1"));
       await page.reload({ waitUntil: "load" });
       await scroller(page).locator("article[data-item-id]").first().waitFor({ timeout: 15000 });
-      await waitForStillFor(page, STILL, () => settled(page));
+      await settle(page);
       check((await scroller(page).evaluate((el) => getComputedStyle(el).overflowAnchor)) === "none", `${tag} G0`, "the Gazette's scroller turns scroll anchoring off");
       // A third of the way down: smaller text shortens the page, and a place near its end would be clamped by it.
       await readerScroll(page, Math.min(1600, Math.round((await scroller(page).evaluate((el) => el.scrollHeight - el.clientHeight)) / 3)));
@@ -126,6 +133,9 @@ await t.eachViewport(async (page, vp) => {
       await settleAfterHeightChange(page, height1, "the text went back to its size");
       const smallerNow = await yOf(page, smaller.id);
       check(smallerNow !== null && Math.abs(smallerNow - smaller.y) <= 2, `${tag} G2`, "the text back to its size keeps the story at the top where it was", `story ${smaller.id} was ${smaller.y} px from the top, now ${smallerNow}`);
+      // Not checked: that the story the reader started on (`here`) is back at its first y. After the shrink the page
+      // holds the story that was then at the top, which can be one cut off by the top edge before, so `here` comes back
+      // a few dozen px off on Chromium and Firefox (it is where the app puts it, not a lost place).
       const back = await topOf(page);
 
       // A story above the screen, in the column of the story at the top, gets half as tall, as one does when its
@@ -142,7 +152,7 @@ await t.eachViewport(async (page, vp) => {
         return above.getAttribute("data-item-id");
       }, back.id);
       if (!shrunk) return t.fail(`${tag} G3 setup`, "no story above the screen to shorten");
-      await waitForStillFor(page, STILL, () => settled(page));
+      await settle(page);
       const after = await topOf(page);
       check(same(back, after), `${tag} G3`, "a story above the screen getting shorter keeps the story at the top where it was", `${JSON.stringify(back)} -> ${JSON.stringify(after)}`);
       const moved = [...marks].filter((id) => !before.has(id));
@@ -185,7 +195,7 @@ await t.eachViewport(async (page, vp) => {
         el.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: at - el.scrollTop }));
         el.scrollTop = at;
       });
-      await waitForStillFor(page, STILL, () => settled(page));
+      await settle(page);
       const on5 = await scroller(page).evaluate((el) => {
         const by = Math.min(el.clientHeight + 100, el.scrollHeight - el.clientHeight - el.scrollTop);
         const list = el.getBoundingClientRect();
@@ -200,7 +210,7 @@ await t.eachViewport(async (page, vp) => {
       if (!on5.ids.length) return t.fail(`${tag} G5 setup`, `no unread story in view to scroll past (${JSON.stringify(on5)})`);
       await readerScroll(page, on5.by);
       // The marks go out after a short delay: wait for them (or for the timeout, when the check below names the misses).
-      for (const t0 = Date.now(); Date.now() - t0 < 5000 && on5.ids.some((id) => !marks.has(id)); ) await new Promise((r) => setTimeout(r, 50));
+      await waitForStillFor(page, STILL, () => on5.ids.filter((id) => !marks.has(id)).join(","), 8000);
       const missed = on5.ids.filter((id) => !marks.has(id));
       check(missed.length === 0, `${tag} G5`, "the stories the reader scrolls past are still marked read", `not marked: ${missed.join(", ")}`);
     } finally {
@@ -219,7 +229,7 @@ await t.eachViewport(async (page, vp) => {
       el.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: at - el.scrollTop }));
       el.scrollTop = at;
     }, target.at);
-    await waitForStillFor(page, STILL, () => settled(page));
+    await settle(page);
     const there = await topOf(page);
     if (there.id !== target.id) return t.fail(`${tag} G4 setup`, `the story is not at the top: ${JSON.stringify(there)} (wanted ${target.id})`);
     const marked = new Set(marks);
@@ -230,7 +240,7 @@ await t.eachViewport(async (page, vp) => {
       above.style.overflow = "hidden";
       return el.scrollHeight - height;
     }, target.id);
-    await waitForStillFor(page, STILL, () => settled(page));
+    await settle(page);
     const kept = await topOf(page);
     check(grew === 0, `${tag} G4 height`, "the page's height did not change", `it changed by ${grew} px`);
     check(same(there, kept), `${tag} G4`, "a story getting shorter in a column shorter than the tallest keeps the story at the top where it was", `${JSON.stringify(there)} -> ${JSON.stringify(kept)}`);
