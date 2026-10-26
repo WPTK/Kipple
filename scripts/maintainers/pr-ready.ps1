@@ -23,6 +23,9 @@
   The pull request number.
 .PARAMETER Merge
   Squash-merge when the verdict is READY.
+.PARAMETER FailureDetail
+  For each failing check that is a GitHub Actions job, also print the job, the failed step and the last 30 log lines
+  (read through `gh api`), so nobody has to pull a whole log. Read-only; it changes nothing about the verdict.
 .PARAMETER Repo
   owner/name. Default: the repository `gh repo view` reports.
 .EXAMPLE
@@ -41,6 +44,7 @@
 param(
   [Parameter(Mandatory)][ValidateRange(1, 1000000)][int]$Number,
   [switch]$Merge,
+  [switch]$FailureDetail,
   [ValidatePattern('^[\w.-]+/[\w.-]+$')][string]$Repo
 )
 Set-StrictMode -Version Latest
@@ -50,8 +54,19 @@ $ErrorActionPreference = 'Stop'
 $script:FailingConclusions = @('FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR')
 $script:PendingStates = @('PENDING', 'EXPECTED')
 # Checks that report but never block: the slow real-browser run (.github/workflows/browser-uat.yml, not a required check
-# yet). Matched by exact check name. Take a name off this list when its check becomes required.
+# yet). A name matches a check called exactly that or "<name> (<matrix leg>)". Take a name off this list when its
+# check becomes required.
 $script:AdvisoryChecks = @('Browser UAT')
+
+function Test-AdvisoryCheck {
+  [CmdletBinding()]
+  [OutputType([bool])]
+  param([Parameter(Mandatory)][AllowEmptyString()][string]$Name)
+  foreach ($a in $script:AdvisoryChecks) {
+    if ($Name -eq $a -or $Name.StartsWith("$a (")) { return $true }
+  }
+  return $false
+}
 
 function Get-CheckSummary {
   <#
@@ -73,14 +88,14 @@ function Get-CheckSummary {
     $props = $c.PSObject.Properties.Name
     if ($props -contains 'context') {
       $name = $c.context
-      if ($name -in $script:AdvisoryChecks) {
+      if (Test-AdvisoryCheck -Name $name) {
         if ($c.state -in $script:FailingConclusions) { $advisory.Add("${name}: failing") } elseif ($c.state -in $script:PendingStates) { $advisory.Add("${name}: pending") }
       }
       elseif ($c.state -in $script:FailingConclusions) { $failing.Add($name) }
       elseif ($c.state -in $script:PendingStates) { $pending.Add($name) }
     } else {
       $name = $c.name
-      if ($name -in $script:AdvisoryChecks) {
+      if (Test-AdvisoryCheck -Name $name) {
         if ($c.status -ne 'COMPLETED') { $advisory.Add("${name}: pending") } elseif ($c.conclusion -in $script:FailingConclusions) { $advisory.Add("${name}: failing") }
       }
       elseif ($c.status -ne 'COMPLETED') { $pending.Add($name) }
@@ -123,6 +138,77 @@ function Get-PrVerdict {
     Reasons = $reasons.ToArray()
     Advisory = $checks.Advisory
     Text    = $(if ($ready) { "READY (#$($Pr.number) at $($Pr.headRefOid))$(if ($checks.Advisory.Count) { " (advisory, not blocking: $($checks.Advisory -join ', '))" })" } else { "BLOCKED because $($reasons -join '; ')" })
+  }
+}
+
+function Get-JobIdFromUrl {
+  <#
+  .SYNOPSIS
+    The Actions job id in a check's details URL (.../actions/runs/<run>/job/<job>), or $null for any other check.
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param([AllowNull()][AllowEmptyString()][string]$Url)
+  if ($Url -match '/actions/runs/\d+/job/(\d+)') { return $Matches[1] }
+  return $null
+}
+
+function Get-FailedStepName {
+  <#
+  .SYNOPSIS
+    The name of the first failed step of an Actions job object (the `gh api repos/.../actions/jobs/<id>` shape), or
+    $null when no step failed (a cancelled or timed-out job, or a failure before any step).
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param([Parameter(Mandatory)][pscustomobject]$Job)
+  $steps = $Job.PSObject.Properties['steps']
+  if (-not $steps -or -not $steps.Value) { return $null }
+  $bad = @($steps.Value | Where-Object { $_.conclusion -in @('failure', 'timed_out', 'cancelled') } | Select-Object -First 1)
+  if ($bad.Count) { return $bad[0].name }
+  return $null
+}
+
+function Get-LogTail {
+  <#
+  .SYNOPSIS
+    The last N non-empty lines of a job log, with terminal escapes and the leading timestamp removed.
+  #>
+  [CmdletBinding()]
+  [OutputType([string[]])]
+  param([AllowEmptyString()][string]$Text, [int]$Lines = 30)
+  $clean = foreach ($l in ($Text -split "`r?`n")) {
+    $l = [regex]::Replace($l, "\[[0-9;]*[A-Za-z]", '')
+    $l = [regex]::Replace($l, '^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?', '')
+    if ($l.Trim()) { $l }
+  }
+  return @($clean | Select-Object -Last $Lines)
+}
+
+function Get-FailureDetail {
+  <#
+  .SYNOPSIS
+    For each failing, non-advisory Actions check of a statusCheckRollup, the job, its failed step and the log tail.
+  .OUTPUTS
+    Strings, one block per failing job, ready to print.
+  #>
+  [CmdletBinding()]
+  [OutputType([string[]])]
+  param([Parameter(Mandatory)][string]$Repo, [AllowEmptyCollection()][object[]]$Rollup = @())
+  foreach ($c in $Rollup) {
+    if ($c.PSObject.Properties.Name -contains 'context') { continue }
+    if ($c.status -ne 'COMPLETED' -or $c.conclusion -notin $script:FailingConclusions -or (Test-AdvisoryCheck -Name $c.name)) { continue }
+    $id = Get-JobIdFromUrl -Url $c.detailsUrl
+    if (-not $id) { "FAILED: $($c.name) (no Actions job to read: $($c.detailsUrl))"; continue }
+    try {
+      $job = (Invoke-Native -FilePath gh -Arguments 'api', "repos/$Repo/actions/jobs/$id" -Step "read job $id" -Fix 'gh auth status').Output -join "`n" | ConvertFrom-Json
+      $logs = (Invoke-Native -FilePath gh -Arguments 'api', '--allow-escape-sequences', "repos/$Repo/actions/jobs/$id/logs" -Step "read the log of job $id" -Fix 'the log may have expired or the job still be running').Output -join "`n"
+      $step = Get-FailedStepName -Job $job
+      $name = if ($step) { $step } else { '(no step failed: the job was cancelled, timed out or never started)' }
+      "FAILED: $($job.name) / step: $name`n" + ((Get-LogTail -Text $logs -Lines 30) -join "`n")
+    } catch {
+      "FAILED: $($c.name) (could not read its log: $($_.Exception.Message))"
+    }
   }
 }
 
@@ -193,13 +279,16 @@ function Invoke-PrReady {
     The body of the script. Emits the verdict object, then the exit code (0 or 1).
   #>
   [CmdletBinding(SupportsShouldProcess)]
-  param([int]$Number, [bool]$DoMerge, [string]$Repo)
+  param([int]$Number, [bool]$DoMerge, [string]$Repo, [bool]$Detail = $false)
   if (-not $Repo) { $Repo = Get-RepoSlug -RepoRoot (Get-RepoRoot -Path $PSScriptRoot) }
   $pr = Get-PullRequestState -Repo $Repo -Number $Number
   $ancestor = Get-AncestorStatus -Repo $Repo -Base $pr.baseRefName -HeadSha $pr.headRefOid
   $verdict = Get-PrVerdict -Pr $pr -AncestorStatus $ancestor
   Write-KippleInfo $verdict.Text
   $verdict
+  if ($Detail) {
+    foreach ($block in @(Get-FailureDetail -Repo $Repo -Rollup @($pr.statusCheckRollup))) { Write-KippleInfo $block }
+  }
   if (-not $verdict.Ready) { return 1 }
   if (-not $DoMerge) { return 0 }
 
@@ -237,6 +326,6 @@ function Invoke-PrReady {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-  $boundArgs = @{ Number = $Number; DoMerge = [bool]$Merge; Repo = $Repo; WhatIf = $WhatIfPreference }
+  $boundArgs = @{ Number = $Number; DoMerge = [bool]$Merge; Repo = $Repo; Detail = [bool]$FailureDetail; WhatIf = $WhatIfPreference }
   Invoke-ToolMain -Name 'pr-ready' -Body { Invoke-PrReady @boundArgs }
 }
