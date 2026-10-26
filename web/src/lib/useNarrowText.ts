@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 /** The window's width in "text-size-1 pixels": the Text size setting scales every rem, so a wider text leaves less room. */
-export function scaledWidth(): number {
+function scaledWidth(): number {
   const px = parseFloat(getComputedStyle(document.documentElement).fontSize);
   const scale = Number.isFinite(px) && px > 0 ? px / 16 : 1;
   return window.innerWidth / scale;

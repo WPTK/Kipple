@@ -27,7 +27,7 @@ export function unreadName(name: string, n: number, mode: UnreadBadge): string {
  * A count in a pill: the one badge for every number beside a label (unread, muted, starred, a feed's articles).
  * `accent` is the loud one for the tab bar's icon; `quiet` sits on a surface beside a row. The number is capped at 99+.
  */
-export function CountBadge({ n, tone = "quiet", testid, className, before, after }: { n: number; tone?: "accent" | "quiet"; testid?: string; className?: string; /** Spoken before the number. */ before?: ReactNode; /** Spoken after it. */ after?: ReactNode }) {
+function CountBadge({ n, tone = "quiet", testid, className, before, after }: { n: number; tone?: "accent" | "quiet"; testid?: string; className?: string; /** Spoken before the number. */ before?: ReactNode; /** Spoken after it. */ after?: ReactNode }) {
   return (
     <span
       data-testid={testid}

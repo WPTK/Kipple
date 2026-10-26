@@ -10,7 +10,7 @@ import { fetchStarterFeeds, subscribeStarter, type StarterFeed } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import { stepById } from "./steps";
 
-export const STARTER_KEY = ["starter-feeds"] as const;
+const STARTER_KEY = ["starter-feeds"] as const;
 
 function feedsError(e: unknown): string {
   if (e instanceof ApiError) {

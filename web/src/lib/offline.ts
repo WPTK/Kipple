@@ -196,7 +196,7 @@ export function isOffline(e: unknown): boolean {
  * offline. Asking again a second later cannot help, so queries do not retry it: the screen shows its error (with Try
  * again) at once, and the query runs again when the browser comes back online.
  */
-export function failedWhileOffline(e: unknown): boolean {
+function failedWhileOffline(e: unknown): boolean {
   return isOffline(e) && typeof navigator !== "undefined" && navigator.onLine === false;
 }
 

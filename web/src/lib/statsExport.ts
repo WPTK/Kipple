@@ -15,8 +15,8 @@ export interface ExportOptions {
   bom?: boolean;
 }
 
-export const EXPORT_PATH = "/api/stats/export";
-export const DICTIONARY_PATH = "/api/stats/dictionary";
+const EXPORT_PATH = "/api/stats/export";
+const DICTIONARY_PATH = "/api/stats/dictionary";
 export const DICTIONARY_MD_URL = `${DICTIONARY_PATH}?format=md`;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -29,7 +29,7 @@ function validDate(s: string): boolean {
 }
 
 /** The longest custom export range the server accepts, in days, both ends counted. */
-export const MAX_EXPORT_DAYS = 3660;
+const MAX_EXPORT_DAYS = 3660;
 
 /** Whole days from a to b (both valid YYYY-MM-DD). */
 function dayDiff(a: string, b: string): number {

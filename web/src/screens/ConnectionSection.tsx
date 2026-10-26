@@ -10,14 +10,14 @@ import { Button } from "@/ui/button";
 import { Disclosure, Field, Notice, PasswordField, Skeleton, inputCls } from "@/ui/kit";
 
 /** The reachability settings: how other devices reach Kipple and who may. */
-export const CONNECTION_KEYS = {
+const CONNECTION_KEYS = {
   publicUrl: "server.public_url",
   allowedHosts: "security.allowed_hosts",
   trustedProxies: "security.trusted_proxies",
   access: "security.cloudflare_access",
 } as const;
 
-export interface AccessValue {
+interface AccessValue {
   team_domain?: string;
   aud?: string;
 }

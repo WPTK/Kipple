@@ -16,10 +16,10 @@ import { feedLabel } from "./feeds/FeedRowName";
 import { FeedLine, FolderLine } from "./feeds/RowLine";
 import { unreadName } from "@/ui/UnreadCount";
 
-export const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
+const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 
 /** Collapse or expand one folder; remembered on this device. */
-export function toggleCollapsed(collapsed: readonly string[], id: string): string[] {
+function toggleCollapsed(collapsed: readonly string[], id: string): string[] {
   return collapsed.includes(id) ? collapsed.filter((x) => x !== id) : [...collapsed, id];
 }
 
@@ -47,7 +47,7 @@ export function CollapseToggle({ folder, collapsed, listId, collapsedIds, tabInd
 }
 
 /** How far a level of the sidebar tree is indented: 12 px a level, less past the fourth so deep trees fit a phone. */
-export const indentCls = (depth: number) => (depth < 4 ? "pl-3" : "pl-1");
+const indentCls = (depth: number) => (depth < 4 ? "pl-3" : "pl-1");
 
 /**
  * Keyboard for a navigation tree (WAI-ARIA tree pattern): one tab stop, Up and Down move, Right expands or goes to the

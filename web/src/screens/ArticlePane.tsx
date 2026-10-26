@@ -37,7 +37,7 @@ import { ListenBar } from "./ListenBar";
 import { DropdownMenu } from "@/ui/menu";
 
 /** The article column's max width for the "Article width" setting; Medium is undefined: the stylesheet gives it the density's own measure (.kp-article). */
-export function columnWidth(w: keyof typeof ARTICLE_WIDTH_REM): string | undefined {
+function columnWidth(w: keyof typeof ARTICLE_WIDTH_REM): string | undefined {
   const rem = ARTICLE_WIDTH_REM[w];
   return w === "medium" ? undefined : rem === null ? "100%" : `${rem}rem`;
 }

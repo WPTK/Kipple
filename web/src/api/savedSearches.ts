@@ -11,7 +11,7 @@ export const savedSearchesKey = ["saved-searches"] as const;
 export const savedSearchCountsKey = ["saved-searches", "counts"] as const;
 
 /** The most a sidebar entry shows. */
-export const CAP_LABEL = "999+";
+const CAP_LABEL = "999+";
 
 const wrap = (r: { saved_searches: SavedSearch[] }): SavedSearch[] => r.saved_searches;
 
@@ -68,7 +68,7 @@ export function useSavedSearches(opts: { counts?: boolean } = {}): {
 }
 
 /** A saved-search write of this tab happened just now: its `saved_searches.changed` echo needs no second refetch. */
-export const ECHO_WINDOW_MS = 1000;
+const ECHO_WINDOW_MS = 1000;
 let lastLocalWrite = -Infinity;
 /** Tests: forget the echo window. */
 function resetSavedSearchEcho(): void {

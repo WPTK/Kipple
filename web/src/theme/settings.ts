@@ -46,8 +46,8 @@ export function chooseFixed(id: string): Partial<ThemeSettings> {
 
 export const THEME_STORAGE_KEY = "kipple.theme.v1";
 
-export const DEFAULT_NIGHT_START = "21:00";
-export const DEFAULT_DAY_START = "07:00";
+const DEFAULT_NIGHT_START = "21:00";
+const DEFAULT_DAY_START = "07:00";
 
 export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
   mode: "follow",
@@ -137,7 +137,7 @@ export function msUntilNextSwitch(s: Pick<ThemeSettings, "nightStart" | "dayStar
  * cache another tab just wrote, this tab's current choice: a tab still on an older build writes the cache without
  * the schedule's fields, and they must not be reset by that).
  */
-export function themeSettingsFrom(raw: unknown, base: ThemeSettings = DEFAULT_THEME_SETTINGS): ThemeSettings {
+function themeSettingsFrom(raw: unknown, base: ThemeSettings = DEFAULT_THEME_SETTINGS): ThemeSettings {
   const v = (typeof raw === "object" && raw !== null ? raw : {}) as Partial<Record<keyof ThemeSettings, unknown>>;
   const d = base;
   return {

@@ -11,10 +11,10 @@ import { Modal, Notice } from "@/ui/kit";
 const n = (x: number): string => x.toLocaleString();
 
 /** A preview older than this is counted again before anything is marked. */
-export const PREVIEW_MAX_AGE_MS = 60_000;
+const PREVIEW_MAX_AGE_MS = 60_000;
 /** The count grew this much (a fraction, or that many articles) since the preview: the person must see the new number. */
-export const GREW_FRACTION = 0.1;
-export const GREW_ARTICLES = 100;
+const GREW_FRACTION = 0.1;
+const GREW_ARTICLES = 100;
 const grewTooMuch = (before: number, after: number): boolean => after - before > Math.min(before * GREW_FRACTION, GREW_ARTICLES) && after > before;
 
 /** What a failed preview or run says. `busy` and `confirm_required` have their own wording; everything else is generic. */

@@ -20,7 +20,7 @@ import { shareLink, type ShareResult } from "./share";
  * retry: the server drops an id it has already seen, so a repeated send is harmless.
  */
 
-export type StatsKind = "read_time" | "scroll" | "open_original" | "share";
+type StatsKind = "read_time" | "scroll" | "open_original" | "share";
 
 export interface StatsEvent {
   kind: StatsKind;
@@ -31,9 +31,9 @@ export interface StatsEvent {
   event_id: string;
 }
 
-export const STATS_URL = "/api/stats/events";
+const STATS_URL = "/api/stats/events";
 /** The most seconds one read_time event may carry (the server rejects more). */
-export const MAX_EVENT_SECONDS = 60;
+const MAX_EVENT_SECONDS = 60;
 export const FLUSH_EVERY_MS = 15_000;
 /** No scroll, touch, key or pointer activity in the article for this long stops the clock until the next one. */
 export const IDLE_CUTOFF_MS = 120_000;
@@ -46,9 +46,9 @@ export const FIT_AFTER_SECONDS = 3;
 /** A queued request that gets no answer for this long is given up (the batch stays queued). */
 export const FLUSH_TIMEOUT_MS = 20_000;
 /** Scroll events on the article in a session's first half second are the view's own scroll to the top, not reading. */
-export const SCROLL_GRACE_MS = 500;
+const SCROLL_GRACE_MS = 500;
 /** After the tab comes back, look again this long after for focus, and start the clock if it is there. */
-export const VISIBLE_RECHECK_MS = [1_000, 3_000] as const;
+const VISIBLE_RECHECK_MS = [1_000, 3_000] as const;
 
 /** 128 random bits as 32 hex characters. crypto.getRandomValues when there is one, else Math.random. */
 export function newEventId(): string {
@@ -64,9 +64,9 @@ export function newEventId(): string {
 // ---- The setting ------------------------------------------------------------------------------
 
 /** On, off, or not known yet (the bootstrap answer is not in the cache). */
-export type StatsState = "on" | "off" | "unknown";
+type StatsState = "on" | "off" | "unknown";
 
-export function statsStateOf(qc: QueryClient | undefined): StatsState {
+function statsStateOf(qc: QueryClient | undefined): StatsState {
   const b = qc?.getQueryData<Bootstrap>(keys.bootstrap);
   if (b === undefined) return "unknown";
   return b.settings?.["stats.enabled"] === false ? "off" : "on";
@@ -84,7 +84,7 @@ export function setStatsClient(qc: QueryClient | undefined): void {
  * The one place sending checks the setting. Read live from the bootstrap answer, so a switch-off is seen by the very
  * next send (a session's last flush after the switch included). Unknown sends nothing and keeps the queue.
  */
-export function statsState(): StatsState {
+function statsState(): StatsState {
   return statsStateOf(source);
 }
 

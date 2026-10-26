@@ -10,8 +10,8 @@ const START = /^\d{1,6}$/;
 const VIMEO_ID = /^\d{1,20}$/;
 const VIMEO_HASH = /^[0-9a-f]{1,32}$/;
 
-export const SANDBOX = "allow-scripts allow-same-origin allow-presentation allow-popups";
-export const ALLOW = "autoplay; fullscreen; picture-in-picture";
+const SANDBOX = "allow-scripts allow-same-origin allow-presentation allow-popups";
+const ALLOW = "autoplay; fullscreen; picture-in-picture";
 
 /** The player parameters a placeholder may carry (data-list, data-start, data-h). */
 export interface EmbedParams {
@@ -255,7 +255,7 @@ export function footnoteTarget(root: ParentNode, href: string): HTMLElement | nu
 }
 
 /** Scroll `target` to the top of the article container, inside it (never the page). */
-export function scrollWithin(scroller: HTMLElement, target: HTMLElement, smooth: boolean): void {
+function scrollWithin(scroller: HTMLElement, target: HTMLElement, smooth: boolean): void {
   const top = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - 12;
   scroller.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
   if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");

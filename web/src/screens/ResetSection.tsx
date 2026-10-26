@@ -9,7 +9,7 @@ import { Field, Modal, Notice, PasswordField, inputCls } from "@/ui/kit";
 import { accountError } from "./AccountSection";
 
 /** The phrase that confirms a reset (the server compares it without regard to case or surrounding spaces). */
-export const RESET_PHRASE = "reset kipple";
+const RESET_PHRASE = "reset kipple";
 
 /** What the dialog is for: erasing and starting over, or erasing to restore a backup. Both end in the same setup screens. */
 type Purpose = "reset" | "restore";

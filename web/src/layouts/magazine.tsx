@@ -59,7 +59,7 @@ function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions 
 }
 
 /** Editorial's row is two columns (image beside the text) once the row is this wide: the @[34rem] container query. */
-export const EDITORIAL_SIDE_REM = 34;
+const EDITORIAL_SIDE_REM = 34;
 
 /**
  * Row height guess from the list width. Stacked: a 16:9 image across the row plus the text (about 400 px at phone

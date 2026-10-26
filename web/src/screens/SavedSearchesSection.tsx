@@ -18,7 +18,7 @@ import { scrollParent } from "@/ui/segmented";
 import { savedSearchError } from "./search/SaveSearchDialog";
 
 /** Where a saved search looks, in words. */
-export function scopeText(scope: SavedSearch["scope"], boot: Bootstrap | undefined): string {
+function scopeText(scope: SavedSearch["scope"], boot: Bootstrap | undefined): string {
   if (scope?.feed_id) return `the feed ${boot?.feeds.find((f) => f.id === scope.feed_id)?.title ?? "(removed)"}`;
   if (scope?.folder_id) {
     const tree = folderTree(boot?.folders ?? []);

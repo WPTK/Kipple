@@ -19,7 +19,7 @@ export function useFeedTimes(id: string) {
 }
 
 /** "Last worked 3 hours ago. Trying again in 1 hour." The part that is not known yet is left out. */
-export function FeedFacts({ id }: { id: string }) {
+function FeedFacts({ id }: { id: string }) {
   const t = useFeedTimes(id);
   const parts = [t.lastSuccess ? `Last worked ${whenLabel(t.lastSuccess).toLowerCase()}.` : "", t.retry ? `${t.retry}.` : ""].filter(Boolean);
   return parts.length ? <p className="text-sm text-fg2">{parts.join(" ")}</p> : null;

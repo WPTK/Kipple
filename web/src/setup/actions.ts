@@ -24,7 +24,7 @@ async function setPending(qc: QueryClient, pending: boolean): Promise<void> {
  * and a zone the server does not know leaves UTC in place (Settings shows that too), so a failure here never holds
  * setup back.
  */
-export async function adoptBrowserZone(): Promise<void> {
+async function adoptBrowserZone(): Promise<void> {
   try {
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (!zone) return;

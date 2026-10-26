@@ -12,7 +12,7 @@ export const activeThemeStore = createStore<string>("");
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
-export function systemPrefersDark(): boolean {
+function systemPrefersDark(): boolean {
   try {
     return window.matchMedia(DARK_QUERY).matches;
   } catch {
@@ -21,7 +21,7 @@ export function systemPrefersDark(): boolean {
 }
 
 /** The scheme currently showing (resolved from settings, the OS and, on a schedule, the local time). */
-export function currentThemeId(): string {
+function currentThemeId(): string {
   return resolveTheme(themeStore.get(), systemPrefersDark(), minutesOfDay(new Date()));
 }
 

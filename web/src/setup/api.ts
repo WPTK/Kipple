@@ -26,7 +26,7 @@ export type InstanceInfo = (({ setup: true; auth: null } & SetupOptions) | { set
   open_refused?: OpenReason | null;
 };
 
-export type Passwordless = "access" | "open";
+type Passwordless = "access" | "open";
 
 export interface AccountBody {
   username: string;
@@ -45,7 +45,7 @@ export interface StarterFeed {
   subscribed: boolean;
 }
 
-export interface StarterCategory {
+interface StarterCategory {
   id: string;
   title: string;
   feeds: StarterFeed[];
@@ -80,14 +80,6 @@ export function openReasonText(reason: OpenReason | string | null | undefined): 
     default:
       return "Kipple only allows no-password sign-in from this computer, your local network or over Tailscale. Open it from one of those, or use a password.";
   }
-}
-
-/** The message of an open_refused answer: the reason in plain English, never the server's developer wording. */
-export function openRefusedText(e: unknown): string | null {
-  if (e instanceof ApiError && e.code === "open_refused") {
-    return openReasonText(typeof e.body?.reason === "string" ? e.body.reason : null);
-  }
-  return null;
 }
 
 /** The reason of an open_refused answer, or null when the error is something else. */
@@ -129,7 +121,7 @@ function capital(s: string): string {
 }
 
 /** The bytes a password takes (the server counts bytes, not characters). */
-export function byteLength(s: string): number {
+function byteLength(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 

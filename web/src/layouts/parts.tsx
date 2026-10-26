@@ -328,7 +328,7 @@ export function rowLinkProps(item: Pick<Card, "read">, className = ""): { classN
 }
 
 /** A row control's name: the action, then the article it acts on, so a list of buttons or a voice command can tell rows apart. */
-export const rowControlName = (action: string, item: Card): string => `${action}: ${item.title || "Untitled"}`;
+const rowControlName = (action: string, item: Card): string => `${action}: ${item.title || "Untitled"}`;
 
 /** The publish time as a machine-readable <time> (ISO date) with the relative text. One place for every layout. */
 export function PublishedTime({ item, className }: { item: Pick<Card, "published_at">; className?: string }) {

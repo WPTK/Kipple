@@ -41,8 +41,6 @@ interface CatchupAnswer {
 
 let visits = 0;
 export const visitStore = createStore<CatchupVisit | null>(null);
-/** The visit in progress, if any. */
-export const currentVisit = (): CatchupVisit | null => visitStore.get();
 /** Forget the visit without moving the mark (tests). */
 export function resetCatchup(): void {
   visitStore.set(null);

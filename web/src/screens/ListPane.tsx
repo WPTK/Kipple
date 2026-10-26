@@ -179,7 +179,7 @@ export function clearListMemory(): void {
 }
 
 /** How long a row marked read on purpose stays in the Unread list (the undo toast lasts far longer). */
-export const LEAVE_MS = 1500;
+const LEAVE_MS = 1500;
 
 /** What an empty list says, and the one next step it offers: show everything, or add a feed. */
 export interface EmptyCopy {
@@ -247,7 +247,7 @@ export interface ListControls {
 }
 
 /** What a search that came back 422 says: the server's own message, or a plain one. */
-export function tooBroadMessage(e: unknown): string | null {
+function tooBroadMessage(e: unknown): string | null {
   if (!(e instanceof ApiError) || e.status !== 422 || e.code !== "search_too_broad") return null;
   const m = e.body && typeof e.body.message === "string" ? e.body.message : "";
   return m || "That search matches too much. Add a longer or more specific word.";
@@ -1659,7 +1659,7 @@ interface ListRowProps {
 }
 
 /** One list row. Memoized: run progress, fetch ticks and unrelated selection changes leave it alone. */
-export const ListRow = memo(function ListRow(p: ListRowProps) {
+const ListRow = memo(function ListRow(p: ListRowProps) {
   const { item } = p;
   const row = (
     <SwipeRow

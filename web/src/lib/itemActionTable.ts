@@ -25,7 +25,7 @@ interface ActionDef {
   short?: string;
 }
 
-export const ACTIONS: Record<ActionId, ActionDef> = {
+const ACTIONS: Record<ActionId, ActionDef> = {
   star: { label: (s) => (s.on ? "Unstar" : "Star"), icon: () => Star },
   // `on` is "this article is read": the action then is to mark it unread.
   read: { label: (s) => (s.on ? "Mark as unread" : "Mark as read"), icon: (s) => (s.on ? Mail : MailOpen) },
@@ -44,7 +44,7 @@ export const actionIcon = (id: ActionId, s: ActionState = {}): LucideIcon => ACT
 export const MarkAllIcon = CheckCheck;
 
 /** A search's Mark all: the reach is the results, however many there are. */
-export const MARK_ALL_RESULTS = "Mark all results as read";
+const MARK_ALL_RESULTS = "Mark all results as read";
 
 /**
  * The words for Mark all as read in the list `scope` is, naming how far it reaches. `unread` is the live unread count

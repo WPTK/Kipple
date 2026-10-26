@@ -11,7 +11,7 @@ export const isReadingLength = (v: unknown): v is ReadingLength => (READING_LENG
 
 /** The Coffee break's sections, in the order the page draws them. */
 export const BREAK_LENGTHS = ["under3", "3to7", "8up", "unknown"] as const;
-export type BreakLength = (typeof BREAK_LENGTHS)[number];
+type BreakLength = (typeof BREAK_LENGTHS)[number];
 
 /** Every length a list can be asked for. */
 export type SectionLength = ReadingLength | BreakLength;

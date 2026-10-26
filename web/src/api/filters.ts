@@ -7,9 +7,9 @@ import type { Card } from "./types";
 
 // Filters (docs/design.md 7.1b). A filter mutes, marks read, stars or highlights the articles its terms match.
 
-export type FilterAction = "mute" | "mark_read" | "star" | "highlight";
-export type FilterScope = "global" | "folder" | "feed";
-export type FilterKind = "text" | "regex";
+type FilterAction = "mute" | "mark_read" | "star" | "highlight";
+type FilterScope = "global" | "folder" | "feed";
+type FilterKind = "text" | "regex";
 export type FilterField = "title" | "author" | "content" | "url" | "category" | "feed";
 
 export interface Filter {
@@ -68,13 +68,13 @@ export const FIELDS: readonly { id: FilterField; label: string }[] = [
 ];
 export const fieldLabel = (f: string): string => FIELDS.find((x) => x.id === f)?.label ?? f;
 
-export const ACTIONS: readonly { id: FilterAction; label: string; help: string }[] = [
+const ACTIONS: readonly { id: FilterAction; label: string; help: string }[] = [
   { id: "mute", label: "Mute", help: "Hides matching articles from Unread, All and search, and marks them read. They are kept in Muted, and you can restore any of them." },
   { id: "mark_read", label: "Mark as read", help: "Marks matching articles read as they arrive. They stay in All and search." },
   { id: "star", label: "Star", help: "Stars matching articles as they arrive so they are easy to find. A starred article is never muted." },
   { id: "highlight", label: "Highlight", help: "Draws the matching words in a colored mark in lists and articles. Nothing is changed or hidden." },
 ];
-export const actionLabel = (a: string): string => ACTIONS.find((x) => x.id === a)?.label ?? a;
+const actionLabel = (a: string): string => ACTIONS.find((x) => x.id === a)?.label ?? a;
 
 /**
  * What a rule does, as the editor offers it. "Only show matching" is not a fifth action: it is an inverted Mute, the
@@ -82,7 +82,7 @@ export const actionLabel = (a: string): string => ACTIONS.find((x) => x.id === a
  * new. The invert option is offered for Mark as read and Star only; for Mute this mode is that option.
  */
 export type FilterMode = FilterAction | "only";
-export const ONLY_MATCHING = {
+const ONLY_MATCHING = {
   id: "only" as const,
   label: "Only show matching",
   help: "Mutes every article that does not match, so only articles with these words are left in Unread, All and search. The others are kept in Muted, and you can restore any of them. To limit it to one feed or folder, pick it under Where it applies. Each such rule has to match on its own, so for several topics put all the words in one rule.",
@@ -153,7 +153,7 @@ export const draftOf = (f: Filter): FilterDraft => ({
 });
 
 /** `s` cut to at most `max` UTF-8 bytes, on a character boundary. */
-export function truncateBytes(s: string, max: number): string {
+function truncateBytes(s: string, max: number): string {
   const enc = new TextEncoder();
   if (enc.encode(s).length <= max) return s;
   let out = "";

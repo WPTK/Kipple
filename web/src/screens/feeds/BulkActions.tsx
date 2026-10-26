@@ -10,11 +10,11 @@ import { folderPath, folderTree } from "@/lib/folderTree";
 import { announce, toast } from "@/shell/toasts";
 
 /** What a bulk delete tells the user before it starts: the count and the starred articles at stake. */
-export function deleteSummary(feeds: readonly Feed[]): { count: number; starred: number } {
+function deleteSummary(feeds: readonly Feed[]): { count: number; starred: number } {
   return { count: feeds.length, starred: feeds.reduce((n, f) => n + (f.starred_count ?? 0), 0) };
 }
 
-export const articlesOf = (n: number) => `${n} article${n === 1 ? "" : "s"}`;
+const articlesOf = (n: number) => `${n} article${n === 1 ? "" : "s"}`;
 
 /**
  * The delete dialogs' wording, right for one feed and for several, and right for the "Delete starred articles too"
@@ -126,7 +126,7 @@ export function MoveDialog({
 }
 
 /** How a one-feed-at-a-time bulk action ended when some feeds failed. */
-export interface BulkReport {
+interface BulkReport {
   done: number;
   failed: { title: string; message: string }[];
 }

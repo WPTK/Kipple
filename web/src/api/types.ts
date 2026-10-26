@@ -29,7 +29,7 @@ export interface Card {
   muted_by_name: string | null;
 }
 
-export interface Fulltext {
+interface Fulltext {
   /** 1, 0, or null (follow the feed). */
   mode: 0 | 1 | null;
   effective: 0 | 1;
@@ -115,7 +115,7 @@ export interface RunStatus {
   errors: number;
 }
 
-export interface Warning {
+interface Warning {
   code: string;
   message: string;
 }
@@ -252,9 +252,9 @@ export interface SavedSearch {
 // ---- SSE ----
 
 /** Run ids are strings (design 7); a number is tolerated defensively and normalised with String(). */
-export type RunId = string | number;
+type RunId = string | number;
 
-export interface ItemsStateEvent {
+interface ItemsStateEvent {
   ids: string[];
   read?: boolean;
   starred?: boolean;
@@ -270,7 +270,7 @@ export interface CountsEvent {
   feeds: Record<string, number>;
 }
 
-export interface FetchDoneEvent {
+interface FetchDoneEvent {
   feed_id: string;
   run_ids?: RunId[];
   trigger?: string;
@@ -312,8 +312,6 @@ export const SERVER_EVENT_TYPES = [
   "folder.changed",
   "resync",
 ] as const satisfies readonly ServerEvent["type"][];
-type MissingEventTypes = Exclude<ServerEvent["type"], (typeof SERVER_EVENT_TYPES)[number]>;
-export const SERVER_EVENT_TYPES_COMPLETE: [MissingEventTypes] extends [never] ? true : never = true;
 
 /** Response of a scoped or bounded mark-read. `changed` is empty and `undoable` false above the server cap. */
 export interface BulkMarkResponse extends MarkReadResponse {
