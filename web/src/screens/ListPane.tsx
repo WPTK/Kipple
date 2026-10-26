@@ -105,7 +105,7 @@ const PLACE_SEARCH_DIGEST_MAX = 200;
 const LEAVE_MS = 1500;
 
 // Moved to their own files; re-exported so importers of the list keep one entry point.
-export { emptyCopy, endCopy, type EmptyCopy } from "./listCopy";
+export { emptyCopy, endCopy } from "./listCopy";
 export { clearListMemory, rememberListPlace } from "./listMemory";
 export { MutedStrip } from "./MutedStrip";
 export { NewArticlesPill } from "./NewArticlesPill";

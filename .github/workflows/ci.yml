@@ -192,6 +192,12 @@ jobs:
         if: needs.changes.outputs.code != 'false'
         run: go tool -modfile=tools/go.mod staticcheck ./...
 
+      # Reports functions no entry point reaches. Advisory until it has run clean for a while.
+      - name: deadcode (advisory)
+        if: needs.changes.outputs.code != 'false'
+        continue-on-error: true
+        run: go tool -modfile=tools/go.mod deadcode -test ./...
+
       # Advisory pass: everything stays visible in the log, never fails.
       - name: gosec (all findings, advisory)
         if: needs.changes.outputs.code != 'false'
@@ -268,6 +274,11 @@ jobs:
         run: npm ci --ignore-scripts
       - if: needs.changes.outputs.code != 'false'
         run: npm run lint
+      # Unused files, exports and dependencies (web/knip.json). Advisory until it has run clean for a while.
+      - name: knip (advisory)
+        if: needs.changes.outputs.code != 'false'
+        continue-on-error: true
+        run: npm run knip
       # Runs the whole suite (a failing test fails the step) and prints a coverage summary; no threshold gate (SQA plan).
       - if: needs.changes.outputs.code != 'false'
         run: npm run test:coverage
