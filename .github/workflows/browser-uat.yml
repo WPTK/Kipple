@@ -8,7 +8,8 @@ name: Browser UAT
 # Its own workflow, not a job of ci.yml: release.yml calls ci.yml, and a slow or flaky browser run must not hold up a
 # release or the go, web, security and docker checks. It is not a required check yet (do not add it to the branch
 # protection until it has run green for a few weeks), and scripts/maintainers/pr-ready.ps1 prints its result without
-# blocking on it (its AdvisoryChecks list: take "Browser UAT" off when the check becomes required).
+# blocking on it (its AdvisoryChecks list: take "Browser UAT" off when the check becomes required). The exception is a
+# pull request that changes web/uat/** or this file: pr-ready then blocks on every engine leg (Test-UatTouched).
 #
 # No outside network: the seed's feeds are served by web/scripts/fixture-feeds.mjs on loopback. The prose-only skip is
 # the one ci.yml uses (scripts/ci-changes.sh against the base commit's rules, fail-open): the job still reports, with
@@ -19,8 +20,9 @@ name: Browser UAT
 # One matrix leg per engine, each on its own runner with its own seeded instance, so the run takes as long as the
 # Chromium leg. It does not run on a push to main: it is advisory, the pull request already ran the same flows, and the
 # nightly run on main catches a merge interaction a day later. The release check is a run on the tagged commit
-# (docs/maintainers/RELEASING.md). The nightly run on main is also what saves the browser and system-package caches:
-# only main writes them (the same rule as .github/actions/build-image), a pull request only restores.
+# (docs/maintainers/RELEASING.md). The nightly run on main is also what saves the system-package cache:
+# only main writes it (the same rule as .github/actions/build-image), a pull request only restores. The browsers are
+# downloaded on every run: a cache of them cost as much to restore as the download (measured, about 20 s either way).
 on:
   pull_request:
   schedule:
@@ -107,18 +109,6 @@ jobs:
           npm ci --ignore-scripts
           echo "playwright=$(node -p "require('playwright-core/package.json').version")" >> "$GITHUB_OUTPUT"
 
-      # The browser builds are fixed by the Playwright version, so a cache keyed on it and the engine saves the
-      # download. The system libraries still come from apt below (--with-deps), which skips browsers already present.
-      # Only a run on main saves it (the step after the install); a pull request only restores, so a Playwright bump
-      # does not leave a copy under every pull request's ref.
-      - name: Restore the browsers
-        id: pwcache
-        if: steps.gate.outputs.code != 'false'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.deps.outputs.playwright }}-${{ matrix.engine }}
-
       # The system libraries (--with-deps) come from apt, and the Azure mirror sometimes stalls for minutes between
       # packages. So: the downloaded .deb files are cached (a warm run downloads nothing), a stalled connection is
       # dropped and retried within seconds, and the step has its own budget so a stall cannot eat the job's 45 minutes.
@@ -150,13 +140,6 @@ jobs:
             | sudo tee /etc/apt/apt.conf.d/99-ci-network > /dev/null
           sudo cp -n ~/apt-debs/*.deb /var/cache/apt/archives/ 2>/dev/null || true
           npx playwright install --with-deps "$ENGINE"
-
-      - name: Save the browsers
-        if: steps.gate.outputs.code != 'false' && github.ref == 'refs/heads/main' && steps.pwcache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.deps.outputs.playwright }}-${{ matrix.engine }}
 
       # Runs after a failed or timed-out install too. An empty "before" means the install never started: nothing to save.
       - name: Collect the downloaded system packages
