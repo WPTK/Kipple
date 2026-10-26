@@ -36,7 +36,7 @@ var DefaultSettings = map[string]any{
 	"fetch.user_agent":          "",
 	"fetch.user_agent_mode":     UAModeOnFailure,
 	"fetch.honor_publisher_ttl": true,
-	SettingTZ:                   DefaultTZ,
+	SettingTZ:                   "", // not chosen yet: the zone in force is DefaultTZ (ZoneName)
 	SettingPublicURL:            "",
 	SettingAllowedHosts:         []any{},
 	SettingTrustedProxies:       []any{},

@@ -17,6 +17,7 @@ func TestZoneIsTheSetting(t *testing.T) {
 		name, setting, want, wantName string
 	}{
 		{"default", "", "UTC", "UTC"},
+		{"explicit UTC", "UTC", "UTC", "UTC"},
 		{"setting", "Asia/Tokyo", "Asia/Tokyo", "Asia/Tokyo"},
 		{"unknown setting", "Mars/Base", "UTC", "Mars/Base"},
 		{"Local setting", "Local", "UTC", "Local"},
@@ -29,6 +30,9 @@ func TestZoneIsTheSetting(t *testing.T) {
 			require.NoError(t, e.db.SetSettings(ctx, set))
 			require.Equal(t, tc.want, Zone(ctx, e.db.Reader()).String())
 			require.Equal(t, tc.wantName, ZoneName(ctx, e.db.Reader()))
+			_, stored, err := StoredZoneName(ctx, e.db.Reader())
+			require.NoError(t, err)
+			require.Equal(t, tc.setting != "", stored, "only a chosen zone, UTC included, has a row")
 		})
 	}
 	_, err := LoadZone("")

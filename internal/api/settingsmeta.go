@@ -467,10 +467,13 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkSavedSearches},
 
 	// Account.
-	{Key: store.SettingTZ, Label: "Time zone", Description: "Used for the days in Stats and for the nightly cleanup.",
+	{Key: store.SettingTZ, Label: "Time zone", Description: "Used for the days in Stats and for the nightly cleanup. UTC until you choose one.",
 		Group: groupAccount, Kind: "text", Surface: surfaceSettings, check: func(v any) (any, string) {
 			s, ok := v.(string)
-			if !ok || s == "" || s == "Local" || len(s) > 64 {
+			if ok && s == "" {
+				return s, "" // not chosen: UTC applies (store.ZoneName)
+			}
+			if !ok || s == "Local" || len(s) > 64 {
 				return nil, "must be an IANA time zone name such as America/New_York"
 			}
 			if _, err := store.LoadZone(s); err != nil {
@@ -502,7 +505,8 @@ var settingDefs = withScopes([]settingDef{
 	{Key: "greader.icon_urls", Label: "Send feed icons to sync apps", Description: "Let sync apps show each feed's icon. On by default.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
-	// Hidden plumbing: validated and PATCH-able, never shown by default.
+	// Hidden plumbing: validated and never shown by default. All are PATCH-able except catchup.seen, which only
+	// POST /api/catchup/seen writes (its check here is the default's validation, not a write path).
 	{Key: "greader.ot_includes_user_changes", Label: "Include your own changes in sync", Description: "Whether changes made in Kipple also appear as new activity to sync apps.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
 	{Key: "greader.subscribe_fetch_now", Label: "Fetch new feeds at once from sync apps", Description: "Fetch a feed immediately when a sync app subscribes to it.",

@@ -457,10 +457,8 @@ A change applies to new statistics only: rows already recorded keep the local da
 effect when they were written, so a day never moves. Dates in the web app follow each device's own clock, whatever the
 server zone is.
 
-**Known limitation.** Kipple cannot tell an explicit choice of UTC from the untouched default, because both are stored as
-`UTC`. So the wizard, when it ends with `UTC` saved, treats it as "not chosen yet" and saves your browser's zone;
-change it in Settings if that is not what you want. (Run setup again keeps whatever zone is saved.) A `TZ` of `UTC` on a
-new install is stored as `UTC`, so it behaves the same way.
+Until a zone is chosen, Kipple uses UTC and the setting is empty. The setup wizard saves your browser's zone when it ends 
+on a first run, unless a zone is already chosen (an explicit `UTC` counts as chosen). Running setup again keeps whatever zone is saved. A `TZ` of `UTC` on a new install is stored as `UTC`, which is a choice.
 
 ## About, debug info and versions
 
