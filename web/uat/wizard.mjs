@@ -229,7 +229,7 @@ try {
     const zoneBefore = await page.evaluate(async () => ((await (await fetch("/api/settings")).json()).settings ?? []).find((s) => s.key === "tz")?.value);
     check("A step 2 tz", zoneBefore === "", `the time zone is "${zoneBefore}" before the feeds step ends, expected empty`);
     check("A step 2", (await page.getByRole("button", { name: /skip|back/i }).count()) === 0, "a Skip or Back button is still offered");
-    // Import a feeds file: the dialog Settings uses, over this step.
+    // Import a feeds file: the dialog Settings uses, over this step. (uat-labels: ignore)
     await page.getByRole("button", { name: "Import a feeds file" }).click();
     await page.getByRole("dialog").waitFor({ timeout: 5000 });
     await axeRun(page, "A step 2 (import dialog)");

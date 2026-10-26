@@ -90,12 +90,13 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="start" sideOffset={4} popoverWidth="w-72">
           {target ? <p className="px-3 pt-2 text-xs text-fg2">These choices are for this {noun} on this device.</p> : null}
+          {!target ? <p className="px-3 pt-2 text-xs text-fg2">These choices are the defaults on this device.</p> : null}
           <DropdownMenu.Label className={heading}>Layout</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
             aria-label={target ? `Layout of this ${noun}` : "Layout"}
             value={target ? (own?.layout ?? "default") : dp.layout}
             onValueChange={(v) => {
-            if (!target) {
+              if (!target) {
                 updateDevicePrefs({ layout: v as LayoutId });
                 say(v as LayoutId);
               } else if (v === "default") setListOverride(target.kind, target.id, "layout", null);
@@ -109,21 +110,21 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
             {LAYOUT_IDS.map((id) => (
               <div key={id} className="flex items-center">
                 <Radio value={id} label={LAYOUT_LABELS[id]} hint={LAYOUT_HINTS[id]} className="min-w-0 flex-1" />
-                {target ? (
-                <DropdownMenu.CheckboxItem
-                  checked={dp.layout === id}
-                  aria-label={dp.layout === id ? `${LAYOUT_LABELS[id]} is the device default` : `Make ${LAYOUT_LABELS[id]} the device default`}
-                  title={dp.layout === id ? "Device default" : "Make this the device default"}
-                  // Keep the menu open so the star visibly fills.
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    makeDefault(id);
-                  }}
-                  className={cn("hit-row inline-flex shrink-0 cursor-default items-center justify-center rounded-lg outline-none data-[highlighted]:bg-selection", dp.layout === id ? "text-star" : "text-fg2")}
-                >
-                  <Star className="size-5" fill={dp.layout === id ? "currentColor" : "none"} aria-hidden="true" />
-                </DropdownMenu.CheckboxItem>
-                ) : null}
+                  {target ? (
+                  <DropdownMenu.CheckboxItem
+                    checked={dp.layout === id}
+                    aria-label={dp.layout === id ? `${LAYOUT_LABELS[id]} is the device default` : `Make ${LAYOUT_LABELS[id]} the device default`}
+                    title={dp.layout === id ? "Device default" : "Make this the device default"}
+                    // Keep the menu open so the star visibly fills.
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      makeDefault(id);
+                    }}
+                    className={cn("hit-row inline-flex shrink-0 cursor-default items-center justify-center rounded-lg outline-none data-[highlighted]:bg-selection", dp.layout === id ? "text-star" : "text-fg2")}
+                  >
+                    <Star className="size-5" fill={dp.layout === id ? "currentColor" : "none"} aria-hidden="true" />
+                  </DropdownMenu.CheckboxItem>
+                  ) : null}
               </div>
             ))}
           </DropdownMenu.RadioGroup>

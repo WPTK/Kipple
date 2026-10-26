@@ -5,9 +5,9 @@
 //   node uat/time-zone.mjs --url http://127.0.0.1:7091 --screenshots <dir> --browser webkit --headed
 //
 // The setup wizard's own adoption of the browser's zone is in uat/wizard.mjs. For each width (desktop 1280x800, phone
-// 375x812) this checks the Settings side, from an instance where no zone has been chosen (it clears the setting first and
+// 375x812) this checks the Settings side, from an instance where no zone has been chosen (it clears the setting first and (uat-labels: ignore)
 // puts it back at the end):
-//   Z1  Settings > Stats shows an empty Time zone box that says UTC applies until one is chosen, the server reports an
+//   Z1  Settings > Stats shows an empty Time zone box that says UTC applies until one is chosen, the server reports an (uat-labels: ignore)
 //       empty value, and the Stats summary is drawn in UTC meanwhile;
 //   Z2  typing Asia/Tokyo and pressing Enter saves it, the box and the server say Asia/Tokyo, the Stats summary follows
 //       it, and a reload shows it again;

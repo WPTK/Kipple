@@ -1188,7 +1188,7 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and nothing e
 
 ### 4.9 Manual refresh, priority jobs, runs
 
-- **Refresh all** (button, pull-to-refresh, `r` key → `POST /api/refresh`) sends to `manualCh`.
+- **Refresh all** (the List actions menu item, pull-to-refresh, `r` key → `POST /api/refresh`) sends to `manualCh`.
   - If a **manual** run is active, the reply is `202 {run_id, total, joined: true}`. An active import or retention run is never joined: a manual run starts alongside it.
   - Otherwise the dispatcher creates a run (`id` = unix ms, `kind='manual'`). For every enabled feed:
     - if the feed is in flight, the run is **attached** to that flight (`outstanding++`), because a fetch happening now counts as "fetched now";

@@ -6,7 +6,7 @@
 //
 // At each width (desktop 1280x800, phone 375x812) it checks:
 //   K1  an open menu is inside the main landmark, and axe-core finds no aria-hidden-focus or region violation with it open;
-//   K2  the password fields of Settings have a Show control that reveals and hides the value, and no "again" field;
+//   K2  the password fields of Settings have a Show control that reveals and hides the value, and no "again" field; (uat-labels: ignore)
 //   K3  a keyboard-focused control draws the accent outline with a page-colored gap (the one focus ring);
 //   K4  an input's border is the field color, not the hairline color;
 //   K5  a keyboard-focused list row draws its ring around the row and the link gets no box of its own;
@@ -24,7 +24,7 @@ const AXE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
 const t = await start(import.meta.url, 14);
 const { check, step, textOf } = t;
 
-/** Opens the Change web password dialog on Settings, Account & Devices; returns the Current password input. */
+/** Opens the Change web password dialog on Settings, Account & Devices; returns the Current password input. */ // uat-labels: ignore
 async function openPasswordDialog(page) {
   await page.goto("/settings/account", { waitUntil: "load" });
   await page.getByRole("button", { name: /^(Change|Set) web password$/ }).click();

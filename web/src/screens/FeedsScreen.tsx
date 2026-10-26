@@ -746,7 +746,7 @@ export function FeedsScreen() {
     );
   };
 
-  // The Feed actions menu, grouped by job: the view filter, then Organize, Files, and Feed health. The plain and the
+  // The Feed actions menu, grouped by job: the view filter, then Organize, and Files. The plain and the
   // edit modes both show it.
   const actionsMenu = (
     <DropdownMenu.Root>

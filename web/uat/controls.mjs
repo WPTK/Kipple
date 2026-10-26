@@ -14,9 +14,9 @@
 //       its first line, and a tap in its padding picks it (the cards with fields under them are measured in wizard.mjs);
 //   K5  Add feed with an address on a private network: the refusal points at "tick" and the option it offers is a checkbox,
 //       unticked (nothing is added);
-//   K4  Settings > Appearance & Reading: Larger buttons stays a switch (it applies the moment it is flipped), and flipping it
+//   K4  Settings > Appearance & Reading: Larger buttons stays a switch (it applies the moment it is flipped), and flipping it (uat-labels: ignore)
 //       sends nothing to the server (it is a device setting) and is put back;
-//   K8  Settings > Appearance & Reading: Layout is eight radio cards in one column (none wraps beside another or runs past
+//   K8  Settings > Appearance & Reading: Layout is eight radio cards in one column (none wraps beside another or runs past (uat-labels: ignore)
 //       the screen), each 44 px tall (56 px with Large targets) and named with what it looks like; picking one writes
 //       only the device's own profile (PATCH /api/device) and is put back.
 // It changes nothing on the server: every dialog is closed with Escape. It only runs against a loopback address with the

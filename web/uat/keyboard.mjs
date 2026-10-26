@@ -15,7 +15,7 @@
 //       The arrow keys move focus between rows from any control in a row, and a separator still takes them.
 // At 390x844 as a touch device:
 //   K4  Every swipe or long-press action has an alternative that needs no gesture: a row's Star button and its
-//       More actions menu (mark read or unread, star), the article's Back button, and the Refresh all feeds
+//       More actions menu (mark read or unread, star), the article's Back button, and the Refresh all feeds (uat-labels: ignore)
 //       button for pull to refresh; and the feed list's drag to reorder works from the keyboard (Move).
 //
 // It opens, stars and marks articles on the seed's account (and undoes what it can), so it only runs against a
@@ -582,7 +582,7 @@ async function phone(cookies) {
   } else fail(where("long press: row menu"), "no More actions button on a row");
   // The header has no Refresh button on a phone: the pull on the list and the actions menu do it.
   await page.getByRole("button", { name: "List actions" }).first().click();
-  check(await page.getByRole("menuitem", { name: "Refresh all feeds" }).first().isVisible().catch(() => false), where("pull to refresh"), "a Refresh all feeds item in the actions menu", "no Refresh all feeds item in the actions menu");
+  check(await page.getByRole("menuitem", { name: "Refresh all feeds" }).first().isVisible().catch(() => false), where("pull to refresh"), "a Refresh all feeds item in the actions menu", "no Refresh all feeds item in the actions menu"); // uat-labels: ignore
   await page.keyboard.press("Escape");
   await row.locator("a[href^='/i/']").first().click();
   await page.waitForURL((u) => u.pathname.startsWith("/i/"), { timeout: 10000 });

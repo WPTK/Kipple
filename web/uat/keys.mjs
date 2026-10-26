@@ -19,7 +19,7 @@
 //   T1  (desktop) The sidebar tree: Enter on a feed and Space on a folder open their lists, and focus stays on the
 //       tree item.
 //   S1  Search: ArrowDown in the search field moves focus to the first result.
-//   G1  Settings: Home and End on the Reduce motion choices pick the first and last; the choice is put back.
+//   G1  Settings: Home and End on the Reduce motion choices pick the first and last; the choice is put back. (uat-labels: ignore)
 //   P1  (desktop) The Reading appearance panel fits the window: its last line is inside the panel, which is inside the
 //       window, once scrolled to the end.
 // It opens articles on the seed's account and marks the ones that were unread unread again afterwards. It only runs

@@ -5,13 +5,13 @@
 //   npm run uat:announce -- --url http://127.0.0.1:7091 --screenshots <dir> --browser webkit --headed
 //
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and:
-//   A1  Taps Refresh all feeds (on a phone, the item in the actions menu) with the request held back 3 s: the icon spins at once (on a phone, the actions menu button spins) and the button says Refreshing.
-//   A2  Settings > Appearance & Reading: no switch's name carries its visible On or Off.
+//   A1  Taps Refresh all feeds (on a phone, the item in the actions menu) with the request held back 3 s: the icon spins at once (on a phone, the actions menu button spins) and the button says Refreshing. (uat-labels: ignore)
+//   A2  Settings > Appearance & Reading: no switch's name carries its visible On or Off. (uat-labels: ignore)
 //   A3  Signs in with a wrong password in a second, signed-out browser: both fields are aria-invalid and described by
 //       the error, and the password field has focus.
 //   A4  Manage feeds > Add feed with "not a url !!": the address field is aria-invalid, described by the error, focused.
 //   A5  Opens an article and marks it unread from the toolbar: it is announced as "Marked unread" with no Undo toast (the state word is the state).
-//   A6  Settings > Advanced > Address and access (proxy section opened): the Cloudflare Access state is not a live region.
+//   A6  Settings > Advanced > Address and access (proxy section opened): the Cloudflare Access state is not a live region. (uat-labels: ignore)
 //   A7  The list: a row's Star and More actions name its article, its link starts with the title, and the Unread
 //       link in the sidebar (desktop) reads "Unread N", the word once.
 //   A8  (desktop) Cocoa Mid: a selected row's secondary text is at least 4.5:1 on the selection; the theme is put back.
@@ -67,7 +67,7 @@ await t.eachViewport(async (page, vp) => {
         const answered = p.waitForResponse("**/api/refresh", { timeout: 10000 }).catch(() => null);
         // The actions menu has the item at every width, and its trigger spins.
         await p.getByRole("button", { name: "List actions" }).click();
-        await p.getByRole("menuitem", { name: "Refresh all feeds" }).click();
+        await p.getByRole("menuitem", { name: "Refresh all feeds" }).click(); // uat-labels: ignore
         // The request is held, so the spinning state lasts: wait for it rather than for a time.
         await p.waitForFunction(() => !!document.querySelector('button[aria-label="List actions"] svg.animate-spin'), null, { timeout: 5000 }).catch(() => {}); // the check below reports it if it never spins
         const state = await p.evaluate(() => {

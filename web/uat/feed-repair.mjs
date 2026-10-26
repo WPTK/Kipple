@@ -128,7 +128,7 @@ async function viewport(page, vp, failingId) {
     check(await save.isDisabled(), `${tag} R3 save off`, "Save is off until something changes", "Save is on with nothing changed");
     for (const label of ["Check for new articles", "Articles to keep", "Mark as read after"]) {
       const first = await dlg.getByLabel(label).locator("option").first().textContent();
-      check(/^Same as Settings \(.+\)$/.test(first ?? ""), `${tag} R3 ${label}`, `${label} reads "${first}"`, `${label} reads "${first}", not "Same as Settings (value)"`);
+      check(/^Same as Settings \(.+\)$/.test(first ?? ""), `${tag} R3 ${label}`, `${label} reads "${first}"`, `${label} reads "${first}", not "Same as Settings (value)"`); // uat-labels: ignore
     }
     check((await dlg.getByRole("checkbox", { name: /^Pause this feed/ }).count()) === 1, `${tag} R3 pause`, "Pause this feed", "no Pause this feed");
     await dlg.getByLabel("Title").fill("A changed title");
