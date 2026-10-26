@@ -80,10 +80,10 @@ for (const flow of list) {
   const r = await run(flow);
   console.log("::endgroup::");
   const issue = manifest.knownFail?.[flow]?.[values.engine];
-  const v = legVerdict(flow, r.code, issue, r.error ? `, ${r.error.message}` : "");
+  const v = legVerdict(flow, r.code, issue, r.error, r.failures[0]);
   worst = Math.max(worst, v.exit);
   verdicts.push(v.label);
-  if (v.status === "known") knownLegs.push(v.label);
+  if (v.status === "known") knownLegs.push(v.detail);
   else if (v.status === "fail") failed.push({ flow, lines: r.failures.length ? r.failures : [v.label] });
 }
 console.log(`\n${verdicts.join("\n")}`);

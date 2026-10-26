@@ -181,7 +181,7 @@ In CI, the `Browser UAT` workflow (`.github/workflows/browser-uat.yml`) seeds a 
 `npm run uat:all` (`web/uat/all.mjs`): every flow listed in `web/uat/flows.json` under Chromium, and the Feeds, saved-search,
 downloads, images, wrapping and rotate flows under WebKit (WebKit sends fetch metadata that Chromium does not, so a download error saved as the file shows only there).
 A new flow file goes in `flows.json`, as a flow or as excluded with a reason; `node uat/all.mjs --check` fails a file that is neither.
-A flow that fails on one engine for a reason with an open issue goes in `knownFail` (`{"<flow>.mjs": {"<engine>": "#<issue>"}}`, empty by default). The flow still runs: a failure prints as `known (issue #N)` and does not fail the run, a pass fails it until the entry is removed, and a value that is not an issue number fails `--check`.
+A flow that fails on one engine for a reason with an open issue goes in `knownFail` (`{"<flow>.mjs": {"<engine>": "#<issue>"}}`, empty by default). The flow still runs: a run with findings (exit 1) prints as `known (issue #N)` and does not fail the run, while a crash or exit 2 still fails it, a pass fails it until the entry is removed, and a value that is not an issue number fails `--check`.
 The workflow needs no outside network: `web/scripts/fixture-feeds.mjs` serves five feeds on loopback and `KIPPLE_SEED_FEEDS_URL`
 makes `npm run seed` add those instead of the public ones. It is not a required check yet, and `scripts/maintainers/pr-ready.ps1`
 prints its result without blocking on it. `web/uat/wait-ready.mjs` holds the start until the seed's feeds have articles.

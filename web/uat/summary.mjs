@@ -27,20 +27,24 @@ export function knownFailProblems(knownFail, manifest) {
     for (const [engine, issue] of Object.entries(engines ?? {})) {
       if (!ENGINES.includes(engine)) out.push(`knownFail ${flow}: unknown engine ${engine} (chromium, webkit or firefox)`);
       else if (!manifest[engine].includes(flow)) out.push(`knownFail ${flow}: not a ${engine} flow`);
-      if (!/^#\d+$/.test(String(issue))) out.push(`knownFail ${flow} (${engine}): needs an issue reference like "#123", got ${JSON.stringify(issue)}`);
+      if (!/^#[1-9]\d*$/.test(String(issue))) out.push(`knownFail ${flow} (${engine}): needs an issue reference like "#123", got ${JSON.stringify(issue)}`);
     }
   }
   return out;
 }
 
 /**
- * The verdict of one flow run on one engine. `issue` is its knownFail entry, if any. Returns the label to print, whether it
- * counts as `ok`, `known` or `fail`, and the exit code it contributes: a listed flow that fails is `known` (exit 0), one that
- * passes is a `fail` so the stale entry gets removed.
+ * The verdict of one flow run on one engine. `issue` is its knownFail entry, if any; `error` the spawn error; `firstFail` the
+ * flow's first FAIL line. Returns the label to print, whether it is `ok`, `known` or `fail`, and the exit code it contributes.
+ * A listed flow is `known` only when it exits 1 (findings): a crash, a spawn error or exit 2 stays a failure, and a listed flow
+ * that passes is a failure so the stale entry gets removed.
  */
-export function legVerdict(flow, code, issue, suffix = "") {
-  const tail = `(exit ${code}${suffix})`;
-  if (!issue) return { status: code === 0 ? "ok" : "fail", exit: code, label: `${code === 0 ? "ok  " : "FAIL"} ${flow} ${tail}` };
-  if (code === 0) return { status: "fail", exit: 1, label: `FAIL ${flow} passed but is listed in knownFail (${issue}): remove the entry` };
-  return { status: "known", exit: 0, label: `known (issue ${issue}) ${flow} ${tail}` };
+export function legVerdict(flow, code, issue, error, firstFail = "") {
+  const tail = `(exit ${code}${error ? `, ${error.message}` : ""})`;
+  if (code === 0 && issue) return { status: "fail", exit: 1, label: `FAIL ${flow} passed but is listed in knownFail (${issue}): remove the entry` };
+  if (code === 0) return { status: "ok", exit: 0, label: `ok   ${flow} ${tail}` };
+  if (issue && code === 1 && !error) {
+    return { status: "known", exit: 0, label: `known (issue ${issue}) ${flow} ${tail}`, detail: `known (issue ${issue}) ${flow}${firstFail ? `: ${firstFail}` : ""}` };
+  }
+  return { status: "fail", exit: code, label: `FAIL ${flow} ${tail}` };
 }

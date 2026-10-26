@@ -33,7 +33,8 @@ describe("knownFail", () => {
     expect(knownFailProblems({ "a.mjs": { safari: "#1" } }, manifest)[0]).toMatch(/unknown engine safari/);
   });
   it("reports a failing listed flow as known and does not count it", () => {
-    expect(legVerdict("a.mjs", 1, "#12")).toEqual({ status: "known", exit: 0, label: "known (issue #12) a.mjs (exit 1)" });
+    expect(legVerdict("a.mjs", 1, "#12")).toMatchObject({ status: "known", exit: 0, label: "known (issue #12) a.mjs (exit 1)" })
+    expect(legVerdict("a.mjs", 1, "#12", undefined, "FAIL x broke").detail).toBe("known (issue #12) a.mjs: FAIL x broke");
   });
   it("fails a listed flow that passes", () => {
     expect(legVerdict("a.mjs", 0, "#12")).toEqual({
@@ -41,6 +42,13 @@ describe("knownFail", () => {
       exit: 1,
       label: "FAIL a.mjs passed but is listed in knownFail (#12): remove the entry",
     });
+  });
+  it("keeps a crash, exit 2 or spawn error of a listed flow a failure", () => {
+    expect(legVerdict("a.mjs", 2, "#12")).toMatchObject({ status: "fail", exit: 2 });
+    expect(legVerdict("a.mjs", 1, "#12", new Error("spawn ENOENT"))).toMatchObject({ status: "fail", exit: 1 });
+  });
+  it("rejects #0", () => {
+    expect(knownFailProblems({ "a.mjs": { webkit: "#0" } }, manifest)).toHaveLength(1);
   });
   it("leaves an unlisted flow as it was", () => {
     expect(legVerdict("a.mjs", 0, undefined).status).toBe("ok");
