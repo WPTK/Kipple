@@ -32,7 +32,7 @@ A self-hosted RSS reader. That I want to use.
   </tr>
 </table>
 
-Kipple 1.0 is a release candidate. [CHANGELOG.md](CHANGELOG.md) lists what changed in each release.
+Kipple is maintained; updates are slower while it is in a stable phase. [CHANGELOG.md](CHANGELOG.md) lists what changed in each release.
 
 ## What you get
 

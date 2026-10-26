@@ -222,7 +222,7 @@ What Kipple has been checked against, how, and what is left to a person. The tes
 
 ### Web app
 
-Checked by `npm run uat -- --browsers all` and `npm run uat:keyboard -- --browser <engine>` (in `web/`) against a seeded
+Kipple supports current releases of Chromium-based browsers, Firefox and Safari. It is checked by `npm run uat -- --browsers all` and `npm run uat:keyboard -- --browser <engine>` (in `web/`) against a seeded
 instance, headless, on Windows. Each run covers every screen in a light and a dark theme at desktop (1280 px), tablet
 (768 px) and phone (390 px) widths: no console errors, no failed API calls, no WCAG 2.2 AA violations (axe-core), no
 sideways scroll, no stray `undefined` or `NaN`, and the font choice reachable. The keyboard run checks Tab order, focus
@@ -299,7 +299,6 @@ contacts any server to check for updates.
 - Migrations apply in order from whichever schema your database has. Read the release notes of every release you skip.
 - **Downgrade means restoring the pre-migration snapshot only when the upgrade changed the schema.** There are no down
   migrations, and an older Kipple refuses a database that a newer one has migrated. A release that does not change the
-  schema writes no snapshot and migrates nothing, so the older release opens the same database as it is: 1.0.0-rc.1 and
-  0.9.0-beta.1 both use schema 19, and going back from rc.1 to beta.1 needs no restore (`kipple version -v` prints the
-  schema number of a build). To roll back an upgrade that did change it, see
+  schema writes no snapshot and migrates nothing, so the older release opens the same database as it is: when two releases print the
+  same schema number, going back needs no restore (`kipple version -v` prints the schema number of a build). To roll back an upgrade that did change it, see
   [deploy.md](deploy.md#roll-back-an-upgrade-that-migrated-the-schema).

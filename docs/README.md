@@ -9,6 +9,9 @@ the project's shape. Each links to more detail; nothing here duplicates it.
 | [ui-decisions.md](maintainers/ui-decisions.md) | The record of every UI/UX and project-scope decision made in planning meetings, in the order they were decided. |
 | [uat-plan.md](maintainers/uat-plan.md) | The user-acceptance-testing plan: roles, entry/exit criteria, test suites, defect severity, sign-off. |
 | [sqa-plan.md](maintainers/sqa-plan.md) | The software-quality-assurance plan, mapped to IEEE 730: what already ensures quality (CI, reviews, release discipline) and open candidate additions. |
+| [test-plan.md](maintainers/test-plan.md) | How Kipple is tested: what each package's tests cover, the property and plan-regression tests, fuzzing, and the manual checks. |
+| [release-checklist.md](maintainers/release-checklist.md) | The blank go/no-go template for a major release; the filled-in copy for a release is kept in the history repo. |
+| [design-review.md](maintainers/design-review.md) | How the whole-app design review works: what is captured, how it is judged, and how findings become issues. |
 | [risk-register.md](maintainers/risk-register.md) | Currently open risks and their mitigations, kept live rather than scattered across old phase notes. |
 | [RELEASING.md](maintainers/RELEASING.md) | The release checklist for every version, including alphas, and the alpha/beta/rc/1.0 promotion criteria. |
 | [performance.md](performance.md) | How Kipple behaves with a large library (500 feeds, 150,000 items): start, upgrade, search, backup and restore, refresh, memory, database size, with sizing advice and how to repeat the measurement (`scripts/scalegen`). |

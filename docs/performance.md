@@ -75,11 +75,10 @@ The upgrade is dominated by the pre-migration snapshot (`VACUUM INTO`, a 1.6 GB 
 a typical figure is 6 to 7 s, and the slow runs were disturbed by the file copying around them. The snapshot costs
 about 3.5 s per GB. A restored backup reported the same unread count as the original in every run.
 
-An **old-format backup** restores. The library was copied to schema 10, a 0.5.0-beta.1 build took its own in-app
-backup of it (686 MB, 500 feeds, 150,000 items), and the then-current build restored it in 26 s with checksums and the
-integrity check passing, migrated it on the first start and found the planted rare term by search. A 0.3.0-beta.3 backup
-(schema 9, empty library) restores and migrates as well. The repository holds no backup zip in its test fixtures (the
-tests build their archives in code), so these two were made by building the old tags. They predate nested folders;
+An **old-format backup** restores. A backup taken at schema 10 (686 MB, 500 feeds, 150,000 items) restored in 26 s with
+checksums and the integrity check passing, migrated on the first start and found the planted rare term by search; an
+older backup (schema 9, empty library) restores and migrates as well. The repository holds no backup zip in its test
+fixtures (the tests build their archives in code), so these were made by building old tags. They predate nested folders;
 the 11 to 12 row above is the migration on the large library.
 
 ### Interactive calls (warm, median of 3 runs)
