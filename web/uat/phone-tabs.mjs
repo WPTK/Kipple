@@ -13,7 +13,7 @@
 //   A5  at 812x375 and at 320x568 with text size Largest the five tabs fit with their names whole.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
-import { start } from "./common.mjs";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 15);
 const { check, step } = t;
@@ -26,11 +26,14 @@ await t.eachViewport(async (page, vp) => {
   const open = async (path) => {
     await page.goto(path, { waitUntil: "load" });
     await page.locator("main h1, main h2").first().waitFor({ timeout: 15000 });
-    await page.waitForTimeout(600);
+    await tabsStill();
   };
   const bar = () => page.locator('nav[aria-label="Primary"]').last();
   const tabNames = () => bar().locator("a").evaluateAll((as) => as.map((a) => a.innerText.replace(/\s+/g, " ").replace(/^\d+\+?\s*/, "").trim()));
   const current = () => bar().locator('a[aria-current="page"]').evaluateAll((as) => as.map((a) => a.innerText.replace(/\s+/g, " ").replace(/^\d+\+?\s*/, "").trim()));
+
+  // The tab bar's names and current tab have not changed for 300 ms: the bar has rendered for the route.
+  const tabsStill = () => waitForStillFor(page, 300, async () => [await tabNames(), await current()], { label: "the tab bar to settle" });
 
   await step(`${tag} A1`, async () => {
     await page.setViewportSize({ width: 375, height: 812 });
@@ -58,7 +61,7 @@ await t.eachViewport(async (page, vp) => {
     check(JSON.stringify(pills.slice(0, 4)) === JSON.stringify(["New", "Unread", "All", "Starred"]), `${tag} A3 pills`, `the pills start ${pills.slice(0, 4).join(", ")}`, `the pills are ${pills.join(", ")}`);
     await page.getByRole("navigation", { name: "Show" }).getByRole("link", { name: "Starred" }).click();
     await page.waitForURL((u) => u.pathname === "/l/starred", { timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(400);
+    await tabsStill();
     const got = await current();
     check(got[0] === "Articles", `${tag} A3 Starred`, "Articles stays current on Starred", `the current tab on Starred is ${got.join(", ") || "none"}`);
     await t.shot(page, `${tag}-starred-pill`);

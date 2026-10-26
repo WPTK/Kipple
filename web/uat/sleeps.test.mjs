@@ -8,7 +8,7 @@ import { expect, it } from "vitest";
 // stays, with a one-line comment saying why. The floor is those real-time sleeps: keys.mjs and rotate.mjs sample or pace
 // the page on the clock, stats.mjs lets 12.5 s of active reading pass (a faked page clock delivers nothing, see the comment
 // there), touch-menus.mjs outlasts the sheet's 400 ms focus guard, and scroll-restore.mjs paces wheel steps like a hand.
-const BASELINE = 34;
+const BASELINE = 9;
 
 it("the number of fixed sleeps in web/uat does not grow", () => {
   const dir = dirname(fileURLToPath(import.meta.url));

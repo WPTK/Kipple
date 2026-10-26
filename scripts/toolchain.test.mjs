@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { dockerfileNodeMajor, workflowNodeMajors } from './toolchain.mjs';
 
 const read = (f) => readFileSync(fileURLToPath(new URL(`../${f}`, import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
 const first = (text, re, what) => {
@@ -33,9 +34,9 @@ test('Go: every setup-go in the workflows reads go.mod instead of repeating the 
 });
 
 test('Node: Dockerfile web stage and ci.yml name the same major', () => {
-  const image = first(read('Dockerfile'), /^FROM\b[^\n]*\bnode:(\d+)(?:\.\d+)*-alpine/m, 'Dockerfile node image');
-  const ci = read('.github/workflows/ci.yml');
-  const versions = [...ci.matchAll(/node-version:\s*"?(\d+)(?:\.\d+)*"?/g)].map((m) => m[1]);
+  const image = dockerfileNodeMajor(read('Dockerfile'));
+  assert.ok(image, 'Dockerfile node image: not found');
+  const versions = workflowNodeMajors(read('.github/workflows/ci.yml'));
   assert.ok(versions.length > 0, 'ci.yml has no node-version');
   for (const v of versions) assert.equal(v, image);
 });

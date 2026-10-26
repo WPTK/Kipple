@@ -20,7 +20,7 @@
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
-import { start } from "./common.mjs";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 13);
 const { check, step } = t;
@@ -221,8 +221,7 @@ async function viewport(page, vp, added) {
       await scroll.evaluate((el) => {
         el.scrollTop = 900;
       });
-      await page.waitForTimeout(600);
-      const before = await top();
+      const before = await waitForStillFor(page, 200, top, { label: "the scrolled list to hold still" });
       // Away to Feed health inside the app (the list's memory lives there), and back.
       await page.evaluate(() => globalThis.document.querySelector("[data-testid=feed-failure-note] a")?.click());
       await page.getByRole("heading", { name: "Feed health", level: 1 }).waitFor({ timeout: 10000 });
@@ -232,12 +231,16 @@ async function viewport(page, vp, added) {
         await page.getByRole("menuitem", { name: /Refresh/ }).click();
         const ok = await t.settle(page, (b) => b.feeds.some((f) => f.id === add.id && !f.last_error), 30000);
         if (!ok.ok) return t.fail(`${tag} X5`, "the long feed never recovered");
-        await page.waitForTimeout(1500);
       }
       await page.goBack();
       await scroll.waitFor({ timeout: 10000 });
-      await page.waitForTimeout(1200);
-      const after = await top();
+      // The list rebuilds and restores its scroll after the page returns; wait for the note to match and the top to hold still.
+      // The note reflects the post-recovery refetch, so it must match before the list can be called settled; a note that never matches is a finding.
+      const noted = await page.waitForFunction((want) => document.querySelectorAll("[data-testid=feed-failure-note]").length === want, recovers ? 0 : 1, { timeout: 10000 }).then(() => true, () => false);
+      if (!noted) t.fail(`${tag} X5`, `${what}: the note never showed ${recovers ? "gone" : "there"} after the return`);
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      // Held 1000 ms: a late scroll restore or refetch after the refetch would move the top article.
+      const after = await waitForStillFor(page, 1000, top, { label: "the restored list to hold still" });
       const noteBack = await page.getByTestId("feed-failure-note").count();
       check(noteBack === (recovers ? 0 : 1), `${tag} X5`, `${what}: the note is ${recovers ? "gone" : "there"}`, `${what}: the note count is ${noteBack}`);
       check(!!before && !!after && before.id === after.id && Math.abs(before.y - after.y) < 3, `${tag} X5`, `${what}: the same article is at the top`, `${what}: the top article was ${JSON.stringify(before)} and is ${JSON.stringify(after)}`);

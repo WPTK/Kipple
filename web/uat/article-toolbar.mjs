@@ -12,7 +12,8 @@
 // It marks the article it toggled back afterwards. It only runs against a loopback address with the seed's credentials
 // unless --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
 import { URL } from "node:url";
-import { start } from "./common.mjs";
+import { setTimeout as delay } from "node:timers/promises";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 12);
 const { check, step } = t;
@@ -29,6 +30,15 @@ await t.eachViewport(async (page, vp) => {
     await bar.waitFor({ timeout: 10000 });
     const id = new URL(page.url()).pathname.split("/").pop();
     const itemState = async () => (await (await page.request.get(`/api/items/${id}`, { headers: { Accept: "application/json" } })).json()).read;
+    // Asks the server (a request from this process, so not a waitForFunction) for the stored read state, again and again, until it is `want` (at most 5 s) and returns the last value seen, so a toggle that never lands is reported by the check that follows.
+    const readBecomes = async (want) => {
+      let now = await itemState();
+      for (const end = Date.now() + 5000; now !== want && Date.now() < end; ) {
+        await delay(100);
+        now = await itemState();
+      }
+      return now;
+    };
 
     const names = await bar.getByRole("button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? e.textContent?.trim() ?? ""));
     check(names.includes("Share") && !names.some((n) => /^Mark as (un)?read$/.test(n)), `${tag} T2 share`, "Share is a toolbar button and the read toggle is not", `buttons: ${names.join(", ")}`);
@@ -36,20 +46,20 @@ await t.eachViewport(async (page, vp) => {
     await t.shot(page, `${tag}-article-toolbar`);
 
     // Opening an article marks it read a moment later, so let that settle before reading the state.
-    await page.waitForTimeout(1500);
-    const before = await itemState();
+    // Held for 1000 ms: longer than the 700 ms mark delay plus the round trip.
+    const before = await waitForStillFor(page, 1000, itemState, { label: "the opened article's read state to settle" });
     await bar.getByRole("button", { name: "More actions" }).click();
     const items = (await page.getByRole("menu").getByRole("menuitem").allInnerTexts()).map((s) => s.trim());
     check(items[0]?.startsWith("Mark as") && !items.includes("Share"), `${tag} T3 menu`, "More starts with the read toggle and has no Share", `menu: ${items.join(", ")}`);
     const wantRead = (await page.getByRole("menuitem", { name: /^Mark as (un)?read$/ }).innerText()).trim() === "Mark as read"; // uat-labels: ignore (a menu item's text, not an aria-label)
     await page.getByRole("menuitem", { name: /^Mark as (un)?read$/ }).click();
-    await page.waitForTimeout(600);
-    const after = await itemState();
+    const after = await readBecomes(wantRead);
     check(after === wantRead && after !== before, `${tag} T3 toggle`, "the menu item toggles the article's read state", `read was ${before}, now ${after}`);
     if (after !== before) {
       await bar.getByRole("button", { name: "More actions" }).click();
       await page.getByRole("menuitem", { name: /^Mark as (un)?read$/ }).click();
-      await page.waitForTimeout(400);
+      const restored = await readBecomes(before);
+      check(restored === before, `${tag} T3 restore`, "the second toggle puts the read state back", `read was ${before}, after the second toggle ${restored}`);
     }
 
     const feedName = (await page.locator("article header p").first().getByRole("link").innerText()).trim();
