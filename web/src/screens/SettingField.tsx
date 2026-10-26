@@ -197,7 +197,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
           description={confirm.w.body}
           footer={
             <>
-              <Button variant="ghost" onClick={cancelAsk}>
+              <Button onClick={cancelAsk}>
                 Cancel
               </Button>
               <Button

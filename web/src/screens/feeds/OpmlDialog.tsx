@@ -80,13 +80,13 @@ function ImportProgress({ runId, total, eventId }: { runId: string; total: numbe
     return (
       <p className="text-sm text-fg2">
         {finished.errors > 0
-          ? `Kipple fetched the new feeds. ${finished.errors.toLocaleString()} couldn't be fetched; each says why on its row in Manage feeds.`
+          ? `Kipple fetched the new feeds. ${finished.errors.toLocaleString()} couldn't be fetched; each says why on its row in Feeds.`
           : "Kipple fetched the new feeds."}
       </p>
     );
   }
-  if (finished || seen) return <p className="text-sm text-fg2">The fetch of the new feeds has ended. A feed that can't be fetched says why on its row in Manage feeds.</p>;
-  return <p className="text-sm text-fg2">Kipple is fetching the new feeds now. A feed that can't be fetched says why on its row in Manage feeds.</p>;
+  if (finished || seen) return <p className="text-sm text-fg2">The fetch of the new feeds has ended. A feed that can't be fetched says why on its row in Feeds.</p>;
+  return <p className="text-sm text-fg2">Kipple is fetching the new feeds now. A feed that can't be fetched says why on its row in Feeds.</p>;
 }
 
 /**
@@ -255,7 +255,7 @@ export function OpmlResultSummary({ result, inWizard = false }: { result: OpmlRe
         </ul>
       </div>
     ) : null}
-    {priv.length ? <PrivateFeeds feeds={priv} where={inWizard ? "You can allow a feed in its settings in Manage feeds once setup is finished." : "Open a feed in Manage feeds to change it there."} /> : null}
+    {priv.length ? <PrivateFeeds feeds={priv} where={inWizard ? "You can allow a feed in its settings in Feeds once setup is finished." : "Open a feed in Feeds to change it there."} /> : null}
     {ignored.length ? (
       <div className="text-sm">
         <p className="font-semibold">Some settings in the file were not applied</p>

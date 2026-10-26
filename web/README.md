@@ -28,7 +28,7 @@ React 19, TypeScript (strict), Vite 8, Tailwind v4, TanStack Query and Virtual, 
 src/api/      fetch client (X-Kipple-Client, 401), types, TanStack Query hooks, SSE + fallback polling
 src/layouts/  the six list layouts behind the ListLayout interface (Editorial, Cards, Compact, Inbox, Headlines, Gazette)
 src/gestures/ row swipe, long press, swipe back, pull to refresh (pointer events for row swipe and swipe back, touch events for pull to refresh; no gesture library)
-src/screens/  list pane, article pane, feeds (add, edit, folders, OPML), feed health, search, stats and Wrapped, settings, login
+src/screens/  list pane, article pane, feeds (add, edit, folders, OPML), feed health, search, stats and Your year, settings, login
 src/ui/       button, segmented control, kit.tsx (modal, field, switch, stepper, disclosure, notices), FavStar, ResizeHandle (window splitter), UnreadCount
 src/shell/    app shell (tab bar / sidebar, landmarks, live region, toasts)
 src/theme/    schemes.json, CSS + boot script generators, picker (see src/theme/README.md)
@@ -98,7 +98,7 @@ undoable, ledger_ids?}` (docs/design.md 7.1). Undoing sends `{ids, ledger_ids?, 
 optimistic update that rolls back on error; a 400's `keys` and `issues` show under the control; "Reset to default"
 sends `null`; changes that `lib/settingGuards.ts` flags (a lower image cache, a lower retention) ask for confirmation first, and an enum can offer a preset row with "Custom". The screen is master-detail, six groups each at `/settings/<group>`: Appearance & Reading
 (`appearance`: Appearance, Accessibility, Lists and reading, Keyboard, and the server's Reading group), Sync & Feeds
-(`sync`: the Sync, Library and Images groups), Statistics (`statistics`: the Statistics group and Your statistics data),
+(`sync`: the Sync, Library and Images groups), Stats (`statistics`: the Stats group and Your stats data),
 Filters & Saved Searches (`filters`), Account & Devices (`account`: Devices, and Account with the Account group) and
 Advanced (`advanced`: the Advanced group). At 900 px and up a rail of the groups sits beside the chosen group and a bare
 `/settings` opens the first; below that `/settings` is the list of groups (with the current theme and font, check
@@ -111,11 +111,11 @@ feed editor shows that feed's own switch as "On for all feeds". The screen is ca
 **Reading appearance** (the "Aa" button in every list header, Search included, and the article toolbar, and Settings > Appearance):
 theme (including "Follow system" and "On a schedule", both with any day and night
 pair; the schedule switches at "Night starts" (default 21:00) and "Day starts" (default 07:00) on the device's
-clock, whatever the OS says), font, text size, one Density choice with an
+clock, whatever the OS says), font, text size, one Spacing choice with an
 "Adjust separately" disclosure, and "Highlight keywords" (the Aa menu; Settings > Appearance has theme, the Reading
-font with a sample paragraph, text size and Density; the setup wizard's step 3, "Look and feel", has the theme pair and
+font with a sample paragraph, text size and Spacing; the setup wizard's step 3, "Look and feel", has the theme pair and
 the Reading font). The font styles articles at once (`--kp-reading-font`); the switch "Use it everywhere"
-(`client.font_everywhere`, off by default) extends it to lists and the sidebar (`--kp-app-font`); Settings, Manage feeds, Health and every menu, popover and
+(`client.font_everywhere`, off by default) extends it to lists and the sidebar (`--kp-app-font`); Settings, Feeds, Health and every menu, popover and
 dialog keep the system UI font (`.ui-font` and the role selectors in `index.css`). "Default" leaves lists and chrome in
 the system font and articles in the reading serif. Segmented controls are pressed-style buttons over hidden native
 radios (arrow keys work); choosing one holds the control where it was on screen even when the page above reflows
@@ -167,7 +167,7 @@ is the address field: `PATCH /api/feeds/{id}` with `url`.
 press and hold, or touch the grip at once; `lib/dnd.ts`); the grip also moves with the arrow keys, and "Show move
 buttons" beside the help text in edit mode adds Move up and Move down buttons. A drop is one `POST /api/reorder` (a feed dropped in another
 folder moves there), painted at once and confirmed with "Saved". The star on a folder or feed pins it to Favorites at the
-top of the sidebar and Manage feeds (drag those to order them). Favorites live in the server setting
+top of the sidebar and Feeds (drag those to order them). Favorites live in the server setting
 `library.favorites` (at most 500 `{t, id}` items); a save the server refuses is taken back and shown as an error. "Select" adds checkboxes (shift-click ranges, a checkbox per folder) and a bar with Move (one
 reorder call) and Delete (a confirm with the count, the total starred articles, "delete starred too", progress, and a
 per-feed error list). The sidebar's folders collapse (remembered per device). Feed health is reached from the Feeds
@@ -264,7 +264,7 @@ Settings > Devices explains it and hides the actions that would 404.
 
 `ACCESSIBILITY.md` is the checklist. Settings > Accessibility holds Text spacing (the WCAG 1.4.12 control: "Adds
 extra space between letters, words and lines"), a pointer to the Easy to read font (the Reading font under Appearance), Reduce motion (follow system, on, off), Mark as read while scrolling (off by default), Listen to articles (voice and
-speed), plus Larger buttons and Titles only in lists. The OS settings for contrast, forced colors, text size and
+speed), plus Larger buttons. The OS settings for contrast, forced colors, text size and
 motion are followed without any setting.
 
 ## Scripts
@@ -321,7 +321,7 @@ Without a build, `/` serves the status page, which is always at `/_status`.
 ## Tests
 
 `npm test` runs every `src/**/*.test.ts(x)` suite (Vitest, jsdom, Testing Library, axe; 75 files at the time of writing), covering the reader and gesture
-fixes, theme resolution (follow-system pair, custom pair, the schedule, boot-script parity), stats and Wrapped,
+fixes, theme resolution (follow-system pair, custom pair, the schedule, boot-script parity), stats and Your year,
 passwordless sign-in, the API client (401, cursor paging, pwa
 header), the SSE reducer and fallback polling, keyboard rules, undo, filters, devices, muted, highlights, device sync and
 search, with axe on the login, list, article, settings, feeds and search screens. jsdom has no layout, so `src/test/setup.ts` stubs sizes for the

@@ -82,13 +82,13 @@ describe("dialogs start clean on every opening", () => {
       wrap(<Harness which="all" />);
       await user.click(screen.getByText("Open"));
       await user.type(screen.getByLabelText(/Type DELETE ALL/), "DELETE ALL");
-      await user.click(screen.getByRole("button", { name: "Delete all statistics" }));
+      await user.click(screen.getByRole("button", { name: "Delete all stats" }));
       await screen.findByText("Kipple's server had a problem.");
       await close(user);
       await gone();
       await user.click(screen.getByText("Open"));
       expect(screen.getByLabelText(/Type DELETE ALL/)).toHaveValue("");
-      expect(screen.getByRole("button", { name: "Delete all statistics" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Delete all stats" })).toBeDisabled();
       expect(screen.queryByText("Kipple's server had a problem.")).toBeNull();
     });
 
@@ -128,11 +128,11 @@ describe("dialogs start clean on every opening", () => {
     wrap(<Harness which="all" />);
     await user.click(screen.getByText("Open"));
     await user.type(screen.getByLabelText(/Type DELETE ALL/), "DELETE ALL");
-    await user.click(screen.getByRole("button", { name: "Delete all statistics" }));
+    await user.click(screen.getByRole("button", { name: "Delete all stats" }));
     await gone();
     await user.click(screen.getByText("Open"));
     expect(screen.getByLabelText(/Type DELETE ALL/)).toHaveValue("");
-    expect(screen.getByRole("button", { name: "Delete all statistics" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete all stats" })).toBeDisabled();
   });
 });
 
@@ -152,7 +152,7 @@ describe("second-review items", () => {
     await user.type(from, "2000-01-01");
     expect(await screen.findByText(/at most 3,660 days/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download" })).toBeDisabled();
-    expect(screen.getByText(/statistics time zone/)).toBeInTheDocument();
+    expect(screen.getByText(/stats time zone/)).toBeInTheDocument();
   });
 
   it("delete-all trims the phrase, stays case-sensitive and hints on a mismatch", async () => {
@@ -164,14 +164,14 @@ describe("second-review items", () => {
     expect(screen.queryByText("Type DELETE ALL exactly.")).toBeNull();
     await user.type(input, "delete all");
     expect(screen.getByText("Type DELETE ALL exactly.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete all statistics" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete all stats" })).toBeDisabled();
     await user.clear(input);
     await user.type(input, "DELETE ALL ");
-    expect(screen.getByRole("button", { name: "Delete all statistics" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Delete all stats" })).toBeEnabled();
     expect(screen.queryByText("Type DELETE ALL exactly.")).toBeNull();
   });
 
-  it("re-seeds custom dates on every opening from the statistics time zone's today", async () => {
+  it("re-seeds custom dates on every opening from the stats time zone's today", async () => {
     const user = userEvent.setup();
     client.setQueryData(["stats", "month"], { enabled: true, tz: "America/New_York", week_start: "sunday", range: { key: "month", from: "2026-08-14", to: "2026-09-12", days: 30 } });
     wrap(<Harness which="export" />);

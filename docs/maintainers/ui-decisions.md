@@ -10,7 +10,7 @@ were resolved in round 2 and what shipped; each is annotated below.
   and enabling any option must never break anything else.
 - Implement everything the research file lists for **phase 2 and phase 3**, including read-aloud,
   `prefers-contrast`, reduced motion, text scaling, focus and semantics, live region for new items.
-- More **density** options than the three presets (TODO, resolved: Dense, Snug, Standard, Relaxed and Airy steps, see
+- More **spacing** options than the three presets (TODO, resolved: Dense, Snug, Standard, Relaxed and Airy steps, see
   Round 2).
 - Font: add **Atkinson Hyperlegible Next** as a font option, labelled "Easy to read". OpenDyslexic is
   dropped (weak evidence). Font file size is not a concern.
@@ -39,7 +39,7 @@ were resolved in round 2 and what shipped; each is annotated below.
 - Must be iOS compliant in the least annoying way (nothing starting in the left ~24 px; no fighting Safari's
   back gesture; every gesture has a button).
 - Haptics not needed; visual snap plus **undo toast** is approved.
-- **Row swipe: full swipe with undo. Swipe left = mark read, swipe right = mark unread.** (Star: a row button, a swipe and the row menu.)
+- **Row swipe:** swipe right toggles read and unread; swipe left reveals Star and More; a full swipe left stars. Each commits with undo. (Star also has a row button and the row menu.)
 - **Article swipe: swipe back to the previous screen** (the article list you came from, not always the feed
   list), i.e. drill-in navigation stack. Keep next/previous **buttons**.
 - Keys: **no single-key shortcuts** (owner decision, final). Keyboard use is Tab order, the list's one Tab stop,
@@ -136,8 +136,8 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
 - Layout is choosable **per feed and per folder** (override), plus a global/device default. UI in phase 2.
 - A folder's layout override applies to its subfolders and their feeds too; the nearest override up the tree wins
   (feed, then its folder, then each folder above, then the device default).
-- Density: the owner doubts sliders. Use **named steps in a segmented picker with a live preview**
-  (Dense / Snug / Standard / Relaxed / Airy). One "Density" choice drives both list rows and reading text;
+- Spacing: the owner doubts sliders. Use **named steps in a segmented picker with a live preview**
+  (Dense / Snug / Standard / Relaxed / Airy). One "Spacing" choice drives both list rows and reading text (Cards and Gazette keep their own list spacing, and the help text says so);
   an "Adjust separately" disclosure splits them. No sliders, no "link" toggle. Must not look messy.
 
 ### Folders (nested, #209)
@@ -169,8 +169,8 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
   return to the list on a wide screen is undecided (asked in `docs/maintainers/uat-plan.md`, "Open questions for the
   owner"). Record the answer here.
 - **Swipe directions match iOS Mail everywhere** (this supersedes round 1's "read left, unread right"):
-  swipe right (leading) = toggle read/unread; swipe left (trailing) = star, plus a "More" action opening the
-  row menu. Full swipe commits with undo. Star also has a row button and the long-press menu.
+  swipe right (leading) = toggle read/unread; swipe left (trailing) reveals Star and More (the row menu), and a
+  full swipe left stars. A full swipe commits with undo. Star also has a row button and the long-press menu.
 - Undo toast lasts **15 seconds** from when the change is saved (merged toast). The Undo button undoes the newest change, up to 20
   changes back within 60 s (bulk marks 2 minutes), waiting for one that is still saving; the full model is
   docs/design.md §7.11.
@@ -244,7 +244,7 @@ Choices made where the decisions above were silent; the owner may overrule any o
 Decisions are recorded in full in the private history repository. Summary of what shapes the build:
 
 - **Focus:** sources and pruning (most read, time per source, never opened) with habits at the top (summary strip,
-  daily activity, streaks, weekday-by-hour heatmap, behavior facts). Wrapped is a simple yearly summary with an opt-in
+  daily activity, streaks, weekday-by-hour heatmap, behavior facts). Your year is a simple yearly summary with an opt-in
   share sheet, aggregates only by default. No goals, targets, badges, comparisons with other people or directives.
 - **Reading:** every open is recorded; views count an item as read at 10 s active time, or 25% scroll with at least 3 s active time (a scroll alone stopped counting with issue #120). List-preview
   opens count. Reading stats (open, read time, scroll, open original, share) are web-only; Reader API clients are not tracked for reading, though their stars are recorded.
@@ -252,11 +252,11 @@ Decisions are recorded in full in the private history repository. Summary of wha
   folder rollup; average read length, quick-bounce rate, open-original rate, read rate per feed, most-starred feeds;
   never opened. A feed's row opens its drill-down sheet.
 - **Settings:** first day of week (Sunday or Monday, default Sunday); stats on/off (off stops recording and hides the
-  screen, keeps data); Wrapped on/off; delete a range; delete all (typed confirmation).
+  screen, keeps data); Your year on/off; delete a range; delete all (typed confirmation).
 - **Export:** raw events as CSV, JSON or JSON Lines; the summary is JSON only (a summary is several tables, so a CSV or JSON Lines summary was not built). Range, a toggle to leave out article titles and links (feed and folder names, times and the time zone stay), and a data dictionary. Export and delete stay available with statistics off. They live in Settings > Stats only; the Stats screen links there.
 - **Sender:** 15 s flush, visibilitychange primary and pagehide backup, 2 minute idle cutoff, a random id on every event
   (unique index) for dedup, offline events queued, losses accepted.
-- **Delivery:** alpha.4 sender and settings, alpha.5 screen, alpha.6 export and data controls, alpha.7 Wrapped.
+- **Delivery:** alpha.4 sender and settings, alpha.5 screen, alpha.6 export and data controls, alpha.7 Your year.
 
 ### Stats follow-up (2026-10-06, issues #37 and #36)
 

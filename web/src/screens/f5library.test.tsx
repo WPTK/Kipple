@@ -366,9 +366,9 @@ describe("Settings > Saved searches", () => {
     const user = userEvent.setup();
     const list = await screen.findByRole("list", { name: "Saved searches" });
     await user.click(within(list).getByRole("button", { name: "Delete Starred go" }));
-    const dlg = await screen.findByRole("dialog", { name: "Delete this saved search?" });
+    const dlg = await screen.findByRole("dialog", { name: "Delete “Starred go”?" });
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
-    await user.click(within(dlg).getByRole("button", { name: "Delete" }));
+    await user.click(within(dlg).getByRole("button", { name: "Delete saved search" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url.pathname === "/api/saved-searches/s3")).toBe(true));
   });
 

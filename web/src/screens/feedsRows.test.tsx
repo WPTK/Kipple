@@ -129,7 +129,7 @@ describe("Feeds screen rows", () => {
     expect(screen.queryByRole("menuitem", { name: "Mark all as read" })).toBeNull();
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Folder actions for Tech" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Mark all as read" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mark all 4 as read" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read")).toBe(true));
     const sent = calls.find((c) => c.url.pathname === "/api/items/mark-read");
     expect(JSON.parse(String(sent?.init?.body)).scope).toMatchObject({ folder_id: "2", view: "unread" });

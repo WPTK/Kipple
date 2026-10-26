@@ -43,7 +43,7 @@ describe("a Gazette story's menu", () => {
     await user.click(within(story(3)).getByRole("button", { name: `More actions: ${cards[2]!.title}` }));
     const menu = await screen.findByRole("menu");
     const names = within(menu).getAllByRole("menuitem").map((m) => m.textContent);
-    expect(names).toEqual(expect.arrayContaining(["Star", "Mark as read", "Mute similar…", "Manage this feed", "Open original", "Copy link"]));
+    expect(names).toEqual(expect.arrayContaining(["Star", "Mark as read", "Mute similar…", "Edit feed", "Open original", "Copy link"]));
     expect(names.some((n) => /above|below/.test(n ?? ""))).toBe(false);
     await user.click(within(menu).getByRole("menuitem", { name: "Star" }));
     expect(actions.toggleStar).toHaveBeenCalledWith(cards[2]);

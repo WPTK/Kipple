@@ -394,7 +394,7 @@ describe("deleting a filter", () => {
     go("/settings/filters");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Delete No giveaways" }));
-    const dialog = await screen.findByRole("dialog", { name: "Delete this filter?" });
+    const dialog = await screen.findByRole("dialog", { name: "Delete “No giveaways”?" });
     const w = within(dialog);
     expect(w.getByText(/This filter has muted 7 articles/)).toBeInTheDocument();
     expect(w.getByRole("radio", { name: /Restore them and keep them read/ })).toBeChecked();
@@ -411,7 +411,7 @@ describe("deleting a filter", () => {
     go("/settings/filters");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Delete No giveaways" }));
-    const w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
+    const w = within(await screen.findByRole("dialog", { name: "Delete “No giveaways”?" }));
     await user.click(w.getByRole("radio", { name: /Restore them and mark them unread/ }));
     await user.click(w.getByRole("button", { name: "Delete filter" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
@@ -431,7 +431,7 @@ describe("deleting a filter", () => {
     go("/settings/filters");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Delete No giveaways" }));
-    const w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
+    const w = within(await screen.findByRole("dialog", { name: "Delete “No giveaways”?" }));
     expect(w.getByText(/the ones you had already read stay read/)).toBeInTheDocument();
     await user.click(w.getByRole("radio", { name: /Restore them and mark them unread/ }));
     await user.click(w.getByRole("button", { name: "Delete filter" }));
@@ -474,14 +474,14 @@ describe("deleting a filter", () => {
     go("/settings/filters");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Delete No giveaways" }));
-    let w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
+    let w = within(await screen.findByRole("dialog", { name: "Delete “No giveaways”?" }));
     await user.click(w.getByRole("radio", { name: /Leave them muted/ }));
     await user.click(w.getByRole("button", { name: "Delete filter" }));
     await waitFor(() => expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(1));
     expect(calls.find((c) => c.method === "DELETE")?.url.search).toBe("?unmute=keep");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await user.click(await screen.findByRole("button", { name: "Delete Plain" }));
-    w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
+    w = within(await screen.findByRole("dialog", { name: "Delete “Plain”?" }));
     expect(w.queryByRole("radio")).toBeNull();
   });
 });
@@ -535,7 +535,7 @@ describe("review findings 5, 6 and 9", () => {
     go("/settings/filters");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Delete Stale" }));
-    const w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
+    const w = within(await screen.findByRole("dialog", { name: "Delete “Stale”?" }));
     await user.click(w.getByRole("button", { name: "Delete filter" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
     expect(calls.find((c) => c.method === "DELETE")?.url.search).toBe("?unmute=read");
@@ -549,7 +549,7 @@ describe("review findings 5, 6 and 9", () => {
     const trash = await screen.findByRole("button", { name: "Delete Stale" });
     n = 3; // three articles were muted since the list loaded
     await user.click(trash);
-    const w = within(await screen.findByRole("dialog", { name: "Delete this filter?" }));
+    const w = within(await screen.findByRole("dialog", { name: "Delete “Stale”?" }));
     expect(await w.findByText(/has muted 3 articles/)).toBeInTheDocument();
   });
 

@@ -271,7 +271,7 @@ export function DevicesSection() {
           description={c.body}
           footer={
             <>
-              <Button variant="ghost" onClick={() => setConfirm(null)} disabled={busy}>
+              <Button onClick={() => setConfirm(null)} disabled={busy}>
                 Cancel
               </Button>
               <Button variant={confirm.kind === "delete" || confirm.kind === "reset" ? "danger" : "solid"} onClick={() => void run()} disabled={busy}>

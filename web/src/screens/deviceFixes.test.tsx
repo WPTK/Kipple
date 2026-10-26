@@ -852,7 +852,7 @@ describe("Settings and the Aa menu", () => {
     expect(devicePrefsStore.get().linkTarget).toBe("same");
     await user.click(screen.getByRole("radio", { name: "Dot only" }));
     expect(devicePrefsStore.get().unreadBadge).toBe("dot");
-    // Text spacing is not a second density picker: its own name and one-line explanation.
+    // Text spacing is not a second spacing picker: its own name and one-line explanation.
     expect(screen.getByRole("group", { name: "Text spacing" })).toBeInTheDocument();
     expect(screen.getByText("Adds extra space between letters, words and lines")).toBeInTheDocument();
     expect(screen.queryByText("Reading spacing")).toBeNull();
@@ -875,8 +875,9 @@ describe("Settings and the Aa menu", () => {
     await user.click(within(dlg).getByRole("switch", { name: /Also use it in lists and the sidebar/ }));
     applyPrefs(prefsStore.get());
     expect(root.style.getPropertyValue("--kp-app-font")).toContain("Inter");
-    // Text spacing lives in Settings, so the Aa menu has one density control only.
-    expect(within(dlg).queryByRole("group", { name: /spacing/i })).toBeNull();
+    // Text spacing lives in Settings, so the Aa menu has one spacing control only.
+    expect(within(dlg).getByRole("group", { name: "Spacing" })).toBeInTheDocument();
+    expect(within(dlg).queryByRole("group", { name: "Text spacing" })).toBeNull();
   });
 
   it("the article column follows the Article width setting", async () => {

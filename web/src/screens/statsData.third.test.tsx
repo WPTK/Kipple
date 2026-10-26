@@ -37,7 +37,7 @@ afterEach(() => {
 });
 
 async function openAll(user: ReturnType<typeof userEvent.setup>, phrase = "DELETE ALL") {
-  await user.click(screen.getByRole("button", { name: "Delete all statistics…" }));
+  await user.click(screen.getByRole("button", { name: "Delete all stats…" }));
   await user.type(screen.getByLabelText(/Type DELETE ALL/), phrase);
 }
 async function openRange(user: ReturnType<typeof userEvent.setup>, from: string, to: string) {
@@ -54,7 +54,7 @@ describe("what a delete does afterwards (run from the section)", () => {
     const spy = vi.spyOn(client, "invalidateQueries");
     wrap(<StatsDataSection defaultRange="month" />);
     await openAll(user);
-    await user.click(screen.getByRole("button", { name: "Delete all statistics" }));
+    await user.click(screen.getByRole("button", { name: "Delete all stats" }));
     await waitFor(() => expect(toasts.toast).toHaveBeenCalledWith("Deleted 3 records"));
     expect(spy).toHaveBeenCalledWith({ queryKey: ["stats"] });
     expect(localStorage.getItem(QKEY)).toBeNull();
@@ -103,7 +103,7 @@ describe("partial failures", () => {
     const spy = vi.spyOn(client, "invalidateQueries");
     wrap(<StatsDataSection defaultRange="month" />);
     await openAll(user);
-    await user.click(screen.getByRole("button", { name: "Delete all statistics" }));
+    await user.click(screen.getByRole("button", { name: "Delete all stats" }));
     expect(await screen.findByText(/The database was busy\. Deleted 5 records before it stopped. Run it again to finish\./)).toBeInTheDocument();
     expect(spy).toHaveBeenCalledWith({ queryKey: ["stats"] });
     expect(localStorage.getItem(QKEY)).toBeNull(); // 5 were removed
@@ -137,13 +137,13 @@ describe("a delete in flight", () => {
     const m = mockFetch({ "POST /api/stats/delete": () => new Promise<Response>((r) => (release = r)) });
     wrap(<StatsDataSection defaultRange="month" />);
     await openAll(user);
-    const btn = screen.getByRole("button", { name: "Delete all statistics" });
+    const btn = screen.getByRole("button", { name: "Delete all stats" });
     await user.click(btn);
     const busy = await screen.findByRole("button", { name: "Deleting…" });
     expect(busy).toBeDisabled();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
     await user.keyboard("{Escape}");
-    expect(screen.getByRole("dialog", { name: "Delete all statistics" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Delete all stats" })).toBeInTheDocument();
     await user.click(busy);
     expect(m.calls.filter((c) => c.method === "POST")).toHaveLength(1);
     release(json({ count: 1, deleted: 1 }));
@@ -168,7 +168,7 @@ describe("typed phrase hint", () => {
   it("waits until the text is as long as the phrase, or the field is left", async () => {
     const user = userEvent.setup();
     wrap(<StatsDataSection defaultRange="month" />);
-    await user.click(screen.getByRole("button", { name: "Delete all statistics…" }));
+    await user.click(screen.getByRole("button", { name: "Delete all stats…" }));
     const input = screen.getByLabelText(/Type DELETE ALL/);
     await user.type(input, "DELE");
     expect(screen.queryByText("Type DELETE ALL exactly.")).toBeNull();
@@ -180,7 +180,7 @@ describe("typed phrase hint", () => {
     await user.clear(input);
     await user.type(input, "DELETE ALLL");
     expect(screen.getByText("Type DELETE ALL exactly.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete all statistics" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete all stats" })).toBeDisabled();
   });
 });
 
@@ -199,13 +199,13 @@ describe("in the app", () => {
       "GET /api/items": () => json({ items: [], next_cursor: null }),
     });
     go("/settings/statistics");
-    await user.click(await screen.findByRole("button", { name: "Delete all statistics…" }));
+    await user.click(await screen.findByRole("button", { name: "Delete all stats…" }));
     await user.type(screen.getByLabelText(/Type DELETE ALL/), "DELETE ALL");
     release(json({ settings: [] }));
     await waitFor(() => expect(screen.queryByText("Loading settings")).toBeNull());
-    expect(screen.getByRole("dialog", { name: "Delete all statistics" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Delete all stats" })).toBeInTheDocument();
     expect(screen.getByLabelText(/Type DELETE ALL/)).toHaveValue("DELETE ALL");
-    expect(screen.getByRole("button", { name: "Delete all statistics" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Delete all stats" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
   });
 
@@ -215,7 +215,7 @@ describe("in the app", () => {
       "GET /api/items": () => json({ items: [], next_cursor: null }),
     });
     go("/stats");
-    const status = (await screen.findByText(/Statistics are off/)).closest("[role=status]") as HTMLElement;
+    const status = (await screen.findByText(/Stats are off/)).closest("[role=status]") as HTMLElement;
     expect(status).not.toBeNull();
     expect(within(status).queryByRole("button")).toBeNull();
     expect(screen.queryByRole("button", { name: "Export…" })).toBeNull();

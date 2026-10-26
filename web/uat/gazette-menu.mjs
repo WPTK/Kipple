@@ -9,7 +9,7 @@
 // Chromium only (the long press is a real touch sequence sent through the DevTools protocol). For each width (desktop
 // 1280x800 with a mouse, phone 375x812 with touch) it checks:
 //   M1  desktop: the More button is hidden until the story is hovered, and then shown;
-//   M2  desktop: the More button opens the menu with Star, Mark as read, Mute similar, Manage this feed, Open original and // uat-labels: ignore (a menu item's text, not an aria-label)
+//   M2  desktop: the More button opens the menu with Star, Mark as read, Mute similar, Edit feed, Open original and // uat-labels: ignore (a menu item's text, not an aria-label)
 //       Copy link, and no Mark above or Mark below; Star stars the story (the server says so);
 //   M3  desktop: the context menu (right click) opens the same menu; Mark as read marks the story read; // uat-labels: ignore (a menu item's text, not an aria-label)
 //   M4  phone: the More button is not seen, but is in the accessibility tree; a long press on a story opens the menu
@@ -48,7 +48,7 @@ const server = createServer((req, res) => {
 await new Promise((resolve, reject) => server.once("error", reject).listen(0, "127.0.0.1", resolve));
 base = `http://127.0.0.1:${server.address().port}`;
 
-const MENU_WANTED = ["Star", "Mark as read", "Mute similar", "Manage this feed", "Open original", "Copy link"]; // uat-labels: ignore (a menu item's text, not an aria-label)
+const MENU_WANTED = ["Star", "Mark as read", "Mute similar", "Edit feed", "Open original", "Copy link"]; // uat-labels: ignore (a menu item's text, not an aria-label)
 
 try {
   await t.eachViewport(async (page, vp) => {

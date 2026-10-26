@@ -42,7 +42,7 @@ A self-hosted RSS reader for one person: web app plus a Google Reader compatible
 - Per-feed retention from 50 articles to unlimited. Starred articles are never deleted.
 - Installs as a phone app from your browser (needs HTTPS, see the [reverse proxy guide](docs/reverse-proxy.md)). Opened articles read offline.
 - Syncs with any app that speaks the Google Reader API.
-- Reading statistics and a yearly Wrapped summary, stored in your own database.
+- Reading stats and a yearly summary (Your year), stored in your own database.
 - Backup and restore in Settings, plus a nightly snapshot. Backups contain credentials (password hashes, the account secret and feed logins), so keep them private.
 - One account per instance.
 

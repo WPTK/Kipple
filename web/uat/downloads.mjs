@@ -98,7 +98,7 @@ async function run(browser, vp) {
     // D2
     await page.goto("/settings/statistics", { waitUntil: "load" });
     await page.getByRole("button", { name: "Export…" }).click();
-    const dlg = page.getByRole("dialog", { name: "Export statistics" });
+    const dlg = page.getByRole("dialog", { name: "Export stats" });
     const stats = await saved(page, () => dlg.getByRole("button", { name: "Download" }).click());
     const csv = stats.bytes.toString("utf8");
     check(/\.csv$/i.test(stats.name) && !csv.trimStart().startsWith("{") && csv.split(/\r?\n/)[0].includes(","), `${tag} D2`, `statistics saved as ${stats.name}`, `${stats.name} reads "${head(stats.bytes)}"`);

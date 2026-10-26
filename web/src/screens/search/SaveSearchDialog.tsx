@@ -89,7 +89,7 @@ export function SaveSearchDialog({
       description={wide ? "It appears in the sidebar with its unread count." : "It appears under Feeds with its unread count."}
       footer={
         <>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
+          <Button onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
           {existing ? (

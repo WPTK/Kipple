@@ -42,7 +42,7 @@ describe("the fetch after an import", () => {
     expect(screen.getByText("Fetching the new feeds: 2 of 3")).toBeInTheDocument();
 
     act(() => liveStore.set((s) => ({ ...s, runs: {}, finished: { "7": { kind: "import", errors: 1, seq: 9, at: Date.now() } } })));
-    expect(screen.getByText("Kipple fetched the new feeds. 1 couldn't be fetched; each says why on its row in Manage feeds.")).toBeInTheDocument();
+    expect(screen.getByText("Kipple fetched the new feeds. 1 couldn't be fetched; each says why on its row in Feeds.")).toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
 });

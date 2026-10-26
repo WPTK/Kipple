@@ -237,7 +237,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const fallback = !!scope.q && src.fallback;
   const markScope = useMemo<Scope>(() => (scope.q ? { ...scope, fallback } : scope), [scope, fallback]);
   useSearchHighlight(scope.q, { fallback, typing: scope.typing });
-  // An archived article's feed (the archive feed) is not one of these, so "Manage this feed" says it is gone.
+  // An archived article's feed (the archive feed) is not one of these, so "Edit feed" says it is gone.
   const feedById = useMemo(() => new Map(visibleFeeds(boot.data?.feeds).map((f) => [f.id, f])), [boot.data]);
   const unreadView = scope.view === "unread" && !scope.q;
 

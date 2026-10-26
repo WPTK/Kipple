@@ -34,7 +34,7 @@ export function RetentionDialog({ keep, apply, onConfirm, onClose }: { keep?: nu
       }
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button onClick={onClose}>
             Cancel
           </Button>
           {apply && none ? null : (

@@ -322,7 +322,7 @@ export function SearchScreen() {
                 className="px-2"
                 onClick={() => markAll.ask(markAllText, markAllReach(scope ?? { ...where, q }, "these results"), () => controls?.markAllRead())}
                 disabled={!controls || controls.count === 0 || typing}
-                title={typing ? "Press Enter to search first, then mark all results as read" : undefined}
+                title={typing ? "Press Enter to search first" : undefined}
               >
                 <MarkAllIcon aria-hidden="true" />
                 {markAllText}

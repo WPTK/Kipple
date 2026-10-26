@@ -452,7 +452,7 @@ describe("Mute similar… term limit", () => {
   });
 });
 
-describe("Manage this feed", () => {
+describe("Edit feed", () => {
   it("opens the feed editor for the article's feed from a row's menu", async () => {
     routes({
       "GET /api/feeds/1": () =>
@@ -479,7 +479,7 @@ describe("Manage this feed", () => {
     const user = userEvent.setup();
     const row = (await screen.findByText("Article number 1")).closest("[data-item-id]") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: /^More actions: / }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage this feed" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit feed" }));
     const dlg = await screen.findByRole("dialog", { name: "Edit feed", description: "Example Feed" });
     expect(await within(dlg).findByLabelText("Feed address")).toHaveValue("https://example.com/feed.xml");
   });
@@ -491,7 +491,7 @@ describe("Manage this feed", () => {
     const user = userEvent.setup();
     const row = (await screen.findByText("Muted article 1")).closest("[data-item-id]") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: /^More actions: / }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage this feed" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit feed" }));
     expect(await screen.findByText("This feed no longer exists.")).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Edit feed" })).toBeNull();
   });

@@ -39,7 +39,7 @@ const SETTINGS: SettingMeta[] = [
     key: "ui.list_density",
     kind: "enum",
     scope: "device",
-    label: "List spacing",
+    label: "Spacing",
     value: "standard",
     default: "standard",
     options: ["dense", "snug", "standard", "relaxed", "airy"].map((v) => ({ value: v, label: v })),

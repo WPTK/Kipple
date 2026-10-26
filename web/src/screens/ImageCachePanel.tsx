@@ -114,7 +114,7 @@ export function ImageCachePanel({ watch }: { watch: string }) {
           description="Every stored image is deleted. They load again from their sites the next time you see them, which is slower for a while. Your articles are not touched."
           footer={
             <>
-              <Button variant="ghost" onClick={() => setConfirm(false)} disabled={busy}>
+              <Button onClick={() => setConfirm(false)} disabled={busy}>
                 Cancel
               </Button>
               <Button variant="solid" onClick={() => void clear()} disabled={busy}>

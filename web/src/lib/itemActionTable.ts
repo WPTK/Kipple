@@ -43,6 +43,15 @@ export const actionIcon = (id: ActionId, s: ActionState = {}): LucideIcon => ACT
 
 export const MarkAllIcon = CheckCheck;
 
+/** Mark above / Mark below in a row menu: the rows on one side of the article, in the list's own order. */
+export const markRangeLabel = (side: "above" | "below"): string => `Mark ${side} as read`;
+
+/** The auto-read catch-up: the articles older than the limit. */
+export const markOlderLabel = (count: number): string => `Mark ${count.toLocaleString()} older article${count === 1 ? "" : "s"} as read`;
+
+/** The confirm button of that catch-up dialog: what it does, or that it has started. */
+export const markOlderConfirmLabel = (count: number, busy: boolean): string => (busy ? "Starting" : `Mark ${count.toLocaleString()} as read`);
+
 /** A search's Mark all: the reach is the results, however many there are. */
 const MARK_ALL_RESULTS = "Mark all results as read";
 

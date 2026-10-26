@@ -238,7 +238,7 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
 **Reading UI**
 - TC-R1: Each of the 6 layouts (Editorial, Cards, Compact, Inbox, Email - Compact, Gazette) renders correctly with
   real content, images load through the proxy.
-- TC-R2: Switch density (Dense/Snug/Standard/Relaxed/Airy) → list and reading text both change, live preview
+- TC-R2: Switch spacing (Dense/Snug/Standard/Relaxed/Airy) → list and reading text both change, live preview
   matches the applied result.
 - TC-R3: Letter and symbol keys do nothing (there are no single-key shortcuts). Tab, the arrow keys,
   Enter and Escape behave as `docs/maintainers/ui-decisions.md` specifies. One case that file does not settle is

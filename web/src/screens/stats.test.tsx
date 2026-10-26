@@ -273,7 +273,7 @@ describe("Stats screen", () => {
   it("has no export or delete buttons when statistics are off: Settings has them", async () => {
     setup(() => offStats, { "stats.enabled": false });
     go();
-    expect(await screen.findByText(/Statistics are off/)).toBeInTheDocument();
+    expect(await screen.findByText(/Stats are off/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Export|Delete/ })).toBeNull();
     expect(screen.getByRole("link", { name: /Turn them on in Settings/ })).toHaveAttribute("href", "/settings/statistics");
   });
@@ -288,7 +288,7 @@ describe("Stats screen", () => {
     expect(await screen.findByText(/Couldn't load your settings/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Export…" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete a date range…" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete all statistics…" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete all stats…" })).toBeInTheDocument();
   });
 
   it("links to Settings for export and delete instead of holding them", async () => {
@@ -302,7 +302,7 @@ describe("Stats screen", () => {
   it("hides the Range control when the server says stats are off", async () => {
     setup(() => offStats);
     go();
-    expect(await screen.findByText(/Statistics are off/)).toBeInTheDocument();
+    expect(await screen.findByText(/Stats are off/)).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("radio", { name: "Week" })).toBeNull());
   });
 
@@ -432,7 +432,7 @@ describe("Stats screen", () => {
   it("says statistics are off and hides the nav entry", async () => {
     const m = setup(() => offStats, { "stats.enabled": false });
     go();
-    expect(await screen.findByText(/Statistics are off/)).toBeInTheDocument();
+    expect(await screen.findByText(/Stats are off/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Settings > Stats/ })).toBeInTheDocument();
     expect(statsCalls(m)).toHaveLength(0);
     expect(within(screen.getByRole("navigation", { name: "Primary" })).queryByRole("link", { name: /Stats/ })).toBeNull();

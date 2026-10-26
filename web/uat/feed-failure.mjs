@@ -6,7 +6,7 @@
 //
 // The flow serves feeds on loopback ports, adds them, then makes them answer HTTP 500 and 410 and refreshes. For each
 // width (desktop 1280x800, phone 375x812) it checks:
-//   X1  the feed's row on Manage feeds shows its status and the reason the last fetch failed;
+//   X1  the feed's row on Feeds shows its status and the reason the last fetch failed;
 //   X2  the feed's own list says its last fetch failed, with the reason, instead of "All caught up";
 //   X3  the list's Edit address button opens Edit feed with the reason on top and the address field focused, and Try now
 //       fetches the feed at once;
