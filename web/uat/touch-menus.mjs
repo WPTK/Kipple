@@ -43,6 +43,7 @@ await t.eachViewport(async (page, vp) => {
         const r = document.querySelector(sel)?.getBoundingClientRect();
         return [r ? [r.x, r.y, r.width, r.height].map(Math.round) : null, document.getAnimations().length];
       }, selector),
+      { label: "the popover or sheet rectangle to stop changing" },
     );
   const menuBox = () =>
     page.evaluate(() => {
@@ -159,7 +160,7 @@ await t.eachViewport(async (page, vp) => {
         const before = page.url();
         await page.touchscreen.tap(size[0] / 2, 12);
         await menu().waitFor({ state: "detached", timeout: 5000 });
-        await waitForStillFor(page, 300, () => page.url()); // a stray navigation from the tap would show up here
+        await waitForStillFor(page, 300, () => page.url(), { label: "the address to stop changing after the tap" }); // a stray navigation from the tap would show up here
         check(page.url() === before, `P3 ${name}`, "a tap on the dimmed page only closes the sheet", `the address changed to ${page.url()}`);
       });
     }
@@ -200,7 +201,7 @@ await t.eachViewport(async (page, vp) => {
       const pages = page.context().pages().length;
       await page.touchscreen.tap(title.x + Math.min(40, title.width / 2), title.y + title.height / 2);
       const closed = await panel().waitFor({ state: "detached", timeout: 5000 }).then(() => true, () => false);
-      await waitForStillFor(page, 500, () => [page.url(), page.context().pages().length]); // a link that did open would show up here
+      await waitForStillFor(page, 500, () => [page.url(), page.context().pages().length], { label: "the address and tab count to stop changing" }); // a link that did open would show up here
       const went = page.url() !== url || page.context().pages().length !== pages;
       check(closed && !went, `${tag} A1 ${label} tap above`, "a tap above the sheet closes it and goes no further", `closed: ${closed}, address or tabs changed: ${went}`);
       for (const p of page.context().pages()) if (p !== page) await p.close();

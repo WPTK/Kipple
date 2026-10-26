@@ -39,7 +39,7 @@ const focusOf = (page) =>
   });
 
 /** Where focus is once it has stopped moving (a closing dialog or a leaving row hands it over a frame or two later). */
-const settledFocus = (page) => waitForStillFor(page, 200, () => focusOf(page));
+const settledFocus = (page) => waitForStillFor(page, 200, () => focusOf(page), { label: "focus to stop moving" });
 
 await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
@@ -147,13 +147,12 @@ await t.eachViewport(async (page, vp) => {
       });
       const before = await scrollerOf();
       await page.keyboard.press("Space");
-      const after = await waitForStillFor(page, 200, () => page.evaluate(() => document.querySelector("[data-uat-scroller]")?.scrollTop ?? null)); // the scroll is smooth
-
+      const after = await waitForStillFor(page, 200, () => page.evaluate(() => document.querySelector("[data-uat-scroller]")?.scrollTop ?? null), { label: "the article's scrollTop to stop changing after Space" }); // the scroll is smooth
       const at = await focusOf(page);
       check(gone && !at.startsWith("row ") && at !== "list", `${tag} F2 focus`, `focus stays out of the list (${at} after)`, `marked=${gone}; focus is ${at}`);
       check(before === null || before.room < 40 || (after !== null && after > before.top), `${tag} F2 space`, "Space scrolls the article", `scrollTop ${before?.top} -> ${after} (room ${before?.room})`);
       await t.shot(page, `${tag}-F2`);
-      await waitForSavedWith(page, (r) => r.request().method() !== "GET" && /\/api\//.test(r.url()), () => page.getByRole("button", { name: "Undo" }).first().click());
+      await waitForSavedWith(page, (r) => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/items/mark-read" && (r.request().postData() ?? "").includes('"read":false'), () => page.getByRole("button", { name: "Undo" }).first().click());
       const back = (await unreadOf(page, feed)).length;
       check(back > 0, `${tag} F2 undo`, `Undo marks them unread again (${back})`, `nothing unread in the feed after Undo (page: ${await textOf(page.locator("[role=status]"))})`);
     });

@@ -152,6 +152,7 @@ const bodyStill = (page) =>
       const r = b?.getBoundingClientRect();
       return [r ? [r.x, r.y, r.width, r.height].map(Math.round) : null, b?.scrollHeight, b?.innerHTML.length, document.getAnimations().length];
     }),
+    { label: "the article body to stop changing" },
   );
 
 try {
@@ -307,7 +308,7 @@ try {
         await page.setViewportSize({ width: 2200, height: 900 });
         await open(page, feedId, ESSAY);
         await page.evaluate(() => document.documentElement.style.setProperty("--kp-reading-font", '"JetBrains Mono Variable", ui-monospace, monospace'));
-        await page.evaluate(() => document.fonts.ready); // the face has loaded
+        await page.evaluate(async () => { await document.fonts.load('1em "JetBrains Mono Variable"'); await document.fonts.ready; }); // the face the page was just given has loaded
         await bodyStill(page);
         await t.shot(page, `${tag}-wide-mono-column`);
         const col = await page.evaluate(() => {

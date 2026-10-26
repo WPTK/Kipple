@@ -37,7 +37,7 @@ const topOf = (page) => scroller(page).evaluate(topIn);
 /** Waits until `id` is the top article (the restore pages in and scrolls); returns the last top seen. */
 const waitForTop = async (page, id, ms = 8000) => {
   await page
-    .waitForFunction(`(${topIn})(document.querySelector('[data-testid="list-scroll"]'))?.id === ${JSON.stringify(id)}`, undefined, { timeout: ms })
+    .waitForFunction(`(() => { const el = document.querySelector('[data-testid="list-scroll"]'); return !!el && (${topIn})(el).id === ${JSON.stringify(id)}; })()`, undefined, { timeout: ms })
     .catch(() => {}); // the caller's check says what the top was instead
   return topOf(page);
 };
@@ -45,13 +45,13 @@ const LIST_PLACE_KEY = "kipple.listPlace.v1";
 /** The list has stopped moving: its scroll position, height and rows are unchanged for 200 ms. */
 const ready = async (page) => {
   await scroller(page).locator("[data-item-id]").first().waitFor({ timeout: 15000 });
-  await waitForStillFor(page, 200, () => scroller(page).evaluate((el) => [Math.round(el.scrollTop), el.scrollHeight, el.querySelectorAll("[data-item-id]").length]));
+  await waitForStillFor(page, 200, () => scroller(page).evaluate((el) => [Math.round(el.scrollTop), el.scrollHeight, el.querySelectorAll("[data-item-id]").length]), { label: "the list's scroll position and rows to stop changing" });
 };
 /**
  * The place the list has remembered on the device. It is written at most 400 ms after the last scroll event (ListPane),
  * so a value that has held still for 500 ms with the list itself still is the place the scroll left.
  */
-const placeSaved = (page) => waitForStillFor(page, 500, async () => [await page.evaluate((k) => localStorage.getItem(k), LIST_PLACE_KEY), await topOf(page)]);
+const placeSaved = (page) => waitForStillFor(page, 500, async () => [await page.evaluate((k) => localStorage.getItem(k), LIST_PLACE_KEY), await topOf(page)], { label: "the saved place and the top row to stop changing" });
 /**
  * Scrolls the list by `px` as a reader would, and lets the place be recorded: a wheel event first (the app remembers
  * only what the reader moved), then the scroll, in steps. A real wheel is not available in every engine (mobile WebKit).
@@ -74,7 +74,7 @@ await t.eachViewport(async (page, vp) => {
     page.evaluate((x) => fetch("/api/device", { method: "PATCH", headers: { "Content-Type": "application/json", "X-Kipple-Client": "web" }, body: JSON.stringify(x) }).then((r) => r.status), b);
 
   /** Marking on scroll waits 700 ms after the scroll settles, then sends: the unread count holds still for a second once it is done. */
-  const marksLanded = () => waitForStillFor(page, 1000, async () => (await t.boot(page)).counts.unread);
+  const marksLanded = (ms = 1000) => waitForStillFor(page, ms, async () => (await t.boot(page)).counts.unread, { label: "the unread count to stop changing" });
 
   let place = null;
   await step(`${tag} P1`, async () => {
@@ -124,7 +124,7 @@ await t.eachViewport(async (page, vp) => {
     await readerScroll(page, -(at + 800));
     await page.reload({ waitUntil: "load" });
     await ready(page);
-    const now = await waitForStillFor(page, 800, () => topOf(page)); // nothing may move a list left at its top
+    const now = await waitForStillFor(page, 1500, () => topOf(page), { label: "the top row of a list left at its top to stop changing" }); // nothing may move a list left at its top (a negative, so time-bound)
     check(now.scrollTop === 0, `${tag} P3`, "a list left at its top starts at the top", `the list starts scrolled ${now.scrollTop} px`);
   });
 
@@ -141,7 +141,7 @@ await t.eachViewport(async (page, vp) => {
       await page.reload({ waitUntil: "load" });
       await ready(page);
       const back = await waitForTop(page, here.id);
-      await marksLanded(); // a restore that marked anything would show as a change here
+      await marksLanded(2000); // a restore that marked anything would show as a change here (a negative, so time-bound)
       const after = (await t.boot(page)).counts.unread;
       check(back.id === here.id, `${tag} P4 place`, "Unread comes back to its place", `top was ${here.id}, now ${back.id}`);
       check(after === before, `${tag} P4 marks`, "the restore marks nothing read", `unread went from ${before} to ${after}`);

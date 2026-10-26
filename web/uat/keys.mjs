@@ -33,9 +33,9 @@ const JSON_ACCEPT = { Accept: "application/json" };
 
 const unreadIds = async (page) =>
   ((await (await page.request.get("/api/items", { params: { view: "unread", limit: 500 }, headers: JSON_ACCEPT })).json()).items ?? []).map((i) => i.id);
-/** What has focus: "body", "row <id>", the button's or heading's name, or a short description of anything else. */
 /** Where focus is once it has stopped moving (a route change or a closing sheet hands it over a frame or two later). */
-const settledFocus = (page) => waitForStillFor(page, 200, () => focusOf(page));
+const settledFocus = (page) => waitForStillFor(page, 200, () => focusOf(page), { label: "focus to stop moving" });
+/** What has focus: "body", "row <id>", the button's or heading's name, or a short description of anything else. */
 const focusOf = (page) =>
   page.evaluate(() => {
     const a = document.activeElement;
@@ -140,7 +140,7 @@ await t.eachViewport(async (page, vp) => {
       await toolbarButton(page, "Previous article").focus();
       await page.keyboard.press("Enter");
       const prev = toolbarButton(page, "Previous article");
-      const [off, at] = await waitForStillFor(page, 300, async () => [await prev.getAttribute("aria-disabled"), await focusOf(page)]);
+      const [off, at] = await waitForStillFor(page, 300, async () => [await prev.getAttribute("aria-disabled"), await focusOf(page)], { label: "Previous article's aria-disabled and focus to stop changing" });
       const ok = vp.mobile ? off === "true" && (at === "h1" || at === 'button "Previous article"') : off === "true" && at === 'button "Previous article"';
       check(ok, `${tag} R3`, `on the first article Previous is aria-disabled and focus is on ${at}`, `aria-disabled=${off}; focus is on ${at}`);
     });
@@ -152,7 +152,7 @@ await t.eachViewport(async (page, vp) => {
         const [open, stops] = await waitForStillFor(page, 300, async () => [
           page.url().match(/\/i\/(\d+)/)?.[1],
           await page.evaluate(() => [...document.querySelectorAll('[data-testid=list-scroll] [data-item-id] a:not([tabindex="-1"])')].map((a) => a.closest("[data-item-id]").getAttribute("data-item-id"))),
-        ]);
+        ], { label: "the URL and the list's Tab stops to stop changing" });
         check(stops.length === 1 && stops[0] === open, `${tag} R4`, `the list's Tab stop is the open article (${open})`, `Tab stops ${stops.join(",")}, open article ${open}`);
       });
       await step(`${tag} H1`, async () => {
@@ -190,7 +190,7 @@ await t.eachViewport(async (page, vp) => {
       for (let i = 0; i < 10; i++) {
         await page.keyboard.press("End");
         // A next page may load, so focus and the number of rows both have to hold still.
-        const [at] = await waitForStillFor(page, 300, async () => [await focusOf(page), await page.locator("[data-testid=list-scroll] [data-item-id]").count()]);
+        const [at] = await waitForStillFor(page, 300, async () => [await focusOf(page), await page.locator("[data-testid=list-scroll] [data-item-id]").count()], { label: "focus and the row count to stop changing after End" });
         if (at === end) break;
         end = at;
       }
@@ -231,6 +231,7 @@ await t.eachViewport(async (page, vp) => {
             const host = getComputedStyle(a.closest("[data-item-id]"));
             return { outline: s.outlineStyle, radius: s.borderTopLeftRadius, host: host.borderTopLeftRadius };
           }),
+          { label: "the focus ring to stop changing" },
         );
         check(!!ring && ring.outline === "solid" && ring.radius !== "0px" && ring.radius === ring.host, `${tag} C1`, `the card's ring is rounded like the card (${ring?.radius})`, `ring ${JSON.stringify(ring)}`);
         await t.shot(page, `${tag}-C1`);

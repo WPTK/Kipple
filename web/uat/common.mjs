@@ -90,15 +90,17 @@ export async function waitForSavedWith(page, match, action, ms = 10000) {
 
 /**
  * Waits until `read()` (sync or async) has returned the same value for `ms` in a row, polling every 50 ms, and returns
- * it; throws with the last values seen if it keeps changing for `timeout`. For "the totals have settled".
+ * it; throws with the last values seen if it keeps changing for `timeout`. For "the totals have settled". The fourth
+ * argument is a timeout in ms or `{ timeout, label }`; `label` says in the error what was being waited on.
  */
-export async function waitForStillFor(page, ms, read, timeout = 20000) {
+export async function waitForStillFor(page, ms, read, opts = {}) {
+  const { timeout = 20000, label } = typeof opts === "number" ? { timeout: opts } : opts;
   const start = Date.now();
   let last = await read();
   let since = Date.now();
   const history = [describe(last)];
   while (Date.now() - since < ms) {
-    if (Date.now() - start > timeout) throw new Error(`waited ${timeout} ms for a value to hold still for ${ms} ms, last values: ${history.slice(-5).join(" -> ")}`);
+    if (Date.now() - start > timeout) throw new Error(`waited ${timeout} ms for ${label ?? "a value"} to hold still for ${ms} ms, last values: ${history.slice(-5).join(" -> ")}`);
     await poll(50);
     const now = await read();
     if (describe(now) !== describe(last)) {

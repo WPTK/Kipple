@@ -118,6 +118,10 @@ describe("waitForStillFor", () => {
     let n = 0;
     await expect(waitForStillFor(null, 500, () => n++, 300)).rejects.toThrow(/hold still for 500 ms, last values: \d+ -> \d+/);
   });
+  it("names what it was waiting on when given a label", async () => {
+    let n = 0;
+    await expect(waitForStillFor(null, 500, () => n++, { timeout: 300, label: "the count" })).rejects.toThrow(/for the count to hold still/);
+  });
 });
 
 describe("animationsTimeout", () => {
