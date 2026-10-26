@@ -124,7 +124,10 @@ function Get-FuzzParallel {
 function Get-FuzzArgument {
   [CmdletBinding()]
   param([Parameter(Mandatory)][object]$Target, [Parameter(Mandatory)][string]$FuzzTime, [int]$ParallelCount = 0)
-  $a = @('test', '-run', '^$', '-fuzz', "^$($Target.Name)$", '-fuzztime', $FuzzTime, '-fuzzminimizetime', '10s')
+  if ($FuzzTime -notmatch '^(\d+)([sm])$') { throw "-FuzzTime ${FuzzTime}: expected seconds or minutes, such as 60s or 5m" }
+  # go's default test timeout is 10 minutes, which would kill a longer budget; allow the budget plus 5 minutes for building and minimizing.
+  $timeout = [int]$Matches[1] * ($Matches[2] -eq 'm' ? 60 : 1) + 300
+  $a = @('test', '-run', '^$', '-fuzz', "^$($Target.Name)$", '-fuzztime', $FuzzTime, '-fuzzminimizetime', '10s', '-timeout', "${timeout}s")
   if ($ParallelCount -gt 0) { $a += @('-parallel', "$ParallelCount") }
   $a + $Target.Package
 }

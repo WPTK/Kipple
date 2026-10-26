@@ -130,8 +130,8 @@ Describe 'long mode helpers' {
   }
   It 'builds the go test arguments for a target' {
     $t = [pscustomobject]@{ Package = 'example/pkg'; Name = 'FuzzX' }
-    (Get-FuzzArgument -Target $t -FuzzTime '5m' -ParallelCount 4) -join ' ' | Should -Be 'test -run ^$ -fuzz ^FuzzX$ -fuzztime 5m -fuzzminimizetime 10s -parallel 4 example/pkg'
-    (Get-FuzzArgument -Target $t -FuzzTime '60s') -join ' ' | Should -Be 'test -run ^$ -fuzz ^FuzzX$ -fuzztime 60s -fuzzminimizetime 10s example/pkg'
+    (Get-FuzzArgument -Target $t -FuzzTime '5m' -ParallelCount 4) -join ' ' | Should -Be 'test -run ^$ -fuzz ^FuzzX$ -fuzztime 5m -fuzzminimizetime 10s -timeout 600s -parallel 4 example/pkg'
+    (Get-FuzzArgument -Target $t -FuzzTime '60s') -join ' ' | Should -Be 'test -run ^$ -fuzz ^FuzzX$ -fuzztime 60s -fuzzminimizetime 10s -timeout 360s example/pkg'
   }
   It 'prints one line per verdict with the short package path' {
     $t = [pscustomobject]@{ Package = 'github.com/WPTK/kipple/internal/opml'; Name = 'FuzzParse' }
