@@ -27,6 +27,7 @@ export const isSessionCookie = (name) => SESSION_COOKIES.includes(name);
  * The one bounded pause between two polls of something that is not the page (the server API read from Node, a value
  * read in a loop), so it is a delay and not `page.waitForTimeout`. A wait on the page uses a locator, waitForFunction or
  * one of the waitFor* helpers below; this is only the gap between reads, never a guess at how long the app takes.
+ * For Node-side reads only (the server API, a value in a loop), never a wait on the page.
  */
 export const poll = (ms) => new Promise((r) => setTimeout(r, ms));
 const describe = (v) => (typeof v === "string" ? JSON.stringify(v) : (JSON.stringify(v) ?? String(v)));

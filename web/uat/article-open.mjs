@@ -48,12 +48,13 @@ await t.eachViewport(async (page, vp) => {
     const added = await t.addLocalFeed(page, `${base}/feed.xml`, "UAT feed article open", (items) => items.length >= COUNT);
     if (added.error) return t.fail(`${tag} A setup`, added.error);
 
+    const heldBefore = held.size; // `held` spans both viewports: only requests made by this page's list count
     await page.goto(`/l/all?feed=${added.feedId}`, { waitUntil: "load" });
     const rows = page.getByText(/^UAT held article \d+$/);
     await rows.first().waitFor({ timeout: 15000 });
     check((await rows.count()) > 0, `${tag} A1 list`, "the list shows its rows while the pictures are held", "no rows");
     // Let the list's pictures be asked for and held: some are held, then no more arrive for a moment.
-    await expect.poll(() => held.size, { timeout: 10000, intervals: [100] }).toBeGreaterThan(0);
+    await expect.poll(() => held.size, { timeout: 10000, intervals: [100] }).toBeGreaterThan(heldBefore);
     await waitForStillFor(page, 400, () => held.size, { label: "the held picture requests to stop growing" });
 
     const body = page.getByTestId("article-body");

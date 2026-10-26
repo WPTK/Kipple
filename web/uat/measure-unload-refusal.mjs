@@ -37,7 +37,7 @@ for (let i = 0; i < runs; i++) {
   await page.keyboard.press("Enter");
   await page.waitForURL((u) => !/login|setup/.test(u.pathname), { timeout: 15000 }).catch(() => {});
   await page.goto(base + "/l/all").catch(() => {});
-  await waitForFrames(page); // a round trip to the page: every error it raised on the way has been delivered
+  await waitForFrames(page).catch(() => {}); // a round trip to the page, so errors already raised have normally been delivered; a page that is gone or broken only ends the wait early
   if (refused.length) refusedRuns++;
   if (refused.some((u) => failed.has(u))) withRequestFailed++;
   await ctx.close();

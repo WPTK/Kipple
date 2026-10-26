@@ -61,11 +61,12 @@ await t.eachViewport(async (page, vp) => {
     check((await left(page, b)) === COUNT, `${tag} D2 setup`, `${COUNT} feeds imported`, "the import did not add every feed");
     await select("UAT bulk two");
     await page.getByRole("button", { name: "Delete", exact: true }).click();
-    // The page is left as soon as the request is on its way, the way a closed tab would.
-    const sent = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname === "/api/feeds/delete", { timeout: 10000 });
+    // The page is left once the server has marked the feeds (the response headers; the purge runs on after it), the way a
+    // closed tab would: a request merely sent might never have reached the server, and nothing would be cut off.
+    const sent = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/feeds/delete", { timeout: 10000 });
     await page.getByRole("dialog").getByRole("button", { name: `Delete ${COUNT} feeds` }).click();
     await sent;
-    await page.goto("about:blank"); // the tab is closed: its request is cut off
+    await page.goto("about:blank"); // the tab is closed: the purge is cut off from the page and must finish on the server
     // The lists hide a feed from the moment it is marked, so the proof that the server finished is the health list,
     // which still shows a feed whose purge has not completed.
     let remaining = COUNT;

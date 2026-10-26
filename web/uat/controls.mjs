@@ -22,7 +22,7 @@
 // It changes nothing on the server: every dialog is closed with Escape. It only runs against a loopback address with the
 // seed's credentials unless --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
-import { start, waitForSavedWith } from "./common.mjs";
+import { start, waitForSavedWith, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 22);
 const { check, step } = t;
@@ -246,6 +246,8 @@ await t.eachViewport(async (page, vp) => {
       // The device profile is saved 500 ms after the last change: wait for that save, not for a guess at it.
       await waitForSavedWith(page, savedDevice, () => group.locator(`input[value="${other}"]`).check());
       check(await group.locator(`input[value="${other}"]`).isChecked(), `${tag} K8 pick`, "a card picks its layout", "a card did not pick its layout");
+      // Anything else the pick sent would follow the save; hold the window open for 1 s after it before judging.
+      await waitForStillFor(page, 1000, () => writes.length, { label: "the writes after picking a layout to stop" });
       check(writes.every((w) => w === "PATCH /api/device"), `${tag} K8 device`, "picking writes only the device profile", `picking sent ${writes.join(", ")}`);
       await t.shot(page, `${tag}-K8-layout`);
     } finally {
