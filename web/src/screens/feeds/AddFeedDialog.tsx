@@ -81,7 +81,9 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
   // Offered as soon as the address looks like one on the reader's own network, or once the server refused one; sent only when turned on.
   const [refusedPrivate, setRefusedPrivate] = useState(false);
   const [privateNet, setPrivateNet] = useState(false);
-  // Options opens on request, and stays open while the title is too long, so the reason Add is off is never behind a closed section.
+  // Options opens on request. A title can only be typed inside it, so while the title is too long it is open, and a click to
+  // close it is ignored: the reason Add is off is never behind a closed section, and shortening the title later does not fold
+  // the section away under the focused field.
   const [optionsOpen, setOptionsOpen] = useState(false);
   const privateOffered = refusedPrivate || looksPrivate(url);
   // The server counts characters (code points), so an emoji is one, not the two UTF-16 units maxLength would count.
@@ -230,7 +232,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
               onChange={setPrivateNet}
             />
           ) : null}
-          <Disclosure label="Options" open={optionsOpen || titleTooLong} onOpenChange={setOptionsOpen} tone={titleTooLong ? "warn" : undefined}>
+          <Disclosure label="Options" open={optionsOpen} onOpenChange={(o) => setOptionsOpen(o || titleTooLong)} tone={titleTooLong ? "warn" : undefined}>
             <Field label="Title (optional)" error={titleTooLong ? `A title can be at most ${MAX_TITLE_CHARS} characters; this one has ${titleChars}.` : null} help={title.trim() ? "Kipple uses this title instead of the feed's own. You can change it later." : "Left empty, the title is filled in from the feed. You can change it later."}>
               {(a) => <input {...a} type="text" placeholder="Filled in from the feed" value={title} readOnly={busy} onChange={(e) => setTitle(e.target.value)} className={inputCls} />}
             </Field>

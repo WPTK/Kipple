@@ -818,33 +818,30 @@ export function FeedsScreen() {
               <Button variant="ghost" onClick={exitSelect}>
                 Done
               </Button>
-            ) : editMode ? (
-              <>
-                <span role="status" aria-live="polite" className="inline-flex min-w-16 items-center justify-end gap-1 text-xs text-fg2" data-testid="saved-note">
-                  {saved === "saved" ? (
-                    <>
-                      <Check className="size-4" aria-hidden="true" />
-                      Saved
-                    </>
-                  ) : saved === "saving" ? (
-                    "Saving"
-                  ) : null}
-                </span>
-                {/* Keyed so React does not reuse the solid Add feed button for Done, which would fade from blue. */}
-                <Button key="done-editing" variant="ghost" onClick={() => setEditMode(false)} aria-label="Done editing">
-                  Done
-                </Button>
-                {actionsMenu}
-              </>
             ) : (
               <>
-                <Button key="edit" variant="ghost" onClick={() => setEditMode(true)}>
-                  Edit
+                {editMode ? (
+                  <span role="status" aria-live="polite" className="inline-flex min-w-16 items-center justify-end gap-1 text-xs text-fg2" data-testid="saved-note">
+                    {saved === "saved" ? (
+                      <>
+                        <Check className="size-4" aria-hidden="true" />
+                        Saved
+                      </>
+                    ) : saved === "saving" ? (
+                      "Saving"
+                    ) : null}
+                  </span>
+                ) : null}
+                {/* One button in one place for Edit and Done, so keyboard focus stays on it as the mode changes. */}
+                <Button variant="ghost" onClick={() => setEditMode((m) => !m)} aria-label={editMode ? "Done editing" : "Edit"}>
+                  {editMode ? "Done" : "Edit"}
                 </Button>
-                <Button key="add" variant="solid" onClick={() => setAdding(true)}>
-                  <Plus aria-hidden="true" />
-                  Add feed
-                </Button>
+                {editMode ? null : (
+                  <Button variant="solid" onClick={() => setAdding(true)}>
+                    <Plus aria-hidden="true" />
+                    Add feed
+                  </Button>
+                )}
                 {actionsMenu}
               </>
             )}

@@ -85,8 +85,8 @@ bump): `0.9.0-beta.1` (the bug fixes plus those features), then `1.0.0-rc.N`, th
    script; the walk finds what nobody did. On the seeded instance, at the mobile preset (375 px wide, touch) and on desktop
    (1280 px), open each screen and use what is on it, not only what changed: Unread, Starred, a feed's list and a folder's
    list, an article (reader, original, share, star), Search and a saved search, Feeds (select, move, delete, new, rename and
-   delete folder, Edit, Add feed, Import OPML with a file that is not OPML), Health, Stats and Wrapped, every Settings
-   section, and the sign-in and setup screens. Then every download, saving the file and opening it: Export OPML, the
+   delete folder, Edit, Add feed, Import feeds from a file (OPML) with a file that is not OPML), Health, Stats and Wrapped, every Settings
+   section, and the sign-in and setup screens. Then every download, saving the file and opening it: Export feeds to a file (OPML), the
    statistics export (CSV), the backup (zip) and any export a new screen added. A saved file that is an error message, a
    control that opens something when it should select it, and a list left behind after a delete are found only this way.
    Then the phone-size shakedown (`uat-plan.md`, Suite 6) at the six iPhone sizes in both orientations. Run the browser

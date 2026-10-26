@@ -1,1 +1,1 @@
-Feed health: a failing feed's card says when Kipple tries again once, not twice. (#759)
+Feed health: a failing feed's card no longer repeats the last-success and next-fetch times. (#759)

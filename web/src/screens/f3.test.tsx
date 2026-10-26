@@ -394,6 +394,13 @@ describe("Add feed", () => {
     await user.paste("x");
     expect(title).toHaveAccessibleDescription(/at most 200 characters; this one has 201/);
     expect(within(dlg).getByRole("button", { name: "Add feed" })).toBeDisabled();
+    // Options cannot be closed on the reason, so shortening the title later does not fold it away under the focused field.
+    await user.click(within(dlg).getByRole("button", { name: "Options" }));
+    expect(within(dlg).getByRole("button", { name: "Options" })).toHaveAttribute("aria-expanded", "true");
+    await user.click(title);
+    await user.keyboard("{Backspace}");
+    expect(within(dlg).getByLabelText("Title (optional)")).toHaveValue("📰".repeat(200));
+    expect(within(dlg).getByRole("button", { name: "Options" })).toHaveAttribute("aria-expanded", "true");
     await user.clear(title);
     await user.clear(within(dlg).getByLabelText("Feed or website address"));
     await user.type(within(dlg).getByLabelText("Feed or website address"), "https://news.example/feed.xml");
@@ -883,12 +890,56 @@ describe("Folders and OPML", () => {
     expect(calls.some((c) => c.url.pathname === "/api/opml")).toBe(true);
   });
 
-  it("links OPML export as a plain download", async () => {
+  it("links OPML export as a plain download, and says what the file is called", async () => {
+    const toast = vi.spyOn(toasts, "toast");
     base();
     go("/feeds");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Feed actions" }));
-    expect(await screen.findByRole("menuitem", { name: "Export feeds to a file (OPML)" })).toHaveAttribute("href", "/api/opml");
+    const item = await screen.findByRole("menuitem", { name: "Export feeds to a file (OPML)" });
+    expect(item).toHaveAttribute("href", "/api/opml");
+    await user.click(item);
+    // The browser saves the file without a word, so the note is the only sign that something happened.
+    expect(toast).toHaveBeenCalledWith("Downloading your feeds as kipple.opml");
+    toast.mockRestore();
+  });
+
+  it("Edit and Done are one button, so the keyboard focus stays on it as the mode changes", async () => {
+    base();
+    go("/feeds");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("button", { name: "Done editing" })).toHaveFocus();
+    // Add feed is out of the header until Done.
+    expect(screen.queryByRole("button", { name: "Add feed" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Done editing" }));
+    expect(screen.getByRole("button", { name: "Edit" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Add feed" })).toBeInTheDocument();
+  });
+
+  it("the edit help names the gesture of the main pointer: hold and drag on touch, drag with a mouse", async () => {
+    const pointer = (fine: boolean) =>
+      vi.stubGlobal("matchMedia", (query: string) => ({ matches: fine && query.includes("pointer: fine"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
+    pointer(false);
+    base();
+    const touch = go("/feeds");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    expect(await screen.findByText(/^Hold and drag a feed or folder to reorder it, or use the move buttons\. Changes are saved as you drop\./)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show move buttons" })).toBeInTheDocument();
+    touch.unmount();
+    pointer(true);
+    go("/feeds");
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    expect(await screen.findByText(/^Drag a feed or folder to reorder it\. Changes are saved as you drop\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Hold and drag/)).toBeNull();
+  });
+
+  it("a folder with nothing in it says Empty where a folder with feeds shows its unread count", async () => {
+    mockFetch({ "GET /api/bootstrap": () => json({ ...bootstrap, folders: [...bootstrap.folders, { id: "2", name: "Tech", position: 1, is_default: false, unread: 0 }] }) });
+    go("/feeds");
+    expect(await screen.findByRole("link", { name: /Tech/ })).toHaveTextContent("Empty");
+    expect(screen.getByRole("link", { name: /News/ })).not.toHaveTextContent("Empty");
   });
 });
 
@@ -1192,6 +1243,72 @@ describe("Feed health", () => {
     toast.mockRestore();
   });
 
+  it("a paused feed that is ticked is skipped, and the note says so", async () => {
+    const toast = vi.spyOn(toasts, "toast");
+    const { calls } = base({
+      "GET /api/health/feeds": () => json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => (f.id === "3" ? { ...f, enabled: false } : f)) }),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "POST /api/feeds/1/refresh": () => json({ outcome: "ok", new_items: 0 }),
+      "POST /api/feeds/2/refresh": () => json({ outcome: "ok", new_items: 0 }),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Retry now" }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Retried 2 feeds. 1 paused feed skipped."));
+    expect(calls.filter((c) => c.method === "POST").map((c) => c.url.pathname).sort()).toEqual(["/api/feeds/1/refresh", "/api/feeds/2/refresh"]);
+    toast.mockRestore();
+  });
+
+  it("a refresh that errors counts as still failing and the others are still retried", async () => {
+    const toast = vi.spyOn(toasts, "toast");
+    const { calls } = base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "POST /api/feeds/1/refresh": () => json({ error: "server_error", message: "boom" }, 500),
+      "POST /api/feeds/2/refresh": () => json({ outcome: "ok", new_items: 0 }),
+      "POST /api/feeds/3/refresh": () => json({ outcome: "ok", new_items: 0 }),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Retry now" }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Retried 3 feeds. 1 still can't be fetched."));
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(3);
+    toast.mockRestore();
+  });
+
+  it("a refresh the server answers with pending is still fetching, not a success, and the button is busy meanwhile", async () => {
+    const toast = vi.spyOn(toasts, "toast");
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "POST /api/feeds/1/refresh": async () => {
+        await held;
+        return json({ pending: true }, 202);
+      },
+      "POST /api/feeds/2/refresh": () => json({ outcome: "ok", new_items: 0 }),
+      "POST /api/feeds/3/refresh": () => json({ outcome: "ok", new_items: 0 }),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Retry now" }));
+    expect(await screen.findByRole("button", { name: "Retrying" })).toHaveAttribute("aria-busy", "true");
+    release();
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Retried 3 feeds. 1 still fetching."));
+    expect(screen.getByRole("button", { name: "Retry now" })).toHaveAttribute("aria-busy", "false");
+    toast.mockRestore();
+  });
+
   it("with no feeds, Feed health offers to add one instead of an empty table", async () => {
     base({
       "GET /api/health/feeds": () => json({ ...HEALTH, feeds: [] }),
@@ -1202,6 +1319,9 @@ describe("Feed health", () => {
     await screen.findByRole("heading", { name: "Feed health" });
     expect(await screen.findByRole("heading", { name: "Add a feed first" })).toBeInTheDocument();
     expect(screen.queryByRole("searchbox", { name: "Search feeds" })).toBeNull();
+    // Nothing to tick, so no Select (and no "0 selected" bar over "Add a feed first").
+    expect(screen.queryByRole("button", { name: "Select" })).toBeNull();
+    expect(screen.queryByText("0 selected")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Add a feed" }));
     expect(await screen.findByRole("dialog", { name: "Add feed" })).toBeInTheDocument();
   });

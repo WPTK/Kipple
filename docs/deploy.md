@@ -199,7 +199,7 @@ The database only grows so much: an export is refused above 4 GiB. Past that, co
 
 ## OPML import and export
 
-Feeds screen > Export OPML downloads the subscription list (`GET /api/opml`), the same file as `feeds.opml` in a backup
+Feeds screen > Export feeds to a file (OPML) downloads the subscription list (`GET /api/opml`), the same file as `feeds.opml` in a backup
 zip. It carries the folder tree (subfolders as nested outlines), feed URLs and titles, and the per-feed options Kipple
 adds (interval, retention, full text, and the like, as `kipple:` attributes that other readers ignore). It does **not**
 carry read or starred state, filters, settings, the statistics history, the account or feed logins. If OPML is all you

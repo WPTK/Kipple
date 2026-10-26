@@ -168,7 +168,7 @@ press and hold, or touch the grip at once; `lib/dnd.ts`); the grip also moves wi
 buttons" in the menu adds Move up and Move down buttons. A drop is one `POST /api/reorder` (a feed dropped in another
 folder moves there), painted at once and confirmed with "Saved". The star on a folder or feed pins it to Favorites at the
 top of the sidebar and Manage feeds (drag those to order them). Favorites live in the server setting
-`library.favorites` (at most 500 `{t, id}` items); a save the server refuses is taken back and shown as an error. "Select" adds checkboxes (shift-click ranges, a checkbox per folder) and a bar with Move to folder (one
+`library.favorites` (at most 500 `{t, id}` items); a save the server refuses is taken back and shown as an error. "Select" adds checkboxes (shift-click ranges, a checkbox per folder) and a bar with Move (one
 reorder call) and Delete (a confirm with the count, the total starred articles, "delete starred too", progress, and a
 per-feed error list). The sidebar's folders collapse (remembered per device). Feed health is reached from the Feeds
 menu.

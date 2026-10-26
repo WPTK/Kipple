@@ -11,7 +11,8 @@
 // `aria-label=` / `ariaLabel=` value is taken ("Select ${title}" gives the fragment "Select "). A removed fragment that
 // no longer appears in any aria-label in web/src now is "gone"; if a gone fragment (3 or more characters once trimmed)
 // still appears in a web/uat/*.mjs file, the run fails and names the file and line. Put `uat-labels: ignore` in a
-// comment on a UAT line to exempt it (for a word that only happens to match). A label a shared component receives as a prop is seen when the prop is spelled `ariaLabel` (`<BottomBar ariaLabel="Selected feeds">`); that spelling is the marker, any other prop name is not read. Limits: only values written on the same
+// comment on a UAT line to exempt it (for a word that only happens to match). A removed label is not "gone" when the
+// same words are added as plain text in the diff: a control whose label became its visible text keeps its name. A label a shared component receives as a prop is seen when the prop is spelled `ariaLabel` (`<BottomBar ariaLabel="Selected feeds">`); that spelling is the marker, any other prop name is not read. Limits: only values written on the same
 // line as the attribute are seen; labels built elsewhere (a helper that returns the string) are not.
 //
 // Exit codes: 0 clean, 1 a gone label is still used by the UAT scripts, 2 usage or git error.
@@ -98,6 +99,22 @@ export function parseDiff(diffText) {
   return files;
 }
 
+/**
+ * The plain text lines a diff adds (a button's visible label, say), trimmed. A control that loses its aria-label and shows
+ * the same words as text has the same accessible name, so the UAT scripts that look it up by that name still work.
+ * @param {string} diffText
+ * @returns {Set<string>}
+ */
+export function addedText(diffText) {
+  const out = new Set();
+  for (const line of diffText.replace(/\r\n/g, '\n').split('\n')) {
+    if (!line.startsWith('+') || line.startsWith('+++')) continue;
+    const text = line.slice(1).trim();
+    if (text && !/[<>{}=;()`]/.test(text)) out.add(text);
+  }
+  return out;
+}
+
 /** True when a fragment is long enough to be a meaningful search string. */
 export const isSearchable = (fragment) => fragment.trim().length >= MIN_LENGTH;
 
@@ -105,14 +122,15 @@ export const isSearchable = (fragment) => fragment.trim().length >= MIN_LENGTH;
  * Removed fragments that no aria-label in the current source has any more.
  * @param {{file: string, removed: string[]}[]} diffFiles
  * @param {Set<string>} currentFragments every fragment in web/src now
+ * @param {Set<string>} [shownText] plain text the diff adds (see addedText): a label it repeats is still the name
  * @returns {{fragment: string, file: string}[]}
  */
-export function goneFragments(diffFiles, currentFragments) {
+export function goneFragments(diffFiles, currentFragments, shownText = new Set()) {
   const gone = [];
   const seen = new Set();
   for (const f of diffFiles) {
     for (const fragment of f.removed) {
-      if (!isSearchable(fragment) || currentFragments.has(fragment)) continue;
+      if (!isSearchable(fragment) || currentFragments.has(fragment) || shownText.has(fragment.trim())) continue;
       const key = `${f.file}\u0000${fragment}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -144,7 +162,7 @@ export function findUsages(fragment, uatFiles) {
  */
 export function check(diffText, currentFragments, uatFiles) {
   const problems = [];
-  for (const g of goneFragments(parseDiff(diffText), currentFragments)) {
+  for (const g of goneFragments(parseDiff(diffText), currentFragments, addedText(diffText))) {
     const usages = findUsages(g.fragment, uatFiles);
     if (usages.length) problems.push({ ...g, usages });
   }

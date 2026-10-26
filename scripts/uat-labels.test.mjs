@@ -2,7 +2,7 @@
 // Tests for scripts/uat-labels.mjs. Each test names the behavior it protects. No git, no browser: inputs are inline.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { check, extractFragments, findUsages, goneFragments, parseDiff, staticParts } from './uat-labels.mjs';
+import { addedText, check, extractFragments, findUsages, goneFragments, parseDiff, staticParts } from './uat-labels.mjs';
 
 const uat = (text) => [{ name: 'web/uat/run.mjs', text }];
 
@@ -54,6 +54,25 @@ test('goneFragments: a removed label missing from the current source is gone', (
 
 test('goneFragments: ignores fragments shorter than three characters once trimmed', () => {
   assert.deepEqual(goneFragments([{ file: 'a.tsx', removed: [', ', 'OK'] }], new Set()), []);
+});
+
+test('addedText: collects plain text lines and skips code', () => {
+  const diff = ['+++ b/a.tsx', '+  Add feed', '+<Button variant="solid">', '+const x = 1;', '-  Old text'].join('\n');
+  assert.deepEqual([...addedText(diff)], ['Add feed']);
+});
+
+test('check: a label that became the control\'s visible text is not gone', () => {
+  const diff = [
+    'diff --git a/web/src/A.tsx b/web/src/A.tsx',
+    '--- a/web/src/A.tsx',
+    '+++ b/web/src/A.tsx',
+    '@@ -1 +1,3 @@',
+    '-<Button aria-label="Add feed">',
+    '+<Button>',
+    '+  Add feed',
+    '+</Button>',
+  ].join('\n');
+  assert.deepEqual(check(diff, new Set(), uat('page.getByRole("button", { name: "Add feed" })')), []);
 });
 
 test('findUsages: reports the file and line where the old label appears', () => {

@@ -8,7 +8,7 @@
 // disposable folder, and on the Feeds screen checks:
 //   O1  the header: Edit, Add feed and the menu in the plain state; the saved note, Done editing and the menu in edit
 //       mode (Add feed and Edit hidden); Done alone while selecting; nothing in any state scrolls sideways or runs
-//       past the window;
+//       past the window; Edit and Done are one button, so the keyboard focus stays on it after each press;
 //   O2  the menu: the groups Organize and Files, the names "Import feeds from a file (OPML)" and "Export feeds to a
 //       file (OPML)", no "Show move buttons" item, and the menu inside the window;
 //   O3  edit mode: the help line has a "Show move buttons" button that shows the move buttons and hides them again;
@@ -16,18 +16,27 @@
 //       titled Folder settings;
 //   O5  the selection bar: Select all, Move and Delete on one row, Delete drawn differently from Move;
 //   O6  the import dialog: a file picker at least 44 px tall and a days field that says what it does;
-//   O7  Add feed: Options cannot be collapsed while the title is too long, and Add feed stays off;
+//   O7  Add feed: Options cannot be collapsed while the title is too long, stays open when the title is shortened under
+//       the focused field, and Add feed stays off;
+//   O11 a folder's note about its one failing feed (the feed is at an address that does not exist) says when Kipple
+//       tries it again on a line of its own that is not clipped;
 // and on Feed health:
 //   O8  turning Select on does not move the feed names (desktop);
 //   O9  the selection bar has Retry now (off until a feed is ticked), Resume, Pause and a red Delete inside the window;
-//       Retry now fetches the ticked feed and says how many were retried.
-// The folder and the feed are removed when the width is done. It changes nothing else: every dialog is closed with
+//       Retry now fetches the ticked feed and says how many were retried;
+//   O10 axe (the WCAG 2.0 and 2.1 A and AA rules) finds nothing on Feed health, with Select off and with Select on.
+// The folder and the feed are removed when the width is done. It changes nothing else (O11 asks for one refresh of every
+// feed so the disposable feed records its failed fetch): every dialog is closed with
 // Escape and nothing is exported. It only runs against a loopback address with the seed's credentials unless
 // --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { start } from "./common.mjs";
 
-const t = await start(import.meta.url, 27);
+const require = createRequire(import.meta.url);
+const AXE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
+const t = await start(import.meta.url, 32);
 const { check, step } = t;
 
 const FOLDER = "UAT organize";
@@ -65,6 +74,17 @@ await t.eachViewport(async (page, vp) => {
     await done.click();
     await edit.waitFor({ timeout: 5000 });
     check(await add.isVisible(), `${tag} O1 back`, "Done restores Edit and Add feed", "Add feed did not come back");
+
+    // The keyboard path: Edit and Done are one button, so the focus is still on it after each press (a click does not
+    // focus a button in every engine, so this uses Enter).
+    const focused = (loc) => loc.evaluate((el) => el === el.ownerDocument.activeElement).catch(() => false);
+    await edit.focus();
+    await page.keyboard.press("Enter");
+    await done.waitFor({ timeout: 5000 });
+    check(await focused(done), `${tag} O1 focus edit`, "the focus is on Done editing after Edit is pressed", "the focus left the button when edit mode started");
+    await page.keyboard.press("Enter");
+    await edit.waitFor({ timeout: 5000 });
+    check(await focused(edit), `${tag} O1 focus done`, "the focus is on Edit after Done editing is pressed", "the focus left the button when edit mode ended");
 
     await menuButton().click();
     await page.getByRole("menuitem", { name: "Select feeds", exact: true }).click();
@@ -185,9 +205,39 @@ await t.eachViewport(async (page, vp) => {
     await options.click();
     check((await warn.isVisible()) && (await titleBox.isVisible()), `${tag} O7 stays open`, "Options stays open while the title is too long", "Options collapsed and hid the warning");
     check(await dlg.getByRole("button", { name: /^Add feed$/ }).isDisabled(), `${tag} O7 off`, "Add feed stays off", "Add feed is on with a too-long title");
+    // Shortening the title with the cursor in it does not fold Options away.
+    await titleBox.press("End");
+    await titleBox.press("Backspace");
+    check((await titleBox.isVisible()) && (await titleBox.inputValue()).length === 200 && (await options.getAttribute("aria-expanded")) === "true", `${tag} O7 shortened`, "Options stays open when the title is shortened to the limit", "Options collapsed under the focused Title field");
     await t.shot(page, `${tag}-O7-title`);
     await page.keyboard.press("Escape");
     await dlg.waitFor({ state: "detached", timeout: 5000 });
+  });
+
+  await step(`${tag} O11`, async () => {
+    // The disposable feed is at an address that does not exist, so a refresh records a failed fetch for it.
+    const before = await t.boot(page);
+    const feed = before.feeds.find((f) => f.title === FEED);
+    const folder = before.folders.find((f) => f.name === FOLDER);
+    if (!feed || !folder) return t.fail(`${tag} O11`, "the disposable feed or folder is missing");
+    let failing = null;
+    for (let i = 0; i < 3 && !failing; i++) {
+      await page.request.post("/api/refresh", { headers: t.WRITE, data: {} });
+      failing = (await t.settle(page, (b) => b.feeds.some((f) => f.id === feed.id && f.last_error), i === 0 ? 30000 : 12000)).b.feeds.find((f) => f.id === feed.id && f.last_error) ?? null;
+    }
+    if (!failing) return t.fail(`${tag} O11`, "the feed never recorded a failed fetch");
+    await page.goto(`/l/all?folder=${folder.id}`, { waitUntil: "load" });
+    const note = page.getByTestId("feed-failure-note");
+    await note.waitFor({ timeout: 15000 });
+    const retry = note.getByTestId("feed-failure-retry");
+    const arrived = await retry.getByText(/^Trying again/).waitFor({ timeout: 15000 }).then(() => true, () => false);
+    const text = await t.textOf(note, 400);
+    check(arrived, `${tag} O11 says`, `the folder's note says when it tries again (${JSON.stringify(text)})`, `the folder's note has no "Trying again" line (${JSON.stringify(text)})`);
+    const box = await retry.boundingBox();
+    check(!!box && box.height >= 16 && inWindow(box), `${tag} O11 visible`, "the retry line is visible and inside the window", `the retry line's box: ${JSON.stringify(box)}`);
+    check(await retry.evaluate((el) => el.scrollHeight <= el.clientHeight + 1 && getComputedStyle(el).webkitLineClamp === "none"), `${tag} O11 whole`, "the retry line is not clipped", "the retry line is clamped");
+    check(await note.locator("p").first().evaluate((el) => !el.textContent.includes("Trying again")), `${tag} O11 apart`, "the failure sentence does not carry the retry", "the retry time is inside the clamped sentence");
+    await t.shot(page, `${tag}-O11-folder-note`);
   });
 
   await step(`${tag} O8`, async () => {
@@ -238,6 +288,23 @@ await t.eachViewport(async (page, vp) => {
     check(await said.first().waitFor({ timeout: 30000 }).then(() => true, () => false), `${tag} O9 retried`, "Retry now says how many feeds it retried", "no \"Retried 1 feed.\" note within 30 s");
     console.log(`note ${tag} O9: ${JSON.stringify(await t.textOf(said.first()))}`);
     await t.shot(page, `${tag}-O9-retried`);
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+  });
+
+  await step(`${tag} O10`, async () => {
+    await page.goto("/health", { waitUntil: "load" });
+    await page.getByRole("searchbox", { name: "Search feeds" }).waitFor({ timeout: 15000 });
+    await page.evaluate(AXE);
+    const violations = () =>
+      page.evaluate(() =>
+        window.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa"] } }).then((r) => r.violations.map((v) => `${v.id}: ${v.nodes.slice(0, 2).map((n) => n.html.slice(0, 100)).join(" | ")}`)),
+      );
+    let bad = await violations();
+    check(bad.length === 0, `${tag} O10 plain`, "axe finds nothing on Feed health", `axe: ${bad.join(" ;; ")}`);
+    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await page.getByRole("region", { name: "Selected feeds" }).waitFor({ timeout: 5000 });
+    bad = await violations();
+    check(bad.length === 0, `${tag} O10 select`, "axe finds nothing on Feed health with Select on", `axe: ${bad.join(" ;; ")}`);
     await page.getByRole("button", { name: "Done", exact: true }).click();
   });
 });

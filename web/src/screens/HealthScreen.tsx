@@ -348,17 +348,21 @@ export function HealthScreen() {
   // full Feed from the bootstrap, matched by id.
   const selectedFeeds: Feed[] = useMemo(() => (boot.data?.feeds ?? []).filter((f) => shownSel.has(f.id)), [boot.data?.feeds, shownSel]);
   // Retry now fetches the selected feeds that are not paused, one at a time (a paused feed is resumed, not retried),
-  // and says how many still fail. One toast at the end, not one per feed.
+  // and says how many still fail, are still fetching, or were skipped for being paused. One toast at the end, not one
+  // per feed.
   const [retrying, setRetrying] = useState(false);
   const retryable = useMemo(() => (h.data?.feeds ?? []).filter((f) => shownSel.has(f.id) && f.enabled), [h.data?.feeds, shownSel]);
+  const pausedTicked = useMemo(() => (h.data?.feeds ?? []).filter((f) => shownSel.has(f.id) && !f.enabled).length, [h.data?.feeds, shownSel]);
   const retrySelected = async () => {
     setRetrying(true);
     let stillFailing = 0;
+    let stillFetching = 0;
     try {
       for (const f of retryable) {
         try {
           const r = await refreshFeed(f.id);
-          if (r.error) stillFailing++;
+          if (r.pending) stillFetching++;
+          else if (r.error) stillFailing++;
         } catch {
           stillFailing++;
         }
@@ -368,8 +372,16 @@ export function HealthScreen() {
       invalidateFeeds(qc);
     }
     const n = retryable.length;
-    const tried = `Retried ${n} feed${n === 1 ? "" : "s"}.`;
-    toast(stillFailing === 0 ? tried : `${tried} ${stillFailing} still can't be fetched.`);
+    toast(
+      [
+        `Retried ${n} feed${n === 1 ? "" : "s"}.`,
+        stillFailing > 0 ? `${stillFailing} still can't be fetched.` : "",
+        stillFetching > 0 ? `${stillFetching} still fetching.` : "",
+        pausedTicked > 0 ? `${pausedTicked} paused feed${pausedTicked === 1 ? "" : "s"} skipped.` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
   };
   const th = (k: SortKey) => (
     <th scope="col" aria-sort={sort === k ? (dir === 1 ? "ascending" : "descending") : "none"} className="px-3 py-2 text-left font-semibold">
@@ -391,6 +403,8 @@ export function HealthScreen() {
   );
 
   const d = h.data;
+  // Select only means something with feeds to tick: with none, the page offers to add one and nothing else.
+  const noFeeds = d?.feeds.length === 0;
   const warnings = [...(boot.data?.warnings ?? []).map((w) => w.message)];
   if (d && d.clock.ahead_s > 60) warnings.push(`This server's clock is about ${Math.round(d.clock.ahead_s / 60)} minutes ahead of the time Kipple last heard from the internet. Fetch schedules may be off.`);
   if (d?.snapshot.last_error) warnings.push(`The last automatic database snapshot failed: ${d.snapshot.last_error}`);
@@ -412,10 +426,12 @@ export function HealthScreen() {
           >
             Update list
           </Button>
-          <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
-            {selecting ? <Check aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
-            <span className={selecting ? undefined : "hidden min-[560px]:inline"}>{selecting ? "Done" : "Select"}</span>
-          </Button>
+          {noFeeds ? null : (
+            <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
+              {selecting ? <Check aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
+              <span className={selecting ? undefined : "hidden min-[560px]:inline"}>{selecting ? "Done" : "Select"}</span>
+            </Button>
+          )}
         </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
@@ -495,9 +511,10 @@ export function HealthScreen() {
                 <caption className="sr-only-live">Feed health</caption>
                 <thead>
                   <tr className="border-b border-line">
-                    {/* The column is always there, at a fixed width, so the titles do not move when Select is turned on. */}
-                    <th scope="col" className="w-9 py-2 pr-1">
-                      {selecting ? (
+                    {/* The column is always there, at a fixed width, so the titles do not move when Select is turned on. With
+                        Select off it holds no checkboxes, so its header is an empty cell, not a "Select" header over nothing. */}
+                    {selecting ? (
+                      <th scope="col" className="w-9 py-2 pr-1">
                         <input
                           type="checkbox"
                           aria-label="Select all feeds"
@@ -505,10 +522,10 @@ export function HealthScreen() {
                           onChange={() => setSel(toggleGroup(shownIds, sel))}
                           className="size-5 accent-[var(--kp-accent)]"
                         />
-                      ) : (
-                        <span className="sr-only-live">Select</span>
-                      )}
-                    </th>
+                      </th>
+                    ) : (
+                      <td className="w-9 py-2 pr-1" />
+                    )}
                     {th("title")}
                     {th("status")}
                     {th("last_success_at")}
@@ -596,7 +613,7 @@ export function HealthScreen() {
           </>
         ) : null}
       </div>
-      {selecting ? (
+      {selecting && !noFeeds ? (
         <BottomBar ariaLabel="Selected feeds">
           <span className="mr-auto text-sm font-semibold" aria-live="polite">
             {shownSel.size} selected
@@ -604,7 +621,7 @@ export function HealthScreen() {
           <Button onClick={() => setSel(new Set([...sel, ...shownIds]))} disabled={feeds.length === 0 || allShownSelected}>
             Select all
           </Button>
-          <Button onClick={() => void retrySelected()} disabled={retrying || retryable.length === 0}>
+          <Button onClick={() => void retrySelected()} disabled={retrying || retryable.length === 0} aria-busy={retrying}>
             {retrying ? "Retrying" : "Retry now"}
           </Button>
           <Button onClick={() => setBulk("enable")} disabled={shownSel.size === 0}>

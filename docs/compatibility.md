@@ -249,7 +249,7 @@ Notes on browser behavior:
 
 Every swipe or long-press action also has a button or menu, so none is gesture-only: the row's Star button and its
 More actions menu (mark read or unread, mark above or below), Back to list on an open article, Refresh all feeds for
-pull to refresh, and Move to folder for reordering feeds.
+pull to refresh, and Move for reordering feeds.
 
 ### Sync clients
 
