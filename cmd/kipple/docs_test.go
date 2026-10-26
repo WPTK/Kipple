@@ -115,7 +115,7 @@ func TestPublicDocsNameNoOperatorSetup(t *testing.T) {
 // changed only one of them would skip the job that runs these tests.
 func TestUserDocsAreNotListedAsProse(t *testing.T) {
 	var allow, deny []*regexp.Regexp
-	for _, line := range strings.Split(readRepoFile(t, "scripts/ci-prose.txt"), "\n") {
+	for line := range strings.SplitSeq(readRepoFile(t, "scripts/ci-prose.txt"), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}

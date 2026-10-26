@@ -280,7 +280,7 @@ func (s *server) login() error {
 	if err != nil || code != 200 {
 		return fmt.Errorf("reader login: %d %s %v", code, b, err)
 	}
-	for _, l := range strings.Split(string(b), "\n") {
+	for l := range strings.SplitSeq(string(b), "\n") {
 		if v, ok := strings.CutPrefix(l, "Auth="); ok {
 			s.auth = strings.TrimSpace(v)
 		}
@@ -298,9 +298,7 @@ type sampler struct {
 
 func (s *server) sample() *sampler {
 	sp := &sampler{stop: make(chan struct{})}
-	sp.wg.Add(1)
-	go func() {
-		defer sp.wg.Done()
+	sp.wg.Go(func() {
 		for {
 			if cur, _, err := rss(s.cmd.Process.Pid); err == nil && cur > sp.peak {
 				sp.peak = cur
@@ -314,7 +312,7 @@ func (s *server) sample() *sampler {
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
-	}()
+	})
 	return sp
 }
 
@@ -343,7 +341,7 @@ const greader = "/api/greader.php/reader/api/0/"
 func (s *server) timeEndpoint(m *metrics, e endpoint) error {
 	var times []time.Duration
 	var size, refused int
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		hdr := map[string]string{}
 		ctype := ""
 		if e.reader {
@@ -796,9 +794,7 @@ type probe struct {
 
 func (s *server) probe(itemID string) *probe {
 	p := &probe{stop: make(chan struct{}), itemID: itemID}
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
+	p.wg.Go(func() {
 		for {
 			if code, _, d, err := s.req("GET", "/api/items?limit=50", nil, "", nil); err == nil && code == 200 {
 				p.reads = append(p.reads, ms(d))
@@ -818,7 +814,7 @@ func (s *server) probe(itemID string) *probe {
 			case <-time.After(250 * time.Millisecond):
 			}
 		}
-	}()
+	})
 	return p
 }
 
@@ -849,7 +845,7 @@ func (s *server) soak(m *metrics, rounds int) error {
 		"/api/bootstrap", "/api/items?view=starred&limit=50"}
 	searches, tooBroad := 0, 0
 	for r := 1; r <= rounds; r++ {
-		for i := 0; i < 60; i++ {
+		for i := range 60 {
 			p := paths[i%len(paths)]
 			code, b, _, err := s.req("GET", p, nil, "", nil)
 			if strings.Contains(p, "q=") {
@@ -876,7 +872,7 @@ func (s *server) soak(m *metrics, rounds int) error {
 func (s *server) searchSpread(m *metrics, name, q string) error {
 	var times []float64
 	tooBroad := 0
-	for i := 0; i < 40; i++ {
+	for range 40 {
 		code, b, d, err := s.req("GET", "/api/items?limit=50&q="+url.QueryEscape(q), nil, "", nil)
 		switch {
 		case err != nil:

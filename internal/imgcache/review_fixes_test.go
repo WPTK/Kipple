@@ -61,7 +61,7 @@ func TestEvictionStopsOnAFailingIndexWithoutSpinning(t *testing.T) {
 		o.MaxBytes = 1 << 20
 		o.Logger = slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	})
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		put(t, c, "e"+string(rune('a'+i)), 300<<10)
 	}
 	failDeletes(t, c)
@@ -108,7 +108,7 @@ func TestEvictionStopsOnAFailingIndexWithoutSpinning(t *testing.T) {
 func TestDownloadsInProgressCannotWipeTheCache(t *testing.T) {
 	const unit = 16 << 10 // 64 MB cap scaled down 1024x: 4 KiB files stand for 4 MB ones
 	c, _ := newCache(t, func(o *Options) { o.MaxBytes = 64 * unit })
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		put(t, c, fmt.Sprintf("f%02d", i), 4*unit) // 48 of 64
 	}
 	c.tmpBytes.Add(8 * 15 * unit) // eight 15 MB downloads in flight
@@ -277,18 +277,18 @@ func TestNegPruneKeepsMarkersAndRecentlyHitFailures(t *testing.T) {
 		return n == 1
 	}
 	marker := func(i int) string { return KeyThumb(0, u("m", i)) }
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		require.NoError(t, c.PutInProgress(marker(i), u("m", i), 0, VariantThumb))
 		clk.Advance(time.Second)
 	}
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		fail(i)
 	}
 	// A transient failure, newer than all of them, that has expired by the time the cap is hit.
 	x := KeyOrig(0, u("x", 0))
 	require.NoError(t, c.PutNeg(x, u("x", 0), 0, NegTransient, 503, "busy"))
 	clk.Advance(11 * time.Minute)
-	for i := 0; i < 3; i++ { // replayed: the most recently used failures
+	for i := range 3 { // replayed: the most recently used failures
 		e, ok := lookupOK(t, c, KeyOrig(0, u("p", i)))
 		require.True(t, ok && !e.OK)
 	}
@@ -296,11 +296,11 @@ func TestNegPruneKeepsMarkersAndRecentlyHitFailures(t *testing.T) {
 	for i := 9; i < 12; i++ { // two prunes, of two rows each
 		fail(i)
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		require.True(t, has(marker(i)), "marker %d survives the failures", i)
 	}
 	require.False(t, has(x), "the expired failure went first")
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		require.True(t, has(KeyOrig(0, u("p", i))), "recently replayed failure %d is kept", i)
 	}
 	require.False(t, has(KeyOrig(0, u("p", 3))), "the least recently used went")
@@ -339,10 +339,10 @@ func TestNegPruneChecksEachCapOnItsOwn(t *testing.T) {
 	t.Run("markers over their cap, few failures", func(t *testing.T) {
 		c, clk := newCache(t)
 		c.maxNeg, c.maxMarkers = 10, 4
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			require.NoError(t, c.PutNeg(KeyOrig(0, u("p", i)), u("p", i), 0, NegPermanent, 404, "gone"))
 		}
-		for i := 0; i < 8; i++ { // 10 rows in all: under the 14 of the two caps together
+		for i := range 8 { // 10 rows in all: under the 14 of the two caps together
 			require.NoError(t, c.PutInProgress(KeyThumb(0, u("m", i)), u("m", i), 0, VariantThumb))
 			clk.Advance(time.Second)
 		}
@@ -353,7 +353,7 @@ func TestNegPruneChecksEachCapOnItsOwn(t *testing.T) {
 		c, clk := newCache(t)
 		c.maxNeg, c.maxMarkers = 10, 4
 		require.NoError(t, c.PutInProgress(KeyThumb(0, u("m", 0)), u("m", 0), 0, VariantThumb))
-		for i := 0; i < 12; i++ { // 13 rows in all: still under 14
+		for i := range 12 { // 13 rows in all: still under 14
 			require.NoError(t, c.PutNeg(KeyOrig(0, u("p", i)), u("p", i), 0, NegPermanent, 404, "gone"))
 			clk.Advance(time.Second)
 		}

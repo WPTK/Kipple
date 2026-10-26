@@ -28,7 +28,7 @@ const (
 
 // marked reports whether the migration's leading comment lines include marker.
 func (m migration) marked(marker string) bool {
-	for _, line := range strings.Split(m.sql, "\n") {
+	for line := range strings.SplitSeq(m.sql, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "--") {
 			return false

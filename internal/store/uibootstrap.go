@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -161,9 +163,7 @@ func canonicalSetting(k string, v any) any {
 // those keys (a malformed stored value keeps the default).
 func (d *DB) MergedSettings(ctx context.Context) (map[string]any, error) {
 	out := make(map[string]any, len(DefaultSettings))
-	for k, v := range DefaultSettings {
-		out[k] = v
-	}
+	maps.Copy(out, DefaultSettings)
 	rows, err := d.reader.QueryContext(ctx, "SELECT key, value FROM settings WHERE key NOT LIKE 'sys.%'")
 	if err != nil {
 		return nil, err
@@ -229,9 +229,9 @@ func (d *DB) UIFolders(ctx context.Context) ([]UIFolder, error) {
 	}
 	// Pre-order lists every folder after its ancestors, so walking it backwards adds each subtree's
 	// total to its parent before the parent's own total is passed up.
-	for i := len(out) - 1; i >= 0; i-- {
-		if p := out[i].ParentID; p != nil {
-			out[at[*p]].Unread += out[i].Unread
+	for _, o := range slices.Backward(out) {
+		if p := o.ParentID; p != nil {
+			out[at[*p]].Unread += o.Unread
 		}
 	}
 	return out, nil

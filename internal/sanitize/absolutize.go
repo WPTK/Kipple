@@ -1,6 +1,7 @@
 package sanitize
 
 import (
+	"slices"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -88,12 +89,7 @@ func rewriteTag(t *html.Token, bases []string) bool {
 }
 
 func contains(l []string, s string) bool {
-	for _, x := range l {
-		if x == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(l, s)
 }
 
 func resolveAttr(tag, key, val string, bases []string) (string, bool) {

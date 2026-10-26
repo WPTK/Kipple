@@ -27,7 +27,7 @@ func TestClientLoginSuccessShape(t *testing.T) {
 	require.Equal(t, 200, code)
 	require.Equal(t, "SID="+h.tok+"\nLSID=null\nAuth="+h.tok+"\n", body)
 	// Some clients split every line on '=' and need exactly two parts.
-	for _, line := range strings.Split(strings.TrimSpace(body), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(body), "\n") {
 		require.Len(t, strings.Split(line, "="), 2, line)
 	}
 	require.Regexp(t, `^owner/[0-9a-f]{64}$`, h.tok)
@@ -129,14 +129,14 @@ func TestWriteTokenRules(t *testing.T) {
 func TestClientLoginOverBudgetPacesButVerifies(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		code, body := login(h, "owner", "wrong")
 		require.Equal(t, 401, code)
 		require.Equal(t, "Error=BadAuthentication\n", body)
 	}
 	require.Zero(t, h.paced.Load(), "inside the budget nothing waits")
 	require.Equal(t, int32(5), h.checks.Load())
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		code, _ := login(h, "owner", "wrong")
 		require.Equal(t, 401, code)
 	}
@@ -165,7 +165,7 @@ func TestClientLoginRememberedSuccessKeepsFailureCount(t *testing.T) {
 	h := newHarness(t)
 	code, _ := login(h, "owner", testPass)
 	require.Equal(t, 200, code)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		login(h, "owner", "guess")
 	}
 	require.Equal(t, 5, h.api.fails.Count("192.0.2.10"))
@@ -219,7 +219,7 @@ func TestClientLoginConcurrentAttemptWaitsForTheFirst(t *testing.T) {
 func TestClientLoginIPv6BudgetIsPer64(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		remote := "[2001:db8:0:7:" + strconv.Itoa(i+1) + "::1]:443"
 		require.Equal(t, 401, h.doFrom(remote, http.MethodPost, base+"/accounts/ClientLogin", "Email=owner&Passwd=wrong", map[string]string{"Authorization": ""}).Code)
 	}
@@ -230,7 +230,7 @@ func TestClientLoginIPv6BudgetIsPer64(t *testing.T) {
 func TestMemoizedLoginSkipsHashing(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		code, _ := login(h, "owner", testPass)
 		require.Equal(t, 200, code)
 	}
@@ -256,15 +256,13 @@ func TestConcurrentWrongLoginsRunOneHashAtATime(t *testing.T) {
 	h := newHarness(t)
 	h.api.ver = ver
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for i := range 50 {
+		wg.Go(func() {
 			// distinct clients: one client has only one attempt in flight
 			remote := "198.51.100." + strconv.Itoa(i+1) + ":1"
 			w := h.doFrom(remote, http.MethodPost, base+"/accounts/ClientLogin", "Email=owner&Passwd=wrong", map[string]string{"Authorization": ""})
 			require.Equal(t, 401, w.Code)
-		}()
+		})
 	}
 	wg.Wait()
 	require.Equal(t, int32(1), peak.Load())

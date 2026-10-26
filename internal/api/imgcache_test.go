@@ -82,7 +82,7 @@ func TestImgcacheStatsClearAndProxyFill(t *testing.T) {
 	require.EqualValues(t, 500<<30, st["disk_free_bytes"])
 
 	path := imgproxy.Path([]byte(testSecret), imgproxy.FlagPrivateNet, up.URL+"/a.png")
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		rec := h.do("GET", path, "", withCookie(c))
 		require.Equal(t, 200, rec.Code)
 		require.Equal(t, testPNG, rec.Body.Bytes())
@@ -201,7 +201,7 @@ func TestDefaultModeNeedsNoHTTPSInImgSrc(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
 	imgSrc := func() string {
-		for _, d := range strings.Split(httpx.PageCSP(h.srv.ImgMode(), true), "; ") {
+		for d := range strings.SplitSeq(httpx.PageCSP(h.srv.ImgMode(), true), "; ") {
 			if strings.HasPrefix(d, "img-src") {
 				return d
 			}

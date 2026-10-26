@@ -229,7 +229,7 @@ func TestSearchOldRankCursorIs400(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("One", 0)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		h.addItem(f, seedItem{Title: "t", Text: "kiwi", SortAt: int64(10 + i)})
 	}
 	old := base64.RawURLEncoding.EncodeToString([]byte("r-1.5|123"))

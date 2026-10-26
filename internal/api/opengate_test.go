@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -35,9 +36,7 @@ func arrivedOn(local string) func(*http.Request) {
 func (h *setupHarness) openAccount(extra map[string]any, mod ...func(*http.Request)) *http.Cookie {
 	h.t.Helper()
 	body := map[string]any{"username": "reader", "passwordless": "open", "acknowledge_open": true}
-	for k, v := range extra {
-		body[k] = v
-	}
+	maps.Copy(body, extra)
 	rec := h.req("POST", "/api/setup/account", accountBody(body), mod...)
 	require.Equal(h.t, http.StatusCreated, rec.Code, rec.Body.String())
 	c := cookieNamed(rec, cookieName)

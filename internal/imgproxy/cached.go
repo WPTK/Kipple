@@ -22,7 +22,7 @@ func (h *Handler) serveCached(w http.ResponseWriter, r *http.Request, u *url.URL
 	ctx := r.Context()
 	key := imgcache.KeyOrig(flags, orig)
 	sk := &sink{c: c, ctx: ctx, key: key, orig: orig, flags: flags}
-	for round := 0; round < maxFlightRounds; round++ {
+	for range maxFlightRounds {
 		e, ok, err := c.Lookup(ctx, key)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -108,7 +108,7 @@ func (h *Handler) fetchAndFill(w http.ResponseWriter, r *http.Request, u *url.UR
 
 	// At most two exchanges: a revalidation whose 304 finds the stale file
 	// evicted meanwhile is followed by one unconditional fetch.
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		var cd cond
 		var budget time.Duration
 		sk.stale = stale != nil

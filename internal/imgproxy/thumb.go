@@ -315,7 +315,7 @@ func tiffOrientation(t []byte) int {
 		return 1
 	}
 	cnt := int(bo.Uint16(t[off:]))
-	for k := 0; k < cnt; k++ {
+	for k := range cnt {
 		e := off + 2 + k*12
 		if e+12 > len(t) {
 			break
@@ -393,13 +393,11 @@ func (p *pool) submit(f func()) error {
 	}
 	p.once.Do(func() {
 		for i := 0; i < p.n; i++ {
-			p.wg.Add(1)
-			go func() {
-				defer p.wg.Done()
+			p.wg.Go(func() {
 				for f := range p.queue {
 					f()
 				}
-			}()
+			})
 		}
 	})
 	select {

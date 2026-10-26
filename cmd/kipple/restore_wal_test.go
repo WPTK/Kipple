@@ -30,7 +30,7 @@ func TestRestoreFromABareDatabaseAppliesItsWAL(t *testing.T) {
 	_, err = db.Reader().Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 	require.NoError(t, err)
 	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			id := int64(1_700_000_000_000_000) + int64(i)*1000
 			if _, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, published_at, sort_at, uid, content_hash, text_hash, title)
 				VALUES (?, (SELECT id FROM feeds LIMIT 1), 1, 1, ?, 'c', 't', 'x')`, id, fmt.Sprintf("u%d", i)); err != nil {

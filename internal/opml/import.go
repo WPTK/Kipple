@@ -397,8 +397,7 @@ func chainKey(chain []string) string {
 // skipReason says why an outline's address was not imported, in words for an import (the store's reasons ask a
 // person adding one feed to type another address).
 func skipReason(err error) string {
-	var bad *store.InvalidURLError
-	if errors.As(err, &bad) {
+	if bad, ok := errors.AsType[*store.InvalidURLError](err); ok {
 		switch bad.Kind {
 		case store.URLUserinfo:
 			return "the address holds a user name or password; add this feed on its own and set its HTTP authentication"

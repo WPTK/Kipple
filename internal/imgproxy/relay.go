@@ -1,6 +1,7 @@
 package imgproxy
 
 import (
+	"maps"
 	"net/http"
 	"sync"
 )
@@ -137,9 +138,7 @@ func (p *probe) forward() {
 // replay copies the recorded headers and status to the client.
 func (p *probe) replay() {
 	dst := p.real.Header()
-	for k, v := range p.h {
-		dst[k] = v
-	}
+	maps.Copy(dst, p.h)
 	if p.code != 0 {
 		p.real.WriteHeader(p.code)
 	}

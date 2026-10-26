@@ -147,7 +147,7 @@ func insertFeedAndItems(db *sql.DB, n int) error {
 	if _, err := db.Exec(`INSERT INTO feeds (url, url_key, host, title) VALUES ('https://rss.example.com/f', 'rss.example.com/f', 'rss.example.com', 'F')`); err != nil {
 		return err
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if _, err := db.Exec(`INSERT INTO items (feed_id, published_at, sort_at, uid, content_hash, text_hash, title) VALUES (1, ?, ?, ?, 'h', 't', ?)`,
 			1000+i, 1000+i, fmt.Sprintf("u%d", i), fmt.Sprintf("title %d about gardens", i)); err != nil {
 			return err

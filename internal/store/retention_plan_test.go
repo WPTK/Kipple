@@ -51,7 +51,7 @@ func TestTrimStatementsSearchItemsByID(t *testing.T) {
 func requireDrivenByTrimSet(t *testing.T, plan string, msg ...any) {
 	t.Helper()
 	var order []string
-	for _, line := range strings.Split(strings.TrimSpace(plan), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(plan), "\n") {
 		switch {
 		case strings.HasPrefix(line, "SCAN t"), strings.HasPrefix(line, "SEARCH t "):
 			order = append(order, "t")

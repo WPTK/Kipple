@@ -351,7 +351,7 @@ func TestRestoreConfirmRechecksTheAccountRow(t *testing.T) {
 func TestRestoreConfirmRacesAnAccountClaim(t *testing.T) {
 	t.Parallel()
 	zipped := backupZip(t, "h", store.AuthStandard)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		h := newRestoreHarness(t)
 		require.EqualValues(t, http.StatusOK, h.upload(zipped)["status"])
 		codes := make(chan [2]int, 2)
@@ -362,7 +362,7 @@ func TestRestoreConfirmRacesAnAccountClaim(t *testing.T) {
 			codes <- [2]int{1, h.createAccount(map[string]any{"username": "reader", "password": setupPass}).Code}
 		}()
 		got := map[int]int{}
-		for j := 0; j < 2; j++ {
+		for range 2 {
 			c := <-codes
 			got[c[0]] = c[1]
 		}

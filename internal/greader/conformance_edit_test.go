@@ -92,7 +92,7 @@ func TestConformanceEditTag(t *testing.T) {
 
 	// A batch the size clients send (hundreds of ids) in one request.
 	var many []int64
-	for k := 0; k < 300; k++ {
+	for k := range 300 {
 		many = append(many, h.addItem(l.loose, itemSeed{Title: "bulk " + strconv.Itoa(k)}))
 	}
 	var parts []string

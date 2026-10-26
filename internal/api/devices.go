@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"regexp"
 	"slices"
@@ -97,10 +98,8 @@ var idKeyRe = regexp.MustCompile(`^[0-9]{1,19}$`)
 func floatOneOf(vals ...float64) func(any) (any, string) {
 	return func(v any) (any, string) {
 		if f, ok := v.(float64); ok {
-			for _, w := range vals {
-				if f == w {
-					return f, ""
-				}
+			if slices.Contains(vals, f) {
+				return f, ""
 			}
 		}
 		return nil, "must be one of the listed numbers"
@@ -338,9 +337,7 @@ func (s *Server) deviceView(r *http.Request, dv store.Device) (map[string]any, e
 	}
 	defaults := s.deviceDefaults(merged)
 	eff := make(map[string]any, len(defaults)+len(dv.Profile))
-	for k, v := range defaults {
-		eff[k] = v
-	}
+	maps.Copy(eff, defaults)
 	profile := map[string]any{}
 	for k, v := range dv.Profile {
 		if c, msg := validateProfileKey(k, v); msg == "" {

@@ -291,18 +291,18 @@ func TestFeedDailyNewBetweenPerf(t *testing.T) {
 	ledger, err := tx.PrepareContext(e.ctx, `INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at) VALUES (?, ?, ?, 1, 0, 0)`)
 	require.NoError(t, err)
 	id := int64(1)
-	for i := 0; i < 100_000; i++ {
+	for i := range 100_000 {
 		_, err := ledger.ExecContext(e.ctx, id, feed, fmt.Sprint("t", i))
 		require.NoError(t, err)
 		id++
 	}
-	for i := 0; i < 10_000; i++ {
+	for i := range 10_000 {
 		_, err := item.ExecContext(e.ctx, id, feed, id, fmt.Sprint("f", i))
 		require.NoError(t, err)
 		id++
 	}
 	dayStart := id - 1 // the feed's last counted item
-	for i := 0; i < 250_000; i++ {
+	for i := range 250_000 {
 		f := others[i%len(others)]
 		if i%5 == 4 {
 			_, err = ledger.ExecContext(e.ctx, id, f, fmt.Sprint("l", i))
@@ -323,7 +323,7 @@ func TestFeedDailyNewBetweenPerf(t *testing.T) {
 	}{{"1,000 ids", id - 1001, id}, {"a day, 250,000 ids", dayStart, id}} {
 		for _, q := range []struct{ name, sql string }{{"forced id range", sqlItemBetween}, {"planner's choice", unforced}} {
 			var b time.Duration
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				s := time.Now()
 				var between bool
 				require.NoError(t, e.db.Reader().QueryRowContext(e.ctx, q.sql, r.lo, r.hi, feed).Scan(&between))
@@ -365,7 +365,7 @@ func TestStatsReadRatePerf(t *testing.T) {
 	e.exec("ANALYZE")
 	best := func(f func()) time.Duration {
 		var b time.Duration
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			s := time.Now()
 			f()
 			if d := time.Since(s); i == 0 || d < b {

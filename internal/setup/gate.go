@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -79,12 +80,7 @@ func (g Gate) arrivedOverTailnet(r *http.Request) bool {
 	if !local.IsValid() {
 		return false
 	}
-	for _, a := range g.tailnetAddrs() {
-		if a == local {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(g.tailnetAddrs(), local)
 }
 
 // tailscaleServe reports whether r has the exact shape of a tailnet-only

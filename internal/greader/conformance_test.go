@@ -67,7 +67,7 @@ func (c *confClient) login() string {
 func parseLoginLines(t *testing.T, body string) map[string]string {
 	t.Helper()
 	kv := map[string]string{}
-	for _, line := range strings.Split(strings.TrimRight(body, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(body, "\n"), "\n") {
 		k, v, ok := strings.Cut(line, "=")
 		require.True(t, ok, "every ClientLogin line is key=value: %q", line)
 		kv[k] = v

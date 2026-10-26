@@ -293,9 +293,7 @@ func TestTranscodeHeapStaysUnderCeiling(t *testing.T) {
 	var peak atomic.Uint64
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		var m runtime.MemStats
 		for {
 			runtime.ReadMemStats(&m)
@@ -308,7 +306,7 @@ func TestTranscodeHeapStaysUnderCeiling(t *testing.T) {
 			case <-time.After(2 * time.Millisecond):
 			}
 		}
-	}()
+	})
 	start := time.Now()
 	out, _, err := runTranscode(t, src, "image/jpeg")
 	took := time.Since(start)
@@ -531,7 +529,7 @@ func TestThumbFallbacksAreRememberedNotRetried(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			tr := newThumbRig(t, tc.ct, tc.body)
-			for i := 0; i < 3; i++ {
+			for range 3 {
 				resp := tr.thumb("x")
 				require.Equal(t, 200, resp.StatusCode)
 				require.Equal(t, tc.body, read(t, resp), "the original is served")
@@ -603,10 +601,8 @@ func TestThumbConcurrentRequestsShareOneFetchAndOneTranscode(t *testing.T) {
 	const n = 20
 	bodies := make([][]byte, n)
 	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for i := range n {
+		wg.Go(func() {
 			req, _ := http.NewRequest("GET", tr.srv.URL+Path(secret, FlagPrivateNet|FlagThumb, tr.up.URL+"/c.jpg"), nil)
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -614,7 +610,7 @@ func TestThumbConcurrentRequestsShareOneFetchAndOneTranscode(t *testing.T) {
 			}
 			defer resp.Body.Close()
 			bodies[i], _ = io.ReadAll(resp.Body)
-		}()
+		})
 	}
 	wg.Wait()
 	require.EqualValues(t, 1, tr.up.n.Load(), "one upstream fetch")

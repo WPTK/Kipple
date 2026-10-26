@@ -143,7 +143,7 @@ func (c *compressWriter) Write(p []byte) (int, error) {
 
 // listsTag reports whether an If-None-Match value names tag exactly.
 func listsTag(inm, tag string) bool {
-	for _, t := range strings.Split(inm, ",") {
+	for t := range strings.SplitSeq(inm, ",") {
 		if strings.TrimSpace(t) == tag {
 			return true
 		}
@@ -224,7 +224,7 @@ func (c *compressWriter) finish() {
 // addVary adds token to Vary unless it is already listed.
 func addVary(h http.Header, token string) {
 	for _, v := range h.Values("Vary") {
-		for _, t := range strings.Split(v, ",") {
+		for t := range strings.SplitSeq(v, ",") {
 			if t = strings.TrimSpace(t); t == "*" || strings.EqualFold(t, token) {
 				return
 			}
@@ -258,10 +258,10 @@ func compressible(ct string) bool {
 // when gzip is not named, "*" with a non-zero weight.
 func acceptsGzip(header string) bool {
 	gz, star := -1.0, -1.0
-	for _, part := range strings.Split(header, ",") {
+	for part := range strings.SplitSeq(header, ",") {
 		name, params, _ := strings.Cut(part, ";")
 		q := 1.0
-		for _, p := range strings.Split(params, ";") {
+		for p := range strings.SplitSeq(params, ";") {
 			k, v, ok := strings.Cut(strings.TrimSpace(p), "=")
 			if ok && strings.EqualFold(strings.TrimSpace(k), "q") {
 				if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {

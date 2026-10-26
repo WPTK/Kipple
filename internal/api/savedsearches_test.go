@@ -226,12 +226,10 @@ func TestSavedSearchConcurrentCreatesLoseNothing(t *testing.T) {
 	c := h.login()
 	var wg sync.WaitGroup
 	for i := range 12 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			code, out, _ := h.api(c, "POST", "/api/saved-searches", fmt.Sprintf(`{"name":"s%d","q":"word%d"}`, i, i))
 			require.Equal(t, 201, code, "%v", out)
-		}()
+		})
 	}
 	wg.Wait()
 	require.Len(t, savedList(t, h, c, "?counts=0"), 12)

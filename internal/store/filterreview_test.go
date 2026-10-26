@@ -28,7 +28,7 @@ func TestTrimKeepsThisCommitsMutedItems(t *testing.T) {
 		return fspec{guid: fmt.Sprintf("g%d", i), title: title, age: time.Duration(100-i) * time.Minute}
 	}
 	var specs []fspec
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		specs = append(specs, spec(i, fmt.Sprintf("real %d", i)))
 	}
 	e.fetchBody(id, frss(specs...))
@@ -45,9 +45,9 @@ func TestTrimKeepsThisCommitsMutedItems(t *testing.T) {
 	e.assertMutedInvariant()
 
 	// keep fetching: muted items keep a bounded share (n/5) of the cap, real items keep the rest
-	for round := 0; round < 10; round++ {
+	for round := range 10 {
 		var more []fspec
-		for j := 0; j < 6; j++ {
+		for j := range 6 {
 			title := fmt.Sprintf("real r%d j%d", round, j)
 			if j%2 == 0 {
 				title = fmt.Sprintf("noise r%d j%d", round, j)

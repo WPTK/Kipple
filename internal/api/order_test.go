@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"testing"
@@ -15,7 +16,7 @@ import (
 // so every page boundary can fall inside a tie.
 func tiedFixture(h *harness, n int) (feed int64, ids []int64) {
 	feed = h.addFeed("A", 0)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ids = append(ids, h.addItem(feed, seedItem{SortAt: int64(1000 + i/3)}))
 	}
 	return feed, ids
@@ -26,7 +27,7 @@ func pageAll(t *testing.T, h *harness, c *http.Cookie, query string, limit int) 
 	t.Helper()
 	var got []string
 	cursor := ""
-	for pages := 0; pages < 200; pages++ {
+	for range 200 {
 		path := fmt.Sprintf("/api/items?%s&limit=%d", query, limit)
 		if cursor != "" {
 			path += "&cursor=" + cursor
@@ -65,7 +66,7 @@ func TestListItemsOldestSearch(t *testing.T) {
 	c := h.login()
 	f := h.addFeed("A", 0)
 	var want []int64
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		want = append(want, h.addItem(f, seedItem{Text: "zebra herd", SortAt: int64(500 + i/2)}))
 	}
 	h.addItem(f, seedItem{Text: "nothing here"})
@@ -79,7 +80,7 @@ func TestListItemsCursorOrderMismatch(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
 	f := h.addFeed("A", 0)
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		h.addItem(f, seedItem{Text: "zebra", SortAt: 700})
 	}
 	cursorOf := func(query string) string {
@@ -191,9 +192,7 @@ func TestMarkReadUnknownLength(t *testing.T) {
 	none3 := h.addItem(f, seedItem{Words: 0, SortAt: 4})
 	mark := func(scope map[string]any, extra map[string]any) (int, map[string]any) {
 		req := map[string]any{"scope": scope, "read": true}
-		for k, v := range extra {
-			req[k] = v
-		}
+		maps.Copy(req, extra)
 		code, out, _ := h.api(c, "POST", "/api/items/mark-read", jsonStr(req))
 		return code, out
 	}
@@ -373,9 +372,7 @@ func TestMarkReadBoundValidation(t *testing.T) {
 	ok := map[string]any{"order": "date", "side": "above", "anchor": anchor}
 	with := func(k string, v any) map[string]any {
 		m := map[string]any{}
-		for kk, vv := range ok {
-			m[kk] = vv
-		}
+		maps.Copy(m, ok)
 		m[k] = v
 		return m
 	}

@@ -18,7 +18,7 @@ const ftPara = "The quick brown fox jumps over the lazy dog while the reader kee
 
 func ftArticle(extra string) string {
 	body := extra
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		body += "<p>" + strings.Repeat(ftPara, 3) + "</p>"
 	}
 	return `<!DOCTYPE html><html><head><title>T</title></head><body><nav><a href="/x">nav</a></nav><article><h1>T</h1>` +
@@ -225,12 +225,10 @@ func TestFulltextConcurrentRequestsShareOneFetch(t *testing.T) {
 	var wg sync.WaitGroup
 	statuses := make([]string, 4)
 	for i := range statuses {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, body, _ := h.api(c, "POST", "/api/items/"+sid(id)+"/fulltext", "")
 			statuses[i], _ = body["status"].(string)
-		}()
+		})
 	}
 	wg.Wait()
 	for _, s := range statuses {

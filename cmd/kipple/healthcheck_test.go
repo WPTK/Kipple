@@ -57,7 +57,7 @@ func TestProbeHealthLeavesNoConnection(t *testing.T) {
 		_, _ = w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		require.NoError(t, probeHealth(srv.Listener.Addr().String(), time.Second))
 	}
 	// The server is still up (an httptest server never times an idle connection
@@ -79,17 +79,17 @@ func TestProbeHealthTimeout(t *testing.T) {
 // default (no list of ports to try). Only a Kipple answering "ok" is healthy.
 func TestProbeHealthIsOneProbe(t *testing.T) {
 	quiesceHTTP(t)
-	var hits int32
+	var hits atomic.Int32
 	mk := func(body string) string {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			atomic.AddInt32(&hits, 1)
+			hits.Add(1)
 			_, _ = w.Write([]byte(body))
 		}))
 		t.Cleanup(srv.Close)
 		return srv.Listener.Addr().String()
 	}
 	require.NoError(t, probeHealth(mk("ok"), 2*time.Second))
-	require.Equal(t, int32(1), atomic.LoadInt32(&hits))
+	require.Equal(t, int32(1), hits.Load())
 	require.Error(t, probeHealth(mk("hello"), 2*time.Second), "another program answering 200 is not Kipple")
 	closed, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

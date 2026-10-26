@@ -28,7 +28,7 @@ func wellFormed(b []byte) error {
 // The generators are deterministic and well formed XML whatever the knobs.
 func TestDocsDeterministicAndWellFormed(t *testing.T) {
 	for name, g := range docGens {
-		for seed := uint64(0); seed < 60; seed++ {
+		for seed := range uint64(60) {
 			k := DocKnobs{Size: uint8(seed * 7), Depth: uint8(seed), Weird: uint8(seed * 37), Charset: uint8(seed)}
 			a, b := g(seed, k), g(seed, k)
 			if !bytes.Equal(a, b) {
@@ -43,7 +43,7 @@ func TestDocsDeterministicAndWellFormed(t *testing.T) {
 
 // FuzzParseStructured: generated OPML never panics the parser, and a feed it returns has a URL.
 func FuzzParseStructured(f *testing.F) {
-	for i := uint8(0); i < 8; i++ {
+	for i := range uint8(8) {
 		f.Add(uint64(i), uint8(10+i*5), uint8(i*2), uint8(1<<i), i)
 	}
 	f.Fuzz(func(t *testing.T, seed uint64, size, depth, weird, cs uint8) {
@@ -61,7 +61,7 @@ func FuzzParseStructured(f *testing.F) {
 
 // FuzzParseFeedStructured: generated Atom and RSS never panic the feed parser; UIDs are unique and non-empty.
 func FuzzParseFeedStructured(f *testing.F) {
-	for i := uint8(0); i < 8; i++ {
+	for i := range uint8(8) {
 		f.Add(uint64(i), i, uint8(10+i*5), uint8(1<<i), i, i)
 	}
 	f.Fuzz(func(t *testing.T, seed uint64, kind, size, weird, cs, mode uint8) {

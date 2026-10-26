@@ -347,10 +347,8 @@ func TestConcurrentUpdatesAndReads(t *testing.T) {
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	var reads atomic.Int64
-	for r := 0; r < 4; r++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 4 {
+		wg.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -367,21 +365,19 @@ func TestConcurrentUpdatesAndReads(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	var writers sync.WaitGroup
-	for w := 0; w < 2; w++ {
-		writers.Add(1)
-		go func() {
-			defer writers.Done()
-			for i := 0; i < 100; i++ {
+	for w := range 2 {
+		writers.Go(func() {
+			for i := range 100 {
 				set := states[(i+w)%2]
 				if err := l.Update(set, nil, func() error { return db.SetSettings(ctx, set) }); err != nil {
 					t.Error(err)
 					return
 				}
 			}
-		}()
+		})
 	}
 	writers.Wait()
 	close(stop)

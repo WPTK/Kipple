@@ -254,7 +254,7 @@ func TestTricklingSourceIsStillCut(t *testing.T) {
 	up := upstream(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Content-Length", strconv.Itoa(len(bigPNG)*20))
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			if _, err := w.Write(bigPNG); err != nil {
 				return
 			}

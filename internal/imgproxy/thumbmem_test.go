@@ -169,7 +169,7 @@ func synthPNG(t testing.TB, w, h int, depth, ct byte, interlaced, trns bool, pad
 			return
 		}
 		row := make([]byte, 1+(pw*channels*int(depth)+7)/8)
-		for y := 0; y < ph; y++ {
+		for range ph {
 			_, _ = zw.Write(row)
 		}
 	}
@@ -383,7 +383,7 @@ func synthVP8L(s vp8lSpec, header bool) []byte {
 	tiles := func(n, bits int) int { return (n + 1<<bits - 1) >> bits }
 	zeroSub := func() {
 		bw.put(0, 1) // no color cache
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			bw.simpleTree(0)
 		}
 	}
@@ -446,9 +446,9 @@ func synthVP8L(s vp8lSpec, header bool) []byte {
 	}
 	full := s.fullTrees || groups > 1
 	var codes [5]prefixCode
-	for i := 0; i < groups; i++ { // identical groups: the pixels read the same whichever group a tile uses
+	for range groups { // identical groups: the pixels read the same whichever group a tile uses
 		if !full {
-			for j := 0; j < 5; j++ {
+			for range 5 {
 				bw.simpleTree(0)
 			}
 			continue
@@ -458,7 +458,7 @@ func synthVP8L(s vp8lSpec, header bool) []byte {
 		}
 	}
 	if full {
-		for j := 0; j < 4; j++ {
+		for j := range 4 {
 			bw.emit(codes[j], 0) // one literal pixel
 		}
 		for left := iw*s.h - 1; left > 0; {
@@ -539,9 +539,7 @@ func allocDuring(f func()) (total, peak int64) {
 	var hi atomic.Uint64
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		var m runtime.MemStats
 		for {
 			runtime.ReadMemStats(&m)
@@ -554,7 +552,7 @@ func allocDuring(f func()) (total, peak int64) {
 			case <-time.After(time.Millisecond):
 			}
 		}
-	}()
+	})
 	f()
 	close(stop)
 	wg.Wait()

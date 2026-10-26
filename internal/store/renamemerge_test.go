@@ -111,7 +111,7 @@ func TestRenameMergeRefusedPastRuleLimit(t *testing.T) {
 	oldID, _, err := db.FindLabel(ctx, []string{"Old"})
 	require.NoError(t, err)
 	// 100 folder filters x 3 feeds = 300 copies, past the 200 limit.
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		_, err = db.writer.ExecContext(ctx, `INSERT INTO filters (name, enabled, scope, folder_id, kind, terms, fields, action)
 			VALUES ('f', 0, 'folder', ?, 'text', '["x"]', '["title"]', 'mute')`, oldID)
 		require.NoError(t, err)
@@ -130,7 +130,7 @@ func TestRenameMergeRefusedPastRegexLimit(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		_, err := db.Subscribe(ctx, SubscribeOpts{URL: fmt.Sprintf("https://f%d.example/feed", i), Folder: "Old"})
 		require.NoError(t, err)
 	}

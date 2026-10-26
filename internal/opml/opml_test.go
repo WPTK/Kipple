@@ -551,7 +551,7 @@ func TestImportDroppedReportIsBounded(t *testing.T) {
 	var b strings.Builder
 	b.WriteString(`<opml><body>`)
 	// One feed repeated many times under the same other folder and under many long-named folders.
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		fmt.Fprintf(&b, `<outline text="F%d%s"><outline text="x" xmlUrl="http://a.test/rss"/><outline text="y" xmlUrl="http://a.test/rss"/></outline>`, i, long)
 	}
 	// More repeated feeds than the report lists.

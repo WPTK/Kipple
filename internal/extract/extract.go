@@ -264,8 +264,7 @@ func transientTransport(err error) bool {
 
 // cleanErr trims a transport error to something readable without file paths.
 func cleanErr(err error) string {
-	var ue *url.Error
-	if errors.As(err, &ue) {
+	if ue, ok := errors.AsType[*url.Error](err); ok {
 		err = ue.Err
 	}
 	m := err.Error()

@@ -319,7 +319,7 @@ func TestInFlightFeedIsNotDispatchedTwice(t *testing.T) {
 		}
 	})
 	r.add(srv.URL+"/slow", nil)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		r.s.Wake()
 		r.barrier()
 	}
@@ -359,10 +359,7 @@ func TestBackoffGrowthJitterAndReset(t *testing.T) {
 		}
 		r.waitEvents("fetch.done", n)
 		require.EqualValues(t, n, r.failures(id))
-		want := 30 * time.Minute << (n - 1)
-		if want > 24*time.Hour {
-			want = 24 * time.Hour
-		}
+		want := min(30*time.Minute<<(n-1), 24*time.Hour)
 		require.EqualValues(t, at.Add(want).Unix(), r.next(id), "n=%d", n)
 		require.EqualValues(t, want.Seconds(), r.num("SELECT current_delay_s FROM feeds WHERE id = ?", id))
 		delay = want
@@ -455,7 +452,7 @@ func TestManualRunAttachesToInFlightFetches(t *testing.T) {
 		}
 	})
 	var ids []int64
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		id := r.add(fmt.Sprintf("%s/f%d", srv.URL, i), nil)
 		r.setHost(id, fmt.Sprintf("h%d", i))
 		ids = append(ids, id)
@@ -641,7 +638,7 @@ func TestPerHostCapAndPendingDrain(t *testing.T) {
 		cur.Add(-1)
 		serveOK(p, w, req)
 	})
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		r.add(fmt.Sprintf("%s/f%d", srv.URL, i), nil)
 	}
 	r.s.Wake()
@@ -827,7 +824,7 @@ func TestShutdownDuringLargeRun(t *testing.T) {
 		serveOK(p, w, req)
 		completed.Add(1)
 	})
-	for i := 0; i < 138; i++ {
+	for i := range 138 {
 		id := r.add(fmt.Sprintf("%s/f%d", srv.URL, i), nil)
 		r.setHost(id, fmt.Sprintf("h%d", i%40))
 	}
@@ -907,7 +904,7 @@ func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
 	t.Parallel()
 	r := newRig(t, Options{PerHost: 8, CommitTimeout: 5 * time.Minute})
 	srv := newSrv(t, serveOK)
-	for i := 0; i < 138; i++ {
+	for i := range 138 {
 		id := r.add(fmt.Sprintf("%s/f%d", srv.URL, i), nil)
 		r.setHost(id, fmt.Sprintf("h%d", i%40))
 	}
@@ -942,7 +939,7 @@ func TestCommitGateKeepsAPIWritesResponsive(t *testing.T) {
 	// What ends a blocked write is writeTimeout (see above), not this context.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		require.NoError(t, r.db.WithWrite(ctx, func(ctx context.Context, tx *sqlTx) error {
 			_, err := tx.ExecContext(ctx, "UPDATE items SET read = 1 - read WHERE id = ?", 5001+i%50)
 			return err
@@ -1111,7 +1108,7 @@ func TestPartialChunkedCommitStillReportsCommittedItems(t *testing.T) {
 	r := newRig(t, Options{})
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><link>https://ex.com/</link>`)
-	for i := 0; i < 620; i++ {
+	for i := range 620 {
 		fmt.Fprintf(&b, `<item><guid>g%d</guid><title>t%d</title><link>https://ex.com/%d</link><pubDate>%s</pubDate></item>`,
 			i, i, i, base.Add(-time.Duration(620-i)*time.Minute).Format(time.RFC1123Z))
 	}

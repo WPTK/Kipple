@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -170,10 +171,8 @@ func labelCandidates(decoded, raw string) []string {
 		if s == "" {
 			return
 		}
-		for _, o := range out {
-			if o == s {
-				return
-			}
+		if slices.Contains(out, s) {
+			return
 		}
 		out = append(out, s)
 	}
@@ -349,8 +348,7 @@ func (c *call) subscriptionEdit() {
 				title = ts[i]
 			}
 			res, err := c.a.db.Subscribe(ctx, store.SubscribeOpts{URL: rest, Folder: folder, Title: title})
-			var bad *store.InvalidURLError
-			if errors.As(err, &bad) {
+			if _, ok := errors.AsType[*store.InvalidURLError](err); ok {
 				continue
 			}
 			if err != nil {

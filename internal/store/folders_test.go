@@ -692,7 +692,7 @@ func TestFeedsOfAnUnreachableFolderStayListed(t *testing.T) {
 func TestFolderLookupPlans(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		top := e.mkFolder(0, fmt.Sprintf("Top %d", i))
 		e.mkFolder(top, "Sub")
 	}

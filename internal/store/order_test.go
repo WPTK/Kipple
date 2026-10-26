@@ -74,7 +74,7 @@ func TestOrderQueryPlans(t *testing.T) {
 				return err
 			}
 		}
-		for i := 0; i < 900; i++ {
+		for i := range 900 {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, read, starred, published_at, sort_at, word_count, uid, content_hash, text_hash, muted_by)
 				VALUES (?,?,?,?,?,?,?,?,'c','t',CASE WHEN ?9 THEN 5 END)`, 1_700_000_000_000_000+int64(i)*1000, 1+i%3, i%4/3, b2i(i%50 == 0), i, i/2, i*10, fmt.Sprintf("u%d", i), i%37 == 0 && i%50 != 0); err != nil {
 				return err

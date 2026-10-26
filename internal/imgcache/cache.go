@@ -676,9 +676,7 @@ func (c *Cache) SetCap(bytes int64) {
 	if c.closed.Load() {
 		return
 	}
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
+	c.wg.Go(func() {
 		if bytes == 0 {
 			if _, err := c.Clear(); err != nil {
 				c.log.Warn("imgcache: purge on disable", "err", err)
@@ -690,7 +688,7 @@ func (c *Cache) SetCap(bytes int64) {
 		if c.load() > bytes {
 			c.noteEvict(c.evictLocked(c.ctx, bytes*evictTargetPct/100), "imgcache: evict after cap change")
 		}
-	}()
+	})
 }
 
 // errNoProgress stops an eviction or expiry loop whose batch removed nothing.
@@ -1071,7 +1069,7 @@ func truncate(s string, n int) string {
 // max-age clamped to 1..30 days, 7 days when there is none, and 1 day for
 // no-store/no-cache (the entry is still revalidated daily).
 func Freshness(cacheControl string) time.Duration {
-	for _, part := range strings.Split(strings.ToLower(cacheControl), ",") {
+	for part := range strings.SplitSeq(strings.ToLower(cacheControl), ",") {
 		part = strings.TrimSpace(part)
 		if part == "no-store" || part == "no-cache" {
 			return freshMin

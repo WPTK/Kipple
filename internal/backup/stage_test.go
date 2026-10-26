@@ -674,7 +674,7 @@ func TestCheckSchemaAcceptsEveryUpgradePath(t *testing.T) {
 func TestUploadRefusesTooManyEntries(t *testing.T) {
 	t.Parallel()
 	extra := map[string][]byte{}
-	for i := 0; i < MaxEntries; i++ {
+	for i := range MaxEntries {
 		extra[fmt.Sprintf("f%d.txt", i)] = []byte("x")
 	}
 	r, dir := newRestorer(t)
@@ -819,7 +819,7 @@ func TestUploadRaces(t *testing.T) {
 func TestCancelDuringTheCheck(t *testing.T) {
 	t.Parallel()
 	b := hostBackup(t)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		r, dir := newRestorer(t)
 		up, err := r.Upload(context.Background(), me, bytes.NewReader(b), int64(len(b)), nil)
 		require.NoError(t, err)
@@ -1079,7 +1079,7 @@ func manyEntries(t *testing.T, n int) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		_, err := zw.CreateHeader(&zip.FileHeader{Name: fmt.Sprint(i), Method: zip.Store})
 		require.NoError(t, err)
 	}

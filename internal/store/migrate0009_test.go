@@ -22,7 +22,7 @@ func TestMigration0009FreshSchema(t *testing.T) {
 func TestMigration0009OnPopulatedSchema8(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		insertStatRow(e, "read_time", "sk", nil, 10+i)
 	}
 	insertStatRow(e, "open", "sk", nil, 0)
@@ -84,7 +84,7 @@ func TestOlderBinaryRefusesSchema9(t *testing.T) {
 // version and the indexes untouched, and the same database migrates once there is room.
 func TestMigrationRefusesWhenDiskTooFull(t *testing.T) {
 	e := newEnv(t)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		insertStatRow(e, "read_time", "sk", nil, 10+i)
 	}
 	e.exec(undo0009)

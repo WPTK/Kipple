@@ -80,7 +80,7 @@ func webpDecodeCost(r io.ReaderAt, size int64, w, h int) (int64, bool) {
 	}
 	wantAlpha := x[0]&0x10 != 0
 	var alpha int64
-	for i := 0; i < maxSegments; i++ {
+	for range maxSegments {
 		off += 8 + l + l&1
 		if id, l, ok = chunk(); !ok {
 			return 0, false
@@ -297,7 +297,7 @@ func readHuff(b *vp8lBits, n int) (*vp8lHuff, bool) {
 		return nil, false
 	}
 	var cl [19]uint8
-	for i := 0; i < nc; i++ {
+	for i := range nc {
 		cl[vp8lCodeLengthOrder[i]] = uint8(b.read(3))
 	}
 	if b.bad {

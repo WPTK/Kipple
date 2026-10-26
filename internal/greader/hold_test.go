@@ -169,7 +169,7 @@ func TestHoldPagingAndContinuation(t *testing.T) {
 
 	// Interleave: newest first order p5 f4(h) p3 f2(h) p1 f0(h); the held ones are the ft items.
 	var visible, all []int64
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		age := time.Duration(20-i) * time.Second
 		if i%2 == 0 {
 			all = append(all, h.crawledAgo(ft, age, itemSeed{}))

@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func iptr(n int) *int { return &n }
-
 func TestEffectiveFulltextTable(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -24,10 +22,10 @@ func TestEffectiveFulltextTable(t *testing.T) {
 		{nil, true, false, 1},
 		{nil, false, true, 1}, // the global switch beats a feed that is off
 		{nil, true, true, 1},
-		{iptr(0), true, false, 0},
-		{iptr(0), true, true, 0}, // an item forced off still wins
-		{iptr(1), false, false, 1},
-		{iptr(1), false, true, 1},
+		{new(0), true, false, 0},
+		{new(0), true, true, 0}, // an item forced off still wins
+		{new(1), false, false, 1},
+		{new(1), false, true, 1},
 	} {
 		require.Equal(t, tc.want, EffectiveFulltext(tc.item, tc.feed, tc.all), fmt.Sprint(tc))
 	}
@@ -44,7 +42,7 @@ func TestFulltextModeSQLMatchesGo(t *testing.T) {
 				require.NoError(t, e.db.reader.QueryRow("SELECT "+FulltextModeSQL("?1", "?2", all), item, feed).Scan(&got))
 				var im *int
 				if item != nil {
-					im = iptr(item.(int))
+					im = new(item.(int))
 				}
 				require.Equal(t, EffectiveFulltext(im, feed == 1, all), got, fmt.Sprint(all, item, feed))
 			}

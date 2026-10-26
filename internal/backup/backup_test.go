@@ -50,7 +50,7 @@ func seed(t *testing.T, db *store.DB, n int) {
 	var feed int64
 	require.NoError(t, db.Reader().QueryRow("SELECT id FROM feeds WHERE url = 'http://a.test/rss'").Scan(&feed))
 	require.NoError(t, db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			id := int64(1_700_000_000_000_000) + int64(i)*1000
 			star := 0
 			if i%10 == 0 {
@@ -341,9 +341,7 @@ func TestExportConsistentUnderConcurrentWrites(t *testing.T) {
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	var written, worst atomic.Int64
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		// Each write is one transaction inserting an item and its content, like a
 		// fetch commit; a consistent snapshot never sees half of one.
 		for i := 0; ; i++ {
@@ -371,7 +369,7 @@ func TestExportConsistentUnderConcurrentWrites(t *testing.T) {
 				worst.Store(d)
 			}
 		}
-	}()
+	})
 	time.Sleep(50 * time.Millisecond)
 	exp, err := m.Create(context.Background())
 	close(stop)
@@ -512,10 +510,8 @@ func TestOneExportAtATime(t *testing.T) {
 	// Concurrent requests: every one either succeeds or is told busy; at least one succeeds.
 	var wg sync.WaitGroup
 	var ok, busy atomic.Int32
-	for i := 0; i < 6; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 6 {
+		wg.Go(func() {
 			_, err := m.Create(context.Background())
 			switch {
 			case err == nil:
@@ -525,7 +521,7 @@ func TestOneExportAtATime(t *testing.T) {
 			default:
 				t.Errorf("unexpected: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	require.Positive(t, ok.Load())

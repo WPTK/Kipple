@@ -97,7 +97,7 @@ func TestRestoreSeedsOnDisk(t *testing.T) {
 
 // FuzzCheckRestoreStructured mutates the seed and knobs of RestoreFromSeed, not raw bytes.
 func FuzzCheckRestoreStructured(f *testing.F) {
-	for m := uint8(0); m < 8; m++ {
+	for m := range uint8(8) {
 		f.Add(uint64(m)+1, uint8(18), uint8(3), m, uint8(3))
 	}
 	f.Fuzz(func(t *testing.T, seed uint64, version, pageSize, mutation, flips uint8) {

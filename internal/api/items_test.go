@@ -328,7 +328,7 @@ func TestListItems(t *testing.T) {
 	t.Run("keyset paging", func(t *testing.T) {
 		var got []string
 		cursor := ""
-		for pages := 0; pages < 10; pages++ {
+		for range 10 {
 			code, body, _ := h.api(c, "GET", "/api/items?view=all&limit=2&cursor="+cursor, "")
 			require.Equal(t, 200, code)
 			got = append(got, itemIDs(t, body)...)
@@ -359,7 +359,7 @@ func TestListItems(t *testing.T) {
 		h2 := newHarness(t)
 		c2 := h2.login()
 		f := h2.addFeed("L", 0)
-		for i := 0; i < 103; i++ {
+		for range 103 {
 			h2.addItem(f, seedItem{})
 		}
 		_, body, _ := h2.api(c2, "GET", "/api/items?limit=500", "")
@@ -1151,7 +1151,7 @@ func TestCountsAreCoalesced(t *testing.T) {
 	f := h.addFeed("A", 0)
 	g := h.addFeed("G", 0)
 	var ids []int64
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		ids = append(ids, h.addItem(f, seedItem{}))
 	}
 	h.addItem(g, seedItem{})

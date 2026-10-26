@@ -157,7 +157,7 @@ func TestStatsFeedStartPerf(t *testing.T) {
 	const big = 9999
 	tx, err := e.db.writer.BeginTx(e.ctx, nil)
 	require.NoError(t, err)
-	for i := 0; i < 100_000; i++ {
+	for i := range 100_000 {
 		ts := end.Unix() - int64(i)*300
 		lt := time.Unix(ts, 0).UTC()
 		kind := "read_time"
@@ -172,7 +172,7 @@ func TestStatsFeedStartPerf(t *testing.T) {
 	e.exec("ANALYZE")
 	best := func(f func()) time.Duration {
 		var b time.Duration
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			s := time.Now()
 			f()
 			if d := time.Since(s); i == 0 || d < b {

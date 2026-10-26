@@ -26,6 +26,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -134,7 +135,7 @@ func NormalizeTeamDomain(v string) (string, error) {
 	if len(h) > 253 || !strings.Contains(h, ".") {
 		return "", fmt.Errorf("%q is not a team domain such as yourteam.cloudflareaccess.com", v)
 	}
-	for _, label := range strings.Split(h, ".") {
+	for label := range strings.SplitSeq(h, ".") {
 		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
 			return "", fmt.Errorf("%q is not a team domain such as yourteam.cloudflareaccess.com", v)
 		}
@@ -409,12 +410,7 @@ func audContains(raw json.RawMessage, want string) bool {
 	if err := json.Unmarshal(raw, &many); err != nil {
 		return false
 	}
-	for _, a := range many {
-		if a == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(many, want)
 }
 
 // numericDate reads a JWT NumericDate (seconds, possibly fractional).
@@ -504,12 +500,10 @@ func (v *Verifier) refreshAsync(ctx context.Context) {
 	default:
 		return // a fetch is in flight; it refreshes the set for everyone
 	}
-	v.bg.Add(1)
-	go func() {
-		defer v.bg.Done()
+	v.bg.Go(func() {
 		defer func() { <-v.fetchSem }()
 		_ = v.fetchLocked(ctx)
-	}()
+	})
 }
 
 // errSkipped: fetchLocked made no attempt, one was made within MinRefetch.

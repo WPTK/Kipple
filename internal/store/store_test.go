@@ -145,11 +145,11 @@ func TestConcurrentReadWrite(t *testing.T) {
 	errs := make(chan error, writers+readers)
 	done := make(chan struct{})
 
-	for w := 0; w < writers; w++ {
+	for w := range writers {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
-			for i := 0; i < perWriter; i++ {
+			for i := range perWriter {
 				// Half go through the commit gate (fetch-style), half skip it (API-style).
 				release := func() {}
 				if i%2 == 0 {
@@ -175,10 +175,8 @@ func TestConcurrentReadWrite(t *testing.T) {
 	}
 
 	var rwg sync.WaitGroup
-	for r := 0; r < readers; r++ {
-		rwg.Add(1)
-		go func() {
-			defer rwg.Done()
+	for range readers {
+		rwg.Go(func() {
 			for {
 				select {
 				case <-done:
@@ -196,7 +194,7 @@ func TestConcurrentReadWrite(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -333,7 +331,7 @@ func TestPreMigrationSnapshotKeepsThree(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	db, _ := openTest(t)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		require.NoError(t, db.preMigrationSnapshot(ctx, 1, 2+i, nil)) // distinct names within the same second
 	}
 	files, err := filepath.Glob(filepath.Join(db.backupDir, "pre-migration-*.db"))
@@ -348,7 +346,7 @@ func TestPreMigrationSnapshotRestartsDoNotPushOutTheRollback(t *testing.T) {
 	ctx := context.Background()
 	db, _ := openTest(t)
 	require.NoError(t, db.preMigrationSnapshot(ctx, 13, 16, nil))
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		require.NoError(t, db.preMigrationSnapshot(ctx, 14, 16, nil))
 	}
 	first, err := filepath.Glob(filepath.Join(db.backupDir, "pre-migration-13-16-*.db"))

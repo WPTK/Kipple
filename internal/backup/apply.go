@@ -34,8 +34,7 @@ func checkStaged(ctx context.Context, path, kippleVersion string) (DBInfo, Backu
 	}
 	defer db.Close()
 	bad := func(err error) (DBInfo, BackupAccount, error) {
-		var newer *NewerError
-		if errors.As(err, &newer) {
+		if newer, ok := errors.AsType[*NewerError](err); ok {
 			newer.KippleVersion = kippleVersion
 			return DBInfo{}, BackupAccount{}, newer
 		}

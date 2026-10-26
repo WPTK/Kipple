@@ -159,7 +159,7 @@ func TestEditTagFourPassesThousandIDs(t *testing.T) {
 	for _, id := range ids {
 		long = append(long, FormatLongID(id))
 	}
-	for i := 0; i < 940; i++ { // pad to 1000 with unknown ids
+	for i := range 940 { // pad to 1000 with unknown ids
 		long = append(long, FormatLongID(int64(1000+i)))
 	}
 	require.Len(t, long, 1000)
@@ -325,7 +325,7 @@ func TestEditTagEventCapsIDsAndFallsBackToResync(t *testing.T) {
 
 	f := h.addFeed("https://a.example/f", "A", "")
 	var small []string
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		small = append(small, "i="+FormatDecimal(h.addItem(f, itemSeed{})))
 	}
 	w := h.post(rd+"edit-tag", "T="+h.tok+"&a=user/-/state/com.google/read&"+strings.Join(small, "&"))
@@ -335,7 +335,7 @@ func TestEditTagEventCapsIDsAndFallsBackToResync(t *testing.T) {
 	require.Contains(t, string(ev.Data), `"ids"`)
 
 	var big []string
-	for i := 0; i < events.MaxStateIDs+1; i++ {
+	for range events.MaxStateIDs + 1 {
 		big = append(big, "i="+FormatDecimal(h.addItem(f, itemSeed{})))
 	}
 	w = h.post(rd+"edit-tag", "T="+h.tok+"&a=user/-/state/com.google/read&"+strings.Join(big, "&"))

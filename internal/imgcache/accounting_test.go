@@ -47,7 +47,7 @@ func TestTinyFilesChargeWholeBlocksAndURL(t *testing.T) {
 // are given back at Commit or Abort.
 func TestDownloadsInProgressCountAgainstTheCap(t *testing.T) {
 	c, clk := newCache(t, func(o *Options) { o.MaxBytes = 20000 })
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		put(t, c, fmt.Sprint("f", i), 3000)
 		clk.Advance(time.Minute)
 	}
@@ -85,7 +85,7 @@ func TestDownloadsInProgressCountAgainstTheCap(t *testing.T) {
 func TestHostHintsAreCapped(t *testing.T) {
 	c, clk := newCache(t)
 	c.maxHosts = 3
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		require.NoError(t, c.SetHostHint(fmt.Sprintf("h%d.example", i), HostHint{UA: "browser", Referer: "self"}))
 		clk.Advance(time.Minute)
 	}

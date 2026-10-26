@@ -445,8 +445,7 @@ func (d *DB) compileSkippingBad(rules []filter.Rule) *filterSet {
 // rules that no longer compile cannot fail it.
 func validateEdit(rules []filter.Rule, edited int) error {
 	if err := filter.ValidateEdit(rules, edited); err != nil {
-		var se *filter.SetError
-		if errors.As(err, &se) {
+		if se, ok := errors.AsType[*filter.SetError](err); ok {
 			return se.Err
 		}
 		return err

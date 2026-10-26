@@ -235,7 +235,7 @@ func TestPasswordlessFailuresArePacedNotLocked(t *testing.T) {
 	h := newHarness(t, withAccess(t))
 	h.dropPassword()
 	k, other := accessKeys(t)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(other, nil))).Code)
 	}
 	require.Positive(t, h.paced.Load(), "the failures were counted")
@@ -309,7 +309,7 @@ func TestPasswordlessNothingPresentedIsNotCounted(t *testing.T) {
 	k, _ := accessKeys(t)
 	// An empty password on an account that has one (a submit before typing):
 	// refused, never counted, so it cannot lock the owner out.
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", passwordlessLogin(testUser)).Code)
 	}
 	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
@@ -317,7 +317,7 @@ func TestPasswordlessNothingPresentedIsNotCounted(t *testing.T) {
 	// A passwordless account tried without any token (the LAN): not counted
 	// either, while a valid token still gets in.
 	h.dropPassword()
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", passwordlessLogin(testUser)).Code)
 	}
 	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil))).Code)
@@ -357,7 +357,7 @@ func TestPasswordlessWithAccessOffPointsToTheCLI(t *testing.T) {
 		require.Contains(t, rec.Body.String(), "kipple password", path)
 	}
 	// Not counted: the owner is never locked out by these.
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		require.Equal(t, http.StatusForbidden, h.do("POST", "/api/account/password", `{"current":"","new":"a new pass"}`, withCookie(c)).Code)
 	}
 }
@@ -371,7 +371,7 @@ func TestPasswordlessPasswordGuessLooksLikeAWrongPassword(t *testing.T) {
 	// against the decoy hash and counted, exactly like a wrong password.
 	// With or without a (refused) token, a sent password takes the decoy path.
 	_, other := accessKeys(t)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		var mod []func(*http.Request)
 		if i%2 == 1 {
 			mod = append(mod, withJWT(h.jwt(other, nil)))
@@ -391,13 +391,13 @@ func TestRemoveCountsRefusedTokens(t *testing.T) {
 	// A token naming a key id the cached set lacks (a refetch is not due yet)
 	// cannot be judged: 503, not counted.
 	unknown := h.jwt(k, nil)
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		rec := h.do("POST", "/api/account/password", remove, withCookie(c), withJWT(tamperKid(t, unknown, "nope")))
 		require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 		require.Contains(t, rec.Body.String(), "access_unavailable")
 	}
 	// A forged token is, and the sign-in pacing then slows the next attempt.
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		rec := h.do("POST", "/api/account/password", remove, withCookie(c), withJWT(h.jwt(other, nil)))
 		require.Equal(t, http.StatusForbidden, rec.Code)
 		require.Contains(t, rec.Body.String(), "access_required")
@@ -430,7 +430,7 @@ func TestAccessKeysUnavailableIsNotAFailure(t *testing.T) {
 	})
 	h.dropPassword()
 	k, _ := accessKeys(t)
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		rec := h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil)))
 		require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 		require.Contains(t, rec.Body.String(), "access_unavailable")

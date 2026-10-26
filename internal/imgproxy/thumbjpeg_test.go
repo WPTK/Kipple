@@ -88,7 +88,7 @@ func mutateJPEG(rng *rand.Rand, data []byte) (string, []byte) {
 	fakeSOF := func() []byte {
 		n := []int{1, 3, 4}[rng.IntN(3)]
 		p := []byte{8, byte(rng.IntN(4)), byte(rng.IntN(256)), byte(rng.IntN(4)), byte(rng.IntN(256)), byte(n)}
-		for i := 0; i < n; i++ {
+		for i := range n {
 			p = append(p, byte(i+1), 0x11, 0)
 		}
 		return jpegSeg(0xC0|byte(rng.IntN(3)), p)
@@ -186,7 +186,7 @@ func TestJPEGStrictParserAgreesOrRefuses(t *testing.T) {
 			require.LessOrEqual(t, got, cost, "%s/%s: decoding allocates %d bytes, the model prices %d", name, kind, got, cost)
 		}
 		check("unchanged", base)
-		for i := 0; i < 120; i++ {
+		for range 120 {
 			kind, m := mutateJPEG(rng, base)
 			check(kind, m)
 		}

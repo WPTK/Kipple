@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -51,8 +52,7 @@ func writeBadFilter(w http.ResponseWriter, field, message string) {
 
 // filterError maps an error from the store to a response; it reports whether it handled err.
 func (s *Server) filterError(w http.ResponseWriter, what string, err error) {
-	var fe *filter.Error
-	if errors.As(err, &fe) {
+	if fe, ok := errors.AsType[*filter.Error](err); ok {
 		writeBadFilter(w, fe.Field, fe.Message)
 		return
 	}
@@ -450,12 +450,9 @@ func (s *Server) previewFilter(w http.ResponseWriter, r *http.Request) {
 		s.proxyCards(r.Context(), sample)
 	}
 	warnings := []warning{}
-	for _, fld := range f.Fields {
-		if fld == string(filter.FieldCategory) {
-			warnings = append(warnings, warning{"category_new_items_only",
-				"Articles without stored categories are skipped by category rules, inverted ones included: this covers everything fetched before categories were stored and feeds that carry none."})
-			break
-		}
+	if slices.Contains(f.Fields, string(filter.FieldCategory)) {
+		warnings = append(warnings, warning{"category_new_items_only",
+			"Articles without stored categories are skipped by category rules, inverted ones included: this covers everything fetched before categories were stored and feeds that carry none."})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"matches": res.Matches, "scanned": res.Scanned, "truncated": res.Truncated,
 		"sample": sample, "warnings": warnings})

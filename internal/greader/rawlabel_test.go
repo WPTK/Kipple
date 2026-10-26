@@ -104,7 +104,7 @@ func TestDisableTagTrailingAndDoubleAmpersand(t *testing.T) {
 // -race and on a loaded runner where a wall-clock bound does not.
 func allocated(f func()) uint64 {
 	best := ^uint64(0)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		var a, b runtime.MemStats
 		runtime.GC()
 		runtime.ReadMemStats(&a)
@@ -201,7 +201,7 @@ func genIdentBody(rng *rand.Rand) string {
 func TestRepairMatchesPhase1OnIdentifierPairs(t *testing.T) {
 	t.Parallel()
 	rng := rand.New(rand.NewSource(1))
-	for i := 0; i < 20000; i++ {
+	for range 20000 {
 		s := genIdentBody(rng)
 		want, wok := refSplitPairs(s)
 		for _, repair := range []bool{false, true} {
@@ -288,7 +288,7 @@ func TestNoRepairOutsideDisableTag(t *testing.T) {
 		"s=user/-/label/A&a b=c&i=1", "s=user/-/label/A&client.id=1&dest=user/-/label/B&",
 	}
 	rng := rand.New(rand.NewSource(7))
-	for i := 0; i < 5000; i++ {
+	for range 5000 {
 		parts := []string{"s=user/-/label/A", "&", "T", "x-y=1", "%54=z", " b=c", "&", "a=user/-/label/", "R", "", "dest=user/-/label/Q&"}
 		var sb strings.Builder
 		for n := rng.Intn(8); n >= 0; n-- {

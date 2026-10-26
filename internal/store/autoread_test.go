@@ -199,7 +199,7 @@ func TestAutoReadCatchUpEqualsPreviewAndInheritsTheGlobalDefault(t *testing.T) {
 	pv0, err := e.db.PreviewAutoRead(ctx, arNow, 0, &zero)
 	require.NoError(t, err)
 	require.Equal(t, 1, pv0.Total)
-	one, err := e.db.PreviewAutoRead(ctx, arNow, e.feed, ptr(20))
+	one, err := e.db.PreviewAutoRead(ctx, arNow, e.feed, new(20))
 	require.NoError(t, err)
 	require.Equal(t, 3, one.Total)
 
@@ -213,8 +213,6 @@ func TestAutoReadCatchUpEqualsPreviewAndInheritsTheGlobalDefault(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, again.Total)
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func TestAutoReadMarksTheTrimmedLedgerAndUnreadCountsAgree(t *testing.T) {
 	t.Parallel()
@@ -388,7 +386,7 @@ func TestAutoReadPerFeedMarksCoverFeedsWithNothingToMark(t *testing.T) {
 func TestAutoReadNothingToMarkTakesNoGate(t *testing.T) {
 	t.Parallel()
 	e := newAREnv(t)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		e.setDays(e.addFeed(fmt.Sprint("https://n", i, "/f")), 10)
 	}
 	e.setDays(e.feed, 10)

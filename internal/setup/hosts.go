@@ -106,7 +106,7 @@ func validName(s string) bool {
 	if s == "" || len(s) > maxHostLen {
 		return false
 	}
-	for _, label := range strings.Split(s, ".") {
+	for label := range strings.SplitSeq(s, ".") {
 		if label == "" || len(label) > 63 {
 			return false
 		}
@@ -241,7 +241,7 @@ func CheckHostEntry(e string) (string, error) {
 // ParseAllowedHosts parses a comma-separated KIPPLE_ALLOWED_HOSTS value (the seed of security.allowed_hosts).
 func ParseAllowedHosts(v string) ([]string, error) {
 	var out []string
-	for _, part := range strings.Split(v, ",") {
+	for part := range strings.SplitSeq(v, ",") {
 		if strings.TrimSpace(part) == "" {
 			continue
 		}

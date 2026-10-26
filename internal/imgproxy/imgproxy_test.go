@@ -266,7 +266,7 @@ func TestUndeclaredOverflowAbortsAndDoesNotBuffer(t *testing.T) {
 		w.(http.Flusher).Flush() // no Content-Length: chunked
 		_, _ = w.Write(pngBytes)
 		chunk := bytes.Repeat([]byte{7}, 64<<10)
-		for i := 0; i < 400; i++ { // 25 MiB, far past the cap
+		for range 400 { // 25 MiB, far past the cap
 			if _, err := w.Write(chunk); err != nil {
 				return
 			}
@@ -334,13 +334,11 @@ func TestConcurrencyLimitAndWait(t *testing.T) {
 		_, _ = w.Write(pngBytes)
 	})
 	var wg sync.WaitGroup
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for i := range 2 {
+		wg.Go(func() {
 			resp := rg.fetchOrig(up.URL+"/hold?i="+strconv.Itoa(i), FlagPrivateNet)
 			_, _ = io.Copy(io.Discard, resp.Body)
-		}()
+		})
 	}
 	started.Wait()
 	// Both slots are held: a third request queues, then gives up.

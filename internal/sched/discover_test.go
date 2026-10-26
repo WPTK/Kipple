@@ -101,7 +101,7 @@ func TestDiscoveredFeedsKeepTheirHostsLimit(t *testing.T) {
 	}
 	pages := "http://pages.example"
 	const n = 8
-	for i := 0; i < n; i++ {
+	for i := range n {
 		r.add(fmt.Sprintf("%s/p%d", pages, i), func(f *store.NewFeed) { f.AllowPrivateNet = false })
 	}
 	r.s.Wake()

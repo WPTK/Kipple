@@ -37,7 +37,7 @@ func TestOverflowDropsWithResync(t *testing.T) {
 	h := newHub()
 	slow := h.Subscribe(0)
 	fast := h.Subscribe(0)
-	for i := 0; i < subBuffer; i++ {
+	for i := range subBuffer {
 		h.Publish("e", i)
 		<-fast.C
 	}
@@ -51,7 +51,7 @@ func TestOverflowDropsWithResync(t *testing.T) {
 
 func TestReplayFromRing(t *testing.T) {
 	h := newHub()
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		h.Publish("e", i)
 	}
 	s := h.Subscribe(7)
@@ -65,7 +65,7 @@ func TestReplayFromRing(t *testing.T) {
 
 func TestReplayBeyondRingResyncs(t *testing.T) {
 	h := newHub()
-	for i := 0; i < ringSize+50; i++ {
+	for i := range ringSize + 50 {
 		h.Publish("e", i)
 	}
 	s := h.Subscribe(3)
@@ -92,7 +92,7 @@ func TestCloseClosesEveryChannel(t *testing.T) {
 // The largest id there is (what a malformed cursor is turned into) is ahead of every id the hub has: one resync, no replay.
 func TestSubscribeAtMaxUint64GetsOnlyAResync(t *testing.T) {
 	h := newHub()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		h.Publish("e", i)
 	}
 	s := h.Subscribe(math.MaxUint64)
@@ -108,7 +108,7 @@ func TestSubscribeAtMaxUint64GetsOnlyAResync(t *testing.T) {
 
 func TestSubscribeAheadOfSeqResyncs(t *testing.T) {
 	h := newHub()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		h.Publish("e", i)
 	}
 	s := h.Subscribe(9999) // e.g. an id from before a restart
@@ -150,7 +150,7 @@ func TestRingBoundedByBytesAsWellAsCount(t *testing.T) {
 		big[i] = 'x'
 	}
 	payload := string(big)
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		h.Publish("big", payload)
 	}
 	require.LessOrEqual(t, h.ringUsed, ringBytes)
@@ -163,7 +163,7 @@ func TestRingBoundedByBytesAsWellAsCount(t *testing.T) {
 
 	// small events are still limited by count, and the byte total stays exact
 	h2 := newHub()
-	for i := 0; i < ringSize+20; i++ {
+	for i := range ringSize + 20 {
 		h2.Publish("e", i)
 	}
 	require.Len(t, h2.ring, ringSize)
@@ -183,7 +183,7 @@ func TestRingBoundedByBytesAsWellAsCount(t *testing.T) {
 func TestSubscribeRefusesBeyondTheLimit(t *testing.T) {
 	h := newHub()
 	subs := make([]*Sub, 0, MaxSubscribers)
-	for i := 0; i < MaxSubscribers; i++ {
+	for range MaxSubscribers {
 		s := h.Subscribe(0)
 		require.NotNil(t, s)
 		subs = append(subs, s)
@@ -197,7 +197,7 @@ func TestSubscribeRefusesBeyondTheLimit(t *testing.T) {
 
 func TestSubscribeOnAClosedHubReturnsAClosedSubscriberEvenWhenFull(t *testing.T) {
 	h := newHub()
-	for i := 0; i < MaxSubscribers; i++ {
+	for range MaxSubscribers {
 		require.NotNil(t, h.Subscribe(0))
 	}
 	h.Close()
@@ -234,7 +234,7 @@ func TestSubscribeReplaysALongGapWithinTheRing(t *testing.T) {
 	h := newHub()
 	h.Publish("e", 0)
 	boot := h.LastID()
-	for i := 0; i < subBuffer-1; i++ {
+	for i := range subBuffer - 1 {
 		h.Publish("e", i)
 	}
 	s := h.Subscribe(boot)
@@ -247,7 +247,7 @@ func TestSubscribeWithAGapOfTheBufferSizeGetsAResyncNotAReplay(t *testing.T) {
 	h := newHub()
 	h.Publish("e", 0)
 	boot := h.LastID()
-	for i := 0; i < subBuffer; i++ {
+	for i := range subBuffer {
 		h.Publish("e", i)
 	}
 	s := h.Subscribe(boot)

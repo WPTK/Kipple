@@ -107,10 +107,7 @@ func TestStatsReadRuleMatchesStreaks(t *testing.T) {
 	}
 	reads := 0
 	for _, c := range cases {
-		sc := int64(c.scroll)
-		if sc < 0 {
-			sc = 0
-		}
+		sc := max(int64(c.scroll), 0)
 		want := statsIsRead(false, c.total(), sc)
 		if want {
 			reads++

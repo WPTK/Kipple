@@ -84,13 +84,11 @@ func TestEditSavedSearchesLosesNoUpdate(t *testing.T) {
 	const n = 20
 	var wg sync.WaitGroup
 	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ss := SavedSearch{ID: NewSavedSearchID(), Name: "s", Q: "q" + strings.Repeat("x", i)}
 			_, err := db.EditSavedSearches(ctx, func(l []SavedSearch) ([]SavedSearch, error) { return append(l, ss), nil })
 			require.NoError(t, err)
-		}()
+		})
 	}
 	wg.Wait()
 	list, err := db.SavedSearches(ctx)

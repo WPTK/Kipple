@@ -346,7 +346,7 @@ func TestAccountPasswordFailuresArePacedNeverLocked(t *testing.T) {
 	h := newHarness(t, realVerifier)
 	c := h.login()
 	bad := `{"current":"wrong-wrong-wrong","new":"a-brand-new-passphrase"}`
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		code, _, _ := h.api(c, "POST", "/api/account/password", bad)
 		require.Equal(t, http.StatusForbidden, code, "attempt %d", i)
 	}
@@ -476,7 +476,7 @@ func doFront(front http.Handler, method, path, body string, kv ...string) *httpt
 
 // authLine extracts Auth=<tok> from a ClientLogin text body.
 func authLine(body string) string {
-	for _, l := range strings.Split(body, "\n") {
+	for l := range strings.SplitSeq(body, "\n") {
 		if v, ok := strings.CutPrefix(l, "Auth="); ok {
 			return v
 		}
@@ -583,7 +583,7 @@ func TestFavoritesLimit(t *testing.T) {
 	build := func(n int) string {
 		var b strings.Builder
 		b.WriteString(`{"library.favorites":[`)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if i > 0 {
 				b.WriteByte(',')
 			}

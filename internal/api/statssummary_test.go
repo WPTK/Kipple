@@ -29,7 +29,7 @@ func (h *harness) stat(kind, date string, hour int, item, feed int64, session st
 		ts, date, hour, int(d.Weekday()), kind, item, feed, title, "Title "+sid(item), value, sk)
 }
 
-func (h *harness) summary(c interface{}, q string) (int, map[string]any) {
+func (h *harness) summary(c any, q string) (int, map[string]any) {
 	h.t.Helper()
 	cc := h.login()
 	rec := h.do("GET", "/api/stats/summary"+q, "", withCookie(cc))

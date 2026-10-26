@@ -122,7 +122,7 @@ func Test304Variants(t *testing.T) {
 		t.Errorf("304-ignores-validators gave %d", resp.StatusCode)
 	}
 	var codes []int
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		resp, _, _ := get(t, c, ts.URL+"/304-then-200?n=2", "If-None-Match", `"bf-seq"`)
 		codes = append(codes, resp.StatusCode)
 	}
@@ -134,7 +134,7 @@ func Test304Variants(t *testing.T) {
 func TestStatusBurstsAndRetryAfter(t *testing.T) {
 	ts, c := start(t)
 	var codes []int
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		resp, _, _ := get(t, c, ts.URL+"/5xx-burst?n=3")
 		codes = append(codes, resp.StatusCode)
 	}

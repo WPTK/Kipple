@@ -119,7 +119,7 @@ func iconLinks(body []byte, base string) []candidate {
 // iconRel reports whether a rel list names an icon, and whether it is an
 // apple-touch-icon. "mask-icon" (always SVG) and "fluid-icon" are not icons here.
 func iconRel(rel string) (apple, ok bool) {
-	for _, t := range strings.Fields(strings.ToLower(rel)) {
+	for t := range strings.FieldsSeq(strings.ToLower(rel)) {
 		switch t {
 		case "icon":
 			ok = true
@@ -143,7 +143,7 @@ func svgType(t string) bool {
 // 32x32", case-insensitive x), or 0 for "any", an empty value or nothing valid.
 func parseSizes(s string) int {
 	best := 0
-	for _, tok := range strings.Fields(strings.ToLower(s)) {
+	for tok := range strings.FieldsSeq(strings.ToLower(s)) {
 		w, h, ok := strings.Cut(tok, "x")
 		if !ok {
 			continue

@@ -57,7 +57,7 @@ func TestStarredAndLedgerIndexPlans(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	var feeds []int64
-	for f := 0; f < 3; f++ {
+	for f := range 3 {
 		feeds = append(feeds, e.addFeed(fmt.Sprintf("https://a.example/%d", f)))
 	}
 	for i := int64(1); i <= 900; i++ {

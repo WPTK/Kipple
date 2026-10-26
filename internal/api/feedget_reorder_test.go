@@ -151,7 +151,7 @@ func TestSSEHeartbeatEventHasNoIDAndDoesNotAdvanceLastEventID(t *testing.T) {
 	defer closeBody()
 	readUntil(t, br, ": connected", 2*time.Second)
 	last := h.hub.LastID()
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		require.Equal(t, "event: heartbeat\n", readUntil(t, br, "event:", 2*time.Second))
 		next, err := br.ReadString('\n')
 		require.NoError(t, err)

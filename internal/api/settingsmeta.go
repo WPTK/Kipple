@@ -197,7 +197,6 @@ func checkCloudflareAccess(v any) (any, string) {
 	}
 	return map[string]any{"team_domain": host, "aud": aud}, ""
 }
-func ip(n int) *int { return &n }
 
 func intIn(lo, hi int) func(any) (any, string) {
 	return func(v any) (any, string) {
@@ -234,10 +233,8 @@ func boolVal(v any) (any, string) {
 func oneOf(vals ...string) func(any) (any, string) {
 	return func(v any) (any, string) {
 		if s, ok := v.(string); ok {
-			for _, w := range vals {
-				if s == w {
-					return s, ""
-				}
+			if slices.Contains(vals, s) {
+				return s, ""
 			}
 		}
 		q := make([]string, 0, len(vals))
@@ -432,7 +429,7 @@ var settingDefs = withScopes([]settingDef{
 
 	// Sync.
 	{Key: "refresh.interval_minutes", Label: "How often to check feeds", Description: "Kipple looks for new articles this often, unless a feed sets its own schedule.",
-		Group: groupSync, Kind: "int", Min: ip(5), Max: ip(1440), Step: ip(5), Unit: "minutes", Surface: surfaceSettings, check: intIn(5, 1440)},
+		Group: groupSync, Kind: "int", Min: new(5), Max: new(1440), Step: new(5), Unit: "minutes", Surface: surfaceSettings, check: intIn(5, 1440)},
 	{Key: "fetch.user_agent_mode", Label: "Browser identity for feeds", Description: "Some sites block feed readers; this controls when Kipple presents itself as an ordinary web browser instead.",
 		Group: groupSync, Kind: "enum", Options: uaModeOptions, Surface: surfaceSettings, check: oneOf(optValues(uaModeOptions)...)},
 	{Key: "fetch.user_agent", Label: "Custom browser identity", Description: "Optional. Replaces the built-in identity when Kipple needs to look like a browser. Leave empty for the default.",
@@ -453,19 +450,19 @@ var settingDefs = withScopes([]settingDef{
 			return nil, "must be " + retentionChoicesText() + ", or 0 (unlimited)"
 		}},
 	{Key: "retention.restore_days", Label: "Days you can restore removed articles", Description: "How long a removed article can still be brought back by a sync app. Zero turns this off.",
-		Group: groupLibrary, Kind: "int", Min: ip(0), Max: ip(store.MaxRestoreDays), Step: ip(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, store.MaxRestoreDays)},
+		Group: groupLibrary, Kind: "int", Min: new(0), Max: new(store.MaxRestoreDays), Step: new(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, store.MaxRestoreDays)},
 
 	{Key: "imgproxy.mode", Label: "Load images through Kipple", Description: "Kipple fetches each image and serves it itself, so the sites that host images never see you. \"Only insecure images\" lets your device load secure images straight from their sites.",
 		Group: groupImages, Kind: "enum", Options: imgModeOptions, Surface: surfaceSettings, check: oneOf(optValues(imgModeOptions)...)},
 	{Key: "imgproxy.cache_mb", Label: "Image cache size", Description: "Images are kept on the server so they load fast. The oldest go when the cache is full. Zero turns the cache off.",
-		Group: groupImages, Kind: "int", Min: ip(0), Max: ip(imgCacheMaxMB), Step: ip(64), Unit: "MB", Surface: surfaceSettings, check: checkImgCacheMB},
+		Group: groupImages, Kind: "int", Min: new(0), Max: new(imgCacheMaxMB), Step: new(64), Unit: "MB", Surface: surfaceSettings, check: checkImgCacheMB},
 
 	{Key: "fetch.fulltext_all", Label: "Fetch the full article for every feed", Description: "Download each new article's page and show its full text, whatever a feed's own setting says. This uses more time and bandwidth on each check.",
 		Group: groupLibrary, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 	{Key: "library.favorites", Label: "Sidebar favorites", Description: "The folders and feeds you pinned to the top of the sidebar.",
 		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkFavorites},
 	{Key: "library.auto_read_days", Label: "Mark old articles as read after…", Description: "Unread articles are marked read once they are this many days old. Starred and muted articles are never touched. Zero turns this off. Changing it marks nothing until you clear the older ones below.",
-		Group: groupLibrary, Kind: "int", Min: ip(0), Max: ip(365), Step: ip(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, 365)},
+		Group: groupLibrary, Kind: "int", Min: new(0), Max: new(365), Step: new(1), Unit: "days", Surface: surfaceSettings, check: intIn(0, 365)},
 	{Key: "library.saved_searches", Label: "Saved searches", Description: "The searches you saved to the sidebar.",
 		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkSavedSearches},
 

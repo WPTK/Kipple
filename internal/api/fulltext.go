@@ -107,7 +107,7 @@ func (s *Server) itemFulltext(w http.ResponseWriter, r *http.Request) {
 		// by shutdown is not usable here, so this request runs its own once.
 		var out ftrun.Outcome
 		var err error
-		for attempt := 0; attempt < 2; attempt++ {
+		for range 2 {
 			out, err = s.runner.Run(ctx, ftrun.Request{Item: it, Now: s.now().Unix(), Timeout: extractBudget})
 			if out.Joined && (errors.Is(err, ftrun.ErrAborted) || (err == nil && !out.Written)) {
 				continue
