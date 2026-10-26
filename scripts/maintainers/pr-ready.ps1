@@ -36,7 +36,7 @@
   Exit codes: 0 READY (and merged and verified, with -Merge), 1 BLOCKED or the post-merge verification failed,
   2 usage or environment error.
   If this breaks: it depends on `gh pr view --json` fields number,state,isDraft,headRefOid,baseRefName,
-  mergeStateStatus,reviewDecision,statusCheckRollup,closingIssuesReferences (Get-PullRequestState), on the compare
+  mergeStateStatus,reviewDecision,statusCheckRollup,closingIssuesReferences,files (Get-PullRequestState), on the compare
   API's `status` field (Get-AncestorStatus), and on `gh pr merge --match-head-commit`. The decision logic is
   Get-PrVerdict. Tests: Invoke-Pester scripts/maintainers/pr-ready.Tests.ps1
 #>
@@ -55,8 +55,20 @@ $script:FailingConclusions = @('FAILURE', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQU
 $script:PendingStates = @('PENDING', 'EXPECTED')
 # Checks that report but never block: the slow real-browser run (.github/workflows/browser-uat.yml, not a required check
 # yet). A name matches a check called exactly that or "<name> (<matrix leg>)". Take a name off this list when its
-# check becomes required.
+# check becomes required. A PR that changes the browser flows or the workflow itself is the exception: for it every
+# leg blocks (Test-UatTouched), because the change is what the legs test.
 $script:AdvisoryChecks = @('Browser UAT')
+$script:UatPaths = @('^web/uat/', '^\.github/workflows/browser-uat\.yml$')
+
+function Test-UatTouched {
+  [CmdletBinding()]
+  [OutputType([bool])]
+  param([AllowEmptyCollection()][string[]]$Path = @())
+  foreach ($f in $Path) {
+    foreach ($re in $script:UatPaths) { if ($f -match $re) { return $true } }
+  }
+  return $false
+}
 
 function Test-AdvisoryCheck {
   [CmdletBinding()]
@@ -80,7 +92,7 @@ function Get-CheckSummary {
   #>
   [CmdletBinding()]
   [OutputType([pscustomobject])]
-  param([AllowEmptyCollection()][object[]]$Rollup = @())
+  param([AllowEmptyCollection()][object[]]$Rollup = @(), [switch]$UatBlocking)
   $failing = [System.Collections.Generic.List[string]]::new()
   $pending = [System.Collections.Generic.List[string]]::new()
   $advisory = [System.Collections.Generic.List[string]]::new()
@@ -88,14 +100,14 @@ function Get-CheckSummary {
     $props = $c.PSObject.Properties.Name
     if ($props -contains 'context') {
       $name = $c.context
-      if (Test-AdvisoryCheck -Name $name) {
+      if (-not $UatBlocking -and (Test-AdvisoryCheck -Name $name)) {
         if ($c.state -in $script:FailingConclusions) { $advisory.Add("${name}: failing") } elseif ($c.state -in $script:PendingStates) { $advisory.Add("${name}: pending") }
       }
       elseif ($c.state -in $script:FailingConclusions) { $failing.Add($name) }
       elseif ($c.state -in $script:PendingStates) { $pending.Add($name) }
     } else {
       $name = $c.name
-      if (Test-AdvisoryCheck -Name $name) {
+      if (-not $UatBlocking -and (Test-AdvisoryCheck -Name $name)) {
         if ($c.status -ne 'COMPLETED') { $advisory.Add("${name}: pending") } elseif ($c.conclusion -in $script:FailingConclusions) { $advisory.Add("${name}: failing") }
       }
       elseif ($c.status -ne 'COMPLETED') { $pending.Add($name) }
@@ -122,7 +134,11 @@ function Get-PrVerdict {
   $reasons = [System.Collections.Generic.List[string]]::new()
   if ($Pr.state -ne 'OPEN') { $reasons.Add("the PR is $($Pr.state), not open") }
   if ($Pr.isDraft) { $reasons.Add('it is a draft') }
-  $checks = Get-CheckSummary -Rollup @($Pr.statusCheckRollup)
+  $files = @()
+  if ($Pr.PSObject.Properties['files'] -and $Pr.files) { $files = @($Pr.files | ForEach-Object { $_.path }) }
+  # `gh pr view --json files` lists at most 100 files; a PR that large may hide a web/uat change, so it fails closed.
+  $uat = ($files.Count -ge 100) -or (Test-UatTouched -Path $files)
+  $checks = Get-CheckSummary -Rollup @($Pr.statusCheckRollup) -UatBlocking:$uat
   if ($checks.Failing.Count) { $reasons.Add("failing checks: $($checks.Failing -join ', ')") }
   if ($checks.Pending.Count) { $reasons.Add("pending checks: $($checks.Pending -join ', ')") }
   if ($checks.Total -eq 0) { $reasons.Add('no checks have reported') }
@@ -172,7 +188,8 @@ function Get-FailedStepName {
 function Get-LogTail {
   <#
   .SYNOPSIS
-    The last N non-empty lines of a job log, with terminal escapes and the leading timestamp removed.
+    The last N non-empty lines of a job log, with terminal escapes and the leading timestamp removed. When the log has
+    a ##[error] line the tail ends there, so it shows the failed step and not the cleanup after it.
   #>
   [CmdletBinding()]
   [OutputType([string[]])]
@@ -182,6 +199,11 @@ function Get-LogTail {
     $l = [regex]::Replace($l, '^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?', '')
     if ($l.Trim()) { $l }
   }
+  $clean = @($clean)
+  # The step's own output ends at the runner's ##[error] line; what follows is cleanup noise.
+  $last = -1
+  for ($i = 0; $i -lt $clean.Count; $i++) { if ($clean[$i] -like '##`[error`]*') { $last = $i } }
+  if ($last -ge 0) { $clean = $clean[0..$last] }
   return @($clean | Select-Object -Last $Lines)
 }
 
@@ -220,7 +242,7 @@ function Get-PullRequestState {
   [CmdletBinding()]
   [OutputType([pscustomobject])]
   param([Parameter(Mandatory)][string]$Repo, [Parameter(Mandatory)][int]$Number)
-  $fields = 'number,state,isDraft,headRefOid,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup,closingIssuesReferences'
+  $fields = 'number,state,isDraft,headRefOid,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup,closingIssuesReferences,files'
   $r = Invoke-Native -FilePath gh -Arguments 'pr', 'view', "$Number", '-R', $Repo, '--json', $fields `
     -Step "read PR #$Number" -Fix 'gh auth status; check the number and the repository'
   $pr = ($r.Output -join "`n") | ConvertFrom-Json
