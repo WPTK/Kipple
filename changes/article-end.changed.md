@@ -1,1 +1,0 @@
-Reader: an article ends with its place in the list and a Next button naming the next article, and Next is off at the end of the list. Previous and Next use up and down arrows, and the phone's Back button is named Back. (#650, #653)

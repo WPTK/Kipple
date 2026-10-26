@@ -8,6 +8,43 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [1.5.1] - 2026-10-25
+
+### Added
+
+- Feed health: with no feeds it offers Add a feed in place of an empty table. (#617)
+
+### Changed
+
+- Reading appearance: the theme choice is named Follow system, the smallest text size Small, and the Settings section Reading appearance. (#652)
+- Reader: on a phone, Reading appearance opens as a short sheet with the start of the article still in view; a tap above it closes it. Beside an open article it is only in the article toolbar. (#652)
+- Feeds: the header has Edit, Add feed and a feed actions menu; while editing it has the saved note, Done and the menu. The menu groups its items under Organize and Files. (#668)
+- Feeds: a folder's dialog is titled Folder settings, and an empty folder says Empty in place of an unread count. (#672)
+- Feed health: the selection bar has Retry now, which fetches the selected feeds one by one and says how many still fail. Delete is red on the selection bars of Feed health and Feeds, and the Feeds bar says Move. (#673)
+- Feeds: edit mode has a Show move buttons link beside the reordering help, and hides Add feed until Done. (#675)
+- Feeds: the menu items are Import feeds from a file (OPML) and Export feeds to a file (OPML). The import dialog's file picker looks like the other controls and its days field says what it does. (#676)
+- Stats: the page keeps one readable column width on a wide window. (#761)
+- Stats: a failed refresh or comparison says why, and every empty section uses the same words. (#761)
+- Reader: an article ends with its place in the list and a Next button naming the next article, and Next is off at the end of the list. Previous and Next use up and down arrows, and the phone's Back button is named Back. (#650, #653)
+
+### Removed
+
+- Feed health: the database and backup sizes under the table are gone; Storage in Settings has them. (#674)
+
+### Fixed
+
+- Feed health: turning Select on no longer moves the feed names. (#673)
+- Your year: with large text the Share sheet's buttons stack instead of running off the edge. (#691)
+- Add feed: Options stays open while the title is too long. (#735)
+- Feeds: a folder's note about one failing feed says when Kipple tries it again. (#735)
+- List header: with Large targets or a larger text size, its controls wrap to a second line in a narrow list column. (#757)
+- Reader: a picture given only a width keeps its own shape when capped, and a caption starts under its picture. (#757)
+- Reader: the feed name line above a right-to-left article sits on the right with its title. (#649)
+- Reader: a code block or table that overflows only at a larger text size can be reached with the keyboard. (#757)
+- Reader: a table cell of running text keeps a few words to a line on a phone, and the table scrolls sideways. (#757)
+- Feed health: a failing feed's card shows the last-success and next-fetch times once, not twice. (#759)
+- Stats: the activity chart for a long range starts at the first day with reading and, past about four months, shows one bar per week, so a year no longer draws as a line at the right edge. (#779)
+
 ## [1.5.0] - 2026-10-25
 
 Kipple gains new ways to read, with a New page, the Digest, Coffee break and Feed index layouts and grouping by day or week, and a design pass across the whole app.
@@ -1214,7 +1251,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/WPTK/Kipple/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/WPTK/Kipple/compare/v1.0.0...v1.5.0
 [1.0.0]: https://github.com/WPTK/Kipple/compare/v1.0.0-rc.2...v1.0.0
 [1.0.0-rc.2]: https://github.com/WPTK/Kipple/compare/v1.0.0-rc.1...v1.0.0-rc.2
