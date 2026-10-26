@@ -1,0 +1,6 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["uat/*.mjs", "scripts/*.mjs"],
+  "ignoreBinaries": ["go"],
+  "ignoreIssues": { "uat/common.mjs": ["exports"] }
+}

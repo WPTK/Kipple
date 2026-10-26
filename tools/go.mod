@@ -6,6 +6,7 @@ go 1.27
 
 tool (
 	github.com/securego/gosec/v2/cmd/gosec
+	golang.org/x/tools/cmd/deadcode
 	golang.org/x/vuln/cmd/govulncheck
 	honnef.co/go/tools/cmd/staticcheck
 )

@@ -55,6 +55,12 @@ Step 'go' 'go test (shuffled, no -race)' { go test -shuffle=on -timeout 15m -cov
 # ---- security ----
 Step 'security' 'govulncheck' { go tool '-modfile=tools/go.mod' govulncheck ./... }
 Step 'security' 'staticcheck' { go tool '-modfile=tools/go.mod' staticcheck ./... }
+# deadcode exits 0 even when it lists something, so any output fails the step. Go also walks web/node_modules, whose vendored Go files are not ours.
+Step 'security' 'deadcode (unreachable functions)' {
+  $dead = @(go tool '-modfile=tools/go.mod' deadcode -test ./... | Where-Object { $_ -notmatch 'node_modules' })
+  $dead | Write-Host
+  if ($dead.Count -gt 0) { $global:LASTEXITCODE = 1 }
+}
 Step 'security' 'gosec (gate: high severity, high confidence)' { go tool '-modfile=tools/go.mod' gosec -quiet -severity high -confidence high ./... }
 Step 'security' 'gitleaks (git history)' {
   # The workflow runs `gitleaks git` from the release binary on a full checkout. Here the official image scans a fresh clone of the
@@ -84,6 +90,7 @@ Step 'web' 'prose-only filter (scripts/ci-changes.test.sh, ci-prune-prose.test.s
 Step 'web' 'UAT label guard (scripts/uat-labels.mjs)' { node --test scripts/uat-labels.test.mjs; if ($LASTEXITCODE -eq 0) { node scripts/uat-labels.mjs } }
 Step 'web' 'npm ci' { Push-Location web; npm ci --ignore-scripts --cache $npmCache --no-audit --no-fund; Pop-Location }
 Step 'web' 'lint' { Push-Location web; npm run lint; Pop-Location }
+Step 'web' 'knip (unused files and exports)' { Push-Location web; npm run knip; Pop-Location }
 Step 'web' 'test and coverage (no threshold)' { Push-Location web; npm run test:coverage; Pop-Location }
 Step 'web' 'build' { Push-Location web; npm run build; Pop-Location }
 Step 'web' 'theme contrast' { Push-Location web; npm run contrast; Pop-Location }
