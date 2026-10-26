@@ -25,7 +25,7 @@
 //
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
-import { start } from "./common.mjs";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 27, { serviceWorkers: "block" });
 const { check, step } = t;
@@ -34,10 +34,20 @@ await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
   // A control that is not there fails its step in seconds (a step stops at its first error) instead of waiting out Playwright's 30 s.
   page.setDefaultTimeout(8000);
+  // The page has stopped changing: main's size and the number of elements held for 200 ms (the Your year page keeps a
+  // staggered entrance animation running, so "no animations" is not the signal).
+  const laidOut = () =>
+    waitForStillFor(page, 200, () =>
+      page.evaluate(() => {
+        const m = document.querySelector("main");
+        const r = m?.getBoundingClientRect();
+        return [Math.round(r?.width ?? 0), Math.round(r?.height ?? 0), m?.scrollHeight ?? 0, document.querySelectorAll("*").length, innerWidth, innerHeight];
+      }),
+    );
   const open = async (path) => {
     await page.goto(path, { waitUntil: "load" });
     await page.locator("main h1, main h2").first().waitFor({ timeout: 15000 });
-    await page.waitForTimeout(600);
+    await laidOut();
   };
   const feed = (await t.boot(page)).feeds[0];
   if (!feed) return t.fail(`${tag} setup`, "the seeded instance has no feed");
@@ -129,7 +139,7 @@ await t.eachViewport(async (page, vp) => {
     await t.shot(page, `${tag}-portrait-list`);
     // The keyboard takes the height of an upright phone: the layout stays.
     await page.setViewportSize({ width: 375, height: 420 });
-    await page.waitForTimeout(200);
+    await laidOut();
     const k = await rows();
     check(k.showBelow && !k.tabRow, `${tag} L2 keyboard`, "upright with the keyboard open (375x420), the layout stays", "upright with the keyboard open, the header and tabs switched to the sideways layout");
   });
@@ -187,16 +197,19 @@ await t.eachViewport(async (page, vp) => {
     await item.waitFor({ timeout: 5000 });
     await t.shot(page, `${tag}-actions-menu`);
     await page.keyboard.press("Escape");
-    // The request is held back 2 s so the refresh is still running when the menu button is looked at.
+    // The request is held back until the checks of the running state are done, so the refresh is still running when
+    // the menu button is looked at.
+    let release;
+    const held = new Promise((r) => (release = r));
     await page.route("**/api/refresh", async (route) => {
-      await new Promise((r) => setTimeout(r, 2000));
+      await held;
       await route.continue().catch(() => {});
     });
     const asked = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname === "/api/refresh", { timeout: 5000 }).then(() => true, () => false);
     await header.getByRole("button", { name: "List actions" }).click();
     await page.getByRole("menuitem", { name: "Refresh all feeds" }).click();
     check(await asked, `${tag} I1 refresh`, "Refresh all feeds in the menu asks for a refresh", "Refresh all feeds in the menu sent no request");
-    await page.waitForTimeout(300);
+    await header.getByRole("button", { name: "List actions" }).locator("svg.animate-spin").waitFor({ timeout: 3000 }).catch(() => {});
     check(await header.getByRole("button", { name: "List actions" }).evaluate((b) => !!b.querySelector("svg.animate-spin")), `${tag} I1 spin`, "the actions menu button spins while the refresh runs", "nothing shows that a refresh is running");
     await header.getByRole("button", { name: "List actions" }).focus();
     await page.keyboard.press("Enter");
@@ -204,6 +217,7 @@ await t.eachViewport(async (page, vp) => {
     await busy.waitFor({ timeout: 5000 });
     check((await busy.getAttribute("aria-disabled")) === "true" && (await busy.evaluate((e) => e === document.activeElement)), `${tag} I1 busy`, "while it runs the item is reached by the keyboard and marked disabled", "while it runs the item is skipped by the keyboard or not marked disabled");
     await page.keyboard.press("Escape");
+    release();
     await page.unroute("**/api/refresh");
   });
 
@@ -242,9 +256,10 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("main").getByRole("heading").first().waitFor({ timeout: 5000 });
     await chevron().click({ timeout: 5000 });
     await page.waitForURL((u) => u.pathname === "/settings", { timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(400);
+    const focusText = () => page.evaluate(() => document.activeElement?.textContent?.trim().slice(0, 40) ?? "");
+    await waitForStillFor(page, 200, focusText); // focus arrives on the row a frame or two after the route changes
     check(pathOf() === "/settings", `${tag} B2 list`, "the chevron in a group opened from the Settings list goes back to the list", `it went to ${pathOf()}`);
-    const focused = await page.evaluate(() => document.activeElement?.textContent?.trim().slice(0, 40) ?? "");
+    const focused = await focusText();
     check(/^Appearance/.test(focused), `${tag} B2 focus`, "focus arrives on the row of the group just left", `focus is on "${focused}"`);
 
     const isSummary = (u) => u.pathname === "/api/stats/summary";
@@ -256,11 +271,12 @@ await t.eachViewport(async (page, vp) => {
     await back.waitFor({ timeout: 5000 });
     const label = (await back.getAttribute("aria-label")) ?? "";
     await back.click({ timeout: 5000 });
-    await page.waitForTimeout(600);
+    await page.waitForURL((u) => u.pathname !== "/settings/statistics", { timeout: 5000 }).catch(() => {});
+    await waitForStillFor(page, 200, pathOf);
     const landed = pathOf() === "/settings" ? "Settings" : pathOf() === "/stats" ? "Stats" : pathOf();
     check(label === `Back to ${landed}`, `${tag} B2 label`, `the chevron lands where its label says (${label})`, `the label says "${label}" and it landed on ${landed}`);
     await page.goBack();
-    await page.waitForTimeout(400);
+    await waitForStillFor(page, 200, pathOf);
     check(pathOf() !== "/settings/statistics", `${tag} B2 history`, "the system Back does not return to the group just left", "the system Back returned to the group");
     await page.unroute(isSummary);
   });

@@ -20,7 +20,7 @@
 //   A2  (desktop) beside an open article there is one Reading appearance button, and its panel is a popover.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
-import { start } from "./common.mjs";
+import { start, waitForAnimationsDone, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 22);
 const { check, step } = t;
@@ -34,8 +34,16 @@ await t.eachViewport(async (page, vp) => {
     await page.goto(path, { waitUntil: "load" });
     await page.locator("main h1").first().waitFor({ timeout: 15000 });
     await page.locator("main article[data-item-id]").first().waitFor({ timeout: 15000 });
-    await page.waitForTimeout(600);
+    await waitForAnimationsDone(page);
   };
+  // A popover or sheet has stopped opening: its rectangle and the running animations are unchanged for 150 ms.
+  const stillBox = (selector) =>
+    waitForStillFor(page, 150, () =>
+      page.evaluate((sel) => {
+        const r = document.querySelector(sel)?.getBoundingClientRect();
+        return [r ? [r.x, r.y, r.width, r.height].map(Math.round) : null, document.getAnimations().length];
+      }, selector),
+    );
   const menuBox = () =>
     page.evaluate(() => {
       const m = document.querySelector('[role="menu"]');
@@ -59,7 +67,7 @@ await t.eachViewport(async (page, vp) => {
     await open("/l/unread");
     await page.goto(await page.locator("main article[data-item-id] a").first().getAttribute("href"), { waitUntil: "load" });
     await page.locator("#article-title").waitFor({ timeout: 10000 });
-    await page.waitForTimeout(400);
+    await waitForAnimationsDone(page);
   };
   const panelBox = () =>
     page.evaluate(() => {
@@ -78,7 +86,7 @@ await t.eachViewport(async (page, vp) => {
       for (const id of ["layout", "length", "row"]) {
         await press(b[id]);
         await menu().waitFor({ timeout: 5000 });
-        await page.waitForTimeout(300);
+        await stillBox('[role="menu"]');
         const m = await menuBox();
         check(!m.sheet && !m.dim && m.width < 400 && m.bottom < m.win.h - 1, `${tag} D1 ${id}`, `the ${id} menu is a ${Math.round(m.width)} px popover`, `the ${id} menu is a sheet or pinned to the bottom (sheet ${m.sheet}, dimmed ${m.dim}, ${Math.round(m.width)} px wide, bottom ${Math.round(m.bottom)})`);
         if (id === "layout") await t.shot(page, `${tag}-layout-popover`);
@@ -109,7 +117,7 @@ await t.eachViewport(async (page, vp) => {
         const name = `${tag} ${label} ${id}`;
         await press(b[id]);
         await menu().waitFor({ timeout: 5000 });
-        await page.waitForTimeout(400);
+        await stillBox('[role="menu"]');
         const m = await menuBox();
         const full = Math.abs(m.width - Math.min(m.win.w, 512)) <= 1 && Math.abs(m.bottom - m.win.h) <= 1;
         check(m.sheet && full && m.top >= 0 && m.height <= 0.7 * m.win.h + 1 && m.dim, `P1 ${name}`, `the menu is a sheet ${Math.round(m.width)}x${Math.round(m.height)} px on the bottom edge`, `the menu is not a bottom sheet (sheet ${m.sheet}, ${Math.round(m.left)}-${Math.round(m.right)} x ${Math.round(m.top)}-${Math.round(m.bottom)} in ${m.win.w}x${m.win.h}, dimmed ${m.dim})`);
@@ -151,7 +159,7 @@ await t.eachViewport(async (page, vp) => {
         const before = page.url();
         await page.touchscreen.tap(size[0] / 2, 12);
         await menu().waitFor({ state: "detached", timeout: 5000 });
-        await page.waitForTimeout(300);
+        await waitForStillFor(page, 300, () => page.url()); // a stray navigation from the tap would show up here
         check(page.url() === before, `P3 ${name}`, "a tap on the dimmed page only closes the sheet", `the address changed to ${page.url()}`);
       });
     }
@@ -180,7 +188,7 @@ await t.eachViewport(async (page, vp) => {
       await openArticle();
       await page.getByRole("toolbar", { name: "Article actions" }).getByRole("button", { name: "Reading appearance" }).tap();
       await panel().waitFor({ timeout: 5000 });
-      await page.waitForTimeout(300);
+      await stillBox('[role="dialog"][aria-label="Reading appearance"]');
       const m = await panelBox();
       check(m.sheet && Math.abs(m.bottom - m.h) <= 1 && m.height <= 0.45 * m.h + 1 && !m.dim, `${tag} A1 ${label} sheet`, "the panel is a short sheet on the bottom edge over an undimmed page", JSON.stringify(m));
       check(m.titleBottom <= m.top, `${tag} A1 ${label} title`, "the article title shows above the sheet", `title ends at ${Math.round(m.titleBottom)}, the sheet starts at ${Math.round(m.top)}`);
@@ -192,7 +200,7 @@ await t.eachViewport(async (page, vp) => {
       const pages = page.context().pages().length;
       await page.touchscreen.tap(title.x + Math.min(40, title.width / 2), title.y + title.height / 2);
       const closed = await panel().waitFor({ state: "detached", timeout: 5000 }).then(() => true, () => false);
-      await page.waitForTimeout(500);
+      await waitForStillFor(page, 500, () => [page.url(), page.context().pages().length]); // a link that did open would show up here
       const went = page.url() !== url || page.context().pages().length !== pages;
       check(closed && !went, `${tag} A1 ${label} tap above`, "a tap above the sheet closes it and goes no further", `closed: ${closed}, address or tabs changed: ${went}`);
       for (const p of page.context().pages()) if (p !== page) await p.close();
@@ -207,6 +215,7 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("button", { name: LAYOUT }).tap();
     await menu().waitFor({ timeout: 5000 });
     // A screen reader moving to an article row: well after the opening tap, focus lands on the page behind the sheet.
+    // Real time: the sheet ignores focus leaving it for LEFTOVER_MS (400, ui/menu.tsx) after the opening press lifts.
     await page.waitForTimeout(700);
     await page.evaluate(() => document.querySelector("a.row-link")?.focus());
     await menu().waitFor({ state: "detached", timeout: 5000 }).catch(() => {});
