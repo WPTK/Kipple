@@ -6,8 +6,10 @@ import (
 	"time"
 )
 
-// DefaultTZ is the `tz` setting's default for a new install (owner decision 5).
-// Existing installs keep America/New_York through the row migration 0010 writes.
+// DefaultTZ is the zone in force while the `tz` setting is unset (owner decision 5).
+// The setting itself has no default value, so an untouched install and an
+// explicit choice of UTC differ: only the second has a row. Existing installs
+// keep America/New_York through the row migration 0010 writes.
 const DefaultTZ = "UTC"
 
 // SettingTZ is the in-app time zone setting (an IANA name).
@@ -30,7 +32,10 @@ func LoadZone(name string) (*time.Location, error) {
 // ZoneName is the `tz` setting's name, else DefaultTZ. It is not resolved: the
 // caller decides what an unknown stored name means.
 func ZoneName(ctx context.Context, q Querier) string {
-	return settingString(ctx, q, SettingTZ, DefaultTZ)
+	if name := settingString(ctx, q, SettingTZ, ""); name != "" {
+		return name
+	}
+	return DefaultTZ
 }
 
 // Zone is the one time zone resolver: the `tz` setting (read per call, so a

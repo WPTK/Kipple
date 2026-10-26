@@ -622,14 +622,16 @@ func TestSettingsTZDefaultAndOwnedByTheSetting(t *testing.T) {
 		return nil
 	}
 	v := tzView()
-	require.Equal(t, "UTC", v["default"], "new installs default to UTC")
+	require.Equal(t, "", v["default"], "no zone is chosen until someone does")
 	require.NotContains(t, v, "env_override", "the setting is the only owner of the zone")
 
 	// Whatever TZ says at start, the setting can always be changed and reset.
 	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", `{"tz":"Asia/Tokyo"}`, withCookie(c)).Code)
 	require.Equal(t, "Asia/Tokyo", tzView()["value"])
 	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", `{"tz":null}`, withCookie(c)).Code)
-	require.Equal(t, "UTC", tzView()["value"])
+	require.Equal(t, "", tzView()["value"])
+	require.Equal(t, http.StatusOK, h.do("PATCH", "/api/settings", `{"tz":"UTC"}`, withCookie(c)).Code)
+	require.Equal(t, "UTC", tzView()["value"], "an explicit UTC differs from none")
 }
 
 func TestSettingsSecurityKeys(t *testing.T) {

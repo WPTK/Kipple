@@ -41,13 +41,13 @@ function makeWorld(over: Partial<World> = {}): World {
     pending: true,
     authMode: "password",
     passwordSet: true,
-    tz: "UTC",
+    tz: "", // unset until chosen
     starter: { available: true, categories: [] },
     ...over,
   };
 }
 
-const tzMeta = (w: World) => ({ key: "tz", value: w.tz, default: "UTC", label: "Time zone", description: "Used for statistics.", group: "account", kind: "text", surface: "settings" });
+const tzMeta = (w: World) => ({ key: "tz", value: w.tz, default: "", label: "Time zone", description: "Used for statistics.", group: "account", kind: "text", surface: "settings" });
 
 /** A tiny fake Kipple: every route the wizard touches, with the state it changes. Extra routes win over these. */
 function server(w: World, extra: Record<string, Handler> = {}) {
@@ -691,6 +691,17 @@ describe("the time zone", () => {
     expect(w.tz).toBe("Asia/Tokyo");
   });
 
+  it("leaves an explicit UTC alone", async () => {
+    browserZoneIs("America/New_York");
+    const w = signedIn({ tz: "UTC" });
+    const { calls } = server(w);
+    go("/welcome/feeds");
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Continue" }));
+    expect(await screen.findByText("Article number 1")).toBeInTheDocument();
+    expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
+    expect(w.tz).toBe("UTC");
+  });
+
   it("is kept as saved when setup is run again", async () => {
     browserZoneIs("America/New_York");
     markRerun();
@@ -700,7 +711,7 @@ describe("the time zone", () => {
     await userEvent.setup().click(await screen.findByRole("button", { name: "Continue" }));
     expect(await screen.findByText("Article number 1")).toBeInTheDocument();
     expect(callTo(calls, "PATCH", "/api/settings")).toHaveLength(0);
-    expect(w.tz).toBe("UTC");
+    expect(w.tz).toBe("");
   });
 
   it("does not hold setup back when it cannot be saved", async () => {

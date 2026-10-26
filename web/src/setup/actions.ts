@@ -19,8 +19,9 @@ async function setPending(qc: QueryClient, pending: boolean): Promise<void> {
 }
 
 /**
- * Kipple keeps its daily statistics and nightly upkeep in one time zone, UTC until set. Setup takes the browser's zone
- * as that default, so no step asks for it; Settings shows it and changes it. A zone someone already chose is left alone,
+ * Kipple keeps its daily statistics and nightly upkeep in one time zone, UTC until one is chosen (the setting is empty
+ * until then). Setup takes the browser's zone as that choice, so no step asks for it; Settings shows it and changes it.
+ * Any zone already chosen, UTC included, is left alone,
  * and a zone the server does not know leaves UTC in place (Settings shows that too), so a failure here never holds
  * setup back.
  */
@@ -30,7 +31,7 @@ async function adoptBrowserZone(): Promise<void> {
     if (!zone) return;
     const { settings } = await api<SettingsResponse>("/api/settings", { quiet: true });
     const meta = settings.find((s) => s.key === "tz");
-    if (!meta || meta.value !== meta.default || meta.value === zone) return;
+    if (!meta || meta.value !== "" || meta.value === zone) return;
     await api("/api/settings", { method: "PATCH", body: { tz: zone }, quiet: true });
   } catch {
     /* the zone stays as it was; it is in Settings */
