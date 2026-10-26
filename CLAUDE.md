@@ -117,6 +117,9 @@ The global working-economy and subagent rules apply. Kipple specifics:
   Sonnet). `reviewer-deep` only for the release gate or a security-sensitive diff, and the prompt must say which. Never
   an untyped `general-purpose` agent, and `model: opus` only for `reviewer-deep`, `diagnoser`, `planner`. A hook
   (`agent-economy-guard.py` on the dev machine) blocks all of these.
+- **Subagent reads:** a task that needs fewer than about 10 tool calls runs in this thread, not in an agent. Tell each
+  agent to search before reading, read files over 300 lines by line range, and read at most 3 whole files in one turn
+  (parallel reads are the largest context spikes).
 - **Review loop cap, per PR:** one `pr-reviewer` pass, `pr-triage` sorts the findings, one `pr-author` fixes blockers and
   fixes in a single push, at most one delta review of the fix commits only. A third round goes to the owner. Nits go in the
   PR description. `reviewer-deep` (Opus) runs once, on the release-gate commit or a security-sensitive diff, never on
