@@ -79,7 +79,8 @@ bump): `0.9.0-beta.1` (the bug fixes plus those features), then `1.0.0-rc.N`, th
    flows (`npm run uat:folders`, `uat:feeds`, `uat:states`, `uat:keyboard`, `uat:offline`, `uat:downloads`, and `uat:images`, or all of them with `npm run uat:all`)
    against that seeded local instance (never the live one; see `uat-plan.md`, Suite 1). The `Browser UAT` workflow runs the
    same on every pull request that changes code (Chromium, WebKit and Firefox; Chromium alone when the change is only docs, tests or
-   the tools module); read its result, and run it by hand only to reproduce a failure. The run must finish with exit code 0, or every remaining finding must be in
+   the tools module), and nightly on `main`; it does not run on a push to `main`, so dispatch it on the tagged commit
+   (`gh workflow run browser-uat.yml --ref <tag>`) and read its result there. Run it by hand otherwise only to reproduce a failure. The run must finish with exit code 0, or every remaining finding must be in
    `web/uat/waivers.json` with the owner's reason.
    **Walk every screen in a real browser, by hand, for the second tier.** The scripted flows check what someone thought to
    script; the walk finds what nobody did. On the seeded instance, at the mobile preset (375 px wide, touch) and on desktop
