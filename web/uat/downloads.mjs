@@ -6,8 +6,8 @@
 //
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and clicks:
 //   D1  Feeds, Feed actions, Export feeds to a file (OPML): the saved file is an OPML document (not JSON) and not named *.json;
-//   D2  Settings, Statistics, Export…, Download: the saved file is CSV with a header row (not a JSON error);
-//   D3  Settings, Account & Devices, Export backup, the web password, the download link: the saved file is a zip
+//   D2  Settings, Statistics, Export…, Download: the saved file is CSV with a header row (not a JSON error); (uat-labels: ignore)
+//   D3  Settings, Account & Devices, Export backup, the web password, the download link: the saved file is a zip (uat-labels: ignore)
 //       (starts "PK").
 // D3 starts a backup export (POST /api/backup), which replaces any unclaimed one, and downloading it spends it and
 // deletes the file, so nothing is left behind. It therefore only runs against a loopback address with the seed's

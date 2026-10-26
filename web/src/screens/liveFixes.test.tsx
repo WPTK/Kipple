@@ -65,7 +65,6 @@ describe("live state in the list", () => {
   });
 
   it("a run whose run.done was missed stops spinning once /api/status says nothing is running", async () => {
-    wide(); // the Refresh button is in the wide header; a phone has it in the menu and the pull
     mockFetch({
       "GET /api/bootstrap": () => json(bootstrap),
       "GET /api/items": () => json(pageOf([card(1)])),
@@ -74,10 +73,11 @@ describe("live state in the list", () => {
     go("/l/unread");
     await screen.findByText("Article number 1");
     act(() => handleServerEvent(client, { type: "run.start", data: { run_id: "5", kind: "manual", total: 3 } }));
-    expect(await screen.findByRole("button", { name: "Refreshing" })).toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "List actions" });
+    await waitFor(() => expect(trigger.querySelector("svg")).toHaveClass("animate-spin"));
     const { pollStatus } = await import("@/api/events");
     await act(async () => void (await pollStatus(client)));
-    await screen.findByRole("button", { name: "Refresh all feeds" });
+    await waitFor(() => expect(trigger.querySelector("svg")).not.toHaveClass("animate-spin"));
   });
 
   it("a retention run does not spin the refresh icon", async () => {
@@ -86,7 +86,7 @@ describe("live state in the list", () => {
     go("/l/unread");
     await screen.findByText("Article number 1");
     act(() => handleServerEvent(client, { type: "run.start", data: { run_id: "8", kind: "retention", total: 1 } }));
-    expect(screen.getByRole("button", { name: "Refresh all feeds" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "List actions" }).querySelector("svg")).not.toHaveClass("animate-spin");
   });
 
   it("the n new pill skips articles the list already has", async () => {

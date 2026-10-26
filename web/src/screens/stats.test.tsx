@@ -270,15 +270,12 @@ describe("Stats screen", () => {
     expect(screen.getByText(/Reads with no recorded time show as the lightest shade/)).toBeInTheDocument();
   });
 
-  it("keeps Export available when statistics are off", async () => {
-    const user = userEvent.setup();
+  it("has no export or delete buttons when statistics are off: Settings has them", async () => {
     setup(() => offStats, { "stats.enabled": false });
     go();
-    expect(await screen.findByRole("button", { name: "Delete a date range…" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete all statistics…" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Export…" }));
-    expect(await screen.findByRole("dialog", { name: "Export statistics" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByText(/Statistics are off/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Export|Delete/ })).toBeNull();
+    expect(screen.getByRole("link", { name: /Turn them on in Settings/ })).toHaveAttribute("href", "/settings/statistics");
   });
 
   it("keeps the data actions on Settings when the settings request fails", async () => {
@@ -294,14 +291,12 @@ describe("Stats screen", () => {
     expect(screen.getByRole("button", { name: "Delete all statistics…" })).toBeInTheDocument();
   });
 
-  it("opens the export dialog from the Export button beside the Range control", async () => {
-    const user = userEvent.setup();
+  it("links to Settings for export and delete instead of holding them", async () => {
     setup(() => richStats);
     go();
     await screen.findByRole("heading", { name: "Daily activity" });
-    await user.click(screen.getByRole("button", { name: "Export" }));
-    expect(await screen.findByRole("dialog", { name: "Export statistics" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("button", { name: /^Export/ })).toBeNull();
+    expect(screen.getByRole("link", { name: "Open Settings > Stats" })).toHaveAttribute("href", "/settings/statistics");
   });
 
   it("hides the Range control when the server says stats are off", async () => {

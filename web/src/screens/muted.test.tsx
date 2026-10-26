@@ -118,12 +118,11 @@ describe("Muted entry and count", () => {
     await waitFor(() => expect(within(link).getByTestId("muted-count")).toHaveTextContent("9"));
   });
 
-  it("the Feeds screen on a phone has it too", async () => {
+  it("the Feeds screen on a phone does not repeat it (the Articles pills have it)", async () => {
     routes();
     go("/feeds");
-    const link = await screen.findByRole("link", { name: /Muted/ });
-    expect(link).toHaveAttribute("href", "/l/muted");
-    expect(link).toHaveTextContent("2");
+    expect(await screen.findByRole("link", { name: "Feed index" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Muted/ })).toBeNull();
   });
 
   it("a list header offers a Muted pill only when something is muted", async () => {

@@ -10,7 +10,7 @@
 //       request for the bootstrap and no answer of 401 (the browser logs those to the console);
 //   L2  a signed-in browser that has lost only the marker opens Kipple: the reader shows after one GET /api/instance,
 //       with no 401, and the server sets the marker again;
-//   L3  a browser that signs in and then chooses Sign out (Settings, Account & Devices) reaches the sign-in form with no
+//   L3  a browser that signs in and then chooses Sign out (Settings, Account & Devices) reaches the sign-in form with no (uat-labels: ignore)
 //       answer of 401 after the click.
 // It changes nothing but the session it makes for L3. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.

@@ -247,6 +247,18 @@ describe("layouts", () => {
     expect(screen.getByRole("menuitemcheckbox", { name: "Inbox is the device default" })).toBeChecked();
   });
 
+  it("a library list has no default star: its layout radio is the device default", async () => {
+    routes();
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "List options, Editorial layout" }));
+    expect(screen.queryByRole("menuitemcheckbox", { name: /device default/ })).toBeNull();
+    expect(screen.queryByText(/The star sets/)).toBeNull();
+    await user.click(screen.getByRole("menuitemradio", { name: /Headlines/ }));
+    expect(devicePrefsStore.get().layout).toBe("headlines");
+  });
+
   it("Cards with nothing open fills the width; an open article keeps its list beside it", async () => {
     routes();
     media(WIDE_QUERY);

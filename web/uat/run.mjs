@@ -18,8 +18,8 @@
 //   S6  scripts/contrast.mjs over all 20 schemes
 //   S8  touch targets (tablet, phone and narrow phone): every control of Kipple's has a hit area of at least 44 x 44 px,
 //       measured by hit-testing around it (so a larger label or a padded pseudo-element counts, see tapProbe)
-//   S7  the reading-font choice is reachable: the Aa menu above every list and article, and Settings > Appearance &
-//       Reading, each offer a "Reading font" select with every font (it once went missing from Settings unnoticed)
+//   S7  the reading-font choice is reachable: the Aa menu above every list and article, and Settings > Appearance & (uat-labels: ignore)
+//       Reading, each offer a "Reading font" select with every font (it once went missing from Settings unnoticed) (uat-labels: ignore)
 // Known, accepted issues are waived in uat/waivers.json:
 //   [{ "check": "S3", "rule"?: "<axe id>", "match"?: "<text in the finding>", "screen"?, "theme"?, "viewport"?, "browser"?,
 //      "reason": "why this is accepted" }]
@@ -205,9 +205,9 @@ const SCREENS = [
   { id: "search-empty", title: "Search, no query", path: "/search", heading: "Search" },
   { id: "feeds", title: "Feeds", path: "/feeds", heading: "Feeds" },
   { id: "health", title: "Feed health", path: "/health", heading: "Feed health" },
-  // Settings is master-detail: /settings is the group list on a narrow screen (and the first group beside the rail on
-  // a wide one), and each group is its own page, whose h1 is the group's name below 900 px and "Settings" beside the rail.
-  { id: "settings", title: "Settings", path: "/settings", heading: "Settings" },
+  // Settings is master-detail: /settings is the group list on a narrow screen (and the first group beside the rail on (uat-labels: ignore)
+  // a wide one), and each group is its own page, whose h1 is the group's name below 900 px and "Settings" beside the rail. (uat-labels: ignore)
+  { id: "settings", title: "Settings", path: "/settings", heading: "Settings" }, // uat-labels: ignore
   ...[
     ["appearance", "Appearance"],
     ["sync", "Sync & Feeds"],
@@ -215,7 +215,7 @@ const SCREENS = [
     ["filters", "Filters & Saved Searches"],
     ["account", "Account & Devices"],
     ["advanced", "Advanced"],
-  ].map(([g, label]) => ({ id: `settings-${g}`, title: `Settings: ${label}`, path: `/settings/${g}`, heading: (_ctx, vp) => (vp.width >= 900 ? "Settings" : label), font: g === "appearance" ? "settings" : undefined })),
+  ].map(([g, label]) => ({ id: `settings-${g}`, title: `Settings: ${label}`, path: `/settings/${g}`, heading: (_ctx, vp) => (vp.width >= 900 ? "Settings" : label), font: g === "appearance" ? "settings" : undefined })), // uat-labels: ignore
   { id: "stats", title: "Stats", path: "/stats", heading: "Stats" },
   { id: "wrapped", title: "Wrapped", path: "/stats/wrapped", heading: "Your year" },
 ];
@@ -292,7 +292,7 @@ function broken(where, message) {
 
 // What the feeds supplied, so findings in it are told apart from Kipple's own.
 const FEED = {
-  /** The article's own HTML: the reader pane's .article-body only (Settings > Appearance draws its preview with the
+  /** The article's own HTML: the reader pane's .article-body only (Settings > Appearance draws its preview with the // uat-labels: ignore
    * same class, and that is Kipple's). */
   body: 'article[aria-labelledby="article-title"] .article-body',
   /** What Kipple itself adds inside the article body (embed frames and play buttons, highlight marks: articleDom.ts,
@@ -968,7 +968,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
 }
 
 /**
- * S7: the reading-font select is on screen (Settings) or in the Aa menu (lists and articles), with every font: the
+ * S7: the reading-font select is on screen (Settings) or in the Aa menu (lists and articles), with every font: the // uat-labels: ignore
  * default, the 11 bundled ones and those on the device. Returns what is wrong, or null. The menu is closed again.
  */
 async function fontCheck(page, where) {

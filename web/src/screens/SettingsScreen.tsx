@@ -311,9 +311,7 @@ function VoicePicker() {
 
 function AccessibilitySection({ scrollHelp }: { scrollHelp: string | undefined }) {
   const p = useStore(prefsStore);
-  const dp = useDevicePrefs();
   const supported = speechSupported();
-  const titlesOnly = dp.layout === "headlines";
   return (
     <Section title="Accessibility" scope="device">
       <p className="text-sm text-fg2">Kipple follows your device's text, motion and contrast settings. These are extra controls.</p>
@@ -354,16 +352,6 @@ function AccessibilitySection({ scrollHelp }: { scrollHelp: string | undefined }
         help="Makes buttons and tap targets bigger and spreads them out."
         checked={p.largeTargets}
         onChange={(largeTargets) => updatePrefs({ largeTargets })}
-      />
-      <Switch
-        label="Titles only in lists"
-        help="Hides pictures and excerpts so lists show just headlines."
-        checked={titlesOnly}
-        onChange={(v) => {
-          if (v) {
-            updateDevicePrefs({ layoutBeforeTitlesOnly: dp.layout === "headlines" ? null : dp.layout, layout: "headlines" });
-          } else updateDevicePrefs({ layout: dp.layoutBeforeTitlesOnly ?? "magazine", layoutBeforeTitlesOnly: null });
-        }}
       />
     </Section>
   );
@@ -451,15 +439,22 @@ function AppearancePage() {
 
 function SyncPage() {
   return (
-    <ServerPart
-      scope="all"
-      groups={[
-        { id: "sync", title: "Checking feeds" },
-        { id: "library", title: "Storage" },
-        { id: "images", title: "Images" },
-      ]}
-      empty="No sync or feed settings to change yet."
-    />
+    <>
+      <ServerPart
+        scope="all"
+        groups={[
+          { id: "sync", title: "Checking feeds" },
+          { id: "library", title: "Storage" },
+          { id: "images", title: "Images" },
+        ]}
+        empty="No sync or feed settings to change yet."
+      />
+      <div className="py-3">
+        <Link to="/health" className="inline-flex min-h-11 items-center text-sm text-link underline underline-offset-2">
+          Feed health
+        </Link>
+      </div>
+    </>
   );
 }
 
@@ -469,7 +464,7 @@ function StatisticsPage() {
       <ServerPart scope="all" groups={[{ id: "stats" }, { id: "account" }]} />
       {/* A fixed slot after the server part, whether settings are loading, failed or loaded: it never remounts, so an open dialog survives. */}
       <Section title="Your stats data" scope="all">
-        <StatsDataSection defaultRange={loadRange()} hideTitle />
+        <StatsDataSection defaultRange={loadRange()} />
       </Section>
     </>
   );

@@ -65,7 +65,7 @@ export function UnreadCount({ n, tone = "quiet", className, noun = "unread" }: {
   );
 }
 
-/** A plain count of articles (muted, starred): not an unread badge, so the "Unread badge" setting does not hide it. */
+/** A plain count of articles (muted): not an unread badge, so the "Unread badge" setting does not hide it. */
 function PlainCount({ n, noun, testid, className }: { n: number; noun: string; testid: string; className?: string }) {
   if (n <= 0) return null;
   return (
@@ -75,6 +75,3 @@ function PlainCount({ n, noun, testid, className }: { n: number; noun: string; t
 
 /** How many articles are muted. */
 export const MutedCount = (p: { n: number; className?: string }) => <PlainCount noun="Muted" testid="muted-count" {...p} />;
-
-/** How many articles are starred. */
-export const StarredCount = (p: { n: number; className?: string }) => <PlainCount noun="Starred" testid="starred-count" {...p} />;

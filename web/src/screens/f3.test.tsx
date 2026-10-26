@@ -8,7 +8,7 @@ import { initialLive, liveStore } from "@/api/events";
 import type { HealthResponse, SettingMeta } from "@/api/admin";
 import { DEFAULT_PREFS, applyPrefs, parsePrefs, prefsStore } from "@/lib/prefs";
 import { FONTS } from "@/lib/fonts";
-import { LAYOUT_HINTS, LAYOUT_IDS, LAYOUT_LABELS, devicePrefsStore, parseDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
+import { LAYOUT_HINTS, LAYOUT_IDS, LAYOUT_LABELS, devicePrefsStore, parseDevicePrefs } from "@/lib/devicePrefs";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
 import { healthFilter, healthSort } from "./HealthScreen";
 import * as toasts from "@/shell/toasts";
@@ -255,13 +255,11 @@ describe("Accessibility section", () => {
     expect(root.dataset.spacing).toBe("roomy");
     expect(root.dataset.motion).toBe("on");
     expect(root.dataset.targets).toBe("large");
-    await user.click(w.getByRole("switch", { name: /Titles only in lists/ }));
-    expect(JSON.parse(localStorage.getItem("kipple.device.v2") ?? "{}").layout).toBe("headlines");
-    // The layout to return to survives a reload (it is in the device prefs, not a module variable).
-    updateDevicePrefs({ layout: "headlines", layoutBeforeTitlesOnly: "cards" });
-    devicePrefsStore.set(parseDevicePrefs(localStorage.getItem("kipple.device.v2")));
-    await user.click(w.getByRole("switch", { name: /Titles only in lists/ }));
-    expect(devicePrefsStore.get().layout).toBe("cards");
+    // Headlines is a layout, not a switch; the old "Titles only" switch and its stored return layout are gone.
+    expect(w.queryByRole("switch", { name: /Titles only in lists/ })).toBeNull();
+    const old = parseDevicePrefs(JSON.stringify({ layout: "headlines", layoutBeforeTitlesOnly: "cards" }));
+    expect(old.layout).toBe("headlines");
+    expect(old).not.toHaveProperty("layoutBeforeTitlesOnly");
   });
 });
 

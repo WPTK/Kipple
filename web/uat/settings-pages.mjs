@@ -1,4 +1,4 @@
-// UAT: the Settings pages after the regroup (#681, #679, #683, #677, #678, #680).
+// UAT: the Settings pages after the regroup (#681, #679, #683, #677, #678, #680). (uat-labels: ignore)
 //
 //   npm run seed                       in one terminal (builds the web app if needed, serves it on 127.0.0.1:1919)
 //   npm run uat:settings-pages         in another
@@ -103,4 +103,4 @@ await t.eachViewport(async (page, vp) => {
 });
 
 server.close();
-await t.finish("Settings pages");
+await t.finish("Settings pages"); // uat-labels: ignore

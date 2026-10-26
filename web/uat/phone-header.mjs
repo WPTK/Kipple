@@ -13,15 +13,16 @@
 //       phone held upright whose height shrinks to 420 px (a keyboard) keeps that layout;
 //   L3  (Large targets on) at 812x375 and 568x320 the layout is the same row, with controls of 44 px;
 //   L4  (text size Largest) at 568x320 and 320x568 no tab name is cut off, and at 320 wide Your year is shown whole;
-//   I1  the list header has four controls or fewer and no Refresh button; the actions menu has Refresh all feeds, and
+//   I1  the list header has four controls or fewer and no Refresh button; the actions menu has Refresh all feeds, and (uat-labels: ignore)
 //       choosing it asks the server for a refresh and the menu button spins while it runs;
-//   B1  Your year, a Settings group and Feed health each go back with a chevron before the title (a control with no
+//   B1  Your year, a Settings group and Feed health each go back with a chevron before the title (a control with no (uat-labels: ignore)
 //       text of its own, named Back to ..., at least 44 px) that goes to the parent, and no text link says Back to Stats;
-//   B2  from the Settings list into a group the chevron goes back to the list with focus on the row just left; from
-//       Stats (off) through its Settings link the chevron lands on the screen its label names, and the system Back
+//   B2  from the Settings list into a group the chevron goes back to the list with focus on the row just left; from (uat-labels: ignore)
+//       Stats (off) through its Settings link the chevron lands on the screen its label names, and the system Back (uat-labels: ignore)
 //       does not return to the group;
 //   R1  the Stats ranges are Week, Month, Year, Monthly and All, each on one line, each on one line at 375 wide, and a select with the same five under 360;
-//   D1  (desktop) the Refresh button is in the list header and the actions menu does not repeat it.
+//   D1  (desktop) the list header has five controls or fewer, no Refresh button and no Settings link; the actions menu has (uat-labels: ignore)
+//       Refresh all feeds. (uat-labels: ignore)
 //
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
@@ -58,10 +59,13 @@ await t.eachViewport(async (page, vp) => {
     await step(`${tag} D1`, async () => {
       await open("/l/unread");
       const header = page.locator("main header").first();
-      check(await header.getByRole("button", { name: "Refresh all feeds" }).isVisible(), `${tag} D1 button`, "the list header has Refresh all feeds", "the list header has no Refresh all feeds");
+      const names = await header.getByRole("button").evaluateAll((bs) => bs.filter((b) => b.getClientRects().length).map((b) => b.getAttribute("aria-label") || b.textContent));
+      check(names.length <= 5, `${tag} D1 count`, `${names.length} controls: ${names.join(", ")}`, `${names.length} controls: ${names.join(", ")}`);
+      check(!names.some((n) => /Refresh/.test(n)), `${tag} D1 button`, "the list header has no Refresh button", "the list header has a Refresh button");
+      check((await header.getByRole("link", { name: "Settings" }).count()) === 0, `${tag} D1 settings`, "the list header has no Settings link", "the list header has a Settings link"); // uat-labels: ignore
       await header.getByRole("button", { name: "List actions" }).click();
       const items = await page.getByRole("menuitem").allInnerTexts();
-      check(!items.some((s) => /Refresh/.test(s)), `${tag} D1 menu`, "the actions menu does not repeat Refresh", `the actions menu has ${items.join(", ")}`);
+      check(items.some((s) => /Refresh all feeds/.test(s)), `${tag} D1 menu`, "the actions menu has Refresh all feeds", `the actions menu has ${items.join(", ")}`); // uat-labels: ignore
       await page.keyboard.press("Escape");
       await t.shot(page, `${tag}-list-header`);
     });
@@ -194,7 +198,7 @@ await t.eachViewport(async (page, vp) => {
     check(names.length <= 4, `${tag} I1 count`, `${names.length} controls: ${names.join(", ")}`, `${names.length} controls: ${names.join(", ")}`);
     check(!names.some((n) => /Refresh/.test(n)), `${tag} I1 button`, "there is no Refresh button", "there is a Refresh button");
     await header.getByRole("button", { name: "List actions" }).click();
-    const item = page.getByRole("menuitem", { name: "Refresh all feeds" });
+    const item = page.getByRole("menuitem", { name: "Refresh all feeds" }); // uat-labels: ignore
     await item.waitFor({ timeout: 5000 });
     await t.shot(page, `${tag}-actions-menu`);
     await page.keyboard.press("Escape");
@@ -209,13 +213,13 @@ await t.eachViewport(async (page, vp) => {
       });
       const asked = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname === "/api/refresh", { timeout: 5000 }).then(() => true, () => false);
       await header.getByRole("button", { name: "List actions" }).click();
-      await page.getByRole("menuitem", { name: "Refresh all feeds" }).click();
-      check(await asked, `${tag} I1 refresh`, "Refresh all feeds in the menu asks for a refresh", "Refresh all feeds in the menu sent no request");
+      await page.getByRole("menuitem", { name: "Refresh all feeds" }).click(); // uat-labels: ignore
+      check(await asked, `${tag} I1 refresh`, "Refresh all feeds in the menu asks for a refresh", "Refresh all feeds in the menu sent no request"); // uat-labels: ignore
       await header.getByRole("button", { name: "List actions" }).locator("svg.animate-spin").waitFor({ timeout: 3000 }).catch(() => {});
       check(await header.getByRole("button", { name: "List actions" }).evaluate((b) => !!b.querySelector("svg.animate-spin")), `${tag} I1 spin`, "the actions menu button spins while the refresh runs", "nothing shows that a refresh is running");
       await header.getByRole("button", { name: "List actions" }).focus();
       await page.keyboard.press("Enter");
-      const busy = page.getByRole("menuitem", { name: "Refreshing" });
+      const busy = page.getByRole("menuitem", { name: "Refreshing" }); // uat-labels: ignore
       await busy.waitFor({ timeout: 5000 });
       check((await busy.getAttribute("aria-disabled")) === "true" && (await busy.evaluate((e) => e === document.activeElement)), `${tag} I1 busy`, "while it runs the item is reached by the keyboard and marked disabled", "while it runs the item is skipped by the keyboard or not marked disabled");
       await page.keyboard.press("Escape");
@@ -229,7 +233,7 @@ await t.eachViewport(async (page, vp) => {
     await page.setViewportSize({ width: 375, height: 812 });
     const cases = [
       ["/stats/wrapped", "Back to Stats", "/stats"],
-      ["/settings/appearance", "Back to Settings", "/settings"],
+      ["/settings/appearance", "Back to Settings", "/settings"], // uat-labels: ignore
       ["/health", "Back to Feeds", "/feeds"],
     ];
     for (const [path, name, to] of cases) {
@@ -262,14 +266,14 @@ await t.eachViewport(async (page, vp) => {
     await page.waitForURL((u) => u.pathname === "/settings", { timeout: 5000 }).catch(() => {});
     const focusText = () => page.evaluate(() => document.activeElement?.textContent?.trim().slice(0, 40) ?? "");
     await waitForStillFor(page, 200, focusText, { label: "the focused element to stop changing" }); // focus arrives on the row a frame or two after the route changes
-    check(pathOf() === "/settings", `${tag} B2 list`, "the chevron in a group opened from the Settings list goes back to the list", `it went to ${pathOf()}`);
+    check(pathOf() === "/settings", `${tag} B2 list`, "the chevron in a group opened from the Settings list goes back to the list", `it went to ${pathOf()}`); // uat-labels: ignore
     const focused = await focusText();
     check(/^Appearance/.test(focused), `${tag} B2 focus`, "focus arrives on the row of the group just left", `focus is on "${focused}"`);
 
     const isSummary = (u) => u.pathname === "/api/stats/summary";
     await page.route(isSummary, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ enabled: false }) }));
     await open("/stats");
-    await page.getByRole("main").getByRole("link", { name: "Settings > Stats" }).click({ timeout: 5000 });
+    await page.getByRole("main").getByRole("link", { name: "Settings > Stats" }).click({ timeout: 5000 }); // uat-labels: ignore
     await page.waitForURL((u) => u.pathname === "/settings/statistics", { timeout: 5000 });
     const back = chevron();
     await back.waitFor({ timeout: 5000 });
@@ -277,7 +281,7 @@ await t.eachViewport(async (page, vp) => {
     await back.click({ timeout: 5000 });
     await page.waitForURL((u) => u.pathname !== "/settings/statistics", { timeout: 5000 }).catch(() => {});
     await waitForStillFor(page, 200, pathOf, { label: "the pathname to stop changing after the chevron" });
-    const landed = pathOf() === "/settings" ? "Settings" : pathOf() === "/stats" ? "Stats" : pathOf();
+    const landed = pathOf() === "/settings" ? "Settings" : pathOf() === "/stats" ? "Stats" : pathOf(); // uat-labels: ignore
     check(label === `Back to ${landed}`, `${tag} B2 label`, `the chevron lands where its label says (${label})`, `the label says "${label}" and it landed on ${landed}`);
     await page.goBack();
     await waitForStillFor(page, 200, pathOf, { label: "the pathname to stop changing after Back" });

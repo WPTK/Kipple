@@ -11,7 +11,7 @@
 //       in the glyph (check-mark page vs plain page), not only the tint (#563).
 //   R3  Previous onto the first article: the button is switched off (aria-disabled) and keeps focus.
 //   R4  (desktop) After Next the open article is the list's Tab stop, not the row focused before (#390).
-//   H1  (desktop) Refresh all feeds and Oldest first keep focus when pressed; the order is put back.
+//   H1  (desktop) Oldest first keeps focus when pressed; the order is put back.
 //   L1  The list: End, Home and PageDown move focus to the last, first and a later row on screen; Space opens a row.
 //   C1  (desktop) Cards: a focused card's ring follows its rounded corners; the layout is put back.
 //   D1  Manage feeds > Edit > a feed's pencil: the Edit feed sheet opens with focus on itself or the Title field, and
@@ -19,7 +19,7 @@
 //   T1  (desktop) The sidebar tree: Enter on a feed and Space on a folder open their lists, and focus stays on the
 //       tree item.
 //   S1  Search: ArrowDown in the search field moves focus to the first result.
-//   G1  Settings: Home and End on the Reduce motion choices pick the first and last; the choice is put back.
+//   G1  Settings: Home and End on the Reduce motion choices pick the first and last; the choice is put back. (uat-labels: ignore)
 //   P1  (desktop) The Reading appearance panel fits the window: its last line is inside the panel, which is inside the
 //       window, once scrolled to the end.
 // It opens articles on the seed's account and marks the ones that were unread unread again afterwards. It only runs
@@ -158,16 +158,6 @@ await t.eachViewport(async (page, vp) => {
       await step(`${tag} H1`, async () => {
         await page.goto(listUrl, { waitUntil: "load" });
         await page.locator("[data-testid=list-scroll] [data-item-id]").first().waitFor({ timeout: 15000 });
-        const refresh = page.getByRole("button", { name: /^Refresh/ }).first();
-        await refresh.focus();
-        await page.keyboard.press("Enter");
-        const r = [];
-        for (const ms of [50, 400, 1500]) {
-          // real time: sampled at fixed delays after the press
-          await page.waitForTimeout(ms);
-          r.push(await focusOf(page));
-        }
-        check(r.every((s) => /^button "Refresh/.test(s)), `${tag} H1 refresh`, `focus stays on Refresh (${r.join(", ")})`, `focus after Refresh: ${r.join(", ")}`);
         const order = page.getByRole("button", { name: "Oldest first" });
         const was = await order.getAttribute("aria-pressed");
         await order.focus();

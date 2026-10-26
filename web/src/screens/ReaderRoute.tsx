@@ -2,7 +2,7 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { Link, Navigate, useMatch, useNavigate, useSearchParams } from "react-router";
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronLeft, ChevronRight, RefreshCw, Settings, Timer, Undo2, X } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronLeft, ChevronRight, RefreshCw, Timer, Undo2, X } from "lucide-react";
 import { MarkAllIcon, MoreIcon, markAllLabel, markAllReach } from "@/lib/itemActionTable";
 import { useMarkAllConfirm } from "./MarkAllConfirm";
 import { errorMessage } from "@/api/client";
@@ -256,46 +256,26 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
         {scope.after ? null : <LayoutMenu scope={scope} />}
         {/* Beside an open article its toolbar has the Aa control: one per screen. */}
         {beside ? null : <ReadingMenu />}
-        {/* On a phone Refresh is a pull on the list and an item in the menu after this one, which leaves four controls
-            at most: the header is no wider than the title and what the list is. */}
-        {wide ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={refreshing ? "Refreshing" : "Refresh all feeds"}
-            onClick={() => refresh.mutate()}
-            aria-disabled={refresh.isPending || undefined}
-          >
-            <RefreshCw aria-hidden="true" className={cn(refreshing && "animate-spin")} />
-          </Button>
-        ) : null}
-        {wide ? (
-          <Link to="/settings" aria-label="Settings" title="Settings" className={buttonVariants({ variant: "ghost", size: "icon" })}>
-            <Settings aria-hidden="true" />
-          </Link>
-        ) : null}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <Button variant="ghost" size="icon" aria-label="List actions">
-              {/* With no Refresh button here, the trigger shows that a refresh is running. */}
-              {refreshing && !wide ? <RefreshCw aria-hidden="true" className="animate-spin" /> : <MoreIcon aria-hidden="true" />}
+              {/* Refresh is an item in this menu, so the trigger shows that a refresh is running. */}
+              {refreshing ? <RefreshCw aria-hidden="true" className="animate-spin" /> : <MoreIcon aria-hidden="true" />}
             </Button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
-              {wide ? null : (
-                // aria-disabled, not disabled: while a refresh runs the item stays in the arrow-key order and is read out as
-                // "Refreshing, dimmed"; choosing it does nothing.
-                <DropdownMenu.Item
-                  className={menuItem}
-                  aria-disabled={refreshBusy || undefined}
-                  data-disabled={refreshBusy ? "" : undefined}
-                  onSelect={(e) => (refreshBusy ? e.preventDefault() : refresh.mutate())}
-                >
-                  <RefreshCw className={cn("size-5", refreshing && "animate-spin")} aria-hidden="true" />
-                  {refreshing ? "Refreshing" : "Refresh all feeds"}
-                </DropdownMenu.Item>
-              )}
+              {/* aria-disabled, not disabled: while a refresh runs the item stays in the arrow-key order and is read out as
+                  "Refreshing, dimmed"; choosing it does nothing. */}
+              <DropdownMenu.Item
+                className={menuItem}
+                aria-disabled={refreshBusy || undefined}
+                data-disabled={refreshBusy ? "" : undefined}
+                onSelect={(e) => (refreshBusy ? e.preventDefault() : refresh.mutate())}
+              >
+                <RefreshCw className={cn("size-5", refreshing && "animate-spin")} aria-hidden="true" />
+                {refreshing ? "Refreshing" : "Refresh all feeds"}
+              </DropdownMenu.Item>
               <DropdownMenu.Item
                 className={menuItem}
                 disabled={!controls || scope.view === "muted" || !!scope.typing || nothingUnread}

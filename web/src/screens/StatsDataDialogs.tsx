@@ -345,7 +345,7 @@ function DeleteAllBody({ onOpenChange, onSettled }: { onOpenChange: (o: boolean)
  * Export, delete a range, delete all. Always rendered where it is used: it needs no settings and works with statistics
  * off. It stays mounted while a dialog is open, so it is what does the work after a delete.
  */
-export function StatsDataSection({ defaultRange, hideTitle }: { defaultRange: StatsRange; hideTitle?: boolean }) {
+export function StatsDataSection({ defaultRange }: { defaultRange: StatsRange }) {
   const qc = useQueryClient();
   const [dlg, setDlg] = useState<"export" | "range" | "all" | null>(null);
   const close = (o: boolean) => {
@@ -361,8 +361,7 @@ export function StatsDataSection({ defaultRange, hideTitle }: { defaultRange: St
     if (r.ok) toast(`Deleted ${plural(r.deleted, "record")}`);
   };
   return (
-    <section aria-label={hideTitle ? undefined : "Your statistics data"} className="flex flex-col gap-3">
-      {hideTitle ? null : <h3 className="text-sm font-semibold">Your statistics data</h3>}
+    <div className="flex flex-col gap-3">
       <p className="text-xs text-fg2">Export or delete what Kipple has recorded. Works with statistics on or off.</p>
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => setDlg("export")}>Export…</Button>
@@ -374,6 +373,6 @@ export function StatsDataSection({ defaultRange, hideTitle }: { defaultRange: St
       <StatsExportDialog open={dlg === "export"} onOpenChange={close} defaultRange={defaultRange} />
       <DeleteRangeDialog open={dlg === "range"} onOpenChange={close} onSettled={settled} />
       <DeleteAllDialog open={dlg === "all"} onOpenChange={close} onSettled={settled} />
-    </section>
+    </div>
   );
 }

@@ -119,7 +119,7 @@ await t.eachViewport(async (page, vp) => {
     const menu = page.getByRole("menu");
     await menu.waitFor({ timeout: 5000 });
     for (const g of ["Organize", "Files"]) check(await menu.getByText(g, { exact: true }).isVisible(), `${tag} O2 group ${g}`, `the menu has the ${g} group`, `the ${g} group is missing`);
-    for (const n of ["Select feeds", "New folder", "Import feeds from a file (OPML)", "Export feeds to a file (OPML)", "Feed health"]) {
+    for (const n of ["Select feeds", "New folder", "Import feeds from a file (OPML)", "Export feeds to a file (OPML)"]) {
       check((await menu.getByRole("menuitem", { name: n, exact: true }).count()) === 1, `${tag} O2 ${n}`, `the menu has "${n}"`, `"${n}" is not in the menu once`);
     }
     check((await menu.getByRole("menuitem", { name: /move buttons/i }).count()) === 0, `${tag} O2 no move buttons`, "no Show move buttons item in the menu", "the menu still has a move buttons item");

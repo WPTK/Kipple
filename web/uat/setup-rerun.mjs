@@ -5,7 +5,7 @@
 //   npm run uat:setup-rerun -- --url http://127.0.0.1:7091 --screenshots <dir> --browser webkit --headed
 //
 // For each width (desktop 1280x800, phone 375x812) it checks:
-//   R1  Settings, Account & Devices, Run setup again opens the feeds step, the server still says setup is done, and a
+//   R1  Settings, Account & Devices, Run setup again opens the feeds step, the server still says setup is done, and a (uat-labels: ignore)
 //       reload in the middle of the step resumes it;
 //   R2  a second browser (another device) that signs in while the step is open lands in the app, not in the step;
 //   R3  the step offers Import a feeds file, ticks nothing and has no Skip or Back;

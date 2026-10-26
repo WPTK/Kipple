@@ -46,7 +46,6 @@ import { Segmented } from "@/ui/segmented";
 import { useWrappedEnabled } from "@/lib/wrapped";
 import { AddFeedDialog } from "./feeds/AddFeedDialog";
 import { DailyChart, Empty, Heatmap, MonthlyChart } from "./StatsCharts";
-import { StatsDataSection, StatsExportDialog } from "./StatsDataDialogs";
 
 const activityTitle = (data: StatsSummary) => (activityBars(data.daily ?? [], data.week_start).unit === "week" ? "Weekly activity" : "Daily activity");
 
@@ -478,7 +477,6 @@ export function StatsScreen() {
   const [range, setRange] = useState<ScreenRange>(loadScreenRange);
   const q = useStatsSummary(apiRange(range), on);
   const data = q.data;
-  const [exporting, setExporting] = useState(false);
   const [feed, setFeed] = useState<SourceRow | null>(null);
   const narrow = useNarrowText(NARROW_TEXT_PX);
   const pick = (r: ScreenRange) => {
@@ -499,9 +497,6 @@ export function StatsScreen() {
             </Link>
           }
         />
-        <div className="mt-6 text-left">
-          <StatsDataSection defaultRange={apiRange(range)} />
-        </div>
       </div>
     );
   } else if (q.isPending) {
@@ -587,7 +582,10 @@ export function StatsScreen() {
           </>
         )}
         <Section title="Your data">
-          <Button onClick={() => setExporting(true)}>Export</Button>
+          <p className="text-sm text-fg2">Export or delete what Kipple has recorded.</p>
+          <Link to="/settings/statistics" className="inline-flex min-h-11 items-center text-sm text-link underline underline-offset-2">
+            Open Settings &gt; Stats
+          </Link>
         </Section>
       </div>
     );
@@ -622,7 +620,6 @@ export function StatsScreen() {
         <div className="mx-auto w-full max-w-3xl">{body}</div>
       </div>
       {adding ? <AddFeedDialog onClose={() => setAdding(false)} /> : null}
-      <StatsExportDialog open={exporting} onOpenChange={setExporting} defaultRange={apiRange(range)} />
       <FeedSheet feed={feed} range={range} onClose={() => setFeed(null)} />
     </div>
   );

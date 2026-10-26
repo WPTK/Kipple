@@ -83,13 +83,18 @@ describe("refresh shows it is working from the tap (#482)", () => {
     });
     go("/l/unread");
     await screen.findByText("Article number 2");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Refresh all feeds" }));
-    const btn = await screen.findByRole("button", { name: "Refreshing" });
-    expect(btn.querySelector("svg")).toHaveClass("animate-spin");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "List actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Refresh all feeds" }));
+    // The menu closes; the trigger spins, and the menu item says Refreshing.
+    const btn = screen.getByRole("button", { name: "List actions" });
+    await waitFor(() => expect(btn.querySelector("svg")).toHaveClass("animate-spin"));
     release();
     // The answer shows the run at once: no gap before its run.start event arrives (none does here).
     await waitFor(() => expect(liveStore.get().runs.r1).toBeDefined());
-    expect(screen.getByRole("button", { name: "Refreshing" })).toBeInTheDocument();
+    expect(btn.querySelector("svg")).toHaveClass("animate-spin");
+    await user.click(btn);
+    expect(await screen.findByRole("menuitem", { name: "Refreshing" })).toBeInTheDocument();
   });
 });
 

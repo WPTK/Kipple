@@ -303,7 +303,7 @@ describe("read state in the Unread list", () => {
 });
 
 describe("sidebar", () => {
-  it("has no Feed health entry, keeps Settings at the bottom, and puts a Settings gear by the list controls", async () => {
+  it("has no Feed health entry, keeps Settings at the bottom, and has no Settings gear in the list header", async () => {
     routes();
     media(WIDE);
     go("/l/unread");
@@ -313,7 +313,7 @@ describe("sidebar", () => {
     const links = within(nav).getAllByRole("link");
     expect(links[links.length - 1]).toHaveAccessibleName("Settings"); // pinned at the bottom
     const header = screen.getByRole("heading", { level: 1, name: "Unread" }).closest("header") as HTMLElement;
-    expect(within(header).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
+    expect(within(header).queryByRole("link", { name: "Settings" })).toBeNull(); // the sidebar has it
     // The controls sit in a box capped at 25rem and left-aligned, so a full-width grid layout cannot push them right.
     expect(header.querySelector(".max-w-\\[25rem\\]")).not.toBeNull();
   });
@@ -784,12 +784,11 @@ describe("manage feeds", () => {
     expect(del.some((d) => d.startsWith("folder"))).toBe(false);
   });
 
-  it("Feed health stays reachable from the Feeds menu", async () => {
+  it("Feed health is a row on the Feeds screen", async () => {
     routes({}, boot3);
     go("/feeds");
     await screen.findByText("Alpha");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Feed actions" }));
-    expect(await screen.findByRole("menuitem", { name: "Feed health" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Feed health" })).toHaveAttribute("href", "/health");
   });
 
   it("the feed editor says 'On for all feeds' when the global full-text switch is on", async () => {

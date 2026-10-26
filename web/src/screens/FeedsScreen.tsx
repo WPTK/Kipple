@@ -5,7 +5,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type C
 import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Check, CheckCheck, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, HeartPulse, ListFilter, MoreVertical, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckCheck, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, ListFilter, MoreVertical, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
 import { createFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { ApiError, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
@@ -32,7 +32,7 @@ import { FolderSelect } from "@/ui/FolderSelect";
 import { useFavorites } from "@/lib/favorites";
 import { clickRow, groupState, toggleGroup } from "@/lib/selection";
 import { cn } from "@/lib/cn";
-import { listTo, openListTo } from "@/lib/routes";
+import { openListTo } from "@/lib/routes";
 import { DESTINATIONS } from "@/lib/destinations";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { feedLabel } from "./feeds/FeedRowName";
@@ -40,7 +40,6 @@ import { FeedLine, FolderLine } from "./feeds/RowLine";
 import { useItemActions } from "@/lib/itemActions";
 import { RevealMore, useReveal } from "@/lib/reveal";
 import { FavStar } from "@/ui/FavStar";
-import { MutedCount, StarredCount, UnreadCount } from "@/ui/UnreadCount";
 import { Button } from "@/ui/button";
 import { Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
@@ -229,7 +228,6 @@ export function FeedsScreen() {
   const qc = useQueryClient();
   const favs = useFavorites();
   const dp = useDevicePrefs();
-  const c = boot.data?.counts;
   const open = (useLocation().state as { open?: string } | null)?.open;
   const [adding, setAdding] = useState(open === "add");
   const [importing, setImporting] = useState(open === "import");
@@ -748,7 +746,7 @@ export function FeedsScreen() {
     );
   };
 
-  // The Feed actions menu, grouped by job: the view filter, then Organize, Files, and Feed health. The plain and the
+  // The Feed actions menu, grouped by job: the view filter, then Organize, and Files. The plain and the
   // edit modes both show it.
   const actionsMenu = (
     <DropdownMenu.Root>
@@ -790,11 +788,6 @@ export function FeedsScreen() {
               <Download className="size-5" aria-hidden="true" />
               Export feeds to a file (OPML)
             </a>
-          </DropdownMenu.Item>
-          <DropdownMenu.Separator className="my-1 h-px bg-line" />
-          <DropdownMenu.Item className={menuItem} onSelect={() => navigate("/health")}>
-            <HeartPulse className="size-5" aria-hidden="true" />
-            Feed health
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -878,32 +871,13 @@ export function FeedsScreen() {
             {selecting ? null : (
               <ul className="mb-2 flex flex-col gap-1">
                 <li>
-                  <Link to={listTo({ view: "unread" })} className={row}>
-                    Unread
-                    <span className="ml-auto" />
-                    <UnreadCount n={c?.unread ?? 0} noun="" />
-                  </Link>
-                </li>
-                <li>
-                  <Link to={listTo({ view: "all" })} className={row}>
-                    All articles
-                  </Link>
-                </li>
-                <li>
-                  <Link to={listTo({ view: "starred" })} className={row}>
-                    Starred
-                    <StarredCount n={c?.starred ?? 0} className="ml-auto" />
-                  </Link>
-                </li>
-                <li>
-                  <Link to={listTo({ view: "muted" })} className={row}>
-                    Muted
-                    <MutedCount n={c?.muted ?? 0} className="ml-auto" />
-                  </Link>
-                </li>
-                <li>
                   <Link to={DESTINATIONS.feedIndex.to} className={row}>
                     {DESTINATIONS.feedIndex.label}
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/health" className={row}>
+                    Feed health
                   </Link>
                 </li>
               </ul>

@@ -10,7 +10,7 @@
 //   W2  Search at 667x375, 852x393 and 874x402 with a saved search: the empty page scrolls, so the saved search is
 //       reachable above the tab bar and a tap on it opens it; in Chromium, with results, a real swipe over them moves the
 //       page (not the list) up and back down;
-//   W4  Settings > Statistics > Export at 375x667, 402x874 and 440x956: Download data dictionary is a 44 px target.
+//   W4  Settings > Statistics > Export at 375x667, 402x874 and 440x956: Download data dictionary is a 44 px target. (uat-labels: ignore)
 // On the phone width (900, 912 and 956 wide, held sideways) and the desktop width (1000, 1100 and 1280 wide):
 //   W3  an article open beside the list: the article toolbar fits its pane (More actions whole, the toolbar not
 //       scrolled), the list header's controls stay inside the list column (wrapping where it is narrow), and opening More

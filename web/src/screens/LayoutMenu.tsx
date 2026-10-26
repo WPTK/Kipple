@@ -53,8 +53,8 @@ export function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
 }
 
 /**
- * The list options menu in the list header (its button names the layout in effect). Layout: one list; the star beside each
- * layout makes it this device's default (a filled star is the default). Order, and on a feed or folder list the view it
+ * The list options menu in the list header (its button names the layout in effect). Layout: one list; on a feed or folder list the star
+ * beside each layout makes it this device's default (a filled star is the default; on the other lists the radio is the default). Order, and on a feed or folder list the view it
  * opens in. On a feed or folder list each radio choice is that list's own override (the first choice clears it), under
  * its own heading; on the other lists the layout and order choices are the device defaults themselves. Everything is
  * stored per device (src/lib/devicePrefs).
@@ -90,12 +90,13 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="start" sideOffset={4} popoverWidth="w-72">
           {target ? <p className="px-3 pt-2 text-xs text-fg2">These choices are for this {noun} on this device.</p> : null}
+          {!target ? <p className="px-3 pt-2 text-xs text-fg2">These choices are the defaults on this device.</p> : null}
           <DropdownMenu.Label className={heading}>Layout</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
             aria-label={target ? `Layout of this ${noun}` : "Layout"}
             value={target ? (own?.layout ?? "default") : dp.layout}
             onValueChange={(v) => {
-            if (!target) {
+              if (!target) {
                 updateDevicePrefs({ layout: v as LayoutId });
                 say(v as LayoutId);
               } else if (v === "default") setListOverride(target.kind, target.id, "layout", null);
@@ -109,23 +110,25 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
             {LAYOUT_IDS.map((id) => (
               <div key={id} className="flex items-center">
                 <Radio value={id} label={LAYOUT_LABELS[id]} hint={LAYOUT_HINTS[id]} className="min-w-0 flex-1" />
-                <DropdownMenu.CheckboxItem
-                  checked={dp.layout === id}
-                  aria-label={dp.layout === id ? `${LAYOUT_LABELS[id]} is the device default` : `Make ${LAYOUT_LABELS[id]} the device default`}
-                  title={dp.layout === id ? "Device default" : "Make this the device default"}
-                  // Keep the menu open so the star visibly fills.
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    makeDefault(id);
-                  }}
-                  className={cn("hit-row inline-flex shrink-0 cursor-default items-center justify-center rounded-lg outline-none data-[highlighted]:bg-selection", dp.layout === id ? "text-star" : "text-fg2")}
-                >
-                  <Star className="size-5" fill={dp.layout === id ? "currentColor" : "none"} aria-hidden="true" />
-                </DropdownMenu.CheckboxItem>
+                  {target ? (
+                  <DropdownMenu.CheckboxItem
+                    checked={dp.layout === id}
+                    aria-label={dp.layout === id ? `${LAYOUT_LABELS[id]} is the device default` : `Make ${LAYOUT_LABELS[id]} the device default`}
+                    title={dp.layout === id ? "Device default" : "Make this the device default"}
+                    // Keep the menu open so the star visibly fills.
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      makeDefault(id);
+                    }}
+                    className={cn("hit-row inline-flex shrink-0 cursor-default items-center justify-center rounded-lg outline-none data-[highlighted]:bg-selection", dp.layout === id ? "text-star" : "text-fg2")}
+                  >
+                    <Star className="size-5" fill={dp.layout === id ? "currentColor" : "none"} aria-hidden="true" />
+                  </DropdownMenu.CheckboxItem>
+                  ) : null}
               </div>
             ))}
           </DropdownMenu.RadioGroup>
-          <p className="px-3 pt-1 pb-2 text-xs text-fg2">The star sets this device's default layout.</p>
+          {target ? <p className="px-3 pt-1 pb-2 text-xs text-fg2">The star sets this device's default layout.</p> : null}
 
           <DropdownMenu.Separator className="my-1 h-px bg-line" />
           <DropdownMenu.Label className={heading}>Order</DropdownMenu.Label>
