@@ -5,7 +5,7 @@
 //   npm run uat:downloads -- --url http://127.0.0.1:7091 --headed
 //
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and clicks:
-//   D1  Feeds, Feed actions, Export OPML: the saved file is an OPML document (not JSON) and not named *.json;
+//   D1  Feeds, Feed actions, Export feeds to a file (OPML): the saved file is an OPML document (not JSON) and not named *.json;
 //   D2  Settings, Statistics, Export…, Download: the saved file is CSV with a header row (not a JSON error);
 //   D3  Settings, Account & Devices, Export backup, the web password, the download link: the saved file is a zip
 //       (starts "PK").
@@ -90,7 +90,7 @@ async function run(browser, vp) {
     await page.goto("/feeds", { waitUntil: "load" });
     await page.getByRole("heading", { level: 1, name: "Feeds" }).waitFor({ timeout: 15000 });
     await page.getByRole("button", { name: "Feed actions" }).click();
-    const opml = await saved(page, () => page.getByRole("menuitem", { name: "Export OPML" }).click());
+    const opml = await saved(page, () => page.getByRole("menuitem", { name: "Export feeds to a file (OPML)" }).click());
     const text = opml.bytes.toString("utf8");
     check(/<opml[\s>]/.test(text) && !text.trimStart().startsWith("{"), `${tag} D1`, `OPML saved as ${opml.name}`, `${opml.name} reads "${head(opml.bytes)}"`);
     check(!/\.json$/i.test(opml.name), `${tag} D1 name`, "not named .json", `named ${opml.name}`);

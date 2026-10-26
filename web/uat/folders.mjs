@@ -6,7 +6,7 @@
 //
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and, on the Feeds screen:
 //   N1  creates a folder, a subfolder inside it and a subfolder inside that (New folder, then New subfolder);
-//   N2  moves a feed into the deepest one (Select, Move to folder, picked by its path);
+//   N2  moves a feed into the deepest one (Select, Move, picked by its path);
 //   N3  counts: each of the three folders shows the feed's unread number (its subtree), in the bootstrap and on screen;
 //       the sidebar (desktop) is a tree with the three levels; axe-core has no finding on Feeds and on the folder list;
 //       the phone has no sideways scroll with three levels open;
@@ -198,7 +198,7 @@ async function run(browser, vp) {
     // N2
     await startSelect(page);
     await page.getByRole("checkbox", { name: `Select ${feed.title}`, exact: true }).first().click();
-    await page.getByRole("button", { name: "Move to folder" }).click();
+    await page.getByRole("button", { name: "Move", exact: true }).click();
     const mv = page.getByRole("dialog");
     await mv.getByRole("combobox", { name: "Move to folder" }).selectOption({ label: `${P}${SEP}${C}${SEP}${G}` });
     await mv.getByRole("button", { name: "Move" }).click();

@@ -109,7 +109,7 @@ await t.eachViewport(async (page, vp) => {
     const hidden = (await row.count()) === 0;
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     const inEdit = await row.first().waitFor({ timeout: 5000 }).then(() => true, () => false);
-    const hint = (await main.getByText("Empty. Feeds added without a folder go here.").count()) > 0;
+    const hint = (await main.getByText("Feeds added without a folder go here.").count()) > 0;
     check(hidden && inEdit && hint, `${tag} L4`, `"${name}" hidden, shown in Edit with its hint`, `"${name}": hidden outside Edit ${hidden}, shown in Edit ${inEdit}, hint ${hint}`);
     await page.getByRole("button", { name: "Done editing" }).click();
   });

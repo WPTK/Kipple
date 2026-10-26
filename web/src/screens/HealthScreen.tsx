@@ -1,5 +1,6 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { Suspense, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, CheckSquare } from "lucide-react";
@@ -15,13 +16,14 @@ import {
 import { ApiError, api, failed } from "@/api/client";
 import { invalidateLists, keys, useBootstrap } from "@/api/queries";
 import type { Feed } from "@/api/types";
-import { STATUS_RANK, failureReason, retryLabel, statusInfo } from "@/lib/feedStatus";
+import { STATUS_RANK, failureReason, statusInfo } from "@/lib/feedStatus";
 import { groupState, toggleGroup, toggleIn } from "@/lib/selection";
 import { bytesLabel, fullDate, whenLabel } from "@/lib/format";
 import { useWide } from "@/lib/useMedia";
 import { BackButton } from "@/ui/BackButton";
 import { Button } from "@/ui/button";
 import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
+import { EmptyState } from "@/ui/EmptyState";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { StatusChip } from "./StatusChip";
@@ -249,15 +251,14 @@ function RedirectNotice({ f, onDelete }: { f: HealthFeed; onDelete: () => void }
 }
 
 /**
- * Why a feed fails, in words, with when it last worked and when Kipple tries again, and the two ways to repair it. The
- * server's own text is behind Details, because it is for a person who has to look the cause up. A feed that works
- * again keeps its earlier error greyed (design 4.6), without the buttons.
+ * Why a feed fails, in words, and the two ways to repair it; when it last worked and when Kipple tries again are the
+ * row's own columns. The server's own text is behind Details, because it is for a person who has to look the cause up.
+ * A feed that works again keeps its earlier error greyed (design 4.6), without the buttons.
  */
 function ErrorLine({ f, onEdit }: { f: HealthFeed; onEdit: () => void }) {
   if (!f.last_error) return null;
   const resolved = f.status === "ok" || f.status === "silent";
   const reason = failureReason(f);
-  const retry = f.enabled ? retryLabel(f.next_fetch_at) : "";
   return (
     <div className="mt-1 flex flex-col gap-2 text-xs font-normal">
       {resolved ? (
@@ -267,7 +268,6 @@ function ErrorLine({ f, onEdit }: { f: HealthFeed; onEdit: () => void }) {
       ) : (
         <>
           <p className="break-words text-danger">{reason}.</p>
-          <p className="text-fg2">{[f.last_success_at ? `Last worked ${whenLabel(f.last_success_at).toLowerCase()}.` : "", retry ? `${retry}.` : ""].filter(Boolean).join(" ")}</p>
           <RepairButtons feedId={f.id} title={f.title} canTry={f.enabled} onEdit={onEdit} />
         </>
       )}
@@ -304,6 +304,7 @@ export function HealthScreen() {
   const boot = useBootstrap();
   const wide = useWide();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [sort, setSort] = useState<SortKey>("status");
   const [dir, setDir] = useState<1 | -1>(1);
   const [filter, setFilter] = useState<Filter>("all");
@@ -346,6 +347,42 @@ export function HealthScreen() {
   // Feed Health's own rows (HealthFeed) don't carry folder_id/starred_count; the bulk dialogs work on the
   // full Feed from the bootstrap, matched by id.
   const selectedFeeds: Feed[] = useMemo(() => (boot.data?.feeds ?? []).filter((f) => shownSel.has(f.id)), [boot.data?.feeds, shownSel]);
+  // Retry now fetches the selected feeds that are not paused, one at a time (a paused feed is resumed, not retried),
+  // and says how many still fail, are still fetching, or were skipped for being paused. One toast at the end, not one
+  // per feed.
+  const [retrying, setRetrying] = useState(false);
+  const retryable = useMemo(() => (h.data?.feeds ?? []).filter((f) => shownSel.has(f.id) && f.enabled), [h.data?.feeds, shownSel]);
+  const pausedTicked = useMemo(() => (h.data?.feeds ?? []).filter((f) => shownSel.has(f.id) && !f.enabled).length, [h.data?.feeds, shownSel]);
+  const retrySelected = async () => {
+    setRetrying(true);
+    let stillFailing = 0;
+    let stillFetching = 0;
+    try {
+      for (const f of retryable) {
+        try {
+          const r = await refreshFeed(f.id);
+          if (r.pending) stillFetching++;
+          else if (r.error) stillFailing++;
+        } catch {
+          stillFailing++;
+        }
+      }
+    } finally {
+      setRetrying(false);
+      invalidateFeeds(qc);
+    }
+    const n = retryable.length;
+    toast(
+      [
+        `Retried ${n} feed${n === 1 ? "" : "s"}.`,
+        stillFailing > 0 ? `${stillFailing} still can't be fetched.` : "",
+        stillFetching > 0 ? `${stillFetching} still fetching.` : "",
+        pausedTicked > 0 ? `${pausedTicked} paused feed${pausedTicked === 1 ? "" : "s"} skipped.` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+  };
   const th = (k: SortKey) => (
     <th scope="col" aria-sort={sort === k ? (dir === 1 ? "ascending" : "descending") : "none"} className="px-3 py-2 text-left font-semibold">
       <button
@@ -366,6 +403,8 @@ export function HealthScreen() {
   );
 
   const d = h.data;
+  // Select only means something with feeds to tick: with none, the page offers to add one and nothing else.
+  const noFeeds = d?.feeds.length === 0;
   const warnings = [...(boot.data?.warnings ?? []).map((w) => w.message)];
   if (d && d.clock.ahead_s > 60) warnings.push(`This server's clock is about ${Math.round(d.clock.ahead_s / 60)} minutes ahead of the time Kipple last heard from the internet. Fetch schedules may be off.`);
   if (d?.snapshot.last_error) warnings.push(`The last automatic database snapshot failed: ${d.snapshot.last_error}`);
@@ -387,10 +426,12 @@ export function HealthScreen() {
           >
             Update list
           </Button>
-          <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
-            {selecting ? <Check aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
-            <span className={selecting ? undefined : "hidden min-[560px]:inline"}>{selecting ? "Done" : "Select"}</span>
-          </Button>
+          {noFeeds ? null : (
+            <Button variant="ghost" onClick={() => (selecting ? exitSelect() : setSelecting(true))} aria-label={selecting ? "Done" : "Select"}>
+              {selecting ? <Check aria-hidden="true" /> : <CheckSquare aria-hidden="true" />}
+              <span className={selecting ? undefined : "hidden min-[560px]:inline"}>{selecting ? "Done" : "Select"}</span>
+            </Button>
+          )}
         </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
@@ -411,6 +452,18 @@ export function HealthScreen() {
                 ))}
               </div>
             ) : null}
+            {d.feeds.length === 0 ? (
+              <EmptyState
+                title="Add a feed first"
+                why="Feed health shows how each of your feeds is doing once you have some."
+                action={
+                  <Button variant="solid" onClick={() => navigate("/feeds", { state: { open: "add" } })}>
+                    Add a feed
+                  </Button>
+                }
+              />
+            ) : (
+              <>
             <div className="mb-2 flex items-center gap-2">
               <input
                 type="search"
@@ -458,8 +511,10 @@ export function HealthScreen() {
                 <caption className="sr-only-live">Feed health</caption>
                 <thead>
                   <tr className="border-b border-line">
+                    {/* The column is always there, at a fixed width, so the titles do not move when Select is turned on. With
+                        Select off it holds no checkboxes, so its header is an empty cell, not a "Select" header over nothing. */}
                     {selecting ? (
-                      <th scope="col" className="px-3 py-2">
+                      <th scope="col" className="w-9 py-2 pr-1">
                         <input
                           type="checkbox"
                           aria-label="Select all feeds"
@@ -468,7 +523,9 @@ export function HealthScreen() {
                           className="size-5 accent-[var(--kp-accent)]"
                         />
                       </th>
-                    ) : null}
+                    ) : (
+                      <td className="w-9 py-2 pr-1" />
+                    )}
                     {th("title")}
                     {th("status")}
                     {th("last_success_at")}
@@ -481,8 +538,8 @@ export function HealthScreen() {
                 <tbody>
                   {feeds.map((f) => (
                     <tr key={f.id} className="border-b border-line align-top">
-                      {selecting ? (
-                        <td className="px-3 py-2">
+                      <td className="w-9 py-2 pr-1">
+                        {selecting ? (
                           <input
                             type="checkbox"
                             aria-label={`Select ${f.title}`}
@@ -490,8 +547,8 @@ export function HealthScreen() {
                             onChange={() => check(f.id)}
                             className="size-5 accent-[var(--kp-accent)]"
                           />
-                        </td>
-                      ) : null}
+                        ) : null}
+                      </td>
                       <th scope="row" className="max-w-[24rem] px-3 py-2 text-left font-medium">
                         <span className="block truncate">{f.title}</span>
                         <span className="block truncate text-xs font-normal text-fg2">{f.url}</span>
@@ -550,15 +607,13 @@ export function HealthScreen() {
                 ))}
               </ul>
             )}
-            <p className="mt-4 text-xs text-fg2">
-              Database {bytesLabel(d.db.db_bytes + (d.db.wal_bytes ?? 0))}, backups {bytesLabel(d.db.backup_bytes)}
-              {typeof d.db.imgcache_bytes === "number" ? `, image cache ${bytesLabel(d.db.imgcache_bytes)}` : ""}, {d.unread_total} unread.
-            </p>
+              </>
+            )}
             {d.reader_last_seen_at ? <p className="mt-4 text-xs text-fg2">A sync app was last seen {whenLabel(Math.min(d.reader_last_seen_at, Date.now() / 1000)).toLowerCase()}.</p> : null}
           </>
         ) : null}
       </div>
-      {selecting ? (
+      {selecting && !noFeeds ? (
         <BottomBar ariaLabel="Selected feeds">
           <span className="mr-auto text-sm font-semibold" aria-live="polite">
             {shownSel.size} selected
@@ -566,13 +621,16 @@ export function HealthScreen() {
           <Button onClick={() => setSel(new Set([...sel, ...shownIds]))} disabled={feeds.length === 0 || allShownSelected}>
             Select all
           </Button>
+          <Button onClick={() => void retrySelected()} disabled={retrying || retryable.length === 0} aria-busy={retrying}>
+            {retrying ? "Retrying" : "Retry now"}
+          </Button>
           <Button onClick={() => setBulk("enable")} disabled={shownSel.size === 0}>
             Resume
           </Button>
           <Button onClick={() => setBulk("disable")} disabled={shownSel.size === 0}>
             Pause
           </Button>
-          <Button variant="solid" onClick={() => setBulk("delete")} disabled={shownSel.size === 0}>
+          <Button variant="danger" onClick={() => setBulk("delete")} disabled={shownSel.size === 0}>
             Delete
           </Button>
         </BottomBar>

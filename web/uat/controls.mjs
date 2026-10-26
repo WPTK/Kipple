@@ -60,7 +60,7 @@ await t.eachViewport(async (page, vp) => {
   await step(`${tag} K2`, async () => {
     await page.goto("/feeds", { waitUntil: "load" });
     await page.getByRole("button", { name: "Feed actions" }).click();
-    await page.getByRole("menuitem", { name: "Import OPML" }).click();
+    await page.getByRole("menuitem", { name: "Import feeds from a file (OPML)" }).click();
     const imp = page.getByRole("dialog");
     const move = imp.getByRole("checkbox", { name: /^Move feeds that already exist/ });
     await move.waitFor({ timeout: 10000 });

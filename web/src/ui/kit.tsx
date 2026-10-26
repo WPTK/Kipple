@@ -108,7 +108,8 @@ export function Modal({
           <div data-sheet-body className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-3">
             <Dialog.Title className="text-lg font-bold">{title}</Dialog.Title>
             {description ? <Dialog.Description className="mt-1 mb-3 text-sm text-fg2">{description}</Dialog.Description> : <Dialog.Description className="sr-only-live">{title}</Dialog.Description>}
-            <div className="flex flex-col gap-4">{children}</div>
+            {/* With no description, the title needs its own room above the first field. */}
+            <div className={cn("flex flex-col gap-4", !description && "mt-3")}>{children}</div>
           </div>
           {footer ? <div className="pb-safe flex flex-wrap justify-end gap-2 border-t border-line px-5 py-3">{footer}</div> : null}
         </Dialog.Content>
@@ -560,10 +561,24 @@ export function Stepper({
   );
 }
 
-/** A disclosure section. */
-export function Disclosure({ label, children, defaultOpen = false, tone }: { label: string; children: ReactNode; defaultOpen?: boolean; tone?: "warn" }) {
+/** A disclosure section. Pass `open` and `onOpenChange` to control it (a section that must stay open while it holds a warning). */
+export function Disclosure({
+  label,
+  children,
+  defaultOpen = false,
+  open,
+  onOpenChange,
+  tone,
+}: {
+  label: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  tone?: "warn";
+}) {
   return (
-    <Collapsible.Root defaultOpen={defaultOpen} className="rounded-xl border border-line">
+    <Collapsible.Root defaultOpen={defaultOpen} open={open} onOpenChange={onOpenChange} className="rounded-xl border border-line">
       <Collapsible.Trigger className="group flex min-h-11 w-full items-center justify-between gap-2 rounded-xl px-3 text-left text-sm font-semibold">
         <span className="flex items-center gap-2">
           {tone === "warn" ? <TriangleAlert aria-hidden="true" className="size-4 text-danger" /> : null}

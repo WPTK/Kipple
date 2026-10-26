@@ -2,7 +2,7 @@
 // Tests for scripts/uat-labels.mjs. Each test names the behavior it protects. No git, no browser: inputs are inline.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { check, extractFragments, findUsages, goneFragments, parseDiff, staticParts } from './uat-labels.mjs';
+import { check, extractFragments, findUsages, goneFragments, parseDiff, plainText, staticParts } from './uat-labels.mjs';
 
 const uat = (text) => [{ name: 'web/uat/run.mjs', text }];
 
@@ -39,7 +39,7 @@ test('parseDiff: collects removed and added fragments per file', () => {
     '-<button aria-label={`Layout: ${x}`}>',
     '+<button aria-label={`List layout, ${x}`}>',
   ].join('\n');
-  assert.deepEqual(parseDiff(diff), [{ file: 'web/src/A.tsx', removed: ['Layout: '], added: ['List layout, '] }]);
+  assert.deepEqual(parseDiff(diff), [{ file: 'web/src/A.tsx', removed: ['Layout: '], added: ['List layout, '], shown: new Set() }]);
 });
 
 test('goneFragments: a removed label that still exists elsewhere in the source is not gone', () => {
@@ -54,6 +54,45 @@ test('goneFragments: a removed label missing from the current source is gone', (
 
 test('goneFragments: ignores fragments shorter than three characters once trimmed', () => {
   assert.deepEqual(goneFragments([{ file: 'a.tsx', removed: [', ', 'OK'] }], new Set()), []);
+});
+
+test('plainText: returns the words of a text line and nothing for code or markup', () => {
+  assert.equal(plainText('  Add feed'), 'Add feed');
+  assert.equal(plainText('<Button variant="solid">'), '');
+  assert.equal(plainText('const x = 1;'), '');
+});
+
+test('check: a label that became the control\'s visible text is not gone', () => {
+  const diff = [
+    'diff --git a/web/src/A.tsx b/web/src/A.tsx',
+    '--- a/web/src/A.tsx',
+    '+++ b/web/src/A.tsx',
+    '@@ -1 +1,3 @@',
+    '-<Button aria-label="Add feed">',
+    '+<Button>',
+    '+  Add feed',
+    '+</Button>',
+  ].join('\n');
+  assert.deepEqual(check(diff, new Set(), uat('page.getByRole("button", { name: "Add feed" })')), []);
+});
+
+test('check: a label that became visible text is still gone for a UAT line that finds it by the aria-label attribute', () => {
+  const diff = ['diff --git a/web/src/A.tsx b/web/src/A.tsx', '--- a/web/src/A.tsx', '+++ b/web/src/A.tsx', '@@ -1 +1,2 @@', '-<Button aria-label="Add feed">', '+<Button>', '+  Add feed'].join('\n');
+  const problems = check(diff, new Set(), uat('page.locator(\'[aria-label="Add feed"]\')'));
+  assert.equal(problems.length, 1);
+});
+
+test('check: the same words added as text in another file do not make a removed label survive', () => {
+  const diff = [
+    'diff --git a/web/src/A.tsx b/web/src/A.tsx', '--- a/web/src/A.tsx', '+++ b/web/src/A.tsx', '@@ -1 +1 @@', '-<Button aria-label="Delete feed">', '+<Button>',
+    'diff --git a/web/src/B.tsx b/web/src/B.tsx', '--- a/web/src/B.tsx', '+++ b/web/src/B.tsx', '@@ -4 +4 @@', '+  Delete feed',
+  ].join('\n');
+  assert.equal(check(diff, new Set(), uat('page.getByRole("button", { name: "Delete feed" })')).length, 1);
+});
+
+test('check: a template prefix is not the control\'s whole name, so the same word as text does not clear it', () => {
+  const diff = ['diff --git a/web/src/A.tsx b/web/src/A.tsx', '--- a/web/src/A.tsx', '+++ b/web/src/A.tsx', '@@ -1 +1,2 @@', '-<b aria-label={`Select ${x}`}>', '+<b>', '+  Select'].join('\n');
+  assert.equal(check(diff, new Set(), uat('page.getByRole("checkbox", { name: "Select " })')).length, 1);
 });
 
 test('findUsages: reports the file and line where the old label appears', () => {
@@ -108,8 +147,8 @@ test('parseDiff: a deleted file (+++ /dev/null) is attributed to its own path, a
     '+<b aria-label="New">',
   ].join('\n');
   assert.deepEqual(parseDiff(diff), [
-    { file: 'web/src/Gone.tsx', removed: ['Layout: Gone'], added: [] },
-    { file: 'web/src/Kept.tsx', removed: ['Old'], added: ['New'] },
+    { file: 'web/src/Gone.tsx', removed: ['Layout: Gone'], added: [], shown: new Set() },
+    { file: 'web/src/Kept.tsx', removed: ['Old'], added: ['New'], shown: new Set() },
   ]);
 });
 

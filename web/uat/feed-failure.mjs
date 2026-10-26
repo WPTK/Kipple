@@ -166,7 +166,7 @@ async function viewport(page, vp, added) {
       const reasons = what === "feed" ? text.includes("This feed is gone: The site says this feed no longer exists.") && !text.includes(REASON_500) : folderOk();
       check(shown && reasons && text.includes("Feed health"), `${tag} X4`, `the ${what} list's note says "${text}"`, `the ${what} list's note says "${text}", not its own reason (feed) or the count once (${expected} expected) with the failing feeds named (folder), with the Feed health link`);
       check(shown && (await note.evaluate((el) => !el.closest("[role=status],[aria-live]"))), `${tag} X4`, `the ${what} note is not a live region`, `the ${what} note is a live region`);
-      const line = shown ? await note.locator("p").evaluate((el) => el.scrollHeight <= el.clientHeight + 1 || globalThis.getComputedStyle(el).webkitLineClamp === "2") : false;
+      const line = shown ? await note.locator("p").first().evaluate((el) => el.scrollHeight <= el.clientHeight + 1 || globalThis.getComputedStyle(el).webkitLineClamp === "2") : false;
       check(line, `${tag} X4`, `the ${what} note is at most two lines`, `the ${what} note is more than two lines`);
       const row = await page.getByText("An older article").first().waitFor({ timeout: 10000 }).then(() => true, () => false);
       check(row, `${tag} X4`, `the ${what} list still shows its article`, `the ${what} list lost its article`);

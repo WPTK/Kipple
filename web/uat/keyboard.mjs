@@ -16,7 +16,7 @@
 // At 390x844 as a touch device:
 //   K4  Every swipe or long-press action has an alternative that needs no gesture: a row's Star button and its
 //       More actions menu (mark read or unread, star), the article's Back button, and the Refresh all feeds
-//       button for pull to refresh; and the feed list's drag to reorder works from the keyboard (Move to folder).
+//       button for pull to refresh; and the feed list's drag to reorder works from the keyboard (Move).
 //
 // It opens, stars and marks articles on the seed's account (and undoes what it can), so it only runs against a
 // loopback address with the seed's credentials unless --allow-remote is given. Like Suite 1 it uses the run's own
@@ -589,11 +589,11 @@ async function phone(cookies) {
   check(await backBtn.first().isVisible().catch(() => false), where("swipe back"), "a Back button", "no visible Back button on the article");
   const articleButtons = await page.evaluate(() => [...document.querySelectorAll("button")].filter((b) => b.checkVisibility()).map((b) => b.getAttribute("aria-label") || b.textContent.trim()));
   check(["Star", "Previous article", "Next article"].every((n) => articleButtons.some((t) => t.startsWith(n))), where("article actions"), "Star, Previous and Next article buttons", `the article has: ${articleButtons.join(", ")}`);
-  // Reordering feeds by dragging: Move to folder reaches the same result with no drag (Select mode).
+  // Reordering feeds by dragging: Move (to a folder) reaches the same result with no drag (Select mode).
   await load(page, "/feeds");
   await startSelect(page);
-  const moveTo = await page.getByText("Move to folder").count().catch(() => 0);
-  check(moveTo > 0, where("drag to reorder"), "Select mode offers Move to folder (the grips also take arrow keys)", "no Move to folder in Select mode");
+  const moveTo = await page.getByRole("region", { name: "Selected feeds" }).getByRole("button", { name: "Move", exact: true }).count().catch(() => 0);
+  check(moveTo > 0, where("drag to reorder"), "Select mode offers Move (the grips also take arrow keys)", "no Move button in Select mode");
   await ctx.close();
 }
 

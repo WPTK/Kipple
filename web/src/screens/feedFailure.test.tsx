@@ -94,6 +94,42 @@ describe("a failing feed", () => {
     expect(note).toHaveTextContent(`${failing.title} can't be fetched: This address does not exist.`);
   });
 
+  it("a note about one failing feed says when Kipple tries it again, on a line of its own that is not clamped", async () => {
+    const retryAt = Math.floor(Date.now() / 1000) + 3600;
+    mockFetch({
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [failing], counts: { unread: 0, starred: 0 } }),
+      "GET /api/items": () => json(pageOf([card(1)])),
+      "GET /api/health/feeds": () => json({ feeds: [{ id: failing.id, enabled: true, next_fetch_at: retryAt, last_success_at: null, consecutive_failures: 3 }], reader_last_seen_at: null, snapshot: { last_at: null, last_error: null }, clock: { ahead_s: 0 }, db: {}, unread_total: 0 }),
+    });
+    window.history.replaceState({ idx: 0 }, "", `/l/all?folder=${failing.folder_id}`);
+    render(<App client={makeQueryClient({ retry: false })} />);
+    const note = await screen.findByTestId("feed-failure-note");
+    // The line keeps its height before the time arrives, then says it.
+    const line = within(note).getByTestId("feed-failure-retry");
+    expect(line.className).toContain("min-h-5");
+    expect(line.className).not.toContain("line-clamp");
+    expect(await within(note).findByText("Trying again in 1 hour.")).toBe(line);
+    // The sentence is clamped without it; the tooltip still has both.
+    const sentence = note.querySelector("p") as HTMLElement;
+    expect(sentence).toHaveTextContent(`${failing.title} can't be fetched: This address does not exist.`);
+    expect(sentence).not.toHaveTextContent("Trying again");
+    expect(sentence.getAttribute("title")).toContain("This address does not exist. Trying again in 1 hour.");
+  });
+
+  it("a note about several failing feeds has no retry line and asks Feed health for nothing", async () => {
+    const dead: Feed = { ...failing, id: "2", title: "Gone Feed", status: "dead", last_error: "HTTP 410", last_error_class: "gone" };
+    const { calls } = mockFetch({
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [failing, dead], counts: { unread: 0, starred: 0 } }),
+      "GET /api/items": () => json(pageOf([card(1)])),
+    });
+    window.history.replaceState({ idx: 0 }, "", `/l/all?folder=${failing.folder_id}`);
+    render(<App client={makeQueryClient({ retry: false })} />);
+    const note = await screen.findByTestId("feed-failure-note");
+    expect(note).toHaveTextContent("2 feeds in this folder have fetch problems");
+    expect(within(note).queryByTestId("feed-failure-retry")).toBeNull();
+    expect(calls.some((c) => c.url.pathname === "/api/health/feeds")).toBe(false);
+  });
+
   it("is not a live region, and is two clamped lines with the full text as its tooltip", async () => {
     go("/l/all?feed=1", failing, [card(1)]);
     const note = await screen.findByTestId("feed-failure-note");

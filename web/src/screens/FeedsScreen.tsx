@@ -5,7 +5,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type C
 import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Check, CheckCheck, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, HeartPulse, ListFilter, MoreVertical, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckCheck, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, HeartPulse, ListFilter, MoreVertical, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
 import { createFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { ApiError, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
@@ -58,6 +58,7 @@ const OpmlImportDialog = lazyScreen(() => import("./feeds/OpmlDialog").then((m) 
 
 const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 const menuItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
+const menuLabel = "px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase";
 
 type FolderDialog =
   | { kind: "new"; parent: string | null }
@@ -174,14 +175,14 @@ function FolderDialogs({
     if (busy || !name.trim()) return;
     void run(
       () => (isNew ? createFolder(name.trim(), parent || null) : patchFolder(dialog.folder.id, { name: name.trim() })),
-      isNew ? "Folder created" : "Folder renamed",
+      isNew ? "Folder created" : "Folder settings saved",
     );
   };
   return (
     <Modal
       open
       onOpenChange={(o) => !o && onClose()}
-      title={isNew ? (dialog.parent ? "New subfolder" : "New folder") : "Rename folder"}
+      title={isNew ? (dialog.parent ? "New subfolder" : "New folder") : "Folder settings"}
       footer={
         <>
           <Button onClick={() => onClose()}>Cancel</Button>
@@ -512,7 +513,7 @@ export function FeedsScreen() {
       {...dnd.gripProps(src)}
       className="hit-row inline-flex shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-fg2 hover:bg-selection active:cursor-grabbing"
     >
-      <GripVertical className="size-4" aria-hidden="true" />
+      <GripVertical className="size-5" aria-hidden="true" />
     </button>
   );
 
@@ -680,13 +681,13 @@ export function FeedsScreen() {
                 }}
                 className="size-5 shrink-0 accent-[var(--kp-accent)]"
               />
-              <FolderLine name={fo.name} unread={fo.unread} />
+              <FolderLine name={fo.name} unread={fo.unread} empty={inFolder.length === 0 && subfolders.length === 0} />
             </label>
           ) : (
             <>
               {editMode ? grip(fsrc, `folder ${label}`) : <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} />}
               <Link to={openListTo({ folder: fo.id })} draggable={false} data-reveal-key={`folder:${fo.id}`} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
-                <FolderLine name={fo.name} unread={fo.unread} />
+                <FolderLine name={fo.name} unread={fo.unread} empty={inFolder.length === 0 && subfolders.length === 0} />
               </Link>
             </>
           )}
@@ -709,8 +710,8 @@ export function FeedsScreen() {
                       </DropdownMenu.Item>
                     ) : null}
                     <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "rename", folder: fo })}>
-                      <Pencil className="size-5" aria-hidden="true" />
-                      Rename or set layout
+                      <Settings2 className="size-5" aria-hidden="true" />
+                      Folder settings
                     </DropdownMenu.Item>
                     {!fo.is_default && depth < MAX_FOLDER_DEPTH ? (
                       <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: fo.id })}>
@@ -740,12 +741,65 @@ export function FeedsScreen() {
           <ul id={listId} className={depth < 4 ? "pl-6" : "pl-2"}>
             {subfolders.map((id) => folderNode(ftree.byId.get(id) as Folder))}
             {inFolder.map((f, i) => (reveal.shown(`feed:${f.id}`) ? feedRow(f, i, inFolder, fo) : null))}
-            {editMode && fo.is_default && inFolder.length === 0 ? <li className="px-3 py-1 text-xs text-fg2">Empty. Feeds added without a folder go here.</li> : null}
+            {editMode && fo.is_default && inFolder.length === 0 ? <li className="px-3 py-1 text-xs text-fg2">Feeds added without a folder go here.</li> : null}
           </ul>
         )}
       </li>
     );
   };
+
+  // The Feed actions menu, grouped by job: the view filter, then Organize, Files, and Feed health. The plain and the
+  // edit modes both show it.
+  const actionsMenu = (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <Button variant="ghost" size="icon" id={FEED_ACTIONS_ID} aria-label="Feed actions">
+          <MoreVertical aria-hidden="true" />
+        </Button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-64">
+          {realFeeds.length > 0 ? (
+            <>
+              <DropdownMenu.Item className={menuItem} onSelect={() => setUnreadOnly((u) => !u)}>
+                <ListFilter className="size-5" aria-hidden="true" />
+                {unreadOnly ? "Show all feeds" : "Show only unread feeds"}
+              </DropdownMenu.Item>
+              <DropdownMenu.Separator className="my-1 h-px bg-line" />
+            </>
+          ) : null}
+          <DropdownMenu.Label className={menuLabel}>Organize</DropdownMenu.Label>
+          {realFeeds.length > 0 ? (
+            <DropdownMenu.Item className={menuItem} onSelect={() => setSelecting(true)}>
+              <CheckSquare className="size-5" aria-hidden="true" />
+              Select feeds
+            </DropdownMenu.Item>
+          ) : null}
+          <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: null })}>
+            <FolderPlus className="size-5" aria-hidden="true" />
+            New folder
+          </DropdownMenu.Item>
+          <DropdownMenu.Label className={menuLabel}>Files</DropdownMenu.Label>
+          <DropdownMenu.Item className={menuItem} onSelect={() => setImporting(true)}>
+            <Upload className="size-5" aria-hidden="true" />
+            Import feeds from a file (OPML)
+          </DropdownMenu.Item>
+          {/* The browser saves the file without a word; the note says what happened and what the file is called. */}
+          <DropdownMenu.Item asChild className={menuItem} onSelect={() => toast("Downloading your feeds as kipple.opml")}>
+            <a href="/api/opml" download>
+              <Download className="size-5" aria-hidden="true" />
+              Export feeds to a file (OPML)
+            </a>
+          </DropdownMenu.Item>
+          <DropdownMenu.Separator className="my-1 h-px bg-line" />
+          <DropdownMenu.Item className={menuItem} onSelect={() => navigate("/health")}>
+            <HeartPulse className="size-5" aria-hidden="true" />
+            Feed health
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
 
   return (
     <div className="ui-font mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col">
@@ -753,93 +807,44 @@ export function FeedsScreen() {
         {/* As in the list header: the title keeps at least 6.5rem, and where the title and the controls do not fit on
             one row (a narrow phone at a large text size) the controls drop to a row of their own. */}
         <div className="flex flex-wrap items-center gap-1 pt-2">
-          {/* The Saving/Saved note sits over the title row's empty end, so it never moves the controls when it comes and goes. */}
-          <div className="relative min-w-[min(100%,6.5rem)] flex-1">
-            <h1 className="truncate text-xl font-bold" tabIndex={-1} data-route-heading>
-              Feeds
-            </h1>
-            <span
-              role="status"
-              aria-live="polite"
-              className="absolute top-1/2 right-1 inline-flex -translate-y-1/2 items-center gap-1 bg-bg pl-1 text-xs text-fg2"
-              data-testid="saved-note"
-            >
-              {saved === "saved" ? (
-                <>
-                  <Check className="size-4" aria-hidden="true" />
-                  Saved
-                </>
-              ) : saved === "saving" ? (
-                "Saving"
-              ) : null}
-            </span>
-          </div>
+          <h1 className="min-w-[min(100%,6.5rem)] flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
+            Feeds
+          </h1>
+          {/* Each mode shows its own controls: selecting has Done; editing has the Saving/Saved note (a fixed width, so
+              Done never moves as the note comes and goes) and Done; otherwise Edit, Add feed and the menu. The button's
+              own text carries the state (Edit, then Done), so there is no aria-pressed to announce it twice. */}
           <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
-          {/* The text hides below 560px, so the name comes from aria-label, matching the text when shown. The name
-              itself carries the state (Edit, then Done), so there is no aria-pressed to announce it twice. While
-              selecting, only Done shows. */}
-          {selecting ? (
-            <Button variant="ghost" onClick={exitSelect} aria-label="Done">
-              <Check aria-hidden="true" />
-              <span>Done</span>
-            </Button>
-          ) : (
-            <>
-              <Button variant="ghost" onClick={() => setEditMode((e) => !e)} aria-label={editMode ? "Done editing" : "Edit"}>
-                <Pencil aria-hidden="true" />
-                <span className="hidden min-[560px]:inline">{editMode ? "Done" : "Edit"}</span>
+            {selecting ? (
+              <Button variant="ghost" onClick={exitSelect}>
+                Done
               </Button>
-              <Button variant="ghost" onClick={() => setAdding(true)} aria-label="Add feed">
-                <Plus aria-hidden="true" />
-                <span className="hidden min-[560px]:inline">Add feed</span>
-              </Button>
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <Button variant="ghost" size="icon" id={FEED_ACTIONS_ID} aria-label="Feed actions">
-                    <MoreVertical aria-hidden="true" />
+            ) : (
+              <>
+                {editMode ? (
+                  <span role="status" aria-live="polite" className="inline-flex min-w-16 items-center justify-end gap-1 text-xs text-fg2" data-testid="saved-note">
+                    {saved === "saved" ? (
+                      <>
+                        <Check className="size-4" aria-hidden="true" />
+                        Saved
+                      </>
+                    ) : saved === "saving" ? (
+                      "Saving"
+                    ) : null}
+                  </span>
+                ) : null}
+                {/* One button in one place for Edit and Done, so keyboard focus stays on it as the mode changes. */}
+                <Button variant="ghost" onClick={() => setEditMode((m) => !m)} aria-label={editMode ? "Done editing" : "Edit"}>
+                  {editMode ? "Done" : "Edit"}
+                </Button>
+                {editMode ? null : (
+                  <Button variant="solid" onClick={() => setAdding(true)}>
+                    <Plus aria-hidden="true" />
+                    Add feed
                   </Button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
-                    {realFeeds.length > 0 ? (
-                      <DropdownMenu.Item className={menuItem} onSelect={() => setSelecting(true)}>
-                        <CheckSquare className="size-5" aria-hidden="true" />
-                        Select feeds
-                      </DropdownMenu.Item>
-                    ) : null}
-                    {realFeeds.length > 0 ? (
-                      <DropdownMenu.Item className={menuItem} onSelect={() => setUnreadOnly((u) => !u)}>
-                        <ListFilter className="size-5" aria-hidden="true" />
-                        {unreadOnly ? "Show all feeds" : "Show only unread feeds"}
-                      </DropdownMenu.Item>
-                    ) : null}
-                    <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: null })}>
-                      <FolderPlus className="size-5" aria-hidden="true" />
-                      New folder
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item className={menuItem} onSelect={() => setImporting(true)}>
-                      <Upload className="size-5" aria-hidden="true" />
-                      Import OPML
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item asChild className={menuItem}>
-                      <a href="/api/opml" download>
-                        <Download className="size-5" aria-hidden="true" />
-                        Export OPML
-                      </a>
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item className={menuItem} onSelect={() => setButtons((r) => !r)}>
-                      <ArrowUp className="size-5" aria-hidden="true" />
-                      {buttons ? "Hide move buttons" : "Show move buttons"}
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item className={menuItem} onSelect={() => navigate("/health")}>
-                      <HeartPulse className="size-5" aria-hidden="true" />
-                      Feed health
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-            </>
-          )}
+                )}
+                {actionsMenu}
+              </>
+            )}
           </div>
         </div>
         {/* Help only where a mode needs it: a plain visit to this screen is the list and nothing else. */}
@@ -848,7 +853,12 @@ export function FeedsScreen() {
             {tapVerb()} feeds to select them, then move or delete them.{finePointer ? " Shift-click selects a range; with the keyboard, Space selects the focused feed." : ""}
           </p>
         ) : editMode ? (
-          <p className="pb-1 text-xs text-fg2">Drag a feed or folder to reorder it. Changes are saved as you drop.</p>
+          <p className="flex flex-wrap items-center gap-x-2 pb-1 text-xs text-fg2">
+            {finePointer ? "Drag a feed or folder to reorder it. Changes are saved as you drop." : "Hold and drag a feed or folder to reorder it, or use the move buttons. Changes are saved as you drop."}
+            <button type="button" className="min-h-11 font-semibold text-accent underline" onClick={() => setButtons((b) => !b)}>
+              {buttons ? "Hide move buttons" : "Show move buttons"}
+            </button>
+          </p>
         ) : unreadOnly ? (
           <p className="flex items-center gap-2 pb-1 text-xs text-fg2">
             Showing only feeds with unread articles.
@@ -928,9 +938,9 @@ export function FeedsScreen() {
             Select all
           </Button>
           <Button onClick={() => setBulk("move")} disabled={selected.length === 0}>
-            Move to folder
+            Move
           </Button>
-          <Button variant="solid" onClick={() => setBulk("delete")} disabled={selected.length === 0}>
+          <Button variant="danger" onClick={() => setBulk("delete")} disabled={selected.length === 0}>
             Delete
           </Button>
         </BottomBar>

@@ -138,11 +138,11 @@ export function failureNoteFeeds(o: { scope: Scope; pendingOf: (feedId: string) 
     .sort((a, b) => (STATUS_RANK[a.status] ?? 99) - (STATUS_RANK[b.status] ?? 99));
 }
 
-/** The text of the note: one feed in words, or a folder's count once with up to three names. */
-export function failureNoteText(failing: readonly Feed[], inFolder: boolean, retry = ""): string {
+/** The text of the note: one feed in words, or a folder's count once with up to three names. The retry time is its own line. */
+export function failureNoteText(failing: readonly Feed[], inFolder: boolean): string {
   const one = failing[0];
   if (!one) return "";
-  if (!inFolder || failing.length === 1) return inFolder ? namedFailureLine(one) : failureLine(one, retry);
+  if (!inFolder || failing.length === 1) return inFolder ? namedFailureLine(one) : failureLine(one);
   const names = failing.slice(0, 3).map(feedName);
   const more = failing.length - names.length;
   return `${failing.length} feeds in this folder have fetch problems: ${names.join(", ")}${more > 0 ? ` and ${more} more` : ""}.`;

@@ -58,7 +58,7 @@ await t.eachViewport(async (page, vp) => {
     await page.waitForTimeout(400);
     const toastBox = await toast.boundingBox();
     const hits = [];
-    for (const name of ["Select all", "Move to folder", "Delete"]) {
+    for (const name of ["Select all", "Move", "Delete"]) {
       if (overlap(toastBox, await bar.getByRole("button", { name }).boundingBox())) hits.push(name);
     }
     check(toastBox !== null && hits.length === 0, `${tag} C1 toast`, "the toast stands above the selection bar's buttons", `the toast ${JSON.stringify(toastBox)} covers ${hits.join(", ") || "nothing, but it is gone"}`);
