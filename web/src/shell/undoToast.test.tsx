@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, render, screen } from "@testing-library/react";
-import { UndoToast } from "./UndoToast";
+import { UndoToast } from "./toasts";
 import { beginUndo, pushUndo, resetUndo, type UndoTicket } from "@/lib/undo";
 
 afterEach(() => resetUndo());
@@ -22,5 +22,16 @@ describe("UndoToast while an undo waits", () => {
     expect(same.getAttribute("aria-disabled")).toBe("true");
     expect(document.activeElement).toBe(button);
     await act(async () => t.settle(null));
+  });
+});
+
+describe("UndoToast dismiss", () => {
+  it("closes the toast with a Dismiss button, leaving the group on the undo stack", () => {
+    render(<UndoToast />);
+    act(() => pushUndo({ kind: "read", ids: ["1"], undo: () => {} }));
+    expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy();
+    act(() => screen.getByRole("button", { name: "Dismiss" }).click());
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
   });
 });

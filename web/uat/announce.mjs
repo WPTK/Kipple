@@ -15,12 +15,13 @@
 //   A7  The list: a row's Star and More actions name its article, its link starts with the title, and the Unread
 //       link in the sidebar (desktop) reads "Unread N", the word once.
 //   A8  (desktop) Cocoa Mid: a selected row's secondary text is at least 4.5:1 on the selection; the theme is put back.
+//   A9  (desktop) The Undo toast has a Dismiss button, and it closes the toast.
 // It opens articles on the seed's account and marks the ones that were unread unread again afterwards. It only runs
 // against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0 clean,
 // 1 findings, 2 setup error. First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
 import { start, waitForAnimationsDone, waitForStillFor } from "./common.mjs";
 
-const t = await start(import.meta.url, 20);
+const t = await start(import.meta.url, 21);
 const { check, step } = t;
 const JSON_ACCEPT = { Accept: "application/json" };
 
@@ -178,6 +179,25 @@ await t.eachViewport(async (page, vp) => {
       check(star === 1 && more === 1 && link >= 1 && nav === 1, `${tag} A7`, "row controls name their article; the link starts with the title; Unread reads its count once", `star ${star}, more ${more}, link ${link}, nav ${nav} (title "${title}")`);
     });
     if (!vp.mobile) {
+      await step(`${tag} A9`, async () => {
+        await page.goto("/l/unread", { waitUntil: "load" });
+        const row = page.locator("[data-testid=list-scroll] [data-item-id]").first();
+        await row.waitFor({ timeout: 15000 });
+        const id = await row.getAttribute("data-item-id");
+        const region = page.getByTestId("undo-region");
+        try {
+          await row.getByRole("button", { name: /^More actions: / }).click();
+          await page.getByRole("menuitem", { name: "Mark as read" }).click(); // uat-labels: ignore (a menu item's text, not an aria-label)
+          await region.getByRole("button", { name: "Undo" }).waitFor({ timeout: 10000 });
+          await region.getByRole("button", { name: "Dismiss" }).click();
+          await region.getByRole("button", { name: "Undo" }).waitFor({ state: "detached", timeout: 5000 }).catch(() => {});
+          const left = await region.getByRole("button").count();
+          check(left === 0, `${tag} A9`, "Dismiss closes the Undo toast", `${left} button(s) are still in the toast`);
+        } finally {
+          // The article goes back to unread.
+          await page.evaluate((i) => fetch("/api/items/mark-read", { method: "POST", headers: { "Content-Type": "application/json", "X-Kipple-Client": "web" }, body: JSON.stringify({ ids: [i], read: false }) }), id);
+        }
+      });
       await step(`${tag} A8`, async () => {
         await page.goto("/l/all", { waitUntil: "load" });
         await page.locator("[data-testid=list-scroll] [data-item-id]").first().waitFor({ timeout: 15000 });

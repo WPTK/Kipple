@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { CircleAlert, X } from "lucide-react";
 import { createStore, useStore } from "@/lib/store";
+import { dismissUndoToast, holdUndoToast, undoStore, undoToast } from "@/lib/undo";
 
 export interface ToastItem {
   id: number;
@@ -103,32 +104,82 @@ function ToastView({ t }: { t: ToastItem }) {
     return () => clearTimeout(h);
   }, [t.id, ms, held]);
   return (
+    <ToastCard
+      kind={t.kind}
+      message={t.message}
+      action={t.action && { label: t.action.label, run: () => t.action?.run() }}
+      onDismiss={() => dismissToast(t.id)}
+      onHold={setHeld}
+    />
+  );
+}
+
+/**
+ * The one toast look and behaviour: message, an optional action, and a Dismiss button on every toast (a toast that
+ * times out must also be closable, WCAG 2.2.1). Hovering or focusing it holds its clock through `onHold`.
+ */
+function ToastCard({
+  kind,
+  message,
+  action,
+  onDismiss,
+  onHold,
+}: {
+  kind: ToastItem["kind"];
+  message: string;
+  action?: { label: string; run: () => void; disabled?: boolean };
+  onDismiss: () => void;
+  onHold: (hold: boolean) => void;
+}) {
+  return (
     <div
-      data-kind={t.kind}
+      data-kind={kind}
       className={`pointer-events-auto flex min-h-11 w-full max-w-[min(28rem,calc(var(--list-w,100vw)-2rem))] items-center gap-3 rounded-xl px-4 py-2 text-sm ${TOAST_SURFACE}`}
-      onPointerEnter={() => setHeld(true)}
-      onPointerLeave={() => setHeld(false)}
-      onFocus={() => setHeld(true)}
-      onBlur={() => setHeld(false)}
+      onPointerEnter={() => onHold(true)}
+      onPointerLeave={() => onHold(false)}
+      onFocus={() => onHold(true)}
+      onBlur={() => onHold(false)}
     >
-      {t.kind === "error" ? <CircleAlert aria-hidden="true" className="size-5 shrink-0 text-danger" /> : null}
-      <span className="flex-1 font-medium">{t.message}</span>
-      {t.action && (
+      {kind === "error" ? <CircleAlert aria-hidden="true" className="size-5 shrink-0 text-danger" /> : null}
+      <span className="flex-1 font-medium">{message}</span>
+      {action && (
         <button
           type="button"
-          className="hit rounded-md px-2 font-bold underline underline-offset-2"
+          className="hit rounded-md px-2 font-bold underline underline-offset-2 aria-disabled:opacity-50"
+          // A busy action keeps its button (focus is not lost) but does nothing: the work is already under way.
+          aria-disabled={action.disabled ? true : undefined}
           onClick={() => {
-            t.action?.run();
-            dismissToast(t.id);
+            if (!action.disabled) action.run();
           }}
         >
-          {t.action.label}
+          {action.label}
         </button>
       )}
-      {t.kind === "error" ? (
-        <button type="button" aria-label="Dismiss" className="hit -mr-2 inline-flex items-center justify-center rounded-md" onClick={() => dismissToast(t.id)}>
-          <X className="size-5" aria-hidden="true" />
-        </button>
+      <button type="button" aria-label="Dismiss" className="hit -mr-2 inline-flex items-center justify-center rounded-md" onClick={onDismiss}>
+        <X className="size-5" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The undo toast: one slot, 15 s, merged text ("4 articles marked read"). The wrapper is a persistent role=status
+ * region so a screen reader announces each new message; Undo is a real, focusable button and does not steal focus
+ * when it appears. The countdown pauses while the pointer is over it or a button has focus.
+ */
+export function UndoToast() {
+  const { toast } = useStore(undoStore);
+  return (
+    <div role="status" aria-live="polite" aria-atomic="true" data-testid="undo-region" className="contents">
+      {toast ? (
+        <ToastCard
+          key={toast.id}
+          kind="info"
+          message={toast.text}
+          action={{ label: "Undo", run: () => void undoToast(), disabled: toast.busy }}
+          onDismiss={dismissUndoToast}
+          onHold={holdUndoToast}
+        />
       ) : null}
     </div>
   );

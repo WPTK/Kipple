@@ -13,12 +13,16 @@
 //   A4  open an article from the list, press Back: focus is on the row left, not the body; Forward: not the body.
 // On the phone width of the run:
 //   B1  at 812x375 the unread badge follows the Articles name and is not on top of it;
-//   B2  at 844x390 (a landscape phone) the tab bar shows and there is no sidebar.
+//   B2  at 844x390 (a landscape phone) the tab bar shows and there is no sidebar;
+//   B3  the current tab's bar (3 px, drawn in a band of its own above the tab's content) ends at least 2 px above the icon and
+//       above the "99+" badge, at 375x812 with default settings, text size 1.5 and Large targets, and with no badge;
+//   B4  at 568x320 with text size 1.5 and a "99+" badge the five tab names are whole and the badge stays inside the bar,
+//       and the tabs do not move sideways when the unread count goes from 5 to 150.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { start, waitForPageStill, waitForStillFor } from "./common.mjs";
 
-const t = await start(import.meta.url, 16);
+const t = await start(import.meta.url, 18, { serviceWorkers: "block" });
 const { check, step } = t;
 
 await t.eachViewport(async (page, vp) => {
@@ -126,6 +130,72 @@ await t.eachViewport(async (page, vp) => {
       const sidebar = await page.getByRole("separator", { name: "Resize sidebar" }).count();
       check(bar === 1 && sidebar === 0, `${tag} B2`, "844x390 shows the tab bar and no sidebar", `${bar} Primary navs, ${sidebar} sidebar handles`);
       await t.shot(page, `${tag}-landscape-844x390`);
+    });
+
+    const patch = (b) =>
+      page.evaluate((x) => fetch("/api/device", { method: "PATCH", headers: { "Content-Type": "application/json", "X-Kipple-Client": "web" }, body: JSON.stringify(x) }).then((r) => r.status), b);
+    /** Answers the bootstrap with this many unread, so the Articles badge shows a count of that size. */
+    let unread = 150;
+    await page.route((u) => u.pathname === "/api/bootstrap", async (route) => {
+      const real = await (await route.fetch()).json();
+      await route.fulfill({ json: { ...real, counts: { ...real.counts, unread } } });
+    });
+    const articlesTab = () => page.locator('nav[aria-label="Primary"]').last().locator("a").first();
+    const reopen = async (w, h) => {
+      await page.setViewportSize({ width: w, height: h });
+      await open("/l/unread");
+      await (unread > 0 ? articlesTab().locator('[data-testid="unread-count"]') : articlesTab()).waitFor({ timeout: 10000 });
+    };
+
+    await step(`${tag} B3`, async () => {
+      try {
+        for (const [what, prefs] of [["default", {}], ["text 1.5", { "client.text_size": 1.5 }], ["Large targets", { "client.large_targets": true }]]) {
+          if ((await patch({ "client.text_size": 1, "client.large_targets": false, ...prefs })) !== 200) throw new Error(`${what}: the setting was not saved`);
+          for (const count of [150, 0]) {
+            unread = count;
+            await reopen(375, 812);
+            const m = await articlesTab().evaluate((a) => {
+              const cs = getComputedStyle(a, "::before");
+              const bar = a.getBoundingClientRect().top + parseFloat(cs.top) + parseFloat(cs.height);
+              const icon = a.querySelector("svg").getBoundingClientRect();
+              const badge = a.querySelector('[data-testid="unread-count"]')?.getBoundingClientRect();
+              return { currentTab: a.getAttribute("aria-current") === "page", barHeight: parseFloat(cs.height), bar, icon: icon.top, badge: badge ? badge.top : null };
+            });
+            const where = `${tag} B3 ${what}, ${count ? "99+ badge" : "no badge"}`;
+            check(m.currentTab && m.barHeight > 0, `${where} bar`, "the current tab draws its bar", `current ${m.currentTab}, bar height ${m.barHeight}`);
+            check(m.icon - m.bar >= 2, `${where} icon`, "the bar ends 2 px or more above the icon", `the bar ends at ${m.bar.toFixed(1)}, the icon starts at ${m.icon.toFixed(1)}`);
+            if (count) check(m.badge !== null && m.badge - m.bar >= 2, `${where} badge`, "the bar ends 2 px or more above the badge", `the bar ends at ${m.bar.toFixed(1)}, the badge starts at ${m.badge}`);
+            await t.shot(page, `${tag}-tabs-bar-${what.replace(/\W+/g, "-")}-${count ? "badge" : "plain"}`);
+          }
+        }
+      } finally {
+        await patch({ "client.text_size": 1, "client.large_targets": false });
+      }
+    });
+
+    await step(`${tag} B4`, async () => {
+      try {
+        if ((await patch({ "client.text_size": 1.5 })) !== 200) throw new Error("text size was not saved");
+        const lefts = [];
+        for (const count of [5, 150]) {
+          unread = count;
+          await reopen(568, 320);
+          const m = await page.locator('nav[aria-label="Primary"]').last().evaluate((nav) => {
+            const bar = nav.getBoundingClientRect();
+            const tabs = [...nav.querySelectorAll("a")].map((a) => ({ name: a.innerText.replace(/\s+/g, " ").trim(), left: Math.round(a.getBoundingClientRect().left), cut: a.scrollWidth > a.clientWidth + 1 }));
+            const badge = nav.querySelector('[data-testid="unread-count"]')?.getBoundingClientRect();
+            return { tabs, badgeInside: !badge || (badge.left >= bar.left && badge.right <= bar.right), barRight: bar.right };
+          });
+          lefts.push(m.tabs.map((x) => x.left));
+          const cut = m.tabs.filter((x) => x.cut).map((x) => x.name);
+          check(cut.length === 0 && m.tabs.length >= 4, `${tag} B4 ${count} whole`, "all tab names are whole", `cut off: ${cut.join(", ")} (${m.tabs.length} tabs)`);
+          check(m.badgeInside, `${tag} B4 ${count} badge`, "the badge is inside the bar", "the badge runs past the bar");
+          await t.shot(page, `${tag}-short-tabs-largest-${count}`);
+        }
+        check(JSON.stringify(lefts[0]) === JSON.stringify(lefts[1]), `${tag} B4 steady`, "the tabs keep their places when the count grows", `tab lefts ${lefts[0]} then ${lefts[1]}`);
+      } finally {
+        await patch({ "client.text_size": 1 });
+      }
     });
   }
 });

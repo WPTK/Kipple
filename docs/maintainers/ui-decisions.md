@@ -159,7 +159,7 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
   file merged into one with the same full path is shown as both chains joined with ` › `.
 - In the sidebar trees the item is the only tab stop: the chevron and the star are pointer targets there. From the
   keyboard, favorites are added and taken out on the Feeds screen.
-- A subfolder's or feed's layout menu names where its layout comes from: "Inherited from Tech (Cards)".
+- A subfolder's or feed's layout menu names where its layout comes from: "Same as Tech (Cards)", or "Same as Settings (Cards)" when no folder sets it: the one phrase every inherited value uses, in the editor's schedule fields too.
 - Deleting a folder says how many subfolders are deleted with it and that its feeds move to the default folder.
 - OPML import has an opt-in switch, off by default: "Move feeds that already exist into the file's folders".
 

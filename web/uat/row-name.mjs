@@ -9,7 +9,7 @@
 // For each width (375 phone, 768 tablet, 1280 desktop) and each layout it opens the list that shows the layout's rows and checks:
 //   N1  axe's label-content-name-mismatch finds nothing in the results (a link whose aria-label had to contain the
 //       visible text failed it when a mark past the edge dropped out of the visible text);
-//   N2  the link's accessible name, as the browser computes it (the aria snapshot), is the title for a read row and
+//   N2  the link's accessible name, as the browser computes it (waited for, not read once), is the title for a read row and
 //       "<title>, unread" for an unread one, and the link's text is the title alone;
 //   N3  the generated ", unread" takes no room: nothing in the page scrolls sideways.
 // The layout is the device's default (/l/all has no feed or folder override to set), and the search draws the default.
@@ -24,6 +24,7 @@
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
+import { expect } from "@playwright/test";
 import { URL } from "node:url";
 import { start } from "./common.mjs";
 
@@ -118,28 +119,34 @@ try {
         );
         check(bad.length === 0, `${tag} N1 axe`, "no row link has a label that disagrees with its visible text", `${bad.length} link(s): ${bad.join(" | ")}`);
 
-        // WebKit has, now and then, given no link line for one of the two rows (#783). On a miss the detail carries the raw
-        // snapshot and the element's state at that moment, so the failure says whether the link was gone, hidden or unnamed.
-        const nameOf = async (link) => {
-          const snap = await link.ariaSnapshot();
-          const m = snap.match(/- '?link "((?:[^"\\]|\\.)*)"/);
-          if (m) return { name: m[1].replace(/\\"/g, '"') };
-          const state = await link
-            .evaluate((a) => {
-              const r = a.getBoundingClientRect();
-              const cs = globalThis.getComputedStyle(a);
-              return { box: [r.x, r.y, r.width, r.height].map(Math.round), display: cs.display, visibility: cs.visibility, opacity: cs.opacity, attached: a.isConnected, textLength: a.textContent?.length ?? 0, rowLinks: a.ownerDocument.querySelectorAll("a.row-link").length };
-            })
-            .catch((e) => ({ error: String(e) }));
-          return { name: undefined, snap, state };
+        // The name is a state of the link, so the flow waits for the link to have it (toHaveAccessibleName retries until
+        // it holds or 5 s pass) and does not read a one-shot snapshot that WebKit now and then gave back empty (#783). When
+        // the name never arrives, the detail carries the raw aria snapshot and the element's state at that moment, so the
+        // failure says whether the link was gone, hidden or unnamed.
+        const nameIs = async (link, want) => {
+          try {
+            await expect(link).toHaveAccessibleName(want, { timeout: 5000 });
+            return { name: want };
+          } catch (e) {
+            const snap = await link.ariaSnapshot().catch((err) => `no snapshot: ${String(err)}`);
+            const m = snap.match(/- '?link "((?:[^"\\]|\\.)*)"/);
+            const state = await link
+              .evaluate((a) => {
+                const r = a.getBoundingClientRect();
+                const cs = globalThis.getComputedStyle(a);
+                return { box: [r.x, r.y, r.width, r.height].map(Math.round), display: cs.display, visibility: cs.visibility, opacity: cs.opacity, attached: a.isConnected, textLength: a.textContent?.length ?? 0, rowLinks: a.ownerDocument.querySelectorAll("a.row-link").length };
+              })
+              .catch((err) => ({ error: String(err) }));
+            return { name: m ? m[1].replace(/\\"/g, '"') : undefined, snap, state, why: String(e.message).split("\n")[0] };
+          }
         };
-        const named = (r) => `named ${JSON.stringify(r.name)}${r.snap === undefined ? "" : `; snapshot ${JSON.stringify(r.snap)}; element ${JSON.stringify(r.state)}`}`;
+        const named = (r) => `named ${JSON.stringify(r.name)}${r.snap === undefined ? "" : `; snapshot ${JSON.stringify(r.snap)}; element ${JSON.stringify(r.state)}; ${r.why}`}`;
         // The word is the flag's value (src/layouts/parts.tsx sets it, index.css draws it): read it from the page, so the
         // flow and the app cannot drift.
         const word = await unread.getAttribute("data-row-unread");
         check(!!word, `${tag} N2 flag`, "an unread row's link carries the word that names it", `data-row-unread is ${JSON.stringify(word)}`);
         check((await readLink.getAttribute("data-row-unread")) === null, `${tag} N2 read flag`, "a read row's link carries none", "a read row is flagged");
-        const [un, rd] = [await nameOf(unread), await nameOf(readLink)];
+        const [un, rd] = [await nameIs(unread, `${UNREAD}, ${word}`), await nameIs(readLink, READ)];
         check(un.name === `${UNREAD}, ${word}`, `${tag} N2 unread name`, "an unread row's link is named the title, then unread", named(un));
         check(rd.name === READ, `${tag} N2 read name`, "a read row's link is named the title alone", named(rd));
         const text = await unread.evaluate((a) => a.textContent);
