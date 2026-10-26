@@ -250,12 +250,12 @@ describe("reading-time filter", () => {
     go("/l/unread?feed=1");
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Reading time: Any length" }));
+    await user.click(screen.getByRole("button", { name: "Article length: Any length" }));
     await user.click(screen.getByRole("menuitemradio", { name: "5 min or less" }));
     await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.get("max_minutes")).toBe("5"));
     expect(itemCalls(calls).at(-1)?.url.searchParams.get("min_minutes")).toBeNull();
     expect(window.location.search).toBe("?feed=1&len=short");
-    expect(screen.getByRole("button", { name: "Reading time: 5 min or less" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Article length: 5 min or less" })).toBeInTheDocument();
 
     // The view pills keep it.
     await user.click(screen.getByRole("link", { name: "All" }));
@@ -263,15 +263,15 @@ describe("reading-time filter", () => {
     expect(window.location.search).toBe("?feed=1&len=short");
 
     // A longer length sends both bounds.
-    await user.click(screen.getByRole("button", { name: "Reading time: 5 min or less" }));
+    await user.click(screen.getByRole("button", { name: "Article length: 5 min or less" }));
     await user.click(screen.getByRole("menuitemradio", { name: "6 to 15 min" }));
     await waitFor(() => expect(itemCalls(calls).at(-1)?.url.searchParams.get("min_minutes")).toBe("6"));
     expect(itemCalls(calls).at(-1)?.url.searchParams.get("max_minutes")).toBe("15");
 
     // The chip clears it.
-    await user.click(screen.getByRole("link", { name: "Reading time 6 to 15 min. Show any length" }));
+    await user.click(screen.getByRole("link", { name: "Article length 6 to 15 min. Show any length" }));
     await waitFor(() => expect(window.location.search).toBe("?feed=1"));
-    expect(screen.getByRole("button", { name: "Reading time: Any length" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Article length: Any length" })).toBeInTheDocument();
   });
 
   it("mark all as read marks only what the filter shows", async () => {

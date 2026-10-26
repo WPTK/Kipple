@@ -5,7 +5,7 @@
 //   npm run uat:touch-menus -- --url http://127.0.0.1:7091 --screenshots <dir> --browser webkit --headed
 //
 // For each width (desktop 1280x800 with a mouse, phone 375x812 with touch, and the phone turned to 852x393) it opens the
-// List options menu, the Reading time menu and a row's More actions menu, and checks:
+// List options menu, the Article length menu and a row's More actions menu, and checks:
 //   D1  (desktop) each is a popover: no dimmed page, narrower than the screen, not pinned to the bottom edge;
 //   P1  (phone) each is a sheet: the screen's width up to 512 px, touching the bottom edge, no taller than 70% of the
 //       screen, over a dimmed page, and List options names its Layout and Order sections;
@@ -26,7 +26,7 @@ const t = await start(import.meta.url, 22);
 const { check, step } = t;
 
 const LAYOUT = /^List options/;
-const LENGTH = /^Reading time/;
+const LENGTH = /^Article length/;
 
 await t.eachViewport(async (page, vp) => {
   const tag = vp.id;

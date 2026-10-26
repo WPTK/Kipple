@@ -193,10 +193,10 @@ const SCREENS = [
   },
   {
     id: "list-length",
-    title: "Reading time menu open",
+    title: "Article length menu open",
     path: "/l/all",
     heading: "All articles",
-    menu: { button: 'button[aria-label^="Reading time: "]', groups: [] },
+    menu: { button: 'button[aria-label^="Article length: "]', groups: [] },
   },
   { id: "unread", title: "Unread list", path: "/l/unread", heading: "Unread", font: "menu" },
   { id: "starred", title: "Starred (empty)", path: "/l/starred", heading: "Starred", font: "menu" },

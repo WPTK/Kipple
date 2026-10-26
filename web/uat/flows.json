@@ -44,7 +44,7 @@
     "group-by.mjs",
     "reading.mjs",
     "digest.mjs",
-    "coffee.mjs",
+    "digest-reading-time.mjs",
     "kit.mjs",
     "item-actions.mjs",
     "state-remainders.mjs",

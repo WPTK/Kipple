@@ -7,7 +7,7 @@ import { scopeFromList, listTo } from "./routes";
 // One table says what each length asks of the server; the query, the mark-read body and the section key all come from it.
 
 describe("reading lengths", () => {
-  it("the Coffee break's lengths partition the articles: a range for each, and the ones with no words", () => {
+  it("the Digest's reading-time lengths partition the articles: a range for each, and the ones with no words", () => {
     expect(BREAK_LENGTHS.map((l) => READING_LENGTH_QUERY[l])).toEqual([{ max_minutes: 2 }, { min_minutes: 3, max_minutes: 7 }, { min_minutes: 8 }, { unknown: true }]);
     expect(BREAK_LENGTHS.map((l) => READING_LENGTH_LABELS[l])).toEqual(["Under 3 minutes", "3 to 7 minutes", "8 minutes and up", "Unknown length"]);
   });

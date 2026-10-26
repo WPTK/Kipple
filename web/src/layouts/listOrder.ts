@@ -30,10 +30,9 @@ export interface ListOrder {
  */
 export function useListOrder(scope: Scope, id: string, enabled: boolean): ListOrder {
   const { layout } = useResolvedLayout(scope);
-  const cut = layout.cut;
-  const digested = !!cut && !!pageOf(layout, scope);
+  const digested = !!layout.sectioned && !!pageOf(layout, scope);
   const list = useItems(scope, enabled && !digested);
-  const digest = useDigestSource(scope, digested, enabled, cut);
+  const digest = useDigestSource(scope, digested, enabled);
   const boot = useBootstrap();
   const { favorites } = useFavorites();
   const feeds = boot.data?.feeds;

@@ -14,7 +14,7 @@ import {
 } from "@/lib/devicePrefs";
 import { cards } from "./cards";
 import { compact } from "./compact";
-import { coffee, digest } from "./digest";
+import { digest } from "./digest";
 import { gazette } from "./gazette";
 import { headlines } from "./headlines";
 import { inbox } from "./inbox";
@@ -22,15 +22,15 @@ import { magazine } from "./magazine";
 import { results } from "./results";
 import type { ListLayout, PageProps } from "./types";
 
-const layouts: Record<LayoutId, ListLayout> = { magazine, cards, compact, inbox, headlines, gazette, digest, coffee };
+const layouts: Record<LayoutId, ListLayout> = { magazine, cards, compact, inbox, headlines, gazette, digest };
 
 function getLayout(id: LayoutId): ListLayout {
   return layouts[id] ?? magazine;
 }
 
-/** The page a list is drawn as, or undefined for rows: a page layout's Page, except in a search or where the layout has none (see ListLayout.Page, pageFor). */
+/** The page a list is drawn as, or undefined for rows: a page layout's Page, except in a search (see ListLayout.Page). */
 export function pageOf(layout: ListLayout, scope: Scope): ComponentType<PageProps> | undefined {
-  return scope.q || (layout.pageFor && !layout.pageFor(scope)) ? undefined : layout.Page;
+  return scope.q ? undefined : layout.Page;
 }
 
 /**

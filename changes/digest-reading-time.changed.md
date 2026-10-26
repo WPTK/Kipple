@@ -1,0 +1,1 @@
+Layouts: the Coffee break is now Reading time, a third choice for the Digest's Sections next to Folders and Feeds. It is available on Unread and greyed with the reason on other lists, which show folders. A device that used the Coffee break opens the Digest by reading time.

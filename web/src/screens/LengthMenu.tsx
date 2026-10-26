@@ -9,7 +9,7 @@ import { DropdownMenu } from "@/ui/menu";
 const item = "relative pr-3 pl-9";
 
 /**
- * The reading-time filter in the list header: only articles of one length. It lives in the list's address (`?len=`), so
+ * The article-length filter in the list header: only articles of one length. It lives in the list's address (`?len=`), so
  * the view pills and an opened article keep it and another list starts without it. "Mark all as read" marks only what
  * the filter shows.
  */
@@ -21,7 +21,7 @@ export function LengthMenu({ scope }: { scope: Scope }) {
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label={`Reading time: ${label}`}
+          aria-label={`Article length: ${label}`}
           className={cn("hit inline-flex items-center justify-center rounded-lg hover:bg-selection", scope.length ? "text-accent" : "text-fg")}
         >
           <Timer className="size-5" aria-hidden="true" />
@@ -29,7 +29,7 @@ export function LengthMenu({ scope }: { scope: Scope }) {
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="start" sideOffset={4} popoverWidth="w-60">
-          <DropdownMenu.Label className="px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase">Reading time</DropdownMenu.Label>
+          <DropdownMenu.Label className="px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase">Article length</DropdownMenu.Label>
           <DropdownMenu.RadioGroup
             value={scope.length ?? "any"}
             onValueChange={(v) => navigate(listTo({ ...scope, length: isReadingLength(v) ? v : undefined }), { replace: true })}

@@ -222,6 +222,7 @@ func TestPatchDeviceValidation(t *testing.T) {
 		{"override bad id", `{"client.list_overrides":{"feed":{"abc":{"layout":"cards"}}}}`, "client.list_overrides"},
 		{"override extra key", `{"client.list_overrides":{"tag":{"1":{"layout":"cards"}}}}`, "client.list_overrides"},
 		{"old override key", `{"client.layout_overrides":{"feed":{"1":"cards"}}}`, "client.layout_overrides"},
+		{"retired layout", `{"client.layout":"coffee"}`, "client.layout"},
 		{"digest sections", `{"client.digest_sections":"tag"}`, "client.digest_sections"},
 		{"digest order", `{"client.digest_order":"newest"}`, "client.digest_order"},
 		{"digest images type", `{"client.digest_images":"yes"}`, "client.digest_images"},
@@ -253,13 +254,13 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	d := h.newDev()
 	body := `{"ui.theme":"system","ui.theme_schedule":true,"ui.theme_day":"linen","ui.theme_night":"carbon","ui.theme_night_start":"22:30","ui.theme_day_start":"06:15","ui.font_body":"Atkinson Hyperlegible Next",
 	 "ui.reading_density":"airy","ui.list_density":"dense","ui.mark_read_on_scroll":true,
-	 "client.layout":"digest","client.group":"week","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","group":"none","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"},"5":{"layout":"gazette"},"6":{"layout":"coffee"}}},
+	 "client.layout":"digest","client.group":"week","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","group":"none","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"},"5":{"layout":"gazette"},"6":{"layout":"headlines"}}},
 	 "client.paper_name":"` + strings.Repeat("é", 60) + `",
 	 "client.order":"oldest","client.search_order":"relevance","client.inbox_thumbs":"off","client.peek_seen":true,"client.article_width":"full",
 	 "client.list_width":400,"client.sidebar_width":300,"client.link_target":"same","client.unread_badge":"dot",
 	 "client.text_size":0.875,"client.adjust_separately":true,"client.shortcuts":false,"client.spacing":"roomy",
 	 "client.motion":"on","client.font_everywhere":true,"client.large_targets":true,"client.highlight_keywords":false,"client.listen":true,"client.voice":"Samantha","client.rate":1.2,
-	 "client.digest_sections":"feed","client.digest_order":"quiet","client.digest_images":false,"client.digest_rows":10,
+	 "client.digest_sections":"length","client.digest_order":"quiet","client.digest_images":false,"client.digest_rows":10,
 	 "client.collapsed_folders":["4","9"]}`
 	code, out, _ := d.call("PATCH", "/api/device", body)
 	require.Equal(t, http.StatusOK, code, out)
@@ -279,7 +280,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	}
 	require.Equal(t, map[string]any{
 		"feed":   map[string]any{"12": map[string]any{"layout": "inbox", "order": "oldest", "group": "none", "view": "all"}},
-		"folder": map[string]any{"3": map[string]any{"layout": "compact"}, "8": map[string]any{"view": "unread"}, "5": map[string]any{"layout": "gazette"}, "6": map[string]any{"layout": "coffee"}},
+		"folder": map[string]any{"3": map[string]any{"layout": "compact"}, "8": map[string]any{"view": "unread"}, "5": map[string]any{"layout": "gazette"}, "6": map[string]any{"layout": "headlines"}},
 	}, m["client.list_overrides"])
 	require.Equal(t, strings.Repeat("é", 60), m["client.paper_name"], "60 characters, not 60 bytes")
 	_, other, _ := h.newDev().call("GET", "/api/device", "")
@@ -290,7 +291,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	require.Equal(t, true, fresh["merged"].(map[string]any)["client.highlight_keywords"], "on unless a device turns it off")
 	require.EqualValues(t, 1.2, m["client.rate"])
 	require.Equal(t, []any{"4", "9"}, m["client.collapsed_folders"])
-	require.Equal(t, "feed", m["client.digest_sections"])
+	require.Equal(t, "length", m["client.digest_sections"])
 	require.Equal(t, "quiet", m["client.digest_order"])
 	require.Equal(t, false, m["client.digest_images"])
 	require.EqualValues(t, 10, m["client.digest_rows"])

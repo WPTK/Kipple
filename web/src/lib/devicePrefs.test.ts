@@ -10,7 +10,9 @@ import {
   resetDevicePrefs,
   resolveLayout,
   resolveList,
+  noReadingTimeSections,
   resolveOrder,
+  sectionsFor,
   setListOverride,
   updateDevicePrefs,
   PAPER_NAME_MAX,
@@ -173,31 +175,42 @@ describe("the Gazette's order and name (#39)", () => {
     updateDevicePrefs({ order: "oldest" });
     setListOverride("folder", "12", "order", "oldest");
     setListOverride("feed", "4", "order", "oldest");
-    expect(resolveOrder(p(), ctx4, { view: "unread" })).toBe("oldest");
+    expect(resolveOrder(p(), ctx4)).toBe("oldest");
     // The Gazette from a folder above, from the or from the device default.
     setListOverride("folder", "13", "layout", "gazette");
-    expect(resolveOrder(p(), ctx4, { view: "unread" })).toBe("newest");
+    expect(resolveOrder(p(), ctx4)).toBe("newest");
     setListOverride("folder", "13", "layout", null);
     updateDevicePrefs({ layout: "gazette" });
-    expect(resolveOrder(p(), ctx4, { view: "unread" })).toBe("newest");
+    expect(resolveOrder(p(), ctx4)).toBe("newest");
     // The settings are kept for the other layouts.
     updateDevicePrefs({ layout: "compact" });
-    expect(resolveOrder(p(), ctx4, { view: "unread" })).toBe("oldest");
+    expect(resolveOrder(p(), ctx4)).toBe("oldest");
   });
 
-  it("the Coffee break follows the reader's order wherever it shows rows, and is newest first where it is a page", () => {
-    updateDevicePrefs({ layout: "coffee", order: "oldest" });
-    const p = devicePrefsStore.get();
-    expect(resolveOrder(p, {}, { view: "unread" })).toBe("newest");
-    expect(resolveOrder(p, {}, { view: "all" })).toBe("oldest");
-    expect(resolveOrder(p, {}, { view: "starred" })).toBe("oldest");
-    expect(resolveOrder(p, {}, { view: "unread", length: "short" })).toBe("oldest");
-    expect(resolveOrder(p, {}, { view: "unread", q: "x" })).toBe("oldest");
+  it("the Coffee break a device had becomes the Digest cut by reading time", () => {
+    const own = parseDevicePrefs(JSON.stringify({ layout: "coffee", digestSections: "feed" }));
+    expect([own.layout, own.digestSections]).toEqual(["digest", "length"]);
+    // Only for some lists: the Digest is not the device's layout, so reading time is chosen for the Digest.
+    const some = parseDevicePrefs(JSON.stringify({ layout: "compact", overrides: { feed: {}, folder: { "3": { layout: "coffee" } } } }));
+    expect([some.layout, some.overrides.folder["3"]?.layout, some.digestSections]).toEqual(["compact", "digest", "length"]);
+    const kept = parseDevicePrefs(JSON.stringify({ layout: "digest", digestSections: "feed", overrides: { feed: {}, folder: { "3": { layout: "coffee" } } } }));
+    expect([kept.overrides.folder["3"]?.layout, kept.digestSections]).toEqual(["digest", "feed"]);
+    // A migrated profile has nothing left to migrate.
+    expect(parseDevicePrefs(JSON.stringify(own))).toEqual(own);
+  });
+
+  it("the Digest cuts by reading time only for a list that is Unread with no length filter", () => {
+    expect(sectionsFor("length", { view: "unread" })).toBe("length");
+    expect(sectionsFor("length", { view: "all" })).toBe("folder");
+    expect(sectionsFor("length", { view: "unread", length: "short" })).toBe("folder");
+    expect(sectionsFor("feed", { view: "all" })).toBe("feed");
+    expect(noReadingTimeSections({ view: "starred" })).toBe("Reading time groups Unread only.");
+    expect(noReadingTimeSections({ view: "unread", length: "short" })).toBe("Article length is already filtered.");
   });
 
   it("the Digest follows no sort order and its settings fall back to their defaults", () => {
     updateDevicePrefs({ layout: "digest", order: "oldest" });
-    expect(resolveOrder(devicePrefsStore.get(), {}, { view: "unread" })).toBe("newest");
+    expect(resolveOrder(devicePrefsStore.get(), {})).toBe("newest");
     const d = parseDevicePrefs(null);
     expect([d.digestSections, d.digestOrder, d.digestImages, d.digestRows]).toEqual(["folder", "sidebar", true, 3]);
     const ok = parseDevicePrefs(JSON.stringify({ digestSections: "feed", digestOrder: "quiet", digestImages: false, digestRows: 10 }));

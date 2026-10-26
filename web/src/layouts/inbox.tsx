@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, rowState, titleTone } from "./parts";
-import type { ListLayout, RowProps } from "./types";
+import type { RowLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 
@@ -56,7 +56,7 @@ export function InboxRow({ item, feed, selected, to, onOpen, onToggleStar, actio
   );
 }
 
-export const inbox: ListLayout = {
+export const inbox: RowLayout = {
   id: "inbox",
   label: "Inbox",
   Row: InboxRow,

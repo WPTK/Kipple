@@ -1,7 +1,7 @@
 // The reading-time filter of a list (docs/design.md 7.1, `min_minutes`/`max_minutes`/`unknown_length`). Three named
 // lengths, carried in the list's address (`?len=`), so a list keeps it through the Unread/All/Starred switch and an open
-// article's way back, and a new list starts without it. The Coffee break layout cuts a list into four more lengths
-// (BREAK_LENGTHS), one for each of its sections; they are in the same field of the scope and the same table, but are not
+// article's way back, and a new list starts without it. The Digest, cut by reading time, splits a list into four more
+// lengths (BREAK_LENGTHS), one for each of its sections; they are in the same field of the scope and the same table, but are not
 // a choice the reader makes, so the filter menu and `?len=` know only the three. A leaf module: api/queryKeys.ts imports it.
 
 export const READING_LENGTHS = ["short", "medium", "long"] as const;
@@ -9,7 +9,7 @@ export type ReadingLength = (typeof READING_LENGTHS)[number];
 
 export const isReadingLength = (v: unknown): v is ReadingLength => (READING_LENGTHS as readonly unknown[]).includes(v);
 
-/** The Coffee break's sections, in the order the page draws them. */
+/** The Digest's reading-time sections, in the order the page draws them. */
 export const BREAK_LENGTHS = ["under3", "3to7", "8up", "unknown"] as const;
 type BreakLength = (typeof BREAK_LENGTHS)[number];
 
@@ -30,7 +30,7 @@ export const READING_LENGTH_QUERY: Record<SectionLength, { min_minutes?: number;
   unknown: { unknown: true },
 };
 
-/** Whether the Coffee break draws a list as its sections: Unread, with no search and no length filter already set. Anything else shows rows. */
+/** Whether the Digest can cut a list by reading time: Unread, with no search and no length filter already set. */
 export const breaksIntoSections = (scope: { view: string; length?: unknown; q?: unknown }): boolean => scope.view === "unread" && !scope.length && !scope.q;
 
 export const READING_LENGTH_LABELS: Record<SectionLength, string> = {

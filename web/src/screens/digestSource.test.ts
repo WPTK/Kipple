@@ -107,7 +107,7 @@ describe("a section's bound", () => {
   });
 });
 
-describe("the Coffee break's sections", () => {
+describe("the Digest's reading-time sections", () => {
   const input = (scope: DigestInput["scope"]): DigestInput => ({
     scope,
     feeds: [{ id: "1", title: "F1", folder_id: "10", unread: 4, starred_count: 0, is_archive: false, pace: null }],

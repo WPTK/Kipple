@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import { RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, rowState, titleTone } from "./parts";
-import type { ListLayout, RowProps } from "./types";
+import type { RowLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 
@@ -44,7 +44,7 @@ function CompactRow({ item, feed, selected, to, onOpen, onToggleStar, actions }:
   );
 }
 
-export const compact: ListLayout = {
+export const compact: RowLayout = {
   id: "compact",
   label: "Compact",
   Row: CompactRow,

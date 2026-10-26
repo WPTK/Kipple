@@ -1,12 +1,12 @@
-// UAT: the Coffee break layout (#39).
+// UAT: the Digest cut by reading time (#39).
 //
 //   npm run seed                       in one terminal (builds the web app if needed, serves it on 127.0.0.1:1919)
-//   npm run uat:coffee                 in another
-//   npm run uat:coffee -- --url http://127.0.0.1:7091 --screenshots <dir> --headed
+//   npm run uat:digest-reading-time                 in another
+//   npm run uat:digest-reading-time -- --url http://127.0.0.1:7091 --screenshots <dir> --headed
 //
 // The flow serves one feed on a loopback port (four short articles, two of about four minutes, one of about nine and one
-// with no text at all), puts it in a folder of its own ("UAT Coffee") and opens that folder's Unread with the Coffee
-// break as the layout. For each width (desktop 1280x800, phone 375x812) it checks:
+// with no text at all), puts it in a folder of its own ("UAT Reading time") and opens that folder's Unread with the
+// Digest as the layout and Reading time as its sections. For each width (desktop 1280x800, phone 375x812) it checks:
 //   K1  the four sections are drawn in order, each with its articles: Under 3 minutes, 3 to 7 minutes, 8 minutes and up,
 //       Unknown length; and the first shows three rows and "1 more" (the Rows per section setting, an exact count);
 //   K2  "1 more" opens the section in place and its button goes;
@@ -15,8 +15,10 @@
 //       unknown_length marks the article with no text and nothing else;
 //   K4  Mark all (confirmed in its dialog) marks every section, and one Undo puts them all back;
 //   K5  the arrow keys visit the articles and the "more" button in the order they are drawn, and the page has one Tab stop;
-//   K6  the Layout menu offers Images and Rows per section for the device, and a choice changes the page;
-//   K7  All, and Unread with a reading-time filter, show a plain list, and the menu says why;
+//   K6  the layout menu offers Reading time (chosen and enabled) beside Folders and Feeds, with Images and Rows per
+//       section for the device, and a choice changes the page;
+//   K7  All, and Unread with an article-length filter, draw folder sections instead, and the menu greys Reading time
+//       with the reason;
 //   K8  `?len=` takes only the filter's own lengths: a section's length in the address changes nothing;
 //   and no request goes to an export or download address.
 // Chromium only. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
@@ -29,8 +31,8 @@ import { start, waitForStillFor } from "./common.mjs";
 const t = await start(import.meta.url, 20);
 const { check, step } = t;
 
-const FOLDER = "UAT Coffee";
-const FEED = "UAT feed coffee";
+const FOLDER = "UAT Reading time";
+const FEED = "UAT feed reading time";
 const SECTIONS = ["Under 3 minutes", "3 to 7 minutes", "8 minutes and up", "Unknown length"];
 // Words: reading time is whole minutes at 230 words a minute, so 80 words is one minute, 800 four and 2000 nine.
 const STORIES = [
@@ -46,10 +48,10 @@ const STORIES = [
 
 let base = "";
 const server = createServer((req, res) => {
-  if (new URL(req.url ?? "/", "http://x").pathname !== "/coffee.xml") return void res.writeHead(404).end();
+  if (new URL(req.url ?? "/", "http://x").pathname !== "/reading-time.xml") return void res.writeHead(404).end();
   const item = ({ n, words }) => {
     const body = words ? `<description>&lt;p&gt;${"word ".repeat(words).trim()}&lt;/p&gt;</description>` : "";
-    return `<item><title>UAT coffee story ${n}</title><link>${base}/page/${n}</link><guid isPermaLink="false">uat-coffee-${n}</guid><pubDate>${new Date(Date.now() - n * 3600_000).toUTCString()}</pubDate>${body}</item>`;
+    return `<item><title>UAT reading time story ${n}</title><link>${base}/page/${n}</link><guid isPermaLink="false">uat-reading-time-${n}</guid><pubDate>${new Date(Date.now() - n * 3600_000).toUTCString()}</pubDate>${body}</item>`;
   };
   res
     .writeHead(200, { "Content-Type": "application/rss+xml; charset=utf-8" })
@@ -95,7 +97,7 @@ try {
     };
 
     await step(`${tag} K`, async () => {
-      const added = await t.addLocalFeed(page, `${base}/coffee.xml`, FEED, (items) => items.length >= STORIES.length);
+      const added = await t.addLocalFeed(page, `${base}/reading-time.xml`, FEED, (items) => items.length >= STORIES.length);
       if (added.error) return t.fail(`${tag} K setup`, added.error);
       const made = await page.request.post("/api/folders", { data: { name: FOLDER }, headers: t.WRITE });
       if (!made.ok()) return t.fail(`${tag} K setup`, `the folder was not made (${made.status()})`);
@@ -104,13 +106,13 @@ try {
       if (!moved.ok()) return t.fail(`${tag} K setup`, `the feed was not moved into the folder (${moved.status()})`);
       // The article ids by the story's number, and the one with no text must really have none (else Unknown length proves nothing).
       const all = (await (await page.request.get(`/api/items?view=all&feed=${added.feedId}`, { headers: { Accept: "application/json" } })).json()).items;
-      const idOf = (n) => all.find((a) => a.title === `UAT coffee story ${n}`)?.id;
-      const words = (n) => all.find((a) => a.title === `UAT coffee story ${n}`)?.word_count;
+      const idOf = (n) => all.find((a) => a.title === `UAT reading time story ${n}`)?.id;
+      const words = (n) => all.find((a) => a.title === `UAT reading time story ${n}`)?.word_count;
       if (STORIES.some(({ n }) => !idOf(n)) || words(8) !== 0 || !(words(4) > 0 && words(4) <= 460) || !(words(5) > 460 && words(5) <= 1610) || !(words(7) > 1610)) {
         return t.fail(`${tag} K setup`, `the stories did not arrive with the word counts the flow needs: ${STORIES.map(({ n }) => `${n}:${words(n)}`).join(" ")}`);
       }
-      const set = await patch({ "client.layout": "coffee", "client.digest_images": true, "client.digest_rows": 3 });
-      if (set !== 200) return t.fail(`${tag} K setup`, `the Coffee break was not set as the layout (${set})`);
+      const set = await patch({ "client.layout": "digest", "client.digest_sections": "length", "client.digest_images": true, "client.digest_rows": 3 });
+      if (set !== 200) return t.fail(`${tag} K setup`, `the Digest cut by reading time was not set (${set})`);
       const url = `/l/unread?folder=${folder.id}`;
       const open = async () => {
         await page.goto(url, { waitUntil: "load" });
@@ -128,7 +130,7 @@ try {
         check(JSON.stringify(got) === JSON.stringify(want), `${tag} K1 articles`, "each article is in the section of its reading time", `drawn ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`);
         const more = section(SECTIONS[0]).getByRole("button", { name: "1 more, Under 3 minutes", exact: true });
         check((await more.count()) === 1 && (await more.innerText()).trim() === "1 more", `${tag} K1 more`, "\"1 more\" in the first section, which the heading names", `${await more.count()} button(s), text "${await section(SECTIONS[0]).locator("[data-stop-id]").allInnerTexts()}"`);
-        await t.shot(page, `${tag}-coffee`);
+        await t.shot(page, `${tag}-reading-time`);
 
         // K2
         await more.click();
@@ -208,21 +210,24 @@ try {
         await layoutMenu();
         const menu = page.getByRole("menu");
         const groups = await menu.getByRole("group").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
-        check(groups.includes("Images") && groups.includes("Rows per section") && !groups.includes("Sections") && (await menu.getByText("Coffee break, for this device").count()) === 1, `${tag} K6 menu`, "Images and Rows per section, and no choice of sections", `groups: ${groups.join(", ")}`);
+        const reading = menu.getByRole("menuitemradio", { name: "Reading time", exact: true });
+        check(groups.includes("Sections") && groups.includes("Images") && groups.includes("Rows per section") && (await reading.getAttribute("aria-checked")) === "true" && (await reading.getAttribute("aria-disabled")) !== "true", `${tag} K6 menu`, "Sections with Reading time chosen and enabled, and Images and Rows per section", `groups: ${groups.join(", ")}`);
         await menu.getByRole("menuitemradio", { name: "5", exact: true }).click();
         const five = await settled(() => document.querySelectorAll('section[data-section] article[data-item-id]').length >= 7);
         check(five && (await idsOf(SECTIONS[0])).length === 4, `${tag} K6 rows`, "5 rows per section shows the first section whole", `${(await idsOf(SECTIONS[0])).length} articles in it`);
         await patch({ "client.digest_rows": 3 });
 
         // K7
-        for (const [what, path] of [["All", `/l/all?folder=${folder.id}`], ["a reading-time filter", `${url}&len=short`]]) {
+        for (const [what, path, why] of [["All", `/l/all?folder=${folder.id}`, "Reading time groups Unread only."], ["an article-length filter", `${url}&len=short`, "Article length is already filtered."]]) {
           await page.goto(path, { waitUntil: "load" });
           await page.locator("article[data-item-id]").first().waitFor({ timeout: 20000 });
-          const sections = await page.locator("section[data-section]").count();
+          const drawn = (await headings()).filter((h) => SECTIONS.includes(h)).length;
           await layoutMenu();
-          const said = await page.getByText(/Shown as rows: the Coffee break groups Unread/).count();
+          const item = page.getByRole("menuitemradio", { name: /^Reading time/ });
+          const disabled = (await item.getAttribute("aria-disabled")) === "true";
+          const said = await item.getByText(why, { exact: true }).count();
           await page.keyboard.press("Escape");
-          check(sections === 0 && said === 1, `${tag} K7 ${what}`, `${what} is a plain list, and the menu says why`, `${sections} section(s); explanation shown: ${said}`);
+          check(drawn === 0 && disabled && said === 1, `${tag} K7 ${what}`, `${what} draws no reading-time section, and the menu greys Reading time with the reason`, `${drawn} reading-time section(s); disabled: ${disabled}; reason shown: ${said}`);
         }
 
         // K8
@@ -234,7 +239,7 @@ try {
         check(bad.length === 0, `${tag} K9 no export`, "no export or download address was asked for", `asked for ${bad.join(", ")}`);
       } finally {
         await unreadAll(STORIES.map(({ n }) => idOf(n)));
-        await patch({ "client.layout": null, "client.digest_images": null, "client.digest_rows": null });
+        await patch({ "client.layout": null, "client.digest_sections": null, "client.digest_images": null, "client.digest_rows": null });
       }
     });
   });
@@ -242,4 +247,4 @@ try {
   server.close();
 }
 
-await t.finish("Coffee break layout");
+await t.finish("Digest cut by reading time");

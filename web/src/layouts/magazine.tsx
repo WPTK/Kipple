@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, rowState, titleTone } from "./parts";
-import type { ListLayout, RowProps } from "./types";
+import type { RowLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 
@@ -73,7 +73,7 @@ export function editorialRowHeight(hasImage: boolean, width: number, rem = 16): 
   return Math.round((inner * 9) / 16 + 207);
 }
 
-export const magazine: ListLayout = {
+export const magazine: RowLayout = {
   id: "magazine",
   label: "Editorial",
   Row: EditorialRow,

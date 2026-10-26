@@ -14,7 +14,7 @@ import { clearListMemory, resetScrollReadForTests } from "./ListPane";
 import { clearDigestPlaces } from "./digestSource";
 import { updatePrefs } from "@/lib/prefs";
 
-// The Coffee break as the list screen draws it: the unread list cut by reading time, a section for each length.
+// The Digest cut by reading time as the list screen draws it: the unread list, a section for each length.
 
 class NoES {
   addEventListener() {}
@@ -76,7 +76,7 @@ beforeEach(() => {
   liveStore.set(initialLive);
   resetDevicePrefs();
   resetUndo();
-  updateDevicePrefs({ peekSeen: true, layout: "coffee" });
+  updateDevicePrefs({ peekSeen: true, layout: "digest", digestSections: "length" });
   vi.stubGlobal("EventSource", NoES);
 });
 afterEach(() => {
@@ -84,7 +84,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Coffee break sections", () => {
+describe("Digest reading-time sections", () => {
   it("draws the four lengths in order, each asking the server for its own reading time", async () => {
     const { calls } = routes([5, 2, 4, 1]);
     const { container } = go("/l/unread");
@@ -130,13 +130,13 @@ describe("Coffee break sections", () => {
     for (const c of sectionCalls(calls)) expect(c.url.searchParams.get("folder")).toBe("1");
   });
 
-  it("is a plain list in All, Starred and Muted, and when the list is already filtered by length", async () => {
+  it("falls back to folders in All, Starred and Muted, and when the list is already filtered by length", async () => {
     const { calls } = routes([2, 2, 2, 2], { "GET /api/items": () => json(pageOf(articlesOf(0, 2))) });
     for (const path of ["/l/all", "/l/starred", "/l/unread?len=short"]) {
       const { container, unmount } = go(path);
       await screen.findByText("Short story 1");
-      expect(container.querySelector("section[data-section]")).toBeNull();
-      expect(container.querySelector("[data-digest]")).toBeNull();
+      expect(container.querySelector("[data-digest]")).not.toBeNull();
+      expect(headings(container)).not.toContain("Under 3 minutes");
       unmount();
     }
     expect(calls.some((c) => c.url.searchParams.get("unknown_length"))).toBe(false);
@@ -167,7 +167,7 @@ describe("Coffee break sections", () => {
   });
 });
 
-describe("Coffee break marking", () => {
+describe("Digest reading-time marking", () => {
   it("Mark below acts within the article's section: its reading time and its bound", async () => {
     const { calls } = routes([5, 5, 5, 5], { "POST /api/items/mark-read": () => json({ changed: ["2001", "2002"], restored: [] }) });
     const user = userEvent.setup();
@@ -211,30 +211,34 @@ describe("Coffee break marking", () => {
   });
 });
 
-describe("Coffee break menu", () => {
-  it("offers Images and Rows per section for this device, and no section choices", async () => {
+describe("Digest reading-time menu", () => {
+  it("offers Reading time as a Sections choice on Unread, beside Images and Rows per section", async () => {
     routes([3, 3, 3, 3]);
     const user = userEvent.setup();
     go("/l/unread");
     await screen.findByText("Short story 1");
-    await user.click(screen.getByRole("button", { name: /^List options, Coffee break layout/ }));
+    await user.click(screen.getByRole("button", { name: /^List options, Digest layout/ }));
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getByText("Coffee break, for this device")).toBeInTheDocument();
+    const sections = within(menu).getByRole("group", { name: "Sections" });
+    expect(within(sections).getByRole("menuitemradio", { name: "Reading time" })).toBeChecked();
+    expect(within(sections).getByRole("menuitemradio", { name: "Reading time" })).not.toHaveAttribute("aria-disabled", "true");
     for (const name of ["Images", "Rows per section"]) expect(within(menu).getByRole("group", { name })).toBeInTheDocument();
-    expect(within(menu).queryByRole("group", { name: "Sections" })).toBeNull();
-    expect(within(menu).queryByRole("group", { name: "Order of sections" })).toBeNull();
-    await user.click(within(menu).getByRole("menuitemradio", { name: "5" }));
-    expect(devicePrefsStore.get().digestRows).toBe(5);
+    await user.click(within(sections).getByRole("menuitemradio", { name: "Folders" }));
+    expect(devicePrefsStore.get().digestSections).toBe("folder");
   });
 
-  it("says so where the layout shows rows", async () => {
+  it("greys Reading time with the reason where the list is not Unread, and shows Folders", async () => {
     routes([3, 3, 3, 3], { "GET /api/items": () => json(pageOf(articlesOf(0, 3))) });
     const user = userEvent.setup();
     go("/l/all");
     await screen.findByText("Short story 1");
-    await user.click(screen.getByRole("button", { name: /^List options, Coffee break layout/ }));
-    const menu = await screen.findByRole("menu");
-    expect(within(menu).getByText(/Shown as rows: the Coffee break groups Unread/)).toBeInTheDocument();
-    expect(within(menu).queryByRole("group", { name: "Rows per section" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /^List options, Digest layout/ }));
+    const sections = within(await screen.findByRole("menu")).getByRole("group", { name: "Sections" });
+    const reading = within(sections).getByRole("menuitemradio", { name: /^Reading time/ });
+    expect(reading).toHaveAttribute("aria-disabled", "true");
+    expect(reading).toHaveTextContent("Reading time groups Unread only.");
+    expect(within(sections).getByRole("menuitemradio", { name: "Folders" })).toBeChecked();
+    // The choice is kept for Unread.
+    expect(devicePrefsStore.get().digestSections).toBe("length");
   });
 });
