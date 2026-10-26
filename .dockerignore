@@ -1,28 +1,26 @@
-.git
-.github
-docs
-*.md
-!THIRD_PARTY_NOTICES.md
+# Allow-list: nothing enters the build context unless it is named here, so new local clutter can never reach it.
+# Keep in step with the COPY lines in Dockerfile.
+*
+!cmd
+!internal
+!starter
+!web
+!go.mod
+!go.sum
 !CHANGELOG.md
+!LICENSE
+!THIRD_PARTY_NOTICES.md
 
-# Frontend: built fresh by the "web" stage, node_modules never needed in-image
+# Inside web/: the image installs its own modules and builds dist itself
 web/node_modules
 web/dist
-# UAT Suite 1 output (reports and screenshots), local only
-web/uat/results
+web/uat
+web/playwright-report
+web/test-results
+web/blob-report
 
-# Go build output
-kipple
-kipple.exe
-*.test
-
-# Local-only
-.env
-.env.*
+# Never ship env files or Go test binaries, wherever they sit
 **/.env
 **/.env.*
-!.env.example
 !**/.env.example
-docker-compose.example.yml
-docker-compose.pull.example.yml
-.claude
+**/*.test

@@ -59,3 +59,14 @@ web/coverage/
 
 # Bug-hunt output (generated test files, fuzz corpus, findings); never committed
 .hunt/
+
+# Project artifacts: stash -u once swept 365 MB of these into a stash. Editor and OS files belong in core.excludesFile.
+.lkff-*
+.npm-cache-*/
+web/playwright-report/
+web/test-results/
+web/blob-report/
+*.log
+web/.eslintcache
+web/.vite/
+/tmp-*
