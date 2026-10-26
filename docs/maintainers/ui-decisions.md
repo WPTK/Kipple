@@ -594,3 +594,18 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
   list contract, a second set of keys and mark scopes, and a page that behaves like no other list. A won; the cost is
   that "N more" says "More" until a group is loaded.
 - **Rejected:** a length slider (the filter menu already has lengths); time badges only (no grouping).
+
+## Internal cleanup lines ruled out (#207)
+
+Five "do someday" cleanups were each looked at against the code as it is and ruled out. None has a measured symptom, and
+each can be reopened by one.
+
+- **Move JSON-blob data into tables.** Settings are JSON values by decision (`internal/store/migrations/0001_init.sql`),
+  and a typed settings table is a standing "never". Nothing reads a blob in a way a table would make cheaper.
+- **Account-row caches.** One snapshot cache exists (`internal/greader/api.go`); a second was looked for and not found.
+- **Shared User-Agent vocabulary.** There is one source (`internal/api/api.go`).
+- **Phone list unmount.** No measured symptom. The node budget added with the list work would show one.
+- **Unread-counts timer.** No measured symptom, and the same node budget covers it.
+
+The hygiene report script is not built. The checks it would have run are three commands in
+[handover.md](handover.md#routine-repository-checks).
