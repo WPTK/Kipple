@@ -286,7 +286,7 @@ await t.eachViewport(async (page, vp) => {
       await page.locator("button[aria-expanded] > span.text-2xl").first().waitFor({ timeout: 10000 });
       await big();
       const out = await page.locator("button[aria-expanded]:has(> span.text-2xl)").evaluateAll((tiles) =>
-        tiles.flatMap((b) => {
+        tiles.length < 3 ? [`only ${tiles.length} tiles found`] : tiles.flatMap((b) => {
           const v = b.querySelector("span.text-2xl");
           const box = b.getBoundingClientRect();
           return v.scrollWidth > v.clientWidth + 1 || v.getBoundingClientRect().right > box.right ? [v.textContent] : [];
@@ -294,8 +294,8 @@ await t.eachViewport(async (page, vp) => {
       );
       check(out.length === 0, `${at} tiles`, "with 1.5x text no tile value runs past its tile", `tile values overflow: ${out.join(", ")}`);
       check(!(await overflowsX(page.locator("header").first())), `${at} header`, "with 1.5x text the header does not scroll sideways", "the header scrolls sideways at 1.5x text");
-      const page_ = await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth + 1);
-      check(page_, `${at} page`, "with 1.5x text the Stats page does not scroll sideways", "the Stats page scrolls sideways at 1.5x text");
+      const body = await page.locator("div.overflow-y-auto", { has: page.getByRole("region", { name: "Summary" }) }).last().evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+      check(body, `${at} page`, "with 1.5x text the Stats page does not scroll sideways", "the Stats page scrolls sideways at 1.5x text");
       if (width === vp.width || width === 430) await t.shot(page, `${at}-stats`);
 
       await open("/stats/wrapped", "rich");
