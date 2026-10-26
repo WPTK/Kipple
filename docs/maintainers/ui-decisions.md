@@ -244,7 +244,7 @@ Choices made where the decisions above were silent; the owner may overrule any o
 Decisions are recorded in full in the private history repository. Summary of what shapes the build:
 
 - **Focus:** sources and pruning (most read, time per source, never opened) with habits at the top (summary strip,
-  daily activity, streaks, weekday-by-hour heatmap, behavior facts). Wrapped is a simple yearly summary with an opt-in
+  daily activity, streaks, weekday-by-hour heatmap, behavior facts). Your year is a simple yearly summary with an opt-in
   share sheet, aggregates only by default. No goals, targets, badges, comparisons with other people or directives.
 - **Reading:** every open is recorded; views count an item as read at 10 s active time, or 25% scroll with at least 3 s active time (a scroll alone stopped counting with issue #120). List-preview
   opens count. Reading stats (open, read time, scroll, open original, share) are web-only; Reader API clients are not tracked for reading, though their stars are recorded.
@@ -252,11 +252,11 @@ Decisions are recorded in full in the private history repository. Summary of wha
   folder rollup; average read length, quick-bounce rate, open-original rate, read rate per feed, most-starred feeds;
   never opened. A feed's row opens its drill-down sheet.
 - **Settings:** first day of week (Sunday or Monday, default Sunday); stats on/off (off stops recording and hides the
-  screen, keeps data); Wrapped on/off; delete a range; delete all (typed confirmation).
+  screen, keeps data); Your year on/off; delete a range; delete all (typed confirmation).
 - **Export:** raw events as CSV, JSON or JSON Lines; the summary is JSON only (a summary is several tables, so a CSV or JSON Lines summary was not built). Range, a toggle to leave out article titles and links (feed and folder names, times and the time zone stay), and a data dictionary. Export and delete stay available with statistics off. They live in Settings > Stats only; the Stats screen links there.
 - **Sender:** 15 s flush, visibilitychange primary and pagehide backup, 2 minute idle cutoff, a random id on every event
   (unique index) for dedup, offline events queued, losses accepted.
-- **Delivery:** alpha.4 sender and settings, alpha.5 screen, alpha.6 export and data controls, alpha.7 Wrapped.
+- **Delivery:** alpha.4 sender and settings, alpha.5 screen, alpha.6 export and data controls, alpha.7 Your year.
 
 ### Stats follow-up (2026-10-06, issues #37 and #36)
 

@@ -44,7 +44,7 @@ export function FeedEditorHost() {
  * and its counts are for the eyes (aria-hidden text); assistive technology gets a progressbar with its value and a
  * polite status that changes only when a quarter more is done, so it is not read out twice a second. A filter's
  * finish is announced by the event handler; an import's fetch ends quietly (a feed it could not fetch says why on
- * its row in Manage feeds).
+ * its row in Feeds).
  */
 export function ApplyProgress() {
   const runs = useStoreSelector(liveStore, (s) => s.runs);

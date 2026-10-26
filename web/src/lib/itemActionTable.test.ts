@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { actionLabel, actionShort, markAllLabel, markAllReach } from "./itemActionTable";
+import { actionLabel, actionShort, markAllLabel, markAllReach, markOlderConfirmLabel, markOlderLabel } from "./itemActionTable";
 
 describe("the item action table", () => {
+  it("words the auto-read catch-up for one article and for many", () => {
+    expect(markOlderLabel(1)).toBe("Mark 1 older article as read");
+    expect(markOlderLabel(1250)).toBe("Mark 1,250 older articles as read");
+    expect(markOlderConfirmLabel(1, false)).toBe("Mark 1 as read");
+    expect(markOlderConfirmLabel(1, true)).toBe("Starting");
+  });
+
   it("names a toggle by what it does next", () => {
     expect(actionLabel("read", { on: false })).toBe("Mark as read");
     expect(actionLabel("read", { on: true })).toBe("Mark as unread");

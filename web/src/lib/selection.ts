@@ -1,4 +1,4 @@
-// Multi-select for Manage feeds: pure helpers so the rules (click, shift-click range, select all in a folder,
+// Multi-select for Feeds: pure helpers so the rules (click, shift-click range, select all in a folder,
 // the tri-state of a folder checkbox) are tested without a DOM.
 
 /** Toggle one id in a set. */

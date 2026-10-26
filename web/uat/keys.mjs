@@ -14,7 +14,7 @@
 //   H1  (desktop) Oldest first keeps focus when pressed; the order is put back.
 //   L1  The list: End, Home and PageDown move focus to the last, first and a later row on screen; Space opens a row.
 //   C1  (desktop) Cards: a focused card's ring follows its rounded corners; the layout is put back.
-//   D1  Manage feeds > Edit > a feed's pencil: the Edit feed sheet opens with focus on itself or the Title field, and
+//   D1  Feeds > Edit > a feed's pencil: the Edit feed sheet opens with focus on itself or the Title field, and
 //       the first Tab reaches Title (never the footer first). Escape closes it.
 //   T1  (desktop) The sidebar tree: Enter on a feed and Space on a folder open their lists, and focus stays on the
 //       tree item.

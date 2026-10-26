@@ -9,7 +9,7 @@
 //   A2  Settings > Appearance & Reading: no switch's name carries its visible On or Off. (uat-labels: ignore)
 //   A3  Signs in with a wrong password in a second, signed-out browser: both fields are aria-invalid and described by
 //       the error, and the password field has focus.
-//   A4  Manage feeds > Add feed with "not a url !!": the address field is aria-invalid, described by the error, focused.
+//   A4  Feeds > Add feed with "not a url !!": the address field is aria-invalid, described by the error, focused.
 //   A5  Opens an article and marks it unread from the toolbar: it is announced as "Marked unread" with no Undo toast (the state word is the state).
 //   A6  Settings > Advanced > Address and access (proxy section opened): the Cloudflare Access state is not a live region. (uat-labels: ignore)
 //   A7  The list: a row's Star and More actions name its article, its link starts with the title, and the Unread

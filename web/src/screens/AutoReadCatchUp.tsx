@@ -4,7 +4,7 @@ import { liveStore, pollStatus, seedRun, type FinishedRun } from "@/api/events";
 import { ApiError, errorMessage } from "@/api/client";
 import { previewAutoRead, runAutoRead, type AutoReadPreview } from "@/api/autoRead";
 import { useStoreSelector } from "@/lib/store";
-import { markOlderLabel } from "@/lib/itemActionTable";
+import { markOlderConfirmLabel, markOlderLabel } from "@/lib/itemActionTable";
 import { announce } from "@/shell/toasts";
 import { Button } from "@/ui/button";
 import { Modal, Notice } from "@/ui/kit";
@@ -227,7 +227,7 @@ export function AutoReadCatchUp({
               ) : (
                 <div className="flex flex-col items-start gap-1">
                   <Button variant="solid" onClick={() => (needsConfirm ? void askFirst() : void start(false))} disabled={busy}>
-                    {markOlderLabel(n(total))} now
+                    {markOlderLabel(total)} now
                   </Button>
                   <p className="text-xs text-fg2">There is no Undo for this. You can mark articles unread again from any list.</p>
                 </div>
@@ -240,7 +240,7 @@ export function AutoReadCatchUp({
         <Modal
           open
           onOpenChange={(o) => !o && !busy && setConfirm(false)}
-          title={`${markOlderLabel(n(total))}?`}
+          title={`${markOlderLabel(total)}?`}
           description={
             (grew ? `The count grew from ${n(grew.from)} to ${n(total)} since you previewed it. ` : "") +
             "They are unread, not starred, not muted and older than the limit. There is no Undo button for this. You can mark articles unread again from any list."
@@ -251,7 +251,7 @@ export function AutoReadCatchUp({
                 Cancel
               </Button>
               <Button variant="solid" onClick={() => void start(true)} disabled={busy}>
-                {busy ? "Starting" : `Mark ${n(total)} as read`}
+                {markOlderConfirmLabel(total, busy)}
               </Button>
             </>
           }

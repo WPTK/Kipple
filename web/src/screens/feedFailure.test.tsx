@@ -67,7 +67,7 @@ describe("a failing feed", () => {
     expect(screen.queryByText("All caught up")).not.toBeInTheDocument();
   });
 
-  it("shows the reason on its Manage feeds row", async () => {
+  it("shows the reason on its Feeds row", async () => {
     go("/feeds");
     const row = await screen.findByRole("link", { name: /Example Feed/ });
     expect(row).toHaveTextContent("Having trouble");

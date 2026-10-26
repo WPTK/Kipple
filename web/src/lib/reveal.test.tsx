@@ -174,7 +174,7 @@ describe("the sidebar tree", () => {
   });
 });
 
-describe("Manage feeds", () => {
+describe("Feeds", () => {
   it("does not rebuild its key list when a feed is ticked", async () => {
     go("/feeds", many);
     const user = userEvent.setup();

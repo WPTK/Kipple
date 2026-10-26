@@ -140,7 +140,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Settings, Manage feeds, Health and every menu, popover and dialog keep the system UI font whatever
+/* Settings, Feeds, Health and every menu, popover and dialog keep the system UI font whatever
    font is chosen in the Aa menu. */
 .ui-font,
 [role="menu"],

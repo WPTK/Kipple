@@ -115,7 +115,7 @@ clock, whatever the OS says), font, text size, one Spacing choice with an
 "Adjust separately" disclosure, and "Highlight keywords" (the Aa menu; Settings > Appearance has theme, the Reading
 font with a sample paragraph, text size and Spacing; the setup wizard's step 3, "Look and feel", has the theme pair and
 the Reading font). The font styles articles at once (`--kp-reading-font`); the switch "Use it everywhere"
-(`client.font_everywhere`, off by default) extends it to lists and the sidebar (`--kp-app-font`); Settings, Manage feeds, Health and every menu, popover and
+(`client.font_everywhere`, off by default) extends it to lists and the sidebar (`--kp-app-font`); Settings, Feeds, Health and every menu, popover and
 dialog keep the system UI font (`.ui-font` and the role selectors in `index.css`). "Default" leaves lists and chrome in
 the system font and articles in the reading serif. Segmented controls are pressed-style buttons over hidden native
 radios (arrow keys work); choosing one holds the control where it was on screen even when the page above reflows
@@ -167,7 +167,7 @@ is the address field: `PATCH /api/feeds/{id}` with `url`.
 press and hold, or touch the grip at once; `lib/dnd.ts`); the grip also moves with the arrow keys, and "Show move
 buttons" beside the help text in edit mode adds Move up and Move down buttons. A drop is one `POST /api/reorder` (a feed dropped in another
 folder moves there), painted at once and confirmed with "Saved". The star on a folder or feed pins it to Favorites at the
-top of the sidebar and Manage feeds (drag those to order them). Favorites live in the server setting
+top of the sidebar and Feeds (drag those to order them). Favorites live in the server setting
 `library.favorites` (at most 500 `{t, id}` items); a save the server refuses is taken back and shown as an error. "Select" adds checkboxes (shift-click ranges, a checkbox per folder) and a bar with Move (one
 reorder call) and Delete (a confirm with the count, the total starred articles, "delete starred too", progress, and a
 per-feed error list). The sidebar's folders collapse (remembered per device). Feed health is reached from the Feeds
