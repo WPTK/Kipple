@@ -815,10 +815,10 @@ The remaining ambiguity is an *unpadded* bare-hex value made only of digits. No 
 
 | Parameter | Meaning |
 |---|---|
-| `c` | Descending: `id < :c`. With `r=o`: `id > :c`. `c` must be all digits, otherwise it is ignored. **Absent → bound to `math.MaxInt64` (descending) or `0` (ascending), never NULL** |
+| `c` | Descending: `id < :c`. With `r=o`: `id > :c`. `c` must be all digits, otherwise it is ignored; `c=0` is no cursor. **Absent → bound to `math.MaxInt64` (descending) or `0` (ascending), never NULL** |
 | `ot` (seconds) | `id >= (:ot − 120)·1e6 OR content_changed_at >= :ot − 120`. Executed as two disjoint ordered legs (§6.5) |
-| `nt` (seconds) | `id < (:nt + 1)·1e6` |
-| `ot`, `nt` input | All digits, else ignored. A value beyond 4102444800 (year 2100; e.g. milliseconds sent by mistake) is clamped to it and logged at WARN |
+| `nt` (seconds) | `id < (:nt + 1)·1e6`. `nt=0` is no upper bound |
+| `ot`, `nt` input | All digits, else ignored (`ot=0` bounds nothing, and `nt=0` is absent as above). A value beyond 4102444800 (year 2100; e.g. milliseconds sent by mistake) is clamped to it and logged at WARN (for `ot` or `nt`) |
 | mark-all `ts` | Normalized to µs by digit count: 1–12 → seconds × 1e6; 13–15 → milliseconds × 1e3; 16 → µs; ≥ 17 → ns ÷ 1e3. **Absent, 0, non-digit or overflowing → the larger of `max(items.id)` and `max(trimmed_items.id)` on a reader snapshot** (`MaxCommittedID`: committed ids only, never the allocator, which can be ahead of visible rows). Applied as `id <= ts_us` |
 
 ---
@@ -1505,7 +1505,7 @@ Parameters:
 
 - `n`: default 20, capped at 100000.
 - `r`: `o` means ascending; anything else descending.
-- `c`, `ot`, `nt` as in §3. **An absent `c` binds to MaxInt64 when descending and to 0 when ascending.**
+- `c`, `ot`, `nt` as in §3. **An absent `c` (or `c=0`) binds to MaxInt64 when descending and to 0 when ascending.**
 
 Without `ot`:
 
@@ -1549,6 +1549,8 @@ Response:
 ```
 
 `continuation` is present only when `n+1` rows came back; the page is then exactly `n` rows, and `continuation` is the id of the n-th row. `itemRefs` carries no `timestampUsec` or `directStreamIds`.
+
+The continuation is an id cursor on purpose: each page seeks past the last id (`id < :c`, or `id > :c` ascending) instead of skipping an offset, so an item that arrives or is trimmed between pages repeats nothing and skips nothing, and a cursor whose item is gone still resumes at the next id. Do not replace it with an offset. Ids are positive microseconds, so `c=0` can never be a real cursor and means no cursor, as `nt=0` means no upper bound; both reference servers read 0 as absent.
 
 **Full-text hold.** A new item of a full-text feed is *held back* from every Reader API listing until its extraction has finished or a hold window has passed, whichever comes first, so a client that syncs right after a fetch gets the extracted text and not the feed stub (open question 55, decided). An item is held when all of these are true at request time: its effective mode (§7.5, which includes `fetch.fulltext_all`) is 1; it has no `item_fulltext` row (a stored result **or** a stored error releases it); it is **pending in the ingest pool** (see below); and `id > :hold_cut`, where `:hold_cut = (now − window)·1e6`. The id is the crawl time in microseconds, so the window is measured from insert time. The window is `greader.Options.FulltextHold`: 0 means 30 s, negative disables it, and it is capped at 60 s. It is an Options field, not a user setting. Non-full-text feeds and items, and items older than the window, are never held. **Pending set.** The fetch commit records each item picked for the pool in `store.DB` (`MarkFulltextPending`, inside the transaction that inserts it, undone if the queue then refuses it) and forgets it when its job ends, after any result or error row is written (`ClearFulltextPending`). `HeldSQL` holds only items in that set (bound as `:pending`, a JSON array, next to `:hold_cut`; `MarkScope.HoldPending` carries it for mark-all-as-read). So an item the pool never accepted (beyond the per-fetch cap, queue full, shutdown, or full-text turned on for the feed after its fetch was picked; muted items are never queued, so never held) is served at once with the feed's own content instead of waiting out the window for text that is not coming. The set is process memory: after a restart nothing is pending, which matches the queue being gone. The window still ends the hold for an item that waits in a long queue (a big refresh with the switch on), which then shows the feed content to Reader clients; the web UI swaps in the text when it arrives.
 

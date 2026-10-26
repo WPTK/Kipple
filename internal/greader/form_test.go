@@ -11,6 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// readParams reads the request as the API does, with the default body cap.
+func readParams(r *http.Request, raw bool) *Params { return readParamsLimit(r, raw, maxBody, false) }
+
 func postForm(body, ctype, query string) *Params {
 	r := httptest.NewRequest(http.MethodPost, "/x?"+query, strings.NewReader(body))
 	if ctype != "" {

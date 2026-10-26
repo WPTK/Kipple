@@ -212,3 +212,56 @@ Describe 'failure detail' {
     $out[0] | Should -Match 'boom'
   }
 }
+
+Describe 'Browser UAT blocks a PR that changes it' {
+  BeforeAll {
+    $script:uatFail = @([pscustomobject]@{ name = 'Browser UAT (webkit)'; status = 'COMPLETED'; conclusion = 'FAILURE' })
+  }
+  It 'recognises the flow files and the workflow, and nothing else' {
+    Test-UatTouched -Path @('web/uat/gazette-place.mjs') | Should -BeTrue
+    Test-UatTouched -Path @('README.md', '.github/workflows/browser-uat.yml') | Should -BeTrue
+    Test-UatTouched -Path @('web/src/App.tsx', '.github/workflows/ci.yml') | Should -BeFalse
+    Test-UatTouched -Path @() | Should -BeFalse
+  }
+  It 'stays advisory when the PR touches neither' {
+    $pr = New-Pr @{ statusCheckRollup = $script:uatFail; files = @([pscustomobject]@{ path = 'web/src/App.tsx' }) }
+    (Get-PrVerdict -Pr $pr -AncestorStatus 'ahead').Ready | Should -BeTrue
+  }
+  It 'blocks on a failing or pending leg when the PR changes web/uat' {
+    $pr = New-Pr @{ statusCheckRollup = $script:uatFail; files = @([pscustomobject]@{ path = 'web/uat/all.mjs' }) }
+    $v = Get-PrVerdict -Pr $pr -AncestorStatus 'ahead'
+    $v.Ready | Should -BeFalse
+    $v.Text | Should -Match 'failing checks: Browser UAT \(webkit\)'
+    $pr.statusCheckRollup = @([pscustomobject]@{ name = 'Browser UAT (webkit)'; status = 'IN_PROGRESS'; conclusion = '' })
+    (Get-PrVerdict -Pr $pr -AncestorStatus 'ahead').Text | Should -Match 'pending checks: Browser UAT \(webkit\)'
+  }
+}
+
+Describe 'Browser UAT blocking edge cases' {
+  It 'fails closed when the file list is at gh''s 100-file cap' {
+    $files = @(1..100 | ForEach-Object { [pscustomobject]@{ path = "src/f$_.go" } })
+    $roll = @([pscustomobject]@{ name = 'Browser UAT (firefox)'; status = 'COMPLETED'; conclusion = 'FAILURE' })
+    (Get-PrVerdict -Pr (New-Pr @{ statusCheckRollup = $roll; files = $files }) -AncestorStatus 'ahead').Ready | Should -BeFalse
+  }
+  It 'stays advisory with an empty file list' {
+    $roll = @([pscustomobject]@{ name = 'Browser UAT (firefox)'; status = 'COMPLETED'; conclusion = 'FAILURE' })
+    (Get-PrVerdict -Pr (New-Pr @{ statusCheckRollup = $roll; files = @() }) -AncestorStatus 'ahead').Ready | Should -BeTrue
+  }
+  It 'blocks a commit-status shaped Browser UAT check too when UAT is touched' {
+    $s = Get-CheckSummary -Rollup @([pscustomobject]@{ context = 'Browser UAT'; state = 'FAILURE' }) -UatBlocking
+    $s.Failing | Should -Contain 'Browser UAT'
+  }
+}
+
+Describe 'log tail ends at the runner error' {
+  It 'ends at the last ##[error] line when there are several' {
+    $tail = Get-LogTail -Text "a`n##[error]first`nb`n##[error]second`ncleanup" -Lines 30
+    $tail[-1] | Should -Be '##[error]second'
+  }
+  It 'drops the cleanup after the ##[error] line' {
+    $log = "flow output 1`nFAIL something`n##[error]Process completed with exit code 1.`nPost job cleanup.`nCleaning up orphan processes"
+    $tail = Get-LogTail -Text $log -Lines 30
+    $tail[-1] | Should -Be '##[error]Process completed with exit code 1.'
+    $tail | Should -Not -Contain 'Post job cleanup.'
+  }
+}
