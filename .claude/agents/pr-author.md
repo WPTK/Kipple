@@ -19,8 +19,10 @@ Effort: normal. You make a change, check it locally, push it and report. Not on 
 
 ## Checks before you push (no `-race`: there is no C compiler here)
 
-- Go: `gofmt -l`, `go vet ./...`, `go test ./...`.
-- Web, in `web/`: `npm run lint`, `npx tsc --noEmit`, `npm test` (vitest).
+Run only what your change touches. CI runs the full suites on the pushed commit, so do not repeat them locally.
+
+- Go, for the packages you changed: `gofmt -l <files>`, `go vet ./<pkg>/...`, `go test ./<pkg>/...`.
+- Web, in `web/`, for the files you changed: `npx eslint <files>`, `npx tsc --noEmit`, `npx vitest run <related test files>`.
 - If a test fails, run it alone before deciding whether it flaked; report a flake, do not retry until green.
 - If you changed `aria-label`s, run `node scripts/uat-labels.mjs`.
 - Before committing, `git diff --cached` and look for anything that is not a placeholder.
