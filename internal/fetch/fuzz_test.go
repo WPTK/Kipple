@@ -69,6 +69,9 @@ func FuzzParseFeed(f *testing.F) {
 			if err != nil {
 				return
 			}
+			if len(fd.Items) > MaxItemsPerFetch {
+				t.Fatalf("%d items kept, more than MaxItemsPerFetch (mode %q)", len(fd.Items), mode)
+			}
 			seen := map[string]bool{}
 			for _, it := range fd.Items {
 				if it.UID == "" || seen[it.UID] {
