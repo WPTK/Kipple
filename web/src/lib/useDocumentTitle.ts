@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-export const APP_TITLE = "Kipple";
+const APP_TITLE = "Kipple";
 
 /**
  * The tab title for a screen: "<heading> - Kipple". Without a heading it is just "Kipple". A screen whose own heading

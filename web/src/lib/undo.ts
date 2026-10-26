@@ -20,7 +20,7 @@ export const BULK_TTL_MS = 120_000;
 /** How long an undo waits for its action's request before giving up (the request itself is not cancelled). */
 export const UNDO_WAIT_MS = 10_000;
 export const NOTHING_TO_UNDO = "Nothing to undo";
-export const STILL_SAVING = "Still saving. Try Undo again in a moment.";
+const STILL_SAVING = "Still saving. Try Undo again in a moment.";
 
 /** Resolve `false` when the request failed, `"kept"` when the server left every id as it was (muted or trimmed since). */
 type UndoFn = (ids: string[]) => void | boolean | "kept" | Promise<void | boolean | "kept">;

@@ -101,9 +101,9 @@ export function scopeUnread(scope: Scope, boot: Bootstrap | undefined): number |
 }
 
 /** Why Mark all as read is off in a list with nothing unread. */
-export const NOTHING_UNREAD = "Nothing unread here";
+const NOTHING_UNREAD = "Nothing unread here";
 
-export function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: ListControls; beside?: boolean }) {
+function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: ListControls; beside?: boolean }) {
   const { title, above } = useScopeTitle(scope);
   // Beside an open article (wide) the article's title is the page's h1, so the list's name is the h2 above it.
   const Heading = beside ? "h2" : "h1";
@@ -483,7 +483,7 @@ function baseScope(view: string | undefined, sp: URLSearchParams, isArticle: boo
  * not stick). A search keeps the ordering it was run with (relevance, newest, oldest) and its typing flag: its list in
  * the cache is keyed by them.
  */
-export function readerScope(base: Scope, order: OrderPref): Scope {
+function readerScope(base: Scope, order: OrderPref): Scope {
   if (base.q || base.after) return base; // a search keeps its own order; the New page is newest first
   const { order: _drop, ...rest } = base;
   void _drop;

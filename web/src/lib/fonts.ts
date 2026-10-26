@@ -38,7 +38,7 @@ export const FONTS: readonly FontDef[] = [
 ];
 
 export type FontId = string;
-export const FONT_IDS = FONTS.map((f) => f.id);
+const FONT_IDS = FONTS.map((f) => f.id);
 export const isFontId = (v: unknown): v is FontId => typeof v === "string" && FONT_IDS.includes(v);
 export const fontById = (id: string): FontDef => FONTS.find((f) => f.id === id) ?? (FONTS[0] as FontDef);
 export const FONT_GROUPS: readonly FontGroup[] = ["Default", "Easy to read", "Serif", "Sans-serif", "Monospace", "On this device"];

@@ -10,7 +10,7 @@ import { useStore } from "@/lib/store";
 const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 
 /** The unread count of a saved search: "999+" at the server's cap, a dash when it could not be counted in time, nothing until it loads. */
-export function SavedCount({ s }: { s: SavedSearch }) {
+function SavedCount({ s }: { s: SavedSearch }) {
   const label = unreadLabel(s);
   if (s.unread === undefined) return null;
   if (label === null) {

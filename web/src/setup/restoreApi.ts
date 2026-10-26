@@ -3,7 +3,7 @@
 import { ApiError, api, clientKind, errorMessage } from "@/api/client";
 import { restoreKey, restoreKeyHeaders } from "./restoreKey";
 
-export type PasswordState = "password" | "none_access" | "open";
+type PasswordState = "password" | "none_access" | "open";
 
 /** What the server found in an uploaded Kipple backup zip. */
 export interface BackupSummary {

@@ -6,7 +6,7 @@ import { visibleFeeds } from "@/lib/visibleFeeds";
 // Feed health statuses (docs/design.md 4.6) in plain English. The label always carries the state, never
 // color alone; the icon name picks a lucide icon in the UI.
 
-export type StatusTone = "ok" | "warn" | "bad" | "muted";
+type StatusTone = "ok" | "warn" | "bad" | "muted";
 
 export interface StatusInfo {
   label: string;

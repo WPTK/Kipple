@@ -85,7 +85,7 @@ export const liveStore = createStore<LiveState>(initialLive);
  * An event id from the wire (the SSE `id:`, or the `event_id` of an answer) as a number. The server's ids are
  * microsecond-based and stay under 2^53. Absent or unreadable is 0: the oldest, which ends and updates nothing.
  */
-export function eventSeq(v: string | number | undefined | null): number {
+function eventSeq(v: string | number | undefined | null): number {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
@@ -330,7 +330,7 @@ export function applyCounts(qc: QueryClient, c: CountsEvent): void {
 
 let countsRefetch: ReturnType<typeof setTimeout> | undefined;
 
-export { SAVED_COUNTS_MIN_MS, refreshSavedSearchCounts, resetSavedSearchCounts };
+export { SAVED_COUNTS_MIN_MS, resetSavedSearchCounts };
 
 /** Everything one event does: reducer, query cache, live region. `id` is the event's SSE id (absent for one made locally). */
 export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number, reconciled = false): void {
@@ -491,7 +491,7 @@ export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
  * were never delivered. Lists are deliberately not refetched (a list is a snapshot; the "n new" pill and
  * the stale marker tell the user); only counts and the feed tree refresh.
  */
-export async function reconcile(qc: QueryClient): Promise<void> {
+async function reconcile(qc: QueryClient): Promise<void> {
   await pollStatus(qc);
   void qc.invalidateQueries({ queryKey: keys.bootstrap });
 }

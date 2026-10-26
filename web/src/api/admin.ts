@@ -6,11 +6,11 @@ import type { Bootstrap, Feed, Folder, Me } from "./types";
 
 // ---- Settings -----------------------------------------------------------------
 
-export type SettingKind = "bool" | "enum" | "int" | "text" | "json";
+type SettingKind = "bool" | "enum" | "int" | "text" | "json";
 export type SettingGroup = "reading" | "sync" | "library" | "images" | "stats" | "account" | "connection" | "advanced";
-export type SettingSurface = "reader_menu" | "settings" | "hidden";
+type SettingSurface = "reader_menu" | "settings" | "hidden";
 
-export interface SettingOption {
+interface SettingOption {
   value: string | number;
   label: string;
   css?: Record<string, unknown>;

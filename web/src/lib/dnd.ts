@@ -45,7 +45,7 @@ export function insertBefore(list: readonly string[], id: string, before: string
 }
 
 /** The folder and every folder inside it, in tree order (a contiguous run of `tree.folders`). */
-export function folderBlock(tree: Tree, folder: string): string[] {
+function folderBlock(tree: Tree, folder: string): string[] {
   const inside = new Set([folder]);
   for (const id of tree.folders) {
     const p = tree.parents[id];

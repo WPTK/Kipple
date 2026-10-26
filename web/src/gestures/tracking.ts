@@ -2,8 +2,8 @@
 // pointer or touch samples, and the tests feed them synthetic ones.
 // The numbers follow the gesture decisions in docs/maintainers/ui-decisions.md ("Gestures and keys").
 
-export const EDGE_DEAD_LEFT_PX = 24; // iOS owns the left edge (back gesture)
-export const EDGE_DEAD_RIGHT_PX = 8;
+const EDGE_DEAD_LEFT_PX = 24; // iOS owns the left edge (back gesture)
+const EDGE_DEAD_RIGHT_PX = 8;
 
 export const ROW = {
   lockPx: 8,
@@ -21,7 +21,7 @@ export const ROW = {
   revealSnap: 60, // release past this and the trailing panel stays open
 } as const;
 
-export const BACK = {
+const BACK = {
   startMin: EDGE_DEAD_LEFT_PX,
   lockPx: 10,
   lockRatio: 2,
@@ -40,9 +40,9 @@ export const PULL = {
 } as const;
 
 export const LONG_PRESS_MS = 500;
-export const LONG_PRESS_SLOP_PX = 8;
+const LONG_PRESS_SLOP_PX = 8;
 
-export const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 /** Distance at which a row swipe is armed: 40% of the row, between 96 and 176 px. */
 export const armDistance = (width: number): number => clamp(width * ROW.armFrac, ROW.armMin, ROW.armMax);
@@ -56,7 +56,7 @@ export function rubberBand(offset: number, width: number): number {
 }
 
 /** Velocity in px/ms over the last ~100 ms of samples (signed, +x is rightward). */
-export class VelocityTracker {
+class VelocityTracker {
   private s: { x: number; t: number }[] = [];
   reset(): void {
     this.s = [];

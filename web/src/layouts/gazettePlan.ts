@@ -18,7 +18,7 @@ import { byFolder } from "@/lib/sections";
 /** The lead is looked for among this many of the newest articles. */
 export const LEAD_WINDOW = 100;
 /** A window with fewer stories than this is a quiet day. */
-export const QUIET_BELOW = 6;
+const QUIET_BELOW = 6;
 /** A column on the front page holds at most this many stories; the rest become briefs. */
 export const STORIES_PER_COLUMN = 4;
 /** Headline-only lines at the foot of the front page. */
@@ -26,14 +26,14 @@ export const FRONT_BRIEFS = 10;
 /** Articles per inner page. */
 export const INNER_PAGE_SIZE = 24;
 /** Stories beside the lead on a "lead with image" front page. */
-export const BESIDE_LEAD = 3;
+const BESIDE_LEAD = 3;
 /** Pictures in the photo row of a busy day. */
-export const PHOTO_ROW = 3;
+const PHOTO_ROW = 3;
 /** Recent articles considered when no pinned source has news and the longest headline leads. */
-export const HEADLINE_WINDOW = 20;
+const HEADLINE_WINDOW = 20;
 
-export type FrontType = "co-leads" | "lead-image" | "big-headline" | "quiet" | "busy" | "text-only";
-export type SlotKind = "lead" | "co-lead" | "story" | "photo" | "brief";
+type FrontType = "co-leads" | "lead-image" | "big-headline" | "quiet" | "busy" | "text-only";
+type SlotKind = "lead" | "co-lead" | "story" | "photo" | "brief";
 
 export interface Slot {
   kind: SlotKind;

@@ -14,7 +14,7 @@ import { Button } from "@/ui/button";
 import { Modal, Notice, RadioCard, Skeleton, Switch } from "@/ui/kit";
 
 /** "Everywhere", "Folder: News" or "Feed: Example". */
-export function scopeText(f: Pick<Filter, "scope" | "folder_id" | "feed_id">, folders: { id: string; name: string; parent_id?: string | null }[], feeds: { id: string; title: string }[]): string {
+function scopeText(f: Pick<Filter, "scope" | "folder_id" | "feed_id">, folders: { id: string; name: string; parent_id?: string | null }[], feeds: { id: string; title: string }[]): string {
   if (f.scope === "folder") {
     const tree = folderTree(folders);
     return `Folder: ${f.folder_id && tree.byId.has(f.folder_id) ? folderPath(tree, f.folder_id) : "deleted folder"}`;
@@ -62,7 +62,7 @@ export function deletedMessage(restored: number, madeUnread: number, mode: Unmut
   return `${msg}.`;
 }
 
-export function DeleteFilterDialog({ filter, onClose }: { filter: Filter; onClose: () => void }) {
+function DeleteFilterDialog({ filter, onClose }: { filter: Filter; onClose: () => void }) {
   const qc = useQueryClient();
   const [mode, setMode] = useState<Unmute>("read");
   const [busy, setBusy] = useState(false);

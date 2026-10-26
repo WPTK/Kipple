@@ -10,7 +10,7 @@ type Choice = "password" | "access" | "open";
 const USERNAME = /^[A-Za-z0-9._-]{1,64}$/;
 
 /** Whether choosing "no password, open" can work from this browser's position (GET /api/instance), and if not why. */
-export function openAvailability(open: SetupOptions["open"]): { ok: boolean; why: string | null } {
+function openAvailability(open: SetupOptions["open"]): { ok: boolean; why: string | null } {
   return open.reason === null ? { ok: true, why: null } : { ok: false, why: openReasonText(open.reason) };
 }
 

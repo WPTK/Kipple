@@ -19,8 +19,8 @@ import { createStore } from "./store";
 /** Most marks drawn in one article, so a common word in a very long piece does not stall the page. */
 export const MAX_MARKS = 300;
 /** Bytes of text the rule engine reads (internal/filter/rule.go): 32 KiB of an article body, 4 KiB of any other field. */
-export const CONTENT_SCAN_BYTES = 32 << 10;
-export const FIELD_SCAN_BYTES = 4 << 10;
+const CONTENT_SCAN_BYTES = 32 << 10;
+const FIELD_SCAN_BYTES = 4 << 10;
 
 export type HighlightField = "title" | "author" | "content" | "url" | "category" | "feed";
 

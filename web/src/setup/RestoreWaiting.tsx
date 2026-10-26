@@ -10,7 +10,7 @@ import { estimateMinutes } from "./restoreApi";
 export const UNCLAIMED_NOTICE = "After the reset, Kipple stays open to first-time setup for anyone who can reach it until setup is finished. Finish setup right away.";
 
 /** How often the page asks whether Kipple is back. */
-export const POLL_MS = 3000;
+const POLL_MS = 3000;
 
 /** How long a restart may take before the page says Kipple stopped: three times the estimate, at least 5 minutes. */
 export const silenceLimitSeconds = (estimateSeconds: number): number => Math.max(300, estimateSeconds * 3);

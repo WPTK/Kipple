@@ -36,7 +36,7 @@ import { setUpdateReady } from "@/lib/offlineState";
 import { settleToasts, toast } from "@/shell/toasts";
 import { PAGE_SIZE, itemsParams, keys, patchItems, undoKept } from "./queryKeys";
 
-export { PAGE_SIZE, SECTION_SUFFIX, keys, scopeKey, parseScopeKey, itemsParams, patchItems, dropFromLists, invalidateLists, undoKept, type ItemPatch } from "./queryKeys";
+export { SECTION_SUFFIX, keys, scopeKey, parseScopeKey, patchItems, dropFromLists, invalidateLists, undoKept, type ItemPatch } from "./queryKeys";
 
 /** The toast for a failed change: one made offline that could not be stored says so, not "the server". */
 export function changeError(e: unknown, action: string): string {
@@ -172,7 +172,7 @@ export function flattenItems(data: InfiniteData<ItemsPage> | undefined): Card[] 
 
 /** When the last optimistic count change was made (ms); `counts` events older than it are stale. */
 let lastBumpAt = 0;
-export const COUNTS_GUARD_MS = 1500;
+const COUNTS_GUARD_MS = 1500;
 /** Ms left in the window after a local count change, 0 when none. */
 export function countsGuardLeft(now = Date.now()): number {
   return Math.max(0, lastBumpAt + COUNTS_GUARD_MS - now);

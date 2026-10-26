@@ -9,8 +9,6 @@ import type { Section, SectionOf } from "@/lib/sections";
 // feeds some other way and reuse the ordering and the layout, or give it sections that are not feeds at all (fixedSections:
 // the Coffee break's reading lengths).
 
-/** Cards per section ("Rows per section" setting). */
-export const ROW_CHOICES = [3, 5, 10] as const;
 /** Cards one "N more" press adds to a section. */
 export const EXPAND_BATCH = 20;
 
@@ -100,7 +98,7 @@ export function orderSections(defs: readonly SectionDef[], order: SectionOrder):
 
 export interface DigestOptions {
   view: View;
-  /** Rows per section: one of ROW_CHOICES. */
+  /** Rows per section: one of 3, 5 or 10. */
   rows: number;
   /** How many times "N more" was pressed, by section key. */
   expanded: ReadonlyMap<string, number>;
@@ -114,7 +112,7 @@ export interface LoadedSection {
   more: boolean;
 }
 
-export type SectionState = "waiting" | "loading" | "ready";
+type SectionState = "waiting" | "loading" | "ready";
 
 export interface DigestSection {
   key: string;

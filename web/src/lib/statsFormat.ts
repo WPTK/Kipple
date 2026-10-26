@@ -9,7 +9,7 @@ export const READ_RULE =
   "An article counts as read after 10 seconds of reading, or 3 seconds once you've scrolled a quarter of the way down.";
 
 /** What a figure shows when there is nothing to compute it from (never a dash, never 0). */
-export const NO_DATA = "Not enough data yet";
+const NO_DATA = "Not enough data yet";
 
 /**
  * The one duration format of Stats and Your year: "45 s" under two minutes, "12 min" up to an hour, then "1h 20m" or

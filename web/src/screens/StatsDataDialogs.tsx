@@ -39,7 +39,7 @@ function partialCount(e: unknown): number {
  * one, whose end can be a future date after a time zone change), else the browser's date. Never later than the
  * browser's tomorrow.
  */
-export function serverToday(qc: QueryClient): string {
+function serverToday(qc: QueryClient): string {
   const local = todayString();
   const limit = addDays(local, 1);
   for (const [key, d] of qc.getQueriesData<StatsSummary>({ queryKey: ["stats"] })) {
@@ -160,7 +160,7 @@ interface DeleteAnswer {
   deleted: number;
 }
 
-export const COUNT_DEBOUNCE_MS = 400;
+const COUNT_DEBOUNCE_MS = 400;
 
 export function DeleteRangeDialog(p: DialogProps & { onSettled: (o: DeleteOutcome) => void }) {
   return p.open ? <DeleteRangeBody onOpenChange={p.onOpenChange} onSettled={p.onSettled} /> : null;
@@ -262,7 +262,7 @@ function DeleteRangeBody({ onOpenChange, onSettled }: { onOpenChange: (o: boolea
   );
 }
 
-export const DELETE_ALL_PHRASE = "DELETE ALL";
+const DELETE_ALL_PHRASE = "DELETE ALL";
 
 export function DeleteAllDialog(p: DialogProps & { onSettled: (o: DeleteOutcome) => void }) {
   return p.open ? <DeleteAllBody onOpenChange={p.onOpenChange} onSettled={p.onSettled} /> : null;

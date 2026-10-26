@@ -6,7 +6,7 @@ import { createStore } from "./store";
 // utterances get cut off on older iOS. The chunk being spoken is highlighted (a paragraph, not a word:
 // word boundary events are unreliable on iOS).
 
-export const MAX_CHUNK = 240;
+const MAX_CHUNK = 240;
 
 export function speechSupported(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
