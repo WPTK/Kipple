@@ -111,6 +111,72 @@ func TestConformanceStreamItemIDs(t *testing.T) {
 
 	// An unusable c is ignored rather than an error [FR ctype_digit].
 	require.Equal(t, l.decs(confAllDesc...), ids(s(stateReadingList)+"&c=not-a-number"))
+
+	// 0 means absent for c and nt, as for ot [RS: A `$stop_time !== 0`, `$continuation !== '0'`; B `StopTime > 0`, offset 0].
+	// Ids are positive microseconds, so 0 is never a real cursor.
+	require.Equal(t, l.decs(confAllDesc...), ids(s(stateReadingList)+"&nt=0"), "nt=0 is no upper bound")
+	require.Equal(t, l.decs(confAllDesc...), ids(s(stateReadingList)+"&c=0"), "c=0 is the first page, descending")
+	require.Equal(t, asc, ids(s(stateReadingList)+"&r=o&c=0"), "c=0 is the first page, ascending")
+	require.Equal(t, l.decs(confAllDesc...), streamDecimals(t, decodeStream(t, c.call(http.MethodGet, rd+"stream/contents?n=50&nt=0&c=0", "", nil))), "stream/contents agrees")
+
+	// ot and nt are seconds; digits beyond int64 clamp to year 2100 [K §3]: a huge ot matches nothing, a
+	// huge nt bounds nothing, and a millisecond value is treated as that far future.
+	require.Empty(t, ids(s(stateReadingList)+"&ot=99999999999999999999"))
+	require.Equal(t, l.decs(confAllDesc...), ids(s(stateReadingList)+"&nt=99999999999999999999"))
+	require.Empty(t, ids(s(stateReadingList)+"&ot="+strconv.FormatInt(l.ids["tech-new"]/1_000, 10)), "ot in milliseconds")
+
+	// HEAD is answered like GET without a body [GR].
+	hr := c.call(http.MethodHead, rd+"stream/items/ids?"+s(stateReadingList), "", nil)
+	require.Equal(t, 200, hr.code)
+	require.Empty(t, hr.body)
+	require.Equal(t, 200, c.call(http.MethodHead, rd+"token", "", nil).code)
+
+	// Paging across a gone cursor: the continuation is an id, so a cursor item trimmed between pages
+	// resumes at the next older id with nothing repeated or skipped (an offset cursor, as reference B's, would shift) [K §6.5].
+	page, cont := itemRefs(t, c.call(http.MethodGet, rd+"stream/items/ids?n=2&"+s(stateReadingList), "", nil))
+	require.Equal(t, l.decs("tech-new", "news-unread"), page)
+	require.Equal(t, l.dec("news-unread"), cont)
+	h.trim(l.ids["news-unread"], false)
+	rest, next := itemRefs(t, c.call(http.MethodGet, rd+"stream/items/ids?n=1000&"+s(stateReadingList)+"&c="+cont, "", nil))
+	require.Equal(t, l.decs("news-unread-starred", "tech-unread", "loose-old", "news-old-starred", "tech-old-read"), rest)
+	require.Empty(t, next)
+	rest, _ = itemRefs(t, c.call(http.MethodGet, rd+"stream/items/ids?n=1000&"+s(stateReadingList)+"&c=5", "", nil))
+	require.Empty(t, rest, "a cursor older than every item ends the listing")
+}
+
+// Labels are matched with ASCII-only case folding and may hold any Unicode; every stream
+// endpoint and mark-all-as-read resolve them the same way [K §6.4].
+func TestConformanceUnicodeLabels(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := newConf(t, h)
+	kana := h.addFeed("https://kana.example/feed", "Kana", "日本語 🍣")
+	eclair := h.addFeed("https://eclair.example/feed", "Eclair", "Éclair")
+	kanaItem := h.addItem(kana, itemSeed{ID: baseID - confMin, Title: "kana"})
+	eclairItem := h.addItem(eclair, itemSeed{ID: baseID - 2*confMin, Title: "eclair"})
+	ids := func(label string) []string {
+		got, _ := itemRefs(t, c.call(http.MethodGet, rd+"stream/items/ids?"+q1("s", "user/-/label/"+label), "", nil))
+		return got
+	}
+	dec := strconv.FormatInt
+
+	require.Equal(t, []string{dec(kanaItem, 10)}, ids("日本語 🍣"))
+	// In the path of stream/contents the label is percent-encoded.
+	st := decodeStream(t, c.call(http.MethodGet, rd+"stream/contents/user/-/label/"+url.PathEscape("日本語 🍣"), "", nil))
+	require.Equal(t, []string{dec(kanaItem, 10)}, streamDecimals(t, st))
+
+	// Folding is ASCII-only: A-Z folds, É and é do not.
+	require.Equal(t, []string{dec(eclairItem, 10)}, ids("Éclair"))
+	require.Empty(t, ids("éclair"), "é is not folded to É")
+
+	// mark-all-as-read scopes by the same label.
+	c.write("mark-all-as-read", q1("s", "user/-/label/日本語 🍣"))
+	require.True(t, isRead(h, kanaItem))
+	require.False(t, isRead(h, eclairItem))
+	c.write("mark-all-as-read", q1("s", "user/-/label/éclair"))
+	require.False(t, isRead(h, eclairItem), "a label that differs in non-ASCII case matches nothing")
+	c.write("mark-all-as-read", q1("s", "user/-/label/Éclair"))
+	require.True(t, isRead(h, eclairItem))
 }
 
 func TestConformanceStreamContents(t *testing.T) {

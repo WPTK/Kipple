@@ -33,7 +33,7 @@ const (
 // harness is an API over a temp database with a fake password check (argon2 is
 // exercised in the auth package tests) and a fake clock shared with the store.
 type harness struct {
-	t      *testing.T
+	t      testing.TB
 	db     *store.DB
 	api    *API
 	h      http.Handler
@@ -51,7 +51,7 @@ type harnessOpts struct {
 	logForms      bool
 }
 
-func newHarness(t *testing.T, o ...harnessOpts) *harness {
+func newHarness(t testing.TB, o ...harnessOpts) *harness {
 	t.Helper()
 	var opt harnessOpts
 	if len(o) > 0 {

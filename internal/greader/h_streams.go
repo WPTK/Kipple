@@ -36,14 +36,11 @@ func (c *call) jsonStart() *bufio.Writer {
 // streamItemIDs is GET stream/items/ids: itemRefs as decimal id strings and a
 // string continuation, omitted on the last page. Rows are written as they are read.
 func (c *call) streamItemIDs() {
-	f, err := c.resolveStream(c.p.Get("s"), firstOrEmpty(c.p.AllRaw("s")))
+	f, page, err := c.streamReq(maxIDsN)
 	if err != nil {
 		c.serverError("resolve stream", err)
 		return
 	}
-	f = applyStates(f, c.p.All("it"), c.p.All("xt"))
-	page := c.pageParams(maxIDsN)
-	f.HoldCut = c.a.holdCut()
 
 	var bw *bufio.Writer
 	first := true
@@ -57,7 +54,7 @@ func (c *call) streamItemIDs() {
 		}
 		first = false
 		_, _ = bw.WriteString(`{"id":"`)
-		_, _ = bw.WriteString(strconv.FormatInt(id, 10))
+		_, _ = bw.WriteString(FormatDecimal(id))
 		_, err := bw.WriteString(`"}`)
 		return err
 	})
@@ -75,7 +72,7 @@ func (c *call) streamItemIDs() {
 	}
 	_, _ = bw.WriteString(`]`)
 	if more {
-		_, _ = bw.WriteString(`,"continuation":"` + strconv.FormatInt(last, 10) + `"`)
+		_, _ = bw.WriteString(`,"continuation":"` + FormatDecimal(last) + `"`)
 	}
 	_, _ = bw.WriteString(`}`)
 	_ = bw.Flush()
@@ -83,15 +80,7 @@ func (c *call) streamItemIDs() {
 
 // streamItemContents is POST stream/items/contents (GET tolerated).
 func (c *call) streamItemContents() {
-	raw := c.p.All("i")
-	ids := make([]int64, 0, len(raw))
-	for _, v := range raw {
-		if id, ok := ParseItemID(v); ok {
-			ids = append(ids, id)
-		} else if strings.TrimSpace(v) != "" {
-			c.a.log.Debug("greader: skipping unparseable item id", "value", v)
-		}
-	}
+	ids := c.parseItemIDs(c.p.All("i"))
 	if len(ids) > maxContentIDs {
 		c.a.log.Warn("greader: contents id list truncated", "ids", len(ids), "kept", maxContentIDs, "ua", c.r.UserAgent())
 		ids = ids[:maxContentIDs]
@@ -103,22 +92,11 @@ func (c *call) streamItemContents() {
 // streamContents is GET stream/contents[/<stream>] for Reader API
 // clients: the ids filter with n capped at 1000, then the contents.
 func (c *call) streamContents() {
-	sid := c.p.Get("s")
-	rawSID := firstOrEmpty(c.p.AllRaw("s"))
-	if rest := strings.TrimPrefix(c.name, "stream/contents"); rest != "" {
-		if path := strings.TrimPrefix(rest, "/"); path != "" && sid == "" {
-			sid = pathStream(path)
-			rawSID = sid
-		}
-	}
-	f, err := c.resolveStream(sid, rawSID)
+	f, page, err := c.streamReq(maxContentsN)
 	if err != nil {
 		c.serverError("resolve stream", err)
 		return
 	}
-	f = applyStates(f, c.p.All("it"), c.p.All("xt"))
-	page := c.pageParams(maxContentsN)
-	f.HoldCut = c.a.holdCut()
 	var ids []int64
 	last, more, err := c.a.db.StreamIDs(c.r.Context(), f, page, func(id int64) error {
 		ids = append(ids, id)
@@ -130,8 +108,9 @@ func (c *call) streamContents() {
 	}
 	cont := ""
 	if more {
-		cont = strconv.FormatInt(last, 10)
+		cont = FormatDecimal(last)
 	}
+	sid, _ := c.streamID()
 	if strings.TrimSpace(sid) == "" {
 		sid = stateReadingList
 	}
@@ -339,4 +318,18 @@ func parseEnclosures(raw string) []enclosureJSON {
 		out = append(out, enclosureJSON{Href: e.URL, URL: e.URL, Type: e.Type, Length: n})
 	}
 	return out
+}
+
+// parseItemIDs parses i= values in any accepted id form, skipping the rest
+// (unparseable non-empty values are logged at DEBUG).
+func (c *call) parseItemIDs(values []string) []int64 {
+	ids := make([]int64, 0, len(values))
+	for _, v := range values {
+		if id, ok := ParseItemID(v); ok {
+			ids = append(ids, id)
+		} else if strings.TrimSpace(v) != "" {
+			c.a.log.Debug("greader: skipping unparseable item id", "value", v)
+		}
+	}
+	return ids
 }

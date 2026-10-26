@@ -24,7 +24,7 @@ const (
 	readSt  = "user/-/state/com.google/read"
 )
 
-func idsPage(t *testing.T, w *httptest.ResponseRecorder) (ids []int64, cont string, hasCont bool) {
+func idsPage(t testing.TB, w *httptest.ResponseRecorder) (ids []int64, cont string, hasCont bool) {
 	t.Helper()
 	require.Equal(t, 200, w.Code, w.Body.String())
 	var body struct {

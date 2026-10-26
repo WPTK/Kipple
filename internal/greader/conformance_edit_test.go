@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -101,6 +102,37 @@ func TestConformanceEditTag(t *testing.T) {
 	}
 	c.write("edit-tag", strings.Join(parts, "&")+"&"+q1("a", stateRead))
 	require.Equal(t, 300, q[int](h, "SELECT count(*) FROM items WHERE read = 1 AND title LIKE 'bulk %'"))
+}
+
+func TestConformanceEditTagConcurrent(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	l := seedConf(h)
+	c := newConf(t, h)
+	// Clients send overlapping edit-tag requests (a sync queue and a second device). Every one is
+	// answered OK and the item ends in one coherent state [RS][K §6.2].
+	form := func(op, tag string) string {
+		return "i=" + l.dec("tech-unread") + "&i=" + l.dec("loose-old") + "&" + q1(op, tag) + "&T=" + url.QueryEscape(c.token)
+	}
+	codes := make(chan int, 40)
+	var wg sync.WaitGroup
+	for k := range 40 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			op, tag := "a", stateRead
+			if k%2 == 1 {
+				op, tag = "r", stateRead
+			}
+			codes <- c.call(http.MethodPost, rd+"edit-tag", form(op, tag), nil).code
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	for code := range codes {
+		require.Equal(t, 200, code)
+	}
+	require.Equal(t, isRead(h, l.ids["tech-unread"]), isRead(h, l.ids["loose-old"]), "both ids end in the same state")
 }
 
 func TestConformanceMarkAllAsRead(t *testing.T) {

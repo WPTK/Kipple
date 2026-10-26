@@ -211,13 +211,11 @@ func unescape(s string) string {
 	return s
 }
 
-// readParams parses the query string and, for a POST, the body. Non-multipart
+// readParamsLimit parses the query string and, for a POST, the body. Non-multipart
 // bodies are always treated as urlencoded, whatever the media type. When raw is
 // true the body is kept undecoded and unparsed (subscription/import reads OPML).
-func readParams(r *http.Request, raw bool) *Params { return readParamsLimit(r, raw, maxBody, false) }
-
-// readParamsLimit is readParams with a body size cap of limit bytes. repair
-// enables the raw folder name repair for the body (never the query).
+// limit caps the body size in bytes.
+// repair enables the raw folder name repair for the body (never the query).
 func readParamsLimit(r *http.Request, raw bool, limit int64, repair bool) *Params {
 	p := &Params{}
 	var ok bool
