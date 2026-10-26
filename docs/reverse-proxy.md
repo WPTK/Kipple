@@ -14,6 +14,9 @@ proxy, because a wrong setup does not fail loudly: it makes every visitor look l
 
 ## What Kipple needs from a proxy
 
+Serve Kipple at the root of a host (`https://kipple.example.com/`), not under a subpath such as `/kipple/`. It builds its
+links and API calls from the root, so a subpath breaks the page.
+
 Kipple decides who the client is in one place. A connection from an address that is **not** in the trusted proxies
 (Settings, Advanced, Address and access) is the client itself, and every forwarding header it sends is ignored. For a connection from
 a listed address:

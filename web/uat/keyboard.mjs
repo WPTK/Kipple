@@ -28,7 +28,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
-import { accessControlUrl, onPageError, startSelect, unloadRefusal } from "./common.mjs";
+import { accessControlUrl, onPageError, startSelect, unloadRefusal, waitForPageStill, waitForStillFor } from "./common.mjs";
 
 const setupError = (m) => {
   console.error(m);
@@ -225,7 +225,7 @@ async function load(page, path) {
   await page.locator("h1").first().waitFor({ state: "visible", timeout: 15000 });
   await page.waitForFunction(() => !document.querySelector('[aria-busy="true"]'), null, { timeout: 15000 });
   await page.evaluate(installHelpers);
-  await page.waitForTimeout(500);
+  await waitForPageStill(page, 250);
 }
 const focusOf = (page) => page.evaluate(() => window.__kk.focus());
 const shot = (page, name) => (opt.screenshots ? page.screenshot({ path: join(opt.screenshots, `${opt.browser}-${name}.png`) }).catch(() => {}) : undefined);
@@ -237,6 +237,8 @@ const rowState = (page) =>
     [...document.querySelectorAll("article[data-item-id]")].map((a) => [a.dataset.itemId, a.querySelector(".kp-unread-dot")?.dataset.unread ?? "?", a.dataset.selected === "true", a.querySelector('button[aria-pressed]')?.getAttribute("aria-pressed") ?? "?"]),
   );
 const until = (page, fn, arg, ms = 4000) => page.waitForFunction(fn, arg, { timeout: ms, polling: 100 }).then(() => true, () => false);
+// Waits until focus is on another element than this id (an arrow key moved it); if it never moves, the check that follows says so.
+const focusLeft = (page, id) => until(page, (was) => { const now = window.__kk.focus()?.id; return now != null && now !== was; }, id, 3000);
 const pathOf = (page) => new URL(page.url()).pathname + new URL(page.url()).search;
 
 // ---- the desktop checks ----
@@ -260,7 +262,7 @@ async function desktop(cookies) {
   if ((await layoutBtn.getAttribute("aria-label")) !== "List options, Editorial layout") {
     await layoutBtn.click();
     await page.getByRole("menuitemradio", { name: /^Editorial\b/ }).click();
-    await page.waitForTimeout(400);
+    await page.waitForFunction(() => document.querySelector('button[aria-label^="List options, "]')?.getAttribute("aria-label") === "List options, Editorial layout", null, { timeout: 5000 });
   }
   await page.waitForSelector("main article a[href^='/i/']", { timeout: 15000 });
   const articlePath = await page.locator("main article a[href^='/i/']").first().getAttribute("href");
@@ -475,8 +477,8 @@ async function k2(page) {
       continue;
     }
     const inside = () => page.evaluate(() => !!document.activeElement?.closest('[role="dialog"],[role="menu"]'));
-    await page.waitForTimeout(150);
-    let trapped = await inside();
+    // Focus moves in a moment after the content mounts; a menu or dialog that never takes it is the finding.
+    let trapped = await until(page, () => !!document.activeElement?.closest('[role="dialog"],[role="menu"]'), null, 1500);
     if (modal) {
       // A modal dialog holds focus: Tab goes round inside it and never to the page behind.
       for (let i = 0; i < 12 && trapped; i++) {
@@ -511,9 +513,9 @@ async function k3(page) {
   const path0 = pathOf(page);
   await page.evaluate(() => document.activeElement?.blur?.());
   await press(page, ..."jkmsxofvucrz/?[]{}".split(""), "Shift+A", "Shift+G", "g", "g", "g", "a");
-  await page.waitForTimeout(400);
-  const after = await rowState(page);
-  const dialog = await page.evaluate(() => !!document.querySelector('[role="dialog"]'));
+  // A negative (nothing happens): the rows, the address and any dialog must hold still for longer than the 700 ms mark delay plus a round trip.
+  const dialogUp = () => page.evaluate(() => !!document.querySelector('[role="dialog"]'));
+  const [after, , dialog] = await waitForStillFor(page, 1000, async () => [await rowState(page), pathOf(page), await dialogUp()], { label: "the rows, the address and dialogs to stop changing after the letter keys" });
   check(JSON.stringify(after) === JSON.stringify(start) && pathOf(page) === path0 && !dialog, where("letters"), "letter and symbol keys change nothing on a list", `rows changed=${JSON.stringify(after) !== JSON.stringify(start)} path ${path0} -> ${pathOf(page)} dialog=${dialog}`);
 
   // Arrow keys on a row link still move focus (and only focus) from row to row.
@@ -521,8 +523,9 @@ async function k3(page) {
   await first.focus();
   const f0 = await focusOf(page);
   await press(page, "ArrowDown");
-  await page.waitForTimeout(300);
-  const f1 = await focusOf(page);
+  await focusLeft(page, f0?.id);
+  // The row must not open: the address holds still for longer than the 700 ms mark delay plus a round trip.
+  const [f1] = await waitForStillFor(page, 1000, async () => [await focusOf(page), pathOf(page)], { label: "focus and the address to stop changing after ArrowDown" });
   check(!!f0 && !!f1 && f1.id !== f0.id && pathOf(page) === path0, where("arrows"), "ArrowDown moves focus to the next row without opening it", `focus ${f0?.key} -> ${f1?.key}, path ${pathOf(page)}`);
 
   // From a row's other controls too (Safari's Tab skips links, so the star may be all a keyboard user reaches).
@@ -531,8 +534,8 @@ async function k3(page) {
   await star.focus();
   const s0 = await focusOf(page);
   await press(page, "ArrowDown");
-  await page.waitForTimeout(300);
-  const s1 = await focusOf(page);
+  await focusLeft(page, s0?.id);
+  const [s1] = await waitForStillFor(page, 1000, async () => [await focusOf(page), await page.evaluate(() => !!document.querySelector('[role="menu"]'))], { label: "focus and any menu to stop changing after ArrowDown" });
   check(!!s0 && !!s1 && s1.id !== s0.id && !(await page.evaluate(() => !!document.querySelector('[role="menu"]'))), where("arrows from star"), "ArrowDown from a row's star button reaches the next row", `focus ${s0?.key} -> ${s1?.key}`);
 
   // Typing is not a shortcut: the search box takes the letters.

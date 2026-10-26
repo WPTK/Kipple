@@ -86,6 +86,12 @@ const SITE_FEEDS = [
 const site = process.env.KIPPLE_SEED_SET === "site";
 const design = process.env.KIPPLE_SEED_SET === "design";
 const fixtureBase = process.env.KIPPLE_SEED_FEEDS_URL?.replace(/\/+$/, "");
+// A CI run seeds from the loopback fixture feeds only: without them the seed would fall back to public feeds and the
+// run would depend on the network. Stop here, before anything is wiped; the workflow prints the seed log when it dies.
+if (process.env.GITHUB_ACTIONS === "true" && !fixtureBase) {
+  console.error("seed: KIPPLE_SEED_FEEDS_URL is empty in CI; refusing to seed from public feeds");
+  process.exit(2);
+}
 const SEED = fixtureBase ? { folder: "Dev seed", feeds: FIXTURE_FEEDS.map(([t, n]) => [t, `${fixtureBase}/feed/${n}.xml`]) } : site ? { folder: "Less noise", feeds: SITE_FEEDS } : { folder: "Dev seed", feeds: FEEDS };
 
 // The data dir is wiped on every run without --keep, so only ever delete a directory this script

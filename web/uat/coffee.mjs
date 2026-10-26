@@ -23,7 +23,8 @@
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
 import { URL } from "node:url";
-import { start } from "./common.mjs";
+import { expect } from "@playwright/test";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 20);
 const { check, step } = t;
@@ -75,12 +76,12 @@ try {
       await row.scrollIntoViewIfNeeded();
       if (vp.mobile) {
         // A long press, as a real touch sequence: the More button is not tapped on touch.
-        await page.waitForTimeout(300);
+        await waitForStillFor(page, 150, () => row.getByRole("link").boundingBox(), { label: "the row to stop moving after scrolling to it" });
         const box = await row.getByRole("link").boundingBox();
         const cdp = await page.context().newCDPSession(page);
         const touch = (type, points) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points });
         await touch("touchStart", [{ x: Math.round(box.x + 10), y: Math.round(box.y + box.height / 2) }]);
-        await page.waitForTimeout(800);
+        await page.getByRole("menu").waitFor({ timeout: 5000 }); // the menu opens while the finger is still down, when the long-press timer fires
         await touch("touchEnd", []);
       } else {
         await row.hover();
@@ -189,16 +190,18 @@ try {
         check(stops === 1, `${tag} K5 tab stop`, "the page has one Tab stop", `${stops} article links are in the Tab order`);
         const drawn = await page.locator("[data-digest] article[data-item-id], [data-digest] [data-stop-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId ?? e.dataset.stopId));
         const focusId = () => page.evaluate(() => document.activeElement?.closest("[data-item-id],[data-stop-id]")?.getAttribute("data-item-id") ?? document.activeElement?.closest("[data-stop-id]")?.getAttribute("data-stop-id") ?? null);
+        // After an arrow key, focus has landed on another row; if it never does, the check that follows reports what it found.
+        const focusLeft = (id) => expect.poll(async () => { const now = await focusId(); return now !== null && now !== id; }, { timeout: 3000, intervals: [50] }).toBe(true).catch(() => {});
         await page.locator("[data-digest] article[data-item-id] a").first().focus();
         const visited = [await focusId()];
         for (let i = 1; i < Math.min(drawn.length, 7); i++) {
           await page.keyboard.press("ArrowDown");
-          await page.waitForTimeout(80);
+          await focusLeft(visited[visited.length - 1]);
           visited.push(await focusId());
         }
         check(visited.join() === drawn.slice(0, visited.length).join(), `${tag} K5 arrows`, "ArrowDown visits articles and the \"more\" button in the drawn order", `visited ${visited.join(" ")}, drawn ${drawn.slice(0, visited.length).join(" ")}`);
         await page.keyboard.press("ArrowUp");
-        await page.waitForTimeout(80);
+        await focusLeft(visited[visited.length - 1]);
         check((await focusId()) === drawn[visited.length - 2], `${tag} K5 up`, "ArrowUp goes back one", `focus is on ${await focusId()}, wanted ${drawn[visited.length - 2]}`);
 
         // K6

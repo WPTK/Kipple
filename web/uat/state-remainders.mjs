@@ -12,7 +12,7 @@
 //       whether the list answer is held or not.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0
 // clean, 1 findings, 2 setup error.
-import { start } from "./common.mjs";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 12);
 const { check, step } = t;
@@ -43,8 +43,7 @@ await t.eachViewport(async (page, vp) => {
     release();
     const list = page.getByRole("list", { name: "Your devices" });
     await list.waitFor({ timeout: 15000 });
-    await page.waitForTimeout(400);
-    const loaded = await sectionH(list);
+    const loaded = await waitForStillFor(page, 200, () => sectionH(list), { label: "the devices section's height to stop changing" });
     const rows = await list.locator("> li").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height));
     const others = rows.length - 1;
     // The placeholder holds the name form, this device and one other: the section then grows by one device for each
@@ -60,21 +59,26 @@ await t.eachViewport(async (page, vp) => {
     const place = page.getByText("Select an article to read it here.");
     await page.goto("/l/unread", { waitUntil: "load" });
     await place.waitFor({ timeout: 15000 });
-    await page.waitForTimeout(400);
-    const settled = await place.boundingBox();
+    const boxOf = async () => ((await place.count()) ? await place.boundingBox() : null);
+    const settled = await waitForStillFor(page, 200, boxOf, { label: "the placeholder to stop moving" });
     let release;
     const held = new Promise((r) => (release = r));
     await page.route("**/api/items?*", async (route) => {
       await held;
       await route.continue();
     });
-    await page.goto("/l/all", { waitUntil: "load" });
-    await page.waitForTimeout(600);
-    const first = (await place.count()) ? await place.boundingBox() : null;
-    release();
+    let first;
+    try {
+      const asked = page.waitForRequest((r) => /\/api\/items\?/.test(r.url()), { timeout: 15000 });
+      asked.catch(() => {}); // reported by the await below, not as an unhandled rejection if the load fails first
+      await page.goto("/l/all", { waitUntil: "load" });
+      await asked; // the list's request is in flight, and stays so until released
+      first = await waitForStillFor(page, 300, boxOf, { label: "the placeholder to stop moving while the list loads" });
+    } finally {
+      release();
+    }
     await place.waitFor({ timeout: 15000 });
-    await page.waitForTimeout(400);
-    const after = await place.boundingBox();
+    const after = await waitForStillFor(page, 200, boxOf, { label: "the placeholder to stop moving once the list has loaded" });
     const moved = first ? Math.abs(first.y - after.y) + Math.abs(first.x - after.x) : 0;
     check(moved < 1 && Math.abs(after.y - settled.y) < 1, `${tag} S2`, "the placeholder does not move when the list loads", `moved ${Math.round(moved)} px (${first ? "shown while loading" : "not shown while loading"})`);
     await page.unroute("**/api/items?*");
