@@ -143,7 +143,7 @@ describe("Settings renderer", () => {
     expect(radios.map((r) => (r as HTMLInputElement).value).sort()).toEqual([...LAYOUT_IDS].sort());
     for (const id of LAYOUT_IDS) expect(within(group).getByRole("radio", { name: new RegExp(LAYOUT_LABELS[id]) })).toHaveAccessibleName(expect.stringContaining(LAYOUT_HINTS[id]));
     expect(radios.filter((r) => (r as HTMLInputElement).checked)).toHaveLength(1);
-    expect(group).toHaveAccessibleDescription(/override it from the layout button/);
+    expect(group).toHaveAccessibleDescription(/override it from the Show and sort button/);
     try {
       const user = userEvent.setup();
       await user.click(within(group).getByRole("radio", { name: /Headlines/ }));
@@ -172,6 +172,18 @@ describe("Settings renderer", () => {
     expect(screen.getByText("About links.strip_tracking")).toBeInTheDocument(); // a global key in the same group still is drawn
   });
 
+  it("has one Pictures in lists setting, Show or Hide, saved for this device", async () => {
+    base();
+    go("/settings/appearance");
+    const group = await screen.findByRole("group", { name: "Pictures in lists" });
+    expect(within(group).getByRole("radio", { name: "Show" })).toBeChecked();
+    expect(screen.getByText(/Editorial and Cards always show pictures/)).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /Thumbnails in Inbox/ })).toBeNull();
+    await userEvent.click(within(group).getByRole("radio", { name: "Hide" }));
+    expect(devicePrefsStore.get().listImages).toBe(false);
+    expect(within(group).getByRole("radio", { name: "Hide" })).toBeChecked();
+  });
+
   it("draws every kind from the metadata, in the group each server group belongs to", async () => {
     base();
     const { container } = go("/settings/sync");
@@ -180,7 +192,7 @@ describe("Settings renderer", () => {
     expect(screen.getByRole("radio", { name: "Every 30 minutes" })).toBeChecked(); // a number: presets
     expect(screen.getByRole("radio", { name: "Always identify as Kipple" })).toBeInTheDocument(); // enum with 3 options: segmented
     expect(screen.getByRole("combobox", { name: "Articles to keep per feed" })).toHaveValue("500"); // enum with 6: select
-    expect(screen.queryByRole("heading", { name: "Images" })).toBeNull(); // a server group with nothing in it is left out
+    expect(screen.queryByRole("heading", { name: "Image cache" })).toBeNull(); // a server group with nothing in it is left out
     expect(await axe(container)).toHaveNoViolations();
     cleanup();
 

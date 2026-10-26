@@ -99,9 +99,9 @@ try {
     const headerTags = () => page.locator(`${scroller} h2`).evaluateAll((els) => els.map((e) => e.tagName));
     const stories = () => page.locator(`${scroller} [data-item-id]`).evaluateAll((els) => els.map((e) => e.dataset.itemId));
     const settled = (want) => page.waitForFunction((n) => document.querySelectorAll('[data-testid="list-scroll"] [data-item-id]').length >= n, want, { timeout: 20000 });
-    /** Choose one radio of the list options menu by its group and visible name. */
+    /** Choose one radio of the Show and sort menu by its group and visible name. */
     const choose = async (group, name) => {
-      await page.locator('button[aria-label^="List options, "]').first().click();
+      await page.locator('button[aria-label^="Show and sort, "]').first().click();
       await page.getByRole("menuitemradio", { name }).and(page.getByRole("group", { name: group }).getByRole("menuitemradio")).click();
     };
 
@@ -193,7 +193,7 @@ try {
         await page.reload({ waitUntil: "load" });
         await settled(ARTICLES.length);
         check((await headers()).length === 0, `${tag} G5 reload`, "None survives a reload", `headings ${JSON.stringify(await headers())}`);
-        await page.locator('button[aria-label^="List options, "]').first().click();
+        await page.locator('button[aria-label^="Show and sort, "]').first().click();
         const first = page.getByRole("group", { name: /^Grouping of this feed$/ }).getByRole("menuitemradio").first();
         const firstName = (await first.innerText()).trim();
         check(/^Use device default \(Day\)/.test(firstName), `${tag} G5 name`, "the first choice names the device default", `the first choice reads "${firstName}"`);

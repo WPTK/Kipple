@@ -420,7 +420,7 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
   const asOf = useMemo(() => oldestAsOf(results.map((r) => r.data?.asOf)), [results]);
   const shownViews = useMemo(() => (plan ? sectionViews(plan) : []), [plan]);
   const allCards = useMemo(() => (plan ? plan.defs.flatMap((d) => plan.results.get(d.key)?.data?.cards ?? []) : EMPTY_CARDS), [plan]);
-  const digest = useMemo<DigestView>(() => ({ sections: shownViews, rows, images: dp.digestImages, counts: !!after, named: input?.sections !== "length", expand, retry }), [shownViews, rows, dp.digestImages, after, input?.sections, expand, retry]);
+  const digest = useMemo<DigestView>(() => ({ sections: shownViews, rows, images: dp.listImages, counts: !!after, named: input?.sections !== "length", expand, retry }), [shownViews, rows, dp.listImages, after, input?.sections, expand, retry]);
 
   // The sections asked for came back with nothing to show (a length filter can empty them all) and there are more to
   // ask for: ask, so the page is never empty while a section that has articles has not been looked at. With nothing

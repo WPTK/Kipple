@@ -49,7 +49,7 @@ const focusOf = (page) =>
   });
 const toolbarButton = (page, name) => page.getByRole("toolbar", { name: "Article actions" }).getByRole("button", { name, exact: true });
 const rowIds = (page) => page.evaluate(() => [...document.querySelectorAll("[data-testid=list-scroll] [data-item-id]")].map((r) => r.getAttribute("data-item-id")));
-const layoutButton = (page) => page.locator('button[aria-label^="List options, "]').first();
+const layoutButton = (page) => page.locator('button[aria-label^="Show and sort, "]').first();
 async function pickLayout(page, name) {
   await layoutButton(page).click();
   await page.getByRole("menuitemradio", { name: new RegExp(`^${name}\\b`) }).click();
@@ -72,7 +72,7 @@ await t.eachViewport(async (page, vp) => {
   const originalLayout = vp.mobile ? null : await (async () => {
     await page.goto(listUrl, { waitUntil: "load" });
     await layoutButton(page).waitFor({ timeout: 15000 });
-    return (await layoutButton(page).getAttribute("aria-label")).replace(/^List options, | layout$/g, "");
+    return (await layoutButton(page).getAttribute("aria-label")).replace(/^Show and sort, | layout$/g, "");
   })();
   try {
     await step(`${tag} R1`, async () => {

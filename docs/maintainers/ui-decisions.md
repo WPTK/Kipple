@@ -208,11 +208,11 @@ Choices made where the decisions above were silent; the owner may overrule any o
   would inherit (so a later change above does not move it), and its first choice removes it.
 - **Group by** (#39) is the headers a list is cut under: Day (one per local day, the default), Week (Today, Yesterday,
   This week, Earlier; the week starts on Monday) or None. It is a fourth field of the same override, resolved like the
-  order, and a radio group in the list options menu (and a select in the feed and folder editors) whose first choice names
+  order, and a radio group in the Show and sort menu (and a select in the feed and folder editors) whose first choice names
   what the list inherits. Headers keep the list's order and are level 2 headings; the Gazette and a search ignore the
-  choice, and the menu hides it there.
+  choice. The menu keeps the Group by choices in every layout and search, greyed with the reason where the list sets its own (see "Pictures, order and the layout menu").
 - Layout, order, grouping and view of one list are one object per feed or folder in the device profile
-  (`client.list_overrides`), set from the list header's options menu (its button reads "List options, Cards layout")
+  (`client.list_overrides`), set from the list header's options menu (its button reads "Show and sort, Cards layout")
   and from the feed and folder editors, whose first choice names what the list inherits, as the menu does.
 ### Mute similar (#320, 2026-10-07)
 - **Mute similar...** opens the new-filter editor on the article's feed with no words chosen: the rule contains only
@@ -376,7 +376,7 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
   (6) text-only day: no images anywhere, a typographic page. A "picture day" type for very wide images was dropped:
   Kipple does not store image sizes, and adding them needs a migration and a fetch at ingest.
 - **Lead window:** the newest image article from a Favorite among the first 100 articles loaded; none means a no-lead type.
-- **Order:** always newest first; the per-device sort order is ignored in this layout.
+- **Order:** always newest first; the per-device sort order is ignored in this layout. The menu's Order choices and the header's Oldest first button stay, greyed with that reason.
 - **Reading:** a story marked read fades in place and the page does not reflow: its picture fades and its text turns to
   the secondary color, keeping its weight and size; the page re-plans on refresh or when you
   leave and return. A page's contents are fixed once planned, so loading more never reflows earlier pages.
@@ -424,7 +424,7 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
   and the tab bar becomes one row of icon and name (44 px instead of 56). Header and tab bar together went from about
   44% of a 375 px screen to about 28%. Rejected: a navigation rail down the left edge, which frees the most height but
   changes the geometry that the menus, the toasts and the safe areas measure from.
-- **A phone's list header has at most four controls and a wide screen's at most five**: Article length, List options, Aa
+- **A phone's list header has at most four controls and a wide screen's at most five**: Article length, Show and sort, Aa
   and the actions menu (and Oldest first on a wide screen). Refresh is the pull on the list and the first item of the
   actions menu at every width; there is no Settings icon in the header (the sidebar and the tab bar lead there). Rejected: one "View" sheet holding every list control, which adds a tap to each of them and waits on the
   bottom-sheet menus.
@@ -523,12 +523,12 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 - **What it is.** One page of sections, a section for each folder (or feed, a device setting), each with its name in the
   theme accent as a level 2 heading, its first few unread articles and "N more in <name>". It is for reading a little of
   everything: a quiet folder is as visible as a busy one.
-- **Row.** Title first (the reading font, bold while unread), then source and time; a picture at the right when Images is
+- **Row.** Title first (the reading font, bold while unread), then source and time; a picture at the right when Pictures in lists is
   on and the article has one. Text only is a choice, not a fallback.
 - **Order.** Sidebar order, or Quiet Feeds First (sections that get the fewest new articles a day first, a folder's pace being the sum of its feeds; a section with any feed under a week old has no pace yet and goes last). The name is
   plain on purpose; no print vocabulary.
-- **Settings, for this device, in the layout menu.** Order, Sections (Folders, Feeds or Reading time), Images (Show images or Text
-  only) and Rows per section (3, 5 or 10). They are not per-list overrides.
+- **Settings, for this device, in the layout menu.** Order, Sections (Folders, Feeds or Reading time) and Rows per section (3, 5 or 10). They are not per-list overrides.
+  Whether rows show pictures is the device's Pictures in lists setting, in the menu's Pictures group.
 - **"N more" opens the section in place**, 20 at a time, rather than going to the section's list: the reader keeps their
   place on the page.
 - **Sections load as they are reached** (6, then 4 at a time), and one that fails shows its own Retry.
@@ -603,6 +603,29 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
   Digest's sections.
 - **Rejected:** a length slider (the filter menu already has lengths); time badges only (no grouping); keeping two
   layouts and only explaining the fallback.
+
+## Pictures, order and the layout menu (Build 4/6 UI, PR C)
+
+- **One picture setting.** "Pictures in lists: Show or Hide" (`client.list_images`) replaces "Thumbnails in Inbox" and the
+  Digest's "Images". It covers the Inbox thumbnails and the Digest images; Editorial and Cards always show pictures. It
+  appears twice, bound to the one value: in Settings, Appearance, Lists, and in the layout menu's Pictures group. Rejected: a
+  picture control in each layout's own block, which repeats the problem of a control that exists only under some layouts.
+  An old cache or stored profile that hid pictures in either place keeps them hidden (read once; migration 0021 rewrites the
+  stored profiles).
+- **"Pictures" means display only.** The server's image proxy group in Settings is "Image cache".
+- **Order and Group by never disappear.** Where a layout or a search sets its own (the Gazette and the Digest are always
+  newest first; the Gazette prints its own pages, the Digest groups by section, a search keeps its own headers), the radios
+  are greyed with a one-line reason and stay focusable (`aria-disabled`, with the reason as their description), so a
+  keyboard or screen reader user reaches the reason. The wide header's Oldest first button greys with the same reason, so it
+  is never live while the menu's radios are greyed. Rejected: hiding the inert Order the way Group by was hidden; a control
+  that vanishes leaves no explanation.
+- **Groups.** The layouts sit under three headings: Pictures (Editorial, Cards), Lists (Compact, Inbox, Headlines) and
+  Pages (Gazette, Digest). The per-layout block (the Digest's) stays one heading deep, so no drill-in is needed. "Opens in"
+  stays at the end of the menu, as it was.
+- **The trigger is "Show and sort"** (button name "Show and sort, Cards layout"). The other candidate was "Arrange list".
+  "Show and sort" names the two jobs (what is shown: layout and pictures; how it is sorted: order and grouping), shares no
+  word with "List actions", and the name does not claim more than the menu holds. Rejected: "Layout and order", which no
+  longer fits a menu that holds pictures.
 
 ## Internal cleanup lines ruled out (#207)
 

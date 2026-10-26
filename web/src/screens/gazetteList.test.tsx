@@ -77,8 +77,12 @@ describe("Gazette fetch order", () => {
     const reqs = itemCalls(calls);
     expect(reqs.length).toBeGreaterThan(0);
     for (const r of reqs) expect(r.url.searchParams.get("order")).toBeNull();
-    // The order toggle is not offered: it would do nothing here.
-    expect(screen.queryByRole("button", { name: "Oldest first" })).toBeNull();
+    // The order toggle would do nothing here: it is greyed (aria-disabled, still focusable) with the menu's reason, and a click leaves the order alone.
+    const toggle = screen.getByRole("button", { name: "Oldest first" });
+    expect(toggle).toHaveAttribute("aria-disabled", "true");
+    expect(toggle).toHaveAccessibleDescription("The Gazette is always newest first.");
+    await userEvent.click(toggle);
+    expect(devicePrefsStore.get().order).toBe("oldest");
   });
 
   it("asks for newest first when the feed itself is set to oldest first", async () => {
@@ -101,12 +105,26 @@ describe("Gazette fetch order", () => {
     expect(screen.getByRole("button", { name: "Oldest first" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("the list options menu says the Gazette is always newest first", async () => {
+  it("the Show and sort menu says the Gazette is always newest first", async () => {
     routes();
     go("/l/unread");
     await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
-    await userEvent.click(screen.getByRole("button", { name: /^List options, Gazette layout/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Show and sort, Gazette layout/ }));
     expect(await screen.findByText(/The Gazette is always newest first/)).toBeInTheDocument();
+    // Order and Group by stay in the menu, greyed but focusable, each naming the reason; choosing one changes nothing.
+    const newest = screen.getByRole("menuitemradio", { name: "Newest first" });
+    const oldest = screen.getByRole("menuitemradio", { name: "Oldest first" });
+    expect(oldest).toHaveAttribute("aria-disabled", "true");
+    expect(oldest).toHaveAccessibleDescription("The Gazette is always newest first.");
+    expect(newest).toHaveAttribute("aria-disabled", "true");
+    const week = screen.getByRole("menuitemradio", { name: "Week" });
+    expect(week).toHaveAttribute("aria-disabled", "true");
+    expect(week).toHaveAccessibleDescription("The Gazette prints its own pages.");
+    const before = devicePrefsStore.get();
+    await userEvent.click(oldest);
+    await userEvent.click(week);
+    expect(devicePrefsStore.get().order).toBe(before.order);
+    expect(devicePrefsStore.get().group).toBe(before.group);
   });
 });
 

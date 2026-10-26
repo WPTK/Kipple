@@ -376,20 +376,21 @@ function AppearancePage() {
       <Section title="Lists" scope="device">
         <fieldset className="min-w-0" aria-describedby="layout-hint">
           <legend className="text-sm font-semibold">Layout</legend>
-          <p id="layout-hint" className="mb-2 text-xs text-fg2">Each feed and folder can override it from the layout button in its list.</p>
+          <p id="layout-hint" className="mb-2 text-xs text-fg2">Each feed and folder can override it from the Show and sort button in its list.</p>
           <div className="flex flex-col gap-2">
             {LAYOUT_IDS.map((id) => (
               <RadioCard key={id} name="default-layout" value={id} checked={dp.layout === id} onSelect={() => updateDevicePrefs({ layout: id })} title={LAYOUT_LABELS[id]} help={LAYOUT_HINTS[id]} />
             ))}
           </div>
         </fieldset>
-        <Segmented<"auto" | "off">
-          legend="Thumbnails in Inbox"
-          value={dp.inboxThumbs}
-          onChange={(inboxThumbs) => updateDevicePrefs({ inboxThumbs })}
+        <Segmented<"show" | "hide">
+          legend="Pictures in lists"
+          hint="Thumbnails in the Inbox and images in the Digest. Editorial and Cards always show pictures."
+          value={dp.listImages ? "show" : "hide"}
+          onChange={(v) => updateDevicePrefs({ listImages: v === "show" })}
           options={[
-            { value: "auto", label: "Auto" },
-            { value: "off", label: "Off" },
+            { value: "show", label: "Show" },
+            { value: "hide", label: "Hide" },
           ]}
         />
         <Segmented<UnreadBadge>
@@ -445,7 +446,7 @@ function SyncPage() {
         groups={[
           { id: "sync", title: "Checking feeds" },
           { id: "library", title: "Storage" },
-          { id: "images", title: "Images" },
+          { id: "images", title: "Image cache" },
         ]}
         empty="No sync or feed settings to change yet."
       />

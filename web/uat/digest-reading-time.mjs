@@ -15,7 +15,7 @@
 //       unknown_length marks the article with no text and nothing else;
 //   K4  Mark all (confirmed in its dialog) marks every section, and one Undo puts them all back;
 //   K5  the arrow keys visit the articles and the "more" button in the order they are drawn, and the page has one Tab stop;
-//   K6  the layout menu offers Reading time (chosen and enabled) beside Folders and Feeds, with Images and Rows per (uat-labels: ignore)
+//   K6  the layout menu offers Reading time (chosen and enabled) beside Folders and Feeds, with Pictures in lists and Rows per (uat-labels: ignore)
 //       section for the device, and a choice changes the page;
 //   K7  All, and Unread with an article-length filter, draw folder sections instead, and the menu greys Reading time
 //       with the reason;
@@ -92,7 +92,7 @@ try {
       await page.getByRole("menu").waitFor({ timeout: 5000 });
     };
     const layoutMenu = async () => {
-      await page.getByRole("button", { name: /^List options/ }).first().click();
+      await page.getByRole("button", { name: /^Show and sort/ }).first().click();
       await page.getByRole("menu").waitFor({ timeout: 5000 });
     };
 
@@ -111,7 +111,7 @@ try {
       if (STORIES.some(({ n }) => !idOf(n)) || words(8) !== 0 || !(words(4) > 0 && words(4) <= 460) || !(words(5) > 460 && words(5) <= 1610) || !(words(7) > 1610)) {
         return t.fail(`${tag} K setup`, `the stories did not arrive with the word counts the flow needs: ${STORIES.map(({ n }) => `${n}:${words(n)}`).join(" ")}`);
       }
-      const set = await patch({ "client.layout": "digest", "client.digest_sections": "length", "client.digest_images": true, "client.digest_rows": 3 });
+      const set = await patch({ "client.layout": "digest", "client.digest_sections": "length", "client.list_images": true, "client.digest_rows": 3 });
       if (set !== 200) return t.fail(`${tag} K setup`, `the Digest cut by reading time was not set (${set})`);
       const url = `/l/unread?folder=${folder.id}`;
       const open = async () => {
@@ -212,7 +212,7 @@ try {
         const groups = await menu.getByRole("group").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
         const reading = menu.getByRole("menuitemradio", { name: "Reading time", exact: true });
         await t.shot(page, `${tag}-sections-menu-unread`);
-        check(groups.includes("Sections") && groups.includes("Images") && groups.includes("Rows per section") && (await reading.getAttribute("aria-checked")) === "true" && (await reading.getAttribute("aria-disabled")) !== "true", `${tag} K6 menu`, "Sections with Reading time chosen and enabled, and Images and Rows per section", `groups: ${groups.join(", ")}`); // uat-labels: ignore
+        check(groups.includes("Sections") && groups.includes("Pictures in lists") && groups.includes("Rows per section") && (await reading.getAttribute("aria-checked")) === "true" && (await reading.getAttribute("aria-disabled")) !== "true", `${tag} K6 menu`, "Sections with Reading time chosen and enabled, and Pictures in lists and Rows per section", `groups: ${groups.join(", ")}`); // uat-labels: ignore
         await menu.getByRole("menuitemradio", { name: "5", exact: true }).click();
         const five = await settled(() => document.querySelectorAll('section[data-section] article[data-item-id]').length >= 7);
         check(five && (await idsOf(SECTIONS[0])).length === 4, `${tag} K6 rows`, "5 rows per section shows the first section whole", `${(await idsOf(SECTIONS[0])).length} articles in it`);
@@ -243,7 +243,7 @@ try {
         check(bad.length === 0, `${tag} K9 no export`, "no export or download address was asked for", `asked for ${bad.join(", ")}`);
       } finally {
         await unreadAll(STORIES.map(({ n }) => idOf(n)));
-        await patch({ "client.layout": null, "client.digest_sections": null, "client.digest_images": null, "client.digest_rows": null });
+        await patch({ "client.layout": null, "client.digest_sections": null, "client.list_images": null, "client.digest_rows": null });
       }
     });
   });

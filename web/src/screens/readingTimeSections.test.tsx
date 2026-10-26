@@ -150,8 +150,8 @@ describe("Digest reading-time sections", () => {
     expect(container.querySelectorAll("[data-index]").length).toBeGreaterThan(1);
   });
 
-  it("shows text only rows when Images is off, and the rows per section setting", async () => {
-    updateDevicePrefs({ digestImages: false, digestRows: 5 });
+  it("shows text only rows when Pictures are hidden, and the rows per section setting", async () => {
+    updateDevicePrefs({ listImages: false, digestRows: 5 });
     routes([8, 0, 0, 0], { "GET /api/items": (u) => json(pageOf(sectionOf(u) === 0 ? articlesOf(0, 8).map((c) => ({ ...c, image: "/img/x.jpg" })) : [], null, "500")) });
     const { container } = go("/l/unread");
     await screen.findByText("Short story 1");
@@ -212,17 +212,17 @@ describe("Digest reading-time marking", () => {
 });
 
 describe("Digest reading-time menu", () => {
-  it("offers Reading time as a Sections choice on Unread, beside Images and Rows per section", async () => {
+  it("offers Reading time as a Sections choice on Unread, beside Pictures in lists and Rows per section", async () => {
     routes([3, 3, 3, 3]);
     const user = userEvent.setup();
     go("/l/unread");
     await screen.findByText("Short story 1");
-    await user.click(screen.getByRole("button", { name: /^List options, Digest layout/ }));
+    await user.click(screen.getByRole("button", { name: /^Show and sort, Digest layout/ }));
     const menu = await screen.findByRole("menu");
     const sections = within(menu).getByRole("group", { name: "Sections" });
     expect(within(sections).getByRole("menuitemradio", { name: "Reading time" })).toBeChecked();
     expect(within(sections).getByRole("menuitemradio", { name: "Reading time" })).not.toHaveAttribute("aria-disabled", "true");
-    for (const name of ["Images", "Rows per section"]) expect(within(menu).getByRole("group", { name })).toBeInTheDocument();
+    for (const name of ["Pictures in lists", "Rows per section"]) expect(within(menu).getByRole("group", { name })).toBeInTheDocument();
     await user.click(within(sections).getByRole("menuitemradio", { name: "Folders" }));
     expect(devicePrefsStore.get().digestSections).toBe("folder");
   });
@@ -232,7 +232,7 @@ describe("Digest reading-time menu", () => {
     const user = userEvent.setup();
     go("/l/all");
     await screen.findByText("Short story 1");
-    await user.click(screen.getByRole("button", { name: /^List options, Digest layout/ }));
+    await user.click(screen.getByRole("button", { name: /^Show and sort, Digest layout/ }));
     const sections = within(await screen.findByRole("menu")).getByRole("group", { name: "Sections" });
     const reading = within(sections).getByRole("menuitemradio", { name: /^Reading time/ });
     expect(reading).toHaveAttribute("aria-disabled", "true");

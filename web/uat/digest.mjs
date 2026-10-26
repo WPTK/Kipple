@@ -9,7 +9,7 @@
 // phone 375x812) it checks:
 //   G1  each folder is a section with its name as a heading, in sidebar order, and shows its first three unread stories
 //       and "5 more in UAT Digest A" (the Rows per section setting);
-//   G2  Images: a story with a picture shows it on the right; Text only (set in the Layout menu) shows none;
+//   G2  Pictures in lists: a story with a picture shows it on the right; Hide (set in the layout menu) shows none;
 //   G3  Quiet Feeds First is a choice in the Layout menu and is saved for the device. A feed's pace is counted from days
 //       of new articles and a seeded library has none, so the order itself (slowest first) is checked by the planner's unit
 //       tests, and here only that the sections stay in sidebar order;
@@ -92,7 +92,7 @@ try {
       await page.getByRole("menu").waitFor({ timeout: 5000 });
     };
     const layoutMenu = async () => {
-      await page.getByRole("button", { name: /^List options/ }).first().click();
+      await page.getByRole("button", { name: /^Show and sort/ }).first().click();
       await page.getByRole("menu").waitFor({ timeout: 5000 });
     };
     const open = async () => {
@@ -128,7 +128,7 @@ try {
       // G9 needs sections past the first six; with six or fewer it would pass without testing anything.
       const withUnread = (await t.boot(page)).folders.filter((f) => f.unread > 0).length;
       if (withUnread <= 6) return t.fail(`${tag} G setup`, `only ${withUnread} sections have unread articles; G9 needs more than six`);
-      const set = await patch({ "client.layout": "digest", "client.digest_sections": "folder", "client.digest_order": "sidebar", "client.digest_images": true, "client.digest_rows": 3 });
+      const set = await patch({ "client.layout": "digest", "client.digest_sections": "folder", "client.digest_order": "sidebar", "client.list_images": true, "client.digest_rows": 3 });
       if (set !== 200) return t.fail(`${tag} G setup`, `the Digest was not set as the layout (${set})`);
       try {
         await open();
@@ -144,11 +144,11 @@ try {
         // G2
         const pictures = () => section(A).locator("article[data-item-id] img").count();
         const withPictures = await pictures();
-        check(withPictures >= 1, `${tag} G2 images`, "a story with a picture shows it", "no picture is shown with Images on");
+        check(withPictures >= 1, `${tag} G2 pictures`, "a story with a picture shows it", "no picture is shown with Pictures in lists on");
         await layoutMenu();
-        await page.getByRole("menuitemradio", { name: /Text only/ }).click();
+        await page.getByRole("group", { name: "Pictures in lists" }).getByRole("menuitemradio", { name: "Hide" }).click();
         const gone = await settled(() => !document.querySelector('section[data-section] article[data-item-id] img'));
-        check(gone, `${tag} G2 text only`, "Text only shows no picture", `${await pictures()} picture(s) still shown`);
+        check(gone, `${tag} G2 hidden`, "Hide shows no picture", `${await pictures()} picture(s) still shown`);
         await t.shot(page, `${tag}-digest-text-only`);
 
         // G3
@@ -303,7 +303,7 @@ try {
         const bad = requests.filter((p) => /export|download|\.opml/i.test(p));
         check(bad.length === 0, `${tag} G8 no export`, "no export or download address was asked for", `asked for ${bad.join(", ")}`);
       } finally {
-        await patch({ "client.layout": null, "client.digest_sections": null, "client.digest_order": null, "client.digest_images": null, "client.digest_rows": null });
+        await patch({ "client.layout": null, "client.digest_sections": null, "client.digest_order": null, "client.list_images": null, "client.digest_rows": null });
       }
     });
   });

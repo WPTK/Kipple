@@ -8,14 +8,14 @@ import {
   GROUP_BYS,
   GROUP_LABELS,
   LAYOUT_HINTS,
-  LAYOUT_IDS,
   LAYOUT_LABELS,
   LIST_VIEWS,
   LIST_VIEW_LABELS,
   ORDER_LABELS,
-  followsOrder,
+  groupLockReason,
   inheritedList,
   noReadingTimeSections,
+  orderLockReason,
   overrideTarget,
   sectionsFor,
   updateDevicePrefs,
@@ -39,6 +39,15 @@ const DIGEST_ORDER_LABELS: Record<DigestOrder, string> = { sidebar: "Sidebar ord
 const DIGEST_SECTION_LABELS: Record<DigestSections, string> = { folder: "Folders", feed: "Feeds", length: "Reading time" };
 const sub = "px-3 pt-1 text-xs text-fg2";
 
+/** The layouts by what they lead with: pictures, rows of text, or whole pages. One heading deep. */
+const LAYOUT_GROUPS: { label: string; ids: readonly LayoutId[] }[] = [
+  { label: "Pictures", ids: ["magazine", "cards"] },
+  { label: "Lists", ids: ["compact", "inbox", "headlines"] },
+  { label: "Pages", ids: ["gazette", "digest"] },
+];
+const ORDER_WHY_ID = "layout-menu-order-why";
+const GROUP_WHY_ID = "layout-menu-group-why";
+
 const FIELD_LABELS: { [F in ListField]: Record<string, string> } = { layout: LAYOUT_LABELS, order: ORDER_LABELS, view: LIST_VIEW_LABELS, group: GROUP_LABELS };
 
 /**
@@ -55,7 +64,7 @@ export function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
 }
 
 /**
- * The list options menu in the list header (its button names the layout in effect). Layout: one list; on a feed or folder list the star
+ * The Show and sort menu in the list header (its button names the layout in effect). Layout: one list; on a feed or folder list the star
  * beside each layout makes it this device's default (a filled star is the default; on the other lists the radio is the default). Order, and on a feed or folder list the view it
  * opens in. On a feed or folder list each radio choice is that list's own override (the first choice clears it), under
  * its own heading; on the other lists the layout and order choices are the device defaults themselves. Everything is
@@ -72,6 +81,8 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
   const orderFallback = useFallbackLabel(ctx, "order");
   const viewFallback = useFallbackLabel(ctx, "view");
   const groupFallback = useFallbackLabel(ctx, "group");
+  const orderWhy = orderLockReason(layout.id);
+  const groupWhy = groupLockReason(layout.id, !!scope.q);
   const say = (l: LayoutId) => announce(`${LAYOUT_LABELS[l]} layout`);
   const makeDefault = (l: LayoutId) => {
     updateDevicePrefs({ layout: l });
@@ -83,7 +94,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label={`List options, ${layout.label} layout`}
+          aria-label={`Show and sort, ${layout.label} layout`}
           className="hit inline-flex items-center justify-center rounded-lg text-fg hover:bg-selection"
         >
           <LayoutGrid className="size-5" aria-hidden="true" />
@@ -109,24 +120,30 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
             }}
           >
             {target ? <Radio value="default" label={layoutFallback} /> : null}
-            {LAYOUT_IDS.map((id) => (
-              <div key={id} className="flex items-center">
-                <Radio value={id} label={LAYOUT_LABELS[id]} hint={LAYOUT_HINTS[id]} className="min-w-0 flex-1" />
-                  {target ? (
-                  <DropdownMenu.CheckboxItem
-                    checked={dp.layout === id}
-                    aria-label={dp.layout === id ? `${LAYOUT_LABELS[id]} is the device default` : `Make ${LAYOUT_LABELS[id]} the device default`}
-                    title={dp.layout === id ? "Device default" : "Make this the device default"}
-                    // Keep the menu open so the star visibly fills.
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      makeDefault(id);
-                    }}
-                    className={cn("hit-row inline-flex shrink-0 cursor-default items-center justify-center rounded-lg outline-none data-[highlighted]:bg-selection", dp.layout === id ? "text-star" : "text-fg2")}
-                  >
-                    <Star className="size-5" fill={dp.layout === id ? "currentColor" : "none"} aria-hidden="true" />
-                  </DropdownMenu.CheckboxItem>
-                  ) : null}
+            {LAYOUT_GROUPS.map((g) => (
+              <div key={g.label} role="presentation">
+                <DropdownMenu.Label className={sub}>{g.label}</DropdownMenu.Label>
+                {g.ids.map((id) => (
+                  <div key={id} className="flex items-center">
+                    <Radio value={id} label={LAYOUT_LABELS[id]} hint={LAYOUT_HINTS[id]} className="min-w-0 flex-1" />
+                    {target ? (
+                      <DropdownMenu.CheckboxItem
+                        checked={dp.layout === id}
+                        aria-label={dp.layout === id ? `${LAYOUT_LABELS[id]} is the device default` : `Make ${LAYOUT_LABELS[id]} the device default`}
+                        title={dp.layout === id ? "Device default" : "Make this the device default"}
+                        // Keep the menu open so the star visibly fills.
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          makeDefault(id);
+                        }}
+                        className={cn("hit-row inline-flex shrink-0 cursor-default items-center justify-center rounded-lg outline-none data-[highlighted]:bg-selection", dp.layout === id ? "text-star" : "text-fg2")}
+                      >
+                        <Star className="size-5" fill={dp.layout === id ? "currentColor" : "none"} aria-hidden="true" />
+                      </DropdownMenu.CheckboxItem>
+                    ) : null}
+                  </div>
+                ))}
+                {g.label === "Pictures" ? <PicturesChoice /> : null}
               </div>
             ))}
           </DropdownMenu.RadioGroup>
@@ -138,20 +155,23 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
             aria-label={target ? `Order of this ${noun}` : "Order"}
             value={target ? (own?.order ?? "default") : dp.order}
             onValueChange={(v) => {
+              if (orderWhy) return;
               const order = v === "default" ? null : (v as OrderPref);
               if (!target) updateDevicePrefs({ order: order ?? "newest" });
               else setListOverride(target.kind, target.id, "order", order);
               if (order) announce(ORDER_LABELS[order]);
             }}
           >
-            {target ? <Radio value="default" label={orderFallback} /> : null}
+            {target ? <Radio value="default" label={orderFallback} unavailable={!!orderWhy} describedBy={ORDER_WHY_ID} /> : null}
             {(["newest", "oldest"] as const).map((o) => (
-              <Radio key={o} value={o} label={ORDER_LABELS[o]} />
+              <Radio key={o} value={o} label={ORDER_LABELS[o]} unavailable={!!orderWhy} describedBy={ORDER_WHY_ID} />
             ))}
           </DropdownMenu.RadioGroup>
-          {followsOrder(layout.id) ? null : (
-            <p className="px-3 pt-1 pb-2 text-xs text-fg2">The {layout.label} is always newest first. The order applies to the other layouts.</p>
-          )}
+          {orderWhy ? (
+            <p id={ORDER_WHY_ID} className="px-3 pt-1 pb-2 text-xs text-fg2">
+              {orderWhy}
+            </p>
+          ) : null}
 
           {layout.id === "digest" && !scope.q ? (
             <>
@@ -173,32 +193,33 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
                   return <Radio key={o} value={o} label={DIGEST_SECTION_LABELS[o]} hint={why ?? undefined} unavailable={!!why} />;
                 })}
               </DropdownMenu.RadioGroup>
-              <SectionLookChoices />
+              <RowsPerSection />
             </>
           ) : null}
 
-          {/* The Gazette prints its own pages and a search its own headers; the other lists group under headers. */}
-          {scope.q || !followsOrder(layout.id) ? null : (
-            <>
-              <DropdownMenu.Separator className="my-1 h-px bg-line" />
-              <DropdownMenu.Label className={heading}>Group by</DropdownMenu.Label>
-              <DropdownMenu.RadioGroup
-                aria-label={target ? `Grouping of this ${noun}` : "Group by"}
-                value={target ? (own?.group ?? "default") : dp.group}
-                onValueChange={(v) => {
-                  const group = v === "default" ? null : (v as GroupBy);
-                  if (!target) updateDevicePrefs({ group: group ?? "day" });
-                  else setListOverride(target.kind, target.id, "group", group);
-                  if (group) announce(`Group by ${GROUP_LABELS[group].toLowerCase()}`);
-                }}
-              >
-                {target ? <Radio value="default" label={groupFallback} /> : null}
-                {GROUP_BYS.map((g) => (
-                  <Radio key={g} value={g} label={GROUP_LABELS[g]} />
-                ))}
-              </DropdownMenu.RadioGroup>
-            </>
-          )}
+          <DropdownMenu.Separator className="my-1 h-px bg-line" />
+          <DropdownMenu.Label className={heading}>Group by</DropdownMenu.Label>
+          <DropdownMenu.RadioGroup
+            aria-label={target ? `Grouping of this ${noun}` : "Group by"}
+            value={target ? (own?.group ?? "default") : dp.group}
+            onValueChange={(v) => {
+              if (groupWhy) return;
+              const group = v === "default" ? null : (v as GroupBy);
+              if (!target) updateDevicePrefs({ group: group ?? "day" });
+              else setListOverride(target.kind, target.id, "group", group);
+              if (group) announce(`Group by ${GROUP_LABELS[group].toLowerCase()}`);
+            }}
+          >
+            {target ? <Radio value="default" label={groupFallback} unavailable={!!groupWhy} describedBy={GROUP_WHY_ID} /> : null}
+            {GROUP_BYS.map((g) => (
+              <Radio key={g} value={g} label={GROUP_LABELS[g]} unavailable={!!groupWhy} describedBy={GROUP_WHY_ID} />
+            ))}
+          </DropdownMenu.RadioGroup>
+          {groupWhy ? (
+            <p id={GROUP_WHY_ID} className="px-3 pt-1 pb-2 text-xs text-fg2">
+              {groupWhy}
+            </p>
+          ) : null}
 
           {target ? (
             <>
@@ -223,23 +244,33 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
   );
 }
 
-/** Images and Rows per section: the look of the Digest's rows. */
-function SectionLookChoices() {
+/** Pictures in lists, Show or Hide: the Inbox's thumbnails and the Digest's images. The same device setting as Settings, Appearance, Lists. */
+function PicturesChoice() {
   const dp = useDevicePrefs();
   return (
     <>
-      <DropdownMenu.Label className={sub}>Images</DropdownMenu.Label>
+      <div role="presentation" className="mx-3 mt-1 mb-0.5 h-px bg-line" />
+      <DropdownMenu.Label className={cn(sub, "font-semibold text-fg")}>Pictures in lists</DropdownMenu.Label>
       <DropdownMenu.RadioGroup
-        aria-label="Images"
-        value={dp.digestImages ? "on" : "off"}
+        aria-label="Pictures in lists"
+        value={dp.listImages ? "show" : "hide"}
         onValueChange={(v) => {
-          updateDevicePrefs({ digestImages: v === "on" });
-          announce(v === "on" ? "Images on" : "Images off");
+          updateDevicePrefs({ listImages: v === "show" });
+          announce(v === "show" ? "Pictures shown in lists" : "Pictures hidden in lists");
         }}
       >
-        <Radio value="on" label="Show images" />
-        <Radio value="off" label="Text only" />
+        <Radio value="show" label="Show" hint="Inbox and Digest" />
+        <Radio value="hide" label="Hide" />
       </DropdownMenu.RadioGroup>
+    </>
+  );
+}
+
+/** Rows per section: how many articles a Digest section shows before "more". */
+function RowsPerSection() {
+  const dp = useDevicePrefs();
+  return (
+    <>
       <DropdownMenu.Label className={sub}>Rows per section</DropdownMenu.Label>
       <DropdownMenu.RadioGroup
         aria-label="Rows per section"
@@ -283,12 +314,13 @@ export function SectionOrderChoice({ name }: { name: "sections" | "feeds" }) {
   );
 }
 
-/** `unavailable` greys the choice but keeps it focusable (aria-disabled, selection blocked), so its hint, the reason, is reachable by keyboard and screen reader. */
-function Radio({ value, label, hint, className, unavailable }: { value: string; label: string; hint?: string; className?: string; unavailable?: boolean }) {
+/** `unavailable` greys the choice but keeps it focusable (aria-disabled, selection blocked), so its reason (its hint, or the line `describedBy` names) is reachable by keyboard and screen reader. The caller's onValueChange must ignore it too: a menu radio reports its value even when its select is prevented. */
+function Radio({ value, label, hint, className, unavailable, describedBy }: { value: string; label: string; hint?: string; className?: string; unavailable?: boolean; describedBy?: string }) {
   return (
     <DropdownMenu.RadioItem
       value={value}
       aria-disabled={unavailable || undefined}
+      aria-describedby={unavailable ? describedBy : undefined}
       onSelect={unavailable ? (e) => e.preventDefault() : undefined}
       className={cn("relative py-1.5 pl-9", unavailable && "opacity-50", className)}
     >

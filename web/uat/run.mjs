@@ -10,7 +10,7 @@
 //   S2  no 4xx/5xx or failed requests to /api/*
 //   S3  axe-core, WCAG 2.0/2.1/2.2 A and AA rules
 //   S4  no sideways scroll (page or an unintended scroller) and nothing past the right edge (tablet and phone widths)
-//       and menus in the mode the browser reports: List options a bottom sheet inside the screen with a finger, a popover
+//       and menus in the mode the browser reports: Show and sort a bottom sheet inside the screen with a finger, a popover
 //       above the tab bar without one; and, with a mouse at 375 px, a row's More menu opened near the bottom stops above
 //       the tab bar
 //   S5  no literal "undefined", "NaN", "[object Object]" or "Invalid Date" in visible text, field values or
@@ -186,10 +186,10 @@ const SCREENS = [
   // menu on top.
   {
     id: "list-options",
-    title: "List options menu open",
+    title: "Show and sort menu open",
     path: "/l/all",
     heading: "All articles",
-    menu: { button: 'button[aria-label^="List options, "]', groups: ["Layout", "Order"] },
+    menu: { button: 'button[aria-label^="Show and sort, "]', groups: ["Layout", "Order"] },
   },
   {
     id: "list-length",
@@ -333,12 +333,12 @@ async function runAxe(page, include) {
 
 // ---- navigation helpers ----
 
-// The list header's options button names the layout in effect ("List options, Cards layout"); its menu also holds
+// The list header's options button names the layout in effect ("Show and sort, Cards layout"); its menu also holds
 // the order and, on a feed or folder, the view.
-const optionsLabel = (layout) => `List options, ${layout} layout`;
+const optionsLabel = (layout) => `Show and sort, ${layout} layout`;
 
 async function setLayout(page, layout) {
-  const btn = page.locator('button[aria-label^="List options, "]').first();
+  const btn = page.locator('button[aria-label^="Show and sort, "]').first();
   await btn.waitFor({ timeout: 15000 });
   if ((await btn.getAttribute("aria-label")) === optionsLabel(layout.label)) return;
   await btn.click();
@@ -879,7 +879,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         // The menu takes the mode the browser reports (Firefox has no coarse-pointer emulation, so it gets the popover
         // at these widths): with a finger a bottom sheet over a dimmed page, tab bar included, inside the screen and
         // showing (#423); with a mouse a popover that stops above the tab bar. Upright and in landscape.
-        const check = async (where) => s4.push(...placementFindings(await page.evaluate(menuPlacement), "List options", where));
+        const check = async (where) => s4.push(...placementFindings(await page.evaluate(menuPlacement), "Show and sort", where));
         await check(`at ${vp.width} x ${vp.height}`);
         if (vp.id === "phone") {
           const placed = () => page.evaluate(menuPlacement);

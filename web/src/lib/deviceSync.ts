@@ -95,7 +95,7 @@ export function profileOf(l: LocalState): Profile {
     "client.order": dp.order,
     "client.group": dp.group,
     "client.search_order": SEARCH_ORDER_TO_SERVER[dp.searchOrder],
-    "client.inbox_thumbs": dp.inboxThumbs,
+    "client.list_images": dp.listImages,
     "client.peek_seen": dp.peekSeen,
     "client.article_width": dp.articleWidth,
     "client.list_width": dp.listWidth,
@@ -107,7 +107,6 @@ export function profileOf(l: LocalState): Profile {
     "client.paper_name": dp.paperName,
     "client.digest_sections": dp.digestSections,
     "client.digest_order": dp.digestOrder,
-    "client.digest_images": dp.digestImages,
     "client.digest_rows": dp.digestRows,
   };
 }
@@ -152,7 +151,7 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     order: g("client.order"),
     group: g("client.group"),
     searchOrder: searchOrderFromServer(g("client.search_order")),
-    inboxThumbs: g("client.inbox_thumbs"),
+    listImages: g("client.list_images"),
     peekSeen: g("client.peek_seen"),
     articleWidth: g("client.article_width"),
     listWidth: g("client.list_width"),
@@ -164,7 +163,6 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     paperName: g("client.paper_name"),
     digestSections: g("client.digest_sections"),
     digestOrder: g("client.digest_order"),
-    digestImages: g("client.digest_images"),
     digestRows: g("client.digest_rows"),
   };
   const dp = parseDevicePrefs(JSON.stringify(dpRaw));
@@ -487,11 +485,14 @@ function legacyProfileKeys(): Set<string> {
   if (p?.markReadOnScroll === true) out.add("ui.mark_read_on_scroll");
   // The v1 cache counts when this build has not written its own yet (devicePrefs converts it on load).
   add(read(DEVICE_PREFS_KEY) ?? read(LEGACY_DEVICE_PREFS_KEY), {
-    layout: ["client.layout"], overrides: ["client.list_overrides"], order: ["client.order"], group: ["client.group"], searchOrder: ["client.search_order"], inboxThumbs: ["client.inbox_thumbs"],
+    layout: ["client.layout"], overrides: ["client.list_overrides"], order: ["client.order"], group: ["client.group"], searchOrder: ["client.search_order"], listImages: ["client.list_images"],
     peekSeen: ["client.peek_seen"], articleWidth: ["client.article_width"], listWidth: ["client.list_width"],
     sidebarWidth: ["client.sidebar_width"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],
     unreadBadge: ["client.unread_badge"], highlightKeywords: ["client.highlight_keywords"],
   }, DEFAULT_DEVICE_PREFS);
+  // A cache from before the two picture settings became one: either one hiding pictures is a choice.
+  const cache = read(DEVICE_PREFS_KEY) ?? read(LEGACY_DEVICE_PREFS_KEY);
+  if (cache?.inboxThumbs === "off" || cache?.digestImages === false) out.add("client.list_images");
   return out;
 }
 

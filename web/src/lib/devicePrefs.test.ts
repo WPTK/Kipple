@@ -187,6 +187,19 @@ describe("the Gazette's order and name (#39)", () => {
     expect(resolveOrder(p(), ctx4)).toBe("oldest");
   });
 
+  it("either old picture setting hiding pictures hides them once, and a migrated profile has nothing left to migrate", () => {
+    expect(parseDevicePrefs(JSON.stringify({ inboxThumbs: "off" })).listImages).toBe(false);
+    expect(parseDevicePrefs(JSON.stringify({ digestImages: false })).listImages).toBe(false);
+    expect(parseDevicePrefs(JSON.stringify({ inboxThumbs: "auto", digestImages: true })).listImages).toBe(true);
+    expect(parseDevicePrefs(null).listImages).toBe(true);
+    // The new key wins over a stale old one.
+    expect(parseDevicePrefs(JSON.stringify({ listImages: true, inboxThumbs: "off" })).listImages).toBe(true);
+    const moved = parseDevicePrefs(JSON.stringify({ inboxThumbs: "off", digestImages: true }));
+    expect(Object.keys(moved)).not.toContain("inboxThumbs");
+    expect(Object.keys(moved)).not.toContain("digestImages");
+    expect(parseDevicePrefs(JSON.stringify(moved))).toEqual(moved);
+  });
+
   it("the Coffee break a device had becomes the Digest cut by reading time", () => {
     const own = parseDevicePrefs(JSON.stringify({ layout: "coffee", digestSections: "feed" }));
     expect([own.layout, own.digestSections]).toEqual(["digest", "length"]);
@@ -213,11 +226,11 @@ describe("the Gazette's order and name (#39)", () => {
     updateDevicePrefs({ layout: "digest", order: "oldest" });
     expect(resolveOrder(devicePrefsStore.get(), {})).toBe("newest");
     const d = parseDevicePrefs(null);
-    expect([d.digestSections, d.digestOrder, d.digestImages, d.digestRows]).toEqual(["folder", "sidebar", true, 3]);
-    const ok = parseDevicePrefs(JSON.stringify({ digestSections: "feed", digestOrder: "quiet", digestImages: false, digestRows: 10 }));
-    expect([ok.digestSections, ok.digestOrder, ok.digestImages, ok.digestRows]).toEqual(["feed", "quiet", false, 10]);
-    const bad = parseDevicePrefs(JSON.stringify({ layout: "digest", digestSections: "tag", digestOrder: "newest", digestImages: "no", digestRows: 4 }));
-    expect([bad.layout, bad.digestSections, bad.digestOrder, bad.digestImages, bad.digestRows]).toEqual(["digest", "folder", "sidebar", true, 3]);
+    expect([d.digestSections, d.digestOrder, d.listImages, d.digestRows]).toEqual(["folder", "sidebar", true, 3]);
+    const ok = parseDevicePrefs(JSON.stringify({ digestSections: "feed", digestOrder: "quiet", listImages: false, digestRows: 10 }));
+    expect([ok.digestSections, ok.digestOrder, ok.listImages, ok.digestRows]).toEqual(["feed", "quiet", false, 10]);
+    const bad = parseDevicePrefs(JSON.stringify({ layout: "digest", digestSections: "tag", digestOrder: "newest", listImages: "no", digestRows: 4 }));
+    expect([bad.layout, bad.digestSections, bad.digestOrder, bad.listImages, bad.digestRows]).toEqual(["digest", "folder", "sidebar", true, 3]);
   });
 
   it("keeps a valid name and blanks one the profile would refuse", () => {

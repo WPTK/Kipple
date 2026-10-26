@@ -20,7 +20,7 @@ import {
   inheritedList,
   overrideTarget,
   resolveList,
-  followsOrder,
+  orderLockReason,
   resolveOrder,
   updateDevicePrefs,
   useDevicePrefs,
@@ -117,6 +117,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
   const { layout, ctx } = useResolvedLayout(scope);
   const setListOverride = useSetListOverride();
   const oldest = scope.order === "oldest";
+  const orderWhy = orderLockReason(layout.id);
   // The order is the list's resolved one (readerScope). On a feed or folder list the toggle sets that list's own order,
   // and dropping back to what it would inherit clears its override; elsewhere it sets the device default.
   const toggleOrder = () => {
@@ -239,18 +240,30 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
         {/* The controls wrap within the column rather than run past it: a list column at its floor is narrower than
             all of them with Large targets or a larger text size. */}
         <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-0.5">
-        {/* A layout that is always newest first has no order to toggle (the list options menu says why). On a phone
-            the order lives only in the Layout menu, which leaves the title room in a one-row header. */}
-        {wide && followsOrder(layout.id) ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Oldest first"
-            aria-pressed={oldest}
-            onClick={toggleOrder}
-          >
-            {oldest ? <ArrowUpNarrowWide aria-hidden="true" /> : <ArrowDownWideNarrow aria-hidden="true" />}
-          </Button>
+        {/* A layout that is always newest first has no order to toggle: the button stays, greyed with the same reason
+            as the menu's Order choices, and focusable (aria-disabled) so the reason can be heard. On a phone the order
+            lives only in the layout menu, which leaves the title room in a one-row header. */}
+        {wide ? (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Oldest first"
+              aria-pressed={oldest}
+              aria-disabled={orderWhy ? true : undefined}
+              aria-describedby={orderWhy ? "header-order-why" : undefined}
+              title={orderWhy ?? undefined}
+              className={orderWhy ? "opacity-50" : undefined}
+              onClick={orderWhy ? undefined : toggleOrder}
+            >
+              {oldest ? <ArrowUpNarrowWide aria-hidden="true" /> : <ArrowDownWideNarrow aria-hidden="true" />}
+            </Button>
+            {orderWhy ? (
+              <span id="header-order-why" className="sr-only">
+                {orderWhy}
+              </span>
+            ) : null}
+          </>
         ) : null}
         <LengthMenu scope={scope} />
         {scope.after ? null : <LayoutMenu scope={scope} />}

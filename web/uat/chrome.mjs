@@ -76,10 +76,10 @@ await t.eachViewport(async (page, vp) => {
     }
     const ids = added.items.map((i) => String(i.id));
     await page.goto("/l/all", { waitUntil: "load" });
-    const layoutBtn = page.locator('button[aria-label^="List options, "]').first();
+    const layoutBtn = page.locator('button[aria-label^="Show and sort, "]').first();
     await layoutBtn.waitFor({ timeout: 15000 });
     for (const layout of ["Gazette", "Editorial", "Cards", "Inbox"]) {
-      if (!(await layoutBtn.getAttribute("aria-label")).startsWith(`List options, ${layout} `)) {
+      if (!(await layoutBtn.getAttribute("aria-label")).startsWith(`Show and sort, ${layout} `)) {
         await layoutBtn.click();
         await page.getByRole("menuitemradio", { name: new RegExp(`^${layout}(?![A-Za-z])`) }).click();
         await page.keyboard.press("Escape");

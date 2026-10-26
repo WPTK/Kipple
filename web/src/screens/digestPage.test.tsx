@@ -182,7 +182,7 @@ describe("Digest sections", () => {
     expect(itemCalls(calls).map((c) => c.url.searchParams.get("feed"))).toEqual(["20", "21"]);
   });
 
-  it("shows a picture on the right of a row that has one when Images is on", async () => {
+  it("shows a picture on the right of a row that has one when Pictures is on", async () => {
     routes({ boot: library([3]), counts: [3], over: (_n, k) => ({ image: k === 0 ? "/img/x.jpg" : null }) });
     const { container } = go("/l/unread");
     await screen.findByText("Alpha story 1");
@@ -190,8 +190,8 @@ describe("Digest sections", () => {
     expect(container.querySelector('[data-item-id="1000"] img')).not.toBeNull();
   });
 
-  it("shows text only rows when Images is off", async () => {
-    updateDevicePrefs({ digestImages: false });
+  it("shows text only rows when Pictures is hidden", async () => {
+    updateDevicePrefs({ listImages: false });
     routes({ boot: library([3]), counts: [3], over: () => ({ image: "/img/x.jpg" }) });
     const { container } = go("/l/unread");
     await screen.findByText("Alpha story 1");
@@ -458,20 +458,20 @@ describe("Digest article order", () => {
   });
 });
 
-describe("Digest settings in the list options menu", () => {
-  it("offers Order, Sections, Images and Rows per section for this device, and a choice changes the page", async () => {
+describe("Digest settings in the Show and sort menu", () => {
+  it("offers Order, Sections, Pictures in lists and Rows per section for this device, and a choice changes the page", async () => {
     routes({ boot: library([3, 3], [5, 1]), counts: [3, 3] });
     const user = userEvent.setup();
     const { container } = go("/l/unread");
     await screen.findByText("Beta story 1");
     expect(headings(container)).toEqual(["Alpha", "Beta"]);
-    await user.click(screen.getByRole("button", { name: /^List options, Digest layout/ }));
+    await user.click(screen.getByRole("button", { name: /^Show and sort, Digest layout/ }));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByText("Digest, for this device")).toBeInTheDocument();
-    for (const name of ["Order of sections", "Sections", "Images", "Rows per section"]) expect(within(menu).getByRole("group", { name })).toBeInTheDocument();
+    for (const name of ["Order of sections", "Sections", "Pictures in lists", "Rows per section"]) expect(within(menu).getByRole("group", { name })).toBeInTheDocument();
     await user.click(within(menu).getByRole("menuitemradio", { name: /^Quiet Feeds First/ }));
     await waitFor(() => expect(headings(container)).toEqual(["Beta", "Alpha"]));
-    await user.click(screen.getByRole("button", { name: /^List options, Digest layout/ }));
+    await user.click(screen.getByRole("button", { name: /^Show and sort, Digest layout/ }));
     await user.click(await screen.findByRole("menuitemradio", { name: "5" }));
     expect(devicePrefsStore.get().digestRows).toBe(5);
   });
@@ -482,7 +482,7 @@ describe("Digest settings in the list options menu", () => {
     const user = userEvent.setup();
     go("/l/unread");
     await screen.findByText("Alpha story 1");
-    await user.click(screen.getByRole("button", { name: /^List options, Compact layout/ }));
+    await user.click(screen.getByRole("button", { name: /^Show and sort, Compact layout/ }));
     expect(screen.queryByText("Digest, for this device")).toBeNull();
   });
 });

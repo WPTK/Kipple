@@ -77,10 +77,10 @@ export const SURFACES = [
     },
   },
   {
-    id: "menu-list-options", area: "menus", title: "List options (layout and order)",
+    id: "menu-list-options", area: "menus", title: "Show and sort (layout and order)",
     go: async (page) => {
       await list("/l/unread")(page);
-      await page.getByRole("button", { name: /^List options/ }).click();
+      await page.getByRole("button", { name: /^Show and sort/ }).click();
       await page.getByRole("menu").waitFor({ timeout: 5000 });
     },
   },

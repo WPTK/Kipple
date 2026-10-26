@@ -111,9 +111,9 @@ await t.eachViewport(async (page, vp) => {
     await step(`${tag} F2`, async () => {
       await page.goto(`/l/unread?feed=${feed}`, { waitUntil: "load" });
       // Editorial: rows that leave collapse out of the list (a page layout fades them in place instead).
-      const layoutBtn = page.locator('button[aria-label^="List options, "]').first();
+      const layoutBtn = page.locator('button[aria-label^="Show and sort, "]').first();
       await layoutBtn.waitFor({ timeout: 15000 });
-      if ((await layoutBtn.getAttribute("aria-label")) !== "List options, Editorial layout") {
+      if ((await layoutBtn.getAttribute("aria-label")) !== "Show and sort, Editorial layout") {
         await layoutBtn.click();
         await page.getByRole("menuitemradio", { name: /^Editorial\b/ }).click();
         await page.keyboard.press("Escape");

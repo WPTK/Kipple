@@ -104,7 +104,7 @@ await t.eachViewport(async (page, vp) => {
       // Playwright's offline emulation turns navigator.onLine off in Chromium; the other engines may not, so this is a
       // bounded, soft wait and not an assertion.
       await page.waitForFunction(() => navigator.onLine === false, undefined, { timeout: 2000 }).catch(() => {});
-      const layoutBtn = page.locator('button[aria-label^="List options, "]').first();
+      const layoutBtn = page.locator('button[aria-label^="Show and sort, "]').first();
       await layoutBtn.click();
       await page.getByRole("menuitemradio", { name: /^Cards(?![A-Za-z])/ }).click();
       await page.keyboard.press("Escape");

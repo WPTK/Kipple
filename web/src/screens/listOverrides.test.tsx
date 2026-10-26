@@ -91,7 +91,7 @@ describe("the view a feed or folder opens in", () => {
     go("/l/unread?feed=1");
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /^List options,/ }));
+    await user.click(screen.getByRole("button", { name: /^Show and sort,/ }));
     const group = screen.getByRole("group", { name: "View this feed opens in" });
     expect(within(group).getByRole("menuitemradio", { name: "Use the standard view (Unread)" })).toBeChecked();
     await user.click(within(group).getByRole("menuitemradio", { name: "All" }));
@@ -102,7 +102,7 @@ describe("the view a feed or folder opens in", () => {
     routes();
     go("/l/all");
     await screen.findByText("Article number 1");
-    await userEvent.setup().click(screen.getByRole("button", { name: /^List options,/ }));
+    await userEvent.setup().click(screen.getByRole("button", { name: /^Show and sort,/ }));
     expect(screen.queryByRole("group", { name: /opens in/ })).toBeNull();
     expect(screen.getByRole("group", { name: "Order" })).toBeInTheDocument();
   });
@@ -161,7 +161,7 @@ describe("per-feed order", () => {
     routes();
     go("/l/unread?feed=1");
     await screen.findByText("Article number 1");
-    await userEvent.setup().click(screen.getByRole("button", { name: /^List options,/ }));
+    await userEvent.setup().click(screen.getByRole("button", { name: /^Show and sort,/ }));
     const group = screen.getByRole("group", { name: "Order of this feed" });
     expect(within(group).getByRole("menuitemradio", { name: "Inherited from News (Oldest first)" })).toBeChecked();
   });

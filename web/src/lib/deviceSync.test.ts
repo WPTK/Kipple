@@ -20,7 +20,7 @@ import {
   syncStore,
   type LocalState,
 } from "./deviceSync";
-import { DEVICE_PREFS_KEY, LEGACY_DEVICE_PREFS_KEY, devicePrefsStore, resetDevicePrefs, setListOverride, updateDevicePrefs } from "./devicePrefs";
+import { DEVICE_PREFS_KEY, LEGACY_DEVICE_PREFS_KEY, devicePrefsStore, parseDevicePrefs, resetDevicePrefs, setListOverride, updateDevicePrefs } from "./devicePrefs";
 import { DEFAULT_PREFS, PREFS_KEY, prefsStore, updatePrefs } from "./prefs";
 import { offlineStore, setOnline, setPending } from "./offlineState";
 
@@ -43,7 +43,7 @@ const DEFAULTS: Record<string, unknown> = {
   "client.order": "newest",
   "client.group": "day",
   "client.search_order": "relevance",
-  "client.inbox_thumbs": "auto",
+  "client.list_images": true,
   "client.peek_seen": false,
   "client.article_width": "medium",
   "client.sidebar_width": 240,
@@ -61,7 +61,6 @@ const DEFAULTS: Record<string, unknown> = {
   "client.collapsed_folders": [],
   "client.digest_sections": "folder",
   "client.digest_order": "sidebar",
-  "client.digest_images": true,
   "client.digest_rows": 3,
 };
 
@@ -451,11 +450,11 @@ describe("saving", () => {
 
 // Every key this client writes: internal/api/devices.go clientDefs (less the retired client.shortcuts) plus the device-scoped ui.* keys this client mirrors.
 const SERVER_CLIENT_KEYS = [
-  "client.layout", "client.list_overrides", "client.order", "client.group", "client.search_order", "client.inbox_thumbs", "client.peek_seen", "client.article_width",
+  "client.layout", "client.list_overrides", "client.order", "client.group", "client.search_order", "client.list_images", "client.peek_seen", "client.article_width",
   "client.list_width", "client.sidebar_width", "client.link_target", "client.unread_badge", "client.text_size",
   "client.adjust_separately", "client.spacing", "client.motion", "client.large_targets",
   "client.listen", "client.voice", "client.rate", "client.collapsed_folders", "client.highlight_keywords",
-  "client.digest_sections", "client.digest_order", "client.digest_images", "client.digest_rows",
+  "client.digest_sections", "client.digest_order", "client.digest_rows",
 ];
 
 describe("every device pref is carried both ways (review finding 2)", () => {
@@ -469,12 +468,12 @@ describe("every device pref is carried both ways (review finding 2)", () => {
       "ui.theme": "graphite", "ui.theme_day": "linen", "ui.theme_night": "carbon", "ui.font_body": "inter",
       "ui.list_density": "airy", "ui.reading_density": "airy", "ui.mark_read_on_scroll": true,
       "client.layout": "cards", "client.list_overrides": { feed: { "5": { layout: "compact", order: "oldest", group: "none" } }, folder: { "7": { layout: "inbox", view: "all", group: "week" } } },
-      "client.order": "oldest", "client.group": "week", "client.search_order": "newest", "client.inbox_thumbs": "off", "client.peek_seen": true, "client.article_width": "wide",
+      "client.order": "oldest", "client.group": "week", "client.search_order": "newest", "client.list_images": false, "client.peek_seen": true, "client.article_width": "wide",
       "client.list_width": 400, "client.sidebar_width": 300, "client.link_target": "same", "client.unread_badge": "dot",
       "client.text_size": 1.25, "client.adjust_separately": true, "client.spacing": "roomy",
       "client.motion": "off", "client.large_targets": true, "client.listen": true, "client.voice": "Samantha",
       "client.rate": 1.2, "client.collapsed_folders": ["3", "9"], "client.highlight_keywords": false,
-      "client.digest_sections": "feed", "client.digest_order": "quiet", "client.digest_images": false, "client.digest_rows": 10,
+      "client.digest_sections": "feed", "client.digest_order": "quiet", "client.digest_rows": 10,
     };
     const back = profileOf(deriveLocal({ ...DEFAULTS, ...changed }, local()));
     for (const [k, v] of Object.entries(changed)) expect(back[k], k).toEqual(v);
@@ -598,6 +597,18 @@ describe("migration only carries what the old caches held (review finding 3)", (
     expect(s.patches).toEqual([{ "ui.font_body": "literata" }]);
     expect(devicePrefsStore.get().sidebarWidth).toBe(300);
     expect(devicePrefsStore.get().unreadBadge).toBe("dot");
+  });
+});
+
+describe("migration of the two old picture settings", () => {
+  it("a cache with Inbox thumbnails off sends client.list_images false once, and none of the old keys", async () => {
+    localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify({ inboxThumbs: "off", digestImages: true }));
+    devicePrefsStore.set(parseDevicePrefs(localStorage.getItem(DEVICE_PREFS_KEY)));
+    const s = server({}, {});
+    hydrateDevice(s.view());
+    await flush();
+    expect(s.patches).toEqual([{ "client.list_images": false }]);
+    expect(devicePrefsStore.get().listImages).toBe(false);
   });
 });
 

@@ -105,12 +105,12 @@ base = `http://127.0.0.1:${server.address().port}`;
 
 async function setLayout(page, label) {
   await page.goto("/l/all", { waitUntil: "load" });
-  const btn = page.locator('button[aria-label^="List options, "]').first();
+  const btn = page.locator('button[aria-label^="Show and sort, "]').first();
   await btn.waitFor({ timeout: 15000 });
-  if ((await btn.getAttribute("aria-label")) === `List options, ${label} layout`) return;
+  if ((await btn.getAttribute("aria-label")) === `Show and sort, ${label} layout`) return;
   await btn.click();
   await page.getByRole("group", { name: "Layout" }).getByRole("menuitemradio", { name: new RegExp(`^${label}\\b`) }).click();
-  await page.locator(`button[aria-label="List options, ${label} layout"]`).first().waitFor({ timeout: 10000 });
+  await page.locator(`button[aria-label="Show and sort, ${label} layout"]`).first().waitFor({ timeout: 10000 });
   if (await page.getByRole("menu").isVisible().catch(() => false)) await page.keyboard.press("Escape");
 }
 /** A finger drag from y0 to y1 as real touch events, in steps. */
@@ -140,9 +140,9 @@ const picsLoaded = async (page) => {
 };
 async function layoutOf(page) {
   await page.goto("/l/all", { waitUntil: "load" });
-  const btn = page.locator('button[aria-label^="List options, "]').first();
+  const btn = page.locator('button[aria-label^="Show and sort, "]').first();
   await btn.waitFor({ timeout: 15000 });
-  return ((await btn.getAttribute("aria-label")) ?? "").replace(/^List options, /, "").replace(/ layout$/, "");
+  return ((await btn.getAttribute("aria-label")) ?? "").replace(/^Show and sort, /, "").replace(/ layout$/, "");
 }
 
 try {
