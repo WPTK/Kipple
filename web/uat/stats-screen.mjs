@@ -23,13 +23,15 @@
 //       solid button, nothing scrolls sideways, and the downloaded image is a 1080x1350 PNG named for the year.
 //   T9  a long range stays legible: Year over a month of history draws that month as day bars (not a line at the right
 //       edge), Year over a full year draws weeks, no bar under 2 px, and a tap still names the bar's day or week.
+//   T10 the largest text size (1.5x) at 430, 600 and 768 px as well as the viewport: the Stats header and tiles stay inside
+//       the window, and the share sheet keeps its options above the preview, every button whole and apart, and itself inside it.
 // Chromium only. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { readFileSync } from "node:fs";
 import { start } from "./common.mjs";
 import { route, today } from "./statsFixture.mjs";
 
-const t = await start(import.meta.url, 24, { serviceWorkers: "block" });
+const t = await start(import.meta.url, 26, { serviceWorkers: "block" });
 const { check, step } = t;
 
 /** Whether `loc`'s page or element scrolls sideways. */
@@ -270,6 +272,60 @@ await t.eachViewport(async (page, vp) => {
     const isPng = png.subarray(1, 4).toString() === "PNG";
     const [w, h] = [png.readUInt32BE(16), png.readUInt32BE(20)];
     check(isPng && w === 1080 && h === 1350 && file.suggestedFilename() === `kipple-${today().slice(0, 4)}.png`, `${tag} T8 image`, `the download is ${file.suggestedFilename()}, a ${w}x${h} PNG`, `the download is ${file.suggestedFilename()} (${isPng ? "PNG" : "not a PNG"}, ${w}x${h})`);
+  });
+
+  await step(`${tag} T10`, async () => {
+    // The largest text size (1.5x) at the widths where it is tightest: the Stats header and tiles stay inside the window,
+    // and the share sheet keeps its options above the preview, every button whole and apart, and the sheet inside the window.
+    // A page load drops the scale, so it is set after each one.
+    const big = () => page.evaluate(() => globalThis.document.documentElement.style.setProperty("--kp-scale", "1.5"));
+    for (const width of [...new Set([vp.width, 430, 600, 768])]) {
+      const at = `${tag} T10 ${width}`;
+      await page.setViewportSize({ width, height: vp.height });
+      await open("/stats", "long");
+      await page.locator("button[aria-expanded] > span.text-2xl").first().waitFor({ timeout: 10000 });
+      await big();
+      const out = await page.locator("button[aria-expanded]:has(> span.text-2xl)").evaluateAll((tiles) =>
+        tiles.flatMap((b) => {
+          const v = b.querySelector("span.text-2xl");
+          const box = b.getBoundingClientRect();
+          return v.scrollWidth > v.clientWidth + 1 || v.getBoundingClientRect().right > box.right ? [v.textContent] : [];
+        }),
+      );
+      check(out.length === 0, `${at} tiles`, "with 1.5x text no tile value runs past its tile", `tile values overflow: ${out.join(", ")}`);
+      check(!(await overflowsX(page.locator("header").first())), `${at} header`, "with 1.5x text the header does not scroll sideways", "the header scrolls sideways at 1.5x text");
+      const page_ = await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth + 1);
+      check(page_, `${at} page`, "with 1.5x text the Stats page does not scroll sideways", "the Stats page scrolls sideways at 1.5x text");
+      if (width === vp.width || width === 430) await t.shot(page, `${at}-stats`);
+
+      await open("/stats/wrapped", "rich");
+      await page.getByRole("button", { name: "Share" }).waitFor({ timeout: 10000 });
+      await big();
+      await page.getByRole("button", { name: "Share" }).click();
+      const dlg = page.getByRole("dialog", { name: "Share your year" });
+      await dlg.waitFor({ timeout: 10000 });
+      await dlg.getByRole("button", { name: "Download image" }).waitFor();
+      const m = await dlg.evaluate((d) => {
+        const rect = (el) => {
+          const r = el.getBoundingClientRect();
+          return { l: r.left, r: r.right, t: r.top, b: r.bottom };
+        };
+        const buttons = [...d.querySelectorAll("button")].map((b) => ({ n: (b.textContent ?? "").trim(), ...rect(b) })).filter((b) => /^(Download image|Share|Copy as text|Close)$/.test(b.n));
+        const boxes = [...d.querySelectorAll('input[type="checkbox"]')].map((c) => c.closest("label") ?? c).map(rect);
+        return { d: rect(d), buttons, boxes, preview: rect(d.querySelector('[data-testid="wrapped-preview"]')), w: globalThis.innerWidth, h: globalThis.innerHeight, sideways: d.scrollWidth > d.clientWidth + 1 };
+      });
+      const inside = (r) => r.l >= m.d.l - 1 && r.r <= m.d.r + 1;
+      const apart = m.buttons.every((a, i) => m.buttons.slice(i + 1).every((b) => a.r <= b.l + 1 || b.r <= a.l + 1 || a.b <= b.t + 1 || b.b <= a.t + 1));
+      check(m.buttons.length >= 3 && m.buttons.every(inside), `${at} buttons`, "with 1.5x text every share button is whole, inside the sheet", `buttons outside the sheet: ${JSON.stringify(m.buttons.filter((b) => !inside(b)))}`);
+      check(apart, `${at} apart`, "with 1.5x text no two share buttons overlap", `buttons overlap: ${JSON.stringify(m.buttons)}`);
+      check(m.d.t >= -1 && m.d.b <= m.h + 1 && m.d.l >= -1 && m.d.r <= m.w + 1, `${at} sheet`, "with 1.5x text the sheet is inside the window", `the sheet is ${JSON.stringify(m.d)} in a ${m.w}x${m.h} window`);
+      check(m.boxes.length === 2 && m.boxes.every((b) => b.b <= m.preview.t + 1 && inside(b)), `${at} options`, "with 1.5x text both options are above the preview, inside the sheet", `options ${JSON.stringify(m.boxes)} against preview ${JSON.stringify(m.preview)}`);
+      check(!m.sideways, `${at} sideways`, "with 1.5x text the share sheet does not scroll sideways", "the share sheet scrolls sideways at 1.5x text");
+      if (width === vp.width || width === 430) await t.shot(page, `${at}-share`);
+      await page.keyboard.press("Escape");
+    }
+    await page.evaluate(() => globalThis.document.documentElement.style.removeProperty("--kp-scale"));
+    await page.setViewportSize({ width: vp.width, height: vp.height });
   });
 });
 

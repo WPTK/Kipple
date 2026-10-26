@@ -23,6 +23,7 @@ import {
 } from "@/lib/wrapped";
 import { CARD_TOKENS, canRenderImage, copyWrappedText, downloadBlob, renderCardPng, shareWrappedBlob } from "@/lib/wrappedShare";
 import { canNativeShare } from "@/lib/share";
+import { useNarrowText } from "@/lib/useNarrowText";
 import { useStore } from "@/lib/store";
 import { activeThemeStore } from "@/theme/theme";
 import { toast } from "@/shell/toasts";
@@ -143,6 +144,9 @@ export function CardPreview({ m, o }: { m: WrappedModel; o: WrappedOptions }) {
 
 type RenderState = "loading" | "ready" | "error";
 
+/** Below this width, counted in text-size-1 pixels, the share buttons stack. */
+const STACK_BELOW_PX = 420;
+
 /**
  * Opt-in every time: the dialog opens with the aggregates only.
  *
@@ -154,6 +158,8 @@ type RenderState = "loading" | "ready" | "error";
 function ShareBody({ m, onOpenChange }: { m: WrappedModel; onOpenChange: (o: boolean) => void }) {
   const native = canNativeShare();
   const image = canRenderImage();
+  // Stacked until the window, counted in text-size-1 pixels, has room for the row: a media query cannot see the text size.
+  const stacked = useNarrowText(STACK_BELOW_PX);
   const [o, setO] = useState<WrappedOptions>(DEFAULT_OPTIONS);
   const [renderState, setRenderState] = useState<RenderState>(() => (image ? "loading" : "ready"));
   const [blob, setBlob] = useState<Blob | null>(null);
@@ -228,8 +234,8 @@ function ShareBody({ m, onOpenChange }: { m: WrappedModel; onOpenChange: (o: boo
       title="Share your year"
       description="Only the summary below is shared, and only when you choose to share it."
       footer={
-        // The main action first, so the Tab order and the visual order agree: a column on a phone, one row from 420 px up.
-        <div className="flex w-full flex-col gap-2 min-[420px]:flex-row min-[420px]:justify-end">
+        // The main action first, so the Tab order and the visual order agree: a column until the window has room for one row.
+        <div className={`flex w-full gap-2 ${stacked ? "flex-col" : "flex-row justify-end"}`}>
           {image ? (
             <Button variant="solid" disabled={busy || preparing || !blob} onClick={doDownload}>
               Download image

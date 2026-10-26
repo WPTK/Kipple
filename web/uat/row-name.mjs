@@ -118,15 +118,30 @@ try {
         );
         check(bad.length === 0, `${tag} N1 axe`, "no row link has a label that disagrees with its visible text", `${bad.length} link(s): ${bad.join(" | ")}`);
 
-        const nameOf = async (link) => ((await link.ariaSnapshot()).match(/- '?link "((?:[^"\\]|\\.)*)"/) ?? [])[1]?.replace(/\\"/g, '"');
+        // WebKit has, now and then, given no link line for one of the two rows (#783). On a miss the detail carries the raw
+        // snapshot and the element's state at that moment, so the failure says whether the link was gone, hidden or unnamed.
+        const nameOf = async (link) => {
+          const snap = await link.ariaSnapshot();
+          const m = snap.match(/- '?link "((?:[^"\\]|\\.)*)"/);
+          if (m) return { name: m[1].replace(/\\"/g, '"') };
+          const state = await link
+            .evaluate((a) => {
+              const r = a.getBoundingClientRect();
+              const cs = globalThis.getComputedStyle(a);
+              return { box: [r.x, r.y, r.width, r.height].map(Math.round), display: cs.display, visibility: cs.visibility, opacity: cs.opacity, attached: a.isConnected, textLength: a.textContent?.length ?? 0, rowLinks: a.ownerDocument.querySelectorAll("a.row-link").length };
+            })
+            .catch((e) => ({ error: String(e) }));
+          return { name: undefined, snap, state };
+        };
+        const named = (r) => `named ${JSON.stringify(r.name)}${r.snap === undefined ? "" : `; snapshot ${JSON.stringify(r.snap)}; element ${JSON.stringify(r.state)}`}`;
         // The word is the flag's value (src/layouts/parts.tsx sets it, index.css draws it): read it from the page, so the
         // flow and the app cannot drift.
         const word = await unread.getAttribute("data-row-unread");
         check(!!word, `${tag} N2 flag`, "an unread row's link carries the word that names it", `data-row-unread is ${JSON.stringify(word)}`);
         check((await readLink.getAttribute("data-row-unread")) === null, `${tag} N2 read flag`, "a read row's link carries none", "a read row is flagged");
         const [un, rd] = [await nameOf(unread), await nameOf(readLink)];
-        check(un === `${UNREAD}, ${word}`, `${tag} N2 unread name`, "an unread row's link is named the title, then unread", `named ${JSON.stringify(un)}`);
-        check(rd === READ, `${tag} N2 read name`, "a read row's link is named the title alone", `named ${JSON.stringify(rd)}`);
+        check(un.name === `${UNREAD}, ${word}`, `${tag} N2 unread name`, "an unread row's link is named the title, then unread", named(un));
+        check(rd.name === READ, `${tag} N2 read name`, "a read row's link is named the title alone", named(rd));
         const text = await unread.evaluate((a) => a.textContent);
         check(text === UNREAD, `${tag} N2 text`, "the link's text is the title alone", `text ${JSON.stringify(text)}`);
 

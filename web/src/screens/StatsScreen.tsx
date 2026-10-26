@@ -3,6 +3,7 @@ import { useId, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useBootstrap } from "@/api/queries";
+import { failed as failedMessage } from "@/api/client";
 import { useSpanSummary, useStatsSummary } from "@/api/stats";
 import type { StatsSummary } from "@/api/types";
 import {
@@ -31,6 +32,7 @@ import {
   type SourceMetric,
   type SourceRow,
   activityBars,
+  NOTHING_IN_RANGE,
 } from "@/lib/statsFormat";
 import { articleTo } from "@/lib/routes";
 import { visibleFeeds } from "@/lib/visibleFeeds";
@@ -189,7 +191,7 @@ export function SummaryTiles({ data, compare = false, feed, streaks = false }: {
       ) : null}
       {failed ? (
         <div role="alert" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-          Couldn't load the earlier period.
+          {failedMessage("load the earlier period", prevSpan.error ?? curSpan.error)}
           <Button onClick={retry}>Try again</Button>
         </div>
       ) : null}
@@ -212,7 +214,7 @@ export function SummaryTiles({ data, compare = false, feed, streaks = false }: {
  */
 export function Behavior({ data, empty, busiest = true }: { data: StatsSummary; empty: boolean; busiest?: boolean }) {
   const b = data.behavior;
-  if (empty || !b) return <Empty>No reading in this range.</Empty>;
+  if (empty || !b) return <Empty />;
   const amount = (x: { active_seconds: number; opens: number }) => (x.active_seconds > 0 ? durationLabel(x.active_seconds) : plural(x.opens, "article"));
   const rows: { label: string; value: ReactNode; sub?: string }[] = [];
   if (busiest && b.busiest_weekday) rows.push({ label: "Busiest day", value: weekdayName(b.busiest_weekday.weekday), sub: amount(b.busiest_weekday) });
@@ -230,7 +232,7 @@ export function Behavior({ data, empty, busiest = true }: { data: StatsSummary; 
       sub: `${l.feed_title}, ${durationLabel(l.seconds)}, ${shortDate(l.date)}`,
     });
   }
-  if (rows.length === 0) return <Empty>No reading in this range.</Empty>;
+  if (rows.length === 0) return <Empty />;
   return (
     <dl className="flex flex-col gap-2 text-sm">
       {rows.map((r) => (
@@ -289,7 +291,7 @@ export function Sources({ data, onOpen }: { data: StatsSummary; onOpen?: (r: Sou
     const base = by === "feeds" ? feedRows(sources ?? []) : folderRows(sources ?? []);
     return sortRows(base, metric).filter((r) => r.items_read > 0 || r.active_seconds > 0 || r.opens > 0 || r.stars > 0);
   }, [sources, metric, by]);
-  if (rows.length === 0 && (sources?.length ?? 0) === 0) return <Empty>No reading in this range.</Empty>;
+  if (rows.length === 0 && (sources?.length ?? 0) === 0) return <Empty />;
   const val = (r: SourceRow) => (metric === "items" ? r.items_read : r.active_seconds);
   const amount = (r: SourceRow) => (metric === "items" ? plural(r.items_read, "article") : durationLabel(r.active_seconds));
   const max = Math.max(1, ...rows.map(val));
@@ -517,7 +519,7 @@ export function StatsScreen() {
       <div className="mt-3">
         <Notice tone="warn">
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            Couldn't refresh; showing earlier numbers.
+            {failedMessage("refresh Stats", q.error)} Showing earlier numbers.
             <Button onClick={() => void q.refetch()}>Try again</Button>
           </span>
         </Notice>
@@ -560,7 +562,7 @@ export function StatsScreen() {
         ) : null}
         <SummaryStrip key={`${data.range?.key}-${data.range?.from}`} data={data} compare />
         {empty ? (
-          <EmptyState title="Nothing read in this range" why={READ_RULE} action={null} />
+          <EmptyState title={NOTHING_IN_RANGE} why={READ_RULE} action={null} />
         ) : (
           <>
             {range === "months" ? (
@@ -594,27 +596,31 @@ export function StatsScreen() {
   return (
     <div className="ui-font flex h-full min-h-0 flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-3">
-        <h1 className="pt-2 pb-2 text-xl font-bold" tabIndex={-1} data-route-heading>
-          Stats
-        </h1>
-        {on && !(data && !data.enabled) ? (
-          narrow ? (
-            <label className="flex items-center gap-2 text-sm">
-              <span className="text-fg2">Range</span>
-              <select className={`${inputCls} min-w-0 flex-1`} value={range} onChange={(e) => pick(e.target.value as ScreenRange)}>
-                {SCREEN_RANGES.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <Segmented legend="Range" value={range} onChange={pick} options={SCREEN_RANGES} />
-          )
-        ) : null}
+        <div className="mx-auto w-full max-w-3xl">
+          <h1 className="pt-2 pb-2 text-xl font-bold" tabIndex={-1} data-route-heading>
+            Stats
+          </h1>
+          {on && !(data && !data.enabled) ? (
+            narrow ? (
+              <label className="flex items-center gap-2 text-sm">
+                <span className="text-fg2">Range</span>
+                <select className={`${inputCls} min-w-0 flex-1`} value={range} onChange={(e) => pick(e.target.value as ScreenRange)}>
+                  {SCREEN_RANGES.map((r) => (
+                    <option key={r.value} value={r.value}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <Segmented legend="Range" value={range} onChange={pick} options={SCREEN_RANGES} />
+            )
+          ) : null}
+        </div>
       </header>
-      <div className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-6">{body}</div>
+      <div className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+        <div className="mx-auto w-full max-w-3xl">{body}</div>
+      </div>
       {adding ? <AddFeedDialog onClose={() => setAdding(false)} /> : null}
       <StatsExportDialog open={exporting} onOpenChange={setExporting} defaultRange={apiRange(range)} />
       <FeedSheet feed={feed} range={range} onClose={() => setFeed(null)} />

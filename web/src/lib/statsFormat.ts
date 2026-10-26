@@ -1,6 +1,9 @@
 import { feedName } from "@/lib/feedStatus";
 import type { ReadRate, StatsRange, StatsSource, WeekStart } from "@/api/types";
 
+/** The one way Stats says a range holds no reading: the page title, and (with a full stop) each empty section. */
+export const NOTHING_IN_RANGE = "Nothing read in this range";
+
 /** What makes an open a read (design §8, `store.statsIsRead`); the thresholds live on the server. */
 export const READ_RULE =
   "An article counts as read after 10 seconds of reading, or 3 seconds once you've scrolled a quarter of the way down.";
