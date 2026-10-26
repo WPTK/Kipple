@@ -3,6 +3,8 @@ package sanitize
 import (
 	"net/url"
 	"strings"
+
+	"github.com/WPTK/kipple/internal/feedurl"
 )
 
 // ResolveURL resolves ref against the first usable base and returns an
@@ -33,7 +35,7 @@ func ResolveURL(ref string, bases ...string) string {
 		}
 		r = resolved
 	}
-	if (r.Scheme != "http" && r.Scheme != "https") || r.Host == "" {
+	if !feedurl.IsHTTP(r) {
 		return ""
 	}
 	return r.String()

@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"golang.org/x/net/html"
+
+	"github.com/WPTK/kipple/internal/feedurl"
 )
 
 const (
@@ -198,13 +200,9 @@ func abs(n int) int {
 // the unbracketed host in "http://::" (#157), and a candidate is fetched from
 // its string.
 func httpURL(u *url.URL) bool {
-	if !isHTTP(u) {
+	if !feedurl.IsHTTP(u) {
 		return false
 	}
 	back, err := url.Parse(u.String())
-	return err == nil && isHTTP(back)
-}
-
-func isHTTP(u *url.URL) bool {
-	return u != nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+	return err == nil && feedurl.IsHTTP(back)
 }

@@ -1,6 +1,7 @@
 package feedurl
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 
@@ -240,4 +241,29 @@ func TestHostLongerThanDNSAllowsIsRefused(t *testing.T) {
 		_, err := Normalize(raw)
 		require.NoError(t, err, "%.60s", raw)
 	}
+}
+
+func TestIsHTTP(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"http://example.com/feed", true},
+		{"https://example.com", true},
+		{"HTTPS://example.com", true},
+		{"https://example.com:8080/x", true},
+		{"ftp://example.com", false},
+		{"file:///etc/passwd", false},
+		{"/relative/path", false},
+		{"//example.com/x", false},
+		{"http://", false},
+		{"https:///path", false},
+		{"mailto:a@example.com", false},
+	}
+	for _, c := range cases {
+		u, err := url.Parse(c.in)
+		require.NoError(t, err, c.in)
+		require.Equal(t, c.want, IsHTTP(u), c.in)
+	}
+	require.False(t, IsHTTP(nil))
 }

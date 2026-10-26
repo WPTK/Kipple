@@ -17,6 +17,9 @@ import (
 	"github.com/WPTK/kipple/internal/store"
 )
 
+// MaxFileBytes is the largest OPML file an import accepts.
+const MaxFileBytes = 8 << 20
+
 // ImportOptions tunes Import.
 type ImportOptions struct {
 	// MarkReadOlderThanDays (1-365, 0 = off) sets initial_read_before = now - N*86400
@@ -424,7 +427,7 @@ func shortURL(s string) string {
 // httpURLOrEmpty keeps only absolute http(s) URLs (htmlUrl is rendered as a link) up to feedurl.MaxLen.
 func httpURLOrEmpty(s string) string {
 	u, err := url.Parse(strings.TrimSpace(s))
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if err != nil || !feedurl.IsHTTP(u) {
 		return ""
 	}
 	out := u.String() // the stored form, the one the length limit counts (as for a feed address)

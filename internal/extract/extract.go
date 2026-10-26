@@ -21,6 +21,7 @@ import (
 	"codeberg.org/readeck/go-readability/v2"
 	"golang.org/x/net/html/charset"
 
+	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/sanitize"
 )
@@ -170,7 +171,7 @@ func failClass(transient bool, format string, a ...any) error {
 // Extract fetches t.URL and returns its readable content.
 func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 	u, err := url.Parse(strings.TrimSpace(t.URL))
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if err != nil || !feedurl.IsHTTP(u) {
 		return Result{}, fail("the item has no fetchable article URL")
 	}
 	ctx, cancel := context.WithTimeout(ctx, e.opt.Timeout)
