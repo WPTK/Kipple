@@ -105,7 +105,7 @@ try {
     const first = page.locator('article[data-item-id] a[href^="/i/"]').first();
     await first.waitFor({ timeout: 20000 });
     if (shot.layout) {
-      await page.getByRole("button", { name: /^List options/ }).click();
+      await page.getByRole("button", { name: /^Show and sort/ }).click();
       await page.getByRole("menuitemradio", { name: new RegExp(`^${shot.layout}`) }).click();
       await page.keyboard.press("Escape");
       // Close the first-run swipe hint on a phone and drop the focus ring the menu left on its button.

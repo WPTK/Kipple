@@ -591,7 +591,7 @@ describe("Auto-read per feed", () => {
 
 // ---- images ------------------------------------------------------------------------------------
 
-describe("Images (Settings)", () => {
+describe("Image cache (Settings)", () => {
   it("draws the mode and the cache size from the metadata, with 256/512/1024/2048/off presets", async () => {
     const { calls } = base({
       "PATCH /api/settings": (_u, init) => {

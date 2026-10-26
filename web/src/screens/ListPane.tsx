@@ -1167,7 +1167,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       peek={peek}
       selected={item.id === selected}
       tabStop={item.id === tabStopId}
-      showThumb={dp.inboxThumbs === "auto"}
+      showThumb={dp.listImages}
       showMuted={mutedView}
       actions={menuActions}
       onOpen={openItem}

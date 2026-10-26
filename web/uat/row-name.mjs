@@ -13,7 +13,7 @@
 //       "<title>, unread" for an unread one, and the link's text is the title alone;
 //   N3  the generated ", unread" takes no room: nothing in the page scrolls sideways.
 // The layout is the device's default (/l/all has no feed or folder override to set), and the search draws the default.
-// Each pass says which layout it checks before it checks anything: on /l/all from the list options button ("List
+// Each pass says which layout it checks before it checks anything: on /l/all from the Show and sort button ("List
 // options, <layout> layout"); the search page has no such button, so there from the device default the app has stored
 // (the one value its list reads; an unset one is Editorial, "magazine"), which must be the layout the pass set.
 // Every layout is checked on /l/all, where its own rows render; a search always draws its text rows (layouts/results.tsx),
@@ -63,20 +63,20 @@ await new Promise((resolve, reject) => server.once("error", reject).listen(0, "1
 base = `http://127.0.0.1:${server.address().port}`;
 
 async function setLayout(page, label) {
-  const btn = page.locator('button[aria-label^="List options, "]').first();
+  const btn = page.locator('button[aria-label^="Show and sort, "]').first();
   await btn.waitFor({ timeout: 15000 });
-  if ((await btn.getAttribute("aria-label")) === `List options, ${label} layout`) return;
+  if ((await btn.getAttribute("aria-label")) === `Show and sort, ${label} layout`) return;
   await btn.click();
   await page.getByRole("group", { name: "Layout" }).getByRole("menuitemradio", { name: new RegExp(`^${label}\\b`) }).click();
-  await page.locator(`button[aria-label="List options, ${label} layout"]`).first().waitFor({ timeout: 10000 });
+  await page.locator(`button[aria-label="Show and sort, ${label} layout"]`).first().waitFor({ timeout: 10000 });
   if (await page.getByRole("menu").isVisible().catch(() => false)) await page.keyboard.press("Escape");
 }
 
-/** The layout in effect, from the list options button. */
+/** The layout in effect, from the Show and sort button. */
 async function layoutOf(page) {
-  const btn = page.locator('button[aria-label^="List options, "]').first();
+  const btn = page.locator('button[aria-label^="Show and sort, "]').first();
   await btn.waitFor({ timeout: 15000 });
-  return ((await btn.getAttribute("aria-label")) ?? "").replace(/^List options, /, "").replace(/ layout$/, "");
+  return ((await btn.getAttribute("aria-label")) ?? "").replace(/^Show and sort, /, "").replace(/ layout$/, "");
 }
 
 try {

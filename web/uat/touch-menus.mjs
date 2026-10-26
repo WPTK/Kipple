@@ -5,14 +5,14 @@
 //   npm run uat:touch-menus -- --url http://127.0.0.1:7091 --screenshots <dir> --browser webkit --headed
 //
 // For each width (desktop 1280x800 with a mouse, phone 375x812 with touch, and the phone turned to 852x393) it opens the
-// List options menu, the Article length menu and a row's More actions menu, and checks:
+// Show and sort menu, the Article length menu and a row's More actions menu, and checks:
 //   D1  (desktop) each is a popover: no dimmed page, narrower than the screen, not pinned to the bottom edge;
 //   P1  (phone) each is a sheet: the screen's width up to 512 px, touching the bottom edge, no taller than 70% of the
-//       screen, over a dimmed page, and List options names its Layout and Order sections;
+//       screen, over a dimmed page, and Show and sort names its Layout and Order sections;
 //   P2  focus is inside the sheet when it opens, Escape closes it and focus returns to the button that opened it;
 //   P3  a tap on the dimmed page closes the sheet and does not reach the page under it (the address does not change);
 //   P4  a tap on a choice applies it, and in landscape, where the sheet is shorter than its content, the last choice of
-//       List options can be scrolled to;
+//       Show and sort can be scrolled to;
 //   P6  focus moving to the page behind an open sheet, after the press that opened it is over, closes the sheet (#727);
 //   A1  (phone, portrait and landscape) the Reading appearance panel of an open article is a short sheet: touching the
 //       bottom edge, no taller than 45% of the screen, with no dimmed page, and the article title shows above it; a tap
@@ -25,7 +25,7 @@ import { start, waitForAnimationsDone, waitForStillFor } from "./common.mjs";
 const t = await start(import.meta.url, 22);
 const { check, step } = t;
 
-const LAYOUT = /^List options/;
+const LAYOUT = /^Show and sort/;
 const LENGTH = /^Article length/;
 
 await t.eachViewport(async (page, vp) => {

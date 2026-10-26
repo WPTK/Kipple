@@ -27,7 +27,7 @@ function Demo({ onPick = () => {}, onPickSecond = () => {}, onClickCapture }: { 
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button type="button" aria-label="List options">
+        <button type="button" aria-label="Show and sort">
           open
         </button>
       </DropdownMenu.Trigger>
@@ -48,7 +48,7 @@ function at(el: Element, box = { left: 50, right: 150, top: 680, bottom: 720 }) 
 }
 
 async function openWith(type: "touch" | "mouse") {
-  const trigger = screen.getByRole("button", { name: "List options" });
+  const trigger = screen.getByRole("button", { name: "Show and sort" });
   pointer("pointerdown", trigger, type);
   const first = await screen.findByRole("menuitem", { name: "First" });
   at(first);
@@ -68,7 +68,7 @@ describe("MenuContent", () => {
         </main>
       </>,
     );
-    await userEvent.setup().click(screen.getByRole("button", { name: "List options" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Show and sort" }));
     const menu = await screen.findByRole("menu");
     expect(menu.closest("#main")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Skip" }).closest("[aria-hidden='true']")).toBeNull();
@@ -86,7 +86,7 @@ describe("MenuContent", () => {
         <Toasts />
       </>,
     );
-    await userEvent.setup().click(screen.getByRole("button", { name: "List options" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Show and sort" }));
     const menu = await screen.findByRole("menu");
     const toasts = container.querySelector("[data-testid=toast-region]")!;
     expect(z(menu)).toBeGreaterThan(z(toasts));
@@ -103,7 +103,7 @@ describe("MenuContent", () => {
         <Demo />
       </>,
     );
-    await userEvent.setup().click(screen.getByRole("button", { name: "List options" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Show and sort" }));
     await screen.findByRole("menu");
     act(() => screen.getByRole("button", { name: "Under" }).focus());
     await new Promise((r) => setTimeout(r, 50));
@@ -118,7 +118,7 @@ describe("MenuContent", () => {
         <Demo />
       </>,
     );
-    await userEvent.setup().click(screen.getByRole("button", { name: "List options" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Show and sort" }));
     await screen.findByRole("menu");
     await new Promise((r) => setTimeout(r, 450));
     act(() => screen.getByRole("button", { name: "Under" }).focus());
@@ -133,7 +133,7 @@ describe("MenuContent", () => {
         <Demo />
       </>,
     );
-    await userEvent.setup().click(screen.getByRole("button", { name: "List options" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Show and sort" }));
     await screen.findByRole("menu");
     await new Promise((r) => setTimeout(r, 450));
     // Straight to window, where the press tracker listens: a press on the page itself would close the menu on its own.
@@ -146,7 +146,7 @@ describe("MenuContent", () => {
     touch(false);
     const user = userEvent.setup();
     render(<Demo />);
-    await user.click(screen.getByRole("button", { name: "List options" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort" }));
     const menu = await screen.findByRole("menu");
     expect(menu.className).toContain("w-72");
     expect(menu.className).toContain("max-h-[var(--radix-dropdown-menu-content-available-height)]");
@@ -158,7 +158,7 @@ describe("MenuContent", () => {
     touch(true);
     const user = userEvent.setup();
     render(<Demo />);
-    await user.click(screen.getByRole("button", { name: "List options" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort" }));
     const menu = await screen.findByRole("menu");
     expect(menu.hasAttribute("data-menu-sheet")).toBe(true);
     expect(menu.className).toContain("w-full");
@@ -175,9 +175,9 @@ describe("MenuContent", () => {
     touch(isTouch);
     const user = userEvent.setup();
     render(<Demo />);
-    const trigger = screen.getByRole("button", { name: "List options" });
+    const trigger = screen.getByRole("button", { name: "Show and sort" });
     await user.click(trigger);
-    const menu = await screen.findByRole("menu", { name: "List options" });
+    const menu = await screen.findByRole("menu", { name: "Show and sort" });
     expect(screen.getAllByRole("menuitem")).toHaveLength(2);
     expect(menu.querySelectorAll("[aria-hidden='true']").length).toBe(0); // the items are the menu's only content
     await user.keyboard("{Escape}");
@@ -190,11 +190,11 @@ describe("MenuContent", () => {
     const user = userEvent.setup();
     const pick = vi.fn();
     render(<Demo onPick={pick} />);
-    await user.click(screen.getByRole("button", { name: "List options" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort" }));
     await user.click(await screen.findByRole("menuitem", { name: "First" }));
     expect(pick).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-    await user.click(screen.getByRole("button", { name: "List options" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort" }));
     await screen.findByRole("menu");
     // jsdom has no stylesheet, so user-event would see the body's pointer-events: none
     const backdrop = document.querySelector("[data-menu-backdrop]")!;
@@ -304,7 +304,7 @@ describe("MenuContent", () => {
     const user = userEvent.setup();
     const seen = vi.fn();
     render(<Demo onClickCapture={seen} />);
-    await user.click(screen.getByRole("button", { name: "List options" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort" }));
     await user.click(await screen.findByRole("menuitem", { name: "Second" }));
     expect(seen).toHaveBeenCalled();
   });
@@ -313,7 +313,7 @@ describe("MenuContent", () => {
     touch(true);
     const user = userEvent.setup();
     const { rerender } = render(<Demo />);
-    await user.click(screen.getByRole("button", { name: "List options" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort" }));
     expect((await screen.findByRole("menu")).hasAttribute("data-menu-sheet")).toBe(true);
     touch(false);
     rerender(<Demo />);
@@ -321,7 +321,7 @@ describe("MenuContent", () => {
     expect(document.querySelector("[data-menu-backdrop]")).not.toBeNull();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-    await user.click(screen.getByRole("button", { name: "List options" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort" }));
     expect((await screen.findByRole("menu")).hasAttribute("data-menu-sheet")).toBe(false);
   });
 
@@ -443,7 +443,7 @@ describe("MenuContent", () => {
     touch(true);
     const user = userEvent.setup();
     render(<Demo />);
-    await user.click(screen.getByRole("button", { name: "List options" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort" }));
     const menu = await screen.findByRole("menu");
     expect(menu.parentElement?.hasAttribute("data-radix-popper-content-wrapper")).toBe(true);
     expect(menu.hasAttribute("data-menu-sheet")).toBe(true);
@@ -454,7 +454,7 @@ describe("MenuContent", () => {
     const user = userEvent.setup();
     const pick = vi.fn();
     render(<Demo onPick={pick} />);
-    await user.click(screen.getByRole("button", { name: "List options" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort" }));
     await screen.findByRole("menu");
     await user.keyboard("{ArrowDown}{Enter}");
     expect(pick).toHaveBeenCalledTimes(1);
@@ -465,7 +465,7 @@ describe("MenuContent", () => {
     const user = userEvent.setup();
     const pick = vi.fn();
     render(<Demo onPick={pick} />);
-    await user.click(screen.getByRole("button", { name: "List options" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "First" }));
     expect(pick).toHaveBeenCalledTimes(1);
   });

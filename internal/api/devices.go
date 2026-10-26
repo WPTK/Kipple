@@ -193,7 +193,7 @@ var clientDefs = map[string]clientDef{
 	"client.order":              {oneOf("newest", "oldest"), "newest"},
 	"client.group":              {oneOf("day", "week", "none"), "day"},
 	"client.search_order":       {oneOf("relevance", "newest", "oldest"), "relevance"},
-	"client.inbox_thumbs":       {oneOf("auto", "off"), "auto"},
+	"client.list_images":        {boolVal, true}, // pictures in lists: Inbox thumbnails and the Digest's images
 	"client.peek_seen":          {boolVal, false},
 	"client.article_width":      {oneOf("narrow", "medium", "wide", "full"), "medium"},
 	"client.list_width":         {boundedInt(260, 720), nil},
@@ -226,11 +226,10 @@ var clientDefs = map[string]clientDef{
 		return s, ""
 	}, ""},
 	// The Digest layout's device settings : what a section is (a folder, a feed or a reading time), the order of the sections
-	// (as the sidebar lists them, or the quietest feeds first), whether its rows show pictures, and how many
+	// (as the sidebar lists them, or the quietest feeds first), and how many
 	// articles each section shows before "more".
 	"client.digest_sections": {oneOf("folder", "feed", "length"), "folder"},
 	"client.digest_order":    {oneOf("sidebar", "quiet"), "sidebar"},
-	"client.digest_images":   {boolVal, true},
 	"client.digest_rows":     {floatOneOf(3, 5, 10), 3.0},
 	"client.collapsed_folders": {func(v any) (any, string) {
 		const msg = "must be a list (at most 200) of numeric-string folder ids without repeats"

@@ -119,8 +119,8 @@ export interface DevicePrefs {
   group: GroupBy;
   /** Result ordering of the Search screen (server key `client.search_order`). */
   searchOrder: SearchOrder;
-  /** Inbox trailing thumbnails: Auto shows them when the item has an image. */
-  inboxThumbs: "auto" | "off";
+  /** Pictures in lists: Inbox thumbnails and the Digest's images (`client.list_images`). The picture layouts always show theirs. */
+  listImages: boolean;
   /** The first-run swipe peek has played (or been dismissed) on this device. */
   peekSeen: boolean;
   /** Width of the article column in the reader pane and the full-screen article. */
@@ -143,8 +143,6 @@ export interface DevicePrefs {
   digestSections: DigestSections;
   /** The order of the Digest sections: as the sidebar lists them, or the quietest feeds first (`client.digest_order`). */
   digestOrder: DigestOrder;
-  /** Whether Digest rows show pictures (`client.digest_images`). */
-  digestImages: boolean;
   /** How many articles a Digest section shows before "more" (`client.digest_rows`). */
   digestRows: DigestRows;
 }
@@ -158,7 +156,7 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   order: "newest",
   group: "day",
   searchOrder: "rank",
-  inboxThumbs: "auto",
+  listImages: true,
   peekSeen: false,
   articleWidth: "medium",
   listWidth: null,
@@ -170,7 +168,6 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   paperName: "",
   digestSections: "folder",
   digestOrder: "sidebar",
-  digestImages: true,
   digestRows: 3,
 };
 
@@ -232,6 +229,16 @@ function cleanMap(v: unknown): Record<string, ListOverride> {
   return out;
 }
 
+/**
+ * Pictures hidden: by the setting, or (read once from a cache written before the two picture settings became one) by
+ * "Thumbnails in Inbox: Off" or the Digest's images off. Either one hid pictures somewhere, so the new setting hides them.
+ */
+function hidPictures(v: { listImages?: unknown } | null): boolean {
+  if (typeof v?.listImages === "boolean") return !v.listImages;
+  const old = v as { inboxThumbs?: unknown; digestImages?: unknown } | null;
+  return old?.inboxThumbs === "off" || old?.digestImages === false;
+}
+
 export function parseDevicePrefs(raw: string | null): DevicePrefs {
   const d = DEFAULT_DEVICE_PREFS;
   if (!raw) return { ...d, overrides: { feed: {}, folder: {} } };
@@ -251,7 +258,7 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       order: v?.order === "oldest" ? "oldest" : "newest",
       group: GROUP_BYS.includes(v?.group as GroupBy) ? (v?.group as GroupBy) : d.group,
       searchOrder: isSearchOrder(v?.searchOrder) ? v.searchOrder : d.searchOrder,
-      inboxThumbs: v?.inboxThumbs === "off" ? "off" : "auto",
+      listImages: hidPictures(v) ? false : d.listImages,
       peekSeen: v?.peekSeen === true,
       articleWidth: ARTICLE_WIDTHS.includes(v?.articleWidth as ArticleWidth) ? (v?.articleWidth as ArticleWidth) : d.articleWidth,
       listWidth: typeof v?.listWidth === "number" && Number.isFinite(v.listWidth) ? clampNum(v.listWidth, LIST_WIDTH_MIN, LIST_WIDTH_MAX) : null,
@@ -264,7 +271,6 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       paperName: cleanPaperName(v?.paperName),
       digestSections: hadCoffee ? "length" : v?.digestSections === "feed" || v?.digestSections === "length" ? v.digestSections : d.digestSections,
       digestOrder: v?.digestOrder === "quiet" ? "quiet" : d.digestOrder,
-      digestImages: v?.digestImages !== false,
       digestRows: DIGEST_ROWS.includes(v?.digestRows as DigestRows) ? (v?.digestRows as DigestRows) : d.digestRows,
     };
   } catch {
@@ -468,6 +474,15 @@ export function resolveOrder(p: DevicePrefs, ctx: LayoutContext): OrderPref {
 
 /** Whether a layout shows its list in the order the reader set (every layout but the Gazette and the Digest). */
 export const followsOrder = (layout: LayoutId): boolean => layout !== "gazette" && layout !== "digest";
+
+/** Why Order is greyed in a layout that sets its own order, else null. One line, shown by the layout menu and the header's Oldest first button. */
+export const orderLockReason = (layout: LayoutId): string | null => (followsOrder(layout) ? null : `The ${LAYOUT_LABELS[layout]} is always newest first.`);
+
+/** Why Group by is greyed: the Gazette prints its own pages, the Digest groups by section, a search has its own headers. Else null. */
+export function groupLockReason(layout: LayoutId, searching: boolean): string | null {
+  if (searching) return "A search keeps its own headers.";
+  return layout === "gazette" ? "The Gazette prints its own pages." : layout === "digest" ? "The Digest groups by section." : null;
+}
 
 /** The parts of a list that decide whether the Digest can cut it by reading time. */
 export interface ListShape {

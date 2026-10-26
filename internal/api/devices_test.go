@@ -225,7 +225,9 @@ func TestPatchDeviceValidation(t *testing.T) {
 		{"retired layout", `{"client.layout":"coffee"}`, "client.layout"},
 		{"digest sections", `{"client.digest_sections":"tag"}`, "client.digest_sections"},
 		{"digest order", `{"client.digest_order":"newest"}`, "client.digest_order"},
-		{"digest images type", `{"client.digest_images":"yes"}`, "client.digest_images"},
+		{"list images type", `{"client.list_images":"yes"}`, "client.list_images"},
+		{"retired inbox thumbs", `{"client.inbox_thumbs":"off"}`, "client.inbox_thumbs"},
+		{"retired digest images", `{"client.digest_images":false}`, "client.digest_images"},
 		{"digest rows other", `{"client.digest_rows":4}`, "client.digest_rows"},
 		{"digest rows string", `{"client.digest_rows":"5"}`, "client.digest_rows"},
 		{"collapsed dup", `{"client.collapsed_folders":["1","1"]}`, "client.collapsed_folders"},
@@ -256,11 +258,11 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	 "ui.reading_density":"airy","ui.list_density":"dense","ui.mark_read_on_scroll":true,
 	 "client.layout":"digest","client.group":"week","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","group":"none","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"},"5":{"layout":"gazette"},"6":{"layout":"headlines"}}},
 	 "client.paper_name":"` + strings.Repeat("é", 60) + `",
-	 "client.order":"oldest","client.search_order":"relevance","client.inbox_thumbs":"off","client.peek_seen":true,"client.article_width":"full",
+	 "client.order":"oldest","client.search_order":"relevance","client.list_images":false,"client.peek_seen":true,"client.article_width":"full",
 	 "client.list_width":400,"client.sidebar_width":300,"client.link_target":"same","client.unread_badge":"dot",
 	 "client.text_size":0.875,"client.adjust_separately":true,"client.shortcuts":false,"client.spacing":"roomy",
 	 "client.motion":"on","client.font_everywhere":true,"client.large_targets":true,"client.highlight_keywords":false,"client.listen":true,"client.voice":"Samantha","client.rate":1.2,
-	 "client.digest_sections":"length","client.digest_order":"quiet","client.digest_images":false,"client.digest_rows":10,
+	 "client.digest_sections":"length","client.digest_order":"quiet","client.digest_rows":10,
 	 "client.collapsed_folders":["4","9"]}`
 	code, out, _ := d.call("PATCH", "/api/device", body)
 	require.Equal(t, http.StatusOK, code, out)
@@ -293,12 +295,12 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	require.Equal(t, []any{"4", "9"}, m["client.collapsed_folders"])
 	require.Equal(t, "length", m["client.digest_sections"])
 	require.Equal(t, "quiet", m["client.digest_order"])
-	require.Equal(t, false, m["client.digest_images"])
+	require.Equal(t, false, m["client.list_images"])
 	require.EqualValues(t, 10, m["client.digest_rows"])
 	fm := fresh["merged"].(map[string]any)
 	require.Equal(t, "folder", fm["client.digest_sections"], "defaults")
 	require.Equal(t, "sidebar", fm["client.digest_order"])
-	require.Equal(t, true, fm["client.digest_images"])
+	require.Equal(t, true, fm["client.list_images"])
 	require.EqualValues(t, 3, fm["client.digest_rows"])
 	// partial update keeps the rest
 	_, out, _ = d.call("PATCH", "/api/device", `{"client.layout":null,"client.shortcuts":null}`)

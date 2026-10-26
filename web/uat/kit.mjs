@@ -12,7 +12,7 @@
 //   K5  a keyboard-focused list row draws its ring around the row and the link gets no box of its own;
 //   K6  a destructive button underlines on hover while it has keyboard focus (#728);
 //   K7  a number setting (how often to check feeds) is a row of choices with Custom, not a bare stepper (#686);
-//   K8  every row of the List options and Article length menus is the one menu row (44 px tall, rounded, highlight on focus) (#627).
+//   K8  every row of the Show and sort and Article length menus is the one menu row (44 px tall, rounded, highlight on focus) (#627).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { readFileSync } from "node:fs";
@@ -37,7 +37,7 @@ await t.eachViewport(async (page, vp) => {
   const tag = vp.id;
   await step(`${tag} K1`, async () => {
     await page.goto("/", { waitUntil: "load" });
-    const opener = page.getByRole("button", { name: "List options" });
+    const opener = page.getByRole("button", { name: "Show and sort" });
     await opener.waitFor({ timeout: 15000 });
     await opener.click();
     const menu = page.getByRole("menu");
@@ -151,7 +151,7 @@ await t.eachViewport(async (page, vp) => {
 
   await step(`${tag} K8`, async () => {
     await page.goto("/l/unread", { waitUntil: "load" });
-    for (const name of [/^List options/, /^Article length/]) {
+    for (const name of [/^Show and sort/, /^Article length/]) {
       const opener = page.getByRole("button", { name });
       await opener.waitFor({ timeout: 15000 });
       await opener.click();

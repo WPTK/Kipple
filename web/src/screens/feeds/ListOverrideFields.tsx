@@ -56,7 +56,7 @@ export function ListOverrideFields({ kind, id, draft: state }: { kind: "feed" | 
   const stored = useDevicePrefs().overrides[kind][id];
   const own = (field: ListField): string | null => (field in state.draft ? (state.draft[field] ?? null) : ((stored?.[field] as string | undefined) ?? null));
   const ctx = useListContext(kind === "feed" ? { feed: id } : { folder: id });
-  // The first choice of each clears the list's own value and names what it then gets (the list options menu's words).
+  // The first choice of each clears the list's own value and names what it then gets (the Show and sort menu's words).
   const fallbacks: Record<ListField, string> = {
     layout: useFallbackLabel(ctx, "layout"),
     order: useFallbackLabel(ctx, "order"),

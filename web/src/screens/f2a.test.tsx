@@ -185,7 +185,7 @@ describe("layouts", () => {
 
   it("Inbox thumbnails can be turned off", async () => {
     routes();
-    updateDevicePrefs({ layout: "inbox", inboxThumbs: "off" });
+    updateDevicePrefs({ layout: "inbox", listImages: false });
     const { container } = go("/l/unread");
     await screen.findByText("Article number 1");
     expect(container.querySelector('img[src="/img/x.jpg"]')).toBeNull();
@@ -218,7 +218,7 @@ describe("layouts", () => {
     go("/l/unread?feed=1");
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "List options, Editorial layout" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort, Editorial layout" }));
     // One list, for this feed: the radio is the override, the star beside each layout is the device default.
     expect(screen.getByText(/for this feed on this device/)).toBeInTheDocument();
     await user.click(screen.getByRole("menuitemradio", { name: /Headlines/ }));
@@ -226,12 +226,12 @@ describe("layouts", () => {
     expect(devicePrefsStore.get().layout).toBe("magazine"); // the device default did not move
     await waitFor(() => expect(document.querySelector(".row-headline")).not.toBeNull());
     // Use device default clears it.
-    await user.click(screen.getByRole("button", { name: "List options, Headlines layout" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort, Headlines layout" }));
     await user.click(within(screen.getByRole("group", { name: "Layout of this feed" })).getByRole("menuitemradio", { name: /Use device default/ }));
     expect(devicePrefsStore.get().overrides.feed["1"]).toBeUndefined();
     await waitFor(() => expect(document.querySelector(".row-headline")).toBeNull());
     // The star makes a layout the device default; the filled star marks the current one.
-    await user.click(screen.getByRole("button", { name: "List options, Editorial layout" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort, Editorial layout" }));
     expect(screen.getByRole("menuitemcheckbox", { name: "Editorial is the device default" })).toBeChecked();
     await user.click(screen.getByRole("menuitemcheckbox", { name: "Make Inbox the device default" }));
     expect(devicePrefsStore.get().layout).toBe("inbox");
@@ -243,7 +243,7 @@ describe("layouts", () => {
     go("/l/unread");
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "List options, Editorial layout" }));
+    await user.click(screen.getByRole("button", { name: "Show and sort, Editorial layout" }));
     expect(screen.queryByRole("menuitemcheckbox", { name: /device default/ })).toBeNull();
     expect(screen.queryByText(/The star sets/)).toBeNull();
     await user.click(screen.getByRole("menuitemradio", { name: /Headlines/ }));
@@ -270,7 +270,7 @@ describe("layouts", () => {
     await waitFor(() => expect(document.querySelector('[data-item-id="1002"]')).not.toBeNull());
     const user = userEvent.setup();
     for (const [from, to] of [["Editorial", "Cards"], ["Cards", "Inbox"], ["Inbox", "Editorial"]] as const) {
-      await user.click(screen.getByRole("button", { name: `List options, ${from} layout` }));
+      await user.click(screen.getByRole("button", { name: `Show and sort, ${from} layout` }));
       await user.click(screen.getByRole("menuitemradio", { name: new RegExp(`^${to}`) }));
       expect(screen.getByTestId("article-body")).toBeInTheDocument(); // the article stays open
       await waitFor(() => expect(document.querySelector('[data-item-id="1002"]')).not.toBeNull()); // and so does the list

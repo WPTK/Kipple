@@ -258,11 +258,11 @@ async function desktop(cookies) {
   });
   await load(page, "/l/all");
   // The layout the keys are exercised in: Editorial, whose rows carry the unread dot and a Star button.
-  const layoutBtn = page.locator('button[aria-label^="List options, "]').first();
-  if ((await layoutBtn.getAttribute("aria-label")) !== "List options, Editorial layout") {
+  const layoutBtn = page.locator('button[aria-label^="Show and sort, "]').first();
+  if ((await layoutBtn.getAttribute("aria-label")) !== "Show and sort, Editorial layout") {
     await layoutBtn.click();
     await page.getByRole("menuitemradio", { name: /^Editorial\b/ }).click();
-    await page.waitForFunction(() => document.querySelector('button[aria-label^="List options, "]')?.getAttribute("aria-label") === "List options, Editorial layout", null, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector('button[aria-label^="Show and sort, "]')?.getAttribute("aria-label") === "Show and sort, Editorial layout", null, { timeout: 5000 });
   }
   await page.waitForSelector("main article a[href^='/i/']", { timeout: 15000 });
   const articlePath = await page.locator("main article a[href^='/i/']").first().getAttribute("href");
@@ -447,7 +447,7 @@ async function backwards(page, where) {
 // K2: menus and dialogs open from the keyboard and Escape closes them and returns focus.
 async function k2(page) {
   const cases = [
-    ["/l/all", "Layout menu", (p) => p.locator('button[aria-label^="List options, "]').first(), false],
+    ["/l/all", "Layout menu", (p) => p.locator('button[aria-label^="Show and sort, "]').first(), false],
     ["/l/all", "Reading appearance", (p) => p.getByRole("button", { name: "Reading appearance" }).first(), true],
     ["/l/all", "List actions menu", (p) => p.getByRole("button", { name: "List actions" }).first(), false],
     ["/l/all", "Row More actions menu", (p) => p.getByRole("button", { name: "More actions" }).first(), false],

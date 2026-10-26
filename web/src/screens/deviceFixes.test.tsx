@@ -925,9 +925,9 @@ describe("layout names", () => {
     media(WIDE);
     go("/l/unread");
     await screen.findByText("Article number 1");
-    expect(screen.getByRole("button", { name: "List options, Editorial layout" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show and sort, Editorial layout" })).toBeInTheDocument();
     act(() => updateDevicePrefs({ layout: "headlines" }));
-    expect(await screen.findByRole("button", { name: "List options, Headlines layout" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Show and sort, Headlines layout" })).toBeInTheDocument();
     expect(devicePrefsStore.get().layout).toBe("headlines");
   });
 });
