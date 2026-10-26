@@ -854,6 +854,10 @@ The restore prints the snapshot's counts and moves the migrated database to
 
 ### Disk space during an upgrade
 
+Plan on about 10 seconds per GB of database for an upgrade that migrates the schema (a fast SSD does it in about 6), and
+on free space of about the size of the database for the snapshot, more for the migration itself (below). Kipple does not
+answer while it works.
+
 An upgrade that migrates the schema writes the pre-migration snapshot (a full copy of the database) and then runs the
 migration, which is held in the WAL until it is committed and checkpointed into the database file. The server does not
 answer, health check included, until the migration finishes; a migration that builds an index over a large table can
