@@ -294,7 +294,7 @@ Rules of thumb from the numbers above. They scale with item count and content si
   database needs room to grow.
 - **Memory.** Idle use is about 60 MB and the peak at 500 feeds and 150,000 items was 130 MB. The 256 MB limit in the
   compose example fits this size; memory follows the work in flight (a refresh, a trim), not the library size.
-- **CPU and time.** One core is enough for the interactive calls. Backup is about 20 s per GB of database, restore
+- **CPU and time.** One core is enough for the interactive calls. Backup is about 16 s per GB of database, restore
   about 16 s per GB, and the pre-upgrade snapshot about 3.5 s per GB. A restart after an upgrade is not
   reachable until the snapshot and migration finish: about 7 s at 1.6 GB, so the 40 s start period of the image's
   health check covers a database up to roughly 10 GB on a disk like this one, and less on a slow disk.
