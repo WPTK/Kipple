@@ -12,7 +12,7 @@
 // server (GET /api/stats/summary) before and after. Afterwards it marks the article unread again. It only runs against
 // a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0 clean, 1 findings,
 // 2 setup error. First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
-import { start } from "./common.mjs";
+import { start, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 14);
 const { check, step } = t;
@@ -31,18 +31,7 @@ await t.eachViewport(async (page, vp) => {
 
   /** Reads the server's active seconds until they have not changed for `quietMs` (late beacons have landed), up to `maxMs`. */
   const settled = async (quietMs, maxMs) => {
-    const end = Date.now() + maxMs;
-    let value = await activeSeconds(page);
-    let since = Date.now();
-    while (Date.now() - since < quietMs && Date.now() < end) {
-      await page.waitForTimeout(250);
-      const now = await activeSeconds(page);
-      if (now !== value) {
-        value = now;
-        since = Date.now();
-      }
-    }
-    return value;
+    return waitForStillFor(page, quietMs, () => activeSeconds(page), { timeout: maxMs, label: "the server's active seconds" }).catch(() => activeSeconds(page));
   };
 
   /**
@@ -58,7 +47,11 @@ await t.eachViewport(async (page, vp) => {
     await page.getByTestId("article-body").waitFor({ timeout: 15000 });
     // The service worker controls the page, as it does for a reader: the beacon has to get past it.
     check(await page.evaluate(() => !!navigator.serviceWorker?.controller), `${tag} worker`, "the service worker controls the page", "no service worker controls the page, so the check below would not cover it");
-    await page.waitForTimeout(12500); // real time: the flow reads active reading seconds, which only pass on the clock
+    // Real time: the flow reads active reading seconds, which only pass on the clock. The server drops a read_time event
+    // whose counted seconds exceed its own elapsed time since the open plus 5 s (internal/stats/stats.go:190), so a faked
+    // page clock (page.clock.runFor) delivers nothing: the 12.5 s must pass in real time. (page.clock was tried on
+    // chromium, firefox and webkit: it gained 0 seconds.)
+    await page.waitForTimeout(12500);
     await leave();
     // The beacon is delivered by the browser after the unload (0.5 to 2 s): wait until the totals have been still for 3 s.
     return (await settled(3000, 15000)) - before;

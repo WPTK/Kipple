@@ -18,6 +18,7 @@
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
 import { URL } from "node:url";
+import { expect } from "@playwright/test";
 import { start } from "./common.mjs";
 
 const t = await start(import.meta.url, 18);
@@ -89,11 +90,10 @@ try {
     const headers = () => page.locator(`${scroller} h2`).evaluateAll((els) => els.map((e) => (e.textContent ?? "").trim()));
     const ownGroup = async (feedId, want) => {
       let entry;
-      for (let i = 0; i < 40; i++) {
-        entry = (await profile())["client.list_overrides"]?.feed?.[feedId];
-        if (entry?.group === want) break;
-        await page.waitForTimeout(250);
-      }
+      await expect
+        .poll(async () => (entry = (await profile())["client.list_overrides"]?.feed?.[feedId])?.group, { timeout: 10000, intervals: [250] })
+        .toBe(want)
+        .catch(() => {}); // the caller's check says what the profile holds instead
       return entry;
     };
     const headerTags = () => page.locator(`${scroller} h2`).evaluateAll((els) => els.map((e) => e.tagName));

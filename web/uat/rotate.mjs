@@ -43,7 +43,7 @@ const whereIs = (page, id) =>
 const MAX_ARTICLES = 1000;
 const ready = async (page) => {
   await scroller(page).locator("[data-item-id]").first().waitFor({ timeout: 15000 });
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(300); // real time: the list places its first screen on a timer, which has no DOM signal
 };
 /** Scrolls the list by `px` as a reader would (a wheel event, then the scroll, in steps of at most 400), and lets the marks land. */
 const readerScroll = async (page, px) => {
@@ -55,9 +55,9 @@ const readerScroll = async (page, px) => {
       },
       Math.min(400, px - done),
     );
-    await page.waitForTimeout(60);
+    await page.waitForTimeout(60); // real time: the steps are paced like a hand on a wheel, and the app throttles on the clock
   }
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(1500); // real time: the marks land after the 700 ms mark-on-scroll settle plus a round trip, with no DOM signal
 };
 /** Turns the page to `w` x `h` and waits well past the mark-on-scroll settle (700 ms). */
 const turn = async (page, w, h) => {

@@ -28,7 +28,7 @@
 // Chromium only. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { readFileSync } from "node:fs";
-import { start } from "./common.mjs";
+import { start, waitForPageStill } from "./common.mjs";
 import { route, today } from "./statsFixture.mjs";
 
 const t = await start(import.meta.url, 26, { serviceWorkers: "block" });
@@ -264,7 +264,7 @@ await t.eachViewport(async (page, vp) => {
     check(!(await overflowsX(dlg)), `${tag} T8 sideways`, "the sheet does not scroll sideways", "the sheet scrolls sideways");
     const download = dlg.getByRole("button", { name: "Download image" });
     await download.waitFor();
-    await page.waitForTimeout(1500);
+    await waitForPageStill(page, 400); // the preview has drawn (fonts, picture) before it is photographed
     await t.shot(page, `${tag}-T8-share`);
     const [file] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), download.click()]);
     const path = await file.path();

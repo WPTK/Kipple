@@ -12,6 +12,7 @@
 // The feeds have "uat-feed-" addresses, so the shared cleanup removes anything a failed run leaves.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
+import { expect } from "@playwright/test";
 import { deadFeed, start, startSelect } from "./common.mjs";
 
 const t = await start(import.meta.url, 12);
@@ -60,20 +61,26 @@ await t.eachViewport(async (page, vp) => {
     check((await left(page, b)) === COUNT, `${tag} D2 setup`, `${COUNT} feeds imported`, "the import did not add every feed");
     await select("UAT bulk two");
     await page.getByRole("button", { name: "Delete", exact: true }).click();
+    // The page is left as soon as the request is on its way, the way a closed tab would.
+    const sent = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname === "/api/feeds/delete", { timeout: 10000 });
     await page.getByRole("dialog").getByRole("button", { name: `Delete ${COUNT} feeds` }).click();
-    await page.waitForTimeout(150);
+    await sent;
     await page.goto("about:blank"); // the tab is closed: its request is cut off
     // The lists hide a feed from the moment it is marked, so the proof that the server finished is the health list,
     // which still shows a feed whose purge has not completed.
     let remaining = COUNT;
-    const end = Date.now() + 90000;
-    while (Date.now() < end) {
-      await page.goto("/feeds", { waitUntil: "load" });
-      const health = await page.request.get("/api/health/feeds", { headers: { Accept: "application/json" } }).then((r) => r.text());
-      remaining = (await left(page, b)) + (health.match(/kipple:deleting:/g) ?? []).length;
-      if (remaining === 0) break;
-      await page.waitForTimeout(1000);
-    }
+    await page.goto("/feeds", { waitUntil: "load" });
+    await expect
+      .poll(
+        async () => {
+          const health = await page.request.get("/api/health/feeds", { headers: { Accept: "application/json" } }).then((r) => r.text());
+          remaining = (await left(page, b)) + (health.match(/kipple:deleting:/g) ?? []).length;
+          return remaining;
+        },
+        { timeout: 90000, intervals: [250, 500, 1000] },
+      )
+      .toBe(0)
+      .catch(() => {}); // the check below says how many were left
     check(remaining === 0, `${tag} D2`, "the server finished the whole set after the page was left", `${remaining} of ${COUNT} feeds were left half deleted`);
     await t.shot(page, `${tag}-bulk-delete-after-close`);
   });

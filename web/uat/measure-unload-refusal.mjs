@@ -7,7 +7,7 @@
 // The counts vary from machine to machine (the race is timing), so this prints them rather than asserting them. What
 // the filter relies on is the second line: refusals that came with a requestfailed for their URL should be 0.
 import { webkit } from "@playwright/test";
-import { accessControlUrl } from "./common.mjs";
+import { accessControlUrl, waitForFrames } from "./common.mjs";
 
 const runs = Number(process.argv[process.argv.indexOf("--runs") + 1]) || 20;
 const base = process.env.KIPPLE_UAT_URL || "http://127.0.0.1:1919";
@@ -37,7 +37,7 @@ for (let i = 0; i < runs; i++) {
   await page.keyboard.press("Enter");
   await page.waitForURL((u) => !/login|setup/.test(u.pathname), { timeout: 15000 }).catch(() => {});
   await page.goto(base + "/l/all").catch(() => {});
-  await page.waitForTimeout(500);
+  await waitForFrames(page); // a round trip to the page: every error it raised on the way has been delivered
   if (refused.length) refusedRuns++;
   if (refused.some((u) => failed.has(u))) withRequestFailed++;
   await ctx.close();

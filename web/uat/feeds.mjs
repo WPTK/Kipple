@@ -49,9 +49,9 @@ await t.eachViewport(async (page, vp) => {
   await t.shot(page, `${tag}-feeds-select`);
   // After the plain click, whose result it must not disturb: an engine may treat a middle-click on a label as a click.
   const pages = page.context().pages().length;
+  const opened = page.context().waitForEvent("page", { timeout: 1000 }).then(() => true, () => false); // a new tab arrives within a round trip or not at all
   await page.getByRole("main").getByText(real.title, { exact: true }).first().click({ button: "middle" }).catch(() => {});
-  await page.waitForTimeout(500);
-  check(page.context().pages().length === pages, `${tag} F1 no tab`, "a middle-click opens nothing", "a middle-click opened a new tab");
+  check(!(await opened) && page.context().pages().length === pages, `${tag} F1 no tab`, "a middle-click opens nothing", "a middle-click opened a new tab");
   await page.getByRole("button", { name: "Done", exact: true }).click();
   check(await page.getByRole("button", { name: "Edit", exact: true }).isVisible(), `${tag} F1 done`, "Done leaves select mode", "still selecting");
   });

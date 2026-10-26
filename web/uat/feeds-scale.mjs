@@ -53,7 +53,7 @@ await t.eachViewport(async (page, vp) => {
     while (Date.now() < end && !(await last.count())) {
       await page.locator("main [data-reveal-root]").evaluate((el) => el.scrollTo(0, el.scrollHeight));
       await page.mouse.wheel(0, 4000);
-      await page.waitForTimeout(250);
+      await last.waitFor({ state: "attached", timeout: 250 }).catch(() => {}); // the next batch of rows, or scroll again
     }
     const shown = (await last.count()) > 0;
     check(shown && (await more.count()) === 0, `${tag} L2`, `scrolling drew all ${await numbered.count()} feeds`, shown ? "every feed is drawn, but the Show more button stays" : `scrolling to the end did not draw "UAT feed ${COUNT}"`);
@@ -123,8 +123,7 @@ await t.eachViewport(async (page, vp) => {
     const lastKey = await items.last().getAttribute("data-tree-key");
     await items.last().focus();
     await page.keyboard.press("ArrowDown");
-    const end = Date.now() + 10000;
-    while (Date.now() < end && (await items.count()) <= before) await page.waitForTimeout(100);
+    await items.nth(before).waitFor({ timeout: 10000 }).catch(() => {}); // the row after the last one is drawn; the check below says if not
     const at = await tree.locator(":focus").getAttribute("data-tree-key");
     const all = await items.evaluateAll((els) => els.map((e) => e.getAttribute("data-tree-key")));
     check(before < all.length && at === all[before], `${tag} L5`, `focus moved from ${lastKey} to ${at}, the row after it`, `focus is on ${at}; the row after ${lastKey} is ${all[before]}`);

@@ -13,7 +13,7 @@
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
 import { Buffer } from "node:buffer";
-import { start, startSelect } from "./common.mjs";
+import { start, startSelect, waitForFrames, waitForPageStill, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 13);
 const { check, step } = t;
@@ -55,7 +55,9 @@ await t.eachViewport(async (page, vp) => {
     await startSelect(page);
     const bar = page.getByRole("region", { name: "Selected feeds" });
     await bar.waitFor({ timeout: 5000 });
-    await page.waitForTimeout(400);
+    // The toast moves up as the bar appears: measure it once it has stopped (two frames first, so the move has begun).
+    await waitForFrames(page);
+    await waitForStillFor(page, 300, () => toast.boundingBox().catch(() => null), { label: "the toast to stop moving" });
     const toastBox = await toast.boundingBox();
     const hits = [];
     for (const name of ["Select all", "Move", "Delete"]) {
@@ -94,7 +96,8 @@ await t.eachViewport(async (page, vp) => {
         undefined,
         { timeout: 10000 },
       ).catch(() => {});
-      await page.waitForTimeout(1500);
+      // A refused picture is removed by the app: look once the rows have stopped changing (their height, elements, animations).
+      await waitForPageStill(page, 600);
       const left = await page.locator("[data-item-id]").evaluateAll((rows, ids) =>
         rows
           .filter((r) => ids.includes(r.getAttribute("data-item-id")))
