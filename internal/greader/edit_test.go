@@ -305,7 +305,7 @@ func TestNormalizeTS(t *testing.T) {
 		{"1790251200123456", 1790251200123456, true},     // 16: us
 		{"1790251200123456789", 1790251200123456, true},  // 19: ns
 		{"", 0, false}, {"0", 0, false}, {"abc", 0, false}, {"-5", 0, false},
-		{"99999999999999999999", 0, false},
+		{"99999999999999999999", 0, false}, {"00000000000000001", 0, false}, {"1000000000000000000", 1000000000000000, true},
 	} {
 		got, ok := normalizeTS(tc.in)
 		require.Equal(t, tc.ok, ok, tc.in)

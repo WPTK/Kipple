@@ -147,7 +147,7 @@ func idStrings(ids []int64) []string {
 // normalizeTS converts a mark-all-as-read ts to microseconds by digit count
 // (design §3): 1-12 digits seconds, 13-15 milliseconds, 16 microseconds, 17 or
 // more nanoseconds. ok is false for absent, zero, non-digit or overflowing
-// values, which fall back to the committed max id.
+// values (and one that rounds to zero microseconds), which fall back to the committed max id.
 func normalizeTS(s string) (us int64, ok bool) {
 	if !allDigits(s) {
 		return 0, false
@@ -164,7 +164,8 @@ func normalizeTS(s string) (us int64, ok bool) {
 	case l == 16:
 		return n, true
 	default:
-		return n / 1_000, true
+		us = n / 1_000
+		return us, us != 0
 	}
 }
 

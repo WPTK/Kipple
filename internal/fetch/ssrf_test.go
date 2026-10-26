@@ -22,3 +22,10 @@ func TestBlockedDeprecatedRanges(t *testing.T) {
 		require.False(t, Blocked(netip.MustParseAddr(ip)), ip)
 	}
 }
+
+func TestBlockedIgnoresZone(t *testing.T) {
+	for _, ip := range []string{"::%eth0", "::1%eth0", "64:ff9b::7f00:1%x", "2002:7f00:1::1%x", "2001::1%x", "fe80::1%eth0", "::ffff:127.0.0.1%x"} {
+		require.True(t, Blocked(netip.MustParseAddr(ip)), ip)
+	}
+	require.False(t, Blocked(netip.MustParseAddr("2606:4700::1111%eth0")))
+}
