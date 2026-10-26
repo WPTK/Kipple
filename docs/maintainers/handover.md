@@ -63,14 +63,14 @@ The roles, not the names. Each needs a person who can sign in.
 ## Restore drill
 
 A backup that has never been restored is a guess. The steps are in [restore.md](../restore.md) and the drill is a
-release step in [RELEASING.md](RELEASING.md). Record each drill here with its date and what was restored.
+release step in [RELEASING.md](RELEASING.md). Record each drill on the line below as `Last restore drill: YYYY-MM-DD, what was restored.` The weekly settled check reads that date and fails when it is older than 180 days.
 
-Last restore drill: not recorded here yet.
+Last restore drill: not yet run.
 
 ## The weekly check
 
 The weekly audit (`audit.yml`) is where a quiet Kipple shows it needs attention: the tracking issue it keeps is the
-one thing to look at each Monday.
+one thing to look at each Monday. Its Currency section comes from `scripts/settled-check.mjs`, which the `currency` job runs: CI on main, the latest release, scheduled workflows, stale dependency PRs and the restore drill line above.
 
 ## Routine repository checks
 
