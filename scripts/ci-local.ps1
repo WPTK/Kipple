@@ -86,6 +86,7 @@ Step 'web' 'toolchain versions (scripts/toolchain.test.mjs)' { node --test scrip
 Step 'web' 'job time limits (scripts/workflow-timeouts.test.mjs)' { node --test scripts/workflow-timeouts.test.mjs }
 Step 'web' 'link checker tests (scripts/check-links.test.mjs)' { node --test scripts/check-links.test.mjs }
 Step 'web' 'weekly audit report (scripts/audit-report.test.mjs)' { node --test scripts/audit-report.test.mjs }
+Step 'web' 'weekly audit currency checks (scripts/settled-check.test.mjs)' { node --test scripts/settled-check.test.mjs }
 Step 'web' 'prose-only filter (scripts/ci-changes.test.sh, ci-prune-prose.test.sh, ci-prose.test.mjs, ci-gate.test.mjs)' { bash scripts/ci-changes.test.sh; if ($LASTEXITCODE -eq 0) { bash scripts/ci-prune-prose.test.sh }; if ($LASTEXITCODE -eq 0) { node --test scripts/ci-prose.test.mjs scripts/ci-gate.test.mjs } }
 Step 'web' 'UAT label guard (scripts/uat-labels.mjs)' { node --test scripts/uat-labels.test.mjs; if ($LASTEXITCODE -eq 0) { node scripts/uat-labels.mjs } }
 Step 'web' 'npm ci' { Push-Location web; npm ci --ignore-scripts --cache $npmCache --no-audit --no-fund; Pop-Location }

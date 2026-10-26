@@ -1,4 +1,4 @@
-// node scripts/audit-report.mjs --dir <results> --run-url <url> --ref <ref> --sha <sha> [--assignee <login>]
+// node scripts/audit-report.mjs --dir <results> --run-url <url> --ref <ref> --sha <sha> [--assignee <login>] [--currency <file>]
 //                               --default-branch <name> --event <name> [--dry-run-input true]
 //
 // The weekly audit (.github/workflows/audit.yml) runs govulncheck, npm audit and Trivy and leaves, per check, a
@@ -64,9 +64,18 @@ function detail(f) {
   return [`- The check did not complete (${f.status}); see the run log.`];
 }
 
-export function body(failed, { runUrl, ref, sha }) {
+// The issue body with its Currency section replaced, or added before the "Last changed by" line. All else is kept, so the
+// link to the run that last changed the findings stays true.
+export function withCurrency(oldBody, currency) {
+  const section = ['### Currency', '', currency.trim(), '', ''].join('\n');
+  const without = oldBody.replace(/### Currency\n\n[\s\S]*?\n\n(?=Last changed by:)/, '');
+  return without.replace(/(?=Last changed by:)/, section);
+}
+
+export function body(failed, { runUrl, ref, sha, currency }) {
   const lines = ['The weekly audit found the following. This issue is updated when the findings change and closed by the first clean run.', ''];
   for (const f of failed) lines.push(`### ${f.label}`, ...detail(f), '');
+  if (currency) lines.push('### Currency', '', currency.trim(), '');
   lines.push(`Last changed by: ${runUrl}`, `Audited: ${ref} @ ${sha}`, '', `<!-- ${MARK} ${fingerprint(failed)} -->`);
   return lines.join('\n');
 }
@@ -84,7 +93,7 @@ export function decideDryRun({ ref, defaultBranch, eventName, dryRunInput }) {
 const defaultGh =(args, input) => execFileSync('gh', args, { encoding: 'utf8', input });
 
 // `gh` is injected so the decision logic can be tested without a repository. Returns the actions taken, as text.
-export function report({ dir, runUrl, ref = 'unknown', sha = 'unknown', assignee, dryRun, gh = defaultGh }) {
+export function report({ dir, runUrl, ref = 'unknown', sha = 'unknown', assignee, currency, dryRun, gh = defaultGh }) {
   const failed = collect(dir);
   // The title is the identity; labels can be edited by hand and must not hide the issue from the audit.
   const found = JSON.parse(
@@ -101,7 +110,7 @@ export function report({ dir, runUrl, ref = 'unknown', sha = 'unknown', assignee
     if (!open) return 'clean run, no open issue: nothing to do';
     return act(`close #${open.number}`, [[['issue', 'close', String(open.number), '--comment', `Clean run, closing: ${runUrl}`]]]);
   }
-  const text = body(failed, { runUrl, ref, sha });
+  const text = body(failed, { runUrl, ref, sha, currency });
   if (!open) {
     const args = ['issue', 'create', '--title', TITLE, '--body-file', '-'];
     for (const l of LABELS) args.push('--label', l);
@@ -117,7 +126,12 @@ export function report({ dir, runUrl, ref = 'unknown', sha = 'unknown', assignee
       return 'open a new issue (without an assignee)';
     }
   }
-  if ((open.body ?? '').includes(`${MARK} ${fingerprint(failed)} `)) return `#${open.number} already lists these findings: nothing to do`;
+  if ((open.body ?? '').includes(`${MARK} ${fingerprint(failed)} `)) {
+    // Same findings: nobody is notified. Only the Currency section may be refreshed, by editing the body in place.
+    const fresh = currency ? withCurrency(open.body ?? '', currency) : open.body;
+    if (fresh === open.body) return `#${open.number} already lists these findings: nothing to do`;
+    return act(`refresh the Currency section of #${open.number}`, [[['issue', 'edit', String(open.number), '--body-file', '-'], fresh]]);
+  }
   const note = `The findings changed. The description now lists them. Run: ${runUrl}`;
   return act(`update #${open.number}`, [
     [['issue', 'edit', String(open.number), '--body-file', '-'], text],
@@ -142,5 +156,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     eventName: arg('--event'),
     dryRunInput: arg('--dry-run-input') === 'true',
   });
-  console.log(report({ dir, runUrl, ref: arg('--ref'), sha: arg('--sha'), assignee: arg('--assignee'), dryRun }));
+  console.log(report({ dir, runUrl, ref: arg('--ref'), sha: arg('--sha'), assignee: arg('--assignee'), currency: arg('--currency') ? readFileSync(arg('--currency'), 'utf8') : undefined, dryRun }));
 }
