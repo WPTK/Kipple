@@ -40,7 +40,7 @@ func shapes(t *testing.T, q Querier) map[string]string {
 }
 
 // A database at every older schema version, with a feed and a setting in it, migrates to the latest
-// schema: the same objects and shapes as a fresh database, an intact file, and the rows still there.
+// schema: the same objects and shapes (columns, keys and index structure; not defaults, checks or SQL text) as a fresh database, an intact file, and the rows still there.
 func TestMigrateFromEveryVersionMatchesAFreshSchema(t *testing.T) {
 	t.Parallel()
 	fresh, err := sql.Open("sqlite", buildDSN(filepath.Join(t.TempDir(), "fresh.db"), "writer"))
