@@ -78,7 +78,7 @@ exact commands, backup, verification and GHCR steps are in `docs/maintainers/REL
 ## Process
 
 - Phases and the plan to 1.0 live in the history repo plan `plans/0.8-1.0-plan.md`. Release steps follow
-  `docs/maintainers/RELEASING.md` (gates scale with what changed); the 1.0 sign-off is `docs/maintainers/release-checklist.md`.
+  `docs/maintainers/RELEASING.md` (gates scale with what changed); the major-release sign-off is the blank template `docs/maintainers/release-checklist.md`.
 - A UI change is not done until it has been driven in a real browser, at the mobile preset and on desktop, against a
   seeded instance (`npm run seed`): every control it touches, and every download or export path (a saved file can be
   an error body that no test of the handler sees). Tests must send what real browsers send (fetch metadata, `Origin`,
