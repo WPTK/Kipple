@@ -818,7 +818,7 @@ The remaining ambiguity is an *unpadded* bare-hex value made only of digits. No 
 | `c` | Descending: `id < :c`. With `r=o`: `id > :c`. `c` must be all digits, otherwise it is ignored; `c=0` is no cursor. **Absent → bound to `math.MaxInt64` (descending) or `0` (ascending), never NULL** |
 | `ot` (seconds) | `id >= (:ot − 120)·1e6 OR content_changed_at >= :ot − 120`. Executed as two disjoint ordered legs (§6.5) |
 | `nt` (seconds) | `id < (:nt + 1)·1e6`. `nt=0` is no upper bound |
-| `ot`, `nt` input | All digits, else ignored (`ot=0` bounds nothing, and `nt=0` is absent as above). A value beyond 4102444800 (year 2100; e.g. milliseconds sent by mistake) is clamped to it and logged at WARN |
+| `ot`, `nt` input | All digits, else ignored (`ot=0` bounds nothing, and `nt=0` is absent as above). A value beyond 4102444800 (year 2100; e.g. milliseconds sent by mistake) is clamped to it and logged at WARN (for `ot` or `nt`) |
 | mark-all `ts` | Normalized to µs by digit count: 1–12 → seconds × 1e6; 13–15 → milliseconds × 1e3; 16 → µs; ≥ 17 → ns ÷ 1e3. **Absent, 0, non-digit or overflowing → the larger of `max(items.id)` and `max(trimmed_items.id)` on a reader snapshot** (`MaxCommittedID`: committed ids only, never the allocator, which can be ahead of visible rows). Applied as `id <= ts_us` |
 
 ---

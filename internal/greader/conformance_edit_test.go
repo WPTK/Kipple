@@ -133,6 +133,10 @@ func TestConformanceEditTagConcurrent(t *testing.T) {
 		require.Equal(t, 200, code)
 	}
 	require.Equal(t, isRead(h, l.ids["tech-unread"]), isRead(h, l.ids["loose-old"]), "both ids end in the same state")
+	// The queue still works afterwards: the next request sets a known state.
+	c.write("edit-tag", form("a", stateRead)[:len(form("a", stateRead))-len("&T="+url.QueryEscape(c.token))])
+	require.True(t, isRead(h, l.ids["tech-unread"]))
+	require.True(t, isRead(h, l.ids["loose-old"]))
 }
 
 func TestConformanceMarkAllAsRead(t *testing.T) {
