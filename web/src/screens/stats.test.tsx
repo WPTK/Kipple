@@ -321,7 +321,7 @@ describe("Stats screen", () => {
     await screen.findByRole("heading", { name: "Daily activity" });
     fail = true;
     await qc.invalidateQueries({ queryKey: ["stats"] });
-    expect(await screen.findByText(/Couldn't refresh; showing earlier numbers/)).toBeInTheDocument();
+    expect(await screen.findByText(/Couldn't refresh Stats\. .+ Showing earlier numbers\./)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Daily activity" })).toBeInTheDocument();
     const before = statsCalls(m).length;
     fail = false;
@@ -508,7 +508,7 @@ describe("Stats screen", () => {
     go();
     const summary = await screen.findByRole("region", { name: "Summary" });
     await user.click(within(summary).getByRole("button", { name: /Articles read/ }));
-    expect(await within(summary).findByText("Couldn't load the earlier period.")).toBeInTheDocument();
+    expect(await within(summary).findByText(/^Couldn't load the earlier period\. .+\./)).toBeInTheDocument();
     expect(within(summary).queryByText("Loading")).toBeNull();
     fail = false;
     await user.click(within(summary).getByRole("button", { name: "Try again" }));

@@ -6,6 +6,7 @@ import {
   heatLevel,
   hourLabel,
   activityBars,
+  NOTHING_IN_RANGE,
   monthName,
   monthlyBars,
   plural,
@@ -15,8 +16,8 @@ import {
 } from "@/lib/statsFormat";
 import { HEAT_MIX } from "@/theme/contrast";
 
-export function Empty({ children }: { children: string }) {
-  return <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-fg2">{children}</p>;
+export function Empty() {
+  return <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-fg2">{NOTHING_IN_RANGE}.</p>;
 }
 
 // ---- Bar chart --------------------------------------------------------------------------------------------------
@@ -108,7 +109,7 @@ function BarChart({ bars, summary, slot, hint }: { bars: Bar[]; summary: string;
 
 export function DailyChart({ data, empty }: { data: StatsSummary; empty: boolean }) {
   const { unit, rows: daily } = activityBars(data.daily ?? [], data.week_start);
-  if (empty || daily.length === 0) return <Empty>No reading in this range.</Empty>;
+  if (empty || daily.length === 0) return <Empty />;
   const week = unit === "week";
   const when = (d: { date: string; end: string }) => (week ? `${shortDate(d.date)} to ${shortDate(d.end)}` : shortDate(d.date));
   const total = daily.reduce((a, d) => a + d.items_read, 0);
@@ -152,7 +153,7 @@ export function DailyChart({ data, empty }: { data: StatsSummary; empty: boolean
 /** One bar per calendar month on record, from the first month with reading through this one. */
 export function MonthlyChart({ data, empty }: { data: StatsSummary; empty: boolean }) {
   const months = monthlyBars(data.daily ?? []);
-  if (empty || months.length === 0) return <Empty>No reading in this range.</Empty>;
+  if (empty || months.length === 0) return <Empty />;
   const total = months.reduce((a, m) => a + m.items_read, 0);
   const busiest = months.reduce((a, m) => (m.items_read > a.items_read ? m : a), months[0]!);
   const summary = `Articles read per month, ${monthName(months[0]!.month)} to ${monthName(months[months.length - 1]!.month)}. ${plural(total, "article")} in total. Most in one month: ${busiest.items_read}, in ${monthName(busiest.month)}. Use the arrow keys to hear a month.`;
@@ -197,7 +198,7 @@ const hourTick = (h: number) => (h === 0 ? "12a" : h === 12 ? "12p" : h < 12 ? `
 export function Heatmap({ data, empty }: { data: StatsSummary; empty: boolean }) {
   const [sel, setSel] = useState<{ wd: number; h: number } | null>(null);
   const cells = data.heatmap ?? [];
-  if (empty || cells.length === 0) return <Empty>No reading in this range.</Empty>;
+  if (empty || cells.length === 0) return <Empty />;
   const useTime = cells.some((c) => c.active_seconds > 0);
   const val = (c: { active_seconds: number; opens: number }) => (useTime ? c.active_seconds : c.opens);
   // Reads from before reading time was recorded have no time: in a range that also has timed reading they still show,
