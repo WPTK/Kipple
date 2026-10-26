@@ -16,13 +16,15 @@ func FuzzStatsDelete(f *testing.F) {
 	} {
 		f.Add(s)
 	}
-	h := newHarness(f)
-	c := h.login()
 	f.Fuzz(func(t *testing.T, body string) {
 		if len(body) > 1<<16 {
 			return
 		}
-		h.t = t
+		h := newHarness(t) // a fresh database per input, so no state carries over
+		for _, d := range []string{"2026-01-01", "2026-01-15", "2026-02-01"} {
+			h.bulkStats(2, d)
+		}
+		c := h.login()
 		rec := h.do("POST", "/api/stats/delete", body, withCookie(c))
 		if rec.Code >= 500 {
 			t.Fatalf("status %d for body %q: %s", rec.Code, body, rec.Body.String())

@@ -1,6 +1,8 @@
 package fetch
 
 import (
+	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -32,8 +34,10 @@ func FuzzRetryAfter(f *testing.F) {
 		if d%time.Second != 0 {
 			t.Fatalf("ParseRetryAfter(%q) = %v, not whole seconds", v, d)
 		}
-		if strings.TrimSpace(v) == "" && d != 1500*time.Second {
-			t.Fatalf("empty value gave %v, want the 1500 s default", d)
+		if _, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err != nil {
+			if _, err := http.ParseTime(strings.TrimSpace(v)); err != nil && d != 1500*time.Second {
+				t.Fatalf("ParseRetryAfter(%q) = %v, want the 1500 s default for a value that is neither seconds nor a date", v, d)
+			}
 		}
 	})
 }
