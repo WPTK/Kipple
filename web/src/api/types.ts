@@ -221,7 +221,7 @@ export interface Scope {
   q?: string;
   /** Oldest first (device preference), or relevance (search only). Absent means newest first. */
   order?: "oldest" | "rank";
-  /** Reading-time filter (lib/readingLength): only articles of this length. Absent means any length. */
+  /** Article length filter (lib/readingLength): only articles of this length. Absent means any length. */
   length?: SectionLength;
   /** Only articles that arrived after this item id: the New page's lists (lib/catchup.ts). Unread only; never a search. */
   after?: string;

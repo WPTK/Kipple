@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, type ComponentType, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLatestRef } from "@/lib/useLatestRef";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -22,7 +22,8 @@ import { pageOf, useResolvedLayout } from "@/layouts";
 import { OneFeed, isOneFeed } from "@/layouts/parts";
 import { RowTabStop } from "@/layouts/rowTabStop";
 import { focusRow, storyIntoView } from "@/layouts/rowKeys";
-import type { ListLayout, RowMenuActions } from "@/layouts";
+import type { RowMenuActions } from "@/layouts";
+import type { RowProps } from "@/layouts/types";
 import { resolveList, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
 import { prefsStore } from "@/lib/prefs";
 import { useStore, useStoreSelector } from "@/lib/store";
@@ -193,9 +194,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const Page = pageOf(layout, scope);
   // Where the articles come from (listSource.ts): the server's list, a page at a time; or, for the Digest, a list for each
   // of its sections (digestSource.ts).
-  const digestOn = !!layout.cut && !!Page;
+  const digestOn = !!layout.sectioned && !!Page;
   const listSrc = useItemsSource(scope, !!Page, !digestOn);
-  const digestSrc = useDigestSource(scope, digestOn, true, layout.cut);
+  const digestSrc = useDigestSource(scope, digestOn, true);
   const src: ListSource = digestOn ? digestSrc : listSrc;
   // The Digest has nothing to show only when no section is drawn (even one still loading or failed is) and none is left to ask.
   const nothingShown = src.digest ? src.digest.sections.length === 0 && !src.more : src.cards.length === 0;
@@ -283,8 +284,11 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     estimateSize: (i) => {
       const r = rows[i];
       if (!r || r.kind === "header") return 40;
-      if (r.kind === "group") return layout.estimateRow(r.items[0] as Card, sizeCtx.current) + 16;
-      return layout.estimateRow(r.item, sizeCtx.current);
+      // Only row layouts reach here: a page layout has no virtual rows.
+      const estimate = layout.estimateRow;
+      if (!estimate) return 0;
+      if (r.kind === "group") return estimate(r.items[0] as Card, sizeCtx.current) + 16;
+      return estimate(r.item, sizeCtx.current);
     },
     getItemKey: (i) => rows[i]?.key ?? i,
     overscan: OVERSCAN,
@@ -1149,12 +1153,15 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const onTrailing = useCallback((item: Card) => starRow(item, true), [starRow]);
   const onStar = useCallback((item: Card) => starRow(item, false), [starRow]);
   const onMore = useCallback((item: Card) => openRowMenu(item.id), []);
-  const renderRow = (item: Card, swipe: boolean, peek: boolean) => (
+  // Rows are drawn only where the layout has them; a page layout draws the list itself.
+  const Row = layout.Row;
+  const renderRow = (item: Card, swipe: boolean, peek: boolean) =>
+    Row ? (
     <ListRow
       key={item.id}
       item={item}
       feed={feedById.get(item.feed_id)}
-      layout={layout}
+      Row={Row}
       scope={scope}
       swipe={swipe}
       peek={peek}
@@ -1170,7 +1177,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       onMore={onMore}
       onPeekEnd={endPeek}
     />
-  );
+    ) : null;
 
   const moreFailed = src.loadMoreFailed ? (
     <div role="alert" className="flex items-center justify-center gap-2 px-4 py-3 text-sm text-fg2">
@@ -1451,7 +1458,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
 interface ListRowProps {
   item: Card;
   feed: Feed | undefined;
-  layout: ListLayout;
+  Row: ComponentType<RowProps>;
   scope: Scope;
   swipe: boolean;
   peek: boolean;
@@ -1485,7 +1492,7 @@ const ListRow = memo(function ListRow(p: ListRowProps) {
       peek={p.peek}
       onPeekEnd={p.onPeekEnd}
     >
-      <p.layout.Row
+      <p.Row
         item={item}
         feed={p.feed}
         selected={p.selected}

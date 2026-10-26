@@ -3,15 +3,13 @@ import { Link, type To } from "react-router";
 import { useLongPressMenu } from "@/gestures/useLongPressMenu";
 import type { Card, Headline } from "@/api/types";
 import { cn } from "@/lib/cn";
-import { breaksIntoSections } from "@/lib/readingLength";
 import { articleTo } from "@/lib/routes";
 import { Button } from "@/ui/button";
-import { compact } from "./compact";
 import { ListImage, PublishedTime, RowMenu, UnreadDot, rowLinkProps, useImageFailure } from "./parts";
 import { ROW_KEYSHORTCUTS, RowTabStop, stopId } from "./rowTabStop";
 import type { DigestSectionView, ListLayout, PageProps, RowMenuActions } from "./types";
 
-// The Digest (docs/maintainers/ui-decisions.md, "The Digest"). A page of sections, one for each folder (or feed): the
+// The Digest (docs/maintainers/ui-decisions.md, "The Digest"). A page of sections, one for each folder, feed or reading time: the
 // section's name in the theme's accent, its first few unread articles, and "N more in <name>" to open it out in place.
 // A section loads on its own, so one that is slow or failing never holds up the rest; it draws what digestSource.ts hands
 // it, in that order, so the DOM order is the reading order. A read article keeps its place: its title turns to the
@@ -240,19 +238,5 @@ function DigestPage({ items, scope, more, selectedId, tabStopId, onOpen, actions
   );
 }
 
-/** In a search, which has no sections, the Digest shows Compact rows. */
-export const digest: ListLayout = { ...compact, id: "digest", label: "Digest", Page: DigestPage, cut: "folders" };
-
-/**
- * The Coffee break (docs/maintainers/ui-decisions.md): the Digest's page with the list cut by reading time instead of by
- * folder. It groups unread articles, so Unread is where it is a page; All, Starred, Muted, a search and a list the reader
- * has already filtered by length show Compact rows.
- */
-export const coffee: ListLayout = {
-  ...compact,
-  id: "coffee",
-  label: "Coffee break",
-  Page: DigestPage,
-  cut: "length",
-  pageFor: breaksIntoSections,
-};
+/** A page of sections. Its list column is as wide as Compact's. */
+export const digest: ListLayout = { id: "digest", label: "Digest", Page: DigestPage, sectioned: true, paneRem: 22.5 };

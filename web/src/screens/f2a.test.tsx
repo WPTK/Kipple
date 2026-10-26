@@ -162,14 +162,6 @@ describe("layouts", () => {
       expect(within(r).queryByText("Excerpt for article 1")).toBeNull();
       expect(r.querySelector("[data-index]")).toBeNull();
     },
-    coffee: (r) => {
-      // The Digest's page with reading-time sections: the first, Under 3 minutes, comes first.
-      expect(r.querySelector("[data-digest]")).not.toBeNull();
-      expect(r.querySelector("section[data-section] > h2")).toHaveTextContent("Under 3 minutes");
-      expect(r.querySelectorAll("article[data-item-id]").length).toBeGreaterThan(0);
-      expect(within(r).queryByText("Excerpt for article 1")).toBeNull();
-      expect(r.querySelector("[data-index]")).toBeNull();
-    },
     headlines: (r) => {
       expect(r.querySelector(".row-headline")).not.toBeNull();
       expect(within(r).queryByText("Excerpt for article 1")).toBeNull();
@@ -179,8 +171,7 @@ describe("layouts", () => {
 
   for (const id of Object.keys(hallmarks) as LayoutId[]) {
     it(`${id} renders its rows, keeps unread readable without color, and passes axe`, async () => {
-      // The Coffee break asks four lists, one for each reading length; only the first holds the articles.
-      routes(id === "coffee" ? { "GET /api/items": (url) => json(pageOf(url.searchParams.get("max_minutes") === "2" ? items() : [])) } : {});
+      routes();
       updateDevicePrefs({ layout: id });
       const { container } = go("/l/unread");
       await screen.findByText("Article number 1");

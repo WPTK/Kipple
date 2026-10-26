@@ -8,7 +8,6 @@ import { useDevicePrefs } from "@/lib/devicePrefs";
 import { useFavorites } from "@/lib/favorites";
 import { articleTo } from "@/lib/routes";
 import { planGazette, type Block, type GazettePlan, type PagePlan, type Slot } from "./gazettePlan";
-import { magazine } from "./magazine";
 import { ROW_KEYSHORTCUTS } from "./rowTabStop";
 import { ListImage, useImageFailure, PublishedTime, RowMenu, UnreadDot, rowLinkProps, useOneFeed } from "./parts";
 import { RowTabStop } from "./rowTabStop";
@@ -329,5 +328,5 @@ function GazetteList({ items, scope, more, width, selectedId, tabStopId, onOpen,
   return <Gazette plan={plan} items={byId} name={name} date={date} screen={screen} to={(c) => articleTo(c.id, scope)} onOpen={onOpen} actions={actions} selectedId={selectedId} focusedId={tabStopId} />;
 }
 
-/** A search is never a paper (a paper is planned from a newest-first list): it reads in the results rows. */
-export const gazette: ListLayout = { ...magazine, id: "gazette", label: "Gazette", Page: GazetteList };
+/** A search is never a paper (a paper is planned from a newest-first list): it reads in the results rows. Its list column is as wide as Editorial's. */
+export const gazette: ListLayout = { id: "gazette", label: "Gazette", Page: GazetteList, paneRem: 28 };

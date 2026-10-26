@@ -55,9 +55,6 @@ export interface DigestSectionView extends DigestSection {
   moreFailed: boolean;
 }
 
-/** How a sectioned page cuts its list: into folders or feeds (the Digest), or by reading time (the Coffee break). */
-export type SectionCut = "folders" | "length";
-
 /** What the Digest page is given besides the list: its sections, and what the page can ask of them. */
 export interface DigestView {
   /** The sections to draw, in order; sections not asked for yet are left out (they load as the end of the page nears). */
@@ -103,25 +100,27 @@ export interface ListLayout {
   /**
    * A layout that arranges the whole list at once. The list screen then hands it every loaded article instead of
    * virtualizing rows, and keeps the data, keys, loading and empty states. ArrowUp/ArrowDown follow the page's DOM order (pageOrder), which a
-   * page layout must keep equal to its reading order. A search still shows `Row`: a page is planned from a
+   * page layout must keep equal to its reading order. A search shows the results rows instead: a page is planned from a
    * newest-first list, and a search is ordered by relevance or by the reader's choice.
    */
   Page?: ComponentType<PageProps>;
   /**
-   * Set by a page that is cut into sections, each a list of its own (digestSource.ts): by folder or feed, or by reading
-   * time. Without it the page is one list.
+   * Set by a page that is cut into sections, each a list of its own (digestSource.ts): by folder, feed or reading
+   * time, as the device chose. Without it the page is one list.
    */
-  cut?: SectionCut;
-  /** Where the Page is drawn, when not in every list but a search. A list it is not drawn for shows `Row`s. */
-  pageFor?: (scope: Scope) => boolean;
-  Row: ComponentType<RowProps>;
+  sectioned?: true;
+  /** One list row. A page layout draws its list whole and has none. */
+  Row?: ComponentType<RowProps>;
   /**
-   * Initial size guess in px for the virtualizer; rows are measured after render. `ctx` is the list's measured
+   * Initial size guess in px for the virtualizer; rows are measured after render. A page layout has none. `ctx` is the list's measured
    * width and root font size (0 width before it is measured), for layouts whose rows change shape with width.
    */
-  estimateRow: (item: Card, ctx?: { width: number; rem: number }) => number;
+  estimateRow?: (item: Card, ctx?: { width: number; rem: number }) => number;
   /** A grid of cards: several items per virtual row, and the article opens full width (no reader pane). */
   grid?: boolean;
   /** Width of the list column beside the reader pane, rem. */
   paneRem: number;
 }
+
+/** A layout that draws the list as rows (every layout but the Gazette and the Digest). */
+export type RowLayout = ListLayout & Required<Pick<ListLayout, "Row" | "estimateRow">>;

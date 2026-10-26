@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, titleTone } from "./parts";
-import type { ListLayout, RowProps } from "./types";
+import type { RowLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 
@@ -52,7 +52,7 @@ function CardRow({ item, feed, selected, to, onOpen, onToggleStar, actions }: Ro
   );
 }
 
-export const cards: ListLayout = {
+export const cards: RowLayout = {
   id: "cards",
   label: "Cards",
   Row: CardRow,

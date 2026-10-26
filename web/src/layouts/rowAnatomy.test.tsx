@@ -8,13 +8,13 @@ import { inbox } from "./inbox";
 import { magazine } from "./magazine";
 import { OneFeed, ListImage, rowState, titleTone, useImageFailure } from "./parts";
 import { results } from "./results";
-import type { ListLayout, RowMenuActions } from "./types";
+import type { RowLayout, RowMenuActions } from "./types";
 
 afterEach(cleanup);
 
 const actions = new Proxy({}, { get: () => vi.fn() }) as unknown as RowMenuActions;
 
-function draw(layout: ListLayout, over: Partial<ReturnType<typeof card>> = {}, oneFeed = false) {
+function draw(layout: RowLayout, over: Partial<ReturnType<typeof card>> = {}, oneFeed = false) {
   const item = { ...card(1), title: "A long title that goes on", source: "Some Feed", read: false, ...over };
   const Row = layout.Row;
   render(

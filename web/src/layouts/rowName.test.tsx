@@ -10,7 +10,7 @@ import { planGazette } from "./gazettePlan";
 import { headlines } from "./headlines";
 import { inbox } from "./inbox";
 import { magazine } from "./magazine";
-import type { ListLayout, RowMenuActions } from "./types";
+import type { RowLayout, RowMenuActions } from "./types";
 
 // #513: a row link used to carry aria-label="<title>, unread". With a search word marked in a title that a narrow screen
 // cuts short, the browser's visible text loses the marked words past the edge and no longer sits inside the label (axe
@@ -26,12 +26,12 @@ afterEach(() => {
 const actions = new Proxy({}, { get: () => vi.fn() }) as unknown as RowMenuActions;
 const TITLE = "Don’t stop – the plan for the week";
 
-const rows: ListLayout[] = [magazine, cards, compact, inbox, headlines];
+const rows: RowLayout[] = [magazine, cards, compact, inbox, headlines];
 
 describe.each(rows.map((l) => [l.id, l] as const))("%s row link", (_id, layout) => {
   const draw = (read: boolean) => {
     const item = { ...card(1), title: TITLE, read };
-    const Row = layout.Row!;
+    const Row = layout.Row;
     render(
       <MemoryRouter>
         <Row item={item} feed={undefined} selected={false} to={`/item/${item.id}`} onOpen={vi.fn()} onToggleStar={vi.fn()} actions={actions} />

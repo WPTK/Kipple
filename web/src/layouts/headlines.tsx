@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import { PublishedTime, RowMenu, StarButton, UnreadDot, rowLinkProps, rowState, titleTone, useOneFeed } from "./parts";
-import type { ListLayout, RowProps } from "./types";
+import type { RowLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 
@@ -46,7 +46,7 @@ function HeadlineRow({ item, selected, to, onOpen, onToggleStar, actions }: RowP
   );
 }
 
-export const headlines: ListLayout = {
+export const headlines: RowLayout = {
   id: "headlines",
   label: "Headlines",
   Row: HeadlineRow,

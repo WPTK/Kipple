@@ -1,5 +1,5 @@
 import { InboxRow, inbox } from "./inbox";
-import type { ListLayout, RowProps } from "./types";
+import type { RowLayout, RowProps } from "./types";
 
 /**
  * A search's results: fixed text rows whatever layout the device reads in. Title, source and time, one line of the
@@ -10,4 +10,4 @@ function ResultRow(p: RowProps) {
   return <InboxRow {...p} showThumb={false} snippetLines={1} />;
 }
 
-export const results: ListLayout = { ...inbox, label: "Search results", Row: ResultRow, estimateRow: () => 84 };
+export const results: RowLayout = { ...inbox, label: "Search results", Row: ResultRow, estimateRow: () => 84 };

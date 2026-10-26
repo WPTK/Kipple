@@ -127,7 +127,7 @@ copy of the real database, whose feeds are whatever the owner reads.
 Screens after the first in each browser are reached the way a reader moves: the app's own link when one is on
 screen, otherwise a router history entry; each screen must show its expected heading, which proves the right screen
 was checked. The list header's two menus are checked open, as screens of their own: `list-options` (its Layout and
-Order choices must be there) and `list-length` (the reading-time filter). These menus are modal: while one is open the
+Order choices must be there) and `list-length` (the article-length filter). These menus are modal: while one is open the
 page behind it is `aria-hidden` and cannot be reached, so on these two screens S3 runs axe on the open menu only
 (`[role="menu"]`, axe's own advice for a modal that hides the page). A full-page run would flag the page behind the
 menu (`aria-hidden-focus`), which nobody can reach then. What makes the scoping honest is checked on the same screens:

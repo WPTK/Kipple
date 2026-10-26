@@ -194,7 +194,7 @@ Choices made where the decisions above were silent; the owner may overrule any o
 - **Only show matching** is a choice under "What it does", stored as an inverted Mute (no new action, no schema
   change). For Mute the "Act when it does NOT match" option is that choice, so the checkbox is offered for Mark as
   read and Star only.
-- **Reading-time filter:** three lengths, "5 min or less", "6 to 15 min" and "Over 15 min", from a timer button in the
+- **Article length filter:** three lengths, "5 min or less", "6 to 15 min" and "Over 15 min", from the Article length button (a timer) in the
   list header, with a chip under the view pills that clears it. It lives in the list's address: the view pills,
   previous and next feed, and an opened article keep it; another list starts without it; it is not saved. Mark all as
   read marks only what it shows.
@@ -424,7 +424,7 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
   and the tab bar becomes one row of icon and name (44 px instead of 56). Header and tab bar together went from about
   44% of a 375 px screen to about 28%. Rejected: a navigation rail down the left edge, which frees the most height but
   changes the geometry that the menus, the toasts and the safe areas measure from.
-- **A phone's list header has at most four controls and a wide screen's at most five**: Reading time, List options, Aa
+- **A phone's list header has at most four controls and a wide screen's at most five**: Article length, List options, Aa
   and the actions menu (and Oldest first on a wide screen). Refresh is the pull on the list and the first item of the
   actions menu at every width; there is no Settings icon in the header (the sidebar and the tab bar lead there). Rejected: one "View" sheet holding every list control, which adds a tap to each of them and waits on the
   bottom-sheet menus.
@@ -493,8 +493,8 @@ word for something listed.
 - **Muted** is hidden from the header pills while nothing is muted (a pill that comes and goes would only shift the
   others), and always present in the sidebar and under Feeds.
 - **Reading appearance** is the Aa control (theme, font, text size), in the article toolbar, the list header and
-  Settings. **Reading time** is an estimate of minutes for an article and the filter built on it; the two words are
-  never swapped.
+  Settings. **Article length** is the estimate of minutes for an article and the header filter built on it; **Reading time**
+  is the Digest's sections by that estimate. The two words are never swapped.
 - **This device** and **All devices** are the only scope words in Settings and in help text. "Everywhere", "locally"
   and "on the server" do not say where a setting applies.
 - **Stats**, not "Statistics", is the name of the screen and of its Settings group.
@@ -527,7 +527,7 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
   on and the article has one. Text only is a choice, not a fallback.
 - **Order.** Sidebar order, or Quiet Feeds First (sections that get the fewest new articles a day first, a folder's pace being the sum of its feeds; a section with any feed under a week old has no pace yet and goes last). The name is
   plain on purpose; no print vocabulary.
-- **Settings, for this device, in the layout menu.** Order, Sections (Folders or Feeds), Images (Show images or Text
+- **Settings, for this device, in the layout menu.** Order, Sections (Folders, Feeds or Reading time), Images (Show images or Text
   only) and Rows per section (3, 5 or 10). They are not per-list overrides.
 - **"N more" opens the section in place**, 20 at a time, rather than going to the section's list: the reader keeps their
   place on the page.
@@ -579,22 +579,30 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 - **Rejected:** a layout of the list screen (its mark-all and scope belong to one list of articles); showing only
   unread headlines (a quiet library would show empty blocks).
 
-## The Coffee break (#39, Phase C)
+## The Coffee break (#39, Phase C; reversed in 1.6)
 
 - **What it is.** Unread articles grouped by how long they take: Under 3 minutes, 3 to 7 minutes, 8 minutes and up,
   and Unknown length. It answers "what can I read in the time I have", which no date-ordered list does.
-- **Name and place.** A layout in the layout menu, like the Digest. It only groups Unread; Search, All, Starred, Muted
-  and a length filter show Compact rows, and the menu says so.
+- **Reversed: it is a Sections choice, not a layout.** Phase C made it a layout of its own. In practice it was the Digest
+  with a different cut, and it was not itself everywhere but Unread: in All, Starred, Muted and under a length filter
+  it silently drew Compact rows, so a reader who chose it saw a different layout depending on the list. The layout menu
+  also grew a block of its own and the order rule a branch for it. Now the Digest's Sections are Folders, Feeds or
+  Reading time. Reading time is enabled on Unread and greyed, with the reason beside it, on every other list; there the
+  Digest draws Folders. A device that had the Coffee break as a layout (or for some lists) opens the Digest cut by
+  reading time.
 - **Fixed order and no empty groups.** Shortest first. A group with nothing to read is not drawn; one the reader has
   just finished stays until they leave, so a mark is never a disappearing act.
-- **Same look as the Digest.** The rows, "N more" opening a group in place, keys, and Mark above and below within a
+- **Same page as the Digest.** The rows, "N more" opening a group in place, keys, and Mark above and below within a
   group. Rows per section and Images are the Digest's device settings.
 - **Design twice.** A: each group is an ordinary list of the same scope plus a reading-time bucket, so it reuses the
   Digest's planner, lazy loading and mark rules, and the server learns one parameter (`unknown_length`). B: a new
   endpoint returning pre-grouped buckets with exact counts. B gives exact "N more" numbers at once, but costs a second
   list contract, a second set of keys and mark scopes, and a page that behaves like no other list. A won; the cost is
   that "N more" says "More" until a group is loaded.
-- **Rejected:** a length slider (the filter menu already has lengths); time badges only (no grouping).
+- **Names.** The header filter that keeps one length is "Article length", so "Reading time" names one thing: the
+  Digest's sections.
+- **Rejected:** a length slider (the filter menu already has lengths); time badges only (no grouping); keeping two
+  layouts and only explaining the fallback.
 
 ## Internal cleanup lines ruled out (#207)
 

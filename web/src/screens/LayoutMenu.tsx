@@ -2,7 +2,7 @@ import { Check, LayoutGrid, Star } from "lucide-react";
 import type { Scope } from "@/api/types";
 import { useFolderTree } from "@/api/queries";
 import { folderPath } from "@/lib/folderTree";
-import { pageOf, useResolvedLayout, useSetListOverride } from "@/layouts";
+import { useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
   DIGEST_ROWS,
   GROUP_BYS,
@@ -15,7 +15,9 @@ import {
   ORDER_LABELS,
   followsOrder,
   inheritedList,
+  noReadingTimeSections,
   overrideTarget,
+  sectionsFor,
   updateDevicePrefs,
   useDevicePrefs,
   type DigestOrder,
@@ -34,7 +36,7 @@ import { DropdownMenu } from "@/ui/menu";
 const heading = "px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase";
 
 const DIGEST_ORDER_LABELS: Record<DigestOrder, string> = { sidebar: "Sidebar order", quiet: "Quiet Feeds First" };
-const DIGEST_SECTION_LABELS: Record<DigestSections, string> = { folder: "Folders", feed: "Feeds" };
+const DIGEST_SECTION_LABELS: Record<DigestSections, string> = { folder: "Folders", feed: "Feeds", length: "Reading time" };
 const sub = "px-3 pt-1 text-xs text-fg2";
 
 const FIELD_LABELS: { [F in ListField]: Record<string, string> } = { layout: LAYOUT_LABELS, order: ORDER_LABELS, view: LIST_VIEW_LABELS, group: GROUP_LABELS };
@@ -147,7 +149,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
               <Radio key={o} value={o} label={ORDER_LABELS[o]} />
             ))}
           </DropdownMenu.RadioGroup>
-          {followsOrder(layout.id, scope) ? null : (
+          {followsOrder(layout.id) ? null : (
             <p className="px-3 pt-1 pb-2 text-xs text-fg2">The {layout.label} is always newest first. The order applies to the other layouts.</p>
           )}
 
@@ -159,34 +161,24 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
               <DropdownMenu.Label className={sub}>Sections</DropdownMenu.Label>
               <DropdownMenu.RadioGroup
                 aria-label="Sections"
-                value={dp.digestSections}
+                value={sectionsFor(dp.digestSections, scope)}
                 onValueChange={(v) => {
+                  if (v === "length" && noReadingTimeSections(scope)) return;
                   updateDevicePrefs({ digestSections: v as DigestSections });
                   announce(`Sections are ${DIGEST_SECTION_LABELS[v as DigestSections].toLowerCase()}`);
                 }}
               >
-                {(["folder", "feed"] as const).map((o) => (
-                  <Radio key={o} value={o} label={DIGEST_SECTION_LABELS[o]} />
-                ))}
+                {(["folder", "feed", "length"] as const).map((o) => {
+                  const why = o === "length" ? noReadingTimeSections(scope) : null;
+                  return <Radio key={o} value={o} label={DIGEST_SECTION_LABELS[o]} hint={why ?? undefined} unavailable={!!why} />;
+                })}
               </DropdownMenu.RadioGroup>
               <SectionLookChoices />
             </>
           ) : null}
 
-          {layout.id === "coffee" && !scope.q ? (
-            <>
-              <DropdownMenu.Separator className="my-1 h-px bg-line" />
-              <DropdownMenu.Label className={heading}>Coffee break, for this device</DropdownMenu.Label>
-              {pageOf(layout, scope) ? (
-                <SectionLookChoices />
-              ) : (
-                <p className="px-3 pt-1 pb-2 text-xs text-fg2">Shown as rows: the Coffee break groups Unread when no length filter is set.</p>
-              )}
-            </>
-          ) : null}
-
           {/* The Gazette prints its own pages and a search its own headers; the other lists group under headers. */}
-          {scope.q || !followsOrder(layout.id, scope) ? null : (
+          {scope.q || !followsOrder(layout.id) ? null : (
             <>
               <DropdownMenu.Separator className="my-1 h-px bg-line" />
               <DropdownMenu.Label className={heading}>Group by</DropdownMenu.Label>
@@ -231,7 +223,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
   );
 }
 
-/** Images and Rows per section: the look of a sectioned page's rows, one setting for the Digest and the Coffee break. */
+/** Images and Rows per section: the look of the Digest's rows. */
 function SectionLookChoices() {
   const dp = useDevicePrefs();
   return (
@@ -291,9 +283,15 @@ export function SectionOrderChoice({ name }: { name: "sections" | "feeds" }) {
   );
 }
 
-function Radio({ value, label, hint, className }: { value: string; label: string; hint?: string; className?: string }) {
+/** `unavailable` greys the choice but keeps it focusable (aria-disabled, selection blocked), so its hint, the reason, is reachable by keyboard and screen reader. */
+function Radio({ value, label, hint, className, unavailable }: { value: string; label: string; hint?: string; className?: string; unavailable?: boolean }) {
   return (
-    <DropdownMenu.RadioItem value={value} className={cn("relative py-1.5 pl-9", className)}>
+    <DropdownMenu.RadioItem
+      value={value}
+      aria-disabled={unavailable || undefined}
+      onSelect={unavailable ? (e) => e.preventDefault() : undefined}
+      className={cn("relative py-1.5 pl-9", unavailable && "opacity-50", className)}
+    >
       <DropdownMenu.ItemIndicator className="absolute left-3 inline-flex">
         <Check className="size-4" aria-hidden="true" />
       </DropdownMenu.ItemIndicator>

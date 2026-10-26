@@ -241,7 +241,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
         <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-0.5">
         {/* A layout that is always newest first has no order to toggle (the list options menu says why). On a phone
             the order lives only in the Layout menu, which leaves the title room in a one-row header. */}
-        {wide && followsOrder(layout.id, scope) ? (
+        {wide && followsOrder(layout.id) ? (
           <Button
             variant="ghost"
             size="icon"
@@ -311,7 +311,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
           <Link
             to={listTo({ ...scope, length: undefined })}
             replace
-            aria-label={`Reading time ${READING_LENGTH_LABELS[scope.length]}. Show any length`}
+            aria-label={`Article length ${READING_LENGTH_LABELS[scope.length]}. Show any length`}
             className={cn(chipCls, "border-accent px-3 text-fg hover:bg-selection")}
           >
             <Timer className="size-4 text-accent" aria-hidden="true" />
@@ -494,7 +494,7 @@ export function ReaderRoute() {
     // "0" stands in until the visit is known (no list is drawn then).
     return { view: "unread" as const, ...(len ? { length: len } : {}), after: mark ?? "0" };
   }, [view, spKey, isArticle, isNew, mark]);
-  const order = resolveOrder(dp, useListContext(base), base);
+  const order = resolveOrder(dp, useListContext(base));
   const scope = useMemo(() => readerScope(base, order), [base, order]);
   const boot = useBootstrap();
   const tree = useFolderTree();

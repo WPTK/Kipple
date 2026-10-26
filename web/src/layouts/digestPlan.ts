@@ -7,7 +7,7 @@ import type { Section, SectionOf } from "@/lib/sections";
 // its first few cards and "N more", and loads on its own, so loading a later section never changes an earlier one.
 // Nothing here knows about React or the network. It is generic over the section function so another layout can group
 // feeds some other way and reuse the ordering and the layout, or give it sections that are not feeds at all (fixedSections:
-// the Coffee break's reading lengths).
+// the reading lengths).
 
 /** Cards one "N more" press adds to a section. */
 export const EXPAND_BATCH = 20;
@@ -27,7 +27,7 @@ export interface SectionDef extends Section {
 }
 
 /**
- * Sections that are not made of feeds (the Coffee break's reading lengths): the server filters each, so no feed belongs
+ * Sections that are not made of feeds (the reading lengths): the server filters each, so no feed belongs
  * to one, and the bootstrap has no count for it (null until the section has loaded).
  */
 export function fixedSections(sections: readonly Section[]): SectionDef[] {

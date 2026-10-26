@@ -5,7 +5,7 @@ import { createStore, useStore } from "./store";
 // not appearance lives here, behind ONE storage seam (`storage` below): localStorage is the
 // instant-paint cache of the server's device profile, which lib/deviceSync.ts keeps in step.
 
-export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines", "gazette", "digest", "coffee"] as const;
+export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines", "gazette", "digest"] as const;
 export type LayoutId = (typeof LAYOUT_IDS)[number];
 // The ids are what devices have stored, so they never change; only the labels do. "magazine" is shown as
 // Editorial; "headlines" is Headlines (title-only rows).
@@ -17,7 +17,6 @@ export const LAYOUT_LABELS: Record<LayoutId, string> = {
   headlines: "Headlines",
   gazette: "Gazette",
   digest: "Digest",
-  coffee: "Coffee break",
 };
 
 /**
@@ -31,11 +30,10 @@ export const LAYOUT_HINTS: Record<LayoutId, string> = {
   inbox: "Source, title and a preview",
   headlines: "One line per article, titles only",
   gazette: "Newspaper-style pages",
-  digest: "Each folder or feed as its own section, a few articles each",
-  coffee: "Unread articles grouped by how long they take",
+  digest: "Sections by folder, feed or reading time, a few articles each",
 };
 
-export type DigestSections = "folder" | "feed";
+export type DigestSections = "folder" | "feed" | "length";
 export type DigestOrder = "sidebar" | "quiet";
 export const DIGEST_ROWS = [3, 5, 10] as const;
 export type DigestRows = (typeof DIGEST_ROWS)[number];
@@ -141,13 +139,13 @@ export interface DevicePrefs {
   highlightKeywords: boolean;
   /** The Gazette's name on this device; blank prints the default name (layouts/gazette.tsx). */
   paperName: string;
-  /** What a Digest section is: a folder or a single feed (`client.digest_sections`). */
+  /** What a Digest section is: a folder, a single feed, or a reading time (`client.digest_sections`). */
   digestSections: DigestSections;
   /** The order of the Digest sections: as the sidebar lists them, or the quietest feeds first (`client.digest_order`). */
   digestOrder: DigestOrder;
-  /** Whether Digest and Coffee break rows show pictures (`client.digest_images`). */
+  /** Whether Digest rows show pictures (`client.digest_images`). */
   digestImages: boolean;
-  /** How many articles a Digest or Coffee break section shows before "more" (`client.digest_rows`). */
+  /** How many articles a Digest section shows before "more" (`client.digest_rows`). */
   digestRows: DigestRows;
 }
 
@@ -187,6 +185,10 @@ export const LEGACY_DEVICE_PREFS_KEY = "kipple.device.v1";
 
 const isLayoutId = (v: unknown): v is LayoutId => LAYOUT_IDS.includes(v as LayoutId);
 
+/** The id the Coffee break had as a layout. It is now the Digest cut by reading time, so a stored one reads as that (see parseDevicePrefs). */
+const COFFEE_BREAK = "coffee";
+const layoutOf = (v: unknown): LayoutId | undefined => (isLayoutId(v) ? v : v === COFFEE_BREAK ? "digest" : undefined);
+
 const clampNum = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, Math.round(n)));
 
 /** A well-formed favorites list: known kinds, digit ids, no repeats, at most `max` (500). */
@@ -211,7 +213,8 @@ function cleanOverride(v: unknown): ListOverride | null {
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;
   const out: ListOverride = {};
-  if (isLayoutId(o.layout)) out.layout = o.layout;
+  const layout = layoutOf(o.layout);
+  if (layout) out.layout = layout;
   if (o.order === "newest" || o.order === "oldest") out.order = o.order;
   if (LIST_VIEWS.includes(o.view as ListView)) out.view = o.view as ListView;
   if (GROUP_BYS.includes(o.group as GroupBy)) out.group = o.group as GroupBy;
@@ -234,9 +237,17 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
   if (!raw) return { ...d, overrides: { feed: {}, folder: {} } };
   try {
     const v = JSON.parse(raw) as Partial<DevicePrefs> | null;
+    const layout = layoutOf(v?.layout) ?? d.layout;
+    // A device that had the Coffee break (as its layout, or for some lists only when its layout is not the Digest) keeps
+    // that view: the Digest, cut by reading time.
+    const overrides = { feed: cleanMap(v?.overrides?.feed), folder: cleanMap(v?.overrides?.folder) };
+    const hadCoffee =
+      (v?.layout as unknown) === COFFEE_BREAK ||
+      (layout !== "digest" &&
+        [v?.overrides?.feed, v?.overrides?.folder].some((m) => Object.values(m ?? {}).some((o) => (o as { layout?: unknown } | null)?.layout === COFFEE_BREAK)));
     return {
-      layout: isLayoutId(v?.layout) ? v.layout : d.layout,
-      overrides: { feed: cleanMap(v?.overrides?.feed), folder: cleanMap(v?.overrides?.folder) },
+      layout,
+      overrides,
       order: v?.order === "oldest" ? "oldest" : "newest",
       group: GROUP_BYS.includes(v?.group as GroupBy) ? (v?.group as GroupBy) : d.group,
       searchOrder: isSearchOrder(v?.searchOrder) ? v.searchOrder : d.searchOrder,
@@ -251,7 +262,7 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       unreadBadge: UNREAD_BADGES.includes(v?.unreadBadge as UnreadBadge) ? (v?.unreadBadge as UnreadBadge) : d.unreadBadge,
       highlightKeywords: v?.highlightKeywords !== false,
       paperName: cleanPaperName(v?.paperName),
-      digestSections: v?.digestSections === "feed" ? "feed" : d.digestSections,
+      digestSections: hadCoffee ? "length" : v?.digestSections === "feed" || v?.digestSections === "length" ? v.digestSections : d.digestSections,
       digestOrder: v?.digestOrder === "quiet" ? "quiet" : d.digestOrder,
       digestImages: v?.digestImages !== false,
       digestRows: DIGEST_ROWS.includes(v?.digestRows as DigestRows) ? (v?.digestRows as DigestRows) : d.digestRows,
@@ -448,24 +459,35 @@ export function resolveLayout(p: DevicePrefs, ctx: LayoutContext): LayoutId {
 /**
  * The order a list is fetched and shown in. The Gazette is always newest first: it plans its pages from the newest
  * articles, and a page it has shown stays the same only while what is loaded is the start of a newest-first list
- * (layouts/gazettePlan.ts). So in that layout the list's and the device's order settings do not apply. The Digest and the
- * Coffee break plan sections the same way, but the Coffee break is only a page where `breaksIntoSections` says so: in
- * All, Starred, Muted, a search or a length-filtered list it shows rows, and the reader's order applies.
+ * (layouts/gazettePlan.ts). So in that layout the list's and the device's order settings do not apply. The Digest plans
+ * its sections the same way.
  */
-export function resolveOrder(p: DevicePrefs, ctx: LayoutContext, scope: ListShape): OrderPref {
-  return followsOrder(resolveLayout(p, ctx), scope) ? resolveList(p, ctx, "order").value : "newest";
+export function resolveOrder(p: DevicePrefs, ctx: LayoutContext): OrderPref {
+  return followsOrder(resolveLayout(p, ctx)) ? resolveList(p, ctx, "order").value : "newest";
 }
 
-/** The parts of a list that decide whether a layout is drawn as a page. */
+/** Whether a layout shows its list in the order the reader set (every layout but the Gazette and the Digest). */
+export const followsOrder = (layout: LayoutId): boolean => layout !== "gazette" && layout !== "digest";
+
+/** The parts of a list that decide whether the Digest can cut it by reading time. */
 export interface ListShape {
   view: string;
   length?: unknown;
   q?: unknown;
 }
 
-/** Whether a layout shows this list in the order the reader set (every layout but the Gazette, the Digest and a Coffee break page). */
-export const followsOrder = (layout: LayoutId, scope: ListShape): boolean =>
-  layout !== "gazette" && layout !== "digest" && !(layout === "coffee" && breaksIntoSections(scope));
+/** Why the Digest cannot cut this list by reading time, or null when it can: it groups Unread, and a length filter has already cut the list. */
+export const noReadingTimeSections = (scope: ListShape): string | null =>
+  breaksIntoSections(scope)
+    ? null
+    : scope.view !== "unread"
+      ? "Reading time groups Unread only."
+      : scope.q
+        ? "A search has no sections."
+        : "Article length is already filtered.";
+
+/** The sections the Digest draws a list in: the chosen ones, except that reading time needs a list it can cut (Folders otherwise). */
+export const sectionsFor = (chosen: DigestSections, scope: ListShape): DigestSections => (chosen === "length" && noReadingTimeSections(scope) ? "folder" : chosen);
 
 /** Which override a list can carry, if any (a feed list or a folder list). */
 export function overrideTarget(ctx: LayoutContext): { kind: "feed" | "folder"; id: string } | null {
