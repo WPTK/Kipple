@@ -63,6 +63,7 @@ before choosing no password together with a wider bind.
 
 Then check, in order:
 
+- Behind a proxy, Kipple must be served at the root of a host, not under a subpath such as `/kipple/`.
 - The address you type: `http://<server address>:1919`, plain HTTP. Kipple speaks no TLS itself.
 - The host firewall. A Docker-published port bypasses `ufw` on Linux, but other firewalls and Windows still apply.
 - The installable app (Add to Home Screen) and the service worker need HTTPS or `127.0.0.1`; reading in a browser tab over
