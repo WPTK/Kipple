@@ -60,6 +60,28 @@ describe("the layout menu", () => {
     expect(screen.queryByRole("button", { name: /^List options/ })).toBeNull();
   });
 
+  it("exposes Pictures, Lists and Pages as groups, and Show and Hide are not in a layout group", async () => {
+    go("/l/unread");
+    const menu = await openMenu();
+    for (const g of ["Pictures", "Lists", "Pages"]) {
+      const group = within(menu).getByRole("group", { name: `Layout, ${g}` });
+      expect(within(group).queryByRole("menuitemradio", { name: /^Show/ })).toBeNull();
+    }
+    expect(within(within(menu).getByRole("group", { name: "Layout, Pictures" })).getAllByRole("menuitemradio")).toHaveLength(2);
+    expect(within(within(menu).getByRole("group", { name: "Layout, Pages" })).getAllByRole("menuitemradio")).toHaveLength(2);
+    expect(within(menu).queryByRole("group", { name: /opens in/i })).toBeNull();
+  });
+
+  it("puts Opens in under Pages, before Order, on a feed", async () => {
+    go("/l/unread?feed=1");
+    const menu = await openMenu();
+    const opens = within(menu).getByRole("group", { name: /opens in/i });
+    const pages = within(menu).getByRole("group", { name: "Layout, Pages" });
+    const order = within(menu).getByRole("group", { name: /^Order/ });
+    expect(pages.compareDocumentPosition(opens) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(opens.compareDocumentPosition(order) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("holds Pictures in lists, the same setting as Settings, and changing it hides the Inbox thumbnails", async () => {
     updateDevicePrefs({ layout: "inbox" });
     go("/l/unread");

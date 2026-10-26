@@ -83,6 +83,17 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
   const groupFallback = useFallbackLabel(ctx, "group");
   const orderWhy = orderLockReason(layout.id);
   const groupWhy = groupLockReason(layout.id, !!scope.q);
+  const layoutValue = target ? (own?.layout ?? "default") : dp.layout;
+  const chooseLayout = (v: string) => {
+    if (!target) {
+      updateDevicePrefs({ layout: v as LayoutId });
+      say(v as LayoutId);
+    } else if (v === "default") setListOverride(target.kind, target.id, "layout", null);
+    else {
+      setListOverride(target.kind, target.id, "layout", v as LayoutId);
+      say(v as LayoutId);
+    }
+  };
   const say = (l: LayoutId) => announce(`${LAYOUT_LABELS[l]} layout`);
   const makeDefault = (l: LayoutId) => {
     updateDevicePrefs({ layout: l });
@@ -105,24 +116,19 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
           {target ? <p className="px-3 pt-2 text-xs text-fg2">These choices are for this {noun} on this device.</p> : null}
           {!target ? <p className="px-3 pt-2 text-xs text-fg2">These choices are the defaults on this device.</p> : null}
           <DropdownMenu.Label className={heading}>Layout</DropdownMenu.Label>
-          <DropdownMenu.RadioGroup
-            aria-label={target ? `Layout of this ${noun}` : "Layout"}
-            value={target ? (own?.layout ?? "default") : dp.layout}
-            onValueChange={(v) => {
-              if (!target) {
-                updateDevicePrefs({ layout: v as LayoutId });
-                say(v as LayoutId);
-              } else if (v === "default") setListOverride(target.kind, target.id, "layout", null);
-              else {
-                setListOverride(target.kind, target.id, "layout", v as LayoutId);
-                say(v as LayoutId);
-              }
-            }}
-          >
-            {target ? <Radio value="default" label={layoutFallback} /> : null}
-            {LAYOUT_GROUPS.map((g) => (
-              <div key={g.label} role="presentation">
-                <DropdownMenu.Label className={sub}>{g.label}</DropdownMenu.Label>
+          {/* One labelled group for each heading, so Pictures, Lists and Pages are exposed as groups and no group's label covers
+              another's choices. They share one value: the layout (or, on a feed or folder, its own layout). */}
+          {target ? (
+            <DropdownMenu.RadioGroup aria-label={`Layout of this ${noun}`} value={layoutValue} onValueChange={chooseLayout}>
+              <Radio value="default" label={layoutFallback} />
+            </DropdownMenu.RadioGroup>
+          ) : null}
+          {LAYOUT_GROUPS.map((g) => (
+            <div key={g.label} role="presentation">
+              <DropdownMenu.Label className={sub} aria-hidden="true">
+                {g.label}
+              </DropdownMenu.Label>
+              <DropdownMenu.RadioGroup aria-label={`Layout, ${g.label}`} value={layoutValue} onValueChange={chooseLayout}>
                 {g.ids.map((id) => (
                   <div key={id} className="flex items-center">
                     <Radio value={id} label={LAYOUT_LABELS[id]} hint={LAYOUT_HINTS[id]} className="min-w-0 flex-1" />
@@ -143,10 +149,27 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
                     ) : null}
                   </div>
                 ))}
-                {g.label === "Pictures" ? <PicturesChoice /> : null}
-              </div>
-            ))}
-          </DropdownMenu.RadioGroup>
+              </DropdownMenu.RadioGroup>
+              {g.label === "Pictures" ? <PicturesChoice /> : null}
+              {g.label === "Pages" && target ? (
+                  <>
+                    <div role="presentation" className="mx-3 mt-1 mb-0.5 h-px bg-line" />
+                    <DropdownMenu.Label className={cn(sub, "font-semibold text-fg")}>Opens in</DropdownMenu.Label>
+                    <DropdownMenu.RadioGroup
+                      aria-label={`View this ${noun} opens in`}
+                      value={own?.view ?? "default"}
+                      onValueChange={(v) => setListOverride(target.kind, target.id, "view", v === "default" ? null : (v as (typeof LIST_VIEWS)[number]))}
+                    >
+                      <Radio value="default" label={viewFallback} />
+                      {LIST_VIEWS.map((v) => (
+                        <Radio key={v} value={v} label={LIST_VIEW_LABELS[v]} />
+                      ))}
+                    </DropdownMenu.RadioGroup>
+                    <p className="px-3 pt-1 pb-2 text-xs text-fg2">The view this {noun} shows when you open it from your feeds.</p>
+                  </>
+                ) : null}
+            </div>
+          ))}
           {target ? <p className="px-3 pt-1 pb-2 text-xs text-fg2">The star sets this device's default layout.</p> : null}
 
           <DropdownMenu.Separator className="my-1 h-px bg-line" />
@@ -221,23 +244,6 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
             </p>
           ) : null}
 
-          {target ? (
-            <>
-              <DropdownMenu.Separator className="my-1 h-px bg-line" />
-              <DropdownMenu.Label className={heading}>Opens in</DropdownMenu.Label>
-              <DropdownMenu.RadioGroup
-                aria-label={`View this ${noun} opens in`}
-                value={own?.view ?? "default"}
-                onValueChange={(v) => setListOverride(target.kind, target.id, "view", v === "default" ? null : (v as (typeof LIST_VIEWS)[number]))}
-              >
-                <Radio value="default" label={viewFallback} />
-                {LIST_VIEWS.map((v) => (
-                  <Radio key={v} value={v} label={LIST_VIEW_LABELS[v]} />
-                ))}
-              </DropdownMenu.RadioGroup>
-              <p className="px-3 pt-1 pb-2 text-xs text-fg2">The view this {noun} shows when you open it from your feeds.</p>
-            </>
-          ) : null}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

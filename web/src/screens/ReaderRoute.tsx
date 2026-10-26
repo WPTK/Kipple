@@ -249,7 +249,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
               variant="ghost"
               size="icon"
               aria-label="Oldest first"
-              aria-pressed={oldest}
+              aria-pressed={orderWhy ? undefined : oldest}
               aria-disabled={orderWhy ? true : undefined}
               aria-describedby={orderWhy ? "header-order-why" : undefined}
               title={orderWhy ?? undefined}

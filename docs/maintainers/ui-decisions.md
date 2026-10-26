@@ -593,7 +593,7 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 - **Fixed order and no empty groups.** Shortest first. A group with nothing to read is not drawn; one the reader has
   just finished stays until they leave, so a mark is never a disappearing act.
 - **Same page as the Digest.** The rows, "N more" opening a group in place, keys, and Mark above and below within a
-  group. Rows per section and Images are the Digest's device settings.
+  group. Rows per section and Pictures in lists are the Digest's device settings.
 - **Design twice.** A: each group is an ordinary list of the same scope plus a reading-time bucket, so it reuses the
   Digest's planner, lazy loading and mark rules, and the server learns one parameter (`unknown_length`). B: a new
   endpoint returning pre-grouped buckets with exact counts. B gives exact "N more" numbers at once, but costs a second
@@ -620,8 +620,9 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
   is never live while the menu's radios are greyed. Rejected: hiding the inert Order the way Group by was hidden; a control
   that vanishes leaves no explanation.
 - **Groups.** The layouts sit under three headings: Pictures (Editorial, Cards), Lists (Compact, Inbox, Headlines) and
-  Pages (Gazette, Digest). The per-layout block (the Digest's) stays one heading deep, so no drill-in is needed. "Opens in"
-  stays at the end of the menu, as it was.
+  Pages (Gazette, Digest). Each heading and its choices form one labelled group, so a screen reader announces Pictures,
+  Lists and Pages as groups and "Pictures in lists" is a group of its own. The per-layout block (the Digest's) stays one
+  heading deep, so no drill-in is needed. "Opens in" (feeds and folders) sits under Pages, as a sub-block with its own label.
 - **The trigger is "Show and sort"** (button name "Show and sort, Cards layout"). The other candidate was "Arrange list".
   "Show and sort" names the two jobs (what is shown: layout and pictures; how it is sorted: order and grouping), shares no
   word with "List actions", and the name does not claim more than the menu holds. Rejected: "Layout and order", which no

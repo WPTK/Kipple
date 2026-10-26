@@ -56,18 +56,31 @@ await t.eachViewport(async (page, vp) => {
       // L1
       await open("magazine");
       const name = (await trigger().getAttribute("aria-label")) ?? "";
-      const listOptions = await page.getByRole("button", { name: /^List options/ }).count();
       const actions = await page.getByRole("button", { name: "List actions", exact: true }).count();
-      check(name === "Show and sort, Editorial layout" && listOptions === 0 && actions === 1, `${tag} L1 name`, "the menu button reads \"Show and sort, Editorial layout\", beside a separate \"List actions\"", `button "${name}", ${listOptions} "List options", ${actions} "List actions"`);
+      check(name === "Show and sort, Editorial layout" && actions === 1, `${tag} L1 name`, "the menu button reads \"Show and sort, Editorial layout\", beside a separate \"List actions\"", `button "${name}", ${actions} "List actions"`);
       const menu = await openMenu();
       const headings = await menu.evaluate((m) => [...m.querySelectorAll("div, p, span")].map((e) => (e.children.length === 0 ? (e.textContent ?? "").trim() : "")).filter((x) => ["Pictures", "Lists", "Pages"].includes(x)));
       check(headings.join() === "Pictures,Lists,Pages", `${tag} L1 groups`, "the layouts sit under Pictures, Lists and Pages, in that order", `headings: ${headings.join(", ")}`);
+      const groupNames = await menu.getByRole("group").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""));
+      check(["Layout, Pictures", "Layout, Lists", "Layout, Pages", "Pictures in lists"].every((n) => groupNames.includes(n)), `${tag} L1 group names`, "Pictures, Lists and Pages are labelled groups, and Pictures in lists is its own group", `groups: ${groupNames.join(" | ")}`);
       const fit = await menu.evaluate((m) => {
         const r = m.getBoundingClientRect();
         return { left: r.left, right: r.right, width: window.innerWidth, overflow: document.documentElement.scrollWidth - window.innerWidth };
       });
       check(fit.left >= 0 && fit.right <= fit.width + 0.5 && fit.overflow <= 0, `${tag} L1 fit`, "the open menu fits the screen with no sideways scroll", `menu ${Math.round(fit.left)}..${Math.round(fit.right)} of ${fit.width}, page overflow ${fit.overflow}`);
       await t.shot(page, `${tag}-layout-menu-groups`);
+      await closeMenu();
+      const feedId = await page.evaluate(() => fetch("/api/bootstrap").then((r) => r.json()).then((b) => b.feeds?.[0]?.id));
+      await page.goto(`/l/unread?feed=${feedId}`, { waitUntil: "load" });
+      await trigger().waitFor({ timeout: 20000 });
+      const fm = await openMenu();
+      const pos = await fm.evaluate((m) => {
+        const at = (label) => [...m.querySelectorAll('[role="group"]')].findIndex((g) => (g.getAttribute("aria-label") ?? "").startsWith(label));
+        return { pages: at("Layout, Pages"), opens: at("View this"), order: at("Order") };
+      });
+      check(pos.pages >= 0 && pos.opens > pos.pages && pos.order > pos.opens, `${tag} L1 opens in`, "on a feed, Opens in sits under Pages and before Order", `group positions: Pages ${pos.pages}, Opens in ${pos.opens}, Order ${pos.order}`);
+      await closeMenu();
+      await open("magazine");
 
       // L2
       const pictures = menu.getByRole("group", { name: "Pictures in lists" });

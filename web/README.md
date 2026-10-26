@@ -128,7 +128,7 @@ Headlines, Gazette; the stored ids are still `magazine` and `headlines`), Name o
 empty prints "The Gazette"), Article width (Narrow, Medium, Wide, Full;
 `--kp-col`), Open links in (New tab or Same tab; the default is Same tab on iPhone and iPad, where a link an installed
 app claims otherwise leaves an about:blank tab, New tab elsewhere; `lib/links.ts`), Unread badge (Count capped at
-99+, Dot only, Off; tab bar and sidebar), Thumbnails in Inbox (Auto or Off) and "Show swipe tips again" (resets the first-run peek). The sidebar and the list column of the reader pane are resizable (drag the
+99+, Dot only, Off; tab bar and sidebar), Pictures in lists (Show or Hide) and "Show swipe tips again" (resets the first-run peek). The sidebar and the list column of the reader pane are resizable (drag the
 edge, arrow keys, double-click to reset) and remember their widths. Text spacing (WCAG 1.4.12: Less, Default, More) is in Accessibility, not in the Aa menu.
 
 **Layouts.** Editorial is image-forward (a large lead image, a big title and excerpt, more whitespace; in a wide list
