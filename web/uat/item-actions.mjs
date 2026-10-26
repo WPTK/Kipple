@@ -117,7 +117,7 @@ await t.eachViewport(async (page, vp) => {
         await t.shot(page, `${tag}-swipe-${width}`);
         await touch("touchCancel", []);
         check(/^Mark as (un)?read$/.test(seen.text) && seen.fits && seen.armed === "true", `${tag} A5 ${width}`, `a swipe at ${width} px wide shows the whole "Mark as read" or "Mark as unread" in an armed panel`, `panel: ${JSON.stringify(seen)}`);
-        await waitForAnimationsDone(page); // the row springs back
+        await row.locator(".swipe-panel[data-armed='true']").waitFor({ state: "hidden", timeout: 3000 }); // the row springs back: the panel disarms
       });
     }
     await page.setViewportSize({ width: vp.width, height: vp.height });

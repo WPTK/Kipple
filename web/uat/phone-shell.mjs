@@ -36,7 +36,7 @@ await t.eachViewport(async (page, vp) => {
     for (const w of WIDTHS) {
       await size(w);
       await open("/stats");
-      const m = await waitForStillFor(page, 500, () => page.evaluate(() => ({ doc: document.documentElement.scrollHeight, win: window.innerHeight })), { label: "the document and window heights to stop changing" });
+      const m = await waitForStillFor(page, 1000, () => page.evaluate(() => ({ doc: document.documentElement.scrollHeight, win: window.innerHeight })), { label: "the document and window heights to stop changing" });
       check(m.doc === m.win, `${tag} S1 ${w}`, `Stats leaves the document at ${m.win} px`, `the document is ${m.doc} px tall in a ${m.win} px window`);
       if (w === 402) await t.shot(page, `${tag}-stats`);
     }

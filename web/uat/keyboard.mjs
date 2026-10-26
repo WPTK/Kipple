@@ -513,9 +513,9 @@ async function k3(page) {
   const path0 = pathOf(page);
   await page.evaluate(() => document.activeElement?.blur?.());
   await press(page, ..."jkmsxofvucrz/?[]{}".split(""), "Shift+A", "Shift+G", "g", "g", "g", "a");
-  // A negative (nothing happens): the rows, the address and any dialog must hold still for as long as the 400 ms pause this replaces.
+  // A negative (nothing happens): the rows, the address and any dialog must hold still for longer than the 700 ms mark delay plus a round trip.
   const dialogUp = () => page.evaluate(() => !!document.querySelector('[role="dialog"]'));
-  const [after, , dialog] = await waitForStillFor(page, 400, async () => [await rowState(page), pathOf(page), await dialogUp()], { label: "the rows, the address and dialogs to stop changing after the letter keys" });
+  const [after, , dialog] = await waitForStillFor(page, 1000, async () => [await rowState(page), pathOf(page), await dialogUp()], { label: "the rows, the address and dialogs to stop changing after the letter keys" });
   check(JSON.stringify(after) === JSON.stringify(start) && pathOf(page) === path0 && !dialog, where("letters"), "letter and symbol keys change nothing on a list", `rows changed=${JSON.stringify(after) !== JSON.stringify(start)} path ${path0} -> ${pathOf(page)} dialog=${dialog}`);
 
   // Arrow keys on a row link still move focus (and only focus) from row to row.
@@ -524,8 +524,8 @@ async function k3(page) {
   const f0 = await focusOf(page);
   await press(page, "ArrowDown");
   await focusLeft(page, f0?.id);
-  // The row must not open: the address holds still for as long as the 300 ms pause this replaces.
-  const [f1] = await waitForStillFor(page, 300, async () => [await focusOf(page), pathOf(page)], { label: "focus and the address to stop changing after ArrowDown" });
+  // The row must not open: the address holds still for longer than the 700 ms mark delay plus a round trip.
+  const [f1] = await waitForStillFor(page, 1000, async () => [await focusOf(page), pathOf(page)], { label: "focus and the address to stop changing after ArrowDown" });
   check(!!f0 && !!f1 && f1.id !== f0.id && pathOf(page) === path0, where("arrows"), "ArrowDown moves focus to the next row without opening it", `focus ${f0?.key} -> ${f1?.key}, path ${pathOf(page)}`);
 
   // From a row's other controls too (Safari's Tab skips links, so the star may be all a keyboard user reaches).
@@ -535,7 +535,7 @@ async function k3(page) {
   const s0 = await focusOf(page);
   await press(page, "ArrowDown");
   await focusLeft(page, s0?.id);
-  const [s1] = await waitForStillFor(page, 300, async () => [await focusOf(page), await page.evaluate(() => !!document.querySelector('[role="menu"]'))], { label: "focus and any menu to stop changing after ArrowDown" });
+  const [s1] = await waitForStillFor(page, 1000, async () => [await focusOf(page), await page.evaluate(() => !!document.querySelector('[role="menu"]'))], { label: "focus and any menu to stop changing after ArrowDown" });
   check(!!s0 && !!s1 && s1.id !== s0.id && !(await page.evaluate(() => !!document.querySelector('[role="menu"]'))), where("arrows from star"), "ArrowDown from a row's star button reaches the next row", `focus ${s0?.key} -> ${s1?.key}`);
 
   // Typing is not a shortcut: the search box takes the letters.

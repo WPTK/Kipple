@@ -99,8 +99,8 @@ await t.eachViewport(async (page, vp) => {
       check(!w.body && w.row === id, `${tag} A4 back`, "Back puts focus on the row left", `focus is on ${w.row ?? w.tag}`);
       await page.goForward();
       await page.waitForURL(/\/i\//, { timeout: 5000 });
-      // A negative ("focus is not dropped to the body"): hold the window as long as the 600 ms it replaces.
-      w = await waitForStillFor(page, 600, where, { label: "focus to stop moving after Forward" });
+      // A negative ("focus is not dropped to the body"): hold the window longer than the 700 ms mark delay plus a round trip.
+      w = await waitForStillFor(page, 1000, where, { label: "focus to stop moving after Forward" });
       check(!w.body, `${tag} A4 forward`, "Forward does not drop focus to the body", "Forward left focus on the body");
     });
   } else {

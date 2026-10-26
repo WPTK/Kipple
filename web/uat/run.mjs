@@ -55,7 +55,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
-import { accessControlUrl, onPageError, isSessionCookie, unloadRefusal, waitForAnimationsDone, waitForFrames, waitForStillFor } from "./common.mjs";
+import { accessControlUrl, onPageError, isSessionCookie, unloadRefusal, waitForAnimationsDone, waitForFrames, waitForPageStill, waitForStillFor } from "./common.mjs";
 import { activeScheme, lowestRowMenuButton, menuPlacement, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
 
 /** The smallest touch target, in CSS px (S8). WCAG 2.2 asks for 24; Kipple keeps to the 44 of the Apple and Material guides. */
@@ -412,6 +412,7 @@ async function settle(page) {
     await waitForStillFor(page, 300, () => (inflight.size ? ++busy : 0), { timeout: 10000, label: "same-origin requests to finish" }).catch(() => {}); // a request that never ends (a beacon) must not hold the screen
   }
   await waitForFrames(page);
+  await waitForPageStill(page, 150); // late renders
 }
 
 /** Same-origin requests in flight per page, except the event stream (see settle). */

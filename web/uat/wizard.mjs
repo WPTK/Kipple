@@ -481,7 +481,7 @@ try {
 } finally {
   await browser.close();
   // A server on Windows holds its files until it has exited: wait for that, not for a guess.
-  await Promise.all(servers.map((s) => (s.exitCode !== null || s.signalCode ? null : new Promise((r) => { s.once("exit", r); s.kill(); }))));
+  await Promise.all(servers.map((s) => (s.exitCode !== null || s.signalCode ? null : new Promise((r) => { const force = setTimeout(() => s.kill("SIGKILL"), 5000); const giveUp = setTimeout(r, 8000); s.once("exit", () => { clearTimeout(force); clearTimeout(giveUp); r(); }); s.kill(); }))));
   try {
     rmSync(tmp, { recursive: true, force: true });
   } catch {
