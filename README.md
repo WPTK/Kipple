@@ -4,7 +4,7 @@
 >
 > Philip K. Dick, *Do Androids Dream of Electric Sheep?* (1968)
 
-A self-hosted RSS reader. That I want to use.
+A self-hosted RSS reader for one person: web app plus a Google Reader compatible sync API. One container, one port.
 
 [![CI](https://github.com/WPTK/Kipple/actions/workflows/ci.yml/badge.svg)](https://github.com/WPTK/Kipple/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/WPTK/Kipple?include_prereleases&label=release)](https://github.com/WPTK/Kipple/releases)
@@ -27,83 +27,70 @@ A self-hosted RSS reader. That I want to use.
     </td>
   </tr>
   <tr>
-    <td width="560" align="center"><sub><b>Web app.</b> Feeds on the left, the article list in the middle, the open article on the right.</sub></td>
-    <td width="170" align="center"><sub><b>On a phone.</b> Add Kipple to the home screen and it opens full screen, like an app.</sub></td>
+    <td width="560" align="center"><sub>Web app</sub></td>
+    <td width="170" align="center"><sub>Phone</sub></td>
   </tr>
 </table>
 
-Kipple is maintained; updates are slower while it is in a stable phase. [CHANGELOG.md](CHANGELOG.md) lists what changed in each release.
+[CHANGELOG.md](CHANGELOG.md) lists what changed in each release.
 
-## What you get
+## Features
 
-- Eight layouts: Editorial (large lead images with an excerpt), Cards (a grid of photo cards), Gazette (a newspaper-style
-  front page), Inbox (email-style rows), Compact (a plain list without pictures), Headlines (one line per title),
-  Digest (a few articles from each folder or feed) and Coffee break (unread articles grouped by how long they take).
-  Set it per device, per folder or per feed.
-- 20 color themes, with separate picks for day and night, and 11 bundled reading fonts.
-- Nested folders for organizing feeds.
-- Import feeds from your old reader and export them any time (OPML).
+- Eight layouts: Editorial, Cards, Gazette, Inbox, Compact, Headlines, Digest and Coffee break (unread articles grouped by
+  reading time). Set one per device, folder or feed.
+- 20 color themes with separate day and night picks, and 11 bundled reading fonts.
+- Nested folders. OPML import and export.
 - Search, saved searches, and keyword filters that mute, star, highlight or mark articles read.
-- Choose how many articles each feed keeps, from 50 to unlimited. Starred articles are never deleted.
-- Runs as a phone app, installed from your browser (needs HTTPS; see the [reverse proxy guide](docs/reverse-proxy.md)). Articles you have opened still read offline.
-- Syncs with apps that speak the Google Reader API, on your phone or computer.
-- Reading statistics and a yearly Wrapped summary, stored only in your own database.
-- Backup and restore are built in: export a backup from Settings, or copy the nightly snapshot off the machine. Keep backups private; they contain credentials (password hashes, the account secret and feed logins).
+- Per-feed retention from 50 articles to unlimited. Starred articles are never deleted.
+- Installs as a phone app from your browser (needs HTTPS, see the [reverse proxy guide](docs/reverse-proxy.md)). Opened articles read offline.
+- Syncs with any app that speaks the Google Reader API.
+- Reading statistics and a yearly Wrapped summary, stored in your own database.
+- Backup and restore in Settings, plus a nightly snapshot. Backups contain credentials (password hashes, the account secret and feed logins), so keep them private.
 - One account per instance.
 
 ## Install
 
-Replace `<version>` with the exact tag of the newest version on the [releases page](https://github.com/WPTK/Kipple/releases), for example `1.0.0`. The `latest` tag follows the newest stable release; pin an exact version if you want upgrades to be your choice.
+Replace `<version>` with a tag from the [releases page](https://github.com/WPTK/Kipple/releases). `latest` follows the newest stable release.
 
 ```
 docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v kipple_data:/data ghcr.io/wptk/kipple:<version>
 ```
 
-This one-line command is the short form: it does not run the container read-only, drop capabilities or cap memory.
-The hardened form, and the compose files that include it, are in [the deploy guide](docs/deploy.md).
+This is the short form. The hardened form (read-only, no capabilities) and compose files are in the [deploy guide](docs/deploy.md).
 
-Open <http://127.0.0.1:1919>. The first screen creates your account, or restores a backup from another Kipple. One more step follows the account:
-a few recommended feeds, none ticked until you tick them, and a link to import a feeds file from your old reader.
-Your time zone is taken from your browser; theme, address and app password are in Settings.
+Open <http://127.0.0.1:1919>. The first screen creates your account, or restores a backup from another Kipple. A short
+step follows, with optional recommended feeds and a link to import an OPML file. Your time zone comes from your browser;
+theme, address and app password are in Settings.
 
-Kipple runs on another machine? Open an SSH tunnel to it from the computer you browse on, as the
-[quick start](docs/deploy.md#quick-start) shows, and open the same address there.
+If Kipple runs on another machine, open an SSH tunnel to it, as the [quick start](docs/deploy.md#quick-start) shows.
 
-Until you create the account, anyone who can reach the port can. The `docker run` command above publishes the port on `127.0.0.1`
-only, so only the machine Kipple runs on can reach it. Widen it after you have an account.
+The port is published on `127.0.0.1` only. Until the account exists, anyone who can reach the port can claim it. To reach
+Kipple from other devices, use HTTPS through a reverse proxy ([guide](docs/reverse-proxy.md)) or a private network such as
+Tailscale. Never expose it over plain http on the open internet. See the [threat model](docs/threat-model.md).
 
-To reach Kipple from other devices, put it behind HTTPS (see the [reverse proxy guide](docs/reverse-proxy.md)) or on a
-private network such as Tailscale. Do not publish it on the open internet over plain http. For a safe setup: publish on
-`127.0.0.1`, put HTTPS in front, set a password and keep backups private (see [threat-model.md](docs/threat-model.md)).
-
-The [deploy guide](docs/deploy.md) starts with a quick start for the compose file. It also covers reaching Kipple from
-your phone or over HTTPS, backups,
-upgrades, verifying the image signature and building from source.
+The [deploy guide](docs/deploy.md) also covers backups, upgrades, verifying the image signature and building from source.
 
 ## Sync with other apps
 
-Kipple can sync read and starred articles with RSS apps on your phone or computer. In the app, add a Google Reader
-compatible account with:
+Add a Google Reader compatible account in your sync app:
 
 - Server: your Kipple address plus `/api/greader.php`
 - User name: the one you chose during setup
-- Password: the app password, a second password used only by sync apps, so your web password never leaves the browser.
-  Make one in the last setup step or under Settings, Account & Devices, Generate new app password. Kipple shows it once.
+- Password: an app password, separate from your web password. Make one in the last setup step or under Settings,
+  Account & Devices, Generate new app password. Kipple shows it once.
 
 ## What Kipple leaves out
 
-Kipple leaves these out on purpose.
-
-- Native support for podcasts, audio and video. A media link in an article still opens.
+- Podcasts, audio and video players. Media links in articles still open.
 - Webhooks and other integrations with outside services.
 - Tags. Feeds live in folders, and articles can be starred.
 - AI features.
 - Notifications.
-- Social features. You can still share an article from the web app: it opens your device's share sheet, or copies the link.
+- Social features. The web app can still share an article through your device's share sheet or copy its link.
 - Monitoring or analytics.\*
 - More than one user.
 
-\* _Kipple keeps reading statistics, but they live in your own database, only you see them, and nothing sends them anywhere._
+\* _Reading statistics stay in your own database and are never sent anywhere._
 
 ## Documentation
 
@@ -119,19 +106,12 @@ Kipple leaves these out on purpose.
 To report a bug, open an [issue](https://github.com/WPTK/Kipple/issues). To send a change, read
 [CONTRIBUTING.md](CONTRIBUTING.md). Vulnerabilities go through [SECURITY.md](SECURITY.md).
 
-## Maintenance and governance
+## Maintenance
 
-Kipple is vibe coded. AI coding agents (Claude) write nearly all of its code, tests and docs. The maintainer is not a
-professional programmer; the work is specifying, steering and verifying the agents.
-
-What backs it up is checking, not authorship: test suites, CI scans (govulncheck, staticcheck, gosec, gitleaks, Trivy,
-zizmor), fuzzing, signed and attested releases with an SBOM, a written [compatibility promise](docs/compatibility.md) and
-a release checklist. [Verify a release yourself](docs/deploy.md#verify-the-signature).
-
-There is one maintainer with one person's time, and Kipple is single-user by design. [SECURITY.md](SECURITY.md) sets a
-14-day target for a first response. If the maintainer stops, the code is under a permissive license and a fork is welcome:
-the repository's workflow builds and signs each release, so a fork builds its own. Notes and decisions are on the
-[maintainer's blog](https://blog.wptk.org) and in the [history repository](https://github.com/WPTK/kipple-history).
+One maintainer. [SECURITY.md](SECURITY.md) sets a 14-day target for a first response. The code is under a permissive
+license, and a fork builds and signs its own releases. You can [verify a release](docs/deploy.md#verify-the-signature).
+Notes and decisions are on the [maintainer's blog](https://blog.wptk.org) and in the
+[history repository](https://github.com/WPTK/kipple-history).
 
 ## License
 
