@@ -102,9 +102,9 @@ export function failureLine(feed: { status: string; last_error?: string | null; 
 }
 
 /** The same line for a note in a folder's list, which names the feed. */
-export function namedFailureLine(feed: { status: string; title?: string | null; last_error?: string | null; last_error_class?: string | null }): string {
+export function namedFailureLine(feed: { status: string; title?: string | null; last_error?: string | null; last_error_class?: string | null }, retry = ""): string {
   if (!feed.last_error) return "";
-  return `${feedName(feed)} ${feed.status === "dead" ? "is gone" : "can't be fetched"}: ${failureReason(feed)}.`;
+  return [`${feedName(feed)} ${feed.status === "dead" ? "is gone" : "can't be fetched"}: ${failureReason(feed)}.`, retry ? `${retry}.` : ""].filter(Boolean).join(" ");
 }
 
 /** The feeds a list shows: its one feed, or every feed in its folder and the folders inside. */
@@ -142,7 +142,7 @@ export function failureNoteFeeds(o: { scope: Scope; pendingOf: (feedId: string) 
 export function failureNoteText(failing: readonly Feed[], inFolder: boolean, retry = ""): string {
   const one = failing[0];
   if (!one) return "";
-  if (!inFolder || failing.length === 1) return inFolder ? namedFailureLine(one) : failureLine(one, retry);
+  if (!inFolder || failing.length === 1) return inFolder ? namedFailureLine(one, retry) : failureLine(one, retry);
   const names = failing.slice(0, 3).map(feedName);
   const more = failing.length - names.length;
   return `${failing.length} feeds in this folder have fetch problems: ${names.join(", ")}${more > 0 ? ` and ${more} more` : ""}.`;

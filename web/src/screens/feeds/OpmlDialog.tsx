@@ -361,16 +361,16 @@ export function OpmlImportDialog({ onClose, inWizard = false }: { onClose: () =>
                 else setFile(f);
               });
             }}
-            className={`${inputCls} py-2`}
+            className="block min-h-11 w-full text-sm text-fg file:mr-3 file:min-h-11 file:cursor-pointer file:rounded-lg file:border file:border-line file:bg-surface file:px-3 file:font-semibold file:text-fg hover:file:bg-selection"
           />
         )}
       </Field>
       <Field
         label="Mark older articles as read (optional)"
-        help="Enter a number of days. Articles older than that arrive already read, so a big import doesn't flood Unread."
+        help="A number of days, for example 7. Articles older than that arrive already read, so a big import doesn't flood Unread."
         error={daysBad ? "Enter a whole number from 1 to 365, or leave empty." : null}
       >
-        {(a) => <input {...a} inputMode="numeric" type="text" value={days} onChange={(e) => setDays(e.target.value)} placeholder="For example 7" className={inputCls} />}
+        {(a) => <input {...a} inputMode="numeric" type="text" value={days} onChange={(e) => setDays(e.target.value)} className={inputCls} />}
       </Field>
       <Checkbox
         label="Move feeds that already exist into the file's folders"

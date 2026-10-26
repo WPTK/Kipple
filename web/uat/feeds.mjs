@@ -10,7 +10,7 @@
 //   F2  bulk delete of disposable feeds in a folder with a subfolder: the dialog says nothing about folders, the one
 //       progress bar is a moving bar with no count (the server deletes the whole set in one call), and every folder is still there afterwards, with the library
 //       otherwise untouched; (a single feed's dialog speaks of "its articles" and "this feed", several feeds of "their articles");
-//   F3  New folder and Rename folder both save on Enter in the name field;
+//   F3  New folder and Folder settings both save on Enter in the name field;
 //   F4  Import OPML refuses a file that is not OPML, by its look (JSON named .json), on the server when it is
 //       an RSS feed or JSON named .opml (not OPML) or an OPML cut short (damaged), says so in plain words and adds
 //       nothing.
@@ -132,7 +132,7 @@ await t.eachViewport(async (page, vp) => {
     await page.goto("/feeds", { waitUntil: "load" });
   }
   await page.getByRole("button", { name: `Folder actions for ${named}`, exact: true }).click();
-  await page.getByRole("menuitem", { name: "Rename or set layout" }).click();
+  await page.getByRole("menuitem", { name: "Folder settings" }).click();
   dialog = page.getByRole("dialog");
   await dialog.getByRole("textbox", { name: "Name" }).fill(renamed);
   await dialog.getByRole("textbox", { name: "Name" }).press("Enter");
@@ -148,7 +148,7 @@ await t.eachViewport(async (page, vp) => {
   const feedsBefore = (await t.boot(page)).feeds.length;
   const refuse = async (name, mimeType, body, wantText, label) => {
     await page.getByRole("button", { name: "Feed actions" }).click();
-    await page.getByRole("menuitem", { name: "Import OPML" }).click();
+    await page.getByRole("menuitem", { name: "Import feeds from a file (OPML)" }).click();
     const dlg = page.getByRole("dialog");
     await dlg.getByLabel("OPML file").setInputFiles({ name, mimeType, buffer: Buffer.from(body) });
     if (label !== "look") await dlg.getByRole("button", { name: "Import", exact: true }).click();

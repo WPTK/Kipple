@@ -33,7 +33,7 @@ await t.eachViewport(async (page, vp) => {
   const n = tag === "desktop" ? 9100 : 9200;
   const open = async (name, body) => {
     await page.getByRole("button", { name: "Feed actions" }).click();
-    await page.getByRole("menuitem", { name: "Import OPML" }).click();
+    await page.getByRole("menuitem", { name: "Import feeds from a file (OPML)" }).click();
     const dlg = page.getByRole("dialog");
     await dlg.getByLabel("OPML file").setInputFiles({ name, mimeType: "text/x-opml", buffer: Buffer.from(body) });
     await dlg.getByRole("button", { name: "Import", exact: true }).click();
@@ -116,7 +116,7 @@ await t.eachViewport(async (page, vp) => {
     await startSelect(page);
     await t.shot(page, `${tag}-opml-report-select`);
     await main.getByRole("checkbox", { name: new RegExp(`^Select UAT feed ${n + 2}$`) }).check();
-    await page.getByRole("button", { name: "Move to folder", exact: true }).click();
+    await page.getByRole("button", { name: "Move", exact: true }).click();
     const dlg = page.getByRole("dialog");
     const box = dlg.getByRole("combobox", { name: "Move to folder" });
     await box.waitFor({ timeout: 5000 });

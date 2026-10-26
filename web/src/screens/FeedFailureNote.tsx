@@ -13,11 +13,21 @@ import { useFeedTimes } from "./FeedRepair";
  * repeat what the reader already knows. It is two clamped lines (always two lines high, so the retry time arriving from
  * Feed health does not move the list) and a link; the raw text of every feed's error is on
  * Feed health, which the link opens (a tooltip alone would not reach touch or keyboard).
+ *
+ * Only a note about one feed says when it is tried again, so only that note asks Feed health for the time.
  */
 export function FeedFailureNote({ failing, inFolder }: { failing: readonly Feed[]; inFolder: boolean }) {
-  const times = useFeedTimes(failing[0]?.id ?? "");
-  if (failing.length === 0) return null;
-  const text = failureNoteText(failing, inFolder, times.retry);
+  const [one] = failing;
+  if (!one) return null;
+  return failing.length === 1 ? <TimedNote feed={one} inFolder={inFolder} /> : <Note text={failureNoteText(failing, inFolder)} />;
+}
+
+function TimedNote({ feed, inFolder }: { feed: Feed; inFolder: boolean }) {
+  const times = useFeedTimes(feed.id);
+  return <Note text={failureNoteText([feed], inFolder, times.retry)} />;
+}
+
+function Note({ text }: { text: string }) {
   return (
     <div data-testid="feed-failure-note" className="mx-3 flex flex-col gap-0.5 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg2">
       <p title={text} className="line-clamp-2 min-h-10 break-words">

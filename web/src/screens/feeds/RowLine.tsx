@@ -26,14 +26,18 @@ export function FeedLine({ feed, status }: { feed: Feed; status?: boolean }) {
   );
 }
 
-/** What a folder row says: its name and the unread count of its whole subtree (a collapsed folder still shows what is inside it). */
-export function FolderLine({ name, unread, icon }: { name: string; unread: number; icon?: boolean }) {
+/**
+ * What a folder row says: its name and the unread count of its whole subtree (a collapsed folder still shows what is
+ * inside it), or a quiet "Empty" for a folder with nothing in it. The name keeps normal text either way: a folder that
+ * is read, or empty, is not disabled.
+ */
+export function FolderLine({ name, unread, icon, empty }: { name: string; unread: number; icon?: boolean; empty?: boolean }) {
   return (
     <>
       {icon ? <FolderIcon aria-hidden="true" className="size-4 shrink-0 text-fg2" /> : null}
-      <span className={cn("truncate", unread <= 0 && "text-fg2")}>{name}{" "}</span>
+      <span className="truncate">{name}{" "}</span>
       <span className="ml-auto" />
-      <UnreadCount n={unread} />
+      {empty ? <span className="text-xs font-normal text-fg2">Empty</span> : <UnreadCount n={unread} />}
     </>
   );
 }

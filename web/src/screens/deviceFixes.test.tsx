@@ -652,8 +652,7 @@ describe("manage feeds", () => {
     await screen.findByText("Alpha");
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    await user.click(screen.getByRole("button", { name: "Feed actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Show move buttons" }));
+    await user.click(screen.getByRole("button", { name: "Show move buttons" }));
     await user.click(screen.getByRole("button", { name: "Move Alpha down" }));
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Move Alpha down" })));
     await user.click(screen.getByRole("button", { name: "Move Alpha down" }));
@@ -718,7 +717,7 @@ describe("manage feeds", () => {
     expect(screen.getByText("0 selected")).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: "Select Bravo" }));
     await user.click(screen.getByRole("checkbox", { name: "Select Charlie" }));
-    await user.click(screen.getByRole("button", { name: "Move to folder" }));
+    await user.click(screen.getByRole("button", { name: "Move" }));
     const dlg = await screen.findByRole("dialog", { name: "Move 2 feeds" });
     await user.selectOptions(within(dlg).getByLabelText("Move to folder"), "Tech");
     await user.click(within(dlg).getByRole("button", { name: "Move" }));

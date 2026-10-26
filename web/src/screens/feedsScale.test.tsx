@@ -197,7 +197,7 @@ describe("the default folder", () => {
     expect(within(main).queryByRole("link", { name: /^Uncategorized/ })).toBeNull();
     await userEvent.setup().click(screen.getByRole("button", { name: "Edit" }));
     expect(within(main).getByRole("link", { name: /^Uncategorized/ })).toBeInTheDocument();
-    expect(within(main).getByText("Empty. Feeds added without a folder go here.")).toBeInTheDocument();
+    expect(within(main).getByText("Feeds added without a folder go here.")).toBeInTheDocument();
   });
 
   it("is shown when it holds a feed", async () => {

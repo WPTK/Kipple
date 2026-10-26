@@ -178,6 +178,8 @@ describe("which failures are current", () => {
     const five = ["A", "B", "C", "D", "E"].map((t, i) => ({ ...failing, id: `x${i}`, title: t }));
     expect(failureNoteText(five, true)).toBe("5 feeds in this folder have fetch problems: A, B, C and 2 more.");
     expect(failureNoteText(five.slice(0, 3), true)).toBe("3 feeds in this folder have fetch problems: A, B, C.");
+    // The retry time belongs to one feed, so a note about several leaves it out.
+    expect(failureNoteText(five.slice(0, 3), true, "Trying again in 5 minutes")).toBe("3 feeds in this folder have fetch problems: A, B, C.");
     expect(failureNoteText([dead], true)).toBe("Gone Feed is gone: The site says this feed no longer exists.");
     expect(failureNoteText([dead], false)).toBe("This feed is gone: The site says this feed no longer exists.");
   });
@@ -196,6 +198,9 @@ describe("which failures are current", () => {
     expect(namedFailureLine(failing)).toBe(`${failing.title} can't be fetched: This address does not exist.`);
     expect(namedFailureLine({ ...failing, status: "failing" })).toBe(`${failing.title} can't be fetched: This address does not exist.`);
     expect(namedFailureLine({ ...failing, last_error: null })).toBe("");
+    // In a folder, the one failing feed's note says when it is tried again, as the feed's own list does.
+    expect(namedFailureLine(failing, "Trying again in 5 minutes")).toBe(`${failing.title} can't be fetched: This address does not exist. Trying again in 5 minutes.`);
+    expect(failureNoteText([failing], true, "Trying again in 5 minutes")).toBe(`${failing.title} can't be fetched: This address does not exist. Trying again in 5 minutes.`);
   });
 
   it("a folder's list drops a feed that has new articles waiting, as that feed's own unread list does", async () => {
