@@ -26,32 +26,49 @@ export const isSessionCookie = (name) => SESSION_COOKIES.includes(name);
 const poll = (ms) => new Promise((r) => setTimeout(r, ms));
 const describe = (v) => (typeof v === "string" ? JSON.stringify(v) : (JSON.stringify(v) ?? String(v)));
 
-/** Waits until the element (a Locator or a selector) is the page's active element; throws saying what had focus. */
+/**
+ * Waits until the element (a Locator or a selector) is the page's active element, for at most `ms` in total; throws
+ * saying what was waited for and what had focus. The element is looked up again on every poll, so a React remount
+ * that replaces it does not leave the wait holding a detached node.
+ */
 export async function waitForFocusReturned(page, locatorOrSelector, ms = 3000) {
-  const loc = typeof locatorOrSelector === "string" ? page.locator(locatorOrSelector) : locatorOrSelector;
-  const handle = await loc.first().elementHandle({ timeout: ms }).catch(() => null);
-  if (!handle) throw new Error(`waited ${ms} ms for focus to return to ${String(locatorOrSelector)}, but the element was not there`);
-  try {
-    await page.waitForFunction((el) => document.activeElement === el, handle, { timeout: ms });
-  } catch {
-    const seen = await page.evaluate(() => {
-      const a = document.activeElement;
-      return a ? `${a.tagName.toLowerCase()}${a.id ? `#${a.id}` : ""}${a.getAttribute("aria-label") ? ` "${a.getAttribute("aria-label")}"` : ""}` : "nothing";
-    });
-    throw new Error(`waited ${ms} ms for focus to return to ${String(locatorOrSelector)}, but it stayed on ${seen}`);
-  }
+  const loc = (typeof locatorOrSelector === "string" ? page.locator(locatorOrSelector) : locatorOrSelector).first();
+  const deadline = Date.now() + ms;
+  let found = false;
+  do {
+    const left = Math.max(1, Math.min(250, deadline - Date.now()));
+    const focused = await loc.evaluate((el) => el === document.activeElement, undefined, { timeout: left }).catch(() => null);
+    if (focused) return;
+    if (focused === false) {
+      found = true;
+      await poll(50);
+    }
+  } while (Date.now() < deadline);
+  const seen = await page.evaluate(() => {
+    const a = document.activeElement;
+    return a ? `${a.tagName.toLowerCase()}${a.id ? `#${a.id}` : ""}${a.getAttribute("aria-label") ? ` "${a.getAttribute("aria-label")}"` : ""}` : "nothing";
+  });
+  throw new Error(`waited ${ms} ms for focus to return to ${String(locatorOrSelector)}, but ${found ? `it stayed on ${seen}` : `the element was not there (focus was on ${seen})`}`);
 }
 
-/** Waits until no CSS animation or transition is running in the document (two frames in a row); throws naming what still ran. */
+/**
+ * Waits until no CSS animation or transition is running in the document, polling every 50 ms for at most `ms`, then
+ * lets two frames pass; throws saying how many were running at the last poll and what they were.
+ */
 export async function waitForAnimationsDone(page, ms = 3000) {
-  try {
-    await page.waitForFunction(() => document.getAnimations().length === 0, null, { timeout: ms });
-  } catch {
-    const running = await page.evaluate(() => document.getAnimations().map((a) => a.transitionProperty || a.animationName || a.constructor.name).slice(0, 5).join(", "));
-    throw new Error(`waited ${ms} ms for animations and transitions to finish, but still running: ${running || "(they ended just after)"}`);
+  const deadline = Date.now() + ms;
+  const names = () => page.evaluate(() => document.getAnimations().map((a) => a.transitionProperty || a.animationName || a.constructor.name));
+  let running = await names();
+  while (running.length && Date.now() < deadline) {
+    await poll(50);
+    running = await names();
   }
+  if (running.length) throw new Error(animationsTimeout(ms, running));
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 }
+
+/** The message for animations still running when the wait ran out; `running` is what the last poll saw. */
+export const animationsTimeout = (ms, running) => `waited ${ms} ms for animations and transitions to finish, but the last poll still saw ${running.length}: ${running.slice(0, 5).join(", ")}`;
 
 /**
  * Runs `action` and waits for the response to the request `match(response)` accepts (for example a PUT to a settings

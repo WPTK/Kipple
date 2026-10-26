@@ -7,13 +7,14 @@
 //
 // Exit code: 0 all clean, 1 a flow had findings, 2 the manifest is out of date, a flow could not run, or the instance
 // stopped answering /healthz between flows (the run stops there instead of failing every remaining flow).
-// The summary repeats the FAIL lines of the flows that failed, and goes to the Actions step summary when there is one.
+// The summary repeats the FAIL lines of the flows that failed (or, for a crash, its last stderr line), and goes to the Actions step summary when there is one.
 // The Browser UAT workflow (.github/workflows/browser-uat.yml) runs this, so a flow listed here runs in CI.
 import { spawn } from "node:child_process";
 import { appendFileSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { failureLines } from "./summary.mjs";
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const { values } = parseArgs({ options: { check: { type: "boolean", default: false }, engine: { type: "string", default: "chromium" } } });
@@ -41,14 +42,16 @@ if (!list) {
 }
 // The instance every flow signs in to: the same address a flow uses (common.mjs `--url` default).
 const base = process.env.KIPPLE_UAT_URL || "http://127.0.0.1:1919";
-const alive = async () => {
+const probe = async () => {
   try {
     return (await fetch(`${base}/healthz`, { signal: AbortSignal.timeout(5000) })).ok;
   } catch {
     return false;
   }
 };
-/** Runs one flow; its output goes through to this process's, and the stderr lines starting with "FAIL " are kept. */
+/** Whether the instance answers; one failed probe is retried after a second, so a busy moment is not "gone". */
+const alive = async () => (await probe()) || (await new Promise((r) => setTimeout(r, 1000)), await probe());
+/** Runs one flow; its output goes through to this process's, and its stderr is kept for the Failures summary. */
 const run = (flow) =>
   new Promise((resolve) => {
     let err = "";
@@ -58,7 +61,7 @@ const run = (flow) =>
       process.stderr.write(d);
       err += d;
     });
-    child.on("error", (e) => resolve({ code: 2, error: e, failures: [] }));
+    child.on("error", (e) => resolve({ code: 2, error: e, failures: failureLines("", 2, e) }));
     child.on("close", (code) => resolve({ code: code ?? 2, failures: err.split(/\r?\n/).filter((l) => l.startsWith("FAIL ")) }));
   });
 let worst = 0;
