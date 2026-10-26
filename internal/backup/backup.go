@@ -168,9 +168,6 @@ func New(o Options) *Manager {
 	return m
 }
 
-// BuildTimeout is how long one Create may take.
-func (m *Manager) BuildTimeout() time.Duration { return m.o.BuildTimeout }
-
 // SyncWait is how long a caller should wait for a job before polling.
 func (m *Manager) SyncWait() time.Duration { return m.o.SyncWait }
 

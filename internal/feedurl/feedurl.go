@@ -319,3 +319,8 @@ func parseHost(raw string, checkHost bool) (*url.URL, string, error) {
 	}
 	return u, norm, nil
 }
+
+// IsHTTP reports whether u is an absolute http or https URL with a host.
+func IsHTTP(u *url.URL) bool {
+	return u != nil && (strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")) && u.Host != ""
+}
