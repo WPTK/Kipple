@@ -206,6 +206,7 @@ describe("the Gazette's order and name (#39)", () => {
     expect(sectionsFor("feed", { view: "all" })).toBe("feed");
     expect(noReadingTimeSections({ view: "starred" })).toBe("Reading time groups Unread only.");
     expect(noReadingTimeSections({ view: "unread", length: "short" })).toBe("Article length is already filtered.");
+    expect(noReadingTimeSections({ view: "unread", q: "tea" })).toBe("A search has no sections.");
   });
 
   it("the Digest follows no sort order and its settings fall back to their defaults", () => {

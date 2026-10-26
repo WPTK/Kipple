@@ -163,13 +163,14 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
                 aria-label="Sections"
                 value={sectionsFor(dp.digestSections, scope)}
                 onValueChange={(v) => {
+                  if (v === "length" && noReadingTimeSections(scope)) return;
                   updateDevicePrefs({ digestSections: v as DigestSections });
                   announce(`Sections are ${DIGEST_SECTION_LABELS[v as DigestSections].toLowerCase()}`);
                 }}
               >
                 {(["folder", "feed", "length"] as const).map((o) => {
                   const why = o === "length" ? noReadingTimeSections(scope) : null;
-                  return <Radio key={o} value={o} label={DIGEST_SECTION_LABELS[o]} hint={why ?? undefined} disabled={!!why} />;
+                  return <Radio key={o} value={o} label={DIGEST_SECTION_LABELS[o]} hint={why ?? undefined} unavailable={!!why} />;
                 })}
               </DropdownMenu.RadioGroup>
               <SectionLookChoices />
@@ -282,9 +283,15 @@ export function SectionOrderChoice({ name }: { name: "sections" | "feeds" }) {
   );
 }
 
-function Radio({ value, label, hint, className, disabled }: { value: string; label: string; hint?: string; className?: string; disabled?: boolean }) {
+/** `unavailable` greys the choice but keeps it focusable (aria-disabled, selection blocked), so its hint, the reason, is reachable by keyboard and screen reader. */
+function Radio({ value, label, hint, className, unavailable }: { value: string; label: string; hint?: string; className?: string; unavailable?: boolean }) {
   return (
-    <DropdownMenu.RadioItem value={value} disabled={disabled} className={cn("relative py-1.5 pl-9", className)}>
+    <DropdownMenu.RadioItem
+      value={value}
+      aria-disabled={unavailable || undefined}
+      onSelect={unavailable ? (e) => e.preventDefault() : undefined}
+      className={cn("relative py-1.5 pl-9", unavailable && "opacity-50", className)}
+    >
       <DropdownMenu.ItemIndicator className="absolute left-3 inline-flex">
         <Check className="size-4" aria-hidden="true" />
       </DropdownMenu.ItemIndicator>

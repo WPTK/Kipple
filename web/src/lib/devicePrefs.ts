@@ -478,7 +478,13 @@ export interface ListShape {
 
 /** Why the Digest cannot cut this list by reading time, or null when it can: it groups Unread, and a length filter has already cut the list. */
 export const noReadingTimeSections = (scope: ListShape): string | null =>
-  breaksIntoSections(scope) ? null : scope.view !== "unread" ? "Reading time groups Unread only." : "Article length is already filtered.";
+  breaksIntoSections(scope)
+    ? null
+    : scope.view !== "unread"
+      ? "Reading time groups Unread only."
+      : scope.q
+        ? "A search has no sections."
+        : "Article length is already filtered.";
 
 /** The sections the Digest draws a list in: the chosen ones, except that reading time needs a list it can cut (Folders otherwise). */
 export const sectionsFor = (chosen: DigestSections, scope: ListShape): DigestSections => (chosen === "length" && noReadingTimeSections(scope) ? "folder" : chosen);

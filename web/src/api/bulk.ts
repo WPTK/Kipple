@@ -14,7 +14,7 @@ export interface ScopeBody {
   q?: string;
   /** The list's `fallback` flag echoed back, so the server marks what the list showed (docs/design.md 2.4). */
   fallback?: boolean;
-  /** The list's reading-time filter, so rows it hides are never marked. */
+  /** The list's article length filter, so rows it hides are never marked. */
   min_minutes?: number;
   max_minutes?: number;
   /** Only the articles with no extracted text (never with min_minutes or max_minutes). */

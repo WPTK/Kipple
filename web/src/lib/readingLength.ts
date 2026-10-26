@@ -1,4 +1,4 @@
-// The reading-time filter of a list (docs/design.md 7.1, `min_minutes`/`max_minutes`/`unknown_length`). Three named
+// The article length filter of a list (docs/design.md 7.1, `min_minutes`/`max_minutes`/`unknown_length`). Three named
 // lengths, carried in the list's address (`?len=`), so a list keeps it through the Unread/All/Starred switch and an open
 // article's way back, and a new list starts without it. The Digest, cut by reading time, splits a list into four more
 // lengths (BREAK_LENGTHS), one for each of its sections; they are in the same field of the scope and the same table, but are not

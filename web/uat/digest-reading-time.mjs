@@ -227,9 +227,11 @@ try {
           const item = page.getByRole("menuitemradio", { name: /^Reading time/ });
           const disabled = (await item.getAttribute("aria-disabled")) === "true";
           const said = await item.getByText(why, { exact: true }).count();
+          await item.focus();
+          const focusable = await item.evaluate((el) => el === document.activeElement); // the reason must be reachable by keyboard
           await t.shot(page, `${tag}-sections-menu-${what.replace(/ /g, "-")}`);
           await page.keyboard.press("Escape");
-          check(drawn === 0 && disabled && said === 1, `${tag} K7 ${what}`, `${what} draws no reading-time section, and the menu greys Reading time with the reason`, `${drawn} reading-time section(s); disabled: ${disabled}; reason shown: ${said}`); // uat-labels: ignore
+          check(drawn === 0 && disabled && focusable && said === 1, `${tag} K7 ${what}`, `${what} draws no reading-time section, and the menu greys Reading time with the reason, focusable`, `${drawn} reading-time section(s); disabled: ${disabled}; focusable: ${focusable}; reason shown: ${said}`); // uat-labels: ignore
         }
 
         // K8

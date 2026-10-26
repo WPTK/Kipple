@@ -194,7 +194,7 @@ Choices made where the decisions above were silent; the owner may overrule any o
 - **Only show matching** is a choice under "What it does", stored as an inverted Mute (no new action, no schema
   change). For Mute the "Act when it does NOT match" option is that choice, so the checkbox is offered for Mark as
   read and Star only.
-- **Reading-time filter:** three lengths, "5 min or less", "6 to 15 min" and "Over 15 min", from the Article length button (a timer) in the
+- **Article length filter:** three lengths, "5 min or less", "6 to 15 min" and "Over 15 min", from the Article length button (a timer) in the
   list header, with a chip under the view pills that clears it. It lives in the list's address: the view pills,
   previous and next feed, and an opened article keep it; another list starts without it; it is not saved. Mark all as
   read marks only what it shows.

@@ -48,7 +48,7 @@ const MARK_ALL_RESULTS = "Mark all results as read";
 
 /**
  * The words for Mark all as read in the list `scope` is, naming how far it reaches. `unread` is the live unread count
- * of a feed, a folder or the library, or the unread results of a search once all are loaded (null where the counts do not say, such as a reading-time filter or Starred, and
+ * of a feed, a folder or the library, or the unread results of a search once all are loaded (null where the counts do not say, such as an article length filter or Starred, and
  * the plain words where there is nothing to count). The list's menu asks first and the dialog repeats this label.
  */
 export function markAllLabel(scope: Scope, unread: number | null): string {
@@ -64,7 +64,7 @@ export function markAllLabel(scope: Scope, unread: number | null): string {
 
 /**
  * What the Mark all dialog says it marks: the unread articles of the list `scope` is. The Starred view and a
- * reading-time filter both narrow the reach, so they are named. `place` is the feed or folder title (else "this list").
+ * article length filter both narrow the reach, so they are named. `place` is the feed or folder title (else "this list").
  */
 export function markAllReach(scope: Scope, place = "this list"): string {
   if (scope.after) return "unread articles that arrived since you last looked";
