@@ -76,8 +76,8 @@ Add a Google Reader compatible account in your sync app:
 
 - Server: your Kipple address plus `/api/greader.php`
 - User name: the one you chose during setup
-- Password: an app password, separate from your web password. Make one in the last setup step or under Settings,
-  Account & Devices, Generate new app password. Kipple shows it once.
+- Password: an app password, separate from your web password. Make one in the last setup step or under
+  Settings, Account & Devices, Generate new app password. Kipple shows it once.
 
 ## What Kipple leaves out
 
@@ -108,7 +108,8 @@ To report a bug, open an [issue](https://github.com/WPTK/Kipple/issues). To send
 
 ## Maintenance
 
-One maintainer. [SECURITY.md](SECURITY.md) sets a 14-day target for a first response. The code is under a permissive
+Most code, tests and docs are written by AI coding agents (Claude) and checked by CI scans, fuzzing, and signed, attested
+releases with an SBOM. One maintainer. [SECURITY.md](SECURITY.md) sets a 14-day target for a first response. The code is under a permissive
 license, and a fork builds and signs its own releases. You can [verify a release](docs/deploy.md#verify-the-signature).
 Notes and decisions are on the [maintainer's blog](https://blog.wptk.org) and in the
 [history repository](https://github.com/WPTK/kipple-history).
