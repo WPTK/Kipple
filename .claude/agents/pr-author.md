@@ -23,6 +23,7 @@ Run only what your change touches. CI runs the full suites on the pushed commit,
 
 - Go, for the packages you changed: `gofmt -l <files>`, `go vet ./<pkg>/...`, `go test ./<pkg>/...`.
 - Web, in `web/`, for the files you changed: `npx eslint <files>`, `npx tsc --noEmit`, `npx vitest run <related test files>`.
+- If you changed `scripts/maintainers` or the eslint config, run `npm run lint` (it lints those too).
 - If a test fails, run it alone before deciding whether it flaked; report a flake, do not retry until green.
 - If you changed `aria-label`s, run `node scripts/uat-labels.mjs`.
 - Before committing, `git diff --cached` and look for anything that is not a placeholder.
