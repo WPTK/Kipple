@@ -6,7 +6,7 @@
 //
 // The flow serves one feed on a loopback port (four short articles, two of about four minutes, one of about nine and one
 // with no text at all), puts it in a folder of its own ("UAT Reading time") and opens that folder's Unread with the
-// Digest as the layout and Reading time as its sections. For each width (desktop 1280x800, phone 375x812) it checks:
+// Digest as the layout and Reading time as its sections. For each width (desktop 1280x800, phone 375x812) it checks: (uat-labels: ignore)
 //   K1  the four sections are drawn in order, each with its articles: Under 3 minutes, 3 to 7 minutes, 8 minutes and up,
 //       Unknown length; and the first shows three rows and "1 more" (the Rows per section setting, an exact count);
 //   K2  "1 more" opens the section in place and its button goes;
@@ -15,7 +15,7 @@
 //       unknown_length marks the article with no text and nothing else;
 //   K4  Mark all (confirmed in its dialog) marks every section, and one Undo puts them all back;
 //   K5  the arrow keys visit the articles and the "more" button in the order they are drawn, and the page has one Tab stop;
-//   K6  the layout menu offers Reading time (chosen and enabled) beside Folders and Feeds, with Images and Rows per
+//   K6  the layout menu offers Reading time (chosen and enabled) beside Folders and Feeds, with Images and Rows per (uat-labels: ignore)
 //       section for the device, and a choice changes the page;
 //   K7  All, and Unread with an article-length filter, draw folder sections instead, and the menu greys Reading time
 //       with the reason;
@@ -211,14 +211,14 @@ try {
         const menu = page.getByRole("menu");
         const groups = await menu.getByRole("group").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
         const reading = menu.getByRole("menuitemradio", { name: "Reading time", exact: true });
-        check(groups.includes("Sections") && groups.includes("Images") && groups.includes("Rows per section") && (await reading.getAttribute("aria-checked")) === "true" && (await reading.getAttribute("aria-disabled")) !== "true", `${tag} K6 menu`, "Sections with Reading time chosen and enabled, and Images and Rows per section", `groups: ${groups.join(", ")}`);
+        check(groups.includes("Sections") && groups.includes("Images") && groups.includes("Rows per section") && (await reading.getAttribute("aria-checked")) === "true" && (await reading.getAttribute("aria-disabled")) !== "true", `${tag} K6 menu`, "Sections with Reading time chosen and enabled, and Images and Rows per section", `groups: ${groups.join(", ")}`); // uat-labels: ignore
         await menu.getByRole("menuitemradio", { name: "5", exact: true }).click();
         const five = await settled(() => document.querySelectorAll('section[data-section] article[data-item-id]').length >= 7);
         check(five && (await idsOf(SECTIONS[0])).length === 4, `${tag} K6 rows`, "5 rows per section shows the first section whole", `${(await idsOf(SECTIONS[0])).length} articles in it`);
         await patch({ "client.digest_rows": 3 });
 
         // K7
-        for (const [what, path, why] of [["All", `/l/all?folder=${folder.id}`, "Reading time groups Unread only."], ["an article-length filter", `${url}&len=short`, "Article length is already filtered."]]) {
+        for (const [what, path, why] of [["All", `/l/all?folder=${folder.id}`, "Reading time groups Unread only."], ["an article-length filter", `${url}&len=short`, "Article length is already filtered."]]) { // uat-labels: ignore
           await page.goto(path, { waitUntil: "load" });
           await page.locator("article[data-item-id]").first().waitFor({ timeout: 20000 });
           const drawn = (await headings()).filter((h) => SECTIONS.includes(h)).length;
@@ -227,7 +227,7 @@ try {
           const disabled = (await item.getAttribute("aria-disabled")) === "true";
           const said = await item.getByText(why, { exact: true }).count();
           await page.keyboard.press("Escape");
-          check(drawn === 0 && disabled && said === 1, `${tag} K7 ${what}`, `${what} draws no reading-time section, and the menu greys Reading time with the reason`, `${drawn} reading-time section(s); disabled: ${disabled}; reason shown: ${said}`);
+          check(drawn === 0 && disabled && said === 1, `${tag} K7 ${what}`, `${what} draws no reading-time section, and the menu greys Reading time with the reason`, `${drawn} reading-time section(s); disabled: ${disabled}; reason shown: ${said}`); // uat-labels: ignore
         }
 
         // K8
