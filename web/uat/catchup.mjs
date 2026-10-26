@@ -66,7 +66,17 @@ try {
       return false;
     };
     // Waits until the account's mark is past `prev` (leaving the page posts it a moment after the route changes).
-    const markPast = (prev) => until(async () => gt(await mark(), prev));
+    const markPast = (prev) =>
+      page.evaluate(
+        async ({ prev, ms }) => {
+          for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 250))) {
+            const m = (await (await fetch("/api/catchup", { headers: { Accept: "application/json" } })).json()).mark;
+            if (BigInt(m) > BigInt(prev)) return true;
+          }
+          return false;
+        },
+        { prev, ms: 10000 },
+      );
     // Waits until the feed holds `n` stories. A refresh that joins a fetch already under way brings the old stories, so it asks again.
     const storiesIn = (feedId, n) =>
       until(async () => {

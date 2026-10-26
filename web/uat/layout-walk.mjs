@@ -42,7 +42,7 @@ await t.eachViewport(async (page, vp) => {
     await page.setViewportSize({ width: w, height: h });
     await page.goto(path, { waitUntil: "load" });
   };
-  /** Polls `holds` until it is true, for at most `ms`; the answer may need the page, so it is asked here and not in a waitForFunction. */
+  /** Polls `holds` until it is true, for at most `ms`. For checks that combine several page measurements with node-side helpers; a check that reads only the DOM uses page.waitForFunction. */
   const until = async (holds, ms = 10000) => {
     for (const end = Date.now() + ms; Date.now() < end; await delay(100)) if (await holds()) return true;
     return false;
@@ -111,7 +111,7 @@ await t.eachViewport(async (page, vp) => {
                 for (let i = 1; i <= 6; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: pt(where2.y - (dy * i) / 6) });
                 await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
                 await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); // the scroll starts on a frame
-                return waitForStillFor(page, 150, () =>
+                return waitForStillFor(page, 250, () =>
                   page.evaluate(() => {
                     const shell = document.querySelector(".search-shell");
                     return { top: Math.round(shell.scrollTop), list: Math.round(shell.querySelector("[data-list-scroller]").scrollTop), short: shell.hasAttribute("data-short") };
@@ -204,8 +204,19 @@ await t.eachViewport(async (page, vp) => {
       });
       return { seen, ok: seen.targets === targets && Math.abs(seen.rem - 16 * text) < 0.05 && (inset === null || (seen.inset !== null && Math.abs(seen.inset - inset) < 0.5)) };
     };
-    let force;
-    await until(async () => (force = await inForce()).ok, 5000);
+    await page
+      .waitForFunction(
+        (want) => {
+          const main = document.getElementById("main");
+          const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+          const pad = main ? parseFloat(getComputedStyle(main).paddingRight) : null;
+          return document.documentElement.dataset.targets === want.targets && Math.abs(rem - 16 * want.text) < 0.05 && (want.inset === null || (pad !== null && Math.abs(pad - want.inset) < 0.5));
+        },
+        { targets, text, inset },
+        { timeout: 5000, polling: 50 },
+      )
+      .catch(() => {}); // the error below says what the page had instead
+    const force = await inForce();
     if (!force.ok) throw new Error(`${where}: the setting never took effect (wanted targets ${targets}, root ${16 * text} px${inset === null ? "" : `, right inset ${inset} px`}; the page has targets ${force.seen.targets}, root ${force.seen.rem} px, right padding of #main ${force.seen.inset})`);
     let g;
     if (degrade) {

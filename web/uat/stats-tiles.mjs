@@ -21,11 +21,13 @@ import { readFileSync } from "node:fs";
 import { start } from "./common.mjs";
 
 /** Waits for the finite transitions and animations in the page (the chevron's turn, a tile's growth) to end; endless ones, such as an entrance loop, are not waited on. */
-const transitionsEnded = (page) =>
-  page.evaluate(async () => {
+const transitionsEnded = (page, ms = 3000) =>
+  page.evaluate(async (limit) => {
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); // the turn starts on the frame after the class changes
-    await Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity).map((a) => a.finished.catch(() => {})));
-  });
+    const running = document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity);
+    const ended = await Promise.race([Promise.all(running.map((a) => a.finished.catch(() => {}))).then(() => true), new Promise((r) => setTimeout(() => r(false), limit))]);
+    if (!ended) throw new Error(`waited ${limit} ms for ${running.length} transitions to end, but some were still running: ${running.map((a) => a.transitionProperty || a.animationName).join(", ")}`);
+  }, ms);
 
 const SCHEMES = JSON.parse(readFileSync(new URL("../src/theme/schemes.json", import.meta.url), "utf8"));
 const t = await start(import.meta.url, 19);

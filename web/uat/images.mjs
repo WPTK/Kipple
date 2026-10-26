@@ -54,14 +54,11 @@ const finished = async (page, img, seen) => {
     const src = await img.evaluate((el) => el.src, undefined, { timeout: left() });
     while (!seen.has(src)) {
       if (Date.now() > deadline) return "unfetched";
-      await delay(100); // a poll interval
+      await delay(100); // `seen` is filled in this process by a response listener, so it is polled here
     }
-    for (;;) {
-      const state = await img.evaluate((el) => (!el.isConnected ? "gone" : el.complete && el.currentSrc ? (el.naturalWidth > 0 ? "loaded" : "failed") : ""), undefined, { timeout: left() });
-      if (state) return state;
-      if (Date.now() > deadline) return "timeout";
-      await delay(50); // a poll interval
-    }
+    const handle = await img.elementHandle({ timeout: left() });
+    await page.waitForFunction((el) => !el.isConnected || (el.complete && !!el.currentSrc), handle, { timeout: left(), polling: 50 });
+    return await img.evaluate((el) => (!el.isConnected ? "gone" : el.naturalWidth > 0 ? "loaded" : "failed"), undefined, { timeout: left() });
   } catch (e) {
     if ((await img.count().catch(() => 1)) === 0) return "gone";
     if (e.name === "TimeoutError") return "timeout";
@@ -188,7 +185,8 @@ await t.eachViewport(async (page, vp) => {
     await lazyRow.click();
     await body.getByText("Picture 30 ends the article.").waitFor({ timeout: 15000 });
     // Negative check: no request for 1000 ms after the article rendered, longer than the lazy-load observer and a fetch need.
-    await waitForStillFor(page, 1000, () => asked.length, { label: "the below-the-fold image requests to stop" });
+    // A request that keeps arriving is the finding below, not a timeout here.
+    await waitForStillFor(page, 1000, () => asked.length, { label: "the below-the-fold image requests to stop", timeout: 5000 }).catch(() => {});
     check(asked.length === 0, `${tag} I5 lazy`, "no image below the fold is requested or checked before scrolling", `${asked.length} requests: ${JSON.stringify(asked)}`);
     await body.getByText("Picture 30 ends the article.").scrollIntoViewIfNeeded();
     const last = body.locator('img[alt="Picture 30"]');

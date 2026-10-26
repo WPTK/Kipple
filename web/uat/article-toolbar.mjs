@@ -30,7 +30,7 @@ await t.eachViewport(async (page, vp) => {
     await bar.waitFor({ timeout: 10000 });
     const id = new URL(page.url()).pathname.split("/").pop();
     const itemState = async () => (await (await page.request.get(`/api/items/${id}`, { headers: { Accept: "application/json" } })).json()).read;
-    // Polls the stored read state until it is `want` (at most 5 s) and returns the last value seen, so a toggle that never lands is reported by the check that follows.
+    // Asks the server (a request from this process, so not a waitForFunction) for the stored read state, again and again, until it is `want` (at most 5 s) and returns the last value seen, so a toggle that never lands is reported by the check that follows.
     const readBecomes = async (want) => {
       let now = await itemState();
       for (const end = Date.now() + 5000; now !== want && Date.now() < end; ) {
@@ -58,7 +58,8 @@ await t.eachViewport(async (page, vp) => {
     if (after !== before) {
       await bar.getByRole("button", { name: "More actions" }).click();
       await page.getByRole("menuitem", { name: /^Mark as (un)?read$/ }).click();
-      await readBecomes(before);
+      const restored = await readBecomes(before);
+      check(restored === before, `${tag} T3 restore`, "the second toggle puts the read state back", `read was ${before}, after the second toggle ${restored}`);
     }
 
     const feedName = (await page.locator("article header p").first().getByRole("link").innerText()).trim();
