@@ -33,7 +33,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium } from "@playwright/test";
 import { installPageHelpers, tapProbe } from "./probes.mjs";
-import { onPageError } from "./common.mjs";
+import { onPageError, waitForAnimationsDone, waitForStillFor } from "./common.mjs";
 
 const require = createRequire(import.meta.url);
 const webDir = fileURLToPath(new URL("../", import.meta.url));
@@ -101,7 +101,7 @@ async function startServer(name) {
     } catch {
       /* not up yet */
     }
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200)); // the poll interval while the new server starts
     if (i === 99) setupError(`server ${name} did not start:\n${err}`);
   }
   return { origin };
@@ -129,7 +129,7 @@ async function onStep(page, tag, heading, n) {
     fail(where, `no heading "${heading}"`);
     throw new Error("lost");
   }
-  await page.waitForTimeout(250);
+  await waitForAnimationsDone(page); // axe reads colours, so the step's entrance must be over
   check(where, await page.getByText(`Step ${n} of 2`).isVisible(), `no "Step ${n} of 2"`);
   await axeRun(page, where);
   await overflowRun(page, where);
@@ -258,8 +258,10 @@ try {
     check("A whats-new", (settings.values?.["ui.whats_new_seen"] ?? "") === wantSeen, `ui.whats_new_seen is ${JSON.stringify(settings.values?.["ui.whats_new_seen"])}, expected ${JSON.stringify(wantSeen)}`);
     await page.reload();
     await page.getByRole("main").waitFor({ timeout: 10_000 });
-    await page.waitForTimeout(1500);
-    check("A whats-new", (await page.getByRole("dialog", { name: "What's new in Kipple" }).count()) === 0, "What's new appeared on the first load after setup");
+    // A negative (the dialog does not appear): it opens from the bootstrap, so hold the window as long as the 1500 ms this replaces.
+    const whatsNew = page.getByRole("dialog", { name: "What's new in Kipple" });
+    await waitForStillFor(page, 1500, () => whatsNew.count(), { label: "the What's new dialog count to stop changing" });
+    check("A whats-new", (await whatsNew.count()) === 0, "What's new appeared on the first load after setup");
     check("A account", errors.length === 0, `console or page errors: ${errors.join(" | ")}`);
 
     // Issue #465: now that the account exists, a signed-out launch of the sign-in page logs nothing and asks for nothing
@@ -278,7 +280,8 @@ try {
       });
       await op.goto(origin);
       await op.getByRole("heading", { name: "Sign in to Kipple" }).waitFor({ timeout: 10_000 });
-      await op.waitForTimeout(1000);
+      // Negatives (no error, no 4xx, no bootstrap): the console and the requests must hold still for as long as the 1000 ms this replaces.
+      await waitForStillFor(op, 1000, () => [strict.length, api.length], { label: "console messages and API requests to stop arriving on the sign-in page" });
       check("A signed out", strict.length === 0, `console or page errors: ${strict.join(" | ")}`);
       check("A signed out", api.every((l) => !/^4/.test(l)), `a 4xx answer: ${api.join(", ")}`);
       check("A signed out", !api.some((l) => l.endsWith(" /api/bootstrap")), `the bootstrap was asked for: ${api.join(", ")}`);
@@ -290,7 +293,7 @@ try {
       api.length = 0;
       await op.reload();
       await op.getByRole("main").waitFor({ timeout: 10_000 });
-      await op.waitForTimeout(1000);
+      await waitForStillFor(op, 1000, () => [strict.length, api.length], { label: "console messages and API requests to stop arriving after the reload" });
       check("A signed in", api.filter((l) => l.endsWith(" /api/bootstrap")).length === 1, `not one bootstrap request: ${api.join(", ")}`);
       check("A signed in", !api.some((l) => l.endsWith(" /api/instance")), `a signed-in launch asked /api/instance: ${api.join(", ")}`);
       check("A signed in", strict.length === 0, `console or page errors: ${strict.join(" | ")}`);
@@ -304,7 +307,7 @@ try {
       const post = { method: "POST", headers: { ...opts.headers, "Content-Type": "application/json" }, body: JSON.stringify({ current }) };
       let ans = await (await fetch("/api/backup", post)).json();
       for (let i = 0; ans.status === "building" && ans.job_id && i < 300; i++) {
-        await new Promise((r) => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, 1000)); // the poll interval while the server builds the backup
         ans = await (await fetch(`/api/backup/jobs/${ans.job_id}`, opts)).json();
       }
       if (!ans.url) return { error: JSON.stringify(ans) };
@@ -477,8 +480,8 @@ try {
   if (e.message !== "lost") fail("run", e.stack ?? String(e));
 } finally {
   await browser.close();
-  for (const s of servers) s.kill();
-  await new Promise((r) => setTimeout(r, 500));
+  // A server on Windows holds its files until it has exited: wait for that, not for a guess.
+  await Promise.all(servers.map((s) => (s.exitCode !== null || s.signalCode ? null : new Promise((r) => { const force = setTimeout(() => s.kill("SIGKILL"), 5000); const giveUp = setTimeout(r, 8000); s.once("exit", () => { clearTimeout(force); clearTimeout(giveUp); r(); }); s.kill(); }))));
   try {
     rmSync(tmp, { recursive: true, force: true });
   } catch {

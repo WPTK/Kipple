@@ -55,7 +55,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
-import { accessControlUrl, onPageError, isSessionCookie, unloadRefusal } from "./common.mjs";
+import { accessControlUrl, onPageError, isSessionCookie, unloadRefusal, waitForAnimationsDone, waitForFrames, waitForPageStill, waitForStillFor } from "./common.mjs";
 import { activeScheme, lowestRowMenuButton, menuPlacement, axeProbe, focusInMenu, hasAxe, installPageHelpers, isFocused, literalProbe, overflowProbe, pushRoute, screenReady, tapProbe } from "./probes.mjs";
 
 /** The smallest touch target, in CSS px (S8). WCAG 2.2 asks for 24; Kipple keeps to the 44 of the Apple and Material guides. */
@@ -396,7 +396,7 @@ async function closeMenu(page, button) {
   if (!back) throw new Error(`after Escape, focus is not back on ${button}`);
 }
 
-// Wait for the lazy screen and its queries: no busy skeleton, no boot splash, then a short beat for late renders.
+// Wait for the lazy screen and its queries: no busy skeleton, no boot splash, then until the last renders are drawn.
 async function settle(page) {
   await page.waitForFunction(screenReady, null, { timeout: 15000, polling: 100 }).catch((e) => {
     // Checking a skeleton would pass a screen whose content was never seen. Anything else (a crashed or closed
@@ -407,14 +407,12 @@ async function settle(page) {
   // counted), for at most 10 s: lazy chunks and the queries a screen fires once it mounts.
   const inflight = pending.get(page);
   if (inflight) {
-    let quietSince = Date.now();
-    for (const until = Date.now() + 10000; Date.now() < until; ) {
-      if (inflight.size) quietSince = Date.now();
-      else if (Date.now() - quietSince >= 300) break;
-      await page.waitForTimeout(50);
-    }
+    // A value that changes at every look while a request is in flight, and holds still once none is: "still for 300 ms" is "quiet for 300 ms".
+    let busy = 0;
+    await waitForStillFor(page, 300, () => (inflight.size ? ++busy : 0), { timeout: 10000, label: "same-origin requests to finish" }).catch(() => {}); // a request that never ends (a beacon) must not hold the screen
   }
-  await page.waitForTimeout(150);
+  await waitForFrames(page);
+  await waitForPageStill(page, 150); // late renders
 }
 
 /** Same-origin requests in flight per page, except the event stream (see settle). */
@@ -744,7 +742,7 @@ async function checkPopoverClearance(cookies) {
     if (index < 0) return broken(where, "no row More button above the tab bar to open");
     await page.locator("main article[data-item-id]").nth(index).getByRole("button", { name: /^More actions/ }).click();
     await page.locator(MENU).waitFor({ timeout: 5000 });
-    await page.waitForTimeout(300);
+    await waitForAnimationsDone(page); // the menu opens with a transition
     for (const s of placementFindings(await page.evaluate(menuPlacement), "row More", "with a mouse at 375 x 812")) report("S4", where, s.rule, s.message);
     console.log(`light phone-mouse row-menu      ${findings.some((f) => f.screen === where.screen && f.severity === "fail") ? "S4" : "ok"}`);
   } catch (e) {
@@ -884,11 +882,14 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         const check = async (where) => s4.push(...placementFindings(await page.evaluate(menuPlacement), "List options", where));
         await check(`at ${vp.width} x ${vp.height}`);
         if (vp.id === "phone") {
+          const placed = () => page.evaluate(menuPlacement);
           await page.setViewportSize({ width: 852, height: 393 });
-          await page.waitForTimeout(400);
+          await waitForFrames(page); // the resize has reached the app before the menu is read
+          await waitForStillFor(page, 150, placed, { label: "the menu to stop moving after the resize" });
           await check("at 852 x 393");
           await page.setViewportSize({ width: vp.width, height: vp.height });
-          await page.waitForTimeout(400);
+          await waitForFrames(page);
+          await waitForStillFor(page, 150, placed, { label: "the menu to stop moving after the resize back" });
         }
       }
       if (vp.id !== "desktop") {
@@ -910,7 +911,8 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
         const s7 = await fontCheck(page, screen.font);
         if (s7) report("S7", where, "font-choice", s7);
       }
-      await page.waitForTimeout(100); // late console errors from the last render
+      // Late errors from the last render: nothing new may arrive in the 100 ms the old pause allowed.
+      await waitForStillFor(page, 100, () => bucket.console.length + bucket.api.length + bucket.other.length + bucket.refused.length, { label: "console and API errors to stop arriving" });
       if (screen.menu) await closeMenu(page, screen.menu.button);
 
       flush(where);
@@ -961,7 +963,7 @@ async function checkCombo(page, theme, vp, ctxInfo, results) {
     }
   }
   // Whatever the last screen still had coming.
-  await page.waitForTimeout(300);
+  await waitForStillFor(page, 300, () => bucket.console.length + bucket.api.length + bucket.other.length + bucket.refused.length, { label: "console and API errors to stop arriving" });
   if (prev) flush(prev);
 }
 
