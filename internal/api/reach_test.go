@@ -289,7 +289,7 @@ func TestPasswordRemovalAndAccessOffNeverBothWin(t *testing.T) {
 	require.Nil(t, h.srv.reach.Access())
 
 	// And concurrently, many times (meaningful under -race in CI): never both.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		h := newHarness(t, withAccess(t))
 		ca, cb := h.login(), h.login()
 		var wg sync.WaitGroup

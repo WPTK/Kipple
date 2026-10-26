@@ -40,7 +40,7 @@ func newData(t *testing.T, n int) string {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO feeds (url, url_key, host, title) VALUES ('http://a.test/rss', 'a.test/rss', 'a.test', 'A')`); err != nil {
 			return err
 		}
-		for i := 0; i < n; i++ {
+		for i := range n {
 			id := int64(1_700_000_000_000_000) + int64(i)*1000
 			if _, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, published_at, sort_at, uid, content_hash, text_hash, title)
 				VALUES (?, (SELECT id FROM feeds LIMIT 1), 1, 1, ?, 'c', 't', ?)`, id, fmt.Sprintf("u%d", i), fmt.Sprintf("Item %d", i)); err != nil {
@@ -305,7 +305,7 @@ func TestRestoreRefusesBadInput(t *testing.T) {
 func TestPreRestoreDirsArePruned(t *testing.T) {
 	dir := newData(t, 3)
 	zipPath := export(t, dir)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		var out bytes.Buffer
 		require.NoError(t, restore(context.Background(), restoreOptions{DataDir: dir, Src: zipPath, Yes: true, Out: &out,
 			Now: func() time.Time {

@@ -245,7 +245,7 @@ func TestKeyRotationAndRefetchLimit(t *testing.T) {
 	require.Equal(t, int32(2), cs.hits.Load())
 
 	// A flood of unknown kids fetches at most once a minute.
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		_, err = v.Verify(ctx, sign(t, a, rs("nope"), claimsAt(clk.now())))
 		require.ErrorIs(t, err, ErrKeyPending)
 	}
@@ -392,7 +392,7 @@ func TestRefusedTokenWarnsHourly(t *testing.T) {
 	r.Header.Set(Header, sign(t, a, rs("a"), claimsAt(clk.now())))
 	_, err = v.VerifyRequest(r)
 	require.ErrorIs(t, err, ErrUnknownKey, "a fresh fetch and still unknown: warn")
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_, err = v.VerifyRequest(r)
 		require.ErrorIs(t, err, ErrKeyPending, "no fetch due: not a warning")
 	}

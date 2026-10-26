@@ -91,7 +91,7 @@ func TestRegexWorstCaseAtTheCostCap(t *testing.T) {
 	it := Item{Content: sentence(rand.New(rand.NewSource(4)), 3000)}
 	const rounds = 3
 	start := time.Now()
-	for i := 0; i < rounds; i++ {
+	for range rounds {
 		s.Evaluate(it)
 	}
 	per := time.Since(start) / rounds
@@ -136,7 +136,7 @@ func TestRegexSetCapAdmitsKeywordRules(t *testing.T) {
 	}
 	it := Item{Title: sentence(r, 12), Content: sentence(r, 3000)}
 	start := time.Now()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		s.Evaluate(it)
 	}
 	per := time.Since(start) / 5

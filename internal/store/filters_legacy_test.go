@@ -132,7 +132,7 @@ func TestSanitizeDisablesNewestPastTheSetCap(t *testing.T) {
 	c, err := filter.CompileRule(heavy)
 	require.NoError(t, err)
 	n := filter.MaxRegexSetCost/c.Cost() + 2
-	for i := 0; i < n; i++ {
+	for range n {
 		e.exec(`INSERT INTO filters (name, enabled, scope, kind, terms, fields, action) VALUES ('h', 1, 'global', 'regex', ?, '["content"]', 'mute')`,
 			`["`+p+`a","`+p+`b","`+p+`c"]`)
 	}

@@ -117,7 +117,7 @@ func (c *client) batchClientLogin() string {
 	require.Equal(c.t, 200, r.code)
 	require.Contains(c.t, r.header.Get("Content-Type"), "text/plain")
 	auth := ""
-	for _, line := range strings.Split(strings.TrimSpace(r.body), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(r.body), "\n") {
 		parts := strings.Split(line, "=")
 		require.Len(c.t, parts, 2, "a client rejects a line with a stray '=': %q", line)
 		if parts[0] == "Auth" {
@@ -391,7 +391,7 @@ func closedClientSequence(t *testing.T, prefix string) {
 	now := h.clk.Now().Unix()
 
 	var all []int64
-	for i := 0; i < 120; i++ {
+	for i := range 120 {
 		feed := f
 		if i%4 == 0 {
 			feed = f2
@@ -403,7 +403,7 @@ func closedClientSequence(t *testing.T, prefix string) {
 	login := c.do("POST", "/accounts/ClientLogin", loginBody(), nil)
 	require.Equal(t, 200, login.code)
 	var tok string
-	for _, line := range strings.Split(login.body, "\n") {
+	for line := range strings.SplitSeq(login.body, "\n") {
 		if v, ok := strings.CutPrefix(line, "Auth="); ok {
 			tok = v
 		}
@@ -444,7 +444,7 @@ func closedClientSequence(t *testing.T, prefix string) {
 	// 7. token; 8. POST contents with 100 bare-hex ids in two batches.
 	require.Equal(t, tok+"\n", c.get("/reader/api/0/token").body)
 	seen := map[string]bool{}
-	for batch := 0; batch < 2; batch++ {
+	for batch := range 2 {
 		var b strings.Builder
 		b.WriteString("output=json")
 		for _, id := range all[batch*50 : batch*50+50] {
@@ -459,7 +459,7 @@ func closedClientSequence(t *testing.T, prefix string) {
 
 	// 9-10. Single-id a=read requests (article opens and scroll marks): under the
 	// default settings they write no stats rows at all.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		id := all[30+i]
 		require.Equal(t, "OK", c.post("/reader/api/0/edit-tag", "T="+tok+"&i="+FormatHex16(id)+"&a="+readSt).body)
 		require.True(t, isRead(h, id))

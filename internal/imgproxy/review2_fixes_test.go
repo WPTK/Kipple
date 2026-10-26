@@ -136,7 +136,7 @@ func TestOversizeChunkedRevalidationKeepsTheStaleCopy(t *testing.T) {
 					return
 				}
 				// No Content-Length: the size is only found out mid-body.
-				for i := 0; i < 8; i++ {
+				for range 8 {
 					if _, err := w.Write(randomPNG(16 << 10)); err != nil {
 						return
 					}
@@ -205,15 +205,13 @@ func TestSlowClientsReleaseTheirFetchSlots(t *testing.T) {
 
 	var wg sync.WaitGroup
 	var aborted atomic.Int32
-	for i := 0; i < defaultConc; i++ { // every global slot, each held by a client reading at about 300 KB/s
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for i := range defaultConc { // every global slot, each held by a client reading at about 300 KB/s
+		wg.Go(func() {
 			sw := &slowWriter{delay: 100 * time.Millisecond}
 			if serveSlow(h, Path(secret, FlagPrivateNet, up.URL+"/slow-"+strconv.Itoa(i)+".png"), sw) {
 				aborted.Add(1)
 			}
-		}()
+		})
 	}
 	require.Eventually(t, func() bool { return len(h.sem) == defaultConc }, 5*time.Second, time.Millisecond)
 	start := time.Now()

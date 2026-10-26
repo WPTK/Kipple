@@ -102,9 +102,7 @@ func TestStageResetConcurrentHasOneWinner(t *testing.T) {
 	var ok, pending atomic.Int32
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			switch err := StageReset(context.Background(), dir, live.Reader(), "1.0.0", "owner", time.Now()); err {
 			case nil:
 				ok.Add(1)
@@ -113,7 +111,7 @@ func TestStageResetConcurrentHasOneWinner(t *testing.T) {
 			default:
 				t.Error(err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	require.EqualValues(t, 1, ok.Load())

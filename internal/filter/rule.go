@@ -44,6 +44,7 @@ package filter
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -121,12 +122,7 @@ const (
 var allFields = []Field{FieldTitle, FieldAuthor, FieldContent, FieldURL, FieldCategory, FieldFeed}
 
 func validField(f Field) bool {
-	for _, x := range allFields {
-		if x == f {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(allFields, f)
 }
 
 // Rule is one stored filter. It mirrors the filters table (0004). Zero values are not

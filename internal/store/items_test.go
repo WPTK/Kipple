@@ -21,7 +21,7 @@ func TestStreamIDsQueryPlans(t *testing.T) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO feeds (url, url_key, host) VALUES ('https://a/f','a/f','a')`); err != nil {
 			return err
 		}
-		for i := 0; i < 300; i++ {
+		for i := range 300 {
 			var changed, state any
 			if i%10 == 0 {
 				changed = 1000 + i

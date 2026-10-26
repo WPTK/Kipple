@@ -2,7 +2,7 @@ package store
 
 import (
 	"encoding/json"
-	"sort"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,7 +23,7 @@ func pendingIDs(t *testing.T, d *DB) []int64 {
 	t.Helper()
 	var ids []int64
 	require.NoError(t, json.Unmarshal([]byte(d.HoldPending()), &ids))
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	slices.Sort(ids)
 	return ids
 }
 
@@ -52,7 +52,7 @@ func TestCommitMarksHeldItemsPendingInTransaction(t *testing.T) {
 		require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND uid = ?", iid, uid[g]))
 		want = append(want, iid)
 	}
-	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+	slices.Sort(want)
 	require.Equal(t, want, pendingIDs(t, e.db), "marked by the commit itself")
 }
 

@@ -121,7 +121,7 @@ func TestStatsSummaryPerf(t *testing.T) {
 			from = end.AddDate(0, 0, -364).Format(dateLayout)
 		}
 		var best time.Duration
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			s := time.Now()
 			out, err := StatsSummaryFor(e.ctx, e.db.Reader(), StatsSummaryParams{Key: key, From: from, To: to, Now: end})
 			require.NoError(t, err)

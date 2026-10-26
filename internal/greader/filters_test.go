@@ -95,7 +95,7 @@ func TestReaderUnreadCountsFollowRetroactiveApplyAndUnmute(t *testing.T) {
 	h := newHarness(t)
 	const url = "https://g.example/rss"
 	feed := h.addFeed(url, "G", "")
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		title := fmt.Sprintf("ham %d", i)
 		if i%3 == 0 {
 			title = fmt.Sprintf("spam %d", i)

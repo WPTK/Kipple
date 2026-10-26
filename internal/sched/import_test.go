@@ -25,7 +25,7 @@ func TestImportRunLoadsFeedsTogether(t *testing.T) {
 	srv := newSrv(t, serveOK)
 	later := func(f *store.NewFeed) { f.NextFetchAt = base.Add(9 * time.Hour).Unix() }
 	ids := make([]int64, 0, 30)
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		ids = append(ids, r.add(srv.URL+"/f"+string(rune('a'+i%26))+string(rune('a'+i/26)), later))
 	}
 	r.sql("UPDATE feeds SET enabled = 0 WHERE id = ?", ids[3])
@@ -73,7 +73,7 @@ func TestImportRunIsHeldToTheWorkerCap(t *testing.T) {
 	})
 	later := func(f *store.NewFeed) { f.NextFetchAt = base.Add(9 * time.Hour).Unix() }
 	ids := make([]int64, 0, 40)
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		ids = append(ids, r.add(fmt.Sprintf("%s/f%d", srv.URL, i), later))
 	}
 	_, err := r.s.StartImport(ids)

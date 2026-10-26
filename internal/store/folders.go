@@ -154,15 +154,16 @@ func folderByPath(ctx context.Context, q Querier, path string) (int64, bool, err
 		if deadEnd[at{parent, i}] {
 			return 0, false, nil
 		}
-		name := parts[i]
+		var name strings.Builder
+		name.WriteString(parts[i])
 		for j := i; j < len(parts); j++ {
 			if j > i {
-				name += "/" + parts[j]
+				name.WriteString("/" + parts[j])
 			}
-			if utf8.RuneCountInString(name) > MaxFolderNameRunes {
+			if utf8.RuneCountInString(name.String()) > MaxFolderNameRunes {
 				break
 			}
-			id, ok, err := childFolder(ctx, q, parent, name)
+			id, ok, err := childFolder(ctx, q, parent, name.String())
 			if err != nil {
 				return 0, false, err
 			}

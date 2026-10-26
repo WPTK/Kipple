@@ -79,7 +79,7 @@ func TestItemIDRoundTripProperty(t *testing.T) {
 	for _, id := range []int64{0, 1, -1, 1<<63 - 1, -1 << 63, 1<<60 - 1, -12817, 1758700000123456} {
 		check(id)
 	}
-	for i := 0; i < 20000; i++ {
+	for range 20000 {
 		check(int64(rng.Uint64()))
 		check(rng.Int64N(1 << 60))
 		check(-rng.Int64N(1 << 40))

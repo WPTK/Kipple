@@ -329,7 +329,7 @@ func TestTrimTakesMutedFirst(t *testing.T) {
 func TestCategoriesCappedAndDeduped(t *testing.T) {
 	t.Parallel()
 	var cats []string
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		cats = append(cats, fmt.Sprintf("cat%d", i))
 	}
 	cats = append(cats, "CAT0", "  ", strings.Repeat("x", 300))
@@ -372,10 +372,10 @@ func TestIngestPerformanceBudget(t *testing.T) {
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
-	for i := 0; i < 45; i++ {
+	for i := range 45 {
 		e.mkFilter(newFilter([]string{"mute", "mark_read", "star"}[i%3], fmt.Sprintf("term%da", i), fmt.Sprintf("term%db", i), "two words"))
 	}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		f := newFilter("mute", fmt.Sprintf(`zz%d[a-z]+q`, i))
 		f.Kind = "regex"
 		f.Fields = []string{"title", "content"}
@@ -425,7 +425,7 @@ func TestFilterCRUDValidationAndLimits(t *testing.T) {
 	require.Equal(t, "terms[0]", fe.Field)
 
 	// the set-wide cap: 25 enabled regex rules
-	for i := 0; i < filter.MaxRegexRules; i++ {
+	for i := range filter.MaxRegexRules {
 		r := newFilter("mute", fmt.Sprintf("q%d+", i))
 		r.Kind = "regex"
 		e.mkFilter(r)

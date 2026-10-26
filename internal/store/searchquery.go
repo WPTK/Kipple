@@ -126,7 +126,7 @@ func ParseSearch(raw string, typing bool) SearchQuery {
 			for j < len(src) && src[j] != '"' {
 				j++
 			}
-			for _, w := range strings.Fields(string(src[i+1 : j])) {
+			for w := range strings.FieldsSeq(string(src[i+1 : j])) {
 				if hasWordRune(w) && len(t.words) < maxSearchTerms {
 					t.words = append(t.words, cleanWord(strings.ReplaceAll(w, `"`, "")))
 				}

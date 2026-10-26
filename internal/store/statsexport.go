@@ -152,10 +152,7 @@ func StatsDelete(ctx context.Context, d *DB, from, to string, progress func()) (
 		if !next.Valid || next.Int64 > maxID {
 			break
 		}
-		upper := next.Int64 + StatsDeleteBatch - 1
-		if upper > maxID {
-			upper = maxID
-		}
+		upper := min(next.Int64+StatsDeleteBatch-1, maxID)
 		var n int64
 		if progress != nil {
 			progress()

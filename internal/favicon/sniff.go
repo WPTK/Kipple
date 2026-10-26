@@ -63,7 +63,7 @@ func checkICO(b []byte) error {
 	if n < 1 || n > 64 || len(b) < 6+16*n {
 		return errors.New("the ICO directory is malformed")
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		e := b[6+16*i : 6+16*(i+1)]
 		size := int64(binary.LittleEndian.Uint32(e[8:12]))
 		off := int64(binary.LittleEndian.Uint32(e[12:16]))

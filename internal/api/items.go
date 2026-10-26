@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -109,7 +110,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if v := qv.Get("ids"); v != "" {
-		for _, p := range strings.Split(v, ",") {
+		for p := range strings.SplitSeq(v, ",") {
 			id, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
 			if err != nil || id <= 0 || len(q.IDs) >= maxIDsQuery || (withContent && len(q.IDs) >= maxContentItems) {
 				writeError(w, http.StatusBadRequest, "bad_request")
@@ -681,9 +682,7 @@ func (s *Server) publishState(res store.StateResult, extra map[string]any) {
 			s.opt.Hub.Publish("resync", map[string]any{})
 		} else {
 			ev := map[string]any{"ids": idStrings(res.Changed), "source": "web"}
-			for k, v := range extra {
-				ev[k] = v
-			}
+			maps.Copy(ev, extra)
 			if len(res.Restored) > 0 {
 				ev["restored"] = idStrings(res.Restored)
 			}

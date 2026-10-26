@@ -36,7 +36,7 @@ func vocab(size int) []string {
 	for len(words) < size {
 		n := 2 + r.Intn(3)
 		var b strings.Builder
-		for i := 0; i < n; i++ {
+		for range n {
 			b.WriteString(syll[r.Intn(len(syll))])
 		}
 		w := b.String()
@@ -56,7 +56,7 @@ func newTextGen() *textGen { return &textGen{words: vocab(30000)} }
 
 // sentence appends one sentence of n words.
 func (g *textGen) sentence(b *strings.Builder, r *rand.Rand, z *rand.Zipf, n int) {
-	for i := 0; i < n; i++ {
+	for i := range n {
 		w := g.words[z.Uint64()]
 		if i == 0 {
 			b.WriteString(strings.ToUpper(w[:1]))

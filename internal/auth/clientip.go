@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 )
 
@@ -15,7 +16,7 @@ import (
 // the syntax only; ProxyTooWide is the policy on how wide a range may be.
 func ParseProxies(v string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
-	for _, part := range strings.Split(v, ",") {
+	for part := range strings.SplitSeq(v, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -119,8 +120,8 @@ func ClientIP(r *http.Request, trusted []netip.Prefix) string {
 	// Empty entries at the end ("1.2.3.4, ") are ignored; an empty header is absent.
 	if xff := strings.TrimRight(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ", \t"); strings.TrimSpace(xff) != "" {
 		hops := strings.Split(xff, ",")
-		for i := len(hops) - 1; i >= 0; i-- {
-			a, ok := parseHop(hops[i])
+		for i, hop := range slices.Backward(hops) {
+			a, ok := parseHop(hop)
 			if !ok {
 				break // nothing further left can be believed either
 			}

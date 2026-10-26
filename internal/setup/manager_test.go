@@ -34,8 +34,7 @@ func TestFinishIsOneWayAndRunsTheCallbackOnce(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Add(1)
-		go func() { defer wg.Done(); m.Finish() }()
+		wg.Go(func() { ; m.Finish() })
 	}
 	wg.Wait()
 	m.Finish()

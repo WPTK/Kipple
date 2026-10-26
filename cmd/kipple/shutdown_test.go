@@ -139,7 +139,7 @@ func TestRunServeStartStopLeavesNothingRunning(t *testing.T) {
 	z := serveEnv(t, "127.0.0.1:0")
 	t.Setenv("TZ", "America/New_York") // not the fake's UTC: the first start applies it
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		ctx, cancel := context.WithCancel(context.Background())
 		stopSignals = func() (context.Context, context.CancelFunc) { return ctx, cancel }
 		lns := make(chan net.Listener, 1)

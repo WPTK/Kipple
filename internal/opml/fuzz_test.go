@@ -17,7 +17,7 @@ import (
 
 func fuzzSeeds(f *testing.F) {
 	deep := ""
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		deep += `<outline text="L` + string(rune('a'+i)) + `">`
 	}
 	deep += `<outline xmlUrl="https://deep.test/feed"/>` + strings.Repeat("</outline>", 12)
@@ -86,8 +86,7 @@ func FuzzParseStrict(f *testing.F) {
 				t.Fatalf("parse refused %q but Parse accepted it", s)
 			}
 		case len(lenient.Feeds) == 0:
-			var empty *EmptyError
-			if !errors.As(err, &empty) {
+			if _, ok := errors.AsType[*EmptyError](err); !ok {
 				t.Fatalf("Parse of a document with no feeds: %v", err)
 			}
 		default:

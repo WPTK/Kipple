@@ -33,10 +33,7 @@ func (s *Server) about(w http.ResponseWriter, r *http.Request) {
 	// Access account that happens to have no password.
 	authMode := setup.DisplayMode(acct)
 	now := s.now()
-	uptime := int64(now.Sub(s.started).Seconds())
-	if uptime < 0 {
-		uptime = 0
-	}
+	uptime := max(int64(now.Sub(s.started).Seconds()), 0)
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":           b.Version,

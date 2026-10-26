@@ -419,7 +419,7 @@ func TestChurnNote(t *testing.T) {
 	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
 	e.fetchBody(id, rss(numbered(25)...))
 	var all []spec
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		all = append(all, spec{guid: fmt.Sprintf("new%d", i), age: time.Duration(i) * time.Second})
 	}
 	e.fetchBody(id, rss(all...))
@@ -457,7 +457,7 @@ func TestFetchLogCap(t *testing.T) {
 	e := newEnv(t)
 	id := e.addFeed("http://a.example/feed")
 	old := base.Add(-30 * 24 * time.Hour).Unix()
-	for i := 0; i < 70; i++ {
+	for i := range 70 {
 		e.exec(`INSERT INTO fetch_log (feed_id, trigger, started_at, duration_ms, outcome) VALUES (?, 'scheduled', ?, 1, 'ok')`, id, old+int64(i))
 	}
 	e.exec(`INSERT INTO fetch_log (feed_id, trigger, started_at, duration_ms, outcome, keep) VALUES (?, 'scheduled', ?, 1, 'ok', 1)`, id, old)
@@ -513,13 +513,13 @@ func TestRekey(t *testing.T) {
 
 	// the feed now serves the same links under new guids, plus one genuinely new article
 	var specs []spec
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		s := numbered(4)[i]
 		s.guid = "new-" + s.guid
 		specs = append(specs, s)
 	}
 	doc := string(rss(specs...))
-	for i := 0; i < 4; i++ { // keep the original links so URLs match by url
+	for i := range 4 { // keep the original links so URLs match by url
 		doc = strings.ReplaceAll(doc, fmt.Sprintf("https://ex.com/new-g%d", i), fmt.Sprintf("https://ex.com/g%d", i))
 	}
 	e.exec("UPDATE feeds SET rekey_pending = 1 WHERE id = ?", id)

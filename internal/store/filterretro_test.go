@@ -352,7 +352,7 @@ func TestDeleteFilterWithinIsResumable(t *testing.T) {
 
 	past := time.Now().Add(-time.Second)
 	var got []DeleteResult
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		res, ok, err := e.db.DeleteFilterWithin(e.ctx, rule.ID, UnmuteUnread, past, nil)
 		require.NoError(t, err)
 		require.True(t, ok)

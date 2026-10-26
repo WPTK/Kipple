@@ -385,7 +385,7 @@ func rehearsalSearchTimings(t *testing.T, db *DB) {
 			var best time.Duration
 			var n int
 			var fb bool
-			for run := 0; run < 3; run++ {
+			for run := range 3 {
 				t0 := time.Now()
 				cards, _, f, err := db.ListCardsFB(context.Background(), CardQuery{View: "all", Query: q, Limit: 50, Typing: typing})
 				d := time.Since(t0)

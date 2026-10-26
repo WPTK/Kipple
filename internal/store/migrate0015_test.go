@@ -80,7 +80,7 @@ const oldClientCheck = "CHECK (client IN ('web','pwa','reeder','netnewswire','un
 func statsDump(t *testing.T, q Querier, clientExpr string) string {
 	t.Helper()
 	parts := []string{"quote(" + clientExpr + ")"}
-	for _, c := range strings.Split(statsCols, ",") {
+	for c := range strings.SplitSeq(statsCols, ",") {
 		parts = append(parts, "quote("+strings.TrimSpace(c)+")")
 	}
 	return scalar[string](t, q, `SELECT group_concat(r, char(10)) FROM (SELECT `+strings.Join(parts, " || '|' || ")+
@@ -108,7 +108,7 @@ func schemaObjects(t *testing.T, q Querier) map[string]string {
 // plus ALTER TABLE ADD COLUMN.
 func tableShape(sqlText string) string {
 	var b strings.Builder
-	for _, line := range strings.Split(sqlText, "\n") {
+	for line := range strings.SplitSeq(sqlText, "\n") {
 		if i := strings.Index(line, "--"); i >= 0 {
 			line = line[:i]
 		}

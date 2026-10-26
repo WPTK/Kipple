@@ -40,7 +40,7 @@ func insertStatRow(e *env, kind, key string, eventID any, value int) {
 func TestMigration0008OnPopulatedSchema7(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		insertStatRow(e, "read_time", "sk", nil, 10+i) // pre-migration rows: no event_id, same session
 	}
 	insertStatRow(e, "open", "sk", nil, 0)

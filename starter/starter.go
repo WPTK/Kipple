@@ -186,7 +186,7 @@ func CheckPublicHTTPS(raw string) error {
 			return errors.New("host must be a public DNS name")
 		}
 	}
-	for _, label := range strings.Split(host, ".") {
+	for label := range strings.SplitSeq(host, ".") {
 		if label == "" || len(label) > 63 || strings.ContainsFunc(label, func(r rune) bool {
 			return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-')
 		}) {

@@ -145,7 +145,7 @@ func hostFits(host string) bool {
 	if len(ascii) > maxHostLen {
 		return false
 	}
-	for _, l := range strings.Split(ascii, ".") {
+	for l := range strings.SplitSeq(ascii, ".") {
 		if len(l) > maxLabelLen {
 			return false
 		}
@@ -255,7 +255,7 @@ func hasScheme(s string) bool {
 	if i <= 0 {
 		return false
 	}
-	for j := 0; j < i; j++ {
+	for j := range i {
 		c := s[j]
 		switch {
 		case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z':

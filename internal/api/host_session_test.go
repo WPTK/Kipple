@@ -257,7 +257,7 @@ func TestManyPlantedCookiesStayCheap(t *testing.T) {
 	// Twenty copies of one planted value sit between the two real cookies. Without the de-dup they fill the cap, and the
 	// leftover after them is cut off.
 	cookies := []*http.Cookie{real}
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		cookies = append(cookies, &http.Cookie{Name: cookieName, Value: "planted"})
 	}
 	cookies = append(cookies, leftover)
@@ -276,7 +276,7 @@ func TestManyPlantedCookiesStayCheap(t *testing.T) {
 	// it is sent last.
 	real = h.loginHTTPS()
 	r = httptest.NewRequest("POST", "/api/auth/logout", nil)
-	for i := 0; i < 300; i++ {
+	for i := range 300 {
 		r.AddCookie(&http.Cookie{Name: cookieName, Value: "planted-" + strconv.Itoa(i)})
 	}
 	r.AddCookie(&http.Cookie{Name: real.Name, Value: real.Value})

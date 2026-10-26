@@ -336,7 +336,7 @@ func TestSetupClaimRaceHasExactlyOneWinner(t *testing.T) {
 	var wg sync.WaitGroup
 	recs := make(chan *httptest.ResponseRecorder, n)
 	start := make(chan struct{})
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -440,7 +440,7 @@ func TestSetupOpenMode(t *testing.T) {
 	require.Equal(t, "open_mode", decode(t, rec)["error"])
 
 	// /api/auth/open: the open gate, same-origin, and never counted.
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		rec = h.req("POST", "/api/auth/open", "", peer("203.0.113.9:5000"))
 		require.Equal(t, http.StatusForbidden, rec.Code)
 		require.Equal(t, "peer", decode(t, rec)["reason"])
@@ -646,7 +646,7 @@ func TestSettingsSecurityKeys(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, h.do("PATCH", "/api/settings", bad, withCookie(c)).Code, bad)
 	}
 	var many []string
-	for i := 0; i < 65; i++ {
+	for i := range 65 {
 		many = append(many, fmt.Sprintf("%q", fmt.Sprintf("h%d.example.com", i)))
 	}
 	require.Equal(t, http.StatusBadRequest, h.do("PATCH", "/api/settings", `{"security.allowed_hosts":[`+strings.Join(many, ",")+`]}`, withCookie(c)).Code)

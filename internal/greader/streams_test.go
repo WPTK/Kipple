@@ -49,7 +49,7 @@ func idsPage(t *testing.T, w *httptest.ResponseRecorder) (ids []int64, cont stri
 func seedN(h *harness, feed int64, n int, mod func(i int, s *itemSeed)) []int64 {
 	h.t.Helper()
 	out := make([]int64, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s := itemSeed{Title: fmt.Sprintf("item %d", i)}
 		if mod != nil {
 			mod(i, &s)
@@ -296,7 +296,7 @@ func TestIDsOTTwoLegEqualsNaiveOR(t *testing.T) {
 	start := int64(1_790_251_200) - span
 	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
 		used := map[int64]bool{}
-		for i := 0; i < nItems; i++ {
+		for i := range nItems {
 			var id int64
 			for {
 				id = (start+rng.Int64N(span))*1_000_000 + rng.Int64N(1_000_000)
@@ -342,7 +342,7 @@ func TestIDsOTTwoLegEqualsNaiveOR(t *testing.T) {
 		require.GreaterOrEqual(t, multiPage, 40)
 	}()
 	userChanges := false
-	for iter := 0; iter < 120; iter++ {
+	for iter := range 120 {
 		// The second half runs with greader.ot_includes_user_changes on: the reference then ORs
 		// state_changed_at in as well.
 		if iter == 60 {
@@ -636,7 +636,7 @@ func TestContentsIDCapIs1000(t *testing.T) {
 	}))
 	require.Equal(t, 1100, q[int](h, "SELECT count(*) FROM item_content c JOIN items i ON i.id = c.item_id WHERE i.feed_id = ?", f))
 	var idl []string
-	for i := 0; i < 1100; i++ {
+	for i := range 1100 {
 		idl = append(idl, FormatDecimal(baseID+int64(i)*1000))
 	}
 	w := h.post(rd+"stream/items/contents", contentsBody(idl...))
@@ -720,7 +720,7 @@ func TestStreamRowByRowWritesBeforeFinishing(t *testing.T) {
 	f := h.addFeed("https://a.example/f", "A", "")
 	html := strings.Repeat("<p>lorem ipsum dolor sit amet</p>", 200) // ~6 KB
 	var idl []string
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		id := h.addItem(f, itemSeed{Title: "t", HTML: html})
 		idl = append(idl, FormatLongID(id))
 	}

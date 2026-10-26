@@ -34,10 +34,7 @@ func seedOpens(t testing.TB, e *env, n int, date string) {
 	t.Helper()
 	const chunk = 5000
 	for start := 0; start < n; start += chunk {
-		end := start + chunk
-		if end > n {
-			end = n
-		}
+		end := min(start+chunk, n)
 		e.exec(`WITH RECURSIVE c(i) AS (SELECT ?1 + 1 UNION ALL SELECT i+1 FROM c WHERE i < ?2)
 			INSERT INTO stats_events (ts, local_date, local_hour, local_weekday, kind, client, item_id, feed_id, feed_title)
 			SELECT 1000 + i, ?3, 9, 0, 'open', 'web', i, 1, 'F' FROM c`, start, end, date)

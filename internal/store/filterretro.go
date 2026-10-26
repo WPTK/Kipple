@@ -233,8 +233,7 @@ func retroSetOf(all []Filter, r filter.Rule) (*filter.Set, filter.Rule, retroCol
 	}
 	set, err := filter.NewSet(eval)
 	if err != nil {
-		var se *filter.SetError
-		if errors.As(err, &se) {
+		if se, ok := errors.AsType[*filter.SetError](err); ok {
 			return nil, r, retroCols{}, se.Err
 		}
 		return nil, r, retroCols{}, err
@@ -258,13 +257,7 @@ const (
 // helps an unread one.
 func retroEffect(set *filter.Set, r filter.Rule, it retroItem) retroKind {
 	res := set.Evaluate(it.engine())
-	hit := false
-	for _, id := range res.Matched {
-		if id == r.ID {
-			hit = true
-			break
-		}
-	}
+	hit := slices.Contains(res.Matched, r.ID)
 	if !hit {
 		return effNone
 	}

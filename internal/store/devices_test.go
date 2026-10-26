@@ -80,7 +80,7 @@ func TestDeviceProfileSizeLimit(t *testing.T) {
 // within the last day.
 func fillDevices(t *testing.T, e *env, now int64, nOld int) {
 	t.Helper()
-	for i := 0; i < MaxDevices; i++ {
+	for i := range MaxDevices {
 		ts := now - 3600 - int64(i)
 		if i < nOld {
 			ts = now - 60*86400 - int64(nOld-i) // id 0 is the oldest
@@ -124,14 +124,14 @@ func TestDeviceRegistrationRefusedWhenEveryDeviceIsRecent(t *testing.T) {
 	require.Equal(t, MaxDevices, e.count("SELECT count(*) FROM devices"))
 	_, ok, _ := e.db.GetDevice(e.ctx, devID(999))
 	require.False(t, ok, "the insert was rolled back")
-	for i := 0; i < MaxDevices; i++ {
+	for i := range MaxDevices {
 		_, ok, _ = e.db.GetDevice(e.ctx, devID(i))
 		require.True(t, ok, "device %d", i)
 	}
 	// Two old devices but a burst of three: the third is refused, the first two evicted nobody recent.
 	e2 := newEnv(t)
 	fillDevices(t, e2, now, 2)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		_, err = e2.db.RegisterDevice(e2.ctx, devID(900+i), "", "web", now)
 		require.NoError(t, err)
 	}

@@ -22,7 +22,8 @@ type tagOp struct {
 	starred *bool // set starred state
 }
 
-func boolp(b bool) *bool { return &b }
+//go:fix inline
+func boolp(b bool) *bool { return new(b) }
 
 // tagOps maps a= (add) and r= (remove) tag values to state changes (design §6.7).
 // Labels, broadcast, like, tracking-* and unknown tags are ignored.
@@ -31,21 +32,21 @@ func tagOps(add, remove []string) []tagOp {
 	for _, v := range add {
 		switch n, _ := stateName(v); n {
 		case "read":
-			ops = append(ops, tagOp{read: boolp(true)})
+			ops = append(ops, tagOp{read: new(true)})
 		case "kept-unread":
-			ops = append(ops, tagOp{read: boolp(false)})
+			ops = append(ops, tagOp{read: new(false)})
 		case "starred":
-			ops = append(ops, tagOp{starred: boolp(true)})
+			ops = append(ops, tagOp{starred: new(true)})
 		}
 	}
 	for _, v := range remove {
 		switch n, _ := stateName(v); n {
 		case "read":
-			ops = append(ops, tagOp{read: boolp(false)})
+			ops = append(ops, tagOp{read: new(false)})
 		case "kept-unread":
-			ops = append(ops, tagOp{read: boolp(true)})
+			ops = append(ops, tagOp{read: new(true)})
 		case "starred":
-			ops = append(ops, tagOp{starred: boolp(false)})
+			ops = append(ops, tagOp{starred: new(false)})
 		}
 	}
 	return ops

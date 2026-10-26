@@ -147,7 +147,7 @@ func generate(ctx context.Context, o genOpts) error {
 		}
 		return nil
 	}
-	for i := 0; i < 25; i++ {
+	for range 25 {
 		if err := mk(0, 1); err != nil {
 			return err
 		}
@@ -427,7 +427,7 @@ func generate(ctx context.Context, o genOpts) error {
 	for lo := 0; lo < len(plans); lo += 100 {
 		if err := db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
 			for _, p := range plans[lo:min(lo+100, len(plans))] {
-				for k := 0; k < 50; k++ {
+				for k := range 50 {
 					if _, err := tx.ExecContext(ctx, `INSERT INTO fetch_log (feed_id, trigger, started_at, duration_ms, outcome, http_status, new_items, bytes)
 						VALUES (?, 'scheduled', ?, ?, 'ok', 200, ?, ?)`, p.id, now-int64(k)*1800, 80+r.Intn(400), r.Intn(3), 20000+r.Intn(60000)); err != nil {
 						return err
@@ -460,7 +460,7 @@ func generate(ctx context.Context, o genOpts) error {
 			for d := top; d >= max(1, top-29); d-- {
 				day := time.Unix(now, 0).UTC().AddDate(0, 0, -d)
 				n := int(float64(40+r.Intn(160)) * o.statsMult)
-				for e := 0; e < n; e++ {
+				for e := range n {
 					ts := time.Date(day.Year(), day.Month(), day.Day(), 6+r.Intn(17), r.Intn(60), r.Intn(60), 0, time.UTC)
 					x, kind := r.Float64(), "open"
 					for _, k := range kinds {

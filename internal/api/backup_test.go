@@ -215,7 +215,7 @@ func TestBackupPasswordFailuresArePacedNeverLocked(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, realVerifier)
 	c := h.backupSetup(t)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		code, _, _ := h.api(c, "POST", "/api/backup", `{"current":"wrong-wrong-wrong"}`)
 		require.Equal(t, http.StatusForbidden, code, "attempt %d", i)
 	}
@@ -281,7 +281,7 @@ func TestPasswordlessBackupTokenCounting(t *testing.T) {
 			rec := h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil)))
 			require.Equal(t, http.StatusNoContent, rec.Code)
 			c := sessionCookie(t, rec)
-			for i := 0; i < 10; i++ {
+			for i := range 10 {
 				rec = h.do("POST", "/api/backup", ``, withCookie(c), withJWT(h.jwt(k, edit)))
 				require.Equal(t, http.StatusForbidden, rec.Code, "attempt %d: %s", i, rec.Body.String())
 			}
@@ -296,7 +296,7 @@ func TestPasswordlessBackupTokenCounting(t *testing.T) {
 		rec := h.do("POST", "/api/auth/login", passwordlessLogin(testUser), withJWT(h.jwt(k, nil)))
 		require.Equal(t, http.StatusNoContent, rec.Code)
 		c := sessionCookie(t, rec)
-		for i := 0; i < 15; i++ {
+		for i := range 15 {
 			rec = h.do("POST", "/api/backup", ``, withCookie(c))
 			require.Equal(t, http.StatusForbidden, rec.Code, "attempt %d", i)
 		}

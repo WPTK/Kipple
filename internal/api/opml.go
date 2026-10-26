@@ -41,8 +41,7 @@ func (s *Server) opmlImport(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := readOPMLBody(w, r)
 	if err != nil {
-		var tooBig *http.MaxBytesError
-		if errors.As(err, &tooBig) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			writeError(w, http.StatusRequestEntityTooLarge, "too_large")
 			return
 		}

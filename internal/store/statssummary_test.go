@@ -65,7 +65,7 @@ func TestStatsSummaryPlans(t *testing.T) {
 func TestEachRowReportsMidIterationError(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		e.putStat("open", "2026-09-01", int64(i), 1, "", nil, "F")
 	}
 	ctx, cancel := context.WithCancel(e.ctx)
@@ -96,7 +96,7 @@ func TestStatsGroupCapsConcurrencyAndCancelsOnError(t *testing.T) {
 	t.Parallel()
 	g := newStatsGroup(context.Background(), 3)
 	var cur, peak atomic.Int32
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		g.Go(func(ctx context.Context) error {
 			n := cur.Add(1)
 			for {

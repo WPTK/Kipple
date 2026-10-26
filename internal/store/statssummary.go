@@ -429,10 +429,7 @@ func statsCoverage(ctx context.Context, q Querier, loc *time.Location, first str
 	if cut != math.MaxInt64 {
 		// The day of the first timed event may hold earlier opens without time: count from the next day.
 		t := time.Unix(cut, 0).In(loc)
-		d := time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, time.UTC).Format(dateLayout)
-		if d < c {
-			d = c
-		}
+		d := max(time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, time.UTC).Format(dateLayout), c)
 		timed = &d
 	}
 	return covered, timed, nil
@@ -700,14 +697,12 @@ func (g *statsGroup) Go(fn func(ctx context.Context) error) {
 		g.fail(g.ctx.Err())
 		return
 	}
-	g.wg.Add(1)
-	go func() {
-		defer g.wg.Done()
+	g.wg.Go(func() {
 		defer func() { <-g.sem }()
 		if err := fn(g.ctx); err != nil {
 			g.fail(err)
 		}
-	}()
+	})
 }
 
 func (g *statsGroup) Wait() error {

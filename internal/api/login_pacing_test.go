@@ -20,12 +20,12 @@ import (
 func TestLoginWrongPasswordsEscalateButTheRightOneSignsIn(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody("wrong")).Code, "attempt %d", i)
 	}
 	require.Zero(t, h.paced.Load(), "the first five failures are free")
 	start := h.clk.Now()
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody("wrong")).Code, "attempt %d", i)
 	}
 	require.Equal(t, int32(8), h.paced.Load(), "every attempt over budget waits its turn")
@@ -50,7 +50,7 @@ func TestLoginWrongPasswordsEscalateButTheRightOneSignsIn(t *testing.T) {
 func TestLoginOwnLongWaitAnswersAtOnceWithTheRealRetryAfter(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		h.do("POST", "/api/auth/login", loginBody("wrong"))
 	}
 	h.srv.fails.SetMaxWait(10 * time.Second) // the real bound; the harness lifts it for the fake clock
@@ -68,7 +68,7 @@ func TestLoginOwnLongWaitAnswersAtOnceWithTheRealRetryAfter(t *testing.T) {
 func TestLoginFailuresFadeAfterAQuietHour(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		h.do("POST", "/api/auth/login", loginBody("wrong"))
 	}
 	h.clk.Advance(30 * time.Minute)
@@ -100,10 +100,8 @@ func TestLoginBurstRunsOneCheckAtATime(t *testing.T) {
 	})
 	var wg sync.WaitGroup
 	var wrong, busy, other atomic.Int32
-	for i := 0; i < 40; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 40 {
+		wg.Go(func() {
 			switch h.do("POST", "/api/auth/login", loginBody("wrong")).Code {
 			case http.StatusUnauthorized:
 				wrong.Add(1)
@@ -112,7 +110,7 @@ func TestLoginBurstRunsOneCheckAtATime(t *testing.T) {
 			default:
 				other.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	require.EqualValues(t, 1, peak.Load())
@@ -137,7 +135,7 @@ func TestLoginBehindXForwardedForProxyKeysOnTheClient(t *testing.T) {
 			r.Header.Set("X-Forwarded-Proto", "https")
 		}
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		require.Equal(t, http.StatusUnauthorized, h.do("POST", "/api/auth/login", loginBody("guess"), via("203.0.113.66")).Code)
 	}
 	paced := h.paced.Load()
@@ -158,7 +156,7 @@ func TestLoginBehindCloudflareKeysOnTheClient(t *testing.T) {
 			r.Header.Set("CF-Connecting-IP", ip)
 		}
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		h.do("POST", "/api/auth/login", loginBody("wrong"), via("203.0.113.9"))
 	}
 	paced := h.paced.Load()
@@ -176,7 +174,7 @@ func TestLoginSharedAddressSequentialNoiseOnlySlowsTheOwner(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	gw := peer("172.17.0.1:50000")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		h.do("POST", "/api/auth/login", loginBody("guess"), gw)
 	}
 	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass), gw).Code)
@@ -204,12 +202,10 @@ func TestLoginFloodOnASharedKeyMakesTheOwnerBusyNotLockedOut(t *testing.T) {
 	gw := peer("172.17.0.1:50000")
 	var wg sync.WaitGroup
 	// One attempt hashing, maxWaiters (4) waiting behind it, and one more refused at once.
-	for i := 0; i < 6; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 6 {
+		wg.Go(func() {
 			h.do("POST", "/api/auth/login", loginBody("wrong"), gw)
-		}()
+		})
 	}
 	<-started
 	time.Sleep(300 * time.Millisecond) // let the others reach the waiting room
@@ -231,7 +227,7 @@ func TestLoginSpoofedForwardingHeadersFromAnUntrustedPeerAreIgnored(t *testing.T
 	h := newHarness(t, func(o *Options) {
 		o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{netip.MustParsePrefix("192.0.2.20/32")}})
 	})
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		ip := netip.AddrFrom4([4]byte{203, 0, 113, byte(i + 1)}).String()
 		h.do("POST", "/api/auth/login", loginBody("guess"), peer("198.51.100.9:1"),
 			hdr("X-Forwarded-For", ip), hdr("CF-Connecting-IP", ip))
@@ -246,7 +242,7 @@ func TestLoginRightmostUntrustedHopIsTheClient(t *testing.T) {
 	h := newHarness(t, func(o *Options) {
 		o.Reach = reach.Fixed(reach.State{Trusted: []netip.Prefix{netip.MustParsePrefix("172.16.0.0/12")}})
 	})
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		fake := netip.AddrFrom4([4]byte{203, 0, 113, byte(i + 1)}).String()
 		h.do("POST", "/api/auth/login", loginBody("guess"), peer("172.17.0.1:1"),
 			hdr("X-Forwarded-For", fake+", 198.51.100.7, 172.17.0.9"))

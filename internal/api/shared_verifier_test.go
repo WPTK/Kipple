@@ -55,7 +55,7 @@ func TestClientLoginAndWebLoginShareOneHashingSlot(t *testing.T) {
 	front := greader.New(greader.Options{DB: db, Verifier: ver}).Front(mux)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		wg.Add(2)
 		// one ClientLogin per client address: a client has one attempt in flight
 		remote := "192.0.2." + strconv.Itoa(10+i) + ":2"

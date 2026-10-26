@@ -82,7 +82,7 @@ func TestFailureTrackerEscalatingDelay(t *testing.T) {
 	waits := 0
 	f := NewFailureTracker()
 	fakePacing(f, &now, &waits)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		require.True(t, fail(f, "a"), "attempt %d", i+1)
 	}
 	require.Zero(t, waits, "inside the budget nothing waits")
@@ -109,7 +109,7 @@ func TestFailureTrackerEscalatingDelay(t *testing.T) {
 	require.Equal(t, w, waits, "a cleared client starts with a free budget")
 
 	// The count does not restart every few minutes: only a quiet hour fades it.
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		fail(f, "d")
 	}
 	now = now.Add(59 * time.Minute)
@@ -134,7 +134,7 @@ func TestFailureTrackerLongWaitIsAnsweredAtOnce(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	f := NewFailureTracker()
 	fakePacing(f, &now, nil)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		fail(f, "a")
 	}
 	f.SetMaxWait(10 * time.Second)
@@ -192,10 +192,8 @@ func TestFailureTrackerConcurrentAttemptsWait(t *testing.T) {
 	var cur, peak, admitted, refused atomic.Int32
 	release := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			if !h.Acquire(ctx, "2001:db8::1") {
 				refused.Add(1)
 				return
@@ -211,7 +209,7 @@ func TestFailureTrackerConcurrentAttemptsWait(t *testing.T) {
 			<-release
 			cur.Add(-1)
 			h.Finish("2001:db8::1", true)
-		}()
+		})
 	}
 	require.Eventually(t, func() bool { return refused.Load() == 50-1-4 }, 2*time.Second, 5*time.Millisecond)
 	close(release)
@@ -289,11 +287,11 @@ func TestTrackersEvictOldestWhenFull(t *testing.T) {
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 	f := NewFailureTracker()
 	f.Now = func() time.Time { return now }
-	for i := 0; i < maxTracked; i++ {
+	for i := range maxTracked {
 		now = now.Add(time.Millisecond)
 		fail(f, fmt.Sprintf("ip-%d", i))
 	}
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		now = now.Add(2 * time.Second)
 		fail(f, "newcomer")
 	}
@@ -450,7 +448,7 @@ func TestFailureTrackerWaitsUpToTheBound(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	f := NewFailureTracker()
 	fakeClock(f, &now, nil) // the default bound stays; the fake wait fires at once
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		fail(f, "a")
 	}
 	// The next turn is 16 s away: past the bound, so it is refused, not held.
@@ -471,7 +469,7 @@ func TestFailureTrackerGiveUpReleasesItsPlace(t *testing.T) {
 	f := NewFailureTracker()
 	var mu sync.Mutex
 	f.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		fail(f, "a")
 	}
 	// Every attempt now waits 2 s for its turn. The fake wait reports that it started and fires only when the test
@@ -500,7 +498,7 @@ func TestFailureTrackerGiveUpReleasesItsPlace(t *testing.T) {
 	require.False(t, <-gaveUp, "the cancelled attempt gives up")
 
 	results := make(chan bool, 4)
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		go func() {
 			ok := f.Acquire(t.Context(), "a")
 			if ok {
@@ -518,7 +516,7 @@ func TestFailureTrackerGiveUpReleasesItsPlace(t *testing.T) {
 	now = now.Add(2 * time.Second)
 	mu.Unlock()
 	close(fire)
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		require.True(t, <-results, "every attempt that queued after the one that gave up gets its turn")
 	}
 }
@@ -527,7 +525,7 @@ func TestFailureTrackerGiveUpReleasesItsPlace(t *testing.T) {
 func TestPasswordCharIsUniform(t *testing.T) {
 	hits := map[byte]int{}
 	refused := 0
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		c, ok := passwordChar(byte(b))
 		if !ok {
 			refused++
@@ -549,7 +547,7 @@ func TestFailureTrackerWindowEdge(t *testing.T) {
 	now := t0
 	f := NewFailureTracker()
 	fakePacing(f, &now, nil)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		fail(f, "a")
 	}
 	now = t0.Add(f.window)
@@ -560,14 +558,14 @@ func TestFailureTrackerWindowEdge(t *testing.T) {
 	g := NewFailureTracker()
 	now = t0
 	g.Now = func() time.Time { return now }
-	for i := 0; i < maxTracked; i++ {
+	for i := range maxTracked {
 		fail(g, fmt.Sprintf("ip-%d", i))
 	}
 	now = t0.Add(g.window)
 	fail(g, "newcomer")
 	require.Equal(t, 1, g.Count("newcomer"))
 	lost := 0
-	for i := 0; i < maxTracked; i++ {
+	for i := range maxTracked {
 		if g.Count(fmt.Sprintf("ip-%d", i)) == 0 {
 			lost++
 		}

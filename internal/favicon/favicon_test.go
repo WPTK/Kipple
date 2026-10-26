@@ -317,7 +317,7 @@ func TestIconLinksRankingAndFiltering(t *testing.T) {
 
 func TestIconLinksBounded(t *testing.T) {
 	var b strings.Builder
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		fmt.Fprintf(&b, `<link rel=icon href="/i%d.png">`, i)
 	}
 	require.Len(t, iconLinks([]byte(b.String()), "https://example.com/"), maxLinks)

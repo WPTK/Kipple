@@ -148,9 +148,7 @@ func (q *ftQueue) close() {
 func (s *Scheduler) startFulltext() {
 	context.AfterFunc(s.fetchCtx, s.ftq.close)
 	for i := 0; i < s.opt.FulltextGlobal; i++ {
-		s.ftWG.Add(1)
-		go func() {
-			defer s.ftWG.Done()
+		s.ftWG.Go(func() {
 			for {
 				j, done, ok := s.ftq.take()
 				if !ok {
@@ -160,7 +158,7 @@ func (s *Scheduler) startFulltext() {
 				s.db.ClearFulltextPending(j.itemID) // after the row is written: the item is never unheld-and-unserved
 				done()
 			}
-		}()
+		})
 	}
 }
 

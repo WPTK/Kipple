@@ -280,7 +280,7 @@ func TestSetLimits(t *testing.T) {
 
 	// 2000 enabled text terms in all.
 	var tr []Rule
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		terms := make([]string, 50)
 		for j := range terms {
 			terms[j] = "t"
@@ -310,7 +310,7 @@ func TestDeterministicOrder(t *testing.T) {
 	rs := []Rule{rule(5, ActionMute, "go"), rule(2, ActionMute, "go"), rule(8, ActionStar, "zz"), rule(3, ActionMarkRead, "go"), rule(1, ActionHighlight, "go")}
 	item := Item{Title: "go"}
 	var want Result
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		perm := append([]Rule(nil), rs...)
 		// deterministic shuffle
 		for j := len(perm) - 1; j > 0; j-- {

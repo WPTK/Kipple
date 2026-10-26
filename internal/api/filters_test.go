@@ -229,7 +229,7 @@ func TestFilterValidationErrorsAre400WithFieldAndMessage(t *testing.T) {
 	require.Equal(t, 1, h.count("SELECT count(*) FROM filters WHERE terms = '[\"x\"]'"))
 
 	// the set-wide caps: 200 filters
-	for i := 0; i < 199; i++ {
+	for range 199 {
 		h.exec(`INSERT INTO filters (scope, kind, terms, action) VALUES ('global','text','["t"]','highlight')`)
 	}
 	code, out = h.postFilter(c, ok())
@@ -539,7 +539,7 @@ func TestMutedViewAndCounts(t *testing.T) {
 	other := h.addFeed("B", 0)
 	id := h.mustFilter(c, map[string]any{"name": "Spam filter", "action": "mute", "terms": []string{"spam"}})
 	var muted []int64
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		it := h.addItem(feed, seedItem{Title: fmt.Sprintf("spam %d", i), SortAt: baseID/1_000_000 + int64(i), Text: "zebra story"})
 		h.exec("UPDATE items SET read = 1, muted_by = ? WHERE id = ?", id, it)
 		muted = append(muted, it)

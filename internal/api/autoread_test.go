@@ -223,7 +223,7 @@ func TestAutoReadRunExpectTotal(t *testing.T) {
 	c := h.login()
 	feed := h.addFeed("A", 0)
 	h.exec("UPDATE feeds SET auto_read_days = 1 WHERE id = ?", feed)
-	for i := 0; i < 130; i++ {
+	for range 130 {
 		h.arItem(feed, 5*arDay)
 	}
 	body := func(expect any) string {

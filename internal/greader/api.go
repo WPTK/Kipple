@@ -549,7 +549,7 @@ func (c *call) jsonETag(v any) {
 	etag := `"` + hex.EncodeToString(sum[:8]) + `"`
 	h := c.w.Header()
 	h.Set("ETag", etag)
-	for _, cand := range strings.Split(c.r.Header.Get("If-None-Match"), ",") {
+	for cand := range strings.SplitSeq(c.r.Header.Get("If-None-Match"), ",") {
 		cand = strings.TrimPrefix(strings.TrimSpace(cand), "W/")
 		if cand == etag {
 			c.w.WriteHeader(http.StatusNotModified)

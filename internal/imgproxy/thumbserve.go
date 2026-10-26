@@ -75,7 +75,7 @@ func (h *Handler) serveThumb(w http.ResponseWriter, r *http.Request, u *url.URL,
 	c := h.opt.Cache
 	ctx := r.Context()
 	tkey := imgcache.KeyThumb(flags, orig)
-	for round := 0; round < maxFlightRounds; round++ {
+	for range maxFlightRounds {
 		te, ok, err := c.Lookup(ctx, tkey)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -349,9 +349,8 @@ func (h *Handler) runThumb(tkey, okey, orig string, flags int, oe imgcache.Entry
 	}
 	out, ct, err := transcode(f, oe.Size, oe.ContentType, h.lim)
 	if err != nil {
-		var pe *passError
 		reason := "the transcode failed"
-		if errors.As(err, &pe) {
+		if pe, ok := errors.AsType[*passError](err); ok {
 			reason = pe.reason
 		}
 		h.rememberNoThumb(tkey, orig, flags, reason)

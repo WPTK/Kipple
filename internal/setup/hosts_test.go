@@ -209,7 +209,7 @@ func isIPv4(s string) (string, bool) {
 	if strings.Count(s, ".") != 3 {
 		return "", false
 	}
-	for _, p := range strings.Split(s, ".") {
+	for p := range strings.SplitSeq(s, ".") {
 		if p == "" || len(p) > 3 || strings.Trim(p, "0123456789") != "" {
 			return "", false
 		}

@@ -38,7 +38,7 @@ func (h *harness) bulkStats(n int, date string) {
 				return err
 			}
 			defer st.Close()
-			for i := 0; i < batch; i++ {
+			for i := range batch {
 				if _, err := st.ExecContext(ctx, date, start+i+1, fmt.Sprintf("k%d", start+i)); err != nil {
 					return err
 				}
@@ -498,7 +498,7 @@ func TestStatsExportPerf(t *testing.T) {
 	}
 	t.Logf("seeded in %v", time.Since(t0))
 	// The start-of-export row count: the old walk of the wide rows against the index-only counts.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		t1 := time.Now()
 		var old int
 		require.NoError(t, h.db.Reader().QueryRow(`SELECT COUNT(*) FROM stats_events WHERE id <= ? AND local_date BETWEEN ? AND ? AND inferred <= ?`,

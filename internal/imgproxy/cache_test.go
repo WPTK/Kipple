@@ -164,13 +164,11 @@ func TestSingleFlightOneUpstreamCall(t *testing.T) {
 	bodies := make([][]byte, 20)
 	codes := make([]int, 20)
 	for i := range bodies {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			resp := cr.fetchOrig(orig, FlagPrivateNet)
 			codes[i] = resp.StatusCode
 			bodies[i], _ = io.ReadAll(resp.Body)
-		}()
+		})
 	}
 	require.Eventually(t, func() bool { return up.n.Load() == 1 }, 5*time.Second, 5*time.Millisecond)
 	time.Sleep(100 * time.Millisecond) // the followers are queued behind the leader
@@ -197,11 +195,9 @@ func TestFailedLeaderGivesFollowersAnErrorWithoutAStampede(t *testing.T) {
 	var wg sync.WaitGroup
 	codes := make([]int, 10)
 	for i := range codes {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			codes[i] = cr.fetchOrig(orig, FlagPrivateNet).StatusCode
-		}()
+		})
 	}
 	require.Eventually(t, func() bool { return n.Load() == 1 }, 5*time.Second, 5*time.Millisecond)
 	time.Sleep(100 * time.Millisecond)
@@ -236,7 +232,7 @@ func TestPartialAndOverflowBodiesAreNeverCached(t *testing.T) {
 		w.(http.Flusher).Flush()
 		_, _ = w.Write(pngBytes)
 		chunk := bytes.Repeat([]byte{7}, 64<<10)
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			if _, err := w.Write(chunk); err != nil {
 				return
 			}
@@ -300,7 +296,7 @@ func TestNegativeCacheReplaysWithoutContactingTheSource(t *testing.T) {
 		w.WriteHeader(int(status.Load()))
 	})
 	orig := up.URL + "/gone.png"
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		resp := cr.fetchOrig(orig, FlagPrivateNet)
 		require.Equal(t, 502, resp.StatusCode)
 		require.Equal(t, "no-store", resp.Header.Get("Cache-Control"))
@@ -584,13 +580,11 @@ func TestPerHostConcurrencyLimit(t *testing.T) {
 		_, _ = w.Write(pngBytes)
 	})
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for i := range 8 {
+		wg.Go(func() {
 			resp := cr.fetchOrig(up.URL+"/p"+strconv.Itoa(i)+".png", FlagPrivateNet)
 			_, _ = io.Copy(io.Discard, resp.Body)
-		}()
+		})
 	}
 	require.Eventually(t, func() bool { return cur.Load() == 4 }, 5*time.Second, 5*time.Millisecond)
 	time.Sleep(150 * time.Millisecond)

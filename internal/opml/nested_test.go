@@ -239,9 +239,9 @@ func TestImportManyFolders(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("<opml><body>")
 	n := 0
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		fmt.Fprintf(&b, `<outline text="Top %d">`, i)
-		for j := 0; j < 3; j++ {
+		for j := range 3 {
 			n++
 			fmt.Fprintf(&b, `<outline text="Sub %d"><outline xmlUrl="https://f%d.test/rss"/></outline>`, j, n)
 		}

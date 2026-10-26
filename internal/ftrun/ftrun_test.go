@@ -136,7 +136,7 @@ func TestConcurrentCallersShareOneRunAndSeeItStored(t *testing.T) {
 	close(fx.gate)
 
 	joined := 0
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		x := <-results
 		require.NoError(t, x.err)
 		require.Equal(t, 1, x.ok, "stored before any caller is released")
@@ -157,7 +157,7 @@ func TestPerHostLimitCoversEveryCaller(t *testing.T) {
 	}}
 	r := New(Options{DB: e.db, Extractor: fx, PerHost: 2, Log: quiet()})
 	var wg sync.WaitGroup
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		it := e.item(fmt.Sprintf("https://one.test/%d", i))
 		wg.Add(1)
 		go func(bg bool) {

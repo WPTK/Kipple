@@ -332,7 +332,7 @@ func TestSearchFallbackPagesStayInFallback(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	var items []sitem
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		items = append(items, sitem{title: fmt.Sprintf("t%d", i), text: "alpha only here"})
 	}
 	items = append(items, sitem{title: "u", text: "beta only there"})
@@ -492,7 +492,7 @@ func TestSearchTooBroad(t *testing.T) {
 	// Enough matching rows that the search really is still running when its (already expired)
 	// deadline is noticed: with one row it could finish first, which made this test flaky under load.
 	items := make([]sitem, 0, 1500)
-	for i := 0; i < 1500; i++ {
+	for i := range 1500 {
 		items = append(items, sitem{fmt.Sprintf("Apple %d", i), "Ann", "apple pie with more apple and pastry text to rank"})
 	}
 	seedSearch(t, e, items...)
@@ -509,7 +509,7 @@ func TestSearchTooBroad(t *testing.T) {
 func TestSearchScanLimit(t *testing.T) {
 	e := newEnv(t)
 	items := make([]sitem, 0, 8)
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		items = append(items, sitem{fmt.Sprintf("Apple %d", i), "Ann", "apple pie"})
 	}
 	ids := seedSearch(t, e, items...)
@@ -588,7 +588,7 @@ func TestSearchScanLimit(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, cur)
 		seedMore := e.addFeed(fmt.Sprintf("https://ex.com/grow%v", rank))
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			e.exec(`INSERT INTO items (id, feed_id, read, starred, published_at, sort_at, word_count, uid, content_hash, text_hash, url, title, author)
 				VALUES (?,?,0,0,?,?,10,?,?,?,?,?,?)`, int64(1_800_000_000_000_000)+int64(i)+map[bool]int64{false: 0, true: 100}[rank], seedMore, 50, 50,
 				fmt.Sprintf("grow%v%d", rank, i), "c", "t", fmt.Sprintf("https://x/grow%v%d", rank, i), "Apple grown", "Ann")

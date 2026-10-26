@@ -74,7 +74,7 @@ func answer(q dnsmessage.Message, resolve func(string) []netip.Addr) dnsmessage.
 	name := strings.TrimSuffix(strings.ToLower(question.Name.String()), ".")
 	addrs := resolve(name)
 	r := dnsmessage.Message{
-		Header:    dnsmessage.Header{ID: q.ID, Response: true, Authoritative: true, RecursionAvailable: true},
+		ID: q.ID, Response: true, Authoritative: true, RecursionAvailable: true,
 		Questions: q.Questions,
 	}
 	if len(addrs) == 0 {

@@ -189,7 +189,7 @@ type fakeExt struct {
 const ftRendezvousTimeout = 10 * time.Second
 
 func (f *fakeExt) Extract(ctx context.Context, t extract.Target) (extract.Result, error) {
-	host := strings.SplitN(strings.TrimPrefix(t.URL, "https://"), "/", 2)[0]
+	host, _, _ := strings.Cut(strings.TrimPrefix(t.URL, "https://"), "/")
 	f.mu.Lock()
 	f.calls = append(f.calls, t.URL)
 	f.cur++
@@ -380,7 +380,7 @@ func TestGlobalCapAcrossFeeds(t *testing.T) {
 	r := newRig(t, Options{Extractor: fx, Workers: 6, FulltextPerHost: 3, FulltextGlobal: 2})
 	const feeds = 5
 	var ids []int64
-	for i := 0; i < feeds; i++ {
+	for i := range feeds {
 		srv := newFTServer(t, nil)
 		srv.body.Store(spreadFeed(i, 3))
 		ids = append(ids, r.ftFeed(srv.URL+"/f"))

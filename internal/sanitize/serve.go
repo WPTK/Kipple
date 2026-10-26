@@ -182,8 +182,8 @@ func mixedContentLink(kind, u string) string {
 func embedPlaceholder(t html.Token, opt ServeOptions) string {
 	src := attrVal(t, "src")
 	var q url.Values
-	if i := strings.IndexByte(src, '?'); i >= 0 {
-		qs := src[i+1:]
+	if _, after, ok := strings.Cut(src, "?"); ok {
+		qs := after
 		if j := strings.IndexByte(qs, '#'); j >= 0 {
 			qs = qs[:j]
 		}

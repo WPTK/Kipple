@@ -17,7 +17,7 @@ func TestListItemsAsOfSweepsOldestFirstList(t *testing.T) {
 	f := h.addFeed("A", 0)
 	// backdated sort_at: the newest id sorts first in an oldest-first list
 	h.addItem(f, seedItem{SortAt: 10})
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		h.addItem(f, seedItem{SortAt: int64(100 + i)})
 	}
 	ledger := h.addItem(f, seedItem{})

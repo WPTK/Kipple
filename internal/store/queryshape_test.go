@@ -25,7 +25,7 @@ func shapeLibrary(t *testing.T) (e *env, feeds map[string]int64, folders map[str
 	}
 	order := []int64{feeds["a"], feeds["b"], feeds["c"], feeds["d"]}
 	e.exec(`INSERT INTO filters (id, name, scope, kind, terms, action) VALUES (5, 'noise', 'global', 'text', '["x"]', 'mute')`)
-	for i := int64(0); i < 400; i++ {
+	for i := range int64(400) {
 		e.exec(`INSERT INTO items (id, feed_id, read, starred, published_at, sort_at, word_count, uid, content_hash, text_hash, title, muted_by, muted_was_read)
 			VALUES (?1, ?2, ?1 % 3 = 0 OR ?1 % 17 = 0, ?1 % 7 = 0, ?1, ?1 / 3, (?1 * 37) % 2500, 'u' || ?1, 'c', 't', 'title ' || ?1,
 			        CASE WHEN ?1 % 17 = 0 THEN 5 END, CASE WHEN ?1 % 17 = 0 THEN 0 END)`, 1_000_000+i*1000+(i%5), order[i%4])

@@ -207,7 +207,7 @@ func TestLRUEvictionOrderAndTarget(t *testing.T) {
 
 func TestSetCapShrinkAndDisable(t *testing.T) {
 	c, clk := newCache(t, func(o *Options) { o.MaxBytes = 10000 })
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		put(t, c, fmt.Sprint("i", i), 800)
 		clk.Advance(time.Second)
 	}
@@ -283,7 +283,7 @@ func TestNegativeCachingTTLsAndBackoff(t *testing.T) {
 	require.NoError(t, c.PutNeg(key, url, 0, NegTransient, 500, "x"))
 	e, _ = lookupOK(t, c, key)
 	require.Equal(t, 40*time.Minute, e.FreshUntil.Sub(e.FetchedAt))
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		clk.Advance(25 * time.Hour)
 		require.NoError(t, c.PutNeg(key, url, 0, NegTransient, 500, "x"))
 	}
@@ -366,10 +366,8 @@ func TestSingleFlight(t *testing.T) {
 	start := make(chan struct{})
 	leaderIn := make(chan struct{})
 	var once sync.Once
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 20 {
+		wg.Go(func() {
 			<-start
 			leader, done, release := c.Flight(key)
 			if leader {
@@ -382,7 +380,7 @@ func TestSingleFlight(t *testing.T) {
 			}
 			followers.Add(1)
 			<-done
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -481,7 +479,7 @@ func TestDiskFloorRefusesWritesAndTrims(t *testing.T) {
 		o.MaxBytes = 10000
 		o.DiskSpace = func(string) (uint64, uint64, error) { return free.Load(), 800 << 30, nil }
 	})
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		put(t, c, fmt.Sprint("d", i), 1000)
 		clk.Advance(time.Second)
 	}
@@ -518,7 +516,7 @@ func TestDiskFloorRefusesWritesAndTrims(t *testing.T) {
 
 func TestClear(t *testing.T) {
 	c, _ := newCache(t)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		put(t, c, fmt.Sprint("c", i), 100)
 	}
 	require.NoError(t, c.PutNeg(KeyOrig(0, "http://n/"), "http://n/", 0, NegPermanent, 404, "x"))
@@ -563,11 +561,9 @@ func TestSweepVacuumAndHostExpiry(t *testing.T) {
 func TestConcurrentUseStaysConsistent(t *testing.T) {
 	c, clk := newCache(t, func(o *Options) { o.MaxBytes = 20000 })
 	var wg sync.WaitGroup
-	for g := 0; g < 8; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 60; i++ {
+	for g := range 8 {
+		wg.Go(func() {
+			for i := range 60 {
 				name := fmt.Sprint("k", (g*7+i)%40)
 				url := "http://img.example/" + name
 				key := KeyOrig(0, url)
@@ -591,7 +587,7 @@ func TestConcurrentUseStaysConsistent(t *testing.T) {
 				}
 				clk.Advance(time.Second)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	require.NoError(t, c.Flush())
@@ -620,7 +616,7 @@ func TestConcurrentUseStaysConsistent(t *testing.T) {
 
 func TestBackgroundLoopFlushesAndCloses(t *testing.T) {
 	before := runtime.NumGoroutine()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		clk := &fakeClock{t: time.Now()}
 		c, err := Open(Options{
 			Dir: filepath.Join(t.TempDir(), "ic"), MaxBytes: 1 << 20, Now: clk.Now,

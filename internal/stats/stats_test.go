@@ -132,7 +132,7 @@ func TestReadTimeCappedAt3600(t *testing.T) {
 	r := newRig(t)
 	require.NoError(t, r.record(Event{Kind: KindOpen, Client: "web", ItemID: itemID, SessionKey: "sk"}))
 	r.clk.Advance(5 * time.Hour)
-	for i := 0; i < 60; i++ { // 60 x 60 s = 3600 s
+	for range 60 { // 60 x 60 s = 3600 s
 		require.NoError(t, r.record(Event{Kind: KindReadTime, Client: "web", ItemID: itemID, SessionKey: "sk", Value: 60, HasValue: true}))
 	}
 	require.Equal(t, ErrDropped, r.record(Event{Kind: KindReadTime, Client: "web", ItemID: itemID, SessionKey: "sk", Value: 1, HasValue: true}))
@@ -217,7 +217,7 @@ func TestEventIDDedup(t *testing.T) {
 	require.NoError(t, r.record(Event{Kind: KindShare, Client: "web", ItemID: itemID}))
 	require.NoError(t, r.record(Event{Kind: KindShare, Client: "web", ItemID: itemID}))
 	// A malformed id counts as absent: stored NULL, and repeats land.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		require.NoError(t, r.record(Event{Kind: KindShare, Client: "web", ItemID: itemID, EventID: "short"}))
 		require.NoError(t, r.record(Event{Kind: KindShare, Client: "web", ItemID: itemID, EventID: "has space in it"}))
 	}

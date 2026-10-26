@@ -55,7 +55,7 @@ func TestEditTagManyIDsStillWorks(t *testing.T) {
 	f := h.addFeed("https://a.example/f", "A", "")
 	var ids []string
 	first := h.addItem(f, itemSeed{})
-	for i := 0; i < 999; i++ {
+	for range 999 {
 		ids = append(ids, "i=9999999")
 	}
 	ids = append(ids, "i="+FormatDecimal(first))

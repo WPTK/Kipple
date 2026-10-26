@@ -81,7 +81,7 @@ func parseJPEG(r io.ReaderAt, size int64) (jpegFrame, bool) {
 		return f, false
 	}
 	sawSOF, scans, inScan := false, 0, false
-	for seg := 0; seg < maxSegments; seg++ {
+	for range maxSegments {
 		var m byte
 		if inScan {
 			// Entropy-coded data up to the next marker: "FF 00" is a stuffed FF
@@ -217,12 +217,12 @@ func parseSOF(s *jpegWalker, n int, progressive bool, f *jpegFrame) bool {
 	}
 	f.n, f.progressive = nc, progressive
 	maxH, maxV := 1, 1
-	for i := 0; i < nc; i++ {
+	for i := range nc {
 		id, hv := p[6+3*i], p[7+3*i]
 		if p[8+3*i] > 3 {
 			return false // quantization table selector
 		}
-		for j := 0; j < i; j++ {
+		for j := range i {
 			if f.ids[j] == id {
 				return false
 			}
@@ -243,7 +243,7 @@ func parseSOF(s *jpegWalker, n int, progressive bool, f *jpegFrame) bool {
 		maxH, maxV = max(maxH, h), max(maxV, v)
 	}
 	if nc == 3 {
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			if maxH%f.hs[i] != 0 || maxV%f.vs[i] != 0 {
 				return false
 			}

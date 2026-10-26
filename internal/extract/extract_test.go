@@ -37,7 +37,7 @@ func article(body string) string {
 
 func longBody() string {
 	var b strings.Builder
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		b.WriteString("<p>" + strings.Repeat(para, 3) + "</p>")
 	}
 	return b.String()

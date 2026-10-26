@@ -607,7 +607,7 @@ func TestCookielessSessionRegistrationIsCapped(t *testing.T) {
 	h := newHarness(t)
 	sess := h.login()
 	var ids []string
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		code, out, _ := h.api(sess, "GET", "/api/device", "")
 		require.Equal(t, 200, code)
 		ids = append(ids, out["id"].(string))
@@ -636,12 +636,10 @@ func TestConcurrentFirstLoadsRegisterOneDevice(t *testing.T) {
 	var wg sync.WaitGroup
 	ids := make([]string, 8)
 	for i := range ids {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, out, _ := h.api(sess, "GET", "/api/device", "")
 			ids[i], _ = out["id"].(string)
-		}()
+		})
 	}
 	wg.Wait()
 	for _, id := range ids {
@@ -660,7 +658,7 @@ func TestDeviceCapNeverEvictsRecentDevices(t *testing.T) {
 	h := newHarness(t)
 	sess := h.login()
 	now := h.clk.Now().Unix()
-	for i := 0; i < store.MaxDevices; i++ {
+	for i := range store.MaxDevices {
 		_, err := h.db.RegisterDevice(t.Context(), fmt.Sprintf("seed-device-%016d", i), "ua", "web", now-int64(i)-60)
 		require.NoError(t, err)
 	}

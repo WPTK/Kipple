@@ -50,7 +50,7 @@ func TestFilterDeleteIsBoundedAndResumable(t *testing.T) {
 
 	var codes []int
 	var changed []float64
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		code, out, _ := h.api(c, "DELETE", "/api/filters/"+id+"?unmute=read", "")
 		codes = append(codes, code)
 		changed = append(changed, out["changed"].(float64))

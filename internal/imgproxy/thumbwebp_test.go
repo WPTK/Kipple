@@ -122,7 +122,7 @@ func TestVP8LWalkOnDamagedLibwebpFiles(t *testing.T) {
 		}
 		rng := rand.New(rand.NewSource(int64(len(data))))
 		accepted, bounded := 0, 0
-		for i := 0; i < 300; i++ {
+		for i := range 300 {
 			m := append([]byte(nil), data...)
 			// Mostly in the part the walk reads (headers, transforms, entropy image).
 			for k := 0; k < 1+rng.Intn(3); k++ {
@@ -169,7 +169,7 @@ func vp8lBomb(w, h int, stream func(bw *bitWriter)) []byte {
 func TestThumbRefusesVP8LBombHeaders(t *testing.T) {
 	zeroSub := func(bw *bitWriter) {
 		bw.put(0, 1) // no color cache
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			bw.simpleTree(0)
 		}
 	}

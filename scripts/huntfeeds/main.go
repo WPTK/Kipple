@@ -47,7 +47,7 @@ var words = strings.Fields("alpha bravo cedar delta ember fjord grove harbor isl
 
 func (g *gen) words(n int) string {
 	var b strings.Builder
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i > 0 {
 			b.WriteByte(' ')
 		}
@@ -120,7 +120,7 @@ func feeds() []feed {
 		}},
 		{"duplicate-guids.xml", true, func(w io.Writer, g *gen) {
 			rssHead(w, "duplicate guids")
-			for i := 0; i < 20; i++ {
+			for i := range 20 {
 				item(w, "same-guid", "copy "+fmt.Sprint(i), g.date(i), "<p>"+g.words(10)+"</p>")
 			}
 			fmt.Fprint(w, "<item><title>no guid, same link</title><link>https://feeds.example.test/p/x</link></item><item><title>no guid, same link</title><link>https://feeds.example.test/p/x</link></item>\n")
@@ -143,42 +143,42 @@ func feeds() []feed {
 		}},
 		{"mixed-namespaces.xml", true, func(w io.Writer, g *gen) {
 			fmt.Fprint(w, `<?xml version="1.0"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/" xmlns:a="http://www.w3.org/2005/Atom"><channel><title>mixed</title><atom:link href="https://feeds.example.test/mixed.xml" rel="self"/>`)
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				fmt.Fprintf(w, `<item><title>mixed %d</title><a:title>atom title %d</a:title><guid>mx-%d</guid><a:id>urn:mx:%d</a:id><link>https://feeds.example.test/m/%d</link><a:link href="https://feeds.example.test/m2/%d"/><dc:creator>writer %d</dc:creator><content:encoded><![CDATA[<p>%s</p>]]></content:encoded><media:content url="https://media.example.test/m%d.jpg"/><a:updated>2024-01-0%dT00:00:00Z</a:updated></item>`, i, i, i, i, i, i, i, g.words(8), i, i+1)
 			}
 			fmt.Fprint(w, `</channel></rss>`)
 		}},
 		{"atom-mixed.xml", true, func(w io.Writer, g *gen) {
 			fmt.Fprint(w, `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:r="http://backend.userland.com/rss2"><title>atom with rss bits</title><id>urn:atom:mixed</id><updated>2024-01-01T00:00:00Z</updated>`)
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				fmt.Fprintf(w, `<entry><title type="html">&lt;b&gt;bold %d&lt;/b&gt;</title><id>urn:atom:%d</id><link href="https://feeds.example.test/a/%d"/><r:pubDate>%s</r:pubDate><updated>2024-01-0%dT00:00:00Z</updated><content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>%s</p></div></content></entry>`, i, i, i, g.date(i), i+1, g.words(8))
 			}
 			fmt.Fprint(w, `</feed>`)
 		}},
 		{"rss-0.91.xml", true, func(w io.Writer, g *gen) {
 			fmt.Fprint(w, `<?xml version="1.0"?><rss version="0.91"><channel><title>rss 0.91</title><link>https://feeds.example.test/</link><description>d</description><language>en-us</language>`)
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				fmt.Fprintf(w, `<item><title>old %d</title><link>https://feeds.example.test/o/%d</link><description>%s</description></item>`, i, i, g.words(6))
 			}
 			fmt.Fprint(w, `</channel></rss>`)
 		}},
 		{"rss-0.92.xml", true, func(w io.Writer, g *gen) {
 			fmt.Fprint(w, `<?xml version="1.0"?><rss version="0.92"><channel><title>rss 0.92</title><link>https://feeds.example.test/</link><description>d</description>`)
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				fmt.Fprintf(w, `<item><title>old %d</title><link>https://feeds.example.test/o2/%d</link><description>%s</description><source url="https://feeds.example.test/src.xml">src</source><enclosure url="https://media.example.test/o%d.mp3" length="1" type="audio/mpeg"/></item>`, i, i, g.words(6), i)
 			}
 			fmt.Fprint(w, `</channel></rss>`)
 		}},
 		{"rdf-1.0.xml", true, func(w io.Writer, g *gen) {
 			fmt.Fprint(w, `<?xml version="1.0"?><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel rdf:about="https://feeds.example.test/rdf"><title>rdf one</title><link>https://feeds.example.test/</link><description>d</description></channel>`)
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				fmt.Fprintf(w, `<item rdf:about="https://feeds.example.test/r/%d"><title>rdf %d</title><link>https://feeds.example.test/r/%d</link><description>%s</description><dc:date>2024-01-0%dT00:00:00Z</dc:date></item>`, i, i, i, g.words(6), i+1)
 			}
 			fmt.Fprint(w, `</rdf:RDF>`)
 		}},
 		{"jsonfeed.json", true, func(w io.Writer, g *gen) {
 			fmt.Fprint(w, `{"version":"https://jsonfeed.org/version/1.1","title":"json feed","home_page_url":"https://feeds.example.test/","items":[`)
-			for i := 0; i < 8; i++ {
+			for i := range 8 {
 				if i > 0 {
 					fmt.Fprint(w, ",")
 				}
@@ -213,7 +213,7 @@ func feeds() []feed {
 func reuse(w io.Writer, g *gen, title string) {
 	rssHead(w, title)
 	// The same ten GUIDs appear in both feeds with different links and bodies.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		item(w, fmt.Sprintf("shared-%d", i), title+" "+g.words(3), "", "<p>"+g.words(10)+"</p>")
 	}
 	rssTail(w)

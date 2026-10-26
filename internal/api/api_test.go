@@ -609,7 +609,7 @@ func TestSSEHeartbeatAndSurvivesWriteAndReadTimeout(t *testing.T) {
 	readUntil(t, br, ": connected", 2*time.Second)
 	// heartbeats keep coming well past WriteTimeout/ReadTimeout (150 ms)
 	start := time.Now()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		readUntil(t, br, ": ping", 2*time.Second)
 	}
 	for time.Since(start) < 400*time.Millisecond {
@@ -666,7 +666,7 @@ func itoa(n uint64) string {
 func TestMalformedLoginsAreNotCounted(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		require.Equal(t, http.StatusBadRequest, h.do("POST", "/api/auth/login", "{not json").Code)
 	}
 	require.Equal(t, http.StatusNoContent, h.do("POST", "/api/auth/login", loginBody(testPass)).Code)
@@ -878,7 +878,7 @@ func TestEventStreamRefusedWhenTheHubIsFull(t *testing.T) {
 	h := newHarness(t)
 	c := h.login()
 	subs := make([]*events.Sub, 0, events.MaxSubscribers)
-	for i := 0; i < events.MaxSubscribers; i++ {
+	for range events.MaxSubscribers {
 		subs = append(subs, h.hub.Subscribe(h.hub.LastID()))
 	}
 	rec := h.do("GET", "/api/events", "", withCookie(c))
