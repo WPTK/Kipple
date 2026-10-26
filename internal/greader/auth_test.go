@@ -272,13 +272,15 @@ func TestConcurrentWrongLoginsRunOneHashAtATime(t *testing.T) {
 func TestVerifierSemaphoreWaitIsBounded(t *testing.T) {
 	t.Parallel()
 	release := make(chan struct{})
+	held := make(chan struct{})
 	v := auth.NewVerifier([]byte("k"), auth.VerifierOptions{Wait: 20 * time.Millisecond, Check: func(pw, phc string) bool {
+		held <- struct{}{} // only the caller holding the slot reaches here
 		<-release
 		return true
 	}})
 	done := make(chan bool)
 	go func() { done <- v.Verify(context.Background(), "api", "a", "h") }()
-	time.Sleep(10 * time.Millisecond)
+	<-held // the slot is certainly taken
 	require.False(t, v.Verify(context.Background(), "api", "b", "h"), "second caller gives up after the wait")
 	close(release)
 	require.True(t, <-done)
