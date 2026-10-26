@@ -211,6 +211,7 @@ try {
         const menu = page.getByRole("menu");
         const groups = await menu.getByRole("group").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
         const reading = menu.getByRole("menuitemradio", { name: "Reading time", exact: true });
+        await t.shot(page, `${tag}-sections-menu-unread`);
         check(groups.includes("Sections") && groups.includes("Images") && groups.includes("Rows per section") && (await reading.getAttribute("aria-checked")) === "true" && (await reading.getAttribute("aria-disabled")) !== "true", `${tag} K6 menu`, "Sections with Reading time chosen and enabled, and Images and Rows per section", `groups: ${groups.join(", ")}`); // uat-labels: ignore
         await menu.getByRole("menuitemradio", { name: "5", exact: true }).click();
         const five = await settled(() => document.querySelectorAll('section[data-section] article[data-item-id]').length >= 7);
@@ -226,6 +227,7 @@ try {
           const item = page.getByRole("menuitemradio", { name: /^Reading time/ });
           const disabled = (await item.getAttribute("aria-disabled")) === "true";
           const said = await item.getByText(why, { exact: true }).count();
+          await t.shot(page, `${tag}-sections-menu-${what.replace(/ /g, "-")}`);
           await page.keyboard.press("Escape");
           check(drawn === 0 && disabled && said === 1, `${tag} K7 ${what}`, `${what} draws no reading-time section, and the menu greys Reading time with the reason`, `${drawn} reading-time section(s); disabled: ${disabled}; reason shown: ${said}`); // uat-labels: ignore
         }
