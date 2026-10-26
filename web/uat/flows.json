@@ -1,5 +1,5 @@
 {
-  "comment": "Every web/uat/*.mjs is either a flow below or listed in excluded with the reason. `node uat/all.mjs --check` fails otherwise, so a new flow cannot be silently left out of CI. Order matters: flows that mark articles read (keyboard) come last. To add a flow to chromium, insert its line above the last entry (never after it) and keep the trailing comma: .gitattributes merges this file by union, so two PRs adding different lines both stay. A new flow adds a line here and nothing else: no npm script in package.json and no eslint line (uat/*.mjs is one glob); run it with `node uat/<name>.mjs`.",
+  "comment": "Every web/uat/*.mjs is either a flow below or listed in excluded with the reason. `node uat/all.mjs --check` fails otherwise, so a new flow cannot be silently left out of CI. Order matters: flows that mark articles read (keyboard) come last. To add a flow to chromium, insert its line above the last entry (never after it) and keep the trailing comma: .gitattributes merges this file by union, so two PRs adding different lines both stay. A new flow adds a line here and nothing else: no npm script in package.json and no eslint line (uat/*.mjs is one glob); run it with `node uat/<name>.mjs`. Fixed sleeps (waitForTimeout) are capped by uat/sleeps.test.mjs: wait for a state instead (waitFor* in common.mjs) and lower its BASELINE when you remove one.",
   "chromium": [
     "run.mjs",
     "offline.mjs",
@@ -65,7 +65,10 @@
     "all.mjs": "this runner",
     "common.mjs": "shared set-up of the flows, not a flow",
     "common.test.mjs": "unit tests of common.mjs (run by npm test), not a flow",
+    "sleeps.test.mjs": "the ratchet on fixed sleeps (run by npm test), not a flow",
     "statsFixture.mjs": "the stand-in summary that stats-screen.mjs answers /api/stats/summary with, not a flow",
+    "summary.mjs": "what all.mjs prints under Failures; not a flow",
+    "summary.test.mjs": "unit test of summary.mjs (vitest, part of npm test), not a flow",
     "faults.mjs": "tells a browser fault from a finding, for common.mjs; not a flow",
     "faults.test.mjs": "unit test of faults.mjs (vitest, part of npm test), not a flow",
     "measure-unload-refusal.mjs": "reproduces the measurement behind common.mjs unloadRefusal; prints counts, asserts nothing",
