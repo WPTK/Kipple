@@ -312,6 +312,10 @@ export const SERVER_EVENT_TYPES = [
   "folder.changed",
   "resync",
 ] as const satisfies readonly ServerEvent["type"][];
+// Fails to compile when a ServerEvent type is missing from the list above.
+type MissingEventTypes = Exclude<ServerEvent["type"], (typeof SERVER_EVENT_TYPES)[number]>;
+const eventTypesComplete: [MissingEventTypes] extends [never] ? true : never = true;
+void eventTypesComplete;
 
 /** Response of a scoped or bounded mark-read. `changed` is empty and `undoable` false above the server cap. */
 export interface BulkMarkResponse extends MarkReadResponse {
