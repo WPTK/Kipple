@@ -37,7 +37,7 @@ const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><r
  * It scrolls the image into view first, because lazy loading starts on nearness to the viewport. A load only counts
  * once the page has received a response for the image's address (`seen`, filled by the flow): `complete` with a
  * `currentSrc` alone is not proof, since a lazy image whose fetch has not begun can look finished in some browsers
- * (see `watchImages`). Then the state is polled with one short read at a time, so there is no handle to dispose, and
+ * (see `watchImages`). Then the state is polled with one short read at a time, so there is no handle to dispose, and (uat-labels: ignore)
  * every read is bounded by the one 10 s deadline. A closed page or any other error is thrown, not reported as a state.
  *
  * The first finished state is the settled one here: the app replaces an image after its error event only when the

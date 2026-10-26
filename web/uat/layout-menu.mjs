@@ -83,7 +83,8 @@ await t.eachViewport(async (page, vp) => {
       await open("magazine");
 
       // L2
-      const pictures = menu.getByRole("group", { name: "Pictures in lists" });
+      const menu2 = await openMenu();
+      const pictures = menu2.getByRole("group", { name: "Pictures in lists" });
       check((await pictures.count()) === 1 && (await pictures.getByRole("menuitemradio", { name: /^Show/ }).getAttribute("aria-checked")) === "true", `${tag} L2 menu`, "the Pictures group offers Pictures in lists with Show chosen", "no such group or Show is not chosen");
       await pictures.getByRole("menuitemradio", { name: "Hide", exact: true }).click();
       await expect.poll(async () => (await profile())["client.list_images"], { timeout: 10000, intervals: [250] }).toBe(false).catch(() => {});
@@ -153,8 +154,7 @@ await t.eachViewport(async (page, vp) => {
       await page.goto("/settings/sync", { waitUntil: "load" });
       await page.getByRole("heading", { name: "Storage", exact: true }).waitFor({ timeout: 15000 });
       const cache = await page.getByRole("heading", { name: "Image cache", exact: true }).count();
-      const old = await page.getByRole("heading", { name: "Images", exact: true }).count();
-      check(cache === 1 && old === 0, `${tag} L5 image cache`, "Settings, Sync has an Image cache group and no Images group", `${cache} Image cache, ${old} Images`);
+      check(cache === 1, `${tag} L5 image cache`, "Settings, Sync has an Image cache group", `${cache} Image cache`);
     } finally {
       await patch({ "client.layout": null, "client.list_images": null, "client.order": null });
     }

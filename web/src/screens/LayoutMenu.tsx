@@ -118,6 +118,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
           <DropdownMenu.Label className={heading}>Layout</DropdownMenu.Label>
           {/* One labelled group for each heading, so Pictures, Lists and Pages are exposed as groups and no group's label covers
               another's choices. They share one value: the layout (or, on a feed or folder, its own layout). */}
+          <div role="group" aria-label="Layout">
           {target ? (
             <DropdownMenu.RadioGroup aria-label={`Layout of this ${noun}`} value={layoutValue} onValueChange={chooseLayout}>
               <Radio value="default" label={layoutFallback} />
@@ -170,6 +171,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
                 ) : null}
             </div>
           ))}
+          </div>
           {target ? <p className="px-3 pt-1 pb-2 text-xs text-fg2">The star sets this device's default layout.</p> : null}
 
           <DropdownMenu.Separator className="my-1 h-px bg-line" />
