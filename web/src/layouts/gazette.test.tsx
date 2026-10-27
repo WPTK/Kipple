@@ -96,7 +96,7 @@ describe("Gazette pages", () => {
     const { container } = draw(cards, p);
     const lead = container.querySelector('article[data-slot="lead"]')!;
     expect(lead.querySelector("img")).not.toBeNull();
-    expect(lead.querySelector("h3")!.className).toContain("text-[1.625rem]");
+    expect(lead.querySelector("h3")!.className).toContain("text-2xl");
   });
 
   it("grows a lead without a picture to a big headline", () => {
@@ -106,7 +106,7 @@ describe("Gazette pages", () => {
     const { container } = draw(text, tp);
     const lead = container.querySelector('article[data-slot="lead"]')!;
     expect(lead.querySelector("img")).toBeNull();
-    expect(lead.querySelector("h3")!.className).toContain("text-[2.5rem]");
+    expect(lead.querySelector("h3")!.className).toContain("text-display");
   });
 
   it("gives every story the unread dot the other layouts use, and drops it once read", () => {
@@ -167,9 +167,9 @@ describe("Gazette pages", () => {
     // A picture that failed is remembered by address, so each failing test uses its own.
     const { container } = draw(cards.map((c) => (c.image ? { ...c, image: `${IMG}?t1` } : c)), p);
     const lead = container.querySelector<HTMLElement>('article[data-slot="lead"]')!;
-    expect(lead.querySelector("h3")!.className).toContain("text-[1.625rem]");
+    expect(lead.querySelector("h3")!.className).toContain("text-2xl");
     fireEvent.error(lead.querySelector("img")!);
-    expect(lead.querySelector("h3")!.className).not.toContain("text-[1.625rem]");
+    expect(lead.querySelector("h3")!.className).not.toContain("text-2xl");
   });
 
   it("lays a photo whose picture failed out as an ordinary story with its standfirst", () => {
@@ -199,15 +199,15 @@ describe("Gazette pages", () => {
     const co = container.querySelector<HTMLElement>('article[data-slot="co-lead"]')!;
     const lead = container.querySelector<HTMLElement>('article[data-slot="lead"]')!;
     expect(co.querySelector("img")).not.toBeNull();
-    expect(co.querySelector("h3")!.className).toContain("text-[1.625rem]");
+    expect(co.querySelector("h3")!.className).toContain("text-2xl");
     expect(co.querySelector("p.font-reading")).not.toBeNull();
     fireEvent.error(co.querySelector("img")!);
     expect(co.getAttribute("data-slot")).toBe("co-lead");
     expect(co.querySelector("img")).toBeNull();
-    expect(co.querySelector("h3")!.className).toContain("text-[2.5rem]");
+    expect(co.querySelector("h3")!.className).toContain("text-display");
     // Only the failed one changes; the other lead keeps its picture and size.
     expect(lead.querySelector("img")).not.toBeNull();
-    expect(lead.querySelector("h3")!.className).toContain("text-[1.625rem]");
+    expect(lead.querySelector("h3")!.className).toContain("text-2xl");
   });
 
   it("passes axe with read and unread stories", async () => {

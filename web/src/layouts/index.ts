@@ -28,6 +28,14 @@ function getLayout(id: LayoutId): ListLayout {
   return layouts[id] ?? magazine;
 }
 
+/** The one width the rows and the header of a list are held to where the pane is wider (a tablet, a list without a reader beside it). */
+export const LIST_COLUMN = "mx-auto w-full max-w-2xl";
+
+/** `LIST_COLUMN` for a layout drawn as one column of rows or sections; a grid of cards and the Gazette use the whole pane. */
+export function listColumn(layout: ListLayout): string | undefined {
+  return layout.grid || layout.id === "gazette" ? undefined : LIST_COLUMN;
+}
+
 /** The page a list is drawn as, or undefined for rows: a page layout's Page, except in a search (see ListLayout.Page). */
 export function pageOf(layout: ListLayout, scope: Scope): ComponentType<PageProps> | undefined {
   return scope.q ? undefined : layout.Page;

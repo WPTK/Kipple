@@ -75,17 +75,11 @@ export default tseslint.config(
       "no-restricted-syntax": [
         "error",
         // Design tokens, not one-off values: a class string never spells a color, a type size, a spacing step or a
-        // breakpoint the scale does not have (src/index.css and src/theme/schemes.json define them). The Gazette
-        // layout is exempt until its masthead and section heads move onto the scale.
+        // breakpoint the scale does not have (src/index.css and src/theme/schemes.json define them).
         ...DESIGN_VALUES.map(([pattern, message]) => ({ selector: `:matches(Literal[value=/${pattern}/i], TemplateElement[value.raw=/${pattern}/i])`, message })),
         ...REF_GUARDS,
       ],
     },
-  },
-  {
-    // The Gazette keeps its own display sizes and rules until its masthead and section heads follow the type scale.
-    files: ["src/layouts/gazette.tsx", "src/layouts/gazette.test.tsx"],
-    rules: { "no-restricted-syntax": ["error", ...REF_GUARDS] },
   },
   {
     // Every dropdown menu is built from ui/menu: a popover with a mouse, a bottom sheet with a finger, and no nested

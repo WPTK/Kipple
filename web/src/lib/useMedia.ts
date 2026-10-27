@@ -44,9 +44,17 @@ export function useShort(): boolean {
 
 /** Where the Show pills no longer fit the title row beside the controls and the feed switch (a short, narrow phone). */
 export const NARROW_QUERY = "(max-width: 700px)";
+/** The title row has room for the order button beside the other controls: a tablet held upright (820 px) and wider, not a phone held sideways (up to 812 px). */
+export const ROOMY_QUERY = "(min-width: 820px)";
 
-/** Wide layout: sidebar plus list plus reader pane (design: container >= 900 px). */
-export const WIDE_QUERY = "(min-width: 900px)";
+/**
+ * Wide layout: sidebar plus list plus reader pane, from this width. A media query cannot follow the text size, so it is a
+ * constant, not a sum: at the default text size the pane floors (sidebar 200, list 336, article 316, two 24 px gutters; see
+ * `columnNeeds` in useWidth.ts) come to exactly this, and a larger text size makes the sidebar and then the list give way
+ * before the panes are cut. useMedia.test.tsx asserts the panes fit at it.
+ */
+export const WIDE_MIN_PX = 900;
+export const WIDE_QUERY = `(min-width: ${WIDE_MIN_PX}px)`;
 export function useWide(): boolean {
   return useMedia(WIDE_QUERY);
 }
