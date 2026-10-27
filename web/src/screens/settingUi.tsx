@@ -60,7 +60,7 @@ export function HelpText({ text, label }: { text: string; label: string }) {
       {rest ? (
         <>
           {" "}
-          <button type="button" aria-expanded={open} aria-label={`${open ? "Less" : "More"} about ${label}`} onClick={() => setOpen((o) => !o)} className="hit-pad text-link underline underline-offset-2">
+          <button type="button" aria-expanded={open} aria-label={`${open ? "Less" : "More"} about ${label}`} onClick={() => setOpen((o) => !o)} className="relative inline-flex min-h-11 min-w-11 items-center justify-center align-middle text-link underline underline-offset-2">
             {open ? "Less" : "More"}
           </button>
         </>
