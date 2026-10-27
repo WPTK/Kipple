@@ -1272,7 +1272,7 @@ describe("Feed health", () => {
     toast.mockRestore();
   });
 
-  it("a refresh that errors counts as still failing and the others are still retried", async () => {
+  it("an error that is not a feed's own outcome (Kipple down, session expired) ends the run and is not counted as a failed feed", async () => {
     const toast = vi.spyOn(toasts, "toast");
     const { calls } = base({
       "GET /api/health/feeds": () => json(HEALTH),
@@ -1287,9 +1287,65 @@ describe("Feed health", () => {
     await user.click(screen.getByRole("button", { name: "Select" }));
     await user.click(screen.getByRole("button", { name: "Select all" }));
     await user.click(screen.getByRole("button", { name: "Retry now" }));
-    await waitFor(() => expect(toast).toHaveBeenCalledWith("Retried 3 feeds. 1 still can't be fetched."));
-    expect(calls.filter((c) => c.method === "POST")).toHaveLength(3);
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+    const [text, tone] = toast.mock.calls[0]!;
+    expect(tone).toBe("error");
+    expect(text).toMatch(/^Couldn't retry the other 3 feeds\./);
+    expect(text).not.toContain("still can't be fetched");
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
     toast.mockRestore();
+  });
+
+  it("leaving the screen stops the run: no more feeds are fetched and no toast follows", async () => {
+    const toast = vi.spyOn(toasts, "toast");
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    const { calls } = base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "POST /api/feeds/1/refresh": async () => {
+        await held;
+        return json({ outcome: "ok", new_items: 0 });
+      },
+    });
+    const view = go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Retry now" }));
+    await screen.findByText("Retrying 1 of 3");
+    view.unmount();
+    release();
+    await waitFor(() => expect(calls.filter((c) => c.method === "POST")).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+    expect(toast).not.toHaveBeenCalled();
+    toast.mockRestore();
+  });
+
+  it("after Stop the bar says Stopping and the button is off", async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "POST /api/feeds/1/refresh": async () => {
+        await held;
+        return json({ outcome: "ok", new_items: 0 });
+      },
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Retry now" }));
+    await user.click(await screen.findByRole("button", { name: "Stop" }));
+    expect(screen.getByRole("button", { name: "Stopping" })).toBeDisabled();
+    expect(screen.queryByText(/^Retrying \d of/)).not.toBeInTheDocument();
+    release();
+    expect(await screen.findByRole("button", { name: "Retry now" })).toBeEnabled();
   });
 
   it("a refresh the server answers with pending is still fetching, not a success, and the button is busy meanwhile", async () => {

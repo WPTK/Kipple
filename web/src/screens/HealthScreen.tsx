@@ -13,7 +13,7 @@ import {
   useHealth,
   type HealthFeed,
 } from "@/api/admin";
-import { ApiError, api, failed, failureCause } from "@/api/client";
+import { ApiError, api, failed } from "@/api/client";
 import { invalidateLists, keys, useBootstrap } from "@/api/queries";
 import type { Feed } from "@/api/types";
 import { STATUS_RANK, failureReason, statusInfo } from "@/lib/feedStatus";
@@ -352,6 +352,7 @@ export function HealthScreen() {
   // per feed.
   const [retry, setRetry] = useState<{ done: number; total: number } | null>(null);
   const retrying = retry !== null;
+  const [stopping, setStopping] = useState(false);
   // Stop and leaving the screen both abort the run; `mounted` tells them apart (only Stop reports back).
   const stop = useRef<AbortController | null>(null);
   const mounted = useRef(true);
@@ -381,13 +382,15 @@ export function HealthScreen() {
           if (r.pending) stillFetching++;
           else if (r.error) stillFailing++;
         } catch (e) {
-          const cause = failureCause(e);
-          // The request never reached Kipple, so the feed was not tried: end the run instead of blaming each feed.
-          if (cause === "offline" || cause === "unreachable") {
+          // A feed's own failure comes back as an outcome. An error instead (the request never reached Kipple, the
+          // session expired, Kipple is busy or down) says nothing about the feed: end the run, do not blame the rest.
+          // Only a feed deleted meanwhile (404) is skipped.
+          if (e instanceof ApiError && e.status === 404) {
+            stillFailing++;
+          } else {
             unreached = e;
             break;
           }
-          stillFailing++;
         }
         done++;
         if (mounted.current) setRetry({ done, total: list.length });
@@ -398,10 +401,11 @@ export function HealthScreen() {
     }
     if (!mounted.current) return;
     setRetry(null);
+    setStopping(false);
     const n = list.length;
     const text = [
         unreached ? failed(`retry the other ${n - done} feed${n - done === 1 ? "" : "s"}`, unreached) : "",
-        run.signal.aborted ? "Stopped." : "",
+        run.signal.aborted && done < n ? "Stopped." : "",
         done === n ? `Retried ${n} feed${n === 1 ? "" : "s"}.` : `Retried ${done} of ${n} feeds.`,
         stillFailing > 0 ? `${stillFailing} still can't be fetched.` : "",
         stillFetching > 0 ? `${stillFetching} still fetching.` : "",
@@ -590,7 +594,7 @@ export function HealthScreen() {
                   <li key={f.id} className="rounded-xl border border-line bg-surface p-3">
                     <div className="flex items-start gap-2">
                       {/* The slot is there with Select off too, so the names do not move when it is turned on. */}
-                      <div className="-my-1 -ml-2 flex w-11 shrink-0 justify-center">
+                      <div aria-hidden={selecting ? undefined : true} className="-my-1 -ml-2 flex w-11 shrink-0 justify-center">
                         {selecting ? (
                           <label className="hit-row inline-flex items-center justify-center">
                             <CheckboxBox aria-label={`Select ${f.title}`} checked={sel.has(f.id)} onChange={() => check(f.id)} />
@@ -637,9 +641,17 @@ export function HealthScreen() {
           {retry ? (
             <>
               <span role="status" className="text-sm">
-                Retrying {Math.min(retry.done + 1, retry.total)} of {retry.total}
+                {stopping ? "Stopping" : `Retrying ${Math.min(retry.done + 1, retry.total)} of ${retry.total}`}
               </span>
-              <Button onClick={() => stop.current?.abort()}>Stop</Button>
+              <Button
+                disabled={stopping}
+                onClick={() => {
+                  setStopping(true);
+                  stop.current?.abort();
+                }}
+              >
+                {stopping ? "Stopping" : "Stop"}
+              </Button>
             </>
           ) : (
             <Button onClick={() => void retrySelected()} disabled={retryable.length === 0} aria-describedby={retryable.length === 0 && pausedTicked > 0 ? "retry-why" : undefined}>
