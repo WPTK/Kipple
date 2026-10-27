@@ -105,6 +105,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
         <button
           type="button"
           aria-label={`Show and sort, ${layout.label} layout`}
+          title={`Show and sort, ${layout.label} layout`}
           className="hit inline-flex items-center justify-center rounded-lg text-fg hover:bg-selection"
         >
           <Icon of={LayoutGrid} />

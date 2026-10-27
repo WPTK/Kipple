@@ -45,6 +45,7 @@ import { LayoutMenu } from "./LayoutMenu";
 import { LengthMenu } from "./LengthMenu";
 import { ReadingMenu } from "./AppearanceControls";
 import { EmptyState } from "@/ui/EmptyState";
+import { TitleRow } from "@/ui/TitleRow";
 import { NotFoundBlock } from "@/ui/NotFoundBlock";
 import { FINISH_SEARCH, ListPane, type ListControls } from "./ListPane";
 import { DropdownMenu } from "@/ui/menu";
@@ -64,7 +65,7 @@ function useScopeTitle(scope: Scope): { title: string; above: string } {
 }
 
 /** Feeds (or folders, on a folder list) in sidebar order, and the neighbours of the current one. */
-function useNeighbours(scope: Scope): { prev?: Scope; next?: Scope } {
+function useNeighbours(scope: Scope): { prev?: Scope; next?: Scope; prevName?: string; nextName?: string } {
   const boot = useBootstrap();
   return useMemo(() => {
     const d = boot.data;
@@ -86,7 +87,8 @@ function useNeighbours(scope: Scope): { prev?: Scope; next?: Scope } {
     const at = order.indexOf((kind === "feed" ? scope.feed : scope.folder) as string);
     // The neighbour keeps this list's view and reading-time filter.
     const to = (id: string | undefined): Scope | undefined => (id ? { view: scope.view, [kind]: id, ...(scope.length ? { length: scope.length } : {}) } : undefined);
-    return at < 0 ? {} : { prev: to(order[at - 1]), next: to(order[at + 1]) };
+    const nameOf = (id: string | undefined) => (id ? (kind === "feed" ? d.feeds.find((f) => f.id === id)?.title : d.folders.find((f) => f.id === id)?.name) : undefined);
+    return at < 0 ? {} : { prev: to(order[at - 1]), next: to(order[at + 1]), prevName: nameOf(order[at - 1]), nextName: nameOf(order[at + 1]) };
   }, [boot.data, scope.feed, scope.folder, scope.view, scope.length]);
 }
 
@@ -106,15 +108,13 @@ const NOTHING_UNREAD = "Nothing unread here";
 
 function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: ListControls; beside?: boolean }) {
   const { title, above } = useScopeTitle(scope);
-  // Beside an open article (wide) the article's title is the page's h1, so the list's name is the h2 above it.
-  const Heading = beside ? "h2" : "h1";
   const refresh = useRefreshAll();
   const refreshing = useRefreshing();
   const dp = useDevicePrefs();
   const navigate = useNavigate();
   const { canUndo } = useStore(undoStore);
   const wide = useWide();
-  const { prev, next } = useNeighbours(scope);
+  const { prev, next, prevName, nextName } = useNeighbours(scope);
   const { layout, ctx } = useResolvedLayout(scope);
   const setListOverride = useSetListOverride();
   const oldest = scope.order === "oldest";
@@ -175,7 +175,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
       ))}
     </select>
   ) : (
-    <nav aria-label="Show" className={cn("flex gap-1", compact ? "shrink-0" : "min-w-0 flex-wrap")}>
+    <nav aria-label="Show" className={cn("flex gap-1", compact ? "shrink-0" : "min-w-0 overflow-x-auto")}>
       {pillList.map((p) => {
         const active = p.active;
         return (
@@ -185,7 +185,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
             replace
             aria-current={active ? "page" : undefined}
             className={cn(
-              "inline-flex min-h-11 items-center rounded-full text-sm font-medium",
+              "inline-flex min-h-11 shrink-0 items-center rounded-full text-sm font-medium whitespace-nowrap",
               compact ? "px-3" : "px-4",
               active ? "bg-accent text-bg" : "text-fg hover:bg-selection",
             )}
@@ -199,10 +199,10 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
   const switcher =
     prev || next ? (
       <div className={cn("flex", compact ? "shrink-0" : "ml-auto")} role="group" aria-label={`Switch ${noun}`}>
-        <Button variant="ghost" size="icon" aria-label={`Previous ${noun}`} title={`Previous ${noun}`} disabled={!prev} onClick={() => go(prev)}>
+        <Button variant="ghost" size="icon" aria-label={prevName ? `Previous ${noun}: ${prevName}` : `Previous ${noun}`} title={prevName ? `Previous ${noun}: ${prevName}` : `Previous ${noun}`} disabled={!prev} onClick={() => go(prev)}>
           <ChevronLeft aria-hidden="true" />
         </Button>
-        <Button variant="ghost" size="icon" aria-label={`Next ${noun}`} title={`Next ${noun}`} disabled={!next} onClick={() => go(next)}>
+        <Button variant="ghost" size="icon" aria-label={nextName ? `Next ${noun}: ${nextName}` : `Next ${noun}`} title={nextName ? `Next ${noun}: ${nextName}` : `Next ${noun}`} disabled={!next} onClick={() => go(next)}>
           <ChevronRight aria-hidden="true" />
         </Button>
       </div>
@@ -210,42 +210,35 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
   return (
     // A wide screen has the sidebar on its left (which takes the left inset) and the main area on the right (which takes the
     // right one), so this header pads by 1rem there. With a notch on both sides it would otherwise take the inset a second time.
-    <header className={cn("pt-safe shrink-0 border-b border-line bg-bg", wide ? "px-4" : "pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]", compact ? "pb-1" : "pb-2")}>
+    <header className={cn("pt-safe relative shrink-0 border-b border-line bg-bg", wide ? "px-4" : "pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]", compact ? "pb-1" : "pb-2")}>
       {/* The header is held to the list column (`LIST_COLUMN`) in every layout, so on a tablet the controls sit over the list, not
           at the far edge of the screen. The title keeps at least 6.5rem and truncates
           beyond that, so at normal text size on a phone the header is one row in every list; only where the pane is
           too narrow for 6.5rem and the controls together (a narrow list pane, a large text size) do the controls drop to
           a line of their own, and wrap again where even that line is too narrow. */}
       <div className={LIST_COLUMN}>
-        <div data-title-row className={cn("flex max-w-full flex-wrap items-center gap-x-0.5", compact ? "w-full pt-1" : "w-full pt-2")}>
-          {/* The title and the unread count are one flex item with the sizing the heading alone used to have (a basis of zero,
-              so a long title truncates in place and never pushes the controls to a line of their own). The count sits beside
-              the heading, outside it, so the heading's text is the list's name alone. */}
-          <div className={cn("flex items-baseline", asSelect ? "mr-2 min-w-[3rem] flex-1" : compact ? "mr-2 min-w-[6.5rem] max-w-[40%]" : "min-w-[6.5rem] max-w-full flex-1")}>
-            <Heading
-              className="min-w-0 truncate text-xl font-bold"
-              tabIndex={-1}
-              data-route-heading
-              aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}
-            >
-              {above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
-              {title}
-            </Heading>
-            {counted ? (
+        <TitleRow
+          title={title}
+          as={beside ? "h2" : "h1"}
+          label={above ? `${above}${PATH_SEP}${title}` : undefined}
+          className={compact ? "pt-1" : undefined}
+          middle={
+            compact ? (
+              <>
+                {pills}
+                {switcher}
+              </>
+            ) : null
+          }
+          before={above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
+          after={
+            counted ? (
               <span aria-hidden="true" data-testid="list-count" className="ml-2 shrink-0 text-sm font-normal text-fg2 tabular-nums">
                 {unreadHere}
               </span>
-            ) : null}
-          </div>
-          {compact ? (
-            <>
-              {pills}
-              {switcher}
-            </>
-          ) : null}
-          {/* The controls wrap within the column rather than run past it: a list column at its floor is narrower than
-              all of them with Large targets or a larger text size. */}
-          <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-0.5">
+            ) : null
+          }
+        >
           {/* A layout that is always newest first has no order to toggle: the button stays, greyed with the same reason
               as the menu's Order choices, and focusable (aria-disabled) so the reason can be heard. On a phone the order
               lives only in the layout menu, which leaves the title room in a one-row header. */}
@@ -258,7 +251,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
                 aria-pressed={orderWhy ? undefined : oldest}
                 aria-disabled={orderWhy ? true : undefined}
                 aria-describedby={orderWhy ? "header-order-why" : undefined}
-                title={orderWhy ?? undefined}
+                title={orderWhy ?? "Oldest first"}
                 className={orderWhy ? "opacity-50" : undefined}
                 onClick={orderWhy ? undefined : toggleOrder}
               >
@@ -277,9 +270,9 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
           {beside ? null : <ReadingMenu />}
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
-              <Button variant="ghost" size="icon" aria-label="List actions">
-                {/* Refresh is an item in this menu, so the trigger shows that a refresh is running. */}
-                {refreshing ? <RefreshCw aria-hidden="true" className="animate-spin" /> : <MoreIcon aria-hidden="true" />}
+              <Button variant="ghost" size="icon" aria-label="List actions" title="List actions">
+                {/* Refresh is an item in this menu; the button stays where it is, and a line under the header shows the run. */}
+                <MoreIcon aria-hidden="true" />
               </Button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
@@ -315,8 +308,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
-          </div>
-        </div>
+        </TitleRow>
         {compact ? null : (
           <div className="mt-1 flex max-w-[25rem] items-center gap-1">
             {pills}
@@ -341,6 +333,8 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
           <p className="mt-1 max-w-[25rem] text-xs text-fg2">Articles your filters muted. Restore brings one back as it was before it was muted.</p>
         ) : null}
       </div>
+      {/* A refresh is running: a thin line under the header, so the menu button does not change under the thumb. */}
+      {refreshing ? <div role="progressbar" aria-label="Refreshing" data-testid="refresh-line" className="kp-refresh-line absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-line" /> : null}
       {markAll.dialog}
     </header>
   );

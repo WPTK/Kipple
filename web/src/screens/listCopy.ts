@@ -33,7 +33,8 @@ export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed, scopeFeeds?
       ? { title: "All caught up", body: `${pendingNew} new article${pendingNew === 1 ? "" : "s"} arrived. Load ${pendingNew === 1 ? "it" : "them"} above to continue reading.` }
       : { title: "All caught up", body: "No unread articles.", next: "all" };
   }
-  return { title: "No articles yet", body: "Kipple hasn't fetched anything from these feeds yet." };
+  const from = scope.feed ? "this feed" : scope.folder ? "the feeds in this folder" : "your feeds";
+  return { title: "No articles yet", body: `Kipple hasn't fetched anything from ${from} yet.` };
 }
 
 /** The line under the last row of a list that has been read to its end. Worded like the empty state: it names the list. */

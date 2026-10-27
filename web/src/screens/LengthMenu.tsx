@@ -23,6 +23,7 @@ export function LengthMenu({ scope }: { scope: Scope }) {
         <button
           type="button"
           aria-label={`Article length: ${label}`}
+          title={`Article length: ${label}`}
           className={cn("hit inline-flex items-center justify-center rounded-lg hover:bg-selection", scope.length ? "text-accent" : "text-fg")}
         >
           <Icon of={Timer} />

@@ -343,6 +343,17 @@ a.sr-only-live:focus {
 }
 :root[data-motion="on"] .kp-row[data-leaving="true"] { animation: none; }
 
+/* The thin line under the list header while a refresh runs: a bar sliding across, or a full line where motion is reduced. */
+.kp-refresh-line::before { content: ""; position: absolute; inset-block: 0; left: 0; width: 40%; background: var(--color-accent); animation: kp-refresh-slide 1.2s ease-in-out infinite; }
+@keyframes kp-refresh-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="off"]) .kp-refresh-line::before { animation: none; width: 100%; }
+}
+:root[data-motion="on"] .kp-refresh-line::before { animation: none; width: 100%; }
+
 /* ---------- Article body ---------- */
 
 /* At the Medium width the column is a count of characters of the reading face (--kp-measure, in ch): a wide face gets a

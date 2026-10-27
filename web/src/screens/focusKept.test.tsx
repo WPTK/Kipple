@@ -148,8 +148,8 @@ describe("the list header keeps focus", () => {
     const trigger = screen.getByRole("button", { name: "List actions" });
     await user.click(trigger);
     await user.click(await screen.findByRole("menuitem", { name: "Refresh all feeds" }));
-    // From the tap the trigger spins and the menu item says Refreshing (#482); it is switched off while the request runs.
-    await waitFor(() => expect(trigger.querySelector("svg")).toHaveClass("animate-spin"));
+    // From the tap a line under the header shows the run and the menu item says Refreshing (#482); it is switched off while the request runs.
+    await waitFor(() => expect(screen.getByTestId("refresh-line")).toBeInTheDocument());
     await waitFor(() => expect(trigger).toHaveFocus());
     await user.click(trigger);
     const item = await screen.findByRole("menuitem", { name: "Refreshing" });

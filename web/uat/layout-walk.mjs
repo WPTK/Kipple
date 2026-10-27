@@ -172,8 +172,12 @@ await t.eachViewport(async (page, vp) => {
         firstLeft: Math.round(buttons[0].getBoundingClientRect().left),
         moreRight: edge(tb.querySelector('button[aria-label="More actions"]')),
         columnRight: col ? edge(col) : null,
-        // The rightmost control of the list header, wherever its controls wrapped to.
-        headerRight: Math.max(...[...document.querySelector('main header button[aria-label="List actions"]').closest("header").querySelectorAll("button, a, select")].map(edge)),
+        // The rightmost control of the list header, wherever its controls wrapped to (as far as it shows).
+        headerRight: Math.max(...[...document.querySelector('main header button[aria-label="List actions"]').closest("header").querySelectorAll("button, a, select")].map((e) => {
+          // The Show tabs scroll sideways inside their own box: what shows ends at that box's edge.
+          const clip = e.closest('nav[aria-label="Show"]');
+          return clip ? Math.min(edge(e), edge(clip)) : edge(e);
+        })),
       };
     });
   const toolbarFits = (g) => g.need <= g.have && g.firstLeft >= g.toolbarLeft && g.moreRight <= g.toolbarRight && g.toolbarRight <= g.vw;

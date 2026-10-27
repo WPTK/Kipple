@@ -244,13 +244,13 @@ describe("Stats screen", () => {
     await waitFor(() => expect(qc.getQueryState(["stats", "month"])?.isInvalidated).toBe(true));
   });
 
-  it("lets a long feed name take two lines and keeps the unsubscribed note with it", async () => {
+  it("lets a long feed name wrap whole and keeps the unsubscribed note with it", async () => {
     const long = "L".repeat(120);
     setup(() => ({ ...richStats, sources: [{ ...richStats.sources![0]!, feed_title: long, subscribed: false }] }));
     go();
     const list = await screen.findByRole("list", { name: /by articles read/ });
     const item = within(list).getByRole("listitem");
-    expect(within(item).getByText(long, { exact: false }).className).toContain("line-clamp-2");
+    expect(within(item).getByText(long, { exact: false }).className).not.toContain("line-clamp");
     expect(item).toHaveTextContent("(unsubscribed)");
     expect(item).toHaveTextContent("30 articles");
   });

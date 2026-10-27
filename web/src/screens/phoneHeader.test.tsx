@@ -134,15 +134,16 @@ describe("Refresh all feeds in the actions menu (#422)", () => {
     await vi.waitFor(() => expect(refreshes).toBe(1));
   });
 
-  it("while a refresh runs the trigger spins, and the item stays in the arrow-key order, announced as disabled", async () => {
+  it("while a refresh runs a line shows it, the trigger keeps its icon, and the item stays in the arrow-key order, announced as disabled", async () => {
     go("/l/unread");
     await screen.findByText("Article number 1");
     const user = userEvent.setup();
-    expect(actionsMenu().querySelector("svg.animate-spin")).toBeNull();
+    expect(screen.queryByTestId("refresh-line")).toBeNull();
     await user.click(actionsMenu());
     await user.click(await screen.findByRole("menuitem", { name: "Refresh all feeds" }));
     await vi.waitFor(() => expect(refreshes).toBe(1));
-    await waitFor(() => expect(actionsMenu().querySelector("svg.animate-spin")).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId("refresh-line")).toBeInTheDocument());
+    expect(actionsMenu().querySelector("svg.animate-spin")).toBeNull();
 
     actionsMenu().focus();
     await user.keyboard("{Enter}");
@@ -169,14 +170,14 @@ describe("the list header on a phone held sideways (#420)", () => {
     media(SHORT_QUERY);
     go("/l/unread");
     await screen.findByText("Article number 1");
-    expect(showPills().parentElement).toBe(titleRow());
+    expect(showPills().closest("[data-title-row]")).toBe(titleRow());
   });
 
   it("keeps the pills on their own row on a phone held upright, also when its keyboard has taken the height", async () => {
     // The keyboard shrinks the height but not the orientation: the short query does not match.
     go("/l/unread");
     await screen.findByText("Article number 1");
-    expect(showPills().parentElement).not.toBe(titleRow());
+    expect(showPills().closest("[data-title-row]")).not.toBe(titleRow());
   });
 
   it("puts the feed switch on the title row too", async () => {
@@ -188,7 +189,7 @@ describe("the list header on a phone held sideways (#420)", () => {
     });
     go("/l/unread?feed=1");
     await screen.findByText("Article number 1");
-    expect(within(header()).getByRole("group", { name: "Switch feed" }).parentElement).toBe(titleRow());
+    expect(within(header()).getByRole("group", { name: "Switch feed" }).closest("[data-title-row]")).toBe(titleRow());
   });
 
   it("makes the Show pills a select on a narrow screen, where the row cannot hold them, and the select changes the list", async () => {
@@ -197,7 +198,7 @@ describe("the list header on a phone held sideways (#420)", () => {
     await screen.findByText("Article number 1");
     expect(within(header()).queryByRole("navigation", { name: "Show" })).toBeNull();
     const select = within(header()).getByRole("combobox", { name: "Show" });
-    expect(select.parentElement).toBe(titleRow());
+    expect(select.closest("[data-title-row]")).toBe(titleRow());
     await userEvent.setup().selectOptions(select, "All");
     expect(window.location.pathname).toBe("/l/all");
   });
@@ -205,12 +206,12 @@ describe("the list header on a phone held sideways (#420)", () => {
   it("swaps the layout when the phone is turned while the screen is open", async () => {
     go("/l/unread");
     await screen.findByText("Article number 1");
-    expect(showPills().parentElement).not.toBe(titleRow());
+    expect(showPills().closest("[data-title-row]")).not.toBe(titleRow());
     expect(tabs()[0]).toHaveClass("flex-col");
     expect(document.documentElement).not.toHaveAttribute("data-short");
 
     rotateTo(SHORT_QUERY);
-    expect(showPills().parentElement).toBe(titleRow());
+    expect(showPills().closest("[data-title-row]")).toBe(titleRow());
     expect(tabs()[0]).toHaveClass("flex-row");
     expect(tabs()[0]).not.toHaveClass("flex-col");
     expect(document.documentElement).toHaveAttribute("data-short");
@@ -219,7 +220,7 @@ describe("the list header on a phone held sideways (#420)", () => {
     expect(within(header()).getByRole("combobox", { name: "Show" })).toBeInTheDocument();
 
     rotateTo();
-    expect(showPills().parentElement).not.toBe(titleRow());
+    expect(showPills().closest("[data-title-row]")).not.toBe(titleRow());
     expect(tabs()[0]).toHaveClass("flex-col");
     expect(document.documentElement).not.toHaveAttribute("data-short");
   });
@@ -228,7 +229,7 @@ describe("the list header on a phone held sideways (#420)", () => {
     media(WIDE_QUERY, SHORT_QUERY);
     go("/l/unread");
     await screen.findByText("Article number 1");
-    expect(showPills().parentElement).not.toBe(titleRow());
+    expect(showPills().closest("[data-title-row]")).not.toBe(titleRow());
     expect(document.documentElement).not.toHaveAttribute("data-short");
   });
 

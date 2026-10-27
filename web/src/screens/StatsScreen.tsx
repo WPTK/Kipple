@@ -46,6 +46,7 @@ import { Segmented } from "@/ui/segmented";
 import { useWrappedEnabled } from "@/lib/wrapped";
 import { AddFeedDialog } from "./feeds/AddFeedDialog";
 import { DailyChart, Empty, Heatmap, MonthlyChart } from "./StatsCharts";
+import { TitleRow } from "@/ui/TitleRow";
 
 const activityTitle = (data: StatsSummary) => (activityBars(data.daily ?? [], data.week_start).unit === "week" ? "Weekly activity" : "Daily activity");
 
@@ -256,7 +257,7 @@ const NEVER_OPENED_AFTER_DAYS = 3;
 function SourceRowItem({ r, by, amount, share, onOpen }: { r: SourceRow; by: "feeds" | "folders"; amount: string; share: number; onOpen?: (r: SourceRow) => void }) {
   const head = (
     <>
-      <span className="min-w-0 break-words font-medium [overflow-wrap:anywhere] line-clamp-2">
+      <span className="min-w-0 break-words font-medium [overflow-wrap:anywhere]">
         {r.name}
         {by === "feeds" && !r.subscribed ? <span className="whitespace-pre font-normal text-fg2"> (unsubscribed)</span> : null}
         {by === "folders" ? <span className="whitespace-pre font-normal text-fg2"> ({plural(r.count, "feed")})</span> : null}
@@ -593,9 +594,7 @@ export function StatsScreen() {
     <div className="ui-font flex h-full min-h-0 flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-3">
         <div className="mx-auto w-full max-w-3xl">
-          <h1 className="pt-2 pb-2 text-xl font-bold" tabIndex={-1} data-route-heading>
-            Stats
-          </h1>
+          <TitleRow title="Stats" className="pb-2" />
           {on && !(data && !data.enabled) ? (
             narrow ? (
               <label className="flex items-center gap-2 text-sm">

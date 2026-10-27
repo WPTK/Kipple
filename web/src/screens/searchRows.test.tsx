@@ -133,6 +133,7 @@ describe("Search: announcing and the short screen", () => {
       const { container } = go("/search?q=cats");
       await screen.findByTestId("result-count");
       const shell = container.querySelector<HTMLElement>(".search-shell")!;
+      await waitFor(() => expect(container.querySelector("article[data-item-id] a")).not.toBeNull());
       fireEvent.keyDown(container.querySelector("article[data-item-id] a")!, { key: "PageDown" });
       expect(shell.scrollTop).toBe(0);
     });
