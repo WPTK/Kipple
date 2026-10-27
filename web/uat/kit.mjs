@@ -12,7 +12,8 @@
 //   K5  a keyboard-focused list row draws its ring around the row and the link gets no box of its own;
 //   K6  a destructive button underlines on hover while it has keyboard focus (#728);
 //   K7  a number setting (how often to check feeds) is a row of choices with Custom, not a bare stepper (#686);
-//   K8  every row of the Show and sort and Article length menus is the one menu row (44 px tall, rounded, highlight on focus) (#627).
+//   K8  every row of the Show and sort and Article length menus is the one menu row (44 px tall, rounded, highlight on focus) (#627);
+//   K9  the Listen speed select has the field-color border and a 44 px target (#609).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { readFileSync } from "node:fs";
@@ -163,6 +164,40 @@ await t.eachViewport(async (page, vp) => {
       await t.shot(page, `${tag}-menu-${name.source.slice(1, 5).trim()}`);
       await page.keyboard.press("Escape");
       await menu.waitFor({ state: "detached", timeout: 5000 });
+    }
+  });
+
+  await step(`${tag} K9`, async () => {
+    // The bar shows only with Listen to articles on (Appearance, Accessibility) in a browser that can speak.
+    await page.goto("/settings/appearance", { waitUntil: "load" });
+    const listen = page.getByRole("switch", { name: "Listen to articles" });
+    await listen.waitFor({ timeout: 15000 });
+    if (await listen.isDisabled()) {
+      check(true, `${tag} K9`, "skipped: this browser has no speech synthesis, so there is no Listen bar", "");
+      return;
+    }
+    const was = await listen.isChecked();
+    if (!was) await listen.check({ force: true });
+    try {
+      await page.goto("/l/unread", { waitUntil: "load" });
+      await page.locator("a.row-link").first().click();
+      const speed = page.getByRole("group", { name: "Listen to this article" }).locator("select");
+      await speed.waitFor({ timeout: 15000 });
+      const r = await speed.evaluate((el) => {
+        const p = document.createElement("i");
+        p.style.color = "var(--kp-field)";
+        document.body.append(p);
+        const field = getComputedStyle(p).color;
+        p.remove();
+        return { border: getComputedStyle(el).borderTopColor, field, h: Math.round(el.getBoundingClientRect().height) };
+      });
+      // The Listen speed select is a kit field: the field-color boundary and the 44 px target (#609).
+      check(r.border === r.field && r.h >= 44, `${tag} K9`, "the Listen speed select has the field-color border and is at least 44 px tall", `the speed select: ${JSON.stringify(r)}`);
+    } finally {
+      if (!was) {
+        await page.goto("/settings/appearance", { waitUntil: "load" });
+        await listen.uncheck({ force: true });
+      }
     }
   });
 });

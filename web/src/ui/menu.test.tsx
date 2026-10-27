@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { Toasts } from "@/shell/toasts";
 import { DeviceSaveStatus } from "@/shell/SaveStatus";
+import { syncStore } from "@/lib/deviceSync";
 import { DropdownMenu } from "./menu";
 
 // #423: a tall menu is a popover beside its button with a mouse and a bottom sheet with a finger. One primitive does both
@@ -13,7 +14,10 @@ function touch(on: boolean) {
   vi.stubGlobal("matchMedia", (q: string) => ({ matches: on && q === "(pointer: coarse)", media: q, addEventListener() {}, removeEventListener() {} }));
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  syncStore.set({ status: "off", refused: [] });
+});
 
 function pointer(type: string, el: Element, pointerType: "touch" | "mouse", { id = 1, x = 100, y = 700 } = {}) {
   // jsdom has no PointerEvent: a MouseEvent of the same type carries the button and coordinates Radix reads.
@@ -77,6 +81,7 @@ describe("MenuContent", () => {
 
   it("is drawn above the toasts and the save notice, so neither covers a sheet or takes its taps", async () => {
     touch(true);
+    syncStore.set({ status: "error", refused: [] });
     const z = (el: Element) => Number(/(?:^|\s)z-(\d+)(?:\s|$)/.exec(el.className)![1]);
     const { container } = render(
       <>
@@ -84,6 +89,7 @@ describe("MenuContent", () => {
           <Demo />
         </main>
         <Toasts />
+        <DeviceSaveStatus />
       </>,
     );
     await userEvent.setup().click(screen.getByRole("button", { name: "Show and sort" }));
@@ -92,7 +98,7 @@ describe("MenuContent", () => {
     expect(z(menu)).toBeGreaterThan(z(toasts));
     expect(z(document.querySelector("[data-menu-backdrop]")!)).toBeGreaterThan(z(toasts));
     // The save notice shares the toasts' layer.
-    expect(DeviceSaveStatus.toString()).toContain("z-50");
+    expect(z(screen.getByTestId("save-status"))).toBe(z(toasts));
   });
 
   it("stays open when focus moves to the page under a sheet (the mouse events after a long press's lift focus it)", async () => {
