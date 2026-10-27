@@ -2,16 +2,17 @@
 
 This is the source of truth for how Kipple works today; it was first written as a design and has been kept up to date as the code changed. Files it cites by name without a path in this repository (the Reader API server research, `go-libraries.md`, the round-2 research, all in the history repo's research notes) are research notes kept outside the public repository.
 
-Three points correct what earlier plans assumed, based on primary sources in the research files:
+Reader API behaviour that shapes the design:
 
-- **`ot` semantics.** One reference server's `ot` filter (the one Kipple follows) is `id >= ot·1e6 OR lastModified >= ot`, where `lastModified` means the server changed the content. User read/star changes are a separate column (`lastUserModified`) that `ot` never consults (verified in that server's source; research note §8). Kipple follows the verified behaviour (§3, §6).
+- **`ot` semantics.** The reference server's `ot` filter (the one Kipple follows) is `id >= ot·1e6 OR lastModified >= ot`, where `lastModified` means the server changed the content. User read/star changes are a separate column (`lastUserModified`) that `ot` never consults (§3, §6).
 - **`application_id`.** 'KIPL' is `0x4B49504C` = **1263095884**.
-- **Some clients batch status changes.** They queue read/star changes locally and send them in batches of up to 1000 on each sync, roughly every 120 s while the app is active (client research, edit-tag). No id-count threshold separates reads from bulk marks. API read inference is therefore **off by default** (§8).
+- **Some clients batch status changes.** They queue read/star changes locally and send them in batches of up to 1000 on each sync, roughly every 120 s while the app is active. No id-count threshold separates reads from bulk marks. API read inference is therefore **off by default** (§8).
 
-The schema and the query plans were checked on SQLite with FTS5, and production runs the pinned `modernc.org/sqlite` v1.59.x, which ships **SQLite 3.53.4** compiled with STAT4 (go-libraries.md §2). The plan-regression suite therefore runs on the pinned driver, with and without `ANALYZE` ([test plan](maintainers/test-plan.md)).
+The schema and the query plans are checked on SQLite with FTS5, STAT4 compiled in, on the driver pinned in `go.mod`. The plan-regression suite runs on that driver, with and without `ANALYZE` ([test plan](maintainers/test-plan.md)).
 
 ---
 
+## 1. Decisions
 
 Each item gives the decision, the reason, and the alternative that was **rejected**.
 
@@ -19,7 +20,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
    - Every reply channel is `make(chan T, 1)`.
    - Every send the dispatcher makes is non-blocking, so a handler that has given up can never wedge scheduling.
    - The dispatcher keeps draining `doneCh` until the last worker has exited (§4.10).
-   - *Rejected:* api-first's per-host map and simplicity-first's in-flight set, which workers mutated with no stated synchronization (Judge 2 flagged both as plausible data races).
+   - *Rejected:* api-first's per-host map and simplicity-first's in-flight set, which workers mutated with no stated synchronization (plausible data races).
 
 2. **Three `*sql.DB` pools on one file, one write helper, and a one-slot commit gate.**
    - **Writer pool.** `SetMaxOpenConns(1)` and `_txlock=immediate`. Only `store.WithWrite(ctx, fn func(ctx context.Context, tx *sql.Tx) error)` can reach it. Every store write method takes a `*sql.Tx` (or a `Querier`) and never the `*sql.DB`, so nothing inside a write transaction can ask the pool for a second connection. Each write transaction (acquisition, `fn` and commit) has a 10 s context deadline. On timeout it logs an ERROR naming the current holder (the helper records its caller's file:line and function).
@@ -28,7 +29,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
    - **Commit gate.** `store.DB` owns a `chan struct{}` of capacity 1, taken inside the store before the `BEGIN` of every fetch-path write (each commit chunk, the error and skip rows, `trim_only`) and of every maintenance batch; the workers never touch it. API writers skip the gate and queue on the pool. `database/sql` does not hand a freed connection to waiters in FIFO order, so without the gate 8 queued fetch commits could keep winning over a client `edit-tag`. With the gate, an API write waits for at most one feed commit.
    - *Rejected:* "pool alone" (no ordering guarantee), and a dedicated writer goroutine fed with closures (more code, same effect).
 
-3. **Driver: `modernc.org/sqlite` v1.59.x (SQLite 3.53.4, STAT4), with `modernc.org/libc` pinned to exactly the version in its go.mod** (v1.75.7 today).
+3. **Driver: `modernc.org/sqlite` (with STAT4), and `modernc.org/libc` pinned to exactly the version in the driver's go.mod.** The versions are in `go.mod`.
    - FTS5 and JSON1 are compiled in, it is CGO-free, and it builds a static binary for distroless.
    - Every connection sets `analysis_limit=400`. The writer runs `PRAGMA optimize=0x10002` once when it opens, as SQLite recommends for long-lived connections.
    - *Rejected:* `ncruces/go-sqlite3`, the documented fallback (FTS5 needs per-connection registration, and wasm2go builds are heavy). *Rejected:* `mattn/go-sqlite3` (CGO).
@@ -88,9 +89,9 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
     - A mark-unread restore sets `retain_until = now + 7 d`, so the item is not trimmed straight away.
     - After the stub window a ledger id is a tombstone only: a star is ignored and OK is returned.
     - The ledger insert uses `ON CONFLICT (feed_id, uid) DO UPDATE`. Rows are deleted with the feed. A ledger row is purged after its uid was **last seen** in the feed document. The purge horizon is `max(180, restore_days + 7)` days, so a restore stub (it cascades from its ledger row) can never be purged inside its `restore_days` window; `MaxRestoreDays <= LedgerDays` is asserted at compile time and in a test.
-    - *Rejected:* "ignore stars on ledger ids" (revision 1; the red team showed both clients silently undo it). *Rejected:* a crawl-age grace window (7 days untrimmed). It breaks "newest N" on busy feeds and still misses a client's 90-day window. *Rejected:* soft-deleting inside `items`, which would add `AND trimmed_at IS NULL` to every partial index and query.
+    - *Rejected:* "ignore stars on ledger ids" (both clients silently undo it). *Rejected:* a crawl-age grace window (7 days untrimmed). It breaks "newest N" on busy feeds and still misses a client's 90-day window. *Rejected:* soft-deleting inside `items`, which would add `AND trimmed_at IS NULL` to every partial index and query.
 
-18. **Trim runs in every successful fetch commit** (`ok`, `unchanged`, `not_modified`). Changing a feed's `retention`, or `retention.default`, also enqueues a `trim_only` job for the affected feeds. So does "Apply retention now". Trim never runs on page load or on API traffic. On a quiet feed it costs one indexed statement over ≤ N+starred narrow rows. *Rejected:* "only when the fetch inserted items" (revision 1). Lowering N on a quiet feed then did nothing for days.
+18. **Trim runs in every successful fetch commit** (`ok`, `unchanged`, `not_modified`). Changing a feed's `retention`, or `retention.default`, also enqueues a `trim_only` job for the affected feeds. So does "Apply retention now". Trim never runs on page load or on API traffic. On a quiet feed it costs one indexed statement over ≤ N+starred narrow rows. *Rejected:* "only when the fetch inserted items". Lowering N on a quiet feed then did nothing for days.
 
 19. **Full text lives in its own `item_fulltext` table** and can be toggled per feed (`feeds.fulltext`) and per article (`items.fulltext_mode`). For full-text feeds, the new items are committed first and then extracted **after the commit in a bounded background pool** (§4.3): up to 20 newest new items per fetch, 10 s each, 4 at once overall, 2 per article host, through a 500-item queue (while `fetch.fulltext_all` is on: 50 per fetch and a 2000-item queue). Items not queued are extracted on demand from the UI. *Rejected:* extracting inline in the worker before the commit (a slow article host held a fetch worker for up to 60 s and made `POST /api/feeds/{id}/refresh` answer 202 pending). *Rejected:* a column on `items`.
 
@@ -122,7 +123,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
     - The web UI dialog shows the starred count and offers "also delete N starred items".
     - Unsubscribing the archive feed is a real delete only when it holds no starred items. In a batch it is processed last (after the other feeds have moved their starred items in) and skipped while it still holds starred items; the web `DELETE /api/feeds/{id}` on it is refused with `ErrArchiveHasStarred` unless `delete_starred=1`, which is the only way starred items are ever destroyed.
     - Stats rows keep their snapshots either way.
-    - *Rejected:* a pure hard delete (revision 1: one swipe destroyed saved articles). *Rejected:* soft-deleting every feed.
+    - *Rejected:* a pure hard delete (one swipe would destroy saved articles). *Rejected:* soft-deleting every feed.
 
 25. **Migrations are hand-rolled.**
     - SQL files are embedded, `PRAGMA user_version` is the cursor, and `PRAGMA application_id` guards against a foreign file.
@@ -616,7 +617,7 @@ Validated on SQLite 3.50.4 (revision 1 or 2 as marked):
 - A second `disabled_reason='archive'` row is refused (r2).
 - `PRAGMA foreign_key_check` returns nothing (r2).
 
-Still to do on the pinned driver: the whole file under modernc/SQLite 3.53.4, as the first migration test ([test plan](maintainers/test-plan.md)).
+Still to do on the pinned driver: the whole file under the pinned modernc driver, as the first migration test ([test plan](maintainers/test-plan.md)).
 
 ### 2.3 Every index and the query it serves
 
@@ -2517,7 +2518,7 @@ internal/httpx          headers.go: Secure (security headers, CSP via PageCSP). 
                         internal/greader/log.go
 ```
 
-**Dependencies** (pinned): `modernc.org/sqlite` v1.59.x (with its exact `modernc.org/libc`), `github.com/mmcdole/gofeed` v1.4.x, `github.com/microcosm-cc/bluemonday` v1.0.27, `codeberg.org/readeck/go-readability/v2`, `golang.org/x/net` (html, charset), `golang.org/x/text`, `golang.org/x/crypto/argon2`, `golang.org/x/image` (thumbnails), `golang.org/x/sys`, `golang.org/x/term` (password prompt). Tests use `testify/require`.
+**Dependencies** (pinned): `modernc.org/sqlite` (with its exact `modernc.org/libc`), `github.com/mmcdole/gofeed` v1.4.x, `github.com/microcosm-cc/bluemonday` v1.0.27, `codeberg.org/readeck/go-readability/v2`, `golang.org/x/net` (html, charset), `golang.org/x/text`, `golang.org/x/crypto/argon2`, `golang.org/x/image` (thumbnails), `golang.org/x/sys`, `golang.org/x/term` (password prompt). Tests use `testify/require`.
 
 **Dockerfile.** Three stages: `node:24-alpine` (`npm ci && npm run build`) → `golang:1.27-alpine` (`CGO_ENABLED=0 go build -trimpath -ldflags="-s -w"`, with cache mounts) → `gcr.io/distroless/static-debian13:nonroot`.
 

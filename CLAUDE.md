@@ -36,11 +36,10 @@ with simple interfaces. With one user a removal is announced in the changelog, n
   Stats events are never trimmed.
 - **Fonts:** bundled through @fontsource, self-hosted, no CDN: Literata, Vollkorn, Gentium Book Plus, Source Serif 4,
   Arvo, Inter, Manrope, Source Sans 3, JetBrains Mono, Source Code Pro, Atkinson Hyperlegible Next. System when present:
-  New York, Charter, SF Pro, SF Mono, Georgia, Menlo. Default body: New York on Apple, Literata elsewhere. User-picked
-  Google Fonts: not before 2.0.0.
+  New York, Charter, SF Pro, SF Mono, Georgia, Menlo. Default body: New York on Apple, Literata elsewhere.
+  No user-picked Google Fonts.
 - **Themes:** 20 color schemes (`web/src/theme/schemes.json` is the source of truth) plus follow-system with separate
-  day and night picks (default Paper and Midnight). The original seven names are aliases (white=Paper, off-white=Linen,
-  sepia=Parchment, soft green=Directory, brown=Cocoa Kraft, dark=Graphite, OLED=Midnight).
+  day and night picks (default Paper and Midnight).
 - **Non-goals:** no AI features, no notifications, no social (an opt-in share of the reader's own yearly summary,
   Wrapped, is allowed), no monitoring, no multi-user. Per-device appearance profiles are not multi-user. No podcasts or media players, no
   read-later or webhook integrations, no tags. Kipple is not trying to match what other readers have.
@@ -48,8 +47,8 @@ with simple interfaces. With one user a removal is announced in the changelog, n
 ## Layout and commands
 
 - `cmd/kipple/` main; `internal/` Go packages; `web/` Vite app (`web/dist` embedded via `go:embed`).
-- `Dockerfile` is multi-stage (node, go, distroless static nonroot uid 65532). the Kipple server has Docker but no Go or Node, so
-  the image must build with Docker alone. No secrets or hostnames committed; `.env.example` documents every variable.
+- `Dockerfile` is multi-stage (node, go, distroless static nonroot uid 65532); the image must build with Docker alone. No
+  secrets or hostnames committed; `.env.example` documents every variable.
 - Dev: `cd web && npm run seed` (Kipple on 127.0.0.1:1919, sample feeds in `%TEMP%\kipple-dev`), then
   `cd web && npm run dev` (Vite on 127.0.0.1:5173 proxies to 1919).
 - Test: `go test ./...` and `cd web && npm test`. Local CI: `pwsh scripts/ci-local.ps1` (`-Docker` adds the image build
@@ -76,7 +75,7 @@ exact commands, backup, verification and GHCR steps are in `docs/maintainers/REL
 
 ## Process
 
-- Phases and the plan to 1.0 live in the history repo plan `plans/0.8-1.0-plan.md`. Release steps follow
+- Release steps follow
   `docs/maintainers/RELEASING.md` (gates scale with what changed); the major-release sign-off is the blank template `docs/maintainers/release-checklist.md`.
 - A UI change is not done until it has been driven in a real browser, at the mobile preset and on desktop, against a
   seeded instance (`npm run seed`): every control it touches, and every download or export path (a saved file can be
@@ -89,7 +88,7 @@ exact commands, backup, verification and GHCR steps are in `docs/maintainers/REL
 
 ## Work tracking (how sessions avoid each other)
 
-- Remaining design-review work is one tracker issue per area (label `tracker`, milestone "1.6 - Design review follow-ups").
+- Remaining design-review work is one tracker issue per area (label `tracker`).
   The tracker is the only list of an area's remaining work; the Decision comment on each linked issue is the spec.
 - GitHub is the only record of who is working on what, not memory. Before starting, read the open trackers, the open
   pull requests and the `in-progress` label. Set **Working now** in the tracker body and add `in-progress` when you
