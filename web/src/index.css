@@ -485,7 +485,7 @@ a.sr-only-live:focus {
    meaning through a background image or color alone (unread and starred also have shape and text). */
 @media (forced-colors: active) {
   :root { --kp-ring-w: 3px; --kp-ring-color: Highlight; }
-  .kp-unread-dot[data-unread="true"] { forced-color-adjust: none; background: CanvasText; }
+  .kp-unread-dot[data-unread="true"], .kp-badge-dot { forced-color-adjust: none; background: CanvasText; }
   [aria-current="page"], [aria-checked="true"], label:has(input:checked) { outline: 2px solid Highlight; }
   label:has(input:checked) { forced-color-adjust: none; background: Highlight; color: HighlightText; }
   /* The card's lines carry their own muted color (text-fg2); on Highlight they must follow HighlightText too. */

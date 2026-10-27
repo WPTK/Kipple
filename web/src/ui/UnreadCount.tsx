@@ -55,7 +55,7 @@ export function UnreadCount({ n, tone = "quiet", className, noun = "unread" }: {
   if (!kind) return null;
   if (kind === "dot") {
     return (
-      <span data-testid="unread-dot" className={cn("inline-block size-2 shrink-0 rounded-full bg-unread", className)}>
+      <span data-testid="unread-dot" className={cn("kp-badge-dot inline-block size-2 shrink-0 rounded-full bg-unread", className)}>
         <span className="sr-only-live">{noun || "articles waiting"}</span>
       </span>
     );
