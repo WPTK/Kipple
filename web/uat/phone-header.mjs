@@ -14,7 +14,7 @@
 //   L3  (Large targets on) at 812x375 and 568x320 the layout is the same row, with controls of 44 px;
 //   L4  (text size Largest) at 568x320 and 320x568 no tab name is cut off, and at 320 wide Your year is shown whole;
 //   I1  the list header has four controls or fewer and no Refresh button; the actions menu has Refresh all feeds, and (uat-labels: ignore)
-//       choosing it asks the server for a refresh and the menu button spins while it runs;
+//       choosing it asks the server for a refresh, and while it runs the menu button stays as it is and a line under the header shows it;
 //   B1  Your year, a Settings group and Feed health each go back with a chevron before the title (a control with no (uat-labels: ignore)
 //       text of its own, named Back to ..., at least 44 px) that goes to the parent, and no text link says Back to Stats;
 //   B2  from the Settings list into a group the chevron goes back to the list with focus on the row just left; from (uat-labels: ignore)
@@ -215,8 +215,9 @@ await t.eachViewport(async (page, vp) => {
       await header.getByRole("button", { name: "List actions" }).click();
       await page.getByRole("menuitem", { name: "Refresh all feeds" }).click(); // uat-labels: ignore
       check(await asked, `${tag} I1 refresh`, "Refresh all feeds in the menu asks for a refresh", "Refresh all feeds in the menu sent no request"); // uat-labels: ignore
-      await header.getByRole("button", { name: "List actions" }).locator("svg.animate-spin").waitFor({ timeout: 3000 }).catch(() => {});
-      check(await header.getByRole("button", { name: "List actions" }).evaluate((b) => !!b.querySelector("svg.animate-spin")), `${tag} I1 spin`, "the actions menu button spins while the refresh runs", "nothing shows that a refresh is running");
+      await header.getByTestId("refresh-line").waitFor({ timeout: 3000 }).catch(() => {});
+      check(await header.getByTestId("refresh-line").count() === 1, `${tag} I1 line`, "a thin line under the header shows the refresh", "nothing shows that a refresh is running");
+      check(await header.getByRole("button", { name: "List actions" }).evaluate((b) => !b.querySelector("svg.animate-spin")), `${tag} I1 steady`, "the actions menu button does not change while the refresh runs", "the actions menu button changed into a spinner");
       await header.getByRole("button", { name: "List actions" }).focus();
       await page.keyboard.press("Enter");
       const busy = page.getByRole("menuitem", { name: "Refreshing" }); // uat-labels: ignore

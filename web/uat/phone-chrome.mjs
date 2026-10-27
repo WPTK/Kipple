@@ -71,7 +71,8 @@ await t.eachViewport(async (page, vp) => {
           const h = document.querySelector("main h1");
           const nav = [...document.querySelectorAll('nav[aria-label="Primary"]')].pop();
           const tabs = nav ? [...nav.querySelectorAll("a")].map((a) => ({ name: a.innerText.replace(/\s+/g, " ").trim(), sw: a.scrollWidth, cw: a.clientWidth })) : [];
-          const controls = [...document.querySelectorAll("main header button, main header a")].filter((b) => b.getClientRects().length);
+          // The Show tabs scroll sideways inside their own box, so the box is what must stay on screen, not each tab.
+          const controls = [...document.querySelectorAll('main header button, main header a:not(nav[aria-label="Show"] a), main header nav[aria-label="Show"]')].filter((b) => b.getClientRects().length);
           return {
             title: h ? { text: h.textContent, sw: h.scrollWidth, cw: h.clientWidth, ellipsis: getComputedStyle(h).textOverflow === "ellipsis" } : null,
             nav: nav ? { sw: nav.scrollWidth, cw: nav.clientWidth } : null,

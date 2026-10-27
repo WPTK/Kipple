@@ -18,6 +18,7 @@ import { EmptyState } from "@/ui/EmptyState";
 import { ListPane, type ListControls } from "./ListPane";
 import { SaveSearchDialog } from "./search/SaveSearchDialog";
 import { SearchHelp } from "./search/SearchHelp";
+import { TitleRow } from "@/ui/TitleRow";
 import { useLatestRef } from "@/lib/useLatestRef";
 
 /** Debounce of the search box: the query is sent this long after the last keystroke. */
@@ -246,13 +247,10 @@ export function SearchScreen() {
     <div className="search-screen h-full min-h-0">
     <div ref={shellRef} className="search-shell flex h-full min-h-0 flex-col">
       <header ref={headRef} className="search-head pt-safe shrink-0 border-b border-line bg-bg pb-3">
-        <div className="flex items-center px-4 pt-2">
-          <h1 className="min-w-0 flex-1 text-xl font-bold" tabIndex={-1} data-route-heading>
-            Search
-          </h1>
+        <TitleRow title="Search" className="px-4">
           <ReadingMenu />
           <SearchHelp />
-        </div>
+        </TitleRow>
         <form
           ref={boxRef}
           role="search"

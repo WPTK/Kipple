@@ -31,6 +31,7 @@ import { BackButton } from "@/ui/BackButton";
 import { Button } from "@/ui/button";
 import { EmptyState } from "@/ui/EmptyState";
 import { FailedBlock } from "@/ui/FailedBlock";
+import { TitleRow } from "@/ui/TitleRow";
 import { Checkbox, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 
 function Card({ title, children, hero = false }: { title: string; children: ReactNode; hero?: boolean }) {
@@ -94,7 +95,7 @@ export function WrappedCards({ m }: { m: WrappedModel }) {
           <ol className="flex flex-col gap-1 text-lg">
             {m.topSources.map((s) => (
               <li key={s.feedId} className="flex items-baseline justify-between gap-3">
-                <span className="min-w-0 line-clamp-2 font-medium [overflow-wrap:anywhere]">{s.name}</span>
+                <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{s.name}</span>
                 <span className="shrink-0 tabular-nums text-fg2">{s.items}</span>
               </li>
             ))}
@@ -344,16 +345,10 @@ export function WrappedScreen() {
   return (
     <div className="ui-font flex h-full min-h-0 flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-3">
-        <div className="flex flex-wrap items-center gap-x-3 pt-2">
-          <div className="flex min-w-[10rem] flex-1 items-center gap-1">
-            <BackButton to="/stats" ariaLabel="Back to Stats" />
-            <h1 id={headingId} className="min-w-0 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
-              Your year
-            </h1>
-          </div>
+        <TitleRow title="Your year" id={headingId} leading={<BackButton to="/stats" ariaLabel="Back to Stats" />} className="gap-x-3">
           {on ? (
             <>
-              <label className="ml-auto flex items-center gap-2 text-sm">
+              <label className="flex items-center gap-2 text-sm">
                 <span className="text-fg2">Year</span>
                 <select className={inputCls} value={year} onChange={(e) => setYear(Number(e.target.value))}>
                   {[...new Set([...years, year])].sort((a, b) => b - a).map((y) => (
@@ -364,10 +359,10 @@ export function WrappedScreen() {
                 </select>
               </label>
               {/* Nothing read this year, or under a week of it: there is no summary worth sending. */}
-              {model && !model.empty && !low ?<Button onClick={() => setSharing(true)}>Share</Button> : null}
+              {model && !model.empty && !low ? <Button onClick={() => setSharing(true)}>Share</Button> : null}
             </>
           ) : null}
-        </div>
+        </TitleRow>
       </header>
       {/* The cards (and an empty year's cards) hold nothing focusable, so with a model the region itself takes focus and
           a keyboard can scroll it. The other states have their own link or button, or nothing to scroll. */}

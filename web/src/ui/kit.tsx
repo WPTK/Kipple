@@ -102,8 +102,8 @@ export function Modal({
           {...returnFocus}
           onOpenAutoFocus={holdWhileLoading}
           className={cn(
-            "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full flex-col rounded-t-2xl outline-none border border-line bg-bg text-fg shadow-sheet min-[640px]:inset-y-auto min-[640px]:top-[6vh] min-[640px]:bottom-auto min-[640px]:rounded-2xl",
-            size === "lg" ? "max-w-2xl min-[640px]:top-[3vh]" : "max-w-lg",
+            "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full flex-col rounded-t-2xl outline-none border border-line bg-bg text-fg shadow-sheet sm:inset-y-auto sm:top-[6vh] sm:bottom-auto sm:rounded-2xl",
+            size === "lg" ? "max-w-2xl sm:top-[3vh]" : "max-w-lg",
           )}
         >
           <div data-sheet-body className="min-h-0 flex-1 overflow-y-auto px-5 pt-5 pb-3">

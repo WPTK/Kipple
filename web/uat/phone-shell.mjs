@@ -7,7 +7,8 @@
 // On the phone width of the run (the desktop pass has nothing to check) it resizes the page and checks:
 //   S1  Stats does not scroll the document: its scroll height equals the window height at 393, 402 and 440 wide;
 //   F1  the Feeds title is not truncated at 402 and 440 wide;
-//   H1  the list header is as tall for Unread as for a feed with a very long title, at 393, 402 and 440 wide;
+//   H1  the list header with a feed's very long title is at most the Unread header plus one extra title line and a row for the
+//       controls (the title wraps to two lines, then its end is cut), at 393, 402 and 440 wide;
 //   R1  in landscape the article's title and body start at the same left edge;
 //   T1  the tab bar marks Feeds on a feed's list and on Feed health, and Articles on the Unread list;
 //   M1  at 874x402 the opened row More menu (a bottom sheet on touch, #423) lies inside the screen (#431).
@@ -61,9 +62,13 @@ await t.eachViewport(async (page, vp) => {
       const heights = [];
       for (const path of ["/l/unread", `/l/unread?feed=${feed.id}`]) {
         await open(path);
-        heights.push(await page.locator("main h1").first().evaluate((h) => Math.round(h.closest("header").getBoundingClientRect().height)));
+        heights.push(await page.locator("main h1").first().evaluate((h) => ({ header: Math.round(h.closest("header").getBoundingClientRect().height), title: Math.round(h.getBoundingClientRect().height), line: parseFloat(getComputedStyle(h).lineHeight) })));
       }
-      check(heights[0] === heights[1], `${tag} H1 ${w}`, `the header is ${heights[0]} px for Unread and for the long title`, `the header is ${heights[0]} px for Unread but ${heights[1]} px for the long title`);
+      // The header is not a constant height: a title takes up to two lines, and the controls drop to a row of their own when it
+      // needs the width. It grows by those two things and by nothing else.
+      const [plain, long] = heights;
+      const room = Math.ceil(plain.line) + 44 + 2;
+      check(long.title <= Math.ceil(plain.line * 2) + 1 && long.header <= plain.header + room, `${tag} H1 ${w}`, `the header is ${plain.header} px for Unread and ${long.header} px for the long title (two title lines at most)`, `the header is ${plain.header} px for Unread but ${long.header} px for the long title, whose heading is ${long.title} px (line ${plain.line})`);
       if (w === 402) await t.shot(page, `${tag}-long-title`);
     }
   });

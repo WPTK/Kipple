@@ -5,7 +5,7 @@
 //   npm run uat:announce -- --url http://127.0.0.1:7091 --screenshots <dir> --browser webkit --headed
 //
 // For each width (desktop 1280x800, phone 375x812) it signs in with a fresh browser and:
-//   A1  Taps Refresh all feeds (on a phone, the item in the actions menu) with the request held back 3 s: the icon spins at once (on a phone, the actions menu button spins) and the button says Refreshing. (uat-labels: ignore)
+//   A1  Taps Refresh all feeds (on a phone, the item in the actions menu) with the request held back 3 s: a thin line under the header shows it at once (the actions menu button keeps its icon) and the menu item says Refreshing. (uat-labels: ignore)
 //   A2  Settings > Appearance & Reading: no switch's name carries its visible On or Off. (uat-labels: ignore)
 //   A3  Signs in with a wrong password in a second, signed-out browser: the password field is aria-invalid, described by
 //       the error and focused (the username is not marked).
@@ -54,7 +54,7 @@ await t.eachViewport(async (page, vp) => {
     await step(`${tag} A1`, async () => {
       // Its own browser with the service worker blocked: WebKit's request routing does not see what the worker sends.
       const ctx = await page.context().browser().newContext({ baseURL: t.origin, viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile, serviceWorkers: "block" });
-      // The refresh request is held on a promise this step releases once it has looked at the spinner (and in finally).
+      // The refresh request is held on a promise this step releases once it has looked at the refresh line (and in finally).
       let release;
       const held = new Promise((r) => (release = r));
       try {
@@ -66,16 +66,16 @@ await t.eachViewport(async (page, vp) => {
         await p.goto("/l/all", { waitUntil: "load" });
         await p.locator("[data-testid=list-scroll] [data-item-id]").first().waitFor({ timeout: 15000 });
         const answered = p.waitForResponse("**/api/refresh", { timeout: 10000 }).catch(() => null);
-        // The actions menu has the item at every width, and its trigger spins.
+        // The actions menu has the item at every width; a thin line under the header shows the run, and the button keeps its icon.
         await p.getByRole("button", { name: "List actions" }).click();
         await p.getByRole("menuitem", { name: "Refresh all feeds" }).click(); // uat-labels: ignore
         // The request is held, so the spinning state lasts: wait for it rather than for a time.
-        await p.waitForFunction(() => !!document.querySelector('button[aria-label="List actions"] svg.animate-spin'), null, { timeout: 5000 }).catch(() => {}); // the check below reports it if it never spins
+        await p.waitForSelector("[data-testid=refresh-line]", { timeout: 5000 }).catch(() => {}); // the check below reports it if it never shows
         const state = await p.evaluate(() => {
           const b = document.querySelector('button[aria-label="List actions"]');
-          return { label: !!b, spin: !!b?.querySelector("svg.animate-spin") };
+          return { label: !!b, line: !!document.querySelector("main header [data-testid=refresh-line]"), spin: !!b?.querySelector("svg.animate-spin") };
         });
-        check(state.label && state.spin, `${tag} A1`, "the actions menu button spins after the tap", `after the tap: ${JSON.stringify(state)}`);
+        check(state.label && state.line && !state.spin, `${tag} A1`, "a line under the header shows the refresh after the tap and the actions menu button keeps its icon", `after the tap: ${JSON.stringify(state)}`);
         await t.shot(p, `${tag}-A1`);
         release();
         await answered;

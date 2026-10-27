@@ -370,7 +370,7 @@ describe("sidebar", () => {
     routes({}, withArchive);
     media(WIDE);
     go("/l/unread?feed=1");
-    const next = await screen.findByRole("button", { name: "Next feed" });
+    const next = await screen.findByRole("button", { name: /^Next feed/ });
     await userEvent.setup().click(next);
     await waitFor(() => expect(window.location.search).toBe("?feed=2"));
     go("/l/unread?folder=2");

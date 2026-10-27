@@ -72,7 +72,7 @@ afterEach(() => {
 });
 
 describe("refresh shows it is working from the tap (#482)", () => {
-  it("spins and says Refreshing while the request is still on its way", async () => {
+  it("shows a line under the header and says Refreshing while the request is still on its way", async () => {
     let release!: () => void;
     const held = new Promise<void>((r) => (release = r));
     routes({
@@ -86,13 +86,14 @@ describe("refresh shows it is working from the tap (#482)", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "List actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Refresh all feeds" }));
-    // The menu closes; the trigger spins, and the menu item says Refreshing.
+    // The menu closes; a line under the header shows the run, the button keeps its icon, and the menu item says Refreshing.
     const btn = screen.getByRole("button", { name: "List actions" });
-    await waitFor(() => expect(btn.querySelector("svg")).toHaveClass("animate-spin"));
+    await waitFor(() => expect(screen.getByTestId("refresh-line")).toBeInTheDocument());
+    expect(btn.querySelector("svg")).not.toHaveClass("animate-spin");
     release();
     // The answer shows the run at once: no gap before its run.start event arrives (none does here).
     await waitFor(() => expect(liveStore.get().runs.r1).toBeDefined());
-    expect(btn.querySelector("svg")).toHaveClass("animate-spin");
+    expect(screen.getByTestId("refresh-line")).toBeInTheDocument();
     await user.click(btn);
     expect(await screen.findByRole("menuitem", { name: "Refreshing" })).toBeInTheDocument();
   });
