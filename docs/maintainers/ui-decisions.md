@@ -472,8 +472,19 @@ The Stats summary tiles (previous-period figure) and a feed's Read rate (the cou
   links to Feed health), and the star stays on every row (the Feeds screen is where favorites are made).
 - **Show only unread feeds** is a view of this screen for this visit, not a device setting. Edit and Select always show
   every feed, because a reorder is saved against the whole tree.
-- **Mark all as read** is in each folder's menu (the folder and its subfolders, with the usual undo toast), shown only
-  when the folder has unread articles.
+- **Mark all as read** is in each folder's menu (the folder and its subfolders), shown only when the folder has unread
+  articles. It asks first, naming the reach ("Mark all 12 as read"), like the list's own menu, and the Undo toast follows.
+- Every More button draws one glyph (`MoreIcon`, `web/src/lib/itemActionTable.ts`), the Feeds screen's included.
+
+## Item actions (design review 1.5, issue #613)
+
+- One table (`web/src/lib/itemActionTable.ts`) holds the words and glyph of every article action. The row menu, the
+  Gazette menu, the open article's More menu and the swipe panel draw from it.
+- Row menu order: Star, Mark as read, Mark above, Mark below, Mute similar, then Edit feed, Open original, Copy link and
+  Share. Share appears only where the browser can share; Copy link always does. The menu's Star fills while the article is starred.
+- The open article's More menu: Mark as read, Mute similar, Edit feed, Open original.
+- Icons come in two sizes through the `Icon` wrapper (16 and 20 px). The star marks starred articles and favorite
+  feeds and folders; a pin or heart for favorites is declined (#629).
 
 ## Vocabulary (design review 1.5, 2026-10-22)
 

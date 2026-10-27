@@ -3,8 +3,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { browserOnlineStore } from "@/lib/offlineState";
 import { useStore } from "@/lib/store";
 import { Link, useLocation, useNavigate } from "react-router";
-import { actionLabel } from "@/lib/itemActionTable";
-import { BellOff, ChevronDown, ChevronLeft, ChevronUp, ExternalLink, FileCheck, FileText, Mail, MailOpen, MoreHorizontal, Rss, Share2, Star } from "lucide-react";
+import { actionIcon, actionLabel, MoreIcon } from "@/lib/itemActionTable";
+import { Icon } from "@/ui/Icon";
+import { ChevronDown, ChevronLeft, ChevronUp, FileCheck, FileText, Share2, Star } from "lucide-react";
 import { ApiError, failed as failedToast } from "@/api/client";
 import { useFulltext, useItem, useOpenItem, useToggleStar } from "@/api/queries";
 import { useSwipeBack } from "@/gestures/useSwipeBack";
@@ -581,26 +582,26 @@ function Toolbar(p: ToolbarProps) {
       <DropdownMenu.Root open={more && !!p.a} onOpenChange={(o) => setMore(o && !!p.a)}>
         <DropdownMenu.Trigger asChild>
           <Button variant="ghost" size="icon" aria-label="More actions" title="More actions" aria-disabled={!p.a || undefined}>
-            <MoreHorizontal aria-hidden="true" />
+            <MoreIcon aria-hidden="true" />
           </Button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
             <DropdownMenu.Item onSelect={p.onRead}>
-              {p.a?.read ? <Mail className="size-5" aria-hidden="true" /> : <MailOpen className="size-5" aria-hidden="true" />}
+              <Icon of={actionIcon("read", { on: p.a?.read })} />
               {actionLabel("read", { on: p.a?.read })}
             </DropdownMenu.Item>
+            <DropdownMenu.Item onSelect={p.onMuteSimilar}>
+              <Icon of={actionIcon("mute")} />
+              {actionLabel("mute")}
+            </DropdownMenu.Item>
             <DropdownMenu.Item onSelect={p.onManageFeed}>
-              <Rss className="size-5" aria-hidden="true" />
-              Edit feed
+              <Icon of={actionIcon("editFeed")} />
+              {actionLabel("editFeed")}
             </DropdownMenu.Item>
             <DropdownMenu.Item onSelect={p.onOriginal}>
-              <ExternalLink className="size-5" aria-hidden="true" />
-              Open original
-            </DropdownMenu.Item>
-            <DropdownMenu.Item onSelect={p.onMuteSimilar}>
-              <BellOff className="size-5" aria-hidden="true" />
-              Mute similar…
+              <Icon of={actionIcon("openOriginal")} />
+              {actionLabel("openOriginal")}
             </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>

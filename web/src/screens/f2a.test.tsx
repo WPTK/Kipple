@@ -451,7 +451,8 @@ describe("row swipe (touch, iOS Mail directions)", () => {
     for (const name of ["Star", "Mark as read", "Mark below as read", "Open original", "Copy link"]) {
       expect(screen.getByRole("menuitem", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     }
-    expect(screen.getByRole("menuitem", { name: /^Share/ })).toBeInTheDocument();
+    // This browser cannot share, so the menu offers Copy link alone.
+    expect(screen.queryByRole("menuitem", { name: /^Share/ })).toBeNull();
     ptr(el, "pointerUp", 100);
     expect(window.location.pathname).toBe("/l/unread");
     vi.useRealTimers();

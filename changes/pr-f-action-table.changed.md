@@ -1,0 +1,1 @@
+Reader: the row menu and the article's More menu share one action list in one order, Star fills in the row menu when starred, Share is offered only where the browser can share, and Feeds: a folder's Mark all asks first, naming how many it marks. (#613, #656)
