@@ -22,6 +22,7 @@ export function TitleRow({
   id,
   leading,
   middle,
+  tight,
 }: {
   title: string;
   as?: "h1" | "h2";
@@ -39,20 +40,39 @@ export function TitleRow({
   leading?: ReactNode;
   /** Items on the title's row between the title and the controls, which stay on it (a short screen has no room for a second row). */
   middle?: ReactNode;
+  /** The title may shrink to 3rem (a short, narrow screen whose row also holds a select and the controls). */
+  tight?: boolean;
 }) {
   const row = useRef<HTMLDivElement>(null);
   const text = useRef<HTMLSpanElement>(null);
-  const [width, setWidth] = useState(0);
-  // The title and row width the last measure was made for; a new title or width starts again with the controls beside it.
-  const key = `${title}|${width}`;
+  const natural = useRef<HTMLSpanElement>(null);
+  // What the last measure depended on: the row's width, the title's natural width on one line (the probe below; it follows
+  // the text size and a font swap) and the row's content (a count or a control appearing). Dropping the controls changes
+  // none of them (it only sets a class), so a new value starts again with the controls beside the title and the measure
+  // cannot flip back and forth.
+  const [env, setEnv] = useState({ width: 0, natural: 0, content: 0 });
+  const key = `${title}|${env.width}|${env.natural}|${env.content}`;
   const [measured, setMeasured] = useState<string | null>(null);
   const dropped = measured === key;
   useLayoutEffect(() => {
     const el = row.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setWidth(Math.round(el.clientWidth)));
+    const probe = natural.current;
+    if (!el || !probe || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() =>
+      setEnv((e) => {
+        const width = Math.round(el.clientWidth);
+        const nat = Math.round(probe.getBoundingClientRect().width);
+        return e.width === width && e.natural === nat ? e : { ...e, width, natural: nat };
+      }),
+    );
     ro.observe(el);
-    return () => ro.disconnect();
+    ro.observe(probe);
+    const mo = typeof MutationObserver === "undefined" ? null : new MutationObserver(() => setEnv((e) => ({ ...e, content: e.content + 1 })));
+    mo?.observe(el, { childList: true, subtree: true, characterData: true });
+    return () => {
+      ro.disconnect();
+      mo?.disconnect();
+    };
   }, []);
   useLayoutEffect(() => {
     const el = text.current;
@@ -61,13 +81,15 @@ export function TitleRow({
   }, [dropped, key]);
   return (
     <div ref={row} data-title-row className={cn("flex w-full max-w-full flex-wrap items-center gap-x-0.5 pt-2", className)}>
-      <div className={cn("flex min-w-[min(100%,6.5rem)] flex-1 gap-1", leading ? "items-center" : "items-baseline")}>
+      <div className={cn("flex flex-1 gap-1", tight ? "min-w-[min(100%,3rem)]" : "min-w-[min(100%,6.5rem)]", leading ? "items-center" : "items-baseline")}>
         {leading}
-        <Heading id={id} className="min-w-0 text-xl font-bold [overflow-wrap:anywhere]" tabIndex={-1} data-route-heading title={title} aria-label={label}>
+        <Heading id={id} className="min-w-0 text-xl font-bold [overflow-wrap:anywhere]" tabIndex={-1} data-route-heading title={dropped ? title : undefined} aria-label={label}>
           {before}
           <span ref={text} className="line-clamp-2">
             {title}
           </span>
+          {/* The title on one line, unseen: its width is the title's own size, whatever room the row gives it. */}
+          <span ref={natural} data-t={title} aria-hidden="true" className="pointer-events-none invisible absolute h-0 overflow-hidden whitespace-nowrap before:content-[attr(data-t)]" />
         </Heading>
         {after}
       </div>

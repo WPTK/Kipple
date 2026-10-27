@@ -175,7 +175,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
       ))}
     </select>
   ) : (
-    <nav aria-label="Show" className={cn("flex gap-1", compact ? "shrink-0" : "min-w-0 overflow-x-auto")}>
+    <nav aria-label="Show" className={cn("flex gap-1", compact ? "shrink-0" : "-m-1 min-w-0 overflow-x-auto p-1")}>
       {pillList.map((p) => {
         const active = p.active;
         return (
@@ -222,6 +222,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
           as={beside ? "h2" : "h1"}
           label={above ? `${above}${PATH_SEP}${title}` : undefined}
           className={compact ? "pt-1" : undefined}
+          tight={asSelect}
           middle={
             compact ? (
               <>

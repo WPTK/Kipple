@@ -9,13 +9,16 @@
 //   C2  a feed with a 60-character name shows it whole in the header (the heading is not cut), the page does not scroll sideways, and
 //       the heading's accessible name is the whole name;
 //   C3  (phone) at text size 1.5 the Show tabs sit on one row or scroll sideways, never two rows;
+//   C5  (phone) the controls drop to their own row at text size 1.5 and come back at 1, with the page open;
+//   C6  (phone) the focus ring of a Show tab has room inside the tabs box;
+//   C7  (phone, 568x320, text 1.5) nothing in the title row runs past its edge;
 //   C4  an empty feed says "this feed", never "these feeds", and Starred, when nothing is starred, is the shared empty block.
 // A disposable feed points at an address that never resolves, so nothing is fetched. A run that stopped half-way is cleaned up by
 // the next one. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { deadFeed, start } from "./common.mjs";
 
-const t = await start(import.meta.url, 16);
+const t = await start(import.meta.url, 21);
 const { check, step } = t;
 
 const NAME = "A rather long name for a feed that needs two lines";
@@ -86,6 +89,83 @@ await t.eachViewport(async (page, vp) => {
         });
         check(m.rows === 1, `${tag} C3 one row`, `the tabs are one row${m.scrolls ? " (it scrolls sideways)" : ""}`, `the tabs are on ${m.rows} rows: tops ${m.tops.join(", ")}`);
         await t.shot(page, `${tag}-tabs-text-1-5`);
+      } finally {
+        await patchDevice({ "client.text_size": 1 });
+      }
+    });
+  }
+
+  if (vp.mobile) {
+    // The controls drop to their own row when the title needs the width, and come back when it does not: a text size change
+    // with the page open (the root font size, as the Text size setting sets it) re-measures.
+    await step(`${tag} C5`, async () => {
+      const NAMES = ["Feed name", "Medium feed name", "Medium length feed", "Medium length feed name", "A medium length feed name"];
+      const was = (await (await page.request.get(`/api/feeds/${feed.id}`, { headers: { Accept: "application/json" } })).json()).custom_title ?? null;
+      try {
+        await page.setViewportSize({ width: 375, height: 812 });
+        const below = () =>
+          page.evaluate(() => {
+            const row = document.querySelector("main header [data-title-row]");
+            const h = row.querySelector("h1, h2").getBoundingClientRect();
+            const c = row.querySelector('button[aria-label="List actions"]').getBoundingClientRect();
+            return c.top >= h.bottom - 1;
+          });
+        const until = async (want) => {
+          for (const end = Date.now() + 5000; Date.now() < end; await new Promise((r) => setTimeout(r, 100))) if ((await below()) === want) return true;
+          return false;
+        };
+        // The longest name that still leaves the controls beside it at the normal size.
+        let chosen = null;
+        for (const name of NAMES) {
+          await page.request.patch(`/api/feeds/${feed.id}`, { data: { custom_title: name }, headers: t.WRITE });
+          await open(`/l/unread?feed=${feed.id}`);
+          if (await until(false)) chosen = name;
+          else break;
+        }
+        if (!chosen) return t.fail(`${tag} C5 setup`, "even the shortest name has the controls on their own row");
+        await page.request.patch(`/api/feeds/${feed.id}`, { data: { custom_title: chosen }, headers: t.WRITE });
+        await open(`/l/unread?feed=${feed.id}`);
+        check(await until(false), `${tag} C5 beside`, `at the normal text size the controls sit beside "${chosen}"`, "the controls are already on their own row");
+        const inline = await page.evaluate(() => document.documentElement.style.fontSize);
+        await page.evaluate(() => (document.documentElement.style.fontSize = "36px"));
+        check(await until(true), `${tag} C5 drop`, "at a larger text size the controls drop to their own row", "the controls stayed beside the title");
+        await page.evaluate((v) => (document.documentElement.style.fontSize = v), inline);
+        check(await until(false), `${tag} C5 back`, "back at the normal size the controls return beside the title", "the controls stayed on their own row");
+      } finally {
+        await page.request.patch(`/api/feeds/${feed.id}`, { data: { custom_title: was }, headers: t.WRITE });
+      }
+    });
+
+    // The Show tabs scroll inside their own box: the focus ring of a tab is not cut by it.
+    await step(`${tag} C6`, async () => {
+      await page.setViewportSize({ width: 375, height: 812 });
+      await open("/l/unread");
+      const link = page.getByRole("navigation", { name: "Show" }).getByRole("link", { name: "All" });
+      await link.focus();
+      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Tab");
+      const m = await link.evaluate((a) => {
+        const nav = a.closest("nav");
+        const cs = getComputedStyle(a);
+        const ring = Math.max(parseFloat(cs.outlineWidth) + parseFloat(cs.outlineOffset), 0) * (cs.outlineStyle === "none" ? 0 : 1);
+        return { room: a.getBoundingClientRect().top - nav.getBoundingClientRect().top, ring, style: cs.outlineStyle };
+      });
+      check(m.room >= m.ring - 0.5, `${tag} C6 ring`, `the focus ring has room inside the tabs box (${m.room} px for ${m.ring} px)`, `the tabs box leaves ${m.room} px above a tab for a ${m.ring} px ring`);
+    });
+
+    // A short phone has the Show select, the feed switch and the controls on the title row: nothing runs past the edge at text size 1.5.
+    await step(`${tag} C7`, async () => {
+      if ((await patchDevice({ "client.text_size": 1.5 })) !== 200) return t.fail(`${tag} C7 setup`, "text size was not saved");
+      try {
+        await page.setViewportSize({ width: 568, height: 320 });
+        await open(`/l/unread?feed=${feed.id}`);
+        const m = await page.evaluate(() => {
+          const row = document.querySelector("main header [data-title-row]");
+          const edge = Math.max(...[...row.querySelectorAll("*")].filter((e) => e.getClientRects().length).map((e) => e.getBoundingClientRect().right));
+          return { edge: Math.round(edge), right: Math.round(row.getBoundingClientRect().right), vw: innerWidth, sideways: document.scrollingElement.scrollWidth > innerWidth, select: !!document.querySelector('main header select[aria-label="Show"]') };
+        });
+        check(m.edge <= m.right + 1 && m.edge <= m.vw && !m.sideways, `${tag} C7 fit`, `nothing in the title row runs past its edge (select ${m.select})`, `the title row ends at ${m.right}, something reaches ${m.edge} of ${m.vw}, page sideways ${m.sideways}`);
+        await t.shot(page, `${tag}-short-text-1-5`);
       } finally {
         await patchDevice({ "client.text_size": 1 });
       }
