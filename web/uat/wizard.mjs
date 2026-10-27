@@ -156,10 +156,11 @@ async function uploadBackup(page) {
 
 const feedsFile = { name: "feeds.opml", mimeType: "text/xml", buffer: Buffer.from('<?xml version="1.0"?><opml version="2.0"><body><outline text="Example" xmlUrl="https://example.org/feed.xml"/></body></opml>') };
 
-/** The cards of "How do you want to sign in?" (RadioCard with children): 44 / 56 px tall, the radio beside the title, and a tap in the padding or on the description picks the card. */
+/** The cards of "Other ways to sign in" (RadioCard with children): 44 / 56 px tall, the radio beside the title, and a tap in the padding or on the description picks the card. */
 async function radioCardChecks(page, where) {
   const open = page.getByRole("radio", { name: /^No password at all/ });
-  const pw = page.getByRole("radio", { name: /^With a password/ });
+  const back = page.getByRole("button", { name: "Use a password instead" });
+  await page.getByRole("button", { name: "Other ways to sign in" }).click();
   const card = open.locator("xpath=ancestor::label/..");
   // Open mode is offered on the loopback address this flow runs on; without it the cards below would go unmeasured.
   if (!check(where, await open.isEnabled(), '"No password at all" is disabled, so the radio cards were not measured')) return;
@@ -179,10 +180,10 @@ async function radioCardChecks(page, where) {
     check(tag, Math.abs(m.rMid - m.tMid) <= 3, `the radio centre ${m.rMid.toFixed(1)} is off the title centre ${m.tMid.toFixed(1)}`); // 2 px low on a 24 px line (mt-1), as it always has
     await card.click({ position: { x: m.cw / 2, y: 4 } }); // the card's top padding, above the text
     check(tag, await open.isChecked(), "a tap in the card's padding did not pick it");
-    await pw.check();
+    await back.click();
     await page.locator(`#${m.desc} p`).first().click(); // the description text
     check(tag, await open.isChecked(), "a tap on the card's description did not pick it");
-    await pw.check();
+    await back.click();
   }
   await page.evaluate(() => document.documentElement.removeAttribute("data-targets"));
 }
@@ -337,6 +338,7 @@ try {
     await page.goto(origin);
     await onStep(page, "B", "Create your account", 1);
     await page.getByLabel("Username").fill("opener");
+    await page.getByRole("button", { name: "Other ways to sign in" }).click();
     await page.getByRole("radio", { name: /No password at all/ }).check();
     await page.getByText("Anyone who can reach this address can read and change everything.").waitFor();
     await axeRun(page, "B step 0 (open mode notice)");

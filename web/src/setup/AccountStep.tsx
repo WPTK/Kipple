@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Button } from "@/ui/button";
-import { Checkbox, Field, Notice, PasswordField, RadioCard, inputCls } from "@/ui/kit";
+import { Checkbox, Disclosure, Field, Notice, PasswordField, RadioCard, inputCls } from "@/ui/kit";
 import { MIN_PASSWORD_LEN, accountFailure, createAccount, openReasonText, passwordProblem, type AccountBody, type SetupOptions } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
 import { stepById } from "./steps";
@@ -15,7 +15,7 @@ function openAvailability(open: SetupOptions["open"]): { ok: boolean; why: strin
 }
 
 /**
- * Step 1: the account, the first screen of a Kipple that has none. A username, then how to sign in: a password (the normal choice), no password behind
+ * Step 1: the account, the first screen of a Kipple that has none. A username and a password; under "Other ways to sign in", no password behind
  * Cloudflare Access (only offered when Access is set up and this very request came through it), or no password at all
  * (open mode, which is only safe when Kipple can be reached from this computer, your local network and Tailscale and nowhere else).
  */
@@ -37,6 +37,7 @@ export function AccountStep({
   const [left, setLeft] = useState<{ username?: boolean; password?: boolean }>({});
   const leave = (k: "username" | "password") => setLeft((l) => (l[k] ? l : { ...l, [k]: true }));
   const [choice, setChoice] = useState<Choice>("password");
+  const [othersOpen, setOthersOpen] = useState(false);
   const [password, setPassword] = useState("");
   const [ack, setAck] = useState(false);
   const [fieldError, setFieldError] = useState<{ field: "username" | "password" | "open"; message: string } | null>(null);
@@ -109,18 +110,10 @@ export function AccountStep({
   const accessOk = state.access.enabled && state.access.verified;
 
   return (
-    <WizardFrame step={stepById("account")} description="Create the account you will sign in with.">
-      <form onSubmit={(e) => void submit(e)} className="flex flex-1 flex-col gap-5" noValidate>
+    <WizardFrame step={stepById("account")}>
+      <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-5" noValidate>
         {formError ? <Notice tone="error">{formError}</Notice> : null}
-        {onRestore ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface p-3">
-            <p className="text-sm">Already have a Kipple backup?</p>
-            <Button onClick={onRestore} disabled={busy}>
-              Restore from a backup
-            </Button>
-          </div>
-        ) : null}
-        <Field label="Username" help="Letters, digits, dots, dashes and underscores, up to 64. Your sync apps use this too." error={fieldError?.field === "username" ? fieldError.message : usernameBad}>
+        <Field label="Username" help="Letters, digits, dots, dashes and underscores, up to 64. Apps that sync with Kipple (sync apps) use it too." error={fieldError?.field === "username" ? fieldError.message : usernameBad}>
           {(a) => (
             <input
               {...a}
@@ -142,30 +135,41 @@ export function AccountStep({
           )}
         </Field>
 
-        <fieldset className="flex min-w-0 flex-col gap-3">
-          <legend className="mb-2 text-sm font-semibold">How do you want to sign in?</legend>
+        {choice === "password" ? (
+          <PasswordField
+            label="Password"
+            help={`At least ${MIN_PASSWORD_LEN} characters.`}
+            error={fieldError?.field === "password" ? fieldError.message : pwBad}
+            inputRef={pwInput}
+            name="new-password"
+            autoComplete="new-password"
+            value={password}
+            onBlur={() => leave("password")}
+            onChange={(v) => {
+              setPassword(v);
+              setFieldError(null);
+            }}
+          />
+        ) : (
+          <Button variant="link" className="min-h-11 self-start px-0" onClick={() => setChoice("password")}>
+            Use a password instead
+          </Button>
+        )}
 
-          <RadioCard name="signin-choice" value="password" checked={choice === "password"} onSelect={() => setChoice("password")} title="With a password">
-            <p>The usual choice. Anyone who wants in needs it.</p>
-            {choice === "password" ? (
-              <div className="flex flex-col gap-3 text-fg">
-                <PasswordField
-                  label="Password"
-                  help={`At least ${MIN_PASSWORD_LEN} characters. Longer is better; a few words in a row works well.`}
-                  error={fieldError?.field === "password" ? fieldError.message : pwBad}
-                  inputRef={pwInput}
-                  name="new-password"
-                  autoComplete="new-password"
-                  value={password}
-                  onBlur={() => leave("password")}
-                  onChange={(v) => {
-                    setPassword(v);
-                    setFieldError(null);
-                  }}
-                />
-              </div>
-            ) : null}
-          </RadioCard>
+        <StepActions>
+          <Button type="submit" variant="solid" disabled={busy}>
+            {busy ? "Creating your account" : "Create my account"}
+          </Button>
+        </StepActions>
+        {onRestore ? (
+          <Button variant="link" className="min-h-11 self-start px-0" onClick={onRestore} disabled={busy}>
+            Restore from a backup
+          </Button>
+        ) : null}
+
+        <Disclosure label="Other ways to sign in" open={othersOpen} onOpenChange={setOthersOpen}>
+        <fieldset className="flex min-w-0 flex-col gap-3">
+          <legend className="sr-only">Other ways to sign in</legend>
 
           {accessOffered ? (
             <RadioCard name="signin-choice" value="access" checked={choice === "access"} disabled={!accessOk} onSelect={() => setChoice("access")} title="No password, through Cloudflare Access">
@@ -175,7 +179,7 @@ export function AccountStep({
           ) : null}
 
           <RadioCard name="signin-choice" value="open" checked={choice === "open"} disabled={!open.ok} onSelect={() => setChoice("open")} title="No password at all">
-            <p>Nothing to remember and nothing to type. This computer, every device on your local network and your Tailscale devices can open Kipple. Only for when Kipple can be reached from nowhere else.</p>
+            <p>This computer, every device on your local network and your Tailscale devices can open Kipple. Only for when Kipple can be reached from nowhere else.</p>
             {!open.ok ? <p role="note">{open.why}</p> : null}
             {choice === "open" ? (
               <div className="flex flex-col gap-3 text-fg">
@@ -196,12 +200,7 @@ export function AccountStep({
             ) : null}
           </RadioCard>
         </fieldset>
-
-        <StepActions>
-          <Button type="submit" variant="solid" disabled={busy}>
-            {busy ? "Creating your account" : "Create my account"}
-          </Button>
-        </StepActions>
+        </Disclosure>
       </form>
     </WizardFrame>
   );

@@ -245,10 +245,25 @@ describe("Step 1: account", () => {
     expect(await screen.findByText("No.")).toBeInTheDocument();
   });
 
+  it("lists the username, the password and Create my account first, with Restore as a link and the other ways collapsed", async () => {
+    server(claimed());
+    go("/");
+    const user = userEvent.setup();
+    await screen.findByLabelText("Username");
+    const inOrder = [screen.getByLabelText("Username"), screen.getByLabelText("Password", { selector: "input" }), screen.getByRole("button", { name: "Create my account" }), screen.getByRole("button", { name: "Restore from a backup" }), screen.getByRole("button", { name: "Other ways to sign in" })];
+    for (let k = 1; k < inOrder.length; k++) expect(inOrder[k - 1]!.compareDocumentPosition(inOrder[k]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("radio")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Other ways to sign in" }));
+    await user.click(screen.getByRole("radio", { name: /No password at all/ }));
+    expect(screen.queryByLabelText("Password", { selector: "input" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Use a password instead" }));
+    expect(screen.getByLabelText("Password", { selector: "input" })).toBeInTheDocument();
+  });
   describe("no password, open mode", () => {
     const choose = async () => {
       const user = userEvent.setup();
       await user.type(await screen.findByLabelText("Username"), "reader");
+      await userEvent.setup().click(screen.getByRole("button", { name: "Other ways to sign in" }));
       await user.click(screen.getByRole("radio", { name: /No password at all/ }));
       return user;
     };
@@ -295,6 +310,7 @@ describe("Step 1: account", () => {
       server(w);
       go("/");
       await screen.findByLabelText("Username");
+      await userEvent.setup().click(screen.getByRole("button", { name: "Other ways to sign in" }));
       const radio = screen.getByRole("radio", { name: /No password at all/ });
       expect(radio).toBeDisabled();
       expect(screen.getByRole("note")).toHaveTextContent(text);
@@ -335,6 +351,7 @@ describe("Step 1: account", () => {
       server(w);
       go("/");
       await screen.findByLabelText("Username");
+      await userEvent.setup().click(screen.getByRole("button", { name: "Other ways to sign in" }));
       expect(screen.getByRole("radio", { name: /Cloudflare Access/ })).toBeDisabled();
       expect(screen.getByText(/open Kipple through its Cloudflare Access address/)).toBeInTheDocument();
     });
@@ -348,6 +365,7 @@ describe("Step 1: account", () => {
       go("/");
       const user = userEvent.setup();
       await user.type(await screen.findByLabelText("Username"), "reader");
+      await userEvent.setup().click(screen.getByRole("button", { name: "Other ways to sign in" }));
       await user.click(screen.getByRole("radio", { name: /Cloudflare Access/ }));
       await user.click(screen.getByRole("button", { name: "Create my account" }));
       await headingIs("Choose your feeds");
@@ -361,6 +379,7 @@ describe("Step 1: account", () => {
       go("/");
       const user = userEvent.setup();
       await user.type(await screen.findByLabelText("Username"), "reader");
+      await userEvent.setup().click(screen.getByRole("button", { name: "Other ways to sign in" }));
       await user.click(screen.getByRole("radio", { name: /Cloudflare Access/ }));
       await user.click(screen.getByRole("button", { name: "Create my account" }));
       expect(await findAlert()).toHaveTextContent(/needs Access to be set up/);
