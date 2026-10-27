@@ -164,10 +164,8 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
 - OPML import has an opt-in switch, off by default: "Move feeds that already exist into the file's folders".
 
 ### Gestures and keys
-- **Open question: Escape after opening an article beside the list.** Escape returns focus to the article's row and
-  leaves the address on the article; on a narrow screen it goes back to the list. Whether the address should also
-  return to the list on a wide screen is undecided (asked in `docs/maintainers/uat-plan.md`, "Open questions for the
-  owner"). Record the answer here.
+- **Escape closes the open article** and returns to the list at every screen width: focus goes to the article's row and
+  the address returns to the list.
 - **Swipe directions match iOS Mail everywhere** (this supersedes round 1's "read left, unread right"):
   swipe right (leading) = toggle read/unread; swipe left (trailing) reveals Star and More (the row menu), and a
   full swipe left stars. A full swipe commits with undo. Star also has a row button and the long-press menu.
@@ -324,7 +322,7 @@ Design discussion with the owner. The Gazette and the Inbox look below shipped.
 - **Inner pages (2, 3, ...):** no masthead; a small header line (name, page number, date), a section header, columns,
   and at most one feature with a picture per section. The last page is briefs only and ends the paper: "That's the
   Gazette."
-- **DOM budget:** the Gazette is the one layout that draws every loaded article (no virtualized rows). Node budget UAT (`uat/node-budget.mjs`): Gazette 20 nodes per article, real count about 15; the 1,400 cap applies to every other layout. Owner to confirm.
+- **DOM budget:** the Gazette is the one layout that draws every loaded article (no virtualized rows). Node budget UAT (`uat/node-budget.mjs`): Gazette 20 nodes per article (decided; about 15 measured, 25% headroom); the 1,400 cap applies to every other layout.
 - **Sections:** the next level down from the list's scope. A list of everything or a parent folder groups by folder; a
   single folder groups by feed name.
 - **Finite:** the paper ends. The last page appears once all of the list's articles are loaded.
