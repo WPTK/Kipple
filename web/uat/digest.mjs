@@ -76,6 +76,7 @@ try {
     const openMenu = async (id) => {
       const row = page.locator(`article[data-item-id="${id}"]`);
       await row.scrollIntoViewIfNeeded();
+      if (vp.mobile) await row.evaluate((el) => el.scrollIntoView({ block: "center" })); // the press lands above the sheet it opens, whatever the sheet's height
       if (vp.mobile) {
         // A long press, as a real touch sequence: the More button is not tapped on touch.
         await waitForStillFor(page, 150, () => row.getByRole("link").boundingBox(), { label: "the row to stop moving after scrolling to it" });
