@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn";
 import { READING_LENGTHS, READING_LENGTH_LABELS, isReadingLength } from "@/lib/readingLength";
 import { listTo } from "@/lib/routes";
 import { DropdownMenu } from "@/ui/menu";
+import { Icon } from "@/ui/Icon";
 
 const item = "relative pr-3 pl-9";
 
@@ -24,7 +25,7 @@ export function LengthMenu({ scope }: { scope: Scope }) {
           aria-label={`Article length: ${label}`}
           className={cn("hit inline-flex items-center justify-center rounded-lg hover:bg-selection", scope.length ? "text-accent" : "text-fg")}
         >
-          <Timer className="size-5" aria-hidden="true" />
+          <Icon of={Timer} />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -37,7 +38,7 @@ export function LengthMenu({ scope }: { scope: Scope }) {
             {(["any", ...READING_LENGTHS] as const).map((v) => (
               <DropdownMenu.RadioItem key={v} value={v} className={item}>
                 <DropdownMenu.ItemIndicator className="absolute left-3 inline-flex">
-                  <Check className="size-4" aria-hidden="true" />
+                  <Icon of={Check} size="sm" />
                 </DropdownMenu.ItemIndicator>
                 {v === "any" ? "Any length" : READING_LENGTH_LABELS[v]}
               </DropdownMenu.RadioItem>

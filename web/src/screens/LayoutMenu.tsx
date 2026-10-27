@@ -35,6 +35,7 @@ import { cn } from "@/lib/cn";
 import { announce } from "@/shell/toasts";
 import { DropdownMenu } from "@/ui/menu";
 import { LayoutGlyph } from "./LayoutGlyph";
+import { Icon } from "@/ui/Icon";
 
 const heading = "px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase";
 
@@ -106,7 +107,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
           aria-label={`Show and sort, ${layout.label} layout`}
           className="hit inline-flex items-center justify-center rounded-lg text-fg hover:bg-selection"
         >
-          <LayoutGrid className="size-5" aria-hidden="true" />
+          <Icon of={LayoutGrid} />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -323,7 +324,7 @@ function Radio({ value, label, hint, glyph, className, unavailable, describedBy 
       className={cn("relative py-1.5 pl-9", glyph && "gap-3", unavailable && "opacity-50", className)}
     >
       <DropdownMenu.ItemIndicator className="absolute left-3 inline-flex">
-        <Check className="size-4" aria-hidden="true" />
+        <Icon of={Check} size="sm" />
       </DropdownMenu.ItemIndicator>
       {glyph}
       <span className="min-w-0">

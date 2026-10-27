@@ -342,7 +342,7 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
           }}
           className="flex min-w-[72px] flex-1 flex-col items-center justify-center gap-1 text-xs font-semibold"
         >
-          <ActionIcon id="star" state={{ on: item.starred }} className="size-6" fill={item.starred ? "currentColor" : "none"} />
+          <ActionIcon id="star" state={{ on: item.starred }} className="size-5" fill={item.starred ? "currentColor" : "none"} />
           {actionLabel("star", { on: item.starred })}
         </button>
         <button
@@ -354,7 +354,7 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
           }}
           className="flex w-[72px] shrink-0 flex-col items-center justify-center gap-1 bg-fg2 text-xs font-semibold text-bg"
         >
-          <ActionIcon id="more" className="size-6" />
+          <ActionIcon id="more" className="size-5" />
           {actionShort("more")}
         </button>
       </div>

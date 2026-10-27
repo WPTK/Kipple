@@ -5,6 +5,7 @@ import { ChevronDown, CircleAlert, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "./button";
 import { useLatestRef } from "@/lib/useLatestRef";
+import { Icon } from "@/ui/Icon";
 
 /**
  * Where the focus on `el` belongs: `el` itself, or, in an open menu, the button that opened the menu (the menu closes
@@ -618,7 +619,7 @@ export function Chip({ children, removeLabel, onRemove, className }: { children:
     <span className={cn(chipCls, "gap-1 pr-1 pl-3", className)}>
       <span className="min-w-0 truncate">{children}</span>
       <button type="button" aria-label={removeLabel} onClick={onRemove} className="hit-row inline-flex shrink-0 items-center justify-center rounded-full hover:bg-selection">
-        <X aria-hidden="true" className="size-4" />
+        <Icon of={X} size="sm" />
       </button>
     </span>
   );
