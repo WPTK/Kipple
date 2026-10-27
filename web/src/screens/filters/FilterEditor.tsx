@@ -363,6 +363,7 @@ function EditorForm({
   const scopeName = useId();
   const kindName = useId();
   const actionName = useId();
+  const uid = useId();
 
   // A problem the server names (from the preview or from Save) shows next to the control it belongs to.
   const shown = issue ?? preview.issue ?? null;
@@ -498,7 +499,7 @@ function EditorForm({
             ))}
             {seed.author ? <SuggestionChip on={has(seed.author)} label={`Author: ${seed.author}`} name={`Author ${seed.author}`} onToggle={() => toggleTerm(seed.author as string, "author")} /> : null}
           </div>
-          <p role="status" className="min-h-4 text-xs text-danger">{chipNote ? <span key={blocked?.n}>{chipNote}</span> : null}</p>
+          <div className="min-h-5">{chipNote ? <FieldError key={blocked?.n} id={`${uid}-chip-note`}>{chipNote}</FieldError> : null}</div>
         </section>
       ) : null}
 
@@ -568,7 +569,7 @@ function EditorForm({
             />
           ))}
         </div>
-        {d.fields.length === 0 ? <p className="text-sm text-danger">Tick at least one part to look in.</p> : null}
+        {d.fields.length === 0 ? <FieldError id={`${uid}-fields-e`}>Tick at least one part to look in.</FieldError> : null}
       </Group>
 
       <Group legend="Options" error={at("options")}>
