@@ -82,13 +82,12 @@ describe("the sign-in screen", () => {
     expect(screen.getByLabelText("Username")).toHaveFocus();
   });
 
-  it("puts a wrong password under the password field, and marks both fields", async () => {
+  it("puts a wrong password under the password field, and marks the password invalid", async () => {
     mockFetch({ "POST /api/auth/login": () => json({ error: "auth" }, 401) });
     const user = await signIn();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("That username or password didn't match.");
     expect(screen.getByLabelText("Password", { selector: "input" })).toHaveAccessibleDescription("That username or password didn't match.");
-    expect(screen.getByLabelText("Username")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByLabelText("Password", { selector: "input" })).toHaveFocus();
     await user.type(screen.getByLabelText("Password", { selector: "input" }), "x");
   });
@@ -99,7 +98,7 @@ describe("the sign-in screen", () => {
         <LoginScreen />
       </QueryClientProvider>,
     );
-    expect(screen.getByText(/Forgot your password\?/)).toHaveTextContent("kipple password");
+    expect(screen.getByText(/Forgot your password\?/)).toHaveTextContent("Reset a forgotten password");
   });
 
   it("names the wait the server asked for when sign-in is paused", () => {

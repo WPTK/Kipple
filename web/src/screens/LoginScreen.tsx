@@ -125,16 +125,16 @@ export function LoginScreen() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             aria-describedby={error ? eid : undefined}
-            aria-invalid={badCredentials ? true : undefined}
             className={inputCls}
           />
         </div>
-        <PasswordField label="Password" name="password" value={password} onChange={setPassword} autoComplete="current-password" inputRef={passwordRef} error={badCredentials} {...(error ? { "aria-describedby": eid } : {})} />
+        <PasswordField label="Password" name="password" value={password} onChange={setPassword} autoComplete="current-password" inputRef={passwordRef} error={badCredentials} /* PasswordField spreads extra props over the Field's own aria-describedby: pass it only when a form note needs describing. */
+        {...(error ? { "aria-describedby": eid } : {})} />
         <Button type="submit" variant="solid" className="w-full" disabled={busy}>
           {busy ? "Signing in" : "Sign in"}
         </Button>
         <p className="text-sm text-fg2">
-          Forgot your password? Run <code className="font-mono">kipple password</code> on the machine that runs Kipple.
+          Forgot your password? The "Reset a forgotten password" section of the troubleshooting guide has the command to run on your server.
         </p>
       </form>
     </main>

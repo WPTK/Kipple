@@ -287,6 +287,16 @@ describe("Step 1: account", () => {
       expect(bodyOf(callTo(calls, "POST", "/api/setup/account")[0] as never)).toEqual({ username: "reader", passwordless: "open", acknowledge_open: true });
     });
 
+    it("reopens the section when Create is pressed with it collapsed and the box unticked", async () => {
+      const w = claimed();
+      server(w);
+      go("/");
+      const user = await choose();
+      await user.click(screen.getByRole("button", { name: "Other ways to sign in" }));
+      expect(screen.queryByRole("checkbox", { name: /I understand/ })).toBeNull();
+      await user.click(screen.getByRole("button", { name: "Create my account" }));
+      expect(await screen.findByText("Tick the box to confirm you understand.")).toBeInTheDocument();
+    });
     it("says what open mode means: this computer, the local network and Tailscale, and the Docker bind rule", async () => {
       const w = claimed();
       w.authMode = "open";

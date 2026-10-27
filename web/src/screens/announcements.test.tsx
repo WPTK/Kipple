@@ -118,7 +118,7 @@ describe("switch names (#497)", () => {
 });
 
 describe("field errors are the field's (#498)", () => {
-  it("sign-in: a wrong password marks both fields invalid, describes the password by the error and focuses it", async () => {
+  it("sign-in: a wrong password marks the password invalid, describes it by the error and focuses it", async () => {
     mockFetch({ "POST /api/auth/login": () => json({ error: "auth" }, 401) });
     render(
       <QueryClientProvider client={new QueryClient()}>
@@ -130,7 +130,6 @@ describe("field errors are the field's (#498)", () => {
     await user.type(screen.getByLabelText("Password"), "pw");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
     const alert = await screen.findByRole("alert");
-    expect(screen.getByLabelText("Username")).toHaveAttribute("aria-invalid", "true");
     const pw = screen.getByLabelText("Password", { selector: "input" });
     expect(pw).toHaveAttribute("aria-invalid", "true");
     expect(pw).toHaveAccessibleDescription(alert.textContent ?? "");

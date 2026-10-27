@@ -59,6 +59,8 @@ export function AccountStep({
     e.preventDefault();
     setFieldError(null);
     setFormError(null);
+    // The errors of the other ways live in that section: open it so they are seen.
+    if (choice !== "password") setOthersOpen(true);
     if (!ready) {
       setLeft({ username: true, password: true });
       if (!USERNAME.test(username)) {
