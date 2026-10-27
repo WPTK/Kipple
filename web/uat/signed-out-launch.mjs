@@ -7,7 +7,8 @@
 //
 // For each width (desktop 1280x800, phone 375x812) it checks:
 //   L1  a browser with no cookies opens Kipple: the sign-in form shows after exactly one GET /api/instance, with no
-//       request for the bootstrap and no answer of 401 (the browser logs those to the console);
+//       request for the bootstrap and no answer of 401 (the browser logs those to the console), and the username and password
+//       boxes appear in the same render (no state where the password box is there and the username box is not);
 //   L2  a signed-in browser that has lost only the marker opens Kipple: the reader shows after one GET /api/instance,
 //       with no 401, and the server sets the marker again;
 //   L3  a browser that signs in and then chooses Sign out (Settings, Account & Devices) reaches the sign-in form with no (uat-labels: ignore)
@@ -44,9 +45,22 @@ await t.eachViewport(async (page, vp) => {
     try {
       const p = await ctx.newPage();
       const seen = watch(p);
+      // Records every state of the page's two sign-in boxes from the first node on.
+      await p.addInitScript(() => {
+        window.__boxes = [];
+        const snap = () => {
+          const state = { username: !!document.querySelector('input[name="username"]'), password: !!document.querySelector('input[name="password"]') };
+          const last = window.__boxes[window.__boxes.length - 1];
+          if (!last || last.username !== state.username || last.password !== state.password) window.__boxes.push(state);
+        };
+        new MutationObserver(snap).observe(document, { subtree: true, childList: true });
+      });
       await p.goto("/", { waitUntil: "load" });
       await p.getByRole("button", { name: "Sign in" }).waitFor({ timeout: 15000 });
       await p.waitForLoadState("networkidle");
+      const boxes = await p.evaluate(() => window.__boxes);
+      const alone = boxes.filter((b) => b.password && !b.username);
+      check(alone.length === 0 && boxes.some((b) => b.username && b.password), `${tag} L1 boxes`, "the username and password boxes appear together", `states seen: ${JSON.stringify(boxes)}`);
       check(count(seen, "/api/instance") === 1, `${tag} L1 instance`, "one GET /api/instance before the sign-in form", `GET /api/instance was asked ${count(seen, "/api/instance")} times`);
       check(count(seen, "/api/bootstrap") === 0, `${tag} L1 bootstrap`, "no request for the bootstrap", "the bootstrap was asked for");
       check(seen.unauthorized.length === 0, `${tag} L1 401`, "no answer of 401", `answered 401: ${seen.unauthorized.join(", ")}`);

@@ -27,7 +27,7 @@ const CHOICES: { field: ListField; label: string; ids: readonly string[]; names:
 
  * options menu sets), as a draft: nothing is written until the dialog's Save calls `apply` from
  * useListOverrideDraft, so Cancel leaves them as they were. The first choice of each clears the list's own value and
- * names what it then gets: "Inherited from Tech (Cards)", or "Use device default (Cards)".
+ * names what it then gets: "Same as Tech (Cards)", or "Same as Settings (Cards)".
  */
 export interface OverrideDraft {
   /** The fields changed in the dialog; a null value clears the override. */

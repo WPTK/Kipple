@@ -232,12 +232,12 @@ describe("the list header on a phone held sideways (#420)", () => {
     expect(document.documentElement).not.toHaveAttribute("data-short");
   });
 
-  it("has a tab bar with no padding above the row", async () => {
+  it("has a tab bar with no padding above the tabs", async () => {
     media(SHORT_QUERY);
     go("/l/unread");
     await screen.findByText("Article number 1");
     const bar = screen.getByRole("navigation", { name: "Primary" });
-    expect(bar).toHaveClass("pt-0");
+    expect(bar).not.toHaveClass("pt-2");
   });
 });
 

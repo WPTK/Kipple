@@ -350,7 +350,7 @@ describe("nested folder review fixes", () => {
     go("/l/unread?folder=4");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^Show and sort,/ }));
-    expect(await screen.findByRole("menuitemradio", { name: `Inherited from Tech (${LAYOUT_LABELS.cards})` })).toBeChecked();
+    expect(await screen.findByRole("menuitemradio", { name: `Same as Tech (${LAYOUT_LABELS.cards})` })).toBeChecked();
   });
 
   it("bumpUnread moves the feed's folder and every folder above it", () => {

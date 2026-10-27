@@ -159,7 +159,7 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
   file merged into one with the same full path is shown as both chains joined with ` › `.
 - In the sidebar trees the item is the only tab stop: the chevron and the star are pointer targets there. From the
   keyboard, favorites are added and taken out on the Feeds screen.
-- A subfolder's or feed's layout menu names where its layout comes from: "Inherited from Tech (Cards)".
+- A subfolder's or feed's layout menu names where its layout comes from: "Same as Tech (Cards)", or "Same as Settings (Cards)" when no folder sets it: the one phrase every inherited value uses, in the editor's schedule fields too.
 - Deleting a folder says how many subfolders are deleted with it and that its feeds move to the default folder.
 - OPML import has an opt-in switch, off by default: "Move feeds that already exist into the file's folders".
 
@@ -386,6 +386,7 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
 - **Inner pages (2, 3, ...):** no masthead; a small header line (name, page number, date), a section header, columns,
   and at most one feature with a picture per section. The last page is briefs only and ends the paper: "That's the
   Gazette."
+- **DOM budget:** the Gazette is the one layout that draws every loaded article (no virtualized rows). Node budget UAT (`uat/node-budget.mjs`): Gazette 20 nodes per article, real count about 15; the 1,400 cap applies to every other layout. Owner to confirm.
 - **Sections:** the next level down from the list's scope. A list of everything or a parent folder groups by folder; a
   single folder groups by feed name.
 - **Finite:** the paper ends. The last page appears once all of the list's articles are loaded.

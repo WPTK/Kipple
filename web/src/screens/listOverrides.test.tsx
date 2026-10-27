@@ -93,7 +93,7 @@ describe("the view a feed or folder opens in", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /^Show and sort,/ }));
     const group = screen.getByRole("group", { name: "View this feed opens in" });
-    expect(within(group).getByRole("menuitemradio", { name: "Use the standard view (Unread)" })).toBeChecked();
+    expect(within(group).getByRole("menuitemradio", { name: "Same as Settings (Unread)" })).toBeChecked();
     await user.click(within(group).getByRole("menuitemradio", { name: "All" }));
     expect(devicePrefsStore.get().overrides.feed["1"]).toEqual({ view: "all" });
   });
@@ -163,7 +163,7 @@ describe("per-feed order", () => {
     await screen.findByText("Article number 1");
     await userEvent.setup().click(screen.getByRole("button", { name: /^Show and sort,/ }));
     const group = screen.getByRole("group", { name: "Order of this feed" });
-    expect(within(group).getByRole("menuitemradio", { name: "Inherited from News (Oldest first)" })).toBeChecked();
+    expect(within(group).getByRole("menuitemradio", { name: "Same as News (Oldest first)" })).toBeChecked();
   });
 });
 
@@ -208,9 +208,9 @@ describe("the feed and folder editors", () => {
     setListOverride("folder", "1", "order", "oldest");
     updateDevicePrefs({ layout: "cards" });
     renderFields("feed", "1");
-    expect(within(screen.getByLabelText("Order on this device")).getByRole("option", { name: "Inherited from News (Oldest first)" })).toBeInTheDocument();
-    expect(within(screen.getByLabelText("Layout on this device")).getByRole("option", { name: "Use device default (Cards)" })).toBeInTheDocument();
-    expect(within(screen.getByLabelText("Opens in")).getByRole("option", { name: "Use the standard view (Unread)" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Order on this device")).getByRole("option", { name: "Same as News (Oldest first)" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Layout on this device")).getByRole("option", { name: "Same as Settings (Cards)" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Opens in")).getByRole("option", { name: "Same as Settings (Unread)" })).toBeInTheDocument();
   });
 
   it("a write drops the overrides of feeds and folders the library no longer has", async () => {

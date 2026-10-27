@@ -196,7 +196,7 @@ try {
         await page.locator('button[aria-label^="Show and sort, "]').first().click();
         const first = page.getByRole("group", { name: /^Grouping of this feed$/ }).getByRole("menuitemradio").first();
         const firstName = (await first.innerText()).trim();
-        check(/^Use device default \(Day\)/.test(firstName), `${tag} G5 name`, "the first choice names the device default", `the first choice reads "${firstName}"`);
+        check(/^Same as Settings \(Day\)/.test(firstName), `${tag} G5 name`, "the first choice names the device default", `the first choice reads "${firstName}"`);
         await first.click();
         await page.waitForFunction(() => document.querySelectorAll('[data-testid="list-scroll"] h2').length > 0, null, { timeout: 8000 }).catch(() => {});
         const back = await headers();

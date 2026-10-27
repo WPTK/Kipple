@@ -21,8 +21,7 @@ import { MutedCount, UnreadCount } from "@/ui/UnreadCount";
 import { ApplyProgress, FeedEditorHost, FilterEditorHost } from "./FilterHost";
 import { OfflineNotice } from "./OfflineNotice";
 import { DeviceSaveStatus } from "./SaveStatus";
-import { UndoToast } from "./UndoToast";
-import { LiveRegion, Toasts, announce } from "./toasts";
+import { LiveRegion, Toasts, UndoToast, announce } from "./toasts";
 
 // Five equal tabs that always fit: the label follows the text size up to 4% of the screen width, the most a fifth of
 // the bar holds "Settings" in (12.8 px at 320 wide, 15 px at 375, 17 px at 430). A larger label could only be cut off,
@@ -32,8 +31,10 @@ import { LiveRegion, Toasts, announce } from "./toasts";
 // 56 px to 44 px: the list keeps the height (#420).
 // The current tab is told apart by more than its colour: a tinted icon and a bar on its top edge. Its label keeps the weight
 // of the others: a bolder label is wider, and at Largest text it no longer fits its fifth of the bar.
+// The bar sits in the band the tab keeps free above its content (pt-2.5: the bar's 3 px, then room for the badge, which
+// rises 4 px over the icon), so it cannot reach the icon or the badge at any text size.
 const tabNow = "text-accent before:absolute before:inset-x-3 before:top-0 before:h-0.75 before:rounded-full before:bg-accent [&_svg]:fill-current/25";
-const tab = "relative flex min-h-11 min-w-0 flex-1 items-center justify-center px-1 text-[length:min(0.75rem,4vw)] font-medium";
+const tab = "relative flex min-h-11 min-w-0 flex-1 items-center justify-center px-1 pt-2.5 text-[length:min(0.75rem,4vw)] font-medium";
 // On a short screen the icon sits beside the name, in a tab about a fifth of 568 px wide: at Largest text the longest name
 // ("Articles") needs the room, so the gap and the side padding are as small as they can be and still read as a row.
 // The tabs share the bar by their content (flex-auto) there, not in equal fifths: the Articles tab also holds its badge after the
@@ -46,11 +47,11 @@ const tabLayout = (short: boolean) => (short ? "flex-auto flex-row gap-1 px-0.5"
 /**
  * The Articles tab's badge (the unread count): count (capped at 99+), a dot, or nothing, by the device's "Unread badge"
  * setting. It sits on the icon's corner and grows over the icon, so the tab is no wider than the others; on a short
- * screen the icon is beside the name and the badge follows the name (`inline`), where it has the room.
+ * screen the icon is beside the name and the badge follows the name (`inline`), where it has the room; it is then as wide as "99+" for any count, so the tabs, which share the bar by their content there, do not move when the count does.
  */
 function UnreadBadge({ inline }: { inline: boolean }) {
   const boot = useBootstrap();
-  return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" noun="" className={inline ? "ml-1" : "absolute -top-1 -right-2"} />;
+  return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" noun="" className={inline ? "ml-1 min-w-[calc(3.5ch+0.75rem)] text-center" : "absolute -top-1 -right-2"} />;
 }
 
 function TabBar() {
@@ -77,7 +78,7 @@ function TabBar() {
   return (
     <nav
       aria-label="Primary"
-      className={cn("pb-safe pl-safe pr-safe flex shrink-0 border-t border-line bg-bg shadow-bar", short ? "@container pt-0" : "pt-2")}
+      className={cn("pb-safe pl-safe pr-safe flex shrink-0 border-t border-line bg-bg shadow-bar", short && "@container")}
       // The bar is its content plus the device inset: the inset below it (a home indicator) never takes from the 44 px tabs.
       style={{ minHeight: "calc(var(--tabbar-h) + env(safe-area-inset-bottom))" }}
     >

@@ -51,16 +51,15 @@ const GROUP_WHY_ID = "layout-menu-group-why";
 const FIELD_LABELS: { [F in ListField]: Record<string, string> } = { layout: LAYOUT_LABELS, order: ORDER_LABELS, view: LIST_VIEW_LABELS, group: GROUP_LABELS };
 
 /**
- * The first choice of a feed's or folder's group, which clears its own value: it names what the list then gets, "Inherited
- * from Tech › Apple (Cards)" when a folder above sets it, else the device default ("Unread" for the view).
+ * The first choice of a feed's or folder's group, which clears its own value: it names what the list then gets, "Same as
+ * Tech › Apple (Cards)" when a folder above sets it, else "Same as Settings (Unread)". One phrase for every inherited value.
  */
 export function useFallbackLabel(ctx: LayoutContext, field: ListField): string {
   const dp = useDevicePrefs();
   const tree = useFolderTree();
   const up = inheritedList(dp, ctx, field);
   const value = FIELD_LABELS[field][up.value] ?? "";
-  if (up.from) return `Inherited from ${folderPath(tree, up.from.id)} (${value})`;
-  return field === "view" ? `Use the standard view (${value})` : `Use device default (${value})`;
+  return `Same as ${up.from ? folderPath(tree, up.from.id) : "Settings"} (${value})`;
 }
 
 /**

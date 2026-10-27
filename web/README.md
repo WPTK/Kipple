@@ -295,6 +295,8 @@ npm run seed                     # terminal 1: Kipple on 127.0.0.1:1919, feeds f
 npm run dev                      # terminal 2: http://127.0.0.1:5173
 ```
 
+The seed caps a feed at 200 articles, so it cannot fill a long list: `uat/node-budget.mjs` answers the list request with 1,000 articles instead.
+
 Sign in as `dev` with `dev-password-only-for-local-testing`. Those credentials belong to the throwaway data
 directory only (`%TEMP%\kipple-dev`, override with `KIPPLE_DEV_DATA`; `KIPPLE_DEV_PORT` changes the port, and the seed refuses to start when something already answers on it; `KIPPLE_DEV_HOST` binds another local address, such as this machine's Tailscale address, to look at a build on a phone (never a public address: the dev account's password is fixed and public); `npm run seed -- --keep` reuses it).
 Without `--keep` the directory is deleted and recreated, but only if the script made it (it leaves a
