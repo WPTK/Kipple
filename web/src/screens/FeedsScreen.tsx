@@ -721,7 +721,7 @@ export function FeedsScreen() {
                     {!fo.is_default ? (
                       <>
                         <DropdownMenu.Separator className="my-1 h-px bg-line" />
-                        {/* The destructive look: danger text, and on highlight an underline instead of the selection fill (danger text on that fill is under 4.5:1 in six schemes). */}
+                        {/* The destructive look: danger text (4.5:1 on the menu's page colour in every scheme, npm run contrast). Highlighted it is underlined instead of filled (danger text is under 4.5:1 on the selection fill in six schemes); the keyboard also gets the one focus ring. */}
                         <DropdownMenu.Item className="font-semibold text-danger data-[highlighted]:bg-transparent data-[highlighted]:underline" onSelect={() => setFolderDialog({ kind: "delete", folder: fo })}>
                           <Trash2 className="size-5" aria-hidden="true" />
                           Delete folder

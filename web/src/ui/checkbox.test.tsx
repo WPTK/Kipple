@@ -2,9 +2,22 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { createRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { Checkbox, RadioCard, RadioRow } from "./kit";
+import { Checkbox, CheckboxBox, RadioCard, RadioRow } from "./kit";
+
+describe("CheckboxBox", () => {
+  it("is a named native box, shows the some-of-them state, and hands the caller's ref the same input", () => {
+    const ref = createRef<HTMLInputElement>();
+    const { rerender } = render(<CheckboxBox ref={ref} aria-label="Select all" checked={false} onChange={() => undefined} indeterminate />);
+    const box = screen.getByRole("checkbox", { name: "Select all" });
+    expect(ref.current).toBe(box);
+    expect((box as HTMLInputElement).indeterminate).toBe(true);
+    rerender(<CheckboxBox ref={ref} aria-label="Select all" checked onChange={() => undefined} />);
+    expect((box as HTMLInputElement).indeterminate).toBe(false);
+    expect(ref.current).toBe(box);
+  });
+});
 
 describe("Checkbox", () => {
   it("is a native checkbox named by its label, described by its help, and reports the new value", async () => {

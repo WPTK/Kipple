@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
+import { useEffect, useId, useImperativeHandle, useRef, useState, type ComponentPropsWithRef, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
 import { Dialog } from "radix-ui";
 import { Collapsible } from "radix-ui";
 import { ChevronDown, CircleAlert, TriangleAlert, X } from "lucide-react";
@@ -274,17 +274,14 @@ export function Switch({
  * The bare tick box, for a row that is already its own label (a selectable list row, a table cell with an `aria-label`).
  * Anything with a visible label of its own uses Checkbox. `indeterminate` is the "some of them" state of a group box.
  */
-export function CheckboxBox({ indeterminate, className, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & { indeterminate?: boolean }) {
-  return (
-    <input
-      type="checkbox"
-      {...props}
-      ref={(el) => {
-        if (el) el.indeterminate = !!indeterminate;
-      }}
-      className={cn("size-5 shrink-0 accent-[var(--kp-accent)]", className)}
-    />
-  );
+export function CheckboxBox({ indeterminate, className, ref, ...props }: Omit<ComponentPropsWithRef<"input">, "type"> & { indeterminate?: boolean }) {
+  const inner = useRef<HTMLInputElement>(null);
+  // The caller's ref (Ref<HTMLInputElement>) gets the same element, through a handle that is made once.
+  useImperativeHandle(ref, () => inner.current as HTMLInputElement, []);
+  useEffect(() => {
+    if (inner.current) inner.current.indeterminate = !!indeterminate;
+  }, [indeterminate]);
+  return <input type="checkbox" {...props} ref={inner} className={cn("size-5 shrink-0 accent-[var(--kp-accent)]", className)} />;
 }
 
 /**
