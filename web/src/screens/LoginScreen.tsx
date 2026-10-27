@@ -1,7 +1,7 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, busyMessage, errorMessage, SESSION_EXPIRED, sessionLostStore, setSignedIn } from "@/api/client";
+import { ApiError, api, busyMessage, errorMessage, SESSION_EXPIRED, sessionLostStore, setSignedIn, signedOutStore } from "@/api/client";
 import { reloadToSignIn } from "@/lib/reload";
 import { useStore } from "@/lib/store";
 import { INSTANCE_KEY } from "@/setup/api";
@@ -17,23 +17,30 @@ export function LoginScreen() {
   const qc = useQueryClient();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  /** A failure that belongs to the whole form (the network, a pause, an expired proxy sign-in): a note above the fields. */
   const [error, setError] = useState<string | null>(null);
-  /** The error is about what was typed (a 401): both fields are marked invalid and the password takes focus. */
-  const [badCredentials, setBadCredentials] = useState(false);
+  /** The 401: it is about what was typed, so it sits under the password field and both fields are marked invalid. */
+  const [badCredentials, setBadCredentials] = useState<string | null>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
+  const usernameRef = useRef<HTMLInputElement>(null);
   /** The sign-in in front of Kipple (the access proxy) expired: only a reload through it helps, not a password. */
   const [expired, setExpired] = useState(false);
   const [busy, setBusy] = useState(false);
   const lost = useStore(sessionLostStore);
+  const signedOut = useStore(signedOutStore);
   const uid = useId();
   const eid = useId();
-  const fieldError = { "aria-describedby": error ? eid : undefined, "aria-invalid": badCredentials || undefined };
+
+  // Coming back after a session ended (or a sign-out) starts at the username; a first visit does not take focus.
+  useEffect(() => {
+    if (lost || signedOut) usernameRef.current?.focus();
+  }, [lost, signedOut]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    setBadCredentials(false);
+    setBadCredentials(null);
     setExpired(false);
     try {
       await api("/api/auth/login", { method: "POST", body: { username, password } });
@@ -56,14 +63,13 @@ export function LoginScreen() {
         void qc.invalidateQueries({ queryKey: INSTANCE_KEY }).then(() => setError("Kipple has no account yet. Reload the page to set it up."));
       } else if (err instanceof ApiError && err.status === 503 && err.code === "busy") setError(busyMessage(err));
       else if (err instanceof ApiError && err.status === 401) {
-        setBadCredentials(true);
-        passwordRef.current?.focus();
-        setError(
+        setBadCredentials(
           password
             ? "That username or password didn't match."
             : // The server does not say which: no password typed, a wrong username, or no Access sign-in.
               "That didn't work. Enter your password, or, for an account without one, check the username and open Kipple through Cloudflare Access.",
         );
+        passwordRef.current?.focus();
       }
       else if (err instanceof ApiError && err.code === "access_unavailable")
         setError("Kipple can't check your Cloudflare Access sign-in right now. Try again in a moment.");
@@ -74,14 +80,21 @@ export function LoginScreen() {
   };
 
   return (
-    <main className="pt-safe pb-safe flex h-full items-center justify-center overflow-y-auto px-4">
-      <form onSubmit={(e) => void submit(e)} className="w-full max-w-sm space-y-4" aria-labelledby="login-title">
+    <main className="pt-safe pb-safe flex h-full justify-center overflow-y-auto px-4">
+      {/* Anchored near the top, not centered: a centered form moves every field when an error line is added. */}
+      <form onSubmit={(e) => void submit(e)} className="mt-[min(18vh,8rem)] mb-8 w-full max-w-sm space-y-4" aria-labelledby="login-title">
+        <img src="/favicon.svg" alt="" className="size-10 rounded-lg" />
         <h1 id="login-title" className="text-2xl font-bold">
           Sign in to Kipple
         </h1>
-        {lost && !error ? (
+        {!error && signedOut ? (
           <p role="status" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg2">
-            You were signed out: your session ended, or the password was changed on another device. Sign in again.
+            You signed out.
+          </p>
+        ) : null}
+        {!error && lost ? (
+          <p role="status" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg2">
+            Your session ended. Sign in again.
           </p>
         ) : null}
         {error ? (
@@ -102,6 +115,7 @@ export function LoginScreen() {
           </label>
           <input
             id={uid}
+            ref={usernameRef}
             name="username"
             autoComplete="username"
             autoCapitalize="none"
@@ -110,14 +124,18 @@ export function LoginScreen() {
             required
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            {...fieldError}
+            aria-describedby={error ? eid : undefined}
             className={inputCls}
           />
         </div>
-        <PasswordField label="Password" name="password" value={password} onChange={setPassword} autoComplete="current-password" inputRef={passwordRef} {...fieldError} />
+        <PasswordField label="Password" name="password" value={password} onChange={setPassword} autoComplete="current-password" inputRef={passwordRef} error={badCredentials} /* PasswordField spreads extra props over the Field's own aria-describedby: pass it only when a form note needs describing. */
+        {...(error ? { "aria-describedby": eid } : {})} />
         <Button type="submit" variant="solid" className="w-full" disabled={busy}>
           {busy ? "Signing in" : "Sign in"}
         </Button>
+        <p className="text-sm text-fg2">
+          Forgot your password? The "Reset a forgotten password" section of the troubleshooting guide has the command to run on your server.
+        </p>
       </form>
     </main>
   );

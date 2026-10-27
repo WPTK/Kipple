@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App, { makeQueryClient } from "@/App";
-import { api, ApiError, authStore, busyMessage, sessionLostStore } from "@/api/client";
+import { api, ApiError, authStore, busyMessage, sessionLostStore, setSignedIn, signedOutStore } from "@/api/client";
 import { offlineStore } from "@/lib/offlineState";
 import { OfflineNotice } from "@/shell/OfflineNotice";
 import { json, mockFetch } from "@/test/mockApi";
@@ -17,6 +17,7 @@ const opaqueRedirect = () => ({ type: "opaqueredirect", status: 0, ok: false, he
 
 beforeEach(() => {
   sessionLostStore.set(false);
+  signedOutStore.set(false);
   reload.mockClear();
   authStore.set("out");
   offlineStore.set({ online: true, pending: 0, updateReady: false, sessionExpired: false });
@@ -46,7 +47,7 @@ describe("the sign-in screen", () => {
         <LoginScreen />
       </QueryClientProvider>,
     );
-    expect(screen.getByRole("status")).toHaveTextContent("You were signed out");
+    expect(screen.getByRole("status")).toHaveTextContent("Your session ended");
   });
 
   it("a first visit shows no signed-out note", () => {
@@ -55,7 +56,49 @@ describe("the sign-in screen", () => {
         <LoginScreen />
       </QueryClientProvider>,
     );
-    expect(screen.queryByText(/You were signed out/)).toBeNull();
+    expect(screen.queryByText(/signed out|session ended/)).toBeNull();
+  });
+
+  it("focuses the username after the session ended", () => {
+    sessionLostStore.set(true);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <LoginScreen />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByLabelText("Username")).toHaveFocus();
+  });
+
+  it("says You signed out. after a sign-out you chose, and not after a lost session", () => {
+    setSignedIn();
+    authStore.set("out");
+    expect(signedOutStore.get()).toBe(true);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <LoginScreen />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("You signed out.");
+    expect(screen.getByLabelText("Username")).toHaveFocus();
+  });
+
+  it("puts a wrong password under the password field, and marks the password invalid", async () => {
+    mockFetch({ "POST /api/auth/login": () => json({ error: "auth" }, 401) });
+    const user = await signIn();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("That username or password didn't match.");
+    expect(screen.getByLabelText("Password", { selector: "input" })).toHaveAccessibleDescription("That username or password didn't match.");
+    expect(screen.getByLabelText("Password", { selector: "input" })).toHaveFocus();
+    await user.type(screen.getByLabelText("Password", { selector: "input" }), "x");
+  });
+
+  it("tells a forgotten password where to reset it", () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <LoginScreen />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText(/Forgot your password\?/)).toHaveTextContent("Reset a forgotten password");
   });
 
   it("names the wait the server asked for when sign-in is paused", () => {

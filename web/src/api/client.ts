@@ -34,6 +34,20 @@ export const authStore = createStore<AuthState>("unknown");
 export const sessionLostStore = createStore<boolean>(false);
 
 /**
+ * True after a sign-out you chose: the signed-in app became signed out without the server ending the session. The
+ * sign-in form says "You signed out." Signing in clears it.
+ */
+export const signedOutStore = createStore<boolean>(false);
+{
+  let was = authStore.get();
+  authStore.subscribe(() => {
+    const now = authStore.get();
+    if (was === "in" && now === "out" && !sessionLostStore.get()) signedOutStore.set(true);
+    was = now;
+  });
+}
+
+/**
  * True while a sign-out you chose is under way: from just before it asks the server until the sign-in screen shows
  * (or the server refuses it). The server may already have ended the session, so api() sends no signed-in request
  * meanwhile except the sign-out itself (SIGN_OUT_PATH), and a 401 of a request already on its way neither ends the
@@ -62,6 +76,7 @@ export function chooseSignOut(chosen: boolean) {
 export function setSignedIn() {
   signingOutStore.set(false);
   sessionLostStore.set(false);
+  signedOutStore.set(false);
   authStore.set("in");
 }
 

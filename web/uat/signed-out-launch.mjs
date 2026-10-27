@@ -12,7 +12,8 @@
 //   L2  a signed-in browser that has lost only the marker opens Kipple: the reader shows after one GET /api/instance,
 //       with no 401, and the server sets the marker again;
 //   L3  a browser that signs in and then chooses Sign out (Settings, Account & Devices) reaches the sign-in form with no (uat-labels: ignore)
-//       answer of 401 after the click.
+//       answer of 401 after the click, says "You signed out." with the username focused and the forgotten-password hint;
+//   L4  then a wrong password is said under the password field, which keeps focus, and no field moves.
 // It changes nothing but the session it makes for L3. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { URL } from "node:url";
@@ -106,7 +107,24 @@ await t.eachViewport(async (page, vp) => {
       await p.waitForLoadState("networkidle");
       check(seen.unauthorized.length === 0, `${tag} L3 401`, "no answer of 401 after Sign out", `answered 401: ${seen.unauthorized.join(", ")}`);
       check(count(seen, "/api/bootstrap") === 0, `${tag} L3 bootstrap`, "the bootstrap was not asked for again", `the bootstrap was asked for ${count(seen, "/api/bootstrap")} times`);
+      check(await p.getByText("You signed out.").isVisible(), `${tag} L3 note`, "the sign-in form says You signed out.", "no You signed out. note");
+      check(await p.getByLabel("Username").evaluate((el) => el === document.activeElement), `${tag} L3 focus`, "the username has focus", "the username does not have focus");
+      check(await p.getByText(/Forgot your password\?/).isVisible(), `${tag} L3 hint`, "the forgotten-password hint shows", "no forgotten-password hint");
       await t.shot(p, `${tag}-signed-out-after-sign-out`);
+      // A wrong password is said under the password field and nothing above it moves.
+      const userTop = async () => (await p.getByLabel("Username").boundingBox()).y;
+      const passTop = async () => (await p.getByLabel("Password", { exact: true }).boundingBox()).y;
+      const [u0, w0] = [await userTop(), await passTop()];
+      await p.getByLabel("Username").fill("nobody");
+      await p.getByLabel("Password", { exact: true }).fill("not the password");
+      await p.getByRole("button", { name: "Sign in" }).click();
+      const alert = p.getByRole("alert").filter({ hasText: "didn't match" });
+      await alert.waitFor({ timeout: 15000 });
+      const under = await alert.evaluate((el) => !!el.parentElement.querySelector('input[name="password"]'));
+      check(under, `${tag} L4 place`, "the wrong-password error sits in the password field", "the error is not with the password field");
+      check((await userTop()) === u0 && (await passTop()) === w0, `${tag} L4 shift`, "the fields did not move", "the fields moved when the error showed");
+      check(await p.getByLabel("Password", { exact: true }).evaluate((el) => el === document.activeElement), `${tag} L4 focus`, "the password has focus", "the password does not have focus");
+      await t.shot(p, `${tag}-wrong-password`);
     } finally {
       await ctx.close();
     }
