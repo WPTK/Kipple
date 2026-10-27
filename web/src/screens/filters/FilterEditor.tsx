@@ -558,7 +558,7 @@ function EditorForm({
 
       <TermsInput d={d} set={set} error={at("terms")} />
 
-      <Group legend="Look in" help="The rule fires when a term is found in any of the parts you tick." error={at("fields")}>
+      <Group legend="Look in" help="The rule fires when a term is found in any of the parts you tick." error={at("fields") ?? (d.fields.length === 0 ? "Tick at least one part to look in." : null)}>
         <div className="grid gap-x-4 min-[520px]:grid-cols-2">
           {FIELDS.map((f) => (
             <Checkbox
@@ -569,7 +569,6 @@ function EditorForm({
             />
           ))}
         </div>
-        {d.fields.length === 0 ? <FieldError id={`${uid}-fields-e`}>Tick at least one part to look in.</FieldError> : null}
       </Group>
 
       <Group legend="Options" error={at("options")}>

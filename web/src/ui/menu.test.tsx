@@ -98,7 +98,7 @@ describe("MenuContent", () => {
     expect(z(menu)).toBeGreaterThan(z(toasts));
     expect(z(document.querySelector("[data-menu-backdrop]")!)).toBeGreaterThan(z(toasts));
     // The save notice shares the toasts' layer.
-    expect(z(screen.getByTestId("save-status"))).toBeLessThan(z(menu));
+    expect(z(screen.getByTestId("save-status"))).toBe(z(toasts));
   });
 
   it("stays open when focus moves to the page under a sheet (the mouse events after a long press's lift focus it)", async () => {
