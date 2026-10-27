@@ -5,8 +5,9 @@ import { ApiError, errorMessage } from "@/api/client";
 import { useBootstrap } from "@/api/queries";
 import { accountError } from "./AccountSection";
 import { keys } from "@/api/queries";
-import { announce } from "@/shell/toasts";
+import { SavedMark, useSavedMark } from "./settingUi";
 import { Button } from "@/ui/button";
+import { HelpText } from "./settingUi";
 import { Disclosure, Field, Notice, PasswordField, Skeleton, inputCls } from "@/ui/kit";
 
 /** The reachability settings: how other devices reach Kipple and who may. */
@@ -64,11 +65,13 @@ function useSaveSetting(meta: SettingMeta) {
   const patch = usePatchSettings();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const mark = useSavedMark();
   const save = async (value: unknown, current?: string): Promise<boolean> => {
     setError(null);
+    mark.hide();
     try {
       await patch.mutateAsync(current === undefined ? { [meta.key]: value } : { [meta.key]: value, current });
-      announce(`${meta.label} saved`);
+      mark.flash();
       // Whether Access validation is on is part of the account summary (Settings, Account).
       if (meta.key === CONNECTION_KEYS.access) void qc.invalidateQueries({ queryKey: keys.me });
       return true;
@@ -81,14 +84,14 @@ function useSaveSetting(meta: SettingMeta) {
       return false;
     }
   };
-  return { save, error, busy: patch.isPending };
+  return { save, error, busy: patch.isPending, saved: mark.saved };
 }
 
 /** The public URL: one address, saved with its own button. */
 function PublicUrlField({ meta }: { meta: SettingMeta }) {
   const saved = typeof meta.value === "string" ? meta.value : "";
   const [typed, setTyped] = useState<string | null>(null);
-  const { save, error, busy } = useSaveSetting(meta);
+  const { save, error, busy, saved: justSaved } = useSaveSetting(meta);
   const draft = typed ?? saved;
   const changed = draft.trim() !== saved;
   const submit = async () => {
@@ -102,7 +105,7 @@ function PublicUrlField({ meta }: { meta: SettingMeta }) {
         if (changed) void submit();
       }}
     >
-      <Field label={meta.label} help={meta.description} error={error}>
+      <Field label={meta.label} help={<HelpText text={meta.description} label={meta.label} />} error={error}>
         {(a) => (
           <input
             {...a}
@@ -122,6 +125,12 @@ function PublicUrlField({ meta }: { meta: SettingMeta }) {
         <Button type="submit" aria-label={`Save ${meta.label}`} disabled={busy || !changed}>
           {busy ? "Saving" : "Save"}
         </Button>
+        {changed ? (
+          <Button type="button" variant="ghost" aria-label={`Revert ${meta.label}`} onClick={() => setTyped(null)}>
+            Revert
+          </Button>
+        ) : null}
+        <SavedMark show={justSaved} />
         {saved !== "" ? (
           <Button
             type="button"
@@ -148,13 +157,13 @@ function ListField({ meta, placeholder, guarded = false }: { meta: SettingMeta; 
   const saved = listText(meta.value);
   const [typed, setTyped] = useState<string | null>(null);
   const [current, setCurrent] = useState("");
-  const { save, error, busy } = useSaveSetting(meta);
+  const { save, error, busy, saved: justSaved } = useSaveSetting(meta);
   const askPassword = useNeedsPassword() && guarded;
   const draft = typed ?? saved;
   const changed = parseList(draft).join("\n") !== parseList(saved).join("\n");
   return (
     <div className="flex flex-col gap-2">
-      <Field label={meta.label} help={<>{meta.description} One per line.</>} error={error}>
+      <Field label={meta.label} help={<><HelpText text={meta.description} label={meta.label} /> One per line.</>} error={error}>
         {(a) => (
           <textarea
             {...a}
@@ -170,7 +179,7 @@ function ListField({ meta, placeholder, guarded = false }: { meta: SettingMeta; 
         )}
       </Field>
       {askPassword && changed ? <CurrentPassword what={meta.label.toLowerCase()} value={current} onChange={setCurrent} /> : null}
-      <div>
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           aria-label={`Save ${meta.label}`}
           disabled={busy || !changed || (askPassword && current === "")}
@@ -185,6 +194,19 @@ function ListField({ meta, placeholder, guarded = false }: { meta: SettingMeta; 
         >
           {busy ? "Saving" : "Save"}
         </Button>
+        {changed ? (
+          <Button
+            variant="ghost"
+            aria-label={`Revert ${meta.label}`}
+            onClick={() => {
+              setTyped(null);
+              setCurrent("");
+            }}
+          >
+            Revert
+          </Button>
+        ) : null}
+        <SavedMark show={justSaved} />
       </div>
     </div>
   );
@@ -198,7 +220,7 @@ function AccessField({ meta }: { meta: SettingMeta }) {
   const [team, setTeam] = useState<string | null>(null);
   const [aud, setAud] = useState<string | null>(null);
   const [current, setCurrent] = useState("");
-  const { save, error, busy } = useSaveSetting(meta);
+  const { save, error, busy, saved: justSaved } = useSaveSetting(meta);
   const askPassword = useNeedsPassword();
   const errorId = useId();
   const teamDraft = team ?? saved.team;
@@ -223,7 +245,9 @@ function AccessField({ meta }: { meta: SettingMeta }) {
       <legend id={headingId} className="text-sm font-semibold">
         {meta.label}
       </legend>
-      <p className="text-xs text-fg2">{meta.description}</p>
+      <p className="text-xs text-fg2">
+        <HelpText text={meta.description} label={meta.label} />
+      </p>
       <p className="text-sm">
         {on ? (
           <>
@@ -279,6 +303,12 @@ function AccessField({ meta }: { meta: SettingMeta }) {
         >
           {busy ? "Saving" : "Save"}
         </Button>
+        {changed ? (
+          <Button variant="ghost" aria-label={`Revert ${meta.label}`} onClick={() => reset(true)}>
+            Revert
+          </Button>
+        ) : null}
+        <SavedMark show={justSaved} />
         {on ? (
           <Button variant="ghost" aria-label={`Turn off ${meta.label}`} disabled={busy || (askPassword && current === "")} onClick={() => void save({}, sendCurrent).then(reset)}>
             Turn off
@@ -314,7 +344,7 @@ export function ConnectionSection() {
   const access = meta(CONNECTION_KEYS.access);
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-sm text-fg2">How your other devices reach Kipple. Changes apply at once.</p>
+      <p className="text-sm text-fg2">Changes apply at once.</p>
       {url ? <PublicUrlField meta={url} /> : null}
       {hosts ? <ListField meta={hosts} placeholder="For example nas.local" /> : null}
       <Disclosure label="For servers behind a proxy" defaultOpen={[proxies, access].some((m) => m && m.value !== null && m.value !== undefined && JSON.stringify(m.value) !== "[]" && JSON.stringify(m.value) !== "{}")}>

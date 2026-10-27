@@ -49,13 +49,14 @@ function finishedNote(fin: FinishedRun | undefined, seen: number): string {
 export function AutoReadCatchUp({
   feedId,
   days,
-  offer,
+  autoPreview,
   blockedReason,
   runBlocked,
 }: {
   feedId?: string;
   days?: number;
-  offer?: boolean;
+  /** Count as soon as this mounts (inside the dialog the Preview button opens); the button then counts again. */
+  autoPreview?: boolean;
   /** Why Preview is unavailable right now. */
   blockedReason?: string;
   /** Why the run button is replaced by this text (the feed editor: a change that is not saved yet). */
@@ -108,6 +109,14 @@ export function AutoReadCatchUp({
       setBusy(false);
     }
   };
+
+  const started = useRef(false);
+  useEffect(() => {
+    if (!autoPreview || started.current) return;
+    started.current = true;
+    void doPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const doRun = async (confirmed: boolean, shown: AutoReadPreview) => {
     if (!preview) return;
@@ -188,16 +197,11 @@ export function AutoReadCatchUp({
 
   return (
     <div className="flex flex-col gap-2">
-      {offer ? (
-        <p className="text-sm">
-          Saved. Nothing was marked. Articles that are already older than this stay unread until you clear them below; from now on each one is marked as it reaches that age.
-        </p>
-      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={() => void doPreview()} disabled={busy || running || !!blockedReason}>
-          Preview
+          {autoPreview ? "Preview again" : "Preview"}
         </Button>
-        {blockedReason ? <span className="text-xs text-fg2">{blockedReason}</span> : <span className="text-xs text-fg2">Counts the older unread articles without marking any.</span>}
+        {blockedReason ? <span className="text-xs text-fg2">{blockedReason}</span> : null}
       </div>
       {error ? <Notice tone="error">{error}</Notice> : null}
       {running ? (

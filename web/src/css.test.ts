@@ -54,7 +54,9 @@ describe("choice rows keep a 44px touch size", () => {
   const read = (p: string) => readFileSync(p, "utf8");
   it("segmented choices are 44px wide at least and wrap rather than squeeze", () => {
     const src = read("src/ui/segmented.tsx");
-    expect(src).toMatch(/min-h-11 min-w-11 flex-1/);
+    // The label is at least as wide as its text, and its text box is at least 44px (min-w-11).
+    expect(src).toMatch(/min-h-11 min-w-fit flex-1/);
+    expect(src).toMatch(/min-w-11 px-1/);
     expect(src).toMatch(/flex w-full flex-wrap/);
   });
   it("the layout menu's descriptions wrap instead of being cut off", () => {

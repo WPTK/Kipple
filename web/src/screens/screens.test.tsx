@@ -263,19 +263,20 @@ describe("Article view", () => {
 });
 
 describe("Settings", () => {
-  it("offers a short theme list, More themes, and a collapsed accessibility group; passes axe", async () => {
+  it("offers a mode control, then a short theme list with More themes; passes axe", async () => {
     routes();
     const { container } = go("/settings/appearance");
     await screen.findByRole("heading", { name: "Appearance" });
-    expect(screen.getByRole("radio", { name: /Follow system.*by day/ })).toBeChecked();
+    expect(within(screen.getByRole("group", { name: "Theme" })).getByRole("radio", { name: "Follow device" })).toBeChecked();
+    expect(screen.getByRole("group", { name: "Day theme" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Night theme" })).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("radio", { name: "One theme" }));
     for (const n of ["Paper", "Linen", "Newsprint", "Graphite", "Midnight"]) expect(screen.getByRole("radio", { name: new RegExp("^" + n) })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: /^Fountain/ })).toBeNull();
     expect(screen.queryByRole("radio", { name: /^Carbon/ })).toBeNull();
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "More themes" }));
     expect(screen.getByRole("radio", { name: /^Fountain/ })).toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: /^Carbon/ })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Accessibility themes" }));
     expect(screen.getByRole("radio", { name: /^Carbon/ })).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });

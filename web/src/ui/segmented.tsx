@@ -1,9 +1,9 @@
-import { useId, useLayoutEffect, useRef } from "react";
+import { useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 interface Props<T extends string | number> {
   legend: string;
-  hint?: string;
+  hint?: ReactNode;
   value: T;
   options: readonly { value: T; label: string; disabled?: boolean }[];
   onChange: (v: T) => void;
@@ -75,7 +75,7 @@ export function Segmented<T extends string | number>({ legend, hint, value, opti
               key={String(o.value)}
               data-pressed={on}
               className={cn(
-                "relative flex min-h-11 min-w-11 flex-1 cursor-pointer items-center justify-center px-1 text-center text-xs font-medium select-none min-[380px]:text-sm",
+                "relative flex min-h-11 min-w-fit flex-1 cursor-pointer items-center justify-center px-1 text-center text-xs font-medium select-none min-[380px]:text-sm",
                 "has-[:focus-visible]:kp-ring-inset",
                 wrap && "basis-[30%]",
                 o.disabled && "cursor-not-allowed opacity-50",
@@ -115,7 +115,7 @@ export function Segmented<T extends string | number>({ legend, hint, value, opti
                 }}
                 className="sr-only-live"
               />
-              {o.label}
+              <span className="min-w-11 px-1">{o.label}</span>
             </label>
           );
         })}

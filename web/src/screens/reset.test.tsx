@@ -57,7 +57,7 @@ describe("reset Kipple", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveTextContent(/erases all your feeds, folders, reading history, settings and your account/);
     expect(dialog).toHaveTextContent("Kipple keeps a safety copy of your library on the server");
-    const go = within(dialog).getByRole("button", { name: "Reset Kipple" });
+    const go = within(dialog).getByRole("button", { name: "Erase and start over" });
     expect(go).toBeDisabled();
     await user.type(within(dialog).getByLabelText("Your web password"), "pw-pw-pw");
     expect(go).toBeDisabled();
@@ -84,7 +84,7 @@ describe("reset Kipple", () => {
     const dialog = screen.getByRole("dialog");
     await user.type(within(dialog).getByLabelText("Your web password"), "nope");
     await user.type(within(dialog).getByLabelText(/Type "reset kipple"/), "Reset Kipple");
-    await user.click(within(dialog).getByRole("button", { name: "Reset Kipple" }));
+    await user.click(within(dialog).getByRole("button", { name: "Erase and start over" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("The current password isn't right.");
     expect(resetting.get()).toBeNull();
   });
@@ -97,7 +97,7 @@ describe("reset Kipple", () => {
     expect(within(dialog).queryByRole("radio")).toBeNull();
     await user.type(within(dialog).getByLabelText("Your web password"), "pw-pw-pw");
     await user.type(within(dialog).getByLabelText(/Type "reset kipple"/), "reset kipple");
-    await user.click(within(dialog).getByRole("button", { name: "Reset Kipple" }));
+    await user.click(within(dialog).getByRole("button", { name: "Erase and start over" }));
     await waitFor(() => expect(resetting.get()).not.toBeNull());
     const post = calls.find((c) => c.method === "POST" && c.url.pathname === "/api/reset")!;
     expect(bodyOf(post)).toEqual({ password: "pw-pw-pw", phrase: "reset kipple" });

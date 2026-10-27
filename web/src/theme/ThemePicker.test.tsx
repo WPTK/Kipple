@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { SCHEMES } from "./schemes";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { DEFAULT_THEME_SETTINGS } from "./settings";
 import { themeStore } from "./theme";
 import { ThemePicker } from "./ThemePicker";
@@ -21,34 +20,41 @@ describe("ThemePicker when the server narrows the schemes", () => {
     narrow.ids = ["paper", "midnight", "linen"];
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "fixed", fixed: "inkwell" });
     render(<ThemePicker />);
-    const checked = screen.getAllByRole("radio").filter((r) => (r as HTMLInputElement).checked);
+    const checked = within(screen.getByRole("group", { name: "Theme colors" })).getAllByRole("radio").filter((r) => (r as HTMLInputElement).checked);
     expect(checked).toHaveLength(1);
+    expect(checked[0]!.closest("label")?.textContent).toContain("Paper");
     expect(screen.getByText(/no longer offered/)).toBeInTheDocument();
   });
 
-  it("Day and Night selects show an offered scheme when the stored pair is not offered", () => {
+  it("Day and Night grids show an offered scheme as picked when the stored pair is not offered", () => {
     narrow.ids = ["linen", "carbon"];
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", day: "paper", night: "midnight" });
     render(<ThemePicker />);
-    const day = screen.getByLabelText("Day theme") as HTMLSelectElement;
-    const night = screen.getByLabelText("Night theme") as HTMLSelectElement;
-    expect(["linen", "carbon"]).toContain(day.value);
-    expect(["linen", "carbon"]).toContain(night.value);
-    expect(day.selectedOptions[0]?.textContent).toBe(SCHEMES.find((s) => s.id === day.value)?.name);
+    for (const legend of ["Day theme", "Night theme"]) {
+      const on = within(screen.getByRole("group", { name: legend })).getAllByRole("radio").filter((r) => (r as HTMLInputElement).checked);
+      expect(on).toHaveLength(1);
+      expect(["Linen", "Carbon"].some((n) => (on[0]!.closest("label")?.textContent ?? "").includes(n))).toBe(true);
+    }
   });
 });
 
 describe("ThemePicker schedule", () => {
   const radio = (name: RegExp) => screen.getByRole("radio", { name });
 
-  it("offers On a schedule next to Follow system, with the pair and the times in its summary", () => {
+  it("offers One theme, Follow device and On a schedule as one mode control above the swatches", () => {
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, night: "carbon" });
     render(<ThemePicker />);
     const r = radio(/On a schedule/);
     expect(r).not.toBeChecked();
+    expect(radio(/Follow device/)).toBeChecked();
+    expect(radio(/One theme/)).not.toBeChecked();
+    // Follow device shows the pair; the schedule's times and its summary come with the schedule.
+    expect(screen.getByText("Paper by day, Carbon by night")).toBeInTheDocument();
+    act(() => themeStore.set((x) => ({ ...x, schedule: true })));
     // In the reader's own clock format (9:00 PM in en-US, 21:00 in most others).
     const fmt = (h: number) => new Date(2000, 0, 1, h, 0).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    expect(r.closest("label")?.textContent).toContain(`Carbon from ${fmt(21)} to ${fmt(7)}`);
+    expect(screen.getByText(`Carbon from ${fmt(21)} to ${fmt(7)}, Paper the rest of the day`)).toBeInTheDocument();
+    act(() => themeStore.set((x) => ({ ...x, schedule: false })));
     // No time fields until the schedule is chosen.
     expect(screen.queryByLabelText("Night starts")).toBeNull();
   });
@@ -59,9 +65,10 @@ describe("ThemePicker schedule", () => {
     fireEvent.click(radio(/On a schedule/));
     expect(themeStore.get()).toMatchObject({ mode: "follow", schedule: true, day: "linen", night: "carbon" });
     expect(radio(/On a schedule/)).toBeChecked();
-    expect(radio(/Follow system/)).not.toBeChecked();
-    expect((screen.getByLabelText("Day theme") as HTMLSelectElement).value).toBe("linen");
-    expect((screen.getByLabelText("Night theme") as HTMLSelectElement).value).toBe("carbon");
+    expect(radio(/Follow device/)).not.toBeChecked();
+    const picked = (legend: string) => within(screen.getByRole("group", { name: legend })).getAllByRole("radio").find((r) => (r as HTMLInputElement).checked)?.closest("label")?.textContent;
+    expect(picked("Day theme")).toContain("Linen");
+    expect(picked("Night theme")).toContain("Carbon");
     expect((screen.getByLabelText("Night starts") as HTMLInputElement).value).toBe("21:00");
     expect((screen.getByLabelText("Day starts") as HTMLInputElement).value).toBe("07:00");
     expect(screen.getByText(/this device.s clock/)).toBeInTheDocument();
@@ -154,16 +161,17 @@ describe("ThemePicker schedule", () => {
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true, nightStart: "08:00", dayStart: "08:00" });
     render(<ThemePicker />);
     expect(screen.getByText(/same time, so the day theme stays on/)).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /On a schedule/ }).closest("label")?.textContent).toContain("Paper all day");
+    expect(screen.getByText("Paper all day")).toBeInTheDocument();
     expect(screen.queryByText(/two times are the same/)).toBeNull();
   });
 
   it("picking a fixed theme leaves the schedule and hides its fields, keeping the times for later", () => {
     themeStore.set({ ...DEFAULT_THEME_SETTINGS, mode: "follow", schedule: true, nightStart: "22:00" });
     render(<ThemePicker />);
+    fireEvent.click(radio(/One theme/));
     fireEvent.click(radio(/Graphite/));
     expect(themeStore.get()).toMatchObject({ mode: "fixed", fixed: "graphite", schedule: false, nightStart: "22:00" });
     expect(screen.queryByLabelText("Night starts")).toBeNull();
-    expect(screen.queryByLabelText("Day theme")).toBeNull();
+    expect(screen.queryByRole("group", { name: "Day theme" })).toBeNull();
   });
 });

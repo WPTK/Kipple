@@ -476,7 +476,7 @@ describe("Auto-read (Settings > Library)", () => {
     await user.click(await screen.findByRole("button", { name: "Preview" }));
     await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
     await waitFor(() => expect(calls.some((c) => c.url.pathname.endsWith("/run"))).toBe(true));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: /older articles? as read\?/ })).toBeNull();
     expect(body(calls.find((c) => c.url.pathname.endsWith("/run")))).toEqual({ expect_total: 40 });
     act(() => {
       liveStore.set((s) => ({ ...s, runs: { "78": { id: "78", kind: "auto_read", done: 20, total: 40, changed: 12, new_items: 0, errors: 0 } } }));
@@ -507,7 +507,7 @@ describe("Auto-read (Settings > Library)", () => {
     const dlg = await screen.findByRole("dialog", { name: "Mark 130 older articles as read?" });
     await user.click(within(dlg).getByRole("button", { name: "Mark 130 as read" }));
     expect(await screen.findByText(/Another catch-up is already running/)).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: /older articles? as read\?/ })).toBeNull();
   });
 
   it("handles 409 total_changed by showing the recount and sending it as expect_total on the next confirm", async () => {
@@ -538,11 +538,12 @@ describe("Auto-read (Settings > Library)", () => {
     const { calls } = base({ "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: 5, feeds: [] }) });
     go("/settings/sync");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Try a different number of days" }));
-    await user.type(await screen.findByRole("textbox", { name: /Preview as if it were set to/ }), "60");
-    await user.click(screen.getByRole("button", { name: "Preview" }));
-    await waitFor(() => expect(calls.some((c) => c.url.pathname.endsWith("/preview"))).toBe(true));
-    expect(body(calls.find((c) => c.url.pathname.endsWith("/preview")))).toEqual({ days: 60 });
+    // Preview opens a dialog that counts with the saved number at once; the field in it tries another.
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
+    await user.type(await screen.findByRole("textbox", { name: "Try a different number of days" }), "60");
+    await user.click(screen.getByRole("button", { name: "Preview again" }));
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname.endsWith("/preview")).length).toBe(2));
+    expect(body(calls.filter((c) => c.url.pathname.endsWith("/preview")).at(-1))).toEqual({ days: 60 });
     expect(await screen.findByText(/using 60 days/)).toBeInTheDocument();
     expect(calls.some((c) => c.method === "PATCH")).toBe(false);
   });
@@ -906,7 +907,7 @@ describe("Auto-read catch-up (review 3)", () => {
     await user.click(await screen.findByRole("button", { name: "Preview" }));
     await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
     expect(await screen.findByTestId("auto-read-progress")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Preview" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Preview again" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: /older articles as read now/ })).toBeNull();
   });
 
@@ -921,7 +922,7 @@ describe("Auto-read catch-up (review 3)", () => {
     await user.click(await screen.findByRole("button", { name: "Preview" }));
     await user.click(await screen.findByRole("button", { name: "Mark 40 older articles as read now" }));
     expect(await screen.findByTestId("auto-read-progress")).toHaveTextContent("7 of 90");
-    expect(screen.getByRole("button", { name: "Preview" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Preview again" })).toBeDisabled();
   });
 
   describe("a stale preview", () => {
@@ -966,7 +967,7 @@ describe("Auto-read catch-up (review 3)", () => {
       await user.click(mark);
       await waitFor(() => expect(calls.some((c) => c.url.pathname.endsWith("/run"))).toBe(true));
       expect(calls.filter((c) => c.url.pathname.endsWith("/preview"))).toHaveLength(2);
-      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("dialog", { name: /older articles? as read\?/ })).toBeNull();
     });
   });
 
@@ -974,9 +975,9 @@ describe("Auto-read catch-up (review 3)", () => {
     base({ "POST /api/library/auto-read/preview": () => json({ ...PREVIEW, total: 5, feeds: [] }) });
     go("/settings/sync");
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Try a different number of days" }));
-    await user.type(await screen.findByRole("textbox", { name: /Preview as if it were set to/ }), "60");
-    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
+    await user.type(await screen.findByRole("textbox", { name: "Try a different number of days" }), "60");
+    await user.click(screen.getByRole("button", { name: "Preview again" }));
     expect(await screen.findByText(/using 60 days/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /older articles? as read now/ })).toBeNull();
     expect(screen.getByText(/only a preview/)).toBeInTheDocument();

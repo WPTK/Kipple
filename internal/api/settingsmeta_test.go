@@ -239,7 +239,7 @@ func TestSettingHelpTexts(t *testing.T) {
 		text[d.Key] = d.Description
 	}
 	require.Equal(t, "Only the newest articles of each feed are kept, read or unread. Starred articles are always kept.", text["retention.default"])
-	require.Equal(t, "Used for the days in Stats and for the nightly cleanup. UTC until you choose one.", text["tz"])
+	require.Equal(t, "UTC until you choose one. The days in Stats and the nightly cleanup follow it.", text["tz"])
 }
 
 func TestNewSettingsMetadata(t *testing.T) {

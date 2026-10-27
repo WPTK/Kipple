@@ -52,13 +52,30 @@ describe("Stepper", () => {
     fireEvent.blur(box);
     expect(onChange).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a number from 5 to 1440.");
-    expect(box).toHaveAttribute("aria-invalid", "true");
+    // The bad number is not kept: the box shows the saved one again, under the reason, and is no longer invalid.
+    expect(box).toHaveValue(30);
+    expect(box).not.toHaveAttribute("aria-invalid");
+    expect(screen.getByRole("alert")).toHaveTextContent("Kept 30.");
     type(box, "");
     fireEvent.blur(box);
     expect(onChange).not.toHaveBeenCalled();
     type(box, "9999");
     fireEvent.keyDown(box, { key: "Enter" });
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("a pause on half-typed text does not snap it back (3 on the way to 30)", () => {
+    const onChange = vi.fn();
+    render(<Stepper label="Interval" value={60} min={5} max={1440} onChange={onChange} />);
+    const box = screen.getByRole("spinbutton", { name: "Interval" });
+    type(box, "3");
+    act(() => void vi.advanceTimersByTime(STEPPER_DEBOUNCE_MS + 10));
+    expect(box).toHaveValue(3);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+    type(box, "30");
+    act(() => void vi.advanceTimersByTime(STEPPER_DEBOUNCE_MS + 10));
+    expect(onChange).toHaveBeenCalledWith(30);
   });
 
   it("rapid + clicks coalesce into one commit", () => {
@@ -148,5 +165,48 @@ describe("SettingField integer PATCHes", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(sent).toEqual([40, 60]);
+  });
+});
+
+describe("SettingField save model", () => {
+  const base = { group: "sync", surface: "settings", default: "", options: undefined } as unknown as Partial<SettingMeta>;
+  const text: SettingMeta = { ...base, key: "fetch.user_agent", label: "Custom browser identity", description: "Replaces the built-in identity. Leave empty for the default.", kind: "text", value: "" } as SettingMeta;
+  const flag: SettingMeta = { ...base, key: "links.strip_tracking", label: "Remove tracking from links", description: "Removes tracking parameters. The stored article is not changed.", kind: "bool", value: false, default: false } as SettingMeta;
+
+  const mount = (meta: SettingMeta, patch: (body: Record<string, unknown>) => Response | Promise<Response>) => {
+    mockFetch({ "PATCH /api/settings": (_u, init) => patch(JSON.parse(String(init?.body)) as Record<string, unknown>) });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SettingField meta={meta} />
+      </QueryClientProvider>,
+    );
+  };
+
+  it("an immediate control shows a visible Saved, and the first sentence of its help with the rest behind More", async () => {
+    vi.useRealTimers();
+    mount(flag, (b) => json({ settings: [{ ...flag, value: b["links.strip_tracking"] }], values: b }));
+    expect(screen.getByText(/Removes tracking parameters\./)).toBeInTheDocument();
+    expect(screen.queryByText(/stored article is not changed/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "More about Remove tracking from links" }));
+    expect(screen.getByText(/stored article is not changed/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch"));
+    expect(await screen.findByText("Saved")).toBeVisible();
+  });
+
+  it("a text box saves with Save, Revert puts the saved text back, and a refusal keeps what was typed with its reason", async () => {
+    vi.useRealTimers();
+    mount(text, () => json({ error: "invalid", keys: ["fetch.user_agent"], issues: [{ key: "fetch.user_agent", message: "Use one line of at most 200 characters." }] }, 400));
+    const box = screen.getByRole("textbox", { name: "Custom browser identity" });
+    expect(screen.getByRole("button", { name: "Save Custom browser identity" })).toBeDisabled();
+    fireEvent.change(box, { target: { value: "abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revert Custom browser identity" }));
+    expect(box).toHaveValue("");
+    fireEvent.change(box, { target: { value: "abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Custom browser identity" }));
+    expect(await screen.findByText("Use one line of at most 200 characters.")).toBeInTheDocument();
+    expect(box).toHaveValue("abc");
+    // Typing again clears the old message.
+    fireEvent.change(box, { target: { value: "abcd" } });
+    expect(screen.queryByText("Use one line of at most 200 characters.")).toBeNull();
   });
 });

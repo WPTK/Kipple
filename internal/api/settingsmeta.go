@@ -430,13 +430,13 @@ var settingDefs = withScopes([]settingDef{
 	// Sync.
 	{Key: "refresh.interval_minutes", Label: "How often to check feeds", Description: "Kipple looks for new articles this often, unless a feed sets its own schedule.",
 		Group: groupSync, Kind: "int", Min: new(5), Max: new(1440), Step: new(5), Unit: "minutes", Surface: surfaceSettings, check: intIn(5, 1440)},
-	{Key: "fetch.user_agent_mode", Label: "Browser identity for feeds", Description: "Some sites block feed readers; this controls when Kipple presents itself as an ordinary web browser instead.",
+	{Key: "fetch.user_agent_mode", Label: "Browser identity for feeds", Description: "When Kipple presents itself as an ordinary web browser, for sites that block feed readers.",
 		Group: groupSync, Kind: "enum", Options: uaModeOptions, Surface: surfaceSettings, check: oneOf(optValues(uaModeOptions)...)},
 	{Key: "fetch.user_agent", Label: "Custom browser identity", Description: "Replaces the built-in identity. Leave empty for the default.",
 		Group: groupSync, Kind: "text", Surface: surfaceSettings, check: func(v any) (any, string) {
 			s, ok := v.(string)
 			if !ok || len(s) > 200 || hasControl(s) {
-				return nil, "must be one line of at most 200 characters"
+				return nil, "Use one line of at most 200 characters."
 			}
 			return strings.TrimSpace(s), ""
 		}},
@@ -467,17 +467,17 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupLibrary, Kind: "json", Surface: surfaceHidden, check: checkSavedSearches},
 
 	// Account.
-	{Key: store.SettingTZ, Label: "Time zone", Description: "Used for the days in Stats and for the nightly cleanup. UTC until you choose one.",
+	{Key: store.SettingTZ, Label: "Time zone", Description: "UTC until you choose one. The days in Stats and the nightly cleanup follow it.",
 		Group: groupAccount, Kind: "text", Surface: surfaceSettings, check: func(v any) (any, string) {
 			s, ok := v.(string)
 			if ok && s == "" {
 				return s, "" // not chosen: UTC applies (store.ZoneName)
 			}
 			if !ok || s == "Local" || len(s) > 64 {
-				return nil, "must be an IANA time zone name such as America/New_York"
+				return nil, "Use an IANA time zone name such as America/New_York."
 			}
 			if _, err := store.LoadZone(s); err != nil {
-				return nil, "unknown time zone"
+				return nil, "Kipple does not know that time zone."
 			}
 			return s, ""
 		}},

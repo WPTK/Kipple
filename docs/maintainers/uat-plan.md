@@ -245,7 +245,7 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
   under "Open questions for the owner" below: Escape after opening an article on a wide screen.
 - TC-R4: Theme picker — default short list plus "More themes"; each of the 20 schemes is legible (spot-check
   Signal's danger color and the Carbon/Fountain distinction called out in the UI decisions).
-- TC-R5: Follow system switches to the configured day and night picks when the OS switches between light and
+- TC-R5: Follow device switches to the configured day and night picks when the OS switches between light and
   dark, live, without a reload.
 - TC-R6: Filters — mute, mark-read, auto-star, highlight, saved search, auto-read-after-N-days each behave as
   specified; a Muted view exists and is correct.

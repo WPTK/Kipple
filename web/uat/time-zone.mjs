@@ -78,7 +78,7 @@ await t.eachViewport(async (page, vp) => {
     await step(`${tag} Z4`, async () => {
       const r = await choose("Nowhere/City");
       check(r?.status() === 400, `${tag} Z4 refused`, "a name that is no time zone is refused", `the save answered ${r?.status()}`);
-      const alert = await page.locator("[data-setting=tz]").getByText("unknown time zone", { exact: true }).waitFor({ timeout: 5000 }).then(() => true, () => false);
+      const alert = await page.locator("[data-setting=tz]").getByText("Kipple does not know that time zone.", { exact: true }).waitFor({ timeout: 5000 }).then(() => true, () => false);
       check(alert && (await box().inputValue()) === "Nowhere/City", `${tag} Z4 words`, "the refusal is said in words and the box keeps what was typed", `the refusal is ${alert ? "shown" : "not shown"}, the box reads "${await box().inputValue()}"`);
       check((await saved()) === "UTC", `${tag} Z4 kept`, "the saved zone is unchanged", `the saved zone is "${await saved()}"`);
     });

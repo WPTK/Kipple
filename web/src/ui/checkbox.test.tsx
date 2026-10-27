@@ -106,7 +106,7 @@ describe("forms use checkboxes, not switches", () => {
 const RAW_INPUT_ALLOWED: Record<string, number> = {
   "ui/kit.tsx": 4, // the shared components: Switch, CheckboxBox (the box under Checkbox and every picked list row), RadioCard, RadioRow
   "ui/segmented.tsx": 1, // the segmented control (native radios drawn as buttons)
-  "theme/ThemePicker.tsx": 2, // swatches: native radios drawn as colour tiles
+  "theme/ThemePicker.tsx": 1, // swatches: native radios drawn as colour tiles
 };
 
 /** How many `<input type="checkbox">` or `type="radio"` a source text holds. */

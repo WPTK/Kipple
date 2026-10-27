@@ -79,7 +79,7 @@ function DensityPreview({ list, reading }: { list: Step; reading: Step }) {
   );
 }
 
-/** A compact theme picker for the reading menu: Follow system and On a schedule first, then every scheme by group. */
+/** A compact theme picker for the reading menu: Follow device and On a schedule first, then every scheme by group. */
 export function ThemeSelect() {
   const t = useStore(themeStore);
   const id = useId();
@@ -107,7 +107,7 @@ export function ThemeSelect() {
         }}
         className={inputCls}
       >
-        <option value="__follow">Follow system</option>
+        <option value="__follow">Follow device</option>
         <option value="__schedule">On a schedule</option>
         {groups.map(([g, label]) => (
           <optgroup key={g} label={label}>
