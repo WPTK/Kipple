@@ -171,7 +171,7 @@ export function FeedIndexScreen() {
       <Skeleton rows={6} label="Loading the feed index" />
     );
   } else if (blocks.length === 0) {
-    body = <EmptyState title="No feeds yet" why="Add a feed and its newest articles will be listed here." action={<Button onClick={() => navigate("/feeds", { state: { open: "add" } })}>Add a feed</Button>} />;
+    body = <EmptyState title="No feeds yet" action={<Button onClick={() => navigate("/feeds", { state: { open: "add" } })}>Add a feed</Button>} />;
   } else {
     body = (
       <div data-feed-index="" className="pb-10" onKeyDownCapture={onKey} onFocus={onFocus}>

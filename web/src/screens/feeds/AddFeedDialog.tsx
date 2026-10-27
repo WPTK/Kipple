@@ -169,7 +169,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
       open
       onOpenChange={(o) => !o && onClose()}
       title="Add feed"
-      description="Paste the address of a feed, or of a website and Kipple will look for its feed."
+      description="Paste a feed or website address."
       footer={
         step.kind === "choose" ? (
           <>
@@ -233,7 +233,7 @@ export function AddFeedDialog({ onClose, onOpenFeed }: { onClose: () => void; on
             />
           ) : null}
           <Disclosure label="Options" open={optionsOpen} onOpenChange={(o) => setOptionsOpen(o || titleTooLong)} tone={titleTooLong ? "warn" : undefined}>
-            <Field label="Title (optional)" error={titleTooLong ? `A title can be at most ${MAX_TITLE_CHARS} characters; this one has ${titleChars}.` : null} help={title.trim() ? "Kipple uses this title instead of the feed's own. You can change it later." : "Left empty, the title is filled in from the feed. You can change it later."}>
+            <Field label="Title (optional)" error={titleTooLong ? `A title can be at most ${MAX_TITLE_CHARS} characters; this one has ${titleChars}.` : null} help={title.trim() ? "Replaces the feed's own title." : "Empty uses the feed's own title."}>
               {(a) => <input {...a} type="text" placeholder="Filled in from the feed" value={title} readOnly={busy} onChange={(e) => setTitle(e.target.value)} className={inputCls} />}
             </Field>
             <Field label="Folder">{(a) => <FolderSelect {...a} value={folder} onChange={setFolder} none="Default folder" disabled={busy} />}</Field>

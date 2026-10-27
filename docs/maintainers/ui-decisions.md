@@ -660,6 +660,19 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 - **Hints checked against the code.** The Gazette is always newest first (`followsOrder`), so "Pages, newest first" is true;
   the Digest offers Folders, Feeds and Reading time, so its hint names all three.
 
+### Helper text (Build 4/6 UI, PR G)
+
+- **Why.** Text under a control that says what the label already says tells a reader the screen thinks they are slow. Each
+  line is also one more thing to read, translate and keep true.
+- **Cut.** A description that restates its label ("Text size: Makes all text larger or smaller"). "Tap" or "click" for a
+  standard control. An explanation of something obvious. Reassurance and marketing tone. Empty-state text longer than one
+  short line, or that repeats the title (`EmptyState` `why` is optional).
+- **Keep.** A consequence the label cannot show: what happens to data, who sees it, what is lost, what is left alone.
+  Units, limits and defaults. Why a control is disabled (the reason is its `aria-describedby`). An error that says how to
+  fix it. Text a screen reader needs for a name. Legal and security wording, release notes, the setup wizard's security
+  warnings, the layout hints and the Pictures note.
+- **Test for a line.** Delete it. If a reader would do something different or lose something, put it back.
+
 ## Internal cleanup lines ruled out (#207)
 
 Five "do someday" cleanups were each looked at against the code as it is and ruled out. None has a measured symptom, and

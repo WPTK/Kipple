@@ -424,7 +424,7 @@ var settingDefs = withScopes([]settingDef{
 	{Key: "ui.mark_read_on_scroll", Label: "Mark articles read as I scroll", Description: "Articles you scroll past in the list are marked read automatically.",
 		Group: groupReading, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
-	{Key: "links.strip_tracking", Label: "Remove tracking from links", Description: "Take tracking parameters such as utm_source and fbclid out of the links in articles, so opening one tells the site less about where you came from. The stored article and what sync apps see are not changed.",
+	{Key: "links.strip_tracking", Label: "Remove tracking from links", Description: "Removes tracking parameters such as utm_source and fbclid from links in articles. The stored article and what sync apps see are not changed.",
 		Group: groupReading, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
 	// Sync.
@@ -432,7 +432,7 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupSync, Kind: "int", Min: new(5), Max: new(1440), Step: new(5), Unit: "minutes", Surface: surfaceSettings, check: intIn(5, 1440)},
 	{Key: "fetch.user_agent_mode", Label: "Browser identity for feeds", Description: "Some sites block feed readers; this controls when Kipple presents itself as an ordinary web browser instead.",
 		Group: groupSync, Kind: "enum", Options: uaModeOptions, Surface: surfaceSettings, check: oneOf(optValues(uaModeOptions)...)},
-	{Key: "fetch.user_agent", Label: "Custom browser identity", Description: "Optional. Replaces the built-in identity when Kipple needs to look like a browser. Leave empty for the default.",
+	{Key: "fetch.user_agent", Label: "Custom browser identity", Description: "Replaces the built-in identity. Leave empty for the default.",
 		Group: groupSync, Kind: "text", Surface: surfaceSettings, check: func(v any) (any, string) {
 			s, ok := v.(string)
 			if !ok || len(s) > 200 || hasControl(s) {
@@ -454,7 +454,7 @@ var settingDefs = withScopes([]settingDef{
 
 	{Key: "imgproxy.mode", Label: "Load images through Kipple", Description: "Kipple fetches each image and serves it itself, so the sites that host images never see you. \"Only insecure images\" lets your device load secure images straight from their sites.",
 		Group: groupImages, Kind: "enum", Options: imgModeOptions, Surface: surfaceSettings, check: oneOf(optValues(imgModeOptions)...)},
-	{Key: "imgproxy.cache_mb", Label: "Image cache size", Description: "Images are kept on the server so they load fast. The oldest go when the cache is full. Zero turns the cache off.",
+	{Key: "imgproxy.cache_mb", Label: "Image cache size", Description: "The oldest images go when the cache is full. Zero turns it off.",
 		Group: groupImages, Kind: "int", Min: new(0), Max: new(imgCacheMaxMB), Step: new(64), Unit: "MB", Surface: surfaceSettings, check: checkImgCacheMB},
 
 	{Key: "fetch.fulltext_all", Label: "Fetch the full article for every feed", Description: "Download each new article's page and show its full text, whatever a feed's own setting says. This uses more time and bandwidth on each check.",
@@ -496,20 +496,20 @@ var settingDefs = withScopes([]settingDef{
 		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 	{Key: "stats.week_start", Label: "First day of the week", Description: "Which day the week starts on in Stats.",
 		Group: groupStats, Kind: "enum", Options: opts("sunday", "Sunday", "monday", "Monday"), Surface: surfaceSettings, check: oneOf("sunday", "monday")},
-	{Key: "stats.wrapped_enabled", Label: "Your year", Description: "A yearly summary of your reading that you can share as an image or text. Turning it off hides it and keeps your stats.",
+	{Key: "stats.wrapped_enabled", Label: "Your year", Description: "Turning it off hides your yearly summary and keeps your stats.",
 		Group: groupStats, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
 	// Advanced: shown in an Advanced section of the Settings screen.
 	{Key: "fetch.honor_publisher_ttl", Label: "Follow publisher refresh hints", Description: "Wait longer between checks when a site asks readers not to check too often.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceSettings, check: boolVal},
-	{Key: "greader.icon_urls", Label: "Send feed icons to sync apps", Description: "Let sync apps show each feed's icon. On by default.",
+	{Key: "greader.icon_urls", Label: "Send feed icons to sync apps", Description: "On by default.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
 	// Hidden plumbing: validated and never shown by default. All are PATCH-able except catchup.seen, which only
 	// POST /api/catchup/seen writes (its check here is the default's validation, not a write path).
 	{Key: "greader.ot_includes_user_changes", Label: "Include your own changes in sync", Description: "Whether changes made in Kipple also appear as new activity to sync apps.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
-	{Key: "greader.subscribe_fetch_now", Label: "Fetch new feeds at once from sync apps", Description: "Fetch a feed immediately when a sync app subscribes to it.",
+	{Key: "greader.subscribe_fetch_now", Label: "Fetch new feeds at once from sync apps", Description: "Off by default.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
 	{Key: "ui.whats_new_seen", Label: "Last version whose changes were shown", Description: "The newest Kipple version whose \"What's new\" was shown after an upgrade. Kept for the whole account so one reader does not dismiss it on every device.",
 		Group: groupAdvanced, Kind: "text", Surface: surfaceHidden, check: func(v any) (any, string) {

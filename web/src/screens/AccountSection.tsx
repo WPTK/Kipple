@@ -69,7 +69,7 @@ function ChangePasswordDialog({ hasPassword, onDone, onClose }: { hasPassword: b
       open
       onOpenChange={(o) => !o && onClose()}
       title={hasPassword ? "Change web password" : "Set web password"}
-      description="This is the password you use to sign in to Kipple in a browser. Your sync apps use a separate app password."
+      description="Your sync apps use a separate app password."
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -226,7 +226,7 @@ function BackupDialog({ ready, onClose }: { ready: BackupInfo | null; onClose: (
         <dd>{fullDate(Date.parse(c.created_at) / 1000)}</dd>
       </dl>
       <p className="text-sm text-fg2">
-        Your browser will ask where to save it. The link works once and expires in {Math.round(info.expires_in / 60)} minutes.
+        The link works once and expires in {Math.round(info.expires_in / 60)} minutes.
       </p>
     </Modal>
   );
@@ -377,7 +377,7 @@ export function BackupSection() {
         <Button aria-disabled={busy || undefined} onClick={() => void doBackup()}>
           {busy ? "Preparing backup" : "Export backup"}
         </Button>
-        <p className="mt-1 text-xs text-fg2">Saves your feeds, articles, read and starred state and settings as one file you keep.</p>
+        <p className="mt-1 text-xs text-fg2">Your feeds, articles, read and starred state, and settings, in one file.</p>
         {backupError ? (
           <div className="mt-2">
             <Notice tone="error">{backupError}</Notice>
@@ -387,7 +387,7 @@ export function BackupSection() {
       <RestoreRow hasPassword={hasPassword} />
       <div>
         <Button variant="link" className="px-0" onClick={() => setupActions.restart()}>Run setup again</Button>
-        <p className="mt-1 text-xs text-fg2">Opens the setup steps again. Your account and feeds stay as they are.</p>
+        <p className="mt-1 text-xs text-fg2">Your account and feeds stay as they are.</p>
       </div>
       <ResetSection hasPassword={hasPassword} />
       {dialog === "backup" ? <BackupDialog ready={null} onClose={() => setDialog(null)} /> : null}

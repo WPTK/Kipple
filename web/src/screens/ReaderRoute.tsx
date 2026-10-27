@@ -334,7 +334,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
         </div>
       ) : null}
       {scope.view === "muted" ? (
-        <p className="mt-1 max-w-[25rem] text-xs text-fg2">Articles your filters muted. Restore brings one back as it was before it was muted. Muting keeps them here instead of deleting them.</p>
+        <p className="mt-1 max-w-[25rem] text-xs text-fg2">Articles your filters muted. Restore brings one back as it was before it was muted.</p>
       ) : null}
       {markAll.dialog}
     </header>

@@ -332,7 +332,7 @@ export function OpmlImportDialog({ onClose, inWizard = false }: { onClose: () =>
       open
       onOpenChange={(o) => !o && onClose()}
       title="Import OPML"
-      description="OPML is the file most feed readers export. Feeds you already have are left alone."
+      description="Feeds you already have are left alone."
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -367,14 +367,14 @@ export function OpmlImportDialog({ onClose, inWizard = false }: { onClose: () =>
       </Field>
       <Field
         label="Mark older articles as read (optional)"
-        help="A number of days, for example 7. Articles older than that arrive already read, so a big import doesn't flood Unread."
+        help="Articles older than this many days arrive already read."
         error={daysBad ? "Enter a whole number from 1 to 365, or leave empty." : null}
       >
         {(a) => <input {...a} inputMode="numeric" type="text" value={days} onChange={(e) => setDays(e.target.value)} className={inputCls} />}
       </Field>
       <Checkbox
         label="Move feeds that already exist into the file's folders"
-        help="Feeds you already have move to the folder the file puts them in. Left unticked, they stay where they are. Folders with no feeds are kept."
+        help="Left unticked, they stay where they are. Folders with no feeds are kept."
         checked={moveExisting}
         onChange={setMoveExisting}
       />

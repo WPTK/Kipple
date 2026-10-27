@@ -1,4 +1,3 @@
-import { tapVerb } from "@/lib/pointer";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Check as CheckIcon } from "lucide-react";
@@ -469,7 +468,7 @@ function EditorForm({
       onOpenChange={(o) => !o && !busy && closeFilterEditor()}
       onClosed={() => afterClose.current?.()}
       title={id ? "Edit filter" : "New filter"}
-      description="A filter looks for words in new articles as they arrive and mutes, marks read, stars or highlights the ones that match."
+      description="Looks for words in new articles as they arrive."
       footer={
         <div className="flex w-full flex-wrap items-center gap-2">
           {whyNot ? (
@@ -492,7 +491,7 @@ function EditorForm({
       {seed ? (
         <section aria-label="Suggestions from this article" className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-3">
           <p className="text-sm font-semibold">Suggestions from this article</p>
-          <p className="text-xs text-fg2">{tapVerb()} a word to add it, {tapVerb().toLowerCase()} it again to take it out. The rule starts on {seed.feedTitle} only; change that below.</p>
+          <p className="text-xs text-fg2">The rule starts on {seed.feedTitle} only; change that below.</p>
           <div className="flex flex-wrap gap-2">
             {seed.keywords.map((k) => (
               <SuggestionChip key={k} on={has(k)} label={k} name={`Word ${k}`} onToggle={() => toggleTerm(k)} />
@@ -509,9 +508,9 @@ function EditorForm({
 
       <Group legend="Where it applies" error={at("scope") ?? at("target")}>
         <div className="grid gap-2 min-[520px]:grid-cols-3">
-          <Choice name={scopeName} value="global" current={d.scope} label="Everywhere" help="Every feed" onPick={() => set({ scope: "global", folder_id: null, feed_id: null })} />
+          <Choice name={scopeName} value="global" current={d.scope} label="Everywhere" onPick={() => set({ scope: "global", folder_id: null, feed_id: null })} />
           <Choice name={scopeName} value="folder" current={d.scope} label="A folder" help="Feeds in one folder and its subfolders" onPick={() => set({ scope: "folder", feed_id: null, folder_id: d.folder_id ?? folders[0]?.id ?? null })} />
-          <Choice name={scopeName} value="feed" current={d.scope} label="A feed" help="One feed only" onPick={() => set({ scope: "feed", folder_id: null, feed_id: d.feed_id ?? feeds[0]?.id ?? null })} />
+          <Choice name={scopeName} value="feed" current={d.scope} label="A feed" onPick={() => set({ scope: "feed", folder_id: null, feed_id: d.feed_id ?? feeds[0]?.id ?? null })} />
         </div>
         {d.scope === "folder" ? (
           <Field label="Folder">
@@ -574,7 +573,7 @@ function EditorForm({
 
       <Group legend="Options" error={at("options")}>
         {regex ? null : <Checkbox label="Match whole words only" help="Ticked: cat matches “cat” but not “category”." checked={d.whole_word} onChange={(v) => set({ whole_word: v })} />}
-        <Checkbox label="Ignore capitalization" help="Ticked: Apple matches apple and APPLE." checked={!d.case_sensitive} onChange={(v) => set({ case_sensitive: !v })} />
+        <Checkbox label="Ignore capitalization" checked={!d.case_sensitive} onChange={(v) => set({ case_sensitive: !v })} />
         {regex ? null : <Checkbox label="Ignore accents" help="Ticked: cafe matches café." checked={d.fold_diacritics} onChange={(v) => set({ fold_diacritics: v })} />}
         <Checkbox
           label="Act when it does NOT match"

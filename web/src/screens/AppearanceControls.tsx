@@ -191,15 +191,14 @@ export function FontSelect({ preview = "compact" }: { preview?: "compact" | "lar
         value={p.font}
         onChange={(font) => updatePrefs({ font })}
         label={meta.label}
-        help={preview === "large" ? "Used for article text on this device." : undefined}
         preview={preview}
       />
       <Switch
         label="Also use it in lists and the sidebar"
         help={
           p.font === "default"
-            ? "Choose a reading font above to use it for lists and the sidebar too. Settings and menus keep the system font."
-            : "Also use this font for lists and the sidebar. Settings and menus keep the system font."
+            ? "Choose a reading font first."
+            : "Settings and menus keep the system font."
         }
         checked={p.fontEverywhere && p.font !== "default"}
         disabled={p.font === "default"}
@@ -214,7 +213,6 @@ export function TextSizeControl() {
   return (
     <Segmented<number>
       legend="Text size"
-      hint="Makes all text larger or smaller. Also follows your zoom."
       value={p.textSize}
       onChange={(textSize) => updatePrefs({ textSize })}
       options={TEXT_SIZES.map((v, i) => ({ value: v, label: TEXT_SIZE_LABELS[i] ?? String(v) }))}
@@ -228,7 +226,7 @@ export function DensityControl({ preview = true }: { preview?: boolean }) {
     <div className="flex flex-col gap-3">
       <Segmented<Step>
         legend="Spacing"
-        hint="How much fits on screen and how much room articles get. Cards and Gazette keep their own list spacing."
+        hint="Cards and Gazette keep their own list spacing."
         value={p.listDensity}
         onChange={(v) => updatePrefs({ listDensity: v, readingDensity: v, adjustSeparately: false })}
         options={stepOptions}
@@ -244,7 +242,6 @@ export function DensityControl({ preview = true }: { preview?: boolean }) {
         />
         <Segmented<Step>
           legend="Reading"
-          hint="How much space between lines and paragraphs."
           value={p.readingDensity}
           onChange={(readingDensity) => updatePrefs({ readingDensity, adjustSeparately: true })}
           options={stepOptions}
@@ -273,7 +270,7 @@ function HighlightToggle() {
   return (
     <Switch
       label="Highlight keywords"
-      help="Marks the words your Highlight filters look for, in lists and in articles."
+      help="In lists and articles."
       checked={on}
       onChange={(highlightKeywords) => updateDevicePrefs({ highlightKeywords })}
     />

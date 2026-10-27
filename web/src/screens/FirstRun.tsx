@@ -11,7 +11,6 @@ export function FirstRun({ onAdd, onImport }: { onAdd: () => void; onImport: () 
   return (
     <EmptyState
       title="No feeds yet"
-      why="Add a feed by its address, import an OPML file from another reader, or start from a few recommended feeds."
       action={
         <div className="flex flex-wrap justify-center gap-2">
           <Button variant="solid" onClick={onAdd}>

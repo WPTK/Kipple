@@ -1,0 +1,1 @@
+Helper text: descriptions that repeat their label, "tap" or "click" hints and reassurance are gone from Settings, Feeds, Add feed, Import, Filters, Stats and the setup steps. Reasons a control is disabled, limits and what happens to your data stay.

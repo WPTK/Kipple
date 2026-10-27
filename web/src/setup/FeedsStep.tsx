@@ -117,13 +117,13 @@ export function FeedsStep({ onDone, finishing }: { onDone: () => void; finishing
             </ul>
           </fieldset>
         ))}
-        <Checkbox label="Put each category in its own folder" help="Kipple makes a folder named after each category and files its feeds there." checked={folders} onChange={setFolders} />
+        <Checkbox label="Put each category in its own folder" checked={folders} onChange={setFolders} />
       </>
     );
   }
 
   return (
-    <WizardFrame step={stepById("feeds")} description="A few good feeds to start with, so Kipple isn't empty. Tick the ones you want. You can add, remove or move feeds any time.">
+    <WizardFrame step={stepById("feeds")} description="Tick the feeds you want. You can change them any time.">
       <div className="flex flex-1 flex-col gap-4">
         {error ? <Notice tone="error">{error}</Notice> : null}
         {list.isPending ? null : (

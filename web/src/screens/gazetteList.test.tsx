@@ -667,7 +667,7 @@ describe("the paper's name setting", () => {
     await userEvent.type(field, "The Daily Kipple");
     expect(devicePrefsStore.get().paperName).toBe("The Daily Kipple");
     expect(profileOf({ theme: themeStore.get(), prefs: prefsStore.get(), dp: devicePrefsStore.get() })["client.paper_name"]).toBe("The Daily Kipple");
-    expect(within(field.parentElement!).getByText(/Leave it empty for The Gazette/)).toBeInTheDocument();
+    expect(within(field.parentElement!).getByText(/Empty uses The Gazette/)).toBeInTheDocument();
     // A pasted line separator would break the masthead and the server would refuse it: it is not saved, and says so.
     fireEvent.change(field, { target: { value: "The Daily\u2028Kipple" } });
     expect(field).toHaveAttribute("aria-invalid", "true");

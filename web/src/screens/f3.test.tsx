@@ -391,9 +391,9 @@ describe("Add feed", () => {
     await user.click(within(dlg).getByRole("button", { name: "Options" }));
     const title = within(dlg).getByLabelText("Title (optional)");
     expect(title).toHaveAttribute("placeholder", "Filled in from the feed");
-    expect(title).toHaveAccessibleDescription(/filled in from the feed/);
+    expect(title).toHaveAccessibleDescription(/Empty uses the feed's own title/);
     await user.type(title, "Mine");
-    expect(title).toHaveAccessibleDescription(/instead of the feed's own/);
+    expect(title).toHaveAccessibleDescription(/Replaces the feed's own title/);
     await user.clear(title);
     // The limit is the server's: 200 characters, counted as code points (an emoji is one, not two UTF-16 units).
     await user.type(within(dlg).getByLabelText("Feed or website address"), "https://news.example/feed.xml");
@@ -664,14 +664,14 @@ describe("Folders and OPML", () => {
     await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/reorder").map(body)).toEqual([{ folders: ["2", "1"] }]));
   });
 
-  it("the Select help says Click, not Tap, when the main pointer is a mouse", async () => {
+  it("the Select help names the mouse shortcuts, and is empty on touch", async () => {
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("pointer: fine"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }));
     mockFetch({ "GET /api/bootstrap": () => json(bootstrap) });
     go("/feeds");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Feed actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Select feeds" }));
-    expect(await screen.findByText(/Click feeds to select them/)).toBeInTheDocument();
+    expect(await screen.findByText(/Shift-click selects a range/)).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 
@@ -935,13 +935,13 @@ describe("Folders and OPML", () => {
     const touch = go("/feeds");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Edit" }));
-    expect(await screen.findByText(/^Hold and drag a feed or folder to reorder it, or use the move buttons\. Changes are saved as you drop\./)).toBeInTheDocument();
+    expect(await screen.findByText(/^Hold and drag to reorder, or use the move buttons\. Changes save as you drop\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show move buttons" })).toBeInTheDocument();
     touch.unmount();
     pointer(true);
     go("/feeds");
     await user.click(await screen.findByRole("button", { name: "Edit" }));
-    expect(await screen.findByText(/^Drag a feed or folder to reorder it\. Changes are saved as you drop\./)).toBeInTheDocument();
+    expect(await screen.findByText(/^Drag to reorder\. Changes save as you drop\./)).toBeInTheDocument();
     expect(screen.queryByText(/Hold and drag/)).toBeNull();
   });
 

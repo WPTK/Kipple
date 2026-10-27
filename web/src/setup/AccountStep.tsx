@@ -109,7 +109,7 @@ export function AccountStep({
   const accessOk = state.access.enabled && state.access.verified;
 
   return (
-    <WizardFrame step={stepById("account")} description="Kipple has no account yet. This is the one you'll sign in with. There is only one, and it's yours.">
+    <WizardFrame step={stepById("account")} description="Create the account you will sign in with.">
       <form onSubmit={(e) => void submit(e)} className="flex flex-1 flex-col gap-5" noValidate>
         {formError ? <Notice tone="error">{formError}</Notice> : null}
         {onRestore ? (
@@ -151,7 +151,7 @@ export function AccountStep({
               <div className="flex flex-col gap-3 text-fg">
                 <PasswordField
                   label="Password"
-                  help={`At least ${MIN_PASSWORD_LEN} characters. Longer is better; a few words in a row works well. Use Show to check what you typed.`}
+                  help={`At least ${MIN_PASSWORD_LEN} characters. A few words in a row works well.`}
                   error={fieldError?.field === "password" ? fieldError.message : pwBad}
                   inputRef={pwInput}
                   name="new-password"
