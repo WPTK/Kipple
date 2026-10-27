@@ -462,7 +462,8 @@ export function stepperProblem(raw: string, min: number | undefined, max: number
 /**
  * A number with minus and plus buttons; typing works too. Not a slider. `onChange` only ever receives a
  * valid, in-range value, and only once the user has finished: on blur or Enter, or 700 ms after the last
- * keystroke or button click. Typing "120" therefore commits 120, not 1 and 12 on the way.
+ * keystroke or button click. Typing "120" therefore commits 120, not 1 and 12 on the way. A value that is not valid
+ * is not kept: the box shows the saved number again, under the reason.
  */
 export function Stepper({
   label,
@@ -504,8 +505,12 @@ export function Stepper({
     timer.current = undefined;
     pending.current = false;
     const bad = stepperProblem(raw, min, max, step);
-    setProblem(bad);
-    if (bad) return;
+    // A number that is not valid goes back to the saved one, with the reason; nothing invalid stays in the box.
+    setProblem(bad && `${bad} Kept ${latest.current.value}.`);
+    if (bad) {
+      setText(String(latest.current.value));
+      return;
+    }
     const n = Number(raw);
     if (n !== latest.current.value) latest.current.onChange(n);
   };

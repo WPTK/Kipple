@@ -829,6 +829,8 @@ describe("Settings and the Aa menu", () => {
     go("/settings/sync");
     const sw = await screen.findByRole("switch", { name: /Fetch the full article for every feed/ });
     expect(sw).not.toBeChecked();
+    // The first sentence is the help; the cost is behind More.
+    await userEvent.setup().click(screen.getByRole("button", { name: /More about Fetch the full article/ }));
     expect(screen.getByText(/more bandwidth and time on each refresh/)).toBeInTheDocument();
   });
 

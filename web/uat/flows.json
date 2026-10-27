@@ -50,6 +50,7 @@
     "state-remainders.mjs",
     "nav.mjs",
     "settings-pages.mjs",
+    "settings-save-model.mjs",
     "stats-screen.mjs",
     "catchup.mjs",
     "wizard.mjs",

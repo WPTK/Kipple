@@ -35,7 +35,7 @@ import { navItemClass } from "@/ui/navItem";
 import { Segmented } from "@/ui/segmented";
 import { BackButton } from "@/ui/BackButton";
 import { Button } from "@/ui/button";
-import { Disclosure, FieldError, Notice, RadioCard, Skeleton, Switch, inputCls } from "@/ui/kit";
+import { FieldError, Modal, Notice, RadioCard, Skeleton, Switch, inputCls } from "@/ui/kit";
 import { DensityControl, FontSelect, SpacingControl, TextSizeControl } from "./AppearanceControls";
 import { DevicesSection } from "./DevicesSection";
 import { ApplyRetentionNow } from "./RetentionDialog";
@@ -48,6 +48,7 @@ import { AutoReadCatchUp } from "./AutoReadCatchUp";
 import { ImageCachePanel } from "./ImageCachePanel";
 import { SavedSearchesSection } from "./SavedSearchesSection";
 import { SettingField } from "./SettingField";
+import { SavedMark, useSavedMark } from "./settingUi";
 import { StatsDataSection } from "./StatsDataDialogs";
 import { loadRange } from "@/lib/statsFormat";
 
@@ -127,10 +128,14 @@ export const PRESETS: Record<string, readonly { value: number; label: string }[]
   ],
 };
 
-/** Under "Mark old articles as read after": the previewed catch-up, offered again whenever the number changes. */
+/**
+ * Under "Mark old articles as read after": Preview opens a dialog that counts the older unread articles with the saved
+ * number, and holds the field for trying another number (nothing is saved) and the button that marks them.
+ */
 function AutoReadPanel({ days }: { days: number }) {
   const first = useRef(days);
   const [changed, setChanged] = useState(false);
+  const [open, setOpen] = useState(false);
   const [whatIf, setWhatIf] = useState("");
   useEffect(() => {
     if (days !== first.current) setChanged(true);
@@ -139,27 +144,38 @@ function AutoReadPanel({ days }: { days: number }) {
   const valid = trial === undefined || (Number.isInteger(trial) && trial >= 0 && trial <= 365);
   return (
     <div className="flex flex-col gap-2">
-      <AutoReadCatchUp
-        offer={changed && days > 0}
-        days={valid ? trial : undefined}
-        blockedReason={valid ? undefined : "Enter a whole number of days from 0 to 365."}
-        // A what-if number was never saved: marking with it would clear articles the saved setting keeps.
-        runBlocked={valid && trial !== undefined && trial !== days ? "That number is only a preview. Save it as the setting above first, then mark." : undefined}
-      />
-      <Disclosure label="Try a different number of days">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-semibold">Preview as if it were set to</span>
-          <input
-            inputMode="numeric"
-            value={whatIf}
-            onChange={(e) => setWhatIf(e.target.value)}
-            placeholder={`${days} (the saved value)`}
-            aria-invalid={valid ? undefined : true}
-            className={`${inputCls} w-40`}
+      {changed && days > 0 ? <p className="text-sm">Nothing was marked yet. Articles already older than this stay unread until you preview and mark them.</p> : null}
+      <Button
+        className="self-start"
+        onClick={() => {
+          setWhatIf("");
+          setOpen(true);
+        }}
+      >
+        Preview
+      </Button>
+      {open ? (
+        <Modal open onOpenChange={setOpen} title="Mark old articles as read" footer={<Button onClick={() => setOpen(false)}>Close</Button>}>
+          <AutoReadCatchUp
+            autoPreview
+            days={valid ? trial : undefined}
+            blockedReason={valid ? undefined : "Enter a whole number of days from 0 to 365."}
+            // A what-if number was never saved: marking with it would clear articles the saved setting keeps.
+            runBlocked={valid && trial !== undefined && trial !== days ? "That number is only a preview. Save it as the setting first, then mark." : undefined}
           />
-          <span className="text-xs text-fg2">Nothing is saved. Marking uses the saved setting.</span>
-        </label>
-      </Disclosure>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-semibold">Try a different number of days</span>
+            <input
+              inputMode="numeric"
+              value={whatIf}
+              onChange={(e) => setWhatIf(e.target.value)}
+              placeholder={`${days} (the saved value)`}
+              aria-invalid={valid ? undefined : true}
+              className={`${inputCls} w-40`}
+            />
+          </label>
+        </Modal>
+      ) : null}
     </div>
   );
 }
@@ -257,6 +273,7 @@ function PaperNameField() {
   const dp = useDevicePrefs();
   const id = useId();
   const [refused, setRefused] = useState<string | null>(null);
+  const mark = useSavedMark();
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className="text-sm font-semibold">
@@ -274,6 +291,7 @@ function PaperNameField() {
           if (cleanPaperName(v) !== v) return setRefused(v);
           setRefused(null);
           updateDevicePrefs({ paperName: v });
+          mark.flash();
         }}
         aria-invalid={refused !== null || undefined}
         aria-describedby={refused !== null ? `${id}-error ${id}-hint` : `${id}-hint`}
@@ -284,8 +302,9 @@ function PaperNameField() {
           The name must fit on one line: no tabs, line breaks or other control characters. It was not saved.
         </FieldError>
       ) : null}
-      <span id={`${id}-hint`} className="text-xs text-fg2">
-        Printed at the top of every Gazette page. Empty uses {DEFAULT_PAPER_NAME}.
+      <span id={`${id}-hint`} className="flex flex-wrap items-center gap-x-3 text-xs text-fg2">
+        Empty uses {DEFAULT_PAPER_NAME}.
+        <SavedMark show={mark.saved} />
       </span>
     </div>
   );
@@ -328,7 +347,6 @@ function AccessibilitySection() {
       <SpacingControl />
       <Segmented<Motion>
         legend="Reduce motion"
-        hint="Follow system uses your device setting."
         value={p.motion}
         onChange={(motion) => updatePrefs({ motion })}
         options={MOTIONS.map((m) => ({ value: m, label: MOTION_LABELS[m] }))}
@@ -372,7 +390,6 @@ function AppearancePage() {
   return (
     <>
       <Section title="Reading appearance" scope="device">
-        <p className="text-sm text-fg2">The Aa button above any list or article has the same theme, font and text size.</p>
         <ThemePicker />
         <FontSelect preview="large" />
         <TextSizeControl />
@@ -419,7 +436,6 @@ function AppearancePage() {
         <Scoped scope="device">
           <Segmented<ArticleWidth>
             legend="Article width"
-            hint="Full uses the whole pane."
             value={dp.articleWidth}
             onChange={(articleWidth) => updateDevicePrefs({ articleWidth })}
             options={ARTICLE_WIDTHS.map((w) => ({ value: w, label: ARTICLE_WIDTH_LABELS[w] }))}

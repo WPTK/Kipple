@@ -55,7 +55,7 @@ function ResetDialog({ purpose, hasPassword, envAccount, onClose }: { purpose: P
             Cancel
           </Button>
           <Button variant="danger" disabled={!ready || busy} onClick={() => void submit()}>
-            {restoring ? "Erase and choose a backup" : "Reset Kipple"}
+            {restoring ? "Erase and choose a backup" : "Erase and start over"}
           </Button>
         </>
       }

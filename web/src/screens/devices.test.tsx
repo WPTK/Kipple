@@ -140,7 +140,7 @@ describe("Settings > Devices", () => {
     });
     go();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Copy its settings here, from Safari on iPhone" }));
+    await user.click(await screen.findByRole("button", { name: /^Copy its settings here, from Safari on iPhone, last seen/ }));
     const dlg = within(await screen.findByRole("dialog", { name: "Copy settings here?" }));
     expect(dlg.getByText(/replaces this device's own settings/)).toBeInTheDocument();
     expect(calls.some((c) => c.method === "POST")).toBe(false); // nothing until confirmed
@@ -173,7 +173,7 @@ describe("Settings > Devices", () => {
     const user = userEvent.setup();
     await screen.findByRole("list", { name: "Your devices" });
     expect(screen.queryByRole("button", { name: /Forget the owner's laptop/ })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Forget Safari on iPhone" }));
+    await user.click(screen.getByRole("button", { name: /^Forget Safari on iPhone, last seen/ }));
     await user.click(within(await screen.findByRole("dialog", { name: "Forget this device?" })).getByRole("button", { name: "Forget device" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url.pathname === "/api/devices/phone")).toBe(true));
   });
@@ -186,8 +186,8 @@ describe("Settings > Devices", () => {
     });
     go();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Reset this device to defaults" }));
-    await user.click(within(await screen.findByRole("dialog", { name: "Reset this device to defaults?" })).getByRole("button", { name: "Reset this device" }));
+    await user.click(await screen.findByRole("button", { name: "Reset this device's settings" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "Reset this device's settings?" })).getByRole("button", { name: "Reset this device's settings" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.url.pathname === "/api/device/copy-from/defaults")).toBe(true));
     await waitFor(() => expect(prefsStore.get().font).toBe("default"));
   });

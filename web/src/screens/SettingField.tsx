@@ -6,7 +6,7 @@ import { RetentionDialog } from "./RetentionDialog";
 import { Segmented } from "@/ui/segmented";
 import { Button } from "@/ui/button";
 import { Field, FieldError, Modal, Stepper, Switch, inputCls } from "@/ui/kit";
-import { announce } from "@/shell/toasts";
+import { HelpText, SavedMark, useSavedMark } from "./settingUi";
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -14,7 +14,9 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  * One setting, rendered from the server's metadata: a switch for bool, segmented buttons (up to 4 options)
  * or a select for enum, a stepper for int, a text box for text. `json` is never shown. Changes are sent as a
  * PATCH with an optimistic update; a 400 puts the server's message next to the control, and
- * "Reset to default" sends null.
+ * "Reset to default" sends null. One save model for all of them: a switch, a choice or a number saves the moment it
+ * changes, a text box saves with its Save button (Revert puts the saved text back), and each shows the same visible
+ * "Saved" when the server has it. A number that is not valid goes back to the saved value, with the reason.
  */
 export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: readonly { value: number; label: string }[] }) {
   const patch = usePatchSettings();
@@ -30,6 +32,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
   // A lower number of articles to keep: the dialog that says how many articles that removes.
   const [trim, setTrim] = useState<{ value: unknown } | null>(null);
   const queued = useRef<{ value: unknown } | null>(null);
+  const mark = useSavedMark();
 
   if (meta.kind === "json") return null;
 
@@ -42,6 +45,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
     }
     inflight.current = true;
     setError(null);
+    mark.hide();
     patch.mutateAsync({ [meta.key]: value }).then(
       () => {
         inflight.current = false;
@@ -49,7 +53,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
         queued.current = null;
         if (next) return send(next.value);
         setDraft(null);
-        announce(`${meta.label} saved`);
+        mark.flash();
       },
       (e: unknown) => {
         inflight.current = false;
@@ -58,6 +62,8 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
         if (next) return send(next.value);
         const bad = settingsIssues(e)?.issues.find((i) => i.key === meta.key);
         setError(bad ? bad.message : errorMessage(e));
+        // A refused number or choice shows the saved value again; only a text box keeps what was typed, to be fixed.
+        if (meta.kind !== "text") setDraft(null);
       },
     );
   };
@@ -76,7 +82,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
   };
 
   const isDefault = same(meta.value, meta.default);
-  const help = meta.description;
+  const help = <HelpText text={meta.description} label={meta.label} />;
   const describedBy = [`${uid}-h`, error ? `${uid}-e` : ""].filter(Boolean).join(" ");
 
   let control;
@@ -158,22 +164,51 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
       );
       break;
     }
-    default:
+    default: {
+      const changed = draft !== String(meta.value ?? "");
       control = (
-        <Field label={meta.label} help={help} error={error}>
-          {(a) => (
-            <input
-              {...a}
-              type="text"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={() => draft !== String(meta.value ?? "") && send(draft)}
-              onKeyDown={(e) => e.key === "Enter" && draft !== String(meta.value ?? "") && send(draft)}
-              className={inputCls}
-            />
-          )}
-        </Field>
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (changed) send(draft);
+          }}
+        >
+          <Field label={meta.label} help={help} error={error}>
+            {(a) => (
+              <input
+                {...a}
+                type="text"
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  setError(null);
+                  mark.hide();
+                }}
+                className={inputCls}
+              />
+            )}
+          </Field>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="submit" aria-label={`Save ${meta.label}`} disabled={!changed || patch.isPending}>
+              {patch.isPending ? "Saving" : "Save"}
+            </Button>
+            {changed ? (
+              <Button
+                variant="ghost"
+                aria-label={`Revert ${meta.label}`}
+                onClick={() => {
+                  setDraft(null);
+                  setError(null);
+                }}
+              >
+                Revert
+              </Button>
+            ) : null}
+          </div>
+        </form>
       );
+    }
   }
 
   return (
@@ -215,11 +250,14 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
           }
         />
       ) : null}
-      {!isDefault ? (
-        <Button variant="link" className="min-h-11 self-start px-0" aria-label={`Reset ${meta.label} to default`} onClick={() => ask(null)}>
-          Reset to default
-        </Button>
-      ) : null}
+      <div className="flex flex-wrap items-center gap-x-4">
+        {!isDefault ? (
+          <Button variant="link" className="min-h-11 px-0" aria-label={`Reset ${meta.label} to default`} onClick={() => ask(null)}>
+            Reset to default
+          </Button>
+        ) : null}
+        <SavedMark show={mark.saved} />
+      </div>
     </div>
   );
 }

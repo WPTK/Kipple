@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { generateApiPassword, useSettings } from "@/api/admin";
 import { useBootstrap } from "@/api/queries";
 import { announce, toast } from "@/shell/toasts";
@@ -8,6 +8,16 @@ import { accountError } from "./AccountSection";
 
 /** The path a Google Reader compatible app is pointed at. */
 const SYNC_PATH = "/api/greader.php";
+
+/** A long address with a break allowed after each slash and dot, so it wraps between parts and not in the middle of one. */
+function breakable(value: string): ReactNode {
+  return value.split(/(?<=[/.])/).map((part, i) => (
+    <Fragment key={i}>
+      {i > 0 ? <wbr /> : null}
+      {part}
+    </Fragment>
+  ));
+}
 
 /** One value for a sync app's form, with the button that copies it. */
 function CopyRow({ label, value }: { label: string; value: string }) {
@@ -25,8 +35,8 @@ function CopyRow({ label, value }: { label: string; value: string }) {
     <div className="flex flex-col gap-1">
       <span className="text-sm font-semibold">{label}</span>
       <div className="flex items-center gap-2">
-        <code data-testid={`sync-${label.toLowerCase()}`} className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2 font-mono text-sm break-all select-all">
-          {value}
+        <code data-testid={`sync-${label.toLowerCase()}`} className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2 font-mono text-sm break-words select-all">
+          {breakable(value)}
         </code>
         <Button aria-label={`Copy ${label.toLowerCase()}`} onClick={() => void copy()}>
           {copied ? "Copied" : "Copy"}

@@ -8,12 +8,15 @@ import { copySettingsFrom, makeThisDeviceDefault, syncStore } from "@/lib/device
 import { useStore } from "@/lib/store";
 import { whenLabel } from "@/lib/format";
 import { announce, toast } from "@/shell/toasts";
+import { SavedMark, useSavedMark } from "./settingUi";
 import { Button } from "@/ui/button";
 import { FieldError, Modal, Notice, inputCls } from "@/ui/kit";
 
 const KIND_ICON = { phone: Smartphone, tablet: Tablet, computer: Monitor };
 
 const label = (d: DeviceRow): string => d.name || describeUserAgent(d.user_agent, d.client);
+/** What tells two devices of the same kind apart in a button's name: when it was last seen, or that it is this one. */
+const tagged = (d: DeviceRow): string => `${label(d)}, ${d.current ? "this device" : `last seen ${whenLabel(d.last_seen_at).toLowerCase()}`}`;
 
 type Confirm = { kind: "copy"; from: DeviceRow } | { kind: "delete"; device: DeviceRow } | { kind: "default" } | { kind: "reset" } | { kind: "lists" };
 
@@ -24,16 +27,18 @@ function ThisDeviceName({ device }: { device: DeviceRow }) {
   const [typed, setTyped] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const mark = useSavedMark();
   const value = typed ?? device.name;
   const dirty = typed !== null && typed.trim() !== device.name;
   const save = async () => {
     setBusy(true);
     setError(null);
+    mark.hide();
     try {
       await renameDevice(typed?.trim() ?? "");
       setTyped(null);
       await qc.invalidateQueries({ queryKey: devicesKey });
-      announce("Device name saved");
+      mark.flash();
     } catch (e) {
       setError(e instanceof ApiError && typeof e.body?.message === "string" ? e.body.message : errorMessage(e));
     } finally {
@@ -59,13 +64,29 @@ function ThisDeviceName({ device }: { device: DeviceRow }) {
           placeholder={describeUserAgent(device.user_agent, device.client)}
           aria-describedby={error ? `${id}-h ${id}-e` : `${id}-h`}
           aria-invalid={error ? true : undefined}
-          onChange={(e) => setTyped(e.target.value)}
+          onChange={(e) => {
+            setTyped(e.target.value);
+            setError(null);
+            mark.hide();
+          }}
           className={inputCls}
         />
         <Button type="submit" disabled={!dirty || busy}>
           Save name
         </Button>
+        {dirty ? (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setTyped(null);
+              setError(null);
+            }}
+          >
+            Revert
+          </Button>
+        ) : null}
       </div>
+      <SavedMark show={mark.saved} />
       <p id={`${id}-h`} className="text-xs text-fg2">
         Leave empty to use a description of the browser.
       </p>
@@ -95,11 +116,11 @@ function DeviceItem({ d, unsaved, onCopy, onForget }: { d: DeviceRow; unsaved: b
       {d.current ? null : (
         <div className="flex flex-wrap gap-2">
           {unsaved ? null : (
-            <Button onClick={onCopy} aria-label={`Copy its settings here, from ${label(d)}`}>
+            <Button onClick={onCopy} aria-label={`Copy its settings here, from ${tagged(d)}`}>
               Copy its settings here
             </Button>
           )}
-          <Button variant="danger" onClick={onForget} aria-label={`Forget ${label(d)}`}>
+          <Button variant="danger" onClick={onForget} aria-label={`Forget ${tagged(d)}`}>
             Forget
           </Button>
         </div>
@@ -152,9 +173,9 @@ function confirmCopy(c: Confirm): { title: string; body: string; action: string 
       };
     case "reset":
       return {
-        title: "Reset this device to defaults?",
+        title: "Reset this device's settings?",
         body: "This clears every choice made on this device (theme, font, layout, keyboard and the rest) so it uses the defaults again. Your feeds, articles and other devices are not touched.",
-        action: "Reset this device",
+        action: "Reset this device's settings",
       };
     case "lists":
       return {
@@ -248,7 +269,7 @@ export function DevicesSection() {
           </div>
           <div className="flex flex-col items-start gap-1">
             <Button variant="danger" onClick={() => setConfirm({ kind: "reset" })}>
-              Reset this device to defaults
+              Reset this device's settings
             </Button>
             {lists > 0 ? (
               <Button variant="link" className="min-h-11 px-0" onClick={() => setConfirm({ kind: "lists" })}>

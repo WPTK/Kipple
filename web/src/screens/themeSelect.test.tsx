@@ -12,10 +12,10 @@ afterEach(() => act(() => themeStore.set({ ...DEFAULT_THEME_SETTINGS })));
 const show = () => render(<ThemeSelect />);
 
 describe("the reading menu's theme select", () => {
-  it("lists Follow system, then On a schedule, before the schemes", () => {
+  it("lists Follow device, then On a schedule, before the schemes", () => {
     show();
     const opts = Array.from((screen.getByLabelText("Theme") as HTMLSelectElement).options).map((o) => o.textContent);
-    expect(opts.slice(0, 2)).toEqual(["Follow system", "On a schedule"]);
+    expect(opts.slice(0, 2)).toEqual(["Follow device", "On a schedule"]);
   });
 
   it("shows and sets the schedule without touching its times or the day and night picks", () => {

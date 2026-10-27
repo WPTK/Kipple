@@ -27,7 +27,7 @@ what people see.
 - Keep **both Paper and Linen**. Add a **gray** theme with a paper-themed name (candidate: Newsprint).
 - Add more schemes: some accessibility-friendly (color-blind-safe accents, cream/low-glare, high-contrast
   dark), some purely pretty and legible. Paper-themed names preferred. (Resolved: 20 schemes shipped, see Round 2 and `web/src/theme/schemes.json`.)
-- **Follow system** stays. Default pair when no custom pair is chosen: Paper (day) / Midnight (night)
+- **Follow device** (once called Follow system) stays. Default pair when no custom pair is chosen: Paper (day) / Midnight (night)
   (the owner wrote "paper/onyx"; Onyx was Midnight's alternate name, so Midnight is assumed. Confirm). An
   option lets the owner pick any custom day theme and night theme for follow-system.
 - Midnight text `#e0e0e0` is bright enough. **No image dimming** in dark themes.

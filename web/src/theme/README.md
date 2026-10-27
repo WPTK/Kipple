@@ -18,7 +18,7 @@ from it: [`css.ts`](./css.ts) emits one `:root[data-theme="<id>"]` block per sch
   script reads. The schedule is a flag under follow, not a third mode, so an older build (in another tab, or a client
   that syncs the profile) passes it through: it reads follow-system and never writes the flag, and a cache it writes
   keeps this tab's schedule fields (missing fields keep the current values).
-- **Follow system** resolves `prefers-color-scheme`: default day Paper, night Midnight. The Day and Night
+- **Follow device** resolves `prefers-color-scheme`: default day Paper, night Midnight. The Day and Night
   pickers accept **any** scheme (a dark day theme or a light night theme is allowed).
 - **On a schedule** uses the same Day and Night pickers but switches at two times of day ("Night starts", default
   21:00; "Day starts", default 07:00) on the device's own clock, whatever the OS reports. Night runs from its start
@@ -33,11 +33,11 @@ from it: [`css.ts`](./css.ts) emits one `:root[data-theme="<id>"]` block per sch
   `script-src 'self'` CSP needs no hash. `theme.test.ts` evaluates it against `resolveTheme()`.
 - **Live meta theme-color.** `applyTheme()` (in `theme.ts`) updates the same tag on every pick, every
   OS appearance change and every scheduled switch. `index.html` keeps Paper/Midnight media-qualified tags as the first-paint fallback.
-- **Picker.** Follow system and On a schedule first (the Day and Night selects, plus the two times on a schedule,
-  show under them), then a short featured list (Paper, Linen, Newsprint, Graphite, Midnight),
-  the rest under "More themes", and the accessibility group collapsed under its own fold.
+- **Picker.** A mode control first (One theme, Follow device, On a schedule). One theme shows a short featured list
+  (Paper, Linen, Newsprint, Graphite, Midnight) with the rest, accessibility schemes included, under "More themes".
+  The other two modes show a Day and a Night grid of the same shape, plus the two times on a schedule.
   The offered schemes are narrowed to the ids the server lists in the `ui.theme_day` options
-  (`theme/serverThemes.ts`), and the fold is labelled "Accessibility themes". The Aa menu has a compact grouped select
+  (`theme/serverThemes.ts`). The Aa menu has a compact grouped select
   of every theme with "Follow system" and "On a schedule" first. Unread state is always a dot plus a bold title, never color alone.
 
 ## Changes from the round-2 research (the owner's decisions)
