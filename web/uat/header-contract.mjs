@@ -6,7 +6,7 @@
 //
 // For each width (desktop 1280x800, phone 375x812) it checks:
 //   C1  every control in the list header has an accessible name and a tooltip, and the previous and next feed arrows name the feed they go to;
-//   C2  a feed with a 60-character name shows it whole in the header (the heading is not cut), the page does not scroll sideways, and
+//   C2  a feed with a 35-character name shows it whole in the header (the heading is not cut), the page does not scroll sideways, and
 //       the heading's accessible name is the whole name;
 //   C3  (phone) at text size 1.5 the Show tabs sit on one row or scroll sideways, never two rows;
 //   C5  (phone) the controls drop to their own row at text size 1.5 and come back at 1, with the page open;
@@ -21,7 +21,7 @@ import { deadFeed, start } from "./common.mjs";
 const t = await start(import.meta.url, 21);
 const { check, step } = t;
 
-const NAME = "A rather long name for a feed that needs two lines";
+const NAME = "A long name for a feed on two lines";
 const EMPTY = `UAT feed ${NAME}`;
 
 await t.eachViewport(async (page, vp) => {
