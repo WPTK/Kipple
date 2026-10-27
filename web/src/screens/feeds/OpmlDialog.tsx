@@ -331,7 +331,7 @@ export function OpmlImportDialog({ onClose, inWizard = false }: { onClose: () =>
     <Modal
       open
       onOpenChange={(o) => !o && onClose()}
-      title="Import OPML"
+      title="Import feeds from a file (OPML)"
       description="Feeds you already have are left alone."
       footer={
         <>

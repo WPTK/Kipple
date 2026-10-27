@@ -1,5 +1,5 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { lazyScreen } from "@/lib/lazyScreen";
 import { useQueryClient } from "@tanstack/react-query";
@@ -350,38 +350,71 @@ export function HealthScreen() {
   // Retry now fetches the selected feeds that are not paused, one at a time (a paused feed is resumed, not retried),
   // and says how many still fail, are still fetching, or were skipped for being paused. One toast at the end, not one
   // per feed.
-  const [retrying, setRetrying] = useState(false);
+  const [retry, setRetry] = useState<{ done: number; total: number } | null>(null);
+  const retrying = retry !== null;
+  const [stopping, setStopping] = useState(false);
+  // Stop and leaving the screen both abort the run; `mounted` tells them apart (only Stop reports back).
+  const stop = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      stop.current?.abort();
+    };
+  }, []);
   const retryable = useMemo(() => (h.data?.feeds ?? []).filter((f) => shownSel.has(f.id) && f.enabled), [h.data?.feeds, shownSel]);
   const pausedTicked = useMemo(() => (h.data?.feeds ?? []).filter((f) => shownSel.has(f.id) && !f.enabled).length, [h.data?.feeds, shownSel]);
   const retrySelected = async () => {
-    setRetrying(true);
+    const run = new AbortController();
+    stop.current = run;
+    const list = retryable;
+    setRetry({ done: 0, total: list.length });
+    let done = 0;
     let stillFailing = 0;
     let stillFetching = 0;
+    let unreached: unknown = null;
     try {
-      for (const f of retryable) {
+      for (const f of list) {
+        if (run.signal.aborted) break;
         try {
           const r = await refreshFeed(f.id);
           if (r.pending) stillFetching++;
           else if (r.error) stillFailing++;
-        } catch {
-          stillFailing++;
+        } catch (e) {
+          // A feed's own failure comes back as an outcome. An error instead (the request never reached Kipple, the
+          // session expired, Kipple is busy or down) says nothing about the feed: end the run, do not blame the rest.
+          // Only a feed deleted meanwhile (404) is skipped.
+          if (e instanceof ApiError && e.status === 404) {
+            stillFailing++;
+          } else {
+            unreached = e;
+            break;
+          }
         }
+        done++;
+        if (mounted.current) setRetry({ done, total: list.length });
       }
     } finally {
-      setRetrying(false);
+      stop.current = null;
       invalidateFeeds(qc);
     }
-    const n = retryable.length;
-    toast(
-      [
-        `Retried ${n} feed${n === 1 ? "" : "s"}.`,
+    if (!mounted.current) return;
+    setRetry(null);
+    setStopping(false);
+    const n = list.length;
+    const text = [
+        unreached ? failed(`retry the other ${n - done} feed${n - done === 1 ? "" : "s"}`, unreached) : "",
+        run.signal.aborted && done < n ? "Stopped." : "",
+        done === n ? `Retried ${n} feed${n === 1 ? "" : "s"}.` : `Retried ${done} of ${n} feeds.`,
         stillFailing > 0 ? `${stillFailing} still can't be fetched.` : "",
         stillFetching > 0 ? `${stillFetching} still fetching.` : "",
         pausedTicked > 0 ? `${pausedTicked} paused feed${pausedTicked === 1 ? "" : "s"} skipped.` : "",
       ]
-        .filter(Boolean)
-        .join(" "),
-    );
+      .filter(Boolean)
+      .join(" ");
+    if (unreached) toast(text, "error");
+    else toast(text);
   };
   const th = (k: SortKey) => (
     <th scope="col" aria-sort={sort === k ? (dir === 1 ? "ascending" : "descending") : "none"} className="px-3 py-2 text-left font-semibold">
@@ -560,11 +593,14 @@ export function HealthScreen() {
                 {feeds.map((f) => (
                   <li key={f.id} className="rounded-xl border border-line bg-surface p-3">
                     <div className="flex items-start gap-2">
-                      {selecting ? (
-                        <label className="hit-row -my-1 -ml-2 inline-flex shrink-0 items-center justify-center">
-                          <CheckboxBox aria-label={`Select ${f.title}`} checked={sel.has(f.id)} onChange={() => check(f.id)} />
-                        </label>
-                      ) : null}
+                      {/* The slot is there with Select off too, so the names do not move when it is turned on. */}
+                      <div aria-hidden={selecting ? undefined : true} className="-my-1 -ml-2 flex w-11 shrink-0 justify-center">
+                        {selecting ? (
+                          <label className="hit-row inline-flex items-center justify-center">
+                            <CheckboxBox aria-label={`Select ${f.title}`} checked={sel.has(f.id)} onChange={() => check(f.id)} />
+                          </label>
+                        ) : null}
+                      </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-semibold">{f.title}</p>
                         <p className="truncate text-xs text-fg2">{f.url}</p>
@@ -602,18 +638,40 @@ export function HealthScreen() {
           <Button onClick={() => setSel(new Set([...sel, ...shownIds]))} disabled={feeds.length === 0 || allShownSelected}>
             Select all
           </Button>
-          <Button onClick={() => void retrySelected()} disabled={retrying || retryable.length === 0} aria-busy={retrying}>
-            {retrying ? "Retrying" : "Retry now"}
-          </Button>
-          <Button onClick={() => setBulk("enable")} disabled={shownSel.size === 0}>
+          {retry ? (
+            <>
+              <span role="status" className="text-sm">
+                {stopping ? "Stopping" : `Retrying ${Math.min(retry.done + 1, retry.total)} of ${retry.total}`}
+              </span>
+              <Button
+                disabled={stopping}
+                onClick={() => {
+                  setStopping(true);
+                  stop.current?.abort();
+                }}
+              >
+                {stopping ? "Stopping" : "Stop"}
+              </Button>
+            </>
+          ) : (
+            <Button onClick={() => void retrySelected()} disabled={retryable.length === 0} aria-describedby={retryable.length === 0 && pausedTicked > 0 ? "retry-why" : undefined}>
+              Retry now
+            </Button>
+          )}
+          <Button onClick={() => setBulk("enable")} disabled={shownSel.size === 0 || retrying}>
             Resume
           </Button>
-          <Button onClick={() => setBulk("disable")} disabled={shownSel.size === 0}>
+          <Button onClick={() => setBulk("disable")} disabled={shownSel.size === 0 || retrying}>
             Pause
           </Button>
-          <Button variant="danger" onClick={() => setBulk("delete")} disabled={shownSel.size === 0}>
+          <Button variant="danger" onClick={() => setBulk("delete")} disabled={shownSel.size === 0 || retrying}>
             Delete
           </Button>
+          {!retrying && retryable.length === 0 && pausedTicked > 0 ? (
+            <p id="retry-why" className="basis-full text-xs text-fg2">
+              Paused feeds are not retried. Resume them first.
+            </p>
+          ) : null}
         </BottomBar>
       ) : null}
       {log ? <LogDialog feed={log} onClose={() => setLog(null)} /> : null}

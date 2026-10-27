@@ -489,7 +489,7 @@ describe("Add feed", () => {
     });
     go("/l/unread");
     expect(await screen.findByRole("button", { name: "Add your first feed" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Import OPML" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Import feeds from a file (OPML)" })).toBeInTheDocument();
   });
 });
 
@@ -710,13 +710,13 @@ describe("Folders and OPML", () => {
     mockFetch({ "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [] }) });
     go("/feeds");
     const user = userEvent.setup();
-    const btn = await screen.findByRole("button", { name: "Import OPML" });
+    const btn = await screen.findByRole("button", { name: "Import feeds from a file (OPML)" });
     await user.click(btn);
     await screen.findByRole("dialog");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await new Promise((r) => setTimeout(r, 150)); // the focus retry runs for a moment
-    expect(screen.getByRole("button", { name: "Import OPML" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Import feeds from a file (OPML)" })).toHaveFocus();
   });
 
   it("with no feeds, a folder you made is still listed", async () => {
@@ -750,7 +750,7 @@ describe("Folders and OPML", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Feed actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Import feeds from a file (OPML)" }));
-    const dlg = await screen.findByRole("dialog", { name: "Import OPML" });
+    const dlg = await screen.findByRole("dialog", { name: "Import feeds from a file (OPML)" });
     await user.upload(within(dlg).getByLabelText("OPML file"), new File(["<opml/>"], "feeds.opml", { type: "text/xml" }));
     await user.type(within(dlg).getByLabelText(/Mark older articles as read/), "7");
     await user.click(within(dlg).getByRole("button", { name: "Import" }));
@@ -777,7 +777,7 @@ describe("Folders and OPML", () => {
     const user = userEvent.setup({ applyAccept: false });
     await user.click(await screen.findByRole("button", { name: "Feed actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Import feeds from a file (OPML)" }));
-    const dlg = await screen.findByRole("dialog", { name: "Import OPML" });
+    const dlg = await screen.findByRole("dialog", { name: "Import feeds from a file (OPML)" });
     await user.upload(within(dlg).getByLabelText("OPML file"), new File(["<opml/>"], "feeds.opml", { type: "text/xml" }));
     await user.click(within(dlg).getByRole("button", { name: "Import" }));
     const done = await screen.findByRole("dialog", { name: "Import finished" });
@@ -805,7 +805,7 @@ describe("Folders and OPML", () => {
     const user = userEvent.setup({ applyAccept: false });
     await user.click(await screen.findByRole("button", { name: "Feed actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Import feeds from a file (OPML)" }));
-    const dlg = await screen.findByRole("dialog", { name: "Import OPML" });
+    const dlg = await screen.findByRole("dialog", { name: "Import feeds from a file (OPML)" });
     await user.upload(within(dlg).getByLabelText("OPML file"), new File(["<opml/>"], "feeds.opml", { type: "text/xml" }));
     await user.click(within(dlg).getByRole("button", { name: "Import" }));
     const done = await screen.findByRole("dialog", { name: "Import finished" });
@@ -842,7 +842,7 @@ describe("Folders and OPML", () => {
     const user = userEvent.setup({ applyAccept: false });
     await user.click(await screen.findByRole("button", { name: "Feed actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Import feeds from a file (OPML)" }));
-    const dlg = await screen.findByRole("dialog", { name: "Import OPML" });
+    const dlg = await screen.findByRole("dialog", { name: "Import feeds from a file (OPML)" });
     await user.upload(within(dlg).getByLabelText("OPML file"), new File(["<opml/>"], "feeds.opml", { type: "text/xml" }));
     await user.click(within(dlg).getByRole("button", { name: "Import" }));
     const done = await screen.findByRole("dialog", { name: "Import finished" });
@@ -868,7 +868,7 @@ describe("Folders and OPML", () => {
     const user = userEvent.setup({ applyAccept: false });
     await user.click(await screen.findByRole("button", { name: "Feed actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Import feeds from a file (OPML)" }));
-    const dlg = await screen.findByRole("dialog", { name: "Import OPML" });
+    const dlg = await screen.findByRole("dialog", { name: "Import feeds from a file (OPML)" });
     await user.upload(within(dlg).getByLabelText("OPML file"), new File(["<opml/>"], "feeds.opml", { type: "text/xml" }));
     await user.click(within(dlg).getByRole("button", { name: "Import" }));
     const done = await screen.findByRole("dialog", { name: "Import finished" });
@@ -884,7 +884,7 @@ describe("Folders and OPML", () => {
     const user = userEvent.setup({ applyAccept: false });
     await user.click(await screen.findByRole("button", { name: "Feed actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Import feeds from a file (OPML)" }));
-    const dlg = await screen.findByRole("dialog", { name: "Import OPML" });
+    const dlg = await screen.findByRole("dialog", { name: "Import feeds from a file (OPML)" });
     const pick = within(dlg).getByLabelText("OPML file");
     expect(pick.getAttribute("accept")).toContain("*/*");
     // Not OPML at all: a clear message, and Import stays off.
@@ -1272,7 +1272,7 @@ describe("Feed health", () => {
     toast.mockRestore();
   });
 
-  it("a refresh that errors counts as still failing and the others are still retried", async () => {
+  it("an error that is not a feed's own outcome (Kipple down, session expired) ends the run and is not counted as a failed feed", async () => {
     const toast = vi.spyOn(toasts, "toast");
     const { calls } = base({
       "GET /api/health/feeds": () => json(HEALTH),
@@ -1287,9 +1287,65 @@ describe("Feed health", () => {
     await user.click(screen.getByRole("button", { name: "Select" }));
     await user.click(screen.getByRole("button", { name: "Select all" }));
     await user.click(screen.getByRole("button", { name: "Retry now" }));
-    await waitFor(() => expect(toast).toHaveBeenCalledWith("Retried 3 feeds. 1 still can't be fetched."));
-    expect(calls.filter((c) => c.method === "POST")).toHaveLength(3);
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+    const [text, tone] = toast.mock.calls[0]!;
+    expect(tone).toBe("error");
+    expect(text).toMatch(/^Couldn't retry the other 3 feeds\./);
+    expect(text).not.toContain("still can't be fetched");
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
     toast.mockRestore();
+  });
+
+  it("leaving the screen stops the run: no more feeds are fetched and no toast follows", async () => {
+    const toast = vi.spyOn(toasts, "toast");
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    const { calls } = base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "POST /api/feeds/1/refresh": async () => {
+        await held;
+        return json({ outcome: "ok", new_items: 0 });
+      },
+    });
+    const view = go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Retry now" }));
+    await screen.findByText("Retrying 1 of 3");
+    view.unmount();
+    release();
+    await waitFor(() => expect(calls.filter((c) => c.method === "POST")).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+    expect(toast).not.toHaveBeenCalled();
+    toast.mockRestore();
+  });
+
+  it("after Stop the bar says Stopping and the button is off", async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "POST /api/feeds/1/refresh": async () => {
+        await held;
+        return json({ outcome: "ok", new_items: 0 });
+      },
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Retry now" }));
+    await user.click(await screen.findByRole("button", { name: "Stop" }));
+    expect(screen.getByRole("button", { name: "Stopping" })).toBeDisabled();
+    expect(screen.queryByText(/^Retrying \d of/)).not.toBeInTheDocument();
+    release();
+    expect(await screen.findByRole("button", { name: "Retry now" })).toBeEnabled();
   });
 
   it("a refresh the server answers with pending is still fetching, not a success, and the button is busy meanwhile", async () => {
@@ -1312,11 +1368,79 @@ describe("Feed health", () => {
     await user.click(screen.getByRole("button", { name: "Select" }));
     await user.click(screen.getByRole("button", { name: "Select all" }));
     await user.click(screen.getByRole("button", { name: "Retry now" }));
-    expect(await screen.findByRole("button", { name: "Retrying" })).toHaveAttribute("aria-busy", "true");
+    expect(await screen.findByText("Retrying 1 of 3")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
     release();
     await waitFor(() => expect(toast).toHaveBeenCalledWith("Retried 3 feeds. 1 still fetching."));
-    expect(screen.getByRole("button", { name: "Retry now" })).toHaveAttribute("aria-busy", "false");
+    expect(await screen.findByRole("button", { name: "Retry now" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
     toast.mockRestore();
+  });
+
+  it("a request that never reaches Kipple ends the run and is not counted as a failed feed", async () => {
+    const toast = vi.spyOn(toasts, "toast");
+    const { calls } = base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "POST /api/feeds/1/refresh": () => json({ outcome: "ok", new_items: 0 }),
+      "POST /api/feeds/2/refresh": () => {
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Retry now" }));
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+    const [text, tone] = toast.mock.calls[0]!;
+    expect(tone).toBe("error");
+    expect(text).toMatch(/^Couldn't retry the other 2 feeds\./);
+    expect(text).toContain("Retried 1 of 3 feeds.");
+    expect(text).not.toContain("still can't be fetched");
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(2);
+    toast.mockRestore();
+  });
+
+  it("Stop ends the run after the feed in flight", async () => {
+    const toast = vi.spyOn(toasts, "toast");
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    const { calls } = base({
+      "GET /api/health/feeds": () => json(HEALTH),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+      "POST /api/feeds/1/refresh": async () => {
+        await held;
+        return json({ outcome: "ok", new_items: 0 });
+      },
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(screen.getByRole("button", { name: "Retry now" }));
+    await user.click(await screen.findByRole("button", { name: "Stop" }));
+    release();
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Stopped. Retried 1 of 3 feeds."));
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+    toast.mockRestore();
+  });
+
+  it("with only paused feeds ticked, Retry now is off and says why", async () => {
+    base({
+      "GET /api/health/feeds": () => json({ ...HEALTH, feeds: HEALTH.feeds.map((f) => ({ ...f, enabled: false })) }),
+      "GET /api/bootstrap": () => json({ ...bootstrap, feeds: HEALTH_BOOTSTRAP_FEEDS }),
+    });
+    go("/health");
+    const user = userEvent.setup();
+    await screen.findByRole("heading", { name: "Feed health" });
+    await user.click(screen.getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    expect(screen.getByRole("button", { name: "Retry now" })).toBeDisabled();
+    expect(screen.getByText("Paused feeds are not retried. Resume them first.")).toBeInTheDocument();
   });
 
   it("with no feeds, Feed health offers to add one instead of an empty table", async () => {

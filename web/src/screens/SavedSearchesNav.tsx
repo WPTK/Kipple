@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import { savedOpenStore, setSavedOpen } from "@/lib/searchPrefs";
 import { useStore } from "@/lib/store";
 import { Icon } from "@/ui/Icon";
+import { CountBadge } from "@/ui/UnreadCount";
 
 const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 
@@ -14,21 +15,9 @@ const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection
 function SavedCount({ s }: { s: SavedSearch }) {
   const label = unreadLabel(s);
   if (s.unread === undefined) return null;
-  if (label === null) {
-    return (
-      <span data-testid="saved-count" className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-xs font-semibold text-fg2">
-        <span aria-hidden="true">–</span>
-        <span className="sr-only-live">Unread count unavailable</span>
-      </span>
-    );
-  }
+  if (label === null) return <CountBadge n="–" testid="saved-count" after={<span className="sr-only-live"> Unread count unavailable</span>} />;
   if (s.unread === 0) return null;
-  return (
-    <span data-testid="saved-count" className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-xs font-semibold text-fg2 tabular-nums">
-      <span className="sr-only-live">Unread </span>
-      {label}
-    </span>
-  );
+  return <CountBadge n={label} testid="saved-count" before={<span className="sr-only-live">Unread </span>} />;
 }
 
 /**

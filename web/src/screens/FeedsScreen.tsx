@@ -6,7 +6,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, ListFilter, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
 import { createFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
-import { ApiError, errorMessage } from "@/api/client";
+import { ApiError, errorMessage, failed } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import type { Bootstrap, Feed, Folder } from "@/api/types";
 import { useDevicePrefs } from "@/lib/devicePrefs";
@@ -371,7 +371,7 @@ export function FeedsScreen() {
     }
   };
   /** Save a new tree from a drop or a move button: a refusal is a toast. */
-  const applyTree = (next: Tree) => saveTree(next).catch((e: unknown) => toast(folderError(e), "error"));
+  const applyTree = (next: Tree, what: "folder" | "feed") => saveTree(next).catch((e: unknown) => toast(failed(`move that ${what}`, e, folderError(e)), "error"));
   const moveFolder = (folder: string, parent: string | null) => saveTree(planFolderDrop(tree, folder, { parent, before: null }));
 
   const applyFavs = async (next: Favorite[]) => {
@@ -394,10 +394,10 @@ export function FeedsScreen() {
   const drop = (from: DragSource, to: DropTarget) => {
     if (from.kind === "folder") {
       const before = to.before ?? endOf(childrenOf(ftree, to.group || null), "folder", from.id);
-      void applyTree(planFolderDrop(tree, from.id, { parent: to.group || null, before }));
+      void applyTree(planFolderDrop(tree, from.id, { parent: to.group || null, before }), "folder");
       reveal.ensure(`folder:${from.id}`);
     } else if (from.kind === "feed") {
-      void applyTree(planFeedDrop(tree, from.id, { folder: to.group, before: to.before ?? endOf(tree.feeds[to.group] ?? [], "feed", from.id) }));
+      void applyTree(planFeedDrop(tree, from.id, { folder: to.group, before: to.before ?? endOf(tree.feeds[to.group] ?? [], "feed", from.id) }), "feed");
       reveal.ensure(`feed:${from.id}`);
     } else {
       const keys2 = favs.favorites.map(favKey);
@@ -438,14 +438,14 @@ export function FeedsScreen() {
       const siblings = childrenOf(ftree, parentOf(ftree, src.id));
       const i = siblings.indexOf(src.id);
       if (i + delta < 0 || i + delta >= siblings.length) return;
-      void applyTree(stepFolder(tree, src.id, delta));
+      void applyTree(stepFolder(tree, src.id, delta), "folder");
       reveal.ensure(`folder:${src.id}`);
       announce(`Moved ${ftree.byId.get(src.id)?.name ?? "folder"} to position ${i + delta + 1} of ${siblings.length}`);
     } else if (src.kind === "feed") {
       const list = tree.feeds[src.group] ?? [];
       const i = list.indexOf(src.id);
       if (i + delta < 0 || i + delta >= list.length) return;
-      void applyTree({ ...tree, feeds: { ...tree.feeds, [src.group]: arrayMove(list, i, i + delta) } });
+      void applyTree({ ...tree, feeds: { ...tree.feeds, [src.group]: arrayMove(list, i, i + delta) } }, "feed");
       reveal.ensure(`feed:${src.id}`);
       announce(`Moved ${feeds.find((f) => f.id === src.id)?.title ?? "feed"} to position ${i + delta + 1} of ${list.length}`);
     } else {

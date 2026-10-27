@@ -1,0 +1,1 @@
+Feed health: Retry now shows its progress and has a Stop button, ends when you leave the screen, disables Resume, Pause and Delete while it runs, and no longer counts a request that never reached Kipple as a failed feed. It says why it is off when only paused feeds are ticked. On a phone the feed names stay put when Select turns on. (#759)

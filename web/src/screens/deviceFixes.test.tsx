@@ -660,6 +660,19 @@ describe("manage feeds", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: /Reorder Alpha/ })));
   });
 
+  it("a move the server refuses names what could not be moved", async () => {
+    const spy = vi.spyOn(await import("@/shell/toasts"), "toast");
+    routes({ "POST /api/reorder": () => json({ error: "folder_cycle", message: "no" }, 400) }, boot3);
+    go("/feeds");
+    await screen.findByText("Alpha");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("button", { name: "Show move buttons" }));
+    await user.click(screen.getByRole("button", { name: "Move Alpha down" }));
+    await waitFor(() => expect(spy.mock.calls.some(([m]) => String(m).startsWith("Couldn't move that feed."))).toBe(true));
+    spy.mockRestore();
+  });
+
   it("stars a feed and a folder into Favorites, at the top, in the order they are kept", async () => {
     const { calls } = routes({}, boot3);
     go("/feeds");

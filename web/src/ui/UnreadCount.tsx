@@ -25,9 +25,10 @@ export function unreadName(name: string, n: number, mode: UnreadBadge): string {
 
 /**
  * A count in a pill: the one badge for every number beside a label (unread, muted, starred, a feed's articles).
- * `accent` is the loud one for the tab bar's icon; `quiet` sits on a surface beside a row. The number is capped at 99+.
+ * `accent` is the loud one for the tab bar's icon; `quiet` sits on a surface beside a row. A number is capped at 99+; a string (a count the
+ * server capped, or a dash) is drawn as given.
  */
-function CountBadge({ n, tone = "quiet", testid, className, before, after }: { n: number; tone?: "accent" | "quiet"; testid?: string; className?: string; /** Spoken before the number. */ before?: ReactNode; /** Spoken after it. */ after?: ReactNode }) {
+export function CountBadge({ n, tone = "quiet", testid, className, before, after }: { n: number | string; tone?: "accent" | "quiet"; testid?: string; className?: string; /** Spoken before the number. */ before?: ReactNode; /** Spoken after it. */ after?: ReactNode }) {
   return (
     <span
       data-testid={testid}
@@ -38,7 +39,7 @@ function CountBadge({ n, tone = "quiet", testid, className, before, after }: { n
       )}
     >
       {before}
-      {badgeText(n)}
+      {typeof n === "number" ? badgeText(n) : n}
       {after}
     </span>
   );
