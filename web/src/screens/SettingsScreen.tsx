@@ -394,7 +394,7 @@ function AppearancePage() {
           </div>
         </fieldset>
         <Segmented<"show" | "hide">
-          legend="Pictures in lists"
+          legend="Pictures"
           hint="Thumbnails in the Inbox and images in the Digest. Editorial and Cards always show pictures."
           value={dp.listImages ? "show" : "hide"}
           onChange={(v) => updateDevicePrefs({ listImages: v === "show" })}

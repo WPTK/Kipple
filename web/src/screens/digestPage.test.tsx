@@ -459,7 +459,7 @@ describe("Digest article order", () => {
 });
 
 describe("Digest settings in the Show and sort menu", () => {
-  it("offers Order, Sections, Pictures in lists and Rows per section for this device, and a choice changes the page", async () => {
+  it("offers Order, Sections, Pictures and Rows per section for this device, and a choice changes the page", async () => {
     routes({ boot: library([3, 3], [5, 1]), counts: [3, 3] });
     const user = userEvent.setup();
     const { container } = go("/l/unread");
@@ -468,7 +468,7 @@ describe("Digest settings in the Show and sort menu", () => {
     await user.click(screen.getByRole("button", { name: /^Show and sort, Digest layout/ }));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByText("Digest, for this device")).toBeInTheDocument();
-    for (const name of ["Order of sections", "Sections", "Pictures in lists", "Rows per section"]) expect(within(menu).getByRole("group", { name })).toBeInTheDocument();
+    for (const name of ["Order of sections", "Sections", "Pictures", "Rows per section"]) expect(within(menu).getByRole("group", { name })).toBeInTheDocument();
     await user.click(within(menu).getByRole("menuitemradio", { name: /^Quiet Feeds First/ }));
     await waitFor(() => expect(headings(container)).toEqual(["Beta", "Alpha"]));
     await user.click(screen.getByRole("button", { name: /^Show and sort, Digest layout/ }));

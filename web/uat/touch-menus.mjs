@@ -174,12 +174,12 @@ await t.eachViewport(async (page, vp) => {
       await menu().waitFor({ timeout: 5000 });
     };
     await openMenu();
-    await menu().getByRole("menuitemradio", { name: "Oldest first" }).tap();
+    await menu().getByRole("menuitemradio", { name: "Oldest first", exact: true }).tap();
     await menu().waitFor({ state: "detached", timeout: 5000 });
     await openMenu();
-    const oldest = await menu().getByRole("menuitemradio", { name: "Oldest first" }).getAttribute("aria-checked");
+    const oldest = await menu().getByRole("menuitemradio", { name: "Oldest first", exact: true }).getAttribute("aria-checked");
     check(oldest === "true", `${tag} P4 oldest`, "a tap on Oldest first applies it", `Oldest first is aria-checked ${oldest}`);
-    await menu().getByRole("menuitemradio", { name: "Newest first" }).tap();
+    await menu().getByRole("menuitemradio", { name: "Newest first", exact: true }).tap();
     await menu().waitFor({ state: "detached", timeout: 5000 });
   });
 

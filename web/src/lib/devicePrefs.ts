@@ -5,7 +5,7 @@ import { createStore, useStore } from "./store";
 // not appearance lives here, behind ONE storage seam (`storage` below): localStorage is the
 // instant-paint cache of the server's device profile, which lib/deviceSync.ts keeps in step.
 
-export const LAYOUT_IDS = ["magazine", "cards", "compact", "inbox", "headlines", "gazette", "digest"] as const;
+export const LAYOUT_IDS = ["compact", "headlines", "inbox", "magazine", "cards", "gazette", "digest"] as const;
 export type LayoutId = (typeof LAYOUT_IDS)[number];
 // The ids are what devices have stored, so they never change; only the labels do. "magazine" is shown as
 // Editorial; "headlines" is Headlines (title-only rows).
@@ -20,17 +20,17 @@ export const LAYOUT_LABELS: Record<LayoutId, string> = {
 };
 
 /**
- * A short description of each layout, shown under its name in the layout menu. Each is about 30 characters so it fits on
- * one line at the narrowest phone width (the menu is 288 px wide there); it wraps rather than cuts when text is larger.
+ * A short description of each layout, shown under its name in the layout menu and in Settings. Each fits one line at the
+ * narrowest phone width (the menu is 288 px wide there); it wraps rather than cuts when text is larger.
  */
 export const LAYOUT_HINTS: Record<LayoutId, string> = {
-  magazine: "For browsing with pictures",
-  cards: "For picking by picture",
-  compact: "For scanning many sources",
-  inbox: "For working through a queue",
+  compact: "Dense rows, no pictures",
   headlines: "For catching up fast",
-  gazette: "For a sit-down read in pages",
-  digest: "For a quick pass by section",
+  inbox: "Read and unread at a glance",
+  magazine: "Big picture, short summary",
+  cards: "Grid of pictures",
+  gazette: "Pages, newest first",
+  digest: "Sections by folder, feed or reading time",
 };
 
 export type DigestSections = "folder" | "feed" | "length";
@@ -119,7 +119,7 @@ export interface DevicePrefs {
   group: GroupBy;
   /** Result ordering of the Search screen (server key `client.search_order`). */
   searchOrder: SearchOrder;
-  /** Pictures in lists: Inbox thumbnails and the Digest's images (`client.list_images`). The picture layouts always show theirs. */
+  /** Pictures: Inbox thumbnails and the Digest's images (`client.list_images`). The picture layouts always show theirs. */
   listImages: boolean;
   /** The first-run swipe peek has played (or been dismissed) on this device. */
   peekSeen: boolean;

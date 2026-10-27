@@ -172,10 +172,10 @@ describe("Settings renderer", () => {
     expect(screen.getByText("About links.strip_tracking")).toBeInTheDocument(); // a global key in the same group still is drawn
   });
 
-  it("has one Pictures in lists setting, Show or Hide, saved for this device", async () => {
+  it("has one Pictures setting, Show or Hide, saved for this device", async () => {
     base();
     go("/settings/appearance");
-    const group = await screen.findByRole("group", { name: "Pictures in lists" });
+    const group = await screen.findByRole("group", { name: "Pictures" });
     expect(within(group).getByRole("radio", { name: "Show" })).toBeChecked();
     expect(screen.getByText(/Editorial and Cards always show pictures/)).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /Thumbnails in Inbox/ })).toBeNull();

@@ -1419,6 +1419,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         <div
           ref={parentRef}
           data-testid="list-scroll"
+          data-layout={layout.id}
           aria-busy={src.pending || src.loadingMore}
           // A page layout's scroll position moves only when something scrolls it (pageSeen.ts): the browser's scroll
           // anchoring would also move it when a story above the screen changes height.

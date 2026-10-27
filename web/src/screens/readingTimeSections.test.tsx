@@ -212,7 +212,7 @@ describe("Digest reading-time marking", () => {
 });
 
 describe("Digest reading-time menu", () => {
-  it("offers Reading time as a Sections choice on Unread, beside Pictures in lists and Rows per section", async () => {
+  it("offers Reading time as a Sections choice on Unread, beside Pictures and Rows per section", async () => {
     routes([3, 3, 3, 3]);
     const user = userEvent.setup();
     go("/l/unread");
@@ -222,7 +222,7 @@ describe("Digest reading-time menu", () => {
     const sections = within(menu).getByRole("group", { name: "Sections" });
     expect(within(sections).getByRole("menuitemradio", { name: "Reading time" })).toBeChecked();
     expect(within(sections).getByRole("menuitemradio", { name: "Reading time" })).not.toHaveAttribute("aria-disabled", "true");
-    for (const name of ["Pictures in lists", "Rows per section"]) expect(within(menu).getByRole("group", { name })).toBeInTheDocument();
+    for (const name of ["Pictures", "Rows per section"]) expect(within(menu).getByRole("group", { name })).toBeInTheDocument();
     await user.click(within(sections).getByRole("menuitemradio", { name: "Folders" }));
     expect(devicePrefsStore.get().digestSections).toBe("folder");
   });

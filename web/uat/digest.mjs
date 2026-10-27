@@ -9,7 +9,7 @@
 // phone 375x812) it checks:
 //   G1  each folder is a section with its name as a heading, in sidebar order, and shows its first three unread stories
 //       and "5 more in UAT Digest A" (the Rows per section setting);
-//   G2  Pictures in lists: a story with a picture shows it on the right; Hide (set in the layout menu) shows none;
+//   G2  pictures in lists: a story with a picture shows it on the right; Hide (set in the layout menu) shows none;
 //   G3  Quiet Feeds First is a choice in the Layout menu and is saved for the device. A feed's pace is counted from days
 //       of new articles and a seeded library has none, so the order itself (slowest first) is checked by the planner's unit
 //       tests, and here only that the sections stay in sidebar order;
@@ -145,9 +145,9 @@ try {
         // G2
         const pictures = () => section(A).locator("article[data-item-id] img").count();
         const withPictures = await pictures();
-        check(withPictures >= 1, `${tag} G2 pictures`, "a story with a picture shows it", "no picture is shown with Pictures in lists on");
+        check(withPictures >= 1, `${tag} G2 pictures`, "a story with a picture shows it", "no picture is shown with pictures on");
         await layoutMenu();
-        await page.getByRole("group", { name: "Pictures in lists" }).getByRole("menuitemradio", { name: "Hide" }).click();
+        await page.getByRole("group", { name: "Pictures", exact: true }).getByRole("menuitemradio", { name: "Hide" }).click();
         const gone = await settled(() => !document.querySelector('section[data-section] article[data-item-id] img'));
         check(gone, `${tag} G2 hidden`, "Hide shows no picture", `${await pictures()} picture(s) still shown`);
         await t.shot(page, `${tag}-digest-text-only`);
