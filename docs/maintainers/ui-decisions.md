@@ -1,8 +1,8 @@
-# UI design meeting: decision log
+# UI decisions
 
-Round 1, 2026-09-25 (the owner and Claude). The inputs were research notes that are not kept in this repository.
-This file records what the owner decided and is the authority. Round-1 TODOs
-were resolved in round 2 and what shipped; each is annotated below.
+The current UI rulings from the owner, newest rule wins where sections differ. This file is the authority; the dated
+process log (parking lot, work order, working agreement) is in the history repo. Layout ids never change; labels are
+what people see.
 
 ## Accessibility
 
@@ -95,23 +95,6 @@ were resolved in round 2 and what shipped; each is annotated below.
     launch; queue actions and sync when back online. (Shipped in phase 3, design §7.9: manifest,
     service worker, an offline notice, and a queue for star and read changes. Prefetch keeps only the first page of Unread.)
 
-## Parking lot additions
-
-Design system / static demo site / pull-and-run image; Cloudflare Access JWT; passwordless login; scheduled
-auto-night. The parking lot itself is kept outside this repository. (Cloudflare Access JWT and passwordless login
-shipped in phase 5 as #40, the scheduled auto-night theme as #41.)
-
-## Next chunks
-
-All four steps are done (historical list).
-
-1. Round-2 research (colors, layouts incl. Inbox, keymap, gesture spec, filters brainstorm, accessibility spec).
-2. Consolidate into a UI spec and update `design.md` (audit contradictions).
-3. Backend items these decisions add (image cache, mute filters, mark above/below, oldest-first order,
-   per-device settings, backup export, security headers, FTS stemming, health status reconciliation).
-4. Frontend build after the owner signs off the UI spec.
-
----
 
 ## Round 2 answers (2026-09-25, later)
 
@@ -233,9 +216,6 @@ Choices made where the decisions above were silent; the owner may overrule any o
 - **Restore** in Muted puts back the read state an article had before it was muted (#374 review): an article read
   before the mute stays read, an unread one is unread again, and the announcement says which. One rule for every muted
   article, the same one delete-with-unmute=unread uses for a whole filter.
-### Working agreement
-- Commit and open PRs without asking. Merge docs-only PRs when CI is green. Code PR for `phase-2` opens at
-  deploy time. Reviews (Opus, high) after every two or three backend steps; fix all findings.
 
 ## Stats round (phase 4 pre-meeting, 2026-09-26)
 
