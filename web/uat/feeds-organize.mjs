@@ -22,7 +22,7 @@
 //   O11 a folder's note about its one failing feed (the feed is at an address that does not exist) says when Kipple
 //       tries it again on a line of its own that is not clipped;
 // and on Feed health:
-//   O8  turning Select on does not move the feed names (desktop);
+//   O8  turning Select on does not move the feed names (the table on a desktop, the cards on a phone);
 //   O9  the selection bar has Retry now (off until a feed is ticked), Resume, Pause and a red Delete inside the window;
 //       Retry now fetches the ticked feed and says how many were retried;
 //   O10 axe (the WCAG 2.0 A and AA rules) finds nothing on Feed health, with Select off and with Select on.
@@ -248,17 +248,15 @@ await t.eachViewport(async (page, vp) => {
     const search = page.getByRole("searchbox", { name: "Search feeds" });
     await search.waitFor({ timeout: 15000 });
     await search.fill(FEED);
-    const first = page.getByRole("table").getByRole("rowheader").filter({ hasText: FEED }).first();
-    const phoneCard = vp.mobile;
-    if (!phoneCard) {
-      await first.waitFor({ timeout: 10000 });
-      const x0 = (await first.boundingBox())?.x;
-      await page.getByRole("button", { name: "Select", exact: true }).click();
-      await page.getByRole("checkbox", { name: `Select ${FEED}` }).waitFor({ timeout: 5000 });
-      const x1 = (await first.boundingBox())?.x;
-      check(x0 !== undefined && x1 !== undefined && Math.abs(x1 - x0) <= 1, `${tag} O8 still`, "the feed names do not move when Select turns on", `the name column moved from ${x0} to ${x1}`);
-      await page.getByRole("button", { name: "Done", exact: true }).click();
-    }
+    // The table's name cell on a desktop, the card's title on a phone.
+    const first = vp.mobile ? page.getByRole("list").getByText(FEED, { exact: true }).first() : page.getByRole("table").getByRole("rowheader").filter({ hasText: FEED }).first();
+    await first.waitFor({ timeout: 10000 });
+    const x0 = (await first.boundingBox())?.x;
+    await page.getByRole("button", { name: "Select", exact: true }).click();
+    await page.getByRole("checkbox", { name: `Select ${FEED}` }).waitFor({ timeout: 5000 });
+    const x1 = (await first.boundingBox())?.x;
+    check(x0 !== undefined && x1 !== undefined && Math.abs(x1 - x0) <= 1, `${tag} O8 still`, "the feed names do not move when Select turns on", `the name moved from ${x0} to ${x1}`);
+    await page.getByRole("button", { name: "Done", exact: true }).click();
   });
 
   await step(`${tag} O9`, async () => {

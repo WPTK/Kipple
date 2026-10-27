@@ -273,7 +273,7 @@ export function errorMessage(e: unknown): string {
   return "Something went wrong.";
 }
 
-/** A failure told once: what could not be done, then why. `failed("star this article", e)`. */
-export function failed(action: string, e: unknown): string {
-  return `Couldn't ${action}. ${errorMessage(e)}`;
+/** A failure told once: what could not be done, then why. `failed("star this article", e)`; `cause` replaces the generic reason. */
+export function failed(action: string, e: unknown, cause: string = errorMessage(e)): string {
+  return `Couldn't ${action}. ${cause}`;
 }

@@ -6,7 +6,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, ListFilter, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
 import { createFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
-import { ApiError, errorMessage } from "@/api/client";
+import { ApiError, errorMessage, failed } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import type { Bootstrap, Feed, Folder } from "@/api/types";
 import { useDevicePrefs } from "@/lib/devicePrefs";
@@ -371,7 +371,7 @@ export function FeedsScreen() {
     }
   };
   /** Save a new tree from a drop or a move button: a refusal is a toast. */
-  const applyTree = (next: Tree) => saveTree(next).catch((e: unknown) => toast(folderError(e), "error"));
+  const applyTree = (next: Tree) => saveTree(next).catch((e: unknown) => toast(failed("move that", e, folderError(e)), "error"));
   const moveFolder = (folder: string, parent: string | null) => saveTree(planFolderDrop(tree, folder, { parent, before: null }));
 
   const applyFavs = async (next: Favorite[]) => {

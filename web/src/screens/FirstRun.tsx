@@ -19,7 +19,7 @@ export function FirstRun({ onAdd, onImport }: { onAdd: () => void; onImport: () 
           </Button>
           <Button onClick={onImport}>
             <Upload aria-hidden="true" />
-            Import OPML
+            Import feeds from a file (OPML)
           </Button>
           <Button onClick={recommended}>
             <Sparkles aria-hidden="true" />
