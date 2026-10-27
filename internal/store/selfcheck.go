@@ -14,7 +14,7 @@ type feature struct {
 	steps []string // run in order on one connection; the first failure names the feature
 }
 
-// requiredFeatures are probed at startup (design §13 item 2). A driver swap or
+// requiredFeatures are probed at startup (design §2.1, startup self-check). A driver swap or
 // a build without a module would otherwise fail on the first search or the
 // first bulk mark, long after a deploy looked healthy. Everything runs in the
 // temp schema, so the database file is never touched.

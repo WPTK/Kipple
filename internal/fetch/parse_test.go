@@ -321,7 +321,7 @@ const rssWithBadEntries = `<?xml version="1.0"?><rss version="2.0"><channel><tit
 </channel></rss>`
 
 // One unusable entry (empty, or one that panics in conversion) is dropped and
-// counted; the rest of the document still commits (design §13 item 9).
+// counted; the rest of the document still commits (design §4.8, parse-time behavior).
 func TestParseFeedSkipsMalformedItems(t *testing.T) {
 	content := func(raw string, _ ...string) (string, string) {
 		if raw == "BOOM" {
@@ -345,7 +345,7 @@ func TestParseFeedSkipsMalformedItems(t *testing.T) {
 	}
 }
 
-// The same file listed twice (also once relative, once absolute) is one enclosure (design §13 item 10).
+// The same file listed twice (also once relative, once absolute) is one enclosure (design §4.8, parse-time behavior).
 func TestParseFeedDedupesEnclosuresByURL(t *testing.T) {
 	f, err := ParseFeed([]byte(rssWithBadEntries), ParseOptions{FeedURL: "https://e.example/feed", Content: func(raw string, _ ...string) (string, string) { return raw, raw }})
 	require.NoError(t, err)

@@ -50,8 +50,8 @@ const (
 	// and no Domain, so a page on a sibling subdomain cannot set one for the whole parent domain: the only marker the
 	// app reads is this host's own, the one the server's clear reaches.
 	hostMarkerName = "__Host-" + markerName
-	// sessionTTL is the cookie Max-Age and the sliding session expiry. The plan
-	// (Cloudflare Access notes) says 90 days; design §7 says 30. The plan wins.
+	// sessionTTL is the cookie Max-Age and the sliding session expiry: 90 days
+	// (design §7.0).
 	sessionTTL = 90 * 24 * time.Hour
 
 	heartbeatDefault = 15 * time.Second
