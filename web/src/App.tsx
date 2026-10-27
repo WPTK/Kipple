@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useMatch } from "react-router";
 import { ApiError, authStore, failureCause, openRefusedStore, SESSION_EXPIRED, signingOutStore } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
@@ -19,6 +19,8 @@ import { OpenRefusedScreen } from "@/setup/OpenRefused";
 import { SignedOut } from "@/setup/SignedOut";
 import { launchAnswerStore, useSessionProbe } from "@/api/sessionProbe";
 import { lazyScreen } from "@/lib/lazyScreen";
+import { cn } from "@/lib/cn";
+import { useWide } from "@/lib/useMedia";
 import { NotFoundBlock } from "@/ui/NotFoundBlock";
 import { LoadFailed, useKeptFailure } from "@/ui/LoadFailed";
 import { Button } from "@/ui/button";
@@ -48,18 +50,37 @@ function NotFound() {
 }
 
 /**
- * While a screen's code downloads: with a `title`, the screen's own header at once (so the page does not change shape
- * when the screen arrives), else bars. The real screen's heading takes focus when it mounts.
+ * The header a screen draws before its code has arrived, laid out as the screen's own so nothing moves when it lands.
+ * Settings on a phone, inside a page, has a back button and the page's name that only the screen knows: it draws none.
  */
-function Lazy({ children, label = "Loading screen", title }: { children: React.ReactNode; label?: string; title?: string }) {
+function ScreenHeader({ screen }: { screen: "stats" | "settings" }) {
+  const wide = useWide();
+  const inPage = !!useMatch("/settings/:group");
+  if (screen === "stats") {
+    return (
+      <header className="pt-safe shrink-0 border-b border-line px-4 pb-3">
+        <div className="mx-auto w-full max-w-3xl">
+          <h1 className="pt-2 pb-2 text-xl font-bold">Stats</h1>
+        </div>
+      </header>
+    );
+  }
+  if (inPage && !wide) return null;
+  return (
+    <header className="pt-safe shrink-0 border-b border-line">
+      <h1 className={cn("w-full px-4 pt-2 pb-2 text-xl font-bold", !wide && "mx-auto max-w-[720px]")}>Settings</h1>
+    </header>
+  );
+}
+
+/** While a screen's code downloads: its header at once when `header` names one, then bars. The real heading takes focus when it mounts. */
+export function Lazy({ children, label = "Loading screen", header }: { children: React.ReactNode; label?: string; header?: "stats" | "settings" }) {
   return (
     <Suspense
       fallback={
-        title ? (
-          <div className="ui-font flex h-full min-h-0 flex-col">
-            <header className="pt-safe shrink-0 border-b border-line px-4 pb-3">
-              <h1 className="mx-auto w-full max-w-3xl pt-2 pb-2 text-xl font-bold">{title}</h1>
-            </header>
+        header ? (
+          <div data-testid="lazy-fallback" className="ui-font flex h-full min-h-0 flex-col">
+            <ScreenHeader screen={header} />
             <Skeleton label={label} />
           </div>
         ) : (
@@ -250,9 +271,9 @@ function Gate() {
         <Route path="feeds/index" element={<Lazy label="Loading the feed index"><FeedIndexScreen /></Lazy>} />
         <Route path="health" element={<Lazy label="Loading feed health"><HealthScreen /></Lazy>} />
         <Route path="search" element={<SearchScreen />} />
-        <Route path="stats" element={<Lazy label="Loading stats" title="Stats"><StatsScreen /></Lazy>} />
+        <Route path="stats" element={<Lazy label="Loading stats" header="stats"><StatsScreen /></Lazy>} />
         <Route path="stats/wrapped" element={<Lazy label="Loading your year"><WrappedScreen /></Lazy>} />
-        <Route path="settings/*" element={<Lazy label="Loading settings" title="Settings"><SettingsScreen /></Lazy>} />
+        <Route path="settings/*" element={<Lazy label="Loading settings" header="settings"><SettingsScreen /></Lazy>} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

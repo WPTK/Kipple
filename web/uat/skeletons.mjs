@@ -5,12 +5,12 @@
 //   node uat/skeletons.mjs --url http://127.0.0.1:7091 --screenshots <dir> --headed
 //
 // For each width (desktop 1280x800, phone 375x812) and each row layout, with the list's answer held:
-//   K1  nothing is drawn for the first moments (no placeholder flashes for a quick answer);
+//   K1  the placeholder appears a short wait after the list shows as loading (no flash for a quick answer);
 //   K2  a placeholder then appears, made of that layout's rows (taller for Editorial than for Headlines);
 //   K3  once the answer lands the placeholder is gone and the real rows are there.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0
 // clean, 1 findings, 2 setup error.
-import { poll, start } from "./common.mjs";
+import { start } from "./common.mjs";
 
 // Playwright cannot hold a request the service worker makes, so it is blocked here (common.mjs, options.serviceWorkers).
 const t = await start(import.meta.url, 10, { serviceWorkers: "block" });
@@ -38,15 +38,24 @@ await t.eachViewport(async (page, vp) => {
         await route.continue();
       });
       try {
+        // The page notes when the list first shows as loading and when a placeholder first appears in it.
+        await page.addInitScript(() => {
+          window.__sk = { busy: 0, skeleton: 0 };
+          new MutationObserver(() => {
+            const box = document.querySelector('[data-testid="list-scroll"][aria-busy="true"]');
+            if (box && !window.__sk.busy) window.__sk.busy = performance.now();
+            if (box?.querySelector("[data-skeleton]") && !window.__sk.skeleton) window.__sk.skeleton = performance.now();
+          }).observe(document, { subtree: true, childList: true, attributes: true });
+        });
         const asked = page.waitForRequest((r) => /\/api\/items\?/.test(r.url()), { timeout: 15000 });
         asked.catch(() => {});
         await page.goto("/l/unread", { waitUntil: "load" });
         await asked;
-        await poll(120);
-        const early = await page.locator("[data-skeleton]").count();
-        check(early === 0, `${tag} K1`, "no placeholder in the first moments of a load", `${early} placeholder(s) at 120 ms`);
         const sk = page.locator("[data-skeleton]").first();
         await sk.waitFor({ timeout: 5000 });
+        const seen = await page.evaluate(() => window.__sk);
+        const waited = seen.skeleton - seen.busy;
+        check(seen.busy > 0 && waited >= 300 && waited < 2000, `${tag} K1`, "the placeholder appears after a short wait, not at once", `loading shown at ${Math.round(seen.busy)} ms, placeholder at ${Math.round(seen.skeleton)} ms`);
         const h = await sk.evaluate((e) => e.firstElementChild.nextElementSibling?.getBoundingClientRect().height ?? 0);
         heights[`${vp.id}:${layout}`] = h;
         check(h > 20, `${tag} K2`, "the placeholder is made of visible rows", `first row ${Math.round(h)} px`);

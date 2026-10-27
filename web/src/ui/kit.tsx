@@ -667,22 +667,26 @@ export const SKELETON_DELAY_MS = 350;
 export const SKELETON_MIN_MS = 400;
 
 /**
- * What to draw while something loads: "blank" for the first moments, "skeleton" once the wait has run long, "done" when
- * it has finished and any skeleton has been up long enough not to flicker.
+ * What to draw while something loads: "blank" for the first moments of a first load, "skeleton" once the wait has run
+ * long, "done" when it has finished and any skeleton has been up long enough not to flicker. After a first answer
+ * (another list replacing the one on screen) the skeleton shows at once: the delay is there so a first paint does not
+ * flash a placeholder, and a screen that already had content has nothing to flash.
  */
 export function useSkeletonGate(pending: boolean): "blank" | "skeleton" | "done" {
-  const [shown, setShown] = useState(false);
-  const since = useRef(0);
+  const [g, setG] = useState({ pending, answered: !pending, shown: false });
+  // Adjusted while rendering (no extra paint): a load starting after an answer shows the skeleton at once.
+  if (g.pending !== pending) setG({ pending, answered: g.answered || !pending, shown: g.shown || (pending && g.answered) });
+  const shownAt = useRef(0);
+  const { shown } = g;
   useEffect(() => {
+    // The minimum counts from when the skeleton appeared, and again from when loading starts anew while it is up.
+    if (shown && pending) shownAt.current = Date.now();
     if (pending && !shown) {
-      const t = setTimeout(() => {
-        since.current = Date.now();
-        setShown(true);
-      }, SKELETON_DELAY_MS);
+      const t = setTimeout(() => setG((cur) => ({ ...cur, shown: true })), SKELETON_DELAY_MS);
       return () => clearTimeout(t);
     }
     if (!pending && shown) {
-      const t = setTimeout(() => setShown(false), Math.max(0, SKELETON_MIN_MS - (Date.now() - since.current)));
+      const t = setTimeout(() => setG((cur) => ({ ...cur, shown: false })), Math.max(0, SKELETON_MIN_MS - (Date.now() - shownAt.current)));
       return () => clearTimeout(t);
     }
   }, [pending, shown]);

@@ -26,4 +26,25 @@ describe("useSkeletonGate", () => {
     act(() => void vi.advanceTimersByTime(1000));
     expect(result.current).toBe("done");
   });
+
+  it("counts the minimum from when loading started again during the hold", () => {
+    const { result, rerender } = renderHook(({ pending }) => useSkeletonGate(pending), { initialProps: { pending: true } });
+    act(() => void vi.advanceTimersByTime(SKELETON_DELAY_MS));
+    rerender({ pending: false });
+    act(() => void vi.advanceTimersByTime(SKELETON_MIN_MS - 50));
+    rerender({ pending: true });
+    act(() => void vi.advanceTimersByTime(300));
+    rerender({ pending: false });
+    act(() => void vi.advanceTimersByTime(SKELETON_MIN_MS - 350));
+    expect(result.current).toBe("skeleton");
+    act(() => void vi.advanceTimersByTime(350));
+    expect(result.current).toBe("done");
+  });
+
+  it("shows the skeleton at once when a list that had an answer loads another", () => {
+    const { result, rerender } = renderHook(({ pending }) => useSkeletonGate(pending), { initialProps: { pending: false } });
+    expect(result.current).toBe("done");
+    rerender({ pending: true });
+    expect(result.current).toBe("skeleton");
+  });
 });
