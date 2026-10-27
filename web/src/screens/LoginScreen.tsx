@@ -6,7 +6,7 @@ import { reloadToSignIn } from "@/lib/reload";
 import { useStore } from "@/lib/store";
 import { INSTANCE_KEY } from "@/setup/api";
 import { Button } from "@/ui/button";
-import { PasswordField, inputCls } from "@/ui/kit";
+import { Notice, PasswordField, inputCls } from "@/ui/kit";
 
 /**
  * Sign-in (POST /api/auth/login). A 401 anywhere in the app lands here. The password may be left empty: the server
@@ -85,13 +85,15 @@ export function LoginScreen() {
           </p>
         ) : null}
         {error ? (
-          <div id={eid} role="alert" className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-danger">
-            <p>{error}</p>
-            {expired ? (
-              <Button type="button" className="mt-2" onClick={() => reloadToSignIn()}>
-                Reload
-              </Button>
-            ) : null}
+          <div id={eid}>
+            <Notice tone="error">
+              <p>{error}</p>
+              {expired ? (
+                <Button type="button" className="mt-2" onClick={() => reloadToSignIn()}>
+                  Reload
+                </Button>
+              ) : null}
+            </Notice>
           </div>
         ) : null}
         <div className="flex flex-col gap-1">

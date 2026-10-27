@@ -123,12 +123,19 @@ await t.eachViewport(async (page, vp) => {
         const full = Math.abs(m.width - Math.min(m.win.w, 512)) <= 1 && Math.abs(m.bottom - m.win.h) <= 1;
         check(m.sheet && full && m.top >= 0 && m.height <= 0.7 * m.win.h + 1 && m.dim, `P1 ${name}`, `the menu is a sheet ${Math.round(m.width)}x${Math.round(m.height)} px on the bottom edge`, `the menu is not a bottom sheet (sheet ${m.sheet}, ${Math.round(m.left)}-${Math.round(m.right)} x ${Math.round(m.top)}-${Math.round(m.bottom)} in ${m.win.w}x${m.win.h}, dimmed ${m.dim})`);
         check(m.focusIn, `P2 ${name} focus`, "focus is inside the sheet", "focus is outside the sheet");
-        // A toast or the save notice (both fixed, z-50) must not cover the bottom of the sheet or take its taps.
-        const z = await page.evaluate(() => {
-          const n = (el) => Number(getComputedStyle(el).zIndex);
-          return { menu: n(document.querySelector('[role="menu"]')), dim: n(document.querySelector("[data-menu-backdrop]")), toast: n(document.querySelector('[data-testid="toast-region"]')) };
+        // A toast (fixed, z-50, takes taps) must not cover the bottom of the sheet or take its taps: put a tappable
+        // probe in the toast region and ask which element a tap at its centre would reach.
+        const hit = await page.evaluate(() => {
+          const region = document.querySelector('[data-testid="toast-region"]');
+          const probe = document.createElement("div");
+          probe.style.cssText = "pointer-events:auto;width:48px;height:48px";
+          region.appendChild(probe);
+          const r = probe.getBoundingClientRect();
+          const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          probe.remove();
+          return { inSheet: !!el?.closest('[role="menu"], [data-menu-backdrop]'), what: el ? el.tagName.toLowerCase() + (el.className ? "." + String(el.className).split(" ")[0] : "") : "nothing" };
         });
-        check(z.menu > z.toast && z.dim > z.toast, `P5 ${name}`, "the sheet and its dimmed page are above the toasts", `z-index: sheet ${z.menu}, dimmed page ${z.dim}, toasts ${z.toast}`);
+        check(hit.inSheet, `P5 ${name}`, "a tap where a toast sits reaches the sheet or its dimmed page", `a tap where a toast sits reaches ${hit.what}`);
         if (id === "layout") {
           const text = await menu().innerText();
           check(/Layout/i.test(text) && /Order/i.test(text), `P1 ${name} sections`, "the sheet names its Layout and Order sections", `the sheet text is ${text.replace(/\s+/g, " ").slice(0, 80)}`);
