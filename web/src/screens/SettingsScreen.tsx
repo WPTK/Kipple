@@ -1,5 +1,5 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
-import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { buttonVariants } from "@/ui/button";
 import { NotFoundBlock } from "@/ui/NotFoundBlock";
 import { Link, Route, Routes, useLocation, useMatch } from "react-router";
@@ -35,7 +35,7 @@ import { navItemClass } from "@/ui/navItem";
 import { Segmented } from "@/ui/segmented";
 import { BackButton } from "@/ui/BackButton";
 import { Button } from "@/ui/button";
-import { FieldError, Modal, Notice, RadioCard, Skeleton, Switch, inputCls } from "@/ui/kit";
+import { FieldError, Modal, Notice, RadioCard, Section, SectionLevel, Skeleton, Stepper, Switch, inputCls } from "@/ui/kit";
 import { DensityControl, FontSelect, SpacingControl, TextSizeControl } from "./AppearanceControls";
 import { DevicesSection } from "./DevicesSection";
 import { ApplyRetentionNow } from "./RetentionDialog";
@@ -75,9 +75,6 @@ const FIRST_GROUP: SettingsGroup = SETTINGS_GROUPS[0];
 
 const groupById = (id: string | undefined) => SETTINGS_GROUPS.find((g) => g.id === id);
 
-/** The heading level of a Section: 2 under a page's h1 (narrow), 3 under the group's h2 beside the rail (wide). */
-const SectionLevel = createContext<2 | 3>(2);
-
 /**
  * Where a setting is kept: "This device" (only this browser) or "All devices" (the account, on the server). One pair of
  * words, shown once per section, or on a single row where one section holds both.
@@ -95,22 +92,6 @@ function Scoped({ scope, children }: { scope: Scope; children: ReactNode }) {
       <ScopeMark scope={scope} />
       {children}
     </div>
-  );
-}
-
-function Section({ title, scope, children }: { title: string; scope?: Scope; children: ReactNode }) {
-  const id = useId();
-  const Heading = useContext(SectionLevel) === 3 ? "h3" : "h2";
-  return (
-    <section aria-labelledby={id} className="border-b border-line py-5">
-      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <Heading id={id} className="text-lg font-bold">
-          {title}
-        </Heading>
-        {scope ? <ScopeMark scope={scope} /> : null}
-      </div>
-      <div className="flex flex-col gap-5">{children}</div>
-    </section>
   );
 }
 
@@ -136,19 +117,18 @@ function AutoReadPanel({ days }: { days: number }) {
   const first = useRef(days);
   const [changed, setChanged] = useState(false);
   const [open, setOpen] = useState(false);
-  const [whatIf, setWhatIf] = useState("");
+  const [whatIf, setWhatIf] = useState<number | undefined>(undefined);
   useEffect(() => {
     if (days !== first.current) setChanged(true);
   }, [days]);
-  const trial = whatIf.trim() === "" ? undefined : Number(whatIf);
-  const valid = trial === undefined || (Number.isInteger(trial) && trial >= 0 && trial <= 365);
+  const trial = whatIf;
   return (
     <div className="flex flex-col gap-2">
       {changed && days > 0 ? <p className="text-sm">Nothing was marked yet. Articles already older than this stay unread until you preview and mark them.</p> : null}
       <Button
         className="self-start"
         onClick={() => {
-          setWhatIf("");
+          setWhatIf(undefined);
           setOpen(true);
         }}
       >
@@ -158,22 +138,14 @@ function AutoReadPanel({ days }: { days: number }) {
         <Modal open onOpenChange={setOpen} title="Mark old articles as read" footer={<Button onClick={() => setOpen(false)}>Close</Button>}>
           <AutoReadCatchUp
             autoPreview
-            days={valid ? trial : undefined}
-            blockedReason={valid ? undefined : "Enter a whole number of days from 0 to 365."}
+            days={trial}
             // A what-if number was never saved: marking with it would clear articles the saved setting keeps.
-            runBlocked={valid && trial !== undefined && trial !== days ? "That number is only a preview. Save it as the setting first, then mark." : undefined}
+            runBlocked={trial !== undefined && trial !== days ? "That number is only a preview. Save it as the setting first, then mark." : undefined}
           />
-          <label className="flex flex-col gap-1 text-sm">
+          <div className="flex flex-col gap-1 text-sm">
             <span className="font-semibold">Try a different number of days</span>
-            <input
-              inputMode="numeric"
-              value={whatIf}
-              onChange={(e) => setWhatIf(e.target.value)}
-              placeholder={`${days} (the saved value)`}
-              aria-invalid={valid ? undefined : true}
-              className={`${inputCls} w-40`}
-            />
-          </label>
+            <Stepper label="Try a different number of days" value={trial ?? days} min={0} max={365} step={1} onChange={setWhatIf} />
+          </div>
         </Modal>
       ) : null}
     </div>
@@ -249,7 +221,7 @@ function ServerPart({
       {parts.length === 0 && empty ? <p className="py-5 text-sm text-fg2">{empty}</p> : null}
       {parts.map((g) =>
         g.title ? (
-          <Section key={g.id} title={g.title} scope={scope}>
+          <Section key={g.id} stack title={g.title} aside={scope ? <ScopeMark scope={scope} /> : undefined}>
             <SettingRows list={g.list} all={all} rowScope={rowScope} />
           </Section>
         ) : inline ? (
@@ -342,7 +314,7 @@ function AccessibilitySection() {
   const p = useStore(prefsStore);
   const supported = speechSupported();
   return (
-    <Section title="Accessibility" scope="device">
+    <Section stack title="Accessibility" aside={<ScopeMark scope="device" />}>
       <p className="text-sm text-fg2">Kipple also follows your device's text, motion and contrast settings.</p>
       <SpacingControl />
       <Segmented<Motion>
@@ -389,14 +361,14 @@ function AppearancePage() {
   const dp = useDevicePrefs();
   return (
     <>
-      <Section title="Reading appearance" scope="device">
+      <Section stack title="Reading appearance" aside={<ScopeMark scope="device" />}>
         <ThemePicker />
         <FontSelect preview="large" />
         <TextSizeControl />
         <DensityControl />
       </Section>
 
-      <Section title="Lists" scope="device">
+      <Section stack title="Lists" aside={<ScopeMark scope="device" />}>
         <fieldset className="min-w-0" aria-describedby="layout-hint">
           <legend className="text-sm font-semibold">Layout</legend>
           <p id="layout-hint" className="mb-2 text-xs text-fg2">Each feed and folder can override it from the Show and sort button in its list.</p>
@@ -432,7 +404,7 @@ function AppearancePage() {
         </Link>
       </Section>
 
-      <Section title="Articles">
+      <Section stack title="Articles">
         <Scoped scope="device">
           <Segmented<ArticleWidth>
             legend="Article width"
@@ -487,7 +459,7 @@ function StatisticsPage() {
     <>
       <ServerPart scope="all" groups={[{ id: "stats" }, { id: "account" }]} />
       {/* A fixed slot after the server part, whether settings are loading, failed or loaded: it never remounts, so an open dialog survives. */}
-      <Section title="Your stats data" scope="all">
+      <Section stack title="Your stats data" aside={<ScopeMark scope="all" />}>
         <StatsDataSection defaultRange={loadRange()} />
       </Section>
     </>
@@ -497,10 +469,10 @@ function StatisticsPage() {
 function FiltersPage() {
   return (
     <>
-      <Section title="Filters" scope="all">
+      <Section stack title="Filters" aside={<ScopeMark scope="all" />}>
         <FiltersSection />
       </Section>
-      <Section title="Saved searches" scope="all">
+      <Section stack title="Saved searches" aside={<ScopeMark scope="all" />}>
         <SavedSearchesSection />
       </Section>
     </>
@@ -511,16 +483,16 @@ function AccountPage() {
   const { hasPassword } = useAccount();
   return (
     <>
-      <Section title="Devices">
+      <Section stack title="Devices">
         <DevicesSection />
       </Section>
-      <Section title="Sign-in">
+      <Section stack title="Sign-in">
         <SignInSection />
       </Section>
-      <Section title="Sync apps (Google Reader compatible)">
+      <Section stack title="Sync apps (Google Reader compatible)">
         <SyncAppsSection hasPassword={hasPassword} />
       </Section>
-      <Section title="Backup and data" scope="all">
+      <Section stack title="Backup and data" aside={<ScopeMark scope="all" />}>
         <BackupSection />
       </Section>
     </>
@@ -531,7 +503,7 @@ function AdvancedPage() {
   return (
     <>
       <ServerPart scope="all" groups={[{ id: "advanced" }]} empty="No advanced settings to change yet." />
-      <Section title="Address and access" scope="all">
+      <Section stack title="Address and access" aside={<ScopeMark scope="all" />}>
         <ConnectionSection />
       </Section>
     </>

@@ -540,7 +540,9 @@ describe("Auto-read (Settings > Library)", () => {
     const user = userEvent.setup();
     // Preview opens a dialog that counts with the saved number at once; the field in it tries another.
     await user.click(await screen.findByRole("button", { name: "Preview" }));
-    await user.type(await screen.findByRole("textbox", { name: "Try a different number of days" }), "60");
+    const tryBox = await screen.findByRole("spinbutton", { name: "Try a different number of days" });
+    await user.clear(tryBox);
+    await user.type(tryBox, "60");
     await user.click(screen.getByRole("button", { name: "Preview again" }));
     await waitFor(() => expect(calls.filter((c) => c.url.pathname.endsWith("/preview")).length).toBe(2));
     expect(body(calls.filter((c) => c.url.pathname.endsWith("/preview")).at(-1))).toEqual({ days: 60 });
@@ -976,7 +978,9 @@ describe("Auto-read catch-up (review 3)", () => {
     go("/settings/sync");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Preview" }));
-    await user.type(await screen.findByRole("textbox", { name: "Try a different number of days" }), "60");
+    const tryBox = await screen.findByRole("spinbutton", { name: "Try a different number of days" });
+    await user.clear(tryBox);
+    await user.type(tryBox, "60");
     await user.click(screen.getByRole("button", { name: "Preview again" }));
     expect(await screen.findByText(/using 60 days/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /older articles? as read now/ })).toBeNull();

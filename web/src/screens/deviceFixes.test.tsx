@@ -346,6 +346,9 @@ describe("sidebar", () => {
     expect(await screen.findByRole("heading", { name: "No feeds yet" })).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { name: "No feeds yet" })).toHaveLength(1);
     expect(screen.queryByText("Select an article to read it here.")).toBeNull();
+    // The header keeps the title and the Show tabs; the controls that act on a list of articles wait for a feed.
+    expect(screen.getByRole("navigation", { name: "Show" })).toBeInTheDocument();
+    for (const name of ["Oldest first", "List actions", /^Show and sort/]) expect(screen.queryByRole("button", { name })).toBeNull();
   });
 
   it("Search with no feeds says to add a feed first, not that nothing matched", async () => {

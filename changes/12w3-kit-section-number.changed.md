@@ -1,0 +1,1 @@
+Reader: with no feeds, the list header hides Length, Layout, List actions and Oldest first. Settings: the "Try a different number of days" field is a number control with Decrease and Increase buttons. (#627, #617, #686)
