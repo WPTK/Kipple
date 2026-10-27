@@ -48,6 +48,7 @@ import { EmptyState } from "@/ui/EmptyState";
 import { NotFoundBlock } from "@/ui/NotFoundBlock";
 import { FINISH_SEARCH, ListPane, type ListControls } from "./ListPane";
 import { DropdownMenu } from "@/ui/menu";
+import { Icon } from "@/ui/Icon";
 
 // The Show pills are the whole-library lists of the destinations table; Muted is added only while it has something.
 const VIEWS: { view: View; label: string }[] = LISTS.filter((d) => d.id !== "muted").map((d) => ({ view: d.id as View, label: d.pill }));
@@ -292,7 +293,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
                 disabled={!controls || scope.view === "muted" || !!scope.typing || nothingUnread}
                 onSelect={() => markAll.ask(markAllText, markAllReach(scope, scope.feed || scope.folder ? title : undefined), () => controls?.markAllRead())}
               >
-                <MarkAllIcon className="size-5" aria-hidden="true" />
+                <Icon of={MarkAllIcon} />
                 <span className="flex flex-col">
                   {markAllText}
                   {scope.typing ? <span className="text-xs text-fg2">{FINISH_SEARCH}</span> : nothingUnread ? <span className="text-xs text-fg2">{NOTHING_UNREAD}</span> : null}
@@ -300,7 +301,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
               </DropdownMenu.Item>
               {/* Off says why: the undo history is this page's (a reload starts it empty, docs/design.md 7.11). */}
               <DropdownMenu.Item disabled={!canUndo} onSelect={() => void undoLast()}>
-                <Undo2 className="size-5" aria-hidden="true" />
+                <Icon of={Undo2} />
                 <span className="flex flex-col">
                   Undo
                   {canUndo ? null : <span className="text-xs text-fg2">{NOTHING_TO_UNDO}</span>}

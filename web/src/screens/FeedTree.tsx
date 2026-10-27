@@ -15,6 +15,7 @@ import { SavedSearchesNav } from "./SavedSearchesNav";
 import { feedLabel } from "./feeds/FeedRowName";
 import { FeedLine, FolderLine } from "./feeds/RowLine";
 import { unreadName } from "@/ui/UnreadCount";
+import { Icon } from "@/ui/Icon";
 
 const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 
@@ -41,7 +42,7 @@ export function CollapseToggle({ folder, collapsed, listId, collapsedIds, tabInd
       onClick={() => updateDevicePrefs({ collapsedFolders: toggleCollapsed(collapsedIds, folder.id) })}
       className="hit-row inline-flex shrink-0 items-center justify-center rounded-lg text-fg2 hover:bg-selection"
     >
-      {collapsed ? <ChevronRight className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
+      {collapsed ? <Icon of={ChevronRight} size="sm" /> : <Icon of={ChevronDown} size="sm" />}
     </button>
   );
 }

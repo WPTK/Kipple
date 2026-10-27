@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
+import { Bone } from "@/ui/kit";
 import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, rowState, titleTone } from "./parts";
 import type { RowLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
@@ -73,10 +74,23 @@ export function editorialRowHeight(hasImage: boolean, width: number, rem = 16): 
   return Math.round((inner * 9) / 16 + 207);
 }
 
+/** Loading stand-in for an Editorial row: the picture across the top, then source, title and two lines. */
+function EditorialSkeleton() {
+  return (
+    <div aria-hidden="true" className="flex flex-col gap-3 border-b border-line px-4 py-4">
+      <Bone className="aspect-video w-full rounded-lg" />
+      <Bone className="h-3 w-1/3" />
+      <Bone className="h-5 w-11/12" />
+      <Bone className="h-4 w-3/4" />
+    </div>
+  );
+}
+
 export const magazine: RowLayout = {
   id: "magazine",
   label: "Editorial",
   Row: EditorialRow,
+  Skeleton: EditorialSkeleton,
   estimateRow: (item, ctx) => editorialRowHeight(!!item.image, ctx?.width ?? 0, ctx?.rem ?? 16),
   paneRem: 28,
 };

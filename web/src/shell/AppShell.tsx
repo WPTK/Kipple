@@ -22,6 +22,7 @@ import { ApplyProgress, FeedEditorHost, FilterEditorHost } from "./FilterHost";
 import { OfflineNotice } from "./OfflineNotice";
 import { DeviceSaveStatus } from "./SaveStatus";
 import { LiveRegion, Toasts, UndoToast, announce } from "./toasts";
+import { Icon } from "@/ui/Icon";
 
 // Five equal tabs that always fit: the label follows the text size up to 4% of the screen width, the most a fifth of
 // the bar holds "Settings" in (12.8 px at 320 wide, 15 px at 375, 17 px at 430). A larger label could only be cut off,
@@ -62,11 +63,10 @@ function TabBar() {
   const t = cn(tab, tabLayout(short));
   // Plain links: NavLink would only mark the tab whose own address is the current one, and the Articles tab covers four.
   const link = (to: string, current: boolean, icon: LucideIcon, label: string, badge = false) => {
-    const Icon = icon;
     return (
       <Link key={label} to={to} className={cn(t, current ? tabNow : "text-fg2")} aria-current={current ? "page" : undefined}>
         <span className={cn("relative flex", short && shortIconHides)}>
-          <Icon aria-hidden="true" className="size-6" />
+          <Icon of={icon} />
           {badge && !short ? <UnreadBadge inline={false} /> : null}
         </span>
         {label}
@@ -186,7 +186,7 @@ function WarningsBanner() {
           }
         }}
       >
-        <X aria-hidden="true" className="size-5" />
+        <Icon of={X} />
       </button>
     </div>
   );

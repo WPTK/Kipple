@@ -31,6 +31,7 @@ import { RepairButtons } from "./FeedRepair";
 import { DeleteDialog, ToggleDialog } from "./feeds/BulkActions";
 import { BottomBar } from "@/ui/BottomBar";
 import { DropdownMenu } from "@/ui/menu";
+import { Icon } from "@/ui/Icon";
 
 const FeedEditor = lazyScreen(() => import("./feeds/FeedEditor").then((m) => ({ default: m.FeedEditor })));
 
@@ -396,7 +397,7 @@ export function HealthScreen() {
         }}
       >
         {SORT_LABEL[k]}
-        {sort === k ? dir === 1 ? <ArrowUp aria-hidden="true" className="size-4" /> : <ArrowDown aria-hidden="true" className="size-4" /> : null}
+        {sort === k ? dir === 1 ? <Icon of={ArrowUp} size="sm" /> : <Icon of={ArrowDown} size="sm" /> : null}
       </button>
     </th>
   );

@@ -14,6 +14,7 @@
 //   K7  a number setting (how often to check feeds) is a row of choices with Custom, not a bare stepper (#686);
 //   K8  every row of the Show and sort and Article length menus is the one menu row (44 px tall, rounded, highlight on focus) (#627);
 //   K9  the Listen speed select has the field-color border and a 44 px target (#609).
+//   K10  every icon on the list, Feeds and Settings screens is 16 or 20 px (#629).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { readFileSync } from "node:fs";
@@ -22,7 +23,7 @@ import { start } from "./common.mjs";
 
 const require = createRequire(import.meta.url);
 const AXE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
-const t = await start(import.meta.url, 14);
+const t = await start(import.meta.url, 15);
 const { check, step, textOf } = t;
 
 /** Opens the Change web password dialog on Settings, Account & Devices; returns the Current password input. */ // uat-labels: ignore
@@ -198,6 +199,16 @@ await t.eachViewport(async (page, vp) => {
         await page.goto("/settings/appearance", { waitUntil: "load" });
         await listen.uncheck({ force: true });
       }
+    }
+  });
+
+  await step(`${tag} K10`, async () => {
+    for (const path of ["/l/unread", "/feeds", "/settings"]) {
+      await page.goto(path, { waitUntil: "load" });
+      await page.locator("main svg").first().waitFor({ timeout: 15000 });
+      const sizes = await page.locator("svg.lucide").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)).filter((w) => w > 0));
+      const bad = sizes.filter((w) => w !== 16 && w !== 20);
+      check(sizes.length > 0 && bad.length === 0, `${tag} K10 ${path}`, `${sizes.length} icons, each 16 or 20 px`, `icon widths off the scale: ${JSON.stringify([...new Set(bad)])}`);
     }
   });
 });

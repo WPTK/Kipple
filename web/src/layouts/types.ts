@@ -111,6 +111,8 @@ export interface ListLayout {
   sectioned?: true;
   /** One list row. A page layout draws its list whole and has none. */
   Row?: ComponentType<RowProps>;
+  /** One row of the loading placeholder, in the shape of this layout's row (a card for a grid). A page layout has one row-sized stand-in. */
+  Skeleton?: ComponentType;
   /**
    * Initial size guess in px for the virtualizer; rows are measured after render. A page layout has none. `ctx` is the list's measured
    * width and root font size (0 width before it is measured), for layouts whose rows change shape with width.

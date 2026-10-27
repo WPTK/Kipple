@@ -6,6 +6,7 @@ import type { SavedSearch } from "@/api/types";
 import { cn } from "@/lib/cn";
 import { savedOpenStore, setSavedOpen } from "@/lib/searchPrefs";
 import { useStore } from "@/lib/store";
+import { Icon } from "@/ui/Icon";
 
 const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
 
@@ -94,7 +95,7 @@ export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
           onClick={() => setSavedOpen(!open)}
           className="flex min-h-11 w-full items-center gap-1 rounded-lg px-3 text-left text-xs font-semibold tracking-wide text-fg2 uppercase hover:bg-selection"
         >
-          {open ? <ChevronDown className="size-4" aria-hidden="true" /> : <ChevronRight className="size-4" aria-hidden="true" />}
+          {open ? <Icon of={ChevronDown} size="sm" /> : <Icon of={ChevronRight} size="sm" />}
           Saved searches
         </button>
       </h2>

@@ -9,6 +9,7 @@ import { useFavorites } from "@/lib/favorites";
 import { articleTo } from "@/lib/routes";
 import { planGazette, type Block, type GazettePlan, type PagePlan, type Slot } from "./gazettePlan";
 import { ROW_KEYSHORTCUTS } from "./rowTabStop";
+import { Bone } from "@/ui/kit";
 import { ListImage, useImageFailure, PublishedTime, RowMenu, UnreadDot, rowLinkProps, useOneFeed } from "./parts";
 import { RowTabStop } from "./rowTabStop";
 import type { ListLayout, PageProps, RowMenuActions } from "./types";
@@ -329,4 +330,15 @@ function GazetteList({ items, scope, more, width, selectedId, tabStopId, onOpen,
 }
 
 /** A search is never a paper (a paper is planned from a newest-first list): it reads in the results rows. Its list column is as wide as Editorial's. */
-export const gazette: ListLayout = { id: "gazette", label: "Gazette", Page: GazetteList, paneRem: 28 };
+/** Loading stand-in for the paper: a story with its picture and headline. */
+function GazetteSkeleton() {
+  return (
+    <div aria-hidden="true" className="flex flex-col gap-3 border-b border-line px-4 py-4">
+      <Bone className="aspect-video w-full rounded-lg" />
+      <Bone className="h-6 w-11/12" />
+      <Bone className="h-4 w-2/3" />
+    </div>
+  );
+}
+
+export const gazette: ListLayout = { id: "gazette", label: "Gazette", Page: GazetteList, Skeleton: GazetteSkeleton, paneRem: 28 };
