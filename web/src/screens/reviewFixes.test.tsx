@@ -71,7 +71,7 @@ afterEach(() => {
 
 describe("review fixes", () => {
   it("a row that unmounts mid-swipe releases the pull-to-refresh lock", async () => {
-    media("any-pointer: coarse", "prefers-reduced-motion");
+    media("(pointer: coarse)", "prefers-reduced-motion");
     routes();
     const { unmount } = go("/l/unread");
     await screen.findByText("Article number 1");
@@ -87,7 +87,7 @@ describe("review fixes", () => {
   });
 
   it("losing window focus mid-swipe releases the lock", async () => {
-    media("any-pointer: coarse", "prefers-reduced-motion");
+    media("(pointer: coarse)", "prefers-reduced-motion");
     routes();
     go("/l/unread");
     await screen.findByText("Article number 1");

@@ -55,8 +55,10 @@ import { useListSelection, type VRow } from "./useListSelection";
 import { useListKeyboard } from "./useListKeyboard";
 import { useItemsSource, type ListSource } from "./listSource";
 import { useDigestSource } from "./digestSource";
-import { firstLook, keepStill, lookAgain, measurePage, readerScrolling, SCROLLING_MS, type PageLook, type ReaderInput } from "./pageSeen";
+import { firstLook, keepStill, keptStory, lookAgain, measurePage, readerScrolling, SCROLLING_MS, storyInView, type PageLook, type ReaderInput } from "./pageSeen";
 import { Icon } from "@/ui/Icon";
+import { TOUCH_QUERY } from "@/ui/menu";
+import { mediaMatches } from "@/lib/useMedia";
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
 export const SCROLL_RETRY_MS = 30_000;
@@ -168,14 +170,6 @@ function chunkRows(rows: Row<Card>[], cols: number): VRow[] {
 function columnsFor(width: number): number {
   return width < 600 ? 1 : width < 900 ? 2 : 3;
 }
-
-const isTouch = (): boolean => {
-  try {
-    return window.matchMedia("(any-pointer: coarse)").matches;
-  } catch {
-    return false;
-  }
-};
 
 /** Ask for the next page of the list. One that fails says so itself (the list's "Couldn't load more", a Digest section's own retry), so the rejection is not reported twice. */
 const askForMore = (src: ListSource): void => void src.loadMore().catch(() => undefined);
@@ -448,12 +442,17 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const pageLook = useRef<PageLook | null>(null);
   /** How far the story at the top was moved while the reader was scrolling, to scroll once they stop (keepStill). */
   const pageOwed = useRef(0);
+  /** The story that owed amount is for: it is dropped once that story has left the screen. */
+  const pageOwedFor = useRef<string | undefined>(undefined);
   /** The reader is scrolling the page: a scroll they made in the last SCROLLING_MS, or a finger or button down on it. */
   const pageScrolling = useRef<ReaderInput>({ at: -Infinity, touch: false, pointer: false });
+  /** Lets go of a finger or button held on a story that has left the page (given those that did). */
+  const pageRelease = useRef<((gone: Element[]) => void) | null>(null);
   /** Start again from what is on screen: nothing is passed, and the next look is judged against this one. */
   const lookFromHere = useCallback((el: HTMLElement) => {
     pagePassed.current.clear();
     pageOwed.current = 0;
+    pageOwedFor.current = undefined;
     pageLook.current = firstLook(measurePage(el));
   }, []);
   /** The scrolled content (the failing-feed note and the pages), which the pull-to-refresh offset moves. */
@@ -473,9 +472,17 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     let m = measurePage(el);
     if (!was) return void (pageLook.current = firstLook(m));
     const passed = markOnScrollPageRef.current ? pagePassed.current : new Set<string>();
+    // What is owed holds only if scrolling by it would show the story it was owed for: a fling that carried the reader far from it is not undone.
+    if (pageOwed.current && pageOwedFor.current !== undefined && !storyInView(m, pageOwedFor.current, pageOwed.current)) {
+      pageOwed.current = 0;
+      pageOwedFor.current = undefined;
+    }
     const by = contentRef.current?.style.transform ? 0 : keepStill(was, m, pageOwed.current);
     if (Math.abs(by) < 1 || readerScrolling(pageScrolling.current)) {
       pageOwed.current = by;
+      // The first story an amount was owed for is the one that counts, whichever story the later looks keep still.
+      if (!by) pageOwedFor.current = undefined;
+      else pageOwedFor.current ??= keptStory(was);
       pageLook.current = lookAgain(was, m, passed);
       return;
     }
@@ -484,6 +491,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     // A scroll the browser clamped to where the list already was fires no scroll event to clear this.
     keptAt.current = el.scrollTop === before ? null : el.scrollTop;
     pageOwed.current = 0;
+    pageOwedFor.current = undefined;
     m = measurePage(el);
     pageLook.current = lookAgain({ ...was, scrollTop: was.scrollTop + m.scrollTop - before }, m, passed);
   }, []);
@@ -553,11 +561,25 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         lookAtStories(el);
       });
     };
-    const hold = (kind: "touch" | "pointer", down: boolean) => () => {
+    // What the reader has down on the list: kept so a story node replaced under it (a re-plan moving it to another
+    // column) can release it, since the release is then sent to a node that is no longer on the page.
+    let pressed: EventTarget | null = null;
+    const hold = (kind: "touch" | "pointer", down: boolean) => (e: Event) => {
       input[kind] = down;
+      if (down) pressed = e.target;
       if (!down) whenStopped();
     };
-    const listeners: [EventTarget, string, () => void][] = [
+    const release = () => {
+      input.touch = input.pointer = false;
+      pressed = null;
+      whenStopped();
+    };
+    pageRelease.current = (gone) => {
+      if (pressed instanceof Node && gone.some((a) => a.contains(pressed as Node))) release();
+    };
+    const listeners: [EventTarget, string, (e: Event) => void][] = [
+      // A context menu swallows the release of the press that opened it.
+      [el, "contextmenu", release],
       [el, "touchstart", hold("touch", true)],
       [el, "pointerdown", hold("pointer", true)],
       [window, "touchend", hold("touch", false)],
@@ -572,6 +594,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       if (stopped) clearTimeout(stopped);
       el.removeEventListener("scroll", onScroll);
       for (const [target, type, fn] of listeners) target.removeEventListener(type, fn);
+      pageRelease.current = null;
       input.touch = input.pointer = false;
     };
   }, [Page, lookAtStories]);
@@ -580,31 +603,41 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // looked at here too (lookAtStories), before it is painted. Each story is watched as well as the content: a story
   // that changes height in a column shorter than the tallest moves the stories under it and leaves the content's size
   // as it was. Not while a restore is pending: the stories at the top are only passing through.
-  const storyObserver = useRef<{ observer: ResizeObserver; watched: Set<Element> } | null>(null);
   useLayoutEffect(() => {
     const box = contentRef.current;
     if (!Page || !box) return;
-    const observer = new ResizeObserver(() => {
+    const resize = new ResizeObserver(() => {
       const el = parentRef.current;
       if (el && pageRestored.current) lookAtStories(el);
     });
-    observer.observe(box);
-    storyObserver.current = { observer, watched: new Set() };
+    resize.observe(box);
+    // The stories on the page change with every plan and every page that loads, and a re-plan recreates nodes without
+    // ListPane rendering: so the watched set follows the page's own changes, not this component's renders.
+    const watched = new Set<Element>();
+    const sync = () => {
+      const now = new Set(box.querySelectorAll("article[data-item-id]"));
+      const gone: Element[] = [];
+      for (const a of watched) {
+        if (now.has(a)) continue;
+        resize.unobserve(a);
+        watched.delete(a);
+        gone.push(a);
+      }
+      for (const a of now) {
+        if (watched.has(a)) continue;
+        resize.observe(a);
+        watched.add(a);
+      }
+      if (gone.length) pageRelease.current?.(gone);
+    };
+    sync();
+    const mutations = new MutationObserver(sync);
+    mutations.observe(box, { childList: true, subtree: true });
     return () => {
-      observer.disconnect();
-      storyObserver.current = null;
+      resize.disconnect();
+      mutations.disconnect();
     };
   }, [Page, lookAtStories]);
-  // The stories on the page change with every plan and every page that loads.
-  useLayoutEffect(() => {
-    const o = storyObserver.current;
-    const box = contentRef.current;
-    if (!o || !box) return;
-    const now = new Set(box.querySelectorAll("article[data-item-id]"));
-    for (const a of o.watched) if (!now.has(a)) o.observer.unobserve(a);
-    for (const a of now) if (!o.watched.has(a)) o.observer.observe(a);
-    o.watched = now;
-  });
 
   // Back to the remembered place after a reload: once its article is loaded, scroll it to the top. Pages are fetched
   // until it turns up (at most PLACE_SEARCH_MAX articles); a list without it any more starts at the top and forgets it.
@@ -1098,7 +1131,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const [caption, setCaption] = useState(false);
   useEffect(() => {
     // The swipe tip shows on rows; a page layout has none.
-    if (dp.peekSeen || peekOn || !firstItemId || cols > 1 || Page || !isTouch()) return;
+    if (dp.peekSeen || peekOn || !firstItemId || cols > 1 || Page || !mediaMatches(TOUCH_QUERY)) return;
     setPeekOn(true);
     setCaption(true);
   }, [dp.peekSeen, peekOn, firstItemId, cols, Page]);

@@ -18,7 +18,9 @@
  * `overflow-anchor: none` and keeps the place itself: keepStill says how far the page moved the story at the top, the
  * list scrolls by as much, and that look counts only the rest of the change in scroll position as the reader's. While
  * the reader is scrolling (or has a finger or button down on the list) the list does not scroll itself, which would
- * stop a fling: what is owed is scrolled once the scrolling stops.
+ * stop a fling: what is owed is scrolled once the scrolling stops, and only if that scroll would still show the story it
+ * was owed for (a fling that carried the reader far from that story took them somewhere new: scrolling by the amount
+ * then would move the text a second time).
  */
 
 /** How long after the reader's last scroll they count as still scrolling (the frames of a fling come closer). */
@@ -101,9 +103,20 @@ export function lookAgain(was: PageLook, m: PageMeasure, passed: Set<string>): P
  */
 export function keepStill(was: PageLook, m: PageMeasure, owed = 0): number {
   if (m.scrollTop < 1) return 0;
-  const candidates = [...was.inView].sort(([, a], [, b]) => a.top - b.top);
-  const pick = candidates.find(([, b]) => b.top >= -ROUNDING) ?? candidates[0];
-  const story = pick && m.stories.find((s) => s.id === pick[0]);
+  const id = keptStory(was);
+  const pick = id === undefined ? undefined : was.inView.get(id);
+  const story = id === undefined ? undefined : m.stories.find((s) => s.id === id);
   if (!pick || !story) return owed;
-  return owed + story.top - m.listTop + m.scrollTop - (pick[1].top + was.scrollTop);
+  return owed + story.top - m.listTop + m.scrollTop - (pick.top + was.scrollTop);
+}
+
+/** The story keepStill holds still for a look: see there. */
+export function keptStory(was: PageLook): string | undefined {
+  const candidates = [...was.inView].sort(([, a], [, b]) => a.top - b.top);
+  return (candidates.find(([, b]) => b.top >= -ROUNDING) ?? candidates[0])?.[0];
+}
+
+/** Would the story be on screen in this measurement once the list scrolled by `by` (down is positive). */
+export function storyInView(m: PageMeasure, id: string, by = 0): boolean {
+  return m.stories.some((s) => s.id === id && s.bottom - by > m.listTop && s.top - by < m.listBottom);
 }

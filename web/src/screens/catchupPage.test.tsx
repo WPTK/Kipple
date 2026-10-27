@@ -309,7 +309,7 @@ describe("the page's loading, failure and edges", () => {
 
   it("forgets an earlier failure when the page is opened again", async () => {
     let state: "down" | "hung" = "down";
-    routes([3], { "GET /api/catchup": () => (state === "down" ? json({ error: "gone" }, 500) : new Promise<Response>(() => {})) });
+    const { calls } = routes([3], { "GET /api/catchup": () => (state === "down" ? json({ error: "gone" }, 500) : new Promise<Response>(() => {})) });
     const user = userEvent.setup();
     go("/l/new");
     expect(await screen.findByText("Couldn't load what is new")).toBeInTheDocument();
@@ -319,6 +319,8 @@ describe("the page's loading, failure and edges", () => {
     await user.click(within(screen.getByRole("navigation", { name: "Show" })).getByRole("link", { name: "New" }));
     expect(await screen.findByText("Looking for what is new.")).toBeInTheDocument();
     expect(screen.queryByText("Couldn't load what is new")).toBeNull();
+    // The page asked the server again rather than showing the failure's leftovers.
+    expect(calls.filter((c) => c.url.pathname === "/api/catchup").length).toBeGreaterThanOrEqual(2);
   });
 
   it("has the page's counts beside an article opened by its address", async () => {
@@ -358,6 +360,64 @@ describe("the page's loading, failure and edges", () => {
     const item = await screen.findByRole("menuitem", { name: /Mark all as read/ });
     expect(item).toHaveAttribute("aria-disabled", "true");
     expect(item).toHaveTextContent("Nothing unread here");
+  });
+});
+
+describe("a visit adopted from an article's address", () => {
+  const WIDE = (query: string) => ({ matches: query.includes("min-width: 900px"), media: query, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false });
+  /** The server's mark has moved on to 900; the link still names 100, which had three new articles in each folder. */
+  const behindServer = (arrived = [3, 3]) =>
+    routes(arrived, {
+      "GET /api/catchup": (u) => {
+        const groups = (u.searchParams.get("groups") ?? "").split(",").filter(Boolean);
+        const mark = u.searchParams.get("mark") ?? "900";
+        return json({ mark, as_of: "950", sections: groups.map((g) => ({ group: g, count: g.startsWith("d") && mark === "100" ? 3 : 0 })) });
+      },
+    });
+  const asks = (calls: { url: URL }[]) => calls.filter((c) => c.url.pathname === "/api/catchup");
+
+  it("asks for the counts after the link's mark, not the server's", async () => {
+    vi.stubGlobal("matchMedia", WIDE);
+    const { calls } = behindServer();
+    const { container } = go("/i/1001?from=unread%7Cafter%3A100");
+    await waitFor(() => expect(headings(container)).toEqual(["Alpha3 new", "Beta3 new"]));
+    expect(asks(calls)[0]!.url.searchParams.get("mark")).toBe("100");
+  });
+
+  it("keeps Mark all as read on while the page lists the articles the link's mark leaves", async () => {
+    vi.stubGlobal("matchMedia", WIDE);
+    behindServer();
+    const user = userEvent.setup();
+    go("/i/1001?from=unread%7Cafter%3A100");
+    await screen.findByText("Beta story 1");
+    await user.click(screen.getByRole("button", { name: "List actions" }));
+    const item = await screen.findByRole("menuitem", { name: /Mark all 6 as read/ });
+    expect(item).not.toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("is dropped when the reader goes to the page itself, which asks for the server's own mark", async () => {
+    vi.stubGlobal("matchMedia", WIDE);
+    const { calls } = behindServer();
+    const user = userEvent.setup();
+    const { container } = go("/i/1001?from=unread%7Cafter%3A100");
+    await waitFor(() => expect(headings(container)).toEqual(["Alpha3 new", "Beta3 new"]));
+    await user.click(within(screen.getByRole("navigation", { name: "Show" })).getByRole("link", { name: "New" }));
+    await waitFor(() => expect(asks(calls)).toHaveLength(2));
+    expect(asks(calls)[1]!.url.searchParams.has("mark")).toBe(false);
+    // The page is the server's: nothing is new after its mark, and leaving it moves the mark on.
+    expect(await screen.findByText("Nothing new")).toBeInTheDocument();
+    await user.click(within(screen.getByRole("navigation", { name: "Show" })).getByRole("link", { name: "Unread" }));
+    await waitFor(() => expect(world.seen).toEqual(["950"]));
+  });
+
+  it("lists previous and next from the link's mark on a narrow screen, before and after the visit is known", async () => {
+    const { calls } = behindServer();
+    go("/i/1001?from=unread%7Cafter%3A100");
+    await screen.findByTestId("article-body");
+    await waitFor(() => expect(asks(calls)).toHaveLength(1));
+    const afters = calls.filter((c) => c.url.pathname === "/api/items" && c.url.searchParams.has("after")).map((c) => c.url.searchParams.get("after"));
+    expect(afters.length).toBeGreaterThan(0);
+    expect(new Set(afters)).toEqual(new Set(["100"]));
   });
 });
 
