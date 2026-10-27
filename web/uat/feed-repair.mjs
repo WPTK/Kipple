@@ -16,6 +16,7 @@
 // It adds one feed that fails (a small server of its own on 127.0.0.1, answering 500) and removes it afterwards; every
 // dialog is closed with Escape and the Add feed submit is answered by the browser itself. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
+import { expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { start } from "./common.mjs";
 
@@ -101,10 +102,10 @@ async function viewport(page, vp, failingId) {
     check((await page.getByRole("button", { name: /^Try .* now$/ }).count()) > 0, `${tag} R2 try`, "Try now is on the row", "no Try now on the row");
     const details = page.getByRole("button", { name: "Details", exact: true }).first();
     await details.waitFor({ timeout: 15000 });
-    const panelId = await details.getAttribute("aria-controls");
-    const panel = page.locator(`[id="${panelId}"]`);
-    check((await details.getAttribute("aria-expanded")) === "false" && (await panel.count()) === 0, `${tag} R2 details`, "the server's text is behind Details", "the server's text is not behind Details");
+    check((await details.getAttribute("aria-expanded")) === "false", `${tag} R2 details`, "the server's text is behind Details", "the server's text is not behind Details");
     await details.click();
+    await expect(details).toHaveAttribute("aria-expanded", "true", { timeout: 5000 });
+    const panel = page.locator(`[id="${await details.getAttribute("aria-controls")}"]`);
     await panel.waitFor({ timeout: 5000 });
     const raw = (await panel.textContent()) ?? "";
     check(raw.length > 0 && (await panel.isVisible()), `${tag} R2 open`, "Details opens", "Details did not open");
