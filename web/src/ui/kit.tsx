@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
+import { useEffect, useId, useRef, useState, type ComponentType, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
 import { Dialog } from "radix-ui";
 import { Collapsible } from "radix-ui";
 import { ChevronDown, CircleAlert, TriangleAlert, X } from "lucide-react";
@@ -642,13 +642,49 @@ export function Notice({ tone = "info", children, role }: { tone?: "info" | "war
   );
 }
 
-export function Skeleton({ rows = 4, label = "Loading" }: { rows?: number; label?: string }) {
+/** One grey block of a skeleton: the layouts draw their row shapes from these. */
+export function Bone({ className }: { className?: string }) {
+  return <div aria-hidden="true" className={cn("animate-pulse rounded bg-surface", className)} />;
+}
+
+/**
+ * Placeholder for content on its way. Without `row`, `rows` plain bars; with `row`, `rows` copies of that shape, so a
+ * list holds the place its real rows will take and nothing moves when they arrive. One live "Loading" for assistive tech.
+ */
+export function Skeleton({ rows = 4, label = "Loading", row: Row, className }: { rows?: number; label?: string; row?: ComponentType; className?: string }) {
   return (
-    <div role="status" aria-busy="true" data-skeleton className="flex flex-col gap-3 p-4">
+    <div role="status" aria-busy="true" data-skeleton className={Row ? className : cn("flex flex-col gap-3 p-4", className)}>
       <span className="sr-only-live">{label}</span>
-      {Array.from({ length: rows }, (_, i) => (
-        <div key={i} aria-hidden="true" className="h-12 animate-pulse rounded-xl bg-surface" />
-      ))}
+      {Row
+        ? Array.from({ length: rows }, (_, i) => <Row key={i} />)
+        : Array.from({ length: rows }, (_, i) => <Bone key={i} className="h-12 rounded-xl" />)}
     </div>
   );
+}
+
+/** A skeleton waits this long before it shows (a quick answer never flashes one), then stays at least {@link SKELETON_MIN_MS}. */
+export const SKELETON_DELAY_MS = 350;
+export const SKELETON_MIN_MS = 400;
+
+/**
+ * What to draw while something loads: "blank" for the first moments, "skeleton" once the wait has run long, "done" when
+ * it has finished and any skeleton has been up long enough not to flicker.
+ */
+export function useSkeletonGate(pending: boolean): "blank" | "skeleton" | "done" {
+  const [shown, setShown] = useState(false);
+  const since = useRef(0);
+  useEffect(() => {
+    if (pending && !shown) {
+      const t = setTimeout(() => {
+        since.current = Date.now();
+        setShown(true);
+      }, SKELETON_DELAY_MS);
+      return () => clearTimeout(t);
+    }
+    if (!pending && shown) {
+      const t = setTimeout(() => setShown(false), Math.max(0, SKELETON_MIN_MS - (Date.now() - since.current)));
+      return () => clearTimeout(t);
+    }
+  }, [pending, shown]);
+  return shown ? "skeleton" : pending ? "blank" : "done";
 }

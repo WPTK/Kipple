@@ -47,8 +47,29 @@ function NotFound() {
   return <NotFoundBlock noun="page" why="Kipple has no page at this address." />;
 }
 
-function Lazy({ children, label = "Loading screen" }: { children: React.ReactNode; label?: string }) {
-  return <Suspense fallback={<Skeleton label={label} />}>{children}</Suspense>;
+/**
+ * While a screen's code downloads: with a `title`, the screen's own header at once (so the page does not change shape
+ * when the screen arrives), else bars. The real screen's heading takes focus when it mounts.
+ */
+function Lazy({ children, label = "Loading screen", title }: { children: React.ReactNode; label?: string; title?: string }) {
+  return (
+    <Suspense
+      fallback={
+        title ? (
+          <div className="ui-font flex h-full min-h-0 flex-col">
+            <header className="pt-safe shrink-0 border-b border-line px-4 pb-3">
+              <h1 className="mx-auto w-full max-w-3xl pt-2 pb-2 text-xl font-bold">{title}</h1>
+            </header>
+            <Skeleton label={label} />
+          </div>
+        ) : (
+          <Skeleton label={label} />
+        )
+      }
+    >
+      {children}
+    </Suspense>
+  );
 }
 
 /**
@@ -229,9 +250,9 @@ function Gate() {
         <Route path="feeds/index" element={<Lazy label="Loading the feed index"><FeedIndexScreen /></Lazy>} />
         <Route path="health" element={<Lazy label="Loading feed health"><HealthScreen /></Lazy>} />
         <Route path="search" element={<SearchScreen />} />
-        <Route path="stats" element={<Lazy label="Loading stats"><StatsScreen /></Lazy>} />
+        <Route path="stats" element={<Lazy label="Loading stats" title="Stats"><StatsScreen /></Lazy>} />
         <Route path="stats/wrapped" element={<Lazy label="Loading your year"><WrappedScreen /></Lazy>} />
-        <Route path="settings/*" element={<Lazy label="Loading settings"><SettingsScreen /></Lazy>} />
+        <Route path="settings/*" element={<Lazy label="Loading settings" title="Settings"><SettingsScreen /></Lazy>} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

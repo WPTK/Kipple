@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
+import { Bone } from "@/ui/kit";
 import { PublishedTime, RowMenu, StarButton, UnreadDot, rowLinkProps, rowState, titleTone, useOneFeed } from "./parts";
 import type { RowLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
@@ -46,10 +47,20 @@ function HeadlineRow({ item, selected, to, onOpen, onToggleStar, actions }: RowP
   );
 }
 
+/** Loading stand-in for a Headlines row: one line. */
+function HeadlineSkeleton() {
+  return (
+    <div aria-hidden="true" className="flex h-11 items-center border-b border-line pr-4 pl-5">
+      <Bone className="h-4 w-3/4" />
+    </div>
+  );
+}
+
 export const headlines: RowLayout = {
   id: "headlines",
   label: "Headlines",
   Row: HeadlineRow,
+  Skeleton: HeadlineSkeleton,
   estimateRow: () => 44,
   paneRem: 22,
 };

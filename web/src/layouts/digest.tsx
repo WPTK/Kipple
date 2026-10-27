@@ -5,6 +5,7 @@ import type { Card, Headline } from "@/api/types";
 import { cn } from "@/lib/cn";
 import { articleTo } from "@/lib/routes";
 import { Button } from "@/ui/button";
+import { Bone } from "@/ui/kit";
 import { ListImage, PublishedTime, RowMenu, UnreadDot, rowLinkProps, useImageFailure } from "./parts";
 import { ROW_KEYSHORTCUTS, RowTabStop, stopId } from "./rowTabStop";
 import type { DigestSectionView, ListLayout, PageProps, RowMenuActions } from "./types";
@@ -89,14 +90,21 @@ function Stop({ id, children }: { id: string; children: React.ReactNode }) {
   );
 }
 
+/** Loading stand-in for a Digest row: a title line and a source line. */
+function DigestRowSkeleton() {
+  return (
+    <div aria-hidden="true" className="flex min-h-[var(--row-min)] flex-col gap-2 border-b border-line px-4 py-3">
+      <Bone className="h-4 w-11/12" />
+      <Bone className="h-3 w-1/3" />
+    </div>
+  );
+}
+
 function SectionSkeleton({ rows }: { rows: number }) {
   return (
     <div aria-hidden="true" data-testid="digest-skeleton">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="flex min-h-[var(--row-min)] flex-col gap-2 border-b border-line px-4 py-3">
-          <div className="h-4 w-11/12 rounded bg-surface" />
-          <div className="h-3 w-1/3 rounded bg-surface" />
-        </div>
+        <DigestRowSkeleton key={i} />
       ))}
     </div>
   );
@@ -239,4 +247,4 @@ function DigestPage({ items, scope, more, selectedId, tabStopId, onOpen, actions
 }
 
 /** A page of sections. Its list column is as wide as Compact's. */
-export const digest: ListLayout = { id: "digest", label: "Digest", Page: DigestPage, sectioned: true, paneRem: 22.5 };
+export const digest: ListLayout = { id: "digest", label: "Digest", Page: DigestPage, Skeleton: DigestRowSkeleton, sectioned: true, paneRem: 22.5 };
