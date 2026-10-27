@@ -151,7 +151,7 @@ export function AccountStep({
               <div className="flex flex-col gap-3 text-fg">
                 <PasswordField
                   label="Password"
-                  help={`At least ${MIN_PASSWORD_LEN} characters. A few words in a row works well.`}
+                  help={`At least ${MIN_PASSWORD_LEN} characters. Longer is better; a few words in a row works well.`}
                   error={fieldError?.field === "password" ? fieldError.message : pwBad}
                   inputRef={pwInput}
                   name="new-password"

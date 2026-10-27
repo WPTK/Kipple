@@ -502,14 +502,14 @@ var settingDefs = withScopes([]settingDef{
 	// Advanced: shown in an Advanced section of the Settings screen.
 	{Key: "fetch.honor_publisher_ttl", Label: "Follow publisher refresh hints", Description: "Wait longer between checks when a site asks readers not to check too often.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceSettings, check: boolVal},
-	{Key: "greader.icon_urls", Label: "Send feed icons to sync apps", Description: "On by default.",
+	{Key: "greader.icon_urls", Label: "Send feed icons to sync apps", Description: "Lets sync apps show each feed's icon. On by default.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceSettings, check: boolVal},
 
 	// Hidden plumbing: validated and never shown by default. All are PATCH-able except catchup.seen, which only
 	// POST /api/catchup/seen writes (its check here is the default's validation, not a write path).
 	{Key: "greader.ot_includes_user_changes", Label: "Include your own changes in sync", Description: "Whether changes made in Kipple also appear as new activity to sync apps.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
-	{Key: "greader.subscribe_fetch_now", Label: "Fetch new feeds at once from sync apps", Description: "Off by default.",
+	{Key: "greader.subscribe_fetch_now", Label: "Fetch new feeds at once from sync apps", Description: "Fetches a feed at once when a sync app subscribes to it. Off by default.",
 		Group: groupAdvanced, Kind: "bool", Surface: surfaceHidden, check: boolVal},
 	{Key: "ui.whats_new_seen", Label: "Last version whose changes were shown", Description: "The newest Kipple version whose \"What's new\" was shown after an upgrade. Kept for the whole account so one reader does not dismiss it on every device.",
 		Group: groupAdvanced, Kind: "text", Surface: surfaceHidden, check: func(v any) (any, string) {

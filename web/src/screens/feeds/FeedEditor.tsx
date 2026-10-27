@@ -352,7 +352,7 @@ export function FeedEditor({ feed, onClose, focusAddress }: { feed: Feed; onClos
             ) : (
               <Checkbox label="Fetch full article text" help="Loads the whole article from the website when the feed only has a summary." checked={f.fulltext} onChange={(v) => set("fulltext", v)} />
             )}
-            <Checkbox label="Pause this feed" help="Its articles stay." checked={!f.enabled} onChange={(v) => set("enabled", !v)} />
+            <Checkbox label="Pause this feed" help="Stops checking until you resume it. Its articles stay." checked={!f.enabled} onChange={(v) => set("enabled", !v)} />
           </Group>
           <Group title="On this device">
             <ListOverrideFields kind="feed" id={feed.id} draft={lists} />

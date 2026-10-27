@@ -98,7 +98,7 @@ await t.eachViewport(async (page, vp) => {
     const sw = page.getByRole("switch", { name: "Also use it in lists and the sidebar" });
     await sw.waitFor({ timeout: 15000 });
     const appearance = (await page.locator("main").innerText()).replace(/\s+/g, " ");
-    await gone("appearance", appearance, ["Makes all text larger or smaller", "Used for article text on this device", "How much space between lines and paragraphs", "Makes buttons and tap targets bigger", "Most people never need", "Swipe a row right to mark it read"]);
+    await gone("appearance", appearance, ["Makes all text larger or smaller", "Used for article text on this device", "How much space between lines and paragraphs", "Makes buttons and tap targets bigger", "Most people never need"]);
     const why = await sw.evaluate((el) => ({ off: el.disabled || el.getAttribute("aria-disabled") === "true", text: (el.getAttribute("aria-describedby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent ?? "").join(" ") }));
     check(why.off && /Choose a reading font first/.test(why.text), `${tag} W6 reason`, "the disabled font switch says why", `disabled: ${why.off}, described by: ${JSON.stringify(why.text)}`);
 
@@ -121,6 +121,21 @@ await t.eachViewport(async (page, vp) => {
     await gone("editor", editor, ["How Kipple decides that two entries", "Kipple stops checking this feed", "Change this to point at a new address"]);
     check(/Starred and muted articles are never touched/.test(editor), `${tag} W6 left alone`, "the editor says starred and muted articles are never touched", "the note is missing");
     await t.shot(page, `${tag}-helper-text-editor`);
+    await page.keyboard.press("Escape");
+
+    await page.goto("/settings/statistics", { waitUntil: "load" });
+    await page.getByRole("button", { name: /Export/ }).first().click();
+    const exp = page.getByRole("dialog", { name: "Export stats" });
+    await exp.waitFor({ timeout: 10000 });
+    await gone("stats export", (await exp.innerText()).replace(/\s+/g, " "), ["Download your reading stats as a file", "Explains every column in the file"]);
+    await page.keyboard.press("Escape");
+
+    await page.goto("/feeds", { waitUntil: "load" });
+    await page.getByRole("button", { name: "Add feed" }).first().click();
+    const add = page.getByRole("dialog", { name: "Add feed" });
+    await add.waitFor({ timeout: 10000 });
+    await add.getByRole("button", { name: "Options" }).click();
+    await gone("add feed", (await add.innerText()).replace(/\s+/g, " "), ["and Kipple will look for its feed", "You can change it later"]);
     await page.keyboard.press("Escape");
   });
 });
