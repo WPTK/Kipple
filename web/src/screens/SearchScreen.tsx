@@ -171,7 +171,7 @@ export function SearchScreen() {
     return () => ro.disconnect();
   }, [measure]);
   // In that layout the results are their own scroller, so a wheel or a swipe over them would scroll the list while the
-  // header stays over most of the screen. The screen takes the gesture first: down moves the screen until the header is
+  // header stays over most of the screen. The screen takes the gesture (or the scrolling key) first: down moves the screen until the header is
   // gone, up moves it back once the list is at its top. Only a gesture the screen can use is taken; the rest is the list's.
   useEffect(() => {
     const results = resultsRef.current;
@@ -200,10 +200,22 @@ export function SearchScreen() {
       lastY = y;
       if (take(dy, e.cancelable)) e.preventDefault();
     };
+    // The scrolling keys take the same turn as a wheel when focus is on the results box or its list (not on a row, a
+    // control or a field, which use these keys themselves: the arrows and PageUp/PageDown on a row move focus between rows).
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t?.closest("input, textarea, select, button, a, [contenteditable], [role='menuitem'], [role='slider'], [data-item-id]")) return;
+      const page = Math.max(40, (results.querySelector<HTMLElement>("[data-list-scroller]") ?? results).clientHeight * 0.9);
+      const dy = e.key === "PageDown" ? page : e.key === "PageUp" ? -page : e.key === " " ? (e.shiftKey ? -page : page) : !e.shiftKey && e.key === "ArrowDown" ? 40 : !e.shiftKey && e.key === "ArrowUp" ? -40 : 0;
+      if (take(dy, true)) e.preventDefault();
+    };
+    results.addEventListener("keydown", onKey);
     results.addEventListener("wheel", onWheel, { passive: false });
     results.addEventListener("touchstart", onTouchStart, { passive: true });
     results.addEventListener("touchmove", onTouchMove, { passive: false });
     return () => {
+      results.removeEventListener("keydown", onKey);
       results.removeEventListener("wheel", onWheel);
       results.removeEventListener("touchstart", onTouchStart);
       results.removeEventListener("touchmove", onTouchMove);

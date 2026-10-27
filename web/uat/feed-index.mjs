@@ -15,9 +15,10 @@
 //   I4  the feed that can't be fetched says so, and the others say nothing;
 //   I5  the page is one Tab stop and the arrow keys visit the feed names and the headlines in the order drawn;
 //   I6  opening a headline shows the article, and coming back shows that headline as read;
-//   I7  "Quiet Feeds First" in the Order menu puts the feeds that post least first and the feeds with no pace yet (all of
-//       these are new) last, in the sidebar's order;
-//   I8  Back from an article returns to where the page was left, with the headline that was opened focused.
+//   I7  "Quiet Feeds First" in the Order menu keeps every feed, puts any feed with a pace first (slowest first) and the
+//       feeds with no pace yet (all of these are new) after them, in the sidebar's order; the choice is saved;
+//   I8  Back from an article returns to where the page was left, with the headline that was opened focused (it runs
+//       last: it marks one of the headlines read).
 // Chromium only. It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
@@ -178,8 +179,35 @@ try {
       const nowRead = await settled((i) => document.querySelector(`article[data-item-id="${i}"]`)?.hasAttribute("data-read"), id, 15000);
       check(open && wasMarked && wasRead === null && nowRead, `${tag} I6 open`, "the headline opens the article and shows as read when you come back", `opened ${open}, marked ${wasMarked}, read before ${wasRead}, read after ${nowRead}`);
 
+      // I7: Quiet Feeds First. A feed's pace is counted from days of new articles, which a freshly added feed has none
+      // of and a UAT run cannot backdate, so the order of paced feeds is checked by the planner's unit tests
+      // (digestPlan.test.ts). Here: the feeds the page draws are the sidebar's feeds with the same ids, the ones with
+      // no pace yet stay in the sidebar's order, any that do have a pace come first and ascending (looked up by feed id,
+      // so a renamed feed counts), and the choice is saved for the device.
+      const blocksNow = () => page.locator("section[data-feed-block]").evaluateAll((els) => els.map((e) => ({ id: e.getAttribute("data-feed-block"), name: e.querySelector("h2 a")?.textContent ?? "" })));
+      const paceOf = new Map((await t.boot(page)).feeds.map((f) => [f.id, f.pace]));
+      const sidebar = await blocksNow();
+      await page.getByRole("button", { name: "Order", exact: true }).click();
+      await page.getByRole("menuitemradio", { name: /Quiet Feeds First/ }).click();
+      await page.keyboard.press("Escape");
+      const quiet = await blocksNow();
+      const paced = quiet.filter((f) => typeof paceOf.get(f.id) === "number");
+      const unpaced = quiet.filter((f) => typeof paceOf.get(f.id) !== "number");
+      const ascending = paced.every((f, i) => i === 0 || paceOf.get(paced[i - 1].id) <= paceOf.get(f.id));
+      const sameFeeds = quiet.length === sidebar.length && quiet.length > 0 && new Set(quiet.map((f) => f.id)).size === quiet.length;
+      const unpacedInOrder = quiet.slice(paced.length).map((f) => f.id).join() === unpaced.map((f) => f.id).join() && unpaced.map((f) => f.id).join() === sidebar.filter((f) => unpaced.some((u) => u.id === f.id)).map((f) => f.id).join();
+      check(sameFeeds && ascending && unpacedInOrder, `${tag} I7 order`, "every feed is still drawn once; feeds with a pace come first, slowest first; feeds with no pace yet follow in the sidebar's order", `${paced.length} with a pace; order ${quiet.slice(0, 8).map((f) => f.name).join(" | ")}`);
+      // The choice is the device's: the menu shows it chosen when it is opened again.
+      await page.getByRole("button", { name: "Order", exact: true }).click();
+      const chosen = await page.getByRole("menuitemradio", { name: /Quiet Feeds First/ }).getAttribute("aria-checked");
+      check(chosen === "true", `${tag} I7 chosen`, "Quiet Feeds First shows as chosen", `aria-checked is ${chosen}`);
+      await t.shot(page, `${tag}-feed-index-quiet`);
+      await page.getByRole("menuitemradio", { name: /Sidebar order/ }).click();
+      await page.keyboard.press("Escape");
+
       // I8: after an article, Back returns to the index where it was left, with the headline focused. A short window
-      // makes the page scroll whatever the library holds.
+      // makes the page scroll whatever the library holds. It runs last: opening z's headline marks it read, and nothing
+      // after it looks at z.
       await page.setViewportSize({ width: vp.width, height: 360 });
       await ready();
       const scrollerTop = () => page.getByTestId("feed-index-scroll").evaluate((el) => el.scrollTop);
@@ -198,26 +226,6 @@ try {
       await page.setViewportSize({ width: vp.width, height: vp.height });
       await page.getByTestId("feed-index-scroll").evaluate((el) => (el.scrollTop = 0));
 
-      // I7: Quiet Feeds First puts the feeds that post least first and the ones with no pace yet (all of mine are new)
-      // last, in the sidebar's order.
-      const paceOf = new Map((await t.boot(page)).feeds.map((f) => [f.title, f.pace]));
-      const sidebar = await page.locator("section[data-feed-block] > h2 a").evaluateAll((els) => els.map((e) => e.textContent));
-      await page.getByRole("button", { name: "Order", exact: true }).click();
-      await page.getByRole("menuitemradio", { name: /Quiet Feeds First/ }).click();
-      await page.keyboard.press("Escape");
-      const quiet = await page.locator("section[data-feed-block] > h2 a").evaluateAll((els) => els.map((e) => e.textContent));
-      const paced = quiet.filter((n) => typeof paceOf.get(n) === "number");
-      const unpaced = quiet.filter((n) => typeof paceOf.get(n) !== "number");
-      const ascending = paced.every((n, i) => i === 0 || paceOf.get(paced[i - 1]) <= paceOf.get(n));
-      const newLast = quiet.slice(paced.length).join() === unpaced.join() && unpaced.join() === sidebar.filter((n) => unpaced.includes(n)).join();
-      check(ascending && newLast, `${tag} I7 quiet`, "feeds that post least come first; feeds with no pace yet follow in the sidebar's order", `${paced.length} with a pace; order ${quiet.slice(0, 8).join(" | ")}`);
-      // The choice is the device's: the menu shows it chosen when it is opened again.
-      await page.getByRole("button", { name: "Order", exact: true }).click();
-      const chosen = await page.getByRole("menuitemradio", { name: /Quiet Feeds First/ }).getAttribute("aria-checked");
-      check(chosen === "true", `${tag} I7 chosen`, "Quiet Feeds First shows as chosen", `aria-checked is ${chosen}`);
-      await t.shot(page, `${tag}-feed-index-quiet`);
-      await page.getByRole("menuitemradio", { name: /Sidebar order/ }).click();
-      await page.keyboard.press("Escape");
     });
   });
 } finally {

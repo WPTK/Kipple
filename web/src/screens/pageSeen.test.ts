@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstLook, keepStill, lookAgain, readerScrolling, SCROLLING_MS, type PageMeasure } from "./pageSeen";
+import { firstLook, keepStill, keptStory, lookAgain, readerScrolling, SCROLLING_MS, storyInView, type PageMeasure } from "./pageSeen";
 
 // The list is 300 px tall from y = 0. A page is its stories' boxes within the scrolled content, [id, top, height], in
 // any number of columns side by side (a box's column does not matter to the rule, only where it is). `scroll` is how
@@ -195,5 +195,18 @@ describe("the reader scrolling", () => {
     expect(readerScrolling(idle, SCROLLING_MS)).toBe(false);
     expect(readerScrolling({ ...idle, touch: true }, 10_000)).toBe(true);
     expect(readerScrolling({ ...idle, pointer: true }, 10_000)).toBe(true);
+  });
+});
+describe("the story kept still, and whether a scroll would show it", () => {
+  it("keeps still the highest story whose top was in view, and says whether scrolling by an amount shows it", () => {
+    const was = firstLook(measure(150, column(["a", "b", "c", "d"])));
+    expect(keptStory(was)).toBe("c"); // "b" is cut off by the top
+    const now = measure(150, column(["a", "b", "c", "d"]));
+    expect(storyInView(now, "b")).toBe(true);
+    // Scrolling down by 500 would carry "b" (top at -50, 100 tall) far above the list.
+    expect(storyInView(now, "b", 500)).toBe(false);
+    // Scrolling up by 100 would put it at 50.
+    expect(storyInView(now, "b", -100)).toBe(true);
+    expect(storyInView(now, "nope")).toBe(false);
   });
 });

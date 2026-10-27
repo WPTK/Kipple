@@ -74,6 +74,7 @@ const FeedBlock = memo(function FeedBlock({ feed, unread, cards, tabStopId }: Bl
           {unread > 0 ? `${unread} unread` : "All read"}
         </span>
       </h2>
+      {/* In "all" with nothing pending this is just !!last_error; it goes through showsFailure to stay in step with the lists' own rule. */}
       {showsFailure("all", 0, feed) ? <Failure feed={feed} /> : null}
       {cards.length === 0 ? (
         <p className="px-4 py-2 text-sm text-fg2">No articles to show.</p>

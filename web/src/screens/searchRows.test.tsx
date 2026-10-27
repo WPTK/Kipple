@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
@@ -64,6 +64,88 @@ describe("Search: the results line", () => {
     expect(live).toHaveTextContent("");
     expect(screen.getByTestId("result-count")).not.toHaveAttribute("role");
     await waitFor(() => expect(live).toHaveTextContent("2 results for cats"), { timeout: 4000 });
+  });
+});
+
+describe("Search: announcing and the short screen", () => {
+  it("announces a search once: the next page changing the count says nothing more", async () => {
+    // The first page has more behind it; the next page changes the count the line under the box shows.
+    let calls = 0;
+    mockFetch({
+      ...api(page()),
+      "GET /api/items": () => json(++calls === 1 ? page(undefined, { next_cursor: "more" }) : page([card(3, { title: "Dogs" }), card(4, { title: "Birds" })])),
+    });
+    go("/search?q=cats");
+    const live = await screen.findByTestId("result-announce");
+    await waitFor(() => expect(live.textContent).not.toBe(""), { timeout: 4000 });
+    const said = live.textContent;
+    const heard: string[] = [];
+    const watch = new MutationObserver(() => heard.push(live.textContent ?? ""));
+    watch.observe(live, { childList: true, characterData: true, subtree: true });
+    // The line under the box follows the count; the announcement does not.
+    await new Promise((r) => setTimeout(r, 1000));
+    watch.disconnect();
+    expect(heard).toEqual([]);
+    expect(live.textContent).toBe(said);
+  });
+
+  describe("on a screen shorter than its header", () => {
+    const sizes = (client: number, offset: number, scroll: number) => {
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(client);
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(offset);
+      vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(scroll);
+    };
+    afterEach(() => vi.restoreAllMocks());
+
+    it("marks the screen short when the header takes more than half of it, and not otherwise", async () => {
+      sizes(100, 80, 400);
+      mockFetch(api(page()));
+      const short = go("/search?q=cats");
+      await screen.findByTestId("result-count");
+      expect(short.container.querySelector(".search-shell")).toHaveAttribute("data-short");
+      short.unmount();
+      vi.restoreAllMocks();
+      sizes(1000, 10, 1000);
+      mockFetch(api(page()));
+      const tall = go("/search?q=cats");
+      await screen.findByTestId("result-count");
+      expect(tall.container.querySelector(".search-shell")).not.toHaveAttribute("data-short");
+    });
+
+    it("moves the screen, not the list, for PageDown and the arrow keys", async () => {
+      sizes(100, 80, 400);
+      mockFetch(api(page()));
+      const { container } = go("/search?q=cats");
+      await screen.findByTestId("result-count");
+      const shell = container.querySelector<HTMLElement>(".search-shell")!;
+      const results = container.querySelector<HTMLElement>(".search-results")!;
+      expect(shell.scrollTop).toBe(0);
+      fireEvent.keyDown(results, { key: "PageDown" });
+      expect(shell.scrollTop).toBeGreaterThan(0);
+      const after = shell.scrollTop;
+      fireEvent.keyDown(results, { key: "ArrowUp" });
+      expect(shell.scrollTop).toBeLessThan(after);
+    });
+
+    it("leaves the keys of a focused result to the list, which moves focus between rows", async () => {
+      sizes(100, 80, 400);
+      mockFetch(api(page()));
+      const { container } = go("/search?q=cats");
+      await screen.findByTestId("result-count");
+      const shell = container.querySelector<HTMLElement>(".search-shell")!;
+      fireEvent.keyDown(container.querySelector("article[data-item-id] a")!, { key: "PageDown" });
+      expect(shell.scrollTop).toBe(0);
+    });
+
+    it("leaves keys alone on a tall screen", async () => {
+      sizes(1000, 10, 1000);
+      mockFetch(api(page()));
+      const { container } = go("/search?q=cats");
+      await screen.findByTestId("result-count");
+      const shell = container.querySelector<HTMLElement>(".search-shell")!;
+      fireEvent.keyDown(container.querySelector(".search-results")!, { key: "PageDown" });
+      expect(shell.scrollTop).toBe(0);
+    });
   });
 });
 

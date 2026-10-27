@@ -379,6 +379,15 @@ await t.eachViewport(async (page, vp) => {
       }
       const back = await settled();
       check(back.shell === 0 && back.list === 0, `${tag} W8 back`, "wheeling back up returns the list, then the header", JSON.stringify(back));
+      // The scrolling keys take the same turn as the wheel: with the list itself focused (a click on its empty part),
+      // PageDown moves the header away before it scrolls the list, and PageUp brings it back.
+      await page.evaluate(() => document.querySelector("[data-list-scroller]").focus({ preventScroll: true }));
+      await page.keyboard.press("PageDown");
+      const keyed = await settled(250);
+      check(keyed.shell > 0 && keyed.list === 0, `${tag} W8 key`, "PageDown in the list moves the header away before it scrolls the list", JSON.stringify(keyed));
+      await page.keyboard.press("PageUp");
+      const keyedBack = await settled(250);
+      check(keyedBack.shell === 0, `${tag} W8 key back`, "PageUp brings the header back", JSON.stringify(keyedBack));
       {
         const cdp = await page.context().newCDPSession(page).catch(() => null);
         check(!!cdp, `${tag} W8 touch`, "a touch session is available to drive the swipe", "the browser gave no CDP session");

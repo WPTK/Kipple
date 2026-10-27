@@ -2,7 +2,7 @@ import { useEffect } from "react";
 
 /**
  * Where focus was in each history entry, so Back and Forward can give it back. The router stamps every entry with a
- * `key` (in `history.state`); the list row last focused or pressed is remembered in memory against the key of the entry
+ * `key` (in `history.state`); the list row last focused or activated is remembered in memory against the key of the entry
  * it happened in, and read when that entry is arrived at again. Nothing is written to the history, which a browser
  * limits and a reload clears anyway (a reload starts at the page load, which has its own focus rule).
  */
@@ -24,16 +24,17 @@ function remember(e: Event): void {
 }
 
 /**
- * Records the list row that takes focus or is pressed. Listening in the capture phase means the entry is still the one
- * being left when a press starts a navigation. Mounted once by the app shell.
+ * Records the list row that takes focus or is activated (a click, a tap or Enter). A press that only starts a scroll on a
+ * phone is not an activation, so Back does not focus a row the reader merely touched. Listening in the capture phase
+ * means the entry is still the one being left when the click starts a navigation. Mounted once by the app shell.
  */
 export function useRememberFocusedRow(): void {
   useEffect(() => {
     document.addEventListener("focusin", remember, true);
-    document.addEventListener("pointerdown", remember, true);
+    document.addEventListener("click", remember, true);
     return () => {
       document.removeEventListener("focusin", remember, true);
-      document.removeEventListener("pointerdown", remember, true);
+      document.removeEventListener("click", remember, true);
     };
   }, []);
 }
