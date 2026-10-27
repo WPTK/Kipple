@@ -232,7 +232,7 @@ function ShareBody({ m, onOpenChange }: { m: WrappedModel; onOpenChange: (o: boo
       open
       onOpenChange={onOpenChange}
       title="Share your year"
-      description="Only the summary below is shared, and only when you choose to share it."
+      description="Only the summary below is shared."
       footer={
         // The main action first, so the Tab order and the visual order agree: a column until the window has room for one row.
         <div className={`flex w-full gap-2 ${stacked ? "flex-col" : "flex-row justify-end"}`}>
@@ -314,7 +314,6 @@ export function WrappedScreen() {
     body = (
       <EmptyState
         title="Your year is off"
-        why="Kipple isn't putting your year together."
         action={
           <Link to="/settings/statistics" className="text-link underline underline-offset-2">
             Turn it on in Settings &gt; Stats
@@ -332,7 +331,7 @@ export function WrappedScreen() {
     body = (
       <div aria-busy={q.isPlaceholderData} className={q.isPlaceholderData ? "opacity-60" : undefined}>
         {model.empty ? (
-          <EmptyState title={`Nothing read in ${model.year} yet`} why={`Your year fills in as you read. ${READ_RULE}`} action={null} />
+          <EmptyState title={`Nothing read in ${model.year} yet`} why={READ_RULE} action={null} />
         ) : (
           <>
             <WrappedCards m={model} />

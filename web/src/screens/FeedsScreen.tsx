@@ -1,4 +1,3 @@
-import { tapVerb } from "@/lib/pointer";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useFocusActions } from "./focusActions";
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -845,12 +844,10 @@ export function FeedsScreen() {
         </div>
         {/* Help only where a mode needs it: a plain visit to this screen is the list and nothing else. */}
         {selecting ? (
-          <p className="pb-1 text-xs text-fg2">
-            {tapVerb()} feeds to select them, then move or delete them.{finePointer ? " Shift-click selects a range; with the keyboard, Space selects the focused feed." : ""}
-          </p>
+          finePointer ? <p className="pb-1 text-xs text-fg2">Shift-click selects a range. Space selects the focused feed.</p> : null
         ) : editMode ? (
           <p className="flex flex-wrap items-center gap-x-2 pb-1 text-xs text-fg2">
-            {finePointer ? "Drag a feed or folder to reorder it. Changes are saved as you drop." : "Hold and drag a feed or folder to reorder it, or use the move buttons. Changes are saved as you drop."}
+            {finePointer ? "Drag to reorder. Changes save as you drop." : "Hold and drag to reorder, or use the move buttons. Changes save as you drop."}
             <button type="button" className="min-h-11 font-semibold text-accent underline" onClick={() => setButtons((b) => !b)}>
               {buttons ? "Hide move buttons" : "Show move buttons"}
             </button>

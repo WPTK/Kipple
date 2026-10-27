@@ -104,7 +104,7 @@ export function RestoreRow({ hasPassword }: { hasPassword: boolean }) {
       <Button onClick={r.start} disabled={r.checking}>
         {r.checking ? "Checking" : "Restore from a backup"}
       </Button>
-      <p className="mt-1 text-xs text-fg2">Replaces everything here with a backup file. You confirm first.</p>
+      <p className="mt-1 text-xs text-fg2">Replaces everything here with a backup file.</p>
       {r.dialog}
     </div>
   );

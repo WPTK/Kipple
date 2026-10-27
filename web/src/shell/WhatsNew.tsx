@@ -33,7 +33,6 @@ export function WhatsNewDialog({ releases, onClose }: { releases: Release[]; onC
       onOpenChange={(o) => (o ? undefined : onClose())}
       onClosed={focusFallback}
       title="What's new in Kipple"
-      description={releases.length === 1 ? "What changed in this version." : "What changed since you last looked."}
       footer={<Button onClick={onClose}>Close</Button>}
     >
       {releases.length === 0 ? <p className="py-4 text-sm text-fg2">There is nothing to show.</p> : null}

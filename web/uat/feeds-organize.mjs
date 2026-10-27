@@ -188,7 +188,7 @@ await t.eachViewport(async (page, vp) => {
     const h = (await file.boundingBox())?.height ?? 0;
     check(h >= 44, `${tag} O6 picker`, `the file picker is ${Math.round(h)}px tall`, `the file picker is ${Math.round(h)}px tall`);
     const days = (await dlg.innerText()).replace(/\s+/g, " ");
-    check(/A number of days, for example 7\. Articles older than that arrive already read/.test(days), `${tag} O6 days`, "the days field says what it does", `the dialog reads ${JSON.stringify(days.slice(0, 300))}`);
+    check(/Articles older than this many days arrive already read/.test(days), `${tag} O6 days`, "the days field says what it does", `the dialog reads ${JSON.stringify(days.slice(0, 300))}`);
     await t.shot(page, `${tag}-O6-import`);
     await page.keyboard.press("Escape");
     await dlg.waitFor({ state: "detached", timeout: 5000 });

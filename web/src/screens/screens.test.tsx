@@ -148,7 +148,7 @@ describe("Unread list (Magazine)", () => {
   });
 
   it("unread empty copy doesn't claim new articles are pending when none have arrived", () => {
-    expect(emptyCopy({ view: "unread" })).toEqual({ title: "All caught up", body: "No unread articles. New ones appear after the next refresh.", next: "all" });
+    expect(emptyCopy({ view: "unread" })).toEqual({ title: "All caught up", body: "No unread articles.", next: "all" });
   });
 
   it("an empty folder with no feeds says so and offers to add one, in any view", () => {

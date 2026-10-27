@@ -214,7 +214,7 @@ export function AutoReadCatchUp({
       {preview && !running ? (
         <div data-testid="auto-read-preview" className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-3">
           {total === 0 ? (
-            <p className="text-sm">Nothing is older than that. There is nothing to mark.</p>
+            <p className="text-sm">Nothing is older than that.</p>
           ) : (
             <>
               <p className="text-sm">

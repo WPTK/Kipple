@@ -185,7 +185,7 @@ export function SavedSearchesSection() {
   return (
     <>
       <p className="text-sm text-fg2">
-        Searches you saved from the Search screen. They are listed with their unread count under Saved searches in the sidebar, and on the Feeds screen on a phone. Drag the grip or use the arrows to change the order.
+        They are listed with their unread count in the sidebar, and on the Feeds screen on a phone. Drag the grip or use the arrows to reorder.
       </p>
       {loading ? <Skeleton rows={2} label="Loading saved searches" /> : null}
       {error ? (

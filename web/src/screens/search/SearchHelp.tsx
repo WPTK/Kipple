@@ -38,7 +38,6 @@ export function SearchHelp() {
               <code className="font-mono text-fg">word*</code> matches words that start that way
             </li>
           </ul>
-          <p className="mt-2 text-xs text-fg2">When nothing matches exactly, Kipple shows partial matches and says so.</p>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

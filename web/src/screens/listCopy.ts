@@ -21,9 +21,9 @@ export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed, scopeFeeds?
     const narrowed = scope.feed || scope.folder;
     return { title: `No results for "${scope.q}"`, body: narrowed ? "Try fewer words, or search the whole library." : "Try fewer words." };
   }
-  if (scope.after) return { title: "Nothing new", body: "Nothing has arrived since you last looked. Unread has everything you have not read yet." };
+  if (scope.after) return { title: "Nothing new", body: "Nothing has arrived since you last looked." };
   if (scope.view === "muted") return { title: "Nothing muted", body: "No filter has muted an article yet." };
-  if (scope.view === "starred") return { title: "No starred articles", body: "Tap the star on an article to keep it here." };
+  if (scope.view === "starred") return { title: "No starred articles", body: "Star an article to keep it here." };
   if (scope.folder && scopeFeeds === 0) return { title: "This folder has no feeds", body: "Move a feed here or add one.", next: "add" };
   // The server sends last_error only while the feed is failing. New articles waiting mean a fetch has worked since.
   const failure = feed && showsFailure(scope.view, pendingNew, feed) ? failureCopy(feed) : null;
@@ -31,7 +31,7 @@ export function emptyCopy(scope: Scope, pendingNew = 0, feed?: Feed, scopeFeeds?
   if (scope.view === "unread") {
     return pendingNew > 0
       ? { title: "All caught up", body: `${pendingNew} new article${pendingNew === 1 ? "" : "s"} arrived. Load ${pendingNew === 1 ? "it" : "them"} above to continue reading.` }
-      : { title: "All caught up", body: "No unread articles. New ones appear after the next refresh.", next: "all" };
+      : { title: "All caught up", body: "No unread articles.", next: "all" };
   }
   return { title: "No articles yet", body: "Kipple hasn't fetched anything from these feeds yet." };
 }

@@ -114,7 +114,6 @@ describe("export dialog", () => {
     open();
     const a = screen.getByRole("link", { name: "Download data dictionary" });
     expect(a).toHaveAttribute("href", "/api/stats/dictionary?format=md");
-    expect(screen.getByText(/Explains every column/)).toBeInTheDocument();
   });
 });
 

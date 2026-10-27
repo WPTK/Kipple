@@ -490,7 +490,6 @@ export function StatsScreen() {
       <div className="py-8">
         <EmptyState
           title="Stats are off"
-          why="Kipple isn't recording what you read, so there is nothing to show."
           action={
             <Link to="/settings/statistics" className="text-link underline underline-offset-2">
               Turn them on in Settings &gt; Stats
@@ -526,7 +525,6 @@ export function StatsScreen() {
         {noFeeds ? (
           <EmptyState
             title="Add a feed first"
-            why="Your reading shows up here once you have feeds to read."
             action={
               <Button variant="solid" onClick={() => setAdding(true)}>
                 Add a feed
@@ -534,7 +532,7 @@ export function StatsScreen() {
             }
           />
         ) : (
-          <EmptyState title="Nothing read yet" why={`Your reading shows up here as you go. ${READ_RULE}`} action={null} />
+          <EmptyState title="Nothing read yet" why={READ_RULE} action={null} />
         )}
       </div>
     ) : (

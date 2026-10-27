@@ -195,7 +195,7 @@ export function FiltersSection() {
   const list = filters.data ?? [];
   return (
     <>
-      <p className="text-sm text-fg2">Filters run on every new article. They can hide noise, mark things read, star what you care about, or highlight words. Muted articles are kept in Muted, and you can restore them.</p>
+      <p className="text-sm text-fg2">Filters run on every new article. Muted articles go to Muted, where you can restore them.</p>
       {filters.isPending ? <Skeleton rows={2} label="Loading filters" /> : null}
       {filters.isError ? (
         <Notice tone="error">
@@ -205,7 +205,7 @@ export function FiltersSection() {
           </Button>
         </Notice>
       ) : null}
-      {filters.data && list.length === 0 ? <p className="text-sm">No filters yet. Add one to mute a topic or a phrase you never want to see.</p> : null}
+      {filters.data && list.length === 0 ? <p className="text-sm">No filters yet.</p> : null}
       {list.length ? (
         <ul aria-label="Your filters" className="flex flex-col gap-2">
           {list.map((f) => (

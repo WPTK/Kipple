@@ -93,7 +93,6 @@ function ExportBody({ onOpenChange, defaultRange }: { onOpenChange: (o: boolean)
       open
       onOpenChange={onOpenChange}
       title="Export stats"
-      description="Download your reading stats as a file."
       footer={
         <>
           <Button onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -147,7 +146,6 @@ function ExportBody({ onOpenChange, defaultRange }: { onOpenChange: (o: boolean)
         <a href={DICTIONARY_MD_URL} download className="hit-pad text-link underline underline-offset-2">
           Download data dictionary
         </a>
-        <span className="mt-1 block text-xs text-fg2">Explains every column in the file.</span>
       </p>
     </Modal>
   );

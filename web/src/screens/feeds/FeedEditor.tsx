@@ -270,12 +270,12 @@ export function FeedEditor({ feed, onClose, focusAddress }: { feed: Feed; onClos
           {err?.field === "form" ? <Notice tone="error">{err.message}</Notice> : null}
           {feed.last_error ? <FeedReason feed={feed} /> : null}
           <Group title="Basics">
-            <Field label="Title" help="Leave empty to use the title the feed gives itself.">
+            <Field label="Title" help="Empty uses the feed's own title.">
               {(a) => <input {...a} type="text" value={f.title} placeholder={q.data.title} onChange={(e) => set("title", e.target.value)} className={inputCls} />}
             </Field>
             <Field
               label="Feed address"
-              help={q.data.url_original && q.data.url_original !== q.data.url ? `Originally ${q.data.url_original}. Change this to point at a new address; articles you already have are kept.` : "Change this to point at a new address; articles you already have are kept."}
+              help={q.data.url_original && q.data.url_original !== q.data.url ? `Originally ${q.data.url_original}. Articles you already have are kept.` : "Articles you already have are kept."}
               error={err?.field === "url" ? err.message : null}
             >
               {(a) => (
@@ -322,7 +322,7 @@ export function FeedEditor({ feed, onClose, focusAddress }: { feed: Feed; onClos
             </Field>
             <Field
               label="Mark as read after"
-              help="Unread articles are marked read once they are this old. Starred and muted articles are never touched. Changing this never marks anything at once."
+              help="Starred and muted articles are never touched. Changing this marks nothing at once."
             >
               {(a) => (
                 <select {...a} value={f.autoRead} onChange={(e) => set("autoRead", e.target.value)} className={inputCls}>
@@ -352,14 +352,14 @@ export function FeedEditor({ feed, onClose, focusAddress }: { feed: Feed; onClos
             ) : (
               <Checkbox label="Fetch full article text" help="Loads the whole article from the website when the feed only has a summary." checked={f.fulltext} onChange={(v) => set("fulltext", v)} />
             )}
-            <Checkbox label="Pause this feed" help="Kipple stops checking this feed until you resume it. Its articles stay." checked={!f.enabled} onChange={(v) => set("enabled", !v)} />
+            <Checkbox label="Pause this feed" help="Stops checking until you resume it. Its articles stay." checked={!f.enabled} onChange={(v) => set("enabled", !v)} />
           </Group>
           <Group title="On this device">
             <ListOverrideFields kind="feed" id={feed.id} draft={lists} />
           </Group>
 
           <Disclosure label="Advanced">
-            <Field label="Duplicate detection" help="How Kipple decides that two entries are the same article.">
+            <Field label="Duplicate detection">
               {(a) => (
                 <select {...a} value={f.dedup} onChange={(e) => set("dedup", e.target.value as Form["dedup"])} className={inputCls}>
                   <option value="auto">Automatic</option>

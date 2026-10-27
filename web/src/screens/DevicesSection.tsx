@@ -67,7 +67,7 @@ function ThisDeviceName({ device }: { device: DeviceRow }) {
         </Button>
       </div>
       <p id={`${id}-h`} className="text-xs text-fg2">
-        Shown in this list so you can tell your devices apart. Leave it empty to use a description of the browser.
+        Leave empty to use a description of the browser.
       </p>
       {error ? <FieldError id={`${id}-e`}>{error}</FieldError> : null}
     </form>
@@ -215,7 +215,7 @@ export function DevicesSection() {
   return (
     <>
       <p className="text-sm text-fg2">
-        Each browser or installed app is a device with its own theme, font, layout and other choices. They are saved on the server, so they survive clearing the browser.
+        Each browser or installed app is a device with its own appearance choices. They are saved on the server, so clearing the browser keeps them.
       </p>
       {unsaved ? (
         <Notice tone="warn" role="status">
@@ -239,7 +239,7 @@ export function DevicesSection() {
           })}
         </ul>
       ) : null}
-      {others.length === 0 && me ? <p className="text-xs text-fg2">This is the only device so far. Open Kipple on another browser or your phone and it will show up here.</p> : null}
+      {others.length === 0 && me ? <p className="text-xs text-fg2">This is the only device so far.</p> : null}
       {unsaved ? null : (
         <>
           <div className="flex flex-col items-start gap-1">

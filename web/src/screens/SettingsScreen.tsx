@@ -157,7 +157,7 @@ function AutoReadPanel({ days }: { days: number }) {
             aria-invalid={valid ? undefined : true}
             className={`${inputCls} w-40`}
           />
-          <span className="text-xs text-fg2">Leave empty to use the saved value. Type a number of days to see how many articles it would mark read. Nothing is saved, and articles are only marked using the saved setting.</span>
+          <span className="text-xs text-fg2">Nothing is saved. Marking uses the saved setting.</span>
         </label>
       </Disclosure>
     </div>
@@ -285,7 +285,7 @@ function PaperNameField() {
         </FieldError>
       ) : null}
       <span id={`${id}-hint`} className="text-xs text-fg2">
-        Printed at the top of the Gazette layout&apos;s front page and on every page after it. Leave it empty for {DEFAULT_PAPER_NAME}.
+        Printed at the top of every Gazette page. Empty uses {DEFAULT_PAPER_NAME}.
       </span>
     </div>
   );
@@ -314,34 +314,33 @@ function VoicePicker() {
           </option>
         ))}
       </select>
-      <p className="text-xs text-fg2">Voices come from your device. On iPhone, better voices are in Settings, Accessibility, Spoken Content, Voices.</p>
+      <p className="text-xs text-fg2">On iPhone, better voices are in Settings, Accessibility, Spoken Content, Voices.</p>
     </div>
   );
 }
 
-function AccessibilitySection({ scrollHelp }: { scrollHelp: string | undefined }) {
+function AccessibilitySection() {
   const p = useStore(prefsStore);
   const supported = speechSupported();
   return (
     <Section title="Accessibility" scope="device">
-      <p className="text-sm text-fg2">Kipple follows your device's text, motion and contrast settings. These are extra controls.</p>
+      <p className="text-sm text-fg2">Kipple also follows your device's text, motion and contrast settings.</p>
       <SpacingControl />
       <Segmented<Motion>
         legend="Reduce motion"
-        hint="Turns off slides and fades. Follow system uses your device setting."
+        hint="Follow system uses your device setting."
         value={p.motion}
         onChange={(motion) => updatePrefs({ motion })}
         options={MOTIONS.map((m) => ({ value: m, label: MOTION_LABELS[m] }))}
       />
       <Switch
         label="Mark articles read as I scroll"
-        help={scrollHelp ?? "Articles you scroll past in the list are marked read automatically."}
         checked={p.markReadOnScroll}
         onChange={(markReadOnScroll) => updatePrefs({ markReadOnScroll })}
       />
       <Switch
         label="Listen to articles"
-        help={supported ? "Adds a Listen button to articles. Voices come from your device." : "This browser can't read aloud."}
+        help={supported ? undefined : "This browser can't read aloud."}
         checked={p.listen && supported}
         disabled={!supported}
         onChange={(listen) => updatePrefs({ listen })}
@@ -359,7 +358,6 @@ function AccessibilitySection({ scrollHelp }: { scrollHelp: string | undefined }
       ) : null}
       <Switch
         label="Larger buttons"
-        help="Makes buttons and tap targets bigger and spreads them out."
         checked={p.largeTargets}
         onChange={(largeTargets) => updatePrefs({ largeTargets })}
       />
@@ -371,8 +369,6 @@ function AccessibilitySection({ scrollHelp }: { scrollHelp: string | undefined }
 
 function AppearancePage() {
   const dp = useDevicePrefs();
-  const settings = useSettings();
-  const scrollHelp = settings.data?.settings.find((s) => s.key === "ui.mark_read_on_scroll")?.description;
   return (
     <>
       <Section title="Reading appearance" scope="device">
@@ -405,18 +401,15 @@ function AppearancePage() {
         />
         <Segmented<UnreadBadge>
           legend="Unread badge"
-          hint="On the Articles tab and in the sidebar. Counts show up to 99+."
+          hint="Counts stop at 99+."
           value={dp.unreadBadge}
           onChange={(unreadBadge) => updateDevicePrefs({ unreadBadge })}
           options={UNREAD_BADGES.map((b) => ({ value: b, label: b === "count" ? "Count" : b === "dot" ? "Dot only" : "Off" }))}
         />
         <PaperNameField />
-        <div>
-          <Button onClick={() => updateDevicePrefs({ peekSeen: false })} className="self-start">
-            Show swipe tips again
-          </Button>
-          <p className="mt-1 text-xs text-fg2">Swipe a row right to mark it read or unread, left to star it or see more. Every swipe has a button.</p>
-        </div>
+        <Button onClick={() => updateDevicePrefs({ peekSeen: false })} className="self-start">
+          Show swipe tips again
+        </Button>
         <Link to="/feeds" className="inline-flex min-h-11 items-center self-start text-sm text-link underline underline-offset-2">
           Feeds and folders
         </Link>
@@ -426,7 +419,7 @@ function AppearancePage() {
         <Scoped scope="device">
           <Segmented<ArticleWidth>
             legend="Article width"
-            hint="How wide the text of an article is. Full uses the whole pane."
+            hint="Full uses the whole pane."
             value={dp.articleWidth}
             onChange={(articleWidth) => updateDevicePrefs({ articleWidth })}
             options={ARTICLE_WIDTHS.map((w) => ({ value: w, label: ARTICLE_WIDTH_LABELS[w] }))}
@@ -447,7 +440,7 @@ function AppearancePage() {
         <ServerPart groups={[{ id: "reading" }]} inline rowScope="all" />
       </Section>
 
-      <AccessibilitySection scrollHelp={scrollHelp} />
+      <AccessibilitySection />
     </>
   );
 }
@@ -521,7 +514,6 @@ function AccountPage() {
 function AdvancedPage() {
   return (
     <>
-      <p className="pt-5 text-sm text-fg2">Most people never need to change these.</p>
       <ServerPart scope="all" groups={[{ id: "advanced" }]} empty="No advanced settings to change yet." />
       <Section title="Address and access" scope="all">
         <ConnectionSection />

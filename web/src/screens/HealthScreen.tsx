@@ -455,7 +455,6 @@ export function HealthScreen() {
             {d.feeds.length === 0 ? (
               <EmptyState
                 title="Add a feed first"
-                why="Feed health shows how each of your feeds is doing once you have some."
                 action={
                   <Button variant="solid" onClick={() => navigate("/feeds", { state: { open: "add" } })}>
                     Add a feed

@@ -96,7 +96,7 @@ export function ListenBar({ bodyRef, articleId }: { bodyRef: RefObject<HTMLEleme
         </label>
       </div>
       {idle ? (
-        <p className="text-xs text-fg2">Uses your device's voices. On iPhone, reading stops if the screen locks or you leave the app.</p>
+        <p className="text-xs text-fg2">On iPhone, reading stops if the screen locks or you leave the app.</p>
       ) : null}
     </div>
   );
