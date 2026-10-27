@@ -3,7 +3,9 @@ import { Link, useNavigate } from "react-router";
 import { ArrowUpDown, TriangleAlert } from "lucide-react";
 import { LATEST_PER_FEED, useBootstrap, useFeedsLatest } from "@/api/queries";
 import type { Feed, Headline } from "@/api/types";
+import { cn } from "@/lib/cn";
 import { DigestRow } from "@/layouts/digest";
+import { LIST_COLUMN } from "@/layouts";
 import { focusRow, pageOrder, rowKeyMove, storyIntoView } from "@/layouts/rowKeys";
 import { ROW_KEYSHORTCUTS, stopId } from "@/layouts/rowTabStop";
 import { useDevicePrefs } from "@/lib/devicePrefs";
@@ -174,7 +176,7 @@ export function FeedIndexScreen() {
     body = <EmptyState title="No feeds yet" action={<Button onClick={() => navigate("/feeds", { state: { open: "add" } })}>Add a feed</Button>} />;
   } else {
     body = (
-      <div data-feed-index="" className="pb-10" onKeyDownCapture={onKey} onFocus={onFocus}>
+      <div data-feed-index="" className={cn("pb-10", LIST_COLUMN)} onKeyDownCapture={onKey} onFocus={onFocus}>
         {blocks.map((b) => (
           <FeedBlock key={b.feed.id} feed={b.feed} unread={b.unread} cards={data.get(b.feed.id) ?? NONE} tabStopId={b.feed.id === tabFeed ? (tabStopId ?? null) : null} />
         ))}
@@ -186,7 +188,7 @@ export function FeedIndexScreen() {
   return (
     <div className="ui-font flex h-full min-h-0 flex-col">
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-2">
-        <div className="flex items-center gap-1 pt-2">
+        <div className={cn("flex items-center gap-1 pt-2", LIST_COLUMN)}>
           {!wide ? <BackButton to="/feeds" ariaLabel="Back to Feeds" /> : null}
           <h1 className="min-w-0 flex-1 truncate text-xl font-bold" tabIndex={-1} data-route-heading>
             Feed index

@@ -56,6 +56,7 @@
   /* The one small type size below text-xs (counts, chart axis labels). A rem, so it follows the text size setting. */
   --text-micro: 0.6875rem;
   --text-title: 1.75rem;
+  --text-display: 2.5rem;
 }
 
 /* ---------- Device appearance tokens ---------- */

@@ -217,12 +217,12 @@ interface StoryProps {
   tabStop: boolean;
 }
 
-/** Headline sizes by slot: a picture lead about 26 px, a headline lead about 40 px (smaller on a phone). */
+/** Headline sizes by slot: a picture lead 1.5rem, a headline lead 2.5rem (1.75rem on a phone). */
 function headlineClass(slot: Slot, phone: boolean): string {
   switch (slot.kind) {
     case "lead":
     case "co-lead":
-      return slot.picture ? "text-[1.625rem] leading-tight" : phone ? "text-[1.75rem] leading-tight" : "text-[2.5rem] leading-[1.1]";
+      return slot.picture ? "text-2xl leading-tight" : phone ? "text-title leading-tight" : "text-display leading-[1.1]";
     case "photo":
       return "text-base leading-snug";
     case "brief":

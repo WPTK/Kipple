@@ -11,7 +11,7 @@ import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Bootstrap, ItemsPage, Scope, View } from "@/api/types";
 import { useSearchHighlight } from "@/lib/useHighlights";
-import { pageOf, useListContext, useResolvedLayout, useSetListOverride } from "@/layouts";
+import { listColumn, pageOf, useListContext, useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
   DEFAULT_DEVICE_PREFS,
   LIST_WIDTH_MAX,
@@ -29,7 +29,7 @@ import {
 import { READING_LENGTH_LABELS } from "@/lib/readingLength";
 import { announce } from "@/shell/toasts";
 import { ResizeHandle } from "@/ui/ResizeHandle";
-import { NARROW_QUERY, useMedia, useShort, useWide } from "@/lib/useMedia";
+import { NARROW_QUERY, ROOMY_QUERY, useMedia, useShort, useWide } from "@/lib/useMedia";
 import { maxFor, useColumnNeeds, useRemPx, useWidth } from "@/lib/useWidth";
 import { DESTINATIONS, LISTS } from "@/lib/destinations";
 import { NEW_VIEW, listTo, newTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
@@ -156,6 +156,9 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
   // and up to five controls), the pills are one select: the title truncates before anything is dropped.
   const narrow = useMedia(NARROW_QUERY);
   const asSelect = compact && narrow;
+  // The order button sits in the header wherever the title has room beside it: not on a phone, upright or sideways.
+  const roomy = useMedia(ROOMY_QUERY);
+  const showOrder = wide || (roomy && !short);
   const counted = unreadHere !== null && (scope.view === "unread" || !!scope.after);
   const pills = asSelect ? (
     <select
@@ -207,12 +210,13 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
     // A wide screen has the sidebar on its left (which takes the left inset) and the main area on the right (which takes the
     // right one), so this header pads by 1rem there. With a notch on both sides it would otherwise take the inset a second time.
     <header className={cn("pt-safe shrink-0 border-b border-line bg-bg", wide ? "px-4" : "pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]", compact ? "pb-1" : "pb-2")}>
-      {/* The title row is 25rem wide and left-aligned, so the controls sit in the same place in every layout (a grid
-          layout has no reader pane, and used to push them to the far right). The title keeps at least 6.5rem and truncates
+      {/* The header is as wide as the rows below it (`listColumn`), so on a tablet the controls sit over the list, not
+          at the far edge of the screen. The title keeps at least 6.5rem and truncates
           beyond that, so at normal text size on a phone the header is one row in every list; only where the pane is
           too narrow for 6.5rem and the controls together (a narrow list pane, a large text size) do the controls drop to
           a line of their own, and wrap again where even that line is too narrow. */}
-      <div data-title-row className={cn("flex max-w-full flex-wrap items-center gap-x-0.5", compact ? "w-full pt-1" : "w-fit min-w-[min(100%,25rem)] pt-2")}>
+      <div className={listColumn(layout)}>
+      <div data-title-row className={cn("flex max-w-full flex-wrap items-center gap-x-0.5", compact ? "w-full pt-1" : "w-full pt-2")}>
         {/* The title and the unread count are one flex item with the sizing the heading alone used to have (a basis of zero,
             so a long title truncates in place and never pushes the controls to a line of their own). The count sits beside
             the heading, outside it, so the heading's text is the list's name alone. */}
@@ -244,7 +248,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
         {/* A layout that is always newest first has no order to toggle: the button stays, greyed with the same reason
             as the menu's Order choices, and focusable (aria-disabled) so the reason can be heard. On a phone the order
             lives only in the layout menu, which leaves the title room in a one-row header. */}
-        {wide ? (
+        {showOrder ? (
           <>
             <Button
               variant="ghost"
@@ -335,6 +339,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
       {scope.view === "muted" ? (
         <p className="mt-1 max-w-[25rem] text-xs text-fg2">Articles your filters muted. Restore brings one back as it was before it was muted.</p>
       ) : null}
+      </div>
       {markAll.dialog}
     </header>
   );

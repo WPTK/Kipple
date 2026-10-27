@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { useMedia } from "./useMedia";
+import { SIDEBAR_WIDTH_MIN } from "./devicePrefs";
+import { WIDE_MIN_PX, WIDE_QUERY, useMedia } from "./useMedia";
+import { columnNeeds } from "./useWidth";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -15,5 +17,11 @@ describe("useMedia", () => {
     rerender();
     expect(result.current).toBe(true);
     expect(add).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps all three panes whole at the wide breakpoint, at the default text size", () => {
+    const need = columnNeeds(16, false);
+    expect(SIDEBAR_WIDTH_MIN + need.list + need.article + 2 * need.gutter).toBeLessThanOrEqual(WIDE_MIN_PX);
+    expect(WIDE_QUERY).toBe(`(min-width: ${WIDE_MIN_PX}px)`);
   });
 });

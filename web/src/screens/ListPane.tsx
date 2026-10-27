@@ -18,7 +18,7 @@ import { openRowMenu } from "@/gestures/rowMenu";
 import { prefersReducedMotion } from "@/gestures/tracking";
 import { COLLAPSE_MS, captureAnchor, compensate, type ScrollAnchor } from "@/lib/collapse";
 import { usePullToRefresh } from "@/gestures/usePullToRefresh";
-import { pageOf, useResolvedLayout } from "@/layouts";
+import { listColumn, pageOf, useResolvedLayout } from "@/layouts";
 import { OneFeed, isOneFeed } from "@/layouts/parts";
 import { RowTabStop } from "@/layouts/rowTabStop";
 import { focusRow, storyIntoView } from "@/layouts/rowKeys";
@@ -1260,7 +1260,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     if (Page) {
       return (
         <>
-          <div data-page-box="">
+          <div data-page-box="" className={listColumn(layout)}>
             <Page items={src.cards} scope={scope} more={src.more} width={width} selectedId={selected} tabStopId={shown(focusId, src.cards)} onOpen={openItem} actions={menuActions} digest={src.digest} />
           </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
@@ -1275,7 +1275,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     }
     return (
       <>
-      <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+      <div className={listColumn(layout)} style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
         {virtualItems.map((v) => {
           const r = rows[v.index];
           if (!r) return null;
