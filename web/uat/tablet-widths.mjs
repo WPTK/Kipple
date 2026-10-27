@@ -11,6 +11,8 @@
 //   W3  at 899 and at 900 px the header has the same controls: nothing in it appears or goes away at the change to
 //       three panes;
 //   W4  at 900 px nothing scrolls sideways and the list pane keeps its floor width;
+//   W6  in Cards and the Gazette (which fill the pane) the header is held to the same 42 rem column at 1000 and 1400 px;
+//   W7  at 899 and at 900 px in a window 480 px tall the header has the same controls (the order does not depend on height);
 //   W5  at 1400 px the Digest page and the Feed index are at most 42 rem wide.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
@@ -78,6 +80,31 @@ await t.eachViewport(async (page, vp) => {
       check((above.list?.width ?? 0) >= 260, `${layout} W4 list`, `the list pane is ${above.list?.width} px wide`, `the list pane is only ${above.list?.width} px wide`);
     });
   }
+  // W6: a layout that fills the pane still has a header held to the column.
+  for (const layout of ["cards", "gazette"]) {
+    for (const w of [1000, 1400]) {
+      await step(`${layout} header ${w}`, async () => {
+        await patch(page, { "client.layout": layout });
+        await page.setViewportSize({ width: w, height: 900 });
+        await page.goto("/l/unread", { waitUntil: "load" });
+        await page.locator("main header [data-title-row]").waitFor({ timeout: 15000 });
+        const m = await measure();
+        check(!!m.head && m.head.width <= 42 * m.rem + 1, `${layout} at ${w} px W6 header`, "the header is at most 42 rem wide", `the header is ${m.head?.width} px wide`);
+      });
+    }
+  }
+  // W7: height plays no part in what the header shows.
+  await step("899 vs 900 short", async () => {
+    await patch(page, { "client.layout": "compact" });
+    const seen = [];
+    for (const w of [899, 900]) {
+      await page.setViewportSize({ width: w, height: 480 });
+      await page.goto("/l/unread", { waitUntil: "load" });
+      await page.getByTestId("list-scroll").locator("[data-item-id]").first().waitFor({ timeout: 15000 });
+      seen.push((await measure()).buttons.join("|"));
+    }
+    check(seen[0] === seen[1] && seen[1].includes("Oldest first"), "W7 short flip", "a 480 px tall window has the same header controls at 899 and 900 px", `at 899 px: ${seen[0]}; at 900 px: ${seen[1]}`);
+  });
   // W5: the pages that fill the whole pane (the Digest, the Feed index) hold their sections to the column too.
   await step("pages at 1400", async () => {
     await patch(page, { "client.layout": "digest" });

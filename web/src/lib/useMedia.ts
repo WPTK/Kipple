@@ -44,8 +44,8 @@ export function useShort(): boolean {
 
 /** Where the Show pills no longer fit the title row beside the controls and the feed switch (a short, narrow phone). */
 export const NARROW_QUERY = "(max-width: 700px)";
-/** Its opposite: the title row has room for the order button beside the other controls (a tablet, a window). */
-export const ROOMY_QUERY = `not all and ${NARROW_QUERY}`;
+/** The title row has room for the order button beside the other controls: a tablet held upright (820 px) and wider, not a phone held sideways (up to 812 px). */
+export const ROOMY_QUERY = "(min-width: 820px)";
 
 /**
  * Wide layout: sidebar plus list plus reader pane, from this width. A media query cannot follow the text size, so it is a

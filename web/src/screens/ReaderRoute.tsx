@@ -11,7 +11,7 @@ import { PATH_SEP, feedOrder, folderTree, parentPath, subtreeFeeds } from "@/lib
 import { useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Bootstrap, ItemsPage, Scope, View } from "@/api/types";
 import { useSearchHighlight } from "@/lib/useHighlights";
-import { listColumn, pageOf, useListContext, useResolvedLayout, useSetListOverride } from "@/layouts";
+import { LIST_COLUMN, pageOf, useListContext, useResolvedLayout, useSetListOverride } from "@/layouts";
 import {
   DEFAULT_DEVICE_PREFS,
   LIST_WIDTH_MAX,
@@ -156,9 +156,10 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
   // and up to five controls), the pills are one select: the title truncates before anything is dropped.
   const narrow = useMedia(NARROW_QUERY);
   const asSelect = compact && narrow;
-  // The order button sits in the header wherever the title has room beside it: not on a phone, upright or sideways.
+  // The order button sits in the header wherever the title has room beside it, by width alone: not on a phone, upright or sideways.
+  // `wide` is inside `roomy` on a real screen; it is named so the two states stay one rule in a test that answers only one query.
   const roomy = useMedia(ROOMY_QUERY);
-  const showOrder = wide || (roomy && !short);
+  const showOrder = wide || roomy;
   const counted = unreadHere !== null && (scope.view === "unread" || !!scope.after);
   const pills = asSelect ? (
     <select
@@ -210,135 +211,135 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
     // A wide screen has the sidebar on its left (which takes the left inset) and the main area on the right (which takes the
     // right one), so this header pads by 1rem there. With a notch on both sides it would otherwise take the inset a second time.
     <header className={cn("pt-safe shrink-0 border-b border-line bg-bg", wide ? "px-4" : "pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]", compact ? "pb-1" : "pb-2")}>
-      {/* The header is as wide as the rows below it (`listColumn`), so on a tablet the controls sit over the list, not
+      {/* The header is held to the list column (`LIST_COLUMN`) in every layout, so on a tablet the controls sit over the list, not
           at the far edge of the screen. The title keeps at least 6.5rem and truncates
           beyond that, so at normal text size on a phone the header is one row in every list; only where the pane is
           too narrow for 6.5rem and the controls together (a narrow list pane, a large text size) do the controls drop to
           a line of their own, and wrap again where even that line is too narrow. */}
-      <div className={listColumn(layout)}>
-      <div data-title-row className={cn("flex max-w-full flex-wrap items-center gap-x-0.5", compact ? "w-full pt-1" : "w-full pt-2")}>
-        {/* The title and the unread count are one flex item with the sizing the heading alone used to have (a basis of zero,
-            so a long title truncates in place and never pushes the controls to a line of their own). The count sits beside
-            the heading, outside it, so the heading's text is the list's name alone. */}
-        <div className={cn("flex items-baseline", asSelect ? "mr-2 min-w-[3rem] flex-1" : compact ? "mr-2 min-w-[6.5rem] max-w-[40%]" : "min-w-[6.5rem] max-w-full flex-1")}>
-          <Heading
-            className="min-w-0 truncate text-xl font-bold"
-            tabIndex={-1}
-            data-route-heading
-            aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}
-          >
-            {above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
-            {title}
-          </Heading>
-          {counted ? (
-            <span aria-hidden="true" data-testid="list-count" className="ml-2 shrink-0 text-sm font-normal text-fg2 tabular-nums">
-              {unreadHere}
-            </span>
-          ) : null}
-        </div>
-        {compact ? (
-          <>
-            {pills}
-            {switcher}
-          </>
-        ) : null}
-        {/* The controls wrap within the column rather than run past it: a list column at its floor is narrower than
-            all of them with Large targets or a larger text size. */}
-        <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-0.5">
-        {/* A layout that is always newest first has no order to toggle: the button stays, greyed with the same reason
-            as the menu's Order choices, and focusable (aria-disabled) so the reason can be heard. On a phone the order
-            lives only in the layout menu, which leaves the title room in a one-row header. */}
-        {showOrder ? (
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Oldest first"
-              aria-pressed={orderWhy ? undefined : oldest}
-              aria-disabled={orderWhy ? true : undefined}
-              aria-describedby={orderWhy ? "header-order-why" : undefined}
-              title={orderWhy ?? undefined}
-              className={orderWhy ? "opacity-50" : undefined}
-              onClick={orderWhy ? undefined : toggleOrder}
+      <div className={LIST_COLUMN}>
+        <div data-title-row className={cn("flex max-w-full flex-wrap items-center gap-x-0.5", compact ? "w-full pt-1" : "w-full pt-2")}>
+          {/* The title and the unread count are one flex item with the sizing the heading alone used to have (a basis of zero,
+              so a long title truncates in place and never pushes the controls to a line of their own). The count sits beside
+              the heading, outside it, so the heading's text is the list's name alone. */}
+          <div className={cn("flex items-baseline", asSelect ? "mr-2 min-w-[3rem] flex-1" : compact ? "mr-2 min-w-[6.5rem] max-w-[40%]" : "min-w-[6.5rem] max-w-full flex-1")}>
+            <Heading
+              className="min-w-0 truncate text-xl font-bold"
+              tabIndex={-1}
+              data-route-heading
+              aria-label={above ? `${above}${PATH_SEP}${title}` : undefined}
             >
-              {oldest ? <ArrowUpNarrowWide aria-hidden="true" /> : <ArrowDownWideNarrow aria-hidden="true" />}
-            </Button>
-            {orderWhy ? (
-              <span id="header-order-why" className="sr-only">
-                {orderWhy}
+              {above ? <span className="block truncate text-xs font-normal text-fg2">{above}</span> : null}
+              {title}
+            </Heading>
+            {counted ? (
+              <span aria-hidden="true" data-testid="list-count" className="ml-2 shrink-0 text-sm font-normal text-fg2 tabular-nums">
+                {unreadHere}
               </span>
             ) : null}
-          </>
+          </div>
+          {compact ? (
+            <>
+              {pills}
+              {switcher}
+            </>
+          ) : null}
+          {/* The controls wrap within the column rather than run past it: a list column at its floor is narrower than
+              all of them with Large targets or a larger text size. */}
+          <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-0.5">
+          {/* A layout that is always newest first has no order to toggle: the button stays, greyed with the same reason
+              as the menu's Order choices, and focusable (aria-disabled) so the reason can be heard. On a phone the order
+              lives only in the layout menu, which leaves the title room in a one-row header. */}
+          {showOrder ? (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Oldest first"
+                aria-pressed={orderWhy ? undefined : oldest}
+                aria-disabled={orderWhy ? true : undefined}
+                aria-describedby={orderWhy ? "header-order-why" : undefined}
+                title={orderWhy ?? undefined}
+                className={orderWhy ? "opacity-50" : undefined}
+                onClick={orderWhy ? undefined : toggleOrder}
+              >
+                {oldest ? <ArrowUpNarrowWide aria-hidden="true" /> : <ArrowDownWideNarrow aria-hidden="true" />}
+              </Button>
+              {orderWhy ? (
+                <span id="header-order-why" className="sr-only">
+                  {orderWhy}
+                </span>
+              ) : null}
+            </>
+          ) : null}
+          <LengthMenu scope={scope} />
+          {scope.after ? null : <LayoutMenu scope={scope} />}
+          {/* Beside an open article its toolbar has the Aa control: one per screen. */}
+          {beside ? null : <ReadingMenu />}
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <Button variant="ghost" size="icon" aria-label="List actions">
+                {/* Refresh is an item in this menu, so the trigger shows that a refresh is running. */}
+                {refreshing ? <RefreshCw aria-hidden="true" className="animate-spin" /> : <MoreIcon aria-hidden="true" />}
+              </Button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
+                {/* aria-disabled, not disabled: while a refresh runs the item stays in the arrow-key order and is read out as
+                    "Refreshing, dimmed"; choosing it does nothing. */}
+                <DropdownMenu.Item
+                  aria-disabled={refreshBusy || undefined}
+                  data-disabled={refreshBusy ? "" : undefined}
+                  onSelect={(e) => (refreshBusy ? e.preventDefault() : refresh.mutate())}
+                >
+                  <RefreshCw className={cn("size-5", refreshing && "animate-spin")} aria-hidden="true" />
+                  {refreshing ? "Refreshing" : "Refresh all feeds"}
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  disabled={!controls || scope.view === "muted" || !!scope.typing || nothingUnread}
+                  onSelect={() => markAll.ask(markAllText, markAllReach(scope, scope.feed || scope.folder ? title : undefined), () => controls?.markAllRead())}
+                >
+                  <Icon of={MarkAllIcon} />
+                  <span className="flex flex-col">
+                    {markAllText}
+                    {scope.typing ? <span className="text-xs text-fg2">{FINISH_SEARCH}</span> : nothingUnread ? <span className="text-xs text-fg2">{NOTHING_UNREAD}</span> : null}
+                  </span>
+                </DropdownMenu.Item>
+                {/* Off says why: the undo history is this page's (a reload starts it empty, docs/design.md 7.11). */}
+                <DropdownMenu.Item disabled={!canUndo} onSelect={() => void undoLast()}>
+                  <Icon of={Undo2} />
+                  <span className="flex flex-col">
+                    Undo
+                    {canUndo ? null : <span className="text-xs text-fg2">{NOTHING_TO_UNDO}</span>}
+                  </span>
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+          </div>
+        </div>
+        {compact ? null : (
+          <div className="mt-1 flex max-w-[25rem] items-center gap-1">
+            {pills}
+            {switcher}
+          </div>
+        )}
+        {scope.length ? (
+          <div className="mt-1 flex max-w-[25rem]">
+            <Link
+              to={listTo({ ...scope, length: undefined })}
+              replace
+              aria-label={`Article length ${READING_LENGTH_LABELS[scope.length]}. Show any length`}
+              className={cn(chipCls, "border-accent px-3 text-fg hover:bg-selection")}
+            >
+              <Timer className="size-4 text-accent" aria-hidden="true" />
+              {READING_LENGTH_LABELS[scope.length]}
+              <X className="size-4 text-fg2" aria-hidden="true" />
+            </Link>
+          </div>
         ) : null}
-        <LengthMenu scope={scope} />
-        {scope.after ? null : <LayoutMenu scope={scope} />}
-        {/* Beside an open article its toolbar has the Aa control: one per screen. */}
-        {beside ? null : <ReadingMenu />}
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <Button variant="ghost" size="icon" aria-label="List actions">
-              {/* Refresh is an item in this menu, so the trigger shows that a refresh is running. */}
-              {refreshing ? <RefreshCw aria-hidden="true" className="animate-spin" /> : <MoreIcon aria-hidden="true" />}
-            </Button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-56">
-              {/* aria-disabled, not disabled: while a refresh runs the item stays in the arrow-key order and is read out as
-                  "Refreshing, dimmed"; choosing it does nothing. */}
-              <DropdownMenu.Item
-                aria-disabled={refreshBusy || undefined}
-                data-disabled={refreshBusy ? "" : undefined}
-                onSelect={(e) => (refreshBusy ? e.preventDefault() : refresh.mutate())}
-              >
-                <RefreshCw className={cn("size-5", refreshing && "animate-spin")} aria-hidden="true" />
-                {refreshing ? "Refreshing" : "Refresh all feeds"}
-              </DropdownMenu.Item>
-              <DropdownMenu.Item
-                disabled={!controls || scope.view === "muted" || !!scope.typing || nothingUnread}
-                onSelect={() => markAll.ask(markAllText, markAllReach(scope, scope.feed || scope.folder ? title : undefined), () => controls?.markAllRead())}
-              >
-                <Icon of={MarkAllIcon} />
-                <span className="flex flex-col">
-                  {markAllText}
-                  {scope.typing ? <span className="text-xs text-fg2">{FINISH_SEARCH}</span> : nothingUnread ? <span className="text-xs text-fg2">{NOTHING_UNREAD}</span> : null}
-                </span>
-              </DropdownMenu.Item>
-              {/* Off says why: the undo history is this page's (a reload starts it empty, docs/design.md 7.11). */}
-              <DropdownMenu.Item disabled={!canUndo} onSelect={() => void undoLast()}>
-                <Icon of={Undo2} />
-                <span className="flex flex-col">
-                  Undo
-                  {canUndo ? null : <span className="text-xs text-fg2">{NOTHING_TO_UNDO}</span>}
-                </span>
-              </DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-        </div>
-      </div>
-      {compact ? null : (
-        <div className="mt-1 flex max-w-[25rem] items-center gap-1">
-          {pills}
-          {switcher}
-        </div>
-      )}
-      {scope.length ? (
-        <div className="mt-1 flex max-w-[25rem]">
-          <Link
-            to={listTo({ ...scope, length: undefined })}
-            replace
-            aria-label={`Article length ${READING_LENGTH_LABELS[scope.length]}. Show any length`}
-            className={cn(chipCls, "border-accent px-3 text-fg hover:bg-selection")}
-          >
-            <Timer className="size-4 text-accent" aria-hidden="true" />
-            {READING_LENGTH_LABELS[scope.length]}
-            <X className="size-4 text-fg2" aria-hidden="true" />
-          </Link>
-        </div>
-      ) : null}
-      {scope.view === "muted" ? (
-        <p className="mt-1 max-w-[25rem] text-xs text-fg2">Articles your filters muted. Restore brings one back as it was before it was muted.</p>
-      ) : null}
+        {scope.view === "muted" ? (
+          <p className="mt-1 max-w-[25rem] text-xs text-fg2">Articles your filters muted. Restore brings one back as it was before it was muted.</p>
+        ) : null}
       </div>
       {markAll.dialog}
     </header>
