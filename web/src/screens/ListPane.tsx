@@ -32,7 +32,7 @@ import { useSearchHighlight } from "@/lib/useHighlights";
 import { readIntent, useItemActions } from "@/lib/itemActions";
 import { Button } from "@/ui/button";
 import { EmptyState } from "@/ui/EmptyState";
-import { focusOrigin } from "@/ui/kit";
+import { Skeleton, focusOrigin, useSkeletonGate } from "@/ui/kit";
 import { articleTo } from "@/lib/routes";
 import { FirstRun } from "./FirstRun";
 import { AddFeedDialog } from "./feeds/AddFeedDialog";
@@ -51,7 +51,6 @@ import { emptyCopy, endCopy, tooBroadMessage } from "./listCopy";
 import { memory, memoryFor, placeState, topItemId } from "./listMemory";
 import { MutedStrip } from "./MutedStrip";
 import { NewArticlesPill } from "./NewArticlesPill";
-import { Skeleton } from "./Skeleton";
 import { useListSelection, type VRow } from "./useListSelection";
 import { useListKeyboard } from "./useListKeyboard";
 import { useItemsSource, type ListSource } from "./listSource";
@@ -1156,6 +1155,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const onMore = useCallback((item: Card) => openRowMenu(item.id), []);
   // Rows are drawn only where the layout has them; a page layout draws the list itself.
   const Row = layout.Row;
+  // A first load shows nothing for a moment, then the layout's own row shape (a quick answer never flashes it).
+  const skeletonPhase = useSkeletonGate(src.pending);
   const renderRow = (item: Card, swipe: boolean, peek: boolean) =>
     Row ? (
     <ListRow
@@ -1189,7 +1190,16 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     </div>
   ) : null;
   const body = (() => {
-    if (src.pending) return <Skeleton />;
+    if (skeletonPhase === "blank") return null;
+    if (skeletonPhase === "skeleton")
+      return (
+        <Skeleton
+          label="Loading"
+          rows={layout.grid ? 6 : 7}
+          row={layout.Skeleton}
+          className={layout.grid ? "grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3 p-3" : undefined}
+        />
+      );
     // Only a failed first load replaces the list; a failed later page keeps it (and the scroll position).
     if (src.error != null && !src.hasData) {
       const error = src.error;

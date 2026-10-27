@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
+import { Bone } from "@/ui/kit";
 import { RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, rowState, titleTone } from "./parts";
 import type { RowLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
@@ -44,10 +45,21 @@ function CompactRow({ item, feed, selected, to, onOpen, onToggleStar, actions }:
   );
 }
 
+/** Loading stand-in for a Compact row: a title line and a short source line. */
+function CompactSkeleton() {
+  return (
+    <div aria-hidden="true" className="flex h-14 flex-col justify-center gap-1.5 border-b border-line pr-4 pl-5">
+      <Bone className="h-4 w-4/5" />
+      <Bone className="h-3 w-1/4" />
+    </div>
+  );
+}
+
 export const compact: RowLayout = {
   id: "compact",
   label: "Compact",
   Row: CompactRow,
+  Skeleton: CompactSkeleton,
   estimateRow: () => 56,
   paneRem: 22.5,
 };

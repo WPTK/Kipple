@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useMatch } from "react-router";
 import { ApiError, authStore, failureCause, openRefusedStore, SESSION_EXPIRED, signingOutStore } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
 import { hydrateDevice, startDeviceSync } from "@/lib/deviceSync";
@@ -19,6 +19,8 @@ import { OpenRefusedScreen } from "@/setup/OpenRefused";
 import { SignedOut } from "@/setup/SignedOut";
 import { launchAnswerStore, useSessionProbe } from "@/api/sessionProbe";
 import { lazyScreen } from "@/lib/lazyScreen";
+import { cn } from "@/lib/cn";
+import { useWide } from "@/lib/useMedia";
 import { NotFoundBlock } from "@/ui/NotFoundBlock";
 import { LoadFailed, useKeptFailure } from "@/ui/LoadFailed";
 import { Button } from "@/ui/button";
@@ -47,8 +49,51 @@ function NotFound() {
   return <NotFoundBlock noun="page" why="Kipple has no page at this address." />;
 }
 
-function Lazy({ children, label = "Loading screen" }: { children: React.ReactNode; label?: string }) {
-  return <Suspense fallback={<Skeleton label={label} />}>{children}</Suspense>;
+/**
+ * The header a screen draws before its code has arrived, laid out as the screen's own so nothing moves when it lands.
+ * The title is not a heading: a heading means the screen has arrived (focus, tests and assistive tech wait for the real one), and
+ * the placeholder says "Loading" itself. Settings on a phone, inside a page, has a back button and the page's name that only the screen knows: it draws none.
+ */
+function ScreenHeader({ screen }: { screen: "stats" | "settings" }) {
+  const wide = useWide();
+  const inPage = !!useMatch("/settings/:group");
+  if (screen === "stats") {
+    return (
+      <header className="pt-safe shrink-0 border-b border-line px-4 pb-3">
+        <div className="mx-auto w-full max-w-3xl">
+          <div aria-hidden="true" className="pt-2 pb-2 text-xl font-bold">Stats</div>
+        </div>
+      </header>
+    );
+  }
+  if (inPage && !wide) return null;
+  return (
+    <header className="pt-safe shrink-0 border-b border-line">
+      <div aria-hidden="true" className={cn("w-full px-4 pt-2 pb-2 text-xl font-bold", !wide && "mx-auto max-w-[720px]")}>
+        Settings
+      </div>
+    </header>
+  );
+}
+
+/** While a screen's code downloads: its header at once when `header` names one, then bars. The real heading takes focus when it mounts. */
+export function Lazy({ children, label = "Loading screen", header }: { children: React.ReactNode; label?: string; header?: "stats" | "settings" }) {
+  return (
+    <Suspense
+      fallback={
+        header ? (
+          <div data-testid="lazy-fallback" className="ui-font flex h-full min-h-0 flex-col">
+            <ScreenHeader screen={header} />
+            <Skeleton label={label} />
+          </div>
+        ) : (
+          <Skeleton label={label} />
+        )
+      }
+    >
+      {children}
+    </Suspense>
+  );
 }
 
 /**
@@ -229,9 +274,9 @@ function Gate() {
         <Route path="feeds/index" element={<Lazy label="Loading the feed index"><FeedIndexScreen /></Lazy>} />
         <Route path="health" element={<Lazy label="Loading feed health"><HealthScreen /></Lazy>} />
         <Route path="search" element={<SearchScreen />} />
-        <Route path="stats" element={<Lazy label="Loading stats"><StatsScreen /></Lazy>} />
+        <Route path="stats" element={<Lazy label="Loading stats" header="stats"><StatsScreen /></Lazy>} />
         <Route path="stats/wrapped" element={<Lazy label="Loading your year"><WrappedScreen /></Lazy>} />
-        <Route path="settings/*" element={<Lazy label="Loading settings"><SettingsScreen /></Lazy>} />
+        <Route path="settings/*" element={<Lazy label="Loading settings" header="settings"><SettingsScreen /></Lazy>} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
