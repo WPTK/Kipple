@@ -99,7 +99,7 @@ were resolved in round 2 and what shipped; each is annotated below.
 
 Design system / static demo site / pull-and-run image; Cloudflare Access JWT; passwordless login; scheduled
 auto-night. The parking lot itself is kept outside this repository. (Cloudflare Access JWT and passwordless login
-shipped in phase 5 as #40, the scheduled auto-night theme as #41; see "Phase 5 planning meeting" below.)
+shipped in phase 5 as #40, the scheduled auto-night theme as #41.)
 
 ## Next chunks
 
@@ -132,7 +132,7 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
 ### Layouts
 - Ship **all five**: Magazine (default), Cards, Compact, Inbox, Headlines (shipped; Magazine is labelled
   Editorial and Headlines Email - Compact, ids unchanged). Columns, Reader list and Expanded
-  stream were parked, then replaced by the layouts in "Additional layouts (#39)" below.
+  stream were dropped (see "Additional layouts (#39)" below).
 - Layout is choosable **per feed and per folder** (override), plus a global/device default. UI in phase 2.
 - A folder's layout override applies to its subfolders and their feeds too; the nearest override up the tree wins
   (feed, then its folder, then each folder above, then the device default).
@@ -287,81 +287,19 @@ Decided in a design discussion. #37 keeps the roadmap label; #36 is closed (belo
   Reading in other apps isn't measured." (a `changes/` entry rides with the stats build). Reopen only if a client starts
   sending read time. No read-state write gets the Recorder, and `TestMarkReadNeverTouchesRecorder` stays as is.
 
-## Phase 5 planning meeting (2026-09-27)
-
-Not a UI meeting — recorded here per the owner's instruction that all planning decisions land in this file plus
-`kipple-history`. Phases 1-4 are complete (v0.3.0-alpha.7 deployed, kipple.cc public). Six topics, one at a time
-with a recommendation each, same format as the phase 4 pre-meeting.
-
-1. **What phase 5 is.** Not release-steps-only, not parking-lot-only: the owner chose to **interleave** release
-   readiness (steps 8+) with the two parking-lot items that were explicitly gated on "planned work finished"
-   (Cloudflare Access JWT validation, passwordless login).
-2. **Sequencing.** The owner chose **fully parallel**: the code audit/changelog review and the Access
-   JWT/passwordless work happen on separate branches at the same time, accepting the risk that the audit could
-   flag something in the auth path and cause rework, rather than sequencing them.
-3. **Stale owner checklist (from the phase 3 handoff).** GitHub private vulnerability reporting toggle, approving
-   a proposed CLAUDE.md edit list (kept in the private history repository), and turning off the Kipple server debug logging
-   (`KIPPLE_LOG_LEVEL`, `KIPPLE_LOG_GREADER_FORMS`) were never marked closed. The owner will flip debug logging
-   off himself (ssh to the Kipple server, edit `.env`, restart `kipple`). A Kipple-server-side off-site backup job for Kipple's own
-   data (separate from the dev machine's own off-site backup job) is **not** being built in phase 5 — local `docker cp`
-   snapshots stay the only backup path for now. (Private vulnerability reporting has since been turned on.)
-4. **Parking-lot scope boundary.** The owner's rule for phase 5: **only work directly related to Kipple and its
-   Docker image.** In: auto-night theme (small, self-contained, ships in phase 5). Out: the 1.5.0/2.0.0
-   setup-app/single-image roadmap, a design system, a static demo site, and user-chosen Google Fonts (all stay
-   parked, unchanged from the existing parking-lot timing).
-5. **Owner involvement.** The owner wants to be **involved as little as possible** in phase 5. Practical reading:
-   batch work into branches/PRs and only interrupt him for the things CLAUDE.md already reserves for him —
-   deploys, Cloudflare changes, and the final go/no-go — not for routine build decisions in between.
-
-**Phase 5 outline (final):**
-- (A) Full code audit + changelog review (Sonnet routine, Opus review/judging, per the existing model policy).
-- (B) Cloudflare Access JWT validation + passwordless login, on a branch, in parallel with (A). Needs the owner's
-  Cloudflare-side Access app config before the JWT work can be verified end-to-end.
-- (C) Auto-night theme.
-- (D) Documentation run, first-time Docker setup walkthrough, backup/restore-settings guide.
-- (E) Final go/no-go meeting.
-
-No deploys happen without asking first, per standing instruction; Cloudflare changes stay the owner's.
-
-### Addendum (2026-09-27, later): UAT and release-process gaps
-
-The owner asked to evaluate a third-party Claude Code skill (`mecabots/webapp-uat`, GitHub `tsilverberg/webapp-uat`)
-for UAT. Recommendation given and accepted: don't install it (unverified npm scope mismatched from the GitHub repo
-owner, and its i18n/placeholder checks don't apply to Kipple), but build the useful parts — console/network error
-capture, WCAG audit, responsive checks — as an in-repo Playwright + axe-core script instead, so it stays auditable
-and dependency-light.
-
-The owner also asked to study general UAT methodology (testmonitor.com's UAT guide) and produce a Kipple-specific
-UAT plan, and to add these release-process gaps as phase 5 line items:
-- A Kipple-specific UAT plan, `docs/maintainers/uat-plan.md` (roles, entry/exit criteria, scripted/agent-driven/owner-only
-  test suites, defect severity scale, sign-off feeding the go/no-go meeting).
-- Reader API regression replay (Reader API client recorded sequences) against the actual deployed
-  build, not just CI's unit-level contract tests.
-- Migration rehearsal against a copy of the live the Kipple server DB, made a standing checklist item rather than ad hoc.
-- An actual end-to-end `kipple restore` drill (not just documentation) — first real run this cycle.
-- The first-time Docker setup walkthrough treated as literal UAT (follow it verbatim on a clean machine, log
-  every stuck point) rather than a documentation paraphrase exercise.
-
-**Phase 5 outline, updated:** (A) code audit + changelog review (DONE, PR #26); (B) Cloudflare Access JWT +
-passwordless, in parallel with A (DONE, PR #40); (C) auto-night theme (DONE, PR #41); (D) documentation run
-(DONE, #42; a further pass covered the setup wizard) + Docker walkthrough (now doubling as UAT Suite 5) + backup/restore-settings guide; (F) UAT plan execution (`docs/maintainers/uat-plan.md`
-Suites 1-4, migration rehearsal, restore drill, Reader API regression replay); (E) final go/no-go meeting, fed by
-D and F's sign-off.
-
 ---
 
 ## Additional layouts (#39, 2026-10-06)
 
-Design discussion with the owner. Mockups were reviewed in the session; nothing is built yet. Columns, Reader list and
-Expanded stream (the parked names) are dropped; Expanded stream may return later. The ideas below replace them.
+Design discussion with the owner. The Gazette and the Inbox look below shipped.
 
 ### Rules for every new layout
-- Every layout joins the `c` toggle and the per-feed and per-folder override, and has a defined iPhone behavior.
+- Every layout has the per-feed and per-folder override and a defined iPhone behavior.
 - These layouts arrange many articles at once, so they need a list-level page contract beside the one-row-per-item
   contract. The owner does not want the existing row contract to limit the designs.
 - Colors come from the active theme. The unread accent is the theme's accent, never a fixed blue.
 
-### 1. Newspaper (first priority): "The Gazette"
+### 1. Newspaper: "The Gazette"
 - A front page and numbered inner pages, laid out like a printed paper. Fixed rules decide the layout from the content,
   so the same articles always give the same page, and different days look different. No AI, no randomness.
 - **Name:** "The Gazette" by default, with a Settings text field to rename it (per device, like other appearance settings).
@@ -392,21 +330,7 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
 - **Finite:** the paper ends. The last page appears once all of the list's articles are loaded.
 - **iPhone:** one column in the same order (lead, next stories, then sections), a compact masthead and no folio row.
 
-### 2. Source rows
-- One horizontal strip of tiles per feed (image, title, age), newest first, feeds in sidebar order, feeds with nothing
-  unread at the bottom. A tile opens the article; the feed name opens that feed's list. Feeds without images get text-only
-  tiles. iPhone: each strip swipes sideways with the next tile partly visible.
-
-### 3. Triage stack
-- One article card at a time (image, source, title, excerpt), the next card showing behind it. Swipe directions follow the
-  rest of the app: right marks read, left stars; tap opens the article; each action advances and shows the undo toast.
-  Desktop: arrow keys and Enter. A "N left" counter. iPhone-first.
-
-### 4. Daily edition: parked
-- A finite page for one calendar day was mocked and dropped for now. The approach needs rethinking; do not build it from
-  these notes.
-
-### 5. Inbox and Email - Compact: mail-client look
+### 2. Inbox and Email - Compact: mail-client look
 - **Inbox** takes a full-density mail look: a round favicon avatar, source name and time on the first line, the title in
   the theme accent while unread (also bold, with a bar or dot at the left edge), a one-line preview, a pale accent fill
   for the selected row. On hover the time gives way to star, mark read and menu. Date groups (Today, Yesterday, then
@@ -415,9 +339,9 @@ Expanded stream (the parked names) are dropped; Expanded stream may return later
 - **Email - Compact** becomes the single-line density of the same look: source, title and time in one row, like a table.
 - No other product is named in the UI or docs.
 
-### Still open
-- Whether a Columns-style text layout is worth shipping next to Cards (no owner intent yet).
-- Whether Expanded stream returns (full text under each headline, collapsed by default, no scroll-based read marking).
+### Not built, not planned
+Source rows, a triage stack, a daily edition, Columns, Reader list and Expanded stream were designed and dropped. Nothing
+builds them unless the owner reopens one.
 
 
 ## Phone header and back buttons (1.1 bug hunt, round 7, #420 #422 #424)

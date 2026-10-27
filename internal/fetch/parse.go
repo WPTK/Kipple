@@ -307,7 +307,7 @@ func (f xmlFilter) Read(p []byte) (int, error) {
 // cannot be used: a nil entry, one with no title, link, guid, text, enclosure or
 // image at all (every such entry would share one uid), or one whose conversion panics on
 // hostile input. One bad entry is dropped and counted, never fatal to the
-// fetch (design §13 item 9).
+// fetch (design §4.8, parse-time behavior).
 func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOptions, content func(string, ...string) (string, string), jsonItems []*gjson.Item) (it Item, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
