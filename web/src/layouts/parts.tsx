@@ -194,9 +194,6 @@ export function StarButton({ item, onToggleStar, className }: { item: Card; onTo
   );
 }
 
-const menuItem =
-  "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-selection";
-
 /** The "More" button and its menu: also the target of long-press and the swipe's More action. */
 export function RowMenu({
   item,
@@ -285,7 +282,7 @@ export function RowMenu({
 /** One row-menu item, its words and glyph read from the action table (lib/itemActionTable.ts). `fill` draws a filled glyph (a starred article). */
 function ActionItem({ id, state, fill, disabled, onSelect }: { id: ActionId; state?: ActionState; fill?: boolean; disabled?: boolean; onSelect: () => void }) {
   return (
-    <DropdownMenu.Item className={menuItem} disabled={disabled} onSelect={onSelect}>
+    <DropdownMenu.Item disabled={disabled} onSelect={onSelect}>
       <Icon of={actionIcon(id, state)} fill={fill ? "currentColor" : "none"} />
       {actionLabel(id, state)}
     </DropdownMenu.Item>

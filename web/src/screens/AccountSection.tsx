@@ -386,7 +386,7 @@ export function BackupSection() {
       </div>
       <RestoreRow hasPassword={hasPassword} />
       <div>
-        <Button variant="link" className="px-0" onClick={() => setupActions.restart()}>Run setup again</Button>
+        <Button variant="danger" onClick={() => setupActions.restart()}>Run setup again</Button>
         <p className="mt-1 text-xs text-fg2">Your account and feeds stay as they are.</p>
       </div>
       <ResetSection hasPassword={hasPassword} />

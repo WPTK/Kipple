@@ -22,7 +22,7 @@ import { bytesLabel, fullDate, whenLabel } from "@/lib/format";
 import { useWide } from "@/lib/useMedia";
 import { BackButton } from "@/ui/BackButton";
 import { Button } from "@/ui/button";
-import { Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
+import { CheckboxBox, Disclosure, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { EmptyState } from "@/ui/EmptyState";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
@@ -272,10 +272,9 @@ function ErrorLine({ f, onEdit }: { f: HealthFeed; onEdit: () => void }) {
           <RepairButtons feedId={f.id} title={f.title} canTry={f.enabled} onEdit={onEdit} />
         </>
       )}
-      <details>
-        <summary className="hit-row inline-flex cursor-pointer items-center text-link underline underline-offset-2">Details</summary>
+      <Disclosure label="Details">
         <p className="break-words text-fg2">{f.last_error}</p>
-      </details>
+      </Disclosure>
     </div>
   );
 }
@@ -515,13 +514,7 @@ export function HealthScreen() {
                         Select off it holds no checkboxes, so its header is an empty cell, not a "Select" header over nothing. */}
                     {selecting ? (
                       <th scope="col" className="w-9 py-2 pr-1">
-                        <input
-                          type="checkbox"
-                          aria-label="Select all feeds"
-                          checked={allShownSelected}
-                          onChange={() => setSel(toggleGroup(shownIds, sel))}
-                          className="size-5 accent-[var(--kp-accent)]"
-                        />
+                        <CheckboxBox aria-label="Select all feeds" checked={allShownSelected} onChange={() => setSel(toggleGroup(shownIds, sel))} />
                       </th>
                     ) : (
                       <td className="w-9 py-2 pr-1" />
@@ -540,13 +533,7 @@ export function HealthScreen() {
                     <tr key={f.id} className="border-b border-line align-top">
                       <td className="w-9 py-2 pr-1">
                         {selecting ? (
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${f.title}`}
-                            checked={sel.has(f.id)}
-                            onChange={() => check(f.id)}
-                            className="size-5 accent-[var(--kp-accent)]"
-                          />
+                          <CheckboxBox aria-label={`Select ${f.title}`} checked={sel.has(f.id)} onChange={() => check(f.id)} />
                         ) : null}
                       </td>
                       <th scope="row" className="max-w-[24rem] px-3 py-2 text-left font-medium">
@@ -575,13 +562,7 @@ export function HealthScreen() {
                     <div className="flex items-start gap-2">
                       {selecting ? (
                         <label className="hit-row -my-1 -ml-2 inline-flex shrink-0 items-center justify-center">
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${f.title}`}
-                            checked={sel.has(f.id)}
-                            onChange={() => check(f.id)}
-                            className="size-5 accent-[var(--kp-accent)]"
-                          />
+                          <CheckboxBox aria-label={`Select ${f.title}`} checked={sel.has(f.id)} onChange={() => check(f.id)} />
                         </label>
                       ) : null}
                       <div className="min-w-0 flex-1">

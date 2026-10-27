@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ComponentType, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
+import { useEffect, useId, useImperativeHandle, useRef, useState, type ComponentPropsWithRef, type ComponentType, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
 import { Dialog } from "radix-ui";
 import { Collapsible } from "radix-ui";
 import { ChevronDown, CircleAlert, TriangleAlert, X } from "lucide-react";
@@ -272,6 +272,20 @@ export function Switch({
 }
 
 /**
+ * The bare tick box, for a row that is already its own label (a selectable list row, a table cell with an `aria-label`).
+ * Anything with a visible label of its own uses Checkbox. `indeterminate` is the "some of them" state of a group box.
+ */
+export function CheckboxBox({ indeterminate, className, ref, ...props }: Omit<ComponentPropsWithRef<"input">, "type"> & { indeterminate?: boolean }) {
+  const inner = useRef<HTMLInputElement>(null);
+  // The caller's ref (Ref<HTMLInputElement>) gets the same element, through a handle that is made once.
+  useImperativeHandle(ref, () => inner.current as HTMLInputElement, []);
+  useEffect(() => {
+    if (inner.current) inner.current.indeterminate = !!indeterminate;
+  }, [indeterminate]);
+  return <input type="checkbox" {...props} ref={inner} className={cn("size-5 shrink-0 accent-[var(--kp-accent)]", className)} />;
+}
+
+/**
  * A checkbox with a label and help text: the control for a yes/no choice in a form or dialog that a button (Save, Add,
  * Export, Continue) applies later. A Switch is for a setting that takes effect the moment it is flipped; the two
  * differ the way they do on iOS, Android and the web, so a form never offers a switch that does nothing until Save.
@@ -307,15 +321,13 @@ export function Checkbox({
         className={cn("kp-check flex min-h-11 items-start gap-3 text-sm", disabled ? "cursor-not-allowed" : "cursor-pointer")}
       >
         <span className="flex h-[var(--check-row)] shrink-0 items-center">
-          <input
+          <CheckboxBox
             id={id}
-            type="checkbox"
             checked={checked}
             disabled={disabled}
             aria-invalid={error ? true : undefined}
             aria-describedby={`${id}-h${error ? ` ${id}-e` : ""}`}
             onChange={(e) => onChange(e.target.checked)}
-            className="size-5 accent-[var(--kp-accent)]"
           />
         </span>
         <span className="flex min-h-[var(--check-row)] min-w-0 items-center leading-5">{label}</span>

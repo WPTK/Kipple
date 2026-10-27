@@ -1,0 +1,1 @@
+Feeds, Settings: Delete folder and Run setup again use the same danger look as the other destructive actions, and the error text under a failing feed in Feed health opens from the shared Details disclosure, a bordered row taller than the old link. (#851)

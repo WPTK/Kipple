@@ -15,7 +15,7 @@ const sheet =
   "menu-sheet mx-auto max-h-[70dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-b-none rounded-t-2xl border-x-0 border-b-0 pt-2 pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))]";
 
 /** The row of a menu item (a command, a choice): 44 px tall, with the highlight the keyboard and pointer move. Every item below wears it. */
-export const menuItemClass = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-selection";
+const menuItemClass = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-selection";
 
 /** Closes the menu of the Root around it. */
 const CloseMenu = createContext<() => void>(() => {});

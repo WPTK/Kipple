@@ -63,6 +63,7 @@
     "layout-menu.mjs",
     "wording.mjs",
     "node-budget.mjs",
+    "destructive-look.mjs",
     "skeletons.mjs",
     "row.mjs"
   ],
