@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { CircleAlert, X } from "lucide-react";
 import { createStore, useStore } from "@/lib/store";
 import { dismissUndoToast, holdUndoToast, undoStore, undoToast } from "@/lib/undo";
+import { Icon } from "@/ui/Icon";
 
 export interface ToastItem {
   id: number;
@@ -165,7 +166,7 @@ function ToastCard({
         </button>
       )}
       <button type="button" aria-label="Dismiss" className="hit -mr-2 inline-flex items-center justify-center rounded-md" onClick={onDismiss}>
-        <X className="size-5" aria-hidden="true" />
+        <Icon of={X} />
       </button>
     </div>
   );

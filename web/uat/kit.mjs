@@ -12,7 +12,8 @@
 //   K5  a keyboard-focused list row draws its ring around the row and the link gets no box of its own;
 //   K6  a destructive button underlines on hover while it has keyboard focus (#728);
 //   K7  a number setting (how often to check feeds) is a row of choices with Custom, not a bare stepper (#686);
-//   K8  every row of the Show and sort and Article length menus is the one menu row (44 px tall, rounded, highlight on focus) (#627).
+//   K8  every row of the Show and sort and Article length menus is the one menu row (44 px tall, rounded, highlight on focus) (#627);
+//   K9  every icon on the list, Feeds and Settings screens is 16 or 20 px (#629).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { readFileSync } from "node:fs";
@@ -21,7 +22,7 @@ import { start } from "./common.mjs";
 
 const require = createRequire(import.meta.url);
 const AXE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
-const t = await start(import.meta.url, 14);
+const t = await start(import.meta.url, 15);
 const { check, step, textOf } = t;
 
 /** Opens the Change web password dialog on Settings, Account & Devices; returns the Current password input. */ // uat-labels: ignore
@@ -163,6 +164,16 @@ await t.eachViewport(async (page, vp) => {
       await t.shot(page, `${tag}-menu-${name.source.slice(1, 5).trim()}`);
       await page.keyboard.press("Escape");
       await menu.waitFor({ state: "detached", timeout: 5000 });
+    }
+  });
+
+  await step(`${tag} K9`, async () => {
+    for (const path of ["/l/unread", "/feeds", "/settings"]) {
+      await page.goto(path, { waitUntil: "load" });
+      await page.locator("main svg").first().waitFor({ timeout: 15000 });
+      const sizes = await page.locator("svg.lucide").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)).filter((w) => w > 0));
+      const bad = sizes.filter((w) => w !== 16 && w !== 20);
+      check(sizes.length > 0 && bad.length === 0, `${tag} K9 ${path}`, `${sizes.length} icons, each 16 or 20 px`, `icon widths off the scale: ${JSON.stringify([...new Set(bad)])}`);
     }
   });
 });

@@ -50,6 +50,7 @@ import { CollapseToggle } from "./FeedTree";
 import { DeleteDialog, DeleteFolderDialog, MoveDialog } from "./feeds/BulkActions";
 import { BottomBar } from "@/ui/BottomBar";
 import { DropdownMenu } from "@/ui/menu";
+import { Icon } from "@/ui/Icon";
 
 // The dialogs load when first opened, not with the Feeds screen.
 const AddFeedDialog = lazyScreen(() => import("./feeds/AddFeedDialog").then((m) => ({ default: m.AddFeedDialog })));
@@ -513,7 +514,7 @@ export function FeedsScreen() {
       {...dnd.gripProps(src)}
       className="hit-row inline-flex shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-fg2 hover:bg-selection active:cursor-grabbing"
     >
-      <GripVertical className="size-5" aria-hidden="true" />
+      <Icon of={GripVertical} />
     </button>
   );
 
@@ -705,29 +706,29 @@ export function FeedsScreen() {
                   <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-48">
                     {fo.unread > 0 ? (
                       <DropdownMenu.Item className={menuItem} onSelect={() => markAll.ask(markAllLabel({ view: "unread", folder: fo.id }, fo.unread), markAllReach({ view: "unread", folder: fo.id }, fo.name), () => void markFolderRead(fo))}>
-                        <MarkAllIcon className="size-5" aria-hidden="true" />
+                        <Icon of={MarkAllIcon} />
                         {markAllLabel({ view: "unread", folder: fo.id }, fo.unread)}
                       </DropdownMenu.Item>
                     ) : null}
                     <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "rename", folder: fo })}>
-                      <Settings2 className="size-5" aria-hidden="true" />
+                      <Icon of={Settings2} />
                       Folder settings
                     </DropdownMenu.Item>
                     {!fo.is_default && depth < MAX_FOLDER_DEPTH ? (
                       <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: fo.id })}>
-                        <FolderPlus className="size-5" aria-hidden="true" />
+                        <Icon of={FolderPlus} />
                         New subfolder
                       </DropdownMenu.Item>
                     ) : null}
                     {!fo.is_default ? (
                       <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "move", folder: fo })}>
-                        <FolderInput className="size-5" aria-hidden="true" />
+                        <Icon of={FolderInput} />
                         Move to…
                       </DropdownMenu.Item>
                     ) : null}
                     {!fo.is_default ? (
                       <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "delete", folder: fo })}>
-                        <Trash2 className="size-5" aria-hidden="true" />
+                        <Icon of={Trash2} />
                         Delete folder
                       </DropdownMenu.Item>
                     ) : null}
@@ -762,7 +763,7 @@ export function FeedsScreen() {
           {realFeeds.length > 0 ? (
             <>
               <DropdownMenu.Item className={menuItem} onSelect={() => setUnreadOnly((u) => !u)}>
-                <ListFilter className="size-5" aria-hidden="true" />
+                <Icon of={ListFilter} />
                 {unreadOnly ? "Show all feeds" : "Show only unread feeds"}
               </DropdownMenu.Item>
               <DropdownMenu.Separator className="my-1 h-px bg-line" />
@@ -771,23 +772,23 @@ export function FeedsScreen() {
           <DropdownMenu.Label className={menuLabel}>Organize</DropdownMenu.Label>
           {realFeeds.length > 0 ? (
             <DropdownMenu.Item className={menuItem} onSelect={() => setSelecting(true)}>
-              <CheckSquare className="size-5" aria-hidden="true" />
+              <Icon of={CheckSquare} />
               Select feeds
             </DropdownMenu.Item>
           ) : null}
           <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: null })}>
-            <FolderPlus className="size-5" aria-hidden="true" />
+            <Icon of={FolderPlus} />
             New folder
           </DropdownMenu.Item>
           <DropdownMenu.Label className={menuLabel}>Files</DropdownMenu.Label>
           <DropdownMenu.Item className={menuItem} onSelect={() => setImporting(true)}>
-            <Upload className="size-5" aria-hidden="true" />
+            <Icon of={Upload} />
             Import feeds from a file (OPML)
           </DropdownMenu.Item>
           {/* The browser saves the file without a word; the note says what happened and what the file is called. */}
           <DropdownMenu.Item asChild className={menuItem} onSelect={() => toast("Downloading your feeds as kipple.opml")}>
             <a href="/api/opml" download>
-              <Download className="size-5" aria-hidden="true" />
+              <Icon of={Download} />
               Export feeds to a file (OPML)
             </a>
           </DropdownMenu.Item>
@@ -819,7 +820,7 @@ export function FeedsScreen() {
                   <span role="status" aria-live="polite" className="inline-flex min-w-16 items-center justify-end gap-1 text-xs text-fg2" data-testid="saved-note">
                     {saved === "saved" ? (
                       <>
-                        <Check className="size-4" aria-hidden="true" />
+                        <Icon of={Check} size="sm" />
                         Saved
                       </>
                     ) : saved === "saving" ? (

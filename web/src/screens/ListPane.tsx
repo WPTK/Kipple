@@ -57,6 +57,7 @@ import { useListKeyboard } from "./useListKeyboard";
 import { useItemsSource, type ListSource } from "./listSource";
 import { useDigestSource } from "./digestSource";
 import { firstLook, keepStill, lookAgain, measurePage, readerScrolling, SCROLLING_MS, type PageLook, type ReaderInput } from "./pageSeen";
+import { Icon } from "@/ui/Icon";
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
 export const SCROLL_RETRY_MS = 30_000;
@@ -1399,7 +1400,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
               if (peekOn) endPeek();
             }}
           >
-            <X className="size-5" aria-hidden="true" />
+            <Icon of={X} />
           </button>
         </div>
       ) : null}

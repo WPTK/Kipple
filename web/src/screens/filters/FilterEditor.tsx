@@ -38,6 +38,7 @@ import { visibleFeeds } from "@/lib/visibleFeeds";
 import { Button } from "@/ui/button";
 import { Checkbox, Chip, Field, FieldError, Modal, Notice, RadioCard, inputCls } from "@/ui/kit";
 import { FolderSelect } from "@/ui/FolderSelect";
+import { Icon } from "@/ui/Icon";
 
 export const PREVIEW_DEBOUNCE_MS = 600;
 
@@ -165,7 +166,7 @@ function Choice({ name, value, current, label, help, onPick, disabled }: { name:
 function SuggestionChip({ on, label, name, onToggle }: { on: boolean; label: string; name: string; onToggle: () => void }) {
   return (
     <Button onClick={onToggle} aria-pressed={on} aria-label={name} className={cn("min-h-11 gap-1.5", on && "border-[var(--kp-accent)] bg-selection font-semibold")}>
-      {on ? <CheckIcon aria-hidden="true" className="size-4" /> : null}
+      {on ? <Icon of={CheckIcon} size="sm" /> : null}
       {label}
     </Button>
   );

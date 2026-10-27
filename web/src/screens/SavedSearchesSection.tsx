@@ -16,6 +16,7 @@ import { FolderOptions } from "@/ui/FolderSelect";
 import { folderPath, folderTree } from "@/lib/folderTree";
 import { scrollParent } from "@/ui/segmented";
 import { savedSearchError } from "./search/SaveSearchDialog";
+import { Icon } from "@/ui/Icon";
 
 /** Where a saved search looks, in words. */
 function scopeText(scope: SavedSearch["scope"], boot: Bootstrap | undefined): string {
@@ -224,7 +225,7 @@ export function SavedSearchesSection() {
                     {...dnd.gripProps(src)}
                     className="hit-row inline-flex shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-fg2 hover:bg-selection active:cursor-grabbing"
                   >
-                    <GripVertical className="size-4" aria-hidden="true" />
+                    <Icon of={GripVertical} size="sm" />
                   </button>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold">{s.name}</p>
