@@ -1,4 +1,4 @@
-import { useEffect, useId, useImperativeHandle, useRef, useState, type ComponentPropsWithRef, type ComponentType, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
+import { createContext, useContext, useEffect, useId, useImperativeHandle, useRef, useState, type ComponentPropsWithRef, type ComponentType, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
 import { Dialog } from "radix-ui";
 import { Collapsible } from "radix-ui";
 import { ChevronDown, CircleAlert, TriangleAlert, X } from "lucide-react";
@@ -614,19 +614,26 @@ export function Disclosure({
   );
 }
 
+/** The heading level a Section uses when it is not given one: 2 under a page's h1, 3 under a group's h2 (Settings beside its rail). */
+export const SectionLevel = createContext<2 | 3>(2);
+
 /**
  * A titled section of a screen (Settings, Statistics): a heading that names the region, a rule under it and the content.
  * `level` is the heading level the page's outline needs; `sub` is a section inside another (a rule above, a smaller
  * heading); `stack` lays the content out as a column of settings.
  */
-export function Section({ title, children, level = 2, sub = false, stack = false }: { title: string; children: ReactNode; level?: 2 | 3; sub?: boolean; stack?: boolean }) {
+export function Section({ title, children, level, sub = false, stack = false, aside }: { title: string; children: ReactNode; level?: 2 | 3; sub?: boolean; stack?: boolean; /** Sits beside the heading (a tag saying where the section's settings are kept). */ aside?: ReactNode }) {
   const id = useId();
-  const H = sub || level === 3 ? "h3" : "h2";
+  const inherited = useContext(SectionLevel);
+  const H = sub || (level ?? inherited) === 3 ? "h3" : "h2";
   return (
     <section aria-labelledby={id} className={sub ? "border-t border-line pt-4" : "border-b border-line py-5"}>
-      <H id={id} className={cn("mb-3 font-semibold", sub ? "text-base" : "text-lg")}>
-        {title}
-      </H>
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <H id={id} className={cn("font-semibold", sub ? "text-base" : "text-lg")}>
+          {title}
+        </H>
+        {aside}
+      </div>
       {stack ? <div className="flex flex-col gap-5">{children}</div> : children}
     </section>
   );

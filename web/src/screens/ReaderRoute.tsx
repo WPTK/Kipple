@@ -159,7 +159,9 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
   // The order button sits in the header wherever the title has room beside it, by width alone: not on a phone, upright or sideways.
   // `wide` is inside `roomy` on a real screen; it is named so the two states stay one rule in a test that answers only one query.
   const roomy = useMedia(ROOMY_QUERY);
-  const showOrder = wide || roomy;
+  // A library with no feeds has nothing to order, size, lay out or refresh: those controls wait until there is a feed.
+  const noFeeds = boot.data?.feeds.length === 0;
+  const showOrder = (wide || roomy) && !noFeeds;
   const counted = unreadHere !== null && (scope.view === "unread" || !!scope.after);
   const pills = asSelect ? (
     <select
@@ -265,11 +267,11 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
               ) : null}
             </>
           ) : null}
-          <LengthMenu scope={scope} />
-          {scope.after ? null : <LayoutMenu scope={scope} />}
+          {noFeeds ? null : <LengthMenu scope={scope} />}
+          {scope.after || noFeeds ? null : <LayoutMenu scope={scope} />}
           {/* Beside an open article its toolbar has the Aa control: one per screen. */}
           {beside ? null : <ReadingMenu />}
-          <DropdownMenu.Root>
+          {noFeeds ? null : <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
               <Button variant="ghost" size="icon" aria-label="List actions" title="List actions">
                 {/* Refresh is an item in this menu; the button stays where it is, and a line under the header shows the run. */}
@@ -308,7 +310,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
                 </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
-          </DropdownMenu.Root>
+          </DropdownMenu.Root>}
         </TitleRow>
         {compact ? null : (
           <div className="mt-1 flex max-w-[25rem] items-center gap-1">

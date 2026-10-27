@@ -119,7 +119,7 @@ await t.eachViewport(async (page, vp) => {
     await page.getByRole("button", { name: "Preview", exact: true }).click();
     const dlg = page.getByRole("dialog", { name: "Mark old articles as read" });
     await dlg.waitFor();
-    await dlg.getByRole("textbox", { name: "Try a different number of days" }).waitFor();
+    await dlg.getByRole("spinbutton", { name: "Try a different number of days" }).waitFor();
     await t.shot(page, `${tag}-preview-dialog`);
     await dlg.getByRole("button", { name: "Close" }).click();
   });
