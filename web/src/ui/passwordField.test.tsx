@@ -37,6 +37,25 @@ describe("PasswordField names", () => {
   });
 });
 
+describe("PasswordField acronym", () => {
+  it("keeps the capitals of an acronym in the Show button's name", () => {
+    render(<PasswordField label="API password" value="" onChange={() => {}} autoComplete="off" />);
+    expect(screen.getByRole("button", { name: "Show API password" })).toBeInTheDocument();
+  });
+});
+
+describe("PasswordField names by case", () => {
+  it.each([
+    ["Current password", "Show current password"],
+    ["API password", "Show API password"],
+    ["A password", "Show a password"],
+    ["Passphrase", "Show password"],
+  ])("%s gives the button %s", (label, name) => {
+    render(<PasswordField label={label} value="" onChange={() => {}} autoComplete="off" />);
+    expect(screen.getByRole("button", { name })).toBeInTheDocument();
+  });
+});
+
 describe("PasswordField disabled", () => {
   it("disables the Show button with its input", () => {
     render(<PasswordField label="Login" value="" onChange={() => {}} autoComplete="off" disabled />);

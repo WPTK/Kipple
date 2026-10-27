@@ -1,0 +1,1 @@
+Forms: the sign-in error, the filter editor's "Tick at least one part" and word notes use the standard error styling, the Listen speed menu matches other fields, and the Show button of a password field keeps acronyms such as API.

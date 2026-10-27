@@ -4,6 +4,8 @@ import { RATES, prefsStore, updatePrefs } from "@/lib/prefs";
 import { Narrator, chunksOf, narratorStore, speechSupported } from "@/lib/speech";
 import { useStore } from "@/lib/store";
 import { Button } from "@/ui/button";
+import { inputCls } from "@/ui/kit";
+import { cn } from "@/lib/cn";
 import { announce } from "@/shell/toasts";
 
 /**
@@ -85,7 +87,7 @@ export function ListenBar({ bodyRef, articleId }: { bodyRef: RefObject<HTMLEleme
           <select
             value={prefs.rate}
             onChange={(e) => updatePrefs({ rate: Number(e.target.value) })}
-            className="min-h-11 rounded-lg border border-field bg-bg px-2 text-fg"
+            className={cn(inputCls, "w-auto px-2")}
           >
             {RATES.map((r) => (
               <option key={r} value={r}>

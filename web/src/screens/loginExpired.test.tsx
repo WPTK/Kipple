@@ -95,7 +95,9 @@ describe("the sign-in screen", () => {
   it("a wrong password is still a wrong password, with no reload offered", async () => {
     mockFetch({ "POST /api/auth/login": () => json({ error: "auth" }, 401) });
     await signIn();
-    expect(await screen.findByRole("alert")).toHaveTextContent("That username or password didn't match.");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("That username or password didn't match.");
+    expect(screen.getByLabelText("Password")).toHaveAccessibleDescription(/didn't match/);
     expect(screen.queryByRole("button", { name: "Reload" })).toBeNull();
   });
 });
