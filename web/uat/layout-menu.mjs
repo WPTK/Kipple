@@ -57,8 +57,9 @@ await t.eachViewport(async (page, vp) => {
     check((await group.getByRole("menuitemradio", { checked: true }).count()) === 1 && (await group.getByRole("menuitemradio", { name: new RegExp(`^${current} `) }).getAttribute("aria-checked")) === "true", `${tag} L1 checked`, `only ${current} is checked`, "the checked layout is not the one in effect");
     const glyphs = await menu.evaluate((m) => ({ all: m.querySelectorAll("svg[data-layout-glyph]").length, hidden: m.querySelectorAll('svg[data-layout-glyph][aria-hidden="true"]').length }));
     check(glyphs.all === 7 && glyphs.hidden === 7, `${tag} L1 glyphs`, "each of the seven layouts has a preview, hidden from assistive technology", JSON.stringify(glyphs));
-    const old = await menu.evaluate((m) => [...m.querySelectorAll("*")].filter((e) => ["Lists", "Pages", "Picture in list", "Pictures in lists"].includes((e.children.length === 0 ? (e.textContent ?? "").trim() : "")) || /^Layout, /.test(e.getAttribute("aria-label") ?? "")).map((e) => e.textContent));
-    check(old.length === 0, `${tag} L1 old groups`, "no Pictures, Lists or Pages groups and no Picture in list naming", `found ${JSON.stringify(old)}`);
+    const groups = await menu.getByRole("group").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""));
+    const headings = await menu.evaluate((m) => [...m.querySelectorAll("*")].filter((e) => e.children.length === 0 && ["Lists", "Pages"].includes((e.textContent ?? "").trim())).length);
+    check(groups.join("|") === "Layout|Order|Group by|Pictures" && headings === 0, `${tag} L1 old groups`, "the groups are exactly Layout / Order / Group by / Pictures in that order, and no Lists or Pages heading", `groups: ${groups.join(" | ")}, ${headings} old headings`);
     const fit = await menu.evaluate((m) => {
       const r = m.getBoundingClientRect();
       const rows = [...m.querySelectorAll("[role=menuitemradio]")].map((e) => e.getBoundingClientRect());
@@ -133,14 +134,14 @@ await t.eachViewport(async (page, vp) => {
       // L2
       const menu2 = await openMenu();
       const pictures = menu2.getByRole("group", { name: "Pictures" });
-      check((await pictures.count()) === 1 && (await pictures.getByRole("menuitemradio", { name: /^Show/ }).getAttribute("aria-checked")) === "true", `${tag} L2 menu`, "the Pictures group offers Pictures in lists with Show chosen", "no such group or Show is not chosen");
+      check((await pictures.count()) === 1 && (await pictures.getByRole("menuitemradio", { name: /^Show/ }).getAttribute("aria-checked")) === "true", `${tag} L2 menu`, "Show and sort offers Pictures with Show chosen", "no such group or Show is not chosen");
       await pictures.getByRole("menuitemradio", { name: "Hide", exact: true }).click();
       await expect.poll(async () => (await profile())["client.list_images"], { timeout: 10000, intervals: [250] }).toBe(false).catch(() => {});
       check((await profile())["client.list_images"] === false, `${tag} L2 saved`, "Hide saves client.list_images false for this device", `the profile holds ${JSON.stringify((await profile())["client.list_images"])}`);
       await page.goto("/settings/appearance", { waitUntil: "load" });
       const setting = page.getByRole("group", { name: "Pictures" });
       await setting.waitFor({ timeout: 15000 });
-      check((await setting.getByRole("radio", { name: "Hide", exact: true }).isChecked()) && (await page.getByRole("group", { name: "Thumbnails in Inbox" }).count()) === 0, `${tag} L2 settings`, "Settings shows Pictures in lists with Hide chosen, and no Thumbnails in Inbox", "Hide is not chosen there, or the old setting is still drawn");
+      check((await setting.getByRole("radio", { name: "Hide", exact: true }).isChecked()) && (await page.getByRole("group", { name: "Thumbnails in Inbox" }).count()) === 0, `${tag} L2 settings`, "Settings shows its pictures setting with Hide chosen, and no Thumbnails in Inbox", "Hide is not chosen there, or the old setting is still drawn");
       if (vp.mobile) await setting.scrollIntoViewIfNeeded();
       await t.shot(page, `${tag}-settings-pictures-in-lists`);
       await setting.locator("label", { hasText: /^Show$/ }).click();
