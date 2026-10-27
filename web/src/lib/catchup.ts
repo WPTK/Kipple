@@ -114,13 +114,13 @@ export function useCatchupVisit(active: boolean, adopt?: string): VisitState {
     if (!active || visit || !ready || !b) return;
     let live = true;
     void pendingSeen
-      .then(() => api<CatchupAnswer>("/api/catchup", { params: { groups: catchupGroups(b.feeds, b.folders).join(",") } }))
+      .then(() => api<CatchupAnswer>("/api/catchup", { params: { groups: catchupGroups(b.feeds, b.folders).join(","), ...(adopt ? { mark: adopt } : {}) } }))
       .then((r) => {
         if (!live) return;
         // A visit is a fresh look: whatever an earlier visit under the same mark left in the cache is not shown.
         // `adopt` is a page opened on an article of the New page (a reload or a new tab): it carries the mark its link
-        // names, and leaving it moves nothing, so the page is still new on the next visit (until the reader goes back to
-        // the page itself: see below).
+        // names, the counts are asked for that mark, and leaving it moves nothing, so the page is still new on the next
+        // visit (the reader going to the page itself ends it: see below).
         const mark = adopt ?? r.mark;
         const tail = `|after:${mark}`;
         if (!adopt) qc.removeQueries({ queryKey: keys.itemsAll, predicate: (q) => String(q.queryKey[1]).includes(tail) });
@@ -131,10 +131,11 @@ export function useCatchupVisit(active: boolean, adopt?: string): VisitState {
       live = false;
     };
   }, [active, visit, ready, attempt, qc, bootRef, adopt]);
-  // The page itself opening over a visit that began on one of its articles (Back after a reload) shows the reader the
-  // page, so the visit is the page's own now: leaving it moves the mark like any other.
+  // The page itself opening over a visit that began on one of its articles (Back after a reload) is a new visit: the
+  // adopted one holds the link's mark, which may be behind the account's, so the page asks again and its leaving moves
+  // the mark like any other.
   useEffect(() => {
-    if (active && !adopt && visit?.adopted) visitStore.set({ ...visit, adopted: false });
+    if (active && !adopt && visit?.adopted) visitStore.set(null);
   }, [active, adopt, visit]);
   if (visit) return { status: "ready", visit };
   if (failure) return { status: "error", error: failure.error, retry };

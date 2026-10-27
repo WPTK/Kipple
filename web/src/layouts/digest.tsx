@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Link, type To } from "react-router";
 import { useLongPressMenu } from "@/gestures/useLongPressMenu";
 import type { Card, Headline } from "@/api/types";
@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import { articleTo } from "@/lib/routes";
 import { Button } from "@/ui/button";
 import { Bone } from "@/ui/kit";
-import { ListImage, PublishedTime, RowMenu, UnreadDot, rowLinkProps, useImageFailure } from "./parts";
+import { ListImage, PublishedTime, RowMenu, UnreadDot, rowLinkProps, titleTone, useImageFailure } from "./parts";
 import { ROW_KEYSHORTCUTS, RowTabStop, stopId } from "./rowTabStop";
 import type { DigestSectionView, ListLayout, PageProps, RowMenuActions } from "./types";
 
@@ -23,8 +23,8 @@ interface RowProps<T extends RowItem> {
   item: T;
   to: To;
   onOpen: (item: T) => void;
-  /** The row's menu (More actions, long press). Without it the row has none. */
-  actions?: RowMenuActions;
+  /** The row's menu button (More actions), built by the caller from a Card; it also turns on long press. Without it the row has none. */
+  menu?: ReactNode;
   /** Show the picture on the right, when the article has one. */
   images: boolean;
   /** Name the article's source before its time. A page under the source's own name leaves it out. */
@@ -35,7 +35,7 @@ interface RowProps<T extends RowItem> {
 }
 
 /** An article: its title first, then its source and time, and a picture on the right when there is one and pictures are on. */
-export function DigestRow<T extends RowItem>({ item, to, onOpen, actions, images, source = true, selected, tabStop }: RowProps<T>) {
+export function DigestRow<T extends RowItem>({ item, to, onOpen, menu, images, source = true, selected, tabStop }: RowProps<T>) {
   const press = useLongPressMenu(item.id);
   const failure = useImageFailure(item.image);
   const unread = !item.read;
@@ -45,7 +45,7 @@ export function DigestRow<T extends RowItem>({ item, to, onOpen, actions, images
       data-item-id={item.id}
       data-read={item.read || undefined}
       data-selected={selected || undefined}
-      {...(actions ? press : {})}
+      {...(menu ? press : {})}
       // The menu button is laid over the row's corner, so it takes no room (and a hidden one none at all).
       className={cn(
         "row-host relative flex min-h-[var(--row-min)] items-start gap-3 border-b border-line py-[var(--row-py)] pr-4 pl-3 [-webkit-touch-callout:none]",
@@ -54,7 +54,7 @@ export function DigestRow<T extends RowItem>({ item, to, onOpen, actions, images
     >
       <UnreadDot unread={unread} className="mt-2" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <h3 className={cn("font-reading text-base leading-snug", unread ? "font-bold text-fg" : "font-normal text-fg2")}>
+        <h3 className={cn("font-reading text-base leading-snug", titleTone(unread))}>
           <Link
             to={to}
             tabIndex={tabStop ? undefined : -1}
@@ -72,11 +72,7 @@ export function DigestRow<T extends RowItem>({ item, to, onOpen, actions, images
         </p>
       </div>
       {picture ? <ListImage src={item.image!} failure={failure} className={cn("size-16 shrink-0 rounded-lg bg-surface object-cover", item.read && "opacity-60")} /> : null}
-      {actions ? (
-        <RowTabStop.Provider value={tabStop}>
-          <RowMenu item={item as unknown as Card /* a row with a menu is only given Cards */} actions={actions} revealOnHover className="row-touch-unseen absolute right-1 bottom-1 bg-bg/80" />
-        </RowTabStop.Provider>
-      ) : null}
+      {menu ? <RowTabStop.Provider value={tabStop}>{menu}</RowTabStop.Provider> : null}
     </article>
   );
 }
@@ -182,7 +178,7 @@ function DigestSection({ section: s, rows, images, counts, named, scope, onOpen,
             item={item}
             to={articleTo(item.id, scope)}
             onOpen={onOpen}
-            actions={actions}
+            menu={<RowMenu item={item} actions={actions} revealOnHover className="row-touch-unseen absolute right-1 bottom-1 bg-bg/80" />}
             images={images}
             selected={item.id === selectedId}
             tabStop={item.id === tabStopId}

@@ -507,6 +507,69 @@ describe("mark as read while scrolling in the Gazette", () => {
     await waitFor(() => expect(list.scrollTop).toBe(460));
   });
 
+  it("drops what is owed once the story it was owed for has left the screen", async () => {
+    routes(() => pageOf(many(1, 20)));
+    go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    resized();
+    const list = screen.getByTestId("list-scroll");
+    scrollTo(450);
+    await frame();
+    await settle();
+    act(() => void list.dispatchEvent(Object.assign(new Event("touchstart"), { touches: [] })));
+    scrollTo(460);
+    await frame();
+    story = 50; // the stories above the top halve while the finger is down: the list owes a scroll
+    resized();
+    // The fling carries the reader far past the story that was owed it.
+    scrollTo(3000);
+    await frame();
+    act(() => void window.dispatchEvent(new Event("touchend")));
+    await act(() => new Promise((r) => setTimeout(r, 400)));
+    expect(list.scrollTop).toBe(3000);
+  });
+
+  it("a context menu that swallows the release lets the list keep the place again", async () => {
+    routes(() => pageOf(many(1, 20)));
+    go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    resized();
+    const list = screen.getByTestId("list-scroll");
+    scrollTo(460);
+    await frame();
+    await settle();
+    act(() => void list.dispatchEvent(new Event("pointerdown")));
+    story = 50;
+    resized();
+    await act(() => new Promise((r) => setTimeout(r, 300)));
+    expect(list.scrollTop).toBe(460); // held while the button is down
+    act(() => void list.dispatchEvent(new Event("contextmenu"))); // no pointerup follows
+    await waitFor(() => expect(list.scrollTop).toBe(210));
+  });
+
+  it("a story node replaced under the finger lets the list keep the place again", async () => {
+    routes(() => pageOf(many(1, 20)));
+    const { container } = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    resized();
+    const list = screen.getByTestId("list-scroll");
+    scrollTo(460);
+    await frame();
+    await settle();
+    const last = [...container.querySelectorAll("article[data-item-id]")].at(-1)!;
+    act(() => void last.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    story = 50;
+    resized();
+    await act(() => new Promise((r) => setTimeout(r, 300)));
+    expect(list.scrollTop).toBe(460);
+    // The touched node goes (a re-plan moved it to another column): its release is never sent to the page.
+    await act(async () => {
+      last.remove();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(list.scrollTop).toBe(210));
+  });
+
   it("a reader at the top stays at the top when the stories move", async () => {
     routes(() => pageOf(many(1, 20)));
     go("/l/unread");
