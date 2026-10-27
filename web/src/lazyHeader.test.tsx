@@ -17,18 +17,20 @@ function at(path: string, header: "stats" | "settings") {
 }
 
 describe("Lazy screens", () => {
-  it("shows the Stats heading while the code downloads", () => {
+  it("shows the Stats title while the code downloads", () => {
     at("/stats", "stats");
-    expect(screen.getByRole("heading", { level: 1, name: "Stats" })).toBeTruthy();
+    expect(screen.getByText("Stats")).toBeTruthy();
+    expect(screen.queryByRole("heading")).toBeNull();
     expect(screen.getByText("Loading x")).toBeTruthy();
   });
-  it("shows the Settings heading on the list", () => {
+  it("shows the Settings title on the list", () => {
     at("/settings", "settings");
-    expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeTruthy();
+    expect(screen.getByText("Settings")).toBeTruthy();
+    expect(screen.queryByRole("heading")).toBeNull();
   });
-  it("draws no heading inside a Settings page on a phone, where the page's own name and back button belong", () => {
+  it("draws no title inside a Settings page on a phone, where the page's own name and back button belong", () => {
     at("/settings/account", "settings");
-    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    expect(screen.queryByText("Settings")).toBeNull();
     expect(screen.getByText("Loading x")).toBeTruthy();
   });
 });

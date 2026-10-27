@@ -51,7 +51,8 @@ function NotFound() {
 
 /**
  * The header a screen draws before its code has arrived, laid out as the screen's own so nothing moves when it lands.
- * Settings on a phone, inside a page, has a back button and the page's name that only the screen knows: it draws none.
+ * The title is not a heading: a heading means the screen has arrived (focus, tests and assistive tech wait for the real one), and
+ * the placeholder says "Loading" itself. Settings on a phone, inside a page, has a back button and the page's name that only the screen knows: it draws none.
  */
 function ScreenHeader({ screen }: { screen: "stats" | "settings" }) {
   const wide = useWide();
@@ -60,7 +61,7 @@ function ScreenHeader({ screen }: { screen: "stats" | "settings" }) {
     return (
       <header className="pt-safe shrink-0 border-b border-line px-4 pb-3">
         <div className="mx-auto w-full max-w-3xl">
-          <h1 className="pt-2 pb-2 text-xl font-bold">Stats</h1>
+          <div aria-hidden="true" className="pt-2 pb-2 text-xl font-bold">Stats</div>
         </div>
       </header>
     );
@@ -68,7 +69,9 @@ function ScreenHeader({ screen }: { screen: "stats" | "settings" }) {
   if (inPage && !wide) return null;
   return (
     <header className="pt-safe shrink-0 border-b border-line">
-      <h1 className={cn("w-full px-4 pt-2 pb-2 text-xl font-bold", !wide && "mx-auto max-w-[720px]")}>Settings</h1>
+      <div aria-hidden="true" className={cn("w-full px-4 pt-2 pb-2 text-xl font-bold", !wide && "mx-auto max-w-[720px]")}>
+        Settings
+      </div>
     </header>
   );
 }
