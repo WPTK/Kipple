@@ -32,8 +32,6 @@ A self-hosted RSS reader for one person: web app plus a Google Reader compatible
   </tr>
 </table>
 
-[CHANGELOG.md](CHANGELOG.md) lists what changed in each release.
-
 ## Features
 
 - Layouts, color themes (separate day and night picks) and reading fonts. Set a layout per device, folder or feed.
@@ -44,7 +42,6 @@ A self-hosted RSS reader for one person: web app plus a Google Reader compatible
 - Syncs with any app that speaks the Google Reader API.
 - Reading stats and a yearly summary (Your year), stored in your own database.
 - Backup and restore in Settings, plus a nightly snapshot. Backups contain credentials (password hashes, the account secret and feed logins), so keep them private.
-- One account per instance.
 
 ## Install
 
@@ -56,17 +53,16 @@ docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v k
 
 This is the short form. The hardened form (read-only, no capabilities) and compose files are in the [deploy guide](docs/deploy.md).
 
-Open <http://127.0.0.1:1919>. The first screen creates your account, or restores a backup from another Kipple. A short
-step follows, with optional recommended feeds and a link to import an OPML file. Your time zone comes from your browser;
-theme, address and app password are in Settings.
+Open <http://127.0.0.1:1919> to create the account, or restore a backup from another Kipple.
 
-If Kipple runs on another machine, open an SSH tunnel to it, as the [quick start](docs/deploy.md#quick-start) shows.
+- The port is published on `127.0.0.1` only. For other devices use HTTPS through a reverse proxy
+  ([guide](docs/reverse-proxy.md)) or a private network such as Tailscale, never plain http.
+- Until the account exists, anyone who can reach the port can claim it.
+- An instance with no password is for localhost or a private network only. Anyone who can reach it has full access.
 
-The port is published on `127.0.0.1` only. Until the account exists, anyone who can reach the port can claim it. To reach
-Kipple from other devices, use HTTPS through a reverse proxy ([guide](docs/reverse-proxy.md)) or a private network such as
-Tailscale. Never expose it over plain http on the open internet. See the [threat model](docs/threat-model.md).
+See the [threat model](docs/threat-model.md).
 
-The [deploy guide](docs/deploy.md) also covers backups, upgrades, verifying the image signature and building from source.
+The [deploy guide](docs/deploy.md) covers other machines (SSH tunnel), backups, upgrades, verifying the image signature and building from source.
 
 ## Sync with other apps
 
@@ -92,6 +88,7 @@ Add a Google Reader compatible account in your sync app:
 
 ## Documentation
 
+- [Changelog](CHANGELOG.md)
 - [Deploy guide](docs/deploy.md): quick start, install options, ports, backups, restore, upgrades, Cloudflare Access.
 - [Reverse proxy](docs/reverse-proxy.md): HTTPS with Caddy, nginx or Traefik.
 - [Troubleshooting](docs/troubleshooting.md)
