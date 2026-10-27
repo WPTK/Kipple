@@ -35,3 +35,16 @@ describe("UndoToast dismiss", () => {
     expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
   });
 });
+
+describe("a toast's action", () => {
+  it("runs, then closes the toast", async () => {
+    const { Toasts, toast, clearToasts } = await import("./toasts");
+    render(<Toasts />);
+    let ran = 0;
+    act(() => void toast("Feed paused", "info", { label: "Resume", run: () => void ran++ }));
+    act(() => screen.getByRole("button", { name: "Resume" }).click());
+    expect(ran).toBe(1);
+    expect(screen.queryByText("Feed paused")).toBeNull();
+    act(() => clearToasts());
+  });
+});

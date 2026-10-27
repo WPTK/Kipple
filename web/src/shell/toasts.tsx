@@ -107,7 +107,16 @@ function ToastView({ t }: { t: ToastItem }) {
     <ToastCard
       kind={t.kind}
       message={t.message}
-      action={t.action && { label: t.action.label, run: () => t.action?.run() }}
+      action={
+        t.action && {
+          label: t.action.label,
+          // Running the action closes the toast.
+          run: () => {
+            t.action?.run();
+            dismissToast(t.id);
+          },
+        }
+      }
       onDismiss={() => dismissToast(t.id)}
       onHold={setHeld}
     />

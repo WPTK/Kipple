@@ -15,14 +15,15 @@
 //   B1  at 812x375 the unread badge follows the Articles name and is not on top of it;
 //   B2  at 844x390 (a landscape phone) the tab bar shows and there is no sidebar;
 //   B3  the current tab's bar (3 px, drawn in a band of its own above the tab's content) ends at least 2 px above the icon and
-//       above the "99+" badge, at 375x812 with default settings, text size 1.5 and Large targets, and with no badge;
+//       above the "99+" badge, at 375x812 and 320x568 with default settings, text size 1.5 and Large targets, and with no badge;
+//   B5  at 812x375 with text size 1.5 the tabs (icon beside the name, 99+ badge) are not cut off vertically;
 //   B4  at 568x320 with text size 1.5 and a "99+" badge the five tab names are whole and the badge stays inside the bar,
 //       and the tabs do not move sideways when the unread count goes from 5 to 150.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { start, waitForPageStill, waitForStillFor } from "./common.mjs";
 
-const t = await start(import.meta.url, 18, { serviceWorkers: "block" });
+const t = await start(import.meta.url, 19, { serviceWorkers: "block" });
 const { check, step } = t;
 
 await t.eachViewport(async (page, vp) => {
@@ -151,9 +152,9 @@ await t.eachViewport(async (page, vp) => {
       try {
         for (const [what, prefs] of [["default", {}], ["text 1.5", { "client.text_size": 1.5 }], ["Large targets", { "client.large_targets": true }]]) {
           if ((await patch({ "client.text_size": 1, "client.large_targets": false, ...prefs })) !== 200) throw new Error(`${what}: the setting was not saved`);
-          for (const count of [150, 0]) {
+          for (const [count, w, h] of [[150, 375, 812], [0, 375, 812], [150, 320, 568], [0, 320, 568]]) {
             unread = count;
-            await reopen(375, 812);
+            await reopen(w, h);
             const m = await articlesTab().evaluate((a) => {
               const cs = getComputedStyle(a, "::before");
               const bar = a.getBoundingClientRect().top + parseFloat(cs.top) + parseFloat(cs.height);
@@ -161,15 +162,39 @@ await t.eachViewport(async (page, vp) => {
               const badge = a.querySelector('[data-testid="unread-count"]')?.getBoundingClientRect();
               return { currentTab: a.getAttribute("aria-current") === "page", barHeight: parseFloat(cs.height), bar, icon: icon.top, badge: badge ? badge.top : null };
             });
-            const where = `${tag} B3 ${what}, ${count ? "99+ badge" : "no badge"}`;
+            const where = `${tag} B3 ${w}x${h} ${what}, ${count ? "99+ badge" : "no badge"}`;
             check(m.currentTab && m.barHeight > 0, `${where} bar`, "the current tab draws its bar", `current ${m.currentTab}, bar height ${m.barHeight}`);
             check(m.icon - m.bar >= 2, `${where} icon`, "the bar ends 2 px or more above the icon", `the bar ends at ${m.bar.toFixed(1)}, the icon starts at ${m.icon.toFixed(1)}`);
             if (count) check(m.badge !== null && m.badge - m.bar >= 2, `${where} badge`, "the bar ends 2 px or more above the badge", `the bar ends at ${m.bar.toFixed(1)}, the badge starts at ${m.badge}`);
-            await t.shot(page, `${tag}-tabs-bar-${what.replace(/\W+/g, "-")}-${count ? "badge" : "plain"}`);
+            await t.shot(page, `${tag}-tabs-bar-${w}-${what.replace(/\W+/g, "-")}-${count ? "badge" : "plain"}`);
           }
         }
       } finally {
         await patch({ "client.text_size": 1, "client.large_targets": false });
+      }
+    });
+
+    await step(`${tag} B5`, async () => {
+      try {
+        if ((await patch({ "client.text_size": 1.5 })) !== 200) throw new Error("text size was not saved");
+        unread = 150;
+        await reopen(812, 375);
+        const m = await page.locator('nav[aria-label="Primary"]').last().evaluate((nav) => {
+          const bar = nav.getBoundingClientRect();
+          return [...nav.querySelectorAll("a")].map((a) => {
+            const r = a.getBoundingClientRect();
+            const inner = [...a.querySelectorAll("svg, span")].map((e) => e.getBoundingClientRect()).filter((x) => x.height > 0);
+            const top = Math.min(r.bottom, ...inner.map((x) => x.top));
+            const bottom = Math.max(r.top, ...inner.map((x) => x.bottom));
+            return { name: a.innerText.replace(/\s+/g, " ").trim(), clipped: a.scrollHeight > a.clientHeight + 1 || top < bar.top - 0.5 || bottom > bar.bottom + 0.5, icon: !!a.querySelector("svg") && a.querySelector("svg").getBoundingClientRect().width > 0 };
+          });
+        });
+        const clipped = m.filter((x) => x.clipped).map((x) => x.name);
+        check(clipped.length === 0 && m.length >= 4, `${tag} B5 clipped`, "at 812x375 and text 1.5 no tab is cut off vertically", `cut off: ${clipped.join(", ")} (${m.length} tabs)`);
+        check(m.every((x) => x.icon), `${tag} B5 icons`, "the icon sits beside each name", `no icon on: ${m.filter((x) => !x.icon).map((x) => x.name).join(", ")}`);
+        await t.shot(page, `${tag}-landscape-tabs-text-1-5`);
+      } finally {
+        await patch({ "client.text_size": 1 });
       }
     });
 

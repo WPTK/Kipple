@@ -119,10 +119,10 @@ try {
         );
         check(bad.length === 0, `${tag} N1 axe`, "no row link has a label that disagrees with its visible text", `${bad.length} link(s): ${bad.join(" | ")}`);
 
-        // The name is a state of the link, so the flow waits for the link to have it (toHaveAccessibleName retries until
-        // it holds or 5 s pass) and does not read a one-shot snapshot that WebKit now and then gave back empty (#783). When
-        // the name never arrives, the detail carries the raw aria snapshot and the element's state at that moment, so the
-        // failure says whether the link was gone, hidden or unnamed.
+        // WebKit has, now and then, given an empty aria snapshot for a link that was attached and visible (#783; the cause is
+        // not known). The name is a state of the link, so the flow waits for it (toHaveAccessibleName retries for up to 5 s)
+        // and does not read one snapshot. When the name never arrives, the detail carries the raw aria snapshot and the
+        // element's state at that moment.
         const nameIs = async (link, want) => {
           try {
             await expect(link).toHaveAccessibleName(want, { timeout: 5000 });
