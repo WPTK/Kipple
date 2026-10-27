@@ -41,7 +41,6 @@ with simple interfaces. With one user a removal is announced in the changelog, n
 - **Themes:** 20 color schemes (`web/src/theme/schemes.json` is the source of truth) plus follow-system with separate
   day and night picks (default Paper and Midnight). The original seven names are aliases (white=Paper, off-white=Linen,
   sepia=Parchment, soft green=Directory, brown=Cocoa Kraft, dark=Graphite, OLED=Midnight).
-- **Look:** The reference is a hosted commercial reader with magazine and cards, images up front (named in the history repo's UI decisions). Not the dense text-list readers.
 - **Non-goals:** no AI features, no notifications, no social (an opt-in share of the reader's own yearly summary,
   Wrapped, is allowed), no monitoring, no multi-user. Per-device appearance profiles are not multi-user. No podcasts or media players, no
   read-later or webhook integrations, no tags. Kipple is not trying to match what other readers have.
