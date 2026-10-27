@@ -5,7 +5,7 @@
 //   node uat/unread-dot-forced.mjs --url http://127.0.0.1:7091 --screenshots <dir> --browser webkit --headed
 //
 // For each width (desktop 1280x800, phone 375x812), with "Unread badge" set to Dot only and forced colors on:
-//   D1  every unread dot in the navigation (the badge, and the dot beside a row in a list) is drawn in CanvasText, the
+//   D1  every unread count badge dot in the navigation is drawn in CanvasText, the
 //       text color, so it is not removed by the browser's forced palette.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
