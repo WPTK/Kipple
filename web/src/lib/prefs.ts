@@ -26,7 +26,7 @@ export const SPACING_LABELS: Record<Spacing, string> = { snug: "Less", normal: "
 export const MOTIONS = ["system", "on", "off"] as const;
 /** "Reduce motion": follow the OS, force it on, or force it off. */
 export type Motion = (typeof MOTIONS)[number];
-export const MOTION_LABELS: Record<Motion, string> = { system: "Follow system", on: "On", off: "Off" };
+export const MOTION_LABELS: Record<Motion, string> = { system: "Follow device", on: "On", off: "Off" };
 
 export const RATES = [0.8, 1, 1.2, 1.5] as const;
 

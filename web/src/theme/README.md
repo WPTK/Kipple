@@ -38,7 +38,7 @@ from it: [`css.ts`](./css.ts) emits one `:root[data-theme="<id>"]` block per sch
   The other two modes show a Day and a Night grid of the same shape, plus the two times on a schedule.
   The offered schemes are narrowed to the ids the server lists in the `ui.theme_day` options
   (`theme/serverThemes.ts`). The Aa menu has a compact grouped select
-  of every theme with "Follow system" and "On a schedule" first. Unread state is always a dot plus a bold title, never color alone.
+  of every theme with "Follow device" and "On a schedule" first. Unread state is always a dot plus a bold title, never color alone.
 
 ## Changes from the round-2 research (the owner's decisions)
 

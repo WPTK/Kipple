@@ -8,7 +8,7 @@
 //   B1  in Select mode on Feeds the bottom bar's Delete is the danger button and sits last;
 //   B2  Delete folder in a folder's menu is the last row, apart behind a separator, in the danger colour; reached with
 //       the End key it shows an underline and the focus ring, and no selection fill;
-//   B3  Run setup again in Settings, Account is a danger button: danger text and a danger border;
+//   B3  Run setup again in Settings, Account is not destructive: it has the normal button look, no danger text or border;
 //   B4  Feed health in Select mode shows the shared tick boxes (20 px, named "Select ...") and holds no native details
 //       element; the error text of a failing feed opens from the shared disclosure's Details button.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
@@ -86,7 +86,7 @@ await t.eachViewport(async (page, vp) => {
     await btn.waitFor({ timeout: 10000 });
     const danger = await dangerColor(page);
     const border = await btn.evaluate((el) => getComputedStyle(el).borderTopColor);
-    check(border === danger && (await color(btn)) === danger, `${tag} B3 look`, "Run setup again has danger text and a danger border", `border ${border}, text ${await color(btn)}, danger ${danger}`);
+    check(border !== danger && (await color(btn)) !== danger, `${tag} B3 look`, "Run setup again has the normal button look, not the danger look", `border ${border}, text ${await color(btn)}, danger ${danger}`);
   });
 
   await step(`${tag} B4`, async () => {

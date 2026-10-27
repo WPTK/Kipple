@@ -52,9 +52,9 @@ describe("Stepper", () => {
     fireEvent.blur(box);
     expect(onChange).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a number from 5 to 1440.");
-    expect(box).toHaveAttribute("aria-invalid", "true");
-    // The bad number is not kept: the box shows the saved one again, under the reason.
+    // The bad number is not kept: the box shows the saved one again, under the reason, and is no longer invalid.
     expect(box).toHaveValue(30);
+    expect(box).not.toHaveAttribute("aria-invalid");
     expect(screen.getByRole("alert")).toHaveTextContent("Kept 30.");
     type(box, "");
     fireEvent.blur(box);
@@ -62,6 +62,20 @@ describe("Stepper", () => {
     type(box, "9999");
     fireEvent.keyDown(box, { key: "Enter" });
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("a pause on half-typed text does not snap it back (3 on the way to 30)", () => {
+    const onChange = vi.fn();
+    render(<Stepper label="Interval" value={60} min={5} max={1440} onChange={onChange} />);
+    const box = screen.getByRole("spinbutton", { name: "Interval" });
+    type(box, "3");
+    act(() => void vi.advanceTimersByTime(STEPPER_DEBOUNCE_MS + 10));
+    expect(box).toHaveValue(3);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+    type(box, "30");
+    act(() => void vi.advanceTimersByTime(STEPPER_DEBOUNCE_MS + 10));
+    expect(onChange).toHaveBeenCalledWith(30);
   });
 
   it("rapid + clicks coalesce into one commit", () => {

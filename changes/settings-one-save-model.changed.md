@@ -1,1 +1,1 @@
-Settings: a setting that saves shows "Saved" beside it, text settings save with Save and Revert, and a number that is not valid goes back to the saved one with the reason. (#682)
+Settings: a setting stored on the server shows "Saved" beside it, text settings save with Save and Revert, and a number that is not valid goes back to the saved one with the reason once you leave the box. Appearance controls that only change this device apply at once and show no mark. (#682)

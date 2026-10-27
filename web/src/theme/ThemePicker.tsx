@@ -133,7 +133,7 @@ function TimeField({ label, value, onChange }: { label: string; value: string; o
  * Swatches for choosing one scheme: the featured ones, then the rest (and the accessibility schemes) under "More
  * themes", which starts open when the chosen scheme is in it. `legend` names the group for a screen reader.
  */
-function SchemeGrid({ legend, name, value, schemes, onPick }: { legend: string; name: string; value: string; schemes: Scheme[]; onPick: (id: string) => void }) {
+function SchemeGrid({ legend, more = "More themes", name, value, schemes, onPick }: { legend: string; more?: string; name: string; value: string; schemes: Scheme[]; onPick: (id: string) => void }) {
   const featured = schemes.filter((s) => s.featured);
   const rest = schemes.filter((s) => !s.featured);
   const [open, setOpen] = useState(rest.some((s) => s.id === value));
@@ -149,7 +149,7 @@ function SchemeGrid({ legend, name, value, schemes, onPick }: { legend: string; 
       <legend className="mb-2 text-sm font-semibold">{legend}</legend>
       {grid(featured)}
       {rest.length > 0 ? (
-        <Fold label="More themes" open={open} onOpenChange={setOpen}>
+        <Fold label={more} open={open} onOpenChange={setOpen}>
           <div className="mt-1">{grid(rest)}</div>
         </Fold>
       ) : null}
@@ -209,8 +209,8 @@ export function ThemePicker() {
       ) : (
         <>
           <p className="text-sm text-fg2">{summary}</p>
-          <SchemeGrid legend="Day theme" name="theme-day" value={t.day} schemes={schemes} onPick={(day) => updateTheme({ day })} />
-          <SchemeGrid legend="Night theme" name="theme-night" value={t.night} schemes={schemes} onPick={(night) => updateTheme({ night })} />
+          <SchemeGrid legend="Day theme" more="More day themes" name="theme-day" value={t.day} schemes={schemes} onPick={(day) => updateTheme({ day })} />
+          <SchemeGrid legend="Night theme" more="More night themes" name="theme-night" value={t.night} schemes={schemes} onPick={(night) => updateTheme({ night })} />
           {choice === "schedule" ? (
             <div className="grid grid-cols-2 gap-3">
               <TimeField label="Day starts" value={t.dayStart} onChange={(dayStart) => updateTheme({ dayStart })} />

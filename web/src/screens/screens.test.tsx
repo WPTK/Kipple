@@ -267,7 +267,7 @@ describe("Settings", () => {
     routes();
     const { container } = go("/settings/appearance");
     await screen.findByRole("heading", { name: "Appearance" });
-    expect(screen.getByRole("radio", { name: "Follow device" })).toBeChecked();
+    expect(within(screen.getByRole("group", { name: "Theme" })).getByRole("radio", { name: "Follow device" })).toBeChecked();
     expect(screen.getByRole("group", { name: "Day theme" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Night theme" })).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("radio", { name: "One theme" }));

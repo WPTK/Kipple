@@ -517,7 +517,12 @@ export function Stepper({
   const schedule = (raw: string) => {
     if (timer.current) clearTimeout(timer.current);
     pending.current = true;
-    timer.current = setTimeout(() => commit(raw), STEPPER_DEBOUNCE_MS);
+    // A pause only commits a valid number; half-typed text ("3" on the way to "30") is left alone until blur or Enter.
+    timer.current = setTimeout(() => {
+      timer.current = undefined;
+      pending.current = false;
+      if (stepperProblem(raw, min, max, step) === null) commit(raw);
+    }, STEPPER_DEBOUNCE_MS);
   };
   // Leaving the screen inside the debounce window must not drop the edit.
   useEffect(
@@ -548,7 +553,7 @@ export function Stepper({
         <input
           aria-label={label}
           aria-describedby={[describedBy, errId].filter(Boolean).join(" ") || undefined}
-          aria-invalid={invalid || !!problem || undefined}
+          aria-invalid={invalid || stepperProblem(text, min, max, step) !== null || undefined}
           inputMode="numeric"
           type="number"
           min={min}
