@@ -147,7 +147,7 @@ try {
         const withPictures = await pictures();
         check(withPictures >= 1, `${tag} G2 pictures`, "a story with a picture shows it", "no picture is shown with Pictures in lists on");
         await layoutMenu();
-        await page.getByRole("group", { name: "Pictures in lists" }).getByRole("menuitemradio", { name: "Hide" }).click();
+        await page.getByRole("group", { name: "Pictures", exact: true }).getByRole("menuitemradio", { name: "Hide" }).click();
         const gone = await settled(() => !document.querySelector('section[data-section] article[data-item-id] img'));
         check(gone, `${tag} G2 hidden`, "Hide shows no picture", `${await pictures()} picture(s) still shown`);
         await t.shot(page, `${tag}-digest-text-only`);

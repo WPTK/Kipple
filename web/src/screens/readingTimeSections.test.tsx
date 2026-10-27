@@ -222,7 +222,7 @@ describe("Digest reading-time menu", () => {
     const sections = within(menu).getByRole("group", { name: "Sections" });
     expect(within(sections).getByRole("menuitemradio", { name: "Reading time" })).toBeChecked();
     expect(within(sections).getByRole("menuitemradio", { name: "Reading time" })).not.toHaveAttribute("aria-disabled", "true");
-    for (const name of ["Pictures in lists", "Rows per section"]) expect(within(menu).getByRole("group", { name })).toBeInTheDocument();
+    for (const name of ["Pictures", "Rows per section"]) expect(within(menu).getByRole("group", { name })).toBeInTheDocument();
     await user.click(within(sections).getByRole("menuitemradio", { name: "Folders" }));
     expect(devicePrefsStore.get().digestSections).toBe("folder");
   });

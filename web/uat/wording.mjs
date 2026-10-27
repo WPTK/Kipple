@@ -40,7 +40,7 @@ await t.eachViewport(async (page, vp) => {
     const menu = page.getByRole("menu");
     await menu.waitFor({ timeout: 10000 });
     const text = (await menu.innerText()).replace(/\s+/g, " ");
-    const want = ["For browsing with pictures", "For catching up fast", "For a sit-down read in pages", "For a quick pass by section"];
+    const want = ["Big picture, short summary", "For catching up fast", "Pages, newest first", "Sections by folder or reading time"];
     const missing = want.filter((w) => !text.includes(w));
     check(missing.length === 0, `${tag} W2 hints`, "each layout says what it is for", `missing: ${missing.join(" | ")}`);
     await t.shot(page, `${tag}-layout-hints`);

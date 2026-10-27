@@ -540,7 +540,7 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 - **Order.** Sidebar order, or Quiet Feeds First (sections that get the fewest new articles a day first, a folder's pace being the sum of its feeds; a section with any feed under a week old has no pace yet and goes last). The name is
   plain on purpose; no print vocabulary.
 - **Settings, for this device, in the layout menu.** Order, Sections (Folders, Feeds or Reading time) and Rows per section (3, 5 or 10). They are not per-list overrides.
-  Whether rows show pictures is the device's Pictures in lists setting, in the menu's Pictures group.
+  Whether rows show pictures is the device's Pictures setting, under Show and sort in the menu.
 - **"N more" opens the section in place**, 20 at a time, rather than going to the section's list: the reader keeps their
   place on the page.
 - **Sections load as they are reached** (6, then 4 at a time), and one that fails shows its own Retry.
@@ -620,7 +620,7 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 
 - **One picture setting.** "Pictures in lists: Show or Hide" (`client.list_images`) replaces "Thumbnails in Inbox" and the
   Digest's "Images". It covers the Inbox thumbnails and the Digest images; Editorial and Cards always show pictures. It
-  appears twice, bound to the one value: in Settings, Appearance, Lists, and in the layout menu's Pictures group. Rejected: a
+  appears twice, bound to the one value: in Settings, Appearance, Lists, and in the layout menu, as Pictures under Show and sort. Rejected: a
   picture control in each layout's own block, which repeats the problem of a control that exists only under some layouts.
   An old cache or stored profile that hid pictures in either place keeps them hidden (read once; migration 0021 rewrites the
   stored profiles).
@@ -631,14 +631,30 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
   keyboard or screen reader user reaches the reason. The wide header's Oldest first button greys with the same reason, so it
   is never live while the menu's radios are greyed. Rejected: hiding the inert Order the way Group by was hidden; a control
   that vanishes leaves no explanation.
-- **Groups.** The layouts sit under three headings: Pictures (Editorial, Cards), Lists (Compact, Inbox, Headlines) and
-  Pages (Gazette, Digest). Each heading and its choices form one labelled group, so a screen reader announces Pictures,
-  Lists and Pages as groups and "Pictures in lists" is a group of its own. The per-layout block (the Digest's) stays one
-  heading deep, so no drill-in is needed. "Opens in" (feeds and folders) sits under Pages, as a sub-block with its own label.
+- **Groups (superseded by "One flat list", below).** The layouts sat under three headings: Pictures (Editorial, Cards),
+  Lists (Compact, Inbox, Headlines) and Pages (Gazette, Digest), each a labelled group.
 - **The trigger is "Show and sort"** (button name "Show and sort, Cards layout"). The other candidate was "Arrange list".
   "Show and sort" names the two jobs (what is shown: layout and pictures; how it is sorted: order and grouping), shares no
   word with "List actions", and the name does not claim more than the menu holds. Rejected: "Layout and order", which no
   longer fits a menu that holds pictures.
+
+### One flat list (Build 4/6 UI, PR H)
+
+- **One radio group of the seven layouts.** Compact, Headlines, Inbox, Editorial, Cards, Gazette, Digest, in that order
+  (densest to most page-like, the order Settings uses too). Each row is a small drawing of the layout, its plain name and a
+  short hint (`LAYOUT_HINTS`, shared with Settings). There are no category headings, no sub-groups and no "Picture" or
+  "Picture in list" naming. Below it, under Show and sort: Order, Group by, Pictures (Show or Hide), and on a feed or folder
+  Opens in; the Digest's own block follows when the Digest is the layout. The drawing is hidden from assistive technology; a
+  row reads as its name and hint. Arrow keys move through every row, Enter or Space chooses, Escape closes.
+- **Why.** The three headings were added for screen-reader grouping, not for a task. A reader choosing a layout wants to see
+  what each looks like, and a name under a heading does not say that. Pictures held two layouts while the Pictures setting
+  sat inside it. One list also scales: an eighth layout is a row, not a new category.
+- **Design twice.** A: a segmented row of seven drawings. B: one flat list with a drawing and a hint per row. A fits a phone
+  badly (seven tap targets of about 40 px, names only in a tooltip or a toast) and has no room for a hint. B costs height,
+  so the phone sheet scrolls to reach Show and sort. B won. A grid of tiles and a one-step cycle button were also drawn and
+  rejected for the same reasons.
+- **Spacing is not in the menu.** The first sketch listed it. It is the text-spacing accessibility setting, device-wide and
+  not a list choice, so it stays in Settings, Appearance.
 
 ## Internal cleanup lines ruled out (#207)
 

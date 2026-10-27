@@ -15,7 +15,7 @@
 //       unknown_length marks the article with no text and nothing else;
 //   K4  Mark all (confirmed in its dialog) marks every section, and one Undo puts them all back;
 //   K5  the arrow keys visit the articles and the "more" button in the order they are drawn, and the page has one Tab stop;
-//   K6  the layout menu offers Reading time (chosen and enabled) beside Folders and Feeds, with Pictures in lists and Rows per (uat-labels: ignore)
+//   K6  the layout menu offers Reading time (chosen and enabled) beside Folders and Feeds, with Pictures and Rows per (uat-labels: ignore)
 //       section for the device, and a choice changes the page;
 //   K7  All, and Unread with an article-length filter, draw folder sections instead, and the menu greys Reading time
 //       with the reason;
@@ -212,7 +212,7 @@ try {
         const groups = await menu.getByRole("group").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
         const reading = menu.getByRole("menuitemradio", { name: "Reading time", exact: true });
         await t.shot(page, `${tag}-sections-menu-unread`);
-        check(groups.includes("Sections") && groups.includes("Pictures in lists") && groups.includes("Rows per section") && (await reading.getAttribute("aria-checked")) === "true" && (await reading.getAttribute("aria-disabled")) !== "true", `${tag} K6 menu`, "Sections with Reading time chosen and enabled, and Pictures in lists and Rows per section", `groups: ${groups.join(", ")}`); // uat-labels: ignore
+        check(groups.includes("Sections") && groups.includes("Pictures") && groups.includes("Rows per section") && (await reading.getAttribute("aria-checked")) === "true" && (await reading.getAttribute("aria-disabled")) !== "true", `${tag} K6 menu`, "Sections with Reading time chosen and enabled, and Pictures and Rows per section", `groups: ${groups.join(", ")}`); // uat-labels: ignore
         await menu.getByRole("menuitemradio", { name: "5", exact: true }).click();
         const five = await settled(() => document.querySelectorAll('section[data-section] article[data-item-id]').length >= 7);
         check(five && (await idsOf(SECTIONS[0])).length === 4, `${tag} K6 rows`, "5 rows per section shows the first section whole", `${(await idsOf(SECTIONS[0])).length} articles in it`);
