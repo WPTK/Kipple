@@ -459,7 +459,7 @@ describe("Digest article order", () => {
 });
 
 describe("Digest settings in the Show and sort menu", () => {
-  it("offers Order, Sections, Pictures in lists and Rows per section for this device, and a choice changes the page", async () => {
+  it("offers Order, Sections, Pictures and Rows per section for this device, and a choice changes the page", async () => {
     routes({ boot: library([3, 3], [5, 1]), counts: [3, 3] });
     const user = userEvent.setup();
     const { container } = go("/l/unread");

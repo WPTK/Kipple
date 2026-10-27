@@ -30,8 +30,9 @@ export const LAYOUT_HINTS: Record<LayoutId, string> = {
   magazine: "Big picture, short summary",
   cards: "Grid of pictures",
   gazette: "Pages, newest first",
-  digest: "Sections by folder or reading time",
+  digest: "Sections by folder, feed or reading time",
 };
+
 export type DigestSections = "folder" | "feed" | "length";
 export type DigestOrder = "sidebar" | "quiet";
 export const DIGEST_ROWS = [3, 5, 10] as const;
@@ -118,7 +119,7 @@ export interface DevicePrefs {
   group: GroupBy;
   /** Result ordering of the Search screen (server key `client.search_order`). */
   searchOrder: SearchOrder;
-  /** Pictures in lists: Inbox thumbnails and the Digest's images (`client.list_images`). The picture layouts always show theirs. */
+  /** Pictures: Inbox thumbnails and the Digest's images (`client.list_images`). The picture layouts always show theirs. */
   listImages: boolean;
   /** The first-run swipe peek has played (or been dismissed) on this device. */
   peekSeen: boolean;

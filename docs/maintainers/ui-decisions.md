@@ -535,7 +535,7 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 - **What it is.** One page of sections, a section for each folder (or feed, a device setting), each with its name in the
   theme accent as a level 2 heading, its first few unread articles and "N more in <name>". It is for reading a little of
   everything: a quiet folder is as visible as a busy one.
-- **Row.** Title first (the reading font, bold while unread), then source and time; a picture at the right when Pictures in lists is
+- **Row.** Title first (the reading font, bold while unread), then source and time; a picture at the right when Pictures is
   on and the article has one. Text only is a choice, not a fallback.
 - **Order.** Sidebar order, or Quiet Feeds First (sections that get the fewest new articles a day first, a folder's pace being the sum of its feeds; a section with any feed under a week old has no pace yet and goes last). The name is
   plain on purpose; no print vocabulary.
@@ -605,7 +605,7 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 - **Fixed order and no empty groups.** Shortest first. A group with nothing to read is not drawn; one the reader has
   just finished stays until they leave, so a mark is never a disappearing act.
 - **Same page as the Digest.** The rows, "N more" opening a group in place, keys, and Mark above and below within a
-  group. Rows per section and Pictures in lists are the Digest's device settings.
+  group. Rows per section and Pictures are the Digest's device settings.
 - **Design twice.** A: each group is an ordinary list of the same scope plus a reading-time bucket, so it reuses the
   Digest's planner, lazy loading and mark rules, and the server learns one parameter (`unknown_length`). B: a new
   endpoint returning pre-grouped buckets with exact counts. B gives exact "N more" numbers at once, but costs a second
@@ -618,7 +618,7 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 
 ## Pictures, order and the layout menu (Build 4/6 UI, PR C)
 
-- **One picture setting.** "Pictures in lists: Show or Hide" (`client.list_images`) replaces "Thumbnails in Inbox" and the
+- **One picture setting.** "Pictures: Show or Hide" (`client.list_images`) replaces "Thumbnails in Inbox" and the
   Digest's "Images". It covers the Inbox thumbnails and the Digest images; Editorial and Cards always show pictures. It
   appears twice, bound to the one value: in Settings, Appearance, Lists, and in the layout menu, as Pictures under Show and sort. Rejected: a
   picture control in each layout's own block, which repeats the problem of a control that exists only under some layouts.
@@ -655,6 +655,10 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
   rejected for the same reasons.
 - **Spacing is not in the menu.** The first sketch listed it. It is the text-spacing accessibility setting, device-wide and
   not a list choice, so it stays in Settings, Appearance.
+- **Pictures says where it applies.** A muted line, "Applies to Inbox and Digest.", sits under Show and Hide: only those two
+  layouts have pictures that Hide can remove (Editorial and Cards always show theirs, Compact and Headlines have none).
+- **Hints checked against the code.** The Gazette is always newest first (`followsOrder`), so "Pages, newest first" is true;
+  the Digest offers Folders, Feeds and Reading time, so its hint names all three.
 
 ## Internal cleanup lines ruled out (#207)
 

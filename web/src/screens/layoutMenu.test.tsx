@@ -96,6 +96,7 @@ describe("the layout menu", () => {
     go("/l/unread");
     const menu = await openMenu();
     const heading = within(menu).getByText("Show and sort");
+    expect(within(menu).getByRole("group", { name: "Pictures" })).toHaveAccessibleDescription("Applies to Inbox and Digest.");
     for (const name of ["Order", "Group by", "Pictures"]) {
       const g = within(menu).getByRole("group", { name });
       expect(heading.compareDocumentPosition(g) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

@@ -212,7 +212,7 @@ describe("Digest reading-time marking", () => {
 });
 
 describe("Digest reading-time menu", () => {
-  it("offers Reading time as a Sections choice on Unread, beside Pictures in lists and Rows per section", async () => {
+  it("offers Reading time as a Sections choice on Unread, beside Pictures and Rows per section", async () => {
     routes([3, 3, 3, 3]);
     const user = userEvent.setup();
     go("/l/unread");

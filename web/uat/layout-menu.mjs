@@ -16,13 +16,14 @@
 //   L4  in Compact the same choices and the button are live;
 //   L5  Settings, Sync names the server image group "Image cache";
 //   L6  each of the seven layouts can be chosen, changes the list (data-layout), is saved, and survives a reload;
-//   L7  Home and the arrow keys move through the layouts, Enter chooses, Escape closes.// It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
+//   L7  Home and the arrow keys move through the layouts, Enter chooses, Escape closes.
+// It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { expect } from "@playwright/test";
 import { start } from "./common.mjs";
 
 const LAYOUTS = [["compact", "Compact"], ["headlines", "Headlines"], ["inbox", "Inbox"], ["magazine", "Editorial"], ["cards", "Cards"], ["gazette", "Gazette"], ["digest", "Digest"]];
-const HINTS = { compact: "Dense rows, no pictures", headlines: "For catching up fast", inbox: "Read and unread at a glance", magazine: "Big picture, short summary", cards: "Grid of pictures", gazette: "Pages, newest first", digest: "Sections by folder or reading time" };
+const HINTS = { compact: "Dense rows, no pictures", headlines: "For catching up fast", inbox: "Read and unread at a glance", magazine: "Big picture, short summary", cards: "Grid of pictures", gazette: "Pages, newest first", digest: "Sections by folder, feed or reading time" };
 const t = await start(import.meta.url, 17);
 const { check, step } = t;
 
@@ -60,13 +61,17 @@ await t.eachViewport(async (page, vp) => {
     const groups = await menu.getByRole("group").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""));
     const headings = await menu.evaluate((m) => [...m.querySelectorAll("*")].filter((e) => e.children.length === 0 && ["Lists", "Pages"].includes((e.textContent ?? "").trim())).length);
     check(groups.join("|") === "Layout|Order|Group by|Pictures" && headings === 0, `${tag} L1 old groups`, "the groups are exactly Layout / Order / Group by / Pictures in that order, and no Lists or Pages heading", `groups: ${groups.join(" | ")}, ${headings} old headings`);
+    const note = await menu.getByRole("group", { name: "Pictures", exact: true }).evaluate((g) => (document.getElementById(g.getAttribute("aria-describedby") ?? "")?.textContent ?? "").trim());
+    check(note === "Applies to Inbox and Digest.", `${tag} L1 pictures note`, "Pictures says which layouts it applies to", `the note reads "${note}"`);
     const fit = await menu.evaluate((m) => {
       const r = m.getBoundingClientRect();
       const rows = [...m.querySelectorAll("[role=menuitemradio]")].map((e) => e.getBoundingClientRect());
       return { left: r.left, right: r.right, width: window.innerWidth, overflow: document.documentElement.scrollWidth - window.innerWidth, rowsOut: rows.filter((x) => x.left < r.left - 1 || x.right > r.right + 1).length };
     });
     check(fit.left >= 0 && fit.right <= fit.width + 0.5 && fit.overflow <= 0 && fit.rowsOut === 0, `${tag} L1 fit`, "the open menu fits the screen with no sideways scroll and its rows fit the menu", `menu ${Math.round(fit.left)}..${Math.round(fit.right)} of ${fit.width}, page overflow ${fit.overflow}, ${fit.rowsOut} rows out`);
-  };  /** The one-line reason a radio is described by, read from the element its aria-describedby names. */
+  };
+
+  /** The one-line reason a radio is described by, read from the element its aria-describedby names. */
   const reasonOf = (radio) =>
     radio.evaluate((el) => {
       const id = el.getAttribute("aria-describedby");
@@ -99,16 +104,18 @@ await t.eachViewport(async (page, vp) => {
       for (const [id, label] of LAYOUTS) {
         const m = await openMenu();
         await m.getByRole("menuitemradio", { name: new RegExp(`^${label} `) }).click();
-        await page.locator(`[data-testid="list-scroll"][data-layout="${id}"]`).waitFor({ timeout: 10000 }).catch(() => {});
+        await page.locator(`[data-testid="list-scroll"][data-layout="${id}"]`).waitFor({ timeout: 10000 });
         const shown = await page.locator('[data-testid="list-scroll"]').getAttribute("data-layout");
         check(shown === id && (await trigger().getAttribute("aria-label")) === `Show and sort, ${label} layout`, `${tag} L6 ${id}`, `choosing ${label} shows the ${label} list and the button says so`, `the list is ${shown}, the button reads "${await trigger().getAttribute("aria-label")}"`);
-        await expect.poll(async () => (await profile())["client.layout"], { timeout: 10000, intervals: [250] }).toBe(id).catch(() => {});
+        await expect.poll(async () => (await profile())["client.layout"], { timeout: 10000, intervals: [250] }).toBe(id);
+        check((await profile())["client.layout"] === id, `${tag} L6 ${id} saved`, `${label} is saved as client.layout ${id} for this device`, `the profile holds ${JSON.stringify((await profile())["client.layout"])}`);
         await page.reload({ waitUntil: "load" });
         await trigger().waitFor({ timeout: 20000 });
         const kept = await page.locator('[data-testid="list-scroll"]').getAttribute("data-layout");
         check(kept === id, `${tag} L6 ${id} reload`, `${label} is still the layout after a reload`, `the list is ${kept}`);
         const again = await openMenu();
-        check((await again.getByRole("menuitemradio", { name: new RegExp(`^${label} `) }).getAttribute("aria-checked")) === "true" && (await again.getByRole("menuitemradio", { checked: true }).count()) >= 1, `${tag} L6 ${id} checked`, `${label} is the checked layout in the menu`, "it is not checked");
+        const checkedRows = await again.getByRole("group", { name: "Layout", exact: true }).getByRole("menuitemradio", { checked: true }).evaluateAll((els) => els.map((e) => (e.textContent ?? "").trim()));
+        check(checkedRows.length === 1 && checkedRows[0].startsWith(`${label} `), `${tag} L6 ${id} checked`, `exactly one layout is checked in the menu, and it is ${label}`, `checked: ${JSON.stringify(checkedRows)}`);
         await closeMenu();
       }
 
@@ -131,25 +138,26 @@ await t.eachViewport(async (page, vp) => {
       await page.keyboard.press("Escape");
       check((await page.getByRole("menu").count()) === 0, `${tag} L7 escape`, "Escape closes the menu", "the menu is still open");
       await open("magazine");
+
       // L2
       const menu2 = await openMenu();
-      const pictures = menu2.getByRole("group", { name: "Pictures" });
+      const pictures = menu2.getByRole("group", { name: "Pictures", exact: true });
       check((await pictures.count()) === 1 && (await pictures.getByRole("menuitemradio", { name: /^Show/ }).getAttribute("aria-checked")) === "true", `${tag} L2 menu`, "Show and sort offers Pictures with Show chosen", "no such group or Show is not chosen");
       await pictures.getByRole("menuitemradio", { name: "Hide", exact: true }).click();
-      await expect.poll(async () => (await profile())["client.list_images"], { timeout: 10000, intervals: [250] }).toBe(false).catch(() => {});
+      await expect.poll(async () => (await profile())["client.list_images"], { timeout: 10000, intervals: [250] }).toBe(false);
       check((await profile())["client.list_images"] === false, `${tag} L2 saved`, "Hide saves client.list_images false for this device", `the profile holds ${JSON.stringify((await profile())["client.list_images"])}`);
       await page.goto("/settings/appearance", { waitUntil: "load" });
-      const setting = page.getByRole("group", { name: "Pictures" });
+      const setting = page.getByRole("group", { name: "Pictures", exact: true });
       await setting.waitFor({ timeout: 15000 });
       check((await setting.getByRole("radio", { name: "Hide", exact: true }).isChecked()) && (await page.getByRole("group", { name: "Thumbnails in Inbox" }).count()) === 0, `${tag} L2 settings`, "Settings shows its pictures setting with Hide chosen, and no Thumbnails in Inbox", "Hide is not chosen there, or the old setting is still drawn");
       if (vp.mobile) await setting.scrollIntoViewIfNeeded();
       await t.shot(page, `${tag}-settings-pictures-in-lists`);
       await setting.locator("label", { hasText: /^Show$/ }).click();
-      await expect.poll(async () => (await profile())["client.list_images"] !== false, { timeout: 10000, intervals: [250] }).toBe(true).catch(() => {});
+      await expect.poll(async () => (await profile())["client.list_images"] !== false, { timeout: 10000, intervals: [250] }).toBe(true);
       await page.goto("/l/unread", { waitUntil: "load" });
       await trigger().waitFor({ timeout: 20000 });
       const again = await openMenu();
-      check((await again.getByRole("group", { name: "Pictures" }).getByRole("menuitemradio", { name: /^Show/ }).getAttribute("aria-checked")) === "true", `${tag} L2 same value`, "Show chosen in Settings is Show in the menu", "the menu does not show Show chosen");
+      check((await again.getByRole("group", { name: "Pictures", exact: true }).getByRole("menuitemradio", { name: /^Show/ }).getAttribute("aria-checked")) === "true", `${tag} L2 same value`, "Show chosen in Settings is Show in the menu", "the menu does not show Show chosen");
       await closeMenu();
 
       // L3
@@ -213,7 +221,8 @@ await t.eachViewport(async (page, vp) => {
         await t.shot(page, "tablet-layout-menu");
         await closeMenu();
         await page.setViewportSize({ width: vp.width, height: vp.height });
-      }    } finally {
+      }
+    } finally {
       await patch({ "client.layout": null, "client.list_images": null, "client.order": null });
     }
   });

@@ -44,6 +44,7 @@ const sub = "px-3 pt-1 text-xs text-fg2";
 
 const ORDER_WHY_ID = "layout-menu-order-why";
 const GROUP_WHY_ID = "layout-menu-group-why";
+const PICTURES_NOTE_ID = "layout-menu-pictures-note";
 
 const FIELD_LABELS: { [F in ListField]: Record<string, string> } = { layout: LAYOUT_LABELS, order: ORDER_LABELS, view: LIST_VIEW_LABELS, group: GROUP_LABELS };
 
@@ -231,6 +232,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
             </>
           ) : null}
 
+
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
@@ -245,6 +247,7 @@ function PicturesChoice() {
       <DropdownMenu.Label className={sub}>Pictures</DropdownMenu.Label>
       <DropdownMenu.RadioGroup
         aria-label="Pictures"
+        aria-describedby={PICTURES_NOTE_ID}
         value={dp.listImages ? "show" : "hide"}
         onValueChange={(v) => {
           updateDevicePrefs({ listImages: v === "show" });
@@ -254,9 +257,13 @@ function PicturesChoice() {
         <Radio value="show" label="Show" />
         <Radio value="hide" label="Hide" />
       </DropdownMenu.RadioGroup>
+      <p id={PICTURES_NOTE_ID} className="px-3 pt-1 pb-2 text-xs text-fg2">
+        Applies to Inbox and Digest.
+      </p>
     </>
   );
 }
+
 /** Rows per section: how many articles a Digest section shows before "more". */
 function RowsPerSection() {
   const dp = useDevicePrefs();
