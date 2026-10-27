@@ -4,7 +4,7 @@
 >
 > Philip K. Dick, *Do Androids Dream of Electric Sheep?* (1968)
 
-A self-hosted RSS reader for one person: web app plus a Google Reader compatible sync API. One container, one port.
+A self-hosted RSS reader you run yourself: a web app plus a Google Reader compatible sync API, in a single container.
 
 [![CI](https://github.com/WPTK/Kipple/actions/workflows/ci.yml/badge.svg)](https://github.com/WPTK/Kipple/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/WPTK/Kipple?include_prereleases&label=release)](https://github.com/WPTK/Kipple/releases)
@@ -22,7 +22,7 @@ A self-hosted RSS reader for one person: web app plus a Google Reader compatible
     <td width="170" align="center" valign="bottom">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/phone-dark.webp">
-        <img src="docs/screenshots/phone-light.webp" alt="Kipple on a phone: article cards with large photos, one per row, and a tab bar along the bottom." width="170">
+        <img src="docs/screenshots/phone-light.webp" alt="Kipple on a phone: article cards with large photos stacked in a single column, and a tab bar along the bottom." width="170">
       </picture>
     </td>
   </tr>
@@ -69,8 +69,8 @@ The [deploy guide](docs/deploy.md) covers other machines (SSH tunnel), backups, 
 Add a Google Reader compatible account in your sync app:
 
 - Server: your Kipple address plus `/api/greader.php`
-- User name: the one you chose during setup
-- Password: an app password, separate from your web password. Make one in the last setup step or under
+- User name: the name you chose during setup
+- Password: an app password, separate from your web password. Create it in the last setup step or under
   Settings, Account & Devices, Generate new app password. Kipple shows it once.
 
 ## What Kipple leaves out
@@ -82,7 +82,7 @@ Add a Google Reader compatible account in your sync app:
 - Notifications.
 - Social features. The web app can still share an article through your device's share sheet or copy its link.
 - Monitoring or analytics.\*
-- More than one user.
+- Multiple users.
 
 \* _Reading statistics stay in your own database and are never sent anywhere._
 
@@ -104,7 +104,7 @@ To report a bug, open an [issue](https://github.com/WPTK/Kipple/issues). To send
 ## Maintenance
 
 Most code, tests and docs are written by AI coding agents (Claude) and checked by CI scans, fuzzing, and signed, attested
-releases with an SBOM. One maintainer. [SECURITY.md](SECURITY.md) sets a 14-day target for a first response. The code is under a permissive
+releases with an SBOM. A single maintainer. [SECURITY.md](SECURITY.md) sets a 14-day target for a first response. The code is under a permissive
 license, and a fork builds and signs its own releases. You can [verify a release](docs/deploy.md#verify-the-signature).
 Notes and decisions are on the [maintainer's blog](https://blog.wptk.org) and in the
 [history repository](https://github.com/WPTK/kipple-history).
