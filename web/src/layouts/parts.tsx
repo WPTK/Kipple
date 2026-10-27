@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { BellOff, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, MoveUp, Pencil, Rss, RotateCcw, Share2, Star } from "lucide-react";
+import { Star } from "lucide-react";
 import type { Card, Feed, Scope } from "@/api/types";
 import { closeRowMenu, rowMenuStore } from "@/gestures/rowMenu";
 import { cn } from "@/lib/cn";
-import { actionLabel, markRangeLabel } from "@/lib/itemActionTable";
+import { actionIcon, actionLabel, MoreIcon, type ActionId, type ActionState } from "@/lib/itemActionTable";
+import { Icon } from "@/ui/Icon";
 import { takeImageSlot } from "@/lib/imageSlots";
 import { relativeTime } from "@/lib/format";
 import { useStore } from "@/lib/store";
@@ -188,7 +189,7 @@ export function StarButton({ item, onToggleStar, className }: { item: Card; onTo
         className,
       )}
     >
-      <Star className="size-5" fill={item.starred ? "currentColor" : "none"} aria-hidden="true" />
+      <Icon of={Star} fill={item.starred ? "currentColor" : "none"} />
     </button>
   );
 }
@@ -238,7 +239,7 @@ export function RowMenu({
             className,
           )}
         >
-          <MoreHorizontal className="size-5" aria-hidden="true" />
+          <Icon of={MoreIcon} />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -252,67 +253,42 @@ export function RowMenu({
             setHadFocus(false);
           }}
         >
-          <DropdownMenu.Item className={menuItem} onSelect={() => actions.toggleStar(item)}>
-            <Star className="size-5" aria-hidden="true" />
-            {item.starred ? "Unstar" : "Star"}
-          </DropdownMenu.Item>
+          <ActionItem id="star" state={{ on: item.starred }} fill={item.starred} onSelect={() => actions.toggleStar(item)} />
           {muted ? (
             <>
-              <DropdownMenu.Item className={menuItem} onSelect={() => actions.restore(item)}>
-                <RotateCcw className="size-5" aria-hidden="true" />
-                Restore
-              </DropdownMenu.Item>
-              {item.muted_by_name !== null ? (
-                <DropdownMenu.Item className={menuItem} onSelect={() => actions.editRule(item)}>
-                  <Pencil className="size-5" aria-hidden="true" />
-                  Edit rule
-                </DropdownMenu.Item>
-              ) : null}
+              <ActionItem id="restore" onSelect={() => actions.restore(item)} />
+              {item.muted_by_name !== null ? <ActionItem id="editRule" onSelect={() => actions.editRule(item)} /> : null}
             </>
           ) : (
             <>
-              <DropdownMenu.Item className={menuItem} onSelect={() => actions.toggleRead(item)}>
-                {item.read ? <Mail className="size-5" aria-hidden="true" /> : <MailOpen className="size-5" aria-hidden="true" />}
-                {actionLabel("read", { on: item.read })}
-              </DropdownMenu.Item>
+              <ActionItem id="read" state={{ on: item.read }} onSelect={() => actions.toggleRead(item)} />
               {ranges ? (
                 <>
-                  <DropdownMenu.Item className={menuItem} disabled={actions.noRange} onSelect={() => actions.markAbove(item)}>
-                    <MoveUp className="size-5" aria-hidden="true" />
-                    {markRangeLabel("above")}
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Item className={menuItem} disabled={actions.noRange} onSelect={() => actions.markBelow(item)}>
-                    <MoveDown className="size-5" aria-hidden="true" />
-                    {markRangeLabel("below")}
-                  </DropdownMenu.Item>
+                  <ActionItem id="markAbove" disabled={actions.noRange} onSelect={() => actions.markAbove(item)} />
+                  <ActionItem id="markBelow" disabled={actions.noRange} onSelect={() => actions.markBelow(item)} />
                 </>
               ) : null}
-              <DropdownMenu.Item className={menuItem} onSelect={() => actions.muteSimilar(item)}>
-                <BellOff className="size-5" aria-hidden="true" />
-                Mute similar…
-              </DropdownMenu.Item>
+              <ActionItem id="mute" onSelect={() => actions.muteSimilar(item)} />
             </>
           )}
           <DropdownMenu.Separator className="my-1 h-px bg-line" />
-          <DropdownMenu.Item className={menuItem} onSelect={() => actions.manageFeed(item)}>
-            <Rss className="size-5" aria-hidden="true" />
-            Edit feed
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} onSelect={() => actions.openOriginal(item)}>
-            <ExternalLink className="size-5" aria-hidden="true" />
-            Open original
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} onSelect={() => actions.copyLink(item)}>
-            <Copy className="size-5" aria-hidden="true" />
-            Copy link
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className={menuItem} onSelect={() => actions.share(item)}>
-            <Share2 className="size-5" aria-hidden="true" />
-            {canShare ? "Share" : "Share (copies the link)"}
-          </DropdownMenu.Item>
+          <ActionItem id="editFeed" onSelect={() => actions.manageFeed(item)} />
+          <ActionItem id="openOriginal" onSelect={() => actions.openOriginal(item)} />
+          <ActionItem id="copyLink" onSelect={() => actions.copyLink(item)} />
+          {canShare ? <ActionItem id="share" onSelect={() => actions.share(item)} /> : null}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
+  );
+}
+
+/** One row-menu item, its words and glyph read from the action table (lib/itemActionTable.ts). `fill` draws a filled glyph (a starred article). */
+function ActionItem({ id, state, fill, disabled, onSelect }: { id: ActionId; state?: ActionState; fill?: boolean; disabled?: boolean; onSelect: () => void }) {
+  return (
+    <DropdownMenu.Item className={menuItem} disabled={disabled} onSelect={onSelect}>
+      <Icon of={actionIcon(id, state)} fill={fill ? "currentColor" : "none"} />
+      {actionLabel(id, state)}
+    </DropdownMenu.Item>
   );
 }
 

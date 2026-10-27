@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { actionLabel, actionShort, markAllLabel, markAllReach, markOlderConfirmLabel, markOlderLabel } from "./itemActionTable";
+import { actionIcon, actionLabel, actionShort, markAllLabel, markAllReach, markOlderConfirmLabel, markOlderLabel } from "./itemActionTable";
 
 describe("the item action table", () => {
+  it("holds the row menu's words, once each", () => {
+    const ids = ["markAbove", "markBelow", "mute", "restore", "editRule", "editFeed", "openOriginal", "copyLink", "share"] as const;
+    expect(ids.map((id) => actionLabel(id))).toEqual([
+      "Mark above as read", "Mark below as read", "Mute similar…", "Restore", "Edit rule", "Edit feed", "Open original", "Copy link", "Share",
+    ]);
+    for (const id of ids) expect(actionIcon(id)).toBeTruthy();
+  });
+
   it("words the auto-read catch-up for one article and for many", () => {
     expect(markOlderLabel(1)).toBe("Mark 1 older article as read");
     expect(markOlderLabel(1250)).toBe("Mark 1,250 older articles as read");

@@ -13,7 +13,11 @@
 //   A4  confirming marks the list read and offers Undo, which brings the unread count back;
 //   A5  phone, at 375 and 320 wide: a real touch swipe right on a row shows "Mark as read" or "Mark as unread" whole,
 //       inside the panel, once the swipe is far enough to arm;
-//   A6  an unread article shows "Unread" in plain text and a read one shows no state word.
+//   A6  an unread article shows "Unread" in plain text and a read one shows no state word;
+//   A7  Feeds: a folder's Mark all asks first with the same words, marks nothing until confirmed, and its More button
+//       draws the same glyph as the list's;
+//   A8  a row's More menu lists its actions in the table's order, fills Star once starred, and offers Share only where
+//       the browser can share (Copy link stays).
 // It opens one article and toggles its read state (A6), leaving it read. It only runs against a loopback address with the seed's credentials unless
 // --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
 import { expect } from "@playwright/test";
@@ -122,6 +126,62 @@ await t.eachViewport(async (page, vp) => {
     }
     await page.setViewportSize({ width: vp.width, height: vp.height });
   }
+
+  await step(`${tag} A7`, async () => {
+    const b = await boot();
+    const folder = b.folders.find((f) => f.unread > 0);
+    if (!folder) return t.fail(`${tag} A7 setup`, "the seed has no folder with unread articles");
+    const before = await unreadCount();
+    await page.goto("/l/unread", { waitUntil: "load" });
+    const listGlyph = await page.getByRole("button", { name: "List actions" }).locator("svg").getAttribute("class");
+    await page.goto("/feeds", { waitUntil: "load" });
+    const target = page.getByRole("button", { name: `Folder actions for ${folder.name}`, exact: true });
+    await target.waitFor({ timeout: 15000 });
+    const glyph = await target.locator("svg").getAttribute("class");
+    await target.click();
+    const want = `Mark all ${folder.unread} as read`;
+    await page.getByRole("menuitem", { name: want }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.waitFor({ timeout: 5000 });
+    const title = (await dialog.getByRole("heading").innerText()).trim();
+    check(title === want && (await unreadCount()) === before, `${tag} A7 asks`, "the folder's Mark all asks first with the same words and marks nothing yet", `dialog "${title}", unread ${before} -> ${await unreadCount()}`);
+    check(glyph === listGlyph, `${tag} A7 glyph`, "the folder's More button draws the list's glyph", `list "${listGlyph}", folder "${glyph}"`);
+    await t.shot(page, `${tag}-folder-mark-all-confirm`);
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await dialog.waitFor({ state: "hidden", timeout: 5000 });
+    check((await unreadCount()) === before, `${tag} A7 cancel`, "Cancel marks nothing", `unread ${before} -> ${await unreadCount()}`);
+  });
+
+  await step(`${tag} A8`, async () => {
+    await page.goto("/l/all", { waitUntil: "load" });
+    const row = page.locator("[data-testid=list-scroll] [data-item-id]").first();
+    await row.waitFor({ timeout: 15000 });
+    const id = await row.getAttribute("data-item-id");
+    const starred = async () => (await (await page.request.get(`/api/items/${id}`)).json()).starred;
+    const canShare = await page.evaluate(() => typeof navigator.share === "function");
+    const open = async () => {
+      await row.hover();
+      await row.getByRole("button", { name: /^More actions/ }).click();
+      await page.getByRole("menu").waitFor({ timeout: 5000 });
+    };
+    await open();
+    const names = (await page.getByRole("menu").getByRole("menuitem").allInnerTexts()).map((x) => x.trim());
+    const order = ["Star|Unstar", "Mark as read|Mark as unread", "Mark above as read", "Mark below as read", "Mute similar…", "Edit feed", "Open original", "Copy link", "Share"]; // uat-labels: ignore (menu item text)
+    const rank = names.map((n) => order.findIndex((o) => o.split("|").includes(n)));
+    check(!rank.includes(-1) && rank.every((r, k) => k === 0 || r > rank[k - 1]), `${tag} A8 order`, "the row menu lists the table's actions in order", `the menu offers: ${names.join(", ")}`);
+    check(names.includes("Share") === canShare && names.includes("Copy link"), `${tag} A8 share`, "Share is offered only where the browser can share, and Copy link always", `canShare ${canShare}, menu: ${names.join(", ")}`);
+    const wasStarred = await starred();
+    await page.getByRole("menuitem", { name: wasStarred ? "Unstar" : "Star", exact: true }).click();
+    await expect.poll(starred, { timeout: 8000, intervals: [200] }).toBe(!wasStarred);
+    await open();
+    const filled = await page.getByRole("menuitem", { name: wasStarred ? "Star" : "Unstar", exact: true }).locator("svg").getAttribute("fill");
+    check(wasStarred ? filled === "none" : filled === "currentColor", `${tag} A8 fill`, "the menu's star is filled while the article is starred", `fill "${filled}" with starred ${!wasStarred}`);
+    await t.shot(page, `${tag}-row-menu`);
+    await page.keyboard.press("Escape");
+    await open();
+    await page.getByRole("menuitem", { name: wasStarred ? "Star" : "Unstar", exact: true }).click(); // put it back
+    await expect.poll(starred, { timeout: 8000, intervals: [200] }).toBe(wasStarred);
+  });
 
   await step(`${tag} A6`, async () => {
     await page.goto("/l/unread", { waitUntil: "load" });

@@ -1,15 +1,16 @@
-import { CheckCheck, Mail, MailOpen, MoreHorizontal, Star, type LucideIcon } from "lucide-react";
+import { BellOff, CheckCheck, Copy, ExternalLink, Mail, MailOpen, MoreHorizontal, MoveDown, MoveUp, Pencil, Rss, RotateCcw, Share2, Star, type LucideIcon } from "lucide-react";
 import type { Scope } from "@/api/types";
 import { READING_LENGTH_LABELS } from "@/lib/readingLength";
 
 /**
  * The table of what can be done to an article: its words and glyph. A surface draws an action with `actionLabel` and
- * `ActionIcon`, so a name or a glyph is changed here and nowhere else. Today the swipe panel, the list header, Search and
- * Feed health draw from it; the row menu and the open article's menus join as their files adopt it (issue #613 lists
- * what is left).
+ * `actionIcon`, so a name or a glyph is changed here and nowhere else. The swipe panel, the row menu, the open article's
+ * More menu, the list header, Search and Feed health all draw from it.
  */
 
-export type ActionId = "star" | "read" | "more";
+export type ActionId =
+  | "star" | "read" | "more"
+  | "markAbove" | "markBelow" | "mute" | "restore" | "editRule" | "editFeed" | "openOriginal" | "copyLink" | "share";
 
 /** The facts a label or glyph can depend on. */
 export interface ActionState {
@@ -30,6 +31,15 @@ const ACTIONS: Record<ActionId, ActionDef> = {
   // `on` is "this article is read": the action then is to mark it unread.
   read: { label: (s) => (s.on ? "Mark as unread" : "Mark as read"), icon: (s) => (s.on ? Mail : MailOpen) },
   more: { label: () => "More actions", icon: () => MoreHorizontal, short: "More" },
+  markAbove: { label: () => "Mark above as read", icon: () => MoveUp },
+  markBelow: { label: () => "Mark below as read", icon: () => MoveDown },
+  mute: { label: () => "Mute similar…", icon: () => BellOff },
+  restore: { label: () => "Restore", icon: () => RotateCcw },
+  editRule: { label: () => "Edit rule", icon: () => Pencil },
+  editFeed: { label: () => "Edit feed", icon: () => Rss },
+  openOriginal: { label: () => "Open original", icon: () => ExternalLink },
+  copyLink: { label: () => "Copy link", icon: () => Copy },
+  share: { label: () => "Share", icon: () => Share2 },
 };
 
 /** The glyph of a control that opens a menu of more actions. */
@@ -42,9 +52,6 @@ export const actionIcon = (id: ActionId, s: ActionState = {}): LucideIcon => ACT
 // ---- Mark all as read ------------------------------------------------------------------------------------------
 
 export const MarkAllIcon = CheckCheck;
-
-/** Mark above / Mark below in a row menu: the rows on one side of the article, in the list's own order. */
-export const markRangeLabel = (side: "above" | "below"): string => `Mark ${side} as read`;
 
 /** The auto-read catch-up: the articles older than the limit. */
 export const markOlderLabel = (count: number): string => `Mark ${count.toLocaleString()} older article${count === 1 ? "" : "s"} as read`;

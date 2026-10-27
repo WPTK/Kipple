@@ -5,7 +5,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type C
 import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, ListFilter, MoreVertical, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, ListFilter, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
 import { createFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { ApiError, errorMessage } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
@@ -37,7 +37,8 @@ import { DESTINATIONS } from "@/lib/destinations";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { feedLabel } from "./feeds/FeedRowName";
 import { FeedLine, FolderLine } from "./feeds/RowLine";
-import { markAllLabel, MarkAllIcon } from "@/lib/itemActionTable";
+import { markAllLabel, markAllReach, MarkAllIcon, MoreIcon } from "@/lib/itemActionTable";
+import { useMarkAllConfirm } from "./MarkAllConfirm";
 import { useItemActions } from "@/lib/itemActions";
 import { RevealMore, useReveal } from "@/lib/reveal";
 import { FavStar } from "@/ui/FavStar";
@@ -381,7 +382,8 @@ export function FeedsScreen() {
   };
   const favKey = (f: Favorite) => `${f.t}:${f.id}`;
 
-  /** Mark every unread article in a folder and its subfolders read; the undo toast takes it back. */
+  const markAll = useMarkAllConfirm();
+  /** Mark every unread article in a folder and its subfolders read (after the question); the undo toast takes it back. */
   const markFolderRead = async (fo: Folder) => {
     await act.markAll({ view: "unread", folder: fo.id }, undefined, []);
     invalidateFeeds(qc);
@@ -697,13 +699,13 @@ export function FeedsScreen() {
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
                   <Button variant="ghost" size="icon" id={folderActionsId(fo.id)} data-folder-actions="" aria-label={`Folder actions for ${label}`}>
-                    <MoreVertical aria-hidden="true" />
+                    <MoreIcon aria-hidden="true" />
                   </Button>
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-48">
                     {fo.unread > 0 ? (
-                      <DropdownMenu.Item className={menuItem} onSelect={() => void markFolderRead(fo)}>
+                      <DropdownMenu.Item className={menuItem} onSelect={() => markAll.ask(markAllLabel({ view: "unread", folder: fo.id }, fo.unread), markAllReach({ view: "unread", folder: fo.id }, fo.name), () => void markFolderRead(fo))}>
                         <MarkAllIcon className="size-5" aria-hidden="true" />
                         {markAllLabel({ view: "unread", folder: fo.id }, fo.unread)}
                       </DropdownMenu.Item>
@@ -753,7 +755,7 @@ export function FeedsScreen() {
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <Button variant="ghost" size="icon" id={FEED_ACTIONS_ID} aria-label="Feed actions">
-          <MoreVertical aria-hidden="true" />
+          <MoreIcon aria-hidden="true" />
         </Button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -943,6 +945,7 @@ export function FeedsScreen() {
           }}
         />
       ) : null}
+      {markAll.dialog}
       {folderDialog ? (
         <FolderDialogs
           dialog={folderDialog}
