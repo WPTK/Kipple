@@ -42,7 +42,7 @@ import { useItemActions } from "@/lib/itemActions";
 import { RevealMore, useReveal } from "@/lib/reveal";
 import { FavStar } from "@/ui/FavStar";
 import { Button } from "@/ui/button";
-import { Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
+import { CheckboxBox, Field, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 import { announce, toast } from "@/shell/toasts";
 import { FirstRun } from "./FirstRun";
 import { SavedSearchesNav } from "./SavedSearchesNav";
@@ -57,7 +57,6 @@ const FeedEditor = lazyScreen(() => import("./feeds/FeedEditor").then((m) => ({ 
 const OpmlImportDialog = lazyScreen(() => import("./feeds/OpmlDialog").then((m) => ({ default: m.OpmlImportDialog })));
 
 const row = "flex min-h-11 items-center gap-2 rounded-lg px-3 hover:bg-selection";
-const menuItem = "flex min-h-11 cursor-default items-center gap-3 rounded-lg px-3 text-sm outline-none select-none data-[highlighted]:bg-selection";
 const menuLabel = "px-3 pt-2 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase";
 
 type FolderDialog =
@@ -543,14 +542,12 @@ export function FeedsScreen() {
         {selecting ? (
           // While selecting, the whole row is the checkbox's label: a tap anywhere on it ticks it and nothing opens.
           <label className={cn(row, "min-w-0 flex-1 cursor-pointer text-sm", sel.has(f.id) && "bg-selection")}>
-            <input
-              type="checkbox"
+            <CheckboxBox
               aria-label={`Select ${feedLabel(f)}`}
               data-reveal-key={`feed:${f.id}`}
               checked={sel.has(f.id)}
               onChange={() => undefined}
               onClick={(e) => onCheck(f.id, e.shiftKey)}
-              className="size-5 shrink-0 accent-[var(--kp-accent)]"
             />
             <FeedLine feed={f} status />
           </label>
@@ -667,19 +664,15 @@ export function FeedsScreen() {
         >
           {selecting ? (
             <label className={cn(row, "min-w-0 flex-1 cursor-pointer text-sm font-semibold", state === "all" && "bg-selection")}>
-              <input
-                type="checkbox"
+              <CheckboxBox
                 aria-label={`Select all feeds in ${label}`}
                 data-reveal-key={`folder:${fo.id}`}
                 checked={state === "all"}
-                ref={(el) => {
-                  if (el) el.indeterminate = state === "some";
-                }}
+                indeterminate={state === "some"}
                 onChange={() => {
                   setSel(toggleGroup(inSubtree, sel));
                   setAnchor(null);
                 }}
-                className="size-5 shrink-0 accent-[var(--kp-accent)]"
               />
               <FolderLine name={fo.name} unread={fo.unread} empty={inFolder.length === 0 && subfolders.length === 0} />
             </label>
@@ -704,32 +697,36 @@ export function FeedsScreen() {
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-48">
                     {fo.unread > 0 ? (
-                      <DropdownMenu.Item className={menuItem} onSelect={() => markAll.ask(markAllLabel({ view: "unread", folder: fo.id }, fo.unread), markAllReach({ view: "unread", folder: fo.id }, fo.name), () => void markFolderRead(fo))}>
+                      <DropdownMenu.Item onSelect={() => markAll.ask(markAllLabel({ view: "unread", folder: fo.id }, fo.unread), markAllReach({ view: "unread", folder: fo.id }, fo.name), () => void markFolderRead(fo))}>
                         <MarkAllIcon className="size-5" aria-hidden="true" />
                         {markAllLabel({ view: "unread", folder: fo.id }, fo.unread)}
                       </DropdownMenu.Item>
                     ) : null}
-                    <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "rename", folder: fo })}>
+                    <DropdownMenu.Item onSelect={() => setFolderDialog({ kind: "rename", folder: fo })}>
                       <Settings2 className="size-5" aria-hidden="true" />
                       Folder settings
                     </DropdownMenu.Item>
                     {!fo.is_default && depth < MAX_FOLDER_DEPTH ? (
-                      <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: fo.id })}>
+                      <DropdownMenu.Item onSelect={() => setFolderDialog({ kind: "new", parent: fo.id })}>
                         <FolderPlus className="size-5" aria-hidden="true" />
                         New subfolder
                       </DropdownMenu.Item>
                     ) : null}
                     {!fo.is_default ? (
-                      <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "move", folder: fo })}>
+                      <DropdownMenu.Item onSelect={() => setFolderDialog({ kind: "move", folder: fo })}>
                         <FolderInput className="size-5" aria-hidden="true" />
                         Move to…
                       </DropdownMenu.Item>
                     ) : null}
                     {!fo.is_default ? (
-                      <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "delete", folder: fo })}>
-                        <Trash2 className="size-5" aria-hidden="true" />
-                        Delete folder
-                      </DropdownMenu.Item>
+                      <>
+                        <DropdownMenu.Separator className="my-1 h-px bg-line" />
+                        {/* The destructive look: danger text, and on highlight an underline instead of the selection fill (danger text on that fill is under 4.5:1 in six schemes). */}
+                        <DropdownMenu.Item className="font-semibold text-danger data-[highlighted]:bg-transparent data-[highlighted]:underline" onSelect={() => setFolderDialog({ kind: "delete", folder: fo })}>
+                          <Trash2 className="size-5" aria-hidden="true" />
+                          Delete folder
+                        </DropdownMenu.Item>
+                      </>
                     ) : null}
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
@@ -761,7 +758,7 @@ export function FeedsScreen() {
         <DropdownMenu.Content align="end" sideOffset={4} popoverWidth="min-w-64">
           {realFeeds.length > 0 ? (
             <>
-              <DropdownMenu.Item className={menuItem} onSelect={() => setUnreadOnly((u) => !u)}>
+              <DropdownMenu.Item onSelect={() => setUnreadOnly((u) => !u)}>
                 <ListFilter className="size-5" aria-hidden="true" />
                 {unreadOnly ? "Show all feeds" : "Show only unread feeds"}
               </DropdownMenu.Item>
@@ -770,22 +767,22 @@ export function FeedsScreen() {
           ) : null}
           <DropdownMenu.Label className={menuLabel}>Organize</DropdownMenu.Label>
           {realFeeds.length > 0 ? (
-            <DropdownMenu.Item className={menuItem} onSelect={() => setSelecting(true)}>
+            <DropdownMenu.Item onSelect={() => setSelecting(true)}>
               <CheckSquare className="size-5" aria-hidden="true" />
               Select feeds
             </DropdownMenu.Item>
           ) : null}
-          <DropdownMenu.Item className={menuItem} onSelect={() => setFolderDialog({ kind: "new", parent: null })}>
+          <DropdownMenu.Item onSelect={() => setFolderDialog({ kind: "new", parent: null })}>
             <FolderPlus className="size-5" aria-hidden="true" />
             New folder
           </DropdownMenu.Item>
           <DropdownMenu.Label className={menuLabel}>Files</DropdownMenu.Label>
-          <DropdownMenu.Item className={menuItem} onSelect={() => setImporting(true)}>
+          <DropdownMenu.Item onSelect={() => setImporting(true)}>
             <Upload className="size-5" aria-hidden="true" />
             Import feeds from a file (OPML)
           </DropdownMenu.Item>
           {/* The browser saves the file without a word; the note says what happened and what the file is called. */}
-          <DropdownMenu.Item asChild className={menuItem} onSelect={() => toast("Downloading your feeds as kipple.opml")}>
+          <DropdownMenu.Item asChild onSelect={() => toast("Downloading your feeds as kipple.opml")}>
             <a href="/api/opml" download>
               <Download className="size-5" aria-hidden="true" />
               Export feeds to a file (OPML)

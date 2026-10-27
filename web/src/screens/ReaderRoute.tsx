@@ -47,7 +47,7 @@ import { ReadingMenu } from "./AppearanceControls";
 import { EmptyState } from "@/ui/EmptyState";
 import { NotFoundBlock } from "@/ui/NotFoundBlock";
 import { FINISH_SEARCH, ListPane, type ListControls } from "./ListPane";
-import { DropdownMenu, menuItemClass as menuItem } from "@/ui/menu";
+import { DropdownMenu } from "@/ui/menu";
 
 // The Show pills are the whole-library lists of the destinations table; Muted is added only while it has something.
 const VIEWS: { view: View; label: string }[] = LISTS.filter((d) => d.id !== "muted").map((d) => ({ view: d.id as View, label: d.pill }));
@@ -281,7 +281,6 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
               {/* aria-disabled, not disabled: while a refresh runs the item stays in the arrow-key order and is read out as
                   "Refreshing, dimmed"; choosing it does nothing. */}
               <DropdownMenu.Item
-                className={menuItem}
                 aria-disabled={refreshBusy || undefined}
                 data-disabled={refreshBusy ? "" : undefined}
                 onSelect={(e) => (refreshBusy ? e.preventDefault() : refresh.mutate())}
@@ -290,7 +289,6 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
                 {refreshing ? "Refreshing" : "Refresh all feeds"}
               </DropdownMenu.Item>
               <DropdownMenu.Item
-                className={menuItem}
                 disabled={!controls || scope.view === "muted" || !!scope.typing || nothingUnread}
                 onSelect={() => markAll.ask(markAllText, markAllReach(scope, scope.feed || scope.folder ? title : undefined), () => controls?.markAllRead())}
               >
@@ -301,7 +299,7 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
                 </span>
               </DropdownMenu.Item>
               {/* Off says why: the undo history is this page's (a reload starts it empty, docs/design.md 7.11). */}
-              <DropdownMenu.Item className={menuItem} disabled={!canUndo} onSelect={() => void undoLast()}>
+              <DropdownMenu.Item disabled={!canUndo} onSelect={() => void undoLast()}>
                 <Undo2 className="size-5" aria-hidden="true" />
                 <span className="flex flex-col">
                   Undo

@@ -4,7 +4,7 @@ import { ApiError, errorMessage } from "@/api/client";
 import { invalidateFeeds } from "@/api/admin";
 import { announce } from "@/shell/toasts";
 import { Button } from "@/ui/button";
-import { Checkbox, Notice, Skeleton } from "@/ui/kit";
+import { Checkbox, CheckboxBox, Notice, Skeleton } from "@/ui/kit";
 import { OpmlImportDialog } from "@/screens/feeds/OpmlDialog";
 import { fetchStarterFeeds, subscribeStarter, type StarterFeed } from "./api";
 import { StepActions, WizardFrame } from "./Frame";
@@ -101,7 +101,7 @@ export function FeedsStep({ onDone, finishing }: { onDone: () => void; finishing
                 return (
                   <li key={f.id}>
                     <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg px-1 py-2 has-[:disabled]:cursor-default">
-                      <input type="checkbox" checked={f.subscribed || isOn(f)} disabled={f.subscribed} onChange={(e) => setMany([f], e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-[var(--kp-accent)]" />
+                      <CheckboxBox checked={f.subscribed || isOn(f)} disabled={f.subscribed} onChange={(e) => setMany([f], e.target.checked)} className="mt-0.5" />
                       <span className="min-w-0">
                         <span className="block text-sm font-semibold">
                           {f.title}

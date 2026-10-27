@@ -87,16 +87,13 @@ describe("forms use checkboxes, not switches", () => {
 
 // A checkbox or radio is one shared component (`Checkbox`, `RadioCard`, `RadioRow` in ui/kit.tsx), so a form's options
 // look, size and align the same everywhere. A raw `<input type="checkbox|radio">` may appear only where the control is
-// not a labelled option in a form: the rows of a list that are picked for a bulk action (exempt in
-// docs/maintainers/ui-decisions.md), and the two controls drawn as something else. Every source file is scanned.
+// not a labelled option in a form: the two controls drawn as something else. A list row picked for a bulk action uses
+// `CheckboxBox`. Every source file is scanned.
 // The number of raw inputs each allowed file may hold, so a new one in an allowed file fails too.
 const RAW_INPUT_ALLOWED: Record<string, number> = {
-  "ui/kit.tsx": 4, // the shared components: Switch, Checkbox, RadioCard, RadioRow
+  "ui/kit.tsx": 4, // the shared components: Switch, CheckboxBox (the box under Checkbox and every picked list row), RadioCard, RadioRow
   "ui/segmented.tsx": 1, // the segmented control (native radios drawn as buttons)
   "theme/ThemePicker.tsx": 2, // swatches: native radios drawn as colour tiles
-  "setup/FeedsStep.tsx": 1, // list rows picked for a bulk action
-  "screens/FeedsScreen.tsx": 2, // list rows picked for a bulk action
-  "screens/HealthScreen.tsx": 3, // list rows picked for a bulk action
 };
 
 /** How many `<input type="checkbox">` or `type="radio"` a source text holds. */

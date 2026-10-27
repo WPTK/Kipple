@@ -102,7 +102,7 @@ describe("the repair surface", () => {
     const user = userEvent.setup();
     expect((await screen.findAllByText("This address does not exist.")).length).toBeGreaterThan(0);
     expect(screen.getByTestId("health-summary")).toHaveTextContent("1 feed needs attention");
-    expect(screen.getAllByText("lookup x.test: no such host")[0]).not.toBeVisible();
+    expect(screen.queryAllByText("lookup x.test: no such host")).toHaveLength(0);
     await user.click(screen.getAllByText("Details")[0]!);
     expect(screen.getAllByText("lookup x.test: no such host")[0]).toBeVisible();
     await user.click(screen.getAllByRole("button", { name: /^Edit address of/ })[0]!);
