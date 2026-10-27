@@ -4,7 +4,7 @@
 >
 > Philip K. Dick, *Do Androids Dream of Electric Sheep?* (1968)
 
-A self-hosted RSS reader for one person: web app plus a Google Reader compatible sync API. One container, one port.
+A self-hosted RSS reader you run yourself: a web app plus a Google Reader compatible sync API, in a single container.
 
 [![CI](https://github.com/WPTK/Kipple/actions/workflows/ci.yml/badge.svg)](https://github.com/WPTK/Kipple/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/WPTK/Kipple?include_prereleases&label=release)](https://github.com/WPTK/Kipple/releases)
@@ -22,7 +22,7 @@ A self-hosted RSS reader for one person: web app plus a Google Reader compatible
     <td width="170" align="center" valign="bottom">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/phone-dark.webp">
-        <img src="docs/screenshots/phone-light.webp" alt="Kipple on a phone: article cards with large photos, one per row, and a tab bar along the bottom." width="170">
+        <img src="docs/screenshots/phone-light.webp" alt="Kipple on a phone: article cards with large photos stacked in a single column, and a tab bar along the bottom." width="170">
       </picture>
     </td>
   </tr>
@@ -31,8 +31,6 @@ A self-hosted RSS reader for one person: web app plus a Google Reader compatible
     <td width="170" align="center"><sub>Phone</sub></td>
   </tr>
 </table>
-
-[CHANGELOG.md](CHANGELOG.md) lists what changed in each release.
 
 ## Features
 
@@ -44,7 +42,6 @@ A self-hosted RSS reader for one person: web app plus a Google Reader compatible
 - Syncs with any app that speaks the Google Reader API.
 - Reading stats and a yearly summary (Your year), stored in your own database.
 - Backup and restore in Settings, plus a nightly snapshot. Backups contain credentials (password hashes, the account secret and feed logins), so keep them private.
-- One account per instance.
 
 ## Install
 
@@ -56,25 +53,24 @@ docker run -d --name kipple --restart unless-stopped -p 127.0.0.1:1919:1919 -v k
 
 This is the short form. The hardened form (read-only, no capabilities) and compose files are in the [deploy guide](docs/deploy.md).
 
-Open <http://127.0.0.1:1919>. The first screen creates your account, or restores a backup from another Kipple. A short
-step follows, with optional recommended feeds and a link to import an OPML file. Your time zone comes from your browser;
-theme, address and app password are in Settings.
+Open <http://127.0.0.1:1919> to create the account, or restore a backup from another Kipple.
 
-If Kipple runs on another machine, open an SSH tunnel to it, as the [quick start](docs/deploy.md#quick-start) shows.
+- The port is published on `127.0.0.1` only. For other devices use HTTPS through a reverse proxy
+  ([guide](docs/reverse-proxy.md)) or a private network such as Tailscale, never plain http.
+- Until the account exists, anyone who can reach the port can claim it.
+- An instance with no password is for localhost or a private network only. Anyone who can reach it has full access.
 
-The port is published on `127.0.0.1` only. Until the account exists, anyone who can reach the port can claim it. To reach
-Kipple from other devices, use HTTPS through a reverse proxy ([guide](docs/reverse-proxy.md)) or a private network such as
-Tailscale. Never expose it over plain http on the open internet. See the [threat model](docs/threat-model.md).
+See the [threat model](docs/threat-model.md).
 
-The [deploy guide](docs/deploy.md) also covers backups, upgrades, verifying the image signature and building from source.
+The [deploy guide](docs/deploy.md) covers other machines (SSH tunnel), backups, upgrades, verifying the image signature and building from source.
 
 ## Sync with other apps
 
 Add a Google Reader compatible account in your sync app:
 
 - Server: your Kipple address plus `/api/greader.php`
-- User name: the one you chose during setup
-- Password: an app password, separate from your web password. Make one in the last setup step or under
+- User name: the name you chose during setup
+- Password: an app password, separate from your web password. Create it in the last setup step or under
   Settings, Account & Devices, Generate new app password. Kipple shows it once.
 
 ## What Kipple leaves out
@@ -86,12 +82,13 @@ Add a Google Reader compatible account in your sync app:
 - Notifications.
 - Social features. The web app can still share an article through your device's share sheet or copy its link.
 - Monitoring or analytics.\*
-- More than one user.
+- Multiple users.
 
 \* _Reading statistics stay in your own database and are never sent anywhere._
 
 ## Documentation
 
+- [Changelog](CHANGELOG.md)
 - [Deploy guide](docs/deploy.md): quick start, install options, ports, backups, restore, upgrades, Cloudflare Access.
 - [Reverse proxy](docs/reverse-proxy.md): HTTPS with Caddy, nginx or Traefik.
 - [Troubleshooting](docs/troubleshooting.md)
@@ -107,7 +104,7 @@ To report a bug, open an [issue](https://github.com/WPTK/Kipple/issues). To send
 ## Maintenance
 
 Most code, tests and docs are written by AI coding agents (Claude) and checked by CI scans, fuzzing, and signed, attested
-releases with an SBOM. One maintainer. [SECURITY.md](SECURITY.md) sets a 14-day target for a first response. The code is under a permissive
+releases with an SBOM. A single maintainer. [SECURITY.md](SECURITY.md) sets a 14-day target for a first response. The code is under a permissive
 license, and a fork builds and signs its own releases. You can [verify a release](docs/deploy.md#verify-the-signature).
 Notes and decisions are on the [maintainer's blog](https://blog.wptk.org) and in the
 [history repository](https://github.com/WPTK/kipple-history).
