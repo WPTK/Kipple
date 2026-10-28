@@ -61,7 +61,7 @@ is MIT, so that wording is replaced here rather than quietly dropped: `@playwrig
 and `axe-core` MPL-2.0 (weak, file-level copyleft: obligations attach only to modified axe-core files, and Kipple
 neither modifies nor ships it). Both are dev-only and never in the image; `axe-core` was already a dev dependency
 for the Vitest accessibility tests. Navigates every
-screen (feed list in each of the 6 layouts, article view, search, settings (the group list and each of its six groups), stats, Wrapped) and asserts:
+screen (feed list in each layout, article view, search, settings (the group list and each of its six groups), stats, Wrapped) and asserts:
 
 | ID | Check | Expected |
 |---|---|---|
@@ -236,13 +236,13 @@ Test case format (per the standard guide): ID, title, precondition, steps, expec
 - TC-F5: Unsubscribe a feed with starred items → starred items remain reachable in the hidden archive.
 
 **Reading UI**
-- TC-R1: Each of the 6 layouts (Editorial, Cards, Compact, Inbox, Email - Compact, Gazette) renders correctly with
+- TC-R1: Each layout (Editorial, Cards, Compact, Inbox, Headlines, Gazette, Digest) renders correctly with
   real content, images load through the proxy.
 - TC-R2: Switch spacing (Dense/Snug/Standard/Relaxed/Airy) → list and reading text both change, live preview
   matches the applied result.
 - TC-R3: Letter and symbol keys do nothing (there are no single-key shortcuts). Tab, the arrow keys,
-  Enter and Escape behave as `docs/maintainers/ui-decisions.md` specifies. One case that file does not settle is
-  under "Open questions for the owner" below: Escape after opening an article on a wide screen.
+  Enter and Escape behave as `docs/maintainers/ui-decisions.md` specifies. Escape closes the open
+  article and returns to the list at every width.
 - TC-R4: Theme picker — default short list plus "More themes"; each of the 20 schemes is legible (spot-check
   Signal's danger color and the Carbon/Fountain distinction called out in the UI decisions).
 - TC-R5: Follow device switches to the configured day and night picks when the OS switches between light and
@@ -524,14 +524,6 @@ running; run the Chromium and WebKit passes one after the other, and never next 
 
 Before the tag, spread the work over agents as the "Working economy" section of `CLAUDE.md` describes: independent
 read-only work fans out, one writer per instance, an author stops at "pushed", and the main session owns the CI wait.
-
-## Open questions for the owner
-
-- **Escape after opening an article on a wide screen.** Pressing Escape moves focus back to the article's row in the
-  list; it does not change the address, which stays on the article's page. On a narrow screen, where the article is the
-  whole screen, Escape goes back to the list. `docs/maintainers/ui-decisions.md` says only "Escape to close and return
-  focus", so whether the address should also return to the list on a wide screen is undecided. Until answered, the
-  current behavior is the expectation and TC-R3 does not fail on it.
 
 ## Defect severity (borrowed scale)
 

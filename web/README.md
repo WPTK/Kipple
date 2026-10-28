@@ -26,7 +26,7 @@ React 19, TypeScript (strict), Vite 8, Tailwind v4, TanStack Query and Virtual, 
 
 ```
 src/api/      fetch client (X-Kipple-Client, 401), types, TanStack Query hooks, SSE + fallback polling
-src/layouts/  the six list layouts behind the ListLayout interface (Editorial, Cards, Compact, Inbox, Headlines, Gazette)
+src/layouts/  the list layouts behind the ListLayout interface (see `LAYOUT_IDS` in `lib/devicePrefs.ts`)
 src/gestures/ row swipe, long press, swipe back, pull to refresh (pointer events for row swipe and swipe back, touch events for pull to refresh; no gesture library)
 src/screens/  list pane, article pane, feeds (add, edit, folders, OPML), feed health, search, stats and Your year, settings, login
 src/ui/       button, segmented control, kit.tsx (modal, field, switch, stepper, disclosure, notices), FavStar, ResizeHandle (window splitter), UnreadCount
@@ -40,13 +40,13 @@ public/       manifest and icons, copied to the build root
 
 ## Lists: layouts, gestures, keys, device prefs, undo
 
-**Layouts.** Six, chosen from the layout menu in the list header: **Editorial** (id `magazine`; default; wide screens get a
+**Layouts.** Seven, chosen from the layout menu in the list header: **Editorial** (id `magazine`; default; wide screens get a
 list plus reader pane), **Cards** (a grid of 1 to 3 columns from the list's own width: under 600 px 1, under 900 px 2,
 else 3; on a wide screen an open article shows in the reader pane with the list beside it as one column), **Compact**
 (one dense line per article), **Inbox** (mail-style rows with an optional trailing thumbnail), **Headlines**
 (id `headlines`; titles only) and **Gazette** (a newspaper: a front page and section pages planned from the list by
 `layouts/gazettePlan.ts`; see below). The choice is per device, with a per-feed and
-per-folder override (feed beats folder beats device default). `c` toggles Compact for the session only. The same
+per-folder override (feed beats folder beats device default). The same
 menu sets a feed's or folder's order and the view it opens in (`client.list_overrides`, one object per list, each field
 resolved on its own by `resolveList` in `src/lib/devicePrefs.ts`). Sidebar and feed-list links go to `/l?feed=` or
 `/l?folder=`, which `OpenList` replaces with the list in its resolved view.
@@ -124,7 +124,7 @@ radios (arrow keys work); choosing one holds the control where it was on screen 
 server's `ui.*` metadata also supplies the labels.
 
 **Device settings** (Settings > Lists and reading, all per device): Layout (default; Editorial, Cards, Compact, Inbox,
-Headlines, Gazette; the stored ids are still `magazine` and `headlines`), Name of the Gazette (`client.paper_name`;
+Headlines, Gazette, Digest; the stored ids are still `magazine` and `headlines`), Name of the Gazette (`client.paper_name`;
 empty prints "The Gazette"), Article width (Narrow, Medium, Wide, Full;
 `--kp-col`), Open links in (New tab or Same tab; the default is Same tab on iPhone and iPad, where a link an installed
 app claims otherwise leaves an about:blank tab, New tab elsewhere; `lib/links.ts`), Unread badge (Count capped at

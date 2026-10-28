@@ -197,9 +197,12 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     fulltext.mutate({ id, mode: item.data.fulltext.effective === 1 ? 0 : 1 });
   };
 
-  // Escape leaves the article: beside the list focus returns to the list row, full screen goes back. Radix closes a
+  // Escape leaves the article and returns to the list at every width; beside the list the row keeps focus. Radix closes a
   // menu or dialog on Escape first (it prevents the default), so an Escape that did that does not also leave.
-  const leaveRef = useLatestRef(() => (pane ? focusListRow(id) : back()));
+  const leaveRef = useLatestRef(() => {
+    back();
+    if (pane) requestAnimationFrame(() => focusListRow(id)); // after the route change has drawn the list
+  });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;

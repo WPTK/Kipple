@@ -261,16 +261,15 @@ describe("reader pane: one persistent list", () => {
 });
 
 describe("reader pane: Escape", () => {
-  it("Esc returns focus to the list row of the open article", async () => {
+  it("Esc closes the open article, returns to the list and keeps focus on its row", async () => {
     routes();
     go("/i/1002?from=unread");
     await screen.findByTestId("article-body");
     await waitFor(() => expect(rowOf(2)).not.toBeNull());
     await userEvent.setup().keyboard("{Escape}");
     await waitFor(() => expect(document.activeElement?.closest('[data-item-id="1002"]')).not.toBeNull());
-    expect(window.location.pathname).toBe("/i/1002");
+    expect(window.location.pathname).not.toMatch(/^\/i\//);
   });
-
 });
 
 describe("reader pane: sort order", () => {
