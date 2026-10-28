@@ -38,7 +38,11 @@ const list = (path) => async (page) => {
   await page.locator("main").first().waitFor({ timeout: 15000 });
 };
 // The layout ids come from the app (`LAYOUT_IDS` in devicePrefs.ts), so a new layout is reviewed without touching this file.
-export const LAYOUT_IDS = [...readFileSync(new URL("../../../web/src/lib/devicePrefs.ts", import.meta.url), "utf8").match(/LAYOUT_IDS = \[([^\]]+)\]/)[1].matchAll(/"(\w+)"/g)].map((m) => m[1]);
+export const LAYOUT_IDS = (() => {
+  const found = readFileSync(new URL("../../../web/src/lib/devicePrefs.ts", import.meta.url), "utf8").match(/LAYOUT_IDS = \[([^\]]+)\]/);
+  if (!found) throw new Error("design-surfaces: LAYOUT_IDS not found in web/src/lib/devicePrefs.ts");
+  return [...found[1].matchAll(/"(\w+)"/g)].map((m) => m[1]);
+})();
 const LAYOUT_SURFACES = LAYOUT_IDS.map((layout) => ({
   id: `list-${layout}`, area: "lists", title: `All unread, ${layout} layout`, layout, sizes: layout === "magazine" || layout === "headlines",
   go: async (page) => {
