@@ -1,1 +1,0 @@
-Wording: one name each for Spacing (was Density and List spacing), Edit feed (was Manage this feed), Stats (was Statistics) and Your year (was Wrapped). Layout hints say what each layout is for, the Spacing help names the layouts that ignore it, and the folder, row and catch-up Mark all labels share one wording.

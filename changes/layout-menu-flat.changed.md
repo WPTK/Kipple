@@ -1,1 +1,0 @@
-Layouts: the layout menu, named Show and sort, is one list of the seven layouts, each with a small picture of it and a short hint, above Order, Group by and Pictures. Settings and the per-feed and per-folder layout choices list the layouts in the same order with the same hints.

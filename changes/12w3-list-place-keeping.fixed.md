@@ -1,1 +1,0 @@
-Lists: Back focuses the row you opened, not one you only touched to scroll; the Gazette keeps your place through a fling, a context menu or a story that moves; the short Search layout scrolls the screen first with the keyboard, and the swipe tip follows the main pointer. (#710, #736, #749)
