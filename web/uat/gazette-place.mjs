@@ -163,6 +163,7 @@ await t.eachViewport(async (page, vp) => {
       const target = await scroller(page).evaluate((el) => {
         const list = el.getBoundingClientRect().top;
         const seen = [];
+        const tops = [...el.querySelectorAll("article[data-item-id]")].map((a) => a.getBoundingClientRect().top);
         for (const grid of el.querySelectorAll("[data-page] .grid")) {
           seen.push([...grid.children].map((c) => c.querySelectorAll("article[data-item-id]").length).join("+"));
           const cols = [...grid.children].map((c) => [...c.querySelectorAll("article[data-item-id]")]);
@@ -174,7 +175,11 @@ await t.eachViewport(async (page, vp) => {
             if (ends[i] > tallest - 1 && ends.filter((e) => e > tallest - 1).length === 1) continue;
             for (let j = 1; j < c.length; j++) {
               const at = Math.round(c[j].getBoundingClientRect().top - list + el.scrollTop - 4);
-              if (c[j - 1].getBoundingClientRect().height > 60 && at >= 300 && at <= el.scrollHeight - el.clientHeight - 50)
+              // Scrolled there it sits 4 px under the top; a story in another column that starts at the same height or
+              // above it (and still in the list) would be the one at the top instead, and topOf names that one.
+              const own = c[j].getBoundingClientRect().top;
+              const rival = tops.filter((x) => x !== own && x - own > -4.5 && x - own < 0.5).length > 0 || tops.filter((x) => x === own).length > 1;
+              if (!rival && c[j - 1].getBoundingClientRect().height > 60 && at >= 300 && at <= el.scrollHeight - el.clientHeight - 50)
                 return { id: c[j].getAttribute("data-item-id"), at };
             }
           }
