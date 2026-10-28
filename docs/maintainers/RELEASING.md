@@ -195,11 +195,10 @@ bump): `0.9.0-beta.1` (the bug fixes plus those features), then `1.0.0-rc.N`, th
     **First image only (one time, owner):** the GHCR package starts private. In the repository's Packages, open
     `kipple`, confirm it is linked to `WPTK/Kipple` (the `org.opencontainers.image.source` label does that) and change
     its visibility to public; until then anonymous pulls fail.
-12. **Website** (`WPTK/kipple-website`, kipple.cc, GitHub Pages from `main`), once the Release is published (the version text on every release, a one-line PR):
-    - **Version text:** update "Where it stands" in `index.html` to the new tag (`grep -n "v0\." index.html README.md` finds
-      every mention) and anything else on the site that says what is current.
-    - **Screenshots, only when the UI visibly changed** (a release with no visible UI change keeps the old ones; the
-      version text is never skipped): in the Kipple repo, `cd web`, then `KIPPLE_SEED_SET=site npm run seed` (foreground; wait about a
+12. **Website** (`WPTK/kipple-website`, kipple.cc, GitHub Pages from `main`), once the Release is published. The site names no version, so most releases need nothing here:
+    - **Install command:** the site's Install section shows the README's `docker run` command with the `latest` tag, one
+      flag per line. If this release changed that command, change the site too.
+    - **Screenshots, only when the UI visibly changed** (a release with no visible UI change keeps the old ones): in the Kipple repo, `cd web`, then `KIPPLE_SEED_SET=site npm run seed` (foreground; wait about a
       minute for the feeds), and in a second terminal
       `node ../scripts/maintainers/site-shots.mjs --out <site>/screenshots --site <site>`. It writes the four WebP files at the sizes the
       site's design system names and re-renders `og.png`. Look at all five before committing. Update the capture note
