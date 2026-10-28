@@ -6,6 +6,7 @@
 // on the device first, `sizes` marks the screens that also get the text-size extremes, `tall` the ones taller than a
 // window, `signedOut` the ones that need a context with no session.
 /* global document, window, getComputedStyle -- used inside page.evaluate, which runs in the browser */
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
 // Playwright lives in web/node_modules, which a script outside web/ does not see by itself.
@@ -36,7 +37,13 @@ const list = (path) => async (page) => {
   await page.goto(path);
   await page.locator("main").first().waitFor({ timeout: 15000 });
 };
-const LAYOUT_SURFACES = ["magazine", "cards", "compact", "inbox", "headlines", "gazette"].map((layout) => ({
+// The layout ids come from the app (`LAYOUT_IDS` in devicePrefs.ts), so a new layout is reviewed without touching this file.
+export const LAYOUT_IDS = (() => {
+  const found = readFileSync(new URL("../../../web/src/lib/devicePrefs.ts", import.meta.url), "utf8").match(/LAYOUT_IDS = \[([^\]]+)\]/);
+  if (!found) throw new Error("design-surfaces: LAYOUT_IDS not found in web/src/lib/devicePrefs.ts");
+  return [...found[1].matchAll(/"(\w+)"/g)].map((m) => m[1]);
+})();
+const LAYOUT_SURFACES = LAYOUT_IDS.map((layout) => ({
   id: `list-${layout}`, area: "lists", title: `All unread, ${layout} layout`, layout, sizes: layout === "magazine" || layout === "headlines",
   go: async (page) => {
     await list("/l/unread")(page);

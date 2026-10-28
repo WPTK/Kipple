@@ -10,7 +10,8 @@
 // opens the list and checks:
 //   A1  the list shows its rows while the pictures are held;
 //   A2  opening an article shows its text within 4 s (the picture requests are still held);
-//   A3  with the article's read delayed 4 s, the title and source the list already knew are on screen meanwhile.
+//   A3  with the article's read delayed 4 s, the title and source the list already knew are on screen meanwhile;
+//   A4  Escape closes the open article and returns to the list, at both widths.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
@@ -65,6 +66,11 @@ await t.eachViewport(async (page, vp) => {
     console.log(`     ${tag}: ${held.size} pictures held, article text after ${took} ms`);
     const shown = (await body.getByText(/^Body text of held article \d+\.$/).count()) > 0;
     check(shown && took < 4000, `${tag} A2 text`, "the article text shows within 4 s while list pictures are held", shown ? `it took ${took} ms` : "the article text never showed (still loading)");
+
+    // A4: Escape leaves the article and the address returns to the list, beside the list or full screen.
+    await page.keyboard.press("Escape");
+    const left = await page.waitForURL((u) => !u.pathname.startsWith("/i/"), { timeout: 5000 }).then(() => true, () => false);
+    check(left, `${tag} A4 escape`, "Escape closes the open article and returns to the list", `still on ${new URL(page.url()).pathname}`);
 
     // A3: the read held for 4 s; the list's card (title and source) stands in for the text until it arrives. The list
     // is opened afresh, so nothing here depends on where A2 left the page.

@@ -135,7 +135,7 @@ describe("Settings renderer", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  it("offers the six layouts as radio cards that say what each looks like, and saves the pick for this device", async () => {
+  it("offers every layout as radio cards that say what each looks like, and saves the pick for this device", async () => {
     base();
     go("/settings/appearance");
     const group = await screen.findByRole("group", { name: "Layout" });

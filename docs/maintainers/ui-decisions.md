@@ -74,8 +74,8 @@ what people see.
 
 - **Magazine is the default**; compact list and cards also ship. the owner likes the proposed layouts and wants
   other options explored, notably an **email-style ("Inbox") layout** (TODO research, resolved: Inbox shipped; the layouts are
-  Editorial (id `magazine`, this decision's "Magazine"), Cards, Compact, Inbox, Email - Compact (id
-  `headlines`) and the Gazette, six in all).
+  Editorial (id `magazine`, this decision's "Magazine"), Cards, Compact, Inbox, Headlines (id `headlines`),
+  the Gazette and the Digest).
 - Lead images: **proxied and cached** by Kipple (sites dislike hotlinking), with a **bounded cache** that
   cannot grow out of hand (size cap setting with LRU eviction on the data volume). This replaces the
   design's "no disk cache in phase 2".
@@ -122,7 +122,7 @@ implementing anything. Commit and PR as needed without asking." (the Kipple serv
 
 ### Layouts
 - Ship **all five**: Magazine (default), Cards, Compact, Inbox, Headlines (shipped; Magazine is labelled
-  Editorial and Headlines Email - Compact, ids unchanged). Columns, Reader list and Expanded
+  Editorial and Headlines, ids unchanged). Columns, Reader list and Expanded
   stream were dropped (see "Additional layouts (#39)" below).
 - Layout is choosable **per feed and per folder** (override), plus a global/device default. UI in phase 2.
 - A folder's layout override applies to its subfolders and their feeds too; the nearest override up the tree wins
@@ -316,13 +316,13 @@ Design discussion with the owner. The Gazette and the Inbox look below shipped.
 - **Finite:** the paper ends. The last page appears once all of the list's articles are loaded.
 - **iPhone:** one column in the same order (lead, next stories, then sections), a compact masthead and no folio row.
 
-### 2. Inbox and Email - Compact: mail-client look
+### 2. Inbox and Headlines: mail-client look
 - **Inbox** takes a full-density mail look: a round favicon avatar, source name and time on the first line, the title in
   the theme accent while unread (also bold, with a bar or dot at the left edge), a one-line preview, a pale accent fill
   for the selected row. On hover the time gives way to star, mark read and menu. Date groups (Today, Yesterday, then
   older), an Unread / All tab strip with a Filter control, and a reader pane with a large title, an avatar header and
   an icon toolbar.
-- **Email - Compact** becomes the single-line density of the same look: source, title and time in one row, like a table.
+- **Headlines** becomes the single-line density of the same look: source, title and time in one row, like a table.
 - No other product is named in the UI or docs.
 
 ### Not built, not planned

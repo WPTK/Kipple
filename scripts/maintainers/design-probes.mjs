@@ -20,7 +20,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { installChecks } from "./lib/design-checks.mjs";
-import { DEVICES, SEED_PASSWORD, SEED_USER, chromium, designSession, loopbackOrigin, pickSurfaces, pickThemes, settle, webRequire } from "./lib/design-surfaces.mjs";
+import { DEVICES, LAYOUT_IDS, SEED_PASSWORD, SEED_USER, chromium, designSession, loopbackOrigin, pickSurfaces, pickThemes, settle, webRequire } from "./lib/design-surfaces.mjs";
 
 const PROBES = {
   base: "targets, non-text contrast, clipping, overlap, axe and the accessibility tree, layout shift and the inventory; paper, every device",
@@ -432,7 +432,7 @@ const run = {
             visionSheets.push({ id: `${s.id}__${device}__${theme}`, files, device });
           });
         // Unread against read in each layout, on a list that has both.
-        for (const layout of ["magazine", "cards", "compact", "inbox", "headlines", "gazette"]) {
+        for (const layout of LAYOUT_IDS) {
           const s = { id: `all-${layout}`, area: "lists", layout, go: async (page) => (await page.goto(`/l/all?feed=${lib.feed("The Morning Ledger")}`), page.locator("main article[data-item-id]").first().waitFor({ timeout: 20000 })) };
           await onSurface(device, s, async (page) => {
             const cues = await ev(page, () => window.__kp.unreadCues());

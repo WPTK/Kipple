@@ -31,7 +31,7 @@ articles and saves a search. Stats start empty, because the seed records no read
 
 | Area | Surfaces |
 |---|---|
-| lists | the six layouts on All unread, a folder, a long feed name, odd picture shapes, Unicode titles |
+| lists | every layout on All unread, a folder, a long feed name, odd picture shapes, Unicode titles |
 | states | Starred, Muted, an empty feed, nothing unread, a failing feed, not found |
 | article | a lead picture, a long article, Japanese text |
 | menus | the article's More actions, a row's More actions, Show and sort |
