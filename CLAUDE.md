@@ -99,7 +99,7 @@ exact commands, backup, verification and GHCR steps are in `docs/maintainers/REL
 ## Unattended work
 
 The global unattended-work rules apply (branches, PRs, merge on green CI, a denied command stops that item). Also without
-asking: the history repo and website PRs for version text and screenshots.
+asking: the history repo and website PRs for screenshots and the install command.
 
 - Needs the owner's word in chat: pushing a tag, creating a GitHub release, copying data off the Kipple server,
   deploying, anything touching the Kipple server's containers or compose file (including a rollback drill).
