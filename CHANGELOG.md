@@ -8,6 +8,65 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [1.6.0] - 2026-10-27
+
+### Added
+
+- Feeds: a Feed health row on the Feeds screen, and a Feed health link in Settings > Sync & Feeds.
+- Weekly audit: a Currency section lists whether CI is green, the latest release is signed, the pinned runtimes stay supported for 180 days, and Dependabot and scheduled workflows are current. It appears in the audit issue while an advisory is open, is refreshed in place without a notification, and is always in the run summary. (#820)
+
+### Changed
+
+- Reader: with no feeds, the list header hides Length, Layout, List actions and Oldest first. Settings: the "Try a different number of days" field is a number control with Decrease and Increase buttons. (#627, #617, #686)
+- Headers: list, Search, Stats and Your year titles wrap to two lines and the controls drop to their own row for a long name; the list header's controls have tooltips, the feed arrows name the feed they go to, a refresh draws a thin line under the header instead of changing the menu button, the Show tabs scroll sideways at large text instead of wrapping, and Stats sources and Your year show feed names whole. An empty feed says "this feed". (#639, #614, #617, #628)
+- API: GET /api/catchup takes an optional mark and counts against it instead of the saved one. (#737)
+- Lists: the header filter that keeps one length is named Article length.
+- Backup: the export zip is built about twice as fast on a large library, at an archive about 2% larger. (#807)
+- Settings: deleting a filter or a saved search names it in the confirmation, every Cancel button looks the same, and the Articles section marks each setting This device or All devices.
+- Feeds, Settings: Delete folder and Run setup again use the same danger look as the other destructive actions, and the error text under a failing feed in Feed health opens from the shared Details disclosure, a bordered row taller than the old link. (#851)
+- Layouts: the Coffee break is now Reading time, a third choice for the Digest's Sections next to Folders and Feeds. It is available on Unread and greyed with the reason on other lists, which show folders. A device that used the Coffee break as its layout, or as a list's layout, opens the Digest cut by reading time; the update rewrites stored device profiles and the new-device defaults once.
+- Escape closes the open article and returns to the list at every screen width; beside the list, focus returns to the article's row.
+- Lists: Refresh is in List actions on every screen width, and the Settings icon left the list header on wide screens.
+- Interface: icons are one of two sizes, 16 or 20 px, including the tab bar. (#853)
+- Settings: the server image group is named Image cache.
+- Layouts: the layout menu, named Show and sort, is one list of the seven layouts, each with a small picture of it and a short hint, above Order, Group by and Pictures. Settings and the per-feed and per-folder layout choices list the layouts in the same order with the same hints.
+- Loading placeholders: a list waits a moment before showing one, then draws rows in the shape of the layout it is loading, and Stats and Settings show their heading at once. (#612)
+- Notices: every notice, the Undo one included, has a Dismiss button.
+- Feeds: the OPML import dialog and the first-run button say "Import feeds from a file (OPML)", as the Feeds menu does, and a folder move that fails says what could not be done and why. (#759)
+- Layouts: Order and Group by stay in the layout menu in every layout. Where a layout sets its own, they are greyed with the reason, and so is the Oldest first button in the list header.
+- Settings: one Pictures setting, Show or Hide, replaces Thumbnails in Inbox and the Digest images switch. It is in Settings, Appearance, Lists and in the layout menu; a device that had either one off keeps pictures hidden, and the update rewrites stored device profiles once. A tab opened before the update shows the old picture setting until you reload it.
+- Reader: the row menu and the article's More menu share one action list in one order, Star fills in the row menu when starred, Share is offered only where the browser can share, and Feeds: a folder's Mark all asks first, naming how many it marks. (#613, #656)
+- Helper text: descriptions that repeat their label, "tap" or "click" hints and reassurance are gone from Settings, Feeds, Add feed, Import, Filters, Stats and the setup steps. The text of some settings in the API is shorter too. Reasons a control is disabled, limits and what happens to your data stay.
+- Container image: built on Node 24 and run on Debian 13 (distroless), both still receiving updates. (#819)
+- Edit feed and Show and sort: a value that follows another reads "Same as Settings (Cards)", or "Same as Tech (Cards)" when a folder sets it. (#670)
+- Settings: the Forget and Copy buttons of each device and the three resets have different names, and the text size buttons and the sync address wrap without clipping or breaking inside a word. (#632)
+- Settings: a setting stored on the server shows "Saved" beside it, text settings save with Save and Revert, and a number that is not valid goes back to the saved one with the reason once you leave the box. Appearance controls that only change this device apply at once and show no mark. (#682)
+- Settings: each setting shows one sentence of help with the rest behind More, and Preview under "Mark old articles as read after" opens a dialog that holds the field for trying another number of days. (#685)
+- Settings: the theme has a mode control (One theme, Follow device, On a schedule) above swatch grids for the day and night themes. (#684)
+- Setup and sign-in: the account step asks for a username and password first, with Restore from a backup as a link under Create my account and the no-password choices under Other ways to sign in. The sign-in form shows the Kipple icon, puts a wrong password under the password field, says how to reset a forgotten password, says You signed out. after you sign out, and focuses the username when you come back. (#699, #702)
+- Stats: export and delete are in Settings only; the Stats screen links there.
+- Lists: on a tablet or a wide window the rows and the list header sit in one column no wider than 42 rem, in the Digest, Coffee break, New and Feed index pages too, and the Oldest first button stays in the header from 820 px up at any window height. The Gazette's headlines follow the text size, and a picture-lead headline there is now the large heading size (it was a fixed 1.625 rem).
+- The time zone is empty until someone chooses one, and Kipple uses UTC meanwhile, so an explicit choice of UTC is no longer mistaken for "not chosen yet" when setup ends.
+- Wording: one name each for Spacing (was Density and List spacing), Edit feed (was Manage this feed), Stats (was Statistics) and Your year (was Wrapped). Layout hints say what each layout is for, the Spacing help names the layouts that ignore it, and the folder, row and catch-up Mark all labels share one wording.
+
+### Removed
+
+- Feeds: the Unread, All articles, Starred and Muted rows are gone from the Feeds screen on phones.
+- Lists: the default star in the layout menu shows on feed and folder lists only; on the other lists the layout choice is the device default.
+- Settings: the Titles only in lists switch is gone; choose the Headlines layout instead.
+
+### Fixed
+
+- Lists: Back focuses the row you opened, not one you only touched to scroll; the Gazette keeps your place through a fling, a context menu or a story that moves; the short Search layout scrolls the screen first with the keyboard, and the swipe tip follows the main pointer. (#710, #736, #749)
+- New page: an article opened by address counts what is new after the mark in its link, and going to the page itself starts a fresh visit. (#737)
+- Address checks treat an IPv6 address with a zone suffix like the same address without one. (#799)
+- Forms: the sign-in error, the filter editor's "Tick at least one part" and word notes use the standard error styling, the Listen speed menu matches other fields, and the Show button of a password field keeps acronyms such as API.
+- Sync API: `nt=0` and `c=0` on stream/items/ids and stream/contents mean no upper bound and no cursor, instead of an empty list.
+- Sync API: mark-all-as-read ignores a timestamp that rounds to zero. (#799)
+- Feed health: Retry now shows its progress and has a Stop button, ends when you leave the screen, disables Resume, Pause and Delete while it runs, and no longer counts a request that never reached Kipple as a failed feed. It says why it is off when only paused feeds are ticked. On a phone the feed names stay put when Select turns on. (#759)
+- Phone tab bar: the current tab's bar sits clear of the icon and the unread badge at every text size, and on a short screen the tabs keep their places when the unread count changes. (#778)
+- Unread badge: the dot in "Dot only" mode keeps its color in Windows High Contrast (forced colors). (#855)
+
 ## [1.5.1] - 2026-10-25
 
 ### Added
@@ -1251,7 +1310,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/WPTK/Kipple/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/WPTK/Kipple/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/WPTK/Kipple/compare/v1.0.0...v1.5.0
 [1.0.0]: https://github.com/WPTK/Kipple/compare/v1.0.0-rc.2...v1.0.0

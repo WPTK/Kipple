@@ -1,1 +1,0 @@
-Settings: each setting shows one sentence of help with the rest behind More, and Preview under "Mark old articles as read after" opens a dialog that holds the field for trying another number of days. (#685)
