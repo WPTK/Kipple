@@ -80,6 +80,14 @@ what people see.
   cannot grow out of hand (size cap setting with LRU eviction on the data volume). This replaces the
   design's "no disk cache in phase 2".
 
+## Panes, widths and shared look
+
+- **The three-pane threshold is 900 px** (`WIDE_MIN_PX`, `web/src/lib/useMedia.ts`), a named constant. The pane minimums sum to 900 only at the default text size and a media query cannot follow text size, so the value is not derived. Below it the phone layout shows, with rows and the list header in one capped column.
+- **Oldest first** shows from 820 px wide at any height, so it does not appear or vanish at the three-pane cut.
+- **Cramped panes degrade by design.** At 956x440 with Large targets and text size 1.5 the list pane is crushed and the header takes most of its height; the reader toolbar at the largest text does not fit and wraps. Nothing is hidden.
+- **Four narrow-width breakpoints stay** in the lint allow-list, each for a component that sizes from its own container: `min-[380px]`, `min-[420px]`, `min-[520px]` and `min-[560px]`. Swapping them for the shared constants would change the layout.
+- **Two controls keep their own look.** The feed editor's group heading and the "This device" and scope tags differ from the shared `Section` on purpose. The OPML preview days field stays a text field, because it can be empty and the Stepper always holds a number.
+
 ## design.md audit answers
 
 1. Appearance settings are **per device**.
