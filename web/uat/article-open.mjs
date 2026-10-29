@@ -18,7 +18,7 @@ import { createServer } from "node:http";
 import { expect } from "@playwright/test";
 import { start, waitForStillFor } from "./common.mjs";
 
-const t = await start(import.meta.url, 12);
+const t = await start(import.meta.url, 12, { serviceWorkers: "block" }); // A3 holds the article's read with page.route
 const { check, step } = t;
 
 const COUNT = 12;
@@ -82,9 +82,10 @@ await t.eachViewport(async (page, vp) => {
       await page.goto(`/l/all?feed=${added.feedId}`, { waitUntil: "load" });
       await rows.nth(1).waitFor({ timeout: 15000 });
       await rows.nth(1).click();
-      const card = page.getByTestId("loading-card-title");
-      const cardShown = await card.waitFor({ timeout: 3000 }).then(() => true, () => false);
-      check(cardShown && /^UAT held article \d+$/.test((await card.textContent()) ?? ""), `${tag} A3 card`, "the list's title shows while the article text loads", "no card title while loading");
+      // One call waits for the card and reads it, so a card that is gone by the time of a second call is a finding,
+      // not a 30 s stall.
+      const cardText = await page.getByTestId("loading-card-title").textContent({ timeout: 3000 }).catch(() => null);
+      check(/^UAT held article \d+$/.test(cardText ?? ""), `${tag} A3 card`, "the list's title shows while the article text loads", cardText === null ? "no card title while loading" : `the card said "${cardText}"`);
       await body.getByText(/^Body text of held article \d+\.$/).waitFor({ timeout: 15000 });
     } finally {
       await page.unroute("**/api/items/*");
