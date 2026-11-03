@@ -31,6 +31,9 @@ web/uat/flows.json merge=union
 /scripts export-ignore
 /tools export-ignore
 /docs/maintainers export-ignore
+/docs/README.md export-ignore
+/docs/design.md export-ignore
+/docs/performance.md export-ignore
 /docs/screenshots export-ignore
 *_test.go export-ignore
 testdata export-ignore
