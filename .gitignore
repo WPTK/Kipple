@@ -44,3 +44,9 @@ web/.seed.log
 web/.seed.err.log
 web/.seed.pid
 *.log
+
+# Per-machine tooling files the maintainer scripts and their tests expect to be ignored
+.claude/settings.local.json
+.claude/settings.local.json.bak*
+.claude/worktrees/
+/scripts/local/
