@@ -15,3 +15,33 @@ internal/fetch/testdata/charset-*.xml binary
 
 # The UAT flow list gets a line from most PRs; keep every side instead of conflicting (see the comment in the file).
 web/uat/flows.json merge=union
+
+# Source archives (the GitHub "Source code" downloads, git archive) carry what is needed to build and run Kipple.
+# Tests, CI, tooling and maintainer notes stay in the repository only. The Dockerfile copies cmd/, internal/,
+# starter/, web/, go.mod, go.sum, CHANGELOG.md, LICENSE and THIRD_PARTY_NOTICES.md; none of that is listed here.
+/.github export-ignore
+/.claude export-ignore
+/CLAUDE.md export-ignore
+/CONTRIBUTING.md export-ignore
+/codecov.yml export-ignore
+/.gitleaks.toml export-ignore
+/.gitleaksignore export-ignore
+/.dockerignore export-ignore
+/changes export-ignore
+/scripts export-ignore
+/tools export-ignore
+/docs/maintainers export-ignore
+/docs/README.md export-ignore
+/docs/design.md export-ignore
+/docs/performance.md export-ignore
+/docs/screenshots export-ignore
+*_test.go export-ignore
+testdata export-ignore
+/web/uat export-ignore
+/web/knip.json export-ignore
+/web/eslint.config.js export-ignore
+/web/ACCESSIBILITY.md export-ignore
+/web/README.md export-ignore
+/web/src/**/*.test.ts export-ignore
+/web/src/**/*.test.tsx export-ignore
+/web/src/theme/README.md export-ignore

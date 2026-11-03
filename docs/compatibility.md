@@ -13,7 +13,7 @@ If you only use Kipple through these, you can upgrade within 1.x without changin
 
 | Surface | What is promised |
 |---|---|
-| **Reader API** at `/api/greader.php` | The endpoints, parameters and response shapes in [Reader API](#reader-api) below (specified in detail in the Reader API section of [design.md](design.md#6-google-reader-api-mapping)), for any client that speaks the Google Reader API. Releases may add endpoints, parameters and response fields; they do not remove or reinterpret existing ones. |
+| **Reader API** at `/api/greader.php` | The endpoints, parameters and response shapes in [Reader API](#reader-api) below, for any client that speaks the Google Reader API. Releases may add endpoints, parameters and response fields; they do not remove or reinterpret existing ones. |
 | **Backup zip** | The layout of an export (`kipple.db`, `feeds.opml`, `settings.json`, `manifest.json`, `RESTORE.txt`) and the manifest `format` number. A newer 1.x restores any export written by an earlier release of the line. An older Kipple refuses a database from a newer one. |
 | **Settings keys** | The keys that appear in a backup's `settings.json`, with their meaning and value format. A key may gain new accepted values; it is not renamed or repurposed without notice. The `sys.*` entries are internal and not covered. |
 | **Environment variables** | The variables in [.env.example](../.env.example) (`KIPPLE_ADDR`, `KIPPLE_DATA`, `KIPPLE_PUBLIC_URL`, `KIPPLE_TRUSTED_PROXY_IPS`, and the rest) and `TZ`, with the behavior documented there, including which of them only seed a setting. |
@@ -171,7 +171,7 @@ might not expect:
   comma-separated list, each entry compared with any `W/` dropped; a match answers `304` with no body. The `*` form is
   not understood: it answers `200` with the body. A request without a valid token gets `401`, never `304`.
 - **`mark-all-as-read` with a `ts` that cannot be used** marks the whole stream, on purpose (a missing, `0`, negative,
-  non-digit or overflowing `ts` counts as no `ts`; see [design.md](design.md#6-google-reader-api-mapping)). That
+  non-digit or overflowing `ts` counts as no `ts`). That
   includes seconds with a decimal point such as `1792251201.502403`, which are not digits only. A client should send
   whole numbers, or it marks items that arrived after its last sync.
 - **Lenient inputs.** `subscription/edit` with `ac=subscribe` accepts an `s` without the `feed/` prefix, as `quickadd`
@@ -217,8 +217,7 @@ It needs Go and nothing else (no network, no Docker). The tests are in `internal
 
 ## Browsers, phones and clients checked
 
-What Kipple has been checked against, how, and what is left to a person. The test runs are described in
-[uat-plan.md](maintainers/uat-plan.md) (Suite 1).
+What Kipple has been checked against, how, and what is left to a person. 
 
 ### Web app
 
