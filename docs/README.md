@@ -27,7 +27,6 @@ the project's shape. Each links to more detail; nothing here duplicates it.
 | [../docker-compose.pull.example.yml](../docker-compose.pull.example.yml), [../docker-compose.example.yml](../docker-compose.example.yml) | The ready-to-run compose file for the published image, and the build-from-source one with resource limits and full hardening. |
 | [../.env.example](../.env.example) | The optional advanced overrides (listen address, host names, proxies, time zone, Cloudflare Access, scheduler, logging). Nothing needs a `.env` to get started. |
 
-`CLAUDE.md` at the repo root holds the fixed project decisions used when working on the code; `CHANGELOG.md`
-is the authoritative history of what shipped, when. `docs/maintainers/` holds the working documents of whoever releases and tests Kipple (the release steps, the quality and
+`CHANGELOG.md` is the authoritative history of what shipped, when. `docs/maintainers/` holds the working documents of whoever releases and tests Kipple (the release steps, the quality and
 acceptance-test plans, the risk register and the UI decision record). They are not required reading for running or
 contributing to Kipple.

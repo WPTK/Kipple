@@ -13,7 +13,6 @@ docs/*.md
 changes/*.md
 CONTRIBUTING.md
 SECURITY.md
-CLAUDE.md
 web/ACCESSIBILITY.md
 web/src/theme/README.md
 .github/pull_request_template.md

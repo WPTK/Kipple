@@ -1,8 +1,7 @@
 # Contributing to Kipple
 
 Kipple is a single-user RSS reader with one maintainer. Bug reports, fixes and small improvements are welcome;
-large features are not, because the scope is deliberate (see the non-goals in [README.md](README.md) and the
-decisions in [CLAUDE.md](CLAUDE.md)). Nothing here promises a response time: issues and pull requests are
+large features are not, because the scope is deliberate (Kipple has no podcasts, tags, notifications, AI features or multiple users). Nothing here promises a response time: issues and pull requests are
 triaged best-effort (see [SECURITY.md](SECURITY.md)).
 
 ## Ways to help
@@ -13,7 +12,7 @@ triaged best-effort (see [SECURITY.md](SECURITY.md)).
 - **Report a security problem:** not as a public issue. Follow [SECURITY.md](SECURITY.md) (GitHub private
   vulnerability reporting).
 - **Propose a change:** open an issue first for anything bigger than a fix, so you don't spend time on
-  something that is out of scope. What was decided against is listed in [CLAUDE.md](CLAUDE.md) ("Decisions").
+  something that is out of scope.
 - **Send a pull request:** small and focused, against `main`, as described below.
 
 ## Getting set up

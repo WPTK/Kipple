@@ -1,14 +1,4 @@
-# Local Claude Code permission grants (per-machine), their backups, and agent worktrees
-.claude/settings.local.json
-.claude/settings.local.json.bak*
-.claude/worktrees/
-
-# npm run seed's own PID/log files (not the throwaway data dir, which lives outside the repo)
-web/.seed.log
-web/.seed.err.log
-web/.seed.pid
-
-# Secrets — only .env.example is committed
+# Secrets: only .env.example is committed
 .env
 .env.*
 !.env.example
@@ -17,9 +7,6 @@ web/.seed.pid
 *.key
 *.p12
 !**/testdata/**
-
-# Design review captures (scripts/maintainers/design-shots.mjs): screenshots, regenerated on demand
-/.design/
 
 # Runtime data
 /data/
@@ -33,6 +20,7 @@ web/.seed.pid
 web/node_modules/
 web/dist/*
 !web/dist/.gitkeep
+web/dist-*/
 
 # Go build output
 /kipple
@@ -40,33 +28,19 @@ web/dist/*
 /bin/
 *.test
 
-# Local-only deployment notes (real LAN IP and hostnames); never commit
-/deploy-local/
-
-# Scratch output from audits, fuzz and seed runs
-/sme.json
-/*.out
-/*.err
-web/dist-*/
-
 # Coverage output (uploaded by CI, never committed)
 /coverage.out
 web/coverage/
 
-# The owner's own server helpers and scrub terms (host names, aliases, paths); never committed
-/scripts/local/
-/.scrub-terms.local
-
-# Bug-hunt output (generated test files, fuzz corpus, findings); never committed
-.hunt/
-
-# Project artifacts: stash -u once swept 365 MB of these into a stash. Editor and OS files belong in core.excludesFile.
-.lkff-*
-.npm-cache-*/
+# Test, lint and seed output
+/*.out
+/*.err
 web/playwright-report/
 web/test-results/
 web/blob-report/
-*.log
 web/.eslintcache
 web/.vite/
-/tmp-*
+web/.seed.log
+web/.seed.err.log
+web/.seed.pid
+*.log
