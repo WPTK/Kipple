@@ -212,7 +212,14 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
   return (
     // A wide screen has the sidebar on its left (which takes the left inset) and the main area on the right (which takes the
     // right one), so this header pads by 1rem there. With a notch on both sides it would otherwise take the inset a second time.
-    <header className={cn("pt-safe relative shrink-0 border-b border-line bg-bg", wide ? "px-4" : "pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]", compact ? "pb-1" : "pb-2")}>
+    // A tap on the header outside its controls goes back to the newest stories, as the status bar does in a native app.
+    // A pointer shortcut only, like the status bar: the header itself is not a control.
+    <header
+      className={cn("pt-safe relative shrink-0 border-b border-line bg-bg", wide ? "px-4" : "pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]", compact ? "pb-1" : "pb-2")}
+      onClick={(e) => {
+        if (!(e.target as Element).closest("a, button, input, select, textarea, [role]")) controls?.toTop();
+      }}
+    >
       {/* The header is held to the list column (`LIST_COLUMN`) in every layout, so on a tablet the controls sit over the list, not
           at the far edge of the screen. The title keeps at least 6.5rem and truncates
           beyond that, so at normal text size on a phone the header is one row in every list; only where the pane is

@@ -134,7 +134,12 @@ export interface ListControls {
   error: string | null;
   /** Focus the list's Tab stop row; false when there is none. */
   focusStop: () => boolean;
+  /** Back to the newest stories: loads what arrived since the list loaded, else scrolls to the top. */
+  toTop: () => void;
 }
+
+/** Away this long (the app in the background, the tab hidden), the list comes back at the newest stories. */
+export const AWAY_MS = 30 * 60 * 1000;
 
 interface Props {
   scope: Scope;
@@ -1169,6 +1174,29 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       announce("List updated");
     });
   };
+  // iOS's status-bar tap scrolls only the document, never this pane's scroller (#root is the app frame), so the
+  // header tap and coming back after a while (below) are the ways back to the top.
+  const toTop = () => {
+    if (pendingNew > 0) return loadNew();
+    parentRef.current?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+  };
+  const toTopRef = useLatestRef(toTop);
+  const callToTop = useCallback(() => toTopRef.current(), [toTopRef]);
+  useEffect(() => {
+    let hiddenAt: number | null = null;
+    const onVisible = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        return;
+      }
+      const away = hiddenAt !== null && Date.now() - hiddenAt >= AWAY_MS;
+      hiddenAt = null;
+      // An open article keeps the reader where they were: Back returns to the list as it was left.
+      if (away && !activeRef.current) toTopRef.current();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [toTopRef, activeRef]);
 
   // Row callbacks take the item as an argument, so they stay the same function between renders and the
   // memoized rows below skip renders that did not change them.
@@ -1419,8 +1447,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     return !!id && !!parentRef.current?.contains(document.activeElement);
   }, [stopRef]);
   useEffect(() => {
-    controlsRef.current?.({ markAllRead, count: items.length, unread: items.filter((i) => !i.read).length, more: src.more, fallback, empty, error: failedText, focusStop });
-  }, [markAllRead, items, src.more, fallback, empty, failedText, focusStop]);
+    controlsRef.current?.({ markAllRead, count: items.length, unread: items.filter((i) => !i.read).length, more: src.more, fallback, empty, error: failedText, focusStop, toTop: callToTop });
+  }, [markAllRead, items, src.more, fallback, empty, failedText, focusStop, callToTop]);
   // A header outside the list must not keep acting on a list that is gone (a list remounted under the same scope).
   useEffect(() => () => controlsRef.current?.(null), [controlsRef]);
 
@@ -1452,7 +1480,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         <div
           aria-hidden={!showPull}
           data-testid="pull-indicator"
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center text-fg2"
+          // Opaque: it sits over the top of the list, and rows that have not moved down under it (Reduce Motion) must not show through.
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center bg-bg text-fg2"
           style={{ height: reduced ? undefined : pullOffset, overflow: "hidden", display: showPull ? undefined : "none" }}
         >
           <div className="flex items-center gap-2 self-end pb-2 text-xs font-medium" role={showPull ? "status" : undefined}>
