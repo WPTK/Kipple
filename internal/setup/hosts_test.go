@@ -225,3 +225,21 @@ func TestLANClaimable(t *testing.T) {
 		require.False(t, LANClaimable(h), h)
 	}
 }
+
+func TestSplitHostPort(t *testing.T) {
+	for in, want := range map[string][3]string{
+		"Example.com":      {"example.com", "", "ok"},
+		"example.com:8443": {"example.com", "8443", "ok"},
+		"[::1]:443":        {"::1", "443", "ok"},
+		"[::1]":            {"::1", "", "ok"},
+		"10.0.0.1:80":      {"10.0.0.1", "80", "ok"},
+		"::1":              {"", "", ""}, // bare IPv6: no readable port
+		"example.com:80:1": {"", "", ""},
+		"":                 {"", "", ""},
+	} {
+		host, port, ok := SplitHostPort(in)
+		if host != want[0] || port != want[1] || ok != (want[2] == "ok") {
+			t.Errorf("SplitHostPort(%q) = %q, %q, %v; want %v", in, host, port, ok, want)
+		}
+	}
+}

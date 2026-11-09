@@ -15,7 +15,7 @@ without a sound, and what only a person with the right account can do. The relea
    check the pinned versions in `Dockerfile` and the workflows against their end-of-life dates by hand.
 4. **Check `main` is green** on its latest commit, then run `pwsh scripts/maintainers/release-gates.ps1` on it. If
    nothing in the code has changed since the last release, there is nothing to release.
-5. **Read the open issues and `CHANGELOG.md`** before touching code. `CLAUDE.md` holds the decisions that are not
+5. **Read the open issues and `CHANGELOG.md`** before touching code. `docs/design.md` holds the design decisions that are not
    reopened.
 
 ## What runs by itself
