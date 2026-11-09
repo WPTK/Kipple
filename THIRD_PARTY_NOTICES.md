@@ -130,7 +130,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | codeberg.org/readeck/go-readability/v2 | v2.1.3 | MIT |
 | github.com/andybalholm/cascadia | v1.3.3 | BSD-2-Clause |
 | github.com/aymerick/douceur | v0.2.0 | MIT |
-| github.com/dustin/go-humanize | v1.0.1 | MIT |
+| github.com/dustin/go-humanize | v1.1.0 | MIT |
 | github.com/go-shiori/dom | v0.0.0-20230515143342-73569d674e1c | MIT |
 | github.com/gogs/chardet | v0.0.0-20211120154057-b7413eaefb8f | MIT |
 | github.com/gorilla/css | v1.0.1 | BSD-3-Clause |
@@ -139,7 +139,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | github.com/microcosm-cc/bluemonday | v1.0.27 | BSD-3-Clause |
 | github.com/mmcdole/gofeed | v1.5.0 | MIT |
 | github.com/mmcdole/goxpp/v2 | v2.0.0 | MIT |
-| github.com/ncruces/go-strftime | v1.0.0 | MIT |
+| github.com/ncruces/go-strftime | v1.1.0 | MIT |
 | github.com/remyoudompheng/bigfft | v0.0.0-20230129092748-24d4a6f8daec | BSD-3-Clause |
 | golang.org/x/crypto | v0.58.0 | BSD-3-Clause |
 | golang.org/x/image | v0.47.0 | BSD-3-Clause |
@@ -147,10 +147,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | golang.org/x/sys | v0.49.0 | BSD-3-Clause |
 | golang.org/x/term | v0.47.0 | BSD-3-Clause |
 | golang.org/x/text | v0.43.0 | BSD-3-Clause |
-| modernc.org/libc | v1.77.1 | BSD-3-Clause |
+| modernc.org/libc | v1.79.0 | BSD-3-Clause |
 | modernc.org/mathutil | v1.7.1 | BSD-3-Clause |
 | modernc.org/memory | v1.12.1 | BSD-3-Clause |
-| modernc.org/sqlite | v1.60.1 | MIT |
+| modernc.org/sqlite | v1.61.0 | MIT |
 
 ## npm production dependencies
 
@@ -221,10 +221,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @radix-ui/react-visually-hidden | 1.2.13 | MIT |
 | @radix-ui/rect | 1.1.3 | MIT |
 | @remix-run/route-pattern | 0.22.1 | MIT |
-| @tanstack/query-core | 5.104.4 | MIT |
-| @tanstack/react-query | 5.104.4 | MIT |
-| @tanstack/react-virtual | 3.14.21 | MIT |
-| @tanstack/virtual-core | 3.19.6 | MIT |
+| @tanstack/query-core | 5.104.5 | MIT |
+| @tanstack/react-query | 5.104.5 | MIT |
+| @tanstack/react-virtual | 3.14.22 | MIT |
+| @tanstack/virtual-core | 3.19.7 | MIT |
 | @types/trusted-types | 2.0.7 | MIT |
 | aria-hidden | 1.2.6 | MIT |
 | class-variance-authority | 0.7.1 | Apache-2.0 |
@@ -233,13 +233,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | detect-node-es | 1.1.0 | MIT |
 | dompurify | 3.4.17 | (MPL-2.0 OR Apache-2.0) |
 | get-nonce | 1.0.1 | MIT |
-| lucide-react | 1.59.0 | MIT |
+| lucide-react | 1.61.0 | MIT |
 | radix-ui | 1.8.1 | MIT |
 | react | 19.3.1 | MIT |
 | react-dom | 19.3.1 | MIT |
 | react-remove-scroll | 2.7.2 | MIT |
 | react-remove-scroll-bar | 2.3.8 | MIT |
-| react-router | 8.4.0 | MIT |
+| react-router | 8.5.0 | MIT |
 | react-style-singleton | 2.2.3 | MIT |
 | scheduler | 0.28.0 | MIT |
 | tailwind-merge | 3.7.0 | MIT |
@@ -252,7 +252,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 - **codeberg.org/readeck/go-readability/v2** v2.1.3: Copyright (c) 2019 Radhi Fadlillah
 - **github.com/andybalholm/cascadia** v1.3.3: Copyright (c) 2011 Andy Balholm. All rights reserved.
 - **github.com/aymerick/douceur** v0.2.0: Copyright (c) 2015 Aymerick JEHANNE
-- **github.com/dustin/go-humanize** v1.0.1: Copyright (c) 2005-2008  Dustin Sallings <dustin@spy.net>
+- **github.com/dustin/go-humanize** v1.1.0: Copyright (c) 2005-2008  Dustin Sallings <dustin@spy.net>
 - **github.com/go-shiori/dom** v0.0.0-20230515143342-73569d674e1c: Copyright (c) 2019-present Radhi Fadlillah
 - **github.com/gogs/chardet** v0.0.0-20211120154057-b7413eaefb8f: Copyright (c) 2012 chardet Authors
 - **github.com/gorilla/css** v1.0.1: Copyright (c) 2023 The Gorilla Authors. All rights reserved.
@@ -260,7 +260,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 - **github.com/microcosm-cc/bluemonday** v1.0.27: Copyright (c) 2014, David Kitchen <david@buro9.com>
 - **github.com/mmcdole/gofeed** v1.5.0: Copyright (c) 2016 mmcdole
 - **github.com/mmcdole/goxpp/v2** v2.0.0: Copyright (c) 2016 mmcdole
-- **github.com/ncruces/go-strftime** v1.0.0: Copyright (c) 2022 Nuno Cruces
+- **github.com/ncruces/go-strftime** v1.1.0: Copyright (c) 2022 Nuno Cruces
 - **github.com/remyoudompheng/bigfft** v0.0.0-20230129092748-24d4a6f8daec: Copyright (c) 2012 The Go Authors. All rights reserved.
 - **golang.org/x/crypto** v0.58.0: Copyright 2009 The Go Authors.
 - **golang.org/x/image** v0.47.0: Copyright 2009 The Go Authors.
@@ -268,10 +268,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 - **golang.org/x/sys** v0.49.0: Copyright 2009 The Go Authors.
 - **golang.org/x/term** v0.47.0: Copyright 2009 The Go Authors.
 - **golang.org/x/text** v0.43.0: Copyright 2009 The Go Authors.
-- **modernc.org/libc** v1.77.1: Copyright (c) 2017 The Libc Authors. All rights reserved.
+- **modernc.org/libc** v1.79.0: Copyright (c) 2017 The Libc Authors. All rights reserved.
 - **modernc.org/mathutil** v1.7.1: Copyright (c) 2014 The mathutil Authors. All rights reserved.
 - **modernc.org/memory** v1.12.1: Copyright (c) 2017 The Memory Authors. All rights reserved.; Copyright (c) 2009 The Go Authors. All rights reserved.; Copyright (c) 2011, Evan Shaw <edsrzf@gmail.com>
-- **modernc.org/sqlite** v1.60.1: Copyright (c) 2017 The Sqlite Authors. All rights reserved.; Copyright (c) 2024 Alex Garcia
+- **modernc.org/sqlite** v1.61.0: Copyright (c) 2017 The Sqlite Authors. All rights reserved.; Copyright (c) 2024 Alex Garcia
 - **@floating-ui/core** 1.8.0: Copyright (c) 2021-present Floating UI contributors
 - **@floating-ui/dom** 1.8.0: Copyright (c) 2021-present Floating UI contributors
 - **@floating-ui/react-dom** 2.1.9: Copyright (c) 2021-present Floating UI contributors
@@ -337,16 +337,16 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 - **@radix-ui/react-visually-hidden** 1.2.13: Copyright (c) 2022 WorkOS
 - **@radix-ui/rect** 1.1.3: Copyright (c) 2022 WorkOS
 - **@remix-run/route-pattern** 0.22.1: Copyright (c) 2025 Shopify Inc.
-- **@tanstack/query-core** 5.104.4: Copyright (c) 2021-present Tanner Linsley
-- **@tanstack/react-query** 5.104.4: Copyright (c) 2021-present Tanner Linsley
-- **@tanstack/react-virtual** 3.14.21: Copyright (c) 2021-present Tanner Linsley
-- **@tanstack/virtual-core** 3.19.6: Copyright (c) 2021-present Tanner Linsley
+- **@tanstack/query-core** 5.104.5: Copyright (c) 2021-present Tanner Linsley
+- **@tanstack/react-query** 5.104.5: Copyright (c) 2021-present Tanner Linsley
+- **@tanstack/react-virtual** 3.14.22: Copyright (c) 2021-present Tanner Linsley
+- **@tanstack/virtual-core** 3.19.7: Copyright (c) 2021-present Tanner Linsley
 - **aria-hidden** 1.2.6: Copyright (c) 2017 Anton Korzunov
 - **class-variance-authority** 0.7.1: Copyright 2022 Joe Bell
 - **cookie-es** 3.1.1: Copyright (c) 2012-2014 Roman Shtylman <shtylman@gmail.com>; Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>; Copyright (c) 2015 Nathan Friedly <nathan@nfriedly.com> (http://nfriedly.com/)
 - **detect-node-es** 1.1.0: Copyright (c) 2017 Ilya Kantor
 - **get-nonce** 1.0.1: Copyright (c) 2020 Anton Korzunov
-- **lucide-react** 1.59.0: Copyright (c) 2026 Lucide Icons and Contributors; Copyright (c) 2013-present Cole Bemis
+- **lucide-react** 1.61.0: Copyright (c) 2026 Lucide Icons and Contributors; Copyright (c) 2013-present Cole Bemis
 - **radix-ui** 1.8.1: Copyright (c) 2022 WorkOS
 - **react-remove-scroll** 2.7.2: Copyright (c) 2017 Anton Korzunov
 - **react-style-singleton** 2.2.3: Copyright (c) 2017 Anton Korzunov
