@@ -1178,7 +1178,10 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // header tap and coming back after a while (below) are the ways back to the top.
   const toTop = () => {
     if (pendingNew > 0) return loadNew();
-    parentRef.current?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    // Rows: through the virtualizer, which corrects the offset as unmeasured rows above come into view (a smooth
+    // scroll around it can be cut short by those corrections). A page layout has no virtual rows.
+    if (Page) parentRef.current?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    else virtualizer.scrollToOffset(0);
   };
   const toTopRef = useLatestRef(toTop);
   const callToTop = useCallback(() => toTopRef.current(), [toTopRef]);

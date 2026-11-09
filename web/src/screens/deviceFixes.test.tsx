@@ -10,6 +10,7 @@ import { initialLive, liveStore } from "@/api/events";
 import { keys } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { rowMenuStore } from "@/gestures/rowMenu";
+import { TOUCH_QUERY } from "@/ui/menu";
 import { resetDevicePrefs, devicePrefsStore, updateDevicePrefs } from "@/lib/devicePrefs";
 import { itemActions } from "@/lib/itemActions";
 import { DEFAULT_PREFS, applyPrefs, prefsStore } from "@/lib/prefs";
@@ -141,6 +142,21 @@ describe("back to the newest stories", () => {
     expect(scroll).toHaveBeenCalledWith(expect.objectContaining({ top: 0 }));
     scroll.mockClear();
     fireEvent.click(within(header).getByRole("button", { name: "List actions" }));
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
+  it("closing a header menu's sheet by its backdrop leaves the list where it is", async () => {
+    media(TOUCH_QUERY);
+    routes();
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const scroll = spyScroll();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "List actions" }));
+    await screen.findByRole("menu");
+    const backdrop = document.querySelector("[data-menu-backdrop]") as HTMLElement;
+    expect(backdrop).not.toBeNull();
+    fireEvent.click(backdrop);
     expect(scroll).not.toHaveBeenCalled();
   });
 
