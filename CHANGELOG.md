@@ -17,6 +17,7 @@ Changes not yet in a release are one file each in [`changes/`](changes/); they a
 ### Fixed
 
 - Lists: the pull-to-refresh indicator has a solid background and no longer shows the rows behind it.
+- Server: a Host header with an IPv6 address written without brackets is no longer taken for the https public address.
 
 ## [1.6.0] - 2026-10-27
 
