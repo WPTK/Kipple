@@ -217,7 +217,10 @@ function ScopeHeader({ scope, controls, beside }: { scope: Scope; controls?: Lis
     <header
       className={cn("pt-safe relative shrink-0 border-b border-line bg-bg", wide ? "px-4" : "pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]", compact ? "pb-1" : "pb-2")}
       onClick={(e) => {
-        if (!(e.target as Element).closest("a, button, input, select, textarea, [role]")) controls?.toTop();
+        // React bubbles clicks from portals (a menu sheet's backdrop, the Mark all dialog) through here: only a click
+        // whose target is in the header's own DOM counts.
+        const t = e.target as Element;
+        if (e.currentTarget.contains(t) && !t.closest("a, button, input, select, textarea, [role]")) controls?.toTop();
       }}
     >
       {/* The header is held to the list column (`LIST_COLUMN`) in every layout, so on a tablet the controls sit over the list, not
