@@ -26,7 +26,7 @@ triage scheme since it's a reasonable, well-known scale), each with steps to rep
   three are, as of 2026-09-27), and deployed to the test environment below.
 - CI green on the commit under test; the pending `changes/` fragments (`node scripts/changelog.mjs preview`) reflect everything in scope.
 - A representative test environment: either the Kipple server deployment on a pre-release build, or the local dev stack
-  (`npm run seed` / `KIPPLE_ADDR`+`KIPPLE_DATA` per CLAUDE.md) seeded with a realistic OPML set (the existing
+  (`npm run seed` / `KIPPLE_ADDR`+`KIPPLE_DATA`) seeded with a realistic OPML set (the existing
   138-feed OPML export works, or a smaller fixture for faster runs).
 - A Reader API client available on the owner's devices, already configured against the test instance.
 
@@ -522,7 +522,7 @@ running; run the Chromium and WebKit passes one after the other, and never next 
 3. The deploy of that published image.
 4. Suite 5 (fresh-machine walkthrough) and the post-deploy checks, which test what was deployed.
 
-Before the tag, spread the work over agents as the "Working economy" section of `CLAUDE.md` describes: independent
+Before the tag, spread the work over agents: independent
 read-only work fans out, one writer per instance, an author stops at "pushed", and the main session owns the CI wait.
 
 ## Defect severity (borrowed scale)

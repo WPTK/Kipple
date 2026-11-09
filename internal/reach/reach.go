@@ -284,22 +284,14 @@ func (st *State) publicOrigin(hostHeader string) bool {
 	if err != nil || !strings.EqualFold(u.Scheme, "https") {
 		return false
 	}
-	// NormalizeHost also takes a bare IPv6 literal (for the allowed-host gate), whose port cannot be read: a browser
-	// always brackets one, so only that form can be the public origin.
-	if !strings.HasPrefix(hostHeader, "[") && strings.Count(hostHeader, ":") > 1 {
-		return false
-	}
-	h, ok := setup.NormalizeHost(hostHeader)
+	// SplitHostPort, not NormalizeHost: a bare IPv6 literal has no readable port, and a browser always brackets one.
+	h, got, ok := setup.SplitHostPort(hostHeader)
 	if !ok || h != st.PublicHost {
 		return false
 	}
 	want := u.Port()
 	if want == "" {
 		want = "443"
-	}
-	got := "" // the port: what follows the last colon, unless that colon is inside an IPv6 literal's brackets
-	if i := strings.LastIndexByte(hostHeader, ':'); i > strings.LastIndexByte(hostHeader, ']') {
-		got = hostHeader[i+1:]
 	}
 	return got == "" || got == want
 }

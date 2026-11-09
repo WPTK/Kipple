@@ -15,7 +15,7 @@ followable for a stranger to self-host from a clean machine.
 
 ## 2. Reference documents
 
-`CLAUDE.md` (fixed decisions), `docs/design.md` (data model, API contract, design rationale), `docs/README.md`
+`docs/design.md` (data model, API contract, design rationale), `docs/README.md`
 (the docs index), `docs/maintainers/uat-plan.md`, `docs/maintainers/risk-register.md`, `docs/maintainers/RELEASING.md`, `docs/deploy.md`,
 `CHANGELOG.md`, `SECURITY.md`, `.env.example`; outside this repository, the private `kipple-history` repo (meetings, decisions, diary, audits: the project's
 institutional memory).
@@ -23,8 +23,7 @@ institutional memory).
 ## 3. Management
 
 One person directs and signs off (the owner); one agent implements, reviews and tests (Claude), following a
-documented model policy — Sonnet for routine implementation, Opus for review/judging/ambiguous root-causing
-(`CLAUDE.md`, "Process"). Concurrency rule: one writer on the Kipple repo/the Kipple server
+documented model policy — Sonnet for routine implementation, Opus for review/judging/ambiguous root-causing. Concurrency rule: one writer on the Kipple repo/the Kipple server
 instance at a time, to avoid half-applied changes. Deploys, Cloudflare changes, and go/no-go decisions are
 reserved to the owner; routine build decisions are not (current phase 5 preference — minimal owner
 involvement).
@@ -38,7 +37,7 @@ for a newcomer (gap 3 below, since closed).
 
 ## 5. Standards, practices, conventions, and metrics
 
-- **Coding/product conventions:** CLAUDE.md's "do not relitigate" decisions (stack, sync API, retention model,
+- **Coding/product conventions:** the "do not relitigate" decisions in `docs/design.md` (stack, sync API, retention model,
   media policy, fonts/themes, non-goals).
 - **Resource budgets, enforced as pass/fail gates, not aspirations:** image < 50 MB, idle RSS < 100 MB,
   `GOMEMLIMIT=64MiB`, compose `mem_limit: 256m`, content cap 500 KB per item, image cache default 1 GiB.
@@ -48,8 +47,7 @@ for a newcomer (gap 3 below, since closed).
 
 ## 6. Reviews and audits
 
-`/code-review high` before every deploy (medium for routine bot/script-equivalent work, per CLAUDE.md's
-effort tiers). A full multi-agent code audit + changelog review ran for phase 5 (PR #26,
+`/code-review high` before every deploy (medium for routine bot/script-equivalent work). A full multi-agent code audit + changelog review ran for phase 5 (PR #26,
 `kipple-history/audits/phase5-code-audit-2026-09-27.md`), following the same pattern as the 2026-09-26 audit
 round. Standing rule: fix everything a review finds, no silent "not fixing" list.
 
@@ -102,7 +100,7 @@ treat it as the SQA "records" requirement already satisfied, not a gap.
 
 ## 13. Training
 
-No team to train. The closest analogues: `CLAUDE.md` functions as onboarding for any future contributor or
+No team to train. The closest analogues: `docs/maintainers/handover.md` functions as onboarding for any future contributor or
 agent working on the repo, and the planned first-time Docker setup walkthrough is onboarding for self-hosters.
 
 ## 14. Risk management
