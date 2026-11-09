@@ -8,6 +8,16 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [1.7.0] - 2026-11-08
+
+### Added
+
+- Lists: tapping the list header scrolls back to the newest stories, and a list left in the background for 30 minutes or more opens at the top.
+
+### Fixed
+
+- Lists: the pull-to-refresh indicator has a solid background and no longer shows the rows behind it.
+
 ## [1.6.0] - 2026-10-27
 
 ### Added
@@ -1310,7 +1320,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/WPTK/Kipple/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/WPTK/Kipple/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/WPTK/Kipple/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/WPTK/Kipple/compare/v1.0.0...v1.5.0
