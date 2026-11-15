@@ -43,8 +43,8 @@ type Feed struct {
 	Folder   []string // the folder as its chain of names from the top level; empty = root (Uncategorized)
 	Attrs    Attrs
 	BadAttrs []string // kipple:* attributes that failed validation
-	// cut: the file put the feed in a folder too deep to keep, and Folder is the deepest kept
-	// ancestor. Import never moves an existing feed there.
+	// cut: the file put the feed below an outline Parse did not keep (too deep, or a name the store
+	// refuses), and Folder is the deepest kept ancestor. Import never moves an existing feed there.
 	cut bool
 }
 
@@ -56,12 +56,17 @@ type Doc struct {
 	// folder (first spelling kept); the same name under different parents is a different folder.
 	Folders [][]string
 	Feeds   []Feed // document order
-	// FoldersMergedCase lists case-variant spellings merged into an earlier sibling, by path.
-	FoldersMergedCase []MergedCase
-	// FoldersRefused lists the folders that were not kept, by path, with the reason. Parse reports
-	// outlines nested deeper than store.MaxFolderDepth; Import adds the folders the folder writer
-	// refuses. What a refused folder holds goes into its deepest kept ancestor.
-	FoldersRefused []RefusedFolder
+	// FoldersMergedCase lists case-variant spellings merged into an earlier sibling, by path, at most
+	// maxReportedFolders of them; FoldersMergedCaseMore counts the rest.
+	FoldersMergedCase     []MergedCase
+	FoldersMergedCaseMore int
+	// FoldersRefused lists the folders that were not kept, by path (cut when long), with the reason,
+	// at most maxReportedFolders of them; FoldersRefusedMore counts the rest. Parse reports outlines
+	// nested deeper than store.MaxFolderDepth and names the store refuses (without their chain: a
+	// cut feed already carries its kept ancestor); Import adds the folders the folder writer refuses.
+	// What a refused folder holds goes into its deepest kept ancestor.
+	FoldersRefused     []RefusedFolder
+	FoldersRefusedMore int
 }
 
 // MergedCase records a folder merged into a sibling whose name differs only by case.
@@ -350,14 +355,19 @@ func parse(r io.Reader) (*Doc, error) {
 	}
 	doc := &Doc{}
 	type node struct {
-		chain []string
-		kids  map[string]*node // foldCase(name) -> child folder
+		chain   []string
+		kids    map[string]*node // foldCase(name) -> child folder
+		refused map[string]bool  // foldCase(name) of each outline in this folder reported as not kept
 	}
-	tooDeep := map[string]bool{} // chainKey(foldCase) of each too-deep outline reported
-	// cut is true below an outline too deep to keep: everything there goes into parent, the
-	// deepest kept ancestor, and only that topmost outline is reported (the way Import reports a
-	// refused folder once, at its top). Reporting each outline below it would build a path per
-	// level, quadratic in a file nested thousands deep.
+	type spelling struct {
+		n    *node
+		name string
+	}
+	merged := map[spelling]bool{} // each other spelling of a kept folder reported
+	// cut is true below an outline that is not kept (too deep, or a name the store refuses):
+	// everything there goes into parent, the deepest kept ancestor, and only that topmost outline
+	// is reported (the way Import reports a refused folder once, at its top). Reporting each
+	// outline below it would build a path per level, quadratic in a file nested thousands deep.
 	var walk func(list []outline, parent *node, cut bool)
 	walk = func(list []outline, parent *node, cut bool) {
 		for _, o := range list {
@@ -375,39 +385,49 @@ func parse(r io.Reader) (*Doc, error) {
 			chain := make([]string, len(parent.chain)+1)
 			copy(chain, parent.chain)
 			chain[len(parent.chain)] = name
+			key := foldCase(name)
+			// A level too deep, or a name the store refuses, never becomes a folder here: every chain
+			// Parse keeps is at most MaxFolderDepth names of at most MaxFolderNameRunes characters,
+			// whatever the file holds (the XML decoder nests up to 10000 levels and caps no attribute).
+			// Such an outline is known by its parent and its own name, and its path is cut in the
+			// report, so what is kept for it does not grow with the names above it.
+			why := store.CheckFolderName(name)
 			if len(chain) > store.MaxFolderDepth {
-				// Too deep to keep: what it holds goes into the deepest kept ancestor. The cap also
-				// bounds the chains Parse builds (the XML decoder nests up to 10000 levels).
-				if k := foldCase(chainKey(chain)); !tooDeep[k] {
-					tooDeep[k] = true
-					doc.FoldersRefused = append(doc.FoldersRefused, RefusedFolder{Path(chain), refusal(store.ErrFolderDepth), chain})
+				why = store.ErrFolderDepth
+			}
+			if why != nil {
+				if !parent.refused[key] {
+					if parent.refused == nil {
+						parent.refused = map[string]bool{}
+					}
+					parent.refused[key] = true
+					if len(doc.FoldersRefused) < maxReportedFolders {
+						doc.FoldersRefused = append(doc.FoldersRefused, RefusedFolder{Path: shortPath(chain), Reason: refusal(why)})
+					} else {
+						doc.FoldersRefusedMore++
+					}
 				}
 				walk(o.Children, parent, true)
 				continue
 			}
-			key := foldCase(name)
 			n, ok := parent.kids[key]
 			if !ok {
 				n = &node{chain: chain, kids: map[string]*node{}}
 				parent.kids[key] = n
 				doc.Folders = append(doc.Folders, chain)
-			} else if n.chain[len(n.chain)-1] != name {
-				doc.FoldersMergedCase = appendMerged(doc.FoldersMergedCase, Path(n.chain), Path(chain))
+			} else if s := (spelling{n, name}); n.chain[len(n.chain)-1] != name && !merged[s] {
+				merged[s] = true
+				if len(doc.FoldersMergedCase) < maxReportedFolders {
+					doc.FoldersMergedCase = append(doc.FoldersMergedCase, MergedCase{shortPath(n.chain), shortPath(chain)})
+				} else {
+					doc.FoldersMergedCaseMore++
+				}
 			}
 			walk(o.Children, n, false)
 		}
 	}
 	walk(d.Body.Outlines, &node{kids: map[string]*node{}}, false)
 	return doc, nil
-}
-
-func appendMerged(l []MergedCase, kept, merged string) []MergedCase {
-	for _, m := range l {
-		if m.Kept == kept && m.Merged == merged {
-			return l
-		}
-	}
-	return append(l, MergedCase{kept, merged})
 }
 
 // Valid retention caps (design feeds.retention CHECK); 0 = unlimited.

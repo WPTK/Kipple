@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,6 +134,9 @@ func FuzzParse(f *testing.F) {
 				if n == "" || !utf8.ValidString(n) {
 					t.Fatalf("bad folder name %q", n)
 				}
+				if err := store.CheckFolderName(n); err != nil {
+					t.Fatalf("kept folder name %q is refused by the store: %v", n, err)
+				}
 			}
 		}
 		for _, fd := range doc.Feeds {
@@ -154,6 +158,10 @@ func FuzzParse(f *testing.F) {
 //     fixed point.
 func FuzzImportExport(f *testing.F) {
 	fuzzSeeds(f)
+	// The oracle learns the folder writer's refusals from the report, so the report must not be cut.
+	old := maxReportedFolders
+	maxReportedFolders = math.MaxInt
+	f.Cleanup(func() { maxReportedFolders = old })
 	ctx := context.Background()
 	db, err := store.Open(ctx, store.Options{Path: filepath.Join(f.TempDir(), "kipple.db")})
 	if err != nil {
@@ -237,7 +245,9 @@ func FuzzImportExport(f *testing.F) {
 
 		refused := map[string]bool{}
 		for _, r := range res.FoldersRefused {
-			refused[chainKey(r.chain)] = true
+			if r.chain != nil { // Parse's refusals have none: a feed below one carries its kept ancestor and cut
+				refused[chainKey(r.chain)] = true
+			}
 		}
 		// kept is the file's folder cut at the first level that was not kept, and whether it was cut.
 		kept := func(fd Feed) ([]string, bool) {

@@ -390,6 +390,14 @@ func makeToken(username, secret, apiHash string) string {
 	return username + "/" + hex.EncodeToString(h.Sum(nil))
 }
 
+// iconMAC keys a feed icon URL to the account: the first 32 hex of
+// HMAC-SHA256(secret, "greader-icon-v1|" + feed id + "|" + content hash).
+func iconMAC(secret string, id int64, hash string) string {
+	h := hmac.New(sha256.New, []byte(secret))
+	h.Write([]byte("greader-icon-v1|" + strconv.FormatInt(id, 10) + "|" + hash))
+	return hex.EncodeToString(h.Sum(nil)[:16])
+}
+
 func tokEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
@@ -453,16 +461,11 @@ func (c *call) clientLogin() {
 	email, pass := c.p.Get("Email"), c.p.Get("Passwd")
 	emailOK := strings.EqualFold(email, s.username)
 	a.ver.SetSecret([]byte(s.secret))
-	// A remembered success costs no hashing, so it is not paced: a signed-in
-	// client keeps working while its address is over budget. It leaves the
-	// failure count alone (another client may share the address).
-	if emailOK && a.ver.Remembered("api", pass, s.hash) {
-		c.loginOK(s)
-		return
-	}
-	// Admission before any hashing (design §6.3): one attempt per client hashes
-	// at a time and, over budget, waits its turn (auth.FailureTracker); later
-	// ones wait (bounded) rather than fail. Only an attempt that could not start is refused unchecked.
+	// Admission before any check of the password (design §6.3): one attempt per
+	// client is checked at a time and, over budget, waits its turn
+	// (auth.FailureTracker); later ones wait (bounded) rather than fail. An attempt
+	// that could not start is refused without being compared with anything, the
+	// remembered success included.
 	if !a.fails.Acquire(ctx, ip) {
 		bad()
 		return
@@ -474,6 +477,12 @@ func (c *call) clientLogin() {
 			a.fails.Forget(ip)
 		}
 	}()
+	// A remembered success costs no hashing. It leaves the failure count alone
+	// (another client may share the address).
+	if emailOK && a.ver.Remembered("api", pass, s.hash) {
+		c.loginOK(s)
+		return
+	}
 	// The password is always verified, even when the email is wrong.
 	ok, busy := a.ver.VerifyBusy(ctx, "api", pass, s.hash)
 	if busy {

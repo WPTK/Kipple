@@ -207,7 +207,7 @@ OPML carries your feeds and folders only; starred items and read state are not p
 
 An import keeps the file's folder tree: nested outlines become subfolders, up to 8 levels deep. A feed nested deeper, or
 in a folder whose name Kipple cannot store (over 100 characters, control characters), goes into the nearest folder above
-it, and the import report lists that folder under `folders_refused`. A feed you already have stays in its folder unless
+it, and the import report lists that folder under `folders_refused` (the first 1000, with `folders_refused_more` counting the rest). A feed you already have stays in its folder unless
 you ask for "move feeds that already exist into the file's folders" (`kipple import -move-existing`, or
 `POST /api/opml?move_existing=true`); folders that this leaves with no feeds are listed under `folders_emptied` and kept.
 

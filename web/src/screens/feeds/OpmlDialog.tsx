@@ -176,6 +176,8 @@ export function OpmlResultSummary({ result, inWizard = false }: { result: OpmlRe
   const moved = result.feeds_moved?.length ?? 0;
   const emptied = result.folders_emptied ?? [];
   const refused = result.folders_refused ?? [];
+  const refusedMore = result.folders_refused_more ?? 0;
+  const mergedCaseMore = result.folders_merged_case_more ?? 0;
   const mergedPath = result.folders_merged_path ?? [];
   const dropped = result.memberships_dropped.length + (result.memberships_dropped_more ?? 0);
   const skipped = result.skipped ?? [];
@@ -212,7 +214,7 @@ export function OpmlResultSummary({ result, inWizard = false }: { result: OpmlRe
             : `${dropped} feeds were listed in more than one folder. Each stays in the first.`}
         </li>
       ) : null}
-      {result.folders_merged_case.length ? <li>Folders that differed only by capital letters were merged: {result.folders_merged_case.map((m) => `${m.merged} into ${m.kept}`).join(", ")}</li> : null}
+      {result.folders_merged_case.length ? <li>Folders that differed only by capital letters were merged: {result.folders_merged_case.map((m) => `${m.merged} into ${m.kept}`).join(", ")}{mergedCaseMore ? ` and ${mergedCaseMore} more` : ""}</li> : null}
     </ul>
     {mergedPath.length ? (
       <div className="text-sm">
@@ -229,7 +231,7 @@ export function OpmlResultSummary({ result, inWizard = false }: { result: OpmlRe
     {refused.length ? (
       <div className="text-sm">
         <p className="font-semibold">
-          {refused.length} folder{refused.length === 1 ? " was" : "s were"} not created
+          {refused.length + refusedMore} folder{refused.length + refusedMore === 1 ? " was" : "s were"} not created
         </p>
         <p className="text-fg2">Their feeds went into the nearest folder above that could be made.</p>
         <ul className="flex list-disc flex-col gap-1 pl-5 text-fg2">
@@ -238,6 +240,7 @@ export function OpmlResultSummary({ result, inWizard = false }: { result: OpmlRe
               {r.path}: {r.reason}
             </li>
           ))}
+          {refusedMore ? <li>and {refusedMore} more</li> : null}
         </ul>
       </div>
     ) : null}
