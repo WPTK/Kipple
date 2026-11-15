@@ -249,7 +249,7 @@ export function pendingFor(
   loaded?: { ids: ReadonlySet<string>; pendingIds: Record<string, string[]> },
 ): number {
   // A search or an article length filter may not take a new article in: nothing is promised.
-  if (scope.view === "starred" || scope.view === "muted" || scope.q || scope.length || scope.order === "oldest") return 0;
+  if (!showsPill(scope)) return 0;
   const count = (id: string): number => {
     const n = pending[id] ?? 0;
     if (!loaded || n === 0) return n;
@@ -496,7 +496,7 @@ function staleOffScreenLists(qc: QueryClient): void {
 }
 
 /** Whether a list of this scope shows the "n new" pill (see `pendingFor`). */
-export const showsPill = (scope: { view: string; q?: string; order?: string; length?: string }): boolean =>
+const showsPill = (scope: { view: string; q?: string; order?: string; length?: string }): boolean =>
   !(scope.view === "starred" || scope.view === "muted" || scope.q || scope.length || scope.order === "oldest");
 
 /**
