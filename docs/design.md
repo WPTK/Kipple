@@ -1648,6 +1648,8 @@ UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :ts_us [AND feed scop
 
 On the narrow table each changed row rewrites one small cell. This never produces stats. The response is `OK`.
 
+**Batches.** `store.MarkAllReadBatched` runs the two statements in batches: each selects its own rows (`WHERE id IN (SELECT id ... ORDER BY id LIMIT :batch)`, `MarkAllBatch` = 2000 per table) inside one gated write transaction, oldest first, and repeats until neither table fills a batch. The cutoff is fixed before the first batch and clamped to the committed maximum id, so an item a fetch commits between two batches is never reached and the end state is the one a single transaction would leave. Every batch is durable: a failure part-way leaves the earlier batches committed and a repeat finishes. `store.MarkAllRead` (one caller-supplied transaction, no batching) remains for callers that need one.
+
 ### 6.9 Subscriptions, folders, misc
 
 **`GET subscription/list`.** `output` is ignored; JSON is always returned.

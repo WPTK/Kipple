@@ -311,14 +311,55 @@ type MarkScope struct {
 	HoldPending string
 }
 
+// MarkAllBatch bounds the rows one batch of a mark-all-read changes in each table, so a write
+// transaction stays short (as AutoReadBatch and trimBatch).
+const MarkAllBatch = 2000
+
 // MarkAllRead marks unread items with id <= maxID read inside scope, and the
-// matching ledger rows (design §6.8). It returns the number of items changed.
+// matching ledger rows (design §6.8), all in tx. It returns the number of items
+// changed. MarkAllReadBatched is the same in bounded transactions.
 func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now int64) (int64, error) {
+	n, _, err := markAllReadBatch(ctx, tx, scope, maxID, now, -1)
+	return n, err
+}
+
+// MarkAllReadBatched is MarkAllRead in batches of at most MarkAllBatch rows per table, oldest
+// first, each its own transaction behind the commit gate (like a retention trim), so the writer is
+// never held for the whole scope and fetch commits interleave. It returns the number of items
+// changed. The cutoff is fixed before the first batch and never above the highest committed id (ids
+// are allocated inside the commit transaction, so nothing committed later is at or below it), which
+// makes the result the same as one transaction. Every batch is durable: when one fails the earlier
+// ones stay committed, and calling it again finishes the job.
+func (d *DB) MarkAllReadBatched(ctx context.Context, scope MarkScope, maxID, now int64) (int64, error) {
+	top, err := d.MaxCommittedID(ctx)
+	if err != nil {
+		return 0, err
+	}
+	maxID = min(maxID, top)
+	var total int64
+	for {
+		var more bool
+		n, err := d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
+			var n int64
+			var err error
+			n, more, err = markAllReadBatch(ctx, tx, scope, maxID, now, MarkAllBatch)
+			return n, err
+		})
+		total += n
+		if err != nil || !more {
+			return total, err
+		}
+	}
+}
+
+// markAllReadBatch marks at most limit unread items, and at most limit ledger rows, oldest first
+// (limit < 0: all of them). more is true when either table may hold more.
+func markAllReadBatch(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now int64, limit int) (n int64, more bool, err error) {
 	if scope.FolderTreeID != 0 {
-		return 0, errors.New("store: MarkAllRead takes a label's FolderID, not the web app's FolderTreeID")
+		return 0, false, errors.New("store: MarkAllRead takes a label's FolderID, not the web app's FolderTreeID")
 	}
 	where, feedWhere := "", ""
-	args := []any{sql.Named("ts", maxID), sql.Named("now", now)}
+	args := []any{sql.Named("ts", maxID), sql.Named("now", now), sql.Named("batch", limit)}
 	switch {
 	case scope.FeedID != 0:
 		feedWhere = " AND feed_id = :feed"
@@ -338,25 +379,31 @@ func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now in
 	if scope.HoldCut > 0 {
 		all, err := txFulltextAll(ctx, tx)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 		held = " AND NOT " + HeldSQL(all)
 		itemArgs = append(append([]any{}, args...), sql.Named("hold_cut", scope.HoldCut), sql.Named("pending", cmp.Or(scope.HoldPending, "[]")))
 	}
-	res, err := tx.ExecContext(ctx, "UPDATE items SET read = 1, read_at = :now, state_changed_at = :now WHERE read = 0 AND id <= :ts"+where+feedWhere+held, itemArgs...)
+	res, err := tx.ExecContext(ctx, "UPDATE items SET read = 1, read_at = :now, state_changed_at = :now WHERE id IN (SELECT id FROM items WHERE read = 0 AND id <= :ts"+where+feedWhere+held+" ORDER BY id LIMIT :batch)", itemArgs...)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0, err
+	if n, err = res.RowsAffected(); err != nil {
+		return 0, false, err
 	}
+	more = limit >= 0 && n == int64(limit)
 	if !scope.Starred {
-		if _, err := tx.ExecContext(ctx, "UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :ts"+feedWhere, args...); err != nil {
-			return n, err
+		res, err = tx.ExecContext(ctx, "UPDATE trimmed_items SET read = 1 WHERE id IN (SELECT id FROM trimmed_items WHERE read = 0 AND id <= :ts"+feedWhere+" ORDER BY id LIMIT :batch)", args...)
+		if err != nil {
+			return n, false, err
 		}
+		ln, err := res.RowsAffected()
+		if err != nil {
+			return n, false, err
+		}
+		more = more || (limit >= 0 && ln == int64(limit))
 	}
-	return n, nil
+	return n, more, nil
 }
 
 // MaxCommittedID is the highest committed item or ledger id, read on the
