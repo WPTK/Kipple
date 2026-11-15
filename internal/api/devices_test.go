@@ -168,6 +168,13 @@ func TestDeviceResolutionOrder(t *testing.T) {
 	bd := out["device"].(map[string]any)
 	require.Equal(t, "midnight", bd["merged"].(map[string]any)["ui.theme"])
 	require.Equal(t, "cards", bd["profile"].(map[string]any)["client.layout"])
+	// ... and it is what GET /api/device answers, built from the same settings the bootstrap carries.
+	_, dev, _ := d.call("GET", "/api/device", "")
+	for _, k := range []string{"id", "name", "profile", "merged"} {
+		require.Equal(t, dev[k], bd[k], k)
+	}
+	require.Equal(t, "linen", out["settings"].(map[string]any)["ui.theme"])
+	require.Equal(t, "linen", dev["defaults"].(map[string]any)["ui.theme"])
 	// GET /api/settings still reports the account default
 	_, out, _ = d.call("GET", "/api/settings", "")
 	require.Equal(t, "linen", vals(out)["ui.theme"])
