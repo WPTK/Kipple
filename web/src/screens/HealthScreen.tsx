@@ -26,6 +26,7 @@ import { CheckboxBox, Disclosure, Modal, Notice, Skeleton, inputCls } from "@/ui
 import { EmptyState } from "@/ui/EmptyState";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
+import { RevealMore, useReveal } from "@/lib/reveal";
 import { StatusChip } from "./StatusChip";
 import { RepairButtons } from "./FeedRepair";
 import { DeleteDialog, ToggleDialog } from "./feeds/BulkActions";
@@ -340,6 +341,10 @@ export function HealthScreen() {
   };
   const check = (id: string) => setSel((s) => toggleIn(s, id));
   const shownIds = useMemo(() => feeds.map((f) => f.id), [feeds]);
+  // A library of thousands of feeds draws its rows a step at a time, as the Feeds screen does (issue #463). Select all
+  // still takes every feed that matches the filter, drawn or not.
+  const reveal = useReveal(shownIds);
+  const drawn = useMemo(() => feeds.filter((f) => reveal.shown(f.id)), [feeds, reveal]);
   // A filter or search can hide feeds that are still ticked. Everything that counts or acts on the selection
   // uses only the ticked feeds still on screen, so a bulk Delete or Pause never touches a feed you can't see.
   const shownSel = useMemo(() => new Set(shownIds.filter((id) => sel.has(id))), [shownIds, sel]);
@@ -467,7 +472,7 @@ export function HealthScreen() {
           )}
         </div>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div data-reveal-root="" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {h.isPending ? <Skeleton rows={5} label="Loading feed health" /> : null}
         {h.isError ? (
           <Notice tone="error">
@@ -562,8 +567,8 @@ export function HealthScreen() {
                   </tr>
                 </thead>
                 <tbody>
-                  {feeds.map((f) => (
-                    <tr key={f.id} className="border-b border-line align-top">
+                  {drawn.map((f) => (
+                    <tr key={f.id} tabIndex={-1} data-reveal-key={f.id} className="border-b border-line align-top">
                       <td className="w-9 py-2 pr-1">
                         {selecting ? (
                           <CheckboxBox aria-label={`Select ${f.title}`} checked={sel.has(f.id)} onChange={() => check(f.id)} />
@@ -590,8 +595,8 @@ export function HealthScreen() {
               </table>
             ) : (
               <ul className="flex flex-col gap-2">
-                {feeds.map((f) => (
-                  <li key={f.id} className="rounded-xl border border-line bg-surface p-3">
+                {drawn.map((f) => (
+                  <li key={f.id} tabIndex={-1} data-reveal-key={f.id} className="rounded-xl border border-line bg-surface p-3">
                     <div className="flex items-start gap-2">
                       {/* The slot is there with Select off too, so the names do not move when it is turned on. */}
                       <div aria-hidden={selecting ? undefined : true} className="-my-1 -ml-2 flex w-11 shrink-0 justify-center">
@@ -624,6 +629,7 @@ export function HealthScreen() {
                 ))}
               </ul>
             )}
+                <RevealMore reveal={reveal} noun="feeds" />
               </>
             )}
             {d.reader_last_seen_at ? <p className="mt-4 text-xs text-fg2">A sync app was last seen {whenLabel(Math.min(d.reader_last_seen_at, Date.now() / 1000)).toLowerCase()}.</p> : null}
