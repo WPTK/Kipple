@@ -50,6 +50,7 @@ func TestDeletingFeedLeftOutOfCounts(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, per, a.FeedID)
 	require.EqualValues(t, 1, per[b.FeedID])
+	require.Len(t, per, 1, "only feeds with unread items are listed")
 
 	folders, err := e.db.UIFolders(ctx)
 	require.NoError(t, err)

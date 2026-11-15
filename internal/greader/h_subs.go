@@ -130,7 +130,9 @@ func (c *call) icon(rest string) {
 	c.w.Header().Set("Content-Type", ctype)
 	c.w.Header().Set("X-Content-Type-Options", "nosniff")
 	c.w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
-	c.w.Header().Set("Cache-Control", "public, max-age=86400")
+	// The path names the icon's bytes (<id>-<hash>-<mark>, and FeedIcon answers only for that hash), so a copy
+	// never goes stale: a changed icon gets a new address.
+	c.w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	c.w.WriteHeader(http.StatusOK)
 	_, _ = c.w.Write(data)
 }
