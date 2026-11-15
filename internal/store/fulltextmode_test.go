@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strconv"
@@ -226,10 +225,8 @@ func TestFulltextAllHold(t *testing.T) {
 	require.EqualValues(t, 1, unread())
 
 	// Mark-all-as-read skips the held item too.
-	require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := MarkAllRead(ctx, tx, MarkScope{FeedID: feed, HoldCut: 1, HoldPending: e.db.HoldPending()}, 1<<62, e.clk.Now().Unix())
-		return err
-	}))
+	_, err := e.db.MarkAllReadBatched(e.ctx, MarkScope{FeedID: feed, HoldCut: 1, HoldPending: e.db.HoldPending()}, 1<<62, e.clk.Now().Unix())
+	require.NoError(t, err)
 	require.Equal(t, 1, e.count("SELECT read FROM items WHERE id = ?", b))
 	require.Equal(t, 0, e.count("SELECT read FROM items WHERE id = ?", a))
 

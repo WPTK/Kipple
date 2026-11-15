@@ -131,10 +131,8 @@ func TestStateChangedAtIngestAndItemState(t *testing.T) {
 
 	// Mark-all touches only what it flips: the rule-read item keeps NULL, p(2) (unread) is marked.
 	t6 := step()
-	e.write(func(ctx context.Context, tx *sql.Tx) error {
-		_, err := MarkAllRead(ctx, tx, MarkScope{FeedID: fid}, math.MaxInt64, t6)
-		return err
-	})
+	_, err := e.db.MarkAllReadBatched(e.ctx, MarkScope{FeedID: fid}, math.MaxInt64, t6)
+	require.NoError(t, err)
 	require.Equal(t, t6, e.sca(p(2)))
 	require.Equal(t, t6, e.sca(p(5)))
 	require.Zero(t, e.sca(e.idByTitle("readme 1")), "already read: untouched")
