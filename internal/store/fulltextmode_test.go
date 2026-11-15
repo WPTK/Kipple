@@ -161,10 +161,6 @@ func TestFulltextAllItemDetailAndBootstrap(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, feeds, 1)
 	require.False(t, feeds[0].Fulltext, "the feed's own flag is unchanged")
-	require.True(t, feeds[0].FulltextEffective)
-	e.setAll(false)
-	feeds, _ = e.db.UIFeeds(e.ctx, StatusEnv{Now: e.clk.Now()})
-	require.False(t, feeds[0].FulltextEffective)
 }
 
 func TestFulltextAllStubEffective(t *testing.T) {

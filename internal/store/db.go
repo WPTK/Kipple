@@ -269,7 +269,10 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 	d.reader.SetMaxOpenConns(readerConns)
 	d.reader.SetMaxIdleConns(readerConns)
 	d.reader.SetConnMaxIdleTime(0)
-	d.reader.SetConnMaxLifetime(0)
+	// A connection loads sqlite_stat1 only when it reads the schema, and ANALYZE on the writer does not change the
+	// schema cookie once the statistics tables exist, so a query_only reader never sees the nightly PRAGMA optimize.
+	// Recycling a reader a day after it opened makes it load the statistics current at that moment.
+	d.reader.SetConnMaxLifetime(24 * time.Hour)
 	if err := d.reader.PingContext(ctx); err != nil {
 		d.writer.Close()
 		d.reader.Close()
