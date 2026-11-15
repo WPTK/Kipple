@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"runtime/debug"
-	"strings"
 	"time"
 
+	"github.com/WPTK/kipple/internal/feedurl"
 	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/store"
 )
@@ -61,8 +60,9 @@ func answeredByFeedHost(hops []fetch.Hop, host string) bool {
 	if len(hops) == 0 {
 		return true
 	}
-	u, err := url.Parse(hops[len(hops)-1].To)
-	return err == nil && strings.EqualFold(u.Hostname(), host)
+	// The host is derived as feeds.host is (feedurl.Host), so both sides are spelled the same way.
+	h, err := feedurl.Host(hops[len(hops)-1].To)
+	return err == nil && h == host
 }
 
 func (s *Scheduler) exec(f *flight) (out result) {
