@@ -449,9 +449,10 @@ func (s *Scheduler) handleRun(req runReq) {
 			reply(runReply{err: err})
 			return
 		}
-		for _, snap := range all {
-			if snap.Enabled {
-				snaps = append(snaps, snap)
+		snaps = all[:0] // filtered in place: all is this call's own slice and is not read again
+		for i := range all {
+			if all[i].Enabled {
+				snaps = append(snaps, all[i])
 			}
 		}
 	default:
@@ -461,11 +462,12 @@ func (s *Scheduler) handleRun(req runReq) {
 			reply(runReply{err: err})
 			return
 		}
-		for _, snap := range all {
-			if req.kind == RunRetention && !req.all && snap.Retention != -1 {
+		snaps = all[:0] // filtered in place, as above
+		for i := range all {
+			if req.kind == RunRetention && !req.all && all[i].Retention != -1 {
 				continue
 			}
-			snaps = append(snaps, snap)
+			snaps = append(snaps, all[i])
 		}
 	}
 
@@ -473,7 +475,8 @@ func (s *Scheduler) handleRun(req runReq) {
 	run := &Run{ID: s.lastRunID, Kind: req.kind}
 	now := s.clk.Now()
 	var toEnqueue []*flight
-	for _, snap := range snaps {
+	for i := range snaps {
+		snap := &snaps[i]
 		if f, busy := s.flights[snap.ID]; busy {
 			run.Outstanding++
 			if runSatisfied(f, req.kind) {
@@ -655,22 +658,21 @@ func isPersonRefresh(p Priority) bool {
 }
 
 // newRunFlight builds the job a run uses for one feed.
-func (s *Scheduler) newRunFlight(run *Run, runKind string, snap fetch.Snapshot, now time.Time) *flight {
-	f := &flight{runs: []*Run{run}}
+func (s *Scheduler) newRunFlight(run *Run, runKind string, snap *fetch.Snapshot, now time.Time) *flight {
+	f := &flight{snap: *snap, runs: []*Run{run}}
 	switch runKind {
 	case RunRetention:
-		snap.Trigger, f.kind = fetch.TriggerRetention, kindTrim
+		f.snap.Trigger, f.kind = fetch.TriggerRetention, kindTrim
 	default:
-		snap.Trigger = fetch.TriggerManual
+		f.snap.Trigger = fetch.TriggerManual
 		if runKind == RunImport {
-			snap.Trigger = fetch.TriggerImport
+			f.snap.Trigger = fetch.TriggerImport
 		}
 		f.kind = kindFetch
 		if t, held := s.hostUntil[snap.Host]; held && t.After(now) {
-			f.kind, snap.HostUntil = kindSkip, t
+			f.kind, f.snap.HostUntil = kindSkip, t
 		}
 	}
-	f.snap = snap
 	return f
 }
 
@@ -692,7 +694,7 @@ func (s *Scheduler) runFollowup(rf runFollow) {
 		}
 		return
 	}
-	s.enqueue(s.newRunFlight(rf.run, rf.kind, snap, s.clk.Now()))
+	s.enqueue(s.newRunFlight(rf.run, rf.kind, &snap, s.clk.Now()))
 }
 
 // settleRunFeed closes one feed of a run without a job.
