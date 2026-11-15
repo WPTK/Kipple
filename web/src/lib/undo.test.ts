@@ -57,6 +57,18 @@ describe("undo toast", () => {
     expect(toast()).toBe("Marked read");
   });
 
+  it("merges a very large id list in first-seen order without a quadratic scan", () => {
+    vi.useRealTimers();
+    const ids = Array.from({ length: 40_000 }, (_, i) => String(i));
+    const undo = vi.fn();
+    const ticket = beginUndo("read", { bulk: true });
+    const t0 = performance.now();
+    ticket.settle({ ids: [...ids, "0", "1"], undo });
+    expect(performance.now() - t0).toBeLessThan(500);
+    void undoToast();
+    expect(undo).toHaveBeenCalledWith(ids);
+  });
+
   it("lasts 15 seconds and each merge restarts the clock", () => {
     read(["1"]);
     vi.advanceTimersByTime(TOAST_MS - 1);

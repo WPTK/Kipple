@@ -101,8 +101,8 @@ func (h *Hub) Publish(typ string, data any) {
 func eventSize(ev Event) int { return len(ev.Data) + len(ev.Type) + 48 }
 
 // Subscribe registers a subscriber. With lastID > 0 the events after it are
-// replayed from the ring; when the ring no longer reaches back that far, or the
-// replay would overflow the buffer, the subscriber gets a `resync` instead.
+// replayed from the ring; when the ring no longer reaches back that far the
+// subscriber gets a `resync` instead.
 // It returns nil when MaxSubscribers streams are already open.
 func (h *Hub) Subscribe(lastID uint64) *Sub {
 	h.mu.Lock()
@@ -110,31 +110,36 @@ func (h *Hub) Subscribe(lastID uint64) *Sub {
 	if !h.closed && len(h.subs) >= MaxSubscribers {
 		return nil
 	}
-	s := &Sub{C: make(chan Event, subBuffer), hub: h}
 	if h.closed {
+		s := &Sub{C: make(chan Event), hub: h, dead: true}
 		close(s.C)
-		s.dead = true
 		return s
 	}
+	// The ring's events after the client's cursor are replayed in full: the subscriber's buffer is sized to hold
+	// them with a whole live buffer on top, so the bound on a replay is the ring (ringSize, ringBytes).
+	var replay []Event
+	resync := false
 	if lastID > h.seq {
 		// the client remembers an id from a previous process (or the future):
 		// nothing can be replayed, so make it refetch
-		s.C <- Event{ID: h.seq, Type: "resync", Data: json.RawMessage("{}")}
+		resync = true
 	} else if lastID > 0 && lastID < h.seq {
-		var replay []Event
-		for _, ev := range h.ring {
-			if ev.ID > lastID {
-				replay = append(replay, ev)
+		if len(h.ring) > 0 && h.ring[0].ID <= lastID+1 {
+			for _, ev := range h.ring {
+				if ev.ID > lastID {
+					replay = append(replay, ev)
+				}
 			}
-		}
-		covered := len(h.ring) > 0 && h.ring[0].ID <= lastID+1
-		if !covered || len(replay) >= subBuffer {
-			s.C <- Event{ID: h.seq, Type: "resync", Data: json.RawMessage("{}")}
 		} else {
-			for _, ev := range replay {
-				s.C <- ev
-			}
+			resync = true
 		}
+	}
+	s := &Sub{C: make(chan Event, subBuffer+len(replay)), hub: h}
+	if resync {
+		s.C <- Event{ID: h.seq, Type: "resync", Data: json.RawMessage("{}")}
+	}
+	for _, ev := range replay {
+		s.C <- ev
 	}
 	h.subs[s] = struct{}{}
 	return s

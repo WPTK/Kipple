@@ -339,7 +339,22 @@ export function applyCounts(qc: QueryClient, c: CountsEvent): void {
   });
 }
 
-let countsRefetch: ReturnType<typeof setTimeout> | undefined;
+let countsTimer: ReturnType<typeof setTimeout> | undefined;
+/** The newest `counts` event that arrived inside the guard window; applied once the window is over. */
+let countsHeld: CountsEvent | undefined;
+
+/** Apply the held `counts` event once no guard window is open (a later bump moves the window on). */
+function applyHeldCounts(qc: QueryClient): void {
+  countsTimer = undefined;
+  if (!countsHeld) return;
+  const left = countsGuardLeft();
+  if (left > 0) {
+    countsTimer = setTimeout(() => applyHeldCounts(qc), left + 50);
+    return;
+  }
+  applyCounts(qc, countsHeld);
+  countsHeld = undefined;
+}
 
 export { SAVED_COUNTS_MIN_MS, resetSavedSearchCounts };
 
@@ -350,8 +365,11 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
   // A run.done for a run a status poll already ended finds it in `finished`: it does nothing a second time.
   const already = ev.type === "run.done" && !!liveStore.get().finished[String(ev.data.run_id)];
   liveStore.set((s) => reduceEvent(s, ev, id));
-  // The Feed index shows each feed's newest articles with their read state: whatever moves a count or a feed makes it stale.
-  if (ev.type === "items.state" || ev.type === "counts" || ev.type === "feed.changed" || ev.type === "resync") void qc.invalidateQueries({ queryKey: keys.feedsLatest });
+  // The Feed index shows each feed's newest articles with their read state. Read and starred changes are patched in
+  // place below (patchItems). What changes which articles a feed shows asks for the index again: a mute or an
+  // un-mute, a restored article, a changed feed, a gap in the stream. A `counts` event changes no headline.
+  const headlines = ev.type === "items.state" ? ev.data.muted !== undefined || (ev.data.restored?.length ?? 0) > 0 : ev.type === "feed.changed" || ev.type === "resync";
+  if (headlines) void qc.invalidateQueries({ queryKey: keys.feedsLatest });
   switch (ev.type) {
     case "items.state": {
       const { ids, read, starred, muted } = ev.data;
@@ -384,16 +402,16 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
     case "counts": {
       refreshSavedSearchCounts(qc);
       // An event already in flight when the user opened an item carries the old numbers and would undo the
-      // optimistic bump. Inside the window, skip it and refetch the truth once the window is over.
+      // optimistic bump. Inside the window, hold the newest one and apply it once the window is over: the server
+      // publishes `counts` after every state write, so the last one held counts the write that opened the window.
       const left = countsGuardLeft();
       if (left > 0) {
-        if (!countsRefetch) {
-          countsRefetch = setTimeout(() => {
-            countsRefetch = undefined;
-            void qc.invalidateQueries({ queryKey: keys.bootstrap });
-          }, left + 50);
-        }
-      } else applyCounts(qc, ev.data);
+        countsHeld = ev.data;
+        if (!countsTimer) countsTimer = setTimeout(() => applyHeldCounts(qc), left + 50);
+      } else {
+        countsHeld = undefined;
+        applyCounts(qc, ev.data);
+      }
       break;
     }
     case "folder.changed":

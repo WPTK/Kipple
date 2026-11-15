@@ -228,8 +228,7 @@ func TestSubscribeAtBootstrapIDReplaysTheGap(t *testing.T) {
 	require.Equal(t, "e", (<-s.C).Type)
 }
 
-// A cursor up to subBuffer-1 events behind replays all of them; from subBuffer events behind the replay would not
-// fit the subscriber's buffer, so the subscriber gets a resync instead (the next test).
+// A cursor up to subBuffer-1 events behind replays all of them.
 func TestSubscribeReplaysALongGapWithinTheRing(t *testing.T) {
 	h := newHub()
 	h.Publish("e", 0)
@@ -241,13 +240,32 @@ func TestSubscribeReplaysALongGapWithinTheRing(t *testing.T) {
 	require.Len(t, s.C, subBuffer-1)
 }
 
-// The bound on a replay is the subscriber buffer (subBuffer), not the 500-event ring: a gap of subBuffer events
-// gets one resync and no replay.
-func TestSubscribeWithAGapOfTheBufferSizeGetsAResyncNotAReplay(t *testing.T) {
+// The bound on a replay is the ring, not the subscriber buffer: a gap of subBuffer events or more is replayed in
+// full, and the subscriber still has a whole live buffer after it.
+func TestSubscribeWithAGapOfTheBufferSizeGetsAReplay(t *testing.T) {
 	h := newHub()
 	h.Publish("e", 0)
 	boot := h.LastID()
 	for i := range subBuffer {
+		h.Publish("e", i)
+	}
+	s := h.Subscribe(boot)
+	require.Len(t, s.C, subBuffer)
+	for range subBuffer {
+		require.Equal(t, "e", (<-s.C).Type)
+	}
+	for i := range subBuffer {
+		h.Publish("live", i)
+	}
+	require.Len(t, s.C, subBuffer)
+}
+
+// A gap the ring no longer reaches gets one resync and no replay.
+func TestSubscribeWithAGapPastTheRingGetsAResync(t *testing.T) {
+	h := newHub()
+	h.Publish("e", 0)
+	boot := h.LastID()
+	for i := range ringSize + 10 {
 		h.Publish("e", i)
 	}
 	s := h.Subscribe(boot)

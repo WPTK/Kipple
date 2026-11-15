@@ -603,7 +603,7 @@ describe("hung-stream watchdog", () => {
 });
 
 describe("counts events versus optimistic bumps", () => {
-  it("a stale counts event right after a local bump is skipped, then the truth is refetched", async () => {
+  it("a stale counts event right after a local bump is held, then applied once the window is over", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     try {
       resetCountsGuard();
@@ -619,13 +619,37 @@ describe("counts events versus optimistic bumps", () => {
       const stale = { type: "counts", data: { unread_total: 3, feeds: { "1": 3 } } } as unknown as ServerEvent;
       handleServerEvent(qc, stale);
       expect((qc.getQueryData(keys.bootstrap) as typeof boot).counts.unread).toBe(2);
+      const newer = { type: "counts", data: { unread_total: 2, feeds: { "1": 2 } } } as unknown as ServerEvent;
+      handleServerEvent(qc, newer); // the newest held event wins
+      expect((qc.getQueryData(keys.bootstrap) as typeof boot).counts.unread).toBe(2);
       await vi.advanceTimersByTimeAsync(2_000);
-      expect(inval).toHaveBeenCalledWith({ queryKey: keys.bootstrap });
+      expect(inval).not.toHaveBeenCalledWith({ queryKey: keys.bootstrap });
       // Outside the window an event applies as before.
       handleServerEvent(qc, { type: "counts", data: { unread_total: 1, feeds: { "1": 1 } } } as unknown as ServerEvent);
       expect((qc.getQueryData(keys.bootstrap) as typeof boot).counts.unread).toBe(1);
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("Feed index refresh on events", () => {
+  const refreshes = (ev: unknown) => {
+    const qc = new QueryClient();
+    const inval = vi.spyOn(qc, "invalidateQueries");
+    handleServerEvent(qc, ev as ServerEvent);
+    return inval.mock.calls.some(([f]) => JSON.stringify(f?.queryKey) === JSON.stringify(keys.feedsLatest));
+  };
+  it("leaves the index alone for a read, starred or counts event", () => {
+    expect(refreshes({ type: "items.state", data: { ids: ["1"], read: true, source: "web" } })).toBe(false);
+    expect(refreshes({ type: "items.state", data: { ids: ["1"], starred: true, source: "web" } })).toBe(false);
+    expect(refreshes({ type: "counts", data: { unread_total: 1, feeds: {} } })).toBe(false);
+  });
+  it("refreshes it when which articles a feed shows changes", () => {
+    expect(refreshes({ type: "items.state", data: { ids: ["1"], muted: true, source: "web" } })).toBe(true);
+    expect(refreshes({ type: "items.state", data: { ids: ["1"], muted: false, source: "web" } })).toBe(true);
+    expect(refreshes({ type: "items.state", data: { ids: ["1"], read: false, restored: ["1"], source: "web" } })).toBe(true);
+    expect(refreshes({ type: "feed.changed", data: {} })).toBe(true);
+    expect(refreshes({ type: "resync", data: {} })).toBe(true);
   });
 });

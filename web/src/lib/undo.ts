@@ -142,7 +142,12 @@ function newGroup(kind: UndoKind, bulk: boolean): Group {
 }
 
 function addChange(g: Group, change: UndoChange, onStack: boolean): void {
-  for (const id of change.ids) if (!g.ids.includes(id)) g.ids.push(id);
+  const have = new Set(g.ids);
+  for (const id of change.ids) {
+    if (have.has(id)) continue;
+    have.add(id);
+    g.ids.push(id);
+  }
   // Merged actions share the first closure, so it must act on the ids it is handed.
   g.undo ??= change.undo;
   if (change.restore) g.restores.push(change.restore);
