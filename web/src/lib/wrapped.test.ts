@@ -11,6 +11,7 @@ import {
   wrappedLines,
   wrappedText,
   yearRange,
+  yearQuery,
   yearSpan,
   TOP_SOURCES,
   type WrappedModel,
@@ -113,6 +114,14 @@ describe("years", () => {
   it("spans the whole past year and the current one up to today", () => {
     expect(yearSpan(2025, "2026-09-26")).toEqual({ from: "2025-01-01", to: "2025-12-31" });
     expect(yearSpan(2026, "2026-09-26")).toEqual({ from: "2026-01-01", to: "2026-09-26" });
+  });
+  it("asks for the current year with no end, so the server picks its own today", () => {
+    expect(yearQuery(2026, "2026-09-26")).toEqual({ from: "2026-01-01" });
+    expect(yearQuery(2025, "2026-09-26")).toEqual({ from: "2025-01-01", to: "2025-12-31" });
+  });
+  it("counts history days to the server's end date when it is earlier than the browser's today", () => {
+    const d = deriveWrapped({ ...base, first_event_date: "2026-09-22", range: { key: "year", from: "2026-01-01", to: "2026-09-26", days: 269 } }, 2026, "2026-09-27");
+    expect(d.historyDays).toBe(5);
   });
 });
 

@@ -281,7 +281,7 @@ func TestStatsExportBadRequests(t *testing.T) {
 	h := newHarness(t)
 	for _, q := range []string{
 		"?format=xml", "?format=CSV", "?content=all", "?content=summary&format=csv", "?content=summary&format=jsonl",
-		"?titles=2", "?titles=yes", "?range=decade", "?from=2026-09-01", "?to=2026-09-01", "?from=2026-09-09&to=2026-09-01",
+		"?titles=2", "?titles=yes", "?range=decade", "?from=2026-09-26", "?to=2026-09-01", "?from=2026-09-09&to=2026-09-01",
 		"?from=nope&to=2026-09-01", "?from=2000-01-01&to=2026-09-01",
 	} {
 		rec := h.export(q)
