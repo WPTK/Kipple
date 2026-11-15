@@ -1,1 +1,1 @@
-Reading time and the reading-length filters now count the words of the text you are shown: the stored full-text extraction when full text is on for an article, the feed's own text otherwise. Feeds that publish short excerpts of long articles no longer land in "Under 3 minutes".
+Reading time and the reading-length filters count the text shown: the full-text extraction when full text is on for the article, the feed's own text otherwise.

@@ -438,3 +438,103 @@ func TestReadingLengthFollowsShownText(t *testing.T) {
 	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE read = 1"))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE read = 1 AND id = "+strconv.FormatInt(a, 10)))
 }
+
+// readLists is a test helper: the ids of an "all" list with the given reading filter, plain or as a search.
+func (e *env) readLists(t *testing.T, q CardQuery) (plain, search []int64) {
+	t.Helper()
+	q.View, q.Limit = "all", 10
+	cards, _, err := e.db.ListCards(e.ctx, q)
+	require.NoError(t, err)
+	for _, c := range cards {
+		plain = append(plain, c.ID)
+	}
+	q.Query = "title "
+	cards, _, _, err = e.db.ListCardsFB(e.ctx, q)
+	require.NoError(t, err)
+	for _, c := range cards {
+		search = append(search, c.ID)
+	}
+	return plain, search
+}
+
+// The extraction's count is used only where the reader shows the extraction: an item forced off keeps the feed's
+// count, an item forced on counts the extraction even on a feed with full text off, and fetch.fulltext_all applies
+// to every item that is not forced off. The plain list and the search list agree in each case.
+func TestReadingLengthFollowsEffectiveMode(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	feed, a, b := ftFixture(t, e, false) // feed full text off; a has no mode, b is forced off
+	e.exec("UPDATE items SET word_count = 40 WHERE feed_id = ?", feed)
+	for _, id := range []int64{a, b} {
+		e.exec("INSERT INTO item_fulltext (item_id, content_html, content_text, word_count, extracted_at) VALUES (?, '<p>long</p>', 'long', 3000, 1)", id)
+	}
+	long := CardQuery{MinMinutes: 8}
+	short := CardQuery{MaxMinutes: 1}
+	both := func(q CardQuery, want ...int64) {
+		t.Helper()
+		plain, search := e.readLists(t, q)
+		require.ElementsMatch(t, want, plain)
+		require.ElementsMatch(t, want, search)
+	}
+
+	// Full text off everywhere: both items show the feed's 40 words.
+	both(long)
+	both(short, a, b)
+
+	// An item forced on counts its extraction although its feed has full text off.
+	e.exec("UPDATE items SET fulltext_mode = 1 WHERE id = ?", a)
+	both(long, a)
+	both(short, b)
+
+	// An item forced off keeps the feed's count even with a successful extraction, and under the global switch.
+	e.exec("UPDATE items SET fulltext_mode = NULL WHERE id = ?", a)
+	e.setAll(true)
+	both(long, a)
+	both(short, b)
+	e.setAll(false)
+	both(long)
+	both(short, a, b)
+
+	// The card's own count and minutes follow the same rule in a search.
+	e.exec("UPDATE items SET fulltext_mode = 1 WHERE id = ?", a)
+	cards, _, _, err := e.db.ListCardsFB(e.ctx, CardQuery{View: "all", Query: "title ", Limit: 10})
+	require.NoError(t, err)
+	words := map[int64]int64{}
+	for _, c := range cards {
+		words[c.ID] = c.WordCount
+	}
+	require.Equal(t, map[int64]int64{a: 3000, b: 40}, words)
+}
+
+// An item with no feed words but a successful extraction is not "unknown length", and an item whose feed text
+// has words but whose extraction counted none is.
+func TestUnknownLengthFollowsShownText(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	feed, a, b := ftFixture(t, e, true)
+	e.exec("UPDATE items SET fulltext_mode = NULL WHERE feed_id = ?", feed)
+	unknown := func(want ...int64) {
+		t.Helper()
+		plain, search := e.readLists(t, CardQuery{UnknownLength: true})
+		require.ElementsMatch(t, want, plain)
+		require.ElementsMatch(t, want, search)
+	}
+
+	// Feed text of 40 words and an extraction of 3000: the length is known.
+	e.exec("UPDATE items SET word_count = 40 WHERE feed_id = ?", feed)
+	e.exec("INSERT INTO item_fulltext (item_id, content_html, content_text, word_count, extracted_at) VALUES (?, '<p>long</p>', 'long', 3000, 1)", a)
+	unknown()
+
+	// A feed text with no words and an extraction of 3000: still known.
+	e.exec("UPDATE items SET word_count = 0 WHERE id = ?", a)
+	unknown()
+
+	// Feed text of 40 words and a successful extraction with none: the reader shows no text, so unknown.
+	e.exec("UPDATE items SET word_count = 40 WHERE id = ?", b)
+	e.exec("INSERT INTO item_fulltext (item_id, content_html, content_text, word_count, extracted_at) VALUES (?, '<p></p>', '', 0, 1)", b)
+	unknown(b)
+
+	// Full text off: both show the feed's own text, so a (no words) is unknown and b is not.
+	e.exec("UPDATE feeds SET fulltext = 0 WHERE id = ?", feed)
+	unknown(a)
+}

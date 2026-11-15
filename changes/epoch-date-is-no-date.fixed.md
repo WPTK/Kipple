@@ -1,1 +1,1 @@
-A feed date at the unix epoch (what some publishers write for a missing date) is now treated as no date in every time zone it is written in, instead of sorting those articles to the bottom of every list.
+Feeds: an article dated 1 January 1970, in any time zone, counts as having no date, for articles fetched from then on; stored articles keep their date.

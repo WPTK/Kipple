@@ -114,6 +114,8 @@ func TestOrderQueryPlans(t *testing.T) {
 				{"muted", CardQuery{View: "muted"}, "idx_items_muted"},
 				{"muted in a feed", CardQuery{View: "muted", FeedID: 2}, "idx_items_"},
 				{"reading time", CardQuery{View: "unread", MinMinutes: 2, MaxMinutes: 9}, "idx_items_unread_sort"},
+				{"long reads", CardQuery{View: "unread", MinMinutes: 8}, "idx_items_unread_sort"},
+				{"long reads in a feed", CardQuery{View: "all", FeedID: 2, MinMinutes: 8}, "idx_items_feed_sort"},
 			} {
 				q := tc.q
 				q.Oldest, q.Cursor, q.Limit = oldest, cur, 30
@@ -143,10 +145,12 @@ func TestOrderQueryPlans(t *testing.T) {
 			for _, above := range []bool{false, true} {
 				b := &Bound{Oldest: oldest, Above: above, SortAt: 100, ID: 1_700_000_000_100_000}
 				for _, sc := range []MarkScope{{}, {FeedID: 2}, {FolderTreeID: 7}, {Starred: true}, {Muted: true}} {
-					sel, args, _, _ := markSelectSQL(sc, MarkFilter{Bound: b}, 1_700_000_000_900_000, "", false, false)
-					p := plan(sel, args)
-					require.NotContains(t, p, "SCAN items\n", "%+v oldest=%v above=%v analyze=%v\n%s", sc, oldest, above, analyze, p)
-					require.Contains(t, p, "idx_items_", "%+v\n%s", sc, p)
+					for _, f := range []MarkFilter{{Bound: b}, {Bound: b, MinMinutes: 8}} {
+						sel, args, _, _ := markSelectSQL(sc, f, 1_700_000_000_900_000, "", false, false)
+						p := plan(sel, args)
+						require.NotContains(t, p, "SCAN items\n", "%+v %+v oldest=%v above=%v analyze=%v\n%s", sc, f, oldest, above, analyze, p)
+						require.Contains(t, p, "idx_items_", "%+v\n%s", sc, p)
+					}
 				}
 			}
 		}
