@@ -286,7 +286,9 @@ func itemParts(r *store.ContentRow) (itemHead, summaryJSON, itemTail) {
 	}
 }
 
-// truncateUTF8 cuts s to at most max bytes without splitting a rune.
+// truncateUTF8 cuts s to at most max bytes without splitting a rune or a tag. s is sanitizer output, where a literal
+// '<' only opens a tag and a literal '>' only closes one (text and attribute values are escaped), so a '<' after
+// the last '>' means the cut fell inside a tag: the cut moves back to that '<'.
 func truncateUTF8(s string, max int) string {
 	if len(s) <= max {
 		return s
@@ -294,6 +296,9 @@ func truncateUTF8(s string, max int) string {
 	cut := max
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
+	}
+	if open := strings.LastIndexByte(s[:cut], '<'); open > strings.LastIndexByte(s[:cut], '>') {
+		cut = open
 	}
 	return s[:cut]
 }
