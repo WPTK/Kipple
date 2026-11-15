@@ -249,31 +249,28 @@ func (d *DB) commitChunk(ctx context.Context, res *fetch.Result, ch []fetch.Item
 // oldestFirst orders items by published ascending, ties by reverse document
 // order; items without a date sort last (they are stamped with crawl time).
 func oldestFirst(in []fetch.Item) []fetch.Item {
-	type ent struct {
-		it  fetch.Item
-		idx int
+	idx := make([]int, len(in))
+	for i := range idx {
+		idx[i] = i
 	}
-	es := make([]ent, len(in))
-	for i, it := range in {
-		es[i] = ent{it, i}
-	}
-	sort.SliceStable(es, func(a, b int) bool {
-		pa, pb := es[a].it.Published, es[b].it.Published
+	sort.SliceStable(idx, func(a, b int) bool {
+		ia, ib := idx[a], idx[b]
+		pa, pb := in[ia].Published, in[ib].Published
 		switch {
 		case pa == nil && pb == nil:
-			return es[a].idx > es[b].idx
+			return ia > ib
 		case pa == nil:
 			return false
 		case pb == nil:
 			return true
 		case pa.Equal(*pb):
-			return es[a].idx > es[b].idx
+			return ia > ib
 		}
 		return pa.Before(*pb)
 	})
 	out := make([]fetch.Item, len(in))
-	for i, e := range es {
-		out[i] = e.it
+	for i, j := range idx {
+		out[i] = in[j]
 	}
 	return out
 }
@@ -440,8 +437,8 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, items []fetch.Item, single bool, now int64, st *commitState, pre *preEval) error {
 	feedID := res.Snap.ID
 	uids := make([]string, len(items))
-	for i, it := range items {
-		uids[i] = it.UID
+	for i := range items {
+		uids[i] = items[i].UID
 	}
 	uidJSON, err := jsonText(uids)
 	if err != nil {
@@ -481,7 +478,8 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 
 	var fresh []fetch.Item
 	var seenTomb []string
-	for _, it := range items {
+	for i := range items {
+		it := &items[i]
 		switch e, ok := existing[it.UID]; {
 		case tomb[it.UID]:
 			seenTomb = append(seenTomb, it.UID)
@@ -493,7 +491,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 				st.updated++
 			}
 		default:
-			fresh = append(fresh, it)
+			fresh = append(fresh, *it)
 		}
 	}
 
@@ -538,7 +536,8 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		defer insContent.Close()
 
 		counted, inserted := len(st.unreadNew), len(st.newIDs)
-		for _, it := range fresh {
+		for i := range fresh {
+			it := &fresh[i]
 			id := d.alloc.Next()
 			crawl := id / 1_000_000
 			pub := crawl
@@ -649,7 +648,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 	return nil
 }
 
-func updateItem(ctx context.Context, tx *sql.Tx, e existingRow, it fetch.Item, now int64) error {
+func updateItem(ctx context.Context, tx *sql.Tx, e existingRow, it *fetch.Item, now int64) error {
 	sets := []string{"content_hash = ?", "text_hash = ?"}
 	args := []any{it.ContentHash, it.TextHash}
 	if it.Title != e.title {
@@ -820,7 +819,7 @@ func carryAltUIDs(ctx context.Context, tx *sql.Tx, feedID int64, res *fetch.Resu
 			}
 			st.rekeyed++
 			if e.contentHash != it.ContentHash {
-				if err := updateItem(ctx, tx, e, it, now); err != nil {
+				if err := updateItem(ctx, tx, e, &it, now); err != nil {
 					return nil, err
 				}
 				st.updated++
