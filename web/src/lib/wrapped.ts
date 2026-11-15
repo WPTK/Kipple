@@ -67,6 +67,11 @@ export function yearSpan(year: number, today = todayString()): { from: string; t
   return { from: `${year}-01-01`, to };
 }
 
+/** The query for a year's summary: the whole year, or from January 1 with no end for the current one, so the server ends it at its own today. */
+export function yearQuery(year: number, today = todayString()): { from: string; to?: string } {
+  return currentYear(today) === year ? { from: `${year}-01-01` } : yearSpan(year, today);
+}
+
 // ---- Model ------------------------------------------------------------------------------------------------------
 
 export interface WrappedModel {
@@ -141,6 +146,8 @@ export function deriveWrapped(data: StatsSummary, year: number, today = todayStr
   const hour = b ? (b.busiest_hour?.hour ?? null) : cells.length ? by((c) => c.hour) : null;
   const t = data.totals;
   const span = yearSpan(year, today);
+  // The server's end date for the range (its stats time zone, never past the year) wins over the browser's today.
+  const end = data.range?.to ?? span.to;
   const start = data.first_event_date && data.first_event_date > span.from ? data.first_event_date : span.from;
   const topSources = [...(data.sources ?? [])]
     .filter((s) => s.items_read > 0)
@@ -160,7 +167,7 @@ export function deriveWrapped(data: StatsSummary, year: number, today = todayStr
     avgReadSeconds: b?.avg_read_seconds ?? null,
     topSources,
     longestRead: l ? { title: l.title, feed: l.feed_title, seconds: l.seconds } : null,
-    historyDays: Math.max(1, daysBetween(start, span.to) + 1),
+    historyDays: Math.max(1, daysBetween(start, end) + 1),
     empty: !t || (t.items_read === 0 && t.opens === 0 && t.active_seconds === 0),
   };
 }
