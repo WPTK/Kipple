@@ -141,7 +141,7 @@ type Options struct {
 	// does not count.
 	Timeout     time.Duration
 	Concurrency int           // 8 simultaneous upstream fetches
-	PerHost     int           // 4 of them to one host
+	PerHost     int           // 4 of them to one site
 	Wait        time.Duration // 10 s queueing for a slot
 	// RevalidateWithin bounds how long a stale cached image may wait for its
 	// source to answer a conditional request before the stale copy is served (3 s).

@@ -71,6 +71,11 @@ func PageURL(siteURL, feedURL string) (string, error) {
 // Lookup finds an icon for the request's site. The error of the last attempt
 // is returned when no candidate yields a usable icon.
 func Lookup(ctx context.Context, r Request) (Icon, error) {
+	if r.Transport == nil {
+		// http.Client sends through http.DefaultTransport when Transport is nil: no dial guard, and the
+		// environment's proxy. A lookup without the guarded transport is refused.
+		return Icon{}, errors.New("favicon: no transport")
+	}
 	page, err := PageURL(r.SiteURL, r.FeedURL)
 	if err != nil {
 		return Icon{}, err

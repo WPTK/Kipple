@@ -1,6 +1,9 @@
 package fetch
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 // Guard returns the guarded transport for a set of per-feed network exceptions
 // (Client.Transport).
@@ -37,11 +40,27 @@ func HasScope(feedHost string, allowPrivate, insecureTLS bool) bool {
 }
 
 func scoped(guard Guard, feedHost string, allowPrivate, insecureTLS, noHTTP2 bool, in func(host string) bool) http.RoundTripper {
-	def := guard(false, false, noHTTP2)
+	def := orRefuse(guard(false, false, noHTTP2))
 	if !HasScope(feedHost, allowPrivate, insecureTLS) {
 		return def
 	}
-	return &hostScoped{in: in, feed: guard(allowPrivate, insecureTLS, noHTTP2), other: def}
+	return &hostScoped{in: in, feed: orRefuse(guard(allowPrivate, insecureTLS, noHTTP2)), other: def}
+}
+
+// errNoTransport is what a request gets when its guard supplied no transport: http.Client would send
+// through http.DefaultTransport instead, which has no dial guard and uses the environment's proxy.
+var errNoTransport = errors.New("fetch: no guarded transport")
+
+type refusingTransport struct{}
+
+func (refusingTransport) RoundTrip(*http.Request) (*http.Response, error) { return nil, errNoTransport }
+
+// orRefuse returns rt, or a transport that refuses every request when rt is nil.
+func orRefuse(rt http.RoundTripper) http.RoundTripper {
+	if rt == nil {
+		return refusingTransport{}
+	}
+	return rt
 }
 
 type hostScoped struct {

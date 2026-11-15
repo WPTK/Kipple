@@ -8,8 +8,8 @@ import (
 
 // ssrfOracle says whether the dial guard must refuse a, written from the address ranges themselves (byte tests,
 // not netip's helpers and not the guard's own prefix table): "this" network, private, loopback, CGNAT (which holds
-// the 100.100.100.200 metadata address), link-local (which holds 169.254.169.254), the IETF, 6to4 relay and
-// benchmarking blocks, multicast and everything from 224.0.0.0 up; for IPv6 the IPv4-compatible block (which
+// the 100.100.100.200 metadata address), link-local (which holds 169.254.169.254), the Azure host agent address
+// 168.63.129.16, the IETF, 6to4 relay and benchmarking blocks, multicast and everything from 224.0.0.0 up; for IPv6 the IPv4-compatible block (which
 // holds :: and ::1), unique-local (which holds the fd00:ec2::254 metadata address), link-local, site-local,
 // multicast, NAT64, local-use NAT64, 6to4, Teredo and the discard prefix. An IPv4-mapped address is judged as
 // the IPv4 address inside it.
@@ -57,6 +57,8 @@ func ssrfOracle4(b [4]byte) bool {
 		return true
 	case b[0] == 100 && b[1]&0xc0 == 64: // 100.64.0.0/10
 		return true
+	case b == [4]byte{168, 63, 129, 16}: // Azure host agent (WireServer)
+		return true
 	case b[0] == 169 && b[1] == 254:
 		return true
 	case b[0] == 172 && b[1]&0xf0 == 16:
@@ -80,7 +82,7 @@ func ssrfOracle4(b [4]byte) bool {
 func FuzzSSRFControl(f *testing.F) {
 	for _, s := range []string{
 		"127.0.0.1", "10.0.0.1", "172.16.0.1", "172.32.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "100.100.100.200",
-		"100.128.0.1", "0.0.0.0", "8.8.8.8", "1.1.1.1", "255.255.255.255", "224.0.0.1", "198.18.0.1", "198.20.0.1",
+		"168.63.129.16", "168.63.129.17", "100.128.0.1", "0.0.0.0", "8.8.8.8", "1.1.1.1", "255.255.255.255", "224.0.0.1", "198.18.0.1", "198.20.0.1",
 		"::1", "::", "::ffff:127.0.0.1", "::ffff:8.8.8.8", "::ffff:169.254.169.254", "fd00:ec2::254", "fe80::1%eth0",
 		"fe80::1", "fec0::1", "ff02::1", "64:ff9b::7f00:1", "2002:7f00:1::1", "2001::1", "2001:db8::1", "2606:4700::1111",
 		"100::1", "::7f00:1", "01.2.3.4", "0x7f.0.0.1", "127.1", "[::1]", "[::1]:80", "127.0.0.1:80", "", "x", "1.2.3.4.5",

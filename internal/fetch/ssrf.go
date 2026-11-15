@@ -16,19 +16,20 @@ func (e *BlockedError) Error() string {
 var blockedPrefixes = func() []netip.Prefix {
 	var out []netip.Prefix
 	for _, s := range []string{
-		"0.0.0.0/8",      // "this" network
-		"100.64.0.0/10",  // CGNAT
-		"192.0.0.0/24",   // IETF protocol assignments
-		"192.88.99.0/24", // 6to4 relay anycast (deprecated, RFC 7526)
-		"198.18.0.0/15",  // benchmarking
-		"240.0.0.0/4",    // reserved + broadcast
-		"::/96",          // IPv4-compatible (deprecated; Unmap does not convert it)
-		"fec0::/10",      // site-local (deprecated, RFC 3879)
-		"64:ff9b::/96",   // NAT64
-		"64:ff9b:1::/48", // local-use NAT64
-		"2002::/16",      // 6to4
-		"2001::/32",      // Teredo
-		"100::/64",       // discard-only
+		"0.0.0.0/8",        // "this" network
+		"100.64.0.0/10",    // CGNAT
+		"168.63.129.16/32", // Azure host agent (WireServer): a public-range address only the VM itself can reach
+		"192.0.0.0/24",     // IETF protocol assignments
+		"192.88.99.0/24",   // 6to4 relay anycast (deprecated, RFC 7526)
+		"198.18.0.0/15",    // benchmarking
+		"240.0.0.0/4",      // reserved + broadcast
+		"::/96",            // IPv4-compatible (deprecated; Unmap does not convert it)
+		"fec0::/10",        // site-local (deprecated, RFC 3879)
+		"64:ff9b::/96",     // NAT64
+		"64:ff9b:1::/48",   // local-use NAT64
+		"2002::/16",        // 6to4
+		"2001::/32",        // Teredo
+		"100::/64",         // discard-only
 	} {
 		out = append(out, netip.MustParsePrefix(s))
 	}
