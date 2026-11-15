@@ -10,7 +10,7 @@ import { offlineStore } from "@/lib/offlineState";
 import { feedsInFolder } from "@/lib/folderTree";
 import { listTo } from "@/lib/routes";
 import { applyRead, changeError, keys, scopeKey, useBootstrap } from "@/api/queries";
-import { clearPending, liveStore, pendingFor } from "@/api/events";
+import { clearPending, liveStore, noteArrivals, pendingFor } from "@/api/events";
 import { CANT_REFRESH_OFFLINE, useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, Feed, Scope } from "@/api/types";
 import { SwipeRow } from "@/gestures/SwipeRow";
@@ -238,6 +238,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   useSearchHighlight(scope.q, { fallback, typing: scope.typing });
   // An archived article's feed (the archive feed) is not one of these, so "Edit feed" says it is gone.
   const feedById = useMemo(() => new Map(visibleFeeds(boot.data?.feeds).map((f) => [f.id, f])), [boot.data]);
+  // The row menu reads the feeds when an action runs, not when it is built, so a feed change does not remake the menu actions.
+  const feedByIdRef = useLatestRef(feedById);
   const unreadView = scope.view === "unread" && !scope.q;
 
   // "Only items present when the list loaded": the highest id the list knew about.
@@ -1089,13 +1091,13 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       openOriginal: (item) => void openOriginalAndRecord(item),
       copyLink: (item) => void copyLink(item.url),
       share: (item) => void shareAndRecord(item),
-      muteSimilar: (item) => openFilterEditor({ mode: "create", seed: similarSeed(item, feedById.get(item.feed_id)?.title) }),
+      muteSimilar: (item) => openFilterEditor({ mode: "create", seed: similarSeed(item, feedByIdRef.current.get(item.feed_id)?.title) }),
       restore: restoreRow,
       editRule: (item) => item.muted_by && openFilterEditor({ mode: "edit", id: item.muted_by }),
-      manageFeed: (item) => (feedById.has(item.feed_id) ? openFeedEditor(item.feed_id) : toast("This feed no longer exists.", "error")),
+      manageFeed: (item) => (feedByIdRef.current.has(item.feed_id) ? openFeedEditor(item.feed_id) : toast("This feed no longer exists.", "error")),
       noRange: rank || !!scope.typing,
     }),
-    [act, range, restoreRow, feedById, rank, scope.typing],
+    [act, range, restoreRow, feedByIdRef, rank, scope.typing],
   );
 
   // ---- pull to refresh ---------------------------------------------------
@@ -1185,6 +1187,47 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   };
   const toTopRef = useLatestRef(toTop);
   const callToTop = useCallback(() => toTopRef.current(), [toTopRef]);
+  // A manual refresh that ended asks whether it brought articles this list does not hold. They raise the "n new" pill;
+  // the list loads them by itself only when the reader is at the top with no article open, so nobody part-way down
+  // a list is moved. The question waits while the tab is hidden (it is asked once the tab is shown again).
+  const refreshes = useStoreSelector(liveStore, (s) => s.refreshes);
+  const seenRefreshes = useRef(refreshes);
+  const probeDue = useRef(false);
+  const loadNewRef = useLatestRef(loadNew);
+  const probeRef = useLatestRef({ scope, loadedIds, asOf: currentAsOf, loading: src.pending, digestOn, selected, holding, boot: boot.data });
+  /** Resolves true when it loaded the new articles (the list went to the top), false when it only counted them or did nothing. */
+  const askArrivals = useCallback(async (): Promise<boolean> => {
+    const p = probeRef.current;
+    // Not while the tab is hidden, or while the list is still loading (what it will hold is not known yet).
+    if (!probeDue.current || document.visibilityState === "hidden" || p.loading) return false;
+    probeDue.current = false;
+    if (p.digestOn) return false; // its cards are per section: there is no one list to compare
+    try {
+      await noteArrivals(p.scope, p.loadedIds, p.asOf);
+    } catch {
+      return false; // The pill is a convenience: a failed or slow look changes nothing.
+    }
+    const q = probeRef.current;
+    const waiting = pendingFor(liveStore.get().pendingByFeed, q.scope, q.boot?.feeds ?? [], q.boot?.folders ?? [], { ids: q.loadedIds, pendingIds: liveStore.get().pendingIds });
+    if (waiting <= 0) return false;
+    // Loading drops the selection and starts the list over: a reader who is at the top but has a row focused or
+    // selected, an article open, or a menu or dialog up, keeps the list and gets the pill.
+    const root = parentRef.current;
+    const calm = (root?.scrollTop ?? 0) <= 0 && !activeRef.current && !q.selected && !q.holding && !root?.contains(document.activeElement) && !document.querySelector('[role="dialog"],[role="menu"]');
+    if (!calm) return false;
+    loadNewRef.current();
+    return true;
+  }, [probeRef, loadNewRef, activeRef]);
+  useEffect(() => {
+    if (refreshes === seenRefreshes.current) return;
+    seenRefreshes.current = refreshes;
+    probeDue.current = true;
+    void askArrivals();
+  }, [refreshes, askArrivals]);
+  // A refresh that ended while the list was loading is asked about once it has.
+  useEffect(() => {
+    if (!src.pending) void askArrivals();
+  }, [src.pending, askArrivals]);
   useEffect(() => {
     let hiddenAt: number | null = null;
     const onVisible = () => {
@@ -1194,12 +1237,18 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       }
       const away = hiddenAt !== null && Date.now() - hiddenAt >= AWAY_MS;
       hiddenAt = null;
-      // An open article keeps the reader where they were: Back returns to the list as it was left.
-      if (away && !activeRef.current) toTopRef.current();
+      // A refresh that ended while the tab was hidden is looked at first, so coming back shows its articles too.
+      const goTop = () => {
+        // An open article keeps the reader where they were: Back returns to the list as it was left.
+        if (away && !activeRef.current) toTopRef.current();
+      };
+      // Going to the top is not repeated when the look has already loaded the list.
+      if (probeDue.current) void askArrivals().then((loaded) => !loaded && goTop());
+      else goTop();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [toTopRef, activeRef]);
+  }, [toTopRef, activeRef, askArrivals]);
 
   // Row callbacks take the item as an argument, so they stay the same function between renders and the
   // memoized rows below skip renders that did not change them.

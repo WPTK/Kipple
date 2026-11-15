@@ -261,6 +261,51 @@ describe("Gazette on a phone", () => {
   });
 });
 
+// `to` is asked for once each time a story is drawn, so its calls count the stories that were drawn again.
+describe("Gazette redraws", () => {
+  const cards = Array.from({ length: 40 }, (_, i) => card(i + 1, { image: i % 4 === 0 ? IMG : null, feed_id: i % 2 ? "2" : "1" }));
+  const onOpen = vi.fn();
+  function setup() {
+    const to = vi.fn((c: Card) => `/item/${c.id}`);
+    const view = (list: Card[], p: GazettePlan, selectedId?: string) => (
+      <MemoryRouter>
+        <Gazette plan={p} items={new Map(list.map((c) => [c.id, c]))} name="The Gazette" date={DATE} screen="wide" to={to} onOpen={onOpen} actions={noActions} selectedId={selectedId} />
+      </MemoryRouter>
+    );
+    return { to, view };
+  }
+
+  it("moving the selection draws the two stories involved, not every story", () => {
+    const { to, view } = setup();
+    const p = plan(cards);
+    const { rerender } = render(view(cards, p));
+    expect(to.mock.calls.length).toBeGreaterThanOrEqual(cards.length);
+    to.mockClear();
+    // The story that held the Tab stop gives it up, and the selected one takes it.
+    rerender(view(cards, p, cards[2]!.id));
+    expect(to.mock.calls.length).toBe(2);
+    to.mockClear();
+    rerender(view(cards, p, cards[4]!.id));
+    expect(to.mock.calls.length).toBe(2);
+  });
+
+  it("a new plan with the same stories draws none of them again", () => {
+    const { to, view } = setup();
+    const { rerender } = render(view(cards, plan(cards)));
+    to.mockClear();
+    rerender(view(cards, plan(cards)));
+    expect(to).not.toHaveBeenCalled();
+  });
+
+  it("reading one story draws that story only", () => {
+    const { to, view } = setup();
+    const { rerender } = render(view(cards, plan(cards)));
+    to.mockClear();
+    rerender(view(cards.map((c) => (c.id === cards[6]!.id ? { ...c, read: true } : c)), plan(cards)));
+    expect(to.mock.calls.map((c) => c[0].id)).toEqual([cards[6]!.id]);
+  });
+});
+
 describe("closingLine", () => {
   it.each([
     ["The Gazette", "That's the Gazette."],
