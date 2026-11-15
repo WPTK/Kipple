@@ -37,6 +37,9 @@ func textFallbackUID(title, text string) string { return "h:" + H(title+sep+text
 //
 // Items must already carry RawLink, GUID, Title and ContentText.
 func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
+	if len(items) > 0 {
+		kept = make([]Item, 0, len(items)) // at most every item is kept; an empty document still returns nil
+	}
 	seenUID := make(map[string]bool, len(items))
 	guidTotal := make(map[string]int, len(items)) // occurrences per guid in the whole document
 	linkTotal := make(map[string]int, len(items)) // occurrences per link among the guid-less items

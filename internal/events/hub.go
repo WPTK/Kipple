@@ -85,7 +85,9 @@ func (h *Hub) Publish(typ string, data any) {
 		drop++
 	}
 	if drop > 0 {
-		h.ring = append(h.ring[:0:0], h.ring[drop:]...)
+		n := copy(h.ring, h.ring[drop:])
+		clear(h.ring[n:]) // the vacated slots must not keep the dropped payloads alive
+		h.ring = h.ring[:n]
 	}
 	for s := range h.subs {
 		select {
