@@ -536,7 +536,7 @@ export async function wipeOfflineData(): Promise<void> {
   setPending(0);
   wipeStatsQueue();
   // From the page, not only through the worker: a page that is not controlled (hard reload) cannot message it.
-  if (typeof caches !== "undefined") await Promise.all([caches.delete("kipple-data"), caches.delete("kipple-images")]).catch(() => {});
+  if (typeof caches !== "undefined") await Promise.all([caches.delete("kipple-data"), caches.delete("kipple-images-2"), caches.delete("kipple-images")]).catch(() => {});
   navigator.serviceWorker?.controller?.postMessage({ type: "clear-data" });
 }
 
