@@ -1,1 +1,1 @@
-Refresh all: feeds that are due soonest are fetched first.
+Refresh all and retention runs: feeds that are due soonest go first.
