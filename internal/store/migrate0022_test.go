@@ -46,6 +46,8 @@ func TestStarredFeedCountPlan(t *testing.T) {
 		e.exec(`INSERT INTO items (id, feed_id, read, starred, published_at, sort_at, uid, content_hash, text_hash)
 			VALUES (?1, ?2, 0, ?1 % 50 = 0, ?1, ?1, 'u' || ?1, 'c', 't')`, i, feeds[i%3])
 	}
+	require.Equal(t, "CREATE INDEX idx_items_starred_feed ON items(feed_id) WHERE starred = 1",
+		scalar[string](t, e.db.Reader(), "SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = 'idx_items_starred_feed'"), "a fresh database has the index")
 	const q = "SELECT feed_id, count(*) AS n FROM items INDEXED BY idx_items_starred_feed WHERE starred = 1 GROUP BY feed_id"
 	for _, analyze := range []bool{false, true} {
 		if analyze {

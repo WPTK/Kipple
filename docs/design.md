@@ -208,7 +208,7 @@ file:/data/kipple.db?_txlock=immediate
 
 After opening, the writer runs `PRAGMA optimize=0x10002` once, then checks that `PRAGMA foreign_keys` returns 1.
 
-**Reader pool** (`SetMaxOpenConns(4)`, `SetMaxIdleConns(4)`, `SetConnMaxIdleTime(0)`, `SetConnMaxLifetime(24h)`): the same pragmas, plus `_pragma=query_only(1)` and `cache_size(-4000)`. A connection loads the planner statistics when it first reads the schema, and the nightly `PRAGMA optimize` on the writer does not reach a `query_only` reader, so each reader is replaced once a day and then plans with the statistics current at that moment.
+**Reader pool** (`SetMaxOpenConns(4)`, `SetMaxIdleConns(4)`, `SetConnMaxIdleTime(0)`, `SetConnMaxLifetime(24h)`): the same pragmas, plus `_pragma=query_only(1)` and `cache_size(-4000)`. A connection loads the planner statistics when it reads the schema, so a long-lived reader keeps the statistics of its first read; each reader is replaced once a day and then plans with the statistics current at that moment, after the nightly `PRAGMA optimize` on the writer.
 
 **Snapshot pool** (`SetMaxOpenConns(1)`): the same pragmas except `query_only`, with `cache_size(-2000)`. It is opened for the nightly snapshot, the pre-migration snapshot and the backup export, used for `VACUUM INTO`, and closed after each. `VACUUM INTO` holds only a read snapshot on the source, so it blocks no writers.
 
@@ -1337,7 +1337,7 @@ Validated with 300 items in one feed, 5 of them starred, and N=50: 245 trimmed, 
 **Ranking.** `sort_at` DESC, then `id` DESC: the same order as the UI.
 
 - A backfilled or republished old-dated post can be trimmed in the same transaction that inserted it (for a chunked fetch, the last chunk's transaction). It goes to the ledger (and a stub) but is not counted in `trimmed_unread_count`.
-- A date is ranked as the feed states it. A date-only stamp counts as 00:00 UTC and a stamp with no zone (or one the parser does not know) as UTC, so an item from a publisher west of UTC can rank hours before it was published; an item the poll finds hours after its date is inserted at that date, below items already read, while the New page lists by arrival and so shows it first.
+- A date is ranked as the feed states it. A date-only stamp counts as 00:00 UTC and a stamp with no zone as UTC, so an item from a publisher west of UTC can rank hours before it was published; an item the poll finds hours after its date is inserted at that date, below items already read, while the New page lists by arrival and so shows it first.
 - A bogus future date is clamped to crawl + 24 h in `sort_at` (the ranking key). `published_at` keeps the feed's value.
 - A date at or before the Unix epoch (a Unix time of 0 or less, in whatever zone the feed writes it) counts as no date: the item takes its other date (published, else updated), else the fetch time. It applies to entries as they are parsed, so stored items keep the date they have.
 

@@ -1,1 +1,1 @@
-The feed list loads a little faster on libraries with many starred articles: a new index answers the per-feed starred counts, the feed list no longer carries a field nothing reads, and the database readers refresh their query statistics once a day instead of only at start.
+Feed list: opens faster on libraries with many starred articles.
