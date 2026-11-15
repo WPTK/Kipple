@@ -79,7 +79,7 @@ describe("sign-out", () => {
     await screen.findByRole("button", { name: "Sign in" });
     // Nothing that needs the ended session was asked for (#549): the cache clearing used to send the bootstrap again.
     expect(sinceLogout().filter((p) => p !== "/api/instance")).toEqual([]);
-    expect(deleted.sort()).toEqual(["kipple-data", "kipple-images"]);
+    expect(deleted.sort()).toEqual(["kipple-data", "kipple-images", "kipple-images-2"]);
     expect(sessionLostStore.get()).toBe(false);
   });
 

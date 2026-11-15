@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useBootstrap } from "@/api/queries";
@@ -197,26 +197,45 @@ function FeedItem({ f, level, ctx, fav }: { f: Feed; level: number; ctx: TreeCtx
   const key = `${ctx.prefix}feed-${f.id}`;
   if (!ctx.drawn(key)) return null;
   return (
+    <FeedRow f={f} level={level} treeKey={key} unreadBadge={ctx.unreadBadge} tabStop={ctx.tabStop === key} starred={ctx.favs.has("feed", f.id)} toggleFav={ctx.favs.toggle} onNavigate={ctx.onNavigate} fav={fav} />
+  );
+}
+
+interface FeedRowProps {
+  f: Feed;
+  level: number;
+  treeKey: string;
+  unreadBadge: UnreadBadge;
+  tabStop: boolean;
+  starred: boolean;
+  toggleFav: TreeCtx["favs"]["toggle"];
+  onNavigate?: () => void;
+  fav?: boolean;
+}
+
+/** One feed's row, drawn again only when its feed, its star or the tab stop changes: a count that moves elsewhere leaves it alone. */
+const FeedRow = memo(function FeedRow({ f, level, treeKey: key, unreadBadge, tabStop, starred, toggleFav, onNavigate, fav }: FeedRowProps) {
+  return (
     <li role="presentation">
       <div
         role="treeitem"
         data-keep-focus
         data-reveal-key={key}
         aria-level={level}
-        aria-label={unreadName(feedLabel(f), f.unread, ctx.unreadBadge)}
-        tabIndex={ctx.tabStop === key ? 0 : -1}
+        aria-label={unreadName(feedLabel(f), f.unread, unreadBadge)}
+        tabIndex={tabStop ? 0 : -1}
         data-tree-key={key}
         data-fav={`feed:${f.id}`}
         className="group/row flex items-center rounded-lg"
       >
-        <Link tabIndex={-1} to={openListTo({ feed: f.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 text-sm", !fav && "pl-3")}>
+        <Link tabIndex={-1} to={openListTo({ feed: f.id })} onClick={onNavigate} className={cn(row, "min-w-0 flex-1 text-sm", !fav && "pl-3")}>
           <FeedLine feed={f} />
         </Link>
-        <FavStar on={ctx.favs.has("feed", f.id)} name={feedLabel(f)} onToggle={() => ctx.favs.toggle("feed", f.id)} className={fav ? undefined : reveal} tabIndex={-1} />
+        <FavStar on={starred} name={feedLabel(f)} onToggle={() => toggleFav("feed", f.id)} className={fav ? undefined : reveal} tabIndex={-1} />
       </div>
     </li>
   );
-}
+});
 
 /** A folder, then (unless collapsed) its shown subfolders and its feeds, one level deeper. */
 function FolderItem({ fo, level, ctx, fav }: { fo: Folder; level: number; ctx: TreeCtx; fav?: boolean }) {
@@ -317,7 +336,6 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
   const { ref: allRef, tabStop: allTabStop, onKeyDown: allKeyDown, onFocus: allFocus, onBlur: allBlur } = useTreeKeys(dp.collapsedFolders, undefined, reveal);
   // With Favorites gone, the focus goes to the Feeds tree's tab stop.
   const toFeeds = () => allRef.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus();
-  const { ref: favRef, tabStop: favTabStop, onKeyDown: favKeyDown, onFocus: favFocus, onBlur: favBlur } = useTreeKeys(dp.collapsedFolders, toFeeds);
   const favList = useMemo(
     () => (lib ? favs.favorites.filter((fav) => (fav.t === "folder" ? lib.tree.byId.has(fav.id) : lib.feedById.has(fav.id))) : []),
     [lib, favs.favorites],
@@ -330,6 +348,9 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
     }
     return out;
   }, [favList, base]);
+  // A favorite folder shows its whole subtree, so Favorites is drawn a step at a time like the Feeds tree (issue #463).
+  const favReveal = useReveal(favVisible);
+  const { ref: favRef, tabStop: favTabStop, onKeyDown: favKeyDown, onFocus: favFocus, onBlur: favBlur } = useTreeKeys(dp.collapsedFolders, toFeeds, favReveal);
   const headingId = useId();
   if (boot.isPending) return <p className="px-3 py-2 text-sm text-fg2" role="status">Loading feeds</p>;
   if (boot.isError || !lib) return <p className="px-3 py-2 text-sm text-danger" role="alert">Couldn't load feeds.</p>;
@@ -344,7 +365,7 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
     );
   }
   const { tree, feedById } = lib;
-  const favStop = favTabStop((k) => favVisible.includes(k), favVisible[0] ?? "");
+  const favStop = favTabStop(favReveal.has, favVisible[0] ?? "");
   const allCtx: TreeCtx = { ...(base as NonNullable<typeof base>), prefix: "", tabStop: allTabStop(reveal.has, allVisible[0] ?? ""), drawn: reveal.shown };
 
   return (
@@ -362,11 +383,12 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
             onBlur={favBlur}
           >
             {favList.map((fav) => {
-              const ctx: TreeCtx = { ...allCtx, prefix: favPrefix(fav), tabStop: favStop, drawn: () => true };
+              const ctx: TreeCtx = { ...allCtx, prefix: favPrefix(fav), tabStop: favStop, drawn: favReveal.shown };
               if (fav.t === "folder") return <FolderItem key={`folder:${fav.id}`} fo={tree.byId.get(fav.id) as Folder} level={1} ctx={ctx} fav />;
               return <FeedItem key={`feed:${fav.id}`} f={feedById.get(fav.id) as Feed} level={1} ctx={ctx} fav />;
             })}
           </ul>
+          <RevealMore reveal={favReveal} noun="favorites" />
         </section>
       ) : null}
       <SavedSearchesNav onNavigate={onNavigate} />

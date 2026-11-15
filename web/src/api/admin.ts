@@ -201,6 +201,8 @@ export interface OpmlResult {
   feeds_repeated?: number;
   feeds_existing: { url: string; feed_id: string }[];
   folders_merged_case: { kept: string; merged: string }[];
+  /** Merged spellings beyond the ones `folders_merged_case` lists. */
+  folders_merged_case_more?: number;
   memberships_dropped: { url: string; kept: string; dropped: string[]; more?: number }[];
   /** Feeds repeated across folders beyond the ones `memberships_dropped` lists. */
   memberships_dropped_more?: number;
@@ -212,6 +214,8 @@ export interface OpmlResult {
   folders_merged_path?: { kept: string[]; merged: string[] }[];
   /** Folders of the file that could not be made (for example nested too deep), by path, and why. */
   folders_refused?: { path: string; reason: string }[];
+  /** Refused folders beyond the ones `folders_refused` lists. */
+  folders_refused_more?: number;
   /** Outlines that could not be imported (a bad URL). */
   skipped?: { url: string; reason: string }[];
   /** "<feed url>: <what was wrong>" for kipple:* attributes with bad values. */

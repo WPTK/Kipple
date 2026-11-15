@@ -172,15 +172,29 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"run_id": fmt.Sprint(info.RunID), "total": info.Total, "joined": info.Joined, "event_id": s.eventID()})
 }
 
-// feedIcon is GET /api/feeds/{id}/icon. The ?h=<hash> in bootstrap's URL only
-// busts the cache, so the week-long max-age is safe.
+// feedIcon is GET /api/feeds/{id}/icon. Bootstrap's URL carries ?h=<hash>, the hash of the icon's bytes: a
+// request whose h is the stored hash names bytes that never change, so it is kept for a year without asking
+// again. Any other request (an older page's URL, no h) gets the current icon for a week.
 func (s *Server) feedIcon(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
-	data, ct, ok, err := s.db.FeedIconAny(r.Context(), id)
+	var (
+		data []byte
+		ct   string
+		ok   bool
+	)
+	cc := "private, max-age=604800"
+	if want := r.URL.Query().Get("h"); want != "" {
+		if data, ct, ok, err = s.db.FeedIcon(r.Context(), id, want); ok {
+			cc = "private, max-age=31536000, immutable"
+		}
+	}
+	if err == nil && !ok {
+		data, ct, ok, err = s.db.FeedIconAny(r.Context(), id)
+	}
 	if err != nil {
 		s.serverError(w, "feed icon", err)
 		return
@@ -197,7 +211,7 @@ func (s *Server) feedIcon(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("Content-Type", ct)
-	h.Set("Cache-Control", "private, max-age=604800")
+	h.Set("Cache-Control", cc)
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Content-Security-Policy", "default-src 'none'; sandbox; frame-ancestors 'none'") // an SVG icon must never run script
 	_, _ = w.Write(data)

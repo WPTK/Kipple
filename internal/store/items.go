@@ -158,9 +158,10 @@ func streamIDsSQL(f StreamFilter, p IDPage) (string, []any) {
 	return q, args
 }
 
-// StreamIDs runs the id query on the reader pool and calls fn for each of the
-// first p.N ids in order, one row at a time. more is true when an N+1th row
-// exists (the caller then emits last as the continuation).
+// StreamIDs runs the id query on the reader pool, reads the page (at most p.N+1 ids), closes the
+// statement and only then calls fn for each of the first p.N ids in order, so fn may block on a client
+// socket without holding a reader connection or a WAL snapshot. more is true when an N+1th row exists
+// (the caller then emits last as the continuation).
 func (d *DB) StreamIDs(ctx context.Context, f StreamFilter, p IDPage, fn func(id int64) error) (last int64, more bool, err error) {
 	if f.Empty || p.N <= 0 {
 		return 0, false, nil
@@ -181,27 +182,20 @@ func (d *DB) StreamIDs(ctx context.Context, f StreamFilter, p IDPage, fn func(id
 		}
 	}
 	q, args := streamIDsSQL(f, p)
-	rows, err := d.reader.QueryContext(ctx, q, args...)
+	ids, err := queryIDs(ctx, d.reader, q, args...) // LIMIT :n1: at most p.N+1 ids, 8 bytes each
 	if err != nil {
 		return 0, false, err
 	}
-	defer rows.Close()
-	n := 0
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return last, false, err
-		}
-		if n == p.N {
-			return last, true, nil
-		}
+	if len(ids) > p.N {
+		ids, more = ids[:p.N], true
+	}
+	for _, id := range ids {
 		if err := fn(id); err != nil {
 			return last, false, err
 		}
 		last = id
-		n++
 	}
-	return last, false, rows.Err()
+	return last, more, nil
 }
 
 // ContentRow is one item as served by stream/items/contents.
@@ -225,56 +219,92 @@ type ContentRow struct {
 	FulltextHTML sql.NullString // extracted text, when one exists
 }
 
-// StreamItems calls fn for each requested id that is still in items (trimmed
-// and unknown ids are absent), one row at a time, ordered by id (ascending when
-// asc). The id list is bound as one JSON array, so any count is one statement.
+// streamChunk and streamChunkBytes bound what StreamItems reads per statement: at most 16 items, and no
+// more rows once the content scanned so far reaches 1 MiB. A statement's rows are closed and its reader
+// connection is back in the pool before fn sees the first of them, so fn may block on a client socket
+// without holding a reader connection or a WAL snapshot. The byte bound keeps memory near one item's
+// content when items are large.
+const (
+	streamChunk      = 16
+	streamChunkBytes = 1 << 20
+)
+
+// StreamItems calls fn for each requested id that is still in items (trimmed and unknown ids are absent),
+// ordered by id (ascending when asc). It reads the ids a chunk at a time and calls fn with no statement
+// open; each chunk reads its own snapshot.
 func (d *DB) StreamItems(ctx context.Context, ids []int64, asc bool, holdCut int64, fn func(*ContentRow) error) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	js, err := json.Marshal(ids)
-	if err != nil {
-		return err
-	}
-	order := "DESC"
-	if asc {
-		order = "ASC"
+	// The chunks are cut in output order, so the statement's ORDER BY only has to order one chunk.
+	ids = slices.Clone(ids)
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	order := "ASC"
+	if !asc {
+		order = "DESC"
+		slices.Reverse(ids)
 	}
 	// Held items (holdCut > 0) are absent here too, so a client cannot fetch one by id early.
 	all := d.FulltextAll(ctx) // once per request: the hold and the content mode must agree
 	held := ""
-	args := []any{string(js)}
+	var heldArgs []any
 	if holdCut > 0 {
 		held = " AND NOT " + strings.ReplaceAll(HeldSQL(all), "items.", "i.")
-		args = append(args, d.holdArgs(holdCut)...)
+		heldArgs = d.holdArgs(holdCut)
 	}
-	rows, err := d.reader.QueryContext(ctx, `
+	query := `
 SELECT i.id, i.feed_id, i.url, i.title, i.author, c.content_html, i.published_at, i.updated_at,
        i.read, i.starred, c.enclosures_json, i.origin_title,
-       `+feedTitleSQL("f")+`, f.site_url, CASE WHEN f.disabled_reason IS 'archive' THEN '' ELSE COALESCE(fo.path, '') END,
-       `+FulltextModeSQL("i.fulltext_mode", "f.fulltext", all)+`, ft.content_html
+       ` + feedTitleSQL("f") + `, f.site_url, CASE WHEN f.disabled_reason IS 'archive' THEN '' ELSE COALESCE(fo.path, '') END,
+       ` + FulltextModeSQL("i.fulltext_mode", "f.fulltext", all) + `, ft.content_html
 FROM items i JOIN item_content c ON c.item_id = i.id
 JOIN feeds f ON f.id = i.feed_id LEFT JOIN folder_paths fo ON fo.id = f.folder_id
 LEFT JOIN item_fulltext ft ON ft.item_id = i.id
-WHERE i.id IN (SELECT value FROM json_each(?))`+held+`
-ORDER BY i.id `+order, args...)
-	if err != nil {
-		return err
+WHERE i.id IN (SELECT value FROM json_each(?))` + held + `
+ORDER BY i.id ` + order
+	// readChunk returns the chunk's rows and how many of the chunk's ids they settle: all of them, or those
+	// up to the row that reached the byte bound (an id before a returned row that has no row is absent).
+	readChunk := func(chunk []int64) ([]ContentRow, int, error) {
+		js, err := json.Marshal(chunk)
+		if err != nil {
+			return nil, 0, err
+		}
+		rows, err := d.reader.QueryContext(ctx, query, append([]any{string(js)}, heldArgs...)...)
+		if err != nil {
+			return nil, 0, err
+		}
+		defer rows.Close()
+		var batch []ContentRow
+		size := 0
+		for rows.Next() {
+			var r ContentRow
+			var read, starred, ft int
+			var enc, origin sql.NullString
+			if err := rows.Scan(&r.ID, &r.FeedID, &r.URL, &r.Title, &r.Author, &r.HTML, &r.Published, &r.Updated,
+				&read, &starred, &enc, &origin, &r.FeedTitle, &r.SiteURL, &r.Folder, &ft, &r.FulltextHTML); err != nil {
+				return nil, 0, err
+			}
+			r.Read, r.Starred, r.UseFulltext = read == 1, starred == 1, ft == 1
+			r.Enclosures, r.OriginTitle = enc.String, origin.String
+			batch = append(batch, r)
+			if size += len(r.HTML) + len(r.FulltextHTML.String); size >= streamChunkBytes {
+				return batch, max(1, slices.Index(chunk, r.ID)+1), nil // the ids after this row go to the next statement
+			}
+		}
+		return batch, len(chunk), rows.Err()
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var r ContentRow
-		var read, starred, ft int
-		var enc, origin sql.NullString
-		if err := rows.Scan(&r.ID, &r.FeedID, &r.URL, &r.Title, &r.Author, &r.HTML, &r.Published, &r.Updated,
-			&read, &starred, &enc, &origin, &r.FeedTitle, &r.SiteURL, &r.Folder, &ft, &r.FulltextHTML); err != nil {
+	for len(ids) > 0 {
+		batch, done, err := readChunk(ids[:min(len(ids), streamChunk)])
+		if err != nil {
 			return err
 		}
-		r.Read, r.Starred, r.UseFulltext = read == 1, starred == 1, ft == 1
-		r.Enclosures, r.OriginTitle = enc.String, origin.String
-		if err := fn(&r); err != nil {
-			return err
+		ids = ids[done:]
+		for i := range batch {
+			if err := fn(&batch[i]); err != nil {
+				return err
+			}
 		}
 	}
-	return rows.Err()
+	return nil
 }

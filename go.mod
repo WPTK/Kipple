@@ -2,7 +2,7 @@ module github.com/WPTK/kipple
 
 go 1.27
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	codeberg.org/readeck/go-readability/v2 v2.1.3

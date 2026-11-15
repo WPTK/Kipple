@@ -59,8 +59,8 @@ const feed = (n: number, over: Partial<Feed> = {}): Feed => ({
   ...over,
 });
 
-function go(path: string, feeds: Feed[], folders: Folder[] = [folder, news]) {
-  const boot: Bootstrap = { ...bootstrap, folders, feeds, counts: { unread: 0, starred: 0 } };
+function go(path: string, feeds: Feed[], folders: Folder[] = [folder, news], favorites: { t: "feed" | "folder"; id: string }[] = []) {
+  const boot: Bootstrap = { ...bootstrap, folders, feeds, counts: { unread: 0, starred: 0 }, settings: { ...bootstrap.settings, "library.favorites": favorites } };
   mockFetch({ "GET /api/bootstrap": () => json(boot), "GET /api/items": () => json(pageOf([])) });
   window.history.replaceState({ idx: 0 }, "", path);
   return render(<App client={makeQueryClient({ retry: false })} />);
@@ -124,6 +124,41 @@ describe("a long library", () => {
     within(tree).getByRole("treeitem", { name: /^News/ }).focus();
     await userEvent.setup().keyboard("{End}");
     await waitFor(() => expect(document.activeElement).toBe(within(tree).getByRole("treeitem", { name: /^Feed 700\b/ })));
+  });
+});
+
+describe("a long favorite folder", () => {
+  // News holds every feed and is a favorite, so Favorites lists its whole subtree on top of the Feeds tree.
+  const many = Array.from({ length: 700 }, (_, i) => feed(i + 1));
+  const favorites = [{ t: "folder" as const, id: "2" }];
+
+  it("draws the sidebar's Favorites a step at a time, and a press draws more", async () => {
+    wide();
+    vi.stubGlobal("IntersectionObserver", HeldIO);
+    go("/l/unread", many, [folder, news], favorites);
+    const fav = await screen.findByRole("region", { name: "Favorites" });
+    await within(fav).findByRole("treeitem", { name: /^Feed 1\b/ });
+    // The favorite folder's own row is the first of the step.
+    expect(within(fav).getAllByRole("treeitem")).toHaveLength(REVEAL_STEP);
+    expect(within(fav).queryByRole("treeitem", { name: /^Feed 700\b/ })).toBeNull();
+    await userEvent.setup().click(within(fav).getByRole("button", { name: "Show more favorites (401 not shown yet)" }));
+    expect(within(fav).getAllByRole("treeitem")).toHaveLength(2 * REVEAL_STEP);
+    expect(document.activeElement).toBe(within(fav).getByRole("treeitem", { name: new RegExp(`^Feed ${REVEAL_STEP}\\b`) }));
+  });
+
+  it("draws Manage feeds' Favorites a step at a time, and more as its end comes into view", async () => {
+    vi.stubGlobal("IntersectionObserver", HeldIO);
+    go("/feeds", many, [folder, news], favorites);
+    const fav = await screen.findByRole("region", { name: "Favorites" });
+    const rows = () => fav.querySelectorAll('a[data-reveal-key^="fav:"]');
+    await waitFor(() => expect(rows()).toHaveLength(REVEAL_STEP));
+    expect(within(fav).getByRole("button", { name: "Show more favorite feeds (400 not shown yet)" })).toBeInTheDocument();
+    await userEvent.setup().click(within(fav).getByRole("button", { name: /^Show more favorite feeds/ }));
+    expect(rows()).toHaveLength(2 * REVEAL_STEP);
+    expect(document.activeElement).toBe(fav.querySelector(`a[data-reveal-key="fav:2:${REVEAL_STEP + 1}"]`));
+    scrollIntoView();
+    await waitFor(() => expect(rows()).toHaveLength(700));
+    expect(within(fav).queryByRole("button", { name: /^Show more favorite feeds/ })).toBeNull();
   });
 });
 

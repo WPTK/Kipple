@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -260,7 +261,7 @@ func (f *Finder) runOnce(ctx context.Context, beforeFetch func() error) (did, fe
 			ua = f.opt.UserAgent()
 		}
 		lctx, cancel := context.WithTimeout(ctx, jobTimeout)
-		icon, lerr = Lookup(lctx, Request{
+		icon, lerr = f.lookup(lctx, job.FeedID, Request{
 			SiteURL: job.SiteURL, FeedURL: job.FeedURL,
 			Transport: fetch.ContentScopedTransport(f.opt.Guard, job.FeedHost, job.AllowPrivateNet, job.AllowInsecureTLS, job.DisableHTTP2),
 			UserAgent: ua, RetryUA: job.RetryUserAgent,
@@ -282,6 +283,21 @@ func (f *Finder) runOnce(ctx context.Context, beforeFetch func() error) (did, fe
 	did = true
 	err = f.record(ctx, job, icon, lerr)
 	return did, fetched, err
+}
+
+// lookup is Lookup with a panic turned into a failed lookup. The page tokenizer and the image
+// header decoders read bytes the site chose, and Finder's goroutine has no caller to recover a
+// panic: an unrecovered one would end the process with the feed still due, so the same bytes
+// would be fetched again after every restart. As a failed lookup it is recorded and backed off
+// like any other.
+func (f *Finder) lookup(ctx context.Context, feedID int64, r Request) (icon Icon, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			f.log.Error("favicon: lookup panicked", "feed", feedID, "panic", fmt.Sprint(v), "stack", string(debug.Stack()))
+			icon, err = Icon{}, fmt.Errorf("the icon lookup panicked: %v", v)
+		}
+	}()
+	return Lookup(ctx, r)
 }
 
 // record saves one lookup's outcome for job.

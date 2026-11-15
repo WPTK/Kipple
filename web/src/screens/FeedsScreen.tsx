@@ -301,6 +301,18 @@ export function FeedsScreen() {
     return out;
   }, [topLevel, rules]);
   const reveal = useReveal(rowKeys);
+  // The feeds listed under the open favorite folders, in screen order: drawn a step at a time like the tree below (issue #463).
+  const favFeedKeys = useMemo(() => {
+    const out: string[] = [];
+    if (selecting || editMode) return out;
+    for (const fav of favs.favorites) {
+      if (fav.t !== "folder" || !ftree.byId.has(fav.id) || dp.collapsedFolders.includes(fav.id)) continue;
+      const inFav = subtreeOf(ftree, fav.id);
+      for (const f of realFeeds) if (inFav.has(f.folder_id)) out.push(`fav:${fav.id}:${f.id}`);
+    }
+    return out;
+  }, [favs.favorites, ftree, realFeeds, dp.collapsedFolders, selecting, editMode]);
+  const favReveal = useReveal(favFeedKeys);
   // Feeds that share a title show their address under it (issue #484).
 
   const markSaved = () => {
@@ -618,13 +630,15 @@ export function FeedsScreen() {
         </div>
         {favFolder && favFeeds.length > 0 && !favCollapsed && !selecting && !editMode ? (
           <ul id={favListId} className="pl-6">
-            {favFeeds.map((f) => (
-              <li key={f.id}>
-                <Link to={openListTo({ feed: f.id })} draggable={false} className={`${row} min-w-0 text-sm`}>
-                  <FeedLine feed={f} />
-                </Link>
-              </li>
-            ))}
+            {favFeeds.map((f) =>
+              favReveal.shown(`fav:${fav.id}:${f.id}`) ? (
+                <li key={f.id}>
+                  <Link to={openListTo({ feed: f.id })} draggable={false} data-reveal-key={`fav:${fav.id}:${f.id}`} className={`${row} min-w-0 text-sm`}>
+                    <FeedLine feed={f} />
+                  </Link>
+                </li>
+              ) : null,
+            )}
           </ul>
         ) : null}
       </li>
@@ -884,6 +898,7 @@ export function FeedsScreen() {
               <section aria-label="Favorites" className="mb-3">
                 <h2 className="px-3 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase">Favorites</h2>
                 <ul className="flex flex-col">{favRows}</ul>
+                <RevealMore reveal={favReveal} noun="favorite feeds" />
               </section>
             ) : null}
             {selecting ? null : <SavedSearchesNav />}

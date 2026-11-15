@@ -217,6 +217,11 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 	}
 	feedU, _ := url.Parse(snap.URL) // nil on error: then no hop carries credentials
 	hc := c.httpClient(variant{noHTTP2: snap.DisableHTTP2, insecureTLS: snap.AllowInsecureTLS, allowPrivate: snap.AllowPrivateNet}, &res.Hops, feedU)
+	// One time limit for the whole fetch, as extract.Extract and discover.Find
+	// have: the browser retry below spends what the first request left, not a
+	// second ClientTimeout (http.Client.Timeout restarts with every Do).
+	ctx, cancel := context.WithTimeout(ctx, c.opt.ClientTimeout)
+	defer cancel()
 	resp, err := c.get(ctx, hc, snap, ua)
 	if err == nil && snap.RetryUserAgent != "" && snap.RetryUserAgent != ua && UARefused(resp) {
 		// The feed refused Kipple's User-Agent: retry once as a browser. The
@@ -337,6 +342,9 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 	}
 
 	dec := decodeBody(body, httpCharset)
+	if int64(len(dec.Body)) > maxDecodedBytes(limit) {
+		return res.fail(ClassTooLarge, tooLargeMessage(limit))
+	}
 	res.BodyHash = dec.BodyHash
 	if !snap.Full && snap.BodyHash != "" && dec.BodyHash == snap.BodyHash {
 		res.Outcome = OutcomeUnchanged

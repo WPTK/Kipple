@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { Link, type To } from "react-router";
 import { useLongPressMenu } from "@/gestures/useLongPressMenu";
 import { useBootstrap } from "@/api/queries";
@@ -189,7 +189,7 @@ function GazetteBlock({ block, items, to, onOpen, actions, phone, selectedId, ta
                 slot={s}
                 item={items.get(s.id)!}
                 heading={titled ? "h4" : "h3"}
-                to={to(items.get(s.id)!)}
+                to={to}
                 onOpen={onOpen}
                 actions={actions}
                 phone={phone}
@@ -208,7 +208,7 @@ interface StoryProps {
   slot: Slot;
   item: Card;
   heading: "h3" | "h4";
-  to: To;
+  to: (item: Card) => To;
   onOpen: (item: Card) => void;
   actions: RowMenuActions;
   phone: boolean;
@@ -232,7 +232,8 @@ function headlineClass(slot: Slot, phone: boolean): string {
   }
 }
 
-function Story({ slot: planned, item, heading: H, to, onOpen, actions, phone, selected, tabStop }: StoryProps) {
+/** Drawn again only when what it shows changes. The planner makes new slots on every run, so a slot is compared by what it says. */
+const Story = memo(function Story({ slot: planned, item, heading: H, to, onOpen, actions, phone, selected, tabStop }: StoryProps) {
   const press = useLongPressMenu(item.id);
   const oneFeed = useOneFeed();
   const failure = useImageFailure(item.image);
@@ -267,7 +268,7 @@ function Story({ slot: planned, item, heading: H, to, onOpen, actions, phone, se
       {/* The weight stays bold read or unread: a lighter weight rewraps these large headlines and moves the page. Read is the colour alone. */}
       <H className={cn("font-reading font-bold", headlineClass(slot, phone), item.read ? "text-fg2" : "text-fg")}>
         <Link
-          to={to}
+          to={to(item)}
           tabIndex={tabStop ? undefined : -1}
           onClick={() => onOpen(item)}
           aria-keyshortcuts={ROW_KEYSHORTCUTS}
@@ -293,6 +294,28 @@ function Story({ slot: planned, item, heading: H, to, onOpen, actions, phone, se
       </RowTabStop.Provider>
     </article>
   );
+}, sameStory);
+
+/**
+ * A story is redrawn when one of its props changes, and `Story` reads only these. Every prop is listed except `slot`,
+ * which the planner builds again on each plan: only its kind and picture are read, so those are compared instead (a new
+ * slot with the same two draws the same). `to`, `onOpen` and `actions` must stay the same function between renders
+ * (the list gives each one once, through `useCallback` and `useMemo`), or every story is drawn again. A prop `Story`
+ * starts to read has to be added here, or a change to it will not show.
+ */
+function sameStory(a: StoryProps, b: StoryProps): boolean {
+  return (
+    a.item === b.item &&
+    a.slot.kind === b.slot.kind &&
+    a.slot.picture === b.slot.picture &&
+    a.heading === b.heading &&
+    a.to === b.to &&
+    a.onOpen === b.onOpen &&
+    a.actions === b.actions &&
+    a.phone === b.phone &&
+    a.selected === b.selected &&
+    a.tabStop === b.tabStop
+  );
 }
 
 /** A list narrower than this (a phone, or the column beside the reader pane) gets the phone page. */
@@ -317,6 +340,8 @@ function GazetteList({ items, scope, more, width, selectedId, tabStopId, onOpen,
     [items, feeds, folders, favorites, feed, folder, screen, more],
   );
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  // One link function for the paper, the same until the scope changes.
+  const to = useCallback((c: Card) => articleTo(c.id, scope), [scope]);
   // Nothing is laid out for real before the list has a width.
   if (width === 0) return null;
   if (!plan.pages.length) {
@@ -326,7 +351,7 @@ function GazetteList({ items, scope, more, width, selectedId, tabStopId, onOpen,
       </p>
     );
   }
-  return <Gazette plan={plan} items={byId} name={name} date={date} screen={screen} to={(c) => articleTo(c.id, scope)} onOpen={onOpen} actions={actions} selectedId={selectedId} focusedId={tabStopId} />;
+  return <Gazette plan={plan} items={byId} name={name} date={date} screen={screen} to={to} onOpen={onOpen} actions={actions} selectedId={selectedId} focusedId={tabStopId} />;
 }
 
 /** A search is never a paper (a paper is planned from a newest-first list): it reads in the results rows. Its list column is as wide as Editorial's. */
