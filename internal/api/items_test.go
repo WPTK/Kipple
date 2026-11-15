@@ -1154,7 +1154,7 @@ func TestCountsAreCoalesced(t *testing.T) {
 	for range 6 {
 		ids = append(ids, h.addItem(f, seedItem{}))
 	}
-	h.addItem(g, seedItem{})
+	gid := h.addItem(g, seedItem{})
 
 	for _, id := range ids[:5] { // five quick writes
 		code, _, _ := h.api(c, "POST", "/api/items/mark-read", jsonStr(map[string]any{"ids": strs(id), "read": true}))
@@ -1177,8 +1177,16 @@ func TestCountsAreCoalesced(t *testing.T) {
 	h.api(c, "POST", "/api/items/mark-read", jsonStr(map[string]any{"ids": strs(ids[5]), "read": true}))
 	evs = drain(sub, "counts", 50*time.Millisecond)
 	require.Len(t, evs, 1)
+	last.Feeds = nil // decoding into a non-nil map would keep the earlier event's entries
 	require.NoError(t, json.Unmarshal(evs[0].Data, &last))
-	require.Equal(t, map[string]int64{sid(f): 0, sid(g): 1}, last.Feeds, "an emptied feed is reported as zero")
+	require.Equal(t, map[string]int64{sid(g): 1}, last.Feeds, "an emptied feed is left out: a reader takes a missing feed as zero")
+	require.Contains(t, string(evs[0].Data), `"feeds":{`, "the map is always an object")
+
+	// Everything read: the event still names the feed map, empty.
+	h.api(c, "POST", "/api/items/mark-read", jsonStr(map[string]any{"ids": strs(gid), "read": true}))
+	evs = drain(sub, "counts", 250*time.Millisecond)
+	require.NotEmpty(t, evs)
+	require.Contains(t, string(evs[len(evs)-1].Data), `"feeds":{}`)
 }
 
 func TestNoCountsEventWithoutChange(t *testing.T) {

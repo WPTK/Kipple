@@ -108,6 +108,94 @@ func TestPurgeBatchesRespectCutoffs(t *testing.T) {
 	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT count(*) FROM trimmed_content"))
 }
 
+// The stub purge drives from the ledger's trimmed_at index, newest first, and
+// probes stubs by key: no sort, no scan of the stub table, however many
+// stub-less tombstones sit below the cutoff.
+func TestPurgeStubsPlanWalksTheLedgerIndexNewestFirst(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, _ := openTest(t)
+	feed := seedFeed(t, db)
+	now := int64(1_800_000_000)
+	for i := range 40 {
+		seedLedger(t, db, feed, int64(100+i), now-int64(100+i)*day, now, i%5 == 0)
+	}
+	for _, analyze := range []bool{false, true} {
+		if analyze {
+			_, err := db.writer.ExecContext(ctx, "ANALYZE")
+			require.NoError(t, err)
+		}
+		rows, err := db.Reader().QueryContext(ctx, "EXPLAIN QUERY PLAN "+purgeStubsSQL, now-90*day, 10)
+		require.NoError(t, err)
+		var plan string
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
+			plan += detail + "\n"
+		}
+		require.NoError(t, rows.Err())
+		require.NoError(t, rows.Close())
+		require.Contains(t, plan, "idx_trimmed_trimmed", plan)
+		require.NotContains(t, plan, "USE TEMP B-TREE", plan)
+		require.NotContains(t, plan, "SCAN c", plan)
+		require.NotContains(t, plan, "SCAN trimmed_content", plan)
+	}
+}
+
+// A batch smaller than the work takes the stubs that crossed the cutoff most
+// recently first; running batches until one comes back short removes the same
+// stubs as one large batch does and leaves every ledger row and every in-window
+// stub in place.
+func TestPurgeStubsInSmallBatchesRemovesTheSameStubs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, _ := openTest(t)
+	feed := seedFeed(t, db)
+	now := int64(1_800_000_000)
+	// 300 old tombstones with no stub, then stubs at 91..95 days, then in-window stubs.
+	for i := range 300 {
+		seedLedger(t, db, feed, int64(1000+i), now-int64(200+i)*day, now, false)
+	}
+	for i := range 5 {
+		seedLedger(t, db, feed, int64(10+i), now-int64(91+i)*day, now, true)
+	}
+	seedLedger(t, db, feed, 20, now-10*day, now, true)
+	seedLedger(t, db, feed, 21, now-89*day, now, true)
+
+	stubs := func() []int64 {
+		var out []int64
+		rows, err := db.Reader().QueryContext(ctx, "SELECT id FROM trimmed_content ORDER BY id")
+		require.NoError(t, err)
+		defer rows.Close()
+		for rows.Next() {
+			var id int64
+			require.NoError(t, rows.Scan(&id))
+			out = append(out, id)
+		}
+		require.NoError(t, rows.Err())
+		return out
+	}
+
+	n, err := db.PurgeStubs(ctx, now, 2)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, n)
+	require.Equal(t, []int64{12, 13, 14, 20, 21}, stubs(), "the most recently expired stubs go first")
+
+	total := n
+	for {
+		n, err = db.PurgeStubs(ctx, now, 2)
+		require.NoError(t, err)
+		total += n
+		if n < 2 {
+			break
+		}
+	}
+	require.EqualValues(t, 5, total)
+	require.Equal(t, []int64{20, 21}, stubs())
+	require.Equal(t, 307, scalar[int](t, db.Reader(), "SELECT count(*) FROM trimmed_items"))
+}
+
 func TestCheckpointPassiveAndOptimize(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -62,6 +62,17 @@ func (d *DB) batch(ctx context.Context, fn func(ctx context.Context, tx *sql.Tx)
 	return n, err
 }
 
+// purgeStubsSQL deletes one batch of restore stubs. The ledger rows older than
+// the cutoff are walked newest first: the stubs that crossed the cutoff since
+// the last run are the newest of them, and the older ledger rows (tombstones
+// whose stub is long gone) come last, so a full batch reads about its own size
+// in index entries instead of stepping over every tombstone first. CROSS JOIN
+// fixes the join order (the ledger index drives, the stub is probed by key),
+// so the ORDER BY is served by idx_trimmed_trimmed without a sort.
+const purgeStubsSQL = `DELETE FROM trimmed_content WHERE id IN (
+	SELECT c.id FROM trimmed_items t CROSS JOIN trimmed_content c ON c.id = t.id
+	WHERE t.trimmed_at < ?1 ORDER BY t.trimmed_at DESC LIMIT ?2)`
+
 // PurgeStubs deletes up to limit restore stubs whose ledger row was trimmed
 // more than retention.restore_days before now. The ledger row stays as a
 // tombstone. It returns the rows deleted.
@@ -72,9 +83,7 @@ func (d *DB) PurgeStubs(ctx context.Context, now int64, limit int) (int64, error
 			return 0, err
 		}
 		cutoff := now - int64(set.RestoreDays)*86400
-		res, err := tx.ExecContext(ctx, `DELETE FROM trimmed_content WHERE id IN (
-			SELECT c.id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
-			WHERE t.trimmed_at < ?1 LIMIT ?2)`, cutoff, limit)
+		res, err := tx.ExecContext(ctx, purgeStubsSQL, cutoff, limit)
 		if err != nil {
 			return 0, err
 		}

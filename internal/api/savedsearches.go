@@ -45,13 +45,14 @@ type savedSearchView struct {
 	Capped bool `json:"unread_capped"`
 }
 
-// countSavedSearch counts the unread articles a saved search finds, through the same card search
-// GET /api/items uses (so it can never disagree with the list the user opens), page by page until
-// savedSearchCap or the end. A search that found nothing exact (the prefix/OR fallback) counts 0.
+// countSavedSearch counts the unread articles a saved search finds with store.CountSearch: the match
+// expression and scope of the card search GET /api/items uses (so it can never disagree with the
+// list the user opens), without building the cards, and stopping past savedSearchCap. A search that
+// found nothing exact (the prefix/OR fallback) counts 0.
 func (s *Server) countSavedSearch(ctx context.Context, ss store.SavedSearch) (n int, capped, ok bool) {
 	ctx, cancel := savedSearchCountCtx(ctx, savedSearchBudget)
 	defer cancel()
-	q := store.CardQuery{Query: searchText(ss.Q), View: "unread", Limit: store.CardMaxLimit}
+	q := store.CardQuery{Query: searchText(ss.Q), View: "unread"}
 	starred := false
 	if sc := ss.Scope; sc != nil {
 		switch {
@@ -66,27 +67,14 @@ func (s *Server) countSavedSearch(ctx context.Context, ss store.SavedSearch) (n 
 	if q.Query == "" {
 		return 0, false, true
 	}
-	for {
-		cards, next, fallback, err := s.db.ListCardsFB(ctx, q)
-		if err != nil {
-			return 0, false, false
-		}
-		if fallback {
-			return 0, false, true
-		}
-		for _, c := range cards {
-			if !starred || !c.Read {
-				n++
-			}
-		}
-		if n > savedSearchCap {
-			return savedSearchCap, true, true
-		}
-		if next == nil {
-			return n, false, true
-		}
-		q.Cursor = next
+	n, err := s.db.CountSearch(ctx, q, starred, savedSearchCap)
+	if err != nil {
+		return 0, false, false
 	}
+	if n > savedSearchCap {
+		return savedSearchCap, true, true
+	}
+	return n, false, true
 }
 
 func (s *Server) savedSearchViews(ctx context.Context, list []store.SavedSearch, counts bool) []savedSearchView {
