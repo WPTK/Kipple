@@ -694,6 +694,57 @@ func TestRetryAfterFloorHostDeadlineAndSkippedRows(t *testing.T) {
 	waitFor(t, "b fetched after the deadline", func() bool { return srv.count("/b") == 1 })
 }
 
+// A Retry-After applies to the host that sent it. A feed whose redirect ended on another host
+// waits for it alone; when the redirect led back to the feed's own host, that host is held.
+func TestRetryAfterFromRedirectTargetDoesNotHoldFeedHost(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		to   string
+		held bool
+	}{
+		{"another host", "https://elsewhere.example/rss", false},
+		{"back to the feed's host", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t, Options{})
+			srv := newSrv(t, serveOK)
+			client := fetch.NewClient(fetch.ClientOptions{})
+			to := tc.to
+			if to == "" {
+				to = srv.URL + "/moved"
+			}
+			r.s.fetchFn = func(ctx context.Context, snap fetch.Snapshot, now time.Time) *fetch.Result {
+				if !strings.HasSuffix(snap.URL, "/a") {
+					return client.Fetch(ctx, snap, now)
+				}
+				return &fetch.Result{
+					Snap: snap, StartedAt: now, Outcome: fetch.OutcomeError, Status: 429,
+					ErrClass: fetch.ClassHTTP, ErrMsg: "HTTP 429", RetryAfter: time.Hour,
+					Hops: []fetch.Hop{{Status: 302, From: snap.URL, To: to}},
+				}
+			}
+			a := r.add(srv.URL+"/a", nil)
+			b := r.add(srv.URL+"/b", func(f *store.NewFeed) { f.NextFetchAt = base.Add(10 * time.Minute).Unix() })
+
+			r.s.Wake()
+			r.waitEvents("fetch.done", 1)
+			require.EqualValues(t, base.Add(time.Hour).Unix(), r.next(a), "the feed itself waits out the Retry-After")
+			require.Equal(t, tc.held, len(r.s.HostHolds()) == 1)
+
+			r.clk.Advance(15 * time.Minute)
+			if !tc.held {
+				waitFor(t, "the sibling is fetched", func() bool { return srv.count("/b") == 1 })
+				return
+			}
+			r.barrier()
+			require.Equal(t, 0, srv.count("/b"))
+			require.EqualValues(t, base.Add(10*time.Minute).Unix(), r.next(b))
+		})
+	}
+}
+
 func TestPriorityRepliesSurviveAbandonedHandlers(t *testing.T) {
 	t.Parallel()
 	r := newRig(t, Options{})

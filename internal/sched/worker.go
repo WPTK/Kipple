@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/WPTK/kipple/internal/fetch"
@@ -50,6 +52,17 @@ func (s *Scheduler) worker() {
 		s.doneCh <- s.exec(f)
 	}
 	s.doneCh <- result{exit: true}
+}
+
+// answeredByFeedHost reports whether the response that ended a fetch came from the feed's own
+// host: there was no redirect, or the last one led back to it. The last hop is read rather than
+// Result.FinalURL, which is reset to the feed's own address when the redirect target is over-long.
+func answeredByFeedHost(hops []fetch.Hop, host string) bool {
+	if len(hops) == 0 {
+		return true
+	}
+	u, err := url.Parse(hops[len(hops)-1].To)
+	return err == nil && strings.EqualFold(u.Hostname(), host)
 }
 
 func (s *Scheduler) exec(f *flight) (out result) {
@@ -109,7 +122,13 @@ func (s *Scheduler) exec(f *flight) (out result) {
 		res.Schedule(s.clk.Now(), s.opt.Rand)
 		out.outcome, out.status = res.Outcome, res.Status
 		out.errClass, out.errMsg = res.ErrClass, res.ErrMsg
-		out.retry, out.nextFetch = res.RetryAfter, res.NextFetchAt
+		out.nextFetch = res.NextFetchAt
+		// A Retry-After holds the host that sent it. When redirects ended on another
+		// host, the feed's own host asked for nothing: only this feed waits (Schedule
+		// put the wait in its next_fetch_at) and the host's other feeds go on.
+		if answeredByFeedHost(res.Hops, f.snap.Host) {
+			out.retry = res.RetryAfter
+		}
 
 		// A completed fetch commits even when shutdown starts now: the commit
 		// context is detached from the fetch context. CommitFetch bounds each
