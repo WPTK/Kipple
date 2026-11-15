@@ -247,3 +247,30 @@ describe("a manual refresh that ends while a list is open", () => {
     expect(loads()).toBe(before);
   });
 });
+
+describe("an empty list when feeds finish their first fetch", () => {
+  const firstFetch = (feed: string) =>
+    act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: feed, outcome: "ok", new_items: 5, trigger: "new_feed" } }));
+
+  it("fills by itself, once for a burst of feeds, instead of staying on All caught up", async () => {
+    let items: Items = [];
+    const { loads } = open(() => items);
+    await screen.findByText("All caught up");
+    const before = loads();
+    items = [card(1), card(2)];
+    firstFetch("1");
+    firstFetch("2");
+    firstFetch("3");
+    await screen.findByText("Article number 1", undefined, { timeout: 3000 });
+    expect(loads()).toBe(before + 1);
+  });
+
+  it("leaves a list that has articles alone when a feed finishes a silent fetch", async () => {
+    const { loads } = open(() => [card(1), card(2)]);
+    await screen.findByText("Article number 1");
+    const before = loads();
+    firstFetch("1");
+    await act(() => new Promise<void>((r) => setTimeout(r, 1200)));
+    expect(loads()).toBe(before);
+  });
+});

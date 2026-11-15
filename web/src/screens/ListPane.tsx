@@ -140,6 +140,8 @@ export interface ListControls {
 
 /** Away this long (the app in the background, the tab hidden), the list comes back at the newest stories. */
 export const AWAY_MS = 30 * 60 * 1000;
+/** How long an empty list waits after articles arrive before it reloads (feeds finish one after another). */
+const EMPTY_RELOAD_MS = 800;
 
 interface Props {
   scope: Scope;
@@ -1231,6 +1233,21 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     probeDue.current = true;
     void askArrivals();
   }, [refreshes, askArrivals]);
+  // An empty list has nothing to hold in place: the first fetches of new feeds (a poll, an import, the starter feeds) end
+  // without a pill for it, so it reloads by itself when articles arrive. A burst of feeds finishing is one reload.
+  const arrivals = useStoreSelector(liveStore, (s) => s.arrivals);
+  const seenArrivals = useRef(arrivals);
+  const emptyNow = useRef(false);
+  emptyNow.current = items.length === 0 && !src.pending && !src.error;
+  const startOverRef = useLatestRef(startOver);
+  useEffect(() => {
+    if (arrivals === seenArrivals.current) return;
+    seenArrivals.current = arrivals;
+    const h = setTimeout(() => {
+      if (emptyNow.current) void startOverRef.current();
+    }, EMPTY_RELOAD_MS);
+    return () => clearTimeout(h);
+  }, [arrivals, startOverRef]);
   // A refresh that ended while the list was loading is asked about once it has.
   useEffect(() => {
     if (!src.pending) void askArrivals();

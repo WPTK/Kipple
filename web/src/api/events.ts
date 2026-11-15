@@ -53,6 +53,11 @@ export interface LiveState {
    * counts once). The open list reacts to a change by asking whether articles arrived since it loaded.
    */
   refreshes: number;
+  /**
+   * How many fetches have brought in new articles, whatever started them (a poll, a new feed's first fetch, an import).
+   * A list that is empty reloads when it changes: nothing else would tell it that its feeds have now filled.
+   */
+  arrivals: number;
   transport: "connecting" | "open" | "fallback";
 }
 
@@ -85,6 +90,7 @@ export const initialLive: LiveState = {
   lastId: 0,
   finished: {},
   refreshes: 0,
+  arrivals: 0,
   transport: "connecting",
 };
 
@@ -196,11 +202,13 @@ function reduceRun(s: LiveState, ev: ServerEvent, at: number): LiveState {
       );
     }
     case "fetch.done": {
-      if (!(ev.data.new_items > 0) || !isManualTrigger(ev.data.trigger)) return s;
+      if (!(ev.data.new_items > 0)) return s;
+      if (!isManualTrigger(ev.data.trigger)) return { ...s, arrivals: s.arrivals + 1 };
       const feed = String(ev.data.feed_id);
       const ids = (ev.data.new_item_ids ?? []).map(String);
       return {
         ...s,
+        arrivals: s.arrivals + 1,
         pendingByFeed: { ...s.pendingByFeed, [feed]: (s.pendingByFeed[feed] ?? 0) + ev.data.new_items },
         pendingIds: ids.length ? { ...s.pendingIds, [feed]: [...(s.pendingIds[feed] ?? []), ...ids].slice(-PENDING_IDS_CAP) } : s.pendingIds,
       };
