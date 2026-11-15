@@ -279,3 +279,24 @@ func TestTrimLeavesAFeedAtItsCapWithAStarredItem(t *testing.T) {
 	require.Equal(t, 50, e.count("SELECT count(*) FROM items WHERE feed_id = ? AND starred = 0", id))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE feed_id = ? AND starred = 1", id))
 }
+
+// Real and muted items together at most N (50) leave nothing to trim, even when starred items
+// take the feed's total over N and the caller's total does not stop the trim early.
+func TestTrimLeavesRealAndMutedWithinTheCap(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.loadFeed("http://a.example/feed", 56)
+	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
+	e.exec("UPDATE items SET starred = 1 WHERE id IN (SELECT id FROM items WHERE feed_id = ? ORDER BY id LIMIT 6)", id)
+	e.exec("UPDATE items SET muted_by = 1, read = 1 WHERE id IN (SELECT id FROM items WHERE feed_id = ? AND starred = 0 ORDER BY id DESC LIMIT 20)", id)
+	require.Equal(t, 30, e.count("SELECT count(*) FROM items WHERE feed_id = ? AND starred = 0 AND muted_by IS NULL", id))
+	var n int64
+	require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
+		var err error
+		n, _, err = trimFeedBatch(ctx, tx, id, e.clk.Now().Unix(), maxInt64, trimBatch, 56)
+		return err
+	}))
+	require.Zero(t, n)
+	require.Equal(t, 56, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+	require.Zero(t, e.count("SELECT count(*) FROM trimmed_items"))
+}

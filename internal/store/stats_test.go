@@ -50,8 +50,7 @@ func TestStatSnapshotFolderPathAndBulkRows(t *testing.T) {
 	e := newEnv(t)
 	id := e.addFeed("http://stats.example/nested")
 	e.fetchBody(id, frss(fspec{guid: "n1", title: "one"}, fspec{guid: "n2", title: ""}))
-	e.exec("INSERT INTO folders (id, parent_id, name, position) VALUES (11, 1, 'News', 1)")
-	e.exec("UPDATE folders SET parent_id = NULL WHERE id = 11")
+	e.exec("INSERT INTO folders (id, parent_id, name, position) VALUES (11, NULL, 'News', 1)")
 	e.exec("INSERT INTO folders (id, parent_id, name, position) VALUES (12, 11, 'World', 1)")
 	e.exec("UPDATE feeds SET folder_id = 12 WHERE id = ?", id)
 

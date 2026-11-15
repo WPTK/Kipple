@@ -3,6 +3,7 @@ package stats
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -290,4 +291,34 @@ func TestZoneResolverDrivesNewRowsOnly(t *testing.T) {
 	require.Equal(t, "2026-01-14", d, "the new zone applies to the next row at once")
 	require.Equal(t, 22, h)
 	require.True(t, len(rows()) > len(before) && rows()[:len(before)] == before, "earlier rows are untouched")
+}
+
+// One bulk star over two feeds and an id that is nowhere writes one row per known item, grouped by
+// feed in feed order, with the feed's snapshot and the item's title, and nothing for the unknown id.
+func TestRecordStarsAcrossFeedsAndAnUnknownID(t *testing.T) {
+	r := newRig(t)
+	require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO feeds (id, folder_id, url, url_key, host, title, next_fetch_at)
+			VALUES (2, 1, 'https://b.example/f', 'b.example/f', 'b.example', 'Feed B', 0)`); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO items (id, feed_id, published_at, sort_at, uid, content_hash, text_hash, url, title)
+			VALUES (?, 2, 1, 1, 'g:2', 'c', 't', 'https://b.example/2', 'World')`, itemID+1)
+		return err
+	}))
+	require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		return r.rec.RecordStars(tx, KindStar, ClientAPI, []int64{itemID + 1, 42, itemID})
+	}))
+	rows, err := r.db.Reader().Query("SELECT item_id, feed_id, feed_title, item_title, kind FROM stats_events ORDER BY id")
+	require.NoError(t, err)
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var id, feed int64
+		var ft, it, kind string
+		require.NoError(t, rows.Scan(&id, &feed, &ft, &it, &kind))
+		got = append(got, fmt.Sprintf("%d %d %s %s %s", id-itemID, feed, ft, it, kind))
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, []string{"0 1 Feed A Hello star", "1 2 Feed B World star"}, got)
 }
