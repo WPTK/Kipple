@@ -106,10 +106,8 @@ func TestDeletingFeedLeftOutOfCounts(t *testing.T) {
 	require.NoError(t, e.db.Reader().QueryRow("SELECT count(*) FROM items WHERE read = 0 AND feed_id = ?", b.FeedID).Scan(&left))
 	require.Zero(t, left)
 	// So does the Reader API mark-all-as-read.
-	require.NoError(t, e.db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := MarkAllRead(ctx, tx, MarkScope{}, 1000, 1)
-		return err
-	}))
+	_, err = e.db.MarkAllReadBatched(ctx, MarkScope{}, 1000, 1)
+	require.NoError(t, err)
 	require.NoError(t, e.db.Reader().QueryRow("SELECT count(*) FROM items WHERE read = 0 AND feed_id = ?", a.FeedID).Scan(&left))
 	require.Equal(t, 3, left)
 }

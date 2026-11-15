@@ -51,7 +51,7 @@ func TestMigration0013AddsTheIndexes(t *testing.T) {
 
 // The queries the indexes are for use them, on a fresh database and after ANALYZE: the Starred
 // view's page pick (both keyset directions, with and without a cursor) and the
-// ledger half of the global mark-all-as-read, in both the Reader API (MarkAllRead) and the web app
+// ledger half of the global mark-all-as-read, in both the Reader API (MarkAllReadBatched) and the web app
 // (MarkScopeRead) forms.
 func TestStarredAndLedgerIndexPlans(t *testing.T) {
 	t.Parallel()
@@ -81,7 +81,7 @@ func TestStarredAndLedgerIndexPlans(t *testing.T) {
 		return b.String()
 	}
 	ledger := map[string]string{
-		"MarkAllRead":   "UPDATE trimmed_items SET read = 1 WHERE id IN (SELECT id FROM trimmed_items WHERE read = 0 AND id <= :ts AND " + notDeletingItemSQL + " ORDER BY id LIMIT :batch)",
+		"MarkAllRead":   "UPDATE trimmed_items SET read = 1 WHERE id IN (SELECT id FROM trimmed_items WHERE read = 0 AND id <= :ts AND " + notDeletingItemSQL + " LIMIT :batch)",
 		"MarkScopeRead": "UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :ts AND " + notDeletingItemSQL + " RETURNING id, feed_id",
 	}
 	for _, analyze := range []bool{false, true} {
