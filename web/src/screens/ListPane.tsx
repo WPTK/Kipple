@@ -1194,19 +1194,29 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const seenRefreshes = useRef(refreshes);
   const probeDue = useRef(false);
   const loadNewRef = useLatestRef(loadNew);
-  const probeRef = useLatestRef({ scope, loadedIds, digestOn, boot: boot.data });
-  const askArrivals = useCallback((): Promise<void> => {
+  const probeRef = useLatestRef({ scope, loadedIds, asOf: currentAsOf, loading: src.pending, digestOn, selected, holding, boot: boot.data });
+  /** Resolves true when it loaded the new articles (the list went to the top), false when it only counted them or did nothing. */
+  const askArrivals = useCallback(async (): Promise<boolean> => {
     const p = probeRef.current;
-    if (!probeDue.current || document.visibilityState === "hidden") return Promise.resolve();
+    // Not while the tab is hidden, or while the list is still loading (what it will hold is not known yet).
+    if (!probeDue.current || document.visibilityState === "hidden" || p.loading) return false;
     probeDue.current = false;
-    if (p.digestOn) return Promise.resolve(); // its cards are per section: there is no one list to compare
-    return noteArrivals(p.scope, p.loadedIds)
-      .then(() => {
-        const q = probeRef.current;
-        const waiting = pendingFor(liveStore.get().pendingByFeed, q.scope, q.boot?.feeds ?? [], q.boot?.folders ?? [], { ids: q.loadedIds, pendingIds: liveStore.get().pendingIds });
-        if (waiting > 0 && (parentRef.current?.scrollTop ?? 0) <= 0 && !activeRef.current) loadNewRef.current();
-      })
-      .catch(() => {}); // The pill is a convenience: a failed look changes nothing.
+    if (p.digestOn) return false; // its cards are per section: there is no one list to compare
+    try {
+      await noteArrivals(p.scope, p.loadedIds, p.asOf);
+    } catch {
+      return false; // The pill is a convenience: a failed or slow look changes nothing.
+    }
+    const q = probeRef.current;
+    const waiting = pendingFor(liveStore.get().pendingByFeed, q.scope, q.boot?.feeds ?? [], q.boot?.folders ?? [], { ids: q.loadedIds, pendingIds: liveStore.get().pendingIds });
+    if (waiting <= 0) return false;
+    // Loading drops the selection and starts the list over: a reader who is at the top but has a row focused or
+    // selected, an article open, or a menu or dialog up, keeps the list and gets the pill.
+    const root = parentRef.current;
+    const calm = (root?.scrollTop ?? 0) <= 0 && !activeRef.current && !q.selected && !q.holding && !root?.contains(document.activeElement) && !document.querySelector('[role="dialog"],[role="menu"]');
+    if (!calm) return false;
+    loadNewRef.current();
+    return true;
   }, [probeRef, loadNewRef, activeRef]);
   useEffect(() => {
     if (refreshes === seenRefreshes.current) return;
@@ -1214,6 +1224,10 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     probeDue.current = true;
     void askArrivals();
   }, [refreshes, askArrivals]);
+  // A refresh that ended while the list was loading is asked about once it has.
+  useEffect(() => {
+    if (!src.pending) void askArrivals();
+  }, [src.pending, askArrivals]);
   useEffect(() => {
     let hiddenAt: number | null = null;
     const onVisible = () => {
@@ -1228,7 +1242,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
         // An open article keeps the reader where they were: Back returns to the list as it was left.
         if (away && !activeRef.current) toTopRef.current();
       };
-      if (probeDue.current) void askArrivals().then(goTop);
+      // Going to the top is not repeated when the look has already loaded the list.
+      if (probeDue.current) void askArrivals().then((loaded) => !loaded && goTop());
       else goTop();
     };
     document.addEventListener("visibilitychange", onVisible);

@@ -5,7 +5,7 @@ import { api, authStore } from "./client";
 import { filtersKey } from "./filters";
 import { wasFilterTouched } from "./filterEdits";
 import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type BootstrapAnswer, type ItemPatch } from "./queries";
-import { PAGE_SIZE, itemsParams } from "./queryKeys";
+import { PAGE_SIZE, SECTION_SUFFIX, itemsParams } from "./queryKeys";
 import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
@@ -490,38 +490,52 @@ function applyAnswer(runs: RunStatus[], asOf: number, complete: boolean): string
   return ended;
 }
 
-/** Lists nothing is showing reload the next time they are opened; the one on screen is left as it is (not asked again). */
+/**
+ * Lists nothing is showing reload the next time they are opened; the one on screen is left as it is (not asked again).
+ * The list an open article came from counts as shown: the article's Next and Previous hold it (useListOrder), on a phone
+ * too, so Back returns to it as it was left. A Digest's sections are not marked: their cards belong to the page.
+ */
 function staleOffScreenLists(qc: QueryClient): void {
-  void qc.invalidateQueries({ queryKey: keys.itemsAll, refetchType: "none", predicate: (q) => q.getObserversCount() === 0 });
+  void qc.invalidateQueries({
+    queryKey: keys.itemsAll,
+    refetchType: "none",
+    predicate: (q) => {
+      const key = String(q.queryKey[1]);
+      return q.getObserversCount() === 0 && !key.endsWith(SECTION_SUFFIX);
+    },
+  });
 }
 
 /** Whether a list of this scope shows the "n new" pill (see `pendingFor`). */
 const showsPill = (scope: { view: string; q?: string; order?: string; length?: string }): boolean =>
   !(scope.view === "starred" || scope.view === "muted" || scope.q || scope.length || scope.order === "oldest");
 
+/** Whether article id `a` is newer than `bound`: ids only increase, and are numbers written as strings. */
+const idAfter = (a: string, b: string): boolean => (a.length !== b.length ? a.length > b.length : a > b);
+
+/** How long the look for arrivals may take: a pill is a convenience, not a reason to wait on a slow server. */
+const ARRIVALS_TIMEOUT_MS = 3000;
+
 /**
  * Ask whether articles arrived since a list loaded, and count them as pending (the "n new" pill). The newest page of the
- * scope is read; what comes before the first article the list already has is new. Those the pill already counts (a
- * manual run's own) are not counted twice. Returns how many arrived, 0 for a scope with no pill.
+ * scope is read; an article is new when its id is above the list's own `asOf` (the newest id when it loaded) and the
+ * list does not hold it. Older articles that merely entered the scope (an unread one after the loaded ones were read)
+ * are not new. Those the pill already counts are not counted twice, and a count that came without ids is not added to.
+ * Returns how many arrived, 0 for a scope with no pill.
  */
-export async function noteArrivals(scope: Scope, loaded: ReadonlySet<string>): Promise<number> {
+export async function noteArrivals(scope: Scope, loaded: ReadonlySet<string>, asOf: string | undefined): Promise<number> {
   if (!showsPill(scope)) return 0;
-  const page = await api<ItemsPage>("/api/items", { params: itemsParams(scope, undefined, PAGE_SIZE) });
-  const fresh: { id: string; feed_id: string }[] = [];
-  for (const c of page.items) {
-    if (loaded.has(c.id)) break;
-    fresh.push(c);
-  }
+  const page = await api<ItemsPage>("/api/items", { params: itemsParams(scope, undefined, PAGE_SIZE), signal: AbortSignal.timeout(ARRIVALS_TIMEOUT_MS) });
+  const fresh = page.items.filter((c) => !loaded.has(c.id) && idAfter(c.id, asOf ?? "0"));
   liveStore.set((s) => {
     const known = new Set(Object.values(s.pendingIds).flat());
     const add = fresh.filter((c) => !known.has(c.id));
     if (add.length === 0) return s;
     const pendingByFeed = { ...s.pendingByFeed };
     const pendingIds = { ...s.pendingIds };
-    for (const c of add) {
-      pendingByFeed[c.feed_id] = (pendingByFeed[c.feed_id] ?? 0) + 1;
-      pendingIds[c.feed_id] = [...(pendingIds[c.feed_id] ?? []), c.id].slice(-PENDING_IDS_CAP);
-    }
+    for (const c of add) pendingIds[c.feed_id] = [...(pendingIds[c.feed_id] ?? []), c.id].slice(-PENDING_IDS_CAP);
+    // A fetch.done count with no ids may already stand for these articles: the count is raised to the ids known, not added to.
+    for (const f of new Set(add.map((c) => c.feed_id))) pendingByFeed[f] = Math.max(pendingByFeed[f] ?? 0, pendingIds[f]!.length);
     return { ...s, pendingByFeed, pendingIds };
   });
   return fresh.length;

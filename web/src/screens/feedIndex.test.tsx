@@ -297,6 +297,9 @@ describe("the Feed index", () => {
     expect(container.querySelectorAll("section[data-feed-block]")).toHaveLength(450);
     // Moving the focus to a block above index 300 later stops asking for block 450, and the drawn set shrinks back to
     // one step: a hold lasts only as long as the row it was made for is the stop.
+    act(() => within(block(container, 5)).getByRole("link", { name: /Feed 005/ }).focus());
+    await waitFor(() => expect(container.querySelectorAll("section[data-feed-block]")).toHaveLength(REVEAL_STEP));
+    expect(block(container, 450)).toBeNull();
   });
 
   it("has no accessibility violations", async () => {
