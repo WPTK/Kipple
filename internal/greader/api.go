@@ -390,6 +390,14 @@ func makeToken(username, secret, apiHash string) string {
 	return username + "/" + hex.EncodeToString(h.Sum(nil))
 }
 
+// iconMAC keys a feed icon URL to the account: the first 32 hex of
+// HMAC-SHA256(secret, "greader-icon-v1|" + feed id + "|" + content hash).
+func iconMAC(secret string, id int64, hash string) string {
+	h := hmac.New(sha256.New, []byte(secret))
+	h.Write([]byte("greader-icon-v1|" + strconv.FormatInt(id, 10) + "|" + hash))
+	return hex.EncodeToString(h.Sum(nil)[:16])
+}
+
 func tokEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }

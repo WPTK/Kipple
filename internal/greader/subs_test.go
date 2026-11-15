@@ -488,12 +488,33 @@ func TestIconEndpoint(t *testing.T) {
 	require.Equal(t, "", subsOf(t, h)[0]["iconUrl"], "off when set to false")
 	require.NoError(t, execSQL(h, "DELETE FROM settings WHERE key = 'greader.icon_urls'")) // back to the default: on
 	h.api.opt.Reach = reach.Fixed(reach.State{PublicURL: "https://rss.example.org/", PublicHost: "rss.example.org"})
-	require.Equal(t, "https://rss.example.org/api/greader.php/icon/"+FormatDecimal(f)+"-abc123", subsOf(t, h)[0]["iconUrl"])
-	w := h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-abc123", "", map[string]string{"Authorization": ""})
-	require.Equal(t, 200, w.Code, "icons are unauthenticated")
+	signed := FormatDecimal(f) + "-abc123-" + iconMAC(testSecret, f, "abc123")
+	require.Equal(t, "https://rss.example.org/api/greader.php/icon/"+signed, subsOf(t, h)[0]["iconUrl"])
+	w := h.do(http.MethodGet, base+"/icon/"+signed, "", map[string]string{"Authorization": ""})
+	require.Equal(t, 200, w.Code, "a URL from the subscription list needs no token")
 	require.Equal(t, "image/png", w.Header().Get("Content-Type"))
 	require.Equal(t, "\x89PNG", w.Body.String())
-	require.Equal(t, 404, h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-wrong", "", nil).Code)
+	require.Equal(t, 404, h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-wrong-"+iconMAC(testSecret, f, "wrong"), "", nil).Code)
+}
+
+// The content hash of an icon is public (anyone can hash a site's icon), so a URL without the
+// account's mark, or with one made for another feed or hash, answers 404 like an unknown icon.
+func TestIconURLNeedsTheAccountMark(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	f := h.addFeed("https://a.example/f", "A", "")
+	g := h.addFeed("https://b.example/f", "B", "")
+	require.NoError(t, execSQL(h, "INSERT INTO feed_icons (feed_id, data, content_type, hash, fetched_at) VALUES (?, x'89504e47', 'image/png', 'abc123', 1)", f))
+	noAuth := map[string]string{"Authorization": ""}
+	icon := func(path string) int { return h.do(http.MethodGet, base+"/icon/"+path, "", noAuth).Code }
+
+	id := FormatDecimal(f)
+	require.Equal(t, 200, icon(id+"-abc123-"+iconMAC(testSecret, f, "abc123")))
+	require.Equal(t, 404, icon(id+"-abc123"), "no mark")
+	require.Equal(t, 404, icon(id+"-abc123-"), "empty mark")
+	require.Equal(t, 404, icon(id+"-abc123-"+iconMAC(testSecret, f, "other")), "mark for another hash")
+	require.Equal(t, 404, icon(id+"-abc123-"+iconMAC(testSecret, g, "abc123")), "mark for another feed")
+	require.Equal(t, 404, icon(id+"-abc123-"+iconMAC("another-secret", f, "abc123")), "mark from another account")
 }
 
 // Every feed.changed event carries the feed id as a string, like the web API and
