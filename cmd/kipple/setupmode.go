@@ -41,11 +41,12 @@ func startSetupMode(ctx context.Context, db *store.DB, cfg config.Config, logger
 var listenTCP = func(addr string) (net.Listener, error) { return net.Listen("tcp", addr) }
 
 // listen binds addr. A failure names the address and KIPPLE_ADDR, the one way
-// to choose another (there is no automatic fallback port).
+// to choose another (there is no automatic fallback port). The listener is a
+// connLimiter (maxConns, connReserve); pass it to trackConns before serving.
 func listen(addr string) (net.Listener, error) {
 	ln, err := listenTCP(addr)
 	if err != nil {
 		return nil, fmt.Errorf("cannot listen on %q (set KIPPLE_ADDR to use another address): %w", addr, err)
 	}
-	return ln, nil
+	return newConnLimiter(ln, maxConns, connReserve), nil
 }

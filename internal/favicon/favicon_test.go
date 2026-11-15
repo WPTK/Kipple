@@ -57,6 +57,17 @@ func lookup(t *testing.T, site string) (Icon, error) {
 	return Lookup(ctx, Request{SiteURL: site, Transport: allowPrivate, UserAgent: "kipple-test"})
 }
 
+// A lookup with no transport is refused: it would otherwise go through the default one, which has no
+// address guard.
+func TestLookupWithoutATransportIsRefused(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	t.Cleanup(srv.Close)
+	_, err := Lookup(context.Background(), Request{SiteURL: srv.URL, UserAgent: "kipple-test"})
+	require.ErrorContains(t, err, "no transport")
+	require.Zero(t, hits.Load())
+}
+
 func TestLookupPicksTheBestLinkAndFollowsRedirects(t *testing.T) {
 	i16, i32, apple := pngOf(t, 16), pngOf(t, 32), pngOf(t, 180)
 	mux := http.NewServeMux()

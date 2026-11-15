@@ -9,6 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// A guard that supplies no transport leaves a request refused, never sent through the default transport.
+func TestScopedTransportRefusesWhenTheGuardSuppliesNone(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))
+	t.Cleanup(srv.Close)
+	none := func(bool, bool, bool) http.RoundTripper { return nil }
+	for name, rt := range map[string]http.RoundTripper{
+		"plain":   ScopedTransport(none, "", false, false, false),
+		"scoped":  ContentScopedTransport(none, "127.0.0.1", true, false, false),
+		"content": ContentScopedTransport(none, "", false, false, false),
+	} {
+		req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+		require.NoError(t, err, name)
+		_, err = rt.RoundTrip(req)
+		require.ErrorIs(t, err, errNoTransport, name)
+	}
+	require.Zero(t, hits)
+}
+
 // A feed's allow_private_net covers its own site only: a redirect hop to another
 // host is dialled through the guarded transport, so a LAN feed cannot redirect
 // the fetcher to any other private address. A hop to the same host (another
