@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"syscall"
 	"time"
@@ -438,7 +439,19 @@ func ended(ctx context.Context, err error) error {
 // check verifies a spooled zip in the background and records the outcome,
 // unless the upload was cancelled meanwhile.
 func (r *Restorer) check(ctx context.Context, j *job, g int) {
-	up, err := r.verify(ctx, g)
+	// verify reads a file a client without credentials uploaded (the zip directory, the manifest,
+	// the database). This goroutine has no caller to recover a panic, and an unrecovered one ends
+	// the process, so a panic is a refused upload like any other failed check. The stack is logged
+	// here, once: the error kept as the failed state carries only the panic value.
+	up, err := func() (up Upload, err error) {
+		defer func() {
+			if v := recover(); v != nil {
+				r.log.Error("restore: the check of the uploaded backup panicked", "panic", fmt.Sprint(v), "stack", string(debug.Stack()))
+				up, err = Upload{}, fmt.Errorf("restore: the check of the uploaded backup panicked: %v", v)
+			}
+		}()
+		return r.verify(ctx, g)
+	}()
 	r.mu.Lock()
 	r.job = nil
 	switch {

@@ -1157,3 +1157,31 @@ func TestZipDirectoryAcceptsAZip64Writer(t *testing.T) {
 	require.NoError(t, os.WriteFile(src, buf.Bytes(), 0o600))
 	require.NoError(t, checkZipDirectory(src))
 }
+
+// A panic while the check reads the upload is a refused upload: the check runs on a goroutine of
+// its own, where an unrecovered panic would end the process. FreeBytes is asked once while the
+// body arrives (the caller's goroutine), then by Extract on the check's goroutine.
+func TestPanicInTheCheckIsARefusedUpload(t *testing.T) {
+	t.Parallel()
+	b := hostBackup(t)
+	calls := 0
+	r, dir := newRestorer(t, func(o *RestorerOptions) {
+		o.FreeBytes = func(string) (uint64, error) {
+			calls++
+			if calls == 2 {
+				panic("boom")
+			}
+			return 1 << 40, nil
+		}
+	})
+	_, err := upload(r, b)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "panicked")
+	var bad *BadUploadError
+	require.False(t, errors.As(err, &bad))
+	require.Equal(t, RestoreFailed, r.Status(me).State)
+	require.NoFileExists(t, filepath.Join(dir, UploadFile))
+	require.NoFileExists(t, filepath.Join(dir, StagedFile))
+	_, err = upload(r, b)
+	require.NoError(t, err, "the slot is free: a new upload replaces the failed one")
+}

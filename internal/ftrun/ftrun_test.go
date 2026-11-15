@@ -171,6 +171,29 @@ func TestPerHostLimitCoversEveryCaller(t *testing.T) {
 	require.EqualValues(t, 6, fx.calls.Load())
 }
 
+// The limit counts a site, not a host name or a port: links on many names of one site share it.
+func TestPerSiteLimitCoversEveryNameOfTheSite(t *testing.T) {
+	e := newEnv(t)
+	fx := &fakeExt{fn: func(t extract.Target) (extract.Result, error) {
+		time.Sleep(60 * time.Millisecond)
+		return extract.Result{HTML: "<p>t</p>", Text: "t", WordCount: 1}, nil
+	}}
+	r := New(Options{DB: e.db, Extractor: fx, PerHost: 2, Log: quiet()})
+	var wg sync.WaitGroup
+	for i := range 6 {
+		it := e.item(fmt.Sprintf("https://a%d.one.test:%d/p", i, 8000+i))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := r.Run(context.Background(), Request{Item: it, Now: 1, Timeout: 5 * time.Second, Background: true})
+			require.NoError(t, err)
+		}()
+	}
+	wg.Wait()
+	require.EqualValues(t, 2, fx.max.Load(), "never more than 2 at once for one site, whatever the host name")
+	require.EqualValues(t, 6, fx.calls.Load())
+}
+
 func TestPanicBecomesAStoredPermanentError(t *testing.T) {
 	e := newEnv(t)
 	var logs strings.Builder
@@ -261,7 +284,9 @@ func TestOnDemandRunIsDetachedFromItsCaller(t *testing.T) {
 }
 
 func TestHostKey(t *testing.T) {
-	require.Equal(t, "ex.com:8080", HostKey("https://ex.com:8080/a/b?c=d"))
+	require.Equal(t, "ex.com", HostKey("https://ex.com:8080/a/b?c=d"), "the port is not part of the key")
+	require.Equal(t, "ex.com", HostKey("https://a1.news.EX.com/a"), "nor is a sub-domain")
+	require.Equal(t, "127.0.0.1", HostKey("http://127.0.0.1:9000/a"))
 	require.Equal(t, "?", HostKey("not a url"))
 	require.Equal(t, "?", HostKey(""))
 }

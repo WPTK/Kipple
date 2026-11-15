@@ -102,6 +102,22 @@ func SameSite(a, b string) bool {
 	return erra == nil && errb == nil && ra == rb
 }
 
+// SiteKey is the name the per-site concurrency limits of full-text extraction and the image proxy count
+// under: the registrable domain of hostname (www.example.com and cdn.example.com are both example.com), so a
+// publisher cannot take more than one site's share by naming more hosts of it. An IP literal, a single-label
+// name, a wildcard-DNS name (wildcardDNSSuffixes) and a name that is itself a public suffix count as
+// themselves. Comparison ignores case and a trailing dot. The port is not part of the name: pass a hostname.
+func SiteKey(hostname string) string {
+	h := normHost(hostname)
+	if h == "" || isIPHost(h) || wildcardDNS(h) {
+		return h
+	}
+	if site, err := publicsuffix.EffectiveTLDPlusOne(h); err == nil {
+		return site
+	}
+	return h
+}
+
 // wildcardDNSSuffixes are public services whose names spell the address they resolve to
 // (10-0-0-5.nip.io is 10.0.0.5, 169-254-169-254.nip.io is 169.254.169.254): two names under one of
 // them are two unrelated hosts, not one site, so every host rule here matches such a name only

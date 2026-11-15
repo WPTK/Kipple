@@ -19,6 +19,27 @@ func TestSameOrSubdomain(t *testing.T) {
 	require.True(t, SameOrSubdomain("news", "NEWS."))
 }
 
+func TestSiteKey(t *testing.T) {
+	for in, want := range map[string]string{
+		"example.com":         "example.com",
+		"WWW.Example.com.":    "example.com",
+		"a1.cdn.example.com":  "example.com",
+		"feeds.example.co.uk": "example.co.uk",
+		"someone.github.io":   "someone.github.io", // a private suffix: each name under it is its own site
+		"a.someone.github.io": "someone.github.io",
+		"news":                "news", // single label
+		"github.io":           "github.io",
+		"1.2.3.4":             "1.2.3.4",
+		"[::1]":               "::1",
+		"a.10-0-0-5.nip.io":   "a.10-0-0-5.nip.io", // wildcard DNS names are unrelated hosts
+		"b.10-0-0-6.nip.io":   "b.10-0-0-6.nip.io",
+		"a.one.test":          "one.test",
+		"":                    "",
+	} {
+		require.Equal(t, want, SiteKey(in), in)
+	}
+}
+
 func TestFeedHostVariant(t *testing.T) {
 	require.True(t, FeedHostVariant("example.com", "www.example.com"))
 	require.True(t, FeedHostVariant("www.example.com", "example.com"), "bare twin of a www feed host")
