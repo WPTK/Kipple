@@ -195,7 +195,7 @@ func TestStatsSummaryAllAndCustom(t *testing.T) {
 	require.Equal(t, 200, code)
 	require.Equal(t, "custom", out["range"].(map[string]any)["key"])
 	require.EqualValues(t, 1, num(out["totals"].(map[string]any)["opens"]))
-	for _, q := range []string{"?from=2026-09-11&to=2026-09-10", "?from=2026-9-1&to=2026-09-10", "?from=2026-09-26", "?to=2026-09-10",
+	for _, q := range []string{"?from=2026-09-11&to=2026-09-10", "?from=2026-9-1&to=2026-09-10", "?to=2026-09-10",
 		"?from=2026-13-01&to=2026-13-02", "?range=decade", "?from=1900-01-01&to=2026-09-10"} {
 		code, _ := h.summary(nil, q)
 		require.Equal(t, 400, code, q)
@@ -215,6 +215,20 @@ func TestStatsSummaryFromAloneRunsThroughStatsToday(t *testing.T) {
 	require.Equal(t, "custom", rg["key"])
 	require.Equal(t, "2026-09-25", rg["to"])
 	require.EqualValues(t, 268, num(rg["days"]))
+}
+
+// A start-only range stays inside the year it starts in, and a start after today is one empty day, not an error.
+func TestStatsSummaryFromAloneStaysInItsYear(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.setSetting("tz", `"Pacific/Auckland"`) // 2026-09-25 local at the fixed clock
+	_, out := h.summary(nil, "?from=2025-01-01")
+	require.Equal(t, "2025-12-31", out["range"].(map[string]any)["to"])
+	code, out := h.summary(nil, "?from=2026-12-01")
+	require.Equal(t, 200, code)
+	rg := out["range"].(map[string]any)
+	require.Equal(t, "2026-12-01", rg["to"])
+	require.EqualValues(t, 1, num(rg["days"]))
 }
 
 func TestStatsSummaryOff(t *testing.T) {

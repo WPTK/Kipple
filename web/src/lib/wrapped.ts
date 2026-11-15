@@ -146,8 +146,8 @@ export function deriveWrapped(data: StatsSummary, year: number, today = todayStr
   const hour = b ? (b.busiest_hour?.hour ?? null) : cells.length ? by((c) => c.hour) : null;
   const t = data.totals;
   const span = yearSpan(year, today);
-  // The server's end date for the range (its stats time zone) wins over the browser's today.
-  const end = data.range?.to && data.range.to < span.to ? data.range.to : span.to;
+  // The server's end date for the range (its stats time zone, never past the year) wins over the browser's today.
+  const end = data.range?.to ?? span.to;
   const start = data.first_event_date && data.first_event_date > span.from ? data.first_event_date : span.from;
   const topSources = [...(data.sources ?? [])]
     .filter((s) => s.items_read > 0)

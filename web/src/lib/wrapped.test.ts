@@ -119,9 +119,11 @@ describe("years", () => {
     expect(yearQuery(2026, "2026-09-26")).toEqual({ from: "2026-01-01" });
     expect(yearQuery(2025, "2026-09-26")).toEqual({ from: "2025-01-01", to: "2025-12-31" });
   });
-  it("counts history days to the server's end date when it is earlier than the browser's today", () => {
+  it("counts history days to the server's end date, whichever side of the browser's today it falls", () => {
     const d = deriveWrapped({ ...base, first_event_date: "2026-09-22", range: { key: "year", from: "2026-01-01", to: "2026-09-26", days: 269 } }, 2026, "2026-09-27");
     expect(d.historyDays).toBe(5);
+    const later = deriveWrapped({ ...base, first_event_date: "2026-09-19", range: { key: "year", from: "2026-01-01", to: "2026-09-25", days: 268 } }, 2026, "2026-09-24");
+    expect(later.historyDays).toBe(7);
   });
 });
 

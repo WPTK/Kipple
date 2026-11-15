@@ -51,7 +51,8 @@ func (s *Server) statsSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 // statsRangeParams resolves the range query (range=week|month|year|all, or from= and to= local
-// dates, where from= alone runs through today in the stats time zone) shared by the summary and the export. defKey is the range used when the query names none.
+// dates, where from= alone runs through today in the stats time zone or the end of its year, whichever is first)
+// shared by the summary and the export. defKey is the range used when the query names none.
 // ok is false for an invalid range. Key "all" leaves From and To empty for the caller to resolve.
 func statsRangeParams(qv url.Values, now time.Time, loc *time.Location, weekStart, defKey string) (p store.StatsSummaryParams, ok bool) {
 	p = store.StatsSummaryParams{Now: now, IncludeInferred: qv.Get("include_inferred") == "1"}
@@ -59,8 +60,16 @@ func statsRangeParams(qv url.Values, now time.Time, loc *time.Location, weekStar
 	fromQ, toQ := qv.Get("from"), qv.Get("to")
 	if fromQ != "" || toQ != "" {
 		if toQ == "" && fromQ != "" {
-			// from= alone runs through today in the stats time zone, so a client never has to guess that date.
+			// from= alone runs through today in the stats time zone, so a client never has to guess that date,
+			// but never past the end of the year it starts in. A start after today is that one empty day.
 			toQ = td.Format("2006-01-02")
+			if f, err := time.Parse("2006-01-02", fromQ); err == nil {
+				if f.After(td) {
+					toQ = fromQ
+				} else if end := time.Date(f.Year(), 12, 31, 0, 0, 0, 0, time.UTC); end.Before(td) {
+					toQ = end.Format("2006-01-02")
+				}
+			}
 		}
 		f, e1 := time.Parse("2006-01-02", fromQ)
 		t, e2 := time.Parse("2006-01-02", toQ)
