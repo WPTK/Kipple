@@ -81,8 +81,8 @@ func TestStarredAndLedgerIndexPlans(t *testing.T) {
 		return b.String()
 	}
 	ledger := map[string]string{
-		"MarkAllRead":   "UPDATE trimmed_items SET read = 1 WHERE id IN (SELECT id FROM trimmed_items WHERE read = 0 AND id <= :ts AND " + notDeletingItemSQL + " LIMIT :batch)",
-		"MarkScopeRead": "UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :ts AND " + notDeletingItemSQL + " RETURNING id, feed_id",
+		"MarkAllReadBatched": "UPDATE trimmed_items SET read = 1 WHERE id IN (SELECT id FROM trimmed_items WHERE read = 0 AND id <= :ts AND " + notDeletingItemSQL + " LIMIT :batch)",
+		"MarkScopeRead":      "UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :ts AND " + notDeletingItemSQL + " RETURNING id, feed_id",
 	}
 	for _, analyze := range []bool{false, true} {
 		if analyze {

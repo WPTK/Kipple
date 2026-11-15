@@ -131,6 +131,33 @@ func TestMarkAllReadBatchedKeepsEarlierBatchesOnFailure(t *testing.T) {
 	require.Equal(t, MarkAllBatch, e.count("SELECT count(*) FROM items WHERE read = 1"))
 }
 
+// A batch whose ledger statement fails after its items UPDATE changed rows rolls back as a whole: nothing
+// of it is counted or left read. A later failing batch keeps the earlier ones and counts only those.
+func TestMarkAllReadBatchedCountsOnlyCommittedBatches(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	feed := e.addFeed("http://ledgerfail.example/feed")
+	e.seedItems(feed, 1, 5, 0)
+	e.seedLedger(feed, 6, 2)
+	e.exec(`CREATE TRIGGER fail_ledger BEFORE UPDATE OF read ON trimmed_items BEGIN SELECT RAISE(ABORT, 'stop'); END`)
+	n, err := e.db.MarkAllReadBatched(e.ctx, MarkScope{FeedID: feed}, 1<<40, 500)
+	require.Error(t, err)
+	require.Zero(t, n, "the failed batch is not counted")
+	require.Equal(t, 5, e.count("SELECT count(*) FROM items WHERE read = 0"), "and its item updates rolled back")
+
+	e2 := newEnv(t)
+	f2 := e2.addFeed("http://ledgerfail2.example/feed")
+	e2.seedItems(f2, 1, MarkAllBatch+5, 0)
+	e2.seedLedger(f2, int64(MarkAllBatch)+6, MarkAllBatch+2)
+	// Fails in the second batch only: by then more than one batch of items is read.
+	e2.exec(fmt.Sprintf(`CREATE TRIGGER fail_ledger BEFORE UPDATE OF read ON trimmed_items
+		WHEN (SELECT count(*) FROM items WHERE read = 1) > %d BEGIN SELECT RAISE(ABORT, 'stop'); END`, MarkAllBatch))
+	n, err = e2.db.MarkAllReadBatched(e2.ctx, MarkScope{FeedID: f2}, 1<<40, 500)
+	require.Error(t, err)
+	require.EqualValues(t, MarkAllBatch, n, "the first batch committed, the second is not counted")
+	require.Equal(t, MarkAllBatch, e2.count("SELECT count(*) FROM items WHERE read = 1"))
+}
+
 // The scopes: the held items stay unread through every batch, a starred scope marks starred items only and
 // skips the ledger, and a label marks its own feeds only.
 func TestMarkAllReadBatchedScopes(t *testing.T) {
@@ -180,9 +207,15 @@ func TestMarkAllReadBatchedScopes(t *testing.T) {
 func TestMarkAllBatchQueryPlans(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
+	// The target feed holds about a tenth of the unread rows, so its plan is a choice, not a tie.
 	feed := e.addFeed("http://plan.example/feed")
-	e.seedItems(feed, 1, 3000, 0)
-	e.seedLedger(feed, 3001, 100)
+	e.seedItems(feed, 1, 300, 0)
+	e.seedLedger(feed, 301, 100)
+	for i := range 9 {
+		other := e.addFeed(fmt.Sprintf("http://plan%d.example/feed", i))
+		e.seedItems(other, int64(1000+i*1000), 300, 0)
+		e.seedLedger(other, int64(1500+i*1000), 100)
+	}
 	plan := func(q string, args []any) string {
 		rows, err := e.db.Reader().Query("EXPLAIN QUERY PLAN "+q, args...)
 		require.NoError(t, err)

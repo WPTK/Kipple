@@ -254,7 +254,10 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 				cur = store.Cursor{SortAt: last.SortAt, ID: last.ID, Asc: q.Oldest, Fallback: fallback}.Encode()
 			} else {
 				q.Limit = used
-				if _, next, _, err = s.db.ListCardsFB(r.Context(), q); err != nil {
+				if _, next, _, err = s.db.ListCardsFB(r.Context(), q); errors.Is(err, store.ErrSearchTooBroad) {
+					writeErrorMsg(w, http.StatusUnprocessableEntity, "search_too_broad", "That search matches too much. Add a longer or more specific word.")
+					return
+				} else if err != nil {
 					s.serverError(w, "list items", err)
 					return
 				}

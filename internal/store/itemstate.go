@@ -316,7 +316,7 @@ type MarkScope struct {
 const MarkAllBatch = 2000
 
 // MarkAllReadBatched marks unread items with id <= maxID read inside scope, and the matching ledger rows
-// (design §6.8), in batches of at most MarkAllBatch rows per table, oldest first, each its own
+// (design §6.8), in batches of at most MarkAllBatch rows per table, each its own
 // transaction behind the commit gate (like a retention trim), so the writer is never held for the
 // whole scope and fetch commits interleave. It returns the number of items changed. The cutoff is
 // fixed before the first batch and clamped to the highest committed id (ids are allocated inside the
@@ -344,9 +344,12 @@ func (d *DB) markAllReadBatched(ctx context.Context, scope MarkScope, maxID, top
 			n, more, err = markAllReadBatch(ctx, tx, scope, maxID, now, MarkAllBatch)
 			return n, err
 		})
+		if err != nil {
+			return total, err // a failed batch rolled back: its rows are not counted
+		}
 		total += n
-		if err != nil || !more {
-			return total, err
+		if !more {
+			return total, nil
 		}
 		if between != nil {
 			between()
@@ -390,7 +393,7 @@ func markAllSQL(scope MarkScope, fulltextAll bool, maxID, now int64, limit int) 
 	return itemSQL, itemArgs, ledgerSQL, args, nil
 }
 
-// markAllReadBatch marks at most limit unread items, and at most limit ledger rows, oldest first.
+// markAllReadBatch marks at most limit unread items, and at most limit ledger rows (which ones is up to the planner).
 // more is true when either table may hold more.
 func markAllReadBatch(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now int64, limit int) (n int64, more bool, err error) {
 	all := false

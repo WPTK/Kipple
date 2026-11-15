@@ -73,6 +73,7 @@ func TestIncludeContentContinuationSurvivesAnItemLeavingTheList(t *testing.T) {
 	// time), the reader marks the second item read.
 	fired := false
 	clock := h.srv.now
+	// This relies on listItems calling s.now between its list query and its content reads.
 	h.srv.now = func() time.Time {
 		if pc, _, _, ok := runtime.Caller(1); ok && !fired && strings.Contains(runtime.FuncForPC(pc).Name(), "listItems") {
 			fired = true
