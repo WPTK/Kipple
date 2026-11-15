@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strconv"
@@ -391,4 +392,49 @@ func TestFeedFulltextNowUsesCurrentState(t *testing.T) {
 	e.setAll(true)
 	on, _ = e.db.FeedFulltextNow(e.ctx, feed)
 	require.True(t, on)
+}
+
+// Reading time follows the text the reader shows: the stored extraction's while full text is in effect and an
+// extraction succeeded, the feed's own otherwise. The list filter, the card, the item and a mark by length agree.
+func TestReadingLengthFollowsShownText(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	feed, a, b := ftFixture(t, e, true)
+	e.exec("UPDATE items SET word_count = 40 WHERE feed_id = ?", feed)
+	e.exec("INSERT INTO item_fulltext (item_id, content_html, content_text, word_count, extracted_at) VALUES (?, '<p>long</p>', 'long', 3000, 1)", a)
+	e.exec("INSERT INTO item_fulltext (item_id, content_html, content_text, word_count, extracted_at, error) VALUES (?, NULL, '', 0, 1, 'boom')", b)
+	listed := func(q CardQuery) []int64 {
+		cards, _, err := e.db.ListCards(e.ctx, q)
+		require.NoError(t, err)
+		var ids []int64
+		for _, c := range cards {
+			ids = append(ids, c.ID)
+		}
+		return ids
+	}
+	long := CardQuery{View: "all", MinMinutes: 8, Limit: 10}
+	require.Equal(t, []int64{a}, listed(long), "the extraction's 3000 words, not the feed's 40; a failed extraction does not count")
+	cards, _, err := e.db.ListCards(e.ctx, CardQuery{View: "all", IDs: []int64{a}})
+	require.NoError(t, err)
+	require.Equal(t, readingMinutes(3000), cards[0].ReadingMinutes)
+	det, ok, err := e.db.GetItem(e.ctx, a, e.clk.Now().Unix())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, readingMinutes(3000), det.ReadingMinutes)
+
+	// Full text off: the extraction row stays, but the reader shows the feed's own text.
+	e.exec("UPDATE feeds SET fulltext = 0 WHERE id = ?", feed)
+	require.Empty(t, listed(long))
+	require.ElementsMatch(t, []int64{a, b}, listed(CardQuery{View: "all", MaxMinutes: 1, Limit: 10}))
+
+	// A mark by length takes the same rows as the list.
+	e.exec("UPDATE feeds SET fulltext = 1 WHERE id = ?", feed)
+	max, err := e.db.MaxCommittedID(e.ctx)
+	require.NoError(t, err)
+	require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := MarkScopeRead(ctx, tx, MarkScope{}, MarkFilter{MinMinutes: 8}, max, 1)
+		return err
+	}))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE read = 1"))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE read = 1 AND id = "+strconv.FormatInt(a, 10)))
 }

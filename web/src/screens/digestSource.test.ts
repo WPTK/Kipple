@@ -53,10 +53,10 @@ describe("the page a reader left", () => {
     c();
   });
 
-  it("is kept as it was for five minutes away, and rebuilt after", () => {
+  it("is kept as it was for thirty minutes away, and rebuilt after", () => {
     expect(sections(0)).toEqual(["Alpha"]);
     holdPage("unread")();
-    now += 4 * 60_000;
+    now += 29 * 60_000;
     expect(sections(3)).toEqual(["Alpha"]);
     now += 2 * 60_000;
     expect(sections(3)).toEqual(["Alpha", "Beta"]);
@@ -75,7 +75,7 @@ describe("the page a reader left", () => {
   it("starts the clock afresh each time it is left: a return clears it", () => {
     expect(sections(0)).toEqual(["Alpha"]);
     holdPage("unread")();
-    now += 4 * 60_000;
+    now += 29 * 60_000;
     const back = holdPage("unread"); // returns within the time: the page is the same, and no longer away
     now += 30 * 60_000;
     expect(sections(3)).toEqual(["Alpha"]);

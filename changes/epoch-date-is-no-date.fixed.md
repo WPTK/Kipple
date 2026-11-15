@@ -1,0 +1,1 @@
+A feed date at the unix epoch (what some publishers write for a missing date) is now treated as no date in every time zone it is written in, instead of sorting those articles to the bottom of every list.

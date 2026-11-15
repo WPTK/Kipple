@@ -48,12 +48,19 @@ func TestXMLFilterSkipsDroppedBytes(t *testing.T) {
 	require.Equal(t, "a", string(p[:n]))
 }
 
-// Dates from 1970 on are kept; earlier ones are treated as none.
+// A date after the unix epoch is kept; the epoch itself and earlier ones, in any zone, are treated as none.
 func TestValidTimeEpochEdge(t *testing.T) {
 	in := time.Date(1970, 1, 1, 0, 0, 1, 0, time.UTC)
 	require.NotNil(t, validTime(&in))
 	out := time.Date(1969, 12, 31, 23, 59, 59, 0, time.UTC)
 	require.Nil(t, validTime(&out))
+	epoch := time.Unix(0, 0).UTC()
+	require.Nil(t, validTime(&epoch))
+	// The epoch written west of UTC reads as 1969, east of UTC as a negative instant at year 1970.
+	west := time.Date(1969, 12, 31, 19, 0, 0, 0, time.FixedZone("", -5*3600))
+	require.Nil(t, validTime(&west))
+	east := time.Date(1970, 1, 1, 0, 0, 0, 0, time.FixedZone("", 3600))
+	require.Nil(t, validTime(&east))
 }
 
 // The author is the first name that is not blank: the main author, then the list, then Dublin Core.

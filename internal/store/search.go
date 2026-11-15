@@ -27,7 +27,7 @@ func snippetHTML(s string) string {
 
 // searchScope holds the WHERE parts of a search that do not depend on the cursor or the match
 // mode, so the zero-result probe and the page query see exactly the same rows.
-func searchScope(q CardQuery) (where []string, args []any) {
+func searchScope(q CardQuery, all bool) (where []string, args []any) {
 	switch q.View {
 	case "unread":
 		where = append(where, "i.read = 0")
@@ -47,7 +47,7 @@ func searchScope(q CardQuery) (where []string, args []any) {
 		where = append(where, inFolderTreeSQL("i.feed_id", "?"))
 		args = append(args, q.FolderID)
 	}
-	if w, a := ReadingWhere("i.word_count", q.MinMinutes, q.MaxMinutes, q.UnknownLength); w != "" {
+	if w, a := ReadingWhere(readWordsSQL("i.", all), q.MinMinutes, q.MaxMinutes, q.UnknownLength); w != "" {
 		where = append(where, w)
 		args = append(args, a...)
 	}
@@ -99,7 +99,8 @@ func (d *DB) searchCardsRun(ctx context.Context, q CardQuery, limit int) ([]Card
 	if !ok {
 		return []Card{}, nil, false, nil
 	}
-	scope, scopeArgs := searchScope(q)
+	all := d.FulltextAll(ctx)
+	scope, scopeArgs := searchScope(q, all)
 	fallback := false
 	if fb := sq.FallbackMatch(); q.Cursor != nil && q.Cursor.Fallback && fb != "" {
 		match, fallback = fb, true
@@ -200,7 +201,7 @@ func (d *DB) searchCardsRun(ctx context.Context, q CardQuery, limit int) ([]Card
 		args2 = append(args2, id)
 	}
 	sqlText := `SELECT i.id, i.feed_id, i.title, i.url, i.author,
-			substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url, i.published_at, i.sort_at, i.read, i.starred, i.word_count, i.origin_title,
+			substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url, i.published_at, i.sort_at, i.read, i.starred, ` + readWordsSQL("i.", all) + `, i.origin_title,
 			(SELECT ` + feedTitleSQL("feeds") + ` FROM feeds WHERE id = i.feed_id),
 			i.muted_by, (SELECT name FROM filters WHERE id = i.muted_by),
 			snippet(items_fts, 2, '` + snipOpen + `', '` + snipClose + `', '…', 24)
