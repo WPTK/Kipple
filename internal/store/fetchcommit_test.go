@@ -534,6 +534,88 @@ func TestRekey(t *testing.T) {
 	require.Equal(t, 1, e.count("SELECT count(*) FROM fetch_log WHERE keep = 1 AND note LIKE '%rekeyed: 4%'"))
 }
 
+// A guid is keyed g:h(guid) while it is unique in the document and g:h(guid|link) while it is repeated. The commit
+// carries the stored row from one key to the other, so the article keeps its id and its read and starred state and
+// is neither inserted twice nor overwritten.
+func TestCommitCarriesRowWhenGUIDRepeatStateChanges(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	doc := func(names ...string) []byte {
+		var b strings.Builder
+		b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>Feed</title><link>https://ex.com/</link>`)
+		for _, n := range names {
+			fmt.Fprintf(&b, `<item><guid>shared</guid><title>title %s</title><link>https://ex.com/%s</link><description>body %s</description></item>`, n, n, n)
+		}
+		b.WriteString(`</channel></rss>`)
+		return []byte(b.String())
+	}
+	bare := "g:" + fetch.H("shared")
+	keyA, keyB := "g:"+fetch.H("shared|https://ex.com/a"), "g:"+fetch.H("shared|https://ex.com/b")
+
+	require.Equal(t, 1, e.fetchBody(id, doc("a")).New)
+	e.exec("UPDATE items SET read = 1, starred = 1 WHERE uid = ?", bare)
+	rowA := scalar[int64](t, e.db.Reader(), "SELECT id FROM items WHERE title = 'title a'")
+
+	// One to two: a keeps its row, now under the link key; only b is new.
+	require.Equal(t, 1, e.fetchBody(id, doc("b", "a")).New)
+	require.Equal(t, 2, e.count("SELECT count(*) FROM items"))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND uid = ? AND read = 1 AND starred = 1 AND title = 'title a'", rowA, keyA))
+	rowB := scalar[int64](t, e.db.Reader(), "SELECT id FROM items WHERE title = 'title b'")
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND uid = ?", rowB, keyB))
+
+	// Two to one: b keeps its row, now under the bare key; a's row is left alone.
+	require.Equal(t, 0, e.fetchBody(id, doc("b")).New)
+	require.Equal(t, 2, e.count("SELECT count(*) FROM items"))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND uid = ? AND title = 'title b'", rowB, bare))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND uid = ? AND read = 1 AND starred = 1 AND title = 'title a'", rowA, keyA))
+	require.Equal(t, 2, e.count("SELECT count(*) FROM fetch_log WHERE keep = 1 AND note LIKE '%rekeyed: 1%'"))
+}
+
+// Entries with no guid that all point at one page are each stored, and a new one arrives unread without touching
+// the row of an older one, whether the link was used once or several times before.
+func TestCommitKeepsGUIDLessEntriesThatShareALink(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	doc := func(titles ...string) []byte {
+		var b strings.Builder
+		b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>Feed</title><link>https://ex.com/</link>`)
+		for _, n := range titles {
+			fmt.Fprintf(&b, `<item><title>%s</title><link>https://ex.com/news.html</link><description>body %s</description></item>`, n, n)
+		}
+		b.WriteString(`</channel></rss>`)
+		return []byte(b.String())
+	}
+
+	// Three entries on one page: all stored.
+	require.Equal(t, 3, e.fetchBody(id, doc("Release 1.2", "Release 1.1", "Release 1.0")).New)
+	require.Equal(t, 3, e.count("SELECT count(*) FROM items"))
+	e.exec("UPDATE items SET read = 1, starred = 1 WHERE title = 'Release 1.2'")
+	row12 := scalar[int64](t, e.db.Reader(), "SELECT id FROM items WHERE title = 'Release 1.2'")
+
+	// A newer entry arrives unread; the older rows keep their state and text.
+	require.Equal(t, 1, e.fetchBody(id, doc("Release 1.3", "Release 1.2", "Release 1.1", "Release 1.0")).New)
+	require.Equal(t, 4, e.count("SELECT count(*) FROM items"))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE title = 'Release 1.3' AND read = 0"))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND title = 'Release 1.2' AND read = 1 AND starred = 1", row12))
+
+	// A feed that listed the page once and then adds a second entry on it keeps the first row.
+	id2 := e.addFeed("http://b.example/feed")
+	require.Equal(t, 1, e.fetchBody(id2, doc("Only")).New)
+	e.exec("UPDATE items SET read = 1 WHERE feed_id = ? AND title = 'Only'", id2)
+	only := scalar[int64](t, e.db.Reader(), "SELECT id FROM items WHERE feed_id = ? AND title = 'Only'", id2)
+	require.Equal(t, 1, e.fetchBody(id2, doc("Next", "Only")).New)
+	require.Equal(t, 2, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id2))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND read = 1 AND title = 'Only'", only))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE feed_id = ? AND title = 'Next' AND read = 0", id2))
+
+	// And back to one: the survivor keeps its row.
+	require.Equal(t, 0, e.fetchBody(id2, doc("Only")).New)
+	require.Equal(t, 2, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id2))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND uid = ?", only, "l:"+fetch.H("https://ex.com/news.html")))
+}
+
 func TestIDAllocMonotonicAcrossRestart(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "kipple.db")

@@ -494,6 +494,10 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		}
 	}
 
+	if fresh, err = carryAltUIDs(ctx, tx, feedID, res, fresh, now, st); err != nil {
+		return err
+	}
+
 	rekeyLeftover := map[string]bool{}
 	if single && res.Snap.RekeyPending && res.Outcome == fetch.OutcomeOK {
 		var err error
@@ -729,6 +733,75 @@ func (d *DB) rekey(ctx context.Context, tx *sql.Tx, feedID int64, doc, fresh []f
 		}
 		leftover[it.UID] = true
 		out = append(out, it)
+	}
+	return out, nil
+}
+
+// carryAltUIDs keeps one row for an entry whose key changed form because its guid became, or stopped being,
+// repeated in the document, or because the link of a guid-less entry became, or stopped being, shared
+// (fetch.Item.AltUID). A row stored under the entry's other key, with the same URL (and, for a link key, the
+// same title) and claimed by no entry of this document, is re-keyed to the entry's uid and updated in place, so
+// it keeps its id, dates and read and starred state. Each carried row counts in the kept fetch note
+// "rekeyed: k". It returns the items still to insert.
+func carryAltUIDs(ctx context.Context, tx *sql.Tx, feedID int64, res *fetch.Result, fresh []fetch.Item, now int64, st *commitState) ([]fetch.Item, error) {
+	if res.Feed == nil || res.Outcome != fetch.OutcomeOK {
+		return fresh, nil
+	}
+	var alts []string
+	for _, it := range fresh {
+		if it.AltUID != "" && it.URL != "" {
+			alts = append(alts, it.AltUID)
+		}
+	}
+	if len(alts) == 0 {
+		return fresh, nil
+	}
+	inDoc := make(map[string]bool, len(res.Feed.Items))
+	for _, it := range res.Feed.Items {
+		inDoc[it.UID] = true
+	}
+	altJSON, err := jsonText(alts)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id, uid, content_hash, text_hash, title, author, url, COALESCE(image_url,''), word_count
+		FROM items WHERE feed_id = ?1 AND uid IN (SELECT value FROM json_each(?2))`, feedID, altJSON)
+	if err != nil {
+		return nil, err
+	}
+	stored := map[string]existingRow{}
+	for rows.Next() {
+		var uid string
+		var e existingRow
+		if err := rows.Scan(&e.id, &uid, &e.contentHash, &e.textHash, &e.title, &e.author, &e.url, &e.imageURL, &e.wordCount); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		stored[uid] = e
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	out := make([]fetch.Item, 0, len(fresh))
+	for _, it := range fresh {
+		e, ok := stored[it.AltUID]
+		// A link key names the page and the title, so a row under it is only the same entry when the title agrees.
+		if !ok || it.URL == "" || e.url != it.URL || inDoc[it.AltUID] ||
+			(strings.HasPrefix(it.AltUID, "l:") && e.title != it.Title) {
+			out = append(out, it)
+			continue
+		}
+		delete(stored, it.AltUID) // one row is carried to one entry
+		if _, err := tx.ExecContext(ctx, "UPDATE items SET uid = ? WHERE id = ?", it.UID, e.id); err != nil {
+			return nil, err
+		}
+		st.rekeyed++
+		if e.contentHash != it.ContentHash {
+			if err := updateItem(ctx, tx, e, it, now); err != nil {
+				return nil, err
+			}
+			st.updated++
+		}
 	}
 	return out, nil
 }

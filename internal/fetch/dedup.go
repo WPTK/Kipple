@@ -26,20 +26,25 @@ func H(x string) string {
 // textFallbackUID is the last-resort uid: 'h:' + h(title 0x1f text).
 func textFallbackUID(title, text string) string { return "h:" + H(title+sep+text) }
 
-// AssignUIDs sets Item.UID and Item.LinkHash for every item and applies the
-// in-document duplicate rules. It returns the fetch notes (currently only
-// "guid_duplicates: k/n") and the items to keep: in link and link_title modes
-// an item whose uid repeats an earlier one in the same document is dropped,
-// because (feed_id, uid) is unique in the store. Auto mode never drops: a
-// repeated guid is keyed by guid and link for every occurrence (design §4.8).
+// AssignUIDs sets Item.UID, Item.AltUID and Item.LinkHash for every item and
+// applies the in-document duplicate rules. It returns the fetch notes
+// (currently only "guid_duplicates: k/n") and the items to keep: an item whose
+// uid repeats an earlier one in the same document is dropped, because
+// (feed_id, uid) is unique in the store. In auto mode that only happens to
+// entries nothing tells apart: a repeated guid is keyed by guid and link for
+// every occurrence, and a link shared by several guid-less entries is keyed by
+// link and title for every one of them (design §4.8).
 //
 // Items must already carry RawLink, GUID, Title and ContentText.
 func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 	seenUID := make(map[string]bool, len(items))
 	guidTotal := make(map[string]int, len(items)) // occurrences per guid in the whole document
+	linkTotal := make(map[string]int, len(items)) // occurrences per link among the guid-less items
 	for i := range items {
 		if g := strings.TrimSpace(items[i].GUID); g != "" {
 			guidTotal[g]++
+		} else if items[i].RawLink != "" {
+			linkTotal[items[i].RawLink]++
 		}
 	}
 	guidCount := make(map[string]int, len(items))
@@ -55,7 +60,7 @@ func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 			}
 		}
 
-		var uid string
+		var uid, alt string
 		switch mode {
 		case DedupLink:
 			uid = linkUID(it)
@@ -70,11 +75,17 @@ func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 			case guid != "":
 				n := guidCount[guid]
 				uid = "g:" + H(guid)
+				if it.RawLink != "" {
+					alt = "g:" + H(guid+"|"+it.RawLink)
+				}
 				if guidTotal[guid] > 1 {
 					// Every occurrence of a repeated guid is keyed by its link, so
-					// a uid never depends on where the item sits in the document.
+					// a uid never depends on where the item sits in the document. It
+					// does depend on whether the guid is repeated here: alt is the
+					// key on the other side of that line, and the commit carries a
+					// row stored under it over to uid.
 					if it.RawLink != "" {
-						uid = "g:" + H(guid+"|"+it.RawLink)
+						uid, alt = alt, uid
 					} else {
 						uid = "g:" + H(guid+"|"+strconv.Itoa(n))
 					}
@@ -82,10 +93,20 @@ func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 					// bumping the counter until the key is free.
 					for k := n + 1; seenUID[uid]; k++ {
 						uid = "g:" + H(guid+"|"+it.RawLink+"|"+strconv.Itoa(k))
+						alt = "" // a counter key has no stable other form
 					}
 				}
+			case linkTotal[it.RawLink] > 1:
+				// Every guid-less entry that shares its link with another one (a feed
+				// whose entries all point at one page) is keyed by link and title, the
+				// link_title key, so none is dropped for its link and none replaces
+				// another's row. Like a repeated guid, this depends on whether the
+				// link is shared in this document; alt is the key on the other side.
+				uid = "l:" + H(it.RawLink+sep+it.Title)
+				alt = "l:" + H(it.RawLink)
 			case it.RawLink != "":
 				uid = "l:" + H(it.RawLink)
+				alt = "l:" + H(it.RawLink+sep+it.Title)
 			default:
 				uid = textFallbackUID(it.Title, it.ContentText)
 			}
@@ -95,10 +116,10 @@ func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 		}
 
 		if seenUID[uid] {
-			continue // only reachable in link/link_title modes or identical h: items
+			continue // link and link_title modes; in auto mode the same link and title twice, or identical h: items
 		}
 		seenUID[uid] = true
-		it.UID = uid
+		it.UID, it.AltUID = uid, alt
 		kept = append(kept, *it)
 	}
 
