@@ -328,12 +328,8 @@ func (s *Server) deviceDefaults(merged map[string]any) map[string]any {
 	return out
 }
 
-// deviceView is the JSON of GET /api/device.
-func (s *Server) deviceView(r *http.Request, dv store.Device) (map[string]any, error) {
-	merged, err := s.db.MergedSettings(r.Context())
-	if err != nil {
-		return nil, err
-	}
+// deviceView is the JSON of GET /api/device. merged is store.MergedSettings, read by the caller.
+func (s *Server) deviceView(dv store.Device, merged map[string]any) map[string]any {
 	defaults := s.deviceDefaults(merged)
 	eff := make(map[string]any, len(defaults)+len(dv.Profile))
 	maps.Copy(eff, defaults)
@@ -347,7 +343,7 @@ func (s *Server) deviceView(r *http.Request, dv store.Device) (map[string]any, e
 	return map[string]any{
 		"id": dv.ID, "name": dv.Name, "created_at": dv.CreatedAt, "last_seen_at": dv.LastSeenAt,
 		"profile": profile, "defaults": defaults, "merged": eff,
-	}, nil
+	}
 }
 
 func newDeviceID() (string, error) {
@@ -460,12 +456,12 @@ func unsavedDevice(client string, now int64) store.Device {
 }
 
 func (s *Server) writeDevice(w http.ResponseWriter, r *http.Request, dv store.Device) {
-	v, err := s.deviceView(r, dv)
+	merged, err := s.db.MergedSettings(r.Context())
 	if err != nil {
 		s.serverError(w, "device", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, v)
+	writeJSON(w, http.StatusOK, s.deviceView(dv, merged))
 }
 
 // getDevice is GET /api/device.

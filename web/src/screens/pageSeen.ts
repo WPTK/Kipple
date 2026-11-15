@@ -43,12 +43,29 @@ export interface PageMeasure {
   stories: { id: string; top: number; bottom: number }[];
 }
 
-export function measurePage(container: HTMLElement): PageMeasure {
+/**
+ * A page is a stack of sections (the Gazette's pages, the Digest's sections), and a section off screen has no story on
+ * screen, so its stories are not measured. The stories named in `keep` (the look before had them in view, or an amount
+ * is owed for them) are measured wherever they are now, and so is a story with no section around it.
+ */
+export function measurePage(container: HTMLElement, keep?: ReadonlySet<string>): PageMeasure {
   const list = container.getBoundingClientRect();
   const stories: PageMeasure["stories"] = [];
+  const onScreen = new Map<Element, boolean>();
   for (const a of container.querySelectorAll<HTMLElement>("article[data-item-id]")) {
+    const id = a.dataset.itemId ?? "";
+    const section = keep?.has(id) ? null : a.closest("section");
+    if (section && section !== container && container.contains(section)) {
+      let on = onScreen.get(section);
+      if (on === undefined) {
+        const box = section.getBoundingClientRect();
+        on = box.bottom > list.top && box.top < list.bottom;
+        onScreen.set(section, on);
+      }
+      if (!on) continue;
+    }
     const r = a.getBoundingClientRect();
-    stories.push({ id: a.dataset.itemId ?? "", top: r.top, bottom: r.bottom });
+    stories.push({ id, top: r.top, bottom: r.bottom });
   }
   return { listTop: list.top, listBottom: list.bottom, scrollTop: container.scrollTop, stories };
 }

@@ -59,6 +59,10 @@ type Item struct {
 	Categories  []string `json:"-"`
 	ContentHash string   `json:"content_hash"`
 	TextHash    string   `json:"text_hash"`
+	// AltUID is the other key this entry has when the repeat state of its guid, or of its link among guid-less
+	// entries, differs in the document (AssignUIDs). "" when there is none: no link, a counter key, link and
+	// link_title modes. Never stored and not in the golden output; the commit carries a row stored under it over to UID.
+	AltUID string `json:"-"`
 }
 
 // Feed is the normalized parse result.
@@ -277,6 +281,20 @@ const MaxAttributes = 1_000_000
 // bounds what a parse holds.
 const MaxElements = 500_000
 
+// MaxTagBytes is the most markup one start or end tag may have, from its "<" to its ">", not counting the bytes
+// inside quoted attribute values (the quote characters count). An XML tokenizer reads a whole tag before it hands it
+// over and keeps every attribute of it, so a tag of millions of short attributes costs far more memory than its
+// bytes, before any of the counts above can run; each attribute needs at least two bytes outside its value. A quoted
+// value is one string whatever its length, so a data: URI image in an attribute is not limited by this, only by the
+// body size. Real tags are a few hundred bytes. Comments, CDATA sections, text and instructions are not tags and are
+// bounded by the body size alone.
+const MaxTagBytes = 1 << 20
+
+// detectionWindow is how much of a document gofeed.Parser.Parse reads to find its type (gofeed's detectionPeekSize),
+// so it is all the pre-scan reads: gofeed.DetectFeedType copies the whole reader it is given. A window smaller than
+// gofeed's would let a document through unscanned; TestDetectionWindowMatchesGofeed fails if gofeed's grows.
+const detectionWindow = 4096
+
 // errCharsetSwitch refuses a document whose XML decoder is told to change charset. DecodeBody has converted the body
 // to UTF-8 and rewritten its declaration, so any <?xml encoding?> instruction a decoder still honours converts bytes
 // that are already converted. encoding/xml honours every one it meets and wraps one more converter round the rest of
@@ -285,6 +303,9 @@ var errCharsetSwitch = errors.New("document declares a charset after it was deco
 
 // refuseCharset is the CharsetReader of a decoder that checks a body before gofeed reads it.
 func refuseCharset(string, io.Reader) (io.Reader, error) { return nil, errCharsetSwitch }
+
+// errTagTooLong is what a decoder reading through a tagGuard stops on when a tag passes MaxTagBytes.
+var errTagTooLong = fmt.Errorf("document has a tag with more than %d bytes of markup", MaxTagBytes)
 
 // checkProlog refuses a charset switch between the start of an XML document and its first element. gofeed finds the
 // document type by reading that far with its own decoder, from the bytes as they are (its control-byte filter runs
@@ -297,12 +318,12 @@ func checkProlog(body []byte) error {
 	if i == len(body) || body[i] != '<' {
 		return nil // not XML: no XML decoder reads it
 	}
-	d := xml.NewDecoder(bytes.NewReader(body[i:]))
+	d := xml.NewDecoder(&tagGuard{r: bytes.NewReader(body[i:])})
 	d.Strict = false
 	d.CharsetReader = refuseCharset
 	for {
 		tok, err := d.Token()
-		if errors.Is(err, errCharsetSwitch) {
+		if errors.Is(err, errCharsetSwitch) || errors.Is(err, errTagTooLong) {
 			return err
 		}
 		if err != nil {
@@ -316,8 +337,8 @@ func checkProlog(body []byte) error {
 
 // checkNesting reads a body once before gofeed does, building nothing, and refuses a document gofeed would spend
 // unbounded memory on: one that changes charset after DecodeBody converted it, one nested deeper than MaxNesting, one
-// with more than MaxNamespaces namespace declarations in scope, and one with more than MaxElements elements or
-// MaxDocumentEntries entries. For RSS and Atom it reads the bytes gofeed's XML parsers read (C0 control bytes
+// with more than MaxNamespaces namespace declarations in scope, one with a tag longer than MaxTagBytes (the decoder
+// reads through a tagGuard), and one with more than MaxElements elements or MaxDocumentEntries entries. For RSS and Atom it reads the bytes gofeed's XML parsers read (C0 control bytes
 // dropped, see xmlFilter) with the same non-strict decoder, and counts start and end tokens as that decoder yields
 // them: Token closes an unclosed element (a raw <br>) at the next mismatched end tag, as RawToken never does. The
 // depth counted is never less than the depth gofeed walks; it can be more, since gofeed reads some elements (a
@@ -327,14 +348,14 @@ func checkNesting(body []byte) error {
 	if err := checkProlog(body); err != nil {
 		return err
 	}
-	kind := gofeed.DetectFeedType(bytes.NewReader(body))
+	kind := gofeed.DetectFeedType(bytes.NewReader(body[:min(len(body), detectionWindow)]))
 	if kind == gofeed.FeedTypeJSON {
 		return checkJSON(body)
 	}
 	if kind != gofeed.FeedTypeRSS && kind != gofeed.FeedTypeAtom {
 		return nil // an undetected type is never parsed
 	}
-	d := xml.NewDecoder(xmlFilter{bytes.NewReader(body)})
+	d := xml.NewDecoder(&tagGuard{r: xmlFilter{bytes.NewReader(body)}})
 	d.Strict = false
 	// A decoder set up as gofeed's is, except that it refuses the document where gofeed's would change charset.
 	d.CharsetReader = refuseCharset

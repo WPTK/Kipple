@@ -493,6 +493,7 @@ func TestIconEndpoint(t *testing.T) {
 	w := h.do(http.MethodGet, base+"/icon/"+signed, "", map[string]string{"Authorization": ""})
 	require.Equal(t, 200, w.Code, "a URL from the subscription list needs no token")
 	require.Equal(t, "image/png", w.Header().Get("Content-Type"))
+	require.Equal(t, "public, max-age=31536000, immutable", w.Header().Get("Cache-Control"), "the address names the bytes")
 	require.Equal(t, "\x89PNG", w.Body.String())
 	require.Equal(t, 404, h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-wrong-"+iconMAC(testSecret, f, "wrong"), "", nil).Code)
 }
