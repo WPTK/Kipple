@@ -532,6 +532,7 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
   Digest's "Images". It covers the Inbox thumbnails and the Digest images; Editorial and Cards always show pictures. It
   appears twice, bound to the one value: in Settings, Appearance, Lists, and in the layout menu, as Pictures under Show and sort. Rejected: a
   picture control in each layout's own block, which repeats the problem of a control that exists only under some layouts.
+- **A picture makes a row taller.** In Editorial a row with a picture is about twice as tall as one without while the list is narrower than 34rem (a phone, or the list column beside the reader pane at its default width), and a little taller when the picture sits beside the text. In Cards it is about 1.7 times as tall in a single column, and the cards of one grid row share one height in two or three columns. Which articles have a picture follows the feed, so a feed with pictures takes more of the screen than one without.
   An old cache or stored profile that hid pictures in either place keeps them hidden (read once; migration 0021 rewrites the
   stored profiles).
 - **"Pictures" means display only.** The server's image proxy group in Settings is "Image cache".
