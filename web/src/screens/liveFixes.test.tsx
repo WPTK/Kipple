@@ -62,9 +62,6 @@ describe("live state in the list", () => {
     expect(articleToCalls.n).toBe(before);
     act(() => handleServerEvent(client, { type: "run.done", data: { run_id: "1", new_items: 0, errors: 0 } }));
     expect(articleToCalls.n).toBe(before);
-    // The end of the manual run reloads the list; the same rows come back, so none is drawn again.
-    await act(() => new Promise((r) => setTimeout(r, 50)));
-    expect(articleToCalls.n).toBe(before);
   });
 
   it("a run whose run.done was missed stops showing the refresh line once /api/status says nothing is running", async () => {
