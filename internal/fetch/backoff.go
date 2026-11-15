@@ -56,30 +56,22 @@ func NextOnFailure(now time.Time, intervalS int64, n int, retryAfter time.Durati
 
 // NextOnSuccess implements design §4.6. A feed's slots are fixed in time,
 // interval apart, at a phase taken from phaseKey (PhaseKey), and the next fetch
-// is the first slot at or after a start time plus a lead. With no hint longer
-// than the interval the start is now and the lead is half the interval, so a
-// feed fetched on its slot, or up to half an interval late, gets its next slot
-// one interval on. A hint longer than the interval (capped at 24 h) is the
-// lead, and the start is the slot the fetch belonged to when the fetch was at
-// most half an interval after it, otherwise now; the hint is a floor measured
-// from that slot. Feeds fetched together (a restore, downtime, a refresh of
-// everything) therefore spread over the interval within one fetch and stay
-// spread. The grid depends on the interval alone, so a hint that changes from
-// fetch to fetch never moves it. hintS is the publisher hint in seconds (0 when
-// none).
+// is the first slot at or after now + lead. The lead is the publisher hint
+// (capped at 24 h) when it is longer than the interval, so the hint is a floor;
+// otherwise it is half the interval, so a feed fetched on its slot, or up to
+// half an interval late, gets its next slot one interval on. Feeds fetched
+// together (a restore, downtime, a refresh of everything) therefore spread over
+// the interval within one fetch and stay spread. The grid depends on the
+// interval alone, so a hint that changes from fetch to fetch never moves it.
+// hintS is the publisher hint in seconds (0 when none).
 func NextOnSuccess(now time.Time, phaseKey uint64, intervalS, hintS int64) (time.Time, int64) {
 	intervalS = max(intervalS, 1)
-	phase := slotPhase(phaseKey, intervalS)
 	lead := intervalS / 2
-	start := now.Unix()
 	if h := min(hintS, maxBackoffS); h > intervalS {
 		lead = h
-		if late := posMod(start-phase, intervalS); late <= intervalS/2 {
-			start -= late
-		}
 	}
-	earliest := start + lead
-	t := earliest + posMod(phase-earliest, intervalS)
+	earliest := now.Unix() + lead
+	t := earliest + posMod(slotPhase(phaseKey, intervalS)-earliest, intervalS)
 	d := t - now.Unix()
 	return now.Add(time.Duration(d) * time.Second), d
 }
