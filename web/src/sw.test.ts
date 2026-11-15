@@ -22,6 +22,8 @@ function fakeCache() {
   const m = new Map<string, Stored>();
   return {
     async put(req: string | { url: string }, res: Response) {
+      // Cache.put rejects a response whose body was read or is held by a reader, so a copy the worker took must be a clone.
+      if (res.bodyUsed || res.body?.locked) throw new TypeError("the response body is already used");
       m.set(abs(req), { status: res.status, statusText: res.statusText, headers: [...res.headers.entries()], body: await res.text() });
     },
     async match(req: string | { url: string }) {
@@ -124,6 +126,9 @@ function setup(precache: string[] = [], build = "0000000000001-aaaa", opts: { at
 
 const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { "Content-Type": "application/json" } });
 
+/** An image as the proxy sends a thumbnail or an original: a long lifetime. */
+const png = () => new Response("png", { headers: { "Cache-Control": "private, max-age=2592000, immutable" } });
+
 describe("install and activate", () => {
   it("precaches the shell, all or nothing", async () => {
     const w = setup(["/", "/assets/a.js"]);
@@ -165,6 +170,14 @@ describe("install and activate", () => {
     w.stores.set("kipple-data", fakeCache());
     await w.lifecycle("activate");
     expect([...w.stores.keys()].sort()).toEqual(["kipple-data", "kipple-shell-0000000000004-dddd", "kipple-shell-0000000000004-x"]);
+  });
+
+  it("drops the images cache of earlier workers once, keeping the current one", async () => {
+    const w = setup();
+    w.stores.set("kipple-images", fakeCache()); // originals kept under thumbnail addresses by an earlier worker
+    w.stores.set("kipple-images-2", fakeCache());
+    await w.lifecycle("activate");
+    expect([...w.stores.keys()]).toEqual(["kipple-images-2"]);
   });
 });
 
@@ -228,6 +241,115 @@ describe("navigation", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("the stored shell follows the page policy", () => {
+    const POLICY_OLD = "default-src 'self'; img-src 'self' data: blob: https:";
+    const POLICY_NEW = "default-src 'self'; img-src 'self' data: blob:";
+    const page = (etag: string | null, policy: string, body = "index") => {
+      const headers: Record<string, string> = { "Content-Security-Policy": policy };
+      if (etag) headers.ETag = etag;
+      return new Response(body, { headers });
+    };
+    const KEY = "kipple-shell-0000000000001-aaaa";
+    const stored = async (w: ReturnType<typeof setup>) => {
+      const hit = await w.stores.get(KEY)!.match("/");
+      return { csp: hit!.headers.get("Content-Security-Policy"), body: await hit!.text() };
+    };
+    const setUp = async () => {
+      const w = setup(["/"]);
+      w.stores.set(KEY, fakeCache());
+      await w.stores.get(KEY)!.put("/", page('"h1.http_only"', POLICY_OLD, "stored index"));
+      return w;
+    };
+    const offline = () => {
+      throw new TypeError("offline");
+    };
+
+    it("replaces the stored shell when the same page comes back under another image mode", async () => {
+      const w = await setUp();
+      // The server weakens the tag when it compresses the answer.
+      w.setNetwork(() => page('W/"h1.all"', POLICY_NEW, "live index"));
+      expect(await (await w.fetch("/l/unread", { mode: "navigate" }))!.text()).toBe("live index");
+      w.setNetwork(offline);
+      expect(await (await w.fetch("/l/unread", { mode: "navigate" }))!.text()).toBe("live index");
+      expect(await stored(w)).toEqual({ csp: POLICY_NEW, body: "live index" });
+    });
+
+    it("does the same when the answer lands after the worker gave up waiting", async () => {
+      vi.useFakeTimers();
+      try {
+        const w = await setUp();
+        w.setNetwork(() => new Promise<Response>((resolve) => setTimeout(() => resolve(page('"h1.all"', POLICY_NEW, "slow index")), 8000)));
+        const pending = w.fetch("/l/unread", { mode: "navigate" });
+        await vi.advanceTimersByTimeAsync(9000);
+        expect(await (await pending)!.text()).toBe("stored index"); // this launch gets the shell
+        expect(await stored(w)).toEqual({ csp: POLICY_NEW, body: "slow index" }); // the next one gets the new policy
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("leaves the shell alone for an answer that is not this build's page under another mode", async () => {
+      const w = await setUp();
+      const unchanged = { csp: POLICY_OLD, body: "stored index" };
+      for (const res of [
+        page('"h2.all"', POLICY_NEW, "another build"), // a different index.html
+        page(null, POLICY_NEW, "a login page"), // no ETag
+        page('"plain"', POLICY_NEW, "a proxy's page"), // an ETag in no known form
+        page('"h1.http_only"', POLICY_OLD, "same mode"), // nothing to bring up to date
+      ]) {
+        w.setNetwork(() => res.clone());
+        await w.fetch("/l/unread", { mode: "navigate" });
+        expect(await stored(w)).toEqual(unchanged);
+      }
+      w.setNetwork(() => new Response("gone", { status: 404, headers: { ETag: '"h1.all"' } }));
+      await w.fetch("/l/unread", { mode: "navigate" });
+      expect(await stored(w)).toEqual(unchanged);
+    });
+
+    it("lets go of a late answer that is not a page with a tag, so its connection is released", async () => {
+      vi.useFakeTimers();
+      try {
+        const w = await setUp();
+        const late = new Response("a login page", { headers: { "Content-Security-Policy": POLICY_NEW } });
+        const cancel = vi.spyOn(late.body!, "cancel");
+        w.setNetwork(() => new Promise<Response>((resolve) => setTimeout(() => resolve(late), 8000)));
+        const pending = w.fetch("/l/unread", { mode: "navigate" });
+        await vi.advanceTimersByTimeAsync(9000);
+        expect(await (await pending)!.text()).toBe("stored index");
+        expect(cancel).toHaveBeenCalledTimes(1);
+        expect(await stored(w)).toEqual({ csp: POLICY_OLD, body: "stored index" });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps a newer navigation's policy when an older navigation's answer lands after it", async () => {
+      vi.useFakeTimers();
+      try {
+        const w = await setUp();
+        // The first navigation is slow and carries the other mode; the second starts later and is answered at once.
+        w.setNetwork(() => new Promise<Response>((resolve) => setTimeout(() => resolve(page('"h1.all"', POLICY_NEW, "old answer")), 8000)));
+        const first = w.fetch("/l/unread", { mode: "navigate" });
+        await vi.advanceTimersByTimeAsync(1000);
+        w.setNetwork(() => page('"h1.http_only"', POLICY_OLD, "newer answer"));
+        const second = w.fetch("/l/starred", { mode: "navigate" });
+        await vi.advanceTimersByTimeAsync(9000);
+        await first;
+        await second;
+        expect(await stored(w)).toEqual({ csp: POLICY_OLD, body: "stored index" });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not create a shell cache that precache left out", async () => {
+      const w = setup(["/"]); // nothing stored: no shell cache exists
+      w.setNetwork(() => page('"h1.all"', POLICY_NEW, "live index"));
+      await w.fetch("/l/unread", { mode: "navigate" });
+      expect([...w.stores.keys()]).toEqual([]);
+    });
   });
 
   it("does not answer navigations to the API or images with the app", async () => {
@@ -296,9 +418,9 @@ describe("slow and failing networks", () => {
 
   it("an image the cache cannot store still loads, and a partial response is not stored", async () => {
     const w = setup();
-    w.setNetwork(() => new Response("png"));
+    w.setNetwork(() => png());
     await w.fetch("/img/warm"); // creates the images cache
-    w.stores.get("kipple-images")!.put = async () => {
+    w.stores.get("kipple-images-2")!.put = async () => {
       throw new Error("QuotaExceededError");
     };
     expect(await (await w.fetch("/img/other"))!.text()).toBe("png");
@@ -379,7 +501,7 @@ describe("read-only API answers", () => {
     const w = setup();
     w.setNetwork(() => json({ n: 1 }));
     await w.fetch("/api/bootstrap");
-    w.setNetwork(() => new Response("png"));
+    w.setNetwork(() => png());
     await w.fetch("/img/abc");
     w.stores.set("kipple-shell-0000000000001-aaaa", fakeCache());
     await w.message({ type: "clear-data" });
@@ -426,11 +548,11 @@ describe("clear-data while requests are still out", () => {
   });
 
   it("an image from before the clear is not kept; one requested after it is", async () => {
-    const { w } = await lateAnswer("/img/late", () => new Response("png"));
-    expect(await entries(w, "kipple-images")).toEqual([]);
-    w.setNetwork(() => new Response("png"));
+    const { w } = await lateAnswer("/img/late", () => png());
+    expect(await entries(w, "kipple-images-2")).toEqual([]);
+    w.setNetwork(() => png());
     await w.fetch("/img/fresh");
-    expect(await entries(w, "kipple-images")).toEqual([`${ORIGIN}/img/fresh`]);
+    expect(await entries(w, "kipple-images-2")).toEqual([`${ORIGIN}/img/fresh`]);
   });
 });
 
@@ -440,7 +562,7 @@ describe("images and assets", () => {
     let hits = 0;
     w.setNetwork(() => {
       hits++;
-      return new Response("png");
+      return png();
     });
     await w.fetch("/img/abc");
     expect(await (await w.fetch("/img/abc"))!.text()).toBe("png");
@@ -448,6 +570,38 @@ describe("images and assets", () => {
     await w.fetch("/api/feeds/3/icon");
     await w.fetch("/api/feeds/3/icon");
     expect(hits).toBe(2);
+  });
+
+  it("an answer that is not meant to last reaches the page but is not kept; a long-lived one is", async () => {
+    const w = setup();
+    let hits = 0;
+    let cc: string | null = "no-cache";
+    w.setNetwork(() => {
+      hits++;
+      return new Response("original", cc === null ? {} : { headers: { "Cache-Control": cc } });
+    });
+    // The proxy sends the original at a thumbnail address like this while the thumbnail is being made.
+    expect(await (await w.fetch("/img/thumb"))!.text()).toBe("original");
+    expect(await (await w.fetch("/img/thumb"))!.text()).toBe("original");
+    expect(hits).toBe(2); // the second request went to the network
+
+    // no-store, a refusal's remaining minutes, a max-age under a day, and an answer that names no lifetime.
+    for (const [i, value] of ["private, no-store", "private, max-age=600", "private, max-age=86399", null].entries()) {
+      cc = value;
+      const before = hits;
+      await w.fetch(`/img/short${i}`);
+      await w.fetch(`/img/short${i}`);
+      expect(hits, String(value)).toBe(before + 2);
+    }
+
+    // A real thumbnail or original (immutable), a feed icon's week and a year are kept.
+    for (const [i, value] of ["private, max-age=2592000, immutable", "private, max-age=604800", "private, max-age=31536000, immutable"].entries()) {
+      cc = value;
+      const before = hits;
+      await w.fetch(`/img/long${i}`);
+      await w.fetch(`/img/long${i}`);
+      expect(hits, value).toBe(before + 1);
+    }
   });
 
   it("assets come from any shell cache first, and are kept once fetched", async () => {
