@@ -71,7 +71,7 @@ type commitState struct {
 	lastID       int64
 	newIDs       []int64
 	unreadNew    []int64 // new ids counted in feed_daily_new (see addFeedDailyNew)
-	day          string  // the local date the commit counts them on, fixed by its first chunk
+	day          string  // the local date the commit counts them on, fixed by the first chunk that adds items
 	updated      int
 	rekeyed      int
 	initRead     int
@@ -314,8 +314,6 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM items WHERE feed_id = ?", feedID).Scan(&st.before); err != nil {
 			return err
 		}
-		// One day for the whole commit, so a commit that spans midnight adds to and takes from one row.
-		st.day = time.Unix(now, 0).In(Zone(ctx, tx)).Format("2006-01-02")
 	}
 
 	if len(items) > 0 {
@@ -629,6 +627,11 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		}
 		if err := writeHits(ctx, tx, hits, now); err != nil {
 			return err
+		}
+		// One day for the whole commit, so a commit that spans midnight adds to and takes from one row:
+		// the first chunk that adds items fixes it.
+		if st.day == "" {
+			st.day = time.Unix(now, 0).In(Zone(ctx, tx)).Format("2006-01-02")
 		}
 		if err := addFeedDailyNew(ctx, tx, feedID, st.day, countRuns(st.newIDs[inserted:], st.unreadNew[counted:])); err != nil {
 			return err

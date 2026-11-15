@@ -57,7 +57,7 @@ func LoadFetchSettingsErr(ctx context.Context, q Querier) (FetchSettings, error)
 	var err error
 	s.IntervalMinutes, err = settingIntErr(ctx, q, "refresh.interval_minutes", 30)
 	keep(err)
-	s.RetentionDefault, err = settingIntErr(ctx, q, "retention.default", 250)
+	s.RetentionDefault, err = retentionDefault(ctx, q)
 	keep(err)
 	s.RestoreDays, err = restoreDaysErr(ctx, q)
 	keep(err)
@@ -84,6 +84,11 @@ func LoadFetchSettings(ctx context.Context, q Querier) FetchSettings {
 		slog.Warn("store: reading fetch settings failed; using defaults for this pass", "err", err)
 	}
 	return s
+}
+
+// retentionDefault reads retention.default alone: the item cap of a feed with no cap of its own (0 = unlimited).
+func retentionDefault(ctx context.Context, q Querier) (int, error) {
+	return settingIntErr(ctx, q, "retention.default", 250)
 }
 
 // restoreDaysErr reads retention.restore_days alone: default 90, clamped to 0..MaxRestoreDays. The key,

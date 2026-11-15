@@ -261,3 +261,21 @@ func TestFetchCommitTrimsOnlyOverTheCap(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, n, "the commit left nothing for a trim job")
 }
+
+// A feed at its cap with a starred item holds N+1 rows. Nothing is trimmed until the
+// non-starred, non-held items pass N; then it goes back to N of them.
+func TestTrimLeavesAFeedAtItsCapWithAStarredItem(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.loadFeed("http://a.example/feed", 51)
+	e.exec("UPDATE feeds SET retention = 50 WHERE id = ?", id)
+	e.exec("UPDATE items SET starred = 1 WHERE id = (SELECT min(id) FROM items WHERE feed_id = ?)", id)
+	info := e.fetchBody(id, rss(numbered(51)...))
+	require.Zero(t, info.Trimmed)
+	require.Equal(t, 51, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id))
+
+	info = e.fetchBody(id, rss(numbered(52)...))
+	require.EqualValues(t, 1, info.Trimmed)
+	require.Equal(t, 50, e.count("SELECT count(*) FROM items WHERE feed_id = ? AND starred = 0", id))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE feed_id = ? AND starred = 1", id))
+}
