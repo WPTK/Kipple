@@ -3,6 +3,7 @@ package fetch
 import (
 	"bytes"
 	"cmp"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -25,7 +26,6 @@ import (
 	gjson "github.com/mmcdole/gofeed/json"
 	grss "github.com/mmcdole/gofeed/rss"
 	xhtml "golang.org/x/net/html"
-	"golang.org/x/net/html/charset"
 
 	"github.com/WPTK/kipple/internal/sanitize"
 )
@@ -97,7 +97,11 @@ type ParseOptions struct {
 // normalized feed. Like DecodeBody it may modify body (only the encoding value
 // of its XML declaration).
 func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
-	return ParseDecoded(decodeBody(body, opt.HTTPCharset), opt)
+	dec := decodeBody(body, opt.HTTPCharset)
+	if len(dec.Body) > maxBodyBytes {
+		return nil, errors.New(tooLargeMessage(maxBodyBytes))
+	}
+	return ParseDecoded(dec, opt)
 }
 
 var errNotJSONFeed = errors.New("JSON document is not a JSON Feed (no JSON Feed version and no items array)")
@@ -245,23 +249,91 @@ func newestEntries(entries []*gofeed.Item, n int, now time.Time) []int {
 // a few more. gofeed walks extension elements recursively, so the depth is checked before it runs.
 const MaxNesting = 512
 
-// checkNesting reads the tokens of a body gofeed would parse as RSS or Atom once, building nothing, and refuses one
-// nested deeper than MaxNesting. It reads the bytes gofeed's XML parsers read (C0 control bytes dropped, see
-// xmlFilter) with the same non-strict decoder and charset reader, and counts start and end tokens as that decoder
-// yields them: Token closes an unclosed element (a raw <br>) at the next mismatched end tag, as RawToken never does.
-// The depth counted is never less than the depth gofeed walks; it can be more, since gofeed reads some elements
-// (a description) without recursing into them. A token error refuses the body: the
-// parser's decoder would stop there too, so only the message differs. The scan ends where the parser does, when the
-// root element closes.
+// MaxNamespaces is the most namespace declarations (xmlns and xmlns:prefix attributes) a feed document may have in
+// scope at one element: its own and those of the elements it is inside. Feeds declare fewer than 30, nearly all on
+// the root. gofeed's pull parser copies every binding in scope for each start tag and keeps one copy per open
+// element, so the declarations in scope are what one open element costs.
+const MaxNamespaces = 64
+
+// MaxDocumentEntries is the most entries (RSS items, Atom entries, JSON Feed items) a feed document may have. gofeed
+// builds every entry of the document, and the original beside it, before MaxItemsPerFetch picks the newest, so a
+// document with more is refused before gofeed runs.
+const MaxDocumentEntries = 10 * MaxItemsPerFetch
+
+// MaxElements is the most elements a feed document may have. gofeed keeps a struct and two maps for every element in
+// an extension namespace, so the element count, not the body size, bounds what a parse holds.
+const MaxElements = 500_000
+
+// errCharsetSwitch refuses a document whose XML decoder is told to change charset. DecodeBody has converted the body
+// to UTF-8 and rewritten its declaration, so any <?xml encoding?> instruction a decoder still honours converts bytes
+// that are already converted. encoding/xml honours every one it meets and wraps one more converter round the rest of
+// the document each time.
+var errCharsetSwitch = errors.New("document declares a charset after it was decoded")
+
+// refuseCharset is the CharsetReader of a decoder that checks a body before gofeed reads it.
+func refuseCharset(string, io.Reader) (io.Reader, error) { return nil, errCharsetSwitch }
+
+// checkProlog refuses a charset switch between the start of an XML document and its first element. gofeed finds the
+// document type by reading that far with its own decoder, from the bytes as they are (its control-byte filter runs
+// only in the RSS and Atom parsers), so this part is checked unfiltered as well.
+func checkProlog(body []byte) error {
+	i := 0
+	for i < len(body) && strings.IndexByte(" \r\n\t\xfe\xff\x00\xef\xbb\xbf", body[i]) >= 0 {
+		i++ // the bytes gofeed.DetectFeedType skips
+	}
+	if i == len(body) || body[i] != '<' {
+		return nil // not XML: no XML decoder reads it
+	}
+	d := xml.NewDecoder(bytes.NewReader(body[i:]))
+	d.Strict = false
+	d.CharsetReader = refuseCharset
+	for {
+		tok, err := d.Token()
+		if errors.Is(err, errCharsetSwitch) {
+			return err
+		}
+		if err != nil {
+			return nil // gofeed's detection fails at the same token, and the document is never parsed
+		}
+		if _, ok := tok.(xml.StartElement); ok {
+			return nil
+		}
+	}
+}
+
+// checkNesting reads a body once before gofeed does, building nothing, and refuses a document gofeed would spend
+// unbounded memory on: one that changes charset after DecodeBody converted it, one nested deeper than MaxNesting, one
+// with more than MaxNamespaces namespace declarations in scope, and one with more than MaxElements elements or
+// MaxDocumentEntries entries. For RSS and Atom it reads the bytes gofeed's XML parsers read (C0 control bytes
+// dropped, see xmlFilter) with the same non-strict decoder, and counts start and end tokens as that decoder yields
+// them: Token closes an unclosed element (a raw <br>) at the next mismatched end tag, as RawToken never does. The
+// depth counted is never less than the depth gofeed walks; it can be more, since gofeed reads some elements (a
+// description) without recursing into them. A token error refuses the body: the parser's decoder would stop there
+// too, so only the message differs. The scan ends where the parser does, when the root element closes.
 func checkNesting(body []byte) error {
-	if t := gofeed.DetectFeedType(bytes.NewReader(body)); t != gofeed.FeedTypeRSS && t != gofeed.FeedTypeAtom {
-		return nil // JSON is decoded iteratively, and an undetected type is never parsed
+	if err := checkProlog(body); err != nil {
+		return err
+	}
+	kind := gofeed.DetectFeedType(bytes.NewReader(body))
+	if kind == gofeed.FeedTypeJSON {
+		var doc struct {
+			Items jsonEntryCount `json:"items"`
+		}
+		_ = json.Unmarshal(body, &doc) // gofeed reports a malformed document
+		if doc.Items > MaxDocumentEntries {
+			return fmt.Errorf("document has more than %d entries", MaxDocumentEntries)
+		}
+		return nil // JSON is decoded iteratively
+	}
+	if kind != gofeed.FeedTypeRSS && kind != gofeed.FeedTypeAtom {
+		return nil // an undetected type is never parsed
 	}
 	d := xml.NewDecoder(xmlFilter{bytes.NewReader(body)})
 	d.Strict = false
-	// The parser's own charset reader: a declaration inside the document changes how the names after it are read.
-	d.CharsetReader = charset.NewReaderLabel
-	depth := 0
+	// A decoder set up as gofeed's is, except that it refuses the document where gofeed's would change charset.
+	d.CharsetReader = refuseCharset
+	var scope []int // per open element, the namespace declarations in scope inside it
+	elements, entries := 0, 0
 	for {
 		tok, err := d.Token()
 		if err == io.EOF {
@@ -270,17 +342,50 @@ func checkNesting(body []byte) error {
 		if err != nil {
 			return err
 		}
-		switch tok.(type) {
+		switch t := tok.(type) {
 		case xml.StartElement:
-			if depth++; depth > MaxNesting {
+			if len(scope) == MaxNesting {
 				return fmt.Errorf("document nests elements deeper than %d levels", MaxNesting)
 			}
+			if elements++; elements > MaxElements {
+				return fmt.Errorf("document has more than %d elements", MaxElements)
+			}
+			if name := strings.ToLower(t.Name.Local); name == "item" || name == "entry" {
+				if entries++; entries > MaxDocumentEntries {
+					return fmt.Errorf("document has more than %d entries", MaxDocumentEntries)
+				}
+			}
+			n := 0
+			if len(scope) > 0 {
+				n = scope[len(scope)-1]
+			}
+			for _, a := range t.Attr {
+				if a.Name.Space == "xmlns" || a.Name.Space == "" && a.Name.Local == "xmlns" {
+					n++
+				}
+			}
+			if n > MaxNamespaces {
+				return fmt.Errorf("document has more than %d namespace declarations in scope", MaxNamespaces)
+			}
+			scope = append(scope, n)
 		case xml.EndElement:
-			if depth--; depth <= 0 {
+			if len(scope) <= 1 {
 				return nil
 			}
+			scope = scope[:len(scope)-1]
 		}
 	}
+}
+
+// jsonEntryCount is the length of the longest "items" array of a JSON document: the key may repeat, and gofeed
+// decodes every one.
+type jsonEntryCount int
+
+func (n *jsonEntryCount) UnmarshalJSON(data []byte) error {
+	var items []struct{}
+	_ = json.Unmarshal(data, &items) // an element of another type still counts
+	*n = max(*n, jsonEntryCount(len(items)))
+	return nil
 }
 
 // xmlFilter drops the C0 control bytes XML does not allow (all below 0x20 but tab, LF and CR), as gofeed does before

@@ -241,5 +241,5 @@ func TestParseNestingCheckReadsDeclaredCharset(t *testing.T) {
 	b.WriteString("</x:ext></item></channel></rss>")
 	_, err := ParseFeed([]byte(b.String()), ParseOptions{FeedURL: "https://example.com/feed"})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "nest")
+	require.Contains(t, err.Error(), "charset")
 }
