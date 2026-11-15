@@ -153,7 +153,7 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
   // The page a reader left is kept as long as its section lists stay cached (LIST_KEEP_MS, the one number for both); a
   // return after that starts a new page, so a folder that gained its first unread article shows. Time away counts only
   // while no hook uses the page: one that is mounted keeps it, however long the reader reads.
-  const away = !consumers.has(listKey) && fixed?.left != null && Date.now() - fixed.left > LIST_KEEP_MS;
+  const away = !consumers.has(listKey) && fixed?.left != null && Date.now() - fixed.left >= LIST_KEEP_MS;
   if (fixed && (fixed.sig !== sig || away)) fixed = undefined;
   if (!fixed) {
     // On the New page a section's count is what arrived since the mark; a section the visit did not list has none.

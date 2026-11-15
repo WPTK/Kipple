@@ -62,6 +62,15 @@ describe("the page a reader left", () => {
     expect(sections(3)).toEqual(["Alpha", "Beta"]);
   });
 
+  it("is rebuilt at exactly thirty minutes away, the instant its section lists are dropped", () => {
+    expect(sections(0)).toEqual(["Alpha"]);
+    holdPage("unread")();
+    now += 30 * 60_000 - 1;
+    expect(sections(3)).toEqual(["Alpha"]);
+    now += 1;
+    expect(sections(3)).toEqual(["Alpha", "Beta"]);
+  });
+
   it("never counts time while a hook uses it, however long the reader reads", () => {
     expect(sections(0)).toEqual(["Alpha"]);
     const leave = holdPage("unread");

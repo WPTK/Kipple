@@ -52,6 +52,8 @@ func TestXMLFilterSkipsDroppedBytes(t *testing.T) {
 func TestValidTimeEpochEdge(t *testing.T) {
 	in := time.Date(1970, 1, 1, 0, 0, 1, 0, time.UTC)
 	require.NotNil(t, validTime(&in))
+	half := time.Date(1970, 1, 1, 0, 0, 0, 500_000_000, time.UTC)
+	require.NotNil(t, validTime(&half))
 	out := time.Date(1969, 12, 31, 23, 59, 59, 0, time.UTC)
 	require.Nil(t, validTime(&out))
 	epoch := time.Unix(0, 0).UTC()

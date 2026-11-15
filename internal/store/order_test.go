@@ -144,12 +144,22 @@ func TestOrderQueryPlans(t *testing.T) {
 		for _, oldest := range []bool{false, true} {
 			for _, above := range []bool{false, true} {
 				b := &Bound{Oldest: oldest, Above: above, SortAt: 100, ID: 1_700_000_000_100_000}
-				for _, sc := range []MarkScope{{}, {FeedID: 2}, {FolderTreeID: 7}, {Starred: true}, {Muted: true}} {
+				for _, want := range []struct {
+					sc    MarkScope
+					index string
+				}{
+					{MarkScope{}, "idx_items_unread_sort"},
+					{MarkScope{FeedID: 2}, "idx_items_unread_feed"},
+					{MarkScope{FolderTreeID: 7}, "idx_items_unread_feed"},
+					{MarkScope{Starred: true}, "idx_items_starred_sort"},
+					{MarkScope{Muted: true}, "idx_items_muted"},
+				} {
+					sc := want.sc
 					for _, f := range []MarkFilter{{Bound: b}, {Bound: b, MinMinutes: 8}} {
 						sel, args, _, _ := markSelectSQL(sc, f, 1_700_000_000_900_000, "", false, false)
 						p := plan(sel, args)
 						require.NotContains(t, p, "SCAN items\n", "%+v %+v oldest=%v above=%v analyze=%v\n%s", sc, f, oldest, above, analyze, p)
-						require.Contains(t, p, "idx_items_", "%+v\n%s", sc, p)
+						require.Contains(t, p, "SEARCH items USING INDEX "+want.index+" (", "%+v %+v\n%s", sc, f, p)
 					}
 				}
 			}

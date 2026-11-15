@@ -422,6 +422,16 @@ func TestReadingLengthFollowsShownText(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, readingMinutes(3000), det.ReadingMinutes)
 
+	// Full text in effect but the extraction failed: the reader shows the feed's text, so the count is its 40 words
+	// and the article has a known length.
+	e.exec("UPDATE items SET fulltext_mode = NULL WHERE id = ?", b)
+	require.Equal(t, []int64{b}, listed(CardQuery{View: "all", MaxMinutes: 1, Limit: 10}))
+	require.Empty(t, listed(CardQuery{View: "all", UnknownLength: true, Limit: 10}))
+	cards, _, err = e.db.ListCards(e.ctx, CardQuery{View: "all", IDs: []int64{b}})
+	require.NoError(t, err)
+	require.EqualValues(t, 40, cards[0].WordCount)
+	e.exec("UPDATE items SET fulltext_mode = 0 WHERE id = ?", b)
+
 	// Full text off: the extraction row stays, but the reader shows the feed's own text.
 	e.exec("UPDATE feeds SET fulltext = 0 WHERE id = ?", feed)
 	require.Empty(t, listed(long))

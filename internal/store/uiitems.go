@@ -113,12 +113,13 @@ type CardQuery struct {
 	// Oldest lists ascending (sort_at ASC, id ASC) instead of newest first.
 	Oldest bool
 	// MinMinutes and MaxMinutes (0 = unset) keep items whose reading time
-	// (ceil(words/230)) is at least/at most that many minutes; items with no
-	// extracted text (word_count 0) never match either filter.
+	// (ceil(words/230)) is at least/at most that many minutes. The words are those of the text shown: the
+	// extraction's while full text is in effect for the item, else the feed's own text (also when the extraction
+	// failed). An item whose shown word count is zero never matches either filter.
 	MinMinutes int
 	MaxMinutes int
-	// UnknownLength keeps only items with no extracted text (word_count 0), which no minutes range matches.
-	// It never combines with MinMinutes or MaxMinutes.
+	// UnknownLength keeps only items whose shown word count (counted as for MinMinutes) is zero, which no
+	// minutes range matches. It never combines with MinMinutes or MaxMinutes.
 	UnknownLength bool
 	// AfterID (0 = unset) keeps items with an id above it: what arrived after that item (the New page).
 	AfterID int64
@@ -567,7 +568,7 @@ type MarkFilter struct {
 	Fallback   *bool
 	MinMinutes int
 	MaxMinutes int
-	// UnknownLength keeps only items with no extracted text (see CardQuery).
+	// UnknownLength keeps only items whose shown word count is zero (see CardQuery).
 	UnknownLength bool
 	Bound         *Bound
 	// AfterID (0 = unset) leaves out items with an id at or below it: the New page marks only what arrived after its mark.
