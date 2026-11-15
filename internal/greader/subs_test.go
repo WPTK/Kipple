@@ -515,6 +515,24 @@ func TestIconURLNeedsTheAccountMark(t *testing.T) {
 	require.Equal(t, 404, icon(id+"-abc123-"+iconMAC(testSecret, f, "other")), "mark for another hash")
 	require.Equal(t, 404, icon(id+"-abc123-"+iconMAC(testSecret, g, "abc123")), "mark for another feed")
 	require.Equal(t, 404, icon(id+"-abc123-"+iconMAC("another-secret", f, "abc123")), "mark from another account")
+
+	// A mark made under the account's earlier secret stops working once the secret changes.
+	old := id + "-abc123-" + iconMAC(testSecret, f, "abc123")
+	require.Equal(t, 200, icon(old))
+	require.NoError(t, execSQL(h, "UPDATE account SET secret = 'ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100' WHERE id = 1"))
+	h.clk.Advance(acctTTL + time.Second) // the account snapshot is reloaded
+	require.Equal(t, 404, icon(old), "mark from before the secret changed")
+	require.Equal(t, 200, icon(id+"-abc123-"+iconMAC("ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100", f, "abc123")))
+}
+
+// With no API password there is no Reader API account to sign for: the route answers 404 for any mark.
+func TestIconURLWithoutAPIPasswordIs404(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, harnessOpts{noAPIPassword: true})
+	f := h.addFeed("https://a.example/f", "A", "")
+	require.NoError(t, execSQL(h, "INSERT INTO feed_icons (feed_id, data, content_type, hash, fetched_at) VALUES (?, x'89504e47', 'image/png', 'abc123', 1)", f))
+	w := h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-abc123-"+iconMAC(testSecret, f, "abc123"), "", map[string]string{"Authorization": ""})
+	require.Equal(t, 404, w.Code)
 }
 
 // Every feed.changed event carries the feed id as a string, like the web API and

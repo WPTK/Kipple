@@ -142,7 +142,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 
 		// Folders: each chain is matched level by level (ignoring ASCII case) or created by the folder
 		// writer, which walks down from the nearest level already resolved (never from the top again)
-		// on indexed lookups. A chain the writer refuses (a bad name, Uncategorized as a parent)
+		// on indexed lookups. A chain the writer refuses (Uncategorized as a parent; Parse has already refused a bad name, a hand-built Doc may still carry one)
 		// resolves to its deepest kept ancestor and is reported once, at its top. A chain that lands on
 		// a folder with the same full path but other levels (Music > AC > DC onto a literal "AC/DC") is
 		// reported in folders_merged_path. A chain a hand-built Doc forgot to list is resolved on demand.

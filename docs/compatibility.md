@@ -86,7 +86,7 @@ Paths are below `/api/greader.php`. Every endpoint except the first three and `/
 | `/reader/api/0/disable-tag` | `POST` | `s` (repeated) | `OK` |
 | `/reader/api/0/subscription/import` | `POST` | the OPML document as the body (header authentication only) | `OK`, or `400 Bad OPML` (with the reason after a colon: the file is empty, has no feeds, is not an OPML file, or names an undefined entity) |
 | `/reader/api/0/subscription/export` | `GET` | | the OPML file |
-| `/icon/<id>-<hash>` | `GET` | | a feed's icon, the `iconUrl` of `subscription/list`; no token needed |
+| `/icon/<id>-<hash>-<mark>` | `GET` | | a feed's icon, the `iconUrl` of `subscription/list`; no token needed, but only that address is served (`<mark>` is part of it) |
 | any other `/reader/api/0/…` | any | | `200` `[]` |
 
 `ck`, `client`, `includeAllDirectStreamIds`, `merge`, `likes`, `comments`, `mediaRss` and `types` are accepted and
