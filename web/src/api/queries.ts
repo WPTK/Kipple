@@ -175,6 +175,9 @@ export function flattenItems(data: InfiniteData<ItemsPage> | undefined): Card[] 
 
 /** When the last optimistic count change was made (ms); `counts` events older than it are stale. */
 let lastBumpAt = 0;
+/** How many optimistic count changes were made; a `counts` event held across one of them predates it. */
+let bumps = 0;
+export const countsBumps = (): number => bumps;
 const COUNTS_GUARD_MS = 1500;
 /** Ms left in the window after a local count change, 0 when none. */
 export function countsGuardLeft(now = Date.now()): number {
@@ -190,6 +193,7 @@ export function resetCountsGuard(): void {
  */
 export function bumpUnread(qc: QueryClient, feedId: string, delta: number): void {
   lastBumpAt = Date.now();
+  bumps++;
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => {
     if (!old) return old;
     const feed = old.feeds.find((f) => f.id === feedId);

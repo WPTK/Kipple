@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { WATCHDOG_MS, handleServerEvent, initialLive, liveStore, reconnectDelay, resetCountsGuard, useServerEvents } from "./events";
 import { bumpUnread, keys } from "./queries";
+import { setPending } from "@/lib/offlineState";
 import type { ServerEvent } from "./types";
 import { authStore } from "./client";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
@@ -656,6 +657,94 @@ describe("counts events versus optimistic bumps", () => {
   });
 });
 
+describe("held counts are dropped when they would be wrong", () => {
+  const boot = () => ({
+    counts: { unread: 5, starred: 0 },
+    feeds: [{ id: "1", folder_id: "1", unread: 5 }],
+    folders: [{ id: "1", unread: 5 }],
+  });
+  const unread = (qc: QueryClient) => qc.getQueryData<ReturnType<typeof boot>>(keys.bootstrap)!.counts.unread;
+  const counts = (n: number) => ({ type: "counts", data: { unread_total: n, feeds: { "1": n } } }) as unknown as ServerEvent;
+  const clock = () => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  const wrap = (qc: QueryClient) => ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+
+  afterEach(() => {
+    vi.useRealTimers();
+    setPending(0);
+  });
+
+  it("when the stream is closed, nothing held is applied afterwards", async () => {
+    clock();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, boot());
+    const { unmount } = renderHook(() => useServerEvents(true), { wrapper: wrap(qc) });
+    bumpUnread(qc, "1", -1);
+    handleServerEvent(qc, counts(4));
+    unmount();
+    qc.setQueryData(keys.bootstrap, { ...boot(), counts: { unread: 9, starred: 0 } });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(unread(qc)).toBe(9);
+  });
+
+  it("an event held before a later local change is not applied over it", async () => {
+    clock();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, boot());
+    bumpUnread(qc, "1", -1); // 5 -> 4
+    handleServerEvent(qc, counts(4));
+    bumpUnread(qc, "1", -1); // 4 -> 3, its own counts event has not arrived yet
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(unread(qc)).toBe(3);
+    handleServerEvent(qc, counts(3));
+    expect(unread(qc)).toBe(3);
+  });
+
+  it("an event held while a change waits to be sent is not applied over it", async () => {
+    clock();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, boot());
+    bumpUnread(qc, "1", -1);
+    setPending(1);
+    handleServerEvent(qc, counts(5));
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(unread(qc)).toBe(4);
+  });
+
+  it("a bootstrap asked for before the held event does not discard it", async () => {
+    clock();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, boot());
+    const { unmount } = renderHook(() => useServerEvents(true), { wrapper: wrap(qc) });
+    bumpUnread(qc, "1", -1);
+    handleServerEvent(qc, counts(4), 50);
+    const older = { ...boot(), event_id: "40" };
+    await act(() => qc.fetchQuery({ queryKey: keys.bootstrap, queryFn: () => Promise.resolve(older), staleTime: 0 }));
+    expect(unread(qc)).toBe(5);
+    await act(() => vi.advanceTimersByTimeAsync(2_000));
+    expect(unread(qc)).toBe(4);
+    unmount();
+  });
+
+  it("a bootstrap that follows the held event replaces it", async () => {
+    clock();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, boot());
+    const { unmount } = renderHook(() => useServerEvents(true), { wrapper: wrap(qc) });
+    bumpUnread(qc, "1", -1);
+    handleServerEvent(qc, counts(4), 50);
+    const newer = { ...boot(), counts: { unread: 2, starred: 0 }, event_id: "60" };
+    await act(() => qc.fetchQuery({ queryKey: keys.bootstrap, queryFn: () => Promise.resolve(newer), staleTime: 0 }));
+    await act(() => vi.advanceTimersByTimeAsync(2_000));
+    expect(unread(qc)).toBe(2);
+    unmount();
+  });
+});
+
 describe("Feed index refresh on events", () => {
   const refreshes = (ev: unknown) => {
     const qc = new QueryClient();
@@ -667,6 +756,19 @@ describe("Feed index refresh on events", () => {
     expect(refreshes({ type: "items.state", data: { ids: ["1"], read: true, source: "web" } })).toBe(false);
     expect(refreshes({ type: "items.state", data: { ids: ["1"], starred: true, source: "web" } })).toBe(false);
     expect(refreshes({ type: "counts", data: { unread_total: 1, feeds: {} } })).toBe(false);
+  });
+  it("refreshes it when a fetch brought in new articles, not when it found none", () => {
+    expect(refreshes({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2 } })).toBe(true);
+    expect(refreshes({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 0 } })).toBe(false);
+  });
+  it("asks again for an index request already on its way when an article is read or starred", async () => {
+    const qc = new QueryClient();
+    const inval = vi.spyOn(qc, "invalidateQueries");
+    let finish: (v: Map<string, never[]>) => void = () => undefined;
+    void qc.fetchQuery({ queryKey: [...keys.feedsLatest, 3], queryFn: () => new Promise<Map<string, never[]>>((r) => (finish = r)) });
+    handleServerEvent(qc, { type: "items.state", data: { ids: ["1"], read: true, source: "web" } } as unknown as ServerEvent);
+    expect(inval).toHaveBeenCalledWith({ queryKey: keys.feedsLatest });
+    finish(new Map());
   });
   it("refreshes it when which articles a feed shows changes", () => {
     expect(refreshes({ type: "items.state", data: { ids: ["1"], muted: true, source: "web" } })).toBe(true);

@@ -51,6 +51,8 @@ interface Group {
   kind: UndoKind;
   /** What the settled actions changed. Empty while the first is still in flight. */
   ids: string[];
+  /** The members of `ids`, kept in step with it so a merge checks each new id once. */
+  have: Set<string>;
   bulk: boolean;
   at: number;
   undo: UndoFn | null;
@@ -135,17 +137,16 @@ function armTimer(): void {
 
 function newGroup(kind: UndoKind, bulk: boolean): Group {
   // The toast it takes over, shown or still in flight, so it can be given back.
-  const g: Group = { id: ++seq, kind, ids: [], bulk, at: Date.now(), undo: null, restores: [], inflight: 0, waiters: [], before: toastGroup };
+  const g: Group = { id: ++seq, kind, ids: [], have: new Set(), bulk, at: Date.now(), undo: null, restores: [], inflight: 0, waiters: [], before: toastGroup };
   stack.push(g);
   toastGroup = g;
   return g;
 }
 
 function addChange(g: Group, change: UndoChange, onStack: boolean): void {
-  const have = new Set(g.ids);
   for (const id of change.ids) {
-    if (have.has(id)) continue;
-    have.add(id);
+    if (g.have.has(id)) continue;
+    g.have.add(id);
     g.ids.push(id);
   }
   // Merged actions share the first closure, so it must act on the ids it is handed.

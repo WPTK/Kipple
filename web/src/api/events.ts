@@ -4,9 +4,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, authStore } from "./client";
 import { filtersKey } from "./filters";
 import { wasFilterTouched } from "./filterEdits";
-import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, resetCountsGuard as resetBumpWindow, type BootstrapAnswer, type ItemPatch } from "./queries";
+import { countsBumps, countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, resetCountsGuard as resetBumpWindow, type BootstrapAnswer, type ItemPatch } from "./queries";
 import { PAGE_SIZE, SECTION_SUFFIX, itemsParams } from "./queryKeys";
 import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
+import { offlineStore } from "@/lib/offlineState";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
 import { feedsInFolder, folderTree, rollUp } from "@/lib/folderTree";
@@ -340,10 +341,17 @@ export function applyCounts(qc: QueryClient, c: CountsEvent): void {
 }
 
 let countsTimer: ReturnType<typeof setTimeout> | undefined;
-/** The newest `counts` event that arrived inside the guard window; applied once the window is over. */
-let countsHeld: CountsEvent | undefined;
+/**
+ * The newest `counts` event that arrived inside the guard window; applied once the window is over. `bumps` is how many
+ * optimistic count changes had been made when it arrived, `seq` its stream id (0 when it has none).
+ */
+let countsHeld: { counts: CountsEvent; bumps: number; seq: number } | undefined;
 
-/** Apply the held `counts` event once no guard window is open (a later bump moves the window on). */
+/**
+ * Apply the held `counts` event once no guard window is open (a later bump moves the window on). An event that
+ * predates a later bump, or that leaves out a change still waiting to be sent, is dropped: the event that follows the
+ * later write, or the send, brings the right numbers.
+ */
 function applyHeldCounts(qc: QueryClient): void {
   countsTimer = undefined;
   if (!countsHeld) return;
@@ -352,16 +360,23 @@ function applyHeldCounts(qc: QueryClient): void {
     countsTimer = setTimeout(() => applyHeldCounts(qc), left + 50);
     return;
   }
-  applyCounts(qc, countsHeld);
+  const held = countsHeld;
+  countsHeld = undefined;
+  if (held.bumps !== countsBumps() || offlineStore.get().pending > 0) return;
+  applyCounts(qc, held.counts);
+}
+
+/** Cancel the pending apply and forget what is held (sign-out, a new page of the app, tests). */
+function dropHeldCounts(): void {
+  if (countsTimer) clearTimeout(countsTimer);
+  countsTimer = undefined;
   countsHeld = undefined;
 }
 
 /** Forget the guard window and anything held in it (state must not carry over between tests). */
 export function resetCountsGuard(): void {
   resetBumpWindow();
-  if (countsTimer) clearTimeout(countsTimer);
-  countsTimer = undefined;
-  countsHeld = undefined;
+  dropHeldCounts();
 }
 
 export { SAVED_COUNTS_MIN_MS, resetSavedSearchCounts };
@@ -376,7 +391,14 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
   // The Feed index shows each feed's newest articles with their read state. Read and starred changes are patched in
   // place below (patchItems). What changes which articles a feed shows asks for the index again: a mute or an
   // un-mute, a restored article, a changed feed, a gap in the stream. A `counts` event changes no headline.
-  const headlines = ev.type === "items.state" ? ev.data.muted !== undefined || (ev.data.restored?.length ?? 0) > 0 : ev.type === "feed.changed" || ev.type === "resync";
+  // A request for the index that was already on its way may have been answered before the change it would show, and
+  // would replace the patch: those are asked for again. So is the index when a fetch brought in new articles.
+  const headlines =
+    ev.type === "items.state"
+      ? ev.data.muted !== undefined || (ev.data.restored?.length ?? 0) > 0 || qc.isFetching({ queryKey: keys.feedsLatest }) > 0
+      : ev.type === "fetch.done"
+        ? ev.data.new_items > 0
+        : ev.type === "feed.changed" || ev.type === "resync";
   if (headlines) void qc.invalidateQueries({ queryKey: keys.feedsLatest });
   switch (ev.type) {
     case "items.state": {
@@ -414,7 +436,7 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
       // publishes `counts` after every state write, so the last one held counts the write that opened the window.
       const left = countsGuardLeft();
       if (left > 0) {
-        countsHeld = ev.data;
+        countsHeld = { counts: ev.data, bumps: countsBumps(), seq: eventSeq(id) };
         if (!countsTimer) countsTimer = setTimeout(() => applyHeldCounts(qc), left + 50);
       } else {
         countsHeld = undefined;
@@ -708,9 +730,10 @@ export function useServerEvents(enabled: boolean): void {
     document.addEventListener("visibilitychange", onVisible);
     const stopSeed = qc.getQueryCache().subscribe((e) => {
       if (e.type === "updated" && e.action.type === "success" && e.query.queryKey[0] === "bootstrap") {
-        // A bootstrap that came from the server is newer than any counts held for the window; a local patch is not.
-        if (!e.action.manual) countsHeld = undefined;
         const b = e.query.state.data as Bootstrap | undefined;
+        // A bootstrap that came from the server is newer than any counts held for the window, unless it says it
+        // follows an older event than the held one (it was asked for before that event); a local patch is not.
+        if (!e.action.manual && countsHeld && !(countsHeld.seq > 0 && eventSeq(b?.event_id) > 0 && eventSeq(b?.event_id) < countsHeld.seq)) countsHeld = undefined;
         seedRuns(b?.runs, b?.event_id);
       }
     });
@@ -786,6 +809,8 @@ export function useServerEvents(enabled: boolean): void {
 
     return () => {
       stopped = true;
+      // Counts held for the old session must not reach the next one's bootstrap.
+      dropHeldCounts();
       document.removeEventListener("visibilitychange", onVisible);
       stopSeed();
       stopPolling();
