@@ -188,12 +188,12 @@ func (c *call) markAllAsRead() {
 	}
 	now := c.a.now().Unix()
 	n, err := c.a.db.MarkAllReadBatched(ctx, scope, ts, now)
+	if n > 0 {
+		c.a.publish("resync", map[string]any{}) // earlier batches stay committed when a later one fails
+	}
 	if err != nil {
 		c.serverError("mark-all-as-read", err)
 		return
-	}
-	if n > 0 {
-		c.a.publish("resync", map[string]any{})
 	}
 	c.ok()
 }
