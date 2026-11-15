@@ -93,13 +93,20 @@ type ParseOptions struct {
 	Strict bool
 }
 
+// ErrDecodedTooLarge is ParseFeed's answer for a body that converts to far more than the response limit.
+var ErrDecodedTooLarge = errors.New(tooLargeMessage(maxBodyBytes))
+
+// maxDecodedBytes is the most a body may be once converted to UTF-8: twice the response limit, since a legacy
+// charset grows by up to half and the element, entry and attribute counts bound what gofeed builds.
+func maxDecodedBytes(limit int64) int64 { return 2 * limit }
+
 // ParseFeed decodes body to UTF-8, parses it with gofeed and returns the
 // normalized feed. Like DecodeBody it may modify body (only the encoding value
 // of its XML declaration).
 func ParseFeed(body []byte, opt ParseOptions) (*Feed, error) {
 	dec := decodeBody(body, opt.HTTPCharset)
-	if len(dec.Body) > maxBodyBytes {
-		return nil, errors.New(tooLargeMessage(maxBodyBytes))
+	if int64(len(dec.Body)) > maxDecodedBytes(maxBodyBytes) {
+		return nil, ErrDecodedTooLarge
 	}
 	return ParseDecoded(dec, opt)
 }
@@ -258,10 +265,16 @@ const MaxNamespaces = 64
 // MaxDocumentEntries is the most entries (RSS items, Atom entries, JSON Feed items) a feed document may have. gofeed
 // builds every entry of the document, and the original beside it, before MaxItemsPerFetch picks the newest, so a
 // document with more is refused before gofeed runs.
-const MaxDocumentEntries = 10 * MaxItemsPerFetch
+const MaxDocumentEntries = 25 * MaxItemsPerFetch
 
-// MaxElements is the most elements a feed document may have. gofeed keeps a struct and two maps for every element in
-// an extension namespace, so the element count, not the body size, bounds what a parse holds.
+// MaxAttributes is the most attributes a feed document may have in all. gofeed keeps a map of the attributes of
+// every element in an extension namespace, so a flood of attributes holds memory like a flood of elements.
+const MaxAttributes = 1_000_000
+
+// MaxElements is the most elements a feed document may have, and the most values a JSON Feed may have inside its
+// arrays other than the top-level items array (attachments, authors, tags). gofeed keeps a struct and two maps for
+// every element in an extension namespace, and a struct for every array value, so the count, not the body size,
+// bounds what a parse holds.
 const MaxElements = 500_000
 
 // errCharsetSwitch refuses a document whose XML decoder is told to change charset. DecodeBody has converted the body
@@ -316,14 +329,7 @@ func checkNesting(body []byte) error {
 	}
 	kind := gofeed.DetectFeedType(bytes.NewReader(body))
 	if kind == gofeed.FeedTypeJSON {
-		var doc struct {
-			Items jsonEntryCount `json:"items"`
-		}
-		_ = json.Unmarshal(body, &doc) // gofeed reports a malformed document
-		if doc.Items > MaxDocumentEntries {
-			return fmt.Errorf("document has more than %d entries", MaxDocumentEntries)
-		}
-		return nil // JSON is decoded iteratively
+		return checkJSON(body)
 	}
 	if kind != gofeed.FeedTypeRSS && kind != gofeed.FeedTypeAtom {
 		return nil // an undetected type is never parsed
@@ -333,7 +339,7 @@ func checkNesting(body []byte) error {
 	// A decoder set up as gofeed's is, except that it refuses the document where gofeed's would change charset.
 	d.CharsetReader = refuseCharset
 	var scope []int // per open element, the namespace declarations in scope inside it
-	elements, entries := 0, 0
+	elements, entries, attrs := 0, 0, 0
 	for {
 		tok, err := d.Token()
 		if err == io.EOF {
@@ -355,6 +361,11 @@ func checkNesting(body []byte) error {
 					return fmt.Errorf("document has more than %d entries", MaxDocumentEntries)
 				}
 			}
+			if attrs += len(t.Attr); attrs > MaxAttributes {
+				return fmt.Errorf("document has more than %d attributes", MaxAttributes)
+			}
+			// A prefix declared again is counted again, though gofeed keeps one binding per prefix: that over-counts, and
+			// only a document that repeats declarations on dozens of nested elements is refused for it.
 			n := 0
 			if len(scope) > 0 {
 				n = scope[len(scope)-1]
@@ -377,15 +388,72 @@ func checkNesting(body []byte) error {
 	}
 }
 
-// jsonEntryCount is the length of the longest "items" array of a JSON document: the key may repeat, and gofeed
-// decodes every one.
-type jsonEntryCount int
-
-func (n *jsonEntryCount) UnmarshalJSON(data []byte) error {
-	var items []struct{}
-	_ = json.Unmarshal(data, &items) // an element of another type still counts
-	*n = max(*n, jsonEntryCount(len(items)))
-	return nil
+// checkJSON walks the tokens of a JSON document once, building nothing, and refuses one with more than
+// MaxDocumentEntries values in its top-level "items" array (the key may repeat, and gofeed decodes every one) or more
+// than MaxElements values in any other array. Keys and the scalar fields of objects are not counted: they cost
+// nothing that the array values around them do not.
+func checkJSON(body []byte) error {
+	type frame struct {
+		array, items, expectKey bool
+	}
+	d := json.NewDecoder(bytes.NewReader(body))
+	var stack []frame
+	var key string
+	values, entries := 0, 0
+	// value is called for every value, scalar or container, before a container is pushed.
+	value := func(container bool) (items bool, err error) {
+		if n := len(stack); n > 0 {
+			top := &stack[n-1]
+			switch {
+			case top.array && top.items:
+				if entries++; entries > MaxDocumentEntries {
+					return false, fmt.Errorf("document has more than %d entries", MaxDocumentEntries)
+				}
+			case top.array:
+				if values++; values > MaxElements {
+					return false, fmt.Errorf("document has more than %d array values", MaxElements)
+				}
+			default:
+				top.expectKey = true // the value of a key: the next token is a key again
+				items = n == 1 && key == "items" && container
+			}
+		}
+		return items, nil
+	}
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return nil // io.EOF, or a malformed document that gofeed reports
+		}
+		switch t := tok.(type) {
+		case json.Delim:
+			if t == '}' || t == ']' {
+				stack = stack[:len(stack)-1]
+				continue
+			}
+			items, err := value(true)
+			if err != nil {
+				return err
+			}
+			if items && t == '[' {
+				entries = 0 // a repeated "items" key is a second array: the count restarts
+			}
+			stack = append(stack, frame{array: t == '[', items: items && t == '[', expectKey: t == '{'})
+		case string:
+			if n := len(stack); n > 0 && !stack[n-1].array && stack[n-1].expectKey {
+				stack[n-1].expectKey = false
+				key = t
+				continue
+			}
+			if _, err := value(false); err != nil {
+				return err
+			}
+		default:
+			if _, err := value(false); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 // xmlFilter drops the C0 control bytes XML does not allow (all below 0x20 but tab, LF and CR), as gofeed does before

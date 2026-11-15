@@ -113,7 +113,7 @@ func DecodeBody(body []byte, httpCharset string) Decoded {
 			out = dec
 		}
 	}
-	out = rewriteDecl(out)
+	out = rewriteProlog(rewriteDecl(out))
 
 	sum := sha256.Sum256(out)
 	return Decoded{Body: out, Source: name, Repaired: repaired, BodyHash: hex.EncodeToString(sum[:])}
@@ -180,4 +180,72 @@ func rewriteDecl(b []byte) []byte {
 		return b
 	}
 	return slices.Concat(b[:loc[4]], []byte(want), b[loc[5]:])
+}
+
+// rewriteProlog rewrites the encoding of every <?xml ...?> instruction between the start of the document and its
+// first element, as rewriteDecl does for the first. encoding/xml honours the encoding of every such instruction it
+// meets, wrapping one more converter round the rest of the document each time, so an instruction left in a body that
+// is already UTF-8 converts it again. It reads an instruction as encoding/xml does: the target is exactly "xml" and
+// the value is what follows the first "encoding=" when a quote comes next. An instruction inside the root element is
+// left alone: the parse refuses such a document (errCharsetSwitch).
+func rewriteProlog(b []byte) []byte {
+	var out []byte // the rewritten body, built only when an instruction needs it
+	last, i := 0, 0
+	for {
+		for i < len(b) && strings.IndexByte(" \r\n\t\xfe\xff\x00\xef\xbb\xbf", b[i]) >= 0 {
+			i++ // the bytes gofeed.DetectFeedType skips
+		}
+		rest := b[i:]
+		switch {
+		case bytes.HasPrefix(rest, []byte("<?")):
+			end := bytes.Index(rest, []byte("?>"))
+			if end < 0 {
+				return finishProlog(out, b, last)
+			}
+			if from, to, ok := declaredEncoding(rest[2:end]); ok && string(rest[2+from:2+to]) != "utf-8" {
+				if out == nil {
+					out = make([]byte, 0, len(b))
+				}
+				out = append(append(out, b[last:i+2+from]...), "utf-8"...)
+				last = i + 2 + to
+			}
+			i += end + 2
+		case bytes.HasPrefix(rest, []byte("<!--")):
+			end := bytes.Index(rest[4:], []byte("-->"))
+			if end < 0 {
+				return finishProlog(out, b, last)
+			}
+			i += 4 + end + 3
+		default:
+			return finishProlog(out, b, last)
+		}
+	}
+}
+
+func finishProlog(out, b []byte, last int) []byte {
+	if out == nil {
+		return b
+	}
+	return append(out, b[last:]...)
+}
+
+// declaredEncoding finds the encoding value of an xml declaration's content (what follows "<?"), as encoding/xml does.
+func declaredEncoding(pi []byte) (from, to int, ok bool) {
+	if !bytes.HasPrefix(pi, []byte("xml")) || len(pi) > 3 && !strings.ContainsRune(" \t\r\n", rune(pi[3])) {
+		return 0, 0, false
+	}
+	idx := bytes.Index(pi, []byte("encoding="))
+	if idx < 0 || idx+len("encoding=") >= len(pi) {
+		return 0, 0, false
+	}
+	from = idx + len("encoding=")
+	quote := pi[from]
+	if quote != '\'' && quote != '"' {
+		return 0, 0, false
+	}
+	n := bytes.IndexByte(pi[from+1:], quote)
+	if n < 0 {
+		return 0, 0, false
+	}
+	return from + 1, from + 1 + n, true
 }

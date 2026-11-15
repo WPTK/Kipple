@@ -105,6 +105,14 @@ func TestOneByteOverLimitIsTooLarge(t *testing.T) {
 	require.ErrorIs(t, err, ErrTooLarge, "the label does not matter")
 }
 
+// A feed that is within the response limit but converts to far more than it is reported as too large, not as no feed.
+func TestFeedThatConvertsToFarMoreIsTooLarge(t *testing.T) {
+	head, tail := `<?xml version="1.0" encoding="windows-1252"?><rss version="2.0"><channel><title>`, `</title></channel></rss>`
+	body := head + strings.Repeat("\x80", maxBody-len(head)-len(tail)) + tail // each byte becomes three
+	_, err := find(t, "application/rss+xml", body)
+	require.ErrorIs(t, err, ErrTooLarge)
+}
+
 func TestRetriesOnceWithTheRetryUserAgent(t *testing.T) {
 	var uas []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
