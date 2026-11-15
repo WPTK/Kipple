@@ -112,6 +112,40 @@ func TestImageProxyTimeLimitCoversEveryRetry(t *testing.T) {
 	require.Less(t, time.Since(begin), limit+limit/4, "three rungs of half the limit would take one and a half limits")
 }
 
+// A feed fetch that retries with the browser User-Agent spends one time limit on both requests and the body,
+// not a fresh limit for the retry.
+func TestFeedFetchTimeLimitCoversTheBrowserRetry(t *testing.T) {
+	const limit = 2 * time.Second
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.UserAgent() == "kipple-test" {
+			time.Sleep(limit * 6 / 10) // the first answer is late but in time
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/rss+xml")
+		for { // the retry answers at once and then never finishes its body
+			if _, err := w.Write([]byte(" ")); err != nil {
+				return
+			}
+			w.(http.Flusher).Flush()
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+	}))
+	defer srv.Close()
+	c := fetch.NewClient(fetch.ClientOptions{ClientTimeout: limit})
+	begin := time.Now()
+	res := c.Fetch(context.Background(), fetch.Snapshot{
+		ID: 1, URL: srv.URL + "/x", AllowPrivateNet: true, IntervalS: 1800, DedupMode: fetch.DedupAuto, HonorTTL: true,
+		UserAgent: "kipple-test", RetryUserAgent: "browser-test",
+	}, time.Now())
+	require.Less(t, time.Since(begin), limit*14/10, "a second full limit for the retry would take 1.6 limits")
+	require.Equal(t, fetch.ClassTimeout, res.ErrClass, res.ErrMsg)
+}
+
 var stallSecret = []byte("stall-secret-0123456789abcdefghij")
 
 // A stallClient drives one request chain that starts at start.

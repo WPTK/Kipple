@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useBootstrap } from "@/api/queries";
@@ -197,26 +197,45 @@ function FeedItem({ f, level, ctx, fav }: { f: Feed; level: number; ctx: TreeCtx
   const key = `${ctx.prefix}feed-${f.id}`;
   if (!ctx.drawn(key)) return null;
   return (
+    <FeedRow f={f} level={level} treeKey={key} unreadBadge={ctx.unreadBadge} tabStop={ctx.tabStop === key} starred={ctx.favs.has("feed", f.id)} toggleFav={ctx.favs.toggle} onNavigate={ctx.onNavigate} fav={fav} />
+  );
+}
+
+interface FeedRowProps {
+  f: Feed;
+  level: number;
+  treeKey: string;
+  unreadBadge: UnreadBadge;
+  tabStop: boolean;
+  starred: boolean;
+  toggleFav: TreeCtx["favs"]["toggle"];
+  onNavigate?: () => void;
+  fav?: boolean;
+}
+
+/** One feed's row, drawn again only when its feed, its star or the tab stop changes: a count that moves elsewhere leaves it alone. */
+const FeedRow = memo(function FeedRow({ f, level, treeKey: key, unreadBadge, tabStop, starred, toggleFav, onNavigate, fav }: FeedRowProps) {
+  return (
     <li role="presentation">
       <div
         role="treeitem"
         data-keep-focus
         data-reveal-key={key}
         aria-level={level}
-        aria-label={unreadName(feedLabel(f), f.unread, ctx.unreadBadge)}
-        tabIndex={ctx.tabStop === key ? 0 : -1}
+        aria-label={unreadName(feedLabel(f), f.unread, unreadBadge)}
+        tabIndex={tabStop ? 0 : -1}
         data-tree-key={key}
         data-fav={`feed:${f.id}`}
         className="group/row flex items-center rounded-lg"
       >
-        <Link tabIndex={-1} to={openListTo({ feed: f.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 text-sm", !fav && "pl-3")}>
+        <Link tabIndex={-1} to={openListTo({ feed: f.id })} onClick={onNavigate} className={cn(row, "min-w-0 flex-1 text-sm", !fav && "pl-3")}>
           <FeedLine feed={f} />
         </Link>
-        <FavStar on={ctx.favs.has("feed", f.id)} name={feedLabel(f)} onToggle={() => ctx.favs.toggle("feed", f.id)} className={fav ? undefined : reveal} tabIndex={-1} />
+        <FavStar on={starred} name={feedLabel(f)} onToggle={() => toggleFav("feed", f.id)} className={fav ? undefined : reveal} tabIndex={-1} />
       </div>
     </li>
   );
-}
+});
 
 /** A folder, then (unless collapsed) its shown subfolders and its feeds, one level deeper. */
 function FolderItem({ fo, level, ctx, fav }: { fo: Folder; level: number; ctx: TreeCtx; fav?: boolean }) {

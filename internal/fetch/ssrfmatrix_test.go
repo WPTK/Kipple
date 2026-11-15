@@ -160,8 +160,8 @@ func matrixTargets(t *testing.T) []string {
 		"10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.1.1", "[::ffff:10.0.0.1]", "[::ffff:192.168.1.1]",
 		"private.test", "lan.test", "[fd00::1]", "[fc00::1]", "ula.test",
 		// link-local and cloud metadata (AWS, GCP, Azure, Oracle and DigitalOcean answer 169.254.169.254;
-		// AWS also fd00:ec2::254)
-		"169.254.169.254", "169.254.0.1", "[fe80::1]", "[::ffff:169.254.169.254]", "[::ffff:a9fe:a9fe]",
+		// AWS also fd00:ec2::254; Azure's host agent also answers 168.63.129.16, a public-range address)
+		"168.63.129.16", "[::ffff:168.63.129.16]", "169.254.169.254", "169.254.0.1", "[fe80::1]", "[::ffff:169.254.169.254]", "[::ffff:a9fe:a9fe]",
 		"[fd00:ec2::254]", "metadata.test", "mapped-meta.test", "metadata.google.internal.test",
 		// CGNAT, which includes Tailscale's 100.64.0.0/10
 		"100.64.0.1", "100.100.100.100", "100.127.255.254", "tailscale.test", "cgnat.test",
