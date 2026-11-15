@@ -366,6 +366,11 @@ function applyHeldCounts(qc: QueryClient): void {
   applyCounts(qc, held.counts);
 }
 
+/** Forget the held `counts` event when it has a stream id below `seq`, the id of a newer server answer. */
+function dropHeldBefore(seq: number): void {
+  if (countsHeld && countsHeld.seq > 0 && seq > countsHeld.seq) countsHeld = undefined;
+}
+
 /** Cancel the pending apply and forget what is held (sign-out, a new page of the app, tests). */
 function dropHeldCounts(): void {
   if (countsTimer) clearTimeout(countsTimer);
@@ -399,7 +404,15 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
       : ev.type === "fetch.done"
         ? ev.data.new_items > 0
         : ev.type === "feed.changed" || ev.type === "resync";
-  if (headlines) void qc.invalidateQueries({ queryKey: keys.feedsLatest });
+  if (headlines) {
+    // A request with nothing cached yet is shared by a later request for the same query (TanStack only replaces a
+    // running fetch when the query already holds data), so it would answer without the change. Stop it silently first:
+    // the observer that started it takes over the new request.
+    for (const q of qc.getQueryCache().findAll({ queryKey: keys.feedsLatest })) {
+      if (q.isActive() && q.state.data === undefined && q.state.fetchStatus === "fetching") void q.cancel({ silent: true });
+    }
+    void qc.invalidateQueries({ queryKey: keys.feedsLatest });
+  }
   switch (ev.type) {
     case "items.state": {
       const { ids, read, starred, muted } = ev.data;
@@ -597,6 +610,8 @@ export async function noteArrivals(scope: Scope, loaded: ReadonlySet<string>, as
 export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
   const st = await api<StatusResponse>("/api/status");
   const ended = applyAnswer(st.runs ?? [], eventSeq(st.event_id), true);
+  // A status answer that follows the held `counts` event is newer than it: the held numbers must not come back.
+  dropHeldBefore(eventSeq(st.event_id));
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) =>
     old ? { ...old, counts: { ...old.counts, unread: st.unread_total, ...(typeof st.muted === "number" ? { muted: st.muted } : {}) } } : old,
   );

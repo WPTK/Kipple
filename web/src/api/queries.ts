@@ -178,6 +178,11 @@ let lastBumpAt = 0;
 /** How many optimistic count changes were made; a `counts` event held across one of them predates it. */
 let bumps = 0;
 export const countsBumps = (): number => bumps;
+/** Record an optimistic count change: a `counts` event held across it predates it, and the guard window restarts. */
+function markBump(): void {
+  lastBumpAt = Date.now();
+  bumps++;
+}
 const COUNTS_GUARD_MS = 1500;
 /** Ms left in the window after a local count change, 0 when none. */
 export function countsGuardLeft(now = Date.now()): number {
@@ -192,8 +197,7 @@ export function resetCountsGuard(): void {
  * event lands.
  */
 export function bumpUnread(qc: QueryClient, feedId: string, delta: number): void {
-  lastBumpAt = Date.now();
-  bumps++;
+  markBump();
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => {
     if (!old) return old;
     const feed = old.feeds.find((f) => f.id === feedId);
@@ -209,6 +213,7 @@ export function bumpUnread(qc: QueryClient, feedId: string, delta: number): void
 
 /** Adjust the muted count locally (a restore) before the `counts` event lands. */
 export function bumpMuted(qc: QueryClient, delta: number): void {
+  markBump();
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, counts: { ...old.counts, muted: Math.max(0, (old.counts.muted ?? 0) + delta) } } : old));
 }
 

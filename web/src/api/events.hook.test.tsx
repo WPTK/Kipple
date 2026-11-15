@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { WATCHDOG_MS, handleServerEvent, initialLive, liveStore, reconnectDelay, resetCountsGuard, useServerEvents } from "./events";
-import { bumpUnread, keys } from "./queries";
+import { WATCHDOG_MS, handleServerEvent, initialLive, liveStore, pollStatus, reconnectDelay, resetCountsGuard, useServerEvents } from "./events";
+import { bumpMuted, bumpUnread, keys } from "./queries";
 import { setPending } from "@/lib/offlineState";
 import type { ServerEvent } from "./types";
 import { authStore } from "./client";
@@ -729,6 +729,39 @@ describe("held counts are dropped when they would be wrong", () => {
     unmount();
   });
 
+  it("a count held before an un-mute restore is not applied over it", async () => {
+    clock();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, { ...boot(), counts: { unread: 5, starred: 0, muted: 3 } });
+    const muted = (n: number) => ({ type: "counts", data: { unread_total: 5, muted: n, feeds: { "1": 5 } } }) as unknown as ServerEvent;
+    const mutedOf = () => qc.getQueryData<{ counts: { muted: number } }>(keys.bootstrap)!.counts.muted;
+    bumpUnread(qc, "1", -1);
+    handleServerEvent(qc, muted(3)); // in flight before the restore: still counts 3 muted
+    bumpMuted(qc, -2); // the restore, 3 -> 1
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(mutedOf()).toBe(1);
+  });
+
+  it("a status answer that follows the held event replaces it, and an older one does not", async () => {
+    clock();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, boot());
+    bumpUnread(qc, "1", -1);
+    handleServerEvent(qc, counts(4), 50);
+    mockFetch({ "GET /api/status": () => json({ runs: [], unread_total: 4, event_id: "40" }) });
+    await act(() => pollStatus(qc));
+    await act(() => vi.advanceTimersByTimeAsync(2_000));
+    expect(unread(qc)).toBe(4);
+    bumpUnread(qc, "1", -1); // 4 -> 3
+    handleServerEvent(qc, counts(3), 55);
+    mockFetch({ "GET /api/status": () => json({ runs: [], unread_total: 2, event_id: "60" }) });
+    await act(() => pollStatus(qc));
+    await act(() => vi.advanceTimersByTimeAsync(2_000));
+    expect(unread(qc)).toBe(2);
+  });
+
   it("a bootstrap that follows the held event replaces it", async () => {
     clock();
     resetCountsGuard();
@@ -769,6 +802,20 @@ describe("Feed index refresh on events", () => {
     handleServerEvent(qc, { type: "items.state", data: { ids: ["1"], read: true, source: "web" } } as unknown as ServerEvent);
     expect(inval).toHaveBeenCalledWith({ queryKey: keys.feedsLatest });
     finish(new Map());
+  });
+  it("asks again for a first index request that has nothing cached yet", async () => {
+    const qc = new QueryClient();
+    const key = [...keys.feedsLatest, 3];
+    let calls = 0;
+    const finish: Array<(v: Map<string, never[]>) => void> = [];
+    const obs = new QueryObserver(qc, { queryKey: key, queryFn: () => new Promise<Map<string, never[]>>((r) => { calls++; finish.push(r); }) });
+    const stop = obs.subscribe(() => undefined);
+    expect(calls).toBe(1);
+    handleServerEvent(qc, { type: "items.state", data: { ids: ["1"], read: true, source: "web" } } as unknown as ServerEvent);
+    expect(calls).toBe(2);
+    finish[1]!(new Map([["seen", []]]));
+    await vi.waitFor(() => expect(obs.getCurrentResult().data?.has("seen")).toBe(true));
+    stop();
   });
   it("refreshes it when which articles a feed shows changes", () => {
     expect(refreshes({ type: "items.state", data: { ids: ["1"], muted: true, source: "web" } })).toBe(true);
