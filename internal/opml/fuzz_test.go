@@ -133,6 +133,9 @@ func FuzzParse(f *testing.F) {
 				if n == "" || !utf8.ValidString(n) {
 					t.Fatalf("bad folder name %q", n)
 				}
+				if err := store.CheckFolderName(n); err != nil {
+					t.Fatalf("kept folder name %q is refused by the store: %v", n, err)
+				}
 			}
 		}
 		for _, fd := range doc.Feeds {
