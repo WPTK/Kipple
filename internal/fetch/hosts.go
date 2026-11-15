@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"strings"
 
+	"golang.org/x/net/idna"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -111,6 +112,11 @@ func SiteKey(hostname string) string {
 	h := normHost(hostname)
 	if h == "" || isIPHost(h) || wildcardDNS(h) {
 		return h
+	}
+	// A Unicode name and its punycode spelling are one host: the key is always the ASCII form. A name
+	// idna refuses (an underscore, say) keeps its own spelling and is still reduced to its site.
+	if a, err := idna.Lookup.ToASCII(h); err == nil {
+		h = a
 	}
 	if site, err := publicsuffix.EffectiveTLDPlusOne(h); err == nil {
 		return site

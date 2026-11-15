@@ -1,1 +1,1 @@
-Server: at most 512 connections are served at once, and later ones wait for a free slot.
+Server: at most 512 connections are served at once; a new one takes the place of the oldest idle one.

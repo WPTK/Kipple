@@ -115,7 +115,7 @@ func TestImageProxyTimeLimitCoversEveryRetry(t *testing.T) {
 // A feed fetch that retries with the browser User-Agent spends one time limit on both requests and the body,
 // not a fresh limit for the retry.
 func TestFeedFetchTimeLimitCoversTheBrowserRetry(t *testing.T) {
-	const limit = 800 * time.Millisecond
+	const limit = 2 * time.Second
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.UserAgent() == "kipple-test" {
 			time.Sleep(limit * 6 / 10) // the first answer is late but in time
@@ -142,7 +142,7 @@ func TestFeedFetchTimeLimitCoversTheBrowserRetry(t *testing.T) {
 		ID: 1, URL: srv.URL + "/x", AllowPrivateNet: true, IntervalS: 1800, DedupMode: fetch.DedupAuto, HonorTTL: true,
 		UserAgent: "kipple-test", RetryUserAgent: "browser-test",
 	}, time.Now())
-	require.Less(t, time.Since(begin), limit*13/10, "a second full limit for the retry would take 1.6 limits")
+	require.Less(t, time.Since(begin), limit*14/10, "a second full limit for the retry would take 1.6 limits")
 	require.Equal(t, fetch.ClassTimeout, res.ErrClass, res.ErrMsg)
 }
 

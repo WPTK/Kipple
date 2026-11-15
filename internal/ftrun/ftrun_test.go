@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/WPTK/kipple/internal/extract"
@@ -186,7 +187,7 @@ func TestPerSiteLimitCoversEveryNameOfTheSite(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			_, err := r.Run(context.Background(), Request{Item: it, Now: 1, Timeout: 5 * time.Second, Background: true})
-			require.NoError(t, err)
+			assert.NoError(t, err)
 		}()
 	}
 	wg.Wait()

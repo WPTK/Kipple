@@ -443,9 +443,11 @@ func (r *Restorer) check(ctx context.Context, j *job, g int) {
 	// the database). This goroutine has no caller to recover a panic, and an unrecovered one ends
 	// the process, so a panic is a refused upload like any other failed check. The stack is logged
 	// here, once: the error kept as the failed state carries only the panic value.
+	var panicked bool
 	up, err := func() (up Upload, err error) {
 		defer func() {
 			if v := recover(); v != nil {
+				panicked = true
 				r.log.Error("restore: the check of the uploaded backup panicked", "panic", fmt.Sprint(v), "stack", string(debug.Stack()))
 				up, err = Upload{}, fmt.Errorf("restore: the check of the uploaded backup panicked: %v", v)
 			}
@@ -461,7 +463,9 @@ func (r *Restorer) check(ctx context.Context, j *job, g int) {
 	case err != nil:
 		removeStaged(r.o.DataDir)
 		r.failLocked(g, err)
-		r.log.Info("restore: the uploaded backup was refused", "err", err)
+		if !panicked { // a panic was logged, with its stack, where it was recovered
+			r.log.Info("restore: the uploaded backup was refused", "err", err)
+		}
 	default:
 		r.state, r.cur, r.estimate = RestoreReady, &up, up.EstimateSeconds
 		r.expireLocked(g)

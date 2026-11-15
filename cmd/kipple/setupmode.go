@@ -6,8 +6,6 @@ import (
 	"log/slog"
 	"net"
 
-	"golang.org/x/net/netutil"
-
 	"github.com/WPTK/kipple/internal/config"
 	"github.com/WPTK/kipple/internal/setup"
 	"github.com/WPTK/kipple/internal/store"
@@ -42,22 +40,13 @@ func startSetupMode(ctx context.Context, db *store.DB, cfg config.Config, logger
 // listenTCP is net.Listen (a seam for tests).
 var listenTCP = func(addr string) (net.Listener, error) { return net.Listen("tcp", addr) }
 
-// maxConns is the most connections served at once. Each holds a goroutine and two
-// 4 KiB buffers, so the worst case is about 10 MiB. A reverse proxy, a person's
-// browsers and their sync apps use a few dozen; the 64 event streams fit several
-// times over.
-const maxConns = 512
-
 // listen binds addr. A failure names the address and KIPPLE_ADDR, the one way
-// to choose another (there is no automatic fallback port). At most maxConns
-// connections are served at once; later ones wait in the accept queue for a slot.
-func listen(addr string) (net.Listener, error) { return listenLimited(addr, maxConns) }
-
-// listenLimited is listen with the connection cap as a parameter (tests use a small one).
-func listenLimited(addr string, conns int) (net.Listener, error) {
+// to choose another (there is no automatic fallback port). The listener is a
+// connLimiter (maxConns, connReserve); pass it to trackConns before serving.
+func listen(addr string) (net.Listener, error) {
 	ln, err := listenTCP(addr)
 	if err != nil {
 		return nil, fmt.Errorf("cannot listen on %q (set KIPPLE_ADDR to use another address): %w", addr, err)
 	}
-	return netutil.LimitListener(ln, conns), nil
+	return newConnLimiter(ln, maxConns, connReserve), nil
 }

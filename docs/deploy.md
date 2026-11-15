@@ -320,10 +320,13 @@ The default listen address is `:1919`. Set `KIPPLE_ADDR` to choose any other add
 exits with an error that names it and `KIPPLE_ADDR`; it never picks another port by itself (a container has its own
 network, so this only happens with the bare binary). The port is never stored in the database or a backup.
 
-Kipple serves at most 512 connections at once (not a setting). A home server with a reverse proxy, several browsers and
-sync apps holds a few dozen, so the cap is never reached in normal use; it keeps a device that opens a great many
-connections from using up the container's memory. Past the cap a new connection waits until another closes, and the
-container health check can time out meanwhile.
+Kipple serves at most 512 connections at once (not a setting), plus 8 more that only the container itself (loopback,
+the health check) may use. A reverse proxy holds up to a couple of hundred connections and a few browsers and sync apps
+a few dozen more, so the cap is not reached in normal use; it keeps a device that opens a great many connections from
+using up the container's memory. When every slot is taken, a new connection closes the oldest idle one to take its place,
+and with none idle it is refused. Requests still in progress keep their slots until they finish or reach the read
+timeouts (10 s for the headers, 30 s for the request), so a device that holds many slow requests open can still shut
+other clients out for that long.
 
 In a container the simplest way to use another port is to change only the host side of the mapping
 (`127.0.0.1:8080:1919`). If you do set `KIPPLE_ADDR`, change the container side of the mapping to the same port: a

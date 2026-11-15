@@ -333,6 +333,7 @@ func runServe() error {
 			serveErr <- err
 			return
 		}
+		trackConns(srv, ln)
 		logger.Info("listening", "addr", ln.Addr().String(), "version", version, "commit", buildInfo().Commit)
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- err
