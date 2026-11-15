@@ -21,7 +21,8 @@ import type { ListSource } from "./listSource";
  *
  * The page is a snapshot, like every list: the sections it lists, and their order, are those of the moment it was
  * opened (or last started over), so a count that moves while the reader reads never adds, drops or moves a section
- * under them.
+ * under them. A refresh that ends does not reload it either: its cards belong to its sections, so there is no one list
+ * to compare with what arrived.
  */
 
 /** Sections asked for when the page opens. */

@@ -1,1 +1,1 @@
-Reader: a refresh you start reloads the open list when it ends, so articles fetched on schedule since the list loaded appear even when the refresh itself found nothing new.
+Reader: when a refresh you start ends, the open list looks for articles it does not hold yet (including ones fetched on schedule since it loaded) and offers them in the "n new articles" pill; at the top of the list, with no article open, they load by themselves. A list you are part-way down is never moved.

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
-import { FINISHED_KEEP_MAX, FINISHED_KEEP_MS, isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, parseServerEvent, pollInterval, pollStatus, reduceEvent, seedRun, seedRuns } from "./events";
+import { FINISHED_KEEP_MAX, FINISHED_KEEP_MS, isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, noteArrivals, parseServerEvent, pollInterval, pollStatus, reduceEvent, seedRun, seedRuns } from "./events";
 import { keys, scopeKey } from "./queries";
 import { savedSearchesKey } from "./savedSearches";
 import { noteFilterTouched, resetFilterTouched } from "./filterEdits";
@@ -149,11 +149,18 @@ describe("answers older or newer than the stream (issue #536)", () => {
     expect(liveStore.get().finished["7"]?.inferred).toBeUndefined();
     expect(spy).not.toHaveBeenCalled(); // an import's items arrive silently
     // A manual run is announced by its kind too.
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
     handleServerEvent(qc, { type: "run.start", data: { run_id: "8", kind: "manual", total: 5 } }, 30);
     status("35", []);
     await pollStatus(qc);
+    const listCalls = () => invalidate.mock.calls.filter((c) => JSON.stringify((c[0] as { queryKey?: unknown })?.queryKey) === JSON.stringify(keys.itemsAll)).length;
+    expect(listCalls()).toBe(1);
+    expect(liveStore.get().refreshes).toBe(1);
     handleServerEvent(qc, { type: "run.done", data: { run_id: "8", new_items: 0, errors: 0 } }, 40);
     expect(spy).toHaveBeenCalledWith("No new articles");
+    // The poll already ended this run: its run.done does not make the lists stale, or count, a second time.
+    expect(listCalls()).toBe(1);
+    expect(liveStore.get().refreshes).toBe(1);
     spy.mockRestore();
   });
 
@@ -407,7 +414,7 @@ describe("cache reconciliation", () => {
     await vi.waitFor(() => expect(qc.getQueryState(keys.bootstrap)?.isInvalidated).toBe(true));
   });
 
-  it("the end of a manual refresh reloads the lists, whoever fetched the articles; other runs leave them alone", () => {
+  it("the end of a manual refresh makes the lists nothing shows stale, whoever fetched the articles; other runs leave them alone", () => {
     const qc = seeded();
     const unreadStale = () => qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated;
     for (const kind of ["import", "retention", "auto_read"]) {
@@ -415,18 +422,46 @@ describe("cache reconciliation", () => {
       handleServerEvent(qc, { type: "run.done", data: { run_id: kind, new_items: 0, errors: 0 } });
     }
     expect(unreadStale()).toBe(false);
+    expect(liveStore.get().refreshes).toBe(0);
     handleServerEvent(qc, { type: "run.start", data: { run_id: "9", kind: "manual", total: 1 } });
     handleServerEvent(qc, { type: "run.done", data: { run_id: "9", new_items: 0, errors: 0 } });
     expect(unreadStale()).toBe(true);
+    expect(liveStore.get().refreshes).toBe(1);
   });
 
-  it("a manual run seen only in run.done (its start missed) reloads the lists by the kind it carries", () => {
+  it("a list that is on screen is not made stale: it stays the snapshot the reader is in", () => {
+    const qc = seeded();
+    const unobserve = new QueryObserver(qc, { queryKey: keys.items({ view: "unread" }), enabled: false, staleTime: Infinity }).subscribe(() => {});
+    handleServerEvent(qc, { type: "run.start", data: { run_id: "9", kind: "manual", total: 1 } });
+    handleServerEvent(qc, { type: "run.done", data: { run_id: "9", new_items: 0, errors: 0 } });
+    expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(false);
+    expect(liveStore.get().refreshes).toBe(1); // the open list is told by the counter, and asks for itself
+    unobserve();
+  });
+
+  it("noteArrivals counts what comes before the newest article a list holds, once", async () => {
+    mockFetch({ "GET /api/items": () => json(pageOf([card(1), card(2), card(3), card(4)])) });
+    const held = new Set([card(3).id, card(4).id]);
+    expect(await noteArrivals({ view: "unread" }, held)).toBe(2);
+    expect(liveStore.get().pendingByFeed).toEqual({ "1": 2 });
+    expect(await noteArrivals({ view: "unread" }, held)).toBe(2); // asked again: the pill does not count them twice
+    expect(liveStore.get().pendingByFeed).toEqual({ "1": 2 });
+  });
+
+  it("noteArrivals asks nothing for a list that shows no pill", async () => {
+    const { calls } = mockFetch({ "GET /api/items": () => json(pageOf([card(1)])) });
+    expect(await noteArrivals({ view: "starred" }, new Set())).toBe(0);
+    expect(await noteArrivals({ view: "unread", order: "oldest" }, new Set())).toBe(0);
+    expect(calls.length).toBe(0);
+  });
+
+  it("a manual run seen only in run.done (its start missed) makes the lists stale by the kind it carries", () => {
     const qc = seeded();
     handleServerEvent(qc, { type: "run.done", data: { run_id: "12", kind: "manual", new_items: 0, errors: 0 } });
     expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(true);
   });
 
-  it("a status answer that ends a manual run reloads the lists; one that ends an import does not", async () => {
+  it("a status answer that ends a manual run makes the lists stale; one that ends an import does not", async () => {
     mockFetch({ "GET /api/status": () => json({ runs: [], event_id: "50", inflight: 0, unread_total: 0 }) });
     const qc = seeded();
     liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "7", kind: "import", total: 5 } }));

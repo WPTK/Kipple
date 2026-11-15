@@ -5,6 +5,7 @@ import { api, authStore } from "./client";
 import { filtersKey } from "./filters";
 import { wasFilterTouched } from "./filterEdits";
 import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type BootstrapAnswer, type ItemPatch } from "./queries";
+import { PAGE_SIZE, itemsParams } from "./queryKeys";
 import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
@@ -14,6 +15,8 @@ import {
   type Bootstrap,
   type CountsEvent,
   type RunStatus,
+  type ItemsPage,
+  type Scope,
   type ServerEvent,
   type StatusResponse,
 } from "./types";
@@ -45,6 +48,11 @@ export interface LiveState {
    * event does not have (the server throttles those to one per 500 ms). Bounded and short lived.
    */
   finished: Record<string, FinishedRun>;
+  /**
+   * How many manual refreshes have ended (by `run.done`, or by a status answer that stopped listing the run; a run
+   * counts once). The open list reacts to a change by asking whether articles arrived since it loaded.
+   */
+  refreshes: number;
   transport: "connecting" | "open" | "fallback";
 }
 
@@ -76,6 +84,7 @@ export const initialLive: LiveState = {
   ended: {},
   lastId: 0,
   finished: {},
+  refreshes: 0,
   transport: "connecting",
 };
 
@@ -107,6 +116,8 @@ function markFinished(s: LiveState, id: string, done: Omit<FinishedRun, "at" | "
     seq: restSeq,
     ended: { ...s.ended, [id]: true },
     finished: { ...Object.fromEntries(kept), [id]: { ...done, seq, at: now } },
+    // A run a poll already ended is not counted again when its run.done arrives.
+    refreshes: done.kind === "manual" && !s.finished[id] ? s.refreshes + 1 : s.refreshes,
   };
 }
 
@@ -336,6 +347,8 @@ export { SAVED_COUNTS_MIN_MS, resetSavedSearchCounts };
 export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number, reconciled = false): void {
   // The run's kind is in `finished` when a status poll already ended it.
   const runKind = ev.type === "run.done" ? (liveStore.get().runs[String(ev.data.run_id)]?.kind ?? liveStore.get().finished[String(ev.data.run_id)]?.kind) : undefined;
+  // A run.done for a run a status poll already ended finds it in `finished`: it does nothing a second time.
+  const already = ev.type === "run.done" && !!liveStore.get().finished[String(ev.data.run_id)];
   liveStore.set((s) => reduceEvent(s, ev, id));
   // The Feed index shows each feed's newest articles with their read state: whatever moves a count or a feed makes it stale.
   if (ev.type === "items.state" || ev.type === "counts" || ev.type === "feed.changed" || ev.type === "resync") void qc.invalidateQueries({ queryKey: keys.feedsLatest });
@@ -398,10 +411,10 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
       for (const id of ev.data.ids) void qc.invalidateQueries({ queryKey: keys.item(id) });
       break;
     case "run.done":
-      // A refresh the reader asked for brings the lists up to date, whatever fetched the articles: a scheduled poll's
-      // arrivals raise no pill, so the list would otherwise stay as it was loaded. `ev.data.kind` covers a run the
-      // live state never knew (the server always sends it).
-      if ((runKind ?? ev.data.kind) === "manual") void qc.invalidateQueries({ queryKey: keys.itemsAll });
+      // A refresh the reader asked for makes the lists that are not on screen stale, whatever fetched the articles: a
+      // scheduled poll's arrivals raise no pill. The list on screen is the reader's snapshot: it asks for itself (the
+      // live state's `refreshes`). `ev.data.kind` covers a run the live state never knew (the server always sends it).
+      if (!already && (runKind ?? ev.data.kind) === "manual") staleOffScreenLists(qc);
       break;
     case "resync":
       // The server says it cannot replay what we missed: only then are the lists refetched. A run.done among the
@@ -477,6 +490,43 @@ function applyAnswer(runs: RunStatus[], asOf: number, complete: boolean): string
   return ended;
 }
 
+/** Lists nothing is showing reload the next time they are opened; the one on screen is left as it is (not asked again). */
+function staleOffScreenLists(qc: QueryClient): void {
+  void qc.invalidateQueries({ queryKey: keys.itemsAll, refetchType: "none", predicate: (q) => q.getObserversCount() === 0 });
+}
+
+/** Whether a list of this scope shows the "n new" pill (see `pendingFor`). */
+export const showsPill = (scope: { view: string; q?: string; order?: string; length?: string }): boolean =>
+  !(scope.view === "starred" || scope.view === "muted" || scope.q || scope.length || scope.order === "oldest");
+
+/**
+ * Ask whether articles arrived since a list loaded, and count them as pending (the "n new" pill). The newest page of the
+ * scope is read; what comes before the first article the list already has is new. Those the pill already counts (a
+ * manual run's own) are not counted twice. Returns how many arrived, 0 for a scope with no pill.
+ */
+export async function noteArrivals(scope: Scope, loaded: ReadonlySet<string>): Promise<number> {
+  if (!showsPill(scope)) return 0;
+  const page = await api<ItemsPage>("/api/items", { params: itemsParams(scope, undefined, PAGE_SIZE) });
+  const fresh: { id: string; feed_id: string }[] = [];
+  for (const c of page.items) {
+    if (loaded.has(c.id)) break;
+    fresh.push(c);
+  }
+  liveStore.set((s) => {
+    const known = new Set(Object.values(s.pendingIds).flat());
+    const add = fresh.filter((c) => !known.has(c.id));
+    if (add.length === 0) return s;
+    const pendingByFeed = { ...s.pendingByFeed };
+    const pendingIds = { ...s.pendingIds };
+    for (const c of add) {
+      pendingByFeed[c.feed_id] = (pendingByFeed[c.feed_id] ?? 0) + 1;
+      pendingIds[c.feed_id] = [...(pendingIds[c.feed_id] ?? []), c.id].slice(-PENDING_IDS_CAP);
+    }
+    return { ...s, pendingByFeed, pendingIds };
+  });
+  return fresh.length;
+}
+
 /**
  * Poll GET /api/status once and fold it into the cache and live state. A run the answer no longer lists is over, if the
  * answer is newer than what the live state knows about it (a stale answer, or one built before a run the 202 body
@@ -489,9 +539,9 @@ export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
     old ? { ...old, counts: { ...old.counts, unread: st.unread_total, ...(typeof st.muted === "number" ? { muted: st.muted } : {}) } } : old,
   );
   if (ended.length) void qc.invalidateQueries({ queryKey: keys.bootstrap });
-  // The end of a manual refresh that came without its run.done: the lists come up to date here as they do on the event.
+  // The end of a manual refresh that came without its run.done: the lists are made stale here as they are on the event.
   const finished = liveStore.get().finished;
-  if (ended.some((id) => finished[id]?.kind === "manual")) void qc.invalidateQueries({ queryKey: keys.itemsAll });
+  if (ended.some((id) => finished[id]?.kind === "manual")) staleOffScreenLists(qc);
   return { ...st, runs: st.runs ?? [] };
 }
 

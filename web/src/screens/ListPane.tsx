@@ -10,7 +10,7 @@ import { offlineStore } from "@/lib/offlineState";
 import { feedsInFolder } from "@/lib/folderTree";
 import { listTo } from "@/lib/routes";
 import { applyRead, changeError, keys, scopeKey, useBootstrap } from "@/api/queries";
-import { clearPending, liveStore, pendingFor } from "@/api/events";
+import { clearPending, liveStore, noteArrivals, pendingFor } from "@/api/events";
 import { CANT_REFRESH_OFFLINE, useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, Feed, Scope } from "@/api/types";
 import { SwipeRow } from "@/gestures/SwipeRow";
@@ -1187,6 +1187,33 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   };
   const toTopRef = useLatestRef(toTop);
   const callToTop = useCallback(() => toTopRef.current(), [toTopRef]);
+  // A manual refresh that ended asks whether it brought articles this list does not hold. They raise the "n new" pill;
+  // the list loads them by itself only when the reader is at the top with no article open, so nobody part-way down
+  // a list is moved. The question waits while the tab is hidden (it is asked once the tab is shown again).
+  const refreshes = useStoreSelector(liveStore, (s) => s.refreshes);
+  const seenRefreshes = useRef(refreshes);
+  const probeDue = useRef(false);
+  const loadNewRef = useLatestRef(loadNew);
+  const probeRef = useLatestRef({ scope, loadedIds, digestOn, boot: boot.data });
+  const askArrivals = useCallback((): Promise<void> => {
+    const p = probeRef.current;
+    if (!probeDue.current || document.visibilityState === "hidden") return Promise.resolve();
+    probeDue.current = false;
+    if (p.digestOn) return Promise.resolve(); // its cards are per section: there is no one list to compare
+    return noteArrivals(p.scope, p.loadedIds)
+      .then(() => {
+        const q = probeRef.current;
+        const waiting = pendingFor(liveStore.get().pendingByFeed, q.scope, q.boot?.feeds ?? [], q.boot?.folders ?? [], { ids: q.loadedIds, pendingIds: liveStore.get().pendingIds });
+        if (waiting > 0 && (parentRef.current?.scrollTop ?? 0) <= 0 && !activeRef.current) loadNewRef.current();
+      })
+      .catch(() => {}); // The pill is a convenience: a failed look changes nothing.
+  }, [probeRef, loadNewRef, activeRef]);
+  useEffect(() => {
+    if (refreshes === seenRefreshes.current) return;
+    seenRefreshes.current = refreshes;
+    probeDue.current = true;
+    void askArrivals();
+  }, [refreshes, askArrivals]);
   useEffect(() => {
     let hiddenAt: number | null = null;
     const onVisible = () => {
@@ -1196,12 +1223,17 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       }
       const away = hiddenAt !== null && Date.now() - hiddenAt >= AWAY_MS;
       hiddenAt = null;
-      // An open article keeps the reader where they were: Back returns to the list as it was left.
-      if (away && !activeRef.current) toTopRef.current();
+      // A refresh that ended while the tab was hidden is looked at first, so coming back shows its articles too.
+      const goTop = () => {
+        // An open article keeps the reader where they were: Back returns to the list as it was left.
+        if (away && !activeRef.current) toTopRef.current();
+      };
+      if (probeDue.current) void askArrivals().then(goTop);
+      else goTop();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [toTopRef, activeRef]);
+  }, [toTopRef, activeRef, askArrivals]);
 
   // Row callbacks take the item as an argument, so they stay the same function between renders and the
   // memoized rows below skip renders that did not change them.
