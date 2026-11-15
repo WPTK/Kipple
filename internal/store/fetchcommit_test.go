@@ -569,7 +569,8 @@ func TestCommitCarriesRowWhenGUIDRepeatStateChanges(t *testing.T) {
 	require.Equal(t, 2, e.count("SELECT count(*) FROM items"))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND uid = ? AND title = 'title b'", rowB, bare))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND uid = ? AND read = 1 AND starred = 1 AND title = 'title a'", rowA, keyA))
-	require.Equal(t, 2, e.count("SELECT count(*) FROM fetch_log WHERE keep = 1 AND note LIKE '%rekeyed: 1%'"))
+	require.Equal(t, 2, e.count("SELECT count(*) FROM fetch_log WHERE keep = 0 AND note LIKE '%rekeyed: 1%'"), "a carried row is logged, not kept for good")
+	require.Equal(t, 0, e.count("SELECT count(*) FROM fetch_log WHERE keep = 1"))
 }
 
 // Entries with no guid that all point at one page are each stored, and a new one arrives unread without touching
@@ -614,6 +615,124 @@ func TestCommitKeepsGUIDLessEntriesThatShareALink(t *testing.T) {
 	require.Equal(t, 0, e.fetchBody(id2, doc("Only")).New)
 	require.Equal(t, 2, e.count("SELECT count(*) FROM items WHERE feed_id = ?", id2))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND uid = ?", only, "l:"+fetch.H("https://ex.com/news.html")))
+}
+
+type entry struct{ guid, title, link string }
+
+// entryDoc writes a feed by hand: an empty guid or link leaves the element out.
+func entryDoc(es ...entry) []byte {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><rss version="2.0"><channel><title>Feed</title><link>https://ex.com/</link>`)
+	for _, x := range es {
+		b.WriteString(`<item>`)
+		if x.guid != "" {
+			fmt.Fprintf(&b, `<guid isPermaLink="false">%s</guid>`, x.guid)
+		}
+		if x.link != "" {
+			fmt.Fprintf(&b, `<link>%s</link>`, x.link)
+		}
+		fmt.Fprintf(&b, `<title>%s</title><description>body %s</description></item>`, x.title, x.title)
+	}
+	b.WriteString(`</channel></rss>`)
+	return []byte(b.String())
+}
+
+// trimToTombstone replaces the item stored under uid with the tombstone retention leaves behind.
+func (e *env) trimToTombstone(feedID int64, uid string) {
+	e.t.Helper()
+	e.exec("DELETE FROM items WHERE feed_id = ? AND uid = ?", feedID, uid)
+	e.exec("INSERT INTO trimmed_items (feed_id, uid, read, trimmed_at, last_seen_at) VALUES (?,?,1,?,?)", feedID, uid, base.Unix(), base.Unix())
+}
+
+// A trimmed article's tombstone follows its entry to the other key, so the entry does not come back as new. A
+// link key without the title may belong to any entry on that page and is left alone.
+func TestCommitCarriesTombstoneWhenKeyChanges(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	const page = "https://ex.com/news.html"
+	pageKey := "l:" + fetch.H(page)
+
+	// A guid: the bare-guid tombstone moves to the link key when a twin appears.
+	g := e.addFeed("http://a.example/feed")
+	e.fetchBody(g, entryDoc(entry{"keep", "keep", "https://ex.com/keep"}, entry{"shared", "a", "https://ex.com/a"}))
+	e.trimToTombstone(g, "g:"+fetch.H("shared"))
+	require.Equal(t, 1, e.fetchBody(g, entryDoc(entry{"shared", "b", "https://ex.com/b"}, entry{"shared", "a", "https://ex.com/a"}, entry{"keep", "keep", "https://ex.com/keep"})).New, "only b is new")
+	require.Equal(t, 1, e.count("SELECT count(*) FROM trimmed_items WHERE feed_id = ? AND uid = ?", g, "g:"+fetch.H("shared|https://ex.com/a")))
+	require.Equal(t, 0, e.count("SELECT count(*) FROM trimmed_items WHERE feed_id = ? AND uid = ?", g, "g:"+fetch.H("shared")))
+	require.Equal(t, 0, e.count("SELECT count(*) FROM items WHERE feed_id = ? AND title = 'a'", g), "the trimmed article stays trimmed")
+
+	// A guid-less entry that was one of several on a page and is now alone: its link-and-title tombstone moves.
+	f := e.addFeed("http://b.example/feed")
+	e.fetchBody(f, entryDoc(entry{"", "Keep", page}, entry{"", "Only", page}))
+	e.trimToTombstone(f, "l:"+fetch.H(page+"\x1fOnly"))
+	require.Equal(t, 0, e.fetchBody(f, entryDoc(entry{"", "Only", page})).New)
+	require.Equal(t, 1, e.count("SELECT count(*) FROM trimmed_items WHERE feed_id = ? AND uid = ?", f, pageKey))
+
+	// A tombstone under the bare link key is not carried to any of the entries that now share the page.
+	h := e.addFeed("http://c.example/feed")
+	e.fetchBody(h, entryDoc(entry{"", "Z", "https://ex.com/z"}, entry{"", "A", page}))
+	e.trimToTombstone(h, pageKey)
+	require.Equal(t, 2, e.fetchBody(h, entryDoc(entry{"", "Z", "https://ex.com/z"}, entry{"", "A", page}, entry{"", "B", page})).New)
+	require.Equal(t, 1, e.count("SELECT count(*) FROM trimmed_items WHERE feed_id = ? AND uid = ?", h, pageKey))
+}
+
+// A row is only taken for an entry when it really is that entry's: not when another entry of the document owns it,
+// when the title differs under a link key, or when the URL differs.
+func TestCommitCarryLeavesOtherEntriesRowsAlone(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	const page = "https://ex.com/news.html"
+
+	// Another entry of the document owns the key: a guid that spells the first entry's other key.
+	c := e.addFeed("http://a.example/feed")
+	e.fetchBody(c, entryDoc(entry{"a|https://ex.com/p", "two", "https://ex.com/p"}))
+	two := scalar[int64](t, e.db.Reader(), "SELECT id FROM items WHERE feed_id = ?", c)
+	require.Equal(t, 1, e.fetchBody(c, entryDoc(entry{"a", "one", "https://ex.com/p"}, entry{"a|https://ex.com/p", "two", "https://ex.com/p"})).New)
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND title = 'two'", two), "the owned row is not taken")
+	require.Equal(t, 2, e.count("SELECT count(*) FROM items WHERE feed_id = ?", c))
+
+	// A link key with another title: the stored page row is a different entry.
+	l := e.addFeed("http://b.example/feed")
+	e.fetchBody(l, entryDoc(entry{"", "Old", page}))
+	old := scalar[int64](t, e.db.Reader(), "SELECT id FROM items WHERE feed_id = ?", l)
+	e.exec("UPDATE items SET read = 1 WHERE id = ?", old)
+	require.Equal(t, 2, e.fetchBody(l, entryDoc(entry{"", "A", page}, entry{"", "B", page})).New)
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND title = 'Old' AND read = 1", old))
+	require.Equal(t, 0, e.count("SELECT count(*) FROM items WHERE feed_id = ? AND title IN ('A','B') AND read = 1", l))
+
+	// A guid whose twin has other links: the stored row's URL is neither of them.
+	u := e.addFeed("http://c.example/feed")
+	e.fetchBody(u, entryDoc(entry{"g", "first", "https://ex.com/a"}))
+	first := scalar[int64](t, e.db.Reader(), "SELECT id FROM items WHERE feed_id = ?", u)
+	require.Equal(t, 2, e.fetchBody(u, entryDoc(entry{"g", "second", "https://ex.com/b"}, entry{"g", "third", "https://ex.com/c"})).New)
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND title = 'first'", first))
+}
+
+// A fetch of more than 500 entries is committed in chunks; a row is carried when its entry and the entry it now
+// shares a guid with fall in different chunks.
+func TestCommitCarriesRowAcrossChunks(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.addFeed("http://a.example/feed")
+	e.exec("UPDATE feeds SET retention = 0 WHERE id = ?", id)
+	filler := func(n int) []entry {
+		out := make([]entry, n)
+		for i := range out {
+			out[i] = entry{fmt.Sprintf("u%d", i), fmt.Sprintf("u%d", i), fmt.Sprintf("https://ex.com/u%d", i)}
+		}
+		return out
+	}
+	s1 := entry{"shared", "s1", "https://ex.com/s1"}
+	s2 := entry{"shared", "s2", "https://ex.com/s2"}
+	e.fetchBody(id, entryDoc(append([]entry{s1}, filler(10)...)...))
+	e.exec("UPDATE items SET read = 1, starred = 1 WHERE title = 's1'")
+	row := scalar[int64](t, e.db.Reader(), "SELECT id FROM items WHERE title = 's1'")
+
+	doc := append(append([]entry{s1}, filler(510)...), s2)
+	require.Greater(t, len(doc), chunkThreshold)
+	require.Equal(t, 501, e.fetchBody(id, entryDoc(doc...)).New, "500 more fillers and s2")
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE id = ? AND uid = ? AND read = 1 AND starred = 1", row, "g:"+fetch.H("shared|https://ex.com/s1")))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM items WHERE title = 's1'"))
 }
 
 func TestIDAllocMonotonicAcrossRestart(t *testing.T) {

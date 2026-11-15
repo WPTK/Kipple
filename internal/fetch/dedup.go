@@ -132,6 +132,16 @@ func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 	return kept, notes
 }
 
+// CarriesTombstone reports whether a trimmed item's tombstone stored under AltUID can be taken to be this entry's:
+// the key names the guid, or the link and the title. A link key without the title is shared by every entry of
+// that page, so a tombstone under it may belong to another.
+func (it Item) CarriesTombstone() bool {
+	if strings.HasPrefix(it.AltUID, "g:") {
+		return true
+	}
+	return it.AltUID != "" && it.AltUID == "l:"+H(it.RawLink+sep+it.Title)
+}
+
 func linkUID(it *Item) string {
 	if it.RawLink != "" {
 		return "l:" + H(it.RawLink)

@@ -519,7 +519,7 @@ CREATE TABLE trimmed_content (
 ) STRICT;
 
 -- Per-feed fetch history (health view). Kept 14 days with a 50-row floor per feed; the last 10
--- error rows and every keep = 1 row (redirect_migrated, guid_churn_suspected, rekeyed) survive.
+-- error rows and every keep = 1 row (redirect_migrated, guid_churn_suspected, rekeyed for a requested re-key) survive.
 -- first_item_id/last_item_id bound the ids this fetch inserted ("mark this fetch read").
 -- error_class: timeout|dns|connect|tls|http|cloudflare|too_large|empty|parse|ssrf|redirect_loop|gone
 -- note: 'redirect_migrated: <old> -> <new>', 'redirect_held_new_site: <new> is on another site; ...',
@@ -1100,8 +1100,8 @@ Then add the fetch_log note `redirect_migrated: <old> -> <new>` with `keep = 1`.
   - Else `'l:'+h(raw link)`, using the link as written in the document, before absolutization or tracking-param cleanup.
   - Else `'h:'+h(title+"\x1f"+text)`.
   - A guid repeated within one document is keyed on **every** occurrence, first included, as `'g:'+h(guid + "|" + rawLink)`, so a uid never depends on the item's position. An occurrence with no link is keyed `'g:'+h(guid + "|" + n)` with `n` the occurrence index. If the same guid and the same link repeat, the key becomes `'g:'+h(guid + "|" + rawLink + "|" + k)` with `k` bumped until it is free.
-  - A link shared by several entries that have no guid (a feed whose entries all point at one page) is keyed on **every** one of them as `'l:'+h(rawLink + "\x1f" + title)`, the `link_title` key, so none is dropped for its link and a newer entry never replaces an older one's row. The same link and title twice is one entry.
-  - So the key depends on whether the guid, or the link of a guid-less entry, is repeated in the document being read. Each entry also carries its key on the other side of that line (`AltUID`). When an entry is new by uid, the commit looks for a row stored under that other key with the same URL (and, for a link key, the same title) that no entry of the document claims, re-keys it to the entry's uid and updates it in place, keeping its id, dates and read and starred state, and counts it in `rekeyed: k` (keep = 1). Entries with no link, and counter keys, have no other key and are not carried. This follows one entry across a change in how many entries share its guid or link; it never matches an entry whose guid or link itself changed (decision 14).
+  - A link shared by several entries that have no guid (a feed whose entries all point at one page) is keyed on **every** one of them as `'l:'+h(rawLink + "\x1f" + title)`, the `link_title` key, so none is dropped for its link and a newer entry never replaces an older one's row. Entries on that page that also have the same title, or all have an empty title, are not told apart: only the first of them is kept. A title edit on one of several entries sharing a link is a new key, so the edited entry arrives as a new unread row and the old row is left behind; a lone entry has no title in its key and is updated in place.
+  - So the key depends on whether the guid, or the link of a guid-less entry, is repeated in the document being read. Each entry also carries its key on the other side of that line (`AltUID`). When an entry is new by uid, the commit looks for a row stored under that other key with the same URL (and, for a link key, the same title) that no entry of the document claims, re-keys it to the entry's uid and updates it in place, keeping its id, dates and read and starred state, and counts it in the fetch note `rekeyed: k` (keep = 0; only a requested re-key is kept for good). A trimmed item's tombstone under a guid key, or a link-and-title key, moves to the new uid the same way, so the entry is not inserted again; one under a bare link key is left alone, because that key names no title and may belong to a different entry. Entries with no link, and counter keys, have no other key and are not carried. This follows one entry across a change in how many entries share its guid or link; it never matches an entry whose guid or link itself changed (decision 14). A guid still identifies the article: a lone row under a guid is overwritten by a different article that reuses the guid with another link, as before. Switching a feed from `link_title` to `auto` carries the stored rows of lone guid-less entries once, logged as `rekeyed`.
 - `link`: `'l:'+h(raw link)`, falling back to the `h:` rule when there is no link.
 - `link_title`: `'l:'+h(raw link + "\x1f" + title)`, falling back to the `h:` rule when there is no link.
 - In `link` and `link_title` modes a later item whose uid repeats an earlier one in the same document is dropped, because `(feed_id, uid)` is unique.
@@ -1132,12 +1132,14 @@ for each parsed item, oldest-first:
   else           → new
 for each new item with an alt uid and a URL: a row of this feed stored under the alt uid, not in the document by uid,
                   with the same URL (same title too for an 'l:' alt uid): UPDATE items SET uid = :new_uid, then the
-                  update above when content_hash differs; rekeyed++. The row is not inserted again.
+                  update above when content_hash differs; rekeyed++. The row is not inserted again. A tombstone under
+                  a 'g:' or title-bearing 'l:' alt uid moves the same way (UPDATE trimmed_items SET uid, last_seen_at).
+                  Skipped when the feed has no rows yet.
 if rekey_pending and outcome ok and this is a single-chunk commit:
                   for each new item whose absolutized url uniquely matches an existing row of this
                   feed not in the document by uid, and no other new item in the document has that URL:
                   UPDATE items SET uid = :new_uid (state kept); rekeyed++.
-                  Remaining new items are inserted with read = 1. rekey_pending = 0. Note 'rekeyed: k' (keep = 1).
+                  Remaining new items are inserted with read = 1. rekey_pending = 0. Note 'rekeyed: k' (keep = 1 here; a carry-over without rekey_pending logs it with keep = 0).
 for each new item (oldest-first):
   id = alloc.Next()
   read = 1 if rekey leftover, or if initial_read_before IS NOT NULL AND published_at < initial_read_before

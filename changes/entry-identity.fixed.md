@@ -1,1 +1,1 @@
-Feeds: entries that share one link and have no guid are all kept, and an entry keeps its article, read state and star when other entries start or stop sharing its guid or link.
+Feeds: entries with no guid that share one link and have different titles are all kept, and an entry keeps its article, read state and star when other entries start or stop sharing its guid or link; entries that share a link and a title still count as one.
