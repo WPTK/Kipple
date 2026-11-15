@@ -92,7 +92,7 @@ func TestStarredAndLedgerIndexPlans(t *testing.T) {
 		for _, oldest := range []bool{false, true} {
 			for _, cur := range []*Cursor{nil, {SortAt: 200, ID: 400, Asc: oldest}} {
 				q := CardQuery{View: "starred", Oldest: oldest, Cursor: cur, Limit: 30}
-				sqlText, args, _, err := listCardsSQL(q)
+				sqlText, args, _, err := listCardsSQL(q, false)
 				require.NoError(t, err)
 				p := plan(sqlText, args...)
 				label := fmt.Sprintf("%+v analyze=%v\n%s", q, analyze, p)

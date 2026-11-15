@@ -43,11 +43,11 @@ func shapeLibrary(t *testing.T) (e *env, feeds map[string]int64, folders map[str
 // query joining item_content to the view's WHERE, keyset order and LIMIT, with the same arguments.
 func joinedCards(t *testing.T, e *env, q CardQuery) ([]Card, *Cursor) {
 	t.Helper()
-	sqlText, args, limit, err := listCardsSQL(q)
+	sqlText, args, limit, err := listCardsSQL(q, false)
 	require.NoError(t, err)
 	const in = " WHERE i.id IN ("
 	pick := sqlText[strings.Index(sqlText, in)+len(in) : strings.LastIndex(sqlText, ") ORDER BY ")]
-	joined := "SELECT " + cardCols + " FROM items i LEFT JOIN item_content c ON c.item_id = i.id" +
+	joined := "SELECT " + cardCols(false) + " FROM items i LEFT JOIN item_content c ON c.item_id = i.id" +
 		strings.TrimPrefix(pick, "SELECT i.id FROM items i")
 	rows, err := e.db.Reader().QueryContext(e.ctx, joined, args...)
 	require.NoError(t, err)

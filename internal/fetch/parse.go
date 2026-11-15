@@ -684,7 +684,7 @@ func formatName(t string) string {
 }
 
 func validTime(t *time.Time) *time.Time {
-	if t == nil || t.IsZero() || t.Year() < 1970 {
+	if t == nil || !t.After(time.Unix(0, 0)) {
 		return nil
 	}
 	u := t.UTC()
