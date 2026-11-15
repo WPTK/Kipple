@@ -8,6 +8,7 @@ import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import type { Bootstrap, Feed, Headline } from "@/api/types";
 import { resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
+import { REVEAL_STEP } from "@/lib/reveal";
 import { clearToasts } from "@/shell/toasts";
 import { bootstrap, json, mockFetch } from "@/test/mockApi";
 import { wide } from "@/test/media";
@@ -18,6 +19,29 @@ class NoES {
   addEventListener() {}
   close() {}
 }
+
+/** An IntersectionObserver that reports nothing until the test says the watched elements came into view. */
+const watched = new Set<{ cb: IntersectionObserverCallback; el: Element }>();
+class HeldIO {
+  private mine: { cb: IntersectionObserverCallback; el: Element }[] = [];
+  constructor(private cb: IntersectionObserverCallback) {}
+  observe(el: Element) {
+    const w = { cb: this.cb, el };
+    this.mine.push(w);
+    watched.add(w);
+  }
+  unobserve() {}
+  disconnect() {
+    for (const w of this.mine) watched.delete(w);
+  }
+  takeRecords() {
+    return [];
+  }
+}
+const scrollIntoView = () =>
+  act(() => {
+    for (const w of [...watched]) w.cb([{ target: w.el, isIntersecting: true } as unknown as IntersectionObserverEntry], {} as IntersectionObserver);
+  });
 
 const BASE = 1_790_000_000;
 
@@ -42,8 +66,9 @@ function routes(feeds: Feed[], latest: Record<number, Headline[]>, extra: Parame
   });
 }
 
-function go(path = "/feeds/index") {
-  window.history.replaceState({ idx: 0 }, "", path);
+/** `key` names the history entry: a place remembered for the way back belongs to it, so a test that needs a clean start uses its own. */
+function go(path = "/feeds/index", key = "default") {
+  window.history.replaceState({ idx: 0, key }, "", path);
   return render(<App client={makeQueryClient({ retry: false })} />);
 }
 const blockNames = (root: ParentNode) => [...root.querySelectorAll("section[data-feed-block] > h2 a")].map((a) => a.textContent);
@@ -55,6 +80,7 @@ beforeEach(() => {
   liveStore.set(initialLive);
   resetDevicePrefs();
   vi.stubGlobal("EventSource", NoES);
+  watched.clear();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -230,6 +256,50 @@ describe("the Feed index", () => {
     expect(block(container, 1).querySelector('article[data-item-id="100"]')).not.toHaveAttribute("data-read");
     act(() => patchItems(client, ["100"], { read: true }));
     await waitFor(() => expect(block(container, 1).querySelector('article[data-item-id="100"]')).toHaveAttribute("data-read"));
+  });
+
+  it("draws a long library a step at a time: a button and the end of the page bring the rest", async () => {
+    vi.stubGlobal("IntersectionObserver", HeldIO);
+    const feeds = Array.from({ length: 700 }, (_, i) => feed(i + 1, `Feed ${String(i + 1).padStart(3, "0")}`));
+    routes(feeds, {});
+    const { container } = go();
+    await screen.findByText("Feed 001");
+    expect(container.querySelectorAll("section[data-feed-block]")).toHaveLength(REVEAL_STEP);
+    expect(screen.queryByText("That's every feed.")).toBeNull();
+    // A press draws the next step and puts the focus on the first block it added.
+    await userEvent.setup().click(screen.getByRole("button", { name: "Show more feeds (400 not shown yet)" }));
+    expect(container.querySelectorAll("section[data-feed-block]")).toHaveLength(2 * REVEAL_STEP);
+    expect(document.activeElement).toBe(container.querySelector(`section[data-feed-block="${REVEAL_STEP + 1}"] h2 a`));
+    // Scrolling near the end draws the rest, and only then does the page say it has shown every feed.
+    scrollIntoView();
+    await waitFor(() => expect(container.querySelectorAll("section[data-feed-block]")).toHaveLength(700));
+    expect(screen.queryByRole("button", { name: /^Show more feeds/ })).toBeNull();
+    expect(screen.getByText("That's every feed.")).toBeInTheDocument();
+  });
+
+  it("on the way back draws the block of the row last visited, with every block before it, and focuses that row", async () => {
+    vi.stubGlobal("IntersectionObserver", HeldIO);
+    const feeds = Array.from({ length: 700 }, (_, i) => feed(i + 1, `Feed ${String(i + 1).padStart(3, "0")}`));
+    routes(feeds, { 450: headlines(450, 3) });
+    const user = userEvent.setup();
+    const { container } = go("/feeds/index", "start-fresh");
+    await screen.findByText("Feed 001");
+    expect(block(container, 450)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Show more feeds (400 not shown yet)" }));
+    await user.click(screen.getByRole("link", { name: "Feed 450 story 2" }));
+    // Leaving and coming back (a history POP) starts a page with one step drawn; the stop in block 450 is asked for
+    // while rendering, so that block is in the first commit that has the data and its link takes the focus.
+    window.history.back();
+    await screen.findByText("Feed 450 story 2");
+    await waitFor(() => expect(screen.getByRole("link", { name: "Feed 450 story 2" })).toHaveFocus());
+    expect(block(container, 450)).not.toBeNull();
+    expect(block(container, 451)).toBeNull();
+    expect(container.querySelectorAll("section[data-feed-block]")).toHaveLength(450);
+    // Moving the focus to a block above index 300 later stops asking for block 450, and the drawn set shrinks back to
+    // one step: a hold lasts only as long as the row it was made for is the stop.
+    act(() => within(block(container, 5)).getByRole("link", { name: /Feed 005/ }).focus());
+    await waitFor(() => expect(container.querySelectorAll("section[data-feed-block]")).toHaveLength(REVEAL_STEP));
+    expect(block(container, 450)).toBeNull();
   });
 
   it("has no accessibility violations", async () => {

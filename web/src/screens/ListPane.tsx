@@ -10,7 +10,7 @@ import { offlineStore } from "@/lib/offlineState";
 import { feedsInFolder } from "@/lib/folderTree";
 import { listTo } from "@/lib/routes";
 import { applyRead, changeError, keys, scopeKey, useBootstrap } from "@/api/queries";
-import { clearPending, liveStore, pendingFor } from "@/api/events";
+import { clearPending, liveStore, noteArrivals, pendingFor } from "@/api/events";
 import { CANT_REFRESH_OFFLINE, useRefreshAll, useRefreshing } from "@/api/refresh";
 import type { Card, Feed, Scope } from "@/api/types";
 import { SwipeRow } from "@/gestures/SwipeRow";
@@ -237,7 +237,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const markScope = useMemo<Scope>(() => (scope.q ? { ...scope, fallback } : scope), [scope, fallback]);
   useSearchHighlight(scope.q, { fallback, typing: scope.typing });
   // An archived article's feed (the archive feed) is not one of these, so "Edit feed" says it is gone.
-  const feedById = useMemo(() => new Map(visibleFeeds(boot.data?.feeds).map((f) => [f.id, f])), [boot.data]);
+  const feedById = useMemo(() => new Map(visibleFeeds(boot.data?.feeds).map((f) => [f.id, f])), [boot.data?.feeds]);
+  // The row menu reads the feeds when an action runs, not when it is built, so a feed change does not remake the menu actions.
+  const feedByIdRef = useLatestRef(feedById);
   const unreadView = scope.view === "unread" && !scope.q;
 
   // "Only items present when the list loaded": the highest id the list knew about.
@@ -274,6 +276,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // new one has read them, so the heights can still be from an earlier visit at another width while the offset is
   // the latest: those heights are dropped, and the rows are measured again and put back on the article (listTop).
   const savedSizes = saved?.sizes && saved.sizes.sig === saved.offsetSig ? saved.sizes : undefined;
+  // The same function until the rows change: a new one makes the virtualizer rebuild every row's measurement.
+  const getItemKey = useCallback((i: number) => rows[i]?.key ?? i, [rows]);
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: Page ? 0 : rows.length,
@@ -289,7 +293,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       if (r.kind === "group") return estimate(r.items[0] as Card, sizeCtx.current) + 16;
       return estimate(r.item, sizeCtx.current);
     },
-    getItemKey: (i) => rows[i]?.key ?? i,
+    getItemKey,
     overscan: OVERSCAN,
     rangeExtractor,
     // A page layout restores its own offset once its pages are laid out (below); a jump here would land short.
@@ -474,8 +478,11 @@ export function ListPane({ scope, activeId, onControls }: Props) {
    */
   const lookAtStories = useCallback((el: HTMLElement) => {
     const was = pageLook.current;
-    let m = measurePage(el);
-    if (!was) return void (pageLook.current = firstLook(m));
+    if (!was) return void (pageLook.current = firstLook(measurePage(el)));
+    // The stories the look before had in view, and the one an amount is owed for, are measured wherever they are now.
+    const keep = new Set(was.inView.keys());
+    if (pageOwedFor.current !== undefined) keep.add(pageOwedFor.current);
+    let m = measurePage(el, keep);
     const passed = markOnScrollPageRef.current ? pagePassed.current : new Set<string>();
     // What is owed holds only if scrolling by it would show the story it was owed for: a fling that carried the reader far from it is not undone.
     if (pageOwed.current && pageOwedFor.current !== undefined && !storyInView(m, pageOwedFor.current, pageOwed.current)) {
@@ -497,7 +504,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     keptAt.current = el.scrollTop === before ? null : el.scrollTop;
     pageOwed.current = 0;
     pageOwedFor.current = undefined;
-    m = measurePage(el);
+    m = measurePage(el, keep);
     pageLook.current = lookAgain({ ...was, scrollTop: was.scrollTop + m.scrollTop - before }, m, passed);
   }, []);
   useLayoutEffect(() => {
@@ -794,7 +801,10 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     // the rounded offset would take the one above.
     const top = el.scrollTop < 8 ? undefined : virtualizer.getVirtualItemForOffset(el.scrollTop + 1);
     // A day header at the top stands for the article under it.
-    const row = top ? rowsRef.current.slice(top.index).find((r) => r.kind !== "header") : undefined;
+    const all = rowsRef.current;
+    let at = top ? top.index : all.length;
+    while (at < all.length && all[at]!.kind === "header") at++;
+    const row = all[at];
     listTop.current.id = row?.kind === "item" ? row.item.id : row?.kind === "group" ? (row.items[0]?.id ?? null) : null;
     memoryFor(key).topId = listTop.current.id;
   }, [virtualItems, virtualizer, Page, key, rowsRef]);
@@ -1089,13 +1099,13 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       openOriginal: (item) => void openOriginalAndRecord(item),
       copyLink: (item) => void copyLink(item.url),
       share: (item) => void shareAndRecord(item),
-      muteSimilar: (item) => openFilterEditor({ mode: "create", seed: similarSeed(item, feedById.get(item.feed_id)?.title) }),
+      muteSimilar: (item) => openFilterEditor({ mode: "create", seed: similarSeed(item, feedByIdRef.current.get(item.feed_id)?.title) }),
       restore: restoreRow,
       editRule: (item) => item.muted_by && openFilterEditor({ mode: "edit", id: item.muted_by }),
-      manageFeed: (item) => (feedById.has(item.feed_id) ? openFeedEditor(item.feed_id) : toast("This feed no longer exists.", "error")),
+      manageFeed: (item) => (feedByIdRef.current.has(item.feed_id) ? openFeedEditor(item.feed_id) : toast("This feed no longer exists.", "error")),
       noRange: rank || !!scope.typing,
     }),
-    [act, range, restoreRow, feedById, rank, scope.typing],
+    [act, range, restoreRow, feedByIdRef, rank, scope.typing],
   );
 
   // ---- pull to refresh ---------------------------------------------------
@@ -1153,8 +1163,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // ---- render ------------------------------------------------------------
 
   // Items the list already holds are not "new" to it, whatever fetched them (a later load, another route).
-  const loadedIds = useMemo(() => new Set(src.cards.map((i) => i.id)), [src.cards]);
-  const pendingNew = pendingFor(pendingByFeed, scope, boot.data?.feeds ?? [], boot.data?.folders ?? [], { ids: loadedIds, pendingIds });
+  const pendingNew = pendingFor(pendingByFeed, scope, boot.data?.feeds ?? [], boot.data?.folders ?? [], { ids: loadedIdSet, pendingIds });
   const loadNew = () => {
     // Only what this list showed is now loaded; other feeds' arrivals keep counting for other lists.
     liveStore.set((s) => {
@@ -1185,6 +1194,47 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   };
   const toTopRef = useLatestRef(toTop);
   const callToTop = useCallback(() => toTopRef.current(), [toTopRef]);
+  // A manual refresh that ended asks whether it brought articles this list does not hold. They raise the "n new" pill;
+  // the list loads them by itself only when the reader is at the top with no article open, so nobody part-way down
+  // a list is moved. The question waits while the tab is hidden (it is asked once the tab is shown again).
+  const refreshes = useStoreSelector(liveStore, (s) => s.refreshes);
+  const seenRefreshes = useRef(refreshes);
+  const probeDue = useRef(false);
+  const loadNewRef = useLatestRef(loadNew);
+  const probeRef = useLatestRef({ scope, loadedIds: loadedIdSet, asOf: currentAsOf, loading: src.pending, digestOn, selected, holding, boot: boot.data });
+  /** Resolves true when it loaded the new articles (the list went to the top), false when it only counted them or did nothing. */
+  const askArrivals = useCallback(async (): Promise<boolean> => {
+    const p = probeRef.current;
+    // Not while the tab is hidden, or while the list is still loading (what it will hold is not known yet).
+    if (!probeDue.current || document.visibilityState === "hidden" || p.loading) return false;
+    probeDue.current = false;
+    if (p.digestOn) return false; // its cards are per section: there is no one list to compare
+    try {
+      await noteArrivals(p.scope, p.loadedIds, p.asOf);
+    } catch {
+      return false; // The pill is a convenience: a failed or slow look changes nothing.
+    }
+    const q = probeRef.current;
+    const waiting = pendingFor(liveStore.get().pendingByFeed, q.scope, q.boot?.feeds ?? [], q.boot?.folders ?? [], { ids: q.loadedIds, pendingIds: liveStore.get().pendingIds });
+    if (waiting <= 0) return false;
+    // Loading drops the selection and starts the list over: a reader who is at the top but has a row focused or
+    // selected, an article open, or a menu or dialog up, keeps the list and gets the pill.
+    const root = parentRef.current;
+    const calm = (root?.scrollTop ?? 0) <= 0 && !activeRef.current && !q.selected && !q.holding && !root?.contains(document.activeElement) && !document.querySelector('[role="dialog"],[role="menu"]');
+    if (!calm) return false;
+    loadNewRef.current();
+    return true;
+  }, [probeRef, loadNewRef, activeRef]);
+  useEffect(() => {
+    if (refreshes === seenRefreshes.current) return;
+    seenRefreshes.current = refreshes;
+    probeDue.current = true;
+    void askArrivals();
+  }, [refreshes, askArrivals]);
+  // A refresh that ended while the list was loading is asked about once it has.
+  useEffect(() => {
+    if (!src.pending) void askArrivals();
+  }, [src.pending, askArrivals]);
   useEffect(() => {
     let hiddenAt: number | null = null;
     const onVisible = () => {
@@ -1194,12 +1244,18 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       }
       const away = hiddenAt !== null && Date.now() - hiddenAt >= AWAY_MS;
       hiddenAt = null;
-      // An open article keeps the reader where they were: Back returns to the list as it was left.
-      if (away && !activeRef.current) toTopRef.current();
+      // A refresh that ended while the tab was hidden is looked at first, so coming back shows its articles too.
+      const goTop = () => {
+        // An open article keeps the reader where they were: Back returns to the list as it was left.
+        if (away && !activeRef.current) toTopRef.current();
+      };
+      // Going to the top is not repeated when the look has already loaded the list.
+      if (probeDue.current) void askArrivals().then((loaded) => !loaded && goTop());
+      else goTop();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [toTopRef, activeRef]);
+  }, [toTopRef, activeRef, askArrivals]);
 
   // Row callbacks take the item as an argument, so they stay the same function between renders and the
   // memoized rows below skip renders that did not change them.
@@ -1407,9 +1463,9 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const { view, feed: scopeFeed, folder: scopeFolder, q: scopeQ, order: scopeOrder, length: scopeLength } = scope;
   const noteFeeds = useMemo(() => {
     const noteScope: Scope = { view, feed: scopeFeed, folder: scopeFolder, q: scopeQ, order: scopeOrder, length: scopeLength };
-    const pendingOf = (id: string) => pendingFor(pendingByFeed, { ...noteScope, feed: id, folder: undefined }, feeds ?? [], folders ?? [], { ids: loadedIds, pendingIds });
-    return failureNoteFeeds({ scope: noteScope, pendingOf, feeds, folders, loaded, empty });
-  }, [view, scopeFeed, scopeFolder, scopeQ, scopeOrder, scopeLength, pendingByFeed, pendingIds, loadedIds, feeds, folders, loaded, empty]);
+    const pendingOf = (id: string) => pendingFor(pendingByFeed, { ...noteScope, feed: id, folder: undefined }, feeds ?? [], folders ?? [], { ids: loadedIdSet, pendingIds });
+return failureNoteFeeds({ scope: noteScope, pendingOf, feeds, folders, loaded, empty });
+  }, [view, scopeFeed, scopeFolder, scopeQ, scopeOrder, scopeLength, pendingByFeed, pendingIds, loadedIdSet, feeds, folders, loaded, empty]);
   // The note's height, for the virtualizer: it measures again if the note resizes (a wider or narrower window).
   const noted = noteFeeds.length > 0;
   // The offset is saved over the note and the rows together. The note may be gone, or another height, when the list comes

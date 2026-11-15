@@ -948,15 +948,36 @@ func TestApplyStagedIsIdempotent(t *testing.T) {
 
 	t.Run("crash in the middle of the swap", func(t *testing.T) {
 		dir := t.TempDir()
-		write(filepath.Join(dir, StagedFile), "staged")
-		write(filepath.Join(dir, MarkerFile), `{}`)
+		stagedLibrary(t, dir, map[string]any{}) // a real database and its marker
 		// The live database was moved away and the staged one not yet renamed.
 		done, err := ApplyStaged(dir, now, time.UTC)
 		require.NoError(t, err)
 		require.True(t, done.Restored)
 		require.Empty(t, done.Pre)
-		require.Equal(t, "staged", read(filepath.Join(dir, "kipple.db")))
+		require.Equal(t, 1, countRows(t, filepath.Join(dir, "kipple.db"), "account"))
 		require.NoFileExists(t, filepath.Join(dir, MarkerFile))
+	})
+
+	t.Run("an installed backup carries no content policy mark", func(t *testing.T) {
+		dir := t.TempDir()
+		stagedLibrary(t, dir, map[string]any{store.SettingContentPolicy: 999})
+		done, err := ApplyStaged(dir, now, time.UTC)
+		require.NoError(t, err)
+		require.True(t, done.Restored)
+		require.Zero(t, countRows(t, filepath.Join(dir, "kipple.db"), "settings WHERE key = '"+store.SettingContentPolicy+"'"))
+	})
+
+	t.Run("a staged file whose content policy mark cannot be removed is not installed", func(t *testing.T) {
+		dir := t.TempDir()
+		write(filepath.Join(dir, "kipple.db"), "live")
+		write(filepath.Join(dir, StagedFile), "staged") // not a database: the DELETE fails
+		write(filepath.Join(dir, MarkerFile), `{}`)
+		_, err := ApplyStaged(dir, now, time.UTC)
+		require.ErrorContains(t, err, "tried again at the next start")
+		require.Equal(t, "live", read(filepath.Join(dir, "kipple.db")))
+		require.FileExists(t, filepath.Join(dir, StagedFile))
+		require.FileExists(t, filepath.Join(dir, MarkerFile), "it is tried again at the next start")
+		require.NoDirExists(t, filepath.Join(dir, "backup"))
 	})
 
 	t.Run("nothing at all", func(t *testing.T) {
@@ -1156,4 +1177,32 @@ func TestZipDirectoryAcceptsAZip64Writer(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "z.zip")
 	require.NoError(t, os.WriteFile(src, buf.Bytes(), 0o600))
 	require.NoError(t, checkZipDirectory(src))
+}
+
+// A panic while the check reads the upload is a refused upload: the check runs on a goroutine of
+// its own, where an unrecovered panic would end the process. FreeBytes is asked once while the
+// body arrives (the caller's goroutine), then by Extract on the check's goroutine.
+func TestPanicInTheCheckIsARefusedUpload(t *testing.T) {
+	t.Parallel()
+	b := hostBackup(t)
+	calls := 0
+	r, dir := newRestorer(t, func(o *RestorerOptions) {
+		o.FreeBytes = func(string) (uint64, error) {
+			calls++
+			if calls == 2 {
+				panic("boom")
+			}
+			return 1 << 40, nil
+		}
+	})
+	_, err := upload(r, b)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "panicked")
+	var bad *BadUploadError
+	require.False(t, errors.As(err, &bad))
+	require.Equal(t, RestoreFailed, r.Status(me).State)
+	require.NoFileExists(t, filepath.Join(dir, UploadFile))
+	require.NoFileExists(t, filepath.Join(dir, StagedFile))
+	_, err = upload(r, b)
+	require.NoError(t, err, "the slot is free: a new upload replaces the failed one")
 }

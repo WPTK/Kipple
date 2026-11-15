@@ -71,6 +71,11 @@ func (e *StatusError) Error() string {
 // allowPrivate keeps candidates on private addresses (the caller's rt must then
 // allow them too).
 func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw string, allowPrivate bool) (Result, error) {
+	if rt == nil {
+		// http.Client sends through http.DefaultTransport when Transport is nil: no dial guard, and the
+		// environment's proxy. A caller passes the guarded transport.
+		return Result{}, errors.New("discover: no transport")
+	}
 	ctx, cancel := context.WithTimeout(ctx, findTimeout)
 	defer cancel()
 	hc := &http.Client{Transport: rt, CheckRedirect: fetch.CheckRedirect}
@@ -110,8 +115,12 @@ func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw str
 
 	html := fetch.LooksHTML(body)
 	if !html {
-		if _, perr := fetch.ParseFeed(body, fetch.ParseOptions{FeedURL: final, HTTPCharset: charsetOf(ct), Strict: true}); perr == nil {
+		_, perr := fetch.ParseFeed(body, fetch.ParseOptions{FeedURL: final, HTTPCharset: charsetOf(ct), Strict: true})
+		if perr == nil {
 			return Result{IsFeed: true, Final: final, Candidates: []Candidate{{URL: raw, Type: kindOf(ct, body)}}}, nil
+		}
+		if errors.Is(perr, fetch.ErrDecodedTooLarge) {
+			return Result{}, ErrTooLarge
 		}
 	}
 	cands := candidates(body, final, raw, allowPrivate)

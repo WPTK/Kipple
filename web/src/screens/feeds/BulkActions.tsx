@@ -172,7 +172,7 @@ function BulkProgress({ label, done, total }: { label: string; done: number | nu
  * Pause or resume the selected feeds, one at a time (a feed has no bulk endpoint of its own): progress and a
  * per-feed error list, same shape as the delete dialog. One bad feed does not stop the rest.
  */
-export function ToggleDialog({ feeds: selected, enable, onClose, onDone }: { feeds: Feed[]; enable: boolean; onClose: () => void; onDone: () => void }) {
+export function ToggleDialog({ feeds: selected, enable, notDrawn = 0, onClose, onDone }: { feeds: Feed[]; enable: boolean; /** How many of the feeds are not drawn on the page behind yet. */ notDrawn?: number; onClose: () => void; onDone: () => void }) {
   const [feeds] = useState(selected); // fixed when the dialog opens: the live selection shrinks as feeds change
   const qc = useQueryClient();
   const count = feeds.length;
@@ -226,6 +226,7 @@ export function ToggleDialog({ feeds: selected, enable, onClose, onDone }: { fee
         </ul>
       ) : (
         <>
+          <NotDrawnNote count={notDrawn} />
           <ul className="max-h-40 overflow-y-auto text-sm text-fg2" aria-label={`Feeds to ${enable ? "resume" : "pause"}`}>
             {feeds.map((f) => (
               <li key={f.id} className="truncate">
@@ -237,6 +238,16 @@ export function ToggleDialog({ feeds: selected, enable, onClose, onDone }: { fee
         </>
       )}
     </Modal>
+  );
+}
+
+/** A long list is drawn a step at a time, and a bulk action takes the whole selection: say so when some of it is below. */
+function NotDrawnNote({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <p className="text-sm text-fg2">
+      This includes {count} feed{count === 1 ? "" : "s"} not drawn on the page yet.
+    </p>
   );
 }
 
@@ -295,10 +306,13 @@ function DeleteWorking({ count }: { count: number }) {
  */
 export function DeleteDialog({
   feeds: selected,
+  notDrawn = 0,
   onClose,
   onDone,
 }: {
   feeds: Feed[];
+  /** How many of the feeds are not drawn on the page behind yet. */
+  notDrawn?: number;
   onClose: () => void;
   /** Called when the run ends: the ids deleted, and whether every selected feed was. */
   onDone: (deletedIds: string[], all: boolean) => void;
@@ -356,6 +370,7 @@ export function DeleteDialog({
       }
     >
       {error ? <Notice tone="error">{error}</Notice> : null}
+      <NotDrawnNote count={notDrawn} />
       <FeedsToDelete feeds={feeds} starred={starred} alsoStarred={alsoStarred} onAlsoStarred={setAlsoStarred} disabled={busy} noneNote />
       {busy ? <DeleteWorking count={count} /> : null}
     </Modal>

@@ -473,7 +473,7 @@ func (det *ItemDetail) finish(text string, img, enc sql.NullString) {
 }
 
 func (d *DB) getStub(ctx context.Context, id, now int64) (det ItemDetail, ok bool, err error) {
-	cutoff := now - int64(LoadFetchSettings(ctx, d.reader).RestoreDays)*86400
+	cutoff := now - int64(restoreDays(ctx, d.reader))*86400
 	var text string
 	var img, enc, origin sql.NullString
 	var read int
@@ -511,7 +511,7 @@ func (d *DB) getStub(ctx context.Context, id, now int64) (det ItemDetail, ok boo
 // ItemKnown reports whether id is an item or a restorable stub.
 func (d *DB) ItemKnown(ctx context.Context, id, now int64) (bool, error) {
 	var n int
-	cutoff := now - int64(LoadFetchSettings(ctx, d.reader).RestoreDays)*86400
+	cutoff := now - int64(restoreDays(ctx, d.reader))*86400
 	err := d.reader.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM items WHERE id = ?1)
 		OR EXISTS (SELECT 1 FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id WHERE t.id = ?1 AND t.trimmed_at >= ?2)`, id, cutoff).Scan(&n)
 	return n == 1, err

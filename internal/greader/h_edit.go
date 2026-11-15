@@ -187,18 +187,13 @@ func (c *call) markAllAsRead() {
 		}
 	}
 	now := c.a.now().Unix()
-	var n int64
-	err = c.a.db.WithWrite(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		var err error
-		n, err = store.MarkAllRead(ctx, tx, scope, ts, now)
-		return err
-	})
+	n, err := c.a.db.MarkAllReadBatched(ctx, scope, ts, now)
+	if n > 0 {
+		c.a.publish("resync", map[string]any{}) // earlier batches stay committed when a later one fails
+	}
 	if err != nil {
 		c.serverError("mark-all-as-read", err)
 		return
-	}
-	if n > 0 {
-		c.a.publish("resync", map[string]any{})
 	}
 	c.ok()
 }

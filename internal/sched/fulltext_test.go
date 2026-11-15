@@ -522,6 +522,34 @@ func TestQueueDedupesBoundsAndSpreadsHosts(t *testing.T) {
 	require.Equal(t, pushClosed, q.push(ftJob{itemID: 9, url: "https://c/9", host: "c"}), "a shut queue reports closed, not full")
 }
 
+// One feed's backlog on many sites does not make another feed wait behind all of it: the next free
+// goroutine goes to the feed with the fewest jobs running.
+func TestQueueSharesGoroutinesAcrossFeeds(t *testing.T) {
+	t.Parallel()
+	q := newFTQueue(16, 2)
+	for i := range 8 {
+		require.Equal(t, pushQueued, q.push(ftJob{itemID: int64(i + 1), feedID: 1, host: fmt.Sprintf("site%d.test", i)}))
+	}
+	var dones []func()
+	for range 4 { // feed 1 holds every goroutine of a pool of four
+		j, done, ok := q.take()
+		require.True(t, ok)
+		require.EqualValues(t, 1, j.feedID)
+		dones = append(dones, done)
+	}
+	require.Equal(t, pushQueued, q.push(ftJob{itemID: 100, feedID: 2, host: "other.test"}))
+	dones[0]()
+	j, done, ok := q.take()
+	require.True(t, ok)
+	require.EqualValues(t, 100, j.itemID, "feed 2's job goes before feed 1's remaining backlog")
+	done()
+	j, _, ok = q.take()
+	require.True(t, ok)
+	require.EqualValues(t, 1, j.feedID, "the backlog resumes in order")
+	require.EqualValues(t, 5, j.itemID)
+	q.close()
+}
+
 // A parser panic on a hostile page must not take the process down: it is stored
 // as a permanent failure for that item and the pool carries on.
 func TestPanickingExtractionIsStoredAsPermanentErrorAndPoolSurvives(t *testing.T) {

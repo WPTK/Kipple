@@ -293,11 +293,11 @@ func restoreTrimmed(ctx context.Context, tx *sql.Tx, ids []int64, mode string, n
 	return inserted, nil
 }
 
-// MarkScope selects what MarkAllRead (the Reader API) or MarkScopeRead (the web app) touches. The
+// MarkScope selects what MarkAllReadBatched (the Reader API) or MarkScopeRead (the web app) touches. The
 // zero value is every item. The two folder scopes belong to one function each, which refuses the other.
 type MarkScope struct {
 	FeedID int64
-	// FolderID is a Reader API label: the folder's own feeds (inFolderSQL). MarkAllRead only.
+	// FolderID is a Reader API label: the folder's own feeds (inFolderSQL). MarkAllReadBatched only.
 	FolderID int64
 	// FolderTreeID is the web app's folder scope: the folder and its subfolders (inFolderTreeSQL).
 	// MarkScopeRead only.
@@ -311,14 +311,61 @@ type MarkScope struct {
 	HoldPending string
 }
 
-// MarkAllRead marks unread items with id <= maxID read inside scope, and the
-// matching ledger rows (design §6.8). It returns the number of items changed.
-func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now int64) (int64, error) {
+// MarkAllBatch bounds the rows one batch of a mark-all-read changes in each table, so a write
+// transaction stays short (as AutoReadBatch and trimBatch).
+const MarkAllBatch = 2000
+
+// MarkAllReadBatched marks unread items with id <= maxID read inside scope, and the matching ledger rows
+// (design §6.8), in batches of at most MarkAllBatch rows per table, each its own
+// transaction behind the commit gate (like a retention trim), so the writer is never held for the
+// whole scope and fetch commits interleave. It returns the number of items changed. The cutoff is
+// fixed before the first batch and clamped to the highest committed id (ids are allocated inside the
+// commit transaction, so nothing committed later is at or below it), which makes the result the same
+// as one transaction. Every batch is durable: when one fails the earlier ones stay committed and the
+// count so far is returned with the error.
+func (d *DB) MarkAllReadBatched(ctx context.Context, scope MarkScope, maxID, now int64) (int64, error) {
+	top, err := d.MaxCommittedID(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return d.markAllReadBatched(ctx, scope, maxID, top, now, nil)
+}
+
+// markAllReadBatched is MarkAllReadBatched with the committed maximum id given; between, when set, runs
+// after each batch that left more to do.
+func (d *DB) markAllReadBatched(ctx context.Context, scope MarkScope, maxID, top, now int64, between func()) (int64, error) {
+	maxID = min(maxID, top)
+	var total int64
+	for {
+		var more bool
+		n, err := d.batch(ctx, func(ctx context.Context, tx *sql.Tx) (int64, error) {
+			var n int64
+			var err error
+			n, more, err = markAllReadBatch(ctx, tx, scope, maxID, now, MarkAllBatch)
+			return n, err
+		})
+		if err != nil {
+			return total, err // a failed batch rolled back: its rows are not counted
+		}
+		total += n
+		if !more {
+			return total, nil
+		}
+		if between != nil {
+			between()
+		}
+	}
+}
+
+// markAllSQL builds the two statements of a mark-all-read batch and their arguments. fulltextAll is
+// the fetch.fulltext_all setting, which HeldSQL needs when the scope has a HoldCut. The ledger
+// statement is "" for a starred scope (starred items are never in the ledger).
+func markAllSQL(scope MarkScope, fulltextAll bool, maxID, now int64, limit int) (itemSQL string, itemArgs []any, ledgerSQL string, ledgerArgs []any, err error) {
 	if scope.FolderTreeID != 0 {
-		return 0, errors.New("store: MarkAllRead takes a label's FolderID, not the web app's FolderTreeID")
+		return "", nil, "", nil, errors.New("store: MarkAllReadBatched takes a label's FolderID, not the web app's FolderTreeID")
 	}
 	where, feedWhere := "", ""
-	args := []any{sql.Named("ts", maxID), sql.Named("now", now)}
+	args := []any{sql.Named("ts", maxID), sql.Named("now", now), sql.Named("batch", limit)}
 	switch {
 	case scope.FeedID != 0:
 		feedWhere = " AND feed_id = :feed"
@@ -336,27 +383,49 @@ func MarkAllRead(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now in
 	}
 	itemArgs, held := args, ""
 	if scope.HoldCut > 0 {
-		all, err := txFulltextAll(ctx, tx)
-		if err != nil {
-			return 0, err
-		}
-		held = " AND NOT " + HeldSQL(all)
+		held = " AND NOT " + HeldSQL(fulltextAll)
 		itemArgs = append(append([]any{}, args...), sql.Named("hold_cut", scope.HoldCut), sql.Named("pending", cmp.Or(scope.HoldPending, "[]")))
 	}
-	res, err := tx.ExecContext(ctx, "UPDATE items SET read = 1, read_at = :now, state_changed_at = :now WHERE read = 0 AND id <= :ts"+where+feedWhere+held, itemArgs...)
-	if err != nil {
-		return 0, err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
+	itemSQL = "UPDATE items SET read = 1, read_at = :now, state_changed_at = :now WHERE id IN (SELECT id FROM items WHERE read = 0 AND id <= :ts" + where + feedWhere + held + " LIMIT :batch)"
 	if !scope.Starred {
-		if _, err := tx.ExecContext(ctx, "UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :ts"+feedWhere, args...); err != nil {
-			return n, err
+		ledgerSQL = "UPDATE trimmed_items SET read = 1 WHERE id IN (SELECT id FROM trimmed_items WHERE read = 0 AND id <= :ts" + feedWhere + " LIMIT :batch)"
+	}
+	return itemSQL, itemArgs, ledgerSQL, args, nil
+}
+
+// markAllReadBatch marks at most limit unread items, and at most limit ledger rows (which ones is up to the planner).
+// more is true when either table may hold more.
+func markAllReadBatch(ctx context.Context, tx *sql.Tx, scope MarkScope, maxID, now int64, limit int) (n int64, more bool, err error) {
+	all := false
+	if scope.HoldCut > 0 {
+		if all, err = txFulltextAll(ctx, tx); err != nil {
+			return 0, false, err
 		}
 	}
-	return n, nil
+	itemSQL, itemArgs, ledgerSQL, ledgerArgs, err := markAllSQL(scope, all, maxID, now, limit)
+	if err != nil {
+		return 0, false, err
+	}
+	res, err := tx.ExecContext(ctx, itemSQL, itemArgs...)
+	if err != nil {
+		return 0, false, err
+	}
+	if n, err = res.RowsAffected(); err != nil {
+		return 0, false, err
+	}
+	more = n == int64(limit)
+	if ledgerSQL != "" {
+		res, err = tx.ExecContext(ctx, ledgerSQL, ledgerArgs...)
+		if err != nil {
+			return n, false, err
+		}
+		ln, err := res.RowsAffected()
+		if err != nil {
+			return n, false, err
+		}
+		more = more || ln == int64(limit)
+	}
+	return n, more, nil
 }
 
 // MaxCommittedID is the highest committed item or ledger id, read on the
