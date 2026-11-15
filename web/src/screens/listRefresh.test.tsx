@@ -274,3 +274,36 @@ describe("an empty list when feeds finish their first fetch", () => {
     expect(loads()).toBe(before);
   });
 });
+
+describe("an empty list and which arrivals it reloads for", () => {
+  const fetched = (feed: string) =>
+    act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: feed, outcome: "ok", new_items: 2, trigger: "new_feed" } }));
+
+  it("reloads for an arrival that landed while the first request was still pending", async () => {
+    let items: Items = [];
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const { loads } = open(() => items, "/l/unread", {
+      "GET /api/items": async () => {
+        await gate;
+        return json(pageOf(items, null, AS_OF));
+      },
+    });
+    await act(() => new Promise<void>((r) => setTimeout(r, 30)));
+    items = [card(1)];
+    fetched("1");
+    await act(() => new Promise<void>((r) => setTimeout(r, 1000)));
+    release();
+    await screen.findByText("Article number 1", undefined, { timeout: 3000 });
+    expect(loads()).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not reload for a feed that is not in the list's folder or feed", async () => {
+    const { loads } = open(() => [], "/l/unread?feed=2");
+    await settle();
+    const before = loads();
+    fetched("1");
+    await act(() => new Promise<void>((r) => setTimeout(r, 1200)));
+    expect(loads()).toBe(before);
+  });
+});
