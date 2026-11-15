@@ -639,7 +639,7 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
 | FTS5 | Search | `SCAN items_fts VIRTUAL TABLE INDEX 32:M3` then `SEARCH i USING INTEGER PRIMARY KEY (rowid=?)` |
 | `trimmed_items UNIQUE (feed_id, uid)` | Tombstone check at ingest (the second arm of that same `UNION ALL` query); ledger upsert | `SEARCH … COVERING INDEX sqlite_autoindex_trimmed_items_1` |
 | `idx_trimmed_seen (last_seen_at)` | Nightly purge `DELETE … WHERE last_seen_at < ?` | `SEARCH … COVERING INDEX idx_trimmed_seen` |
-| `idx_trimmed_trimmed (trimmed_at)` | Nightly stub purge `DELETE FROM trimmed_content WHERE id IN (SELECT c.id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id WHERE t.trimmed_at < ? LIMIT ?)` | range |
+| `idx_trimmed_trimmed (trimmed_at)` | Nightly stub purge `DELETE FROM trimmed_content WHERE id IN (SELECT c.id FROM trimmed_items t CROSS JOIN trimmed_content c ON c.id = t.id WHERE t.trimmed_at < ? ORDER BY t.trimmed_at DESC LIMIT ?)` | range |
 | `idx_feeds_due (next_fetch_at) WHERE enabled=1` | Scheduler tick selection | `SEARCH feeds USING COVERING INDEX idx_feeds_due (next_fetch_at<?)` |
 | `idx_feeds_folder (folder_id,position)` | Label streams; subscription/list ordering; folder view | `SEARCH feeds USING COVERING INDEX idx_feeds_folder (folder_id=?)` |
 | `idx_feeds_url_key` (unique), `idx_feeds_url_orig_key` | `FindFeedByURL`: `WHERE url_key = :k OR url_original_key = :k` | `MULTI-INDEX OR` |
