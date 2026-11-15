@@ -72,7 +72,7 @@ func TestStatus200ParsedAndHeaders(t *testing.T) {
 	res.Schedule(t0, func() float64 { return 0.5 })
 	want, d := NextOnSuccess(t0, PhaseKey(1, 0), 1800, 90*60)
 	require.Equal(t, want, res.NextFetchAt)
-	require.GreaterOrEqual(t, d, int64(90*60), "the RSS ttl is a floor")
+	require.GreaterOrEqual(t, d, int64(90*60-1800/2), "the RSS ttl is a floor, from the fetch's slot (at most half an interval before the fetch)")
 }
 
 func TestConditionalRequests(t *testing.T) {
@@ -130,7 +130,7 @@ func TestDocumentTTLOutlivesA304(t *testing.T) {
 	require.EqualValues(t, 90*60, res.TTLHintS, "the stored ttl is the hint on a 304")
 	require.EqualValues(t, 90*60, res.DocTTLS, "and stays stored")
 	res.Schedule(t0, nil)
-	require.GreaterOrEqual(t, res.CurrentDelayS, int64(90*60), "a 304 does not cut the ttl short")
+	require.GreaterOrEqual(t, res.CurrentDelayS, int64(90*60-1800/2), "a 304 does not cut the ttl short (from the fetch's slot, at most half an interval before the fetch)")
 
 	mode.Store(1)
 	first := doFetch(t, c, snapFor(srv.URL))

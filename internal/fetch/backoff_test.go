@@ -131,7 +131,9 @@ func TestSuccessVaryingHintKeepsGridAndFloor(t *testing.T) {
 			require.EqualValues(t, 7200-age, hint)
 			next, d := NextOnSuccess(at, key(id), interval, hint)
 			if hint > interval {
-				require.GreaterOrEqual(t, d, hint, "id %d fetch %d: never before a hint longer than the interval", id, k)
+				slot := at.Unix() - posMod(at.Unix()-slotPhase(key(id), interval), interval)
+				require.GreaterOrEqual(t, next.Unix(), slot+hint, "id %d fetch %d: never before a hint longer than the interval, from its slot", id, k)
+				require.Less(t, d, hint+interval, "id %d fetch %d", id, k)
 			} else {
 				require.GreaterOrEqual(t, d, int64(interval/2), "id %d fetch %d", id, k)
 			}
@@ -285,6 +287,34 @@ func TestSuccessHintEqualToTheIntervalIsNoFloor(t *testing.T) {
 	require.EqualValues(t, interval-60, d)
 	next, _ = NextOnSuccess(late, key(1), interval, interval+1)
 	require.Equal(t, slot.Add(2*interval*time.Second), next, "one second more is a floor")
+}
+
+// A hint longer than the interval is measured from the slot the fetch belonged to when the fetch was at most half an
+// interval late, and from the fetch itself when it was later.
+func TestSuccessHintIsMeasuredFromTheSlot(t *testing.T) {
+	const interval = 6 * 3600
+	slot, _ := NextOnSuccess(t0, key(1), interval, 0)
+	slot = slot.Add(-interval * time.Second) // a slot at or before t0
+	for _, tc := range []struct {
+		name string
+		late time.Duration
+		hint int64
+		want time.Duration // next fetch, from the slot
+	}{
+		{"on time", 0, 11 * 3600, 2 * interval * time.Second},
+		{"on time, hint on a slot", 0, 2 * interval, 2 * interval * time.Second},
+		{"a little late, hint just past a slot", time.Hour, 2*interval + 1, 3 * interval * time.Second},
+		{"half an interval late, hint between slots", interval / 2 * time.Second, 11 * 3600, 2 * interval * time.Second},
+		{"half an interval late, hint below the late fetch's slot", interval / 2 * time.Second, 13 * 3600, 3 * interval * time.Second},
+		{"later than half an interval", interval/2*time.Second + time.Second, 11 * 3600, 3 * interval * time.Second},
+		{"later than half an interval, hint from the fetch", 5 * time.Hour, 7 * 3600, 2 * interval * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			next, d := NextOnSuccess(slot.Add(tc.late), key(1), interval, tc.hint)
+			require.Equal(t, slot.Add(tc.want), next)
+			require.Equal(t, int64((tc.want - tc.late).Seconds()), d)
+		})
+	}
 }
 
 // An s-maxage of 0 is the shared-cache answer and wins over max-age; a negative Age counts as none, an unreadable

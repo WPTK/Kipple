@@ -931,7 +931,7 @@ func TestPullInScheduleRespectsPublisherTTL(t *testing.T) {
 	require.Less(t, next(noTTL), int64(1000+600+300))
 	require.Equal(t, due(shortTTL, 0), next(shortTTL), "a TTL shorter than the interval does not matter")
 	require.Equal(t, due(longTTL, 3600), next(longTTL), "held back to the publisher TTL")
-	require.GreaterOrEqual(t, next(longTTL), int64(1000+3600))
+	require.GreaterOrEqual(t, next(longTTL), int64(1000+3600-600/2), "never before the TTL from the feed's slot, at most half an interval before the last fetch")
 	require.EqualValues(t, 1000+7200, next(hugeTTL), "TTL capped at a day, and never postponed: 7200 already sooner")
 
 	// With the setting off the TTL is ignored.
