@@ -397,6 +397,12 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
     case "fulltext.ready":
       for (const id of ev.data.ids) void qc.invalidateQueries({ queryKey: keys.item(id) });
       break;
+    case "run.done":
+      // A refresh the reader asked for brings the lists up to date, whatever fetched the articles: a scheduled poll's
+      // arrivals raise no pill, so the list would otherwise stay as it was loaded. `ev.data.kind` covers a run the
+      // live state never knew (the server always sends it).
+      if ((runKind ?? ev.data.kind) === "manual") void qc.invalidateQueries({ queryKey: keys.itemsAll });
+      break;
     case "resync":
       // The server says it cannot replay what we missed: only then are the lists refetched. A run.done among the
       // missed events is found by asking for the active runs (the stream stays open, so no reconnect does it). When
@@ -483,13 +489,16 @@ export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
     old ? { ...old, counts: { ...old.counts, unread: st.unread_total, ...(typeof st.muted === "number" ? { muted: st.muted } : {}) } } : old,
   );
   if (ended.length) void qc.invalidateQueries({ queryKey: keys.bootstrap });
+  // The end of a manual refresh that came without its run.done: the lists come up to date here as they do on the event.
+  const finished = liveStore.get().finished;
+  if (ended.some((id) => finished[id]?.kind === "manual")) void qc.invalidateQueries({ queryKey: keys.itemsAll });
   return { ...st, runs: st.runs ?? [] };
 }
 
 /**
  * After a gap in the stream: reconcile runs and counts from the server instead of trusting events that
- * were never delivered. Lists are deliberately not refetched (a list is a snapshot; the "n new" pill and
- * the stale marker tell the user); only counts and the feed tree refresh.
+ * were never delivered. Lists are not refetched here (a list is a snapshot; the "n new" pill tells the user)
+ * unless a manual refresh ended in the gap; only counts and the feed tree refresh otherwise.
  */
 async function reconcile(qc: QueryClient): Promise<void> {
   await pollStatus(qc);

@@ -77,7 +77,7 @@ toast holds it; the header menu's Undo does
 the same. Rows leaving the Unread list collapse over
 180 ms and the first still-visible row stays put on screen (`src/lib/collapse.ts`).
 
-**Live updates.** The list is a snapshot (SSE never refetches it). New arrivals show an "n new articles" pill,
+**Live updates.** The list is a snapshot (SSE refetches it only when a manual refresh ends or on `resync`). New arrivals show an "n new articles" pill,
 counted only for feeds in the current list (a feed, a folder's feeds, or everything; never on Starred, Muted, search or
 an oldest-first list); the pill is always mounted and moves on transform and opacity only, so it never reflows the list.
 The app owns event-stream reconnection. It closes the `EventSource` on every error, so the browser's own retry (every

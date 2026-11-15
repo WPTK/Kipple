@@ -407,6 +407,36 @@ describe("cache reconciliation", () => {
     await vi.waitFor(() => expect(qc.getQueryState(keys.bootstrap)?.isInvalidated).toBe(true));
   });
 
+  it("the end of a manual refresh reloads the lists, whoever fetched the articles; other runs leave them alone", () => {
+    const qc = seeded();
+    const unreadStale = () => qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated;
+    for (const kind of ["import", "retention", "auto_read"]) {
+      handleServerEvent(qc, { type: "run.start", data: { run_id: kind, kind, total: 1 } });
+      handleServerEvent(qc, { type: "run.done", data: { run_id: kind, new_items: 0, errors: 0 } });
+    }
+    expect(unreadStale()).toBe(false);
+    handleServerEvent(qc, { type: "run.start", data: { run_id: "9", kind: "manual", total: 1 } });
+    handleServerEvent(qc, { type: "run.done", data: { run_id: "9", new_items: 0, errors: 0 } });
+    expect(unreadStale()).toBe(true);
+  });
+
+  it("a manual run seen only in run.done (its start missed) reloads the lists by the kind it carries", () => {
+    const qc = seeded();
+    handleServerEvent(qc, { type: "run.done", data: { run_id: "12", kind: "manual", new_items: 0, errors: 0 } });
+    expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(true);
+  });
+
+  it("a status answer that ends a manual run reloads the lists; one that ends an import does not", async () => {
+    mockFetch({ "GET /api/status": () => json({ runs: [], event_id: "50", inflight: 0, unread_total: 0 }) });
+    const qc = seeded();
+    liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "7", kind: "import", total: 5 } }));
+    await pollStatus(qc);
+    expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(false);
+    liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "8", kind: "manual", total: 5 } }));
+    await pollStatus(qc);
+    expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(true);
+  });
+
   it("folder.changed refetches the bootstrap and saved searches, not the item lists", () => {
     const qc = seeded();
     qc.setQueryData(savedSearchesKey, []);
