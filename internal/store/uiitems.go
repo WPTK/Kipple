@@ -113,12 +113,13 @@ type CardQuery struct {
 	// Oldest lists ascending (sort_at ASC, id ASC) instead of newest first.
 	Oldest bool
 	// MinMinutes and MaxMinutes (0 = unset) keep items whose reading time
-	// (ceil(words/230)) is at least/at most that many minutes; items with no
-	// extracted text (word_count 0) never match either filter.
+	// (ceil(words/230)) is at least/at most that many minutes. The words are those of the text shown: the
+	// extraction's while full text is in effect for the item, else the feed's own text (also when the extraction
+	// failed). An item whose shown word count is zero never matches either filter.
 	MinMinutes int
 	MaxMinutes int
-	// UnknownLength keeps only items with no extracted text (word_count 0), which no minutes range matches.
-	// It never combines with MinMinutes or MaxMinutes.
+	// UnknownLength keeps only items whose shown word count (counted as for MinMinutes) is zero, which no
+	// minutes range matches. It never combines with MinMinutes or MaxMinutes.
 	UnknownLength bool
 	// AfterID (0 = unset) keeps items with an id above it: what arrived after that item (the New page).
 	AfterID int64
@@ -226,10 +227,20 @@ func ParseCursor(s string) (Cursor, error) {
 	return Cursor{SortAt: sortAt, ID: id, Asc: asc, Fallback: fb}, nil
 }
 
-var cardCols = `i.id, i.feed_id, i.title, i.url, i.author, substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url,
-	i.published_at, i.sort_at, i.read, i.starred, i.word_count,
+// readWordsSQL is the word count of the text the reader shows for an item (prefix "i." or "items."): the
+// stored extraction's while the item's effective full-text mode is 1 and an extraction succeeded (the test
+// GetItem uses to pick content_html), else the feed's own. all is fetch.fulltext_all (see FulltextModeSQL).
+func readWordsSQL(prefix string, all bool) string {
+	mode := FulltextModeSQL(prefix+"fulltext_mode", "(SELECT fulltext FROM feeds WHERE id = "+prefix+"feed_id)", all)
+	return "COALESCE((SELECT ft.word_count FROM item_fulltext ft WHERE ft.item_id = " + prefix + "id AND ft.content_html IS NOT NULL AND " + mode + " = 1), " + prefix + "word_count)"
+}
+
+func cardCols(all bool) string {
+	return `i.id, i.feed_id, i.title, i.url, i.author, substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url,
+	i.published_at, i.sort_at, i.read, i.starred, ` + readWordsSQL("i.", all) + `,
 	i.origin_title, (SELECT ` + feedTitleSQL("feeds") + ` FROM feeds WHERE id = i.feed_id),
 	i.muted_by, (SELECT name FROM filters WHERE id = i.muted_by)`
+}
 
 func scanCard(rows interface{ Scan(...any) error }) (Card, error) {
 	var c Card
@@ -274,7 +285,7 @@ func (d *DB) ListCardsFB(ctx context.Context, q CardQuery) ([]Card, *Cursor, boo
 }
 
 func (d *DB) listCardsPlain(ctx context.Context, q CardQuery) ([]Card, *Cursor, error) {
-	sqlText, args, limit, err := listCardsSQL(q)
+	sqlText, args, limit, err := listCardsSQL(q, d.FulltextAll(ctx))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -318,7 +329,7 @@ func listHidesDeleting(view string) []string {
 }
 
 // listCardsSQL builds the non-search card query and returns the page limit.
-func listCardsSQL(q CardQuery) (string, []any, int, error) {
+func listCardsSQL(q CardQuery, all bool) (string, []any, int, error) {
 	var where []string
 	var args []any
 	limit := q.Limit
@@ -354,7 +365,7 @@ func listCardsSQL(q CardQuery) (string, []any, int, error) {
 			where = append(where, inFolderTreeSQL("i.feed_id", "?"))
 			args = append(args, q.FolderID)
 		}
-		if w, a := ReadingWhere("i.word_count", q.MinMinutes, q.MaxMinutes, q.UnknownLength); w != "" {
+		if w, a := ReadingWhere(readWordsSQL("i.", all), q.MinMinutes, q.MaxMinutes, q.UnknownLength); w != "" {
 			where = append(where, w)
 			args = append(args, a...)
 		}
@@ -374,14 +385,14 @@ func listCardsSQL(q CardQuery) (string, []any, int, error) {
 	order := " ORDER BY " + dateOrder("i.", q.Oldest && len(q.IDs) == 0)
 	args = append(args, limit+1)
 	if len(q.IDs) > 0 {
-		return "SELECT " + cardCols + " FROM items i LEFT JOIN item_content c ON c.item_id = i.id" + cond + order + " LIMIT ?", args, limit, nil
+		return "SELECT " + cardCols(all) + " FROM items i LEFT JOIN item_content c ON c.item_id = i.id" + cond + order + " LIMIT ?", args, limit, nil
 	}
 	// A page is a deferred join: the subquery walks the view's index over the narrow items rows
 	// alone and picks the page's ids, then only those rows are joined to item_content and the
 	// card columns. Joined in one query, a folder view walks each of its feeds and sorts the whole
 	// view, building every row's card (item_content snippet, feed title) before the sort keeps a
 	// page of them. The outer sort orders at most limit+1 rows.
-	return "SELECT " + cardCols + " FROM items i LEFT JOIN item_content c ON c.item_id = i.id WHERE i.id IN (" +
+	return "SELECT " + cardCols(all) + " FROM items i LEFT JOIN item_content c ON c.item_id = i.id WHERE i.id IN (" +
 		pageIDsSQL(cond, order) + ")" + order, args, limit, nil
 }
 
@@ -427,9 +438,10 @@ func (d *DB) GetItem(ctx context.Context, id, now int64) (det ItemDetail, ok boo
 	var mode sql.NullInt64
 	var ftEff int
 	var ftRow sql.NullInt64
-	err = d.reader.QueryRowContext(ctx, `SELECT `+cardCols+`, COALESCE(c.content_html, ''), c.enclosures_json,
+	all := d.FulltextAll(ctx)
+	err = d.reader.QueryRowContext(ctx, `SELECT `+cardCols(all)+`, COALESCE(c.content_html, ''), c.enclosures_json,
 			f.id, `+feedTitleSQL("f")+`, f.site_url,
-			i.fulltext_mode, `+FulltextModeSQL("i.fulltext_mode", "f.fulltext", d.FulltextAll(ctx))+`, ft.item_id, ft.content_html, ft.error
+			i.fulltext_mode, `+FulltextModeSQL("i.fulltext_mode", "f.fulltext", all)+`, ft.item_id, ft.content_html, ft.error
 		FROM items i LEFT JOIN item_content c ON c.item_id = i.id JOIN feeds f ON f.id = i.feed_id
 		LEFT JOIN item_fulltext ft ON ft.item_id = i.id WHERE i.id = ?`, id).
 		Scan(&det.ID, &det.FeedID, &det.Title, &det.URL, &det.Author, &text, &img, &det.PublishedAt, &det.SortAt, &read, &starred, &det.WordCount, &origin, &feedTitle, &mutedBy, &mutedName,
@@ -556,7 +568,7 @@ type MarkFilter struct {
 	Fallback   *bool
 	MinMinutes int
 	MaxMinutes int
-	// UnknownLength keeps only items with no extracted text (see CardQuery).
+	// UnknownLength keeps only items whose shown word count is zero (see CardQuery).
 	UnknownLength bool
 	Bound         *Bound
 	// AfterID (0 = unset) leaves out items with an id at or below it: the New page marks only what arrived after its mark.
@@ -576,14 +588,18 @@ func MarkScopeRead(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilte
 	if scope.FolderID != 0 {
 		return StateResult{}, errors.New("store: MarkScopeRead takes the web app's FolderTreeID, not a label's FolderID")
 	}
-	match, ok, err := markMatch(ctx, tx, scope, f)
+	all, err := txFulltextAll(ctx, tx)
+	if err != nil {
+		return StateResult{}, err
+	}
+	match, ok, err := markMatch(ctx, tx, scope, f, all)
 	if err != nil {
 		return StateResult{}, err
 	}
 	if !ok {
 		return StateResult{}, nil // a search with no usable terms matches nothing
 	}
-	sel, args, feedWhere, base := markSelectSQL(scope, f, maxID, match, false)
+	sel, args, feedWhere, base := markSelectSQL(scope, f, maxID, match, false, all)
 	rows, err := tx.QueryContext(ctx, sel, args...)
 	if err != nil {
 		return StateResult{}, err
@@ -613,7 +629,7 @@ func MarkScopeRead(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilte
 //
 // probe builds the fallback probe instead: the same scope, muted and reading filters and, for an
 // unread list, the read = 0 test, but no id bound and no anchor, so it sees what the list saw.
-func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64, match string, probe bool) (sel string, args []any, feedWhere string, base []any) {
+func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64, match string, probe, all bool) (sel string, args []any, feedWhere string, base []any) {
 	where := ""
 	args = []any{sql.Named("max", maxID)}
 	if scope.Starred {
@@ -638,7 +654,7 @@ func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64, match string, pro
 		extra += " AND id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH :match)"
 		args = append(args, sql.Named("match", match))
 	}
-	if w, a := ReadingWhere("word_count", f.MinMinutes, f.MaxMinutes, f.UnknownLength); w != "" {
+	if w, a := ReadingWhere(readWordsSQL("items.", all), f.MinMinutes, f.MaxMinutes, f.UnknownLength); w != "" {
 		for i, v := range a {
 			w = strings.Replace(w, "?", fmt.Sprintf(":wc%d", i), 1)
 			args = append(args, sql.Named(fmt.Sprintf("wc%d", i), v))
@@ -669,7 +685,7 @@ func markSelectSQL(scope MarkScope, f MarkFilter, maxID int64, match string, pro
 // markMatch is the MATCH expression a search scope marks by, chosen exactly as the list behind it
 // chose: the exact expression, or the partial-match one when nothing in scope matches exactly.
 // match is "" (with ok true) when there is no search text.
-func markMatch(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilter) (match string, ok bool, err error) {
+func markMatch(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilter, all bool) (match string, ok bool, err error) {
 	if f.Query == "" {
 		return "", true, nil
 	}
@@ -688,7 +704,7 @@ func markMatch(ctx context.Context, tx *sql.Tx, scope MarkScope, f MarkFilter) (
 		}
 		return match, true, nil
 	}
-	sel, args, _, _ := markSelectSQL(scope, f, 0, match, true)
+	sel, args, _, _ := markSelectSQL(scope, f, 0, match, true, all)
 	var one int
 	switch err := tx.QueryRowContext(ctx, sel, args...).Scan(&one); {
 	case errors.Is(err, sql.ErrNoRows):
