@@ -222,8 +222,8 @@ func (v *Verifier) VerifyBusy(ctx context.Context, kind, pw, phc string) (ok, bu
 }
 
 // Remembered reports whether pw matches the remembered success for kind and
-// phc, without hashing (a cheap check made before any rate budget is spent, so
-// a client already signed in keeps working while its address is over budget).
+// phc, without hashing. A caller that paces attempts checks it only for an
+// attempt it has admitted, so the comparison is never a free guess.
 func (v *Verifier) Remembered(kind, pw, phc string) bool {
 	if pw == "" || phc == "" {
 		return false
