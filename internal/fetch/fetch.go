@@ -337,6 +337,9 @@ func (c *Client) Fetch(ctx context.Context, snap Snapshot, now time.Time) *Resul
 	}
 
 	dec := decodeBody(body, httpCharset)
+	if int64(len(dec.Body)) > maxDecodedBytes(limit) {
+		return res.fail(ClassTooLarge, tooLargeMessage(limit))
+	}
 	res.BodyHash = dec.BodyHash
 	if !snap.Full && snap.BodyHash != "" && dec.BodyHash == snap.BodyHash {
 		res.Outcome = OutcomeUnchanged

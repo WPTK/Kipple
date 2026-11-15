@@ -110,8 +110,12 @@ func Find(ctx context.Context, rt http.RoundTripper, userAgent, retryUA, raw str
 
 	html := fetch.LooksHTML(body)
 	if !html {
-		if _, perr := fetch.ParseFeed(body, fetch.ParseOptions{FeedURL: final, HTTPCharset: charsetOf(ct), Strict: true}); perr == nil {
+		_, perr := fetch.ParseFeed(body, fetch.ParseOptions{FeedURL: final, HTTPCharset: charsetOf(ct), Strict: true})
+		if perr == nil {
 			return Result{IsFeed: true, Final: final, Candidates: []Candidate{{URL: raw, Type: kindOf(ct, body)}}}, nil
+		}
+		if errors.Is(perr, fetch.ErrDecodedTooLarge) {
+			return Result{}, ErrTooLarge
 		}
 	}
 	cands := candidates(body, final, raw, allowPrivate)
