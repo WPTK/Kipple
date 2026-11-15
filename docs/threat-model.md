@@ -53,7 +53,8 @@ the owner's password or a shell on the host; denial of service by someone who ca
 
 - **No absolute session lifetime.** A session slides 90 days on use and never expires while it is used at least that
   often. A stolen cookie is valid until sign-out or a password change.
-- **Cookie is not `__Host-` prefixed**, because Secure must stay conditional so plain-HTTP LAN use works.
+- **Over plain http the session cookie has no `__Host-` prefix and no `Secure` flag** (`kipple_session`): a browser
+  refuses both there, and plain-HTTP LAN use has to work. Over https it is `__Host-kipple_session`.
 - **`style-src 'unsafe-inline'`** in the page CSP (component library inline styles). Scripts stay `'self'` only.
 - **Open mode** means anything that reaches the port is signed in. It is limited to loopback, tailnet and private
   addresses by the open gate, but the LAN is trusted when you choose it. A LAN name you list (`nas.local`) can be
