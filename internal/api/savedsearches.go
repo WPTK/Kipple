@@ -46,9 +46,11 @@ type savedSearchView struct {
 }
 
 // countSavedSearch counts the unread articles a saved search finds with store.CountSearch: the match
-// expression and scope of the card search GET /api/items uses (so it can never disagree with the
-// list the user opens), without building the cards, and stopping past savedSearchCap. A search that
-// found nothing exact (the prefix/OR fallback) counts 0.
+// expression and scope of the card search GET /api/items uses (so the badge counts the same matches
+// as the list the user opens), without building the cards, and stopping past savedSearchCap. The
+// card search's refusal of a search with more than searchScanLimit matches is not applied here: such
+// a search still gets a badge, while opening it returns the refusal. A search that found nothing
+// exact (the prefix/OR fallback) counts 0.
 func (s *Server) countSavedSearch(ctx context.Context, ss store.SavedSearch) (n int, capped, ok bool) {
 	ctx, cancel := savedSearchCountCtx(ctx, savedSearchBudget)
 	defer cancel()

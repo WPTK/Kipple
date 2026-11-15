@@ -86,6 +86,31 @@ func TestCountSearchMatchesThePagedList(t *testing.T) {
 	require.Equal(t, 7, n)
 }
 
+// The card search refuses a search with more matches than searchScanLimit; the count does not apply that
+// refusal: it answers the number (or "over the limit") for the same search the list refuses.
+func TestCountSearchIsNotRefusedAsTooBroad(t *testing.T) {
+	e := newEnv(t)
+	var items []sitem
+	for i := range 12 {
+		items = append(items, sitem{fmt.Sprintf("Apple %d", i), "Ann", "apple pie"})
+	}
+	seedSearch(t, e, items...)
+	old := searchScanLimit
+	t.Cleanup(func() { searchScanLimit = old })
+	searchScanLimit = 5
+
+	q := CardQuery{View: "unread", Query: "apple ", Limit: 3}
+	_, _, _, err := e.db.ListCardsFB(e.ctx, q)
+	require.ErrorIs(t, err, ErrSearchTooBroad, "opening the search is refused")
+
+	n, err := e.db.CountSearch(e.ctx, q, false, 999)
+	require.NoError(t, err)
+	require.Equal(t, 12, n, "the badge still counts it")
+	n, err = e.db.CountSearch(e.ctx, q, false, 9)
+	require.NoError(t, err)
+	require.Equal(t, 10, n, "and reports 'over the cap' past the cap")
+}
+
 // The count is one bounded statement over the FTS match joined to items by rowid: it reads no card text,
 // builds no snippet, does not sort, and a count past the limit stops one row over it.
 func TestCountSearchPlan(t *testing.T) {

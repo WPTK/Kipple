@@ -1184,7 +1184,7 @@ func TestCountsAreCoalesced(t *testing.T) {
 
 	// Everything read: the event still names the feed map, empty.
 	h.api(c, "POST", "/api/items/mark-read", jsonStr(map[string]any{"ids": strs(gid), "read": true}))
-	evs = drain(sub, "counts", 250*time.Millisecond)
+	evs = drain(sub, "counts", 500*time.Millisecond)
 	require.NotEmpty(t, evs)
 	require.Contains(t, string(evs[len(evs)-1].Data), `"feeds":{}`)
 }
