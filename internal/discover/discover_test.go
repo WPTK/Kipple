@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -54,6 +55,17 @@ func TestHTMLPageStillListsCandidatesWhateverItsContentType(t *testing.T) {
 }
 
 // Each way an address fails to be a feed has its own error, so the add dialog can say which.
+// A find with no transport is refused: it would otherwise go through the default one, which has no
+// address guard.
+func TestFindWithoutATransportIsRefused(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	t.Cleanup(srv.Close)
+	_, err := Find(context.Background(), nil, "ua", "", srv.URL, false)
+	require.ErrorContains(t, err, "no transport")
+	require.Zero(t, hits.Load())
+}
+
 func TestNotAFeedErrors(t *testing.T) {
 	_, err := find(t, "text/html", `<!doctype html><html><head><title>x</title></head><body>no feed</body></html>`)
 	require.ErrorIs(t, err, ErrNoFeed)
