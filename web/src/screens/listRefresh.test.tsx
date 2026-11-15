@@ -5,7 +5,7 @@ import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { handleServerEvent, initialLive, liveStore } from "@/api/events";
 import type { QueryClient } from "@tanstack/react-query";
-import { keys } from "@/api/queries";
+import { keys, scopeKey } from "@/api/queries";
 import { rowMenuStore } from "@/gestures/rowMenu";
 import { resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
@@ -315,7 +315,7 @@ describe("an empty list and which arrivals it reloads for", () => {
 describe("handled arrivals are kept for each list", () => {
   it("another list's handled arrivals do not hide a first arrival from an empty list", async () => {
     // Another list (all of Starred) has already taken in five arrivals; this feed's list is empty and has seen none.
-    liveStore.set((s) => ({ ...s, arrivalsHandled: { [JSON.stringify({ view: "starred" })]: 5 } }));
+    liveStore.set((s) => ({ ...s, arrivalsHandled: { [scopeKey({ view: "starred" })]: 5 } }));
     let items: Items = [];
     const { loads } = open(() => items, "/l/unread?feed=1");
     await settle();
