@@ -71,9 +71,14 @@ type Result struct {
 	FeedsRepeated     int          `json:"feeds_repeated"`
 	FeedsExisting     []Existing   `json:"feeds_existing"`
 	FoldersMergedCase []MergedCase `json:"folders_merged_case"`
-	// FoldersRefused are folders not created (too deep, a name the folder writer refuses); their
-	// feeds went into the deepest ancestor that was kept, or Uncategorized.
+	// FoldersMergedCaseMore counts the merged spellings FoldersMergedCase does not list (it holds at most
+	// maxReportedFolders).
+	FoldersMergedCaseMore int `json:"folders_merged_case_more"`
+	// FoldersRefused are folders not created (too deep, a name that is refused); their feeds went into
+	// the deepest ancestor that was kept, or Uncategorized. At most maxReportedFolders are listed.
 	FoldersRefused []RefusedFolder `json:"folders_refused"`
+	// FoldersRefusedMore counts the refused folders FoldersRefused does not list.
+	FoldersRefusedMore int `json:"folders_refused_more"`
 	// FoldersMergedPath are folders of the file filed into an existing folder with the same full
 	// path but other levels (full paths are unique), each side as its chain of names.
 	FoldersMergedPath []MergedPath `json:"folders_merged_path"`
@@ -107,18 +112,21 @@ type Result struct {
 // that own a scheduler may additionally start an import run over NewFeedIDs.
 func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Result, error) {
 	res := Result{
-		FeedsExisting:      []Existing{},
-		FoldersMergedCase:  append([]MergedCase{}, doc.FoldersMergedCase...),
-		FoldersRefused:     append([]RefusedFolder{}, doc.FoldersRefused...),
-		FoldersMergedPath:  []MergedPath{},
-		FeedsMoved:         []Existing{},
-		FoldersEmptied:     []string{},
-		MembershipsDropped: []Dropped{},
-		Skipped:            []Skipped{},
-		InvalidAttrs:       []string{},
-		IgnoredAttrs:       []string{},
-		FeedsPrivate:       []Private{},
-		NewFeedIDs:         []int64{},
+		FeedsExisting:     []Existing{},
+		FoldersMergedCase: append([]MergedCase{}, doc.FoldersMergedCase...),
+		FoldersRefused:    append([]RefusedFolder{}, doc.FoldersRefused...),
+
+		FoldersMergedCaseMore: doc.FoldersMergedCaseMore,
+		FoldersRefusedMore:    doc.FoldersRefusedMore,
+		FoldersMergedPath:     []MergedPath{},
+		FeedsMoved:            []Existing{},
+		FoldersEmptied:        []string{},
+		MembershipsDropped:    []Dropped{},
+		Skipped:               []Skipped{},
+		InvalidAttrs:          []string{},
+		IgnoredAttrs:          []string{},
+		FeedsPrivate:          []Private{},
+		NewFeedIDs:            []int64{},
 	}
 	now := db.Clock().Now().Unix()
 	var readBefore any
@@ -189,7 +197,11 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 					return 0, err
 				}
 				if !at(chain[:len(chain)-1]).refused {
-					res.FoldersRefused = append(res.FoldersRefused, RefusedFolder{shortPath(chain), refusal(werr), chain})
+					if len(res.FoldersRefused) < maxReportedFolders {
+						res.FoldersRefused = append(res.FoldersRefused, RefusedFolder{shortPath(chain), refusal(werr), chain})
+					} else {
+						res.FoldersRefusedMore++
+					}
 				}
 				n.id, n.refused, n.done = parent, true, true
 				return parent, nil
@@ -389,6 +401,8 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 var (
 	maxDroppedPaths = 20
 	maxDroppedFeeds = 1000
+	// maxReportedFolders bounds each of folders_refused and folders_merged_case; the *_more counts hold the rest.
+	maxReportedFolders = 1000
 )
 
 // shortPath is a folder path as a report lists it, cut like an address.

@@ -56,13 +56,17 @@ type Doc struct {
 	// folder (first spelling kept); the same name under different parents is a different folder.
 	Folders [][]string
 	Feeds   []Feed // document order
-	// FoldersMergedCase lists case-variant spellings merged into an earlier sibling, by path.
-	FoldersMergedCase []MergedCase
-	// FoldersRefused lists the folders that were not kept, by path (cut when long), with the reason.
-	// Parse reports outlines nested deeper than store.MaxFolderDepth and names the store refuses;
-	// Import adds the folders the folder writer refuses. What a refused folder holds goes into its
-	// deepest kept ancestor.
-	FoldersRefused []RefusedFolder
+	// FoldersMergedCase lists case-variant spellings merged into an earlier sibling, by path, at most
+	// maxReportedFolders of them; FoldersMergedCaseMore counts the rest.
+	FoldersMergedCase     []MergedCase
+	FoldersMergedCaseMore int
+	// FoldersRefused lists the folders that were not kept, by path (cut when long), with the reason,
+	// at most maxReportedFolders of them; FoldersRefusedMore counts the rest. Parse reports outlines
+	// nested deeper than store.MaxFolderDepth and names the store refuses (without their chain: a
+	// cut feed already carries its kept ancestor); Import adds the folders the folder writer refuses.
+	// What a refused folder holds goes into its deepest kept ancestor.
+	FoldersRefused     []RefusedFolder
+	FoldersRefusedMore int
 }
 
 // MergedCase records a folder merged into a sibling whose name differs only by case.
@@ -397,7 +401,11 @@ func parse(r io.Reader) (*Doc, error) {
 						parent.refused = map[string]bool{}
 					}
 					parent.refused[key] = true
-					doc.FoldersRefused = append(doc.FoldersRefused, RefusedFolder{shortPath(chain), refusal(why), chain})
+					if len(doc.FoldersRefused) < maxReportedFolders {
+						doc.FoldersRefused = append(doc.FoldersRefused, RefusedFolder{Path: shortPath(chain), Reason: refusal(why)})
+					} else {
+						doc.FoldersRefusedMore++
+					}
 				}
 				walk(o.Children, parent, true)
 				continue
@@ -409,7 +417,11 @@ func parse(r io.Reader) (*Doc, error) {
 				doc.Folders = append(doc.Folders, chain)
 			} else if s := (spelling{n, name}); n.chain[len(n.chain)-1] != name && !merged[s] {
 				merged[s] = true
-				doc.FoldersMergedCase = append(doc.FoldersMergedCase, MergedCase{shortPath(n.chain), shortPath(chain)})
+				if len(doc.FoldersMergedCase) < maxReportedFolders {
+					doc.FoldersMergedCase = append(doc.FoldersMergedCase, MergedCase{shortPath(n.chain), shortPath(chain)})
+				} else {
+					doc.FoldersMergedCaseMore++
+				}
 			}
 			walk(o.Children, n, false)
 		}

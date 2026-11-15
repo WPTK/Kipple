@@ -240,7 +240,9 @@ func FuzzImportExport(f *testing.F) {
 
 		refused := map[string]bool{}
 		for _, r := range res.FoldersRefused {
-			refused[chainKey(r.chain)] = true
+			if r.chain != nil { // Parse's refusals have none: a feed below one carries its kept ancestor and cut
+				refused[chainKey(r.chain)] = true
+			}
 		}
 		// kept is the file's folder cut at the first level that was not kept, and whether it was cut.
 		kept := func(fd Feed) ([]string, bool) {

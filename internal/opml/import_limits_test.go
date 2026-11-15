@@ -9,6 +9,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// The import report lists at most maxReportedFolders refused folders and counts the rest.
+func TestImportReportCountsRefusedFoldersBeyondTheList(t *testing.T) {
+	db := openDB(t)
+	var b strings.Builder
+	b.WriteString(`<opml><body><outline text="a"><outline xmlUrl="https://a.test/f"/>`)
+	for i := range maxReportedFolders + 50 {
+		b.WriteString(`<outline text="x` + strconv.Itoa(i) + `&#127;"/>`)
+	}
+	b.WriteString(`</outline></body></opml>`)
+	r := importString(t, db, b.String(), ImportOptions{})
+	require.Len(t, r.FoldersRefused, maxReportedFolders)
+	require.Equal(t, 50, r.FoldersRefusedMore)
+}
+
 // Import keeps what it knows of a chain once per level, not once per folder: thousands of folders under
 // a refused name cost no more than their own names, however long the name is.
 func TestImportFoldersUnderRefusedChainCostOncePerLevel(t *testing.T) {
