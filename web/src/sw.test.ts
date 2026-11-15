@@ -230,6 +230,72 @@ describe("navigation", () => {
     }
   });
 
+  describe("the stored shell follows the page policy", () => {
+    const POLICY_OLD = "default-src 'self'; img-src 'self' data: blob: https:";
+    const POLICY_NEW = "default-src 'self'; img-src 'self' data: blob:";
+    const page = (etag: string | null, policy: string, body = "index") => {
+      const headers: Record<string, string> = { "Content-Security-Policy": policy };
+      if (etag) headers.ETag = etag;
+      return new Response(body, { headers });
+    };
+    const KEY = "kipple-shell-0000000000001-aaaa";
+    const stored = async (w: ReturnType<typeof setup>) => {
+      const hit = await w.stores.get(KEY)!.match("/");
+      return { csp: hit!.headers.get("Content-Security-Policy"), body: await hit!.text() };
+    };
+    const setUp = async () => {
+      const w = setup(["/"]);
+      w.stores.set(KEY, fakeCache());
+      await w.stores.get(KEY)!.put("/", page('"h1.http_only"', POLICY_OLD, "stored index"));
+      return w;
+    };
+    const offline = () => {
+      throw new TypeError("offline");
+    };
+
+    it("replaces the stored shell when the same page comes back under another image mode", async () => {
+      const w = await setUp();
+      // The server weakens the tag when it compresses the answer.
+      w.setNetwork(() => page('W/"h1.all"', POLICY_NEW, "live index"));
+      expect(await (await w.fetch("/l/unread", { mode: "navigate" }))!.text()).toBe("live index");
+      w.setNetwork(offline);
+      expect(await (await w.fetch("/l/unread", { mode: "navigate" }))!.text()).toBe("live index");
+      expect(await stored(w)).toEqual({ csp: POLICY_NEW, body: "live index" });
+    });
+
+    it("does the same when the answer lands after the worker gave up waiting", async () => {
+      vi.useFakeTimers();
+      try {
+        const w = await setUp();
+        w.setNetwork(() => new Promise<Response>((resolve) => setTimeout(() => resolve(page('"h1.all"', POLICY_NEW, "slow index")), 8000)));
+        const pending = w.fetch("/l/unread", { mode: "navigate" });
+        await vi.advanceTimersByTimeAsync(9000);
+        expect(await (await pending)!.text()).toBe("stored index"); // this launch gets the shell
+        expect(await stored(w)).toEqual({ csp: POLICY_NEW, body: "slow index" }); // the next one gets the new policy
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("leaves the shell alone for an answer that is not this build's page under another mode", async () => {
+      const w = await setUp();
+      const unchanged = { csp: POLICY_OLD, body: "stored index" };
+      for (const res of [
+        page('"h2.all"', POLICY_NEW, "another build"), // a different index.html
+        page(null, POLICY_NEW, "a login page"), // no ETag
+        page('"plain"', POLICY_NEW, "a proxy's page"), // an ETag in no known form
+        page('"h1.http_only"', POLICY_OLD, "same mode"), // nothing to bring up to date
+      ]) {
+        w.setNetwork(() => res.clone());
+        await w.fetch("/l/unread", { mode: "navigate" });
+        expect(await stored(w)).toEqual(unchanged);
+      }
+      w.setNetwork(() => new Response("gone", { status: 404, headers: { ETag: '"h1.all"' } }));
+      await w.fetch("/l/unread", { mode: "navigate" });
+      expect(await stored(w)).toEqual(unchanged);
+    });
+  });
+
   it("does not answer navigations to the API or images with the app", async () => {
     const w = setup();
     expect(await w.fetch("/img/x", { mode: "navigate" })).toBeUndefined();
@@ -448,6 +514,30 @@ describe("images and assets", () => {
     await w.fetch("/api/feeds/3/icon");
     await w.fetch("/api/feeds/3/icon");
     expect(hits).toBe(2);
+  });
+
+  it("an answer the server marks no-cache or no-store reaches the page but is not kept", async () => {
+    const w = setup();
+    let hits = 0;
+    let cc = "no-cache";
+    w.setNetwork(() => {
+      hits++;
+      return new Response("original", { headers: { "Cache-Control": cc } });
+    });
+    // The proxy sends the original at a thumbnail address like this while the thumbnail is being made.
+    expect(await (await w.fetch("/img/thumb"))!.text()).toBe("original");
+    expect(await (await w.fetch("/img/thumb"))!.text()).toBe("original");
+    expect(hits).toBe(2); // the second request went to the network
+    cc = "private, no-store";
+    await w.fetch("/img/other");
+    await w.fetch("/img/other");
+    expect(hits).toBe(4);
+
+    // The real thumbnail, sent with a long lifetime, is kept as before.
+    cc = "private, max-age=2592000, immutable";
+    await w.fetch("/img/thumb");
+    await w.fetch("/img/thumb");
+    expect(hits).toBe(5);
   });
 
   it("assets come from any shell cache first, and are kept once fetched", async () => {

@@ -107,7 +107,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   const p = url.pathname;
   if (req.mode === "navigate") {
-    if (isAppPath(p)) event.respondWith(navigation(req));
+    if (isAppPath(p)) event.respondWith(navigation(event, req));
     return;
   }
   if (p.startsWith("/assets/")) {
@@ -154,7 +154,30 @@ async function shellIndex() {
 // Must match SIGN_IN_RELOAD in src/lib/reload.ts.
 const SIGN_IN_RELOAD = "kipple-signin";
 
-async function navigation(req) {
+// The page's ETag is the hash of index.html, a dot, and the image mode its policy was written for (internal/web
+// pageETag). The server makes it weak (W/) when it compresses the answer and leaves it strong when it does not,
+// so the prefix is no part of the comparison. null for any other tag (a proxy's login page, a tag a proxy rewrote).
+function pageTag(res) {
+  const tag = (res.headers.get("ETag") || "").replace(/^W\//, "");
+  const i = tag.lastIndexOf(".");
+  return i > 0 ? { file: tag.slice(0, i), mode: tag.slice(i + 1) } : null;
+}
+
+// The stored shell carries the Content-Security-Policy it was fetched with, and the page policy follows the
+// image mode. When the server answers a navigation with this build's index.html under another mode, the stored
+// copy is replaced by that answer, so a launch from the shell runs under the policy the server sends now.
+// Any other page (another build's index, a proxy's login page) leaves the shell alone.
+async function keepShellPolicy(res) {
+  const cache = await caches.open(SHELL);
+  const held = await cache.match("/");
+  const was = held && pageTag(held);
+  const now = pageTag(res);
+  if (was && now && was.file === now.file && was.mode !== now.mode) await cache.put("/", res);
+  // Not awaited: a branch of a cloned body settles its cancel only once the page has also read or dropped its own.
+  else if (res.body) res.body.cancel().catch(() => {});
+}
+
+async function navigation(event, req) {
   // "Reload to sign in again": the stored shell would only load the app into the expired sign-in again, so this
   // navigation waits for the network however slow it is (and so reaches the access proxy's login page). Only a
   // network that is really down still gets the shell.
@@ -165,13 +188,18 @@ async function navigation(req) {
       return (await shellIndex()) || Response.error();
     }
   }
+  const network = fetch(req);
+  let res;
   try {
-    const res = await withTimeout(fetch(req), NET_WAIT_MS);
-    if (res.status < 500) return res;
-    return (await shellIndex()) || res;
+    res = await withTimeout(network, NET_WAIT_MS);
   } catch {
+    // Slow rather than down: an answer that still lands brings the stored shell's policy up to date for next time.
+    event.waitUntil(network.then((r) => (r.status === 200 && pageTag(r) ? keepShellPolicy(r) : undefined)).catch(() => {}));
     return (await shellIndex()) || Response.error();
   }
+  if (res.status === 200 && pageTag(res)) event.waitUntil(keepShellPolicy(res.clone()).catch(() => {}));
+  if (res.status < 500) return res;
+  return (await shellIndex()) || res;
 }
 
 async function assetFirst(event, req) {
@@ -200,9 +228,11 @@ async function imageFirst(event, req) {
   const hit = await cache.match(req);
   if (hit) return hit;
   const res = await fetch(req);
-  // 200 only (a 206 partial cannot be stored), and never in the way of the answer: a full or failing cache
-  // must not break an image that loaded fine.
-  if (res.status === 200) {
+  // 200 only (a 206 partial cannot be stored), and only an answer the server lets a cache keep without asking
+  // again: the proxy sends the original at a thumbnail URL as "no-cache" while the thumbnail is being made, and
+  // a copy kept here would be served in the thumbnail's place for good. Never in the way of the answer: a full
+  // or failing cache must not break an image that loaded fine.
+  if (res.status === 200 && !/\bno-(cache|store)\b/i.test(res.headers.get("Cache-Control") || "")) {
     const copy = res.clone();
     if (gen === generation) event.waitUntil(cache.put(req, copy).then(() => trim(cache, IMAGES_MAX)).catch(() => {}));
   }
