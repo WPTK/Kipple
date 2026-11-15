@@ -296,6 +296,13 @@ const Story = memo(function Story({ slot: planned, item, heading: H, to, onOpen,
   );
 }, sameStory);
 
+/**
+ * A story is redrawn when one of its props changes, and `Story` reads only these. Every prop is listed except `slot`,
+ * which the planner builds again on each plan: only its kind and picture are read, so those are compared instead (a new
+ * slot with the same two draws the same). `to`, `onOpen` and `actions` must stay the same function between renders
+ * (the list gives each one once, through `useCallback` and `useMemo`), or every story is drawn again. A prop `Story`
+ * starts to read has to be added here, or a change to it will not show.
+ */
 function sameStory(a: StoryProps, b: StoryProps): boolean {
   return (
     a.item === b.item &&
