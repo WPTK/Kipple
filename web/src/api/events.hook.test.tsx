@@ -762,6 +762,26 @@ describe("held counts are dropped when they would be wrong", () => {
     expect(unread(qc)).toBe(2);
   });
 
+  it("a status answer that replaces the held event brings the feed and folder counts in step with the total", async () => {
+    clock();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, boot());
+    const server = { ...boot(), counts: { unread: 3, starred: 0 }, feeds: [{ id: "1", folder_id: "1", unread: 3 }], folders: [{ id: "1", unread: 3 }] };
+    const watcher = new QueryObserver(qc, { queryKey: keys.bootstrap, queryFn: () => Promise.resolve(server), staleTime: Infinity });
+    const stop = watcher.subscribe(() => undefined);
+    bumpUnread(qc, "1", -1); // 5 -> 4
+    handleServerEvent(qc, counts(3), 50);
+    mockFetch({ "GET /api/status": () => json({ runs: [], unread_total: 3, event_id: "60" }) });
+    await act(() => pollStatus(qc));
+    await act(() => vi.advanceTimersByTimeAsync(2_000));
+    const b = qc.getQueryData<ReturnType<typeof boot>>(keys.bootstrap)!;
+    expect(b.counts.unread).toBe(3);
+    expect(b.feeds[0]!.unread).toBe(3);
+    expect(b.folders[0]!.unread).toBe(3);
+    stop();
+  });
+
   it("a bootstrap that follows the held event replaces it", async () => {
     clock();
     resetCountsGuard();

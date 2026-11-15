@@ -366,9 +366,11 @@ function applyHeldCounts(qc: QueryClient): void {
   applyCounts(qc, held.counts);
 }
 
-/** Forget the held `counts` event when it has a stream id below `seq`, the id of a newer server answer. */
-function dropHeldBefore(seq: number): void {
-  if (countsHeld && countsHeld.seq > 0 && seq > countsHeld.seq) countsHeld = undefined;
+/** Forget the held `counts` event when it has a stream id below `seq`, the id of a newer server answer. Returns whether one was dropped. */
+function dropHeldBefore(seq: number): boolean {
+  if (!countsHeld || countsHeld.seq <= 0 || seq <= countsHeld.seq) return false;
+  countsHeld = undefined;
+  return true;
 }
 
 /** Cancel the pending apply and forget what is held (sign-out, a new page of the app, tests). */
@@ -610,12 +612,13 @@ export async function noteArrivals(scope: Scope, loaded: ReadonlySet<string>, as
 export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
   const st = await api<StatusResponse>("/api/status");
   const ended = applyAnswer(st.runs ?? [], eventSeq(st.event_id), true);
-  // A status answer that follows the held `counts` event is newer than it: the held numbers must not come back.
-  dropHeldBefore(eventSeq(st.event_id));
+  // A status answer that follows the held `counts` event is newer than it: the held numbers must not come back. The
+  // answer carries only the total, so the feed and folder counts are read again when it replaced a held event.
+  const replacedHeld = dropHeldBefore(eventSeq(st.event_id));
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) =>
     old ? { ...old, counts: { ...old.counts, unread: st.unread_total, ...(typeof st.muted === "number" ? { muted: st.muted } : {}) } } : old,
   );
-  if (ended.length) void qc.invalidateQueries({ queryKey: keys.bootstrap });
+  if (ended.length || replacedHeld) void qc.invalidateQueries({ queryKey: keys.bootstrap });
   // The end of a manual refresh that came without its run.done: the lists are made stale here as they are on the event.
   const finished = liveStore.get().finished;
   if (ended.some((id) => finished[id]?.kind === "manual")) staleOffScreenLists(qc);
