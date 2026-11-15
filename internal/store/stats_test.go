@@ -85,6 +85,8 @@ func TestStatSnapshotFolderPathAndBulkRows(t *testing.T) {
 	}))
 	require.Equal(t, 2, e.count("SELECT count(*) FROM stats_events WHERE kind = 'star' AND folder_name = 'News/World' AND feed_id = ?", id))
 	require.Equal(t, 1, e.count("SELECT count(*) FROM stats_events WHERE item_title = 'one' AND item_id = ?", ids[0]))
+	require.Equal(t, 1, e.count("SELECT count(*) FROM stats_events WHERE item_id = ?", ids[1]))
+	require.Equal(t, 2, e.count("SELECT count(*) FROM stats_events WHERE item_id IN (?, ?)", ids[0], ids[1]), "exactly the requested ids")
 
 	e.exec("DELETE FROM folders WHERE id = 11")
 	g, err := StatFeedSnapshot(e.ctx, e.db.Reader(), id)

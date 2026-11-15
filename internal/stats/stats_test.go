@@ -322,3 +322,17 @@ func TestRecordStarsAcrossFeedsAndAnUnknownID(t *testing.T) {
 	require.NoError(t, rows.Err())
 	require.Equal(t, []string{"0 1 Feed A Hello star", "1 2 Feed B World star"}, got)
 }
+
+// A repeated id in one bulk star records one event, for a live item and for a ledger id alike.
+func TestRecordStarsRepeatedIDsRecordOnce(t *testing.T) {
+	r := newRig(t)
+	require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at) VALUES (77, 1, 'g:77', 0, 1, 1)`)
+		return err
+	}))
+	require.NoError(t, r.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		return r.rec.RecordStars(tx, KindStar, ClientAPI, []int64{77, itemID, 77, itemID, 77})
+	}))
+	require.Equal(t, 1, r.count("item_id = 77"))
+	require.Equal(t, 1, r.count("item_id = ?", itemID))
+}

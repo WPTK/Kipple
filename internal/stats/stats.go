@@ -231,6 +231,15 @@ func (r *SQL) RecordStars(tx *sql.Tx, kind, client string, ids []int64) error {
 		TS: now.Unix(), LocalDate: lt.Format("2006-01-02"), LocalHour: lt.Hour(), LocalWeekday: int(lt.Weekday()),
 		Kind: kind, Client: client,
 	}
+	seen := make(map[int64]struct{}, len(ids)) // a repeated id records one event, live or ledger
+	uniq := ids[:0:0]
+	for _, id := range ids {
+		if _, dup := seen[id]; !dup {
+			seen[id] = struct{}{}
+			uniq = append(uniq, id)
+		}
+	}
+	ids = uniq
 	byFeed, err := store.StatItemFeeds(ctx, tx, ids)
 	if err != nil {
 		return err
