@@ -239,3 +239,17 @@ func TestEvaluateIsConcurrencySafe(t *testing.T) {
 		<-done
 	}
 }
+
+// Evaluate takes its item by value and must not move it to the heap: a call that matches nothing allocates at most
+// once (the copy of the item cost a second allocation).
+func TestEvaluateDoesNotCopyItemToHeap(t *testing.T) {
+	if raceEnabled {
+		t.Skip("sync.Pool drops items under the race detector")
+	}
+	s, err := NewSet([]Rule{NewRule(ScopeGlobal, KindText, ActionMute, "zzzznotpresent")})
+	require.NoError(t, err)
+	it := Item{FeedID: 1, FeedTitle: "feed", Title: "a title here", Author: "someone", URL: "https://example.com/x",
+		Content: "some body text about nothing", Categories: []string{"c"}}
+	s.Evaluate(it)
+	require.LessOrEqual(t, testing.AllocsPerRun(100, func() { s.Evaluate(it) }), 1.0)
+}

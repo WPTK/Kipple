@@ -426,12 +426,13 @@ func (d *DB) SnapshotStatus(ctx context.Context) SnapshotStatus {
 	}
 }
 
-// FeedUnreadCounts returns every feed's unread count, zeros included, so a
-// `counts` event can zero a feed that just emptied. Only listed feeds
-// (listedFeedSQL), as UIFeeds lists them.
+// FeedUnreadCounts returns the unread count of every feed that has unread
+// items. A feed with none is absent: the reader of a `counts` event takes a
+// missing feed as 0, which is how a feed that just emptied is zeroed. Only
+// listed feeds (listedFeedSQL), as UIFeeds lists them.
 func (d *DB) FeedUnreadCounts(ctx context.Context) (map[int64]int64, error) {
-	rows, err := d.reader.QueryContext(ctx, `SELECT f.id, COALESCE(u.n, 0) FROM feeds f
-		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE read = 0 GROUP BY feed_id) u ON u.feed_id = f.id
+	rows, err := d.reader.QueryContext(ctx, `SELECT f.id, u.n FROM feeds f
+		JOIN (SELECT feed_id, count(*) AS n FROM items WHERE read = 0 GROUP BY feed_id) u ON u.feed_id = f.id
 		WHERE `+listedFeedSQL)
 	if err != nil {
 		return nil, err

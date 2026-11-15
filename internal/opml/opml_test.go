@@ -547,7 +547,7 @@ func TestImportDroppedReportIsBounded(t *testing.T) {
 	defer func(p, f int) { maxDroppedPaths, maxDroppedFeeds = p, f }(maxDroppedPaths, maxDroppedFeeds)
 	maxDroppedPaths, maxDroppedFeeds = 5, 10
 	db := openDB(t)
-	long := strings.Repeat("é", 5000)
+	long := strings.Repeat("\U00010000", 97) // four bytes each: inside the name limit, over the report cut
 	var b strings.Builder
 	b.WriteString(`<opml><body>`)
 	// One feed repeated many times under the same other folder and under many long-named folders.

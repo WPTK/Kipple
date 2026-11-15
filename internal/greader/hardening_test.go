@@ -111,7 +111,7 @@ func TestIconOnlyServesSafeTypes(t *testing.T) {
 		n++
 		f := h.addFeed("https://x"+FormatDecimal(int64(n))+".example/f", "F", "")
 		require.NoError(t, execSQL(h, "INSERT INTO feed_icons (feed_id, data, content_type, hash, fetched_at) VALUES (?, x'89504e47', ?, 'hh', 1)", f, ct))
-		w := h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-hh", "", noAuth)
+		w := h.do(http.MethodGet, base+"/icon/"+FormatDecimal(f)+"-hh-"+iconMAC(testSecret, f, "hh"), "", noAuth)
 		if !served {
 			require.Equal(t, 404, w.Code, ct)
 			continue

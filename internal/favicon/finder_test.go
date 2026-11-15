@@ -1,8 +1,10 @@
 package favicon
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -73,6 +75,35 @@ func iconSite(t *testing.T, hits *atomic.Int32) *httptest.Server {
 	}))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// panicTransport panics on every request: a stand-in for a decoder bug on bytes the site chose.
+// http.Client calls RoundTrip on the caller's goroutine, so the panic unwinds through Lookup.
+type panicTransport struct{}
+
+func (panicTransport) RoundTrip(*http.Request) (*http.Response, error) { panic("hostile bytes") }
+
+// A lookup that panics is a failed lookup: logged with its stack, recorded and backed off,
+// never fatal to the process.
+func TestFinderRecordsAPanickingLookupAsAFailure(t *testing.T) {
+	e := newFEnv(t)
+	var logs bytes.Buffer
+	e.f = New(Options{DB: e.db, Clock: e.clk, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		Guard: func(_, _, _ bool) http.RoundTripper { return panicTransport{} }})
+	id := e.fetchedFeed("http://127.0.0.1:1/rss", "", false)
+
+	did, err := e.f.RunOnce(e.ctx)
+	require.NoError(t, err)
+	require.True(t, did)
+	require.Equal(t, int64(1), e.int("SELECT failures FROM feed_icon_checks WHERE feed_id = ?", id))
+	require.Equal(t, int64(1), e.int("SELECT count(*) FROM feed_icon_checks WHERE feed_id = ? AND last_error LIKE '%panicked%'", id))
+	require.Equal(t, e.clk.Now().Add(6*time.Hour).Unix(), e.int("SELECT next_check_at FROM feed_icon_checks WHERE feed_id = ?", id))
+	require.Contains(t, logs.String(), "favicon: lookup panicked")
+	require.Contains(t, logs.String(), "stack=")
+
+	did, err = e.f.RunOnce(e.ctx)
+	require.NoError(t, err)
+	require.False(t, did, "backed off: the feed is not due again")
 }
 
 func TestFinderStoresAnIconThenWaitsAWeek(t *testing.T) {

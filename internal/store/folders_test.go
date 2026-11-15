@@ -461,7 +461,7 @@ func TestRenameLabelPaths(t *testing.T) {
 }
 
 // The web scope of a folder is its subtree: its list, search, mark-read and unread count agree.
-// The Reader API's label scope (StreamFilter, MarkAllRead, UnreadCounts) is the folder's own feeds.
+// The Reader API's label scope (StreamFilter, MarkAllReadBatched, UnreadCounts) is the folder's own feeds.
 func TestFolderScopes(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -512,10 +512,8 @@ func TestFolderScopes(t *testing.T) {
 	now := time.Now().Unix()
 	max, err := e.db.MaxCommittedID(e.ctx)
 	require.NoError(t, err)
-	require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := MarkAllRead(ctx, tx, MarkScope{FolderID: ids[0]}, max, now)
-		return err
-	}))
+	_, err = e.db.MarkAllReadBatched(e.ctx, MarkScope{FolderID: ids[0]}, max, now)
+	require.NoError(t, err)
 	require.Equal(t, 3, e.count("SELECT count(*) FROM items WHERE read = 0"))
 	require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
 		_, err := MarkScopeRead(ctx, tx, MarkScope{FolderTreeID: ids[0]}, MarkFilter{}, max, now)
@@ -636,10 +634,10 @@ func TestEnsureFolderChainPrefersAWholeLiteralPath(t *testing.T) {
 func TestMarkScopeFolderFieldsBelongToOneFunctionEach(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
+	_, err := e.db.MarkAllReadBatched(e.ctx, MarkScope{FolderTreeID: 1}, 1, 1)
+	require.Error(t, err)
 	require.NoError(t, e.db.WithWrite(e.ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := MarkAllRead(ctx, tx, MarkScope{FolderTreeID: 1}, 1, 1)
-		require.Error(t, err)
-		_, err = MarkScopeRead(ctx, tx, MarkScope{FolderID: 1}, MarkFilter{}, 1, 1)
+		_, err := MarkScopeRead(ctx, tx, MarkScope{FolderID: 1}, MarkFilter{}, 1, 1)
 		require.Error(t, err)
 		return nil
 	}))

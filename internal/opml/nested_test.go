@@ -87,8 +87,9 @@ func TestParseAndImportTooDeep(t *testing.T) {
 	require.Equal(t, "L1/L2/L3/L4/L5/L6/L7/L8", folderOf(t, db, "https://ten.test/f"))
 }
 
-// A folder the writer refuses (a bad name, a subfolder of Uncategorized) is reported once, at its
-// top; its feeds and its subfolders' feeds go into the deepest ancestor that was kept.
+// A folder that is refused (a bad name, by Parse; a subfolder of Uncategorized, by the writer) is
+// reported once, at its top; its feeds and its subfolders' feeds go into the deepest ancestor that
+// was kept. Parse's refusals are listed before the writer's.
 func TestImportRefusedFolderFallsBackToAncestor(t *testing.T) {
 	t.Parallel()
 	db := openDB(t)
@@ -101,8 +102,8 @@ func TestImportRefusedFolderFallsBackToAncestor(t *testing.T) {
 	require.Empty(t, r.Skipped)
 	require.Equal(t, 1, r.FoldersCreated, "only Good")
 	require.Len(t, r.FoldersRefused, 2, "%v", r.FoldersRefused)
-	require.Equal(t, "Uncategorized/X", r.FoldersRefused[0].Path)
-	require.Equal(t, "Good/Bad\x7f", r.FoldersRefused[1].Path)
+	require.Equal(t, "Good/Bad\x7f", r.FoldersRefused[0].Path)
+	require.Equal(t, "Uncategorized/X", r.FoldersRefused[1].Path)
 	require.Equal(t, "Uncategorized", folderOf(t, db, "https://u.test/f"))
 	require.Equal(t, "Good", folderOf(t, db, "https://b.test/f"))
 	require.Equal(t, "Good", folderOf(t, db, "https://g.test/f"))

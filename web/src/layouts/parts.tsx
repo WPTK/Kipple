@@ -7,7 +7,7 @@ import { actionIcon, actionLabel, MoreIcon, type ActionId, type ActionState } fr
 import { Icon } from "@/ui/Icon";
 import { takeImageSlot } from "@/lib/imageSlots";
 import { relativeTime } from "@/lib/format";
-import { useStore } from "@/lib/store";
+import { useStoreSelector } from "@/lib/store";
 import { DropdownMenu } from "@/ui/menu";
 import { FeedIcon } from "@/ui/FeedIcon";
 import { canNativeShare } from "@/lib/share";
@@ -210,8 +210,8 @@ export function RowMenu({
   ranges?: boolean;
   className?: string;
 }) {
-  const openId = useStore(rowMenuStore);
-  const open = openId === item.id;
+  // Only the menu that opens and the one that closes draw again: the others see the same answer.
+  const open = useStoreSelector(rowMenuStore, (openId) => openId === item.id);
   // Whether something had focus when the menu opened (a key or a click on the button) as opposed to a long press or a
   // swipe, which open it from the row with focus nowhere. Only the first gets focus back on close.
   const [hadFocus, setHadFocus] = useState(false);

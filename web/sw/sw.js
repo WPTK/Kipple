@@ -26,7 +26,12 @@ const PRECACHE = /*PRECACHE*/ [];
 const SHELL_PREFIX = "kipple-shell-";
 const SHELL = SHELL_PREFIX + BUILD;
 const DATA = "kipple-data";
-const IMAGES = "kipple-images";
+// The images cache was renamed once so that originals kept under thumbnail addresses by earlier workers are dropped
+// (activate deletes the old name).
+const IMAGES = "kipple-images-2";
+const OLD_IMAGES = "kipple-images";
+// An image answer is kept only when the server meant it to last at least this long (a feed icon's week passes).
+const IMAGE_KEEP_MIN_S = 86400;
 const STATIC = "kipple-static";
 const DATA_MAX = 600;
 const IMAGES_MAX = 400;
@@ -85,7 +90,7 @@ self.addEventListener("activate", (event) => {
       // lazy chunks until it reloads.
       const others = (await caches.keys()).filter((k) => k.startsWith(SHELL_PREFIX) && k !== SHELL).sort();
       const keep = new Set([SHELL, others[others.length - 1]]); // this build's shell always stays
-      await Promise.all(others.filter((k) => !keep.has(k)).map((k) => caches.delete(k)));
+      await Promise.all([...others.filter((k) => !keep.has(k)), OLD_IMAGES].map((k) => caches.delete(k)));
       await self.clients.claim();
     })(),
   );
@@ -96,7 +101,7 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "skip-waiting") self.skipWaiting();
   if (event.data && event.data.type === "clear-data") {
     generation++;
-    event.waitUntil(Promise.all([caches.delete(DATA), caches.delete(IMAGES)]));
+    event.waitUntil(Promise.all([caches.delete(DATA), caches.delete(IMAGES), caches.delete(OLD_IMAGES)]));
   }
 });
 
@@ -107,7 +112,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   const p = url.pathname;
   if (req.mode === "navigate") {
-    if (isAppPath(p)) event.respondWith(navigation(req));
+    if (isAppPath(p)) event.respondWith(navigation(event, req));
     return;
   }
   if (p.startsWith("/assets/")) {
@@ -154,7 +159,51 @@ async function shellIndex() {
 // Must match SIGN_IN_RELOAD in src/lib/reload.ts.
 const SIGN_IN_RELOAD = "kipple-signin";
 
-async function navigation(req) {
+// The page's ETag is the hash of index.html, a dot, and the image mode its policy was written for (internal/web
+// pageETag). The server makes it weak (W/) when it compresses the answer and leaves it strong when it does not,
+// so the prefix is no part of the comparison. null for any other tag (a proxy's login page, a tag a proxy rewrote).
+function pageTag(res) {
+  const tag = (res.headers.get("ETag") || "").replace(/^W\//, "");
+  const i = tag.lastIndexOf(".");
+  return i > 0 ? { file: tag.slice(0, i), mode: tag.slice(i + 1) } : null;
+}
+
+// Navigations are numbered as they start. The shell policy is brought up to date from the newest navigation's answer
+// that was applied: a slow answer from an earlier navigation must not put back an older policy over a newer one.
+let navSeq = 0;
+let shellSeq = 0;
+// One update at a time, so each reads the shell the one before it left.
+let shellWork = Promise.resolve();
+
+// The stored shell carries the Content-Security-Policy it was fetched with, and the page policy follows the
+// image mode. When the server answers a navigation with this build's index.html under another mode, the stored
+// copy is replaced by that answer, so a launch from the shell runs under the policy the server sends now.
+// Any other page (another build's index, a proxy's login page) leaves the shell alone.
+function keepShellPolicy(res, seq) {
+  const run = shellWork.then(() => applyShellPolicy(res, seq));
+  shellWork = run.catch(() => {});
+  return run;
+}
+
+async function applyShellPolicy(res, seq) {
+  // Never open the shell by name just to look: that would create an empty cache where precache left none.
+  if (!(await caches.keys()).includes(SHELL)) return release(res);
+  const cache = await caches.open(SHELL);
+  const held = await cache.match("/");
+  const was = held && pageTag(held);
+  const now = pageTag(res);
+  if (!was || !now || was.file !== now.file || seq < shellSeq) return release(res);
+  shellSeq = seq;
+  if (was.mode === now.mode) return release(res);
+  await cache.put("/", res);
+}
+
+// Not awaited: a branch of a cloned body settles its cancel only once the page has also read or dropped its own.
+function release(res) {
+  if (res.body) res.body.cancel().catch(() => {});
+}
+
+async function navigation(event, req) {
   // "Reload to sign in again": the stored shell would only load the app into the expired sign-in again, so this
   // navigation waits for the network however slow it is (and so reaches the access proxy's login page). Only a
   // network that is really down still gets the shell.
@@ -165,13 +214,20 @@ async function navigation(req) {
       return (await shellIndex()) || Response.error();
     }
   }
+  const seq = ++navSeq;
+  const network = fetch(req);
+  let res;
   try {
-    const res = await withTimeout(fetch(req), NET_WAIT_MS);
-    if (res.status < 500) return res;
-    return (await shellIndex()) || res;
+    res = await withTimeout(network, NET_WAIT_MS);
   } catch {
+    // Slow rather than down: an answer that still lands brings the stored shell's policy up to date for next time,
+    // and any other answer is dropped so its connection is released.
+    event.waitUntil(network.then((r) => (r.status === 200 && pageTag(r) ? keepShellPolicy(r, seq) : release(r))).catch(() => {}));
     return (await shellIndex()) || Response.error();
   }
+  if (res.status === 200 && pageTag(res)) event.waitUntil(keepShellPolicy(res.clone(), seq).catch(() => {}));
+  if (res.status < 500) return res;
+  return (await shellIndex()) || res;
 }
 
 async function assetFirst(event, req) {
@@ -200,13 +256,24 @@ async function imageFirst(event, req) {
   const hit = await cache.match(req);
   if (hit) return hit;
   const res = await fetch(req);
-  // 200 only (a 206 partial cannot be stored), and never in the way of the answer: a full or failing cache
-  // must not break an image that loaded fine.
-  if (res.status === 200) {
+  // 200 only (a 206 partial cannot be stored), and only an answer the server meant to last: the proxy sends the
+  // original at a thumbnail URL as "no-cache" while the thumbnail is being made, or for as long as a refusal is
+  // remembered ("max-age" of the time left), and a copy kept here would be served in the thumbnail's place for good.
+  // Never in the way of the answer: a full or failing cache must not break an image that loaded fine.
+  if (res.status === 200 && lastsLong(res.headers.get("Cache-Control") || "")) {
     const copy = res.clone();
     if (gen === generation) event.waitUntil(cache.put(req, copy).then(() => trim(cache, IMAGES_MAX)).catch(() => {}));
   }
   return res;
+}
+
+// True for "immutable" or a max-age of at least IMAGE_KEEP_MIN_S; false for no-cache, no-store, a short max-age and
+// an answer that names no lifetime.
+function lastsLong(cc) {
+  if (/\bno-(cache|store)\b/i.test(cc)) return false;
+  if (/\bimmutable\b/i.test(cc)) return true;
+  const m = /\bmax-age=(\d+)/i.exec(cc);
+  return m !== null && Number(m[1]) >= IMAGE_KEEP_MIN_S;
 }
 
 // The manifest and icons have fixed names, so a cached copy could be a build old: network first.
