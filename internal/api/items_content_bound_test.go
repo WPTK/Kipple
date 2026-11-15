@@ -2,8 +2,10 @@ package api
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -52,4 +54,46 @@ func TestListItemsIncludeContentIsBoundedByBytes(t *testing.T) {
 	_, body, _ := h2.api(c2, "GET", "/api/items?include=content", "")
 	require.Len(t, body["items"], 5)
 	require.Nil(t, body["next_cursor"])
+}
+
+// The cut page's next_cursor comes from the cards the page consumed, not from asking the list again: an
+// item that leaves the unread list while the page is being built (here, one the page itself sends) does not
+// move the continuation, so nothing after it is skipped.
+func TestIncludeContentContinuationSurvivesAnItemLeavingTheList(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	big := strings.Repeat("x", 3<<20)
+	var ids []string
+	for i := range 5 {
+		ids = append(ids, sid(h.addItem(f, seedItem{Title: fmt.Sprintf("Big %d", i), Text: big, SortAt: int64(1000 - i)})))
+	}
+	// Between the page's list query and its content reads (the first time the list handler asks for the
+	// time), the reader marks the second item read.
+	fired := false
+	clock := h.srv.now
+	h.srv.now = func() time.Time {
+		if pc, _, _, ok := runtime.Caller(1); ok && !fired && strings.Contains(runtime.FuncForPC(pc).Name(), "listItems") {
+			fired = true
+			h.exec("UPDATE items SET read = 1 WHERE id = ?", ids[1])
+		}
+		return clock()
+	}
+	var got []string
+	path := "/api/items?include=content"
+	for {
+		code, body, _ := h.api(c, "GET", path, "")
+		require.Equal(t, 200, code)
+		for _, it := range body["items"].([]any) {
+			got = append(got, it.(map[string]any)["id"].(string))
+		}
+		next, _ := body["next_cursor"].(string)
+		if next == "" {
+			break
+		}
+		path = "/api/items?include=content&cursor=" + next
+	}
+	require.True(t, fired)
+	require.Equal(t, ids, got)
 }

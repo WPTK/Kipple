@@ -247,15 +247,21 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		}
 		out = full
 		if used < len(cards) && len(q.IDs) == 0 {
-			// Cut at the byte bound: the continuation is the list's own cursor after the last item kept.
-			q.Limit = used
-			if _, next, _, err = s.db.ListCardsFB(r.Context(), q); err != nil {
-				s.serverError(w, "list items", err)
-				return
-			}
-			cur = nil
-			if next != nil {
-				cur = next.Encode()
+			// Cut at the byte bound: the continuation starts after the last card consumed, even one that
+			// is gone (it still marks the position). A relevance list's cursor carries the rank, which
+			// only the list knows, so that one asks the list again for the shorter page.
+			if last := cards[used-1]; !q.Rank {
+				cur = store.Cursor{SortAt: last.SortAt, ID: last.ID, Asc: q.Oldest, Fallback: fallback}.Encode()
+			} else {
+				q.Limit = used
+				if _, next, _, err = s.db.ListCardsFB(r.Context(), q); err != nil {
+					s.serverError(w, "list items", err)
+					return
+				}
+				cur = nil
+				if next != nil {
+					cur = next.Encode()
+				}
 			}
 		}
 	}
