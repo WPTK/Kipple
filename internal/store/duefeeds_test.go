@@ -45,7 +45,8 @@ func TestDueFeedsExceptFiltersBeforeTheLimit(t *testing.T) {
 func TestEnabledFeedsAreListedDueFirst(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	a := e.addFeed("http://a.example/1")
+	// a and c are due together; a has the lower id but the later URL, so only an id tie-break puts a first.
+	a := e.addFeed("http://z.example/1")
 	b := e.addFeed("http://b.example/2")
 	c := e.addFeed("http://c.example/3")
 	d := e.addFeed("http://d.example/4")
