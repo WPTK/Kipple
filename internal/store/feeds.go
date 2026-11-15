@@ -212,9 +212,10 @@ func (d *DB) DueFeedsExcept(ctx context.Context, set FetchSettings, now int64, l
 		ORDER BY next_fetch_at LIMIT ?`, now, string(hosts), string(ids), limit)
 }
 
-// EnabledFeeds returns every enabled feed (for refresh-all and retention runs).
+// EnabledFeeds returns every enabled feed, the soonest due first and by id among equals (for refresh-all and
+// retention runs).
 func (d *DB) EnabledFeeds(ctx context.Context, set FetchSettings) ([]fetch.Snapshot, error) {
-	return d.feedSnapshots(ctx, set, "WHERE enabled = 1 ORDER BY id")
+	return d.feedSnapshots(ctx, set, "WHERE enabled = 1 ORDER BY next_fetch_at, id")
 }
 
 // FeedSnapshot returns one feed regardless of enabled; ok is false when it does not exist.

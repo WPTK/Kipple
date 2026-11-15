@@ -40,3 +40,27 @@ func TestDueFeedsExceptFiltersBeforeTheLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, plain, 4)
 }
+
+// EnabledFeeds lists the soonest due first, and by id among feeds due at the same time; a disabled feed is left out.
+func TestEnabledFeedsAreListedDueFirst(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	a := e.addFeed("http://a.example/1")
+	b := e.addFeed("http://b.example/2")
+	c := e.addFeed("http://c.example/3")
+	d := e.addFeed("http://d.example/4")
+	off := e.addFeed("http://e.example/5")
+	e.exec("UPDATE feeds SET next_fetch_at = 300 WHERE id = ?", a)
+	e.exec("UPDATE feeds SET next_fetch_at = 100 WHERE id = ?", b)
+	e.exec("UPDATE feeds SET next_fetch_at = 300 WHERE id = ?", c)
+	e.exec("UPDATE feeds SET next_fetch_at = 200 WHERE id = ?", d)
+	e.exec("UPDATE feeds SET next_fetch_at = 1, enabled = 0 WHERE id = ?", off)
+
+	snaps, err := e.db.EnabledFeeds(e.ctx, e.db.FetchSettings(e.ctx))
+	require.NoError(t, err)
+	var ids []int64
+	for _, s := range snaps {
+		ids = append(ids, s.ID)
+	}
+	require.Equal(t, []int64{b, d, a, c}, ids)
+}
