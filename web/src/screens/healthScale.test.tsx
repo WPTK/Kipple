@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import App, { makeQueryClient } from "@/App";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router";
+import { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import type { HealthFeed, HealthResponse } from "@/api/admin";
@@ -9,6 +11,7 @@ import type { Feed } from "@/api/types";
 import { REVEAL_STEP } from "@/lib/reveal";
 import { bootstrap, json, mockFetch, pageOf } from "@/test/mockApi";
 import { wide } from "@/test/media";
+import { HealthScreen } from "./HealthScreen";
 
 // Feed health draws a long library a step at a time, like the Feeds screen (issue #463).
 
@@ -88,8 +91,14 @@ function go() {
     "GET /api/items": () => json(pageOf([])),
     "GET /api/health/feeds": () => json(HEALTH),
   });
-  window.history.replaceState({ idx: 0 }, "", "/health");
-  return render(<App client={makeQueryClient({ retry: false })} />);
+  // The screen alone: the app around it would also draw the sidebar's rows, which is slow and not what is tested.
+  return render(
+    <QueryClientProvider client={makeQueryClient({ retry: false })}>
+      <MemoryRouter initialEntries={["/health"]}>
+        <HealthScreen />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
 }
 
 beforeEach(() => {
@@ -105,15 +114,14 @@ afterEach(() => {
 });
 
 describe.each([
-  ["a wide screen", true, "tr"],
-  ["a phone", false, "li"],
-])("Feed health on %s", (_, isWide, tag) => {
-  const rows = (root: ParentNode) => root.querySelectorAll(`${tag}[data-reveal-key]`);
-  /** The page once its search box is there (a wide screen also draws the sidebar's 300 rows first, which takes a while). */
+  ["a wide screen", true],
+  ["a phone", false],
+])("Feed health on %s", (_, isWide) => {
+  const rows = (root: ParentNode) => root.querySelectorAll("[data-reveal-key]");
+  /** The page once its search box is there. */
   const ready = async () => {
-    const main = await screen.findByRole("main");
-    await within(main).findByRole("searchbox", { name: "Search feeds" }, { timeout: 20_000 });
-    return main;
+    await screen.findByRole("searchbox", { name: "Search feeds" }, { timeout: 20_000 });
+    return document.body;
   };
 
   it("draws a long library a step at a time; a button and the end of the page bring the rest", async () => {
@@ -121,15 +129,17 @@ describe.each([
     const { container } = go();
     const main = await ready();
     expect(rows(container)).toHaveLength(REVEAL_STEP);
-    expect(container.querySelector(`${tag}[data-reveal-key="${N}"]`)).toBeNull();
-    // A press draws the next step and puts the focus on the first row it added.
+    expect(container.querySelector(`[data-reveal-key="${N}"]`)).toBeNull();
+    // A press draws the next step and puts the focus on the first row it added: its Actions button, a control that
+    // takes the focus on its own (the row itself is not made focusable for it).
     await userEvent.setup().click(within(main).getByRole("button", { name: `Show more feeds (${N - REVEAL_STEP} not shown yet)` }));
     expect(rows(container)).toHaveLength(N);
-    expect(document.activeElement).toBe(container.querySelector(`${tag}[data-reveal-key="${REVEAL_STEP + 1}"]`));
+    expect(document.activeElement).toBe(container.querySelector(`[data-reveal-key="${REVEAL_STEP + 1}"]`));
+    expect(document.activeElement).toBe(within(main).getByRole("button", { name: `Actions for ${name(REVEAL_STEP + 1)}` }));
     expect(within(main).queryByRole("button", { name: /^Show more feeds/ })).toBeNull();
   }, 60_000);
 
-  // The rest is the same list on either layout, so it is checked on the phone's (the wide page also draws the sidebar).
+  // The rest is the same list on either layout, so it is checked on the phone's.
   it.skipIf(isWide)("the end of the page brings the rest without a press", async () => {
     const { container } = go();
     const main = await ready();
@@ -151,5 +161,18 @@ describe.each([
     await user.click(within(main).getByRole("button", { name: "Select" }));
     await user.click(screen.getByRole("button", { name: "Select all" }));
     expect(within(screen.getByRole("region", { name: "Selected feeds" })).getByText(`${N} selected`)).toBeInTheDocument();
+  }, 60_000);
+
+  it.skipIf(isWide)("a bulk Pause says how many of the feeds it takes are not drawn yet", async () => {
+    go();
+    const user = userEvent.setup();
+    const main = await ready();
+    await user.click(within(main).getByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("button", { name: "Select all" }));
+    await user.click(within(screen.getByRole("region", { name: "Selected feeds" })).getByRole("button", { name: "Pause" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: `Pause ${N} feeds?` })).toBeInTheDocument();
+    expect(within(dialog).getByText(`This includes ${N - REVEAL_STEP} feeds not drawn on the page yet.`)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
   }, 60_000);
 });
