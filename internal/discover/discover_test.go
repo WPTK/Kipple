@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -54,6 +55,17 @@ func TestHTMLPageStillListsCandidatesWhateverItsContentType(t *testing.T) {
 }
 
 // Each way an address fails to be a feed has its own error, so the add dialog can say which.
+// A find with no transport is refused: it would otherwise go through the default one, which has no
+// address guard.
+func TestFindWithoutATransportIsRefused(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	t.Cleanup(srv.Close)
+	_, err := Find(context.Background(), nil, "ua", "", srv.URL, false)
+	require.ErrorContains(t, err, "no transport")
+	require.Zero(t, hits.Load())
+}
+
 func TestNotAFeedErrors(t *testing.T) {
 	_, err := find(t, "text/html", `<!doctype html><html><head><title>x</title></head><body>no feed</body></html>`)
 	require.ErrorIs(t, err, ErrNoFeed)
@@ -103,6 +115,14 @@ func TestOneByteOverLimitIsTooLarge(t *testing.T) {
 	require.ErrorIs(t, err, ErrTooLarge)
 	_, err = find(t, "text/html", sized(maxBody+1000))
 	require.ErrorIs(t, err, ErrTooLarge, "the label does not matter")
+}
+
+// A feed that is within the response limit but converts to far more than it is reported as too large, not as no feed.
+func TestFeedThatConvertsToFarMoreIsTooLarge(t *testing.T) {
+	head, tail := `<?xml version="1.0" encoding="windows-1252"?><rss version="2.0"><channel><title>`, `</title></channel></rss>`
+	body := head + strings.Repeat("\x80", maxBody-len(head)-len(tail)) + tail // each byte becomes three
+	_, err := find(t, "application/rss+xml", body)
+	require.ErrorIs(t, err, ErrTooLarge)
 }
 
 func TestRetriesOnceWithTheRetryUserAgent(t *testing.T) {

@@ -19,12 +19,18 @@ func TestFeedIcon(t *testing.T) {
 	require.Equal(t, 200, code)
 	require.Equal(t, png, rec.Body.Bytes())
 	require.Equal(t, "image/png", rec.Header().Get("Content-Type"))
-	require.Equal(t, "private, max-age=604800", rec.Header().Get("Cache-Control"))
+	// The stored hash names these bytes, so the address never changes what it returns.
+	require.Equal(t, "private, max-age=31536000, immutable", rec.Header().Get("Cache-Control"))
 	require.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
 	require.Contains(t, rec.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'")
 
-	code, _, _ = h.api(c, "GET", "/api/feeds/"+sid(f)+"/icon", "")
-	require.Equal(t, 200, code) // the hash is only a cache-buster
+	// No hash, or one that is not the stored one (an older page's address): the current icon, kept for a week only.
+	for _, q := range []string{"", "?h=", "?h=old999"} {
+		code, _, rec = h.api(c, "GET", "/api/feeds/"+sid(f)+"/icon"+q, "")
+		require.Equal(t, 200, code, q)
+		require.Equal(t, png, rec.Body.Bytes(), q)
+		require.Equal(t, "private, max-age=604800", rec.Header().Get("Cache-Control"), q)
+	}
 	for _, p := range []string{sid(noIcon), "999999", "0", "x", "-1"} {
 		code, body, _ := h.api(c, "GET", "/api/feeds/"+p+"/icon", "")
 		require.Equal(t, 404, code, p)

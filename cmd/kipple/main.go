@@ -333,6 +333,7 @@ func runServe() error {
 			serveErr <- err
 			return
 		}
+		trackConns(srv, ln)
 		logger.Info("listening", "addr", ln.Addr().String(), "version", version, "commit", buildInfo().Commit)
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- err
@@ -375,9 +376,6 @@ func applyStagedRestore(dataDir string, logger *slog.Logger) error {
 	if done.Restored {
 		if done.GapErr != nil {
 			logger.Warn("the restore is applied; its statistics gap could not be recorded, so comparisons may read the days since the backup as quiet", "err", done.GapErr)
-		}
-		if done.PolicyErr != nil {
-			logger.Warn("the restore is applied; its stored article HTML may not be cleaned again", "err", done.PolicyErr)
 		}
 		logger.Info("applied the restore or reset confirmed in the browser; every web session was signed out",
 			"username", done.Username, "backup_created_at", done.CreatedAt, "backup_kipple_version", done.KippleVersion,

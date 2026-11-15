@@ -997,7 +997,8 @@ func (d *DB) preEvaluate(ctx context.Context, res *fetch.Result, items []fetch.I
 	}
 	p := &preEval{gen: g, fs: fs, folders: e.folders, feedTitle: e.feedTitle, results: map[string]filter.Result{}}
 	seen := make(map[string]bool, len(items))
-	for _, it := range items {
+	for i := range items {
+		it := &items[i]
 		if known[it.UID] {
 			continue
 		}
@@ -1042,8 +1043,8 @@ func (d *DB) readerFilters(ctx context.Context) (*filterSet, error) {
 // transaction, a result for an item that turns out to exist is never used.
 func (d *DB) knownUIDs(ctx context.Context, feedID int64, items []fetch.Item) (map[string]bool, error) {
 	uids := make([]string, len(items))
-	for i, it := range items {
-		uids[i] = it.UID
+	for i := range items {
+		uids[i] = items[i].UID
 	}
 	b, err := jsonText(uids)
 	if err != nil {
@@ -1118,13 +1119,13 @@ type ingestVerdict struct {
 
 // eval decides one fresh item. baseRead is its read state before any rule (initial-read window,
 // rekey leftover). hits accumulates the per-rule counts of matches whose action took effect.
-func (e *ingestEval) eval(it fetch.Item, baseRead bool, hits map[int64]int) ingestVerdict {
+func (e *ingestEval) eval(it *fetch.Item, baseRead bool, hits map[int64]int) ingestVerdict {
 	return e.apply(e.match(it), baseRead, hits)
 }
 
 // match runs the rules over one item: the expensive part (the regex and text matching),
 // which depends on nothing but the item, the rules, the folder and the feed title.
-func (e *ingestEval) match(it fetch.Item) filter.Result {
+func (e *ingestEval) match(it *fetch.Item) filter.Result {
 	return e.fs.set.Evaluate(filter.Item{FeedID: e.feedID, FolderIDs: e.folders, FeedTitle: e.feedTitle,
 		Title: it.Title, Author: it.Author, URL: it.URL, Content: it.ContentText, Categories: it.Categories})
 }
@@ -1198,9 +1199,9 @@ func (d *DB) MutedUIDs(ctx context.Context, feedID int64, docTitle string, items
 		return nil, err
 	}
 	out := map[string]bool{}
-	for _, it := range items {
-		if v := e.eval(it, false, map[int64]int{}); v.mutedBy != 0 {
-			out[it.UID] = true
+	for i := range items {
+		if v := e.eval(&items[i], false, map[int64]int{}); v.mutedBy != 0 {
+			out[items[i].UID] = true
 		}
 	}
 	return out, nil

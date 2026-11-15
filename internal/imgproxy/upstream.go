@@ -304,9 +304,11 @@ func newHostLimiter(limit int) *hostLimiter {
 	return &hostLimiter{limit: limit, m: map[string]*hostSlot{}}
 }
 
-// acquire waits for a slot on host until ctx ends or expire fires.
+// acquire waits for a slot on host's site until ctx ends or expire fires. The
+// slots count per site (fetch.SiteKey), not per host name, so one publisher's
+// image hosts share them.
 func (l *hostLimiter) acquire(ctx context.Context, host string, expire <-chan time.Time) (func(), bool) {
-	host = strings.ToLower(host)
+	host = fetch.SiteKey(host)
 	l.mu.Lock()
 	s := l.m[host]
 	if s == nil {

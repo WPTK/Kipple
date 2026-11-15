@@ -57,11 +57,10 @@ func LoadFetchSettingsErr(ctx context.Context, q Querier) (FetchSettings, error)
 	var err error
 	s.IntervalMinutes, err = settingIntErr(ctx, q, "refresh.interval_minutes", 30)
 	keep(err)
-	s.RetentionDefault, err = settingIntErr(ctx, q, "retention.default", 250)
+	s.RetentionDefault, err = retentionDefault(ctx, q)
 	keep(err)
-	s.RestoreDays, err = settingIntErr(ctx, q, "retention.restore_days", 90)
+	s.RestoreDays, err = restoreDaysErr(ctx, q)
 	keep(err)
-	s.RestoreDays = min(max(s.RestoreDays, 0), MaxRestoreDays)
 	s.UserAgent, err = settingStringErr(ctx, q, "fetch.user_agent", "")
 	keep(err)
 	s.UAMode, err = settingStringErr(ctx, q, "fetch.user_agent_mode", UAModeOnFailure)
@@ -85,6 +84,28 @@ func LoadFetchSettings(ctx context.Context, q Querier) FetchSettings {
 		slog.Warn("store: reading fetch settings failed; using defaults for this pass", "err", err)
 	}
 	return s
+}
+
+// retentionDefault reads retention.default alone: the item cap of a feed with no cap of its own (0 = unlimited).
+func retentionDefault(ctx context.Context, q Querier) (int, error) {
+	return settingIntErr(ctx, q, "retention.default", 250)
+}
+
+// restoreDaysErr reads retention.restore_days alone: default 90, clamped to 0..MaxRestoreDays. The key,
+// default and clamp live here for LoadFetchSettingsErr and for callers that need only this one setting.
+func restoreDaysErr(ctx context.Context, q Querier) (int, error) {
+	n, err := settingIntErr(ctx, q, "retention.restore_days", 90)
+	return min(max(n, 0), MaxRestoreDays), err
+}
+
+// restoreDays is restoreDaysErr for callers outside a write transaction that can live with the default for one
+// pass, as LoadFetchSettings does: a read failure is logged at warn and the default is used.
+func restoreDays(ctx context.Context, q Querier) int {
+	n, err := restoreDaysErr(ctx, q)
+	if err != nil {
+		slog.Warn("store: reading retention.restore_days failed; using its default for this pass", "err", err)
+	}
+	return n
 }
 
 // settingRawErr reads one settings row. A missing row is (nil, false, nil); any

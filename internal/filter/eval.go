@@ -54,7 +54,7 @@ type view struct {
 // scratch is the per-item cache. It is pooled: the word-set maps are the only allocations
 // worth keeping.
 type scratch struct {
-	item    *Item
+	item    Item
 	raw     [nField][2]string // [field][0 text-kind, 1 regex-kind]
 	canon   [nField]string    // canon(raw regex-kind text), for fold-case prefilters
 	canonOK [nField]bool
@@ -67,7 +67,7 @@ var scratchPool = sync.Pool{New: func() any { return new(scratch) }}
 
 // release drops the references to the item's strings and returns sc to the pool.
 func (sc *scratch) release() {
-	sc.item = nil
+	sc.item = Item{}
 	sc.raw = [nField][2]string{}
 	sc.canon = [nField]string{}
 	for f := range sc.views {
@@ -79,7 +79,7 @@ func (sc *scratch) release() {
 }
 
 func (sc *scratch) reset(it *Item) {
-	sc.item = it
+	sc.item = *it
 	sc.rawOK = [nField][2]bool{}
 	sc.canonOK = [nField]bool{}
 	for f := range sc.views {
@@ -104,7 +104,7 @@ func (sc *scratch) rawText(f Field, regex bool) string {
 	if sc.rawOK[fi][k] {
 		return sc.raw[fi][k]
 	}
-	it := sc.item
+	it := &sc.item
 	limit := MaxFieldScan
 	var s string
 	switch f {

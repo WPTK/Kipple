@@ -137,7 +137,7 @@ func (d *DB) ClearFulltextPending(ids ...int64) {
 }
 
 // HoldPending is the pending set as a JSON array, the value bound as :pending
-// next to :hold_cut for HeldSQL. Callers of MarkAllRead with a HoldCut fill
+// next to :hold_cut for HeldSQL. Callers of MarkAllReadBatched with a HoldCut fill
 // MarkScope.HoldPending with it.
 func (d *DB) HoldPending() string {
 	d.ftPend.mu.Lock()

@@ -56,6 +56,18 @@ func TestCompressJSON(t *testing.T) {
 	require.Equal(t, bigJSON, gunzip(t, rec.Body.Bytes()))
 }
 
+// Newline-delimited JSON repeats every key on every row, so it is the type that gains most from compressing.
+func TestCompressNewlineDelimitedJSON(t *testing.T) {
+	rows := strings.Repeat(`{"id":1,"kind":"read","item":"a title"}`+"\n", 200)
+	for _, ct := range []string{"application/x-ndjson", "application/x-ndjson; charset=utf-8"} {
+		rec := doCompress(t, serveTyped(ct, rows), http.MethodGet, "gzip")
+		require.Equal(t, "gzip", rec.Header().Get("Content-Encoding"), ct)
+		require.Equal(t, "Accept-Encoding", rec.Header().Get("Vary"), ct)
+		require.Less(t, rec.Body.Len(), len(rows)/4, ct)
+		require.Equal(t, rows, gunzip(t, rec.Body.Bytes()), ct)
+	}
+}
+
 func TestCompressSkips(t *testing.T) {
 	small := `{"ok":true}`
 	for name, tc := range map[string]struct {

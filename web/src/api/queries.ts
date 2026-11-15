@@ -81,6 +81,9 @@ export function useFolderTree(): FolderTree {
   return useMemo(() => folderTree(folders ?? []), [folders]);
 }
 
+/** How long a list no screen shows stays in the query cache. A Digest page a reader left is kept for the same time (digestSource.ts). */
+export const LIST_KEEP_MS = 30 * 60_000;
+
 /**
  * The options of a cursor-paged item list (design 7.1: keyset cursor, limit at most 100): the list `scope` names, kept
  * under `queryKey` and read `limit` articles at a time. The one place a list's request and caching are decided, for
@@ -99,9 +102,11 @@ export function itemsQuery(scope: Scope, queryKey: readonly unknown[], limit = P
     // A search the server refuses (422 too broad) or a cursor it no longer takes (400) will not get better by asking again.
     retry: retryRead,
     // A list is a snapshot: rows read in place stay visible (dimmed) until the
-    // user refreshes or leaves. SSE never refetches it behind the user's back.
+    // user refreshes or leaves. SSE does not refetch it behind the user's back (except when the server says it cannot
+    // replay what was missed); a refresh the user asked for only makes the lists nothing shows stale, and the open list
+    // offers what arrived in its pill (events.ts).
     staleTime: Infinity,
-    gcTime: 30 * 60_000,
+    gcTime: LIST_KEEP_MS,
   };
 }
 

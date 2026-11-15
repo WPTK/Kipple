@@ -618,10 +618,10 @@ describe("Digest page memory", () => {
     await screen.findByText("Alpha story 1");
     expect(headings(first.container)).toEqual(["Alpha"]);
     first.unmount();
-    // Beta gained articles while away; five minutes on, the page is a new one.
+    // Beta gained articles while away; thirty minutes on, the page is a new one.
     routes({ boot: library([2, 3]), counts: [2, 3] });
     const now = Date.now();
-    vi.spyOn(Date, "now").mockReturnValue(now + 6 * 60_000);
+    vi.spyOn(Date, "now").mockReturnValue(now + 31 * 60_000);
     const second = go("/l/unread");
     await screen.findByText("Beta story 1");
     expect(headings(second.container)).toEqual(["Alpha", "Beta"]);

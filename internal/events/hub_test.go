@@ -284,3 +284,27 @@ func TestSubscribeWithAnIDFromBeforeARestartGetsOnlyAResync(t *testing.T) {
 		}
 	}
 }
+
+// A full ring is shifted inside its own array rather than rebuilt on every publish,
+// and the slots it vacates do not keep dropped payloads alive.
+func TestFullRingReusesItsArrayAndReleasesDroppedPayloads(t *testing.T) {
+	h := newHub()
+	for range ringSize {
+		h.Publish("x", map[string]int{"n": 1})
+	}
+	h.mu.Lock()
+	first := &h.ring[0]
+	h.mu.Unlock()
+	for range 50 {
+		h.Publish("x", map[string]int{"n": 2})
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	require.Len(t, h.ring, ringSize)
+	require.Same(t, first, &h.ring[0], "the ring was reallocated")
+	for _, ev := range h.ring[len(h.ring):cap(h.ring)] {
+		require.Equal(t, Event{}, ev, "a vacated slot still holds an event")
+	}
+	require.Equal(t, uint64(ringSize+50), h.ring[len(h.ring)-1].ID)
+	require.Equal(t, uint64(51), h.ring[0].ID)
+}

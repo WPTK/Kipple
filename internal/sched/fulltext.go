@@ -34,12 +34,13 @@ const (
 
 type ftJob struct {
 	itemID int64
+	feedID int64
 	url    string
 	host   string
 }
 
 // ftQueue is the bounded background queue of items waiting for extraction. It
-// dedupes by item id and hands a job out only when its article host has a free
+// dedupes by item id and hands a job out only when its article site has a free
 // slot, so one slow site cannot hold up the others (a FIFO channel would).
 type ftQueue struct {
 	mu       sync.Mutex
@@ -47,6 +48,7 @@ type ftQueue struct {
 	jobs     []ftJob
 	queued   map[int64]bool // queued or running
 	hostBusy map[string]int
+	feedBusy map[int64]int // jobs running, by feed
 	limit    int
 	perHost  int
 	closed   bool
@@ -56,7 +58,7 @@ type ftQueue struct {
 }
 
 func newFTQueue(limit, perHost int) *ftQueue {
-	q := &ftQueue{queued: map[int64]bool{}, hostBusy: map[string]int{}, limit: limit, perHost: perHost}
+	q := &ftQueue{queued: map[int64]bool{}, hostBusy: map[string]int{}, feedBusy: map[int64]int{}, limit: limit, perHost: perHost}
 	q.cond = sync.NewCond(&q.mu)
 	return q
 }
@@ -106,8 +108,11 @@ func (q *ftQueue) pushWithin(j ftJob, limit int) pushResult {
 	return pushQueued
 }
 
-// take blocks for the oldest job whose host has a free slot. ok is false once
-// the queue is closed. done must be called when the job is finished.
+// take blocks for a job whose article site has a free slot. Among those it
+// picks the feed with the fewest jobs running, oldest job first, so one feed's
+// backlog never makes another feed wait behind all of it, however many article
+// sites its links name. ok is false once the queue is closed. done must be
+// called when the job is finished.
 func (q *ftQueue) take() (j ftJob, done func(), ok bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -115,20 +120,32 @@ func (q *ftQueue) take() (j ftJob, done func(), ok bool) {
 		if q.closed {
 			return ftJob{}, nil, false
 		}
+		best := -1
 		for i, c := range q.jobs {
-			if q.hostBusy[c.host] < q.perHost {
-				q.jobs = append(q.jobs[:i], q.jobs[i+1:]...)
-				q.hostBusy[c.host]++
-				return c, func() {
-					q.mu.Lock()
-					delete(q.queued, c.itemID)
-					if q.hostBusy[c.host]--; q.hostBusy[c.host] == 0 {
-						delete(q.hostBusy, c.host)
-					}
-					q.cond.Broadcast() // a host slot freed
-					q.mu.Unlock()
-				}, true
+			if q.hostBusy[c.host] >= q.perHost {
+				continue
 			}
+			if best < 0 || q.feedBusy[c.feedID] < q.feedBusy[q.jobs[best].feedID] {
+				best = i
+			}
+		}
+		if best >= 0 {
+			c := q.jobs[best]
+			q.jobs = append(q.jobs[:best], q.jobs[best+1:]...)
+			q.hostBusy[c.host]++
+			q.feedBusy[c.feedID]++
+			return c, func() {
+				q.mu.Lock()
+				delete(q.queued, c.itemID)
+				if q.hostBusy[c.host]--; q.hostBusy[c.host] == 0 {
+					delete(q.hostBusy, c.host)
+				}
+				if q.feedBusy[c.feedID]--; q.feedBusy[c.feedID] == 0 {
+					delete(q.feedBusy, c.feedID)
+				}
+				q.cond.Broadcast() // a site slot freed
+				q.mu.Unlock()
+			}, true
 		}
 		q.cond.Wait()
 	}
@@ -355,7 +372,7 @@ func (s *Scheduler) queueFulltext(feedID int64, cand []fetch.Item, held map[stri
 		if !ok || !left[id] {
 			continue
 		}
-		switch s.ftq.pushWithin(ftJob{itemID: id, url: it.URL, host: ftrun.HostKey(it.URL)}, queueLimit) {
+		switch s.ftq.pushWithin(ftJob{itemID: id, feedID: feedID, url: it.URL, host: ftrun.HostKey(it.URL)}, queueLimit) {
 		case pushQueued:
 			queued++
 			delete(left, id) // the job clears it when it is done

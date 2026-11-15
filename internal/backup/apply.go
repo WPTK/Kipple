@@ -409,9 +409,6 @@ type Applied struct {
 	// GapErr: the statistics gap could not be written into the database before it was installed
 	// (the restore went ahead; the caller logs it).
 	GapErr error
-	// PolicyErr: the record of the backup's sanitize policy could not be removed (a file that is not a
-	// database never gets that far); the caller logs it.
-	PolicyErr error
 	// Pre is the directory the replaced database went to ("" when there was none).
 	Pre string
 	// KippleVersion, CreatedAt and Username describe the backup, from the marker.
@@ -433,7 +430,8 @@ type Applied struct {
 //     never confirmed, or expired with the process: deleted.
 //
 // A failed swap puts the old database back and keeps the marker, so the next
-// start tries again. A marker older than MaxMarkerAge (by its file time) is
+// start tries again; so does a staged database whose content policy mark
+// cannot be removed (ForgetContentPolicy), which is never installed. A marker older than MaxMarkerAge (by its file time) is
 // discarded with its staged database instead (Applied.Stale). local is the
 // server's zone (PrunePreRestore).
 func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, error) {
@@ -463,10 +461,14 @@ func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, 
 	staged := filepath.Join(dataDir, StagedFile)
 	if _, err := os.Stat(staged); err == nil {
 		out.GapErr = RecordRestoreGap(context.Background(), staged, now)
-		out.PolicyErr = ForgetContentPolicy(context.Background(), staged)
+		// A database that still carries the backup's own content policy mark is never installed: the start would
+		// trust the mark and skip cleaning the stored article HTML. `kipple restore` stops here too.
+		if err := ForgetContentPolicy(context.Background(), staged); err != nil {
+			return Applied{}, fmt.Errorf("%w (it is tried again at the next start; to start on the current database instead, delete %s and %s in the data folder)", err, MarkerFile, StagedFile)
+		}
 		pre, err := Swap(dataDir, staged, now)
 		if err != nil {
-			return Applied{}, fmt.Errorf("restore: %w (it is tried again at the next start)", err)
+			return Applied{}, fmt.Errorf("restore: %w (it is tried again at the next start; to start on the current database instead, delete %s and %s in the data folder)", err, MarkerFile, StagedFile)
 		}
 		syncDir(dataDir)
 		out.Restored, out.Pre = true, pre

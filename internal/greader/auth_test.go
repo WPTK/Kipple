@@ -150,12 +150,39 @@ func TestClientLoginOverBudgetPacesButVerifies(t *testing.T) {
 	require.Equal(t, int32(11), h.checks.Load())
 	require.Zero(t, h.api.fails.Count("192.0.2.10"), "a verified success clears the client")
 
-	// The remembered password needs no hashing and no pacing.
-	paced := h.paced.Load()
+	// The remembered password needs no hashing; it still takes its turn like any attempt.
+	for range 6 {
+		login(h, "owner", "wrong")
+	}
+	paced, checks := h.paced.Load(), h.checks.Load()
 	code, _ = login(h, "owner", testPass)
-	require.Equal(t, 200, code, "memo hit succeeds over budget")
-	require.Equal(t, paced, h.paced.Load())
-	require.Equal(t, int32(11), h.checks.Load())
+	require.Equal(t, 200, code, "a memo hit succeeds when its turn comes")
+	require.Greater(t, h.paced.Load(), paced, "and waits for it over budget")
+	require.Equal(t, checks, h.checks.Load(), "without hashing")
+}
+
+// A guess is compared with the remembered success only after the attempt was admitted: an
+// attempt the pacing gate refuses is not tested at all, so the right password is answered
+// like any other refused attempt and the wait limits how fast guesses can be made.
+func TestClientLoginRefusedAttemptIsNotComparedWithRememberedPassword(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	code, _ := login(h, "owner", testPass) // remembers the password
+	require.Equal(t, 200, code)
+	h.api.fails.SetMaxWait(10 * time.Second)
+	const ip = "192.0.2.10"
+	for range 30 {
+		if h.api.fails.Wait(ip) > 10*time.Second {
+			break
+		}
+		login(h, "owner", "wrong")
+	}
+	require.Greater(t, h.api.fails.Wait(ip), 10*time.Second, "the address is past the longest wait")
+	checks := h.checks.Load()
+	code, body := login(h, "owner", testPass)
+	require.Equal(t, 401, code, "the attempt could not start, so it is refused unchecked")
+	require.Equal(t, "Error=BadAuthentication\n", body)
+	require.Equal(t, checks, h.checks.Load())
 }
 
 // A remembered success must not reset the budget of an address it shares with
