@@ -7,8 +7,38 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mmcdole/gofeed"
 	"github.com/stretchr/testify/require"
 )
+
+// The pre-scan reads as much of a document as gofeed does to find its type, and no more: a root element that starts
+// within the window is found and scanned, and one past it is not found by gofeed either. If gofeed's window grows,
+// the second half of this fails, and detectionWindow must grow with it.
+func TestDetectionWindowMatchesGofeed(t *testing.T) {
+	doc := func(padding int, depth int) []byte {
+		return []byte(`<?xml version="1.0"?><!--` + strings.Repeat("x", padding) + `--><rss version="2.0">` +
+			strings.Repeat("<a>", depth-1) + strings.Repeat("</a>", depth-1) + `</rss>`)
+	}
+	within := doc(detectionWindow-200, MaxNesting+1)
+	require.ErrorContains(t, checkNesting(within), "nests elements deeper", "a root inside the window is scanned")
+	_, err := gofeed.NewParser().Parse(strings.NewReader(string(doc(detectionWindow-200, 2))))
+	require.NoError(t, err)
+
+	past := doc(detectionWindow+100, MaxNesting+1)
+	require.NoError(t, checkNesting(past), "a document gofeed does not detect is not scanned")
+	_, err = gofeed.NewParser().Parse(strings.NewReader(string(past)))
+	require.ErrorIs(t, err, gofeed.ErrFeedTypeNotDetected)
+}
+
+// The pre-scan does not copy the body to find its type: reading a body of many small tokens allocates a small
+// fraction of the body size.
+func TestCheckNestingDoesNotCopyTheBody(t *testing.T) {
+	body := []byte(`<rss version="2.0"><channel>` + strings.Repeat("<!--"+strings.Repeat("x", 2000)+"-->", 5_000) + `</channel></rss>`)
+	require.Greater(t, len(body), 9<<20)
+	before := allocated()
+	require.NoError(t, checkNesting(body))
+	require.Less(t, allocated()-before, uint64(2<<20))
+}
 
 func parseErr(body string) error {
 	_, err := ParseFeed([]byte(body), ParseOptions{FeedURL: "https://example.com/feed"})
