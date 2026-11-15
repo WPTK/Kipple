@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,6 +158,10 @@ func FuzzParse(f *testing.F) {
 //     fixed point.
 func FuzzImportExport(f *testing.F) {
 	fuzzSeeds(f)
+	// The oracle learns the folder writer's refusals from the report, so the report must not be cut.
+	old := maxReportedFolders
+	maxReportedFolders = math.MaxInt
+	f.Cleanup(func() { maxReportedFolders = old })
 	ctx := context.Background()
 	db, err := store.Open(ctx, store.Options{Path: filepath.Join(f.TempDir(), "kipple.db")})
 	if err != nil {
