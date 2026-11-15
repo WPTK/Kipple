@@ -1262,17 +1262,17 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   useEffect(() => {
     if (!settledEmpty) {
       // Loaded with articles (or still loading): what has arrived so far is not owed a reload.
-      if (!src.pending && !src.error) liveStore.set((s) => (s.arrivalsHandled >= arrivedHere ? s : { ...s, arrivalsHandled: arrivedHere }));
+      if (!src.pending && !src.error) liveStore.set((s) => ((s.arrivalsHandled[key] ?? 0) >= arrivedHere ? s : { ...s, arrivalsHandled: { ...s.arrivalsHandled, [key]: arrivedHere } }));
       return;
     }
-    if (arrivedHere <= liveStore.get().arrivalsHandled) return;
+    if (arrivedHere <= (liveStore.get().arrivalsHandled[key] ?? 0)) return;
     const h = setTimeout(() => {
       if (!emptyNow.current) return;
-      liveStore.set((s) => ({ ...s, arrivalsHandled: Math.max(s.arrivalsHandled, arrivedHere) }));
+      liveStore.set((s) => ({ ...s, arrivalsHandled: { ...s.arrivalsHandled, [key]: Math.max(s.arrivalsHandled[key] ?? 0, arrivedHere) } }));
       void startOverRef.current();
     }, EMPTY_RELOAD_MS);
     return () => clearTimeout(h);
-  }, [arrivedHere, settledEmpty, src.pending, src.error, startOverRef]);
+  }, [arrivedHere, key, settledEmpty, src.pending, src.error, startOverRef]);
   // A refresh that ended while the list was loading is asked about once it has.
   useEffect(() => {
     if (!src.pending) void askArrivals();

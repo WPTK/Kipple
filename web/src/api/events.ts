@@ -55,11 +55,11 @@ export interface LiveState {
   refreshes: number;
   /**
    * How many fetches have brought in new articles, by feed id, whatever started them (a poll, a new feed's first fetch,
-   * an import). A list that is empty reloads when the feeds it covers have a higher count than `arrivalsHandled`.
+   * an import). A list that is empty reloads when the feeds it covers have a higher count than `arrivalsHandled` holds for that list.
    */
   arrivals: Record<string, number>;
-  /** The arrivals (summed over a list's feeds) an empty list has already reloaded for or loaded with. Kept here so it outlives the pane. */
-  arrivalsHandled: number;
+  /** The arrivals (summed over a list's feeds) each list, by its scope, has already reloaded for or loaded with. Kept here so it outlives the pane. */
+  arrivalsHandled: Record<string, number>;
   transport: "connecting" | "open" | "fallback";
 }
 
@@ -93,7 +93,7 @@ export const initialLive: LiveState = {
   finished: {},
   refreshes: 0,
   arrivals: {},
-  arrivalsHandled: 0,
+  arrivalsHandled: {},
   transport: "connecting",
 };
 

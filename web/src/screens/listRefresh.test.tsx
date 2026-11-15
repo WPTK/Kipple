@@ -283,10 +283,14 @@ describe("an empty list and which arrivals it reloads for", () => {
     let items: Items = [];
     let release: () => void = () => undefined;
     const gate = new Promise<void>((r) => (release = r));
+    let first = true;
     const { loads } = open(() => items, "/l/unread", {
+      // The first answer is the empty one that was in flight when the articles arrived; later ones hold them.
       "GET /api/items": async () => {
+        if (!first) return json(pageOf(items, null, AS_OF));
+        first = false;
         await gate;
-        return json(pageOf(items, null, AS_OF));
+        return json(pageOf([], null, AS_OF));
       },
     });
     await act(() => new Promise<void>((r) => setTimeout(r, 30)));
@@ -305,5 +309,20 @@ describe("an empty list and which arrivals it reloads for", () => {
     fetched("1");
     await act(() => new Promise<void>((r) => setTimeout(r, 1200)));
     expect(loads()).toBe(before);
+  });
+});
+
+describe("handled arrivals are kept for each list", () => {
+  it("another list's handled arrivals do not hide a first arrival from an empty list", async () => {
+    // Another list (all of Starred) has already taken in five arrivals; this feed's list is empty and has seen none.
+    liveStore.set((s) => ({ ...s, arrivalsHandled: { [JSON.stringify({ view: "starred" })]: 5 } }));
+    let items: Items = [];
+    const { loads } = open(() => items, "/l/unread?feed=1");
+    await settle();
+    const before = loads();
+    items = [card(2)];
+    act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 1, trigger: "new_feed" } }));
+    await act(() => new Promise<void>((r) => setTimeout(r, 1300)));
+    expect(loads()).toBeGreaterThan(before);
   });
 });
