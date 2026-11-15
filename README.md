@@ -65,4 +65,4 @@ Without a password, anyone who can reach Kipple has full access. Set a password 
 
 ## License
 
-[Blue Oak Model License 1.0.0](LICENSE). Third-party licenses are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[MIT License](LICENSE). Third-party licenses are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
