@@ -347,10 +347,13 @@ func (d *DB) uiFeeds(ctx context.Context, env StatusEnv, where string, args ...a
 	return feeds, err
 }
 
+// starredCountSQL counts each feed's starred items. It is pinned to idx_items_starred_feed, which holds exactly the
+// starred rows in feed_id order; left to itself the planner walks idx_items_feed_sort over every item (about 670 ms at
+// 200k items). The feed list query embeds it and its plan test explains it.
+const starredCountSQL = "SELECT feed_id, count(*) AS n FROM items INDEXED BY idx_items_starred_feed WHERE starred = 1 GROUP BY feed_id"
+
 // uiFeedsURLs is uiFeeds with each feed's address, in the same order.
 func (d *DB) uiFeedsURLs(ctx context.Context, env StatusEnv, where string, args ...any) ([]UIFeed, []string, error) {
-	// The starred count is pinned to idx_items_starred_feed, which holds exactly the starred rows in feed_id order;
-	// left to itself the planner walks idx_items_feed_sort over every item (about 670 ms at 200k items).
 	rows, err := d.reader.QueryContext(ctx, `
 		SELECT f.id, f.folder_id, `+feedTitleSQL("f")+`, f.site_url, f.url, fi.hash,
 		       COALESCE(u.n, 0), f.enabled, f.disabled_reason, f.consecutive_failures, f.fulltext, f.retention, f.interval_minutes, f.auto_read_days,
@@ -359,7 +362,7 @@ func (d *DB) uiFeedsURLs(ctx context.Context, env StatusEnv, where string, args 
 		FROM feeds f JOIN folders fo ON fo.id = f.folder_id
 		LEFT JOIN feed_icons fi ON fi.feed_id = f.id
 		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items WHERE read = 0 GROUP BY feed_id) u ON u.feed_id = f.id
-		LEFT JOIN (SELECT feed_id, count(*) AS n FROM items INDEXED BY idx_items_starred_feed WHERE starred = 1 GROUP BY feed_id) s ON s.feed_id = f.id
+		LEFT JOIN (`+starredCountSQL+`) s ON s.feed_id = f.id
 		WHERE `+where+`
 		ORDER BY fo.position, fo.name, f.position, lower(`+feedTitleSQL("f")+`), f.id`, args...)
 	if err != nil {

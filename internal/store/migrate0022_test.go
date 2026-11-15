@@ -48,13 +48,13 @@ func TestStarredFeedCountPlan(t *testing.T) {
 	}
 	require.Equal(t, "CREATE INDEX idx_items_starred_feed ON items(feed_id) WHERE starred = 1",
 		scalar[string](t, e.db.Reader(), "SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = 'idx_items_starred_feed'"), "a fresh database has the index")
-	const q = "SELECT feed_id, count(*) AS n FROM items INDEXED BY idx_items_starred_feed WHERE starred = 1 GROUP BY feed_id"
 	for _, analyze := range []bool{false, true} {
 		if analyze {
 			_, err := e.db.writer.ExecContext(e.ctx, "ANALYZE")
 			require.NoError(t, err)
 		}
-		rows, err := e.db.Reader().Query("EXPLAIN QUERY PLAN " + q)
+		// The writer ran ANALYZE, so it holds the new statistics; a pooled reader may have read the schema before.
+		rows, err := e.db.writer.QueryContext(e.ctx, "EXPLAIN QUERY PLAN "+starredCountSQL)
 		require.NoError(t, err)
 		var b strings.Builder
 		for rows.Next() {
