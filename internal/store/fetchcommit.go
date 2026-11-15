@@ -85,8 +85,9 @@ type commitState struct {
 	fStarred     int
 	keep         bool
 	begun        bool
-	stale        bool   // the feed's URL changed under the fetch; nothing was written
-	url          string // the feed's URL as this commit leaves it
+	stale        bool            // the feed's URL changed under the fetch; nothing was written
+	url          string          // the feed's URL as this commit leaves it
+	docUIDs      map[string]bool // the document's keys, built by the first chunk that carries a row (carryAltUIDs)
 }
 
 type heldItem struct {
@@ -367,7 +368,9 @@ func (d *DB) commitTx(ctx context.Context, tx *sql.Tx, res *fetch.Result, items 
 		st.note(fmt.Sprintf("filters: muted %d, marked_read %d, starred %d", len(st.mutedIDs), st.fMarked, st.fStarred), false)
 	}
 	if st.rekeyed > 0 || (res.Snap.RekeyPending && res.Outcome == fetch.OutcomeOK) {
-		st.note(fmt.Sprintf("rekeyed: %d", st.rekeyed), true)
+		// Only a re-key the owner asked for is kept for good; a row carried to another key of the same entry is
+		// logged like any fetch and ages out with the log cap.
+		st.note(fmt.Sprintf("rekeyed: %d", st.rekeyed), res.Snap.RekeyPending)
 	}
 
 	if err := d.applyRedirect(ctx, tx, res, st); err != nil {
@@ -492,6 +495,10 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 		default:
 			fresh = append(fresh, it)
 		}
+	}
+
+	if fresh, err = carryAltUIDs(ctx, tx, feedID, res, fresh, now, st); err != nil {
+		return err
 	}
 
 	rekeyLeftover := map[string]bool{}
@@ -728,6 +735,107 @@ func (d *DB) rekey(ctx context.Context, tx *sql.Tx, feedID int64, doc, fresh []f
 			continue
 		}
 		leftover[it.UID] = true
+		out = append(out, it)
+	}
+	return out, nil
+}
+
+// carryAltUIDs keeps one row for an entry whose key changed form because its guid became, or stopped being,
+// repeated in the document, or because the link of a guid-less entry became, or stopped being, shared
+// (fetch.Item.AltUID). A row stored under the entry's other key, with the same URL (and, for a link key, the
+// same title) and claimed by no entry of this document, is re-keyed to the entry's uid and updated in place, so
+// it keeps its id, dates and read and starred state. A trimmed item's tombstone under that key moves to the new
+// uid the same way (only for a key that names the entry: a guid key or a link-and-title key), so the entry is not
+// inserted again as new. Each carried row counts in the fetch note "rekeyed: k". It returns the items still to
+// insert.
+func carryAltUIDs(ctx context.Context, tx *sql.Tx, feedID int64, res *fetch.Result, fresh []fetch.Item, now int64, st *commitState) ([]fetch.Item, error) {
+	if st.before == 0 || res.Feed == nil || res.Outcome != fetch.OutcomeOK {
+		return fresh, nil // nothing stored yet to carry
+	}
+	var alts []string
+	for _, it := range fresh {
+		if it.AltUID != "" {
+			alts = append(alts, it.AltUID)
+		}
+	}
+	if len(alts) == 0 {
+		return fresh, nil
+	}
+	altJSON, err := jsonText(alts)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `WITH a(uid) AS MATERIALIZED (SELECT value FROM json_each(?2))
+		SELECT 0, id, uid, content_hash, text_hash, title, author, url, COALESCE(image_url,''), word_count
+		  FROM items WHERE feed_id = ?1 AND uid IN (SELECT uid FROM a)
+		UNION ALL
+		SELECT 1, 0, uid, '', '', '', '', '', '', 0
+		  FROM trimmed_items WHERE feed_id = ?1 AND uid IN (SELECT uid FROM a)`, feedID, altJSON)
+	if err != nil {
+		return nil, err
+	}
+	stored := map[string]existingRow{}
+	tomb := map[string]bool{}
+	for rows.Next() {
+		var kind int
+		var uid string
+		var e existingRow
+		if err := rows.Scan(&kind, &e.id, &uid, &e.contentHash, &e.textHash, &e.title, &e.author, &e.url, &e.imageURL, &e.wordCount); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if kind == 1 {
+			tomb[uid] = true
+		} else {
+			stored[uid] = e
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if len(stored) == 0 && len(tomb) == 0 {
+		return fresh, nil
+	}
+	if st.docUIDs == nil { // the document's keys, built once for all chunks
+		st.docUIDs = make(map[string]bool, len(res.Feed.Items))
+		for _, it := range res.Feed.Items {
+			st.docUIDs[it.UID] = true
+		}
+	}
+	out := make([]fetch.Item, 0, len(fresh))
+	for _, it := range fresh {
+		if it.AltUID == "" || st.docUIDs[it.AltUID] {
+			out = append(out, it) // no other key, or another entry of this document owns it
+			continue
+		}
+		if e, ok := stored[it.AltUID]; ok {
+			// A link key names the page and the title, so a row under it is only the same entry when the title agrees.
+			if it.URL == "" || e.url != it.URL || (strings.HasPrefix(it.AltUID, "l:") && e.title != it.Title) {
+				out = append(out, it)
+				continue
+			}
+			delete(stored, it.AltUID) // one row is carried to one entry
+			if _, err := tx.ExecContext(ctx, "UPDATE items SET uid = ? WHERE id = ?", it.UID, e.id); err != nil {
+				return nil, err
+			}
+			st.rekeyed++
+			if e.contentHash != it.ContentHash {
+				if err := updateItem(ctx, tx, e, it, now); err != nil {
+					return nil, err
+				}
+				st.updated++
+			}
+			continue
+		}
+		if tomb[it.AltUID] && it.CarriesTombstone() {
+			delete(tomb, it.AltUID)
+			if _, err := tx.ExecContext(ctx, "UPDATE trimmed_items SET uid = ?, last_seen_at = ? WHERE feed_id = ? AND uid = ?",
+				it.UID, now, feedID, it.AltUID); err != nil {
+				return nil, err
+			}
+			st.rekeyed++
+			continue
+		}
 		out = append(out, it)
 	}
 	return out, nil

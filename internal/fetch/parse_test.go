@@ -237,6 +237,60 @@ func TestAssignUIDsSharedGUIDStableAcrossFetches(t *testing.T) {
 	require.NotEqual(t, second[0].UID, second[1].UID)
 }
 
+// A guid's key changes form when the guid becomes, or stops being, repeated in the document. AltUID names the key
+// on the other side, so the commit can carry the stored row over.
+func TestAssignUIDsAltUIDAcrossRepeatState(t *testing.T) {
+	mk := func(link string) Item { return Item{GUID: "shared", RawLink: link, Title: link} }
+	one, _ := AssignUIDs([]Item{mk("https://x.test/a")}, DedupAuto)
+	two, _ := AssignUIDs([]Item{mk("https://x.test/b"), mk("https://x.test/a")}, DedupAuto)
+	require.Equal(t, "g:"+H("shared"), one[0].UID)
+	require.Equal(t, "g:"+H("shared|https://x.test/a"), two[1].UID)
+	require.Equal(t, two[1].UID, one[0].AltUID, "alone: the other key is the link-keyed one")
+	require.Equal(t, one[0].UID, two[1].AltUID, "with a twin: the other key is the bare guid")
+	require.Equal(t, one[0].UID, two[0].AltUID)
+
+	// No other key: no link, a counter key, a link mode.
+	noLink, _ := AssignUIDs([]Item{{GUID: "g"}}, DedupAuto)
+	require.Empty(t, noLink[0].AltUID)
+	same, _ := AssignUIDs([]Item{mk("https://x.test/a"), mk("https://x.test/a")}, DedupAuto)
+	require.Equal(t, "g:"+H("shared"), same[0].AltUID)
+	require.Empty(t, same[1].AltUID)
+	byLink, _ := AssignUIDs([]Item{mk("https://x.test/a")}, DedupLink)
+	require.Empty(t, byLink[0].AltUID)
+}
+
+// Guid-less entries that share a link (a feed whose entries all point at one page) are each kept, keyed by link
+// and title; a link used once keeps the plain link key, and each names the other as its alternative.
+func TestAssignUIDsSharedLinkWithoutGUID(t *testing.T) {
+	const page = "https://x.test/news.html"
+	mk := func(title string) Item { return Item{RawLink: page, Title: title, ContentText: title} }
+	shared, notes := AssignUIDs([]Item{mk("Release 1.2"), mk("Release 1.1"), mk("Release 1.0")}, DedupAuto)
+	require.Empty(t, notes)
+	require.Len(t, shared, 3, "none is dropped for its link")
+	require.Equal(t, "l:"+H(page+"\x1fRelease 1.2"), shared[0].UID)
+	require.Equal(t, "l:"+H(page), shared[0].AltUID)
+	require.NotEqual(t, shared[0].UID, shared[1].UID)
+
+	// The first one keeps its row when its siblings are added or removed: only AltUID tells the two states apart.
+	alone, _ := AssignUIDs([]Item{mk("Release 1.2")}, DedupAuto)
+	require.Equal(t, "l:"+H(page), alone[0].UID)
+	require.Equal(t, shared[0].UID, alone[0].AltUID)
+
+	// The same link and title twice are one entry; a guid-less entry elsewhere is unaffected.
+	twice, _ := AssignUIDs([]Item{mk("a"), mk("a"), {RawLink: "https://x.test/other", Title: "a"}}, DedupAuto)
+	require.Len(t, twice, 2)
+	require.Equal(t, "l:"+H("https://x.test/other"), twice[1].UID)
+
+	// A guid-less entry sharing a link with a guided one is not counted as shared.
+	mixed, _ := AssignUIDs([]Item{{GUID: "g", RawLink: page, Title: "x"}, mk("y")}, DedupAuto)
+	require.Equal(t, "l:"+H(page), mixed[1].UID)
+
+	// Link and link_title modes are unchanged.
+	byLink, _ := AssignUIDs([]Item{mk("a"), mk("b")}, DedupLink)
+	require.Len(t, byLink, 1)
+	require.Empty(t, byLink[0].AltUID)
+}
+
 func TestDecodeBodyCharsetEdgeCases(t *testing.T) {
 	t.Run("utf-16 label without BOM is ignored", func(t *testing.T) {
 		b := []byte(`<?xml version="1.0" encoding="UTF-16"?><rss><t>café</t></rss>`)

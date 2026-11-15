@@ -59,6 +59,10 @@ type Item struct {
 	Categories  []string `json:"-"`
 	ContentHash string   `json:"content_hash"`
 	TextHash    string   `json:"text_hash"`
+	// AltUID is the other key this entry has when the repeat state of its guid, or of its link among guid-less
+	// entries, differs in the document (AssignUIDs). "" when there is none: no link, a counter key, link and
+	// link_title modes. Never stored and not in the golden output; the commit carries a row stored under it over to UID.
+	AltUID string `json:"-"`
 }
 
 // Feed is the normalized parse result.
