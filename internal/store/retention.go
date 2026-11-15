@@ -35,6 +35,8 @@ var trimBatch = 2000
 // total is the feed's item count as the caller knows it inside tx, or -1 when it does not.
 // A feed with at most N items has nothing to trim (the kept counts can only be smaller), so
 // then the count and the trim-set window, which read every row of the feed, are skipped.
+// N counts only the non-starred, non-held items, so after the count a feed whose real and muted
+// items together are at most N also stops there: the trim-set window is not built.
 func trimFeedBatch(ctx context.Context, tx *sql.Tx, feedID, now, neverShownFrom int64, limit, total int) (n int64, more bool, err error) {
 	n, err = trimFeedLimit(ctx, tx, feedID, now, neverShownFrom, limit, total)
 	return n, err == nil && n >= int64(limit), err
@@ -45,13 +47,12 @@ func trimFeedLimit(ctx context.Context, tx *sql.Tx, feedID, now, neverShownFrom 
 	if err := tx.QueryRowContext(ctx, "SELECT retention FROM feeds WHERE id = ?", feedID).Scan(&override); err != nil {
 		return 0, fmt.Errorf("retention: read feed: %w", err)
 	}
-	set, err := LoadFetchSettingsErr(ctx, tx)
-	if err != nil {
-		return 0, fmt.Errorf("retention: settings: %w", err)
-	}
-	n := set.RetentionDefault
-	if override.Valid {
-		n = int(override.Int64)
+	n := int(override.Int64)
+	if !override.Valid {
+		var err error
+		if n, err = retentionDefault(ctx, tx); err != nil {
+			return 0, fmt.Errorf("retention: settings: %w", err)
+		}
 	}
 	if n <= 0 || (total >= 0 && total <= n) {
 		return 0, nil
@@ -61,6 +62,11 @@ func trimFeedLimit(ctx context.Context, tx *sql.Tx, feedID, now, neverShownFrom 
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FILTER (WHERE muted_by IS NULL), count(*) FILTER (WHERE muted_by IS NOT NULL)
 		FROM items WHERE feed_id = ?1 AND starred = 0 AND (retain_until IS NULL OR retain_until <= ?2)`, feedID, now).Scan(&real, &muted); err != nil {
 		return 0, fmt.Errorf("retention: count: %w", err)
+	}
+	// N counts the non-starred, non-held items only. At most N of them leaves nothing to trim,
+	// whatever the feed's total, so the trim-set window is not built.
+	if real+muted <= n {
+		return 0, nil
 	}
 	keepMuted := mutedAllowance(n, real, muted)
 
@@ -92,7 +98,11 @@ func trimFeedLimit(ctx context.Context, tx *sql.Tx, feedID, now, neverShownFrom 
 		return 0, nil
 	}
 
-	for i, args := range [][]any{{now}, {set.RestoreDays}, {feedID, neverShownFrom, now}} {
+	keepDays, err := restoreDaysErr(ctx, tx)
+	if err != nil {
+		return 0, fmt.Errorf("retention: settings: %w", err)
+	}
+	for i, args := range [][]any{{now}, {keepDays}, {feedID, neverShownFrom, now}} {
 		if _, err := tx.ExecContext(ctx, trimSetSQL[i], args...); err != nil {
 			return 0, fmt.Errorf("retention: %w", err)
 		}

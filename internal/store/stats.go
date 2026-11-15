@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
 // StatRow is one stats_events row (design §2.2, §8). The stats package builds
@@ -42,29 +43,46 @@ type StatSnapshot struct {
 // else URL), and an empty string when the feed row is gone (the LEFT JOINs below).
 var statFeedTitle = "COALESCE(" + feedTitleSQL("f") + ", '')"
 
+// statFolderPath is the folder path a stats row snapshots: the folder's names from the top level joined
+// with "/", read by primary key per level (folderNames), not through the folder_paths view, which reads every
+// folder. No folder, or one that is gone, is NULL.
+func statFolderPath(ctx context.Context, q Querier, folder sql.NullInt64) (sql.NullString, error) {
+	if !folder.Valid {
+		return sql.NullString{}, nil
+	}
+	names, err := folderNames(ctx, q, folder.Int64, nil)
+	if errors.Is(err, ErrFolderNotFound) {
+		return sql.NullString{}, nil
+	}
+	if err != nil {
+		return sql.NullString{}, err
+	}
+	return sql.NullString{String: strings.Join(names, "/"), Valid: true}, nil
+}
+
 // StatItemSnapshot reads the identity of an item, or of a ledger id (title and
 // URL come from its restore stub when one exists). ok is false when the id is
 // in neither table.
 func StatItemSnapshot(ctx context.Context, q Querier, itemID int64) (s StatSnapshot, ok bool, err error) {
-	row := q.QueryRowContext(ctx, `SELECT x.feed_id, `+statFeedTitle+`, f.folder_id, fo.path, x.title, x.url
-		FROM items x LEFT JOIN feeds f ON f.id = x.feed_id LEFT JOIN folder_paths fo ON fo.id = f.folder_id
+	row := q.QueryRowContext(ctx, `SELECT x.feed_id, `+statFeedTitle+`, f.folder_id, x.title, x.url
+		FROM items x LEFT JOIN feeds f ON f.id = x.feed_id
 		WHERE x.id = ?`, itemID)
-	err = row.Scan(&s.FeedID, &s.FeedTitle, &s.FolderID, &s.FolderName, &s.ItemTitle, &s.ItemURL)
-	if err == nil {
-		return s, true, nil
+	err = row.Scan(&s.FeedID, &s.FeedTitle, &s.FolderID, &s.ItemTitle, &s.ItemURL)
+	if errors.Is(err, sql.ErrNoRows) {
+		row = q.QueryRowContext(ctx, `SELECT x.feed_id, `+statFeedTitle+`, f.folder_id,
+			COALESCE(c.title, ''), COALESCE(c.url, '')
+			FROM trimmed_items x LEFT JOIN trimmed_content c ON c.id = x.id
+			LEFT JOIN feeds f ON f.id = x.feed_id
+			WHERE x.id = ?`, itemID)
+		err = row.Scan(&s.FeedID, &s.FeedTitle, &s.FolderID, &s.ItemTitle, &s.ItemURL)
+		if errors.Is(err, sql.ErrNoRows) {
+			return s, false, nil
+		}
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if err != nil {
 		return s, false, err
 	}
-	row = q.QueryRowContext(ctx, `SELECT x.feed_id, `+statFeedTitle+`, f.folder_id, fo.path,
-		COALESCE(c.title, ''), COALESCE(c.url, '')
-		FROM trimmed_items x LEFT JOIN trimmed_content c ON c.id = x.id
-		LEFT JOIN feeds f ON f.id = x.feed_id LEFT JOIN folder_paths fo ON fo.id = f.folder_id
-		WHERE x.id = ?`, itemID)
-	err = row.Scan(&s.FeedID, &s.FeedTitle, &s.FolderID, &s.FolderName, &s.ItemTitle, &s.ItemURL)
-	if errors.Is(err, sql.ErrNoRows) {
-		return s, false, nil
-	}
+	s.FolderName, err = statFolderPath(ctx, q, s.FolderID)
 	return s, err == nil, err
 }
 
@@ -123,21 +141,55 @@ func StatSetScroll(ctx context.Context, q Querier, sessionKey string, value int6
 	return true, err
 }
 
-// StatItemBasics reads just the item-level fields of a live item; ok is false
-// for a trimmed or unknown id (callers fall back to StatItemSnapshot).
-func StatItemBasics(ctx context.Context, q Querier, itemID int64) (feedID int64, title, url string, ok bool, err error) {
-	err = q.QueryRowContext(ctx, `SELECT feed_id, title, url FROM items WHERE id = ?`, itemID).Scan(&feedID, &title, &url)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, "", "", false, nil
+// StatItemFeeds groups the ids that are live items by feed, in one query. An id in no group is a ledger
+// id or gone.
+func StatItemFeeds(ctx context.Context, q Querier, ids []int64) (map[int64][]int64, error) {
+	js, err := idsJSON(ids)
+	if err != nil {
+		return nil, err
 	}
-	return feedID, title, url, err == nil, err
+	rows, err := q.QueryContext(ctx, `SELECT id, feed_id FROM items WHERE id IN (SELECT value FROM json_each(?))`, js)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byFeed := map[int64][]int64{}
+	for rows.Next() {
+		var id, feed int64
+		if err := rows.Scan(&id, &feed); err != nil {
+			return nil, err
+		}
+		byFeed[feed] = append(byFeed[feed], id)
+	}
+	return byFeed, rows.Err()
+}
+
+// InsertItemStats appends one stats row per live item in ids, in one statement. r carries what the rows
+// share (time, kind, client and the feed's snapshot); each row takes its id, title and URL from items, an
+// empty title or URL stored as NULL (as InsertStat's nullStr). The rows have no value, session key or
+// event id, so the event id index cannot conflict.
+func InsertItemStats(ctx context.Context, q Querier, r StatRow, ids []int64) error {
+	js, err := idsJSON(ids)
+	if err != nil {
+		return err
+	}
+	_, err = q.ExecContext(ctx, `INSERT INTO stats_events
+		(ts, local_date, local_hour, local_weekday, kind, client, inferred, item_id, feed_id, feed_title,
+		 folder_id, folder_name, item_title, item_url)
+		SELECT ?, ?, ?, ?, ?, ?, ?, id, ?, ?, ?, ?, NULLIF(title, ''), NULLIF(url, '')
+		FROM items WHERE id IN (SELECT value FROM json_each(?))`,
+		r.TS, r.LocalDate, r.LocalHour, r.LocalWeekday, r.Kind, r.Client, boolInt(r.Inferred), r.FeedID, r.FeedTitle,
+		r.FolderID, r.FolderName, js)
+	return err
 }
 
 // StatFeedSnapshot reads the feed and folder identity for a stats row.
 func StatFeedSnapshot(ctx context.Context, q Querier, feedID int64) (s StatSnapshot, err error) {
 	s.FeedID = feedID
-	err = q.QueryRowContext(ctx, `SELECT `+statFeedTitle+`, f.folder_id, fo.path
-		FROM feeds f LEFT JOIN folder_paths fo ON fo.id = f.folder_id WHERE f.id = ?`, feedID).Scan(&s.FeedTitle, &s.FolderID, &s.FolderName)
+	if err = q.QueryRowContext(ctx, `SELECT `+statFeedTitle+`, f.folder_id FROM feeds f WHERE f.id = ?`, feedID).Scan(&s.FeedTitle, &s.FolderID); err != nil {
+		return s, err
+	}
+	s.FolderName, err = statFolderPath(ctx, q, s.FolderID)
 	return s, err
 }
 
