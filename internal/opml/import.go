@@ -138,26 +138,46 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		// resolves to its deepest kept ancestor and is reported once, at its top. A chain that lands on
 		// a folder with the same full path but other levels (Music > AC > DC onto a literal "AC/DC") is
 		// reported in folders_merged_path. A chain a hand-built Doc forgot to list is resolved on demand.
-		folderID := map[string]int64{} // chainKey -> folder id; the empty chain is the top level (0)
-		refused := map[string]bool{}   // chains that fell back to an ancestor
+		// What is known of each chain is kept in a tree with one name per level, so it holds each name
+		// once however many folders sit below it. A map keyed by the whole chain cost the chain's
+		// length for every folder, with no database call (so no writer deadline) under a refused one.
+		type known struct {
+			id      int64             // the folder; for a refused chain, its deepest kept ancestor
+			done    bool              // id and refused are set
+			refused bool              // the chain fell back to an ancestor
+			hasKids bool              // the file lists a subfolder of it
+			kids    map[string]*known // name as written -> the chain one level down
+		}
+		top := &known{done: true} // the empty chain: the top level (0)
+		at := func(chain []string) *known {
+			n := top
+			for _, name := range chain {
+				c := n.kids[name]
+				if c == nil {
+					if n.kids == nil {
+						n.kids = map[string]*known{}
+					}
+					c = &known{}
+					n.kids[name] = c
+				}
+				n = c
+			}
+			return n
+		}
 		var resolve func(chain []string) (int64, error)
 		resolve = func(chain []string) (int64, error) {
-			if len(chain) == 0 {
-				return 0, nil
-			}
-			k := chainKey(chain)
-			if id, ok := folderID[k]; ok {
-				return id, nil
+			n := at(chain)
+			if n.done {
+				return n.id, nil
 			}
 			base, from := int64(0), 0
 			for i := len(chain) - 1; i > 0; i-- {
-				ak := chainKey(chain[:i])
-				if id, ok := folderID[ak]; ok {
-					if refused[ak] {
-						folderID[k], refused[k] = id, true
-						return id, nil
+				if a := at(chain[:i]); a.done {
+					if a.refused {
+						n.id, n.refused, n.done = a.id, true, true
+						return a.id, nil
 					}
-					base, from = id, i
+					base, from = a.id, i
 					break
 				}
 			}
@@ -168,16 +188,16 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				if err != nil {
 					return 0, err
 				}
-				if !refused[chainKey(chain[:len(chain)-1])] {
-					res.FoldersRefused = append(res.FoldersRefused, RefusedFolder{Path(chain), refusal(werr), chain})
+				if !at(chain[:len(chain)-1]).refused {
+					res.FoldersRefused = append(res.FoldersRefused, RefusedFolder{shortPath(chain), refusal(werr), chain})
 				}
-				folderID[k], refused[k] = parent, true
+				n.id, n.refused, n.done = parent, true, true
 				return parent, nil
 			}
 			if werr != nil {
 				return 0, fmt.Errorf("opml: create folder %q: %w", Path(chain), werr)
 			}
-			folderID[k] = id
+			n.id, n.done = id, true
 			names, err := store.FolderNames(ctx, tx, id)
 			if err != nil {
 				return 0, err
@@ -190,14 +210,13 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 		// A folder with subfolders in the file is resolved through them, top-down, so the writer can
 		// match a whole run of levels to an existing folder (and leave no empty "AC" beside a literal
 		// "AC/DC"); it is still created, in document order, by the first of them.
-		hasKids := map[string]bool{}
 		for _, chain := range doc.Folders {
 			if len(chain) > 1 {
-				hasKids[chainKey(chain[:len(chain)-1])] = true
+				at(chain[:len(chain)-1]).hasKids = true
 			}
 		}
 		for _, chain := range doc.Folders {
-			if hasKids[chainKey(chain)] {
+			if at(chain).hasKids {
 				continue
 			}
 			if _, err := resolve(chain); err != nil {
@@ -260,7 +279,7 @@ func Import(ctx context.Context, db *store.DB, doc *Doc, opts ImportOptions) (Re
 				res.FeedsExisting = append(res.FeedsExisting, Existing{norm, id})
 				// A feed whose folder in the file was not kept stays where it is: moving it to an
 				// ancestor (or Uncategorized) is not what the file says.
-				if opts.MoveExisting && !f.cut && !refused[chainKey(f.Folder)] {
+				if opts.MoveExisting && !f.cut && !at(f.Folder).refused {
 					var from int64
 					err := tx.QueryRowContext(ctx, "SELECT f.folder_id FROM feeds f WHERE f.id = ? AND "+store.ListedFeedSQL("f"), id).Scan(&from)
 					if errors.Is(err, sql.ErrNoRows) || err == nil && from == target {
