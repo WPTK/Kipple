@@ -78,3 +78,61 @@ func TestStreamIDsQueryPlans(t *testing.T) {
 		require.Contains(t, plan(q, args), "idx_items_starred", "analyze=%v", analyze)
 	}
 }
+
+// The id and content streams call their callback with no reader connection checked out, so a client
+// that drains slowly cannot hold one of the pool's connections (or a read snapshot) for the whole write.
+func TestStreamCallbacksHoldNoReaderConnection(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	feed := e.addFeed("http://conn.example/feed")
+	e.fetchBody(feed, frss(fspec{guid: "c1", title: "one"}, fspec{guid: "c2", title: "two"}))
+	ids, err := queryIDs(e.ctx, e.db.Reader(), "SELECT id FROM items")
+	require.NoError(t, err)
+	require.Len(t, ids, 2)
+	calls := 0
+	require.NoError(t, e.db.StreamItems(e.ctx, ids, true, 0, func(*ContentRow) error {
+		calls++
+		require.Zero(t, e.db.Reader().Stats().InUse, "StreamItems calls fn with no reader connection checked out")
+		return nil
+	}))
+	_, _, err = e.db.StreamIDs(e.ctx, StreamFilter{}, IDPage{N: 100}, func(int64) error {
+		calls++
+		require.Zero(t, e.db.Reader().Stats().InUse, "StreamIDs calls fn with no reader connection checked out")
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 4, calls)
+}
+
+// Large items are read a statement at a time, cut at the byte bound; every requested item still comes
+// back once, in order, whichever way the ids were given.
+func TestStreamItemsChunksByBytesKeepOrder(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	feed := e.addFeed("http://chunk.example/feed")
+	body := strings.Repeat("word ", 90_000) // about 450 KB each: three of them pass the 1 MiB bound
+	var specs []fspec
+	for i := range 7 {
+		specs = append(specs, fspec{guid: fmt.Sprintf("g%d", i), title: fmt.Sprintf("t%d", i), body: body})
+	}
+	e.fetchBody(feed, frss(specs...))
+	ids, err := queryIDs(e.ctx, e.db.Reader(), "SELECT id FROM items ORDER BY id")
+	require.NoError(t, err)
+	require.Len(t, ids, 7)
+	for _, asc := range []bool{true, false} {
+		in := append([]int64{ids[3], ids[0], 999_999}, ids...) // unsorted, duplicated, one unknown
+		var got []int64
+		require.NoError(t, e.db.StreamItems(e.ctx, in, asc, 0, func(r *ContentRow) error {
+			require.Zero(t, e.db.Reader().Stats().InUse)
+			got = append(got, r.ID)
+			return nil
+		}))
+		want := append([]int64(nil), ids...)
+		if !asc {
+			for i, j := 0, len(want)-1; i < j; i, j = i+1, j-1 {
+				want[i], want[j] = want[j], want[i]
+			}
+		}
+		require.Equal(t, want, got, "asc=%v", asc)
+	}
+}

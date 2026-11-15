@@ -1553,7 +1553,7 @@ The continuation is an id cursor on purpose: each page seeks past the last id (`
 ### 6.6 stream/items/contents (POST; GET tolerated) and stream/contents
 
 - **Id cap.** `i=` values beyond the first 1000 are ignored with a WARN. Observed clients send 100 to 150.
-- **Streaming.** The handler writes the envelope prefix, then scans rows one at a time and encodes each item straight into a 32 KB `bufio.Writer`, then writes `]}`. The full `[]item` is never built. The read transaction is short, because the rows are local and the writer only blocks on a full socket buffer; a stalled client is cut off by the server `WriteTimeout` of 60 s.
+- **Streaming.** The handler writes the envelope prefix, then encodes each item straight into a 32 KB `bufio.Writer`, then writes `]}`. The full `[]item` is never built: the store reads at most 16 items or 1 MiB of content per statement and closes it before the handler writes, so no reader connection or WAL snapshot is held while the writer blocks on a slow client. `stream/items/ids` likewise reads its page of ids before writing the first. A stalled client is cut off by the server `WriteTimeout` of 60 s.
 
 ```sql
 SELECT i.id, i.feed_id, i.url, i.title, i.author, c.content_html, i.published_at, i.updated_at,
