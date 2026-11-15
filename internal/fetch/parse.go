@@ -277,10 +277,12 @@ const MaxAttributes = 1_000_000
 // bounds what a parse holds.
 const MaxElements = 500_000
 
-// MaxTagBytes is the longest one start or end tag may be, from its "<" to its ">". An XML tokenizer reads a whole tag
-// before it hands it over and keeps every attribute of it, so a tag of millions of short attributes costs far more
-// memory than its bytes, before any of the counts above can run. Real tags are a few hundred bytes; the longest in
-// practice carry a data: URI in one attribute. Comments, CDATA sections, text and instructions are not tags and are
+// MaxTagBytes is the most markup one start or end tag may have, from its "<" to its ">", not counting the bytes
+// inside quoted attribute values (the quote characters count). An XML tokenizer reads a whole tag before it hands it
+// over and keeps every attribute of it, so a tag of millions of short attributes costs far more memory than its
+// bytes, before any of the counts above can run; each attribute needs at least two bytes outside its value. A quoted
+// value is one string whatever its length, so a data: URI image in an attribute is not limited by this, only by the
+// body size. Real tags are a few hundred bytes. Comments, CDATA sections, text and instructions are not tags and are
 // bounded by the body size alone.
 const MaxTagBytes = 1 << 20
 
@@ -299,7 +301,7 @@ var errCharsetSwitch = errors.New("document declares a charset after it was deco
 func refuseCharset(string, io.Reader) (io.Reader, error) { return nil, errCharsetSwitch }
 
 // errTagTooLong is what a decoder reading through a tagGuard stops on when a tag passes MaxTagBytes.
-var errTagTooLong = fmt.Errorf("document has a tag longer than %d bytes", MaxTagBytes)
+var errTagTooLong = fmt.Errorf("document has a tag with more than %d bytes of markup", MaxTagBytes)
 
 // checkProlog refuses a charset switch between the start of an XML document and its first element. gofeed finds the
 // document type by reading that far with its own decoder, from the bytes as they are (its control-byte filter runs

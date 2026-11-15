@@ -464,11 +464,11 @@ func ApplyStaged(dataDir string, now time.Time, local *time.Location) (Applied, 
 		// A database that still carries the backup's own content policy mark is never installed: the start would
 		// trust the mark and skip cleaning the stored article HTML. `kipple restore` stops here too.
 		if err := ForgetContentPolicy(context.Background(), staged); err != nil {
-			return Applied{}, fmt.Errorf("%w (it is tried again at the next start)", err)
+			return Applied{}, fmt.Errorf("%w (it is tried again at the next start; to start on the current database instead, delete %s and %s in the data folder)", err, MarkerFile, StagedFile)
 		}
 		pre, err := Swap(dataDir, staged, now)
 		if err != nil {
-			return Applied{}, fmt.Errorf("restore: %w (it is tried again at the next start)", err)
+			return Applied{}, fmt.Errorf("restore: %w (it is tried again at the next start; to start on the current database instead, delete %s and %s in the data folder)", err, MarkerFile, StagedFile)
 		}
 		syncDir(dataDir)
 		out.Restored, out.Pre = true, pre

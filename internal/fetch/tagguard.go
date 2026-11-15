@@ -24,10 +24,11 @@ const (
 	gDirComment                   // in a directive, inside a comment
 )
 
-// tagGuard passes a reader through and fails it when one start or end tag passes MaxTagBytes. The XML decoder in
+// tagGuard passes a reader through and fails it when one start or end tag passes MaxTagBytes, not counting the
+// bytes inside quoted attribute values. The XML decoder in
 // encoding/xml reads a whole tag before it returns it, so a limit on the tokens it yields comes too late: the
 // guard tracks where the tags are in the bytes as the decoder asks for them, and ends the stream with errTagTooLong
-// at the byte past the limit, so the decoder never holds more than MaxTagBytes of one tag.
+// at the byte past the limit, so the decoder never holds more than MaxTagBytes of markup of one tag.
 //
 // It follows the same rules as the decoder (encoding/xml rawToken, non-strict) for what ends a comment, a CDATA
 // section, an instruction, a directive and a quoted attribute value, so that a ">" inside one of them does not
@@ -37,7 +38,7 @@ type tagGuard struct {
 	r      io.Reader
 	limit  int // the most bytes in one tag; 0 is MaxTagBytes (a test sets a small one)
 	st     guardState
-	n      int  // gTag: bytes of the tag so far; gCDOpen and gDirLT: bytes matched
+	n      int  // gTag: bytes of the tag so far outside quoted values; gCDOpen and gDirLT: bytes matched
 	quote  byte // gTag and gDir: the quote that is open, or 0
 	depth  int  // gDir: unquoted "<" opened and not closed
 	p0, p1 byte // the last two bytes, in gComment, gCDATA and gDirComment; p1 alone in gPI
@@ -82,14 +83,17 @@ func (g *tagGuard) step(b byte) bool {
 			g.st, g.n, g.quote = gTag, 2, 0
 		}
 	case gTag:
+		// The bytes inside a quoted value are not counted (the quotes themselves are): one value is one string,
+		// whatever its length, and it is the markup around the values that makes an attribute cost memory.
+		if g.quote != 0 && b != g.quote {
+			break
+		}
 		if g.n++; g.n > cmp.Or(g.limit, MaxTagBytes) {
 			return true
 		}
 		switch {
 		case g.quote != 0:
-			if b == g.quote {
-				g.quote = 0
-			}
+			g.quote = 0
 		case b == '"' || b == '\'':
 			g.quote = b
 		case b == '>':

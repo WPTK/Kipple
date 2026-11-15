@@ -27,6 +27,10 @@ func TestTruncateKeepsTagsWhole(t *testing.T) {
 		"inside a rune, in a tag":  {`<a title="€€€">`, 11, ""},
 		"inside a rune, after tag": {"<b></b>€€€", 8, "<b></b>"},
 		"short enough":             {"<p>ab", 100, "<p>ab"},
+		"inside a reference":       {"<p>a&amp;b</p>", 8, "<p>a"},
+		"after a reference":        {"<p>a&amp;b</p>", 9, "<p>a&amp;"},
+		"in a reference after tag": {"<p>a</p>&lt;bc", 10, "<p>a</p>"},
+		"a bare ampersand in text": {"<p>a & b c</p>", 9, "<p>a "},
 	} {
 		got := truncateUTF8(tc.in, tc.max)
 		require.Equal(t, tc.want, got, name)

@@ -17,7 +17,7 @@ import (
 func genXML(r *rand.Rand, depth int) string {
 	pick := func(s ...string) string { return s[r.IntN(len(s))] }
 	pad := func() string { return strings.Repeat("p", r.IntN(30)) }
-	fake := `<f g="` + strings.Repeat("q", 150) + `">` // longer than any real tag here, so counting it is seen
+	fake := "<f" + strings.Repeat(" g=1", 40) + ">" // more markup than any real tag here, so counting it is seen
 	var b strings.Builder
 	name := pick("a", "b", "item", "x:y")
 	b.WriteString("<" + name)
@@ -67,12 +67,30 @@ func genXML(r *rand.Rand, depth int) string {
 	return b.String()
 }
 
-// longestTag is the length of the longest start or end tag of a well-formed document, read with the decoder gofeed
-// uses (non-strict), by how far each tag moved its offset.
+// markupLen is the length of a tag without the bytes between the quotes of its attribute values (the quotes stay).
+func markupLen(tag string) int {
+	n, open := 0, byte(0)
+	for i := 0; i < len(tag); i++ {
+		switch c := tag[i]; {
+		case open == 0:
+			n++
+			if c == '"' || c == '\'' {
+				open = c
+			}
+		case c == open:
+			n++
+			open = 0
+		}
+	}
+	return n
+}
+
+// longestTag is the most markup one start or end tag of a well-formed document has, read with the decoder gofeed
+// uses (non-strict): the text each tag moved the offset over, without its quoted values.
 func longestTag(t *testing.T, doc string) int {
 	d := xml.NewDecoder(strings.NewReader(doc))
 	d.Strict = false
-	longest, prev := 0, int64(0)
+	longest, prev := 0, int64(0) // prev: where the last token ended
 	for {
 		tok, err := d.Token()
 		if err == io.EOF {
@@ -81,7 +99,7 @@ func longestTag(t *testing.T, doc string) int {
 		require.NoError(t, err, doc)
 		switch tok.(type) {
 		case xml.StartElement, xml.EndElement:
-			longest = max(longest, int(d.InputOffset()-prev))
+			longest = max(longest, markupLen(doc[prev:d.InputOffset()]))
 		}
 		prev = d.InputOffset()
 	}
@@ -103,7 +121,7 @@ func guarded(doc string, limit int, oneByte bool) error {
 	}
 }
 
-// The guard refuses exactly the documents that have a tag longer than its limit: one byte under the longest tag
+// The guard refuses exactly the documents that have a tag with more markup than its limit: one byte under the longest tag
 // stops it, the longest tag itself does not, whatever the markup around the tag looks like and however the bytes are
 // split across reads.
 func TestTagGuardAgreesWithTheDecoder(t *testing.T) {
@@ -150,8 +168,7 @@ func (e endless) Read(p []byte) (int, error) {
 
 // One start tag over the limit refuses the document; the same number of bytes in anything that is not a tag does not.
 func TestRefusesOneOverlongTag(t *testing.T) {
-	head, tail := `<x a="`, `"/>`
-	tag := func(n int) string { return head + strings.Repeat("v", n-len(head)-len(tail)) + tail }
+	tag := func(n int) string { return "<x" + strings.Repeat(" ", n-len("<x/>")) + "/>" } // n bytes of markup
 	doc := func(inner string) []byte {
 		return []byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>` + inner + `</channel></rss>`)
 	}
@@ -162,6 +179,13 @@ func TestRefusesOneOverlongTag(t *testing.T) {
 	// A flood of short attributes in one tag.
 	flood := "<x" + strings.Repeat(" a=1", MaxTagBytes/4) + "/>"
 	require.ErrorIs(t, checkNesting(doc(flood)), errTagTooLong)
+
+	// A quoted value is not markup: one of 2 MiB passes, and so does a feed that parses with it in a tag.
+	big := `<x a="` + strings.Repeat("v", 2<<20) + `" b='` + strings.Repeat("w", 100) + `'/>`
+	require.NoError(t, checkNesting(doc(big)))
+	require.NoError(t, parseErr(string(doc(big))))
+	// The quotes count (each attribute here is five bytes of markup), and a short value does not take a flood out of the limit.
+	require.ErrorIs(t, checkNesting(doc("<x"+strings.Repeat(` a="1"`, MaxTagBytes/5+1)+"/>")), errTagTooLong)
 
 	long := strings.Repeat("x", MaxTagBytes+1)
 	for name, inner := range map[string]string{
@@ -181,5 +205,5 @@ func TestRefusesOverlongRootTag(t *testing.T) {
 	require.ErrorIs(t, checkProlog(body), errTagTooLong)
 	err := parseErr(string(body))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "tag longer")
+	require.Contains(t, err.Error(), "bytes of markup")
 }

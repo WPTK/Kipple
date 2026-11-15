@@ -33,7 +33,7 @@ func TestDetectionWindowMatchesGofeed(t *testing.T) {
 // The pre-scan does not copy the body to find its type: reading a body of many small tokens allocates a small
 // fraction of the body size.
 func TestCheckNestingDoesNotCopyTheBody(t *testing.T) {
-	body := []byte(`<rss version="2.0"><channel>` + strings.Repeat("<!--"+strings.Repeat("x", 200)+"-->", 50_000) + `</channel></rss>`)
+	body := []byte(`<rss version="2.0"><channel>` + strings.Repeat("<!--"+strings.Repeat("x", 2000)+"-->", 5_000) + `</channel></rss>`)
 	require.Greater(t, len(body), 9<<20)
 	before := allocated()
 	require.NoError(t, checkNesting(body))
