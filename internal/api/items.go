@@ -221,6 +221,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		full := make([]store.ItemDetail, 0, len(cards))
 		now := s.now().Unix()
 		opts := map[int64]sanitize.ServeOptions{} // one set of serve options per feed, not per item
+		size, used := 0, 0                        // content bytes in full; cards consumed (kept or gone)
 		for _, c := range cards {
 			det, found, err := s.db.GetItem(r.Context(), c.ID, now)
 			if err != nil {
@@ -228,6 +229,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if !found { // gone between the two reads (a trimmed item inside the restore window still answers, as a stub)
+				used++
 				continue
 			}
 			opt, ok := opts[det.FeedID]
@@ -236,9 +238,26 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 				opts[det.FeedID] = opt
 			}
 			applyServeOptions(&det, opt)
+			if len(full) > 0 && size+len(det.ContentHTML) > maxContentBytes {
+				break // the page is full: this item starts the next one
+			}
+			size += len(det.ContentHTML)
 			full = append(full, det)
+			used++
 		}
 		out = full
+		if used < len(cards) && len(q.IDs) == 0 {
+			// Cut at the byte bound: the continuation is the list's own cursor after the last item kept.
+			q.Limit = used
+			if _, next, _, err = s.db.ListCardsFB(r.Context(), q); err != nil {
+				s.serverError(w, "list items", err)
+				return
+			}
+			cur = nil
+			if next != nil {
+				cur = next.Encode()
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out, "next_cursor": cur, "as_of": strconv.FormatInt(asOf, 10), "fallback": fallback})
 }
@@ -340,6 +359,10 @@ func (s *Server) openItem(w http.ResponseWriter, r *http.Request) {
 const (
 	maxStarAge      = 30 * 86400
 	maxContentItems = 50
+	// maxContentBytes bounds the article bytes of one include=content page. A page of ordinary
+	// articles is far below it; a page of very large ones is cut short and its next_cursor continues
+	// the list. The first item is always sent, however large.
+	maxContentBytes = 8 << 20
 )
 
 func (s *Server) starItem(w http.ResponseWriter, r *http.Request) {
