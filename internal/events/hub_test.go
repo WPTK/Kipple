@@ -302,3 +302,29 @@ func TestSubscribeWithAnIDFromBeforeARestartGetsOnlyAResync(t *testing.T) {
 		}
 	}
 }
+
+// The replay boundary is exact: a cursor whose next event is the oldest one the ring holds replays the whole ring and
+// gets no resync, and a cursor one older would miss an event and gets a resync alone.
+func TestReplayBoundaryIsTheOldestEventInTheRing(t *testing.T) {
+	h := newHub()
+	for i := range ringSize + 5 {
+		h.Publish("e", i)
+	}
+	h.mu.Lock()
+	oldest := h.ring[0].ID
+	h.mu.Unlock()
+	require.Equal(t, h.LastID()-ringSize+1, oldest)
+
+	at := h.Subscribe(oldest - 1) // ring[0].ID == lastID+1: nothing is missing
+	require.Len(t, at.C, ringSize)
+	first := <-at.C
+	require.Equal(t, "e", first.Type)
+	require.Equal(t, oldest, first.ID)
+	at.Close()
+
+	older := h.Subscribe(oldest - 2) // ring[0].ID == lastID+2: one event is gone
+	require.Len(t, older.C, 1)
+	ev := <-older.C
+	require.Equal(t, "resync", ev.Type)
+	require.Equal(t, h.LastID(), ev.ID)
+}

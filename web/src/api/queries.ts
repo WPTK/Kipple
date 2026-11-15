@@ -117,7 +117,8 @@ export const LATEST_PER_FEED = 3;
 
 /**
  * Each feed's newest articles, read or not, in one request. Stale at once: the Feed index asks again whenever it opens
- * (the stream marks it stale when counts move), and keeps what it has on screen while it does.
+ * (and the stream asks again after a mute, an un-mute, a restored article, a changed feed or a gap), and keeps what it
+ * has on screen while it does.
  */
 export function useFeedsLatest(n = LATEST_PER_FEED) {
   return useQuery({

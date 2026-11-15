@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { WATCHDOG_MS, handleServerEvent, initialLive, liveStore, reconnectDelay, useServerEvents } from "./events";
-import { bumpUnread, keys, resetCountsGuard } from "./queries";
+import { WATCHDOG_MS, handleServerEvent, initialLive, liveStore, reconnectDelay, resetCountsGuard, useServerEvents } from "./events";
+import { bumpUnread, keys } from "./queries";
 import type { ServerEvent } from "./types";
 import { authStore } from "./client";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
@@ -603,30 +603,53 @@ describe("hung-stream watchdog", () => {
 });
 
 describe("counts events versus optimistic bumps", () => {
-  it("a stale counts event right after a local bump is held, then applied once the window is over", async () => {
+  const boot = () => ({
+    counts: { unread: 5, starred: 0 },
+    feeds: [{ id: "1", folder_id: "1", unread: 5 }],
+    folders: [{ id: "1", unread: 5 }],
+  });
+  const countsOf = (qc: QueryClient) => qc.getQueryData<ReturnType<typeof boot>>(keys.bootstrap)!;
+  const counts = (unread: number) => ({ type: "counts", data: { unread_total: unread, feeds: { "1": unread } } }) as unknown as ServerEvent;
+
+  it("a stale counts event right after a local bump is held, then the newest one is applied once the window is over", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     try {
       resetCountsGuard();
       const qc = new QueryClient();
-      const boot = {
-        counts: { unread: 3, starred: 0 },
-        feeds: [{ id: "1", folder_id: "1", unread: 3 }],
-        folders: [{ id: "1", unread: 3 }],
-      };
-      qc.setQueryData(keys.bootstrap, boot);
+      qc.setQueryData(keys.bootstrap, boot());
       const inval = vi.spyOn(qc, "invalidateQueries");
-      bumpUnread(qc, "1", -1);
-      const stale = { type: "counts", data: { unread_total: 3, feeds: { "1": 3 } } } as unknown as ServerEvent;
-      handleServerEvent(qc, stale);
-      expect((qc.getQueryData(keys.bootstrap) as typeof boot).counts.unread).toBe(2);
-      const newer = { type: "counts", data: { unread_total: 2, feeds: { "1": 2 } } } as unknown as ServerEvent;
-      handleServerEvent(qc, newer); // the newest held event wins
-      expect((qc.getQueryData(keys.bootstrap) as typeof boot).counts.unread).toBe(2);
+      bumpUnread(qc, "1", -1); // 5 -> 4
+      handleServerEvent(qc, counts(5)); // in flight before the open: carries the old number
+      expect(countsOf(qc).counts.unread).toBe(4);
+      handleServerEvent(qc, counts(3)); // the newest held event wins
+      expect(countsOf(qc).counts.unread).toBe(4);
       await vi.advanceTimersByTimeAsync(2_000);
+      expect(countsOf(qc).counts.unread).toBe(3);
+      expect(countsOf(qc).feeds[0]!.unread).toBe(3);
       expect(inval).not.toHaveBeenCalledWith({ queryKey: keys.bootstrap });
       // Outside the window an event applies as before.
-      handleServerEvent(qc, { type: "counts", data: { unread_total: 1, feeds: { "1": 1 } } } as unknown as ServerEvent);
-      expect((qc.getQueryData(keys.bootstrap) as typeof boot).counts.unread).toBe(1);
+      handleServerEvent(qc, counts(1));
+      expect(countsOf(qc).counts.unread).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts held in the window do not overwrite a bootstrap fetched from the server in the meantime", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      resetCountsGuard();
+      const qc = new QueryClient();
+      qc.setQueryData(keys.bootstrap, boot());
+      const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+      const { unmount } = renderHook(() => useServerEvents(true), { wrapper });
+      bumpUnread(qc, "1", -1);
+      handleServerEvent(qc, counts(3));
+      const fresh = { ...boot(), counts: { unread: 2, starred: 0 }, feeds: [{ id: "1", folder_id: "1", unread: 2 }] };
+      await act(() => qc.fetchQuery({ queryKey: keys.bootstrap, queryFn: () => Promise.resolve(fresh), staleTime: 0 }));
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+      expect(countsOf(qc).counts.unread).toBe(2);
+      unmount();
     } finally {
       vi.useRealTimers();
     }

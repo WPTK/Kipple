@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, authStore } from "./client";
 import { filtersKey } from "./filters";
 import { wasFilterTouched } from "./filterEdits";
-import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type BootstrapAnswer, type ItemPatch } from "./queries";
+import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, resetCountsGuard as resetBumpWindow, type BootstrapAnswer, type ItemPatch } from "./queries";
 import { PAGE_SIZE, SECTION_SUFFIX, itemsParams } from "./queryKeys";
 import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
 import { announce } from "@/shell/toasts";
@@ -356,6 +356,14 @@ function applyHeldCounts(qc: QueryClient): void {
   countsHeld = undefined;
 }
 
+/** Forget the guard window and anything held in it (state must not carry over between tests). */
+export function resetCountsGuard(): void {
+  resetBumpWindow();
+  if (countsTimer) clearTimeout(countsTimer);
+  countsTimer = undefined;
+  countsHeld = undefined;
+}
+
 export { SAVED_COUNTS_MIN_MS, resetSavedSearchCounts };
 
 /** Everything one event does: reducer, query cache, live region. `id` is the event's SSE id (absent for one made locally). */
@@ -700,6 +708,8 @@ export function useServerEvents(enabled: boolean): void {
     document.addEventListener("visibilitychange", onVisible);
     const stopSeed = qc.getQueryCache().subscribe((e) => {
       if (e.type === "updated" && e.action.type === "success" && e.query.queryKey[0] === "bootstrap") {
+        // A bootstrap that came from the server is newer than any counts held for the window; a local patch is not.
+        if (!e.action.manual) countsHeld = undefined;
         const b = e.query.state.data as Bootstrap | undefined;
         seedRuns(b?.runs, b?.event_id);
       }

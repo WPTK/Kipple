@@ -1,1 +1,1 @@
-Opening an unread article no longer reloads the whole bootstrap: the newest unread counts that arrived during the optimistic window are applied once it ends.
+Reader: unread counts stay correct after opening an article, without reloading the app's data.

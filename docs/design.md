@@ -1222,10 +1222,10 @@ A dedup-mode change through the UI or API sets `rekey_pending = 1` and nothing e
 - **`GET /api/events`** (session-authenticated):
   - Headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `X-Accel-Buffering: no`, no `Content-Length`. The handler calls `http.Flusher` after every event.
   - Every 15 s a `: ping` comment goes out, well under Cloudflare's 125 s proxy read timeout, followed by a named `heartbeat` event (`data: {"t":<unix>}`, no `id`), which `EventSource` can observe (§7.3).
-  - Each subscriber has a buffered channel of 64. When it overflows, the hub drops the channel and sends one `resync` event.
+  - Each subscriber has a buffered channel of 64 plus the length of its replay. When it overflows, the hub drops the channel and sends one `resync` event.
   - The stream opens with `retry: 3000` and a `: connected` comment. Each write has its own 10 s deadline (the server-wide `WriteTimeout` would kill the stream).
   - Every heartbeat re-checks the client's session and closes the stream when it was revoked (sign out other sessions).
-  - The handler holds no database connection while waiting. Event ids keep rising across restarts (the hub seeds its counter from the clock in microseconds), unless the clock was set back. `Last-Event-ID` replays from a ring buffer capped at 500 events and 1 MiB of payload. The cursor is also accepted as `?last_event_id=` (the header wins). The subscriber gets a single `resync` event instead of a replay when the ring no longer reaches back to the cursor, when 64 or more events would be replayed, or when the cursor is ahead of the hub.
+  - The handler holds no database connection while waiting. Event ids keep rising across restarts (the hub seeds its counter from the clock in microseconds), unless the clock was set back. `Last-Event-ID` replays from a ring buffer capped at 500 events and 1 MiB of payload. The cursor is also accepted as `?last_event_id=` (the header wins). Everything the ring holds after the cursor is replayed. The subscriber gets a single `resync` event instead when the ring no longer reaches back to the cursor (including a ring the byte cap emptied), when the cursor is not a number, or when the cursor is ahead of the newest event.
   - Event list in §7.3.
 - **Graceful shutdown.** `signal.NotifyContext(SIGINT, SIGTERM)`, then:
   1. `sched.Stop()`:
