@@ -238,6 +238,8 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   useSearchHighlight(scope.q, { fallback, typing: scope.typing });
   // An archived article's feed (the archive feed) is not one of these, so "Edit feed" says it is gone.
   const feedById = useMemo(() => new Map(visibleFeeds(boot.data?.feeds).map((f) => [f.id, f])), [boot.data]);
+  // The row menu reads the feeds when an action runs, not when it is built, so a feed change does not remake the menu actions.
+  const feedByIdRef = useLatestRef(feedById);
   const unreadView = scope.view === "unread" && !scope.q;
 
   // "Only items present when the list loaded": the highest id the list knew about.
@@ -1089,13 +1091,13 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       openOriginal: (item) => void openOriginalAndRecord(item),
       copyLink: (item) => void copyLink(item.url),
       share: (item) => void shareAndRecord(item),
-      muteSimilar: (item) => openFilterEditor({ mode: "create", seed: similarSeed(item, feedById.get(item.feed_id)?.title) }),
+      muteSimilar: (item) => openFilterEditor({ mode: "create", seed: similarSeed(item, feedByIdRef.current.get(item.feed_id)?.title) }),
       restore: restoreRow,
       editRule: (item) => item.muted_by && openFilterEditor({ mode: "edit", id: item.muted_by }),
-      manageFeed: (item) => (feedById.has(item.feed_id) ? openFeedEditor(item.feed_id) : toast("This feed no longer exists.", "error")),
+      manageFeed: (item) => (feedByIdRef.current.has(item.feed_id) ? openFeedEditor(item.feed_id) : toast("This feed no longer exists.", "error")),
       noRange: rank || !!scope.typing,
     }),
-    [act, range, restoreRow, feedById, rank, scope.typing],
+    [act, range, restoreRow, feedByIdRef, rank, scope.typing],
   );
 
   // ---- pull to refresh ---------------------------------------------------
