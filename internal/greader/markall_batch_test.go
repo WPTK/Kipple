@@ -24,27 +24,38 @@ func TestMarkAllAsReadPublishesResyncWhenALaterBatchFails(t *testing.T) {
 	defer sub.Close()
 
 	f := h.addFeed("https://a.example/f", "A", "")
-	for range store.MarkAllBatch + 5 {
-		h.addItem(f, itemSeed{})
-	}
-	// The second batch starts with MarkAllBatch items already read: fail it.
 	require.NoError(t, h.db.WithWrite(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, fmt.Sprintf(`CREATE TRIGGER fail_second_batch BEFORE UPDATE OF read ON items
-			WHEN (SELECT count(*) FROM items WHERE read = 1) >= %d
-			BEGIN SELECT RAISE(ABORT, 'stop'); END`, store.MarkAllBatch))
-		return err
+		// One statement for the items, and constant work per updated row below, so the test stays fast
+		// under the race detector.
+		for _, q := range []string{
+			fmt.Sprintf(`WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM s WHERE i < %d)
+				INSERT INTO items (id, feed_id, read, starred, published_at, sort_at, uid, content_hash, text_hash)
+				SELECT i, %d, 0, 0, 1, 1, 'u' || i, 'c', 't' FROM s`, store.MarkAllBatch+5, f),
+			`CREATE TABLE fail_ctr (n INTEGER NOT NULL)`,
+			`INSERT INTO fail_ctr VALUES (0)`,
+			`CREATE TRIGGER fail_count AFTER UPDATE OF read ON items BEGIN UPDATE fail_ctr SET n = n + 1; END`,
+			// Once a whole batch of rows has been updated, the next update fails: whichever rows each batch picked.
+			fmt.Sprintf(`CREATE TRIGGER fail_stop BEFORE UPDATE OF read ON items WHEN (SELECT n FROM fail_ctr) >= %d
+				BEGIN SELECT RAISE(ABORT, 'stop'); END`, store.MarkAllBatch),
+		} {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return err
+			}
+		}
+		return nil
 	}))
 
 	w := h.post(rd+"mark-all-as-read", "T="+h.tok+"&s=user/-/state/com.google/reading-list")
-	require.Equal(t, 500, w.Code)
-	var read int
+	var read, ctr int
 	require.NoError(t, h.db.Reader().QueryRow("SELECT count(*) FROM items WHERE read = 1").Scan(&read))
-	require.Equal(t, store.MarkAllBatch, read, "the first batch is committed")
+	require.NoError(t, h.db.Reader().QueryRow("SELECT n FROM fail_ctr").Scan(&ctr))
+	require.Equal(t, 500, w.Code, "read=%d counter=%d body=%s", read, ctr, w.Body.String())
+	require.Equal(t, store.MarkAllBatch, read, "the first batch is committed: counter=%d", ctr)
 	select {
 	case ev := <-sub.C:
 		require.Equal(t, "resync", ev.Type)
 	case <-time.After(2 * time.Second):
-		t.Fatal("no resync after a partly applied mark-all-as-read")
+		t.Fatalf("no resync after a partly applied mark-all-as-read: read=%d counter=%d", read, ctr)
 	}
 }
 
@@ -72,10 +83,10 @@ func TestMarkAllAsReadPublishesNothingWhenTheFirstBatchRollsBack(t *testing.T) {
 	}))
 
 	w := h.post(rd+"mark-all-as-read", "T="+h.tok+"&s=user/-/state/com.google/reading-list")
-	require.Equal(t, 500, w.Code)
 	var read int
 	require.NoError(t, h.db.Reader().QueryRow("SELECT count(*) FROM items WHERE read = 1").Scan(&read))
-	require.Zero(t, read, "the batch rolled back")
+	require.Equal(t, 500, w.Code, "read=%d body=%s", read, w.Body.String())
+	require.Zero(t, read, "the batch rolled back: code=%d", w.Code)
 	select {
 	case ev := <-sub.C:
 		t.Fatalf("unexpected %s event after a rolled-back batch", ev.Type)

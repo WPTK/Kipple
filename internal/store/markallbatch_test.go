@@ -141,21 +141,28 @@ func TestMarkAllReadBatchedCountsOnlyCommittedBatches(t *testing.T) {
 	e.seedLedger(feed, 6, 2)
 	e.exec(`CREATE TRIGGER fail_ledger BEFORE UPDATE OF read ON trimmed_items BEGIN SELECT RAISE(ABORT, 'stop'); END`)
 	n, err := e.db.MarkAllReadBatched(e.ctx, MarkScope{FeedID: feed}, 1<<40, 500)
-	require.Error(t, err)
-	require.Zero(t, n, "the failed batch is not counted")
-	require.Equal(t, 5, e.count("SELECT count(*) FROM items WHERE read = 0"), "and its item updates rolled back")
+	unread := e.count("SELECT count(*) FROM items WHERE read = 0")
+	require.Error(t, err, "n=%d unread=%d", n, unread)
+	require.Zero(t, n, "the failed batch is not counted: err=%v unread=%d", err, unread)
+	require.Equal(t, 5, unread, "its item updates rolled back: n=%d err=%v", n, err)
 
 	e2 := newEnv(t)
 	f2 := e2.addFeed("http://ledgerfail2.example/feed")
 	e2.seedItems(f2, 1, MarkAllBatch+5, 0)
 	e2.seedLedger(f2, int64(MarkAllBatch)+6, MarkAllBatch+2)
-	// Fails in the second batch only: by then more than one batch of items is read.
-	e2.exec(fmt.Sprintf(`CREATE TRIGGER fail_ledger BEFORE UPDATE OF read ON trimmed_items
-		WHEN (SELECT count(*) FROM items WHERE read = 1) > %d BEGIN SELECT RAISE(ABORT, 'stop'); END`, MarkAllBatch))
-	n, err = e2.db.MarkAllReadBatched(e2.ctx, MarkScope{FeedID: f2}, 1<<40, 500)
-	require.Error(t, err)
-	require.EqualValues(t, MarkAllBatch, n, "the first batch committed, the second is not counted")
-	require.Equal(t, MarkAllBatch, e2.count("SELECT count(*) FROM items WHERE read = 1"))
+	// The failing trigger is created after batch 1 commits, so only batch 2 can fail whichever rows each
+	// batch picked. It does no per-row work.
+	top, err := e2.db.MaxCommittedID(e2.ctx)
+	require.NoError(t, err)
+	hooked := 0
+	n, err = e2.db.markAllReadBatched(e2.ctx, MarkScope{FeedID: f2}, 1<<40, top, 500, func() {
+		hooked++
+		e2.exec(`CREATE TRIGGER fail_ledger BEFORE UPDATE OF read ON trimmed_items BEGIN SELECT RAISE(ABORT, 'stop'); END`)
+	})
+	read := e2.count("SELECT count(*) FROM items WHERE read = 1")
+	require.Error(t, err, "n=%d hooked=%d read=%d", n, hooked, read)
+	require.EqualValues(t, MarkAllBatch, n, "the first batch committed, the second is not counted: err=%v hooked=%d read=%d", err, hooked, read)
+	require.Equal(t, MarkAllBatch, read, "n=%d err=%v hooked=%d", n, err, hooked)
 }
 
 // The scopes: the held items stay unread through every batch, a starred scope marks starred items only and
