@@ -42,46 +42,57 @@ var privateZones = map[string]bool{
 // letters, digits, '.', '-' and '_' in a name (so no percent-encoding, no
 // raw Unicode: an internationalized name arrives in its xn-- form).
 func NormalizeHost(h string) (string, bool) {
-	if h == "" || len(h) > maxHostLen+8 {
-		return "", false
-	}
-	if h[0] == '[' {
-		end := strings.IndexByte(h, ']')
-		if end < 0 || !validPort(h[end+1:]) {
+	if h != "" && h[0] != '[' && strings.Count(h, ":") > 1 {
+		// A bare IPv6 literal (not valid in a Host header, but unambiguous). It has no port to read, so
+		// SplitHostPort does not take it.
+		if len(h) > maxHostLen+8 {
 			return "", false
 		}
-		a, err := netip.ParseAddr(h[1:end])
-		if err != nil || !a.Is6() || a.Zone() != "" { // no browser sends a zone
-			return "", false
-		}
-		return strings.ToLower(a.String()), true
-	}
-	if strings.Count(h, ":") > 1 {
-		// A bare IPv6 literal (not valid in a Host header, but unambiguous).
 		a, err := netip.ParseAddr(h)
 		if err != nil || a.Zone() != "" {
 			return "", false
 		}
 		return strings.ToLower(a.String()), true
 	}
-	host := h
-	if i := strings.IndexByte(h, ':'); i >= 0 {
-		if !validPort(h[i:]) {
-			return "", false
+	host, _, ok := SplitHostPort(h)
+	return host, ok
+}
+
+// SplitHostPort is NormalizeHost that also returns the port ("" when the value has none). Unlike NormalizeHost
+// it rejects a bare IPv6 literal: with no brackets its port cannot be told from the address.
+func SplitHostPort(h string) (host, port string, ok bool) {
+	if h == "" || len(h) > maxHostLen+8 {
+		return "", "", false
+	}
+	if h[0] == '[' {
+		end := strings.IndexByte(h, ']')
+		if end < 0 || !validPort(h[end+1:]) {
+			return "", "", false
 		}
-		host = h[:i]
+		a, err := netip.ParseAddr(h[1:end])
+		if err != nil || !a.Is6() || a.Zone() != "" { // no browser sends a zone
+			return "", "", false
+		}
+		return strings.ToLower(a.String()), strings.TrimPrefix(h[end+1:], ":"), true
+	}
+	host = h
+	if i := strings.IndexByte(h, ':'); i >= 0 {
+		if strings.Count(h, ":") > 1 || !validPort(h[i:]) {
+			return "", "", false
+		}
+		host, port = h[:i], h[i+1:]
 	}
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	if a, err := netip.ParseAddr(host); err == nil {
 		if !a.Is4() {
-			return "", false // an IPv6 literal needs brackets once a port may follow
+			return "", "", false // an IPv6 literal needs brackets once a port may follow
 		}
-		return a.String(), true
+		return a.String(), port, true
 	}
 	if !validName(host) {
-		return "", false
+		return "", "", false
 	}
-	return host, true
+	return host, port, true
 }
 
 // validPort accepts "" or ":" followed by 1 to 5 digits.
