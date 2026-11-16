@@ -67,6 +67,8 @@ const READER_CHARS = 45;
 const READER_CHAR_EM = 0.52;
 const READER_BODY_REM = 1.0625;
 const READER_PAD_REM = 3;
+/** The root font size at the Default text size: only larger sizes make the list take room the article needs. */
+const DEFAULT_REM_PX = 16;
 
 /** The article pane's width, in px, that holds a line of about 45 characters at a root font size of `remPx`: it grows with the text size. */
 export function readerNeed(remPx: number): number {
@@ -77,11 +79,11 @@ export function readerNeed(remPx: number): number {
  * The widest the list column may be in `total` px. The article beside it first keeps what its toolbar needs (`article`),
  * then, while the list keeps its own controls whole (`listFloor`), what a readable line needs (`readerNeed`): a larger
  * text size makes both the list and the article take more room, and without this the article is left a column of about
- * 30 characters. Never below `min`, and never above `max`.
+ * 30 characters. At the default text size and below the shell keeps its earlier split. Never below `min`, and never above `max`.
  */
 export function listLimit(total: number, need: ColumnNeeds, remPx: number, listFloor: number, min: number, max: number): number {
   const toolbar = need.article + need.gutter;
-  const reading = Math.min(readerNeed(remPx) + need.gutter, Math.max(toolbar, total - listFloor));
+  const reading = remPx > DEFAULT_REM_PX ? Math.min(readerNeed(remPx) + need.gutter, Math.max(toolbar, total - listFloor)) : 0;
   return maxFor(total, Math.max(toolbar, reading), min, max);
 }
 

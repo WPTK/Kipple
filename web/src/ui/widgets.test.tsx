@@ -158,6 +158,11 @@ describe("column limits", () => {
     // The default text size in a wide window: the list keeps the width its layout asks for (28 rem at most) and the article has far more than a line needs.
     const def = columnNeeds(16, false);
     expect(listLimit(1180, def, 16, floor(def), 260, 720)).toBeGreaterThanOrEqual(28 * 16);
+    // At the default size and below the split is the earlier one: the article keeps its toolbar's room and the list takes the rest.
+    for (const rem of [14, 16]) {
+      const n = columnNeeds(rem, false);
+      for (const total of [700, 900, 1180]) expect(listLimit(total, n, rem, floor(n), 260, 720)).toBe(maxFor(total, n.article + n.gutter, 260, 720));
+    }
     // The largest text size (a root font of 24 px) in the same window: the list used to take everything but the toolbar's need and left
     // the article about 400 px of text; it now stops at its own controls' width, and the article keeps the room for about 45 characters.
     const big = columnNeeds(24, false);
