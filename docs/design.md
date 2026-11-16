@@ -1114,6 +1114,8 @@ Then add the fetch_log note `redirect_migrated: <old> -> <new>` with `keep = 1`.
 - `link_title`: `'l:'+h(raw link + "\x1f" + title)`, falling back to the `h:` rule when there is no link.
 - In `link` and `link_title` modes a later item whose uid repeats an earlier one in the same document is dropped, because `(feed_id, uid)` is unique.
 - If more than 5% of the items that carry a non-empty guid repeat an earlier guid in the same document, the fetch adds the note `guid_duplicates: k/n` (k repeats, n items with a guid). Empty guids are not counted. Nothing switches automatically.
+- **An entry whose guid or link changes between polls is a new article.** A key that no stored row has, and that no re-key above carries over, inserts the entry as a new unread row; the old row stays until retention trims it. Matching on title and date instead would drop a new article that shares them with an older one, so the entry is kept and a feed that re-keys most of its entries is flagged by the `guid_churn_suspected` note (the churn check in the commit steps below) rather than merged.
+- **An entry with no usable date is dated at the fetch time.** When an entry has neither a published nor an updated date (a date at or before the Unix epoch counts as none), `published_at` and `sort_at` are the entry's crawl second. The value is stored once, so the entry keeps its place in lists after later fetches, and entries of one fetch that lack a date keep the order set out under the id allocator (§3).
 
 **Hashes.** `content_hash` = `h(title | url | author | sanitized content_html)`. `text_hash` = `h(title | content_text)`. Dates are excluded from both.
 
