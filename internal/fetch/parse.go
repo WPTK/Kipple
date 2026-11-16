@@ -235,7 +235,7 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 const MaxItemsPerFetch = 2000
 
 // newestEntries returns the positions of the n newest entries, in document order. Newest is retention's order
-// (sort_at, then id, both descending): sort_at is the published date (else the updated date), capped one day past
+// (sort_at, then id, both descending): sort_at is the published date (else the updated date), capped at
 // now, and an undated entry takes the time of the fetch, so it counts as new. Ids follow store.oldestFirst (date
 // ascending, undated last, ties in reverse document order), so among equal sort_at the later uncapped date wins, then the entry
 // earlier in the document; keep the two in step. It reads only the dates gofeed parsed.
@@ -247,7 +247,7 @@ func newestEntries(entries []*gofeed.Item, n int, now time.Time) []int {
 		if gi != nil {
 			if t := firstTime(gi.PublishedParsed, gi.UpdatedParsed); t != nil {
 				date[i] = t.Unix()
-				sortAt[i] = min(date[i], now.Unix()+86400)
+				sortAt[i] = min(date[i], now.Unix())
 			}
 		}
 	}

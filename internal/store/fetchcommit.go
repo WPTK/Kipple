@@ -542,7 +542,7 @@ func (d *DB) applyItems(ctx context.Context, tx *sql.Tx, res *fetch.Result, item
 			if it.Published != nil {
 				pub = it.Published.Unix()
 			}
-			sortAt := min(pub, crawl+86400)
+			sortAt := min(pub, crawl)
 			read := 0
 			if rekeyLeftover[it.UID] {
 				read = 1
