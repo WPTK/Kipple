@@ -15,8 +15,14 @@ import { FieldError, Modal, Notice, inputCls } from "@/ui/kit";
 const KIND_ICON = { phone: Smartphone, tablet: Tablet, computer: Monitor };
 
 const label = (d: DeviceRow): string => d.name || describeUserAgent(d.user_agent, d.client);
-/** What tells two devices of the same kind apart in a button's name: when it was last seen, or that it is this one. */
-const tagged = (d: DeviceRow): string => `${label(d)}, ${d.current ? "this device" : `last seen ${whenLabel(d.last_seen_at).toLowerCase()}`}`;
+/** When a device was first used, to the minute, for telling apart devices that share a name and were last seen about the same time. */
+const firstUsed = (d: DeviceRow): string =>
+  new Date(d.created_at * 1000).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+/** What tells two devices of the same kind apart: that it is this one or when it was last seen (and, where another device has the same name, when it was first used). */
+const detail = (d: DeviceRow, twin: boolean): string => `${d.current ? "this device" : `last seen ${whenLabel(d.last_seen_at).toLowerCase()}`}${twin ? `, first used ${firstUsed(d)}` : ""}`;
+const tagged = (d: DeviceRow, twin: boolean): string => `${label(d)}, ${detail(d, twin)}`;
+/** A device named in a confirmation, always with when it was last seen and first used, so the one being acted on is plain. */
+const described = (d: DeviceRow): string => `${label(d)} (${detail(d, true)})`;
 
 type Confirm = { kind: "copy"; from: DeviceRow } | { kind: "delete"; device: DeviceRow } | { kind: "default" } | { kind: "reset" } | { kind: "lists" };
 
@@ -95,7 +101,7 @@ function ThisDeviceName({ device }: { device: DeviceRow }) {
   );
 }
 
-function DeviceItem({ d, unsaved, onCopy, onForget }: { d: DeviceRow; unsaved: boolean; onCopy: () => void; onForget: () => void }) {
+function DeviceItem({ d, twin = false, unsaved, onCopy, onForget }: { d: DeviceRow; twin?: boolean; unsaved: boolean; onCopy: () => void; onForget: () => void }) {
   const Icon = KIND_ICON[deviceKind(d.user_agent)];
   return (
     <li className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-3">
@@ -108,6 +114,7 @@ function DeviceItem({ d, unsaved, onCopy, onForget }: { d: DeviceRow; unsaved: b
           </p>
           <p className="text-xs text-fg2">
             {d.current ? "Using it now" : `Last seen ${whenLabel(d.last_seen_at).toLowerCase()}`} ·{" "}
+            {twin ? `First used ${firstUsed(d)} · ` : ""}
             {d.overrides === 0 ? "uses the defaults" : `${d.overrides} setting${d.overrides === 1 ? "" : "s"} of its own`}
           </p>
           {d.name ? <p className="truncate text-xs text-fg2">{describeUserAgent(d.user_agent, d.client)}</p> : null}
@@ -116,11 +123,11 @@ function DeviceItem({ d, unsaved, onCopy, onForget }: { d: DeviceRow; unsaved: b
       {d.current ? null : (
         <div className="flex flex-wrap gap-2">
           {unsaved ? null : (
-            <Button onClick={onCopy} aria-label={`Copy its settings here, from ${tagged(d)}`}>
+            <Button onClick={onCopy} aria-label={`Copy its settings here, from ${tagged(d, twin)}`}>
               Copy its settings here
             </Button>
           )}
-          <Button variant="danger" onClick={onForget} aria-label={`Forget ${tagged(d)}`}>
+          <Button variant="danger" onClick={onForget} aria-label={`Forget ${tagged(d, twin)}`}>
             Forget
           </Button>
         </div>
@@ -156,13 +163,13 @@ function confirmCopy(c: Confirm): { title: string; body: string; action: string 
     case "copy":
       return {
         title: "Copy settings here?",
-        body: `This replaces this device's own settings with the ones ${label(c.from)} has. Anything you changed on this device is lost.`,
+        body: `This replaces this device's own settings with the ones ${described(c.from)} has. Anything you changed on this device is lost.`,
         action: "Copy settings",
       };
     case "delete":
       return {
         title: "Forget this device?",
-        body: `${label(c.device)} and its settings are removed. If it opens Kipple again it starts over as a new device.`,
+        body: `${described(c.device)} and its settings are removed. If it opens Kipple again it starts over as a new device.`,
         action: "Forget device",
       };
     case "default":
@@ -201,6 +208,9 @@ export function DevicesSection() {
   const list = [...(devices.data ?? [])].sort((a, b) => Number(b.current) - Number(a.current));
   const me = unsaved ? undefined : list.find((d) => d.current);
   const others = list.filter((d) => !d.current);
+  // Devices that share a name (two browsers of one kind, left unnamed) also show when each was first used.
+  const names = list.map(label);
+  const twins = new Set(names.filter((n, i) => names.indexOf(n) !== i));
 
   const run = async () => {
     if (!confirm) return;
@@ -256,7 +266,7 @@ export function DevicesSection() {
       {list.length ? (
         <ul aria-label="Your devices" className="flex flex-col gap-2">
           {list.map((d) => {
-            return <DeviceItem key={d.id} d={d} unsaved={unsaved} onCopy={() => setConfirm({ kind: "copy", from: d })} onForget={() => setConfirm({ kind: "delete", device: d })} />;
+            return <DeviceItem key={d.id} d={d} twin={twins.has(label(d))} unsaved={unsaved} onCopy={() => setConfirm({ kind: "copy", from: d })} onForget={() => setConfirm({ kind: "delete", device: d })} />;
           })}
         </ul>
       ) : null}

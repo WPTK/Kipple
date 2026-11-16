@@ -6,9 +6,9 @@
 //
 // For each width (desktop 1280x800, phone 375x812; a tablet 768x1024 pass runs in the desktop context) it checks:
 //   L1  the layout menu is one radio group of exactly seven layouts, each named by its label and hint, one checked, a hidden
-//       preview each, no Pictures, Lists or Pages groups; its button is named "Show and sort, <layout> layout" (and there is
+//       preview each, a Pictures group last (greyed in Editorial, with the reason), no Lists or Pages groups; its button is named "Show and sort, <layout> layout" (and there is
 //       still a separate "List actions" button); the menu and its rows fit the screen with no sideways scroll;
-//   L2  Pictures (Show or Hide) is in the menu's Show and sort part and in Settings, Appearance, Lists: choosing Hide in
+//   L2  in Inbox, Pictures (Show or Hide) is in the menu's Show and sort part and in Settings, Appearance, Lists: choosing Hide in
 //       the menu saves client.list_images false, Settings shows Hide checked, and choosing Show in Settings is the menu's value;
 //   L3  in the Digest, Order and Group by stay in the menu: every choice is aria-disabled (not disabled), can take focus,
 //       is described by the one-line reason, and choosing one changes nothing; on a wide screen the header's Oldest first
@@ -62,7 +62,9 @@ await t.eachViewport(async (page, vp) => {
     const headings = await menu.evaluate((m) => [...m.querySelectorAll("*")].filter((e) => e.children.length === 0 && ["Lists", "Pages"].includes((e.textContent ?? "").trim())).length);
     check(groups.join("|") === "Layout|Order|Group by|Pictures" && headings === 0, `${tag} L1 old groups`, "the groups are exactly Layout / Order / Group by / Pictures in that order, and no Lists or Pages heading", `groups: ${groups.join(" | ")}, ${headings} old headings`);
     const note = await menu.getByRole("group", { name: "Pictures", exact: true }).evaluate((g) => (document.getElementById(g.getAttribute("aria-describedby") ?? "")?.textContent ?? "").trim());
-    check(note === "Applies to Inbox and Digest.", `${tag} L1 pictures note`, "Pictures says which layouts it applies to", `the note reads "${note}"`);
+    check(note === `${current} always shows its pictures.`, `${tag} L1 pictures note`, "Pictures is greyed in Editorial, with the reason", `the note reads "${note}"`);
+    const inert = await menu.getByRole("group", { name: "Pictures", exact: true }).getByRole("menuitemradio").evaluateAll((els) => els.map((e) => e.getAttribute("aria-disabled")));
+    check(inert.length === 2 && inert.every((a) => a === "true"), `${tag} L1 pictures greyed`, "both Pictures choices are aria-disabled in Editorial, which shows its pictures always", JSON.stringify(inert));
     const fit = await menu.evaluate((m) => {
       const r = m.getBoundingClientRect();
       const rows = [...m.querySelectorAll("[role=menuitemradio]")].map((e) => e.getBoundingClientRect());
@@ -139,7 +141,8 @@ await t.eachViewport(async (page, vp) => {
       check((await page.getByRole("menu").count()) === 0, `${tag} L7 escape`, "Escape closes the menu", "the menu is still open");
       await open("magazine");
 
-      // L2
+      // L2 (in Inbox: Editorial always shows its pictures, so its Pictures choices are greyed)
+      await open("inbox");
       const menu2 = await openMenu();
       const pictures = menu2.getByRole("group", { name: "Pictures", exact: true });
       check((await pictures.count()) === 1 && (await pictures.getByRole("menuitemradio", { name: /^Show/ }).getAttribute("aria-checked")) === "true", `${tag} L2 menu`, "Show and sort offers Pictures with Show chosen", "no such group or Show is not chosen");

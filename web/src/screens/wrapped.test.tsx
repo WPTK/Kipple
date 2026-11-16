@@ -80,6 +80,29 @@ describe("Wrapped screen", () => {
     expect(screen.getByRole("region", { name: "Your year" })).toHaveAttribute("tabindex", "0");
   });
 
+  it("lays the cards out by the width of the screen itself: one column, then two with the first card across both", async () => {
+    setup();
+    go();
+    const hero = await screen.findByRole("region", { name: "Articles read in 2026" });
+    const grid = hero.parentElement as HTMLElement;
+    expect(grid.parentElement).toHaveClass("@container");
+    expect(grid).toHaveClass("grid", "grid-cols-1", "@2xl:grid-cols-2", "@2xl:[&>:last-child:nth-child(even)]:col-span-2");
+    expect(hero).toHaveClass("@2xl:col-span-2");
+    expect(screen.getByRole("region", { name: "Active reading" })).not.toHaveClass("@2xl:col-span-2");
+    expect([...grid.children]).toHaveLength(9); // every card is a direct child of the grid
+  });
+
+  it("with the note about little data after the cards, the rule for a lone last card is on the card before the note", async () => {
+    setup({}, { ...yearData, first_event_date: "2026-09-22", behavior: { ...yearData.behavior!, longest_read: null } });
+    go();
+    const hero = await screen.findByRole("region", { name: "Articles read in 2026" });
+    const grid = hero.parentElement as HTMLElement;
+    expect(screen.getByText(/Only \d+ days? of reading/)).toBeInTheDocument();
+    expect([...grid.children].map((c) => c.tagName)).toEqual(["SECTION", "SECTION", "SECTION", "SECTION", "P"]); // the Top sources card is alone after the first row of two
+    expect(grid).toHaveClass("@2xl:[&>:nth-last-child(2):nth-child(even)]:col-span-2");
+    expect(grid).not.toHaveClass("@2xl:[&>:last-child:nth-child(even)]:col-span-2");
+  });
+
   it("offers the years from the first event and refetches the chosen one", async () => {
     const user = userEvent.setup();
     const m = setup();
