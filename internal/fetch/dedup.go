@@ -23,8 +23,29 @@ func H(x string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
+// hashChunked is H for a long string, read in pieces so the string is not copied whole.
+func hashChunked(x string) string {
+	h := sha256.New()
+	var buf [32 << 10]byte
+	for len(x) > 0 {
+		n := copy(buf[:], x)
+		h.Write(buf[:n])
+		x = x[n:]
+	}
+	return hex.EncodeToString(h.Sum(nil)[:16])
+}
+
 // textFallbackUID is the last-resort uid: 'h:' + h(title 0x1f text).
 func textFallbackUID(title, text string) string { return "h:" + H(title+sep+text) }
+
+// fallbackUID is the last-resort uid of an entry with no guid and no link: its title and its text, and for an entry
+// whose HTML was cut, a hash of the whole text before the cut, so two entries alike in the part that was kept stay two.
+func (it *Item) fallbackUID() string {
+	if it.cutKey == "" {
+		return textFallbackUID(it.Title, it.ContentText)
+	}
+	return textFallbackUID(it.Title, it.ContentText+sep+it.cutKey)
+}
 
 // AssignUIDs sets Item.UID, Item.AltUID and Item.LinkHash for every item and
 // applies the in-document duplicate rules. It returns the fetch notes
@@ -71,7 +92,7 @@ func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 			if it.RawLink != "" {
 				uid = "l:" + H(it.RawLink+sep+it.Title)
 			} else {
-				uid = textFallbackUID(it.Title, it.ContentText)
+				uid = it.fallbackUID()
 			}
 		default: // auto
 			switch {
@@ -111,7 +132,7 @@ func AssignUIDs(items []Item, mode string) (kept []Item, notes []string) {
 				uid = "l:" + H(it.RawLink)
 				alt = "l:" + H(it.RawLink+sep+it.Title)
 			default:
-				uid = textFallbackUID(it.Title, it.ContentText)
+				uid = it.fallbackUID()
 			}
 		}
 		if guid != "" {
@@ -149,7 +170,7 @@ func linkUID(it *Item) string {
 	if it.RawLink != "" {
 		return "l:" + H(it.RawLink)
 	}
-	return textFallbackUID(it.Title, it.ContentText)
+	return it.fallbackUID()
 }
 
 // ContentHash is h(title | url | author | sanitized content_html). Fields are
