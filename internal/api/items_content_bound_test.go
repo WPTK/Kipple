@@ -127,13 +127,17 @@ func TestIncludeContentRankContinuationSurvivesAnItemLeaving(t *testing.T) {
 		return clock()
 	}
 	var got []string
+	var pages [][]string
 	path := "/api/items?include=content&order=rank&q=needle"
 	for {
 		code, body, _ := h.api(c, "GET", path, "")
 		require.Equal(t, 200, code)
+		var page []string
 		for _, it := range body["items"].([]any) {
-			got = append(got, it.(map[string]any)["id"].(string))
+			page = append(page, it.(map[string]any)["id"].(string))
 		}
+		pages = append(pages, page)
+		got = append(got, page...)
 		next, _ := body["next_cursor"].(string)
 		if next == "" {
 			break
@@ -141,5 +145,8 @@ func TestIncludeContentRankContinuationSurvivesAnItemLeaving(t *testing.T) {
 		path = "/api/items?include=content&order=rank&q=needle&cursor=" + next
 	}
 	require.True(t, fired)
+	// The first page holds two 3 MiB articles and is cut before the third (8 MiB bound), so the rest of the
+	// list is reached only by following next_cursor.
+	require.Equal(t, [][]string{{ids[0], ids[2]}, {ids[3], ids[4]}}, pages)
 	require.Equal(t, []string{ids[0], ids[2], ids[3], ids[4]}, got)
 }
