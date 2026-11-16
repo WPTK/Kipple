@@ -7,7 +7,8 @@ import (
 )
 
 // 0023 adds the per-feed unread ledger index and changes no row: a schema-22 database (the index dropped
-// and user_version stepped back) upgrades to the same objects as a fresh one.
+// and user_version stepped back) upgrades to the same objects as a fresh one, with every ledger row's values
+// unchanged.
 func TestMigration0023AddsTheLedgerIndex(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -16,6 +17,9 @@ func TestMigration0023AddsTheLedgerIndex(t *testing.T) {
 		e.exec(`INSERT INTO trimmed_items (id, feed_id, uid, read, trimmed_at, last_seen_at)
 			VALUES (?1, ?2, 't' || ?1, ?1 % 4 != 0, 1, 1)`, 1000+i, feed)
 	}
+	const ledgerRows = `SELECT group_concat(id || '|' || feed_id || '|' || uid || '|' || read || '|' || trimmed_at || '|' || last_seen_at, char(10))
+		FROM (SELECT * FROM trimmed_items ORDER BY id)`
+	rowsBefore := scalar[string](t, e.db.Reader(), ledgerRows)
 	fresh := schemaObjects(t, e.db.Reader())
 	e.exec("DROP INDEX idx_trimmed_feed_unread")
 	e.exec("PRAGMA user_version = 22")
@@ -27,6 +31,7 @@ func TestMigration0023AddsTheLedgerIndex(t *testing.T) {
 	require.Equal(t, "CREATE INDEX idx_trimmed_feed_unread ON trimmed_items(feed_id, id) WHERE read = 0",
 		scalar[string](t, r, "SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = 'idx_trimmed_feed_unread'"))
 	require.Equal(t, fresh, schemaObjects(t, r))
+	require.Equal(t, rowsBefore, scalar[string](t, r, ledgerRows))
 	require.Equal(t, 40, scalar[int](t, r, "SELECT count(*) FROM trimmed_items"))
 	require.Equal(t, 10, scalar[int](t, r, "SELECT count(*) FROM trimmed_items WHERE read = 0"))
 	requireCleanIntegrity(t, r)
