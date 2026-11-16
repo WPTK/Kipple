@@ -11,13 +11,13 @@ type CopyState = "idle" | "copied" | "failed";
 
 /** The keys that do something in Kipple. There are no single-key shortcuts, so every line is a key that moves, opens or closes. */
 const KEYBOARD_KEYS: readonly { keys: readonly string[]; does: string }[] = [
-  { keys: ["Tab", "Shift+Tab"], does: "Move between controls. A list of articles is one Tab stop; the arrow keys move within it." },
-  { keys: ["Up arrow", "Down arrow"], does: "Move to the previous or next article in a list, the Digest or the Feed index." },
-  { keys: ["Home", "End"], does: "Move to the first or last article." },
+  { keys: ["Tab", "Shift+Tab"], does: "Move between controls. A list of articles and the sidebar are each one Tab stop; the arrow keys move within them." },
+  { keys: ["Up arrow", "Down arrow"], does: "Move to the previous or next article in a list, the Digest or the Feed index, or the previous or next item in the sidebar." },
+  { keys: ["Home", "End"], does: "Move to the first or last article in a list, or the first or last item in the sidebar." },
   { keys: ["Page up", "Page down"], does: "Move up or down a screenful of articles." },
-  { keys: ["Enter", "Space"], does: "Open the article that has focus, or press the button that has it." },
-  { keys: ["Right arrow", "Left arrow"], does: "In the sidebar, open or close the folder that has focus." },
-  { keys: ["Esc"], does: "Close an open menu or dialog. With none open, leave the article you are reading and return to its list, or leave Search for the screen before it." },
+  { keys: ["Enter", "Space"], does: "In a list, open the article that has focus. In the sidebar, open the list of the feed or folder that has focus. On a button, press it." },
+  { keys: ["Right arrow", "Left arrow"], does: "In the sidebar, Right opens a closed folder or moves into an open one; Left closes an open folder or moves to the folder that holds the item." },
+  { keys: ["Esc"], does: "Close an open menu or dialog. In the search box, leave the box. Otherwise, leave the article you are reading and return to its list, or leave Search for the screen before it." },
 ];
 
 function KeyboardList() {
@@ -65,7 +65,14 @@ export function AboutSection() {
   }, []);
 
   if (about.isPending || !client) return <Skeleton rows={6} label="Loading" />;
-  if (about.isError) return <Notice tone="error">{`Couldn't load the version details: ${errorMessage(about.error)}`}</Notice>;
+  if (about.isError) {
+    return (
+      <>
+        <Notice tone="error">{`Couldn't load the version details: ${errorMessage(about.error)}`}</Notice>
+        <KeyboardList />
+      </>
+    );
+  }
 
   const a = about.data;
   const rows = aboutRows(a, client);

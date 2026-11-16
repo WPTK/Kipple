@@ -52,17 +52,22 @@ const Big = ({ children, hero = false }: { children: ReactNode; hero?: boolean }
 );
 const Sub = ({ children }: { children: ReactNode }) => <p className="mt-1 text-base text-fg2">{children}</p>;
 
+/** A last card that would stand alone in two columns goes across both. With the low-data note after the cards, the last card is the one before it. */
+const LAST_CARD = "@2xl:[&>:last-child:nth-child(even)]:col-span-2";
+const LAST_CARD_BEFORE_NOTE = "@2xl:[&>:nth-last-child(2):nth-child(even)]:col-span-2";
+
 /**
  * The year as cards, in the order of the share image: articles read, active reading, days with reading, then (from a
  * week of reading on) the longest streak and the busiest day, hour and month, then the top sources and the longest read.
  * One column while the screen is narrow; from 42rem of width (of the screen itself, not the window) two columns, with
- * the first card across both and a last card that would stand alone across both too.
+ * the first card across both and a last card that would stand alone across both too (the card before the note, when
+ * there is a note about little data).
  */
 export function WrappedCards({ m }: { m: WrappedModel }) {
   const low = isLowData(m);
   return (
     <div className="@container">
-      <div className="mx-auto grid max-w-xl grid-cols-1 gap-4 @2xl:max-w-5xl @2xl:grid-cols-2 @2xl:[&>:last-child:nth-child(even)]:col-span-2">
+      <div className={`mx-auto grid max-w-xl grid-cols-1 gap-4 @2xl:max-w-5xl @2xl:grid-cols-2 ${low ? LAST_CARD_BEFORE_NOTE : LAST_CARD}`}>
         <Card title={`Articles read in ${m.year}`} hero>
           <Big hero>{m.itemsRead}</Big>
           {m.avgReadSeconds != null ? <Sub>An average read took {durationLabel(m.avgReadSeconds)}.</Sub> : null}

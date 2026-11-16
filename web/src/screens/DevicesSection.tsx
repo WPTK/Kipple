@@ -15,10 +15,14 @@ import { FieldError, Modal, Notice, inputCls } from "@/ui/kit";
 const KIND_ICON = { phone: Smartphone, tablet: Tablet, computer: Monitor };
 
 const label = (d: DeviceRow): string => d.name || describeUserAgent(d.user_agent, d.client);
-/** The day a device was first used, for telling apart devices that share a name and were last seen about the same time. */
-const firstUsed = (d: DeviceRow): string => new Date(d.created_at * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-/** What tells two devices of the same kind apart in a button's name: when it was last seen (and, where another device has the same name, when it was first used), or that it is this one. */
-const tagged = (d: DeviceRow, twin: boolean): string => `${label(d)}, ${d.current ? "this device" : `last seen ${whenLabel(d.last_seen_at).toLowerCase()}`}${twin ? `, first used ${firstUsed(d)}` : ""}`;
+/** When a device was first used, to the minute, for telling apart devices that share a name and were last seen about the same time. */
+const firstUsed = (d: DeviceRow): string =>
+  new Date(d.created_at * 1000).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+/** What tells two devices of the same kind apart: that it is this one or when it was last seen (and, where another device has the same name, when it was first used). */
+const detail = (d: DeviceRow, twin: boolean): string => `${d.current ? "this device" : `last seen ${whenLabel(d.last_seen_at).toLowerCase()}`}${twin ? `, first used ${firstUsed(d)}` : ""}`;
+const tagged = (d: DeviceRow, twin: boolean): string => `${label(d)}, ${detail(d, twin)}`;
+/** A device named in a confirmation, always with when it was last seen and first used, so the one being acted on is plain. */
+const described = (d: DeviceRow): string => `${label(d)} (${detail(d, true)})`;
 
 type Confirm = { kind: "copy"; from: DeviceRow } | { kind: "delete"; device: DeviceRow } | { kind: "default" } | { kind: "reset" } | { kind: "lists" };
 
@@ -159,13 +163,13 @@ function confirmCopy(c: Confirm): { title: string; body: string; action: string 
     case "copy":
       return {
         title: "Copy settings here?",
-        body: `This replaces this device's own settings with the ones ${label(c.from)} has. Anything you changed on this device is lost.`,
+        body: `This replaces this device's own settings with the ones ${described(c.from)} has. Anything you changed on this device is lost.`,
         action: "Copy settings",
       };
     case "delete":
       return {
         title: "Forget this device?",
-        body: `${label(c.device)} and its settings are removed. If it opens Kipple again it starts over as a new device.`,
+        body: `${described(c.device)} and its settings are removed. If it opens Kipple again it starts over as a new device.`,
         action: "Forget device",
       };
     case "default":

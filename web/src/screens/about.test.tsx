@@ -103,8 +103,19 @@ describe("Settings > About", () => {
     const keys = [...section.querySelectorAll("kbd")].map((k) => k.textContent ?? "");
     expect(keys).toEqual(expect.arrayContaining(["Up arrow", "Down arrow", "Home", "End", "Page up", "Page down", "Enter", "Esc"]));
     expect(keys.filter((k) => k.length === 1)).toEqual([]);
-    expect(section).toHaveTextContent(/leave the article you are reading and return to its list/);
+    expect(section).toHaveTextContent(/In the search box, leave the box\. Otherwise, leave the article you are reading and return to its list/);
+    expect(section).toHaveTextContent(/In the sidebar, open the list of the feed or folder that has focus/);
+    expect(section).toHaveTextContent(/Right opens a closed folder or moves into an open one; Left closes an open folder or moves to the folder that holds the item/);
+    expect(section).toHaveTextContent(/first or last item in the sidebar/);
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("still lists the keys when the version details cannot be loaded", async () => {
+    routes({ "GET /api/about": () => json({ error: "boom", message: "boom" }, 500) });
+    go("/settings/about");
+    expect(await screen.findByText(/Couldn't load the version details/)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 2, name: "Keyboard" })).toBeInTheDocument();
+    expect(screen.getByText("Page down")).toBeInTheDocument();
   });
 
   it("Copy debug info shows the block, then copies it", async () => {

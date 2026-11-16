@@ -107,6 +107,24 @@ describe("Settings > Devices", () => {
     expect(names.every((n) => /, last seen 3 days ago, first used /.test(n ?? ""))).toBe(true);
   });
 
+  it("tells two devices first used on the same day apart by the time, and says which one a confirmation is about", async () => {
+    const day = NOW - 20 * 86400;
+    const morning = row("morning-phone", { created_at: day, last_seen_at: NOW - 3 * 86400 });
+    const later = row("later-phone", { created_at: day + 600, last_seen_at: NOW - 3 * 86400 });
+    routes({ "GET /api/devices": () => json({ devices: [me, morning, later] }), "DELETE /api/devices/later-phone": () => json({}) });
+    go();
+    const first = (r: DeviceRow) => new Date(r.created_at * 1000).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+    expect(first(morning)).not.toBe(first(later));
+    const forget = (await screen.findAllByRole("button", { name: /^Forget Safari on iPhone/ })).map((b) => b.getAttribute("aria-label"));
+    expect(new Set(forget).size).toBe(2);
+    const user = userEvent.setup();
+    const button = screen.getAllByRole("button", { name: /^Forget / }).find((b) => (b.getAttribute("aria-label") ?? "").endsWith(`first used ${first(later)}`));
+    await user.click(button as HTMLElement);
+    const dlg = await screen.findByRole("dialog", { name: "Forget this device?" });
+    expect(dlg).toHaveTextContent(`Safari on iPhone (last seen 3 days ago, first used ${first(later)})`);
+    expect(dlg).not.toHaveTextContent(first(morning));
+  });
+
   it("lists this device first even when the API returns it last", async () => {
     routes({ "GET /api/devices": () => json({ devices: [phone, tablet, me] }) });
     go();
