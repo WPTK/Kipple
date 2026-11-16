@@ -8,7 +8,7 @@ import { Switch } from "./kit";
 import { columnNeeds, maxFor } from "@/lib/useWidth";
 import { WIDE_QUERY } from "@/lib/useMedia";
 import { ResizeHandle, dragWidth, keyWidth } from "./ResizeHandle";
-import { UnreadCount, badgeKind, badgeText, unreadName } from "./UnreadCount";
+import { UnreadCount, badgeKind, badgeText, countText, unreadName } from "./UnreadCount";
 
 beforeEach(() => {
   localStorage.clear();
@@ -161,7 +161,7 @@ describe("column limits", () => {
 });
 
 describe("Unread badge", () => {
-  it("caps at 99+ and follows Count, Dot only and Off", () => {
+  it("caps the fixed-width tab bar badge at 99+ and follows Count, Dot only and Off", () => {
     expect(badgeText(7)).toBe("7");
     expect(badgeText(99)).toBe("99");
     expect(badgeText(100)).toBe("99+");
@@ -172,9 +172,24 @@ describe("Unread badge", () => {
     expect(badgeKind(5, "count")).toBe("count");
   });
 
+  it("shows a row's count as the number up to 999 and thousands as 1.2k, cut down never up", () => {
+    expect([7, 99, 100, 999, 1000, 1234, 1999, 9999, 10_000, 12_345, 999_999, 1_000_000, 3_428_000].map(countText)).toEqual(["7", "99", "100", "999", "1k", "1.2k", "1.9k", "9.9k", "10k", "12k", "999k", "1m", "3m"]);
+  });
+
+  it("draws a row's badge with the exact number for a screen reader, and the tab bar's capped", () => {
+    const { rerender } = render(<UnreadCount n={4321} />);
+    const badge = screen.getByTestId("unread-count");
+    expect(badge.querySelector("[aria-hidden]")).toHaveTextContent("4.3k");
+    expect(badge).toHaveTextContent("4,321 unread");
+    rerender(<UnreadCount n={4321} cap />);
+    expect(screen.getByTestId("unread-count")).toHaveTextContent("99+");
+    expect(screen.getByTestId("unread-count")).not.toHaveTextContent("4,321");
+  });
+
   it("names a row by its visible text first, then the unread state", () => {
     expect(unreadName("Hacker News", 12, "count")).toBe("Hacker News, 12 unread");
-    expect(unreadName("Hacker News", 400, "count")).toBe("Hacker News, 99+ unread");
+    expect(unreadName("Hacker News", 400, "count")).toBe("Hacker News, 400 unread");
+    expect(unreadName("Hacker News", 1234, "count")).toBe("Hacker News, 1,234 unread"); // the exact number, not the badge's 1.2k
     expect(unreadName("Hacker News", 12, "dot")).toBe("Hacker News, unread");
     expect(unreadName("Hacker News", 12, "off")).toBe("Hacker News");
     expect(unreadName("Hacker News", 0, "count")).toBe("Hacker News");
@@ -182,7 +197,10 @@ describe("Unread badge", () => {
 
   it("renders the setting", () => {
     const { rerender } = render(<UnreadCount n={999} />);
+    expect(screen.getByTestId("unread-count")).toHaveTextContent("999");
+    rerender(<UnreadCount n={999} cap />);
     expect(screen.getByTestId("unread-count")).toHaveTextContent("99+");
+    rerender(<UnreadCount n={999} />);
     act(() => updateDevicePrefs({ unreadBadge: "dot" }));
     rerender(<UnreadCount n={999} />);
     expect(screen.queryByTestId("unread-count")).toBeNull();

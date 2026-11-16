@@ -71,7 +71,7 @@ function go(path = "/feeds/index", key = "default") {
   window.history.replaceState({ idx: 0, key }, "", path);
   return render(<App client={makeQueryClient({ retry: false })} />);
 }
-const blockNames = (root: ParentNode) => [...root.querySelectorAll("section[data-feed-block] > h2 a")].map((a) => a.textContent);
+const blockNames = (root: ParentNode) => [...root.querySelectorAll("section[data-feed-block] h2 a")].map((a) => a.textContent);
 const block = (root: ParentNode, id: number) => root.querySelector<HTMLElement>(`section[data-feed-block="${id}"]`)!;
 
 beforeEach(() => {
@@ -307,5 +307,97 @@ describe("the Feed index", () => {
     const { container } = go();
     await screen.findByText("Feed 1 story 1");
     expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+describe("the Feed index on a large library", () => {
+  const folders = [
+    { id: "1", name: "Uncategorized", position: 0, is_default: true, unread: 0 },
+    { id: "2", name: "News", position: 1, is_default: false, unread: 6 },
+    { id: "3", name: "Tech", position: 2, is_default: false, unread: 1234 },
+  ];
+  const inFolder = (f: Feed, folder_id: string): Feed => ({ ...f, folder_id });
+  const lib = (feeds: Feed[]): Bootstrap => ({ ...library(feeds), folders });
+  const grouped = () => {
+    const feeds = [inFolder(feed(1, "Wire", { unread: 6 }), "2"), inFolder(feed(2, "Byte", { unread: 1234 }), "3"), inFolder(feed(3, "Chip", { unread: 0 }), "3")];
+    return { feeds, latest: { 1: headlines(1, 1), 2: headlines(2, 1), 3: headlines(3, 1) } };
+  };
+  const routesIn = (feeds: Feed[], latest: Record<number, Headline[]>, extra: Parameters<typeof mockFetch>[0] = {}) =>
+    routes(feeds, latest, { "GET /api/bootstrap": () => json(lib(feeds)), ...extra });
+
+  it("draws each feed's count as the sidebar's badge: the number, thousands as 1.2k, and the exact count for a screen reader", async () => {
+    const { feeds, latest } = grouped();
+    routesIn(feeds, latest);
+    const { container } = go();
+    await screen.findByText("Feed 1 story 1");
+    expect(within(block(container, 1)).getByTestId("unread-count")).toHaveTextContent("6");
+    const thousands = within(block(container, 2)).getByTestId("unread-count");
+    expect(thousands).toHaveTextContent("1.2k");
+    expect(thousands.querySelector("[aria-hidden]")).toHaveTextContent("1.2k");
+    expect(thousands).toHaveTextContent("1,234 unread");
+    expect(within(block(container, 3)).queryByTestId("unread-count")).toBeNull();
+    expect(within(block(container, 3)).getByTestId("feed-index-unread")).toHaveTextContent("All read");
+    // The device's badge setting rules here too.
+    act(() => updateDevicePrefs({ unreadBadge: "dot" }));
+    expect(within(block(container, 1)).getByTestId("unread-dot")).toBeInTheDocument();
+    act(() => updateDevicePrefs({ unreadBadge: "off" }));
+    expect(within(block(container, 1)).queryByTestId("unread-count")).toBeNull();
+  });
+
+  it("marks one feed's unread articles read from its own menu, after the question, and offers Undo", async () => {
+    const { feeds, latest } = grouped();
+    const { calls } = routesIn(feeds, latest, { "POST /api/items/mark-read": () => json({ changed: ["100", "101"], restored: [] }) });
+    const { container } = go();
+    await screen.findByText("Feed 1 story 1");
+    const user = userEvent.setup();
+    expect(within(block(container, 3)).queryByRole("button", { name: /More actions/ })).toBeNull(); // nothing to mark in a read feed
+    await user.click(within(block(container, 1)).getByRole("button", { name: "More actions for Wire" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mark feed as read" }));
+    expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read")).toHaveLength(0); // it asks first
+    await user.click(await screen.findByRole("button", { name: "Mark all 6 as read" }));
+    await waitFor(() => expect(calls.filter((c) => c.url.pathname === "/api/items/mark-read")).toHaveLength(1));
+    const body = JSON.parse(String(calls.find((c) => c.url.pathname === "/api/items/mark-read")!.init?.body));
+    expect(body.scope).toMatchObject({ feed_id: "1", view: "unread" });
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeInTheDocument();
+  });
+
+  it("keeps the menu button on screen where the only pointer is a finger, and a Tab stop only in the block that holds the page's", async () => {
+    const { feeds, latest } = grouped();
+    routesIn(feeds, latest);
+    const { container } = go();
+    await screen.findByText("Feed 1 story 1");
+    const button = within(block(container, 1)).getByRole("button", { name: "More actions for Wire" });
+    // Nothing hides it: no row-touch-unseen or hover-only class, which index.css turns invisible on a touch screen.
+    expect(button.closest("[class*='row-touch-unseen'],[class*='row-reveal']")).toBeNull();
+    expect(button.className).not.toMatch(/row-touch-unseen|row-reveal/);
+    expect(button.tabIndex).toBe(0); // the first block holds the page's Tab stop
+    expect(within(block(container, 2)).getByRole("button", { name: "More actions for Byte" }).tabIndex).toBe(-1);
+  });
+
+  it("groups the feeds under their folders in the sidebar's order, with a jump list that goes to a folder", async () => {
+    const { feeds, latest } = grouped();
+    routesIn(feeds, latest);
+    const { container } = go();
+    await screen.findByText("Feed 1 story 1");
+    const labels = [...container.querySelectorAll("[data-folder-group]")].map((p) => p.textContent);
+    expect(labels).toEqual(["News6 unread", "Tech1.2k1,234 unread"]);
+    const jump = screen.getByRole("combobox", { name: "Jump to a folder" });
+    expect([...jump.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["Jump to a folder", "News (6)", "Tech (1.2k)"]);
+    const target = container.querySelector<HTMLElement>('[data-folder-group="3"]')!;
+    const into = vi.fn();
+    target.scrollIntoView = into;
+    await userEvent.setup().selectOptions(jump, "Tech (1.2k)");
+    await waitFor(() => expect(into).toHaveBeenCalled());
+    expect(target).toHaveFocus();
+  });
+
+  it("has no folder groups or jump list in the quietest-first order, where a folder's feeds are not together", async () => {
+    const { feeds, latest } = grouped();
+    routesIn(feeds, latest);
+    updateDevicePrefs({ digestOrder: "quiet" });
+    const { container } = go();
+    await screen.findByText("Feed 1 story 1");
+    expect(container.querySelector("[data-folder-group]")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Jump to a folder" })).toBeNull();
   });
 });
