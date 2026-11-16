@@ -8,15 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 0023 brings every stored sort_at that is past its crawl second (id / 1e6) down to it, in items and in the
+// 0025 brings every stored sort_at that is past its crawl second (id / 1e6) down to it, in items and in the
 // restore stubs. Rows dated at or before their fetch, and published_at itself, are left as they are.
-func TestMigration0023SortAtNotAheadOfFetch(t *testing.T) {
+func TestMigration0025SortAtNotAheadOfFetch(t *testing.T) {
 	t.Parallel()
 	const crawl = int64(1_800_000_000)
 	path := filepath.Join(t.TempDir(), "kipple.db")
 	raw, err := sql.Open("sqlite", buildDSN(path, "writer"))
 	require.NoError(t, err)
-	require.NoError(t, BuildSchema(t.Context(), raw, 22))
+	require.NoError(t, BuildSchema(t.Context(), raw, 24))
 	exec := func(q string, args ...any) {
 		t.Helper()
 		_, err := raw.Exec(q, args...)
