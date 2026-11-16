@@ -101,6 +101,7 @@ export function profileOf(l: LocalState): Profile {
     "client.article_width": dp.articleWidth,
     "client.list_width": dp.listWidth,
     "client.sidebar_width": dp.sidebarWidth,
+    "client.sidebar_expanded": dp.sidebarExpanded,
     "client.collapsed_folders": dp.collapsedFolders.filter((id) => /^[0-9]{1,19}$/.test(id)).slice(0, 200),
     "client.link_target": dp.linkTarget,
     "client.unread_badge": dp.unreadBadge,
@@ -158,6 +159,7 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     articleWidth: g("client.article_width"),
     listWidth: g("client.list_width"),
     sidebarWidth: g("client.sidebar_width"),
+    sidebarExpanded: g("client.sidebar_expanded"),
     collapsedFolders: g("client.collapsed_folders"),
     linkTarget: g("client.link_target"),
     unreadBadge: g("client.unread_badge"),
@@ -489,7 +491,7 @@ function legacyProfileKeys(): Set<string> {
   add(read(DEVICE_PREFS_KEY) ?? read(LEGACY_DEVICE_PREFS_KEY), {
     layout: ["client.layout"], overrides: ["client.list_overrides"], order: ["client.order"], group: ["client.group"], searchOrder: ["client.search_order"], listImages: ["client.list_images"],
     peekSeen: ["client.peek_seen"], pageTipSeen: ["client.page_tip_seen"], articleWidth: ["client.article_width"], listWidth: ["client.list_width"],
-    sidebarWidth: ["client.sidebar_width"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],
+    sidebarWidth: ["client.sidebar_width"], sidebarExpanded: ["client.sidebar_expanded"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],
     unreadBadge: ["client.unread_badge"], highlightKeywords: ["client.highlight_keywords"],
   }, DEFAULT_DEVICE_PREFS);
   // A cache from before the two picture settings became one: either one hiding pictures is a choice.

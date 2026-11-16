@@ -43,6 +43,91 @@ export async function opmlFileProblem(file: File): Promise<string | null> {
   return "That doesn't look like an OPML file. Choose the .opml or .xml file exported from your other reader.";
 }
 
+/**
+ * A file with more feeds than this brings thousands of articles into Unread at once (a feed's first fetch is 5 to 50), so
+ * the form offers the 7-day setting. The article count is not known before the fetch; the feeds in the file stand for it.
+ */
+export const FRESH_MIN_FEEDS = 20;
+/** The days "Start fresh" fills in. The field itself stays empty until the person presses it. */
+export const FRESH_DAYS = 7;
+
+const isSpace = (c: string | undefined): boolean => c === " " || c === "\t" || c === "\n" || c === "\r";
+
+/**
+ * Reads one `<outline` start tag from just after its name to its closing `>` (quoted values may hold `>`), and says whether
+ * it has a non-empty `xmlUrl` attribute. Returns where reading stopped. Each character is looked at a bounded number of times.
+ */
+function readOutlineTag(text: string, from: number): { next: number; feed: boolean } {
+  const n = text.length;
+  let i = from;
+  let feed = false;
+  while (i < n) {
+    const c = text[i];
+    if (isSpace(c) || c === "/") {
+      i++;
+      continue;
+    }
+    if (c === ">") return { next: i + 1, feed };
+    const start = i;
+    while (i < n && !isSpace(text[i]) && !"=>/\"'".includes(text[i] ?? "")) i++;
+    const name = text.slice(start, i);
+    while (i < n && isSpace(text[i])) i++;
+    if (text[i] !== "=") {
+      if (i === start) i++; // a stray quote: step over it
+      continue;
+    }
+    i++;
+    while (i < n && isSpace(text[i])) i++;
+    const q = text[i];
+    if (q === '"' || q === "'") {
+      const close = text.indexOf(q, i + 1);
+      if (close < 0) return { next: n, feed };
+      if (name === "xmlUrl" && text.slice(i + 1, close).trim() !== "") feed = true;
+      i = close + 1;
+    } else {
+      while (i < n && !isSpace(text[i]) && text[i] !== ">") i++; // an unquoted value is not valid XML: skip it
+    }
+  }
+  return { next: n, feed };
+}
+
+/** Where a comment, CDATA section, declaration or processing instruction at `lt` ends (the end of the text when unterminated); null for anything else. */
+function skipMarkup(text: string, lt: number): number | null {
+  const [open, close]: [number, string] = text.startsWith("<!--", lt) ? [4, "-->"] : text.startsWith("<![CDATA[", lt) ? [9, "]]>"] : text[lt + 1] === "?" || text[lt + 1] === "!" ? [2, ">"] : [0, ""];
+  if (!open) return null;
+  const end = text.indexOf(close, lt + open);
+  return end < 0 ? text.length : end + close.length;
+}
+
+/**
+ * How many feeds an OPML text lists: its outline start tags with a non-empty `xmlUrl` attribute (a repeat counts twice).
+ * One pass over the text, without backtracking: comments, CDATA, declarations and processing instructions are jumped
+ * over, and a tag's attributes are read one by one, so a quoted value that holds the words `xmlUrl=` is never taken
+ * for the attribute. An unterminated comment or tag ends the count at what came before it.
+ */
+export function countOpmlFeeds(text: string): number {
+  let n = 0;
+  let i = 0;
+  while (i < text.length) {
+    const lt = text.indexOf("<", i);
+    if (lt < 0) break;
+    const past = skipMarkup(text, lt);
+    if (past !== null) {
+      i = past;
+      continue;
+    }
+    const after = text[lt + 8];
+    if (text.startsWith("<outline", lt) && (after === undefined || isSpace(after) || after === "/" || after === ">")) {
+      const tag = readOutlineTag(text, lt + 8);
+      if (tag.feed) n++;
+      i = tag.next;
+      continue;
+    }
+    i = lt + 1;
+  }
+  return n;
+}
+
 /** "<url>: kipple:allow_insecure_tls" from the import report: the address, and what was not applied, in plain words. */
 export function attrNote(s: string): { url: string; note: string } {
   const at = s.lastIndexOf(": ");
@@ -296,8 +381,10 @@ export function OpmlResultSummary({ result, inWizard = false }: { result: OpmlRe
 export function OpmlImportDialog({ onClose, inWizard = false }: { onClose: () => void; inWizard?: boolean }) {
   const qc = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
+  const pick = useRef(0); // which selection an async step belongs to: a slower earlier file never overwrites a newer one
   const [file, setFile] = useState<File | null>(null);
   const [days, setDays] = useState("");
+  const [bigFile, setBigFile] = useState(false);
   const [moveExisting, setMoveExisting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -355,19 +442,40 @@ export function OpmlImportDialog({ onClose, inWizard = false }: { onClose: () =>
             accept=".opml,.xml,text/xml,application/xml,text/x-opml,*/*"
             onChange={(e) => {
               const f = e.target.files?.[0] ?? null;
+              const mine = ++pick.current;
               setResult(null);
               setError(null);
               setFile(null);
+              setBigFile(false);
               if (!f) return;
-              void opmlFileProblem(f).then((problem) => {
-                if (problem) setError(problem);
-                else setFile(f);
+              void opmlFileProblem(f).then(async (problem) => {
+                if (mine !== pick.current) return;
+                if (problem) return setError(problem);
+                setFile(f);
+                try {
+                  const count = countOpmlFeeds(await f.text());
+                  if (mine === pick.current) setBigFile(count > FRESH_MIN_FEEDS);
+                } catch {
+                  /* unreadable: the import reports it; the suggestion is just not offered */
+                }
               });
             }}
             className="block min-h-11 w-full text-sm text-fg file:mr-3 file:min-h-11 file:cursor-pointer file:rounded-lg file:border file:border-line file:bg-surface file:px-3 file:font-semibold file:text-fg hover:file:bg-selection"
           />
         )}
       </Field>
+      {bigFile ? (
+        <Button
+          className="self-start"
+          aria-disabled={busy}
+          onClick={() => {
+            setDays(String(FRESH_DAYS));
+            announce(`Older than ${FRESH_DAYS} days will arrive read`);
+          }}
+        >
+          Start fresh: mark everything older than {FRESH_DAYS} days read
+        </Button>
+      ) : null}
       <Field
         label="Mark older articles as read (optional)"
         help="Articles older than this many days arrive already read."

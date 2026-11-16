@@ -131,6 +131,8 @@ export interface DevicePrefs {
   listWidth: number | null;
   /** Width in px of the sidebar. */
   sidebarWidth: number;
+  /** The sidebar is open (not an icon rail) in a window narrower than `RAIL_BELOW_PX`; from that width it is always open. */
+  sidebarExpanded: boolean;
   /** Folders collapsed in the sidebar (folder ids). */
   collapsedFolders: string[];
   /** Where external links open. null: the device default (same tab on iOS and iPadOS, a new tab elsewhere). */
@@ -164,6 +166,7 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   articleWidth: "medium",
   listWidth: null,
   sidebarWidth: 240,
+  sidebarExpanded: false,
   collapsedFolders: [],
   linkTarget: null,
   unreadBadge: "count",
@@ -268,6 +271,7 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       listWidth: typeof v?.listWidth === "number" && Number.isFinite(v.listWidth) ? clampNum(v.listWidth, LIST_WIDTH_MIN, LIST_WIDTH_MAX) : null,
       sidebarWidth:
         typeof v?.sidebarWidth === "number" && Number.isFinite(v.sidebarWidth) ? clampNum(v.sidebarWidth, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX) : d.sidebarWidth,
+      sidebarExpanded: v?.sidebarExpanded === true,
       collapsedFolders: Array.isArray(v?.collapsedFolders) ? v.collapsedFolders.filter((x): x is string => typeof x === "string") : [],
       linkTarget: v?.linkTarget === "new" || v?.linkTarget === "same" ? v.linkTarget : null,
       unreadBadge: UNREAD_BADGES.includes(v?.unreadBadge as UnreadBadge) ? (v?.unreadBadge as UnreadBadge) : d.unreadBadge,

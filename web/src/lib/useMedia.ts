@@ -68,3 +68,14 @@ export const WIDE_QUERY = `(min-width: ${WIDE_MIN_PX}px)`;
 export function useWide(): boolean {
   return useMedia(WIDE_QUERY);
 }
+
+/**
+ * Below this width the sidebar is an icon rail unless the person has opened it (`sidebarExpanded`): the list and the
+ * reader need the room, and at 1024 px a 240 px sidebar left the article about 340 px. From this width the sidebar is
+ * always the full one. Between `WIDE_MIN_PX` and this width the three panes still show.
+ */
+export const RAIL_BELOW_PX = 1100;
+export const RAIL_QUERY = `(max-width: ${RAIL_BELOW_PX - 0.02}px)`;
+export function useRailRange(): boolean {
+  return useMedia(RAIL_QUERY);
+}
