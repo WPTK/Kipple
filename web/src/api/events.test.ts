@@ -284,7 +284,7 @@ describe("reduceEvent", () => {
     const qc = new QueryClient();
     handleServerEvent(qc, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: 2, new_item_ids: ["7", "8"], trigger: "scheduled" } });
     expect(liveStore.get().pendingByFeed).toEqual({ "1": 2 });
-    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, [], [])).toBe(2);
+    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, [{ id: "1", folder_id: "a" }], [])).toBe(2);
     handleServerEvent(qc, { type: "fetch.done", data: { feed_id: "2", run_ids: [], outcome: "ok", new_items: 4, trigger: "import" } });
     handleServerEvent(qc, { type: "fetch.done", data: { feed_id: "3", run_ids: [], outcome: "trim_only", new_items: 0, trimmed_items: 9, trigger: "retention" } });
     expect(liveStore.get().pendingByFeed).toEqual({ "1": 2 });
@@ -333,48 +333,6 @@ describe("reduceEvent", () => {
     expect(over.pendingByFeed).toEqual({});
     expect(reduceEvent(s, done("10", "manual")).pendingByFeed).toEqual({ "1": 2 });
     expect(reduceEvent(s, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: 2, trigger: "scheduled" } }).pendingByFeed).toEqual({ "1": 2 });
-  });
-
-  it("forgets what it held for a feed that was deleted, once the feeds say so", async () => {
-    const qc = new QueryClient();
-    qc.setQueryData(keys.bootstrap, bootstrap);
-    const keep = bootstrap.feeds![0]!.id;
-    const gone = "98765";
-    liveStore.set((s) => ({
-      ...s,
-      pendingByFeed: { [keep]: 2, [gone]: 3 },
-      pendingIds: { [keep]: ["1"], [gone]: ["2", "3"] },
-      arrivals: { [keep]: 1, [gone]: 1 },
-    }));
-    handleServerEvent(qc, { type: "feed.changed", data: { feed_id: gone } });
-    await vi.waitFor(() => expect(liveStore.get().pendingByFeed).toEqual({ [keep]: 2 }));
-    expect(liveStore.get().pendingIds).toEqual({ [keep]: ["1"] });
-    expect(liveStore.get().arrivals).toEqual({ [keep]: 1 });
-    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, bootstrap.feeds!, bootstrap.folders!)).toBe(2);
-  });
-
-  it("keeps what it holds when the bootstrap could not be refetched", async () => {
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    qc.setQueryData(keys.bootstrap, bootstrap);
-    const obs = new QueryObserver(qc, { queryKey: keys.bootstrap, queryFn: () => Promise.reject(new Error("down")) });
-    const off = obs.subscribe(() => undefined);
-    await vi.waitFor(() => expect(qc.getQueryState(keys.bootstrap)?.status).toBe("error"));
-    liveStore.set((s) => ({ ...s, pendingByFeed: { "98765": 3 }, pendingIds: { "98765": ["2"] }, arrivals: { "98765": 1 } }));
-    handleServerEvent(qc, { type: "feed.changed", data: { feed_id: "98765" } });
-    await new Promise((r) => setTimeout(r, 50));
-    // The old answer does not list the feed, but it is not an answer to the question.
-    expect(liveStore.get().pendingByFeed).toEqual({ "98765": 3 });
-    off();
-  });
-
-  it("keeps what it holds for a feed that was only edited", async () => {
-    const qc = new QueryClient();
-    qc.setQueryData(keys.bootstrap, bootstrap);
-    const keep = bootstrap.feeds![0]!.id;
-    liveStore.set((s) => ({ ...s, pendingByFeed: { [keep]: 2 }, pendingIds: { [keep]: ["1"] }, arrivals: { [keep]: 1 } }));
-    handleServerEvent(qc, { type: "feed.changed", data: { feed_id: keep } });
-    await new Promise((r) => setTimeout(r, 20));
-    expect(liveStore.get().pendingByFeed).toEqual({ [keep]: 2 });
   });
 
   it("waits for the end of a burst of fetches: each one moves the request on, up to a limit", () => {
@@ -622,11 +580,11 @@ describe("cache reconciliation", () => {
 
   it("noteArrivals does not add to a count that came without ids: a fetch.done count, then the same articles found", async () => {
     liveStore.set((s) => reduceEvent(s, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 3, trigger: "feed_manual" } }));
-    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, [], [])).toBe(3);
+    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, [{ id: "1", folder_id: "a" }], [])).toBe(3);
     mockFetch({ "GET /api/items": () => json(pageOf([card(9), card(8), card(7)])) });
     expect(await noteArrivals({ view: "unread" }, new Set(), "1005")).toBe(3);
     expect(liveStore.get().pendingByFeed).toEqual({ "1": 3 });
-    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, [], [])).toBe(3);
+    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, [{ id: "1", folder_id: "a" }], [])).toBe(3);
   });
 
   it("noteArrivals asks nothing for a list that shows no pill", async () => {
@@ -729,6 +687,12 @@ describe('pendingFor (the "n new" pill)', () => {
     expect(pendingFor(pending, { view: "starred" }, feeds, folders)).toBe(0);
     expect(pendingFor(pending, { view: "all", q: "x" }, feeds, folders)).toBe(0);
     expect(pendingFor(pending, { view: "unread", order: "oldest" }, feeds, folders)).toBe(0);
+  });
+  it("ignores a feed the bootstrap does not list, and counts it again when it is listed", () => {
+    // Feed 9 was deleted: what the pill holds for it is not counted, with nothing cleaned up. A feed subscribed again counts.
+    const held = { ...pending, "9": 7 };
+    expect(pendingFor(held, { view: "unread" }, feeds, folders)).toBe(9);
+    expect(pendingFor(held, { view: "unread" }, [...feeds, { id: "9", folder_id: "b" }], folders)).toBe(16);
   });
   it("does not count ids the list already holds", () => {
     const loaded = { ids: new Set(["a", "b"]), pendingIds: { "1": ["a", "b", "c"], "2": ["z"] } };

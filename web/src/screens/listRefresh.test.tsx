@@ -330,6 +330,33 @@ describe("a reload that fails", () => {
     expect(liveStore.get().pendingByFeed).toEqual({});
   });
 
+  it("takes one reload for presses that overlap", async () => {
+    let items = [card(1), card(2), card(3)];
+    let release: () => void = () => undefined;
+    let hold: Promise<void> | null = null;
+    const { loads } = open(() => items, "/l/unread", {
+      "GET /api/items": async () => {
+        if (hold) await hold;
+        return json(pageOf(items, null, AS_OF));
+      },
+    });
+    await screen.findByText("Article number 1");
+    items = [card(9), ...items];
+    scheduled(["1009"]);
+    const pill = await screen.findByRole("button", { name: "1 new article" });
+    hold = new Promise<void>((r) => (release = r));
+    const before = loads();
+    const user = userEvent.setup();
+    await user.click(pill);
+    await user.click(pill);
+    hold = null;
+    release();
+    await screen.findByText("Article number 9");
+    await settle();
+    expect(loads()).toBe(before + 1);
+    expect(liveStore.get().pendingByFeed).toEqual({});
+  });
+
   it("leaves an empty list owed its reload, and keeps what it was told of", async () => {
     let items: Items = [];
     let broken = false;
@@ -454,19 +481,6 @@ describe("an empty list and which arrivals it reloads for", () => {
     await settle();
     const before = loads();
     act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, muted_items: 2, new_item_ids: [], trigger: "scheduled" } }));
-    await waitFor(() => expect(loads()).toBeGreaterThan(before), { timeout: 3000 });
-  });
-
-  it("still reloads for the next arrival after the feeds that had arrived were removed", async () => {
-    const { loads } = open(() => []);
-    await settle();
-    act(() => void liveStore.set((s) => ({ ...s, arrivals: { "9": 2 } })));
-    await waitFor(() => expect(liveStore.get().arrivalsHandled[scopeKey({ view: "unread" })]).toBe(2), { timeout: 3000 });
-    // The feed is deleted: its arrivals go with it, so the list's total falls below what it handled.
-    act(() => void liveStore.set((s) => ({ ...s, arrivals: {} })));
-    await settle();
-    const before = loads();
-    fetched("1");
     await waitFor(() => expect(loads()).toBeGreaterThan(before), { timeout: 3000 });
   });
 

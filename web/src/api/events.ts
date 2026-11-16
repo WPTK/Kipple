@@ -245,14 +245,6 @@ function joinedImport(s: LiveState, d: { trigger?: string; run_ids?: (string | n
   return (d.run_ids ?? []).some((r) => (s.runs[String(r)]?.kind ?? s.finished[String(r)]?.kind) === "import");
 }
 
-/** The state without what it holds for feeds that are gone: a deleted feed's articles are not coming. */
-function forgetFeeds(s: LiveState, gone: ReadonlySet<string>): LiveState {
-  const has = (o: Record<string, unknown>) => Object.keys(o).some((k) => gone.has(k));
-  if (!has(s.pendingByFeed) && !has(s.pendingIds) && !has(s.arrivals)) return s;
-  const without = <T,>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).filter(([k]) => !gone.has(k))) as Record<string, T>;
-  return { ...s, pendingByFeed: without(s.pendingByFeed), pendingIds: without(s.pendingIds), arrivals: without(s.arrivals) };
-}
-
 /** Run kinds that are housekeeping or a rule at work, not a refresh; "unknown" is a run whose start was never seen. */
 const QUIET_KINDS: readonly string[] = ["retention", "filter_apply", "auto_read", "unknown"];
 
@@ -296,7 +288,8 @@ export function pendingFor(
     for (const f of feedsInFolder(scope.folder, feeds, folders)) n += count(f.id);
     return n;
   }
-  for (const id of Object.keys(pending)) n += count(id);
+  // A feed the bootstrap does not list is gone (deleted): what the pill holds for it is not counted.
+  for (const f of feeds) n += count(f.id);
   return n;
 }
 
@@ -532,17 +525,6 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
       invalidateSavedSearches(qc);
       break;
     case "feed.changed":
-      // A deleted feed is not in the feeds that come back: what the live state holds for it goes.
-      void qc.invalidateQueries({ queryKey: keys.bootstrap }).then(() => {
-        // A failed refetch also resolves and keeps the previous answer: clean up only after a successful one.
-        if (qc.getQueryState(keys.bootstrap)?.status !== "success") return;
-        const b = qc.getQueryData<BootstrapAnswer>(keys.bootstrap);
-        if (!b || b.fromCache) return;
-        const known = new Set(b.feeds.map((f) => String(f.id)));
-        const s = liveStore.get();
-        const gone = new Set([...Object.keys(s.pendingByFeed), ...Object.keys(s.pendingIds), ...Object.keys(s.arrivals)].filter((k) => !known.has(k)));
-        if (gone.size) liveStore.set((cur) => forgetFeeds(cur, gone));
-      });
       // Deleting a feed drops it as the scope of a saved search on the server, silently.
       invalidateSavedSearches(qc);
       break;
