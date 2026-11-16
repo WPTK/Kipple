@@ -53,6 +53,7 @@ type Item struct {
 	Updated     *time.Time  `json:"updated,omitempty"`   // item's own updated date, if any
 	Enclosures  []Enclosure `json:"enclosures,omitempty"`
 	images      []string    // ranked lead candidates until dropSharedImages has chosen; never stored
+	cutKey      string      // for an entry whose HTML was cut: a hash of the whole text before the cut; keys an entry with no guid and no link; never stored
 	WordCount   int         `json:"-"` // words in ContentText; not in the golden output
 	// Categories are the entry's category/tag labels (at most MaxCategories of MaxCategoryRunes),
 	// stored at ingest so category filter rules can match. Not in the golden output.
@@ -187,10 +188,13 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 		keep = newestEntries(entries, MaxItemsPerFetch, time.Now())
 	}
 	items := make([]Item, 0, len(keep))
-	skipped := 0
+	skipped, cut := 0, 0
 	for _, i := range keep {
 		gi := entries[i]
-		it, ok := convertItem(i, gi, out.SiteURL, out.Title, opt, content, jsonItems)
+		it, ok, wasCut := convertItem(i, gi, out.SiteURL, out.Title, opt, content, jsonItems)
+		if wasCut {
+			cut++ // counted whatever becomes of the entry: a repeat of another one is dropped below
+		}
 		if !ok {
 			skipped++
 			continue
@@ -214,6 +218,9 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 	out.Notes = notes
 	if skipped > 0 {
 		out.Notes = append(out.Notes, fmt.Sprintf("skipped_malformed_items: %d/%d", skipped, len(keep)))
+	}
+	if cut > 0 {
+		out.Notes = append(out.Notes, fmt.Sprintf("item_html_cut: %d/%d", cut, len(keep)))
 	}
 	if overLimit != "" {
 		out.Notes = append(out.Notes, overLimit)
@@ -502,14 +509,14 @@ func (f xmlFilter) Read(p []byte) (int, error) {
 // image at all (every such entry would share one uid), or one whose conversion panics on
 // hostile input. One bad entry is dropped and counted, never fatal to the
 // fetch (design §4.8, parse-time behavior).
-func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOptions, content func(string, ...string) (string, string), jsonItems []*gjson.Item) (it Item, ok bool) {
+func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOptions, content func(string, ...string) (string, string), jsonItems []*gjson.Item) (it Item, ok, cut bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			it, ok = Item{}, false
 		}
 	}()
 	if gi == nil {
-		return Item{}, false
+		return Item{}, false, false
 	}
 	it = Item{
 		GUID:    gi.GUID,
@@ -533,9 +540,16 @@ func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOpt
 	if raw == "" {
 		raw = gi.Description
 	}
+	whole := raw // what the entry's key is taken from if the markup is cut
 	// JSON Feed content_text is plain text, not markup.
 	if i < len(jsonItems) && jsonItems[i] != nil && jsonItems[i].ContentHTML == "" && jsonItems[i].ContentText != "" {
-		raw = "<p>" + strings.ReplaceAll(stdhtml.EscapeString(jsonItems[i].ContentText), "\n", "<br>") + "</p>"
+		whole = jsonItems[i].ContentText
+		raw = textHTML(whole)
+	}
+	// One entry's markup is bounded before anything reads it: the cleaner holds many times what it is given.
+	raw, cut = sanitize.CutHTML(raw, sanitize.MaxItemHTMLBytes)
+	if cut {
+		it.cutKey = hashChunked(whole)
 	}
 	it.ContentHTML, it.ContentText = content(raw, bases...)
 
@@ -567,12 +581,42 @@ func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOpt
 			media = it.ImageURL
 		}
 		if media == "" {
-			return Item{}, false
+			return Item{}, false, cut
 		}
 		it.GUID = media
 		it.Title = mediaTitle(media, feedTitle)
 	}
-	return it, true
+	return it, true, cut
+}
+
+// textHTML is plain text as a paragraph: the characters HTML reads as markup are escaped and a line break becomes
+// <br>. It stops once the paragraph is longer than sanitize.MaxItemHTMLBytes, so the escaped copy of a long text is
+// never held whole; the caller cuts what is left.
+func textHTML(text string) string {
+	var b strings.Builder
+	b.WriteString("<p>")
+	for i := 0; i < len(text) && b.Len() <= sanitize.MaxItemHTMLBytes; i++ {
+		switch c := text[i]; c {
+		case '&':
+			b.WriteString("&amp;")
+		case '<':
+			b.WriteString("&lt;")
+		case '>':
+			b.WriteString("&gt;")
+		case '"':
+			b.WriteString("&#34;")
+		case '\'':
+			b.WriteString("&#39;")
+		case '\n':
+			b.WriteString("<br>")
+		default:
+			b.WriteByte(c)
+		}
+	}
+	if b.Len() <= sanitize.MaxItemHTMLBytes {
+		b.WriteString("</p>")
+	}
+	return b.String()
 }
 
 // sharedImageItems is how many items of one fetch must lead with the same image for it to count as the site's own (a
