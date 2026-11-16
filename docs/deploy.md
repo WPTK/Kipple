@@ -466,7 +466,7 @@ effect when they were written, so a day never moves. Dates in the web app follow
 server zone is.
 
 Until a zone is chosen, Kipple uses UTC and the setting is empty. The setup wizard saves your browser's zone when it ends 
-on a first run, unless a zone is already chosen (an explicit `UTC` counts as chosen). Running setup again keeps whatever zone is saved. A `TZ` of `UTC` on a new install is stored as `UTC`, which is a choice.
+on a first run, unless a zone is already chosen (an explicit `UTC` counts as chosen). Running setup again keeps whatever zone is saved. A `TZ` of `UTC` on a new install is stored as `UTC`, which is a choice. A browser whose zone is not UTC is offered its zone in Settings > Stats and on the Stats screen while none is chosen; nothing is saved until the offer is accepted.
 
 ## About, debug info and versions
 

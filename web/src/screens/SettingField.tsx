@@ -7,6 +7,8 @@ import { Segmented } from "@/ui/segmented";
 import { Button } from "@/ui/button";
 import { Field, FieldError, Modal, Stepper, Switch, inputCls } from "@/ui/kit";
 import { HelpText, SavedMark, useSavedMark } from "./settingUi";
+import { UseDeviceZone } from "./UseDeviceZone";
+import { deviceZone } from "@/lib/deviceZone";
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -166,6 +168,8 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
     }
     default: {
       const changed = draft !== String(meta.value ?? "");
+      // The time zone is empty until one is chosen and UTC applies meanwhile: offer this device's zone, saved the way Save saves it.
+      const offer = meta.key === "tz" && meta.value === "" ? deviceZone() : null;
       control = (
         <form
           className="flex flex-col gap-2"
@@ -205,6 +209,7 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
                 Revert
               </Button>
             ) : null}
+            {offer ? <UseDeviceZone zone={offer} busy={patch.isPending} onUse={send} /> : null}
           </div>
         </form>
       );

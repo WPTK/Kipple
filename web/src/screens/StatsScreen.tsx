@@ -37,6 +37,8 @@ import {
 import { articleTo } from "@/lib/routes";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { useStatsEnabled } from "@/lib/statsSender";
+import { dismissZoneOffer, useStatsZoneOffer } from "@/lib/deviceZone";
+import { usePatchSettings } from "@/api/admin";
 import { useNarrowText } from "@/lib/useNarrowText";
 import { Button } from "@/ui/button";
 import { EmptyState } from "@/ui/EmptyState";
@@ -47,6 +49,7 @@ import { useWrappedEnabled } from "@/lib/wrapped";
 import { AddFeedDialog } from "./feeds/AddFeedDialog";
 import { DailyChart, Empty, Heatmap, MonthlyChart } from "./StatsCharts";
 import { TitleRow } from "@/ui/TitleRow";
+import { UseDeviceZone } from "./UseDeviceZone";
 
 const activityTitle = (data: StatsSummary) => (activityBars(data.daily ?? [], data.week_start).unit === "week" ? "Weekly activity" : "Daily activity");
 
@@ -465,6 +468,28 @@ function FeedDetail({ feed, range }: { feed: string; range: ScreenRange }) {
   );
 }
 
+// ---- Time zone offer --------------------------------------------------------------------------------------------
+
+/**
+ * One quiet line while no time zone has been chosen and this device's zone is not UTC: the days on this screen are UTC's, and
+ * the device's zone is one tap away. Nothing is saved until it is pressed; "Not now" is remembered on this device.
+ */
+function ZoneOffer({ zone }: { zone: string }) {
+  const patch = usePatchSettings();
+  return (
+    <div className="border-b border-line py-1 text-sm text-fg2">
+      <div className="flex flex-wrap items-center gap-x-2">
+        <span>Days are shown in UTC.</span>
+        <UseDeviceZone inline busy={patch.isPending} zone={zone} onUse={(z) => patch.mutate({ tz: z })} />
+        <Button variant="ghost" onClick={dismissZoneOffer}>
+          Not now
+        </Button>
+      </div>
+      {patch.isError ? <p className="pb-2 text-danger">{failedMessage("save the time zone", patch.error)}</p> : null}
+    </div>
+  );
+}
+
 // ---- Screen -----------------------------------------------------------------------------------------------------
 
 export function StatsScreen() {
@@ -479,6 +504,8 @@ export function StatsScreen() {
   const q = useStatsSummary(apiRange(range), on);
   const data = q.data;
   const [feed, setFeed] = useState<SourceRow | null>(null);
+  // The device's zone while none is chosen. Until the bootstrap answer is in the saved zone is unknown and counts as empty, only for the wait above.
+  const zoneOffer = useStatsZoneOffer(boot.data ? boot.data.settings?.tz : "");
   const narrow = useNarrowText(NARROW_TEXT_PX);
   const pick = (r: ScreenRange) => {
     setRange(r);
@@ -499,7 +526,8 @@ export function StatsScreen() {
         />
       </div>
     );
-  } else if (q.isPending) {
+  } else if (q.isPending || (boot.isPending && zoneOffer !== null)) {
+    // Also waits for the saved zone (the bootstrap answer) when one may be offered, so the line never arrives after the charts.
     body = <Skeleton rows={5} label="Loading stats" />;
   } else if (q.isError && !data) {
     body = <FailedBlock what="Stats" error={q.error} busy={q.isFetching} onRetry={() => void q.refetch()} />;
@@ -614,7 +642,10 @@ export function StatsScreen() {
         </div>
       </header>
       <div className="relative min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-        <div className="mx-auto w-full max-w-3xl">{body}</div>
+        <div className="mx-auto w-full max-w-3xl">
+          {on && !(data && !data.enabled) && boot.data && zoneOffer ? <ZoneOffer zone={zoneOffer} /> : null}
+          {body}
+        </div>
       </div>
       {adding ? <AddFeedDialog onClose={() => setAdding(false)} /> : null}
       <FeedSheet feed={feed} range={range} onClose={() => setFeed(null)} />
