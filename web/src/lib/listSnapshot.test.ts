@@ -30,6 +30,17 @@ describe("a list read a page at a time stays the list its first page opened", ()
     expect(ids(d)).toEqual(["107", "108"]);
   });
 
+  it("keeps a list in relevance order whole", () => {
+    const d = data(pageOf([at(107), at(105)], "c1", "107"), pageOf([at(104), at(108), at(100)], null));
+    expect(listCards(d, true).map((c) => c.id)).toEqual(["107", "105", "104", "108", "100"]);
+  });
+
+  it("bounds a list read again by its new first page, not the bound it had", () => {
+    // The refetch read the first page again after 108 arrived, so 108 is part of this snapshot wherever it falls.
+    const d = data(pageOf([at(110), at(105)], "c1", "110"), pageOf([at(104), at(108), at(100)], null));
+    expect(ids(d)).toEqual(["110", "105", "104", "108", "100"]);
+  });
+
   it("is empty with no data", () => {
     expect(listCards(undefined)).toEqual([]);
   });

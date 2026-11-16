@@ -70,7 +70,7 @@ export interface ListSource {
 export function useItemsSource(scope: Scope, paged: boolean, enabled = true): ListSource {
   const qc = useQueryClient();
   const q = useItems(scope, enabled);
-  const cards = useMemo(() => listCards(q.data), [q.data]);
+  const cards = useMemo(() => listCards(q.data, scope.order === "rank"), [q.data, scope.order]);
   const startOver = useCallback(() => qc.resetQueries({ queryKey: keys.items(scope) }), [qc, scope]);
   const first = q.data?.pages[0];
   return {

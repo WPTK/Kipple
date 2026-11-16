@@ -41,4 +41,18 @@ describe("the server's list as a source", () => {
     await waitFor(() => expect(result.current.cards.map((c) => c.id)).toEqual(["100", "50", "40", "30"]));
     expect(result.current.more).toBe(false);
   });
+  it("keeps every article of a later page in a search by relevance", async () => {
+    mockFetch({
+      "GET /api/items": (url) =>
+        url.searchParams.get("cursor")
+          ? json(pageOf([card(0, { id: "40" }), card(0, { id: "120" })], null))
+          : json(pageOf([card(0, { id: "100" })], "c1", "100")),
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    const { result } = renderHook(() => useItemsSource({ view: "all", q: "kipple", order: "rank" }, false), { wrapper });
+    await waitFor(() => expect(result.current.cards).toHaveLength(1));
+    result.current.loadMore();
+    await waitFor(() => expect(result.current.cards.map((c) => c.id)).toEqual(["100", "40", "120"]));
+  });
 });
