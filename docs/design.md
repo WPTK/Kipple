@@ -520,6 +520,7 @@ CREATE TABLE trimmed_content (
 
 -- Per-feed fetch history (health view). Kept 14 days with a 50-row floor per feed; the last 10
 -- error rows and every keep = 1 row (redirect_migrated, guid_churn_suspected, rekeyed for a requested re-key) survive.
+-- The age cut reads only the rows older than the limit (oldest first, stopping at the first newer one), not the feed's whole history.
 -- first_item_id/last_item_id bound the ids this fetch inserted ("mark this fetch read").
 -- error_class: timeout|dns|connect|tls|http|cloudflare|too_large|empty|parse|ssrf|redirect_loop|gone
 -- note: 'redirect_migrated: <old> -> <new>', 'redirect_held_new_site: <new> is on another site; ...',

@@ -437,14 +437,45 @@ func (d *DB) purgeFeedItems(ctx context.Context, id int64, archiveStarred bool) 
 }
 
 // capFetchLog applies the fetch_log retention: 14 days with a 50-row floor,
-// keeping the last 10 error rows and every keep = 1 row.
+// keeping the last 10 error rows and every keep = 1 row. Rows are written in
+// time order, so the rows past the age limit are the oldest ones: the delete is
+// bounded to them (expiredFetchLogBound) instead of reading the feed's whole
+// history to find the one row that has just expired.
 func capFetchLog(ctx context.Context, tx *sql.Tx, feedID, now int64) error {
-	_, err := tx.ExecContext(ctx, `DELETE FROM fetch_log WHERE feed_id = ?1 AND keep = 0
-	  AND started_at < ?2 - 14*86400
+	last, _, err := expiredFetchLogBound(ctx, tx, feedID, now-14*86400)
+	if err != nil || last == 0 {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `DELETE FROM fetch_log WHERE feed_id = ?1 AND keep = 0
+	  AND id <= ?2
 	  AND id < (SELECT id FROM fetch_log WHERE feed_id = ?1 ORDER BY id DESC LIMIT 1 OFFSET 49)
 	  AND id NOT IN (SELECT id FROM fetch_log WHERE feed_id = ?1 AND outcome = 'error' ORDER BY id DESC LIMIT 10)`,
-		feedID, now)
+		feedID, last)
 	return err
+}
+
+// expiredFetchLogBound walks a feed's fetch_log oldest first and returns the id
+// of the last row of the unbroken run of rows started before cutoff, and how
+// many rows it read: one more than the rows in that run. 0 means the oldest row
+// is still inside the limit.
+func expiredFetchLogBound(ctx context.Context, tx *sql.Tx, feedID, cutoff int64) (last int64, read int, err error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id, started_at FROM fetch_log WHERE feed_id = ?1 ORDER BY id`, feedID)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, started int64
+		if err := rows.Scan(&id, &started); err != nil {
+			return 0, read, err
+		}
+		read++
+		if started >= cutoff {
+			break
+		}
+		last = id
+	}
+	return last, read, rows.Err()
 }
 
 // RetentionPreview is what a trim would remove, counted the way the trim does (starred and held articles stay, feeds that
