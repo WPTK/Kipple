@@ -33,7 +33,13 @@ interface Props {
   children: ReactNode;
 }
 
-export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, onMore, onLongPress, peek, onPeekEnd, children }: Props) {
+/** A row with swipe off (a card in a multi-column grid) is only its children: no refs, no effects, no document listeners. */
+export function SwipeRow(props: Props) {
+  if (!props.enabled) return <>{props.children}</>;
+  return <SwipeRowOn {...props} />;
+}
+
+function SwipeRowOn({ item, onLeading, onTrailing, onStarButton, onMore, onLongPress, peek, onPeekEnd, children }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const leading = useRef<HTMLDivElement>(null);
@@ -130,7 +136,7 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
   }, [closeRow]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!enabled || e.pointerType !== "touch") return;
+    if (e.pointerType !== "touch") return;
     touches.current.add(e.pointerId);
     if (touches.current.size > 1) {
       // A second finger: a pinch or a two-finger scroll. Give the row back.
@@ -306,8 +312,6 @@ export function SwipeRow({ item, enabled, onLeading, onTrailing, onStarButton, o
       closeRow();
     }
   };
-
-  if (!enabled) return <>{children}</>;
 
   // The panel says what the same action says in the row menu (lib/itemActionTable.ts).
   const readState = { on: item.read };

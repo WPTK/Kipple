@@ -88,8 +88,6 @@ export interface Feed {
   status: string;
   /** The feed's own "fetch full article" flag (what the feed editor edits). */
   fulltext: boolean;
-  /** What new items really get: true while the global "fetch full article for every feed" setting is on. */
-  fulltext_effective?: boolean;
   retention: number | null;
   interval_minutes: number | null;
   /** This feed's own auto-read threshold: null follows the global setting, 0 is off, 1 to 365 is its own (docs/design.md 7.1d). */
