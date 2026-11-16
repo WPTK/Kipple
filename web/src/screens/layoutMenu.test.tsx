@@ -93,6 +93,7 @@ describe("the layout menu", () => {
   });
 
   it("puts Order, Group by and Pictures under Show and sort", async () => {
+    updateDevicePrefs({ layout: "inbox" });
     go("/l/unread");
     const menu = await openMenu();
     const heading = within(menu).getByText("Show and sort");
@@ -118,6 +119,31 @@ describe("the layout menu", () => {
     expect(within(group).getByRole("menuitemradio", { name: /^Show/ })).toBeChecked();
     await userEvent.click(within(group).getByRole("menuitemradio", { name: "Hide" }));
     expect(devicePrefsStore.get().listImages).toBe(false);
+  });
+
+  it.each([
+    ["inbox", null],
+    ["digest", null],
+    ["compact", "Compact has no pictures."],
+    ["headlines", "Headlines has no pictures."],
+    ["magazine", "Editorial always shows its pictures."],
+    ["cards", "Cards always shows its pictures."],
+    ["gazette", "The Gazette always shows its pictures."],
+  ] as const)("greys Pictures with the reason in the %s layout, where it changes nothing", async (layout, reason) => {
+    updateDevicePrefs({ layout });
+    go("/l/unread");
+    const menu = await openMenu();
+    const group = within(menu).getByRole("group", { name: "Pictures" });
+    for (const radio of within(group).getAllByRole("menuitemradio")) {
+      if (reason) {
+        expect(radio).toHaveAttribute("aria-disabled", "true");
+        expect(radio).toHaveAccessibleDescription(reason);
+      } else expect(radio).not.toHaveAttribute("aria-disabled");
+    }
+    if (reason) {
+      await userEvent.click(within(group).getByRole("menuitemradio", { name: "Hide" }));
+      expect(devicePrefsStore.get().listImages).toBe(true);
+    }
   });
 
   it("keeps Order and Group by in a layout that sets its own, greyed and focusable with the reason", async () => {

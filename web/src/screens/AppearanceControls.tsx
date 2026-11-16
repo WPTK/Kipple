@@ -2,7 +2,7 @@ import { useId, useRef, useState } from "react";
 import { Popover } from "radix-ui";
 import { CaseSensitive } from "lucide-react";
 import { useSettings } from "@/api/admin";
-import { FONTS, FONT_GROUPS, fontById } from "@/lib/fonts";
+import { FONTS, FONT_GROUPS, fontById, isFontInstalled } from "@/lib/fonts";
 import {
   SPACINGS,
   SPACING_LABELS,
@@ -156,13 +156,19 @@ function FontPicker({ value, onChange, label = "Reading font", help, preview = "
               </option>
             ));
           }
+          // A font of the device that this device lacks is left out; the one already chosen stays, greyed and named as missing.
+          const offered = fonts.filter((f) => f.id === value || isFontInstalled(f));
+          if (offered.length === 0) return null;
           return (
             <optgroup key={g} label={g}>
-              {fonts.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.label}
-                </option>
-              ))}
+              {offered.map((f) => {
+                const missing = !isFontInstalled(f);
+                return (
+                  <option key={f.id} value={f.id} disabled={missing}>
+                    {missing ? `${f.label} (not installed)` : f.label}
+                  </option>
+                );
+              })}
             </optgroup>
           );
         })}

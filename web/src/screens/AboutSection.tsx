@@ -9,6 +9,41 @@ import { openWhatsNew } from "@/shell/WhatsNew";
 
 type CopyState = "idle" | "copied" | "failed";
 
+/** The keys that do something in Kipple. There are no single-key shortcuts, so every line is a key that moves, opens or closes. */
+const KEYBOARD_KEYS: readonly { keys: readonly string[]; does: string }[] = [
+  { keys: ["Tab", "Shift+Tab"], does: "Move between controls. A list of articles and the sidebar are each one Tab stop; the arrow keys move within them." },
+  { keys: ["Up arrow", "Down arrow"], does: "Move to the previous or next article in a list, the Digest or the Feed index, or the previous or next item in the sidebar." },
+  { keys: ["Home", "End"], does: "Move to the first or last article in a list, or the first or last item in the sidebar." },
+  { keys: ["Page up", "Page down"], does: "Move up or down a screenful of articles." },
+  { keys: ["Enter", "Space"], does: "In a list, open the article that has focus. In the sidebar, open the list of the feed or folder that has focus. On a button, press it." },
+  { keys: ["Right arrow", "Left arrow"], does: "In the sidebar, Right opens a closed folder or moves into an open one; Left closes an open folder or moves to the folder that holds the item." },
+  { keys: ["Esc"], does: "Close an open menu or dialog. In the search box, leave the box. Otherwise, leave the article you are reading and return to its list, or leave Search for the screen before it." },
+];
+
+function KeyboardList() {
+  return (
+    <section aria-labelledby="about-keyboard" className="flex flex-col gap-2">
+      <h2 id="about-keyboard" className="text-sm font-semibold">
+        Keyboard
+      </h2>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+        {KEYBOARD_KEYS.map((k) => (
+          <div key={k.keys.join("/")} className="contents">
+            <dt className="flex flex-wrap items-start gap-1 text-fg2">
+              {k.keys.map((key) => (
+                <kbd key={key} className="rounded border border-line bg-surface px-1.5 py-0.5 font-sans text-xs text-fg">
+                  {key}
+                </kbd>
+              ))}
+            </dt>
+            <dd className="min-w-0 break-words">{k.does}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 /**
  * Settings > About: the version and build of the server and of this page, and a "Copy debug info" button that
  * builds a plain-text block for a bug report, shows it, and copies it. The block holds no username, address or path.
@@ -30,7 +65,14 @@ export function AboutSection() {
   }, []);
 
   if (about.isPending || !client) return <Skeleton rows={6} label="Loading" />;
-  if (about.isError) return <Notice tone="error">{`Couldn't load the version details: ${errorMessage(about.error)}`}</Notice>;
+  if (about.isError) {
+    return (
+      <>
+        <Notice tone="error">{`Couldn't load the version details: ${errorMessage(about.error)}`}</Notice>
+        <KeyboardList />
+      </>
+    );
+  }
 
   const a = about.data;
   const rows = aboutRows(a, client);
@@ -77,6 +119,7 @@ export function AboutSection() {
           className="w-full rounded-lg border border-field bg-surface p-3 font-mono text-xs text-fg"
         />
       ) : null}
+      <KeyboardList />
       <p className="text-sm text-fg2">
         Kipple never checks for updates and never contacts anyone about this screen. To see what a newer version is, look at its release notes.
       </p>
