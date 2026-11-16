@@ -81,7 +81,7 @@ Each item gives the decision, the reason, and the alternative that was **rejecte
     - The FTS triggers carry `WHEN old.x IS NOT new.x` guards, so markup-only churn never touches the index (validated).
     - *Rejected:* insert-only.
 
-16. **Retention ranks by `sort_at = min(published_at, crawl_second + 86400)`**, then `id`: the UI order. The trim is a window query, `row_number() OVER (PARTITION BY muted_by IS NOT NULL ORDER BY sort_at DESC, id DESC)`, over the feed's unstarred, unretained items, so muted and real items are kept against separate allowances (the muted one is at least N/5). Items with `retain_until > now` are exempt; they come from a mark-unread restore (§5). *Rejected:* pure arrival id.
+16. **Retention ranks by `sort_at = min(published_at, crawl_second)`**, then `id`: the UI order. The trim is a window query, `row_number() OVER (PARTITION BY muted_by IS NOT NULL ORDER BY sort_at DESC, id DESC)`, over the feed's unstarred, unretained items, so muted and real items are kept against separate allowances (the muted one is at least N/5). Items with `retain_until > now` are exempt; they come from a mark-unread restore (§5). *Rejected:* pure arrival id.
 
 17. **Trimmed ledger plus restore stubs.**
     - A trim writes the ledger row (id, feed, uid, read) and, for `retention.restore_days` (default **90**, matching a client's article window), a `trimmed_content` stub that holds everything needed to rebuild the item.
@@ -382,7 +382,7 @@ CREATE TABLE feed_icons (
 -- Items, narrow row (decision 30). id = crawl time in unix microseconds (allocator). uid = per-feed
 -- dedup key ('g:'|'l:'|'h:' + 32 hex of sha256). content_hash = h(title|url|author|html);
 -- text_hash = h(title|plain text): a change sets content_changed_at (Reader API ot leg 2).
--- sort_at = min(published_at, id/1e6 + 86400): UI order and retention rank. url is absolute ('' if
+-- sort_at = min(published_at, id/1e6): UI order and retention rank. url is absolute ('' if
 -- none). fulltext_mode: NULL = follow feed, 0 = force feed content, 1 = force extracted text.
 -- retain_until: retention exemption set by a mark-unread restore. origin_title: original feed title
 -- for items re-parented to the archive feed. Small mutable columns come first.
@@ -604,6 +604,7 @@ Built (applied in order by the runner; each one is a line here so the block abov
 | `0020_coffee_to_digest.sql` | Data only: in every device profile (`devices.settings`) and in `ui.device_defaults`, the layout `coffee` (`client.layout` and the `layout` of a `client.list_overrides` entry) becomes `digest`, and `client.digest_sections` becomes `length` when the profile's layout was `coffee`, or a list override was and the layout is not the Digest. Rows without `coffee` are untouched. |
 | `0021_list_images.sql` | Data only: in every device profile (`devices.settings`) and in `ui.device_defaults`, `client.inbox_thumbs` and `client.digest_images` are removed, and `client.list_images` is set to `false` when either one hid pictures (`off`, `false`). Rows without either key are untouched. |
 | `0022_starred_feed_index.sql` | One partial index, `idx_items_starred_feed (feed_id) WHERE starred = 1`. Additive: no row changes; one scan of `items` inside the migration. A schema change: an older binary refuses the database | The feed list's per-feed starred count (`UIFeeds`) reads the starred rows in `feed_id` order from the index alone, instead of walking every item or reading one table row per starred item and sorting them |
+| `0023_sort_at_not_ahead_of_fetch.sql` | Data only: every item and every restore stub whose `sort_at` is later than its crawl second (`id / 1e6`) takes the crawl second. `published_at` and rows dated at or before their fetch are untouched. Going back to schema 22 is a restore of the pre-migration snapshot | The list order follows a feed's date only up to the time Kipple fetched the article. The earlier clamp (crawl + 24 h) let a date up to a day ahead keep an article above honest ones until that date passed. *Rejected:* keeping the day of slack for feeds that label local time as UTC (their articles would still sit above fresh ones) |
 
 Nothing is pending: migration 0022 is the last one designed.
 
@@ -1150,7 +1151,7 @@ for each new item (oldest-first):
   INSERT INTO items(id, feed_id, uid, url, title, author, image_url, word_count, content_hash, text_hash,
                     published_at, updated_at, sort_at, read, read_at, starred, starred_at, muted_by, muted_was_read)
     -- published_at = PublishedParsed ?? UpdatedParsed ?? id/1e6 (the feed's value is kept even when bogus; a date at or before the Unix epoch counts as none)
-    -- sort_at = min(published_at, id/1e6 + 86400)
+    -- sort_at = min(published_at, id/1e6)
   INSERT INTO item_content(item_id, content_html, content_text, enclosures_json, categories_json)     -- FTS insert fires here
 UPDATE filters SET hits = hits + :n, last_hit_at = :now WHERE id = :rule     -- per matched rule whose action took effect, per chunk
 UPDATE trimmed_items SET last_seen_at = :now WHERE feed_id = :f AND uid IN (SELECT value FROM json_each(:seen_tomb))
@@ -1338,7 +1339,7 @@ Validated with 300 items in one feed, 5 of them starred, and N=50: 245 trimmed, 
 
 - A backfilled or republished old-dated post can be trimmed in the same transaction that inserted it (for a chunked fetch, the last chunk's transaction). It goes to the ledger (and a stub) but is not counted in `trimmed_unread_count`.
 - A date is ranked as the feed states it. A date-only stamp counts as 00:00 UTC and a stamp with no zone as UTC, so an item from a publisher west of UTC can rank hours before it was published; an item the poll finds hours after its date is inserted at that date, below items already read, while the New page lists by arrival and so shows it first.
-- A bogus future date is clamped to crawl + 24 h in `sort_at` (the ranking key). `published_at` keeps the feed's value.
+- A date later than the fetch is clamped to the crawl second in `sort_at` (the ranking key), so an article never sits above one fetched after it because of a date that has not arrived; it ranks as of its fetch, like an undated article, and keeps that position after the date passes. `published_at` keeps the feed's value. Before schema 23 the clamp was crawl + 24 h; migration 0023 brings stored rows and restore stubs to the new rule.
 - A date at or before the Unix epoch (a Unix time of 0 or less, in whatever zone the feed writes it) counts as no date: the item takes its other date (published, else updated), else the fetch time. It applies to entries as they are parsed, so stored items keep the date they have.
 
 **Restore** (`store.restoreTrimmed(tx, ids, mode)`, where `mode` is `star` or `unread`; validated). It first selects the restorable ids: those trimmed within `restore_days` that also still have a stub. A stub the nightly purge has not yet removed but that is older than the window cannot be restored, so a restore never depends on when the purge last ran. The statements below then run over `:rids`, that selection:

@@ -185,8 +185,8 @@ func TestMissingDateUsesCrawlTimeAndClampsFuture(t *testing.T) {
 	require.Equal(t, crawl, scalar[int64](t, e.db.Reader(), "SELECT published_at FROM items WHERE title='title undated'"))
 	require.Equal(t, crawl, scalar[int64](t, e.db.Reader(), "SELECT sort_at FROM items WHERE title='title undated'"))
 	fid := scalar[int64](t, e.db.Reader(), "SELECT id FROM items WHERE title='title future'")
-	require.Equal(t, fid/1000000+86400, scalar[int64](t, e.db.Reader(), "SELECT sort_at FROM items WHERE id=?", fid), "future date clamped to crawl + 24h")
-	require.Greater(t, scalar[int64](t, e.db.Reader(), "SELECT published_at FROM items WHERE id=?", fid), fid/1000000+86400, "published_at itself is untouched")
+	require.Equal(t, fid/1000000, scalar[int64](t, e.db.Reader(), "SELECT sort_at FROM items WHERE id=?", fid), "future date clamped to the crawl second")
+	require.Greater(t, scalar[int64](t, e.db.Reader(), "SELECT published_at FROM items WHERE id=?", fid), fid/1000000, "published_at itself is untouched")
 }
 
 func TestRetentionCapStarredExemptAndLedger(t *testing.T) {

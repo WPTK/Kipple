@@ -15,13 +15,14 @@ import (
 
 // Edges of the parser's rules, found by mutation testing: each test fails if a limit moves by one or a check flips.
 
-// The one-day cap on a future date counts forward from now: a dated entry from the future is newer than an undated
-// one (which takes the time of the fetch).
-func TestNewestEntriesCapIsInTheFuture(t *testing.T) {
+// A future date is capped at now: a dated entry from the future ties with an undated one (which takes the time of
+// the fetch), and the tie goes to the undated entry, which gets the higher id.
+func TestNewestEntriesCapIsNow(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	at := func(d time.Duration) *gofeed.Item { t := now.Add(d); return &gofeed.Item{PublishedParsed: &t} }
-	require.Equal(t, []int{1}, newestEntries([]*gofeed.Item{{}, at(12 * time.Hour)}, 1, now))
-	require.Equal(t, []int{1}, newestEntries([]*gofeed.Item{{}, at(48 * time.Hour)}, 1, now))
+	require.Equal(t, []int{0}, newestEntries([]*gofeed.Item{{}, at(12 * time.Hour)}, 1, now))
+	require.Equal(t, []int{0}, newestEntries([]*gofeed.Item{{}, at(48 * time.Hour)}, 1, now))
+	require.Equal(t, []int{1}, newestEntries([]*gofeed.Item{at(-time.Hour), at(time.Hour)}, 1, now), "a future date outranks a past one")
 	// Both capped: the later real date wins, in either document order; a full tie goes to the earlier entry.
 	require.Equal(t, []int{0}, newestEntries([]*gofeed.Item{at(72 * time.Hour), at(48 * time.Hour)}, 1, now))
 	require.Equal(t, []int{1}, newestEntries([]*gofeed.Item{at(48 * time.Hour), at(72 * time.Hour)}, 1, now))
