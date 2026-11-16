@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_DEVICE_PREFS, SIDEBAR_WIDTH_MIN, parseDevicePrefs, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { Segmented } from "./segmented";
 import { Switch } from "./kit";
-import { columnNeeds, maxFor } from "@/lib/useWidth";
+import { columnNeeds, listLimit, maxFor, readerNeed } from "@/lib/useWidth";
 import { WIDE_QUERY } from "@/lib/useMedia";
 import { ResizeHandle, dragWidth, keyWidth } from "./ResizeHandle";
 import { MutedCount, UnreadCount, badgeKind, badgeText, countText, unreadName } from "./UnreadCount";
@@ -151,6 +151,34 @@ describe("column limits", () => {
     expect(need).toEqual({ article: 316, list: 336, gutter: 24 });
     expect(maxFor(breakpoint, need.list + need.article + 2 * need.gutter, SIDEBAR_WIDTH_MIN, 420)).toBe(SIDEBAR_WIDTH_MIN);
     expect(SIDEBAR_WIDTH_MIN + need.list + need.article + 2 * need.gutter).toBeLessThanOrEqual(breakpoint);
+  });
+
+  it("the list leaves the article room for a readable line while its own controls stay whole", () => {
+    const floor = (n: ReturnType<typeof columnNeeds>) => Math.max(260, n.list);
+    // The default text size in a wide window: the list keeps the width its layout asks for (28 rem at most) and the article has far more than a line needs.
+    const def = columnNeeds(16, false);
+    expect(listLimit(1180, def, 16, floor(def), 260, 720)).toBeGreaterThanOrEqual(28 * 16);
+    // At the default size and below the split is the earlier one: the article keeps its toolbar's room and the list takes the rest.
+    for (const rem of [14, 16]) {
+      const n = columnNeeds(rem, false);
+      for (const total of [700, 900, 1180]) expect(listLimit(total, n, rem, floor(n), 260, 720)).toBe(maxFor(total, n.article + n.gutter, 260, 720));
+    }
+    // The largest text size (a root font of 24 px) in the same window: the list used to take everything but the toolbar's need and left
+    // the article about 400 px of text; it now stops at its own controls' width, and the article keeps the room for about 45 characters.
+    const big = columnNeeds(24, false);
+    const total = 1180;
+    expect(maxFor(total, big.article + big.gutter, 260, 720)).toBe(670);
+    const limit = listLimit(total, big, 24, floor(big), 260, 720);
+    expect(limit).toBe(big.list);
+    expect(total - limit - big.gutter).toBeGreaterThanOrEqual(600); // was 474
+    expect(total - limit - big.gutter).toBeLessThanOrEqual(readerNeed(24)); // the list's controls stop it short of the full ideal
+    // Where the window cannot hold both, the list's controls win, then the article's toolbar: the old limit is the floor of the new one.
+    expect(listLimit(700, big, 24, floor(big), 260, 720)).toBe(260);
+    expect(readerNeed(24)).toBeGreaterThan(readerNeed(16));
+    // Largest text with Large targets, where the list's controls and the article's toolbar cannot both be whole: the article's
+    // toolbar still wins, exactly as it did before, and the reading room adds nothing on top of it.
+    const bigTargets = columnNeeds(24, true);
+    expect(listLimit(1180, bigTargets, 24, floor(bigTargets), 260, 720)).toBe(maxFor(1180, bigTargets.article + bigTargets.gutter, 260, 720));
   });
 
   it("what the columns need follows the size of the controls: the text size scales it and Large targets raise it", () => {

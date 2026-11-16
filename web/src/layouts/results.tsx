@@ -1,5 +1,5 @@
 import { InboxRow, inbox } from "./inbox";
-import { Bone } from "@/ui/kit";
+import { BoneLines } from "@/ui/kit";
 import type { RowLayout, RowProps } from "./types";
 
 /**
@@ -15,9 +15,9 @@ function ResultRow(p: RowProps) {
 function ResultSkeleton() {
   return (
     <div aria-hidden="true" className="flex min-h-[var(--row-min)] flex-col gap-[var(--row-gap)] border-b border-line py-[var(--row-py)] pr-4 pl-5">
-      <Bone className="h-4 w-11/12" />
-      <Bone className="h-3 w-1/3" />
-      <Bone className="h-3 w-3/4" />
+      <BoneLines lines={2} className="text-sm leading-snug" />
+      <BoneLines lines={1} className="text-xs" />
+      <BoneLines lines={1} className="text-sm leading-snug" />
     </div>
   );
 }

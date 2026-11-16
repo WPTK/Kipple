@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { Bone } from "@/ui/kit";
+import { Bone, BoneLines } from "@/ui/kit";
 import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, rowState, titleTone } from "./parts";
 import type { RowLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
@@ -57,17 +57,20 @@ export function InboxRow({ item, feed, selected, to, onOpen, onToggleStar, actio
   );
 }
 
-/** Loading stand-in for an Inbox row: dot gutter, title, source line, snippet, thumbnail. */
+/** Loading stand-in for an Inbox row: dot gutter, bars as tall as two title lines, the source line and the snippet (cut to the density's), the thumbnail and the buttons' height. */
 function InboxSkeleton() {
   return (
     <div aria-hidden="true" className="flex min-h-[var(--row-min)] gap-2 border-b border-line py-[var(--row-py)] pr-4 pl-2">
       <div className="w-3 shrink-0" />
       <div className="flex min-w-0 flex-1 flex-col gap-[var(--row-gap)]">
-        <Bone className="h-4 w-11/12" />
-        <Bone className="h-3 w-1/3" />
-        <Bone className="h-3 w-3/4" />
+        <BoneLines lines={2} className="text-sm leading-snug" />
+        <BoneLines lines={1} className="text-xs" />
+        <BoneLines lines={2} max="--snippet-lines" className="text-sm leading-snug" />
       </div>
-      <Bone className="size-14 shrink-0 rounded-lg" />
+      <div className="flex shrink-0 flex-col items-end justify-between gap-1">
+        <Bone className="size-14 rounded-lg" />
+        <div className="h-11" />
+      </div>
     </div>
   );
 }

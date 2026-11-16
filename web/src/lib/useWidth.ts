@@ -61,6 +61,32 @@ export function columnNeeds(remPx: number, largeTargets: boolean): ColumnNeeds {
   };
 }
 
+// The room an article needs for a readable line: 45 characters of the reading face (about 0.52 em each at the article's
+// 1.0625rem body size) between the side padding the article keeps (`md:px-6`, 1.5rem each side).
+const READER_CHARS = 45;
+const READER_CHAR_EM = 0.52;
+const READER_BODY_REM = 1.0625;
+const READER_PAD_REM = 3;
+/** The root font size at the Default text size: only larger sizes make the list take room the article needs. */
+const DEFAULT_REM_PX = 16;
+
+/** The article pane's width, in px, that holds a line of about 45 characters at a root font size of `remPx`: it grows with the text size. */
+export function readerNeed(remPx: number): number {
+  return Math.ceil((READER_CHARS * READER_CHAR_EM * READER_BODY_REM + READER_PAD_REM) * remPx);
+}
+
+/**
+ * The widest the list column may be in `total` px. The article beside it first keeps what its toolbar needs (`article`),
+ * then, while the list keeps its own controls whole (`listFloor`), what a readable line needs (`readerNeed`): a larger
+ * text size makes both the list and the article take more room, and without this the article is left a column of about
+ * 30 characters. At the default text size and below the shell keeps its earlier split. Never below `min`, and never above `max`.
+ */
+export function listLimit(total: number, need: ColumnNeeds, remPx: number, listFloor: number, min: number, max: number): number {
+  const toolbar = need.article + need.gutter;
+  const reading = remPx > DEFAULT_REM_PX ? Math.min(readerNeed(remPx) + need.gutter, Math.max(toolbar, total - listFloor)) : 0;
+  return maxFor(total, Math.max(toolbar, reading), min, max);
+}
+
 /** What 1rem is in px: the root font size, which follows the text size (`--kp-scale`, index.css). It only changes with that setting, so it is read then. */
 export function useRemPx(): number {
   const textSize = useStoreSelector(prefsStore, (p) => p.textSize);
