@@ -23,7 +23,7 @@ institutional memory).
 ## 3. Management
 
 One person directs and signs off (the owner); one agent implements, reviews and tests (Claude), following a
-documented model policy — Sonnet for routine implementation, Opus for review/judging/ambiguous root-causing. Concurrency rule: one writer on the Kipple repo/the Kipple server
+documented policy: routine implementation is kept apart from review, judging and the root-causing of ambiguous faults. Concurrency rule: one writer on the Kipple repo/the Kipple server
 instance at a time, to avoid half-applied changes. Deploys, Cloudflare changes, and go/no-go decisions are
 reserved to the owner; routine build decisions are not (current phase 5 preference — minimal owner
 involvement).
