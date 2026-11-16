@@ -51,9 +51,12 @@ export const FRESH_MIN_FEEDS = 20;
 /** The days "Start fresh" fills in. The field itself stays empty until the person presses it. */
 export const FRESH_DAYS = 7;
 
-/** How many feeds an OPML text lists (outlines with an `xmlUrl`): a count by pattern, so a repeat is counted twice. */
+/** How many feeds an OPML text lists: its outline elements with a non-empty `xmlUrl` (a repeat counts twice). */
 export function countOpmlFeeds(text: string): number {
-  return (text.match(/\bxmlUrl\s*=\s*["'][^"']/g) ?? []).length;
+  const doc = new DOMParser().parseFromString(text, "text/xml");
+  let n = 0;
+  for (const o of Array.from(doc.getElementsByTagName("outline"))) if ((o.getAttribute("xmlUrl") ?? "").trim() !== "") n++;
+  return n;
 }
 
 /** "<url>: kipple:allow_insecure_tls" from the import report: the address, and what was not applied, in plain words. */
@@ -309,6 +312,7 @@ export function OpmlResultSummary({ result, inWizard = false }: { result: OpmlRe
 export function OpmlImportDialog({ onClose, inWizard = false }: { onClose: () => void; inWizard?: boolean }) {
   const qc = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
+  const pick = useRef(0); // which selection an async step belongs to: a slower earlier file never overwrites a newer one
   const [file, setFile] = useState<File | null>(null);
   const [days, setDays] = useState("");
   const [bigFile, setBigFile] = useState(false);
@@ -369,16 +373,19 @@ export function OpmlImportDialog({ onClose, inWizard = false }: { onClose: () =>
             accept=".opml,.xml,text/xml,application/xml,text/x-opml,*/*"
             onChange={(e) => {
               const f = e.target.files?.[0] ?? null;
+              const mine = ++pick.current;
               setResult(null);
               setError(null);
               setFile(null);
               setBigFile(false);
               if (!f) return;
               void opmlFileProblem(f).then(async (problem) => {
+                if (mine !== pick.current) return;
                 if (problem) return setError(problem);
                 setFile(f);
                 try {
-                  setBigFile(countOpmlFeeds(await f.text()) > FRESH_MIN_FEEDS);
+                  const count = countOpmlFeeds(await f.text());
+                  if (mine === pick.current) setBigFile(count > FRESH_MIN_FEEDS);
                 } catch {
                   /* unreadable: the import reports it; the suggestion is just not offered */
                 }
@@ -391,6 +398,7 @@ export function OpmlImportDialog({ onClose, inWizard = false }: { onClose: () =>
       {bigFile ? (
         <Button
           className="self-start"
+          aria-disabled={busy}
           onClick={() => {
             setDays(String(FRESH_DAYS));
             announce(`Older than ${FRESH_DAYS} days will arrive read`);

@@ -812,6 +812,52 @@ describe("Folders and OPML", () => {
       expect(countOpmlFeeds(opml(21))).toBe(21);
       expect(countOpmlFeeds('<opml><body><outline text="Folder"><outline xmlUrl="https://a/f"/></outline></body></opml>')).toBe(1);
     });
+
+    it("counts outline elements, not text that only looks like one", () => {
+      const doc = (body: string) => `<opml><body>${body}</body></opml>`;
+      expect(countOpmlFeeds(doc('<!-- <outline xmlUrl="https://a/f"/> --><outline xmlUrl="https://b/f"/>'))).toBe(1);
+      expect(countOpmlFeeds(doc('<outline text="x" xmlUrl=""/><outline text="y" title="xmlUrl=&quot;https://c/f&quot;"/>'))).toBe(0);
+    });
+
+    it("a slower read of an earlier file does not overwrite the newer one", async () => {
+      base();
+      go("/feeds");
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Import feeds from a file (OPML)" }));
+      const dlg = await screen.findByRole("dialog", { name: "Import feeds from a file (OPML)" });
+      const small = new File([opml(5)], "a.opml", { type: "text/xml" });
+      const text = small.text.bind(small);
+      let release = () => {};
+      small.text = () => new Promise<string>((resolve) => { release = () => void text().then(resolve); });
+      const field = within(dlg).getByLabelText("OPML file");
+      await user.upload(field, small);
+      await user.upload(field, new File([opml(30)], "b.opml", { type: "text/xml" }));
+      await within(dlg).findByRole("button", { name: /Start fresh/ });
+      release();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(within(dlg).getByRole("button", { name: /Start fresh/ })).toBeInTheDocument();
+    });
+
+    it("Start fresh does nothing while an import is running", async () => {
+      let finish = () => {};
+      const gate = new Promise<void>((resolve) => { finish = resolve; });
+      base({ "POST /api/opml": async () => { await gate; return json({ folders_created: 0, feeds_added: 30, feeds_existing: [], folders_merged_case: [], memberships_dropped: [] }); } });
+      go("/feeds");
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Import feeds from a file (OPML)" }));
+      const dlg = await screen.findByRole("dialog", { name: "Import feeds from a file (OPML)" });
+      await user.upload(within(dlg).getByLabelText("OPML file"), new File([opml(30)], "feeds.opml", { type: "text/xml" }));
+      const fresh = await within(dlg).findByRole("button", { name: /Start fresh/ });
+      await user.click(within(dlg).getByRole("button", { name: "Import" }));
+      await within(dlg).findByRole("button", { name: "Importing" });
+      expect(fresh).toHaveAttribute("aria-disabled", "true");
+      await user.click(fresh);
+      expect(within(dlg).getByLabelText(/Mark older articles as read/)).toHaveValue("");
+      finish();
+      await screen.findByRole("dialog", { name: "Import finished" });
+    });
   });
 
   it("the import summary lists skipped feeds and settings that were not applied", async () => {

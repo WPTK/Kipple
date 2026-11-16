@@ -40,7 +40,7 @@ describe("the sidebar under 1100 px is an icon rail", () => {
     rail();
     const nav = await open();
     for (const name of ["Unread", "All articles", "Starred", "Muted", "Search", "Feeds", "Settings"]) {
-      const link = within(nav).getByRole("link", { name });
+      const link = within(nav).getByRole("link", { name: name === "Unread" ? "Unread, 3 unread" : name });
       expect(link).toHaveAttribute("title", name);
     }
     expect(within(nav).queryByRole("link", { name: "Feed index" })).toBeNull();
@@ -48,6 +48,22 @@ describe("the sidebar under 1100 px is an icon rail", () => {
     const show = within(nav).getByRole("button", { name: "Show sidebar" });
     expect(show).toHaveAttribute("aria-expanded", "false");
     expect(show.className).toContain("size-11"); // a 44 px target
+  });
+
+  it("marks Unread with a dot while anything is unread, and says how many in its name", async () => {
+    rail();
+    const nav = await open();
+    const link = within(nav).getByRole("link", { name: "Unread, 3 unread" });
+    expect(within(link).getByTestId("rail-unread-dot")).toBeInTheDocument();
+    expect(within(nav).getAllByTestId("rail-unread-dot")).toHaveLength(1);
+  });
+
+  it("draws no dot when the Unread badge is Off", async () => {
+    updateDevicePrefs({ unreadBadge: "off" });
+    rail();
+    const nav = await open();
+    expect(within(nav).getByRole("link", { name: "Unread" })).toBeInTheDocument();
+    expect(within(nav).queryByTestId("rail-unread-dot")).toBeNull();
   });
 
   it("opens with the toggle, keeps focus on the toggle that replaces it, and remembers it on this device", async () => {

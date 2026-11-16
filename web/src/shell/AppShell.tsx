@@ -17,7 +17,7 @@ import { FeedTree } from "@/screens/FeedTree";
 import { WhatsNewHost } from "./WhatsNew";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { maxFor, useColumnNeeds, useSafeInsetRight, useViewportWidth } from "@/lib/useWidth";
-import { MutedCount, UnreadCount } from "@/ui/UnreadCount";
+import { MutedCount, UnreadCount, badgeKind, unreadName } from "@/ui/UnreadCount";
 import { ApplyProgress, FeedEditorHost, FilterEditorHost } from "./FilterHost";
 import { OfflineNotice } from "./OfflineNotice";
 import { DeviceSaveStatus } from "./SaveStatus";
@@ -129,11 +129,18 @@ function Sidebar() {
   if (rail) {
     // The primary destinations, each named by its label (a tooltip for a pointer, the name for a screen reader). The feed
     // tree and the Feed index need the room, so they are in the open sidebar.
-    const railRow = (d: Destination) => (
-      <Link key={d.id} to={d.to} title={d.label} aria-label={d.label} aria-current={here === d.id ? "page" : undefined} className={cn(navItemClass({ isActive: here === d.id }), "justify-center px-0")}>
-        <d.icon aria-hidden="true" className="size-5" />
-      </Link>
-    );
+    // Unread alone keeps an indicator: a dot while anything is unread, unless the Unread badge setting is Off (the count and the
+    // Muted count need room, so they are in the open sidebar). Its name carries the same words the open sidebar's badge does.
+    const railRow = (d: Destination) => {
+      const dot = d.id === unread.id && badgeKind(c?.unread ?? 0, dp.unreadBadge) !== null;
+      const name = d.id === unread.id ? unreadName(d.label, c?.unread ?? 0, dp.unreadBadge) : d.label;
+      return (
+        <Link key={d.id} to={d.to} title={d.label} aria-label={name} aria-current={here === d.id ? "page" : undefined} className={cn(navItemClass({ isActive: here === d.id }), "relative justify-center px-0")}>
+          <d.icon aria-hidden="true" className="size-5" />
+          {dot ? <span data-testid="rail-unread-dot" aria-hidden="true" className="kp-badge-dot absolute top-2.5 right-3 size-2 rounded-full bg-unread" /> : null}
+        </Link>
+      );
+    };
     return (
       <div className="relative h-full w-16 shrink-0">
         <nav aria-label="Primary" className="pt-safe pl-safe flex h-full flex-col gap-1 border-r border-line bg-surface px-1">

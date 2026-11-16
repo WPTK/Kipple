@@ -590,6 +590,16 @@ describe("migration only carries what the old caches held (review finding 3)", (
     expect(prefsStore.get().markReadOnScroll).toBe(true);
   });
 
+  it("carries a locally saved expanded-sidebar choice up when the profile is empty", async () => {
+    updateDevicePrefs({ sidebarExpanded: true });
+    expect(localStorage.getItem(DEVICE_PREFS_KEY)).not.toBeNull();
+    const s = server();
+    hydrateDevice(device());
+    await flush();
+    expect(s.patches).toEqual([{ "client.sidebar_expanded": true }]);
+    expect(devicePrefsStore.get().sidebarExpanded).toBe(true);
+  });
+
   it("does not send keys the legacy stores never held, even if the local default differs from the server's", async () => {
     localStorage.setItem(PREFS_KEY, JSON.stringify({ font: "literata" }));
     prefsStore.set({ ...prefsStore.get(), font: "literata" });

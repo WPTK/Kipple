@@ -491,7 +491,7 @@ function legacyProfileKeys(): Set<string> {
   add(read(DEVICE_PREFS_KEY) ?? read(LEGACY_DEVICE_PREFS_KEY), {
     layout: ["client.layout"], overrides: ["client.list_overrides"], order: ["client.order"], group: ["client.group"], searchOrder: ["client.search_order"], listImages: ["client.list_images"],
     peekSeen: ["client.peek_seen"], pageTipSeen: ["client.page_tip_seen"], articleWidth: ["client.article_width"], listWidth: ["client.list_width"],
-    sidebarWidth: ["client.sidebar_width"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],
+    sidebarWidth: ["client.sidebar_width"], sidebarExpanded: ["client.sidebar_expanded"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],
     unreadBadge: ["client.unread_badge"], highlightKeywords: ["client.highlight_keywords"],
   }, DEFAULT_DEVICE_PREFS);
   // A cache from before the two picture settings became one: either one hiding pictures is a choice.
