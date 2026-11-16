@@ -621,6 +621,14 @@ describe("cache reconciliation", () => {
     expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(true);
   });
 
+  it("feed.changed refetches the bootstrap and saved searches, so a rename or delete from another tab shows", () => {
+    const qc = seeded();
+    qc.setQueryData(savedSearchesKey, []);
+    handleServerEvent(qc, { type: "feed.changed", data: { feed_id: "1" } });
+    expect(qc.getQueryState(keys.bootstrap)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(savedSearchesKey)?.isInvalidated).toBe(true);
+  });
+
   it("folder.changed refetches the bootstrap and saved searches, not the item lists", () => {
     const qc = seeded();
     qc.setQueryData(savedSearchesKey, []);

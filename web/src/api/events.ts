@@ -525,6 +525,7 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
       invalidateSavedSearches(qc);
       break;
     case "feed.changed":
+      void qc.invalidateQueries({ queryKey: keys.bootstrap });
       // Deleting a feed drops it as the scope of a saved search on the server, silently.
       invalidateSavedSearches(qc);
       break;
