@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
-import type { SettingMeta } from "@/api/admin";
+import { usePatchSettings, type SettingMeta } from "@/api/admin";
+import { keys } from "@/api/queries";
+import type { Bootstrap } from "@/api/types";
 import { deviceZone, isUtcName, resetZoneOffer } from "@/lib/deviceZone";
 import { bootstrap, json, mockFetch } from "@/test/mockApi";
 import { richStats } from "./stats.fixtures";
@@ -33,22 +37,28 @@ const tzMeta = (value: string): SettingMeta => ({
   surface: "settings",
 });
 
-/** The server with the saved zone `tz` ("" is none chosen): the bootstrap, the settings list and a PATCH that saves. */
-function server(tz: string) {
+/**
+ * The server with the saved zone `tz` ("" is none chosen): the bootstrap, the settings list and a PATCH that saves.
+ * `setLive` changes what the server holds without the app knowing (another device chose a zone); `refuse` makes the save fail
+ * the way the server does for a zone its own time-zone data lacks.
+ */
+function server(tz: string, o: { refuse?: boolean } = {}) {
   let saved = tz;
-  const body = () => ({ settings: [tzMeta(saved)], values: { tz: saved } });
+  let live: string | null = null;
+  const body = (v: string) => ({ settings: [tzMeta(v)], values: { tz: v } });
   const m = mockFetch({
     "GET /api/bootstrap": () => json({ ...bootstrap, settings: { tz: saved } }),
-    "GET /api/settings": () => json(body()),
+    "GET /api/settings": () => json(body(live ?? saved)),
     "PATCH /api/settings": (_u, init) => {
+      if (o.refuse) return json({ keys: ["tz"], issues: [{ key: "tz", message: "Kipple does not know that time zone." }] }, 400);
       saved = JSON.parse(String(init!.body)).tz;
-      return json(body());
+      return json(body(saved));
     },
     "GET /api/stats/summary": () => json(richStats),
     "GET /api/items": () => json({ items: [], next_cursor: null }),
   });
   const patches = () => m.calls.filter((c) => c.init?.method === "PATCH").map((c) => JSON.parse(String(c.init?.body)));
-  return { patches };
+  return { patches, setLive: (v: string) => (live = v) };
 }
 
 function go(path: string) {
@@ -98,6 +108,30 @@ describe("Settings > Stats offers this device's zone", () => {
     expect(screen.queryByRole("button", { name: OFFER })).toBeNull();
   });
 
+  it("does not write over a zone another device chose meanwhile, and shows that zone", async () => {
+    deviceIn(NY);
+    const s = server("");
+    go("/settings/statistics");
+    await screen.findByRole("textbox", { name: "Time zone" }, { timeout: 15000 });
+    const button = await screen.findByRole("button", { name: OFFER });
+    s.setLive("Europe/Paris");
+    await userEvent.setup().click(button);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Time zone" })).toHaveValue("Europe/Paris"));
+    expect(screen.queryByRole("button", { name: OFFER })).toBeNull();
+    expect(s.patches()).toEqual([]);
+  });
+
+  it("says in words when the server does not know the zone, and the button stays", async () => {
+    deviceIn(NY);
+    const s = server("", { refuse: true });
+    go("/settings/statistics");
+    await userEvent.setup().click(await screen.findByRole("button", { name: OFFER }, { timeout: 15000 }));
+    expect(await screen.findByText("Kipple does not know that time zone.")).toBeInTheDocument();
+    expect(s.patches()).toEqual([{ tz: NY }]);
+    expect(screen.getByRole("button", { name: OFFER })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Time zone" })).toHaveValue("");
+  });
+
   it("shows nothing once a zone is chosen, UTC on purpose included", async () => {
     deviceIn(NY);
     for (const chosen of ["Europe/Paris", "UTC"]) {
@@ -133,13 +167,58 @@ describe("the Stats screen offers it once", () => {
     expect(screen.queryByRole("button", { name: "Not now" })).toBeNull();
   });
 
-  it("is already there when the charts first draw", async () => {
+  it("is drawn in the same pass as the first chart, never after it", async () => {
+    deviceIn(NY);
+    server("");
+    const seen: string[] = [];
+    const look = () => {
+      if (!seen.includes("line") && line()) seen.push("line");
+      if (!seen.includes("chart") && screen.queryByRole("heading", { name: "Daily activity" })) seen.push("chart");
+    };
+    const watch = new MutationObserver(look);
+    watch.observe(document.body, { childList: true, subtree: true });
+    go("/stats");
+    await screen.findByRole("heading", { name: "Daily activity" });
+    watch.disconnect();
+    look();
+    expect(seen).toEqual(["line", "chart"]);
+  });
+
+  it("does not write over a zone another device chose meanwhile, and the offer goes", async () => {
+    deviceIn(NY);
+    const s = server("");
+    go("/stats");
+    await screen.findByRole("heading", { name: "Daily activity" });
+    s.setLive("Europe/Paris");
+    await userEvent.setup().click(screen.getByRole("button", { name: `${OFFER}?` }));
+    await waitFor(() => expect(line()).toBeNull());
+    expect(s.patches()).toEqual([]);
+  });
+
+  it("says in words when the server does not know the zone, and the offer stays and can be declined", async () => {
+    deviceIn(NY);
+    const s = server("", { refuse: true });
+    const user = userEvent.setup();
+    go("/stats");
+    await screen.findByRole("heading", { name: "Daily activity" });
+    await user.click(screen.getByRole("button", { name: `${OFFER}?` }));
+    expect(await screen.findByText("Kipple does not know that time zone.")).toBeInTheDocument();
+    expect(s.patches()).toEqual([{ tz: NY }]);
+    expect(line()).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Not now" }));
+    expect(line()).toBeNull();
+  });
+
+  it("closes the offer when another tab says Not now", async () => {
     deviceIn(NY);
     server("");
     go("/stats");
-    // The heading is the first chart section; the line is drawn in the same pass as it, never after it.
     await screen.findByRole("heading", { name: "Daily activity" });
-    expect(line()).toBeInTheDocument();
+    localStorage.setItem("kipple.zoneOfferDismissed.v1", "1"); // what the other tab wrote
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: "kipple.zoneOfferDismissed.v1", newValue: "1" }));
+    });
+    await waitFor(() => expect(line()).toBeNull());
   });
 
   it("remembers Not now on this device without saving anything", async () => {
@@ -174,5 +253,26 @@ describe("the Stats screen offers it once", () => {
     go("/stats");
     await screen.findByRole("heading", { name: "Daily activity" });
     expect(line()).toBeNull();
+  });
+});
+
+describe("saving a setting", () => {
+  it("is not undone by a bootstrap answer asked for before the save", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    qc.setQueryData<Bootstrap>(keys.bootstrap, { ...bootstrap, settings: { tz: "" } });
+    let answer!: (b: Bootstrap) => void;
+    const asked = qc.fetchQuery({ queryKey: keys.bootstrap, staleTime: 0, queryFn: () => new Promise<Bootstrap>((r) => (answer = r)) });
+    asked.catch(() => {});
+    mockFetch({ "PATCH /api/settings": () => json({ settings: [tzMeta(NY)], values: { tz: NY } }) });
+    const { result } = renderHook(() => usePatchSettings(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ tz: NY });
+    });
+    answer({ ...bootstrap, settings: { tz: "" } }); // the old answer arrives after the save
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(qc.getQueryData<Bootstrap>(keys.bootstrap)?.settings.tz).toBe(NY);
   });
 });

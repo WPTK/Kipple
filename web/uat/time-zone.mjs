@@ -110,6 +110,7 @@ await t.eachViewport(async (page, vp) => {
       await patch({ tz: null });
       await open();
       await offer().waitFor({ timeout: 5000 });
+      await offer().scrollIntoViewIfNeeded(); // on a phone the button can sit below the fold, behind the tab bar
       const r = await offer().boundingBox();
       check(!!r && r.height >= 24 && r.x >= 0 && r.x + r.width <= vp.width + 1, `${tag} Z6 button`, "the button is offered beside the empty box and fits the screen", `the button is at ${JSON.stringify(r)}`);
       await t.shot(page, `${tag}-time-zone-offer`);
@@ -128,9 +129,18 @@ await t.eachViewport(async (page, vp) => {
       await patch({ tz: null });
       await page.goto("/", { waitUntil: "load" });
       await forget();
+      // Which of the line and the first chart reached the page first, from every load after this one.
+      await page.addInitScript(() => {
+        window.__zoneOrder = [];
+        new MutationObserver(() => {
+          const text = document.body?.innerText ?? "";
+          if (!window.__zoneOrder.includes("line") && text.includes("Days are shown in UTC.")) window.__zoneOrder.push("line");
+          if (!window.__zoneOrder.includes("chart") && text.includes("Daily activity")) window.__zoneOrder.push("chart");
+        }).observe(document, { childList: true, subtree: true, characterData: true });
+      });
       await stats();
-      const first = await page.evaluate(() => !!document.body.innerText.includes("Days are shown in UTC."));
-      check(first, `${tag} Z7 line`, "the line is there as soon as the screen has drawn", "the line is not on the screen");
+      const order = await page.evaluate(() => window.__zoneOrder);
+      check(order[0] === "line", `${tag} Z7 line`, "the line reached the page no later than the first chart", `the order was ${JSON.stringify(order)}`);
       const yBefore = await page.getByRole("heading", { name: "Daily activity" }).boundingBox().then((b) => b?.y ?? null, () => null);
       await t.shot(page, `${tag}-stats-zone-offer`);
       const bar = await page.getByRole("button", { name: `Use this device's time zone (${DEVICE_ZONE})?` }).boundingBox();
@@ -148,9 +158,11 @@ await t.eachViewport(async (page, vp) => {
 
       await forget();
       await stats();
+      // The summary the app itself asks for after the save, not a request of this script's own.
+      const refreshed = page.waitForResponse(async (x) => new URL(x.url()).pathname === "/api/stats/summary" && (await x.json().catch(() => ({}))).tz === DEVICE_ZONE, { timeout: 10000 }).then(() => true, () => false);
       await page.getByRole("button", { name: `Use this device's time zone (${DEVICE_ZONE})?` }).click();
       await line().waitFor({ state: "detached", timeout: 10000 });
-      check((await saved()) === DEVICE_ZONE && (await summaryZone()) === DEVICE_ZONE, `${tag} Z7 save`, `pressing the button saves ${DEVICE_ZONE} and the Stats summary follows`, `the server says ${await saved()}, the summary ${await summaryZone()}`);
+      check((await saved()) === DEVICE_ZONE && (await refreshed), `${tag} Z7 save`, `pressing the button saves ${DEVICE_ZONE} and the app asks for the Stats summary in it`, `the server says ${await saved()}, the app ${(await refreshed) ? "did" : "did not"} fetch a summary in ${DEVICE_ZONE}`);
     });
   } finally {
     await forgetLater();

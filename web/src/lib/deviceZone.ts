@@ -1,4 +1,9 @@
 import { useSyncExternalStore } from "react";
+import type { QueryClient } from "@tanstack/react-query";
+import { api } from "@/api/client";
+import { settingsKey, type SettingsResponse } from "@/api/admin";
+import { keys } from "@/api/queries";
+import type { Bootstrap } from "@/api/types";
 import { createStore } from "./store";
 
 // The stats time zone is empty until someone chooses one, and the server uses UTC meanwhile. A device whose own zone is
@@ -23,23 +28,30 @@ export function deviceZone(): string | null {
   }
 }
 
-const KEY = "kipple.zoneOfferDismissed.v1";
+const DISMISSED_STORAGE_NAME = "kipple.zoneOfferDismissed.v1";
 
-const dismissedStore = createStore<boolean>(
-  (() => {
-    try {
-      return localStorage.getItem(KEY) === "1";
-    } catch {
-      return false;
-    }
-  })(),
-);
+const readDismissed = (): boolean => {
+  try {
+    return localStorage.getItem(DISMISSED_STORAGE_NAME) === "1";
+  } catch {
+    return false;
+  }
+};
+
+const dismissedStore = createStore<boolean>(readDismissed());
+
+// A dismissal made in another tab of this browser closes the offer here too (the event fires in the tabs that did not write).
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === null || e.key === DISMISSED_STORAGE_NAME) dismissedStore.set(readDismissed());
+  });
+}
 
 /** Remembers on this device that the Stats screen's offer was declined. */
 export function dismissZoneOffer(): void {
   dismissedStore.set(true);
   try {
-    localStorage.setItem(KEY, "1");
+    localStorage.setItem(DISMISSED_STORAGE_NAME, "1");
   } catch {
     /* not remembered; the line shows again next visit */
   }
@@ -49,7 +61,7 @@ export function dismissZoneOffer(): void {
 export function resetZoneOffer(): void {
   dismissedStore.set(false);
   try {
-    localStorage.removeItem(KEY);
+    localStorage.removeItem(DISMISSED_STORAGE_NAME);
   } catch {
     /* nothing to forget */
   }
@@ -64,4 +76,22 @@ export function useStatsZoneOffer(saved: unknown): string | null {
   const dismissed = useSyncExternalStore(dismissedStore.subscribe, dismissedStore.get, dismissedStore.get);
   if (saved !== "" || dismissed) return null;
   return deviceZone();
+}
+
+/**
+ * Accepts the offer. The saved zone is read again from the server first: when another device chose one in the meantime the
+ * caches take it (so the offer goes, here and wherever it shows) and nothing is written, so a zone someone chose is never
+ * overwritten by a device's guess. Only a zone still empty is saved, through `save`, which is the ordinary write.
+ * Returns "taken" when a zone was already chosen. A zone the server does not know is refused by `save` in the usual words.
+ */
+export async function acceptDeviceZone(qc: QueryClient, zone: string, save: (zone: string) => unknown): Promise<"saved" | "taken"> {
+  const live = await api<SettingsResponse>("/api/settings", { quiet: true });
+  if ((live.values.tz ?? "") !== "") {
+    qc.setQueryData(settingsKey, live);
+    qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, settings: live.values } : old));
+    void qc.invalidateQueries({ queryKey: ["stats"] });
+    return "taken";
+  }
+  await save(zone);
+  return "saved";
 }

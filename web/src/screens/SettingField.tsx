@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { errorMessage } from "@/api/client";
 import { settingsIssues, usePatchSettings, type SettingMeta } from "@/api/admin";
 import { lowersRetention, settingWarning } from "@/lib/settingGuards";
@@ -8,7 +9,7 @@ import { Button } from "@/ui/button";
 import { Field, FieldError, Modal, Stepper, Switch, inputCls } from "@/ui/kit";
 import { HelpText, SavedMark, useSavedMark } from "./settingUi";
 import { UseDeviceZone } from "./UseDeviceZone";
-import { deviceZone } from "@/lib/deviceZone";
+import { acceptDeviceZone, deviceZone } from "@/lib/deviceZone";
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -22,6 +23,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  */
 export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: readonly { value: number; label: string }[] }) {
   const patch = usePatchSettings();
+  const qc = useQueryClient();
   // With presets, the stepper (Custom) shows only when asked for, or when the value is not one of the presets.
   const [customOpen, setCustomOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -209,7 +211,14 @@ export function SettingField({ meta, presets }: { meta: SettingMeta; presets?: r
                 Revert
               </Button>
             ) : null}
-            {offer ? <UseDeviceZone zone={offer} busy={patch.isPending} onUse={send} /> : null}
+            {offer ? <UseDeviceZone
+                zone={offer}
+                busy={patch.isPending}
+                onUse={(z) => {
+                  setError(null);
+                  acceptDeviceZone(qc, z, send).catch((e: unknown) => setError(errorMessage(e)));
+                }}
+              /> : null}
           </div>
         </form>
       );

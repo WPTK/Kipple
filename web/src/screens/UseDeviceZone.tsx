@@ -6,7 +6,7 @@ export function UseDeviceZone({ zone, onUse, inline, busy, className }: { zone: 
   return (
     <Button
       variant={inline ? "link" : "outline"}
-      className={cn("h-auto py-2 text-left", inline && "px-0", className)}
+      className={cn("h-auto max-w-full py-2 text-left", inline && "px-0", className)}
       aria-disabled={busy || undefined}
       onClick={() => onUse(zone)}
     >

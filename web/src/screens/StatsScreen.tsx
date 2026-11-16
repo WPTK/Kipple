@@ -37,8 +37,9 @@ import {
 import { articleTo } from "@/lib/routes";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { useStatsEnabled } from "@/lib/statsSender";
-import { dismissZoneOffer, useStatsZoneOffer } from "@/lib/deviceZone";
-import { usePatchSettings } from "@/api/admin";
+import { acceptDeviceZone, dismissZoneOffer, useStatsZoneOffer } from "@/lib/deviceZone";
+import { settingsIssues, usePatchSettings } from "@/api/admin";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNarrowText } from "@/lib/useNarrowText";
 import { Button } from "@/ui/button";
 import { EmptyState } from "@/ui/EmptyState";
@@ -475,17 +476,33 @@ function FeedDetail({ feed, range }: { feed: string; range: ScreenRange }) {
  * the device's zone is one tap away. Nothing is saved until it is pressed; "Not now" is remembered on this device.
  */
 function ZoneOffer({ zone }: { zone: string }) {
+  const qc = useQueryClient();
   const patch = usePatchSettings();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const accept = (z: string) => {
+    setBusy(true);
+    setError(null);
+    // The write is refused in words when the server does not know the zone; "Not now" stays available.
+    acceptDeviceZone(qc, z, (v) => patch.mutateAsync({ tz: v }))
+      .catch(setError)
+      .finally(() => setBusy(false));
+  };
+  const said = error ? (settingsIssues(error)?.issues.find((i) => i.key === "tz")?.message ?? failedMessage("save the time zone", error)) : null;
   return (
     <div className="border-b border-line py-1 text-sm text-fg2">
       <div className="flex flex-wrap items-center gap-x-2">
         <span>Days are shown in UTC.</span>
-        <UseDeviceZone inline busy={patch.isPending} zone={zone} onUse={(z) => patch.mutate({ tz: z })} />
+        <UseDeviceZone inline busy={busy} zone={zone} onUse={accept} />
         <Button variant="ghost" onClick={dismissZoneOffer}>
           Not now
         </Button>
       </div>
-      {patch.isError ? <p className="pb-2 text-danger">{failedMessage("save the time zone", patch.error)}</p> : null}
+      {said ? (
+        <p role="alert" className="pb-2 text-danger">
+          {said}
+        </p>
+      ) : null}
     </div>
   );
 }
