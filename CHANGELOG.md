@@ -21,6 +21,7 @@ The database schema changes in this release, so take a backup before updating: g
 - Import: a large file offers Start fresh, which fills Mark older articles as read with 7 days.
 - Digest and Gazette: on a device whose only pointer is a finger, every story has a Star, and the first time one opens a caption says to press and hold a story for more actions.
 - Windows under 1100 px wide: the sidebar is a narrow rail of icons with a Show sidebar button, and the choice is kept on this device.
+- Stats: while no time zone is chosen and this device's zone is not UTC, Settings > Stats and the Stats screen offer to use this device's zone, and "Not now" is remembered on the device. Nothing is saved until you press it.
 
 ### Changed
 
