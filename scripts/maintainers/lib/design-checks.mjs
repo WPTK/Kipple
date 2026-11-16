@@ -418,6 +418,9 @@ export function installChecks() {
         if (ds.boxShadow && ds.boxShadow !== "none") shadowEl ??= ds;
       }
     const bg = K.bg(el.parentElement ?? el).color;
+    // A ring drawn with a band of the page color on its sides (the kp-ring utilities) touches that band, not the parent's background.
+    const band = /^(rgba?\([^)]*\))\s+0px 0px (?:0px )?\d/.exec(cs.boxShadow);
+    const near = (band && K.painted(band[1], el, bg)) || bg;
     const r = el.getBoundingClientRect();
     const pts = [
       [r.x + r.width / 2, r.y + r.height / 2],
@@ -446,7 +449,7 @@ export function installChecks() {
     return {
       ...K.desc(el),
       docY,
-      ring: ring ? { ...ring, ratio: K.ratio(K.painted(ring.color, el, bg) ?? bg, bg) } : null,
+      ring: ring ? { ...ring, ratio: K.ratio(K.painted(ring.color, el, near) ?? near, near) } : null,
       shadow: fine(cs) || fine(before) || (shadowEl && fine(shadowEl)) || null,
       bgRatio: K.ratio(K.painted(cs.backgroundColor, el, bg) ?? bg, bg),
       obscured: covered === pts.length ? "full" : covered ? "partial" : "none",

@@ -1064,6 +1064,8 @@ Health statuses, computed at read time by one function, `store.FeedStatus(row, h
 | `silent` | healthy, but `COALESCE(last_new_items_at, created_at) < now − 90 d` |
 | `ok` | none of the above. A resolved `last_error` is shown greyed with its time |
 
+The Feed health screen's summary line sorts each feed (archive aside) into one group by that status, so the counts add up to the total: "need attention" is `dead`, `failing`, `erroring` and `throttled`; "moved" is `redirecting`; "paused" is `disabled`; "working" is the rest, a feed with only a temporary redirect notice among them. Each count except "working" filters the list. A feed's repair buttons, redirect notice and Details sit in a second row under the feed's own row, after its Actions menu in the tab order. Long addresses wrap.
+
 The scheduler exposes its live host deadlines through `Scheduler.HostHolds()`, answered on the dispatcher goroutine like `Status()` (bounded wait, empty at shutdown).
 
 ### 4.7 Redirect policy

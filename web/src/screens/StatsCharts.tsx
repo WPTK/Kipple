@@ -124,7 +124,7 @@ export function DailyChart({ data, empty }: { data: StatsSummary; empty: boolean
   }));
   return (
     <div>
-      <BarChart bars={bars} summary={summary} slot={week ? WEEK_SLOT : DAY_SLOT} hint={week ? "Tap a bar for its week." : "Tap a bar for its day."} />
+      <BarChart bars={bars} summary={summary} slot={week ? WEEK_SLOT : DAY_SLOT} hint={week ? "Select a bar for its week." : "Select a bar for its day."} />
       <div className="sr-only"><table>
         <caption>Articles read and active time per {unit}</caption>
         <thead>
@@ -165,7 +165,7 @@ export function MonthlyChart({ data, empty }: { data: StatsSummary; empty: boole
   }));
   return (
     <div>
-      <BarChart bars={bars} summary={summary} slot={MONTH_SLOT} hint="Tap a bar for its month." />
+      <BarChart bars={bars} summary={summary} slot={MONTH_SLOT} hint="Select a bar for its month." />
       <div className="sr-only"><table>
         <caption>Articles read and active time per month</caption>
         <thead>

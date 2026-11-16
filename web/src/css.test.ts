@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { contrast } from "@/theme/contrast";
+import { SCHEMES } from "@/theme/schemes";
 
 // Vitest runs with css:false, so the stylesheet is checked as text.
 const css = readFileSync("src/index.css", "utf8");
@@ -81,6 +83,31 @@ describe("status-bar cover", () => {
   it("is in the page before the app root, hidden from assistive technology", () => {
     const html = readFileSync("index.html", "utf8");
     expect(html).toMatch(/<div id="kp-top-cover" aria-hidden="true"><\/div>\s*<div id="root">/);
+  });
+});
+
+describe("the focus ring inside a segmented control", () => {
+  const inset = () => {
+    const r = rules().find((x) => last(x.sel) === "@utility kp-ring-inset");
+    expect(r).toBeDefined();
+    return r!.body;
+  };
+
+  it("sits one ring width inside a band of the page color, with another band inside it", () => {
+    // outline: 2w..3w from the edge is not allowed to touch the edge (the field boundary): outer band w, ring w, inner band w.
+    expect(inset()).toMatch(/outline-offset:\s*calc\(var\(--kp-ring-w\) \* -2\)/);
+    expect(inset()).toMatch(/box-shadow:\s*inset 0 0 0 calc\(var\(--kp-ring-w\) \* 3\) var\(--kp-bg\)/);
+  });
+
+  it("is the accent against the page color on both sides, 3:1 in every theme, and the page color is 3:1 against the field boundary", () => {
+    for (const s of SCHEMES) {
+      expect(contrast(s.tokens.accent, s.tokens.bg), `${s.name} ring/bg`).toBeGreaterThanOrEqual(3);
+      expect(contrast(s.tokens.bg, s.tokens.field), `${s.name} band/field`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("is used by the segmented control", () => {
+    expect(readFileSync("src/ui/segmented.tsx", "utf8")).toContain("has-[:focus-visible]:kp-ring-inset");
   });
 });
 

@@ -154,7 +154,7 @@ describe("Stats screen", () => {
     await screen.findByRole("heading", { name: "Weekly activity" });
     expect(screen.queryByRole("heading", { name: "Daily activity" })).toBeNull();
     expect(screen.getByRole("group", { name: /Articles read per week/ })).toBeInTheDocument();
-    expect(screen.getByText("Tap a bar for its week.")).toBeInTheDocument();
+    expect(screen.getByText("Select a bar for its week.")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Week of" })).toBeInTheDocument();
   });
 
@@ -409,7 +409,7 @@ describe("Stats screen", () => {
     setup(() => richStats);
     go();
     const chart = await screen.findByRole("group", { name: /Articles read per day/ });
-    expect(screen.getByText("Tap a bar for its day.")).toBeInTheDocument();
+    expect(screen.getByText("Select a bar for its day.")).toBeInTheDocument();
     chart.focus();
     await user.keyboard("{End}");
     expect(screen.getByText(/^Sep 26: \d+ articles?, /)).toBeInTheDocument();

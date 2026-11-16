@@ -76,7 +76,7 @@ export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
   // A group inside the Primary navigation, not a region of its own: Settings has a region of the same name.
   return (
     <div role="group" aria-label="Saved searches" className="mb-2">
-      <h2 className="mt-3">
+      <div className="mt-3">
         <button
           type="button"
           aria-expanded={open}
@@ -87,7 +87,7 @@ export function SavedSearchesNav({ onNavigate }: { onNavigate?: () => void }) {
           {open ? <Icon of={ChevronDown} size="sm" /> : <Icon of={ChevronRight} size="sm" />}
           Saved searches
         </button>
-      </h2>
+      </div>
       {open ? (
         <ul id={listId} className="flex flex-col gap-1">
           {searches.map((s) => (

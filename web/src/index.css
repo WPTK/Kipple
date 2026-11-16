@@ -178,10 +178,12 @@ body {
   outline-offset: var(--kp-ring-gap);
   box-shadow: 0 0 0 var(--kp-ring-gap) var(--kp-bg);
 }
+/* Inside a control whose own edge is the field boundary (a segmented control): a band of the page color on both sides
+   of the ring, so the ring never touches the boundary color, which only the page color is guaranteed 3:1 against. */
 @utility kp-ring-inset {
   outline: var(--kp-ring-w) solid var(--kp-ring-color);
-  outline-offset: calc(var(--kp-ring-w) * -1);
-  box-shadow: inset 0 0 0 calc(var(--kp-ring-w) * 2) var(--kp-bg);
+  outline-offset: calc(var(--kp-ring-w) * -2);
+  box-shadow: inset 0 0 0 calc(var(--kp-ring-w) * 3) var(--kp-bg);
 }
 
 /* Signal, Inkwell and Teletype draw their borders as full-contrast outlines. */
@@ -381,6 +383,9 @@ a.sr-only-live:focus {
      the narrowest width a table cell can take, so cells broke words letter by letter instead of the table scrolling. */
   overflow-wrap: break-word;
 }
+/* A long unbroken word (a compound word, a hashtag) in running text breaks at the column's edge, which break-word does
+   not do when the box's own minimum width is what is measured. Tables keep break-word, as above. */
+.article-body > :is(p, ul, ol, blockquote, figure, h1, h2, h3, h4, h5, h6) { overflow-wrap: anywhere; }
 
 .article-body > * + * { margin-block-start: 0; }
 .article-body p { text-wrap: pretty; }

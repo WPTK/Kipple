@@ -62,7 +62,7 @@ describe("a failing feed", () => {
     expect(box).toHaveTextContent("This address does not exist.");
     expect(box).not.toHaveTextContent("no such host");
     expect(within(box).getByRole("button", { name: /^Edit address of/ })).toBeInTheDocument();
-    expect(within(box).getByRole("button", { name: /^Try .* now$/ })).toBeInTheDocument();
+    expect(within(box).getByRole("button", { name: /^Try now/ })).toBeInTheDocument();
     expect(within(box).queryByRole("link", { name: "Open Feed health" })).toBeNull();
     expect(screen.queryByText("All caught up")).not.toBeInTheDocument();
   });

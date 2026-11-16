@@ -1,0 +1,1 @@
+Settings and Stats: the focus ring on a choice in a segmented control stays clear of the control's border and reaches 3:1 in every theme.
