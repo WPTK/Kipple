@@ -605,8 +605,9 @@ Built (applied in order by the runner; each one is a line here so the block abov
 | `0020_coffee_to_digest.sql` | Data only: in every device profile (`devices.settings`) and in `ui.device_defaults`, the layout `coffee` (`client.layout` and the `layout` of a `client.list_overrides` entry) becomes `digest`, and `client.digest_sections` becomes `length` when the profile's layout was `coffee`, or a list override was and the layout is not the Digest. Rows without `coffee` are untouched. |
 | `0021_list_images.sql` | Data only: in every device profile (`devices.settings`) and in `ui.device_defaults`, `client.inbox_thumbs` and `client.digest_images` are removed, and `client.list_images` is set to `false` when either one hid pictures (`off`, `false`). Rows without either key are untouched. |
 | `0022_starred_feed_index.sql` | One partial index, `idx_items_starred_feed (feed_id) WHERE starred = 1`. Additive: no row changes; one scan of `items` inside the migration. A schema change: an older binary refuses the database | The feed list's per-feed starred count (`UIFeeds`) reads the starred rows in `feed_id` order from the index alone, instead of walking every item or reading one table row per starred item and sorting them |
+| `0023_ledger_feed_unread_index.sql` | One partial index: `idx_trimmed_feed_unread(feed_id, id) WHERE read = 0` on `trimmed_items`. Additive: no row changes; one scan of the ledger inside the migration. A schema change: an older binary refuses the database, so going back to schema 22 is a restore of the pre-migration snapshot | The ledger half of a mark-as-read scoped to one feed or folder (`UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= ? AND feed_id = ?`, Reader `mark-all-as-read` and the web app's mark scope) read the feed's ledger rows through the `(feed_id, uid)` key, which holds no `read` or `id`, so it visited every row the feed had retired and filtered afterwards. The index holds only unread ledger rows, so the statement touches those and nothing else (the ledger is mostly read, so the index stays small). The unscoped form keeps `idx_trimmed_unread` |
 
-Nothing is pending: migration 0022 is the last one designed.
+Nothing is pending: migration 0023 is the last one designed.
 
 Theme, density and similar UI changes need no migration: `ui.*` values are settings rows validated in Go.
 
@@ -654,6 +655,7 @@ The plans are from revision 1 on the wide table. Revision 2 re-checked the `ot` 
 | `idx_items_starred_sort (sort_at,id) WHERE starred=1` (0013) | UI "Starred" view keyset (the page's id pick) | `SCAN/SEARCH … COVERING INDEX idx_items_starred_sort` |
 | `idx_items_starred_feed (feed_id) WHERE starred=1` (0022) | The per-feed starred count in the bootstrap's feed list (`SELECT feed_id, count(*) FROM items INDEXED BY idx_items_starred_feed WHERE starred = 1 GROUP BY feed_id`) | `SCAN items USING COVERING INDEX idx_items_starred_feed` |
 | `idx_trimmed_unread (id) WHERE read=0` (0013) | Ledger half of mark-all-as-read and the web app's mark scope: `UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= ?` | `SEARCH trimmed_items USING INDEX idx_trimmed_unread (id<?)` |
+| `idx_trimmed_feed_unread (feed_id, id) WHERE read=0` (0023) | Ledger half of a mark-as-read scoped to one feed or folder: `UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= ? AND feed_id = ?` | `SEARCH trimmed_items USING INDEX idx_trimmed_feed_unread (feed_id=? AND id<?)` |
 | `idx_filters_folder`, `idx_filters_feed` (0004, partial) | Cascade lookup when a folder or feed is deleted | range |
 | `idx_devices_seen` (0004) | LRU eviction above 50 devices and the 400-day purge | range |
 | `idx_stats_kind_ts (kind,ts)` | Phase-4 windows | `SEARCH … (kind=? AND ts>?)` |
