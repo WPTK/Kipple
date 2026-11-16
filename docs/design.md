@@ -2271,6 +2271,15 @@ The design is in docs/maintainers/ui-decisions.md ("The Gazette"); this is how t
 - **Scroll position** comes back when the reader returns, once the pages are tall enough to hold it. Any scroll the restore did not make before that (the reader's, the article pane's previous and next, find in page) cancels it, so loading more pages never jumps back.
 - **Not built yet:** swipe and the row menu on stories (issue #314).
 
+### 7.10a Editorial and Cards rows (web only, `web/src/layouts/magazine.tsx`, `cards.tsx`, `parts.tsx`)
+
+The design is in docs/maintainers/ui-decisions.md ("Layout", "Pictures, order and the layout menu"); this is how a row is built. No server change.
+
+- **Anatomy.** An Editorial row is the picture, then one text column: the source line (unread dot, feed icon, source, time), the title and the excerpt. A Cards row is the same inside a card shell, with the picture inset. The star and More are the last items of the source line (`RowActions`, `parts.tsx`), so a row has no line of its own for them, with or without a picture.
+- **Picture shape.** In Editorial the picture is 2:1 while the row is stacked (narrower than 34rem, the `@[34rem]` container query) and 16:9 beside the text. A card alone in its line (one column) has a 2:1 picture; a card in a two- or three-column grid keeps 16:9. The box is fixed by its width and the shape alone, so a picture that loads, fails or is cropped to a different shape (`fitOf`) never moves the row.
+- **Swipe and the action buttons.** A row that swipes (`RowProps.swipe`: every row but a card in a grid) on a screen where the only pointer is a finger (`@media not (any-pointer: fine)`) leaves the star and More out of the row's layout (`.row-swipe-aside`, absolutely placed with no pointer events), because the swipe and the long press already star the article and open the menu. The two buttons keep their names and their place in the accessibility tree and the tab order; one that takes keyboard focus is shown over the row's bottom corner and can be pressed. Where there is a mouse, a pen or a trackpad (including a touch laptop) they are drawn as buttons at rest, as in every layout.
+- **Row heights.** At 375 px wide, Editorial rows run about 315 to 365 px with a picture and 105 to 180 px without; a card about 320 to 365 and 110 to 195. The first estimate the virtualizer uses is 335 and 160 px for Editorial and 330 and 150 for Cards; rows are measured after they render.
+
 ### 7.11 Undo in the web app (`web/src/lib/undo.ts`, `web/src/lib/itemActions.ts`)
 
 The toast and the stack's limits are in docs/maintainers/ui-decisions.md ("Gestures and keys"): one toast for 15 s, same-kind actions merged, up to 20 groups reachable with Undo for 60 s, bulk marks never merged and undoable for 2 minutes. Undo reverses exactly what the server says it changed (`changed`, `ledger_ids`; §7.1), never the rows the client guessed.

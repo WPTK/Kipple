@@ -28,7 +28,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { chromium, firefox, webkit } from "@playwright/test";
-import { accessControlUrl, onPageError, startSelect, unloadRefusal, waitForPageStill, waitForStillFor } from "./common.mjs";
+import { accessControlUrl, onPageError, pressRowButton, startSelect, unloadRefusal, waitForPageStill, waitForStillFor } from "./common.mjs";
 
 const setupError = (m) => {
   console.error(m);
@@ -575,7 +575,7 @@ async function phone(cookies) {
   check((await star.count()) >= 1 && (await star.first().evaluate((e) => e.checkVisibility() && e.getBoundingClientRect().width >= 24)), where("swipe left: star"), "a Star button on the row", "no visible Star button (24 px or more) on a row");
   const more = row.getByRole("button", { name: "More actions" });
   if (await more.count()) {
-    await more.first().click();
+    await pressRowButton(page, more);
     const items = await page.evaluate(() => [...document.querySelectorAll('[role="menu"] [role^="menuitem"]')].map((e) => e.textContent.trim()));
     check(items.some((t) => /^Mark as (read|unread)/.test(t)) && items.some((t) => /^(Star|Unstar)/.test(t)), where("swipe right / long press: read, star, more"), `the row's More actions menu has ${items.slice(0, 3).join(", ")}...`, `the menu offers: ${items.join(", ") || "nothing"}`);
     await page.keyboard.press("Escape");

@@ -19,7 +19,7 @@
 // against a loopback address with the seed's credentials unless --allow-remote is given. Exit code: 0 clean, 1
 // findings, 2 setup error.
 // First time on a machine: `npx playwright install chromium` (webkit, firefox for --browser).
-import { start, waitForSavedWith, waitForStillFor } from "./common.mjs";
+import { pressRowButton, start, waitForSavedWith, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 20);
 const { check, step, textOf } = t;
@@ -47,7 +47,7 @@ await t.eachViewport(async (page, vp) => {
       await page.goto(`/l/unread?feed=${it.feed_id}`, { waitUntil: "load" });
       const row = page.locator(`[data-item-id="${it.id}"]`).first();
       await row.waitFor({ timeout: 15000 });
-      await row.getByRole("button", { name: "More actions" }).click();
+      await pressRowButton(page, row.getByRole("button", { name: "More actions" }));
     } else {
       // Opened from the feed's All list, as a reader would, so the article has a list to page through.
       await page.goto(`/l/all?feed=${it.feed_id}`, { waitUntil: "load" });
@@ -139,7 +139,7 @@ await t.eachViewport(async (page, vp) => {
         await page.goto(`/l/all?feed=${other.feed_id}`, { waitUntil: "load" });
         const row = page.locator(`[data-item-id="${other.id}"]`).first();
         await row.waitFor({ timeout: 15000 });
-        await row.getByRole("button", { name: "More actions" }).click();
+        await pressRowButton(page, row.getByRole("button", { name: "More actions" }));
         await page.getByRole("menuitem", { name: "Mark as read" }).click(); // uat-labels: ignore (a menu item's text, not an aria-label)
         const undo = page.getByRole("button", { name: "Undo" }).first();
         await undo.waitFor({ timeout: 10000 });

@@ -1,19 +1,20 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
 import { Bone } from "@/ui/kit";
-import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, rowState, titleTone } from "./parts";
+import { ListImage, useImageFailure, RowActions, SourceTimeMeta, UnreadDot, rowLinkProps, rowState, titleTone } from "./parts";
 import type { RowLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
 import { useRowTabIndex, ROW_KEYSHORTCUTS } from "./rowTabStop";
 
 /**
- * Editorial: image-forward. A large 16:9 lead image over the source line, a big title and a longer excerpt,
- * with plenty of whitespace; in a wide list the image sits beside the text. Compare Inbox, which is text
- * first (sender, subject, snippet, time) with only a small optional thumbnail. Unread is a dot AND bold AND
+ * Editorial: image-forward. A wide lead image (2:1) over the source line, a big title and a longer excerpt,
+ * with plenty of whitespace; in a wide list the image is 16:9 and sits beside the text. The star and More are at the
+ * end of the source line; where the row swipes and the only pointer is a finger, they leave the row (see RowActions).
+ * Compare Inbox, which is text first (sender, subject, snippet, time) with only a small optional thumbnail. Unread is a dot AND bold AND
  * full-strength text, never color alone; read rows dim to the secondary color. (The layout id stays
  * "magazine" so saved choices keep working; only the name shown to people changed.)
  */
-function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions }: RowProps) {
+function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions, swipe }: RowProps) {
   const tabIndex = useRowTabIndex();
   const unread = !item.read;
   const failure = useImageFailure(item.image);
@@ -22,21 +23,21 @@ function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions 
       data-item-id={item.id}
       data-selected={selected || undefined}
       className={cn(
-        "row-host @container relative flex flex-col gap-3 border-b border-line bg-bg px-4 py-[calc(var(--row-py)+0.5rem)]",
+        "row-host @container relative flex flex-col border-b border-line bg-bg px-4",
         rowState(selected),
       )}
     >
-      <div className="flex flex-col gap-3 @[34rem]:flex-row @[34rem]:gap-5">
+      <div className="flex flex-col gap-3 py-[var(--row-py)] @[34rem]:flex-row @[34rem]:gap-5 @[34rem]:py-[calc(var(--row-py)+0.5rem)]">
         {item.image ? (
           <ListImage
             src={item.image}
             failure={failure}
             shaped
-            className={cn("aspect-video w-full rounded-xl bg-surface @[34rem]:w-2/5 @[34rem]:self-start", item.read && "opacity-60")}
+            className={cn("aspect-[2/1] w-full rounded-xl bg-surface @[34rem]:aspect-video @[34rem]:w-2/5 @[34rem]:self-start", item.read && "opacity-60")}
           />
         ) : null}
-        <div className={cn("flex min-w-0 flex-1 flex-col gap-[calc(var(--row-gap)*2)]", !item.image && "min-h-[8rem]")}>
-          <SourceTimeMeta item={item} feed={feed} dot={<UnreadDot unread={unread} />} />
+        <div className="flex min-w-0 flex-1 flex-col gap-[calc(var(--row-gap)*2)]">
+          <SourceTimeMeta item={item} feed={feed} dot={<UnreadDot unread={unread} />} end={<RowActions item={item} onToggleStar={onToggleStar} actions={actions} swipe={swipe} />} />
           <h3 className={cn("clamp-title text-xl leading-tight", titleTone(unread))}>
             <Link
               tabIndex={tabIndex}
@@ -51,10 +52,6 @@ function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions 
           {item.excerpt ? <p className="clamp-snippet text-base leading-normal text-fg2"><Hl text={item.excerpt} field="content" feedId={item.feed_id} /></p> : null}
         </div>
       </div>
-      <div className="relative z-10 -mr-2 -mb-2 flex items-center justify-end">
-        <StarButton item={item} onToggleStar={onToggleStar} />
-        <RowMenu item={item} actions={actions} />
-      </div>
     </article>
   );
 }
@@ -63,15 +60,15 @@ function EditorialRow({ item, feed, selected, to, onOpen, onToggleStar, actions 
 const EDITORIAL_SIDE_REM = 34;
 
 /**
- * Row height guess from the list width. Stacked: a 16:9 image across the row plus the text (about 400 px at phone
+ * Row height guess from the list width. Stacked: a 2:1 image across the row plus the text (about 350 px at phone
  * width). Side by side: the image is 2/5 of the row and the text is the taller of the two, about 200 to 260 px.
  */
 export function editorialRowHeight(hasImage: boolean, width: number, rem = 16): number {
-  if (!hasImage) return 190;
+  if (!hasImage) return 160;
   const w = width > 0 ? width : 375;
   const inner = Math.max(w - 32, 0);
   if (w >= EDITORIAL_SIDE_REM * rem) return Math.round(Math.max((inner * 0.4 * 9) / 16, 150) + 70);
-  return Math.round((inner * 9) / 16 + 207);
+  return Math.round(inner / 2 + 165);
 }
 
 /** Loading stand-in for an Editorial row: the picture across the top, then source, title and two lines. */

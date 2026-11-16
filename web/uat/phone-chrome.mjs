@@ -19,7 +19,7 @@
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { createServer } from "node:http";
-import { start, waitForAnimationsDone, waitForStillFor } from "./common.mjs";
+import { pressRowButton, start, waitForAnimationsDone, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 19);
 const { check, step } = t;
@@ -127,7 +127,7 @@ await t.eachViewport(async (page, vp) => {
     const rows = page.locator("[data-item-id]");
     await rows.first().waitFor({ timeout: 15000 });
     const first = TITLES[0];
-    await page.getByRole("button", { name: `More actions: ${first}` }).first().click({ force: true });
+    await pressRowButton(page, page.getByRole("button", { name: `More actions: ${first}` }));
     await page.getByRole("menuitem", { name: "Mark as read" }).click(); // uat-labels: ignore (a menu item's text, not an aria-label)
     const toast = page.getByTestId("undo-region").getByRole("button", { name: "Undo" });
     await toast.waitFor({ timeout: 10000 });
