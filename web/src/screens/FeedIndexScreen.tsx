@@ -274,6 +274,8 @@ export function FeedIndexScreen() {
                 const g = groups.find((x) => x.folder.id === e.target.value);
                 if (!g) return;
                 reveal.ensure(g.first);
+                // The Tab stop goes to the folder's first block, so Tab from the label reaches its heading link and menu.
+                setFocused(stopId("feed", g.first));
                 setJump(g.folder.id);
               }}
               className={cn(inputCls, "w-auto max-w-full")}

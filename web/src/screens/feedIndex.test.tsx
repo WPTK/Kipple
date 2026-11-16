@@ -389,6 +389,9 @@ describe("the Feed index on a large library", () => {
     await userEvent.setup().selectOptions(jump, "Tech (1.2k)");
     await waitFor(() => expect(into).toHaveBeenCalled());
     expect(target).toHaveFocus();
+    // The page's one Tab stop moves with it: Tab from the label reaches the folder's first block, not the one left behind.
+    expect(within(block(container, 2)).getByRole("button", { name: "More actions for Byte" }).tabIndex).toBe(0);
+    expect(within(block(container, 1)).getByRole("button", { name: "More actions for Wire" }).tabIndex).toBe(-1);
   });
 
   it("has no folder groups or jump list in the quietest-first order, where a folder's feeds are not together", async () => {

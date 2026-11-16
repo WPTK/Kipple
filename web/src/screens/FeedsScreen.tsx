@@ -287,6 +287,14 @@ export function FeedsScreen() {
     }),
     [ftree, byFolder],
   );
+  // The tree as saved, with every feed: a move made while a name search or Unread only is narrowing the screen is planned
+  // and written to the cache from this, so a feed that is hidden is not dropped from the saved tree until the refetch.
+  const fullTree: Tree = useMemo(() => {
+    const feedsIn: Record<string, string[]> = {};
+    for (const fo of folders) feedsIn[fo.id] = [];
+    for (const f of realFeeds) (feedsIn[f.folder_id] ??= []).push(f.id);
+    return { ...tree, feeds: feedsIn };
+  }, [folders, realFeeds, tree]);
   // The order feeds appear on screen: what shift-click ranges are measured along.
   const visibleOrder = useMemo(() => feedOrder(ftree, (id) => tree.feeds[id] ?? []), [ftree, tree]);
   // Each folder's feeds over its subtree (its Select checkbox), built once per tree, not per row and drag move.
@@ -355,7 +363,7 @@ export function FeedsScreen() {
    * ends up showing what the server has.
    */
   const saveTree = async (next: Tree) => {
-    const body = reorderBody(tree, next);
+    const body = reorderBody(fullTree, next);
     if (!body) return;
     const planned = failures.current;
     setSaved("saving");
@@ -403,7 +411,7 @@ export function FeedsScreen() {
   };
   /** Save a new tree from a drop or a move button: a refusal is a toast. */
   const applyTree = (next: Tree, what: "folder" | "feed") => saveTree(next).catch((e: unknown) => toast(failed(`move that ${what}`, e, folderError(e)), "error"));
-  const moveFolder = (folder: string, parent: string | null) => saveTree(planFolderDrop(tree, folder, { parent, before: null }));
+  const moveFolder = (folder: string, parent: string | null) => saveTree(planFolderDrop(fullTree, folder, { parent, before: null }));
 
   const applyFavs = async (next: Favorite[]) => {
     setSaved("saving");

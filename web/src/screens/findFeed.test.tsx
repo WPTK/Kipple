@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
+import { keys } from "@/api/queries";
 import type { Bootstrap, Feed, Folder } from "@/api/types";
 import { devicePrefsStore, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { bootstrap, json, mockFetch, pageOf } from "@/test/mockApi";
@@ -139,6 +140,32 @@ describe("Find a feed on the Feeds screen", () => {
     await user.click(within(main).getByRole("button", { name: "Feed actions" }));
     await screen.findByRole("menuitem", { name: "Select feeds" });
     expect(screen.queryByRole("menuitem", { name: "Collapse all folders" })).toBeNull();
+  });
+
+  it("saves a folder move made during a search from the whole library, so hidden feeds stay in the cache", async () => {
+    let cached = -1;
+    const client = makeQueryClient({ retry: false });
+    const boot: Bootstrap = { ...bootstrap, folders: [uncategorized, news, tech], feeds: library, counts: { unread: 0, starred: 0 } };
+    mockFetch({
+      "GET /api/bootstrap": () => json(boot),
+      "GET /api/items": () => json(pageOf([])),
+      "POST /api/reorder": () => {
+        cached = client.getQueryData<Bootstrap>(keys.bootstrap)?.feeds.length ?? -1;
+        return json({ changed_feeds: [], changed_folders: [] });
+      },
+    });
+    window.history.replaceState({ idx: 0 }, "", "/feeds");
+    render(<App client={client} />);
+    const main = await screen.findByRole("main");
+    const user = userEvent.setup();
+    await user.type(await within(main).findByRole("searchbox", { name: "Find a feed" }), "byte");
+    await user.click(await within(main).findByRole("button", { name: "Folder actions for Tech" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Move to…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Move Tech" });
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Move into" }), "2");
+    await user.click(within(dialog).getByRole("button", { name: "Move" }));
+    await waitFor(() => expect(cached).not.toBe(-1));
+    expect(cached).toBe(20);
   });
 
   it("does not ask the server again for each keystroke", async () => {
