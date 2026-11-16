@@ -1,7 +1,7 @@
 # Releasing Kipple
 
 Every release, including alphas. Work top to bottom; do not deploy with a step open. The steps that protect production
-(the exact green commit, the off-box copy, the migration rehearsal, the digest deploy, the rollback) apply to every
+(the exact green commit, the off-box copy, the migration rehearsal, the deploy, the rollback) apply to every
 release. The test gates scale with what changed (see "Gates scale with what changed" below).
 
 ## Versioning
@@ -18,11 +18,11 @@ the kind of release.
 | What changed | Gates |
 |---|---|
 | Docs, test-only, release-commit, dependency or log-line changes | CI green on the exact head; govulncheck for any dependency change. No fuzz, no Suite 1; the review is a short one of the small diff (step 2). |
-| Code that parses, authenticates, migrates or renders UI | The full set, once, on the commit being tagged: the Opus whole-diff review first, the fixes, then (once, on the final commit) two Go test runs, fuzz and Suite 1. Gates are re-run only if code changed after the last run; not repeated on every rc patch. |
+| Code that parses, authenticates, migrates or renders UI | The full set, once, on the commit being tagged: a whole-diff review first, the fixes, then (once, on the final commit) two Go test runs, fuzz and Suite 1. Gates are re-run only if code changed after the last run; not repeated on every rc patch. |
 | Anything that changes the schema | The above plus the migration rehearsal on a copy of the live snapshot (Suite 4). |
 
 Kept for every release because they paid for themselves: tag only on the exact green commit, the off-box copy before a
-deploy, the migration rehearsal (Suite 4), the Opus review of every deploy, and deterministic tests (no
+deploy, the migration rehearsal (Suite 4), a review of every deploy, and deterministic tests (no
 wall-clock waits).
 
 Related tiny changes (docs, `changes/` entries, wording, config tweaks) land as one batch PR, so the release has one review
@@ -56,7 +56,7 @@ bump): `0.9.0-beta.1` (the bug fixes plus those features), then `1.0.0-rc.N`, th
 
 1. **CI is green on the exact commit** you will deploy (not on a nearby one), checked again after the review fixes of
    step 2 and the release commit of step 6. Push first; nothing deploys from an unpushed tree.
-2. **Review first, then fix, then the gates.** Every deploy gets `/code-review high` (an Opus whole-diff review) on the
+2. **Review first, then fix, then the gates.** Every deploy gets a whole-diff review of the
    diff since the last gated commit (the same baseline as the tier table); fix every finding. The tier only
    sets how much more is run: for the second tier above the review covers the whole diff, for the first it is a short
    review of a small diff. When every PR in the release already had a high review, this release-gate review is scoped
@@ -121,7 +121,7 @@ bump): `0.9.0-beta.1` (the bug fixes plus those features), then `1.0.0-rc.N`, th
    Never move, delete or reuse a pushed tag; a bad release gets a new version.
    The tag push also starts `.github/workflows/release.yml`, which tests the tagged commit again, builds a multi-arch
    (amd64 and arm64) image, scans and smoke-tests it, then tags and signs it on `ghcr.io/wptk/kipple` (below).
-9. **Deploy the tag, only the named service** (`scripts/local/deploy.ps1` does this by digest). The tag, not `main`, is what gets built:
+9. **Deploy the tag, only the named service.** The tag, not `main`, is what gets built. The commands below build it on the server; to run the signed release image instead, pull it by its digest as shown under "Rollback" (a local helper script can do that too):
 
        ssh <kipple-server> 'cd <checkout> && git fetch --tags --force && git checkout vX.Y.Z && KIPPLE_VERSION=vX.Y.Z KIPPLE_VCS_REF=$(git rev-parse HEAD) docker compose -f <stack>/docker-compose.yml build kipple && docker compose -f <stack>/docker-compose.yml up -d kipple'
        ssh <kipple-server> 'cd <checkout> && git checkout main'

@@ -230,7 +230,7 @@ CI runs `go test -race -shuffle=on -timeout 15m` over every package, split acros
 - **Server lifecycle:** `cmd/kipple/shutdown_test.go`, `healthcheck_test.go`, `datadir_test.go`.
 - **Web (Vitest):** the suite under `web/` (`npm test`; includes the stats sender, Stats screen, export and data controls, Wrapped, passwordless sign-in and theme schedule suites).
 
-**Release checklist** (manual, on the Kipple server, before each deploy, after `/code-review high`):
+**Release checklist** (manual, on the Kipple server, before each deploy, after the whole-diff review):
 
 - The image is under 50 MB (`docker image inspect`).
 - Idle RSS stays under 100 MB after 30 minutes with the real OPML (`docker stats`).
