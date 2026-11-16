@@ -51,11 +51,11 @@ function CardRow({ item, feed, selected, to, onOpen, onToggleStar, actions, swip
   );
 }
 
-/** Loading stand-in for a card: the shell, the picture, source, title and excerpt lines. */
+/** Loading stand-in for a card: the shell, the picture (2:1 on a phone, where the list is one column, like the card), source, title and excerpt lines. */
 function CardSkeleton() {
   return (
     <div aria-hidden="true" className="flex flex-col gap-2 overflow-hidden rounded-2xl border border-line bg-surface p-2 pb-4">
-      <div className="aspect-video w-full animate-pulse rounded-lg bg-bg" />
+      <div className="aspect-video w-full animate-pulse rounded-lg bg-bg max-sm:aspect-[2/1]" />
       <div className="flex flex-col gap-2 px-1 pt-1">
         <Bone className="h-3 w-1/3 bg-bg" />
         <Bone className="h-4 w-11/12 bg-bg" />

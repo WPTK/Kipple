@@ -94,4 +94,10 @@ describe("the phone picture", () => {
     cleanup();
     expect(draw(cards, withPicture, false).querySelector("img")).toHaveClass("aspect-video");
   });
+
+  it("is 2:1 in a card's loading stand-in on a phone, so a card does not change height when it replaces it", () => {
+    const Skeleton = cards.Skeleton!;
+    const { container } = render(<Skeleton />);
+    expect(container.querySelector(".animate-pulse")!.className).toContain("max-sm:aspect-[2/1]");
+  });
 });
