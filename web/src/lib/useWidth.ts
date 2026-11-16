@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { prefsStore } from "./prefs";
 import { useStoreSelector } from "./store";
+import { RAIL_BELOW_PX } from "./useMedia";
 
 /** The content width of an element, kept current by a ResizeObserver (0 until measured). */
 export function useWidth(ref: React.RefObject<HTMLElement | null>): number {
@@ -85,6 +86,21 @@ export function listLimit(total: number, need: ColumnNeeds, remPx: number, listF
   const toolbar = need.article + need.gutter;
   const reading = remPx > DEFAULT_REM_PX ? Math.min(readerNeed(remPx) + need.gutter, Math.max(toolbar, total - listFloor)) : 0;
   return maxFor(total, Math.max(toolbar, reading), min, max);
+}
+
+/** What the reader pane keeps, in px (not counting the strip before it), beside a list at its default width in a window under `RAIL_BELOW_PX`. */
+export const READER_MIN_PX = 480;
+
+/**
+ * The list column's width wanted beside the reader pane. The device's own choice (`saved`: dragged, or set with the arrow
+ * keys) is kept as it is. Without one it is the layout's width (`layoutPx`), but in a window under `RAIL_BELOW_PX` no more
+ * than leaves the reader `READER_MIN_PX` (plus the strip before it), and never below what the list header needs. From
+ * that width up the layout's own width stands, as it always has. `listLimit` still caps whatever this returns.
+ */
+export function wantedListWidth(saved: number | null, layoutPx: number, total: number, viewport: number, need: ColumnNeeds): number {
+  if (saved !== null) return saved;
+  if (total <= 0 || viewport >= RAIL_BELOW_PX) return layoutPx;
+  return Math.min(layoutPx, Math.max(need.list, total - (READER_MIN_PX + need.gutter)));
 }
 
 /** What 1rem is in px: the root font size, which follows the text size (`--kp-scale`, index.css). It only changes with that setting, so it is read then. */

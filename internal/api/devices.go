@@ -199,6 +199,7 @@ var clientDefs = map[string]clientDef{
 	"client.article_width":      {oneOf("narrow", "medium", "wide", "full"), "medium"},
 	"client.list_width":         {boundedInt(260, 720), nil},
 	"client.sidebar_width":      {boundedInt(200, 420), 240},
+	"client.sidebar_expanded":   {boolVal, false}, // the sidebar is open rather than an icon rail in a window under 1100 px wide
 	"client.link_target":        {oneOf("new", "same"), nil},
 	"client.unread_badge":       {oneOf("count", "dot", "off"), "count"},
 	"client.text_size":          {floatOneOf(0.875, 1, 1.125, 1.25, 1.5), 1.0},

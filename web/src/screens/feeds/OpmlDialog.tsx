@@ -43,6 +43,19 @@ export async function opmlFileProblem(file: File): Promise<string | null> {
   return "That doesn't look like an OPML file. Choose the .opml or .xml file exported from your other reader.";
 }
 
+/**
+ * A file with more feeds than this brings thousands of articles into Unread at once (a feed's first fetch is 5 to 50), so
+ * the form offers the 7-day setting. The article count is not known before the fetch; the feeds in the file stand for it.
+ */
+export const FRESH_MIN_FEEDS = 20;
+/** The days "Start fresh" fills in. The field itself stays empty until the person presses it. */
+export const FRESH_DAYS = 7;
+
+/** How many feeds an OPML text lists (outlines with an `xmlUrl`): a count by pattern, so a repeat is counted twice. */
+export function countOpmlFeeds(text: string): number {
+  return (text.match(/\bxmlUrl\s*=\s*["'][^"']/g) ?? []).length;
+}
+
 /** "<url>: kipple:allow_insecure_tls" from the import report: the address, and what was not applied, in plain words. */
 export function attrNote(s: string): { url: string; note: string } {
   const at = s.lastIndexOf(": ");
@@ -298,6 +311,7 @@ export function OpmlImportDialog({ onClose, inWizard = false }: { onClose: () =>
   const input = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [days, setDays] = useState("");
+  const [bigFile, setBigFile] = useState(false);
   const [moveExisting, setMoveExisting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -358,16 +372,33 @@ export function OpmlImportDialog({ onClose, inWizard = false }: { onClose: () =>
               setResult(null);
               setError(null);
               setFile(null);
+              setBigFile(false);
               if (!f) return;
-              void opmlFileProblem(f).then((problem) => {
-                if (problem) setError(problem);
-                else setFile(f);
+              void opmlFileProblem(f).then(async (problem) => {
+                if (problem) return setError(problem);
+                setFile(f);
+                try {
+                  setBigFile(countOpmlFeeds(await f.text()) > FRESH_MIN_FEEDS);
+                } catch {
+                  /* unreadable: the import reports it; the suggestion is just not offered */
+                }
               });
             }}
             className="block min-h-11 w-full text-sm text-fg file:mr-3 file:min-h-11 file:cursor-pointer file:rounded-lg file:border file:border-line file:bg-surface file:px-3 file:font-semibold file:text-fg hover:file:bg-selection"
           />
         )}
       </Field>
+      {bigFile ? (
+        <Button
+          className="self-start"
+          onClick={() => {
+            setDays(String(FRESH_DAYS));
+            announce(`Older than ${FRESH_DAYS} days will arrive read`);
+          }}
+        >
+          Start fresh: mark everything older than {FRESH_DAYS} days read
+        </Button>
+      ) : null}
       <Field
         label="Mark older articles as read (optional)"
         help="Articles older than this many days arrive already read."

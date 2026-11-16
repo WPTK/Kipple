@@ -48,6 +48,7 @@ const DEFAULTS: Record<string, unknown> = {
   "client.page_tip_seen": false,
   "client.article_width": "medium",
   "client.sidebar_width": 240,
+  "client.sidebar_expanded": false,
   "client.unread_badge": "count",
   "client.highlight_keywords": true,
   "client.text_size": 1,
@@ -452,7 +453,7 @@ describe("saving", () => {
 // Every key this client writes: internal/api/devices.go clientDefs (less the retired client.shortcuts) plus the device-scoped ui.* keys this client mirrors.
 const SERVER_CLIENT_KEYS = [
   "client.layout", "client.list_overrides", "client.order", "client.group", "client.search_order", "client.list_images", "client.peek_seen", "client.page_tip_seen", "client.article_width",
-  "client.list_width", "client.sidebar_width", "client.link_target", "client.unread_badge", "client.text_size",
+  "client.list_width", "client.sidebar_width", "client.sidebar_expanded", "client.link_target", "client.unread_badge", "client.text_size",
   "client.adjust_separately", "client.spacing", "client.motion", "client.large_targets",
   "client.listen", "client.voice", "client.rate", "client.collapsed_folders", "client.highlight_keywords",
   "client.digest_sections", "client.digest_order", "client.digest_rows",
@@ -470,7 +471,7 @@ describe("every device pref is carried both ways (review finding 2)", () => {
       "ui.list_density": "airy", "ui.reading_density": "airy", "ui.mark_read_on_scroll": true,
       "client.layout": "cards", "client.list_overrides": { feed: { "5": { layout: "compact", order: "oldest", group: "none" } }, folder: { "7": { layout: "inbox", view: "all", group: "week" } } },
       "client.order": "oldest", "client.group": "week", "client.search_order": "newest", "client.list_images": false, "client.peek_seen": true, "client.page_tip_seen": true, "client.article_width": "wide",
-      "client.list_width": 400, "client.sidebar_width": 300, "client.link_target": "same", "client.unread_badge": "dot",
+      "client.list_width": 400, "client.sidebar_width": 300, "client.sidebar_expanded": true, "client.link_target": "same", "client.unread_badge": "dot",
       "client.text_size": 1.25, "client.adjust_separately": true, "client.spacing": "roomy",
       "client.motion": "off", "client.large_targets": true, "client.listen": true, "client.voice": "Samantha",
       "client.rate": 1.2, "client.collapsed_folders": ["3", "9"], "client.highlight_keywords": false,

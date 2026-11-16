@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useNavigationType } from "react-router";
-import { TriangleAlert, X, type LucideIcon } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, TriangleAlert, X, type LucideIcon } from "lucide-react";
 import { useServerEvents } from "@/api/events";
 import { useBootstrap } from "@/api/queries";
 import { useCatchupLeave } from "@/lib/catchup";
@@ -9,7 +9,7 @@ import { useRecordTrail } from "@/lib/navTrail";
 import { useStatsEnabled } from "@/lib/statsSender";
 import { useSyncHighlights } from "@/lib/useHighlights";
 import { SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, DEFAULT_DEVICE_PREFS, updateDevicePrefs, useDevicePrefs } from "@/lib/devicePrefs";
-import { useShort, useWide } from "@/lib/useMedia";
+import { useRailRange, useShort, useWide } from "@/lib/useMedia";
 import { cn } from "@/lib/cn";
 import { ARTICLES_TAB, currentDestination, DESTINATIONS, isFeeds, isList, isScopedList, type Destination } from "@/lib/destinations";
 import { navItemClass } from "@/ui/navItem";
@@ -23,6 +23,7 @@ import { OfflineNotice } from "./OfflineNotice";
 import { DeviceSaveStatus } from "./SaveStatus";
 import { LiveRegion, Toasts, UndoToast, announce } from "./toasts";
 import { Icon } from "@/ui/Icon";
+import { Button } from "@/ui/button";
 
 // Five equal tabs that always fit: the label follows the text size up to 4% of the screen width, the most a fifth of
 // the bar holds "Settings" in (12.8 px at 320 wide, 15 px at 375, 17 px at 430). A larger label could only be cut off,
@@ -102,6 +103,20 @@ function Sidebar() {
   const limit = maxFor(useViewportWidth() - useSafeInsetRight(), need.list + need.article + 2 * need.gutter, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX);
   const width = Math.min(limit, dp.sidebarWidth);
   const box = useRef<HTMLDivElement>(null);
+  // Under 1100 px the sidebar is an icon rail until the person opens it (remembered on this device). The toggle changes
+  // component, so focus follows it to its counterpart: it never falls to the page.
+  const compact = useRailRange();
+  const rail = compact && !dp.sidebarExpanded;
+  const refocus = useRef(false);
+  useLayoutEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    document.querySelector<HTMLElement>("[data-sidebar-toggle]")?.focus({ preventScroll: true });
+  }, [rail]);
+  const toggle = (open: boolean) => {
+    refocus.current = true;
+    updateDevicePrefs({ sidebarExpanded: open });
+  };
   const row = (d: Destination, count?: ReactNode) => (
     <Link key={d.id} to={d.to} className={navItemClass({ isActive: here === d.id })} aria-current={here === d.id ? "page" : undefined}>
       <d.icon aria-hidden="true" className="size-5" />
@@ -111,11 +126,41 @@ function Sidebar() {
     </Link>
   );
   const { unread, all, starred, muted, search: find, feeds, feedIndex, stats: st, settings } = DESTINATIONS;
+  if (rail) {
+    // The primary destinations, each named by its label (a tooltip for a pointer, the name for a screen reader). The feed
+    // tree and the Feed index need the room, so they are in the open sidebar.
+    const railRow = (d: Destination) => (
+      <Link key={d.id} to={d.to} title={d.label} aria-label={d.label} aria-current={here === d.id ? "page" : undefined} className={cn(navItemClass({ isActive: here === d.id }), "justify-center px-0")}>
+        <d.icon aria-hidden="true" className="size-5" />
+      </Link>
+    );
+    return (
+      <div className="relative h-full w-16 shrink-0">
+        <nav aria-label="Primary" className="pt-safe pl-safe flex h-full flex-col gap-1 border-r border-line bg-surface px-1">
+          <Button variant="ghost" size="icon" data-sidebar-toggle="" aria-label="Show sidebar" aria-expanded={false} title="Show sidebar" className="my-1 w-full" onClick={() => toggle(true)}>
+            <Icon of={PanelLeftOpen} />
+          </Button>
+          {[unread, all, starred, muted, find, feeds].map(railRow)}
+          <div className="mt-auto flex flex-col gap-1 border-t border-line py-2">
+            {stats ? railRow(st) : null}
+            {railRow(settings)}
+          </div>
+        </nav>
+      </div>
+    );
+  }
   return (
     <div ref={box} className="relative h-full shrink-0" style={{ width }}>
       <nav aria-label="Primary" className="pt-safe pl-safe relative flex h-full flex-col border-r border-line bg-surface px-2">
         <div className="flex shrink-0 flex-col gap-1">
-          <p className="px-3 py-3 text-lg font-bold">Kipple</p>
+          <div className="flex items-center justify-between">
+            <p className="px-3 py-3 text-lg font-bold">Kipple</p>
+            {compact ? (
+              <Button variant="ghost" size="icon" data-sidebar-toggle="" aria-label="Hide sidebar" aria-expanded={true} title="Hide sidebar" onClick={() => toggle(false)}>
+                <Icon of={PanelLeftClose} />
+              </Button>
+            ) : null}
+          </div>
           {row(unread, <UnreadCount n={c?.unread ?? 0} noun="" />)}
           {row(all)}
           {row(starred)}

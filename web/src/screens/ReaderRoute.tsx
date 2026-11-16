@@ -30,7 +30,7 @@ import { READING_LENGTH_LABELS } from "@/lib/readingLength";
 import { announce } from "@/shell/toasts";
 import { ResizeHandle } from "@/ui/ResizeHandle";
 import { NARROW_QUERY, ROOMY_QUERY, useMedia, useShort, useWide } from "@/lib/useMedia";
-import { listLimit, useColumnNeeds, useRemPx, useWidth } from "@/lib/useWidth";
+import { listLimit, useColumnNeeds, useRemPx, useViewportWidth, useWidth, wantedListWidth } from "@/lib/useWidth";
 import { DESTINATIONS, LISTS } from "@/lib/destinations";
 import { NEW_VIEW, listTo, newTo, scopeFromList, scopeFromSearch } from "@/lib/routes";
 import { useCatchupVisit, visitStore } from "@/lib/catchup";
@@ -442,7 +442,8 @@ function WidePane({
   const remPx = useRemPx();
   const need = useColumnNeeds();
   const limit = listLimit(total, need, remPx, Math.max(LIST_WIDTH_MIN, need.list), LIST_WIDTH_MIN, LIST_WIDTH_MAX);
-  const wanted = listWidth ?? Math.round(layoutRem * remPx);
+  const viewport = useViewportWidth();
+  const wanted = wantedListWidth(listWidth, Math.round(layoutRem * remPx), total, viewport, need);
   const shown = Math.min(limit, Math.max(LIST_WIDTH_MIN, wanted));
   // The notice pill over the list stays inside the list's width (shell/OfflineNotice.tsx reads this).
   useLayoutEffect(() => {

@@ -29,6 +29,7 @@
     "scroll-restore.mjs",
     "rotate.mjs",
     "tablet-widths.mjs",
+    "pane-widths.mjs",
     "feed-failure.mjs",
     "feed-repair.mjs",
     "feeds-scale.mjs",

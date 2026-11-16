@@ -15,6 +15,7 @@ import * as toasts from "@/shell/toasts";
 import { diffForm, grantNotice, grantsDropped, savedAddressMessage } from "./feeds/FeedEditor";
 import { deleteCopy } from "./feeds/BulkActions";
 import { addError } from "./feeds/AddFeedDialog";
+import { countOpmlFeeds } from "./feeds/OpmlDialog";
 
 class NoES {
   addEventListener() {}
@@ -760,6 +761,57 @@ describe("Folders and OPML", () => {
     expect(within(done).getByText("1 feed was listed in more than one folder. It stays in the first.")).toBeInTheDocument();
     const post = calls.find((c) => c.url.pathname === "/api/opml");
     expect(post?.url.searchParams.get("mark_read_older_than_days")).toBe("7");
+  });
+
+  describe("Start fresh on a large file", () => {
+    const opml = (n: number) => `<opml><body>${Array.from({ length: n }, (_, i) => `<outline text="F${i}" xmlUrl="https://example.com/${i}.xml"/>`).join("")}</body></opml>`;
+    const pick = async (n: number) => {
+      const { calls } = base({ "POST /api/opml": () => json({ folders_created: 0, feeds_added: n, feeds_existing: [], folders_merged_case: [], memberships_dropped: [] }) });
+      go("/feeds");
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Feed actions" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Import feeds from a file (OPML)" }));
+      const dlg = await screen.findByRole("dialog", { name: "Import feeds from a file (OPML)" });
+      await user.upload(within(dlg).getByLabelText("OPML file"), new File([opml(n)], "feeds.opml", { type: "text/xml" }));
+      return { user, dlg, days: () => calls.find((c) => c.url.pathname === "/api/opml")?.url.searchParams.get("mark_read_older_than_days") ?? null };
+    };
+
+    it("offers it for a big file, leaves the field empty until pressed, then fills 7", async () => {
+      const { user, dlg } = await pick(30);
+      const days = within(dlg).getByLabelText(/Mark older articles as read/);
+      const button = await within(dlg).findByRole("button", { name: "Start fresh: mark everything older than 7 days read" });
+      expect(days).toHaveValue("");
+      await user.click(button);
+      expect(days).toHaveValue("7");
+      expect(button).toHaveFocus();
+    });
+
+    it("does not offer it for a small file", async () => {
+      const { dlg } = await pick(5);
+      await waitFor(() => expect(within(dlg).getByRole("button", { name: "Import" })).toBeEnabled());
+      expect(within(dlg).queryByRole("button", { name: /Start fresh/ })).toBeNull();
+      expect(within(dlg).getByLabelText(/Mark older articles as read/)).toHaveValue("");
+    });
+
+    it("sends no days unless it was pressed, and 7 when it was", async () => {
+      const first = await pick(30);
+      await within(first.dlg).findByRole("button", { name: /Start fresh/ });
+      await first.user.click(within(first.dlg).getByRole("button", { name: "Import" }));
+      expect(await screen.findByRole("dialog", { name: "Import finished" })).toBeInTheDocument();
+      expect(first.days()).toBeNull();
+      cleanup();
+      const second = await pick(30);
+      await second.user.click(await within(second.dlg).findByRole("button", { name: /Start fresh/ }));
+      await second.user.click(within(second.dlg).getByRole("button", { name: "Import" }));
+      await screen.findByRole("dialog", { name: "Import finished" });
+      expect(second.days()).toBe("7");
+    });
+
+    it("counts the feeds of a file", () => {
+      expect(countOpmlFeeds(opml(0))).toBe(0);
+      expect(countOpmlFeeds(opml(21))).toBe(21);
+      expect(countOpmlFeeds('<opml><body><outline text="Folder"><outline xmlUrl="https://a/f"/></outline></body></opml>')).toBe(1);
+    });
   });
 
   it("the import summary lists skipped feeds and settings that were not applied", async () => {
