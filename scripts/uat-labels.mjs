@@ -134,6 +134,10 @@ export function goneFragments(diffFiles, currentFragments) {
   for (const f of diffFiles) {
     for (const fragment of f.removed) {
       if (!isSearchable(fragment) || currentFragments.has(fragment)) continue;
+      // Words that moved into a longer label on the same line ("Try ${x} now" -> "Try now, ${x}") are not gone: a
+      // UAT line that names the control by those words still finds it, and searching for them alone only matches
+      // unrelated text ("Try again", "now").
+      if ((f.added ?? []).some((a) => a.includes(fragment.trim()))) continue;
       const key = `${f.file}\u0000${fragment}`;
       if (seen.has(key)) continue;
       seen.add(key);

@@ -600,7 +600,10 @@ export function HealthScreen() {
                     </tr>
                     {hasRowDetail(f) ? (
                       <tr>
-                        <td />
+                        {/* The feed's name as this row's header, so the row's buttons are read with it. */}
+                        <th scope="row" className="p-0 font-normal">
+                          <span className="sr-only">{f.title}</span>
+                        </th>
                         <td colSpan={5} className="px-3 pb-2">
                           <RedirectNotice f={f} onDelete={() => askDelete(f.id)} />
                           <ErrorLine f={f} onEdit={() => setEdit({ id: f.id, address: true })} />

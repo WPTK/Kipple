@@ -52,6 +52,11 @@ test('goneFragments: a removed label missing from the current source is gone', (
   assert.deepEqual(goneFragments(files, new Set(['List layout, '])), [{ fragment: 'Layout: ', file: 'a.tsx' }]);
 });
 
+test('goneFragments: words that moved into a longer label in the same file are not gone', () => {
+  const files = [{ file: 'a.tsx', removed: ['Try ', ' now'], added: ['Try now, '] }];
+  assert.deepEqual(goneFragments(files, new Set(['Try now, '])), []);
+});
+
 test('goneFragments: ignores fragments shorter than three characters once trimmed', () => {
   assert.deepEqual(goneFragments([{ file: 'a.tsx', removed: [', ', 'OK'] }], new Set()), []);
 });

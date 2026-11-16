@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { liveStore, initialLive } from "@/api/events";
@@ -98,10 +99,17 @@ describe("Feed health", () => {
     wide();
     go("/health", [failing()]);
     const actions = await screen.findByRole("button", { name: "Actions for Broken Feed" });
-    for (const name of [/^Edit address of/, /^Try now/, "Details"]) {
-      const b = screen.getByRole("button", { name });
-      expect(actions.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING, String(name)).toBeTruthy();
+    // Press Tab and see where focus goes, so a positive tabindex would show up too.
+    const user = userEvent.setup();
+    actions.focus();
+    const visited: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      await user.tab();
+      visited.push(document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.textContent?.trim() ?? "");
     }
+    expect(visited[0]).toMatch(/^Edit address of/);
+    expect(visited[1]).toMatch(/^Try now/);
+    expect(visited[2]).toBe("Details");
   });
 });
 
@@ -112,6 +120,9 @@ describe("the sidebar", () => {
     const nav = await screen.findByRole("navigation", { name: "Primary" });
     expect(await screen.findByRole("tree", { name: "Feeds" })).toBeInTheDocument();
     expect(within(nav).queryAllByRole("heading")).toHaveLength(0);
+    // The page's own title is a heading and the first one in the document.
+    const first = (await screen.findAllByRole("heading"))[0]!;
+    expect(first.tagName).toBe("H1");
   });
 });
 
