@@ -57,6 +57,37 @@ describe("undo toast", () => {
     expect(toast()).toBe("Marked read");
   });
 
+  it("merges a very large id list in first-seen order", () => {
+    const ids = Array.from({ length: 40_000 }, (_, i) => String(i));
+    const undo = vi.fn();
+    const ticket = beginUndo("read", { bulk: true });
+    ticket.settle({ ids: [...ids, "0", "1"], undo });
+    void undoToast();
+    expect(undo).toHaveBeenCalledWith(ids);
+  });
+
+  it("does not copy a merged group's ids again for each action that joins it", () => {
+    const Native = Set;
+    let copied = 0;
+    vi.stubGlobal(
+      "Set",
+      class extends Native<unknown> {
+        constructor(items?: Iterable<unknown> | null) {
+          super(items);
+          copied += this.size;
+        }
+      },
+    );
+    try {
+      const undo = vi.fn();
+      for (let i = 0; i < 300; i++) read([String(i)], undo);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(toast()).toBe("300 articles marked read");
+    expect(copied).toBeLessThan(300);
+  });
+
   it("lasts 15 seconds and each merge restarts the clock", () => {
     read(["1"]);
     vi.advanceTimersByTime(TOAST_MS - 1);

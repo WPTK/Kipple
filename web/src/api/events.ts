@@ -4,9 +4,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, authStore } from "./client";
 import { filtersKey } from "./filters";
 import { wasFilterTouched } from "./filterEdits";
-import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type BootstrapAnswer, type ItemPatch } from "./queries";
+import { countsBumps, countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, resetCountsGuard as resetBumpWindow, type BootstrapAnswer, type ItemPatch } from "./queries";
 import { PAGE_SIZE, SECTION_SUFFIX, itemsParams } from "./queryKeys";
 import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
+import { offlineStore } from "@/lib/offlineState";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
 import { feedsInFolder, folderTree, rollUp } from "@/lib/folderTree";
@@ -351,7 +352,51 @@ export function applyCounts(qc: QueryClient, c: CountsEvent): void {
   });
 }
 
-let countsRefetch: ReturnType<typeof setTimeout> | undefined;
+let countsTimer: ReturnType<typeof setTimeout> | undefined;
+/**
+ * The newest `counts` event that arrived inside the guard window; applied once the window is over. `bumps` is how many
+ * optimistic count changes had been made when it arrived, `seq` its stream id (0 when it has none).
+ */
+let countsHeld: { counts: CountsEvent; bumps: number; seq: number } | undefined;
+
+/**
+ * Apply the held `counts` event once no guard window is open (a later bump moves the window on). An event that
+ * predates a later bump, or that leaves out a change still waiting to be sent, is dropped: the event that follows the
+ * later write, or the send, brings the right numbers.
+ */
+function applyHeldCounts(qc: QueryClient): void {
+  countsTimer = undefined;
+  if (!countsHeld) return;
+  const left = countsGuardLeft();
+  if (left > 0) {
+    countsTimer = setTimeout(() => applyHeldCounts(qc), left + 50);
+    return;
+  }
+  const held = countsHeld;
+  countsHeld = undefined;
+  if (held.bumps !== countsBumps() || offlineStore.get().pending > 0) return;
+  applyCounts(qc, held.counts);
+}
+
+/** Forget the held `counts` event when it has a stream id below `seq`, the id of a newer server answer. Returns whether one was dropped. */
+function dropHeldBefore(seq: number): boolean {
+  if (!countsHeld || countsHeld.seq <= 0 || seq <= countsHeld.seq) return false;
+  countsHeld = undefined;
+  return true;
+}
+
+/** Cancel the pending apply and forget what is held (sign-out, a new page of the app, tests). */
+function dropHeldCounts(): void {
+  if (countsTimer) clearTimeout(countsTimer);
+  countsTimer = undefined;
+  countsHeld = undefined;
+}
+
+/** Forget the guard window and anything held in it (state must not carry over between tests). */
+export function resetCountsGuard(): void {
+  resetBumpWindow();
+  dropHeldCounts();
+}
 
 export { SAVED_COUNTS_MIN_MS, resetSavedSearchCounts };
 
@@ -361,9 +406,31 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
   const runKind = ev.type === "run.done" ? (liveStore.get().runs[String(ev.data.run_id)]?.kind ?? liveStore.get().finished[String(ev.data.run_id)]?.kind) : undefined;
   // A run.done for a run a status poll already ended finds it in `finished`: it does nothing a second time.
   const already = ev.type === "run.done" && !!liveStore.get().finished[String(ev.data.run_id)];
+  // A resync below the newest id seen means the server's ids restarted: a held `counts` event carries an id from the old
+  // numbering and cannot be told apart from a newer one, so it is forgotten.
+  if (ev.type === "resync" && id !== undefined && id > 0 && id < liveStore.get().lastId) dropHeldCounts();
   liveStore.set((s) => reduceEvent(s, ev, id));
-  // The Feed index shows each feed's newest articles with their read state: whatever moves a count or a feed makes it stale.
-  if (ev.type === "items.state" || ev.type === "counts" || ev.type === "feed.changed" || ev.type === "resync") void qc.invalidateQueries({ queryKey: keys.feedsLatest });
+  // The Feed index shows each feed's newest articles with their read state. Read and starred changes are patched in
+  // place below (patchItems). What changes which articles a feed shows asks for the index again: a mute or an
+  // un-mute, a restored article, a changed feed, a gap in the stream. A `counts` event changes no headline.
+  // A request for the index that was already on its way may have been answered before the change it would show, and
+  // would replace the patch: those are asked for again. So is the index when a fetch brought in new articles or the
+  // retention trim removed some.
+  const headlines =
+    ev.type === "items.state"
+      ? ev.data.muted !== undefined || (ev.data.restored?.length ?? 0) > 0 || qc.isFetching({ queryKey: keys.feedsLatest }) > 0
+      : ev.type === "fetch.done"
+        ? ev.data.new_items > 0 || (ev.data.trimmed_items ?? 0) > 0
+        : ev.type === "feed.changed" || ev.type === "resync";
+  if (headlines) {
+    // A request with nothing cached yet is shared by a later request for the same query (TanStack only replaces a
+    // running fetch when the query already holds data), so it would answer without the change. Stop it silently first:
+    // the observer that started it takes over the new request.
+    for (const q of qc.getQueryCache().findAll({ queryKey: keys.feedsLatest })) {
+      if (q.isActive() && q.state.data === undefined && q.state.fetchStatus === "fetching") void q.cancel({ silent: true });
+    }
+    void qc.invalidateQueries({ queryKey: keys.feedsLatest });
+  }
   switch (ev.type) {
     case "items.state": {
       const { ids, read, starred, muted } = ev.data;
@@ -396,16 +463,16 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
     case "counts": {
       refreshSavedSearchCounts(qc);
       // An event already in flight when the user opened an item carries the old numbers and would undo the
-      // optimistic bump. Inside the window, skip it and refetch the truth once the window is over.
+      // optimistic bump. Inside the window, hold the newest one and apply it once the window is over: the server
+      // publishes `counts` after every state write, so the last one held counts the write that opened the window.
       const left = countsGuardLeft();
       if (left > 0) {
-        if (!countsRefetch) {
-          countsRefetch = setTimeout(() => {
-            countsRefetch = undefined;
-            void qc.invalidateQueries({ queryKey: keys.bootstrap });
-          }, left + 50);
-        }
-      } else applyCounts(qc, ev.data);
+        countsHeld = { counts: ev.data, bumps: countsBumps(), seq: eventSeq(id) };
+        if (!countsTimer) countsTimer = setTimeout(() => applyHeldCounts(qc), left + 50);
+      } else {
+        countsHeld = undefined;
+        applyCounts(qc, ev.data);
+      }
       break;
     }
     case "folder.changed":
@@ -561,10 +628,13 @@ export async function noteArrivals(scope: Scope, loaded: ReadonlySet<string>, as
 export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
   const st = await api<StatusResponse>("/api/status");
   const ended = applyAnswer(st.runs ?? [], eventSeq(st.event_id), true);
+  // A status answer that follows the held `counts` event is newer than it: the held numbers must not come back. The
+  // answer carries only the total, so the feed and folder counts are read again when it replaced a held event.
+  const replacedHeld = dropHeldBefore(eventSeq(st.event_id));
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) =>
     old ? { ...old, counts: { ...old.counts, unread: st.unread_total, ...(typeof st.muted === "number" ? { muted: st.muted } : {}) } } : old,
   );
-  if (ended.length) void qc.invalidateQueries({ queryKey: keys.bootstrap });
+  if (ended.length || replacedHeld) void qc.invalidateQueries({ queryKey: keys.bootstrap });
   // The end of a manual refresh that came without its run.done: the lists are made stale here as they are on the event.
   const finished = liveStore.get().finished;
   if (ended.some((id) => finished[id]?.kind === "manual")) staleOffScreenLists(qc);
@@ -695,6 +765,9 @@ export function useServerEvents(enabled: boolean): void {
     const stopSeed = qc.getQueryCache().subscribe((e) => {
       if (e.type === "updated" && e.action.type === "success" && e.query.queryKey[0] === "bootstrap") {
         const b = e.query.state.data as Bootstrap | undefined;
+        // A bootstrap that came from the server is newer than any counts held for the window, unless it says it
+        // follows an older event than the held one (it was asked for before that event); a local patch is not.
+        if (!e.action.manual && countsHeld && !(countsHeld.seq > 0 && eventSeq(b?.event_id) > 0 && eventSeq(b?.event_id) < countsHeld.seq)) countsHeld = undefined;
         seedRuns(b?.runs, b?.event_id);
       }
     });
@@ -770,6 +843,8 @@ export function useServerEvents(enabled: boolean): void {
 
     return () => {
       stopped = true;
+      // Counts held for the old session must not reach the next one's bootstrap.
+      dropHeldCounts();
       document.removeEventListener("visibilitychange", onVisible);
       stopSeed();
       stopPolling();

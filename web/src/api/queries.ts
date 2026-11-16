@@ -120,7 +120,8 @@ export const LATEST_PER_FEED = 3;
 
 /**
  * Each feed's newest articles, read or not, in one request. Stale at once: the Feed index asks again whenever it opens
- * (the stream marks it stale when counts move), and keeps what it has on screen while it does.
+ * (and the stream asks again after a mute, an un-mute, a restored article, a changed feed or a gap), and keeps what it
+ * has on screen while it does.
  */
 export function useFeedsLatest(n = LATEST_PER_FEED) {
   return useQuery({
@@ -177,6 +178,14 @@ export function flattenItems(data: InfiniteData<ItemsPage> | undefined): Card[] 
 
 /** When the last optimistic count change was made (ms); `counts` events older than it are stale. */
 let lastBumpAt = 0;
+/** How many optimistic count changes were made; a `counts` event held across one of them predates it. */
+let bumps = 0;
+export const countsBumps = (): number => bumps;
+/** Record an optimistic count change: a `counts` event held across it predates it, and the guard window restarts. */
+function markBump(): void {
+  lastBumpAt = Date.now();
+  bumps++;
+}
 const COUNTS_GUARD_MS = 1500;
 /** Ms left in the window after a local count change, 0 when none. */
 export function countsGuardLeft(now = Date.now()): number {
@@ -191,7 +200,7 @@ export function resetCountsGuard(): void {
  * event lands.
  */
 export function bumpUnread(qc: QueryClient, feedId: string, delta: number): void {
-  lastBumpAt = Date.now();
+  markBump();
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => {
     if (!old) return old;
     const feed = old.feeds.find((f) => f.id === feedId);
@@ -207,6 +216,7 @@ export function bumpUnread(qc: QueryClient, feedId: string, delta: number): void
 
 /** Adjust the muted count locally (a restore) before the `counts` event lands. */
 export function bumpMuted(qc: QueryClient, delta: number): void {
+  markBump();
   qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, counts: { ...old.counts, muted: Math.max(0, (old.counts.muted ?? 0) + delta) } } : old));
 }
 
