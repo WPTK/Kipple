@@ -1191,27 +1191,42 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   // Items the list already holds are not "new" to it, whatever fetched them (a later load, another route).
   const pendingNew = pendingFor(pendingByFeed, scope, boot.data?.feeds ?? [], boot.data?.folders ?? [], { ids: loadedIdSet, pendingIds });
   /**
-   * The arrivals a reload of this list covers are no longer pending; other feeds' arrivals keep counting for other lists.
-   * A Digest covers only the sections it holds (`held`).
+   * The arrivals a reload of this list covers are no longer pending: what `taken` (the pending counts and ids when the
+   * reload began) held for them. Arrivals that came in during the reload keep counting. A Digest covers only the
+   * sections it holds (`held`).
    */
-  const clearPendingFor = (held: readonly { scope: Pick<Scope, "feed" | "folder"> }[] | undefined) =>
+  const clearPendingFor = (held: readonly { scope: Pick<Scope, "feed" | "folder"> }[] | undefined, taken: { counts: Record<string, number>; ids: Record<string, string[]> }) =>
     liveStore.set((s) => {
       const feeds = boot.data?.feeds ?? [];
       const folders = boot.data?.folders ?? [];
       const covered = held ? held.map((h) => ({ view: scope.view, ...(h.scope.feed ? { feed: h.scope.feed } : {}), ...(h.scope.folder ? { folder: h.scope.folder } : {}) })) : [scope];
-      const left = covered.reduce((acc, sc) => clearPending(acc, sc, feeds, folders), s.pendingByFeed);
-      return { ...s, pendingByFeed: left, pendingIds: Object.fromEntries(Object.entries(s.pendingIds).filter(([k]) => k in left)) };
+      const left = covered.reduce((acc, sc) => clearPending(acc, sc, feeds, folders), taken.counts);
+      const feedsCleared = Object.keys(taken.counts).filter((k) => !(k in left));
+      if (feedsCleared.length === 0) return s;
+      const pendingByFeed = { ...s.pendingByFeed };
+      const pendingIds = { ...s.pendingIds };
+      for (const k of feedsCleared) {
+        const rest = (pendingByFeed[k] ?? 0) - (taken.counts[k] ?? 0);
+        if (rest > 0) pendingByFeed[k] = rest;
+        else delete pendingByFeed[k];
+        const took = new Set(taken.ids[k] ?? []);
+        const ids = (pendingIds[k] ?? []).filter((id) => !took.has(id));
+        if (ids.length > 0 && rest > 0) pendingIds[k] = ids;
+        else delete pendingIds[k];
+      }
+      return { ...s, pendingByFeed, pendingIds };
     });
   /**
-   * Start the list over to take in what has arrived. The arrivals leave the pill only once the list has come back: a
-   * failed reload keeps the pill, so pressing it again tries again. Resolves whether it came back.
+   * Start the list over to take in what has arrived. The arrivals it began with leave the pill only once the list has
+   * come back: a failed reload keeps the pill, so pressing it again tries again. Resolves whether it came back.
    */
   const reloadHere = async (): Promise<boolean> => {
     const held = src.digest?.sections;
+    const taken = { counts: liveStore.get().pendingByFeed, ids: liveStore.get().pendingIds };
     // Other cached lists for the cleared feeds are now stale too; they refetch when next opened.
     void qc.invalidateQueries({ queryKey: keys.itemsAll, refetchType: "none" });
     const ok = await startOver();
-    if (ok) clearPendingFor(held);
+    if (ok) clearPendingFor(held, taken);
     return ok;
   };
   const loadNew = () => {
@@ -1287,10 +1302,16 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   useEffect(() => {
     if (!settledEmpty) {
       // Loaded with articles (or still loading): what has arrived so far is not owed a reload.
-      if (!src.pending && !src.error) liveStore.set((s) => ((s.arrivalsHandled[key] ?? 0) >= arrivedHere ? s : { ...s, arrivalsHandled: { ...s.arrivalsHandled, [key]: arrivedHere } }));
+      if (!src.pending && !src.error) liveStore.set((s) => ((s.arrivalsHandled[key] ?? 0) === arrivedHere ? s : { ...s, arrivalsHandled: { ...s.arrivalsHandled, [key]: arrivedHere } }));
       return;
     }
-    if (arrivedHere <= (liveStore.get().arrivalsHandled[key] ?? 0)) return;
+    const handled = liveStore.get().arrivalsHandled[key] ?? 0;
+    if (arrivedHere <= handled) {
+      // The feeds the list covers have fewer arrivals than were handled (a feed was deleted or moved): the mark follows,
+      // so the next arrival counts.
+      if (arrivedHere < handled) liveStore.set((s) => ({ ...s, arrivalsHandled: { ...s.arrivalsHandled, [key]: arrivedHere } }));
+      return;
+    }
     const h = setTimeout(() => {
       if (!emptyNow.current) return;
       // The reload holds what arrived: a pill for it would offer the same articles again. Both marks are made only once

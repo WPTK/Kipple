@@ -206,12 +206,13 @@ function reduceRun(s: LiveState, ev: ServerEvent, at: number): LiveState {
       );
     }
     case "fetch.done": {
-      // Muted articles are read and in no list but Muted: only the rest can appear in a list.
-      const eligible = (ev.data.new_items ?? 0) - (ev.data.muted_items ?? 0);
-      if (!(eligible > 0)) return s;
+      if (!(ev.data.new_items > 0)) return s;
       const feed = String(ev.data.feed_id);
+      // Every fetch that brings articles in counts as an arrival (a Muted list may show muted ones).
       const arrivals = { ...s.arrivals, [feed]: (s.arrivals[feed] ?? 0) + 1 };
-      if (!raisesPill(ev.data.trigger) || joinedImport(s, ev.data)) return { ...s, arrivals };
+      // Muted articles are read and in no list but Muted: only the rest can raise the pill.
+      const eligible = ev.data.new_items - (ev.data.muted_items ?? 0);
+      if (!(eligible > 0) || !raisesPill(ev.data.trigger) || joinedImport(s, ev.data)) return { ...s, arrivals };
       const ids = (ev.data.new_item_ids ?? []).map(String);
       return {
         ...s,
@@ -533,6 +534,8 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
     case "feed.changed":
       // A deleted feed is not in the feeds that come back: what the live state holds for it goes.
       void qc.invalidateQueries({ queryKey: keys.bootstrap }).then(() => {
+        // A failed refetch also resolves and keeps the previous answer: clean up only after a successful one.
+        if (qc.getQueryState(keys.bootstrap)?.status !== "success") return;
         const b = qc.getQueryData<BootstrapAnswer>(keys.bootstrap);
         if (!b || b.fromCache) return;
         const known = new Set(b.feeds.map((f) => String(f.id)));

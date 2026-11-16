@@ -345,6 +345,32 @@ describe("a reload that fails", () => {
     expect(liveStore.get().arrivalsHandled[scopeKey({ view: "unread" })] ?? 0).toBe(0);
   });
 
+  it("leaves the pill what arrived while the reload was on its way", async () => {
+    let items = [card(1), card(2), card(3)];
+    let release: () => void = () => undefined;
+    let hold: Promise<void> | null = null;
+    open(() => items, "/l/unread", {
+      "GET /api/items": async () => {
+        if (hold) await hold;
+        return json(pageOf(items, null, AS_OF));
+      },
+    });
+    await screen.findByText("Article number 1");
+    items = [card(9), ...items];
+    scheduled(["1009"]);
+    const pill = await screen.findByRole("button", { name: "1 new article" });
+    hold = new Promise<void>((r) => (release = r));
+    await userEvent.setup().click(pill);
+    // A second fetch finishes while the list is being read again; the answer does not hold its article.
+    scheduled(["1010"]);
+    hold = null;
+    release();
+    await screen.findByText("Article number 9");
+    await settle();
+    expect(liveStore.get().pendingByFeed).toEqual({ "1": 1 });
+    expect(liveStore.get().pendingIds).toEqual({ "1": ["1010"] });
+  });
+
   it("makes the other cached lists stale when an empty list fills itself, as pressing the pill does", async () => {
     let items: Items = [];
     open(() => items);
@@ -421,6 +447,27 @@ describe("an empty list and which arrivals it reloads for", () => {
     release();
     await screen.findByText("Article number 1", undefined, { timeout: 3000 });
     expect(loads()).toBeGreaterThanOrEqual(2);
+  });
+
+  it("reloads an empty Muted list for fetches that brought in only muted articles", async () => {
+    const { loads } = open(() => [], "/l/muted");
+    await settle();
+    const before = loads();
+    act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, muted_items: 2, new_item_ids: [], trigger: "scheduled" } }));
+    await waitFor(() => expect(loads()).toBeGreaterThan(before), { timeout: 3000 });
+  });
+
+  it("still reloads for the next arrival after the feeds that had arrived were removed", async () => {
+    const { loads } = open(() => []);
+    await settle();
+    act(() => void liveStore.set((s) => ({ ...s, arrivals: { "9": 2 } })));
+    await waitFor(() => expect(liveStore.get().arrivalsHandled[scopeKey({ view: "unread" })]).toBe(2), { timeout: 3000 });
+    // The feed is deleted: its arrivals go with it, so the list's total falls below what it handled.
+    act(() => void liveStore.set((s) => ({ ...s, arrivals: {} })));
+    await settle();
+    const before = loads();
+    fetched("1");
+    await waitFor(() => expect(loads()).toBeGreaterThan(before), { timeout: 3000 });
   });
 
   it("does not reload for a feed that is not in the list's folder or feed", async () => {

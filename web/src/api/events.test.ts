@@ -315,7 +315,7 @@ describe("reduceEvent", () => {
     expect(reduceEvent(initialLive, done({ new_items: 5, muted_items: 2, new_item_ids: ["7", "8", "9"] })).pendingByFeed).toEqual({ "1": 3 });
     const allMuted = reduceEvent(initialLive, done({ new_items: 4, muted_items: 4, new_item_ids: [] }));
     expect(allMuted.pendingByFeed).toEqual({});
-    expect(allMuted.arrivals).toEqual({});
+    expect(allMuted.arrivals).toEqual({ "1": 1 }); // an empty Muted list still has articles to show
     // More new articles than the event lists ids for (it names the first 50): the count is the server's, not the ids'.
     const ids = Array.from({ length: 50 }, (_, i) => String(1000 + i));
     expect(reduceEvent(initialLive, done({ new_items: 120, muted_items: 20, new_item_ids: ids })).pendingByFeed).toEqual({ "1": 100 });
@@ -351,6 +351,20 @@ describe("reduceEvent", () => {
     expect(liveStore.get().pendingIds).toEqual({ [keep]: ["1"] });
     expect(liveStore.get().arrivals).toEqual({ [keep]: 1 });
     expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, bootstrap.feeds!, bootstrap.folders!)).toBe(2);
+  });
+
+  it("keeps what it holds when the bootstrap could not be refetched", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(keys.bootstrap, bootstrap);
+    const obs = new QueryObserver(qc, { queryKey: keys.bootstrap, queryFn: () => Promise.reject(new Error("down")) });
+    const off = obs.subscribe(() => undefined);
+    await vi.waitFor(() => expect(qc.getQueryState(keys.bootstrap)?.status).toBe("error"));
+    liveStore.set((s) => ({ ...s, pendingByFeed: { "98765": 3 }, pendingIds: { "98765": ["2"] }, arrivals: { "98765": 1 } }));
+    handleServerEvent(qc, { type: "feed.changed", data: { feed_id: "98765" } });
+    await new Promise((r) => setTimeout(r, 50));
+    // The old answer does not list the feed, but it is not an answer to the question.
+    expect(liveStore.get().pendingByFeed).toEqual({ "98765": 3 });
+    off();
   });
 
   it("keeps what it holds for a feed that was only edited", async () => {
