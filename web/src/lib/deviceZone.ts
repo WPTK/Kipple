@@ -28,7 +28,7 @@ export function deviceZone(): string | null {
   }
 }
 
-const DISMISSED_STORAGE_NAME = "kipple.zoneOfferDismissed.v1";
+export const DISMISSED_STORAGE_NAME = "kipple.zoneOfferDismissed.v1";
 
 const readDismissed = (): boolean => {
   try {
@@ -87,6 +87,8 @@ export function useStatsZoneOffer(saved: unknown): string | null {
 export async function acceptDeviceZone(qc: QueryClient, zone: string, save: (zone: string) => unknown): Promise<"saved" | "taken"> {
   const live = await api<SettingsResponse>("/api/settings", { quiet: true });
   if ((live.values.tz ?? "") !== "") {
+    // A fetch begun while the zone was empty must not finish after this write and put the empty value back.
+    await Promise.all([qc.cancelQueries({ queryKey: settingsKey }), qc.cancelQueries({ queryKey: keys.bootstrap })]);
     qc.setQueryData(settingsKey, live);
     qc.setQueryData<Bootstrap>(keys.bootstrap, (old) => (old ? { ...old, settings: live.values } : old));
     void qc.invalidateQueries({ queryKey: ["stats"] });

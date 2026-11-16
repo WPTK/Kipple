@@ -9,7 +9,7 @@ import { liveStore, initialLive } from "@/api/events";
 import { usePatchSettings, type SettingMeta } from "@/api/admin";
 import { keys } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
-import { deviceZone, isUtcName, resetZoneOffer } from "@/lib/deviceZone";
+import { DISMISSED_STORAGE_NAME, deviceZone, isUtcName, resetZoneOffer } from "@/lib/deviceZone";
 import { bootstrap, json, mockFetch } from "@/test/mockApi";
 import { richStats } from "./stats.fixtures";
 
@@ -214,9 +214,9 @@ describe("the Stats screen offers it once", () => {
     server("");
     go("/stats");
     await screen.findByRole("heading", { name: "Daily activity" });
-    localStorage.setItem("kipple.zoneOfferDismissed.v1", "1"); // what the other tab wrote
+    localStorage.setItem(DISMISSED_STORAGE_NAME, "1"); // what the other tab wrote
     act(() => {
-      window.dispatchEvent(new StorageEvent("storage", { key: "kipple.zoneOfferDismissed.v1", newValue: "1" }));
+      window.dispatchEvent(new StorageEvent("storage", { key: DISMISSED_STORAGE_NAME, newValue: "1" }));
     });
     await waitFor(() => expect(line()).toBeNull());
   });
@@ -229,7 +229,7 @@ describe("the Stats screen offers it once", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Not now" }));
     expect(line()).toBeNull();
     expect(s.patches()).toEqual([]);
-    expect(localStorage.getItem("kipple.zoneOfferDismissed.v1")).toBe("1");
+    expect(localStorage.getItem(DISMISSED_STORAGE_NAME)).toBe("1");
     cleanup();
     go("/stats");
     await screen.findByRole("heading", { name: "Daily activity" });
