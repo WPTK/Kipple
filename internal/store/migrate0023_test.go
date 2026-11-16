@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 0022 adds the per-feed unread ledger index and changes no row: a schema-21 database (the index dropped
+// 0023 adds the per-feed unread ledger index and changes no row: a schema-22 database (the index dropped
 // and user_version stepped back) upgrades to the same objects as a fresh one.
-func TestMigration0022AddsTheLedgerIndex(t *testing.T) {
+func TestMigration0023AddsTheLedgerIndex(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	feed := e.addFeed("https://a.example/feed")
@@ -18,7 +18,7 @@ func TestMigration0022AddsTheLedgerIndex(t *testing.T) {
 	}
 	fresh := schemaObjects(t, e.db.Reader())
 	e.exec("DROP INDEX idx_trimmed_feed_unread")
-	e.exec("PRAGMA user_version = 21")
+	e.exec("PRAGMA user_version = 22")
 	path := scalar[string](t, e.db.Reader(), "SELECT file FROM pragma_database_list WHERE name = 'main'")
 	require.NoError(t, e.db.Close())
 
