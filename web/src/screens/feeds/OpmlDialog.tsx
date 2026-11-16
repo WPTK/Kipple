@@ -51,21 +51,79 @@ export const FRESH_MIN_FEEDS = 20;
 /** The days "Start fresh" fills in. The field itself stays empty until the person presses it. */
 export const FRESH_DAYS = 7;
 
+const isSpace = (c: string | undefined): boolean => c === " " || c === "\t" || c === "\n" || c === "\r";
+
+/**
+ * Reads one `<outline` start tag from just after its name to its closing `>` (quoted values may hold `>`), and says whether
+ * it has a non-empty `xmlUrl` attribute. Returns where reading stopped. Each character is looked at a bounded number of times.
+ */
+function readOutlineTag(text: string, from: number): { next: number; feed: boolean } {
+  const n = text.length;
+  let i = from;
+  let feed = false;
+  while (i < n) {
+    const c = text[i];
+    if (isSpace(c) || c === "/") {
+      i++;
+      continue;
+    }
+    if (c === ">") return { next: i + 1, feed };
+    const start = i;
+    while (i < n && !isSpace(text[i]) && !"=>/\"'".includes(text[i] ?? "")) i++;
+    const name = text.slice(start, i);
+    while (i < n && isSpace(text[i])) i++;
+    if (text[i] !== "=") {
+      if (i === start) i++; // a stray quote: step over it
+      continue;
+    }
+    i++;
+    while (i < n && isSpace(text[i])) i++;
+    const q = text[i];
+    if (q === '"' || q === "'") {
+      const close = text.indexOf(q, i + 1);
+      if (close < 0) return { next: n, feed };
+      if (name === "xmlUrl" && text.slice(i + 1, close).trim() !== "") feed = true;
+      i = close + 1;
+    } else {
+      while (i < n && !isSpace(text[i]) && text[i] !== ">") i++; // an unquoted value is not valid XML: skip it
+    }
+  }
+  return { next: n, feed };
+}
+
+/** Where a comment, CDATA section, declaration or processing instruction at `lt` ends (the end of the text when unterminated); null for anything else. */
+function skipMarkup(text: string, lt: number): number | null {
+  const [open, close]: [number, string] = text.startsWith("<!--", lt) ? [4, "-->"] : text.startsWith("<![CDATA[", lt) ? [9, "]]>"] : text[lt + 1] === "?" || text[lt + 1] === "!" ? [2, ">"] : [0, ""];
+  if (!open) return null;
+  const end = text.indexOf(close, lt + open);
+  return end < 0 ? text.length : end + close.length;
+}
+
 /**
  * How many feeds an OPML text lists: its outline start tags with a non-empty `xmlUrl` attribute (a repeat counts twice).
- * It scans the text: comments and CDATA are dropped first, then each `<outline ...>` tag's attributes are read one by
- * one, so a quoted value that happens to hold the words `xmlUrl=` is never taken for the attribute.
+ * One pass over the text, without backtracking: comments, CDATA, declarations and processing instructions are jumped
+ * over, and a tag's attributes are read one by one, so a quoted value that holds the words `xmlUrl=` is never taken
+ * for the attribute. An unterminated comment or tag ends the count at what came before it.
  */
 export function countOpmlFeeds(text: string): number {
-  const bare = text.replace(/<!--[\s\S]*?-->/g, "").replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "");
   let n = 0;
-  for (const tag of bare.matchAll(/<outline\b((?:[^>"']|"[^"]*"|'[^']*')*)>/g)) {
-    for (const a of (tag[1] ?? "").matchAll(/([^\s=]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
-      if (a[1] === "xmlUrl" && (a[2] ?? a[3] ?? "").trim() !== "") {
-        n++;
-        break;
-      }
+  let i = 0;
+  while (i < text.length) {
+    const lt = text.indexOf("<", i);
+    if (lt < 0) break;
+    const past = skipMarkup(text, lt);
+    if (past !== null) {
+      i = past;
+      continue;
     }
+    const after = text[lt + 8];
+    if (text.startsWith("<outline", lt) && (after === undefined || isSpace(after) || after === "/" || after === ">")) {
+      const tag = readOutlineTag(text, lt + 8);
+      if (tag.feed) n++;
+      i = tag.next;
+      continue;
+    }
+    i = lt + 1;
   }
   return n;
 }

@@ -834,6 +834,27 @@ describe("Folders and OPML", () => {
       expect(countOpmlFeeds(doc('<outline xmlUrl="https://a/f"/><outline xmlUrl="https://a/f"/><outline XMLURL="https://x/f"/>'))).toBe(2);
     });
 
+    it("counts in linear time: a huge token without an equals sign, and an unterminated comment or quote at the end", () => {
+      const doc = (body: string) => `<opml><body>${body}</body></opml>`;
+      const good = '<outline text="ok" xmlUrl="https://a/f"/>';
+      const timed = (text: string) => {
+        const t = performance.now();
+        const n = countOpmlFeeds(text);
+        return { n, ms: performance.now() - t };
+      };
+      const token = timed(doc(`<outline ${"a".repeat(1_000_000)}/>${good}`));
+      expect(token.n).toBe(1);
+      expect(token.ms).toBeLessThan(500);
+      const many = good.repeat(20_000);
+      const comment = timed(doc(`${many}<!-- ${"x".repeat(500_000)}`));
+      expect(comment.n).toBe(20_000);
+      expect(comment.ms).toBeLessThan(500);
+      const quote = timed(doc(`${many}<outline text="a" xmlUrl="https://b/f${"y".repeat(500_000)}`));
+      expect(quote.n).toBe(20_000);
+      expect(quote.ms).toBeLessThan(500);
+      expect(timed(doc(`<outline ${"= ".repeat(300_000)}/>${good}`)).ms).toBeLessThan(500);
+    });
+
     it("a slower read of an earlier file does not overwrite the newer one", async () => {
       base();
       go("/feeds");
