@@ -42,7 +42,6 @@ type Snapshot struct {
 	ID      int64
 	URL     string
 	Host    string
-	Enabled bool
 	Trigger string
 
 	ETag         string
@@ -52,22 +51,13 @@ type Snapshot struct {
 	// RetryUserAgent, when set, is tried once after a 403/406 (fetch.user_agent_mode
 	// browser_on_failure); a success sets Result.UAFallbackWorked.
 	RetryUserAgent string
-	UAFallback     bool   // feeds.ua_fallback as loaded
 	HTTPAuth       string // user:pass
 
-	IgnoreHTTPCache  bool
-	DisableHTTP2     bool
-	AllowInsecureTLS bool
-	AllowPrivateNet  bool
-
-	DedupMode    string
-	RekeyPending bool
-	Fulltext     bool
+	DedupMode string
 
 	IntervalMinutes int   // feeds.interval_minutes, 0 = inherit
 	Retention       int   // feeds.retention, -1 = inherit, 0 = unlimited
 	IntervalS       int64 // resolved interval in seconds (feed override or global)
-	HonorTTL        bool  // fetch.honor_publisher_ttl
 	SlotSalt        int64 // sys.fetch_slot_salt: offsets the success slots (PhaseKey)
 	// DocTTLS is the RSS <ttl> of the stored document in seconds (feeds.ttl_hint_s,
 	// 0 when none). A 304 or an unchanged body is that same document, so its ttl
@@ -78,17 +68,29 @@ type Snapshot struct {
 	ConsecutiveFailures int
 	InitialReadBefore   int64 // 0 = none
 	LastSuccessAt       int64 // 0 = never
+	// HostUntil is the host's live Retry-After deadline at dispatch time.
+	HostUntil time.Time
+
+	// The flags sit together at the end so the one-byte fields share words instead of padding between 8-byte ones.
+	Enabled    bool
+	UAFallback bool // feeds.ua_fallback as loaded
+
+	IgnoreHTTPCache  bool
+	DisableHTTP2     bool
+	AllowInsecureTLS bool
+	AllowPrivateNet  bool
+
+	RekeyPending bool
+	Fulltext     bool
+	HonorTTL     bool // fetch.honor_publisher_ttl
 	// URLChanged: the feed's URL is no longer the one it was given (url_original is set: a
 	// discovery, a redirect migration or a URL edit). See Discoverable.
 	URLChanged bool
 	// URLSucceeded: a fetch of the feed's current URL has succeeded (feeds.url_succeeded). The first
 	// success at a URL brings that document's backlog, which feed_daily_new does not count.
 	URLSucceeded bool
-
 	// Full drops validators and the body-hash short circuit for this attempt.
 	Full bool
-	// HostUntil is the host's live Retry-After deadline at dispatch time.
-	HostUntil time.Time
 }
 
 // Result is everything one attempt learned, ready for CommitFetch or

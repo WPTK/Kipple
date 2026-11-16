@@ -269,7 +269,11 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 	d.reader.SetMaxOpenConns(readerConns)
 	d.reader.SetMaxIdleConns(readerConns)
 	d.reader.SetConnMaxIdleTime(0)
-	d.reader.SetConnMaxLifetime(0)
+	// A connection loads the planner statistics (sqlite_stat1) when it reads the schema, so a long-lived reader plans
+	// with the statistics of its first read. Recycling a reader a day after it opened makes it load the statistics
+	// current at that moment, after the nightly PRAGMA optimize on the writer. Statistics are loaded only when a
+	// connection opens, so a reader can lag up to a day behind the nightly optimize; that is accepted.
+	d.reader.SetConnMaxLifetime(24 * time.Hour)
 	if err := d.reader.PingContext(ctx); err != nil {
 		d.writer.Close()
 		d.reader.Close()
