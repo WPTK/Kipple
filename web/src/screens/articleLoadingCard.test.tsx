@@ -57,16 +57,26 @@ describe("article skeleton takes the open article's place", () => {
   it("is drawn in the same frame and header classes as the open article, so nothing moves when the text arrives", async () => {
     let answer!: (r: Response) => void;
     routes(() => new Promise<Response>((r) => (answer = r)));
+    updateDevicePrefs({ articleWidth: "wide" });
     window.history.replaceState({ idx: 0 }, "", "/i/1001?from=unread");
     render(<App client={makeQueryClient({ retry: false })} />);
     await screen.findByTestId("loading-card-title");
-    const frame = (el: Element) => ({ article: el.closest("article")!.className, header: el.closest("header")!.className, title: el.className });
+    const frame = (el: Element) => {
+      const article = el.closest("article")!;
+      return { article: article.className, col: article.style.getPropertyValue("--kp-col"), header: el.closest("header")!.className, title: el.className };
+    };
     const loading = frame(screen.getByTestId("loading-card-title"));
     expect(loading.article).toContain("kp-article");
+    // The byline is the open article's own line (author, date, reading time), so it wraps as the real one does.
+    const bylineText = screen.getByTestId("loading-card-title").closest("header")!.lastElementChild!.textContent!;
+    expect(bylineText).toMatch(/^Ada · .+ · 3 min read$/);
     await waitFor(() => expect(answer).toBeTypeOf("function"));
     answer(json(detail(1)));
     const real = frame(await screen.findByRole("heading", { level: 1, name: "Article number 1" }));
     expect(loading.article).toBe(real.article);
+    // The same reading column (the Article width setting), so a title wraps at the same width.
+    expect(loading.col).toBe("62rem");
+    expect(real.col).toBe(loading.col);
     expect(loading.header).toBe(real.header);
     // The title is set in the open article's own type, so it wraps where the real one will.
     for (const c of loading.title.split(" ").filter((c) => c.startsWith("text-title") || c.startsWith("leading-"))) expect(real.title).toContain(c);

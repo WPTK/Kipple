@@ -63,7 +63,8 @@ function CardSkeleton() {
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-3">
         <BoneLines lines={1} className="text-xs" boneClassName="bg-bg" />
         <BoneLines lines={2} max="--title-lines" className="text-base leading-snug" boneClassName="bg-bg" />
-        <BoneLines lines={3} max="--snippet-lines" className="text-sm leading-snug" boneClassName="bg-bg" />
+        {/* The card's excerpt is three lines at every density (CardRow's line-clamp-3), not the density's snippet lines. */}
+        <BoneLines lines={3} className="text-sm leading-snug" boneClassName="bg-bg" />
       </div>
       <div className="h-12" />
     </div>

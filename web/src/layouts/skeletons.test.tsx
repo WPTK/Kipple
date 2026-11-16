@@ -48,6 +48,15 @@ describe("row skeletons hold the room of the rows that replace them", () => {
     expect(box.style.maxHeight).toBe("calc(var(--snippet-lines) * 1lh)");
     expect(box.querySelectorAll('[class*="h-[1lh]"]')).toHaveLength(3);
     expect(box.lastElementChild?.firstElementChild?.className).toContain("w-2/3");
+    // Bars past the limit are cut off, not drawn outside the box.
+    expect(box.className).toContain("overflow-hidden");
+  });
+
+  it("Cards: the excerpt is three lines at every density, as CardRow clamps it, not the density's snippet lines", () => {
+    const row = draw(cards);
+    expect(row.querySelector('[style*="--snippet-lines"]')).toBeNull();
+    const bars = [...row.querySelectorAll('[class*="h-[1lh]"]')];
+    expect(bars.length).toBe(1 + 2 + 3);
   });
 });
 

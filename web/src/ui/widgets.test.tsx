@@ -175,6 +175,10 @@ describe("column limits", () => {
     // Where the window cannot hold both, the list's controls win, then the article's toolbar: the old limit is the floor of the new one.
     expect(listLimit(700, big, 24, floor(big), 260, 720)).toBe(260);
     expect(readerNeed(24)).toBeGreaterThan(readerNeed(16));
+    // Largest text with Large targets, where the list's controls and the article's toolbar cannot both be whole: the article's
+    // toolbar still wins, exactly as it did before, and the reading room adds nothing on top of it.
+    const bigTargets = columnNeeds(24, true);
+    expect(listLimit(1180, bigTargets, 24, floor(bigTargets), 260, 720)).toBe(maxFor(1180, bigTargets.article + bigTargets.gutter, 260, 720));
   });
 
   it("what the columns need follows the size of the controls: the text size scales it and Large targets raise it", () => {

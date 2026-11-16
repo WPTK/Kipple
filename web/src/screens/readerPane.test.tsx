@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { onlineManager } from "@tanstack/react-query";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
+import { keys } from "@/api/queryKeys";
 import { initialLive, liveStore } from "@/api/events";
 import { resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { resetUndo } from "@/lib/undo";
@@ -378,6 +379,41 @@ describe("an article that fails to load", () => {
       setBrowserOnline(true);
       vi.restoreAllMocks();
     }
+  });
+
+  it("an article already on the screen stays when its refetch fails with no connection; online the same failure is still an error", async () => {
+    let fail = false;
+    routes({
+      "GET /api/items/1001": () => {
+        if (fail) throw new TypeError("Failed to fetch");
+        return json(detail(1));
+      },
+    });
+    window.history.replaceState({ idx: 0 }, "", "/i/1001?from=unread");
+    const client = makeQueryClient({ retry: false });
+    render(<App client={client} />);
+    await screen.findByText("Body of article 1");
+    const refetch = () => client.invalidateQueries({ queryKey: keys.item("1001") });
+    fail = true;
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    setBrowserOnline(false);
+    onlineManager.setOnline(false);
+    try {
+      await refetch();
+      // Offline the copy on the screen is the answer: no error replaces it.
+      await waitFor(() => expect(client.getQueryState(keys.item("1001"))?.fetchStatus).toBe("idle"));
+      expect(client.getQueryState(keys.item("1001"))?.status).toBe("error");
+      expect(screen.getByText("Body of article 1")).toBeInTheDocument();
+      expect(screen.queryByText("You're offline")).toBeNull();
+      expect(screen.queryByText("Couldn't open this article")).toBeNull();
+    } finally {
+      onlineManager.setOnline(true);
+      setBrowserOnline(true);
+      vi.restoreAllMocks();
+    }
+    // Online, a failed refetch is still an error (the article may have changed or gone).
+    await refetch();
+    await screen.findByRole("heading", { level: 1, name: "Couldn't open this article" });
   });
 
   it("a real failure while online keeps the generic message", async () => {

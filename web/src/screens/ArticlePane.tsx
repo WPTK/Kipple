@@ -96,8 +96,11 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, item.data?.id]);
 
-  // The article as shown: none while it loads or after it failed (a failed refetch keeps stale data, still an error).
-  const failed = !item.isPending && (item.isError || !item.data);
+  // The article as shown: none while it loads or after it failed (a failed refetch keeps stale data, still an error). The
+  // one exception is a refetch that fails with no connection: the copy already on the screen is the answer then, and the
+  // offline toast says why nothing newer came.
+  const gone = item.error instanceof ApiError && item.error.status === 404;
+  const failed = !item.isPending && (!item.data || (item.isError && (gone || browserOnline)));
   const a = item.isPending || failed ? undefined : item.data;
 
   // Beside the list, Next and Previous leave focus on the button that was pressed, so the article that arrived is
@@ -211,11 +214,10 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
 
   // Focus the article when it opens (narrow) so screen readers land on it.
   // The tab mirrors what the screen shows as its heading: the article's title, or the loading and failure screens'.
-  const gone = item.error instanceof ApiError && item.error.status === 404;
   useDocumentTitle(
     item.isPending
       ? "Loading article"
-      : item.isError || !item.data
+      : failed || !item.data
         ? gone
           ? "This article is no longer available"
           : !browserOnline

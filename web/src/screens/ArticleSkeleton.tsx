@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { ARTICLE_WIDTH_REM, useDevicePrefs } from "@/lib/devicePrefs";
+import { fullDate } from "@/lib/format";
 import { Bone, BoneLines } from "@/ui/kit";
 import { ListImage, useImageFailure } from "@/layouts/parts";
 import type { Card } from "@/api/types";
@@ -17,6 +18,12 @@ export function columnWidth(w: keyof typeof ARTICLE_WIDTH_REM): string | undefin
 export const ARTICLE_FRAME = "kp-article px-4 pt-4 pb-10 md:px-6";
 export const ARTICLE_HEADER = "kp-ui mx-auto mb-5 max-w-[min(var(--kp-col),100%)]";
 export const ARTICLE_TITLE = "mt-1 text-title leading-tight font-[650] text-balance wrap-anywhere outline-none [font-family:var(--kp-reading-font)] [font-size-adjust:0.5]";
+
+/** The article's byline as the open article writes it: the author, then the date and the reading time. */
+function byline(c: Card): string {
+  const rest = [fullDate(c.published_at), c.reading_minutes ? `${c.reading_minutes} min read` : null].filter(Boolean).join(" · ");
+  return c.author ? `${c.author} · ${rest}` : rest;
+}
 
 /**
  * What an article shows while its text loads: the real article's frame, header and column with bars where the text will
@@ -40,8 +47,9 @@ export function ArticleSkeleton({ card }: { card?: Card }) {
         ) : (
           <BoneLines lines={2} className={ARTICLE_TITLE} />
         )}
-        <div className="mt-2 text-sm text-fg2">
-          <Bone className="h-[1lh] w-2/5" />
+        {/* With the list's card the line is the article's own (author, date, reading time), so it wraps where the real one will, on a narrow phone at Largest text too. */}
+        <div dir="auto" className="mt-2 text-sm text-fg2">
+          {card ? byline(card) : <Bone className="h-[1lh] w-2/5" />}
         </div>
       </header>
       <div className="article-body">
