@@ -17,18 +17,38 @@ const (
 	wideUnreadSort   = "CREATE INDEX idx_items_unread_sort ON items(sort_at, id, feed_id, fulltext_mode, word_count) WHERE read = 0"
 )
 
-// seedUnreadItems adds n items over feeds: every tenth is read, word counts spread over 0 to 2,999 and every
-// 500th item is empty.
+// seedUnreadItems adds n items over feeds: the ones whose id ends in 3 are read (a tenth), word counts spread
+// over 1 to 3,000 and every 500th item is empty, so the empty ones are unread.
 func seedUnreadItems(e *env, n int) {
 	e.exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1)
 		INSERT INTO items (id, feed_id, read, published_at, sort_at, uid, content_hash, text_hash, word_count, title, url)
-		SELECT i, (SELECT min(id) FROM feeds) + i % (SELECT count(*) FROM feeds), i % 10 = 0, i, i, 'u' || i, 'c', 't',
+		SELECT i, (SELECT min(id) FROM feeds) + i % (SELECT count(*) FROM feeds), i % 10 = 3, i, i, 'u' || i, 'c', 't',
 			CASE WHEN i % 500 = 0 THEN 0 ELSE (i * 7919) % 3000 + 1 END, 'A title of some length ' || i, 'https://a.example/' || i FROM n`, n)
+}
+
+// itemRows is every item's stored values in id order, as one string to compare across a migration.
+const itemRows = `SELECT group_concat(id || '|' || feed_id || '|' || read || '|' || sort_at || '|' || word_count || '|' || ifnull(fulltext_mode, 'null') || '|' || uid || '|' || title || '|' || url, char(10))
+	FROM (SELECT * FROM items ORDER BY id)`
+
+// pickIDs runs one id pick and returns its ids; an empty page is an empty slice, not nil.
+func pickIDs(t *testing.T, db *sql.DB, ctx context.Context, q pickQuery) []int64 {
+	t.Helper()
+	rows, err := db.QueryContext(ctx, q.sql, q.args...)
+	require.NoError(t, err)
+	defer rows.Close()
+	ids := []int64{}
+	for rows.Next() {
+		var id int64
+		require.NoError(t, rows.Scan(&id))
+		ids = append(ids, id)
+	}
+	require.NoError(t, rows.Err())
+	return ids
 }
 
 // 0024 widens idx_items_unread_sort and changes no row: a schema-23 database (the narrow index back and
 // user_version stepped back, with planner statistics gathered for it) upgrades to the same objects as a fresh
-// one, and its length-filtered page is read from the index alone.
+// one, with every item's values unchanged, and its length-filtered page is read from the index alone.
 func TestMigration0024WidensTheUnreadSortIndex(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -37,6 +57,7 @@ func TestMigration0024WidensTheUnreadSortIndex(t *testing.T) {
 	}
 	seedUnreadItems(e, 3000)
 	fresh := schemaObjects(t, e.db.Reader())
+	rowsBefore := scalar[string](t, e.db.Reader(), itemRows)
 	require.Equal(t, wideUnreadSort, scalar[string](t, e.db.Reader(), "SELECT sql FROM sqlite_schema WHERE name = 'idx_items_unread_sort'"))
 	e.exec("DROP INDEX idx_items_unread_sort")
 	e.exec(narrowUnreadSort)
@@ -49,6 +70,7 @@ func TestMigration0024WidensTheUnreadSortIndex(t *testing.T) {
 	r := db.Reader()
 	require.Equal(t, wideUnreadSort, scalar[string](t, r, "SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = 'idx_items_unread_sort'"))
 	require.Equal(t, fresh, schemaObjects(t, r))
+	require.Equal(t, rowsBefore, scalar[string](t, r, itemRows))
 	require.Equal(t, 3000, scalar[int](t, r, "SELECT count(*) FROM items"))
 	require.Equal(t, 300, scalar[int](t, r, "SELECT count(*) FROM items WHERE read = 1"))
 	requireCleanIntegrity(t, r)
@@ -142,15 +164,7 @@ func TestUnreadLengthPagesHoldTheSameItems(t *testing.T) {
 	ids := func() map[string][]int64 {
 		out := map[string][]int64{}
 		for name, q := range lengthQueries(t, false) {
-			rows, err := e.db.writer.QueryContext(e.ctx, q.sql, q.args...)
-			require.NoError(t, err)
-			for rows.Next() {
-				var id int64
-				require.NoError(t, rows.Scan(&id))
-				out[name] = append(out[name], id)
-			}
-			require.NoError(t, rows.Err())
-			require.NoError(t, rows.Close())
+			out[name] = pickIDs(t, e.db.writer, e.ctx, q)
 		}
 		return out
 	}
@@ -161,6 +175,12 @@ func TestUnreadLengthPagesHoldTheSameItems(t *testing.T) {
 	for name, got := range wide {
 		require.NotEmpty(t, got, name)
 	}
+	// The sparse bucket holds exactly the unread empty items, newest first: every 500th id.
+	var want []int64
+	for id := int64(6000); id >= 500; id -= 500 {
+		want = append(want, id)
+	}
+	require.Equal(t, want, wide["unknown oldest=false cursor=false all=false"])
 }
 
 // TestUnreadLengthPerf times the length-cut pages on a large library, with the index as it was and as it is.
@@ -177,26 +197,28 @@ func TestUnreadLengthPerf(t *testing.T) {
 	}
 	seedUnreadItems(e, 600_000)
 	e.exec("ANALYZE")
-	best := func(q pickQuery) time.Duration {
+	best := func(q pickQuery, want int) time.Duration {
 		var b time.Duration
 		for i := range 5 {
 			start := time.Now()
-			rows, err := e.db.writer.QueryContext(e.ctx, q.sql, q.args...)
-			require.NoError(t, err)
-			for rows.Next() {
-			}
-			require.NoError(t, rows.Err())
-			require.NoError(t, rows.Close())
+			ids := pickIDs(t, e.db.writer, e.ctx, q)
 			if d := time.Since(start); i == 0 || d < b {
 				b = d
 			}
+			require.Len(t, ids, want)
 		}
 		return b
 	}
+	query := func(name string) pickQuery {
+		key := name + " oldest=false cursor=false all=false"
+		q, ok := lengthQueries(t, false)[key]
+		require.True(t, ok, key)
+		return q
+	}
+	// Every bucket, the sparse one included, has enough unread matches to fill the page (the limit and one more).
 	report := func(label string) {
-		qs := lengthQueries(t, false)
 		for _, name := range []string{"unread", "short", "long", "unknown"} {
-			t.Logf("%s %s: %v", label, name, best(qs[name+" oldest=false cursor=false all=false"]))
+			t.Logf("%s %s: %v", label, name, best(query(name), 31))
 		}
 	}
 	report("wide")
@@ -204,4 +226,12 @@ func TestUnreadLengthPerf(t *testing.T) {
 	e.exec(narrowUnreadSort)
 	e.exec("ANALYZE")
 	report("narrow")
+	// A bucket nothing falls into walks every unread item to find that out.
+	e.exec("UPDATE items SET word_count = 1 WHERE word_count = 0")
+	e.exec("ANALYZE")
+	t.Logf("narrow empty bucket: %v", best(query("unknown"), 0))
+	e.exec("DROP INDEX idx_items_unread_sort")
+	e.exec(wideUnreadSort)
+	e.exec("ANALYZE")
+	t.Logf("wide empty bucket: %v", best(query("unknown"), 0))
 }
