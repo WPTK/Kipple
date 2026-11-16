@@ -87,7 +87,9 @@ export function usePatchSettings() {
     onError: (_e, _p, ctx) => {
       if (ctx?.prev) qc.setQueryData(settingsKey, ctx.prev);
     },
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
+      // A bootstrap answer asked for before this save must not land after it and bring back the old values.
+      await qc.cancelQueries({ queryKey: keys.bootstrap });
       qc.setQueryData(settingsKey, res);
       // Timezone, week start and the stats switch all change the summary; do not leave it stale for its 60 s.
       void qc.invalidateQueries({ queryKey: ["stats"] });

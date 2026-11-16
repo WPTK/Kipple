@@ -398,7 +398,7 @@ export async function start(metaUrl, helpLines, options = {}) {
    * the server still accepts it) and why, or null; and `probeError` when the server could not be asked.
    */
   const attempt = async (body, vp) => {
-    const context = await browser.newContext({ baseURL: origin, viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile, serviceWorkers: options.serviceWorkers ?? "allow" });
+    const context = await browser.newContext({ baseURL: origin, viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile, serviceWorkers: options.serviceWorkers ?? "allow", ...(options.timezoneId ? { timezoneId: options.timezoneId } : {}) });
     const mark = findings.length;
     let session = null;
     try {

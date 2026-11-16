@@ -1,0 +1,1 @@
+Stats: while no time zone is chosen and this device's zone is not UTC, Settings > Stats and the Stats screen offer to use this device's zone, and "Not now" is remembered on the device. Nothing is saved until you press it.
