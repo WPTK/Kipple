@@ -106,3 +106,32 @@ func TestTextHTMLStopsAtTheBound(t *testing.T) {
 	require.True(t, wasCut)
 	require.LessOrEqual(t, len(cut), sanitize.MaxItemHTMLBytes)
 }
+
+// Two entries with no guid and no link that share a title and everything up to the bound stay two entries when they
+// differ after it; two that are the same throughout are still one.
+func TestCutEntriesDifferingPastTheBoundKeepTheirOwnKeys(t *testing.T) {
+	head := strings.Repeat("<p>word</p>", sanitize.MaxItemHTMLBytes/11+1000)
+	item := func(tail string) string {
+		return `<item><title>t</title><description><![CDATA[` + head + tail + `]]></description></item>`
+	}
+	doc := func(items ...string) []byte {
+		return []byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><link>https://e.example/</link>` +
+			strings.Join(items, "") + `</channel></rss>`)
+	}
+	f, err := ParseFeed(doc(item("<p>one</p>"), item("<p>two</p>"), item("<p>two</p>")), ParseOptions{FeedURL: "https://e.example/feed"})
+	require.NoError(t, err)
+	require.Len(t, f.Items, 2)
+	require.NotEqual(t, f.Items[0].UID, f.Items[1].UID)
+
+	again, err := ParseFeed(doc(item("<p>one</p>")), ParseOptions{FeedURL: "https://e.example/feed"})
+	require.NoError(t, err)
+	require.Equal(t, f.Items[0].UID, again.Items[0].UID)
+
+	// The same holds for the text of a JSON Feed entry.
+	text := strings.Repeat("word ", sanitize.MaxItemHTMLBytes/5+1000)
+	js := func(tail string) string { return `{"title":"t","content_text":"` + text + tail + `"}` }
+	j, err := ParseFeed([]byte(`{"version":"https://jsonfeed.org/version/1.1","title":"T","items":[`+js("one")+`,`+js("two")+`]}`),
+		ParseOptions{FeedURL: "https://e.example/feed.json"})
+	require.NoError(t, err)
+	require.Len(t, j.Items, 2)
+}

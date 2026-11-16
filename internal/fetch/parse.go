@@ -53,6 +53,7 @@ type Item struct {
 	Updated     *time.Time  `json:"updated,omitempty"`   // item's own updated date, if any
 	Enclosures  []Enclosure `json:"enclosures,omitempty"`
 	images      []string    // ranked lead candidates until dropSharedImages has chosen; never stored
+	cutKey      string      // for an entry whose HTML was cut: a hash of the whole text before the cut; keys an entry with no guid and no link; never stored
 	WordCount   int         `json:"-"` // words in ContentText; not in the golden output
 	// Categories are the entry's category/tag labels (at most MaxCategories of MaxCategoryRunes),
 	// stored at ingest so category filter rules can match. Not in the golden output.
@@ -539,12 +540,17 @@ func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOpt
 	if raw == "" {
 		raw = gi.Description
 	}
+	whole := raw // what the entry's key is taken from if the markup is cut
 	// JSON Feed content_text is plain text, not markup.
 	if i < len(jsonItems) && jsonItems[i] != nil && jsonItems[i].ContentHTML == "" && jsonItems[i].ContentText != "" {
-		raw = textHTML(jsonItems[i].ContentText)
+		whole = jsonItems[i].ContentText
+		raw = textHTML(whole)
 	}
 	// One entry's markup is bounded before anything reads it: the cleaner holds many times what it is given.
 	raw, cut = sanitize.CutHTML(raw, sanitize.MaxItemHTMLBytes)
+	if cut {
+		it.cutKey = hashChunked(whole)
+	}
 	it.ContentHTML, it.ContentText = content(raw, bases...)
 
 	it.images = pickImages(gi, raw, bases)
