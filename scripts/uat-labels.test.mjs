@@ -57,6 +57,13 @@ test('goneFragments: words that moved into a longer label in the same file are n
   assert.deepEqual(goneFragments(files, new Set(['Try now, '])), []);
 });
 
+test('check: a shortened-into-longer label is still reported when a locator asks for the exact old name', () => {
+  const diff = ['diff --git a/web/src/A.tsx b/web/src/A.tsx', '--- a/web/src/A.tsx', '+++ b/web/src/A.tsx', '@@ -1 +1 @@', '-<button aria-label="Save">', '+<button aria-label="Save as">'].join('\n');
+  const uat = [{ name: 'x.mjs', text: 'await page.getByRole("button", { name: "Save", exact: true }).click();' }];
+  assert.equal(check(diff, new Set(['Save as']), uat).length, 1);
+  assert.equal(check(diff, new Set(['Save as']), [{ name: 'x.mjs', text: 'page.getByRole("button", { name: "Save" })' }]).length, 0);
+});
+
 test('goneFragments: ignores fragments shorter than three characters once trimmed', () => {
   assert.deepEqual(goneFragments([{ file: 'a.tsx', removed: [', ', 'OK'] }], new Set()), []);
 });

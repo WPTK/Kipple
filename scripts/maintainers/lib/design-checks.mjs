@@ -419,8 +419,13 @@ export function installChecks() {
       }
     const bg = K.bg(el.parentElement ?? el).color;
     // A ring drawn with a band of the page color on its sides (the kp-ring utilities) touches that band, not the parent's background.
-    const band = /^(rgba?\([^)]*\))\s+0px 0px 0px (?!0px)\d/.exec(cs.boxShadow); // a spread above zero: a zero-spread shadow paints nothing
-    const near = (band && K.painted(band[1], el, bg)) || bg;
+    // The band counts only when it is crisp (no blur) and reaches across the whole outline: an inset shadow covers the
+    // distances from the edge inward, an outer one from the edge outward, and a zero spread paints nothing.
+    const band = ringOf(cs) && /^(rgba?\([^)]*\))\s+0px 0px 0px ([\d.]+)px( inset)?$/.exec(cs.boxShadow);
+    const reach = band ? (band[3] ? -parseFloat(band[2]) : parseFloat(band[2])) : 0;
+    const off = parseFloat(cs.outlineOffset) || 0;
+    const covers = band && parseFloat(band[2]) > 0 && (band[3] ? reach < off && off + ring.width <= 0 : off >= 0 && off + ring.width <= reach);
+    const near = (covers && K.painted(band[1], el, bg)) || bg;
     const r = el.getBoundingClientRect();
     const pts = [
       [r.x + r.width / 2, r.y + r.height / 2],

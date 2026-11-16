@@ -123,12 +123,24 @@ export function plainText(line) {
 export const isSearchable = (fragment) => fragment.trim().length >= MIN_LENGTH;
 
 /**
+ * UAT lines that ask for a control by exactly this name (`name: "Save", exact: true`), skipping ignore-marked lines.
+ * @param {string} fragment
+ * @param {{name: string, text: string}[]} uatFiles
+ * @returns {{name: string, line: number, text: string}[]}
+ */
+export function exactNameUsages(fragment, uatFiles) {
+  const word = fragment.trim();
+  return findUsages(word, uatFiles).filter((u) => /exact:\s*true/.test(u.text) && new RegExp(`(["'\`])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\1`).test(u.text));
+}
+const usedAsExactName = (fragment, uatFiles) => exactNameUsages(fragment, uatFiles).length > 0;
+
+/**
  * Removed fragments that no aria-label in the current source has any more.
  * @param {{file: string, removed: string[]}[]} diffFiles
  * @param {Set<string>} currentFragments every fragment in web/src now
  * @returns {{fragment: string, file: string}[]}
  */
-export function goneFragments(diffFiles, currentFragments) {
+export function goneFragments(diffFiles, currentFragments, uatFiles = []) {
   const gone = [];
   const seen = new Set();
   for (const f of diffFiles) {
@@ -137,7 +149,8 @@ export function goneFragments(diffFiles, currentFragments) {
       // Words that moved into a longer label on the same line ("Try ${x} now" -> "Try now, ${x}") are not gone: a
       // UAT line that names the control by those words still finds it, and searching for them alone only matches
       // unrelated text ("Try again", "now").
-      if ((f.added ?? []).some((a) => a.includes(fragment.trim()))) continue;
+      // A locator that asks for the exact name still breaks, so those fragments stay checked.
+      if ((f.added ?? []).some((a) => a.includes(fragment.trim())) && !usedAsExactName(fragment, uatFiles)) continue;
       const key = `${f.file}\u0000${fragment}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -171,7 +184,7 @@ export function check(diffText, currentFragments, uatFiles) {
   const problems = [];
   const files = parseDiff(diffText);
   const shown = new Map(files.map((f) => [f.file, f.shown]));
-  for (const g of goneFragments(files, currentFragments)) {
+  for (const g of goneFragments(files, currentFragments, uatFiles)) {
     let usages = findUsages(g.fragment, uatFiles);
     // The same words are now the control's visible text (whole label, same file), so its role and name are unchanged:
     // only a lookup by the attribute itself breaks.
