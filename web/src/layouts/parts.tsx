@@ -317,7 +317,7 @@ export function PublishedTime({ item, className }: { item: Pick<Card, "published
  * The "[dot] [icon] source · time" meta row shared by the cards, compact, inbox and editorial layouts. In a list of one
  * feed (useOneFeed) the source and its icon are left out.
  */
-export function SourceTimeMeta({ item, feed, dot }: { item: Card; feed: Feed | undefined; dot?: React.ReactNode }) {
+export function SourceTimeMeta({ item, feed, dot, end }: { item: Card; feed: Feed | undefined; dot?: React.ReactNode; end?: React.ReactNode }) {
   const oneFeed = useOneFeed();
   return (
     <div className="flex items-center gap-1.5 text-xs text-fg2">
@@ -330,6 +330,23 @@ export function SourceTimeMeta({ item, feed, dot }: { item: Card; feed: Feed | u
         </>
       )}
       <PublishedTime item={item} className="shrink-0" />
+      {end ? <div className="ml-auto flex shrink-0 items-center">{end}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * The star and More of a picture layout's row (Editorial, Cards), drawn at the end of the row's source line so they take
+ * no line of their own. Where the row swipes (`swipe`) and the only pointer is a finger, they stay in the accessibility
+ * tree and the tab order but leave the layout (index.css, `row-swipe-aside`): the swipe and the long press already do
+ * what they do, and a keyboard or a screen reader that reaches one sees it.
+ */
+export function RowActions({ item, onToggleStar, actions, swipe }: { item: Card; onToggleStar: (i: Card) => void; actions: RowMenuActions; swipe?: boolean }) {
+  const aside = swipe ? "row-touch-unseen" : undefined;
+  return (
+    <div className={cn("relative z-10 -my-2 -mr-2 flex items-center", swipe && "row-swipe-aside")}>
+      <StarButton item={item} onToggleStar={onToggleStar} className={aside} />
+      <RowMenu item={item} actions={actions} className={aside} />
     </div>
   );
 }

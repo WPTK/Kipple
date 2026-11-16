@@ -1728,6 +1728,7 @@ const ListRow = memo(function ListRow(p: ListRowProps) {
         onToggleStar={p.onStar}
         actions={p.actions}
         showThumb={p.showThumb}
+        swipe={p.swipe}
       />
     </SwipeRow>
   );

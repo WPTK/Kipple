@@ -41,6 +41,8 @@ export interface RowProps {
   actions: RowMenuActions;
   /** Inbox only: show the trailing thumbnail when the item has one. */
   showThumb?: boolean;
+  /** The row swipes (touch) and so is alone on its line: not a card in a several-column grid. Editorial and Cards use it to leave out controls the swipe and the long press already do. */
+  swipe?: boolean;
 }
 
 /** One section of a Digest page as the page draws it (digestPlan's section, plus what loading it has come to). */

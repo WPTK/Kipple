@@ -3,11 +3,11 @@ import { editorialRowHeight, magazine } from "./magazine";
 import { card } from "@/test/mockApi";
 
 describe("Editorial row height estimate", () => {
-  it("is about 400 px stacked at phone width, as before, and text-only rows stay 190", () => {
-    expect(editorialRowHeight(true, 375)).toBeGreaterThan(380);
-    expect(editorialRowHeight(true, 375)).toBeLessThan(420);
+  it("is about 335 px stacked at phone width, and text-only rows 160", () => {
+    expect(editorialRowHeight(true, 375)).toBeGreaterThan(320);
+    expect(editorialRowHeight(true, 375)).toBeLessThan(360);
     expect(editorialRowHeight(true, 0)).toBe(editorialRowHeight(true, 375));
-    expect(editorialRowHeight(false, 900)).toBe(190);
+    expect(editorialRowHeight(false, 900)).toBe(160);
   });
 
   it("drops to about 200 to 260 px once the image sits beside the text (container 34rem)", () => {

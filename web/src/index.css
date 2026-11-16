@@ -602,6 +602,10 @@ a.sr-only-live:focus {
 @media not (any-pointer: fine) {
   .row-touch-unseen { opacity: 0; pointer-events: none; }
   .row-touch-unseen:focus-visible { opacity: 1; pointer-events: auto; }
+  /* The star and More of a swiping Editorial or Cards row (RowActions): the swipe and the long press do what they do, so
+     they take no height from the row. They stay in the tree and the tab order, laid over the row's corner when focused. */
+  .row-swipe-aside { position: absolute; right: 0.5rem; bottom: 0.5rem; pointer-events: none; }
+  .row-swipe-aside:focus-within { background: color-mix(in srgb, var(--color-bg) 80%, transparent); border-radius: 0.5rem; }
 }
 /* Search on a screen too short for its header and its results together (400% zoom, a phone held sideways): SearchScreen
    measures the header and marks the shell data-short when the header would take more than half the screen. The screen
