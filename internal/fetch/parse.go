@@ -53,6 +53,7 @@ type Item struct {
 	Updated     *time.Time  `json:"updated,omitempty"`   // item's own updated date, if any
 	Enclosures  []Enclosure `json:"enclosures,omitempty"`
 	images      []string    // ranked lead candidates until dropSharedImages has chosen; never stored
+	cut         bool        // the entry's HTML was cut at sanitize.MaxItemHTMLBytes; counted in the fetch notes, never stored
 	WordCount   int         `json:"-"` // words in ContentText; not in the golden output
 	// Categories are the entry's category/tag labels (at most MaxCategories of MaxCategoryRunes),
 	// stored at ingest so category filter rules can match. Not in the golden output.
@@ -215,10 +216,23 @@ func ParseDecoded(dec Decoded, opt ParseOptions) (*Feed, error) {
 	if skipped > 0 {
 		out.Notes = append(out.Notes, fmt.Sprintf("skipped_malformed_items: %d/%d", skipped, len(keep)))
 	}
+	if cut := countCut(items); cut > 0 {
+		out.Notes = append(out.Notes, fmt.Sprintf("item_html_cut: %d/%d", cut, len(items)))
+	}
 	if overLimit != "" {
 		out.Notes = append(out.Notes, overLimit)
 	}
 	return out, nil
+}
+
+// countCut is how many of items had their HTML cut at sanitize.MaxItemHTMLBytes.
+func countCut(items []Item) (n int) {
+	for i := range items {
+		if items[i].cut {
+			n++
+		}
+	}
+	return n
 }
 
 // MaxItemsPerFetch is the most entries one fetch keeps: the newest ones, by the order retention trims by (see
@@ -537,6 +551,8 @@ func convertItem(i int, gi *gofeed.Item, siteURL, feedTitle string, opt ParseOpt
 	if i < len(jsonItems) && jsonItems[i] != nil && jsonItems[i].ContentHTML == "" && jsonItems[i].ContentText != "" {
 		raw = "<p>" + strings.ReplaceAll(stdhtml.EscapeString(jsonItems[i].ContentText), "\n", "<br>") + "</p>"
 	}
+	// One entry's markup is bounded before anything reads it: the cleaner holds many times what it is given.
+	raw, it.cut = sanitize.CutHTML(raw, sanitize.MaxItemHTMLBytes)
 	it.ContentHTML, it.ContentText = content(raw, bases...)
 
 	it.images = pickImages(gi, raw, bases)
