@@ -141,6 +141,7 @@ describe("the New page", () => {
   });
 
   it("opens a folder out in place and moves focus to the first article it brought in", async () => {
+    world.asOf = "9000"; // newer than every article, so the second page is not held back as arrived after the list opened
     routes([30, 2]);
     const user = userEvent.setup();
     const { container } = go("/l/new");
