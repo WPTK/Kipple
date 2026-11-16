@@ -100,6 +100,7 @@ export function Modal({
         <Dialog.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <Dialog.Content
           {...returnFocus}
+          aria-modal="true"
           onOpenAutoFocus={holdWhileLoading}
           className={cn(
             "fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full flex-col rounded-t-2xl outline-none border border-line bg-bg text-fg shadow-sheet sm:inset-y-auto sm:top-[6vh] sm:bottom-auto sm:rounded-2xl",

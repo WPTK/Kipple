@@ -541,7 +541,7 @@ function Toolbar(p: ToolbarProps) {
       role="toolbar"
       aria-label="Article actions"
       className={cn(
-        "flex shrink-0 items-center justify-around overflow-x-auto bg-bg px-1",
+        "flex shrink-0 flex-wrap items-center justify-around bg-bg px-1",
         p.top ? "border-b border-line py-1" : "pb-safe border-t border-line py-1",
       )}
     >

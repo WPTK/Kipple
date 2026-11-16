@@ -39,6 +39,9 @@ describe("Apply retention now", () => {
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText("Every feed is already within its limit, so nothing is removed.")).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: /^Remove/ })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: "Cancel" })).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(api.calls.some((c) => c.method === "POST")).toBe(false);
   });
 });

@@ -1,0 +1,1 @@
+Lists: the links in an empty list (Show all articles, Add a filter in Settings) are at least 24 px high.

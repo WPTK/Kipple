@@ -64,7 +64,7 @@ export function RepairButtons({ feedId, title, canTry = true, onEdit }: { feedId
         Edit address
       </Button>
       {canTry ? (
-        <Button disabled={busy} onClick={() => void tryNow()} aria-label={`Try ${title} now`}>
+        <Button disabled={busy} onClick={() => void tryNow()} aria-label={`Try now, ${title}`}>
           Try now
         </Button>
       ) : null}

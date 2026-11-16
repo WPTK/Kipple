@@ -1,0 +1,1 @@
+Reader: a long unbroken word wraps at the edge of the article, and the article toolbar wraps on a narrow window.

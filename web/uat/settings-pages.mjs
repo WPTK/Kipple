@@ -6,7 +6,7 @@
 //
 // For each width (desktop 1280x800, phone 375x812) it opens each group's page and checks:
 //   S1  Appearance has Reading appearance, Lists, Articles and Accessibility, and the font switch is named by what it does;
-//   S2  Sync & Feeds has Checking feeds and Storage; Apply retention now says nothing is removed; choosing 50 with a 60-article feed present opens "Remove older articles?" with the count, and Cancel keeps the old choice;
+//   S2  Sync & Feeds has Checking feeds and Storage; Apply retention now says nothing is removed and offers Close; choosing 50 with a 60-article feed present opens "Remove older articles?" with the count, and Cancel keeps the old choice;
 //   S3  Account & Devices has Devices, Sign-in, Sync apps and Backup and data (with the storage figures), shows the address
 //       and username, offers Restore from a backup, and its dialog asks for the phrase and is cancelled without erasing;
 //   S4  Advanced has Address and access, with Other names for this server outside the proxy fold.
@@ -54,7 +54,8 @@ await t.eachViewport(async (page, vp) => {
   await rd.waitFor({ timeout: 10000 });
   await rd.getByText("nothing is removed").waitFor({ timeout: 10000 }).catch(() => {});
   check((await rd.innerText()).includes("nothing is removed"), `${tag} S2 apply`, "Apply retention now says nothing is removed", "no 'nothing is removed' in the dialog");
-  await rd.getByRole("button", { name: "Cancel" }).click();
+  check((await rd.getByRole("button", { name: "Cancel" }).count()) === 0, `${tag} S2 close`, "with nothing to remove the dialog offers Close, not Cancel", "a Cancel button is there");
+  await rd.getByRole("button", { name: "Close" }).click();
   // Lowering the default to 50 with a 60-article feed present: the dialog counts the 10 that would go.
   const added = await t.addLocalFeed(page, feedUrl, FEED_TITLE, (items) => items.length >= 50); // one page is at most 50 articles
   // The 50 seen are one page of the 60 stored in the same fetch; wait for the feed to count all 60.

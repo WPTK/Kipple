@@ -418,6 +418,15 @@ export function installChecks() {
         if (ds.boxShadow && ds.boxShadow !== "none") shadowEl ??= ds;
       }
     const bg = K.bg(el.parentElement ?? el).color;
+    // A ring drawn with a band of the page color on its sides (the kp-ring utilities) touches that band, not the parent's background.
+    // The band counts only when it is crisp (no blur) and reaches across the whole outline: an inset shadow covers the
+    // distances from the edge inward, an outer one from the edge outward, and a zero spread paints nothing.
+    const band = ringOf(cs) && /^(rgba?\([^)]*\))\s+0px 0px 0px ([\d.]+)px( inset)?$/.exec(cs.boxShadow);
+    const reach = band ? (band[3] ? -parseFloat(band[2]) : parseFloat(band[2])) : 0;
+    const off = parseFloat(cs.outlineOffset) || 0;
+    const covers = band && parseFloat(band[2]) > 0 && (band[3] ? reach < off && off + ring.width <= 0 : off >= 0 && off + ring.width <= reach);
+    // An inset band is painted over the control's own background, an outer one over the parent's.
+    const near = (covers && K.painted(band[1], el, band[3] ? K.bg(el).color : bg)) || bg;
     const r = el.getBoundingClientRect();
     const pts = [
       [r.x + r.width / 2, r.y + r.height / 2],
@@ -446,7 +455,7 @@ export function installChecks() {
     return {
       ...K.desc(el),
       docY,
-      ring: ring ? { ...ring, ratio: K.ratio(K.painted(ring.color, el, bg) ?? bg, bg) } : null,
+      ring: ring ? { ...ring, ratio: K.ratio(K.painted(ring.color, el, near) ?? near, near) } : null,
       shadow: fine(cs) || fine(before) || (shadowEl && fine(shadowEl)) || null,
       bgRatio: K.ratio(K.painted(cs.backgroundColor, el, bg) ?? bg, bg),
       obscured: covered === pts.length ? "full" : covered ? "partial" : "none",
