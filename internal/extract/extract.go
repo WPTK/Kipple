@@ -222,6 +222,9 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 	return readable(body, u.String(), resp.Request.URL)
 }
 
+// cleanArticle is what the extracted article goes through; a test replaces it to see what it is given.
+var cleanArticle = sanitize.Content
+
 // readable turns an HTML page into the reading view. It is the part of Extract that handles untrusted markup, split
 // out so it can be fuzzed without a server. pageURL is the article address from the feed item, final where redirects ended.
 func readable(body io.Reader, pageURL string, final *url.URL) (Result, error) {
@@ -250,7 +253,7 @@ func readable(body io.Reader, pageURL string, final *url.URL) (Result, error) {
 	// The same pipeline as feed content: absolutize against the article URL
 	// (the item link first, then where redirects ended), then the feed policy.
 	article, _ := sanitize.CutHTML(buf.String(), sanitize.MaxItemHTMLBytes)
-	htmlOut, text := sanitize.Content(article, pageURL, final.String())
+	htmlOut, text := cleanArticle(article, pageURL, final.String())
 	wc := sanitize.WordCount(text)
 	if wc == 0 {
 		return Result{}, fail("no readable content found")

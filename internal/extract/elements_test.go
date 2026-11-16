@@ -36,13 +36,24 @@ func TestPageWithTooManyElementsBuildsNoTree(t *testing.T) {
 	require.NotEmpty(t, res.Text)
 }
 
-// An article longer than the bound handed to the cleaner is cut between tags.
+// An article longer than the bound handed to the cleaner is cut between tags: the cleaner is given at most the bound,
+// whatever it returns.
 func TestExtractedArticleIsCutBeforeTheCleaner(t *testing.T) {
 	u, err := url.Parse("https://example.com/a")
 	require.NoError(t, err)
 	body := strings.Repeat("<p>"+para+"</p>", sanitize.MaxItemHTMLBytes/len("<p>"+para+"</p>")*2)
+
+	given := -1
+	orig := cleanArticle
+	cleanArticle = func(html string, bases ...string) (string, string) {
+		given = len(html)
+		return orig(html, bases...)
+	}
+	t.Cleanup(func() { cleanArticle = orig })
+
 	res, err := readable(strings.NewReader(article(body)), u.String(), u)
 	require.NoError(t, err)
+	require.LessOrEqual(t, given, sanitize.MaxItemHTMLBytes)
+	require.Greater(t, given, sanitize.MaxItemHTMLBytes/2) // cut, not dropped
 	require.LessOrEqual(t, len(res.HTML), sanitize.MaxItemHTMLBytes)
-	require.Greater(t, len(res.HTML), sanitize.MaxItemHTMLBytes/2) // cut, not dropped
 }
