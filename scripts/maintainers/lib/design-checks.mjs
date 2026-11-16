@@ -419,7 +419,7 @@ export function installChecks() {
       }
     const bg = K.bg(el.parentElement ?? el).color;
     // A ring drawn with a band of the page color on its sides (the kp-ring utilities) touches that band, not the parent's background.
-    const band = /^(rgba?\([^)]*\))\s+0px 0px (?:0px )?\d/.exec(cs.boxShadow);
+    const band = /^(rgba?\([^)]*\))\s+0px 0px 0px (?!0px)\d/.exec(cs.boxShadow); // a spread above zero: a zero-spread shadow paints nothing
     const near = (band && K.painted(band[1], el, bg)) || bg;
     const r = el.getBoundingClientRect();
     const pts = [

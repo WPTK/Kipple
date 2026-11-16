@@ -144,5 +144,7 @@ describe("sources that jsdom cannot lay out", () => {
     expect(rule?.[2]).toMatch(/overflow-wrap:\s*anywhere/);
     // Tables keep break-word: anywhere would shrink their cells letter by letter.
     expect(rule?.[1]).not.toMatch(/\btable\b|\btd\b/);
+    // A table nested in one of those blocks does not inherit it.
+    expect(css).toMatch(/\.article-body table\s*\{[^}]*overflow-wrap:\s*break-word/);
   });
 });

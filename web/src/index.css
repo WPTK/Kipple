@@ -386,6 +386,8 @@ a.sr-only-live:focus {
 /* A long unbroken word (a compound word, a hashtag) in running text breaks at the column's edge, which break-word does
    not do when the box's own minimum width is what is measured. Tables keep break-word, as above. */
 .article-body > :is(p, ul, ol, blockquote, figure, h1, h2, h3, h4, h5, h6) { overflow-wrap: anywhere; }
+/* A table inside one of those blocks (a figure, a quote, a list item) goes back to break-word. */
+.article-body table { overflow-wrap: break-word; }
 
 .article-body > * + * { margin-block-start: 0; }
 .article-body p { text-wrap: pretty; }
