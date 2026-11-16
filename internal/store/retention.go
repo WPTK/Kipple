@@ -458,6 +458,12 @@ func capFetchLog(ctx context.Context, tx *sql.Tx, feedID, now int64) error {
 // of the last row of the unbroken run of rows started before cutoff, and how
 // many rows it read: one more than the rows in that run. 0 means the oldest row
 // is still inside the limit.
+//
+// The walk stops at the first row inside the limit. A row behind it with an older
+// started_at (the clock was stepped back between two fetches) is not deleted until
+// the rows in front of it pass the limit too: it stays at most as long as the
+// step, then goes with them. Deleting every row past the limit wherever it sits
+// would need the whole history read again.
 func expiredFetchLogBound(ctx context.Context, tx *sql.Tx, feedID, cutoff int64) (last int64, read int, err error) {
 	rows, err := tx.QueryContext(ctx, `SELECT id, started_at FROM fetch_log WHERE feed_id = ?1 ORDER BY id`, feedID)
 	if err != nil {

@@ -80,4 +80,8 @@ func TestCapFetchLogKeepsTheFloor(t *testing.T) {
 		return capFetchLog(ctx, tx, id, now)
 	}))
 	require.Equal(t, 50, e.count("SELECT count(*) FROM fetch_log WHERE feed_id = ?", id))
+	// The 50 that stay are the newest ones (rows 30 to 79 of the 80 written), not the oldest.
+	base := now - 60*86400
+	require.Equal(t, base+30, scalar[int64](t, e.db.Reader(), "SELECT min(started_at) FROM fetch_log WHERE feed_id = ?", id))
+	require.Equal(t, base+79, scalar[int64](t, e.db.Reader(), "SELECT max(started_at) FROM fetch_log WHERE feed_id = ?", id))
 }
