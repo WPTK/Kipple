@@ -110,7 +110,11 @@ func TestIncludeContentRankContinuationSurvivesAnItemLeaving(t *testing.T) {
 	big := strings.Repeat("x", 3<<20)
 	var ids []string
 	for i := range 5 {
-		ids = append(ids, sid(h.addItem(f, seedItem{Title: fmt.Sprintf("needle %d", i), Text: big, SortAt: int64(1000 - i)})))
+		id := h.addItem(f, seedItem{Title: fmt.Sprintf("needle %d", i), Text: big, SortAt: int64(1000 - i)})
+		// The article's HTML stays large (that is what cuts the page); its indexed text is small, so the
+		// search stays well inside its time budget on a loaded machine.
+		h.exec("UPDATE item_content SET content_text = 'body' WHERE item_id = ?", id)
+		ids = append(ids, sid(id))
 	}
 	fired := false
 	clock := h.srv.now
