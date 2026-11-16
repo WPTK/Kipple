@@ -190,7 +190,9 @@ try {
         await open();
         const stops = await page.locator('section[data-section] article[data-item-id] a:not([tabindex="-1"])').count();
         check(stops === 1, `${tag} K5 tab stop`, "the page has one Tab stop", `${stops} article links are in the Tab order`);
-        const drawn = await page.locator("[data-digest] article[data-item-id], [data-digest] [data-stop-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId ?? e.dataset.stopId));
+        const everything = await page.locator("[data-digest] article[data-item-id], [data-digest] [data-stop-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId ?? e.dataset.stopId));
+        // A fresh page starts on its first story, the one Tab stop; the heading's Mark section read button is drawn before it.
+        const drawn = everything.slice(everything.findIndex((d) => !String(d).startsWith("stop:")));
         const focusId = () => page.evaluate(() => document.activeElement?.closest("[data-item-id],[data-stop-id]")?.getAttribute("data-item-id") ?? document.activeElement?.closest("[data-stop-id]")?.getAttribute("data-stop-id") ?? null);
         // After an arrow key, focus has landed on another row; if it never does, the check that follows reports what it found.
         const focusLeft = (id) => expect.poll(async () => { const now = await focusId(); return now !== null && now !== id; }, { timeout: 3000, intervals: [50] }).toBe(true).catch(() => {});
