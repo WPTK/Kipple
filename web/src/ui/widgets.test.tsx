@@ -8,7 +8,7 @@ import { Switch } from "./kit";
 import { columnNeeds, maxFor } from "@/lib/useWidth";
 import { WIDE_QUERY } from "@/lib/useMedia";
 import { ResizeHandle, dragWidth, keyWidth } from "./ResizeHandle";
-import { UnreadCount, badgeKind, badgeText, countText, unreadName } from "./UnreadCount";
+import { MutedCount, UnreadCount, badgeKind, badgeText, countText, unreadName } from "./UnreadCount";
 
 beforeEach(() => {
   localStorage.clear();
@@ -173,7 +173,7 @@ describe("Unread badge", () => {
   });
 
   it("shows a row's count as the number up to 999 and thousands as 1.2k, cut down never up", () => {
-    expect([7, 99, 100, 999, 1000, 1234, 1999, 9999, 10_000, 12_345, 999_999, 1_000_000, 3_428_000].map(countText)).toEqual(["7", "99", "100", "999", "1k", "1.2k", "1.9k", "9.9k", "10k", "12k", "999k", "1m", "3m"]);
+    expect([7, 99, 100, 999, 1000, 1234, 1999, 9999, 10_000, 12_345, 999_999, 1_000_000, 1_234_567, 9_999_999, 12_345_678].map(countText)).toEqual(["7", "99", "100", "999", "1k", "1.2k", "1.9k", "9.9k", "10k", "12k", "999k", "1m", "1.2m", "9.9m", "12m"]);
   });
 
   it("draws a row's badge with the exact number for a screen reader, and the tab bar's capped", () => {
@@ -184,6 +184,11 @@ describe("Unread badge", () => {
     rerender(<UnreadCount n={4321} cap />);
     expect(screen.getByTestId("unread-count")).toHaveTextContent("99+");
     expect(screen.getByTestId("unread-count")).not.toHaveTextContent("4,321");
+  });
+
+  it("keeps the muted count at 99+", () => {
+    render(<MutedCount n={1234} />);
+    expect(screen.getByTestId("muted-count")).toHaveTextContent("99+");
   });
 
   it("names a row by its visible text first, then the unread state", () => {

@@ -31,6 +31,11 @@ describe("feedMatch", () => {
     expect([...feedMatch(tree, feeds, "gadget")!]).toEqual(["12"]);
   });
 
+  it("matches a folder by its own name, not by two names run together", () => {
+    // "Tech Gadgets" is how a path reads; no folder is named that, so it matches nothing.
+    expect(feedMatch(tree, feeds, "tech gadgets")!.size).toBe(0);
+  });
+
   it("keeps nothing when nothing matches", () => {
     expect(feedMatch(tree, feeds, "zzz")!.size).toBe(0);
   });

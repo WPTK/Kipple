@@ -1,5 +1,5 @@
 import type { Feed } from "@/api/types";
-import { folderPath, subtreeOf, type FolderTree } from "./folderTree";
+import { subtreeOf, type FolderTree } from "./folderTree";
 
 /** A library with more feeds than this offers "Find a feed": below it the whole list fits on a screen or two. */
 export const FIND_MIN_FEEDS = 12;
@@ -23,7 +23,7 @@ export function feedMatch(tree: FolderTree, feeds: readonly Feed[], query: strin
   const wholeFolders = new Set<string>();
   for (const id of tree.preorder) {
     const folder = tree.byId.get(id);
-    if (folder && (folder.name.toLowerCase().includes(needle) || folderPath(tree, id).toLowerCase().includes(needle))) {
+    if (folder?.name.toLowerCase().includes(needle)) {
       for (const inside of subtreeOf(tree, id)) wholeFolders.add(inside);
     }
   }

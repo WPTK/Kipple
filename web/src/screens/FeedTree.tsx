@@ -121,9 +121,9 @@ function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void, revea
         } else if (expanded === "true" && Number(list[at + 1]?.getAttribute("aria-level")) === level + 1) to = list[at + 1];
         break;
       case "ArrowLeft":
-        if (expanded === "true" && folder) {
-          if (!locked) updateDevicePrefs({ collapsedFolders: toggleCollapsed(collapsedIds, folder) });
-        } else to =list.slice(0, at).findLast((x) => Number(x.getAttribute("aria-level")) === level - 1);
+        // A folder held open by a search cannot collapse, so Left goes up to its parent as it does from a feed.
+        if (expanded === "true" && folder && !locked) updateDevicePrefs({ collapsedFolders: toggleCollapsed(collapsedIds, folder) });
+        else to = list.slice(0, at).findLast((x) => Number(x.getAttribute("aria-level")) === level - 1);
         break;
       case "Enter":
       case " ": {

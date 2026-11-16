@@ -117,6 +117,30 @@ describe("Find a feed on the Feeds screen", () => {
     expect(rows(main).some((r) => r?.startsWith("Byte"))).toBe(false); // the folder is collapsed again
   });
 
+  it("counts and words what Unread only leaves of the matches", async () => {
+    go("/feeds", library.map((f, i) => (i === 0 ? { ...f, unread: 3 } : f)));
+    const main = await screen.findByRole("main");
+    const user = userEvent.setup();
+    const box = await within(main).findByRole("searchbox", { name: "Find a feed" });
+    await user.click(within(main).getByRole("button", { name: "Feed actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Show only unread feeds" }));
+    await user.type(box, "wire");
+    expect(within(main).getByText("Showing 1 of 20 feeds")).toBeInTheDocument();
+    await user.clear(box);
+    await user.type(box, "byte");
+    expect(within(main).getByText("No unread feeds match.")).toBeInTheDocument();
+  });
+
+  it("does not offer Collapse all folders while a search holds every folder open", async () => {
+    go("/feeds");
+    const main = await screen.findByRole("main");
+    const user = userEvent.setup();
+    await user.type(await within(main).findByRole("searchbox", { name: "Find a feed" }), "byte");
+    await user.click(within(main).getByRole("button", { name: "Feed actions" }));
+    await screen.findByRole("menuitem", { name: "Select feeds" });
+    expect(screen.queryByRole("menuitem", { name: "Collapse all folders" })).toBeNull();
+  });
+
   it("does not ask the server again for each keystroke", async () => {
     const calls = { current: 0 };
     const many = Array.from({ length: 500 }, (_, i) => feed(i + 1, `Feed number ${i}`, i % 2 ? "2" : "3"));

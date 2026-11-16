@@ -270,6 +270,8 @@ export function FeedsScreen() {
     for (const f of realFeeds) if ((!filtering || f.unread > 0) && (!match || match.has(f.id))) (m[f.folder_id] ??= []).push(f);
     return m;
   }, [folders, realFeeds, filtering, match]);
+  // How many feeds the name search leaves on screen once Unread only has had its say: the count it announces.
+  const shownFeeds = match ? Object.values(byFolder).reduce((n, list) => n + list.length, 0) : realFeeds.length;
   // The folders that hold a feed, whatever the filters keep: what collapse all acts on.
   const folderIds = useMemo(() => {
     const own = new Map<string, string[]>();
@@ -797,7 +799,7 @@ export function FeedsScreen() {
               <DropdownMenu.Separator className="my-1 h-px bg-line" />
             </>
           ) : null}
-          {folderIds.length > 1 && !editMode ? (
+          {folderIds.length > 1 && !editMode && !match ? (
             <DropdownMenu.Item
               onSelect={() => {
                 const open = allCollapsed(folderIds, dp.collapsedFolders);
@@ -909,7 +911,7 @@ export function FeedsScreen() {
         {/* With no feeds the tree still shows the folders you made, so a new folder is never invisible. */}
         {boot.data && (realFeeds.length > 0 || folders.some((fo) => !fo.is_default)) ? (
           <>
-            {canFind ? <FeedFilter className="px-1 pb-2" value={query} onChange={setQuery} shown={match?.size ?? realFeeds.length} total={realFeeds.length} /> : null}
+            {canFind ? <FeedFilter className="px-1 pb-2" value={query} onChange={setQuery} shown={shownFeeds} total={realFeeds.length} /> : null}
             {selecting || match ? null : (
               <ul className="mb-2 flex flex-col gap-1">
                 <li>
@@ -935,7 +937,7 @@ export function FeedsScreen() {
             ) : null}
             {selecting || match ? null : <SavedSearchesNav />}
             {match && topLevel.length === 0 ? (
-              <p className="px-3 py-6 text-center text-sm text-fg2">No feeds match.</p>
+              <p className="px-3 py-6 text-center text-sm text-fg2">{filtering && match.size > 0 ? "No unread feeds match." : "No feeds match."}</p>
             ) : filtering && topLevel.length === 0 ? (
               <div className="px-3 py-6 text-center">
                 <p className="text-sm text-fg2">Every feed is read.</p>

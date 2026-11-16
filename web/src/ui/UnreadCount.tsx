@@ -6,13 +6,14 @@ import { cn } from "@/lib/cn";
 export const badgeText = (n: number): string => (n > 99 ? "99+" : String(n));
 
 /**
- * The count on a row's badge: the number up to 999, then thousands as "1.2k", "12k" and "1m" (cut down, never rounded up,
+ * The count on a row's badge: the number up to 999, then thousands as "1.2k", "12k", "1.2m" and "12m" (cut down, never rounded up,
  * so a badge never says more than there is). A feed or a folder with a thousand unread articles still shows when it moves.
  */
 export function countText(n: number): string {
   if (n < 1000) return String(n);
   if (n < 10_000) return `${Math.floor(n / 100) / 10}k`;
   if (n < 1_000_000) return `${Math.floor(n / 1000)}k`;
+  if (n < 10_000_000) return `${Math.floor(n / 100_000) / 10}m`;
   return `${Math.floor(n / 1_000_000)}m`;
 }
 
@@ -91,11 +92,11 @@ export function UnreadCount({ n, tone = "quiet", className, noun = "unread", cap
   );
 }
 
-/** A plain count of articles (muted): not an unread badge, so the "Unread badge" setting does not hide it. */
+/** A plain count of articles (muted): not an unread badge, so the "Unread badge" setting does not hide it. It stops at 99+ as it always has. */
 function PlainCount({ n, noun, testid, className }: { n: number; noun: string; testid: string; className?: string }) {
   if (n <= 0) return null;
   return (
-    <CountBadge n={n} testid={testid} className={className} before={<span className="sr-only-live">{noun} </span>} />
+    <CountBadge n={n} testid={testid} className={className} cap before={<span className="sr-only-live">{noun} </span>} />
   );
 }
 
