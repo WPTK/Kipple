@@ -614,6 +614,18 @@ describe("first-run peek", () => {
     await waitFor(() => expect(devicePrefsStore.get().peekSeen).toBe(true)); // reduced motion: no animation, the caption alone teaches it
   });
 
+  it("a layout change to a page layout during the tip clears it without marking it seen", async () => {
+    routes();
+    media(COARSE);
+    updateDevicePrefs({ peekSeen: false });
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    await screen.findByText(/Swipe a row right/);
+    act(() => updateDevicePrefs({ layout: "gazette" }));
+    await waitFor(() => expect(screen.queryByText(/Swipe a row right/)).toBeNull());
+    expect(devicePrefsStore.get().peekSeen).toBe(false);
+  });
+
   it("does not run on a mouse device", async () => {
     routes();
     updateDevicePrefs({ peekSeen: false });

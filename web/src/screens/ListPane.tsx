@@ -1174,6 +1174,13 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     const h = setTimeout(() => setCaption(false), 4000);
     return () => clearTimeout(h);
   }, [caption, peekOn]);
+  useEffect(() => {
+    // The layout changed under a running tip (several columns, or a page layout): its rows never swipe now, so
+    // nothing would end the tip. Clear it without marking it seen, so it can still show later.
+    if (!(cols > 1 || Page)) return;
+    setPeekOn(false);
+    setCaption(false);
+  }, [cols, Page]);
   const endPeek = useCallback(() => {
     setPeekOn(false);
     updateDevicePrefs({ peekSeen: true });

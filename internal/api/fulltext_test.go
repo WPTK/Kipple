@@ -289,7 +289,7 @@ func TestFulltextAllSwitchOnDemandAndDetail(t *testing.T) {
 	f0 := boot["feeds"].([]any)[0].(map[string]any)
 	require.Equal(t, sid(feed), f0["id"])
 	require.Equal(t, false, f0["fulltext"])
-	require.Equal(t, true, f0["fulltext_effective"])
+	require.NotContains(t, f0, "fulltext_effective")
 
 	// Item forced off wins.
 	h.exec("UPDATE items SET fulltext_mode = 0 WHERE id = ?", id)

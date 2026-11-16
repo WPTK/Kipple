@@ -45,7 +45,7 @@ type retroItem struct {
 	categories                    []string
 }
 
-func (it retroItem) engine() filter.Item {
+func (it *retroItem) engine() filter.Item {
 	return filter.Item{FeedID: it.feedID, FolderIDs: it.folders, FeedTitle: it.feedTitle, Title: it.title,
 		Author: it.author, URL: it.url, Content: it.content, Categories: it.categories}
 }
@@ -255,7 +255,7 @@ const (
 // retroEffect says what applying r would change on it. A match counts only when its action takes
 // effect: a mute never touches a starred item (or one a star rule would star) and mark_read only
 // helps an unread one.
-func retroEffect(set *filter.Set, r filter.Rule, it retroItem) retroKind {
+func retroEffect(set *filter.Set, r *filter.Rule, it *retroItem) retroKind {
 	res := set.Evaluate(it.engine())
 	hit := slices.Contains(res.Matched, r.ID)
 	if !hit {
@@ -303,14 +303,15 @@ func (d *DB) PreviewFilter(ctx context.Context, f Filter, includeRead bool, budg
 	var out PreviewResult
 	deadline := time.Now().Add(budget)
 	truncated, err := d.retroScan(ctx, r, rc, includeRead, deadline, func(page []retroItem) error {
-		for _, it := range page {
+		for i := range page {
+			it := &page[i]
 			// Every item: one item can cost up to filter.MaxRegexCost's worst case, so a check every few
 			// dozen items could overrun the budget by seconds.
 			if time.Now().After(deadline) {
 				return errRetroBudget
 			}
 			out.Scanned++
-			if retroEffect(set, r, it) != effNone {
+			if retroEffect(set, &r, it) != effNone {
 				out.Matches++
 				if len(out.SampleIDs) < PreviewSample {
 					out.SampleIDs = append(out.SampleIDs, it.id)
@@ -390,13 +391,14 @@ func (d *DB) ApplyFilter(ctx context.Context, id int64, includeRead bool, total 
 	var out ApplyResult
 	_, err = d.retroScan(ctx, r, rc, includeRead, time.Time{}, func(page []retroItem) error {
 		var ids []int64
-		for _, it := range page {
+		for i := range page {
+			it := &page[i]
 			// A cancel (edit, delete, shutdown) or the caller's deadline is noticed at the next item,
 			// not after a whole page of evaluations.
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if retroEffect(set, r, it) != effNone {
+			if retroEffect(set, &r, it) != effNone {
 				ids = append(ids, it.id)
 			}
 		}
@@ -578,7 +580,7 @@ func muteSource(ctx context.Context, tx *sql.Tx, all []Filter, f Filter, sourceI
 		return SourceNoMatch, nil, nil
 	case it.muted:
 		return SourceAlreadyMuted, nil, nil
-	case retroEffect(set, r, it) != effMute:
+	case retroEffect(set, &r, &it) != effMute:
 		return SourceStarFilter, nil, nil
 	}
 	js, err := idsJSON([]int64{sourceID})

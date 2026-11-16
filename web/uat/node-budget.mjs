@@ -13,6 +13,10 @@
 //       empty page (N3), and the check itself is shown to fail on a budget of 1 node (N4);
 //   N2  the Gazette prints every loaded article, so it is held to its own ceiling of 20 nodes per article (it measures
 //       about 15), which still catches a page growing heavier.
+// Not measured here: the feed axis. The counts are taken with the seed's small library. The sidebar and the Feeds
+// screen draw up to 300 rows before "Show more" (src/lib/reveal.tsx), and the Feed index and Feed health draw one block
+// or row per feed, so a library of a few hundred feeds is over 1,400 nodes before the list is counted. Nor is a list
+// scrolled, loaded a page at a time, searched, or shown beside an open article.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
 import { start, waitForPageStill } from "./common.mjs";
