@@ -22,8 +22,8 @@ institutional memory).
 
 ## 3. Management
 
-One person directs and signs off (the owner); one agent implements, reviews and tests (Claude), following a
-documented model policy — Sonnet for routine implementation, Opus for review/judging/ambiguous root-causing. Concurrency rule: one writer on the Kipple repo/the Kipple server
+One person directs and signs off (the owner); one agent implements, reviews and tests, following a
+documented policy: routine implementation is kept apart from review, judging and the root-causing of ambiguous faults. Concurrency rule: one writer on the Kipple repo/the Kipple server
 instance at a time, to avoid half-applied changes. Deploys, Cloudflare changes, and go/no-go decisions are
 reserved to the owner; routine build decisions are not (current phase 5 preference — minimal owner
 involvement).
@@ -47,7 +47,7 @@ for a newcomer (gap 3 below, since closed).
 
 ## 6. Reviews and audits
 
-`/code-review high` before every deploy (medium for routine bot/script-equivalent work). A full multi-agent code audit + changelog review ran for phase 5 (PR #26,
+A whole-diff review before every deploy (a lighter review for routine bot/script-equivalent work). A full multi-agent code audit + changelog review ran for phase 5 (PR #26,
 `kipple-history/audits/phase5-code-audit-2026-09-27.md`), following the same pattern as the 2026-09-26 audit
 round. Standing rule: fix everything a review finds, no silent "not fixing" list.
 
