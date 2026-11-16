@@ -134,7 +134,9 @@ try {
       await t.shot(page, `${tag}-new`);
 
       // C4: the arrow keys follow the drawn order.
-      const drawn = await page.locator("[data-digest] article[data-item-id], [data-digest] [data-stop-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId ?? e.dataset.stopId));
+      const everything = await page.locator("[data-digest] article[data-item-id], [data-digest] [data-stop-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId ?? e.dataset.stopId));
+      // A fresh page starts on its first story, the one Tab stop; the heading's Mark section read button is drawn before it.
+      const drawn = everything.slice(everything.findIndex((d) => !String(d).startsWith("stop:")));
       const focusId = () => page.evaluate(() => document.activeElement?.closest("[data-item-id],[data-stop-id]")?.getAttribute("data-item-id") ?? document.activeElement?.closest("[data-stop-id]")?.getAttribute("data-stop-id") ?? null);
       await page.locator("[data-digest] article[data-item-id] a").first().focus();
       const visited = [await focusId()];

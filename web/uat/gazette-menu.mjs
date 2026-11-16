@@ -15,6 +15,7 @@
 //   M4  phone: the More button is not seen, but is in the accessibility tree; a long press on a story opens the menu
 //       (and not the article), and Star stars it;
 //   M5  phone: a tap still opens the story;
+//   M6  a Star is drawn on every story on touch (seen, named for the story, at least 44 px square) and on none with a mouse;
 //   and after every action of the menu, every story is exactly where it was (the page does not move).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
@@ -103,6 +104,8 @@ try {
           await storyOf(first).hover();
           const hovered = await more.evaluate((e) => getComputedStyle(e).opacity);
           check(rest === "0" && hovered === "1", `${tag} M1`, "the More button shows on hover only", `opacity ${rest} at rest, ${hovered} on hover`);
+          const stars = await page.locator("[data-gazette] article[data-item-id]").getByRole("button", { name: /^Star: / }).count();
+          check(stars === 0, `${tag} M6 star`, "a mouse draws no Star on the stories", `${stars} Star button(s)`);
           await more.click();
           await checkMenu(`${tag} M2 menu`);
           await t.shot(page, `${tag}-gazette-menu`);
@@ -119,6 +122,15 @@ try {
           const more = storyOf(first).getByRole("button", { name: /^More actions/ });
           const seen = await more.evaluate((e) => ({ opacity: getComputedStyle(e).opacity, events: getComputedStyle(e).pointerEvents }));
           check(seen.opacity === "0" && seen.events === "none", `${tag} M4 button`, "the More button is not seen or tapped on touch, and is in the accessibility tree", `opacity ${seen.opacity}, pointer-events ${seen.events}`);
+          const stars = await page.locator("[data-gazette] article[data-item-id]").evaluateAll((els) =>
+            els.map((e) => {
+              const b = [...e.querySelectorAll("button")].find((x) => (x.getAttribute("aria-label") ?? "").startsWith("Star: "));
+              const r = b?.getBoundingClientRect();
+              return b ? { opacity: getComputedStyle(b).opacity, w: r.width, h: r.height } : null;
+            }),
+          );
+          const small = stars.filter((x) => !x || x.opacity !== "1" || x.w < 44 || x.h < 44);
+          check(stars.length === COUNT && small.length === 0, `${tag} M6 star`, "every story has a seen Star of at least 44 px", `${stars.length} stories, ${small.length} without one that size: ${JSON.stringify(small.slice(0, 2))}`);
           // A touch lands on whatever is at the point, so the story must be on screen.
           await storyOf(first).getByRole("link").scrollIntoViewIfNeeded();
           const box = await waitForStillFor(page, 200, () => storyOf(first).getByRole("link").boundingBox(), { label: "the story link to stop moving" });

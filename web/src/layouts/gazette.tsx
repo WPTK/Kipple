@@ -5,12 +5,13 @@ import { useBootstrap } from "@/api/queries";
 import type { Card } from "@/api/types";
 import { cn } from "@/lib/cn";
 import { useDevicePrefs } from "@/lib/devicePrefs";
+import { useFingerOnly } from "@/lib/useMedia";
 import { useFavorites } from "@/lib/favorites";
 import { articleTo } from "@/lib/routes";
 import { planGazette, type Block, type GazettePlan, type PagePlan, type Slot } from "./gazettePlan";
 import { ROW_KEYSHORTCUTS } from "./rowTabStop";
 import { Bone } from "@/ui/kit";
-import { ListImage, useImageFailure, PublishedTime, RowMenu, UnreadDot, rowLinkProps, useOneFeed } from "./parts";
+import { ListImage, useImageFailure, PublishedTime, RowMenu, StarButton, UnreadDot, rowLinkProps, useOneFeed } from "./parts";
 import { RowTabStop } from "./rowTabStop";
 import type { ListLayout, PageProps, RowMenuActions } from "./types";
 
@@ -237,6 +238,7 @@ const Story = memo(function Story({ slot: planned, item, heading: H, to, onOpen,
   const press = useLongPressMenu(item.id);
   const oneFeed = useOneFeed();
   const failure = useImageFailure(item.image);
+  const fingerOnly = useFingerOnly();
   // A picture that cannot be shown takes the slot back to what it is without one: a lead without a picture is the
   // headline lead, a photo cell is an ordinary story with its standfirst.
   const slot: Slot = !failure.failed ? planned : planned.kind === "photo" ? { ...planned, kind: "story" } : { ...planned, picture: false };
@@ -287,6 +289,12 @@ const Story = memo(function Story({ slot: planned, item, heading: H, to, onOpen,
             <PublishedTime item={item} className="shrink-0" />
           </>
         )}
+        {/* Where there is no hover to reveal More, the Star is drawn on the story's last line (every story, read or not, so the page never changes shape). */}
+        {fingerOnly ? (
+          <RowTabStop.Provider value={tabStop}>
+            <StarButton item={item} onToggleStar={actions.toggleStar} className="ml-auto -mr-2 shrink-0" />
+          </RowTabStop.Provider>
+        ) : null}
       </p>
       {/* Laid over the story's corner, so the menu never takes room on the page (a story keeps its place whatever it does). */}
       <RowTabStop.Provider value={tabStop}>

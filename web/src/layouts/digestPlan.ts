@@ -24,6 +24,12 @@ export interface SectionDef extends Section {
   count: number | null;
   /** New articles a day, summed over the section's feeds; null when any of its feeds has no pace yet (the sum would count it as quiet). */
   pace: number | null;
+  /**
+   * Unread articles in the section as the feeds say now (the sidebar's number), for the heading. Unlike `count` it is not
+   * held from the page's opening, so it follows what the reader marks. Null where the feeds do not say: any view but Unread,
+   * the New page (its count is what arrived), a length filter (a count of something else) and the reading-time sections.
+   */
+  unread?: number | null;
 }
 
 /**
@@ -123,6 +129,8 @@ export interface DigestSection {
   moreCount: number | null;
   /** Cards in the whole section: exact once it has loaded, else the count the page opened with; null where it is not known. */
   total: number | null;
+  /** The section's unread articles as the feeds say now (SectionDef.unread); null where they do not say. */
+  unread: number | null;
   /** More cards can be shown or loaded for this section. */
   hasMore: boolean;
   state: SectionState;
@@ -154,7 +162,7 @@ export function layoutDigest(defs: readonly SectionDef[], opts: DigestOptions, l
     const moreCount = got && !got.more ? got.cards.length - cards.length : d.count === null ? null : Math.max(0, d.count - cards.length);
     const hasMore = got ? got.cards.length > cards.length || got.more : true;
     const total = got && !got.more ? got.cards.length : d.count;
-    sections.push({ key: d.key, title: d.title, scope: d.scope, cards, moreCount, total, hasMore, state });
+    sections.push({ key: d.key, title: d.title, scope: d.scope, cards, moreCount, total, unread: d.unread ?? null, hasMore, state });
   }
   return { sections, cards: sections.flatMap((s) => s.cards), more: sections.some((s) => s.hasMore) };
 }
