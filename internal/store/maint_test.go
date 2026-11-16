@@ -75,6 +75,25 @@ func TestRestoreHonoursRestoreDaysAndReportsOnlyInserted(t *testing.T) {
 	require.Empty(t, res.Restored)
 }
 
+// A batch starts at the cutoff and goes back in time, so the stubs that just expired are found without walking
+// every older ledger row that has no stub.
+func TestPurgeStubsTakesTheNewestExpiredFirst(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, _ := openTest(t)
+	feed := seedFeed(t, db)
+	now := int64(1_800_000_000)
+	seedLedger(t, db, feed, 1, now-150*day, now, false) // old tombstone, no stub
+	seedLedger(t, db, feed, 3, now-120*day, now, true)
+	seedLedger(t, db, feed, 2, now-95*day, now, true) // newer, with the lower id
+
+	n, err := db.PurgeStubs(ctx, now, 1)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
+	require.Equal(t, 0, scalar[int](t, db.Reader(), "SELECT count(*) FROM trimmed_content WHERE id = 2"))
+	require.Equal(t, 1, scalar[int](t, db.Reader(), "SELECT count(*) FROM trimmed_content WHERE id = 3"))
+}
+
 func TestPurgeBatchesRespectCutoffs(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

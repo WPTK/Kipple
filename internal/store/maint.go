@@ -73,8 +73,8 @@ func (d *DB) PurgeStubs(ctx context.Context, now int64, limit int) (int64, error
 		}
 		cutoff := now - int64(set.RestoreDays)*86400
 		res, err := tx.ExecContext(ctx, `DELETE FROM trimmed_content WHERE id IN (
-			SELECT c.id FROM trimmed_items t JOIN trimmed_content c ON c.id = t.id
-			WHERE t.trimmed_at < ?1 LIMIT ?2)`, cutoff, limit)
+			SELECT c.id FROM trimmed_items t CROSS JOIN trimmed_content c ON c.id = t.id
+			WHERE t.trimmed_at < ?1 ORDER BY t.trimmed_at DESC LIMIT ?2)`, cutoff, limit)
 		if err != nil {
 			return 0, err
 		}

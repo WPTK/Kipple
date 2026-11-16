@@ -59,4 +59,4 @@ triaged best-effort (see [SECURITY.md](SECURITY.md)).
 ## License
 
 By contributing you agree that your contribution is licensed under the project's license, the
-[Blue Oak Model License 1.0.0](LICENSE).
+[MIT License](LICENSE).

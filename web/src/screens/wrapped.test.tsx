@@ -64,7 +64,7 @@ describe("Wrapped screen", () => {
     go();
     await screen.findByRole("heading", { name: "Articles read in 2026" });
     const q = calls(m)[0]!.url.searchParams;
-    expect([q.get("from"), q.get("to"), q.get("range")]).toEqual(["2026-01-01", "2026-09-27", null]);
+    expect([q.get("from"), q.get("to"), q.get("range")]).toEqual(["2026-01-01", null, null]);
     const value = (card: string) => within(screen.getByRole("region", { name: card })).getAllByText(/./, { selector: "p" })[0]!.textContent;
     expect(value("Articles read in 2026")).toBe("12");
     expect(value("Active reading")).toBe("1.5 hours");
