@@ -406,17 +406,21 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
   const runKind = ev.type === "run.done" ? (liveStore.get().runs[String(ev.data.run_id)]?.kind ?? liveStore.get().finished[String(ev.data.run_id)]?.kind) : undefined;
   // A run.done for a run a status poll already ended finds it in `finished`: it does nothing a second time.
   const already = ev.type === "run.done" && !!liveStore.get().finished[String(ev.data.run_id)];
+  // A resync below the newest id seen means the server's ids restarted: a held `counts` event carries an id from the old
+  // numbering and cannot be told apart from a newer one, so it is forgotten.
+  if (ev.type === "resync" && id !== undefined && id > 0 && id < liveStore.get().lastId) dropHeldCounts();
   liveStore.set((s) => reduceEvent(s, ev, id));
   // The Feed index shows each feed's newest articles with their read state. Read and starred changes are patched in
   // place below (patchItems). What changes which articles a feed shows asks for the index again: a mute or an
   // un-mute, a restored article, a changed feed, a gap in the stream. A `counts` event changes no headline.
   // A request for the index that was already on its way may have been answered before the change it would show, and
-  // would replace the patch: those are asked for again. So is the index when a fetch brought in new articles.
+  // would replace the patch: those are asked for again. So is the index when a fetch brought in new articles or the
+  // retention trim removed some.
   const headlines =
     ev.type === "items.state"
       ? ev.data.muted !== undefined || (ev.data.restored?.length ?? 0) > 0 || qc.isFetching({ queryKey: keys.feedsLatest }) > 0
       : ev.type === "fetch.done"
-        ? ev.data.new_items > 0
+        ? ev.data.new_items > 0 || (ev.data.trimmed_items ?? 0) > 0
         : ev.type === "feed.changed" || ev.type === "resync";
   if (headlines) {
     // A request with nothing cached yet is shared by a later request for the same query (TanStack only replaces a

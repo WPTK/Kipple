@@ -782,6 +782,19 @@ describe("held counts are dropped when they would be wrong", () => {
     stop();
   });
 
+  it("a resync that restarts the event ids forgets the held event", async () => {
+    clock();
+    resetCountsGuard();
+    liveStore.set(initialLive);
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, boot());
+    bumpUnread(qc, "1", -1); // 5 -> 4
+    handleServerEvent(qc, counts(3), 5000);
+    handleServerEvent(qc, { type: "resync", data: {} }, 10, true);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(unread(qc)).toBe(4);
+  });
+
   it("a bootstrap that follows the held event replaces it", async () => {
     clock();
     resetCountsGuard();
@@ -813,6 +826,10 @@ describe("Feed index refresh on events", () => {
   it("refreshes it when a fetch brought in new articles, not when it found none", () => {
     expect(refreshes({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2 } })).toBe(true);
     expect(refreshes({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 0 } })).toBe(false);
+  });
+  it("refreshes it when the retention trim removed articles and none arrived", () => {
+    expect(refreshes({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 0, trimmed_items: 3 } })).toBe(true);
+    expect(refreshes({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 0, trimmed_items: 0 } })).toBe(false);
   });
   it("asks again for an index request already on its way when an article is read or starred", async () => {
     const qc = new QueryClient();
